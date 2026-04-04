@@ -1,0 +1,9 @@
+[package]
+name = "tfs-rust-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tfs-rust-common = { workspace = true }

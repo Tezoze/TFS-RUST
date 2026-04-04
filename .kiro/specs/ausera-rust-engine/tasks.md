@@ -6,39 +6,39 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
 
 ## Tasks
 
-- [ ] 0. Phase 0 — Workspace scaffold and tfs-rust-common foundation
-  - [ ] 0.1 Initialize Cargo workspace with all six member crates
+- [x] 0. Phase 0 — Workspace scaffold and tfs-rust-common foundation
+  - [x] 0.1 Initialize Cargo workspace with all six member crates
     - Create `tfs-rust/Cargo.toml` workspace root listing all six members
     - Scaffold `crates/tfs-rust-common`, `crates/tfs-rust-content`, `crates/tfs-rust-db`, `crates/tfs-rust-net`, `crates/tfs-rust-lua`, `crates/tfs-rust-core` with minimal `lib.rs` stubs
     - Create `src/main.rs` entry point that calls `tfs_rust_core::run()`
     - Add workspace-level `[dependencies]` for shared crates (tokio, tracing, thiserror, anyhow)
     - _Requirements: 1.1, 1.9_
 
-  - [ ] 0.2 Implement `tfs-rust-common`: Position, Direction, and core enums
+  - [x] 0.2 Implement `tfs-rust-common`: Position, Direction, and core enums
     - Define `Position { x: u16, y: u16, z: u8 }` with `distance_to`, `get_direction_to`, `offset`, and range-check methods matching TFS semantics
     - Define all game enums: `Direction`, `CombatType`, `ConditionType`, `SkullType`, `ZoneType`, `ReturnValue`, `ItemGroup`, `WeaponType`, `Skill`, `PlayerSex`, `WorldType`, `SpeakType`, `MagicEffect`, `ShootEffect`
     - _Requirements: 1.2, 7.8_
 
-  - [ ] 0.3 Implement `tfs-rust-common`: PropStream / PropWriteStream
+  - [x] 0.3 Implement `tfs-rust-common`: PropStream / PropWriteStream
     - Implement `PropWriteStream` with `write_u8/u16/u32/u64/string` and `finish() -> Vec<u8>`
     - Implement `PropStream<'a>` with `read_u8/u16/u32/u64/string` returning `Result<T, TfsRustError>`
     - Byte layout must be compatible with TFS 1.4.2 blob format
     - _Requirements: 1.2, 5.9, 10.5_
 
-  - [ ] 0.4 Implement `tfs-rust-common`: TfsRustError unified error type
+  - [x] 0.4 Implement `tfs-rust-common`: TfsRustError unified error type
     - Define `TfsRustError` via `thiserror` with variants: `Config`, `Database`, `Network`, `Content`, `Lua`, `Protocol`
     - _Requirements: 1.2_
 
-  - [ ]* 0.5 Write property test for PropStream round trip (Property 3)
+  - [x]* 0.5 Write property test for PropStream round trip (Property 3)
     - **Property 3: PropStream / PropWriteStream Round Trip**
     - **Validates: Requirements 20.3, 5.9, 10.5**
     - Test file: `tfs-rust-common/tests/propstream.rs`
 
-  - [ ] 0.6 Set up CI: cargo check, clippy, fmt
+  - [x] 0.6 Set up CI: cargo check, clippy, fmt
     - Add `.github/workflows/ci.yml` running `cargo check`, `cargo clippy -- -D warnings`, `cargo fmt --check`, and `cargo test` on every push
     - _Requirements: 1.9_
 
-  - [ ] 0.7 Extract golden blob test fixtures from live Australis MariaDB
+  - [x] 0.7 Extract golden blob test fixtures from live Australis MariaDB
     - Run SQL to extract 1,000+ item blobs and 500+ condition blobs from the live database: `SELECT items FROM player_items LIMIT 500` and `SELECT conditions FROM players WHERE conditions != ''`
     - Commit binary fixtures to `tfs-rust-common/tests/fixtures/blobs/`
     - Write a fixture-driven test asserting `PropStream` can deserialize all blobs without error (run this before Phase 2)

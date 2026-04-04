@@ -1,0 +1,35 @@
+[package]
+name = "tfs-rust"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "crates/tfs-rust-common",
+    "crates/tfs-rust-content",
+    "crates/tfs-rust-db",
+    "crates/tfs-rust-net",
+    "crates/tfs-rust-lua",
+    "crates/tfs-rust-core"
+]
+resolver = "2"
+
+[workspace.dependencies]
+tfs-rust-common = { path = "crates/tfs-rust-common" }
+tfs-rust-content = { path = "crates/tfs-rust-content" }
+tfs-rust-db = { path = "crates/tfs-rust-db" }
+tfs-rust-net = { path = "crates/tfs-rust-net" }
+tfs-rust-lua = { path = "crates/tfs-rust-lua" }
+tfs-rust-core = { path = "crates/tfs-rust-core" }
+
+tokio = { version = "1.37", features = ["full"] }
+tracing = "0.1"
+thiserror = "1.0"
+anyhow = "1.0"
+byteorder = "1.5"
+
+[dependencies]
+tfs-rust-core = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+

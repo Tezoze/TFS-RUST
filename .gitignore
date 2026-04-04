@@ -181,3 +181,10 @@ pip-log.txt
 ## TFS / OT
 #############
 config.lua
+
+#############
+## Rust
+#############
+/target/
+**/*.rs.bk
+Cargo.lock
