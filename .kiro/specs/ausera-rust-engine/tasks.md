@@ -98,39 +98,39 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - Ensure all tests pass, ask the user if questions arise.
 
 
-- [ ] 2. Phase 2 — tfs-rust-db: sqlx pool, player data, migrations, market
-  - [ ] 2.1 Implement `DbPool` with sqlx MariaDB connection pool
+- [x] 2. Phase 2 — tfs-rust-db: sqlx pool, player data, migrations, market
+  - [x] 2.1 Implement `DbPool` with sqlx MariaDB connection pool
     - Wrap `sqlx::MySqlPool` with configurable min/max connections; implement retry policy: up to 3 retries with exponential backoff (100ms, 200ms, 400ms) on transient errors
     - _Requirements: 5.1, 5.8_
 
-  - [ ] 2.2 Implement database migrations runner
+  - [x] 2.2 Implement database migrations runner
     - Check schema version at startup; apply pending migrations before accepting connections
     - _Requirements: 5.5_
 
-  - [ ] 2.3 Implement `player_data`: load_player and save_player
+  - [x] 2.3 Implement `player_data`: load_player and save_player
     - Load/save complete player record (stats, inventory, skills, storage, conditions, spells, vip list, guild, outfits, mounts) using TFS 1.4.2 schema
     - Use `PropWriteStream`/`PropStream` for item attribute and condition blobs
     - All queries must be sqlx prepared statements — no string-concatenated SQL
     - _Requirements: 5.2, 5.3, 5.4, 5.9_
 
-  - [ ] 2.4 Implement `player_data`: load_items and save_items
+  - [x] 2.4 Implement `player_data`: load_items and save_items
     - Serialize/deserialize item trees (inventory, depot, inbox) to/from DB blobs using `PropWriteStream`/`PropStream`
     - _Requirements: 5.3, 5.4, 5.9_
 
-  - [ ] 2.5 Implement `market` module: create, accept, cancel, browse offers
+  - [x] 2.5 Implement `market` module: create, accept, cancel, browse offers
     - Implement all market operations using async prepared statements; persist offers and restore on restart
     - _Requirements: 5.6, 17.1, 17.2, 17.3, 17.4, 17.5_
 
-  - [ ] 2.6 Implement house item serialization via MapSerialize
+  - [x] 2.6 Implement house item serialization via MapSerialize
     - Load/save house item contents and ownership using `PropStream`/`PropWriteStream` for blob serialization
     - _Requirements: 5.7_
 
-  - [ ]* 2.7 Write static analysis test for no string-concatenated SQL (Property 17)
+  - [x]* 2.7 Write static analysis test for no string-concatenated SQL (Property 17)
     - **Property 17: No String-Concatenated SQL**
     - **Validates: Requirements 5.2**
     - Test file: `tfs-rust-db/tests/sql_safety.rs` — scan source AST/text for `format!` patterns in query-executing code
 
-  - [ ] 2.8 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-db
+  - [x] 2.8 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-db
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 3. Phase 3 — tfs-rust-content: OTBM, OTB, XML loaders

@@ -1,6 +1,12 @@
 [package]
 name = "tfs-rust-db"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+async-trait = { workspace = true }
+sqlx = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tfs-rust-common = { workspace = true }
