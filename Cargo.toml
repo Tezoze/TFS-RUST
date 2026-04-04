@@ -36,6 +36,7 @@ rsa = "0.9"
 flate2 = "1.0"
 sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-rustls", "chrono"] }
 async-trait = "0.1"
+quick-xml = { version = "0.31", features = ["serialize"] }
 
 
 [dependencies]

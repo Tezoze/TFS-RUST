@@ -133,34 +133,34 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
   - [x] 2.8 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-db
     - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 3. Phase 3 — tfs-rust-content: OTBM, OTB, XML loaders
-  - [ ] 3.1 Implement `OtbLoader`: parse OTB binary item database
+- [x] 3. Phase 3 — tfs-rust-content: OTBM, OTB, XML loaders
+  - [x] 3.1 Implement `OtbLoader`: parse OTB binary item database
     - Populate `ItemDatabase` with all item type definitions from the OTB binary format
     - _Requirements: 6.2_
 
-  - [ ] 3.2 Implement `ItemDatabase`: merge OTB + items.xml
+  - [x] 3.2 Implement `ItemDatabase`: merge OTB + items.xml
     - Parse `items.xml` to load extended attributes not in OTB; merge into `HashMap<u16, ItemType>`
     - Log descriptive error with file path and offset on malformed entries; halt startup on fatal errors
     - _Requirements: 6.3, 6.8_
 
-  - [ ] 3.3 Implement `OtbmLoader`: parse OTBM binary map format
+  - [x] 3.3 Implement `OtbmLoader`: parse OTBM binary map format
     - Load all tile areas, tile items, spawns, houses, towns, and waypoints into `MapData`
     - Expose waypoints via `world.get_waypoint_by_name(name)` and towns via Town registry
     - _Requirements: 6.1, 6.6, 6.7, 6.8_
 
-  - [ ] 3.4 Implement `MonsterDatabase`: parse monsters/ XML files
+  - [x] 3.4 Implement `MonsterDatabase`: parse monsters/ XML files
     - Populate `MonsterType` registry with all monster definitions including loot tables and spell lists
     - _Requirements: 6.4, 6.8_
 
-  - [ ] 3.5 Implement `VocationDatabase`, `OutfitDatabase`, `MountDatabase`, `GroupDatabase`
+  - [x] 3.5 Implement `VocationDatabase`, `OutfitDatabase`, `MountDatabase`, `GroupDatabase`
     - Parse `vocations.xml`, `outfits.xml`, `mounts.xml`, `groups.xml` into their respective registries
     - _Requirements: 6.5_
 
-  - [ ] 3.6 Wire concurrent content loading via tokio::join!
+  - [x] 3.6 Wire concurrent content loading via tokio::join!
     - Load all independent content files concurrently; total load time must be less than sequential
     - _Requirements: 6.9_
 
-  - [ ] 3.7 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-content
+  - [x] 3.7 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-content
     - Ensure all tests pass, ask the user if questions arise.
 
 

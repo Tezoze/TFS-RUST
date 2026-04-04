@@ -1,6 +1,12 @@
 [package]
 name = "tfs-rust-content"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+tfs-rust-common = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
+thiserror = { workspace = true }
+byteorder = { workspace = true }
+quick-xml = { workspace = true }
