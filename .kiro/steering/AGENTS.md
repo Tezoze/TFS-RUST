@@ -11,7 +11,7 @@ You are porting the legacy C++ Australis server to a high-performance Rust engin
 * **Legacy Reference:** The Forgotten Server (TFS) 1.4.2 (C++).
 * **Target Engine:** Idiomatic Rust. 
 * **Key Tech:** Tokio (Async), SQLx (MariaDB), and a focus on removing the "Main Thread" bottleneck found in C++.
-* **Interests:** Maintaining compatibility with MyAAC and modern Tibia 8.6 protocols while leveraging Rust’s safety.
+* **Interests:** Maintaining compatibility with MyAAC and Tibia **10.98** protocol (OTClient) while leveraging Rust’s safety.
 
 ---
 

@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # sqlx `query!` metadata lives in `.sqlx/` (see `cargo sqlx prepare`); no DB needed in CI.
+  SQLX_OFFLINE: true
 
 jobs:
   build_and_test:

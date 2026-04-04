@@ -3,8 +3,10 @@ name = "tfs-rust-db"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.sqlx]
+migrations-dir = "migrations"
+
 [dependencies]
-async-trait = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }

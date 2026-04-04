@@ -5,5 +5,14 @@ edition = "2021"
 
 [dependencies]
 tokio = { workspace = true }
+tracing = { workspace = true }
 anyhow = { workspace = true }
 tfs-rust-common = { workspace = true }
+tfs-rust-db = { workspace = true }
+tfs-rust-content = { workspace = true }
+slotmap = { workspace = true }
+dashmap = { workspace = true }
+mlua = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.4"

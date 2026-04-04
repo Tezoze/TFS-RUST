@@ -2,7 +2,7 @@
 
 ## Overview
 
-TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server (87,826 lines) into idiomatic Rust. The design preserves 100% Tibia 8.6 protocol compatibility, 100% Lua API compatibility, and full MariaDB schema compatibility, while eliminating entire classes of C++ bugs through Rust's ownership model and type system.
+TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server (87,826 lines) into idiomatic Rust. The design preserves **Tibia 10.98** protocol compatibility (OTClient), 100% Lua API compatibility, and full MariaDB schema compatibility, while eliminating entire classes of C++ bugs through Rust's ownership model and type system.
 
 The engine is organized as a Cargo workspace of six crates with strict dependency boundaries enforced at compile time. The concurrency model separates game state mutation (single-threaded, tick-driven) from I/O (Tokio async runtime), communicating via typed `mpsc` channels.
 
@@ -28,6 +28,16 @@ The engine is organized as a Cargo workspace of six crates with strict dependenc
 
 10. **Golden Blob test fixtures**: Before Phase 2, 1,000+ real item and condition blobs are extracted from the live Australis MariaDB and committed as test fixtures. `PropStream` correctness is validated against real production data, not synthetic data.
 
+11. **EventDispatcher trait for dependency injection**: `tfs-rust-core` defines an `EventDispatcher` trait. `tfs-rust-lua` implements it. `main.rs` wires them together. This breaks the circular dependency that would otherwise exist between core and lua.
+
+12. **LuaCommand buffer for re-entrancy safety**: Lua scripts cannot hold `&mut GameWorld`. All game-state mutations requested by scripts are queued as `LuaCommand` variants during script execution and applied by the tick loop after all scripts return.
+
+13. **Userdata types store IDs, never references**: Every mlua `UserData` type stores a `CreatureId`, `ItemId`, or `Position`. Methods resolve the ID against `GameWorld` on each call. This is the mandatory pattern for all ~500 Lua API methods.
+
+14. **PendingLogin connection state**: Login spans at least one tick (DB round-trip via oneshot). The connection state machine includes a `PendingLogin` state to safely handle packets and disconnects during the login gap.
+
+15. **Hot reload only at tick boundaries**: `arc-swap` state replacement happens at the start of a tick, never mid-tick, to prevent split-brain between in-flight script calls and new event registrations.
+
 
 ---
 
@@ -41,12 +51,12 @@ tfs-rust-common  (no tfs-rust-* deps)
     ├── tfs-rust-content  (common only)
     ├── tfs-rust-db       (common only)
     ├── tfs-rust-net      (common only)
-    └── tfs-rust-core     (common + content + db + lua)
+    └── tfs-rust-core     (common + content + db)   ← lua removed
             ↑
         tfs-rust-lua      (common + core)
 ```
 
-The dependency graph is a DAG with `tfs-rust-common` at the root. `tfs-rust-core` is the integration crate that wires all subsystems together. `tfs-rust-lua` sits above `tfs-rust-core` because Lua bindings need access to game types, but the core game logic does not depend on Lua directly — it fires events through a trait interface that `tfs-rust-lua` implements.
+The dependency graph is a strict DAG with `tfs-rust-common` at the root. **`tfs-rust-core` does NOT depend on `tfs-rust-lua`** — this would create a circular dependency that Cargo rejects as a hard error. Instead, `tfs-rust-core` defines an `EventDispatcher` trait that `tfs-rust-lua` implements. The concrete `LuaEventDispatcher` is constructed in `main.rs` and injected into `GameWorld` at startup via dependency injection. Core never imports the lua crate.
 
 ### Concurrency Model
 
@@ -80,6 +90,67 @@ The dependency graph is a DAG with `tfs-rust-common` at the root. `tfs-rust-core
 ```
 
 The game thread owns `GameWorld` exclusively. No `Arc<Mutex<GameWorld>>` is needed — the channel boundary enforces the ownership transfer. Database results are returned via `oneshot` channels and processed at the start of the next tick.
+
+**EventDispatcher trait (dependency injection):**
+`tfs-rust-core` defines:
+```rust
+pub trait EventDispatcher: Send + 'static {
+    fn on_login(&self, commands: &mut Vec<LuaCommand>, player_id: CreatureId);
+    fn on_death(&self, commands: &mut Vec<LuaCommand>, victim: CreatureId, killer: Option<CreatureId>);
+    // ... all event types
+}
+```
+`tfs-rust-lua` implements `EventDispatcher` as `LuaEventDispatcher`. `main.rs` constructs it and passes it into `GameWorld::new(dispatcher)`. Core never imports lua.
+
+**Lua re-entrancy and the LuaCommand buffer:**
+mlua callbacks cannot hold `&mut GameWorld` — the borrow checker rejects it because `GameWorld` is already borrowed by the tick loop. All Lua API methods that mutate game state instead push a `LuaCommand` onto a `Vec<LuaCommand>` buffer. After all scripts for a tick complete, the tick loop drains the buffer and applies mutations. This is the mandatory pattern for every Lua API method that writes to game state:
+```rust
+pub enum LuaCommand {
+    TeleportCreature { id: CreatureId, to: Position },
+    SetHealth { id: CreatureId, hp: i32 },
+    SendMessage { id: CreatureId, msg: String },
+    // ... all mutations scripts can request
+}
+```
+
+**mlua userdata pattern (mandatory for all Lua API methods):**
+Lua userdata types MUST store a typed ID, never a reference or pointer. Every method resolves the ID against `GameWorld` at call time:
+```rust
+pub struct PlayerRef(pub CreatureId);
+
+impl mlua::UserData for PlayerRef {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("getName", |lua, this, ()| {
+            let world = lua.app_data_ref::<GameWorldHandle>().unwrap();
+            let name = world.with_player(this.0, |p| p.base.name.clone())
+                .ok_or_else(|| mlua::Error::runtime("player no longer exists"))?;
+            Ok(name)
+        });
+    }
+}
+```
+This pattern is non-negotiable. Any deviation causes borrow checker errors or use-after-free in Lua.
+
+**PendingLogin state in the connection state machine:**
+Login requires at least one full tick (DB load via oneshot channel). The connection state machine must include a `PendingLogin` state to handle packets arriving before login completes and connections dropping mid-login:
+```rust
+pub enum ConnectionState {
+    Handshake,
+    Login(ProtocolLogin),
+    PendingLogin { conn_id: ConnId, char_name: String },  // waiting for DB oneshot
+    Game(ProtocolGame),
+    Status(ProtocolStatus),
+    Closed,
+}
+```
+Packets arriving in `PendingLogin` state are queued or dropped depending on type. If the connection closes in `PendingLogin`, the game thread discards the oneshot result when it arrives.
+
+**Hot reload quiescence:**
+The `arc-swap` state replacement for hot reload MUST only occur at a tick boundary — after the current tick fully completes and before the next one starts. A swap mid-tick would leave in-flight script calls running against the old state while new event registrations resolve against the new one. The reload sequence is:
+1. Load new scripts into a fresh `LuaState` on a background thread
+2. Validate all scripts load without error
+3. At the START of the next tick (before any script calls), call `arc_swap.store(Arc::new(new_state))`
+4. Old state is dropped after the swap
 
 ### Workspace Layout
 

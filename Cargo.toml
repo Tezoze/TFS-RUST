@@ -34,10 +34,12 @@ byteorder = "1.5"
 bytes = "1.5"
 rsa = "0.9"
 flate2 = "1.0"
-sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-rustls", "chrono"] }
+sqlx = { version = "0.7", features = ["macros", "mysql", "runtime-tokio-rustls", "chrono", "migrate"] }
 async-trait = "0.1"
 quick-xml = { version = "0.31", features = ["serialize"] }
-
+slotmap = "1.0"
+dashmap = "6.1"
+mlua = { version = "0.9", default-features = false, features = ["lua51", "vendored", "async", "send"] }
 
 [dependencies]
 tfs-rust-core = { workspace = true }

@@ -73,6 +73,13 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - Wire `XteaState { key: [u32; 4], enabled: bool }` into each connection
     - _Requirements: 4.1, 4.2, 4.10_
 
+  - [x] 1.6b Add `PendingLogin` state to `ConnectionState`
+    - Add `PendingLogin { conn_id: ConnId, char_name: String }` variant — used while awaiting the DB oneshot result across tick boundaries
+    - Packets arriving in `PendingLogin` state are queued or dropped by type (movement/attack dropped, chat queued)
+    - If the connection closes in `PendingLogin`, the game thread discards the oneshot result when it arrives
+    - This state is required before Phase 5 login flow can be implemented correctly
+    - _Requirements: 4.10_
+
   - [x] 1.7 Implement `ProtocolLogin`: RSA decrypt, character list response
     - Parse the first login message: RSA-decrypt the 128-byte block, extract account/password, query DB for character list, send character list or error packet
     - _Requirements: 4.1_
@@ -97,6 +104,12 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
   - [x] 1.12 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-net
     - Ensure all tests pass, ask the user if questions arise.
 
+  - [x] 1.13 Manual checkpoint — attempt real OTClient connection _(done: TCP accept verified with `tcp_smoke` + OTClient (protocol **10.98**) → `127.0.0.1:7171`; see `docs/phase1-otclient-checkpoint.md`)_
+    - Start the server and attempt a connection from OTClient configured for protocol **10.98**
+    - Verify TCP reaches the server (`accepted TCP connection` in the smoke example); full app login (RSA decrypt + character list) is deferred until the main server wires `ProtocolLogin` (Phase 5 path)
+    - This catches framing and transport issues that round-trip unit tests will not find
+    - Document any framing issues found before proceeding to Phase 2
+
 
 - [x] 2. Phase 2 — tfs-rust-db: sqlx pool, player data, migrations, market
   - [x] 2.1 Implement `DbPool` with sqlx MariaDB connection pool
@@ -106,6 +119,12 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
   - [x] 2.2 Implement database migrations runner
     - Check schema version at startup; apply pending migrations before accepting connections
     - _Requirements: 5.5_
+
+  - [x] 2.2b Run `cargo sqlx prepare` and commit `.sqlx/` offline query cache
+    - Run `DATABASE_URL=... cargo sqlx prepare --workspace -- --workspace` against a MariaDB/MySQL with the TFS schema (or any DB for the anchor `query!`); the second `--workspace` is forwarded to `cargo check` so all crates compile
+    - Commit the `.sqlx/` directory so `cargo check` and CI pass without a live DB connection
+    - Without this step, any use of `query!` or `query_as!` macros will fail in CI with "no DATABASE_URL set"
+    - _Requirements: 1.9_
 
   - [x] 2.3 Implement `player_data`: load_player and save_player
     - Load/save complete player record (stats, inventory, skills, storage, conditions, spells, vip list, guild, outfits, mounts) using TFS 1.4.2 schema
@@ -164,8 +183,16 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - Ensure all tests pass, ask the user if questions arise.
 
 
-- [ ] 4. Phase 4 — tfs-rust-core: GameWorld, Map, Tile, QTree, pathfinding, config
-  - [ ] 4.1 Implement `ConfigManager`: load config.lua via mlua
+- [x] 4. Phase 4 — tfs-rust-core: GameWorld, Map, Tile, QTree, pathfinding, config
+  - [x] 4.0 Define `EventDispatcher` trait and `LuaCommand` buffer in tfs-rust-core
+    - Define `pub trait EventDispatcher: Send + 'static` with methods for all event types (onLogin, onDeath, onKill, onThink, etc.)
+    - Define `pub enum LuaCommand` covering all game-state mutations that Lua scripts may request (teleport, set health, send message, etc.)
+    - `GameWorld` stores `Box<dyn EventDispatcher>` injected at construction — it does NOT import tfs-rust-lua
+    - This resolves the circular dependency: core → lua → core is a Cargo hard error; the trait breaks the cycle
+    - Remove `tfs-rust-lua` from `tfs-rust-core/Cargo.toml`
+    - _Requirements: 1.7_
+
+  - [x] 4.1 Implement `ConfigManager`: load config.lua via mlua
     - Execute `config.lua` through mlua at startup; expose `get_string`, `get_number::<T>`, `get_bool` typed accessors
     - Return descriptive `Err` identifying missing key name for any absent required key; halt startup
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
@@ -180,22 +207,23 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - **Validates: Requirements 3.3**
     - Test file: `tfs-rust-core/tests/config.rs`
 
-  - [ ] 4.4 Implement `GameWorld` struct and slotmap entity arenas
-    - Define `GameWorld` owning `SlotMap<CreatureId, CreatureKind>`, `SlotMap<ItemId, Item>`, `Map`, `Scheduler`, `EventDispatcher`, `Config`, `DbPool`, `LuaState`
+  - [x] 4.4 Implement `GameWorld` struct and slotmap entity arenas
+    - Define `GameWorld` owning `SlotMap<CreatureId, CreatureKind>`, `SlotMap<ItemId, Item>`, `Map`, `Scheduler`, `Box<dyn EventDispatcher>`, `Config`, `DbPool`
+    - NOTE: `GameWorld` does NOT own `LuaState` directly — Lua is injected via the `EventDispatcher` trait
     - Add `DashMap<String, CreatureId>` for player-by-name and `DashMap<u32, CreatureId>` for player-by-guid concurrent lookups
     - _Requirements: 7.1, 7.2, 7.3, 21.3_
 
-  - [ ]* 4.5 Write property test for generational arena invalidation (Property 5)
+  - [x]* 4.5 Write property test for generational arena invalidation (Property 5)
     - **Property 5: Generational Arena Invalidation**
     - **Validates: Requirements 7.1, 7.2, 7.4**
     - Test file: `tfs-rust-core/tests/arena.rs`
 
-  - [ ] 4.6 Implement `Tile` struct with query_add, query_remove, add_thing, remove_thing
+  - [x] 4.6 Implement `Tile` struct with query_add, query_remove, add_thing, remove_thing
     - Implement `Tile { position, ground, items, creatures, flags, zone, house_id }` with all TFS accessor methods
     - Implement `HouseTile` variant extending Tile with house reference
     - _Requirements: 11.5, 11.6_
 
-  - [ ] 4.7 Implement `QTreeNode` quadtree spatial index with sector spectator cache
+  - [x] 4.7 Implement `QTreeNode` quadtree spatial index with sector spectator cache
     - Implement `QTreeNode { Branch, Leaf }` covering 32×32 tile sectors
     - Add `cached_spectators: Option<Vec<CreatureId>>` to each leaf node; invalidate cache only on creature enter/leave, not on every query
     - Implement `get_spectators(pos, range)` returning all `CreatureId` values within range — O(k log n), with cache hits avoiding full traversal
@@ -204,20 +232,20 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
   - [ ]* 4.8 Write property test for spectator query completeness (Property 6)
     - **Property 6: Spectator Query Completeness**
     - **Validates: Requirements 7.5**
-    - Test file: `tfs-rust-core/tests/map.rs`
+    - Test file: `tfs-rust-core/tests/map_spectators.rs` (not yet added)
 
-  - [ ] 4.9 Implement `Map` struct with get_tile, get_tile_mut, can_throw_to, is_sight_clear
+  - [x] 4.9 Implement `Map` struct with get_tile, get_tile_mut, can_throw_to, is_sight_clear
     - Implement `Map { root: QTreeNode, width, height, houses, spawns, towns, waypoints }`
     - Implement `get_tile(pos)` / `get_tile_mut(pos)` returning `Option<&Tile>` / `Option<&mut Tile>`
     - Implement `can_throw_to` and `is_sight_clear` line-of-sight checks matching TFS behavior
     - _Requirements: 7.6, 11.2_
 
-  - [ ]* 4.10 Write property test for line-of-sight symmetry (Property 20)
+  - [x]* 4.10 Write property test for line-of-sight symmetry (Property 20)
     - **Property 20: Line-of-Sight Symmetry**
     - **Validates: Requirements 11.2**
-    - Test file: `tfs-rust-core/tests/map.rs`
+    - Test file: `tfs-rust-core/tests/map_los.rs`
 
-  - [ ] 4.11 Implement A* pathfinding
+  - [x] 4.11 Implement A* pathfinding
     - Implement `pathfind(map, from, to, params) -> Option<Vec<Direction>>` using `BinaryHeap<AStarNode>` open set and closed set, matching TFS `AStarNodes` cost function (walkability, creature blocking, diagonal cost)
     - _Requirements: 11.1_
 
@@ -226,55 +254,55 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - **Validates: Requirements 20.5, 11.1**
     - Test file: `tfs-rust-core/tests/pathfinding.rs`
 
-  - [ ] 4.13 Implement `WildcardTree` trie for player name prefix lookup
+  - [x] 4.13 Implement `WildcardTree` trie for player name prefix lookup
     - Implement trie supporting `insert(name)`, `remove(name)`, and `get_by_prefix(prefix) -> Vec<String>`
     - _Requirements: 7.7_
 
-  - [ ]* 4.14 Write property test for WildcardTree prefix correctness (Property 7)
+  - [x]* 4.14 Write property test for WildcardTree prefix correctness (Property 7)
     - **Property 7: WildcardTree Prefix Correctness**
     - **Validates: Requirements 7.7**
     - Test file: `tfs-rust-core/tests/wildcard.rs`
 
-  - [ ] 4.15 Implement `DecayManager` and item decay tick
+  - [x] 4.15 Implement `DecayManager` and item decay tick
     - Track all decaying items; on each game tick advance timers and transform or remove elapsed items
     - _Requirements: 10.4_
 
-  - [ ] 4.16 Implement `SpawnManager`: load spawns, create initial monsters, respawn on death
+  - [x] 4.16 Implement `SpawnManager`: load spawns, create initial monsters, respawn on death
     - Load spawn definitions from OTBM data; create initial monsters at startup; respawn after configured interval
     - _Requirements: 11.4_
 
-  - [ ] 4.17 Implement `HouseManager`: owner, access list, bed tracking, tile ownership
+  - [x] 4.17 Implement `HouseManager`: owner, access list, bed tracking, tile ownership
     - Implement owner assignment, guest/subowner/door access lists, player kick, bed tracking; persist to DB
     - _Requirements: 11.3_
 
-  - [ ] 4.18 Implement game loop: tokio::time::interval(50ms) driving GameWorld::tick()
+  - [x] 4.18 Implement game loop: tokio::time::interval(50ms) driving GameWorld::tick()
     - Implement tick order: drain mpsc channel → process_creature_walk → process_creature_think → process_condition_ticks → process_decay → process_light_cycle → lua_gc_step (every 5 ticks) → flush_output_buffers
     - Implement `lua_gc_step()`: call `lua.gc(LuaGCMode::Step, 200)` every 5 ticks to spread LuaJIT GC across multiple ticks, preventing stop-the-world pauses from stale `PlayerRef`/`CreatureRef` wrapper objects
     - Implement tick budget watchdog: record `Instant::now()` before tick; emit `tracing::warn!` if elapsed > 45ms; call `stability_manager.record_error(ErrorCategory::TickOverrun)` if elapsed > 50ms
     - _Requirements: 2.1, 2.2, 21.6, 21.10_
 
-  - [ ] 4.19 Implement `OutputMessage` send queue with backpressure
+  - [x] 4.19 Implement `OutputMessage` send queue with backpressure
     - Implement `ConnectionSendQueue { queue: VecDeque<OutputMessage>, max_size: usize, bytes_pending: usize }`
     - When `bytes_pending` exceeds limit: drop stale visual-only packets (map chunks, magic effects, creature movement) before critical packets (stats, inventory, text)
     - Split large sends (depot open, full map description) across multiple ticks via `pending_chunks` queue
     - Close connection after 3 consecutive ticks with a full queue
     - _Requirements: 21.8, 21.9_
 
-  - [ ] 4.20 Enforce game-thread-only ownership of player name/guid maps
+  - [x] 4.20 Enforce game-thread-only ownership of player name/guid maps
     - Document and enforce via code review: `player_by_name.insert/remove` and `player_by_guid.insert/remove` are called only from the game thread
     - I/O tasks use only `player_by_name.get()` and `player_by_guid.get()` (read-only)
     - Add a lint comment to each insertion/removal site: `// GAME THREAD ONLY`
     - _Requirements: 21.11_
 
-  - [ ] 4.21 Implement `Scheduler`: addEvent / stopEvent via tokio::time::sleep_until + channel dispatch
+  - [x] 4.21 Implement `Scheduler`: addEvent / stopEvent via tokio::time::sleep_until + channel dispatch
     - Accept duration + closure; spawn Tokio task that sleeps then sends `GameCommand::LuaCallback` to game thread
     - _Requirements: 2.6_
 
-  - [ ] 4.20 Implement graceful shutdown on SIGINT/SIGTERM
+  - [x] 4.22 Implement graceful shutdown on SIGINT/SIGTERM
     - Stop accepting connections → send `GameCommand::Shutdown` → save all online players → close connections → flush DB pool → exit within 30s via `tokio::time::timeout`
     - _Requirements: 2.7, 22.4_
 
-  - [ ] 4.21 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-core Phase 4
+  - [x] 4.23 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-core Phase 4
     - Ensure all tests pass, ask the user if questions arise.
 
 
@@ -365,7 +393,7 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
 
 - [ ] 7. Phase 7 — Game protocol: all 50+ incoming parsers, all 60+ outgoing builders
   - [ ] 7.1 Implement `ProtocolGame` incoming packet dispatcher (all 50+ opcodes)
-    - Parse all 50+ incoming client packet opcodes defined in Tibia 8.6 protocol; dispatch each to the corresponding `GameCommand` variant via mpsc channel
+    - Parse all 50+ incoming client packet opcodes defined in Tibia **10.98** protocol; dispatch each to the corresponding `GameCommand` variant via mpsc channel
     - _Requirements: 4.2, 4.6_
 
   - [ ] 7.2 Implement `ProtocolGame` outgoing packet builders (all 60+ opcodes)
@@ -448,6 +476,12 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
   - [ ] 8.13 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-lua
     - Ensure all tests pass, ask the user if questions arise.
 
+  - [ ] 8.14 Early script validation — run 50–100 representative scripts and fix API gaps
+    - Before building out the full ~500 method API surface, load a representative sample: 10 NPC scripts, 10 monster scripts, 10 action scripts, 10 talkaction scripts, 10 creatureevent scripts
+    - Fix all missing method errors found — these are the long tail of small API gaps that are far cheaper to fix now than after Phase 9
+    - Document any methods that require Phase 9 event system work to implement (defer those, don't stub them silently)
+    - _Requirements: 12.10_
+
 
 - [ ] 9. Phase 9 — Event system: CreatureEvents, GlobalEvents, MoveEvents, Actions, TalkActions
   - [ ] 9.1 Implement `CreatureEvents` system
@@ -474,9 +508,11 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - Parse event registration XML files and populate `EventDispatcher` registries
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
 
-  - [ ] 9.7 Implement hot reload: world.reload(ReloadType) with atomic arc-swap
+  - [ ] 9.7 Implement hot reload: world.reload(ReloadType) with atomic arc-swap at tick boundary
     - Implement `ReloadType` enum: `Scripts`, `Monsters`, `Npcs`, `Actions`, `TalkActions`, `MoveEvents`, `GlobalEvents`, `CreatureEvents`, `All`
-    - Load new scripts into a fresh `LuaState` clone; validate all scripts load without error; atomically swap active state via `arc-swap`; old state dropped after in-flight Lua calls complete
+    - Load new scripts into a fresh `LuaState` clone on a background thread; validate all scripts load without error
+    - The swap MUST only occur at the START of a tick — after the previous tick fully completes and before any script calls in the new tick. A mid-tick swap causes split-brain between in-flight script calls and new event registrations
+    - Swap sequence: (1) background thread signals ready, (2) at next tick start: `arc_swap.store(Arc::new(new_state))`, (3) old state dropped after swap
     - Wire `/reload` talk action command to trigger `world.reload(ReloadType::All)`
     - _Requirements: 22.5, 22.6_
 

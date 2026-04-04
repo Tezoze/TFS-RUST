@@ -1,7 +1,7 @@
 TFS Rust [![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml "Rust build status")
 ===============
 
-TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server into idiomatic Rust. It replaces the legacy codebase with a modern asynchronous architecture while preserving 100% Tibia 8.6 protocol compatibility, 100% Lua API compatibility, and full database schema compatibility. To connect to the server, you should use a custom OTClientv8.
+TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server into idiomatic Rust. It replaces the legacy codebase with a modern asynchronous architecture while preserving **10.98** protocol compatibility (OTClient), 100% Lua API compatibility, and full database schema compatibility. To connect to the server, you should use a custom OTClientv8.
 
 ### Engine Architecture
 

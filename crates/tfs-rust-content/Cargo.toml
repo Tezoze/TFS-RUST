@@ -10,3 +10,4 @@ tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 thiserror = { workspace = true }
 byteorder = { workspace = true }
 quick-xml = { workspace = true }
+roxmltree = "0.20"

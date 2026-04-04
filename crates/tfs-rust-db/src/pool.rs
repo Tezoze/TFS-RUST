@@ -10,8 +10,10 @@ pub struct DbPool {
 }
 
 impl DbPool {
-    pub async fn connect(url: &str, max_connections: u32) -> Result<Self> {
+    pub async fn connect(url: &str, min_connections: u32, max_connections: u32) -> Result<Self> {
+        let min_connections = min_connections.min(max_connections);
         let pool = MySqlPoolOptions::new()
+            .min_connections(min_connections)
             .max_connections(max_connections)
             .connect(url)
             .await

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server (87,826 lines across ~120 files) into a modern, idiomatic Rust engine. The goal is not a line-by-line port — it is a re-architecture that preserves 100% Tibia 8.6 protocol compatibility, 100% Lua API compatibility, and full database schema compatibility, while leveraging Rust's ownership model, type safety, and async concurrency to eliminate entire classes of C++ bugs (segfaults, data races, use-after-free, SQL injection).
+TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server (87,826 lines across ~120 files) into a modern, idiomatic Rust engine. The goal is not a line-by-line port — it is a re-architecture that preserves **Tibia 10.98** protocol compatibility (OTClient), 100% Lua API compatibility, and full database schema compatibility, while leveraging Rust's ownership model, type safety, and async concurrency to eliminate entire classes of C++ bugs (segfaults, data races, use-after-free, SQL injection).
 
 The resulting engine is organized as a Cargo workspace of six crates: `tfs-rust-core`, `tfs-rust-net`, `tfs-rust-db`, `tfs-rust-lua`, `tfs-rust-content`, and `tfs-rust-common`.
 
@@ -25,8 +25,8 @@ The resulting engine is organized as a Cargo workspace of six crates: `tfs-rust-
 - **CreatureId**: A generational index (slotmap key) that uniquely identifies a live creature.
 - **ItemId**: A generational index uniquely identifying a live item instance.
 - **GameWorld**: The central game state struct owning all entities, the map, and the scheduler.
-- **ProtocolGame**: The per-connection struct handling Tibia 8.6 game protocol parsing and sending.
-- **ProtocolLogin**: The per-connection struct handling the Tibia 8.6 login protocol.
+- **ProtocolGame**: The per-connection struct handling Tibia **10.98** game protocol parsing and sending.
+- **ProtocolLogin**: The per-connection struct handling the Tibia **10.98** login protocol.
 - **NetworkMessage**: A byte-buffer abstraction for reading and writing binary protocol data.
 - **Condition**: A status effect applied to a creature (poison, haste, fire, etc.).
 - **CombatParams**: A struct describing a single combat action (type, area, callbacks, conditions).
@@ -63,7 +63,7 @@ The resulting engine is organized as a Cargo workspace of six crates: `tfs-rust-
 4. THE `tfs-rust-db` crate SHALL depend only on `tfs-rust-common` and SHALL NOT depend on `tfs-rust-core`, `tfs-rust-net`, `tfs-rust-lua`, or `tfs-rust-content`.
 5. THE `tfs-rust-net` crate SHALL depend only on `tfs-rust-common` and SHALL NOT depend on `tfs-rust-core`, `tfs-rust-db`, `tfs-rust-lua`, or `tfs-rust-content`.
 6. THE `tfs-rust-lua` crate SHALL depend on `tfs-rust-common` and `tfs-rust-core` and SHALL NOT depend on `tfs-rust-net` or `tfs-rust-db`.
-7. THE `tfs-rust-core` crate SHALL depend on `tfs-rust-common`, `tfs-rust-content`, `tfs-rust-db`, and `tfs-rust-lua`.
+7. THE `tfs-rust-core` crate SHALL depend on `tfs-rust-common`, `tfs-rust-content`, and `tfs-rust-db`. THE `tfs-rust-core` crate SHALL NOT depend on `tfs-rust-lua` — instead it SHALL define an `EventDispatcher` trait that `tfs-rust-lua` implements, with the concrete implementation injected at startup via `main.rs`.
 8. THE TFS Rust workspace SHALL compile with zero `unsafe` blocks except those required for FFI boundaries with LuaJIT and the RSA crate.
 9. WHEN `cargo build` is executed on the workspace root, THE Build System SHALL produce a single `tfs-rust` binary with no compilation errors or warnings.
 
@@ -104,13 +104,13 @@ The resulting engine is organized as a Cargo workspace of six crates: `tfs-rust-
 
 #### Acceptance Criteria
 
-1. THE ProtocolLogin SHALL implement the Tibia 8.6 login protocol, accepting connections on the configured login port, performing RSA decryption of the first message, and returning a character list or error message.
-2. THE ProtocolGame SHALL implement the Tibia 8.6 game protocol, accepting connections on the configured game port and maintaining per-connection XTEA encryption state.
+1. THE ProtocolLogin SHALL implement the Tibia **10.98** login protocol, accepting connections on the configured login port, performing RSA decryption of the first message, and returning a character list or error message.
+2. THE ProtocolGame SHALL implement the Tibia **10.98** game protocol, accepting connections on the configured game port and maintaining per-connection XTEA encryption state.
 3. THE XTEA Module SHALL encrypt and decrypt 8-byte blocks using the 128-bit session key negotiated during login, producing output byte-for-byte identical to the TFS C++ implementation.
 4. THE RSA Module SHALL decrypt the 128-byte RSA-encrypted login block using the server's private key, producing output byte-for-byte identical to the TFS C++ implementation.
 5. THE NetworkMessage SHALL support reading and writing `u8`, `u16`, `u32`, `u64`, `String` (length-prefixed), and `Position` values in little-endian byte order.
-6. THE ProtocolGame SHALL parse all 50+ incoming client packet opcodes defined in the Tibia 8.6 protocol, dispatching each to the corresponding GameWorld command.
-7. THE ProtocolGame SHALL send all 60+ outgoing server packet opcodes defined in the Tibia 8.6 protocol, producing byte sequences identical to those produced by TFS 1.4.2.
+6. THE ProtocolGame SHALL parse all 50+ incoming client packet opcodes defined in the Tibia **10.98** protocol, dispatching each to the corresponding GameWorld command.
+7. THE ProtocolGame SHALL send all 60+ outgoing server packet opcodes defined in the Tibia **10.98** protocol, producing byte sequences identical to those produced by the reference server for that protocol version.
 8. WHERE zlib compression is enabled in the server configuration, THE NetworkMessage SHALL compress outgoing packets using flate2 and decompress incoming packets using flate2.
 9. THE ProtocolStatus SHALL respond to status queries on the configured status port with a valid XML status document.
 10. WHEN a client connection is closed unexpectedly, THE Connection SHALL clean up the associated player session and release all held resources within one game tick.

@@ -1,0 +1,25 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT 1 as `ok`",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | BINARY",
+          "char_set": 63,
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "24788f3bf06e02a3411a84c7661e948bf9a1e94b379a58424657a676042704db"
+}
