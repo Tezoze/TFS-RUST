@@ -1,0 +1,13 @@
+-- Swolt (ShopBuilder)
+local npc = ShopBuilder:new("Swolt",
+	{lookType = 160, lookHead = 77, lookBody = 80, lookLegs = 79, lookFeet = 97})
+npc:addBuyable("bread", 2689, 4)
+npc:addSellable("bunch of ripe rice", 11245, 75)
+npc:addBuyable("cheese", 2696, 6)
+npc:addSellable("ectoplasmic sushi", 12637, 300)
+npc:addBuyable("ham", 2671, 8)
+npc:addBuyable("meat", 2666, 5)
+npc:addBuyable("mug of water", 2012, 1)
+npc:addBuyable("rice", 11246, 1000)
+npc:addSellable("terramite eggs", 11370, 50)
+npc:register()

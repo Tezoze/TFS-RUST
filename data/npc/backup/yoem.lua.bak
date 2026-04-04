@@ -1,0 +1,215 @@
+-- Yoem - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Yoem.xml
+-- Original Script: data/npc/scripts/Yoem.lua
+
+local npcName = "Yoem"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a yoem")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 128, lookHead = 22, lookBody = 113, lookLegs = 105, lookFeet = 113})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+local voices = { {text = 'Beds, chairs, tables, statues and everything you could imagine for decorating your home!'} }
+npcHandler:addModule(VoiceModule:new(voices))
+
+keywordHandler:addKeyword({'furniture'}, StdModule.say, {npcHandler = npcHandler, text = "I have {beds}, {chairs}, {containers}, {decoration}, {flowers}, {instruments}, {pillows}, {pottery}, {statues}, {tapestries} and {tables}. Which of those would you like to see?"})
+
+npcHandler:setMessage(MESSAGE_GREET, "Hello |PLAYERNAME|! Do you need some equipment for your house?")
+npcHandler:setMessage(MESSAGE_SENDTRADE, "Have a look. Most furniture comes in handy kits. Just use them in your house to assemble the furniture. Do you want to see only a certain {type} of furniture?")
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 2023, buy = 4, sell = 0, subType = 0, name = "amphora"},
+    {id = 6114, buy = 90, sell = 0, subType = 0, name = "armor rack kit"},
+    {id = 3919, buy = 12, sell = 0, subType = 0, name = "barrel kit"},
+    {id = 3911, buy = 30, sell = 0, subType = 0, name = "big table kit"},
+    {id = 3922, buy = 50, sell = 0, subType = 0, name = "birdcage kit"},
+    {id = 7907, buy = 80, sell = 0, subType = 0, name = "blue bed kit"},
+    {id = 1686, buy = 25, sell = 0, subType = 0, name = "blue pillow"},
+    {id = 1872, buy = 25, sell = 0, subType = 0, name = "blue tapestry"},
+    {id = 6373, buy = 70, sell = 0, subType = 0, name = "bookcase kit"},
+    {id = 1738, buy = 10, sell = 0, subType = 0, name = "box"},
+    {id = 1740, buy = 10, sell = 0, subType = 0, name = "chest"},
+    {id = 8692, buy = 200, sell = 0, subType = 0, name = "chimney kit"},
+    {id = 3932, buy = 25, sell = 0, subType = 0, name = "coal basin kit"},
+    {id = 1739, buy = 10, sell = 0, subType = 0, name = "crate"},
+    {id = 1877, buy = 40, sell = 0, subType = 0, name = "cuckoo clock"},
+    {id = 3915, buy = 18, sell = 0, subType = 0, name = "drawer kit"},
+    {id = 3916, buy = 25, sell = 0, subType = 0, name = "dresser kit"},
+    {id = 2102, buy = 6, sell = 0, subType = 0, name = "flower bowl"},
+    {id = 3923, buy = 50, sell = 0, subType = 0, name = "globe kit"},
+    {id = 3930, buy = 50, sell = 0, subType = 0, name = "goblin statue kit"},
+    {id = 2100, buy = 5, sell = 0, subType = 0, name = "god flowers"},
+    {id = 5928, buy = 50, sell = 0, subType = 0, name = "goldfish bowl"},
+    {id = 7904, buy = 80, sell = 0, subType = 0, name = "green bed kit"},
+    {id = 3902, buy = 40, sell = 0, subType = 0, name = "green cushioned chair kit"},
+    {id = 1688, buy = 25, sell = 0, subType = 0, name = "green pillow"},
+    {id = 1860, buy = 25, sell = 0, subType = 0, name = "green tapestry"},
+    {id = 3934, buy = 50, sell = 0, subType = 0, name = "harp kit"},
+    {id = 1685, buy = 30, sell = 0, subType = 0, name = "heart pillow"},
+    {id = 2103, buy = 5, sell = 0, subType = 0, name = "honey flower"},
+    {id = 3937, buy = 8, sell = 0, subType = 0, name = "indoor plant kit"},
+    {id = 3928, buy = 50, sell = 0, subType = 0, name = "knight statue kit"},
+    {id = 3931, buy = 50, sell = 0, subType = 0, name = "large amphora kit"},
+    {id = 3917, buy = 30, sell = 0, subType = 0, name = "locker kit"},
+    {id = 3929, buy = 50, sell = 0, subType = 0, name = "minotaur statue kit"},
+    {id = 1866, buy = 25, sell = 0, subType = 0, name = "orange tapestry"},
+    {id = 6372, buy = 80, sell = 0, subType = 0, name = "oven kit"},
+    {id = 3927, buy = 75, sell = 0, subType = 0, name = "pendulum clock kit"},
+    {id = 3933, buy = 200, sell = 0, subType = 0, name = "piano kit"},
+    {id = 1852, buy = 50, sell = 0, subType = 0, name = "picture"},
+    {id = 1854, buy = 50, sell = 0, subType = 0, name = "picture"},
+    {id = 1853, buy = 50, sell = 0, subType = 0, name = "picture"},
+    {id = 2104, buy = 5, sell = 0, subType = 0, name = "potted flower"},
+    {id = 1857, buy = 25, sell = 0, subType = 0, name = "purple tapestry"},
+    {id = 7906, buy = 80, sell = 0, subType = 0, name = "red bed kit"},
+    {id = 3901, buy = 40, sell = 0, subType = 0, name = "red cushioned chair kit"},
+    {id = 1687, buy = 25, sell = 0, subType = 0, name = "red pillow"},
+    {id = 1869, buy = 25, sell = 0, subType = 0, name = "red tapestry"},
+    {id = 3904, buy = 25, sell = 0, subType = 0, name = "rocking chair kit"},
+    {id = 3926, buy = 30, sell = 0, subType = 0, name = "rocking horse kit"},
+    {id = 1690, buy = 25, sell = 0, subType = 0, name = "round blue pillow"},
+    {id = 1692, buy = 25, sell = 0, subType = 0, name = "round purple pillow"},
+    {id = 1691, buy = 25, sell = 0, subType = 0, name = "round red pillow"},
+    {id = 1693, buy = 25, sell = 0, subType = 0, name = "round turquoise pillow"},
+    {id = 1681, buy = 20, sell = 0, subType = 0, name = "small blue pillow"},
+    {id = 1679, buy = 20, sell = 0, subType = 0, name = "small green pillow"},
+    {id = 1682, buy = 20, sell = 0, subType = 0, name = "small orange pillow"},
+    {id = 1678, buy = 20, sell = 0, subType = 0, name = "small purple pillow"},
+    {id = 1680, buy = 20, sell = 0, subType = 0, name = "small red pillow"},
+    {id = 3908, buy = 20, sell = 0, subType = 0, name = "small table kit"},
+    {id = 1683, buy = 20, sell = 0, subType = 0, name = "small turquoise pillow"},
+    {id = 1684, buy = 20, sell = 0, subType = 0, name = "small white pillow"},
+    {id = 3905, buy = 55, sell = 0, subType = 0, name = "sofa chair kit"},
+    {id = 3924, buy = 35, sell = 0, subType = 0, name = "table lamp kit"},
+    {id = 3925, buy = 70, sell = 0, subType = 0, name = "telescope kit"},
+    {id = 1746, buy = 1000, sell = 0, subType = 0, name = "treasure chest"},
+    {id = 7936, buy = 50, sell = 0, subType = 0, name = "trophy stand"},
+    {id = 3918, buy = 7, sell = 0, subType = 0, name = "trough kit"},
+    {id = 3920, buy = 10, sell = 0, subType = 0, name = "trunk kit"},
+    {id = 2008, buy = 3, sell = 0, subType = 0, name = "vase"},
+    {id = 1851, buy = 40, sell = 0, subType = 0, name = "wall mirror"},
+    {id = 1848, buy = 40, sell = 0, subType = 0, name = "wall mirror"},
+    {id = 1845, buy = 40, sell = 0, subType = 0, name = "wall mirror"},
+    {id = 2099, buy = 40, sell = 0, subType = 0, name = "water pipe"},
+    {id = 6115, buy = 90, sell = 0, subType = 0, name = "weapon rack kit"},
+    {id = 1880, buy = 25, sell = 0, subType = 0, name = "white tapestry"},
+    {id = 3903, buy = 15, sell = 0, subType = 0, name = "wooden chair kit"},
+    {id = 7905, buy = 80, sell = 0, subType = 0, name = "yellow bed kit"},
+    {id = 1689, buy = 25, sell = 0, subType = 0, name = "yellow pillow"},
+    {id = 1863, buy = 25, sell = 0, subType = 0, name = "yellow tapestry"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_BUYITEM)
+npcType:onBuyItem(function(npc, player, itemId, subType, amount, ignoreCap, inBackpacks)
+    local shopItem = getShopItem(itemId, subType, true)
+    if not shopItem or shopItem.buy <= 0 then return false end
+    local totalCost = amount * shopItem.buy
+    if player:getTotalMoney() < totalCost then
+        player:sendCancelMessage("You don't have enough money.")
+        return false
+    end
+    local itemSubType = shopItem.subType or 1
+    local bought = doNpcSellItem(player:getId(), itemId, amount, itemSubType, ignoreCap, inBackpacks, ITEM_BACKPACK)
+    if bought == 0 then
+        player:sendCancelMessage("You do not have enough capacity.")
+        return false
+    end
+    player:removeTotalMoney(bought * shopItem.buy)
+    player:sendTextMessage(MESSAGE_INFO_DESCR, "Bought " .. bought .. "x " .. shopItem.name .. " for " .. (bought * shopItem.buy) .. " gold.")
+    return true
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

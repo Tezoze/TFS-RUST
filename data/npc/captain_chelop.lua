@@ -1,0 +1,13 @@
+-- Captain Chelop (DialogueBuilder)
+local npc = DialogueBuilder:new("Captain Chelop",
+	{lookType = 289, lookHead = 2, lookBody = 67, lookLegs = 39, lookFeet = 76, lookAddons = 1})
+npc:greetMessage("Welcome on board, recruit |PLAYERNAME|. Where can I {sail} you today?")
+npc:farewellMessage("On behalf of the inquisition, I bid you farewell.")
+npc:walkawayMessage("Good bye then.")
+npc:addResponse("sail", "I can bring you back to {Thais} if you are weary or you can stay and fight. What shall it be?")
+npc:addResponse("name", "My name is Chelop and I am a captain of this {inquisition} ship.")
+npc:addResponse("job", "Can't you see? I'm captain of the Pesadilla, the proud {inquisition} ship which anchors here.")
+npc:addResponse("inquisition", "By edict of the honorable Henricus himself, we are ordered to give passage to all recruits of the Roshamuul mission for a small fee.")
+npc:addResponse("roshamuul", "This is the island you are currently on, just in case you forgot.")
+npc:addVoice("By direct edict of the honorable Henricus, we are ordered to give passage for all recruits to Thais.")
+npc:register()

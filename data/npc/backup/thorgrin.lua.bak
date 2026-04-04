@@ -1,0 +1,96 @@
+-- Thorgrin - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Thorgrin.xml
+-- Original Script: data/npc/scripts/Thorgrin.lua
+
+local npcName = "Thorgrin"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a thorgrin")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 66})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Per-instance handler storage using position as key
+local npcHandlers = {}
+
+local function getHandlerKey(npc)
+	local pos = npc:getPosition()
+	return string.format("%d_%d_%d", pos.x, pos.y, pos.z)
+end
+
+local function getHandlers(npc)
+	local key = getHandlerKey(npc)
+	if not npcHandlers[key] then
+		npcHandlers[key] = {
+			keywordHandler = KeywordHandler:new(),
+			npcHandler = nil
+		}
+		npcHandlers[key].npcHandler = NpcHandler:new(npcHandlers[key].keywordHandler)
+		
+		local voices = { {text = 'Ask me for a passage...'} }
+		npcHandlers[key].npcHandler:addModule(VoiceModule:new(voices))
+		npcHandlers[key].npcHandler:setMessage(MESSAGE_GREET, "Welcome, |PLAYERNAME|! May earth protect you on the rocky grounds. If you need a {passage} back, I can help you.")
+		npcHandlers[key].npcHandler:setMessage(MESSAGE_FAREWELL, "Good bye.")
+		npcHandlers[key].npcHandler:setMessage(MESSAGE_WALKAWAY, "Good bye then.")
+		npcHandlers[key].npcHandler:addModule(FocusModule:new())
+		
+		-- Setup travel keywords
+		local function addTravelKeyword(keyword, cost, destination, text)
+			local travelKeyword = npcHandlers[key].keywordHandler:addKeyword({keyword}, StdModule.say, {npcHandler = npcHandlers[key].npcHandler, text = text or 'Do you seek a ride to ' .. keyword:titleCase() .. ' for |TRAVELCOST|?', cost = cost, discount = 'postman'})
+			travelKeyword:addChildKeyword({'yes'}, StdModule.travel, {npcHandler = npcHandlers[key].npcHandler, premium = false, cost = cost, discount = 'postman', destination = destination, text = 'Full steam ahead!'})
+			travelKeyword:addChildKeyword({'no'}, StdModule.say, {npcHandler = npcHandlers[key].npcHandler, text = 'Then not.', reset = true})
+		end
+		
+		addTravelKeyword('kazordoon', 210, Position(32659, 31957, 15))
+		addTravelKeyword('cormaya', 110, Position(33310, 31988, 15))
+		
+		npcHandlers[key].keywordHandler:addKeyword({'passage'}, StdModule.say, {npcHandler = npcHandlers[key].npcHandler, text = "Do you want me take you to {Cormaya} or {Kazordoon}?"})
+	end
+	return npcHandlers[key]
+end
+
+-- NpcType callbacks
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+	setCurrentNpc(npc)
+	local handlers = getHandlers(npc)
+	handlers.npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+	setCurrentNpc(npc)
+	local handlers = getHandlers(npc)
+	handlers.npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+	setCurrentNpc(npc)
+	local handlers = getHandlers(npc)
+	handlers.npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+	setCurrentNpc(npc)
+	local handlers = getHandlers(npc)
+	handlers.npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+	setCurrentNpc(npc)
+	local handlers = getHandlers(npc)
+	handlers.npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:register()

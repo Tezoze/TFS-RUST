@@ -1,0 +1,12 @@
+-- John (ShopBuilder)
+local npc = ShopBuilder:new("John",
+	{lookType = 128, lookHead = 58, lookBody = 68, lookLegs = 38, lookFeet = 114})
+npc:addBuyable("camouflage backpack", 3940, 30)
+npc:addBuyable("camouflage bag", 3939, 10)
+npc:addBuyable("fishing rod", 2580, 300)
+npc:addBuyable("pick", 2553, 100)
+npc:addBuyable("shovel", 2554, 100)
+npc:addBuyable("torch", 2050, 5)
+npc:addBuyable("treasure map", 5091, 1000)
+npc:addBuyable("worm", 3976, 2)
+npc:register()

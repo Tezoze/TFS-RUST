@@ -1,0 +1,156 @@
+-- Fadil - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Fadil.xml
+-- Original Script: data/npc/scripts/Fadil.lua
+
+local npcName = "Fadil"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a fadil")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 146, lookHead = 114, lookBody = 94, lookFeet = 94, lookAddons = 1})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 26198, buy = 0, sell = 6000, subType = 0, name = "collar of blue plasma"},
+    {id = 26199, buy = 0, sell = 6000, subType = 0, name = "collar of green plasma"},
+    {id = 26200, buy = 0, sell = 6000, subType = 0, name = "collar of red plasma"},
+    {id = 26157, buy = 0, sell = 260, subType = 0, name = "condensed energy"},
+    {id = 26177, buy = 0, sell = 250, subType = 0, name = "crystal bone"},
+    {id = 26163, buy = 0, sell = 400, subType = 0, name = "crystallized anger"},
+    {id = 26167, buy = 0, sell = 430, subType = 0, name = "curious matter"},
+    {id = 26171, buy = 0, sell = 300, subType = 0, name = "dangerous proto matter"},
+    {id = 26179, buy = 0, sell = 300, subType = 0, name = "energy ball"},
+    {id = 26175, buy = 0, sell = 270, subType = 0, name = "frozen lightning"},
+    {id = 26178, buy = 0, sell = 250, subType = 0, name = "glistening bone"},
+    {id = 29002, buy = 0, sell = 180, subType = 0, name = "green bandage"},
+    {id = 26172, buy = 0, sell = 300, subType = 0, name = "instable proto matter"},
+    {id = 29007, buy = 0, sell = 500, subType = 0, name = "little bowl of myrrh"},
+    {id = 26166, buy = 0, sell = 410, subType = 0, name = "odd organ"},
+    {id = 26162, buy = 0, sell = 250, subType = 0, name = "plasma pearls"},
+    {id = 26176, buy = 0, sell = 270, subType = 0, name = "plasmatic lightning"},
+    {id = 26185, buy = 0, sell = 8000, subType = 0, name = "ring of blue plasma"},
+    {id = 26187, buy = 0, sell = 8000, subType = 0, name = "ring of green plasma"},
+    {id = 26189, buy = 0, sell = 8000, subType = 0, name = "ring of red plasma"},
+    {id = 26180, buy = 0, sell = 250, subType = 0, name = "small energy ball"},
+    {id = 26173, buy = 0, sell = 310, subType = 0, name = "solid rage"},
+    {id = 26174, buy = 0, sell = 350, subType = 0, name = "spark sphere"},
+    {id = 26158, buy = 0, sell = 290, subType = 0, name = "sparkion claw"},
+    {id = 26160, buy = 0, sell = 310, subType = 0, name = "sparkion legs"},
+    {id = 26161, buy = 0, sell = 280, subType = 0, name = "sparkion stings"},
+    {id = 26159, buy = 0, sell = 300, subType = 0, name = "sparkion tail"},
+    {id = 26169, buy = 0, sell = 300, subType = 0, name = "strange proto matter"},
+    {id = 26170, buy = 0, sell = 300, subType = 0, name = "volatile proto matter"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SELLITEM)
+npcType:onSellItem(function(npc, player, itemId, subType, amount, ignoreEquipped)
+    local shopItem = getShopItem(itemId, subType, false)
+    if not shopItem or shopItem.sell <= 0 then return false end
+    local totalPrice = amount * shopItem.sell
+    local itemName = shopItem.name or ItemType(itemId):getName()
+    
+    local itemSubType = -1
+    if ItemType(itemId):isFluidContainer() then
+        itemSubType = subType
+    end
+    
+    if doPlayerSellItem(player:getId(), itemId, amount, totalPrice, itemSubType, ignoreEquipped) then
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Sold " .. amount .. "x " .. shopItem.name .. " for " .. (amount * shopItem.sell) .. " gold.")
+        return true
+    end
+    player:sendCancelMessage("You do not have this object.")
+    return false
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

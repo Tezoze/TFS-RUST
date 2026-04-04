@@ -1,0 +1,10 @@
+-- Junkar (TravelBuilder)
+local npc = TravelBuilder:new("Junkar",
+	{lookType = 66})
+npc:greetMessage("Welcome, |PLAYERNAME|! You are lucky that the service is running right now. Save your coal for the days to come though!")
+npc:farewellMessage("See you next time!")
+npc:walkawayMessage("<Sigh> No patience!")
+npc:addDestination("Kazordoon", {x = 32660, y = 31957, z = 15}, 80)
+npc:addDestination("Thais", {x = 32370, y = 32180, z = 13}, 80)
+npc:addDestination("Mines", {x = 32555, y = 32069, z = 10}, 70)
+npc:register()

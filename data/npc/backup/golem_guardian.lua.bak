@@ -1,0 +1,78 @@
+-- Golem Guardian - Basic Guard NPC
+local npcName = "Golem Guardian"
+local npcType = Game.createNpcType(npcName)
+
+npcType:name(npcName)
+npcType:nameDescription("a golem guardian")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(0)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 326})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Per-NPC handler storage to prevent state sharing between multiple instances
+local npcHandlers = {}
+
+local function getHandlers(npc)
+	local npcId = npc:getId()
+	if not npcHandlers[npcId] then
+		npcHandlers[npcId] = {
+			keywordHandler = KeywordHandler:new(),
+			npcHandler = nil
+		}
+		npcHandlers[npcId].npcHandler = NpcHandler:new(npcHandlers[npcId].keywordHandler)
+		
+		local handler = npcHandlers[npcId].npcHandler
+		local kh = npcHandlers[npcId].keywordHandler
+		
+		handler:setMessage(MESSAGE_GREET, "*The golem's eyes glow as it acknowledges your presence*")
+		handler:setMessage(MESSAGE_FAREWELL, "*The golem returns to its dormant state*")
+		
+		kh:addKeyword({'job'}, StdModule.say, {npcHandler = handler, text = '*GUARD... PROTECT...*'})
+		kh:addKeyword({'name'}, StdModule.say, {npcHandler = handler, text = '*DESIGNATION... GUARDIAN...*'})
+		
+		handler:addModule(FocusModule:new())
+	end
+	return npcHandlers[npcId]
+end
+
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:register()

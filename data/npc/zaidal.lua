@@ -1,0 +1,13 @@
+-- Zaidal (ShopBuilder)
+local npc = ShopBuilder:new("Zaidal",
+	{lookType = 128, lookHead = 76, lookBody = 44, lookLegs = 77, lookFeet = 95})
+npc:addBuyable("bamboo drawer kit", 3921, 20)
+npc:addBuyable("bamboo table kit", 3914, 25)
+npc:addBuyable("ivory chair kit", 3907, 25)
+npc:addBuyable("stone table kit", 3912, 30)
+npc:addBuyable("trunk chair kit", 3935, 20)
+npc:addBuyable("trunk table kit", 3936, 20)
+npc:addSellable("tusk", 3956, 100)
+npc:addBuyable("tusk chair kit", 3906, 25)
+npc:addBuyable("tusk table kit", 3913, 25)
+npc:register()

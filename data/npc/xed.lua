@@ -1,0 +1,12 @@
+-- Xed (ShopBuilder)
+local npc = ShopBuilder:new("Xed",
+	{lookType = 129, lookHead = 78, lookBody = 36, lookLegs = 57, lookFeet = 97})
+npc:addBuyable("arrow", 2544, 3)
+npc:addBuyable("bolt", 2543, 4)
+npc:addBuyable("bow", 2456, 400)
+npc:addBuyable("crossbow", 2455, 500)
+npc:addBuyable("crystalline arrow", 18304, 20)
+npc:addBuyable("prismatic bolt", 18435, 20)
+npc:addBuyable("small stone", 1294, 15)
+npc:addBuyableAndSellable("spear", 2389, 10, 3)
+npc:register()

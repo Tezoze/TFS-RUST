@@ -1,0 +1,10 @@
+-- Fayla (ShopBuilder)
+local npc = ShopBuilder:new("Fayla",
+	{lookType = 140, lookHead = 78, lookBody = 117, lookLegs = 113, lookFeet = 2, lookAddons = 1})
+npc:addBuyable("Drum", 2073, 140)
+npc:addBuyable("Harp Kit", 3934, 50)
+npc:addBuyable("Lute", 2072, 195)
+npc:addBuyable("Lyre", 2071, 120)
+npc:addBuyable("Piano Kit", 3933, 200)
+npc:addBuyable("Simple Fanfare", 2075, 150)
+npc:register()

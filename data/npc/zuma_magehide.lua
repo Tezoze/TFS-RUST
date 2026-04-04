@@ -1,0 +1,12 @@
+-- Zuma Magehide (ShopBuilder)
+local npc = ShopBuilder:new("Zuma Magehide",
+	{lookType = 138, lookHead = 58, lookBody = 19, lookFeet = 132, lookAddons = 3})
+npc:addBuyable("bronze amulet", 2172, 100)
+npc:addBuyable("elven amulet", 2198, 500)
+npc:addBuyable("garlic necklace", 2199, 100)
+npc:addBuyable("magic light wand", 2162, 120)
+npc:addBuyable("melee ring", 2207, 500)
+npc:addBuyable("power ring", 2166, 100)
+npc:addBuyable("stealth ring", 2165, 5000)
+npc:addBuyable("stone skin amulet", 2197, 5000)
+npc:register()

@@ -1,0 +1,13 @@
+-- Clyde (ShopBuilder)
+local npc = ShopBuilder:new("Clyde",
+	{lookType = 128, lookHead = 116, lookBody = 59, lookLegs = 47, lookFeet = 114})
+npc:addBuyable("bread", 2689, 3)
+npc:addBuyable("cheese", 2696, 5)
+npc:addBuyable("cookie", 2687, 2)
+npc:addBuyable("egg", 2328, 2)
+npc:addBuyable("ham", 2671, 8)
+npc:addBuyable("meat", 2666, 5)
+npc:addBuyable("mug of wine", 2012, 3)
+npc:addBuyable("tomato", 2685, 3)
+npc:addBuyable("wine", 2006, 10)
+npc:register()

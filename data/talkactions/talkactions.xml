@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<talkactions>
+	<!-- commands -->
+	<talkaction words="/attr" separator=" " script="attributes.lua" access="1" />
+	<talkaction words="/ban" separator=" " script="ban.lua" access="1" />
+	<talkaction words="/ipban" separator=" " script="ipban.lua" access="1" />
+	<talkaction words="/unban" separator=" " script="unban.lua" access="1" />
+	<talkaction words="/up" script="up.lua" access="1" />
+	<talkaction words="/down" script="down.lua" access="1" />
+	<talkaction words="!monitor" separator=" " script="monitor.lua" access="1" />
+	<talkaction words="/c" separator=" " script="teleport_creature_here.lua" access="1" />
+	<talkaction words="/goto" separator=" " script="teleport_to_creature.lua" access="1" />
+	<talkaction words="/owner" separator=" " script="owner.lua" access="1" />
+	<talkaction words="/t" script="teleport_home.lua" access="1" />
+	<talkaction words="/town" separator=" " script="teleport_to_town.lua" access="1" />
+	<talkaction words="/a" separator=" " script="teleport_ntiles.lua" access="1" />
+	<talkaction words="/info" separator=" " script="info.lua" access="1" />
+	<talkaction words="/r" separator=" " script="removething.lua" access="1" />
+	<talkaction words="/kick" separator=" " script="kick.lua" access="1" />
+	<talkaction words="/openserver" script="openserver.lua" access="1" />
+	<talkaction words="/closeserver" separator=" " script="closeserver.lua" access="1" />
+	<talkaction words="/B" separator=" " script="broadcast.lua" access="1" />
+	<talkaction words="/m" separator=" " script="place_monster.lua" access="1" />
+	<talkaction words="/i" separator=" " script="create_item.lua" access="1" />
+	<talkaction words="/s" separator=" " script="place_npc.lua" access="1" />
+	<talkaction words="/addtutor" separator=" " script="add_tutor.lua" access="1" />
+	<talkaction words="/removetutor" separator=" " script="remove_tutor.lua" access="1" />
+	<talkaction words="/looktype" separator=" " script="looktype.lua" access="1" />
+	<talkaction words="/summon" separator=" " script="place_summon.lua" access="1" />
+	<talkaction words="/chameleon" separator=" " script="chameleon.lua" access="1" />
+	<talkaction words="/addskill" separator=" " script="add_skill.lua" access="1" />
+	<talkaction words="/mccheck" script="mccheck.lua" access="1" />
+	<talkaction words="/ghost" script="ghost.lua" access="1" />
+	<talkaction words="/clean" script="clean.lua" access="1" />
+	<talkaction words="/hide" script="hide.lua" access="1" />
+	<talkaction words="/reload" separator=" " script="reload.lua" access="1" />
+	<talkaction words="/raid" separator=" " script="force_raid.lua" access="1" />
+	<talkaction words="/roll" separator=" " script="roll.lua" access="1" />
+
+	<!-- player talkactions -->
+	<talkaction words="!buyhouse" script="buyhouse.lua" />
+	<talkaction words="!sellhouse" separator=" " script="sellhouse.lua" />
+	<talkaction words="!leavehouse" script="leavehouse.lua" />
+	<talkaction words="!uptime" script="uptime.lua" />
+	<talkaction words="!online;/online" script="online.lua" />
+	<talkaction words="!serverinfo" script="serverinfo.lua" />
+
+	<!-- admin talkactions -->
+	<talkaction words="/givepremiumpoints" separator=" " script="givepremiumpoints.lua" access="1" />
+
+	<!-- test talkactions -->
+	<talkaction words="!z" separator=" " script="magiceffect.lua" />
+	<talkaction words="!x" separator=" " script="animationeffect.lua" />
+</talkactions>

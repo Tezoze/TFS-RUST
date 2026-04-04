@@ -1,0 +1,10 @@
+-- Lector (ShopBuilder)
+local npc = ShopBuilder:new("Lector",
+	{lookType = 128, lookHead = 79, lookBody = 38, lookFeet = 68})
+npc:greetMessage("Welcome to my humble {meat} shop, |PLAYERNAME|.")
+npc:farewellMessage("Please come and buy again, |PLAYERNAME|.")
+npc:addBuyable("ham", 2671, 6)
+npc:addBuyable("meat", 2666, 3)
+npc:addKeyword("meat", "I can offer you ham or meat. If you'd like to check the quality of my wares, ask me for a {trade}.")
+npc:tradeMessage("Of course, take a good look at my meat.")
+npc:register()

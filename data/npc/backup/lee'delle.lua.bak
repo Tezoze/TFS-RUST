@@ -1,0 +1,329 @@
+-- Lee'Delle - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Lee'Delle.xml
+-- Original Script: data/npc/scripts/Lee_Delle.lua
+
+local npcName = "Lee'Delle"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a lee'delle")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 140, lookHead = 78, lookBody = 76, lookLegs = 72, lookFeet = 96})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+local voices = {
+	{ text = 'Ask me if you need help!' },
+	{ text = 'Buy and sell everything you want here!' },
+	{ text = 'No need to run from shop to shop, my place is all that\'s needed!' },
+	{ text = 'Special offers for premium customers!' }
+}
+npcHandler:addModule(VoiceModule:new(voices))
+
+-- Basic keywords
+keywordHandler:addKeyword({'name'}, StdModule.say, {npcHandler = npcHandler, text = 'My name is Lee\'Delle.'})
+keywordHandler:addKeyword({'job'}, StdModule.say, {npcHandler = npcHandler, text = 'I\'m a merchant. If you like to see my offers, just ask me for a {trade}.'})
+keywordHandler:addKeyword({'time'}, StdModule.say, {npcHandler = npcHandler, text = 'It\'s about |TIME|.'})
+keywordHandler:addKeyword({'bank'}, StdModule.say, {npcHandler = npcHandler, text = 'Well, it\'s a good idea to leave most of your money in the bank and only take what you need. That way your gold is safe.'})
+keywordHandler:addKeyword({'cookie'}, StdModule.say, {npcHandler = npcHandler, text = 'Oh no! I\'ve got to watch what I eat. {Lily} loves cookies, though.'})
+keywordHandler:addKeyword({'merchant'}, StdModule.say, {npcHandler = npcHandler, text = 'There are many merchants in this village. Just ask them for a {trade} to see their offers. But I can promise you - my offers are the best around!'})
+keywordHandler:addKeyword({'how', 'are', 'you'}, StdModule.say, {npcHandler = npcHandler, text = 'I\'m fine. I\'m delighted to welcome you as my customer.'})
+keywordHandler:addKeyword({'information'}, StdModule.say, {npcHandler = npcHandler, text = 'What kind of information do you need? I could tell you about different topics such as {equipment}, {monsters} or {Rookgaard} in general.'})
+keywordHandler:addKeyword({'help'}, StdModule.say, {npcHandler = npcHandler, text = 'How can I help you? Would you like to {trade} with me? I can also give you general {hints}. Or just ask me anything you\'d like to know.'})
+keywordHandler:addKeyword({'tibia'}, StdModule.say, {npcHandler = npcHandler, text = 'You should really take some time and travel around the marvellous areas of Tibia. There\'s everything - ice islands, deserts, jungles and mountains!'})
+keywordHandler:addKeyword({'temple'}, StdModule.say, {npcHandler = npcHandler, text = 'The temple is the place to go when you are very low on {health} or poisoned. Ask {Cipfried} for a heal - he usually notices emergencies by himself.'})
+keywordHandler:addKeyword({'health'}, StdModule.say, {npcHandler = npcHandler, text = 'Health potions will heal you for about 75 hit points. It can\'t hurt to carry one with you, just in case.'})
+keywordHandler:addKeyword({'equipment'}, StdModule.say, {npcHandler = npcHandler, text = 'Well, very important equipment would be a {backpack}, a {rope}, a {shovel}, a {weapon}, an {armor} and a {shield}. Maybe also a torch if you\'re heading into a dark {dungeon}.'})
+keywordHandler:addKeyword({'fishing'}, StdModule.say, {npcHandler = npcHandler, text = 'I sell fishing rods and worms in case you want to go fishing. Simply ask me for a {trade}.'})
+keywordHandler:addKeyword({'weapon'}, StdModule.say, {npcHandler = npcHandler, text = 'You could check out which weapons I offer by asking me for a {trade}. Don\'t be shy!'})
+keywordHandler:addKeyword({'food'}, StdModule.say, {npcHandler = npcHandler, text = 'Oh, I\'m sorry, that\'s one of the things I don\'t have for sale. But {Willie} or {Billy} surely have something to eat for you.'})
+keywordHandler:addKeyword({'king'}, StdModule.say, {npcHandler = npcHandler, text = 'The king supports our little village very much!'})
+keywordHandler:addKeyword({'academy'}, StdModule.say, {npcHandler = npcHandler, text = 'In the academy you can get a lot of information from books. You can also try out a few things by yourself.'})
+keywordHandler:addKeyword({'rookgaard'}, StdModule.say, {npcHandler = npcHandler, text = 'Isn\'t it lovely here? You\'ll be surprised once you reach the {mainland} -  so much to explore!'})
+keywordHandler:addKeyword({'mainland'}, StdModule.say, {npcHandler = npcHandler, text = 'Well, the mainland also consists of several continents. You can go there once you\'ve reached level 8 and talked to the {oracle}.'})
+keywordHandler:addKeyword({'monster'}, StdModule.say, {npcHandler = npcHandler, text = 'Good monsters to start with are rats. They live in the {sewers} under the village of {Rookgaard}.'})
+keywordHandler:addKeyword({'sell'}, StdModule.say, {npcHandler = npcHandler, text = 'Just ask me for a {trade} to see what I buy from you.'})
+keywordHandler:addKeyword({'dungeon'}, StdModule.say, {npcHandler = npcHandler, text = 'Be careful down there! Make sure you bought enough {torches} and a {rope} or you might get lost.'})
+keywordHandler:addKeyword({'sewer'}, StdModule.say, {npcHandler = npcHandler, text = 'There are many sewer entrances throughout Rookgaard. If you want to know more details about monsters and dungeons, best talk to one of the guards.'})
+
+keywordHandler:addKeyword({'offer'}, StdModule.say, {npcHandler = npcHandler, text = 'Just ask me for a {trade} to see my offers. Apart from that, I also sell {footballs}.'})
+keywordHandler:addAliasKeyword({'stuff'})
+keywordHandler:addAliasKeyword({'wares'})
+keywordHandler:addAliasKeyword({'buy'})
+
+keywordHandler:addKeyword({'quest'}, StdModule.say, {npcHandler = npcHandler, text = 'I really love flowers. My favourites are {honey flowers}. Sadly, they are very rare on this isle. If you can find one for me, I\'ll give you a little reward.'})
+keywordHandler:addAliasKeyword({'mission'})
+
+keywordHandler:addKeyword({'armor'}, StdModule.say, {npcHandler = npcHandler, text = 'You could check out which armors or shields I offer by asking me for a {trade}. Don\'t be shy!'})
+keywordHandler:addAliasKeyword({'shield'})
+
+keywordHandler:addKeyword({'backpack'}, StdModule.say, {npcHandler = npcHandler, text = 'Yes, I\'m selling that. Simply ask me for a {trade} to view all my offers.'})
+keywordHandler:addAliasKeyword({'rope'})
+keywordHandler:addAliasKeyword({'shovel'})
+keywordHandler:addAliasKeyword({'torch'})
+
+keywordHandler:addKeyword({'money'}, StdModule.say, {npcHandler = npcHandler, text = 'Well, no gold, no deal. Earn gold by fighting {monsters} and picking up the things they carry. Sell it to {merchants} to make profit!'})
+keywordHandler:addAliasKeyword({'gold'})
+
+-- Names
+keywordHandler:addKeyword({'hint'}, StdModule.rookgaardHints, {npcHandler = npcHandler})
+keywordHandler:addKeyword({'obi'}, StdModule.say, {npcHandler = npcHandler, text = 'He sells {weapons}. However, I can offer you better deals than him!'})
+keywordHandler:addKeyword({'norma'}, StdModule.say, {npcHandler = npcHandler, text = 'I\'m glad she stopped selling stuff. There was too much of a competition going on!'})
+keywordHandler:addKeyword({'loui'}, StdModule.say, {npcHandler = npcHandler, text = 'Sometimes, I see him walking outside the village near some hole.'})
+keywordHandler:addKeyword({'santiago'}, StdModule.say, {npcHandler = npcHandler, text = 'He dedicated his life to welcome newcomers to this island.'})
+keywordHandler:addKeyword({'zirella'}, StdModule.say, {npcHandler = npcHandler, text = 'Poor old woman, her son {Tom} never visits her.'})
+keywordHandler:addKeyword({'al', 'dee'}, StdModule.say, {npcHandler = npcHandler, text = 'Al Dee has a general {equipment} store in the north-western part of the village.'})
+keywordHandler:addKeyword({'amber'}, StdModule.say, {npcHandler = npcHandler, text = 'She lives under the {academy}. Always nice to chat with her!'})
+keywordHandler:addKeyword({'billy'}, StdModule.say, {npcHandler = npcHandler, text = 'He\'s a local farmer. If you need fresh {food} to regain health, it\'s a good place to go. He\'s only trading with premium adventurers, though.'})
+keywordHandler:addKeyword({'willie'}, StdModule.say, {npcHandler = npcHandler, text = 'He\'s a local farmer. If you need fresh {food} to regain your health, it\'s a good place to go. However, many monsters carry also food such as meat. Or you could simply pick {blueberries}.'})
+keywordHandler:addKeyword({'cipfried'}, StdModule.say, {npcHandler = npcHandler, text = 'Visiting Cipfried in the {temple} is a good idea if you are injured or poisoned. He can heal you.'})
+keywordHandler:addKeyword({'dixi'}, StdModule.say, {npcHandler = npcHandler, text = 'She\'s {Obi\'s} granddaughter and deals with {armors} and {shields}, just as I do.'})
+keywordHandler:addKeyword({'hyacinth'}, StdModule.say, {npcHandler = npcHandler, text = 'He mostly stays by himself. He\'s a hermit outside of town - good luck finding him.'})
+keywordHandler:addKeyword({'lily'}, StdModule.say, {npcHandler = npcHandler, text = 'She buys all {blueberries} and {cookies} you can find.'})
+keywordHandler:addKeyword({'oracle'}, StdModule.say, {npcHandler = npcHandler, text = 'You can find the oracle on the top floor of the {academy}, just above {Seymour}. Go there when you are level 8 to reach more areas of {Tibia}.'})
+keywordHandler:addKeyword({'paulie'}, StdModule.say, {npcHandler = npcHandler, text = 'He is the {bank} clerk, just below the academy.'})
+keywordHandler:addKeyword({'seymour'}, StdModule.say, {npcHandler = npcHandler, text = 'Seymour is a teacher running the {academy}. He has a lot of important {information} about Tibia.'})
+keywordHandler:addKeyword({'tom'}, StdModule.say, {npcHandler = npcHandler, text = 'He\'s the local tanner. You could try selling fresh corpses or leather to him.'})
+keywordHandler:addKeyword({'dallheim'}, StdModule.say, {npcHandler = npcHandler, text = 'He is a great warrior and our protector.'})
+keywordHandler:addAliasKeyword({'zerbrus'})
+
+-- Football
+local footballKeyword = keywordHandler:addKeyword({'football'}, StdModule.say, {npcHandler = npcHandler, text = 'Do you want to buy a football for 111 gold?'})
+	footballKeyword:addChildKeyword({'yes'}, StdModule.say, {npcHandler = npcHandler, text = 'Here you go.', reset = true},
+			function(player) return player:getMoney() + player:getBankBalance() >= 111 end,
+			function(player)
+				if player:removeMoneyNpc(111) then
+					player:addItem(2109, 1)
+				end
+			end
+	)
+	footballKeyword:addChildKeyword({'yes'}, StdModule.say, {npcHandler = npcHandler, text = 'You don\'t have enough money.', reset = true})
+	footballKeyword:addChildKeyword({''}, StdModule.say, {npcHandler = npcHandler, text = 'Oh, but it\'s fun to play!', reset = true})
+
+-- Honey Flower Quest
+keywordHandler:addKeyword({'honey', 'flower'}, function(cid, message, keywords, parameters, node)
+	local npcHandler = parameters.npcHandler
+	if not npcHandler:isFocused(cid) then
+		return false
+	end
+	
+	local player = Player(cid)
+	if not player then
+		return false
+	end
+	
+	-- Check if player has a honey flower (item ID 2103)
+	if player:getItemCount(2103) > 0 then
+		-- Remove the honey flower and give studded legs as reward
+		player:removeItem(2103, 1)
+		player:addItem(2468, 1)
+		npcHandler:say('Oh, thank you so much! Please take these studded legs as a reward.', cid)
+	else
+		npcHandler:say('Honey flowers are my favourites <sighs>. If you find one for me, I\'ll give you a little reward.', cid)
+	end
+	return true
+end, {npcHandler = npcHandler})
+
+npcHandler:setMessage(MESSAGE_WALKAWAY, 'Bye, bye.')
+npcHandler:setMessage(MESSAGE_FAREWELL, 'Bye, bye, |PLAYERNAME|.')
+npcHandler:setMessage(MESSAGE_SENDTRADE, 'Sure, take a look, honey.')
+npcHandler:setMessage(MESSAGE_GREET, 'Nice to see you, |PLAYERNAME|! Ask me for a {trade} if you like to see my exclusive offers.')
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 2386, buy = 0, sell = 7, subType = 0, name = "axe"},
+    {id = 2449, buy = 0, sell = 5, subType = 0, name = "bone club"},
+    {id = 2460, buy = 0, sell = 22, subType = 0, name = "brass helmet"},
+    {id = 2511, buy = 0, sell = 25, subType = 0, name = "brass shield"},
+    {id = 2464, buy = 0, sell = 40, subType = 0, name = "chain armor"},
+    {id = 2458, buy = 0, sell = 12, subType = 0, name = "chain helmet"},
+    {id = 2530, buy = 0, sell = 50, subType = 0, name = "copper shield"},
+    {id = 2379, buy = 0, sell = 2, subType = 0, name = "dagger"},
+    {id = 2485, buy = 0, sell = 3, subType = 0, name = "doublet"},
+    {id = 2467, buy = 0, sell = 5, subType = 0, name = "leather armor"},
+    {id = 2643, buy = 0, sell = 2, subType = 0, name = "leather boots"},
+    {id = 2461, buy = 0, sell = 3, subType = 0, name = "leather helmet"},
+    {id = 2649, buy = 0, sell = 2, subType = 0, name = "leather legs"},
+    {id = 2480, buy = 0, sell = 22, subType = 0, name = "legion helmet"},
+    {id = 2510, buy = 0, sell = 40, subType = 0, name = "plate shield"},
+    {id = 2484, buy = 0, sell = 10, subType = 0, name = "studded armor"},
+    {id = 2482, buy = 0, sell = 20, subType = 0, name = "studded helmet"},
+    {id = 2468, buy = 0, sell = 15, subType = 0, name = "studded legs"},
+    {id = 2526, buy = 0, sell = 16, subType = 0, name = "studded shield"},
+    {id = 2473, buy = 0, sell = 25, subType = 0, name = "viking helmet"},
+    {id = 2380, buy = 0, sell = 4, subType = 0, name = "hand axe"},
+    {id = 2388, buy = 0, sell = 25, subType = 0, name = "hatchet"},
+    {id = 2412, buy = 0, sell = 35, subType = 0, name = "katana"},
+    {id = 2398, buy = 0, sell = 30, subType = 0, name = "mace"},
+    {id = 2420, buy = 0, sell = 6, subType = 0, name = "machete"},
+    {id = 2384, buy = 0, sell = 5, subType = 0, name = "rapier"},
+    {id = 2120, buy = 0, sell = 8, subType = 0, name = "rope"},
+    {id = 2376, buy = 0, sell = 25, subType = 0, name = "sword"},
+    {id = 2385, buy = 0, sell = 12, subType = 0, name = "sabre"},
+    {id = 2406, buy = 0, sell = 10, subType = 0, name = "short sword"},
+    {id = 2405, buy = 0, sell = 2, subType = 0, name = "sickle"},
+    {id = 2389, buy = 0, sell = 3, subType = 0, name = "spear"},
+    {id = 2550, buy = 0, sell = 3, subType = 0, name = "scythe"},
+    {id = 2554, buy = 0, sell = 2, subType = 0, name = "shovel"},
+    {id = 2512, buy = 0, sell = 3, subType = 0, name = "wooden shield"},
+    {id = 2580, buy = 0, sell = 30, subType = 0, name = "fishing rod"},
+    {id = 2458, buy = 49, sell = 0, subType = 0, name = "chain helmet"},
+    {id = 2651, buy = 7, sell = 0, subType = 0, name = "coat"},
+    {id = 2485, buy = 14, sell = 0, subType = 0, name = "doublet"},
+    {id = 2650, buy = 9, sell = 0, subType = 0, name = "jacket"},
+    {id = 2467, buy = 22, sell = 0, subType = 0, name = "leather armor"},
+    {id = 2461, buy = 11, sell = 0, subType = 0, name = "leather helmet"},
+    {id = 2649, buy = 9, sell = 0, subType = 0, name = "leather legs"},
+    {id = 2482, buy = 58, sell = 0, subType = 0, name = "studded helmet"},
+    {id = 2526, buy = 47, sell = 0, subType = 0, name = "studded shield"},
+    {id = 2512, buy = 13, sell = 0, subType = 0, name = "wooden shield"},
+    {id = 2386, buy = 18, sell = 0, subType = 0, name = "axe"},
+    {id = 2379, buy = 4, sell = 0, subType = 0, name = "dagger"},
+    {id = 2380, buy = 7, sell = 0, subType = 0, name = "hand axe"},
+    {id = 2384, buy = 13, sell = 0, subType = 0, name = "rapier"},
+    {id = 2385, buy = 22, sell = 0, subType = 0, name = "sabre"},
+    {id = 2550, buy = 10, sell = 0, subType = 0, name = "scythe"},
+    {id = 2406, buy = 26, sell = 0, subType = 0, name = "short sword"},
+    {id = 2405, buy = 7, sell = 0, subType = 0, name = "sickle"},
+    {id = 2389, buy = 9, sell = 0, subType = 0, name = "spear"},
+    {id = 2120, buy = 45, sell = 0, subType = 0, name = "rope"},
+    {id = 3976, buy = 1, sell = 0, subType = 0, name = "worm"},
+    {id = 2580, buy = 140, sell = 0, subType = 0, name = "fishing rod"},
+    {id = 2109, buy = 111, sell = 0, subType = 0, name = "football"},
+    {id = 7956, buy = 200, sell = 0, subType = 0, name = "waterball"},
+    {id = 1949, buy = 5, sell = 0, subType = 0, name = "scroll"},
+    {id = 1987, buy = 4, sell = 0, subType = 0, name = "bag"},
+    {id = 1988, buy = 9, sell = 0, subType = 0, name = "backpack"},
+    {id = 2554, buy = 9, sell = 0, subType = 0, name = "shovel"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_BUYITEM)
+npcType:onBuyItem(function(npc, player, itemId, subType, amount, ignoreCap, inBackpacks)
+    local shopItem = getShopItem(itemId, subType, true)
+    if not shopItem or shopItem.buy <= 0 then return false end
+    local totalCost = amount * shopItem.buy
+    if player:getTotalMoney() < totalCost then
+        player:sendCancelMessage("You don't have enough money.")
+        return false
+    end
+    local itemSubType = shopItem.subType or 1
+    local bought = doNpcSellItem(player:getId(), itemId, amount, itemSubType, ignoreCap, inBackpacks, ITEM_BACKPACK)
+    if bought == 0 then
+        player:sendCancelMessage("You do not have enough capacity.")
+        return false
+    end
+    player:removeTotalMoney(bought * shopItem.buy)
+    player:sendTextMessage(MESSAGE_INFO_DESCR, "Bought " .. bought .. "x " .. shopItem.name .. " for " .. (bought * shopItem.buy) .. " gold.")
+    return true
+end)
+
+npcType:eventType(NPCS_EVENT_SELLITEM)
+npcType:onSellItem(function(npc, player, itemId, subType, amount, ignoreEquipped)
+    local shopItem = getShopItem(itemId, subType, false)
+    if not shopItem or shopItem.sell <= 0 then return false end
+    local totalPrice = amount * shopItem.sell
+    local itemName = shopItem.name or ItemType(itemId):getName()
+    
+    local itemSubType = -1
+    if ItemType(itemId):isFluidContainer() then
+        itemSubType = subType
+    end
+    
+    if doPlayerSellItem(player:getId(), itemId, amount, totalPrice, itemSubType, ignoreEquipped) then
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Sold " .. amount .. "x " .. shopItem.name .. " for " .. (amount * shopItem.sell) .. " gold.")
+        return true
+    end
+    player:sendCancelMessage("You do not have this object.")
+    return false
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

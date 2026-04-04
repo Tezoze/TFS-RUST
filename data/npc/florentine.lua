@@ -1,0 +1,13 @@
+-- Florentine (ShopBuilder)
+local npc = ShopBuilder:new("Florentine",
+	{lookType = 140, lookHead = 2, lookBody = 91, lookLegs = 77, lookFeet = 2})
+npc:greetMessage("Welcome, |PLAYERNAME|. What can I do for you?")
+npc:addBuyable("bowl of evergreen flowers", 11428, 150)
+npc:addBuyable("flower bowl", 2102, 6)
+npc:addBuyable("god flowers", 2100, 5)
+npc:addBuyable("honey flower", 2103, 5)
+npc:addBuyable("indoor plant kit", 3929, 8)
+npc:addBuyable("potted flower", 2104, 5)
+npc:addVoice("Embellish your home with flowers!")
+npc:tradeMessage("Of course, just browse through my wares.")
+npc:register()

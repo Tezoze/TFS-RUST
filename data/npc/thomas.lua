@@ -1,0 +1,13 @@
+-- Thomas (ShopBuilder)
+local npc = ShopBuilder:new("Thomas",
+	{lookType = 128, lookHead = 116, lookBody = 11, lookLegs = 100, lookFeet = 76})
+npc:addBuyable("book", 1958, 15)
+npc:addBuyable("book", 1955, 15)
+npc:addBuyable("book", 1950, 15)
+npc:addBuyable("document", 1952, 12)
+npc:addBuyable("inkwell", 2600, 8)
+npc:addBuyable("parchment", 1948, 8)
+npc:addBuyable("scroll", 1949, 5)
+npc:addBuyable("spellbook", 2175, 150)
+npc:addBuyable("valentines card", 6538, 30)
+npc:register()

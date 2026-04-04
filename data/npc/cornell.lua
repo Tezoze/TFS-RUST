@@ -1,0 +1,10 @@
+-- Cornell (TravelBuilder)
+local npc = TravelBuilder:new("Cornell",
+	{lookType = 129, lookHead = 114, lookBody = 99, lookLegs = 40, lookFeet = 115, lookAddons = 2})
+npc:addDestination("Grimvale", {x = 33341, y = 31691, z = 7}, 100)
+npc:addDestination("Edron", {x = 33304, y = 31719, z = 7}, 100)
+npc:addVoice("Passage to Grimvale and Edron.")
+npc:greetMessage("Welcome on board, |PLAYERNAME|. Where can I {sail} you today, to {Grimvale} or {Edron}?")
+npc:farewellMessage("Good bye. Recommend us if you were satisfied with our service.")
+npc:walkawayMessage("Good bye then.")
+npc:register()

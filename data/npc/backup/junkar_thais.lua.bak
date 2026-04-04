@@ -1,0 +1,83 @@
+-- Junkar Thais - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Junkar Thais.xml
+-- Original Script: data/npc/scripts/Junkar Thais.lua
+
+local npcName = "Junkar"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a junkar")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 66})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+local voices = {
+	{ text = 'So much to do. So many things to be fixed.' },
+	{ text = 'Still so much work.' }
+}
+
+npcHandler:addModule(VoiceModule:new(voices))
+
+-- Travel
+local function addTravelKeyword(keyword, cost, destination)
+	local travelKeyword = keywordHandler:addKeyword({keyword}, StdModule.say, {npcHandler = npcHandler, text = text or 'So you wish for a trip to ' .. keyword:titleCase() .. '? |TRAVELCOST|?', cost = cost, discount = 'postman'})
+		travelKeyword:addChildKeyword({'yes'}, StdModule.travel, {npcHandler = npcHandler, premium = false, text = 'Full steam ahead!', cost = cost, discount = 'postman', destination = destination})
+		travelKeyword:addChildKeyword({'no'}, StdModule.say, {npcHandler = npcHandler, text = 'Well, then you stay here, simple as that.', reset = true})
+end
+
+addTravelKeyword('kazordoon', 100, Position(32660, 31957, 15))
+addTravelKeyword('robsons isle', 80, Position(32527, 32036, 14))
+addTravelKeyword('mines', 90, Position(32555, 32069, 10))
+
+keywordHandler:addKeyword({'passage'}, StdModule.say, {npcHandler = npcHandler, text = 'Where do you want me to take you? To {Kazordoon} or to {Robsons Isle}? Occasionally we can even reach the {mines} if they are cleared.'})
+
+npcHandler:setMessage(MESSAGE_GREET, "Welcome, |PLAYERNAME|! You are lucky that the service is running right now. Save your coal for the days to come though!")
+npcHandler:setMessage(MESSAGE_FAREWELL, "See you next time!")
+npcHandler:setMessage(MESSAGE_WALKAWAY, "<Sigh> No patience!")
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

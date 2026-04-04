@@ -1,0 +1,370 @@
+-- Sam - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Sam.xml
+-- Original Script: data/npc/scripts/Sam.lua
+
+local npcName = "Sam"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a sam")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 131, lookHead = 38, lookBody = 113, lookLegs = 67, lookFeet = 95})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+local voices = { {text = 'Hello there, adventurer! Need a deal in weapons or armor? I\'m your man!'} }
+npcHandler:addModule(VoiceModule:new(voices))
+
+local function creatureSayCallback(cid, type, msg)
+	if not npcHandler:isFocused(cid) then
+		return false
+	end
+
+	local player = Player(cid)
+	if msgcontains(msg, 'adorn')
+			or msgcontains(msg, 'outfit')
+			or msgcontains(msg, 'addon') then
+		local addonProgress = player:getStorageValue(Storage.OutfitQuest.Knight.AddonHelmet)
+		if addonProgress == 5 then
+			player:setStorageValue(Storage.OutfitQuest.Knight.MissionHelmet, 6)
+			player:setStorageValue(Storage.OutfitQuest.Knight.AddonHelmet, 6)
+			player:setStorageValue(Storage.OutfitQuest.Knight.AddonHelmetTimer, os.time() + 7200)
+			npcHandler:say('Oh, Gregor sent you? I see. It will be my pleasure to adorn your helmet. Please give me some time to finish it.', cid)
+		elseif addonProgress == 6 then
+			if player:getStorageValue(Storage.OutfitQuest.Knight.AddonHelmetTimer) < os.time() then
+				player:setStorageValue(Storage.OutfitQuest.Knight.MissionHelmet, 0)
+				player:setStorageValue(Storage.OutfitQuest.Knight.AddonHelmet, 7)
+				player:setStorageValue(Storage.OutfitQuest.Ref, math.min(0, player:getStorageValue(Storage.OutfitQuest.Ref) - 1))
+				player:addOutfitAddon(131, 2)
+				player:addOutfitAddon(139, 2)
+				player:getPosition():sendMagicEffect(CONST_ME_MAGIC_BLUE)
+				npcHandler:say('Just in time, |PLAYERNAME|. Your helmet is finished, I hope you like it.', cid)
+			else
+				npcHandler:say('Please have some patience, |PLAYERNAME|. Forging is hard work!', cid)
+			end
+		elseif addonProgress == 7 then
+			npcHandler:say('I think it\'s one of my masterpieces.', cid)
+		else
+			npcHandler:say('Sorry, but without the permission of Gregor I cannot help you with this matter.', cid)
+		end
+
+	elseif msgcontains(msg, "old backpack") or msgcontains(msg, "backpack") then
+		if player:getStorageValue(Storage.SamsOldBackpack) < 1 then
+			npcHandler:say("What? Are you telling me you found my old adventurer's backpack that I lost years ago??", cid)
+			npcHandler.topic[cid] = 1
+		end
+
+	elseif msgcontains(msg, '2000 steel shields') then
+		if player:getStorageValue(Storage.WhatAFoolishQuest.Questline) ~= 29
+				or player:getStorageValue(Storage.WhatAFoolishQuest.Contract) == 2 then
+			npcHandler:say('My offers are weapons, armors, helmets, legs, and shields. If you\'d like to see my offers, ask me for a {trade}.', cid)
+			return true
+		end
+
+		npcHandler:say('What? You want to buy 2000 steel shields??', cid)
+		npcHandler.topic[cid] = 2
+
+	elseif msgcontains(msg, 'contract') then
+		if player:getStorageValue(Storage.WhatAFoolishQuest.Contract) == 0 then
+			npcHandler:say('Have you signed the contract?', cid)
+			npcHandler.topic[cid] = 4
+		end
+
+	elseif msgcontains(msg, "yes") then
+		if npcHandler.topic[cid] == 1 then
+			if player:removeItem(3960, 1) then
+				npcHandler:say({
+					"Thank you very much! This brings back good old memories! Please, as a reward, travel to Kazordoon and ask my old friend Kroox to provide you a special dwarven armor. ...",
+					"I will mail him about you immediately. Just tell him, his old buddy Sam is sending you."
+				}, cid)
+				player:setStorageValue(Storage.SamsOldBackpack, 1)
+				player:addAchievement('Backpack Tourist')
+			else
+				npcHandler:say("You don't have it...", cid)
+			end
+			npcHandler.topic[cid] = 0
+		elseif npcHandler.topic[cid] == 2 then
+			npcHandler:say('I can\'t believe it. Finally I will be rich! I could move to Edron and enjoy my retirement! But ... wait a minute! I will not start working without a contract! Are you willing to sign one?', cid)
+			npcHandler.topic[cid] = 3
+		elseif npcHandler.topic[cid] == 3 then
+			player:addItem(7492, 1)
+			player:setStorageValue(Storage.WhatAFoolishQuest.Contract, 1)
+			npcHandler:say('Fine! Here is the contract. Please sign it. Talk to me about it again when you\'re done.', cid)
+			npcHandler.topic[cid] = 0
+		elseif npcHandler.topic[cid] == 4 then
+			if not player:removeItem(7491, 1) then
+				npcHandler:say('You don\'t have a signed contract.', cid)
+				npcHandler.topic[cid] = 0
+				return true
+			end
+
+			player:setStorageValue(Storage.WhatAFoolishQuest.Contract, 2)
+			npcHandler:say('Excellent! I will start working right away! Now that I am going to be rich, I will take the opportunity to tell some people what I REALLY think about them!', cid)
+			npcHandler.topic[cid] = 0
+		end
+
+	elseif msgcontains(msg, "no") then
+		if npcHandler.topic[cid] == 1 then
+			npcHandler:say("Then no.", cid)
+		elseif isInArray({2, 3, 4}, npcHandler.topic[cid]) then
+			npcHandler:say("This deal sounded too good to be true anyway.", cid)
+		end
+		npcHandler.topic[cid] = 0
+	end
+	return true
+end
+
+keywordHandler:addKeyword({'job'}, StdModule.say, {npcHandler = npcHandler, text = "I am the blacksmith. If you need weapons or armor - just ask me."})
+
+npcHandler:setMessage(MESSAGE_GREET, "Welcome to my shop, adventurer |PLAYERNAME|! I {trade} with weapons and armor.")
+npcHandler:setMessage(MESSAGE_FAREWELL, "Good bye and come again, |PLAYERNAME|.")
+npcHandler:setMessage(MESSAGE_WALKAWAY, "Good bye and come again.")
+
+npcHandler:setCallback(CALLBACK_MESSAGE_DEFAULT, creatureSayCallback)
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 2386, buy = 0, sell = 7, subType = 0, name = "axe"},
+    {id = 2378, buy = 0, sell = 80, subType = 0, name = "battle axe"},
+    {id = 2417, buy = 0, sell = 120, subType = 0, name = "battle hammer"},
+    {id = 2513, buy = 0, sell = 95, subType = 0, name = "battle shield"},
+    {id = 2449, buy = 0, sell = 5, subType = 0, name = "bone club"},
+    {id = 2450, buy = 0, sell = 20, subType = 0, name = "bone sword"},
+    {id = 2465, buy = 0, sell = 150, subType = 0, name = "brass armor"},
+    {id = 2460, buy = 0, sell = 30, subType = 0, name = "brass helmet"},
+    {id = 2478, buy = 0, sell = 49, subType = 0, name = "brass legs"},
+    {id = 2511, buy = 0, sell = 25, subType = 0, name = "brass shield"},
+    {id = 2395, buy = 0, sell = 118, subType = 0, name = "carlin sword"},
+    {id = 2464, buy = 0, sell = 70, subType = 0, name = "chain armor"},
+    {id = 2458, buy = 0, sell = 17, subType = 0, name = "chain helmet"},
+    {id = 2648, buy = 0, sell = 25, subType = 0, name = "chain legs"},
+    {id = 2382, buy = 0, sell = 1, subType = 0, name = "club"},
+    {id = 2651, buy = 0, sell = 1, subType = 0, name = "coat"},
+    {id = 2530, buy = 0, sell = 50, subType = 0, name = "copper shield"},
+    {id = 2416, buy = 0, sell = 50, subType = 0, name = "crowbar"},
+    {id = 2379, buy = 0, sell = 2, subType = 0, name = "dagger"},
+    {id = 2387, buy = 0, sell = 260, subType = 0, name = "double axe"},
+    {id = 2485, buy = 0, sell = 3, subType = 0, name = "doublet"},
+    {id = 2525, buy = 0, sell = 100, subType = 0, name = "dwarven shield"},
+    {id = 2392, buy = 0, sell = 1000, subType = 0, name = "fire sword"},
+    {id = 2381, buy = 0, sell = 400, subType = 0, name = "halberd"},
+    {id = 2380, buy = 0, sell = 4, subType = 0, name = "hand axe"},
+    {id = 2388, buy = 0, sell = 25, subType = 0, name = "hatchet"},
+    {id = 2459, buy = 0, sell = 150, subType = 0, name = "iron helmet"},
+    {id = 2650, buy = 0, sell = 1, subType = 0, name = "jacket"},
+    {id = 2412, buy = 0, sell = 35, subType = 0, name = "katana"},
+    {id = 2467, buy = 0, sell = 12, subType = 0, name = "leather armor"},
+    {id = 2643, buy = 0, sell = 2, subType = 0, name = "leather boots"},
+    {id = 2461, buy = 0, sell = 4, subType = 0, name = "leather helmet"},
+    {id = 2649, buy = 0, sell = 9, subType = 0, name = "leather legs"},
+    {id = 2480, buy = 0, sell = 22, subType = 0, name = "legion helmet"},
+    {id = 2397, buy = 0, sell = 51, subType = 0, name = "longsword"},
+    {id = 2398, buy = 0, sell = 30, subType = 0, name = "mace"},
+    {id = 2394, buy = 0, sell = 100, subType = 0, name = "morning star"},
+    {id = 2428, buy = 0, sell = 350, subType = 0, name = "orcish axe"},
+    {id = 2463, buy = 0, sell = 400, subType = 0, name = "plate armor"},
+    {id = 2647, buy = 0, sell = 115, subType = 0, name = "plate legs"},
+    {id = 2510, buy = 0, sell = 45, subType = 0, name = "plate shield"},
+    {id = 2384, buy = 0, sell = 5, subType = 0, name = "rapier"},
+    {id = 2385, buy = 0, sell = 12, subType = 0, name = "sabre"},
+    {id = 2483, buy = 0, sell = 75, subType = 0, name = "scale armor"},
+    {id = 2406, buy = 0, sell = 10, subType = 0, name = "short sword"},
+    {id = 2405, buy = 0, sell = 3, subType = 0, name = "sickle"},
+    {id = 2559, buy = 0, sell = 5, subType = 0, name = "small axe"},
+    {id = 2481, buy = 0, sell = 16, subType = 0, name = "soldier helmet"},
+    {id = 2383, buy = 0, sell = 240, subType = 0, name = "spike sword"},
+    {id = 2457, buy = 0, sell = 293, subType = 0, name = "steel helmet"},
+    {id = 2509, buy = 0, sell = 80, subType = 0, name = "steel shield"},
+    {id = 2484, buy = 0, sell = 25, subType = 0, name = "studded armor"},
+    {id = 2448, buy = 0, sell = 10, subType = 0, name = "studded club"},
+    {id = 2482, buy = 0, sell = 20, subType = 0, name = "studded helmet"},
+    {id = 2468, buy = 0, sell = 15, subType = 0, name = "studded legs"},
+    {id = 2526, buy = 0, sell = 16, subType = 0, name = "studded shield"},
+    {id = 2376, buy = 0, sell = 25, subType = 0, name = "sword"},
+    {id = 2410, buy = 0, sell = 2, subType = 0, name = "throwing knife"},
+    {id = 2377, buy = 0, sell = 450, subType = 0, name = "two handed sword"},
+    {id = 2473, buy = 0, sell = 66, subType = 0, name = "viking helmet"},
+    {id = 2531, buy = 0, sell = 85, subType = 0, name = "viking shield"},
+    {id = 2391, buy = 0, sell = 470, subType = 0, name = "war hammer"},
+    {id = 2512, buy = 0, sell = 5, subType = 0, name = "wooden shield"},
+    {id = 2386, buy = 20, sell = 0, subType = 0, name = "axe"},
+    {id = 2378, buy = 235, sell = 0, subType = 0, name = "battle axe"},
+    {id = 2417, buy = 350, sell = 0, subType = 0, name = "battle hammer"},
+    {id = 2450, buy = 75, sell = 0, subType = 0, name = "bone sword"},
+    {id = 2465, buy = 450, sell = 0, subType = 0, name = "brass armor"},
+    {id = 2460, buy = 120, sell = 0, subType = 0, name = "brass helmet"},
+    {id = 2478, buy = 195, sell = 0, subType = 0, name = "brass legs"},
+    {id = 2511, buy = 65, sell = 0, subType = 0, name = "brass shield"},
+    {id = 2395, buy = 473, sell = 0, subType = 0, name = "carlin sword"},
+    {id = 2464, buy = 200, sell = 0, subType = 0, name = "chain armor"},
+    {id = 2458, buy = 52, sell = 0, subType = 0, name = "chain helmet"},
+    {id = 2648, buy = 80, sell = 0, subType = 0, name = "chain legs"},
+    {id = 2382, buy = 5, sell = 0, subType = 0, name = "club"},
+    {id = 2651, buy = 8, sell = 0, subType = 0, name = "coat"},
+    {id = 2416, buy = 260, sell = 0, subType = 0, name = "crowbar"},
+    {id = 2379, buy = 5, sell = 0, subType = 0, name = "dagger"},
+    {id = 2485, buy = 16, sell = 0, subType = 0, name = "doublet"},
+    {id = 2525, buy = 500, sell = 0, subType = 0, name = "dwarven shield"},
+    {id = 2380, buy = 8, sell = 0, subType = 0, name = "hand axe"},
+    {id = 2459, buy = 390, sell = 0, subType = 0, name = "iron helmet"},
+    {id = 2650, buy = 12, sell = 0, subType = 0, name = "jacket"},
+    {id = 2467, buy = 35, sell = 0, subType = 0, name = "leather armor"},
+    {id = 2643, buy = 10, sell = 0, subType = 0, name = "leather boots"},
+    {id = 2461, buy = 12, sell = 0, subType = 0, name = "leather helmet"},
+    {id = 2649, buy = 10, sell = 0, subType = 0, name = "leather legs"},
+    {id = 2397, buy = 160, sell = 0, subType = 0, name = "longsword"},
+    {id = 2398, buy = 90, sell = 0, subType = 0, name = "mace"},
+    {id = 2394, buy = 430, sell = 0, subType = 0, name = "morning star"},
+    {id = 2463, buy = 1200, sell = 0, subType = 0, name = "plate armor"},
+    {id = 2510, buy = 125, sell = 0, subType = 0, name = "plate shield"},
+    {id = 2384, buy = 15, sell = 0, subType = 0, name = "rapier"},
+    {id = 2385, buy = 35, sell = 0, subType = 0, name = "sabre"},
+    {id = 2483, buy = 260, sell = 0, subType = 0, name = "scale armor"},
+    {id = 2406, buy = 26, sell = 0, subType = 0, name = "short sword"},
+    {id = 2405, buy = 7, sell = 0, subType = 0, name = "sickle"},
+    {id = 2481, buy = 110, sell = 0, subType = 0, name = "soldier helmet"},
+    {id = 2383, buy = 8000, sell = 0, subType = 0, name = "spike sword"},
+    {id = 2457, buy = 580, sell = 0, subType = 0, name = "steel helmet"},
+    {id = 2509, buy = 240, sell = 0, subType = 0, name = "steel shield"},
+    {id = 2484, buy = 90, sell = 0, subType = 0, name = "studded armor"},
+    {id = 2482, buy = 63, sell = 0, subType = 0, name = "studded helmet"},
+    {id = 2468, buy = 50, sell = 0, subType = 0, name = "studded legs"},
+    {id = 2526, buy = 50, sell = 0, subType = 0, name = "studded shield"},
+    {id = 2376, buy = 85, sell = 0, subType = 0, name = "sword"},
+    {id = 2410, buy = 25, sell = 0, subType = 0, name = "throwing knife"},
+    {id = 2377, buy = 950, sell = 0, subType = 0, name = "two handed sword"},
+    {id = 2473, buy = 265, sell = 0, subType = 0, name = "viking helmet"},
+    {id = 2531, buy = 260, sell = 0, subType = 0, name = "viking shield"},
+    {id = 2391, buy = 10000, sell = 0, subType = 0, name = "war hammer"},
+    {id = 2512, buy = 15, sell = 0, subType = 0, name = "wooden shield"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_BUYITEM)
+npcType:onBuyItem(function(npc, player, itemId, subType, amount, ignoreCap, inBackpacks)
+    local shopItem = getShopItem(itemId, subType, true)
+    if not shopItem or shopItem.buy <= 0 then return false end
+    local totalCost = amount * shopItem.buy
+    if player:getTotalMoney() < totalCost then
+        player:sendCancelMessage("You don't have enough money.")
+        return false
+    end
+    local itemSubType = shopItem.subType or 1
+    local bought = doNpcSellItem(player:getId(), itemId, amount, itemSubType, ignoreCap, inBackpacks, ITEM_BACKPACK)
+    if bought == 0 then
+        player:sendCancelMessage("You do not have enough capacity.")
+        return false
+    end
+    player:removeTotalMoney(bought * shopItem.buy)
+    player:sendTextMessage(MESSAGE_INFO_DESCR, "Bought " .. bought .. "x " .. shopItem.name .. " for " .. (bought * shopItem.buy) .. " gold.")
+    return true
+end)
+
+npcType:eventType(NPCS_EVENT_SELLITEM)
+npcType:onSellItem(function(npc, player, itemId, subType, amount, ignoreEquipped)
+    local shopItem = getShopItem(itemId, subType, false)
+    if not shopItem or shopItem.sell <= 0 then return false end
+    
+    local itemSubType = shopItem.subType or 0
+    if not ItemType(itemId):isFluidContainer() then
+        itemSubType = -1
+    end
+
+    if player:removeItem(itemId, amount, itemSubType, ignoreEquipped) then
+        player:addMoney(amount * shopItem.sell)
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Sold " .. amount .. "x " .. shopItem.name .. " for " .. (amount * shopItem.sell) .. " gold.")
+        return true
+    end
+    player:sendCancelMessage("You do not have this object.")
+    return false
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

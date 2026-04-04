@@ -1,0 +1,13 @@
+-- Gelagos (DialogueBuilder)
+local npc = DialogueBuilder:new("Gelagos",
+	{lookType = 128, lookHead = 114, lookBody = 91, lookLegs = 85})
+npc:greetMessage("Hehehe.")
+npc:farewellMessage("Hope you die and lose it.")
+npc:addResponse("job", "Barbarians are stupid.")
+npc:addResponse("name", "Bronbronbronbronbron. Bronnnn!")
+npc:addResponse("outfit", "Can I have free outfits?")
+npc:addResponse("gelagos", "That's me.")
+npc:addResponse("brother", "Ajax is even more stupid.")
+npc:addResponse("savage", "You are as stupid as Bron.")
+npc:addResponse("cyclops", "Any cyclops is smarter than Bron.")
+npc:register()

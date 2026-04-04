@@ -1,0 +1,84 @@
+-- Edron Guardsman - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Edron Guardsman.xml
+-- Original Script: data/npc/scripts/Edron Guardsman.lua
+
+local npcName = "Edron Guardsman"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a edron guardsman")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(0)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 131, lookHead = 38, lookBody = 19, lookLegs = 57, lookFeet = 95, lookAddons = 1})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Per-NPC handler storage to prevent state sharing between multiple instances
+local npcHandlers = {}
+
+local function getHandlers(npc)
+	local npcId = npc:getId()
+	if not npcHandlers[npcId] then
+		npcHandlers[npcId] = {
+			keywordHandler = KeywordHandler:new(),
+			npcHandler = nil
+		}
+		npcHandlers[npcId].npcHandler = NpcHandler:new(npcHandlers[npcId].keywordHandler)
+		
+		local handler = npcHandlers[npcId].npcHandler
+		
+		local function greetCallback(cid)
+			handler:say('Move on!', cid)
+			handler:releaseFocus(cid)
+			handler:resetNpc(cid)
+			return false
+		end
+		
+		handler:setCallback(CALLBACK_GREET, greetCallback)
+		handler:addModule(FocusModule:new())
+	end
+	return npcHandlers[npcId]
+end
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    local handlers = getHandlers(npc)
+    handlers.npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:register()

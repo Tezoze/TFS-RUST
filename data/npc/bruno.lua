@@ -1,0 +1,13 @@
+-- Bruno (DialogueBuilder)
+local npc = DialogueBuilder:new("Bruno",
+	{lookType = 128, lookHead = 94, lookBody = 66, lookLegs = 114, lookFeet = 95})
+npc:greetMessage("Ahoi, |PLAYERNAME|. You want to buy some fresh fish?")
+npc:farewellMessage("Good bye and come again!")
+npc:addResponse("offer", "Well, I sell freshly caught fish. You like some? Of course, you can buy more than one at once. *grin* Just ask me for a {trade}.")
+npc:addResponse("buy", "Well, I sell freshly caught fish. You like some? Of course, you can buy more than one at once. *grin* Just ask me for a {trade}.")
+npc:addResponse("fish", "Well, I sell freshly caught fish. You like some? Of course, you can buy more than one at once. *grin* Just ask me for a {trade}.")
+npc:addResponse("name", "My name is Bruno.")
+npc:addResponse("job", "My job is to catch fish and to sell them here.")
+npc:addResponse("marlene", "Ah yes, my lovely wife. God forgive her, but she can't stop talking. So my work is a great rest for my poor ears. *laughs loudly*")
+npc:addResponse("graubart", "I like this old salt. I learned much from him. Whatever. You like some fish? *grin*")
+npc:register()

@@ -1,0 +1,11 @@
+-- Thorgrin (TravelBuilder)
+local npc = TravelBuilder:new("Thorgrin",
+	{lookType = 66})
+npc:greetMessage("Welcome, |PLAYERNAME|! May earth protect you on the rocky grounds. If you need a {passage} back, I can help you.")
+npc:farewellMessage("Good bye.")
+npc:walkawayMessage("Good bye then.")
+npc:addDestination("Kazordoon", {x = 32659, y = 31957, z = 15}, 210)
+npc:addDestination("Cormaya", {x = 33310, y = 31988, z = 15}, 110)
+npc:addKeyword("passage", "Do you want me take you to {Cormaya} or {Kazordoon}?")
+npc:addVoice("Ask me for a passage...")
+npc:register()

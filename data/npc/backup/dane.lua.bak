@@ -1,0 +1,143 @@
+-- Dane - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Dane.xml
+-- Original Script: data/npc/scripts/Dane.lua
+
+local npcName = "Dane"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a dane")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 136, lookHead = 79, lookBody = 97, lookLegs = 86, lookFeet = 96})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+keywordHandler:addKeyword({'job'}, StdModule.say, {npcHandler = npcHandler, text = "I am the owner of this place of relaxation."})
+keywordHandler:addKeyword({'wave cellar'}, StdModule.say, {npcHandler = npcHandler, text = "It's pretty, isn't it?"})
+keywordHandler:addKeyword({'name'}, StdModule.say, {npcHandler = npcHandler, text = "I am Dane."})
+keywordHandler:addKeyword({'time'}, StdModule.say, {npcHandler = npcHandler, text = "It is exactly |TIME|."})
+keywordHandler:addKeyword({'offer'}, StdModule.say, {npcHandler = npcHandler, text = "I can offer you milk, water, and lemonade."})
+keywordHandler:addKeyword({'alcohol'}, StdModule.say, {npcHandler = npcHandler, text = "Alcohol makes people too aggressive. We don't need such stuff in Carlin."})
+keywordHandler:addKeyword({'beer'}, StdModule.say, {npcHandler = npcHandler, text = "Alcohol makes people too aggressive. We don't need such stuff in Carlin."})
+keywordHandler:addKeyword({'wine'}, StdModule.say, {npcHandler = npcHandler, text = "Alcohol makes people too aggressive. We don't need such stuff in Carlin."})
+
+npcHandler:setMessage(MESSAGE_GREET, "Welcome to the wave cellar, |PLAYERNAME|.")
+npcHandler:setMessage(MESSAGE_FAREWELL, "Please come back from time to time.")
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 2007, buy = 12, sell = 0, subType = 5, name = "bottle of lemonade"},
+    {id = 2007, buy = 8, sell = 0, subType = 6, name = "bottle of milk"},
+    {id = 2007, buy = 2, sell = 0, subType = 1, name = "bottle of water"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_BUYITEM)
+npcType:onBuyItem(function(npc, player, itemId, subType, amount, ignoreCap, inBackpacks)
+    local shopItem = getShopItem(itemId, subType, true)
+    if not shopItem or shopItem.buy <= 0 then return false end
+    local totalCost = amount * shopItem.buy
+    if player:getTotalMoney() < totalCost then
+        player:sendCancelMessage("You don't have enough money.")
+        return false
+    end
+    local itemSubType = shopItem.subType or 1
+    local bought = doNpcSellItem(player:getId(), itemId, amount, itemSubType, ignoreCap, inBackpacks, ITEM_BACKPACK)
+    if bought == 0 then
+        player:sendCancelMessage("You do not have enough capacity.")
+        return false
+    end
+    player:removeTotalMoney(bought * shopItem.buy)
+    player:sendTextMessage(MESSAGE_INFO_DESCR, "Bought " .. bought .. "x " .. shopItem.name .. " for " .. (bought * shopItem.buy) .. " gold.")
+    return true
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

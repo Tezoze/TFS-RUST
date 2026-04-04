@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<creaturescripts>
+<!-- TFS Standard -->
+	<event type="login" name="PlayerLogin" script="login.lua" />
+	<event type="logout" name="PlayerLogout" script="logout.lua" />
+	<event type="logout" name="KillingInTheNameOfLogout" script="quests/killing in the name of/kills.lua" />
+	<event type="login" name="FirstItems" script="firstitems.lua" />
+	<event type="login" name="OfflineTraining" script="offlinetraining.lua" />
+	<event type="death" name="PlayerDeath" script="playerdeath.lua" />
+	<event type="death" name="DropLoot" script="droploot.lua" />
+	<event type="extendedopcode" name="ExtendedOpcode" script="extendedopcode.lua" />
+<!--  Rookgaard  -->
+<event type="advance" name="AdvanceRookgaard" script="rookgaard/advance.lua"/>
+<event type="advance" name="UpdateClientOnAdvanceLevel" script="update_client_on_advance_level.lua"/>
+<!--  Elemental Spheres Quest  -->
+<event type="kill" name="ElementalSpheresOverlords" script="quests/elemental spheres/OverlordsKill.lua"/>
+<!--  Hidden City Quest  -->
+<event type="kill" name="PythiusTheRotten" script="quests/Hidden City/PythiusTheRotten.lua"/>
+<!--  In Service Of Yalahar Quest  -->
+<event type="kill" name="ServiceOfYalaharAzerus" script="quests/in service of yalahar/AzerusKill.lua"/>
+<event type="kill" name="ServiceOfYalaharDiseasedTrio" script="quests/in service of yalahar/DiseasedTrioKill.lua"/>
+<event type="kill" name="ServiceOfYalaharQuaraLeaders" script="quests/in service of yalahar/QuaraLeadersKill.lua"/>
+<!--  Inquisition Quest  -->
+<event type="kill" name="InquisitionBosses" script="quests/inquisition/inquisitionQuestBosses.lua"/>
+<event type="kill" name="InquisitionUngreez" script="quests/inquisition/inquisitionQuestUngreez.lua"/>
+<!--  Killing In The Name Of Quest  -->
+<event type="kill" name="KillingInTheNameOfKills" script="quests/killing in the name of/kills.lua"/>
+<event type="kill" name="KillingInTheNameOfKillss" script="quests/killing in the name of/necro.lua"/>
+<event type="kill" name="KillingInTheNameOfKillsss" script="quests/killing in the name of/minos.lua"/>
+<!--  Secret Service Quest  -->
+<event type="kill" name="SecretServiceBlackKnight" script="quests/Secret Service Quest/blackKnight.lua"/>
+<!--  Svargrond Arena: Killing a boss  -->
+<event type="kill" name="SvargrondArenaKill" script="quests/svargrond arena/arena_kill.lua"/>
+<!--  The New Frontier Quest  -->
+<event type="kill" name="NewFrontierShardOfCorruption" script="quests/the new frontier/ShardOfCorruption.lua"/>
+<event type="kill" name="NewFrontierTirecz" script="quests/the new frontier/TireczKill.lua"/>
+<!--  Thieves Guild Quest  -->
+<event type="kill" name="ThievesGuildNomad" script="quests/Thieves Guild Quest/nomad.lua"/>
+<!--  Wrath of the Emperor Quest  -->
+<event type="kill" name="WotELizardKill" script="quests/wrath of the emperor/lizardKill.lua"/>
+<event type="kill" name="WotEKeeper" script="quests/wrath of the emperor/keeper.lua"/>
+<event type="kill" name="WotEBosses" script="quests/wrath of the emperor/bosses.lua"/>
+<event type="kill" name="WotEZalamon" script="quests/wrath of the emperor/zalamon.lua"/>
+<!--  Blood Brothers Quest  -->
+<event type="kill" name="BloodBrothersVampires" script="quests/blood_brothers/vampireBrothersKill.lua"/>
+<!--  An Uneasy Alliance Quest  -->
+<event type="kill" name="UneasyAllianceRenegadeOrc" script="quests/An Uneasy Alliance/RenegadeOrcKill.lua"/>
+<!-- Roll & Attribute Damage -->
+<event type="healthchange" name="rollHealth" script="attributes.lua"/>
+<event type="manachange" name="rollMana" script="attributes.lua"/>
+</creaturescripts>

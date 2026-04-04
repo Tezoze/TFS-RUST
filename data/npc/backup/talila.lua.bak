@@ -1,0 +1,219 @@
+-- Talila - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Talila.xml
+-- Original Script: data/npc/scripts/Talila.lua
+
+local npcName = "Talila"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a talila")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 982})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+local voices = { {text = 'Are you interested in a trade?'},{text = 'Dont touch the wings, theyre delicate.'},{text = 'Tralllalalla.'} }
+npcHandler:addModule(VoiceModule:new(voices))
+
+npcHandler:setMessage(MESSAGE_GREET, "Greatings, mortal beigin.")
+npcHandler:setMessage(MESSAGE_SENDTRADE, "Yes, i have some potions and runes if you are interested. Or do you want to buy only potions or only runes?oh if you want sell or buy gems, your may also ask me.")
+npcHandler:setMessage(MESSAGE_FAREWELL, "May enlightenment be your path, |PLAYERNAME|.")
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 2144, buy = 0, sell = 280, subType = 0, name = "black pearl"},
+    {id = 2745, buy = 0, sell = 200, subType = 0, name = "blue rose"},
+    {id = 29003, buy = 0, sell = 2000, subType = 0, name = "butterfly ring"},
+    {id = 29001, buy = 0, sell = 250, subType = 0, name = "colourful snail shell"},
+    {id = 29000, buy = 0, sell = 200, subType = 0, name = "dandelion seeds"},
+    {id = 29005, buy = 0, sell = 5000, subType = 0, name = "dream blossom staff"},
+    {id = 7634, buy = 0, sell = 5, subType = 0, name = "empty potion flask"},
+    {id = 7635, buy = 0, sell = 5, subType = 0, name = "empty potion flask"},
+    {id = 7636, buy = 0, sell = 5, subType = 0, name = "empty potion flask"},
+    {id = 28999, buy = 0, sell = 200, subType = 0, name = "fairy wings"},
+    {id = 2801, buy = 0, sell = 20, subType = 0, name = "fern"},
+    {id = 7632, buy = 0, sell = 3000, subType = 0, name = "green giant shimmering pearl"},
+    {id = 7633, buy = 0, sell = 3000, subType = 0, name = "brown giant shimmering pearl"},
+    {id = 9971, buy = 0, sell = 5000, subType = 0, name = "gold ingot"},
+    {id = 2157, buy = 0, sell = 850, subType = 0, name = "gold nugget"},
+    {id = 5799, buy = 0, sell = 3000, subType = 0, name = "golden figurine"},
+    {id = 8873, buy = 0, sell = 3000, subType = 0, name = "hibiscus dress"},
+    {id = 29036, buy = 0, sell = 50, subType = 0, name = "leaf star"},
+    {id = 5015, buy = 0, sell = 5000, subType = 0, name = "mandrake"},
+    {id = 2074, buy = 0, sell = 150, subType = 0, name = "panpipes"},
+    {id = 2803, buy = 0, sell = 10, subType = 0, name = "powder herb"},
+    {id = 2744, buy = 0, sell = 10, subType = 0, name = "red rose"},
+    {id = 2802, buy = 0, sell = 10, subType = 0, name = "sling herb"},
+    {id = 2150, buy = 0, sell = 200, subType = 0, name = "small amethyst"},
+    {id = 2145, buy = 0, sell = 300, subType = 0, name = "small diamond"},
+    {id = 2149, buy = 0, sell = 250, subType = 0, name = "small emerald"},
+    {id = 7762, buy = 0, sell = 200, subType = 0, name = "small enchanted amethyst"},
+    {id = 7761, buy = 0, sell = 250, subType = 0, name = "small enchanted emerald"},
+    {id = 7760, buy = 0, sell = 250, subType = 0, name = "small enchanted ruby"},
+    {id = 7759, buy = 0, sell = 250, subType = 0, name = "small enchanted sapphire"},
+    {id = 2147, buy = 0, sell = 250, subType = 0, name = "small ruby"},
+    {id = 2146, buy = 0, sell = 250, subType = 0, name = "small sapphire"},
+    {id = 9970, buy = 0, sell = 200, subType = 0, name = "small topaz"},
+    {id = 2800, buy = 0, sell = 15, subType = 0, name = "star herb"},
+    {id = 2799, buy = 0, sell = 20, subType = 0, name = "stone herb"},
+    {id = 8874, buy = 0, sell = 1500, subType = 0, name = "summer dress"},
+    {id = 2006, buy = 0, sell = 5, subType = 0, name = "vial"},
+    {id = 2121, buy = 0, sell = 100, subType = 0, name = "wedding ring"},
+    {id = 2143, buy = 0, sell = 160, subType = 0, name = "white pearl"},
+    {id = 28996, buy = 0, sell = 120, subType = 0, name = "wild flowers"},
+    {id = 2664, buy = 0, sell = 5000, subType = 0, name = "wood cape"},
+    {id = 29004, buy = 0, sell = 12000, subType = 0, name = "wooden spellbook"},
+    {id = 2144, buy = 280, sell = 0, subType = 0, name = "black pearl"},
+    {id = 5807, buy = 2000, sell = 0, subType = 0, name = "bronze goblet"},
+    {id = 2130, buy = 6600, sell = 0, subType = 0, name = "golden amulet"},
+    {id = 5805, buy = 5000, sell = 0, subType = 0, name = "golden goblet"},
+    {id = 7591, buy = 190, sell = 0, subType = 0, name = "great health potion"},
+    {id = 7590, buy = 120, sell = 0, subType = 0, name = "great mana potion"},
+    {id = 8472, buy = 190, sell = 0, subType = 0, name = "great spirit potion"},
+    {id = 7618, buy = 34, sell = 0, subType = 0, name = "health potion"},
+    {id = 7620, buy = 50, sell = 0, subType = 0, name = "mana potion"},
+    {id = 2133, buy = 3560, sell = 0, subType = 0, name = "ruby necklace"},
+    {id = 5806, buy = 3000, sell = 0, subType = 0, name = "silver goblet"},
+    {id = 2150, buy = 400, sell = 0, subType = 0, name = "small amethyst"},
+    {id = 2145, buy = 600, sell = 0, subType = 0, name = "small diamond"},
+    {id = 2149, buy = 500, sell = 0, subType = 0, name = "small emerald"},
+    {id = 2147, buy = 500, sell = 0, subType = 0, name = "small ruby"},
+    {id = 2146, buy = 500, sell = 0, subType = 0, name = "small sapphire"},
+    {id = 7588, buy = 75, sell = 0, subType = 0, name = "strong health potion"},
+    {id = 7589, buy = 80, sell = 0, subType = 0, name = "strong mana potion"},
+    {id = 8473, buy = 310, sell = 0, subType = 0, name = "ultimate health potion"},
+    {id = 7734, buy = 50, sell = 0, subType = 0, name = "watering can"},
+    {id = 2121, buy = 990, sell = 0, subType = 0, name = "wedding ring"},
+    {id = 2143, buy = 320, sell = 0, subType = 0, name = "white pearl"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_BUYITEM)
+npcType:onBuyItem(function(npc, player, itemId, subType, amount, ignoreCap, inBackpacks)
+    local shopItem = getShopItem(itemId, subType, true)
+    if not shopItem or shopItem.buy <= 0 then return false end
+    local totalCost = amount * shopItem.buy
+    if player:getTotalMoney() < totalCost then
+        player:sendCancelMessage("You don't have enough money.")
+        return false
+    end
+    local itemSubType = shopItem.subType or 1
+    local bought = doNpcSellItem(player:getId(), itemId, amount, itemSubType, ignoreCap, inBackpacks, ITEM_BACKPACK)
+    if bought == 0 then
+        player:sendCancelMessage("You do not have enough capacity.")
+        return false
+    end
+    player:removeTotalMoney(bought * shopItem.buy)
+    player:sendTextMessage(MESSAGE_INFO_DESCR, "Bought " .. bought .. "x " .. shopItem.name .. " for " .. (bought * shopItem.buy) .. " gold.")
+    return true
+end)
+
+npcType:eventType(NPCS_EVENT_SELLITEM)
+npcType:onSellItem(function(npc, player, itemId, subType, amount, ignoreEquipped)
+    local shopItem = getShopItem(itemId, subType, false)
+    if not shopItem or shopItem.sell <= 0 then return false end
+    local totalPrice = amount * shopItem.sell
+    local itemName = shopItem.name or ItemType(itemId):getName()
+    
+    local itemSubType = -1
+    if ItemType(itemId):isFluidContainer() then
+        itemSubType = subType
+    end
+    
+    if doPlayerSellItem(player:getId(), itemId, amount, totalPrice, itemSubType, ignoreEquipped) then
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Sold " .. amount .. "x " .. shopItem.name .. " for " .. (amount * shopItem.sell) .. " gold.")
+        return true
+    end
+    player:sendCancelMessage("You do not have this object.")
+    return false
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

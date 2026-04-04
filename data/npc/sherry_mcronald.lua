@@ -1,0 +1,13 @@
+-- Sherry McRonald (ShopBuilder)
+local npc = ShopBuilder:new("Sherry McRonald",
+	{lookType = 136, lookHead = 78, lookBody = 94, lookLegs = 19, lookFeet = 97})
+npc:greetMessage("Hello |PLAYERNAME|! Welcome to our humble farm.")
+npc:farewellMessage("Grace our home with another visit soon, |PLAYERNAME|.")
+npc:walkawayMessage("What a strange person.")
+npc:addSellable("bread", 2689, 2)
+npc:addBuyable("cheese", 2696, 5)
+npc:addBuyable("cherry", 2679, 1)
+npc:addBuyable("melon", 2682, 8)
+npc:addBuyable("pumpkin", 2683, 10)
+npc:addVoice("Isn't this a beautiful day? Perfect for farming.")
+npc:register()

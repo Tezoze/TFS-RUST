@@ -1,0 +1,215 @@
+-- Kawill - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Kawill.xml
+-- Original Script: data/npc/scripts/Kawill.lua
+
+local npcName = "Kawill"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a kawill")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 66})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+-- Kawill Blessing (First Part)
+local blessKeyword = keywordHandler:addKeyword({'spark of the phoenix'}, function(cid, message, keywords, parameters, node)
+	local npcHandler = parameters.npcHandler
+	if not npcHandler:isFocused(cid) then
+		return false
+	end
+	
+	local player = Player(cid)
+	if not player then
+		return false
+	end
+	
+	if player:getStorageValue(Storage.KawillBlessing) == 1 then
+		npcHandler:say('You have already received my part of the Spark of the Phoenix. Now you must visit Pydar in the fire temple to receive his part.', cid)
+		return true
+	end
+	
+	if player:hasBlessing(4) then
+		npcHandler:say('You have already received the complete Spark of the Phoenix blessing.', cid)
+		return true
+	end
+	
+	npcHandler:say('This blessing has two parts. You must obtain both parts of the blessing in the correct order (first Kawill, then Pydar). Do you wish to receive my part of the Spark of the Phoenix?', cid)
+	npcHandler.topic[cid] = 1
+	return true
+end, {npcHandler = npcHandler})
+	blessKeyword:addChildKeyword({'yes'}, function(cid, message, keywords, parameters, node)
+		local npcHandler = parameters.npcHandler
+		if not npcHandler:isFocused(cid) then
+			return false
+		end
+		
+		local player = Player(cid)
+		if player:getStorageValue(Storage.KawillBlessing) == 1 then
+			npcHandler:say('You have already received my part of the Spark of the Phoenix.', cid)
+		else
+			player:setStorageValue(Storage.KawillBlessing, 1)
+			player:getPosition():sendMagicEffect(CONST_ME_MAGIC_BLUE)
+			npcHandler:say('So receive the blessing of the life-giving earth, pilgrim. Now visit Pydar in the fire temple to receive his part and complete the Spark of the Phoenix.', cid)
+		end
+		npcHandler:resetNpc(cid)
+		return true
+	end, {npcHandler = npcHandler})
+	blessKeyword:addChildKeyword({''}, StdModule.say, {npcHandler = npcHandler, text = 'Ok. If you don\'t want it...', reset = true})
+keywordHandler:addAliasKeyword({'phoenix'})
+keywordHandler:addAliasKeyword({'spark'})
+
+-- Pilgrimage of Ashes Mission
+local missionKeyword = keywordHandler:addKeyword({'mission'}, function(cid, message, keywords, parameters, node)
+	local npcHandler = parameters.npcHandler
+	if not npcHandler:isFocused(cid) then
+		return false
+	end
+
+	local player = Player(cid)
+	if not player then
+		return false
+	end
+
+	-- Check if player has started the Pilgrimage of Ashes quest
+	if player:getStorageValue(Storage.PilgrimageOfAshes.Questline) == 4 then
+		-- Check if player has already completed this blessing
+		if player:getStorageValue(Storage.PilgrimageOfAshes.Mission04) >= 3 then
+			npcHandler:say("You have already received the Spark of the Phoenix blessing. You should continue your pilgrimage to the next sacred place.", cid)
+			return true
+		end
+
+		-- Check if player has already completed the full blessing
+		if player:hasBlessing(4) then
+			npcHandler:say("You have already received the complete Spark of the Phoenix blessing.", cid)
+			return true
+		end
+
+		-- Set mission state to 1 (instruction) if not already set
+		if player:getStorageValue(Storage.PilgrimageOfAshes.Mission04) < 1 then
+			player:setStorageValue(Storage.PilgrimageOfAshes.Mission04, 1)
+		end
+
+		npcHandler:say('The Spark of the Phoenix is given by me and by the great pyromancer in the nearby fire temple. Do you wish to receive my part of the Spark of the Phoenix?', cid)
+		npcHandler.topic[cid] = 1000  -- Using 1000 as topic identifier for mission blessing
+		return true
+	elseif player:getStorageValue(Storage.PilgrimageOfAshes.Questline) < 4 then
+		npcHandler:say("I sense you are not ready for my blessing yet. You should continue your pilgrimage and return when you have reached the appropriate stage.", cid)
+		return true
+	else
+		-- Not on pilgrimage, handle regular blessing
+		if player:getStorageValue(Storage.KawillBlessing) == 1 then
+			npcHandler:say("You have already received my part of the Spark of the Phoenix. Now you must visit Pydar in the fire temple to receive his part.", cid)
+			return true
+		end
+
+		if player:hasBlessing(4) then
+			npcHandler:say("You have already received the complete Spark of the Phoenix blessing.", cid)
+			return true
+		end
+
+		npcHandler:say('The Spark of the Phoenix is given by me and by the great pyromancer in the nearby fire temple. Do you wish to receive my part of the Spark of the Phoenix?', cid)
+		npcHandler.topic[cid] = 1000  -- Using 1000 as topic identifier for mission blessing
+		return true
+	end
+end, {npcHandler = npcHandler})
+	missionKeyword:addChildKeyword({'yes'}, function(cid, message, keywords, parameters, node)
+		local npcHandler = parameters.npcHandler
+		if not npcHandler:isFocused(cid) then
+			return false
+		end
+
+		local player = Player(cid)
+
+		if player:getStorageValue(Storage.KawillBlessing) == 1 then
+			npcHandler:say('You have already received my part of the Spark of the Phoenix.', cid)
+		else
+			player:setStorageValue(Storage.KawillBlessing, 1)
+			player:setStorageValue(Storage.PilgrimageOfAshes.Mission04, 2)
+			player:addMapMark(Position(32651, 31893, 11), MAPMARK_GREENEAST, "Fire Temple")
+			player:getPosition():sendMagicEffect(CONST_ME_MAGIC_BLUE)
+			npcHandler:say('So receive the blessing of the life-giving earth, pilgrim. Now visit Pydar in the fire temple to complete the Spark of the Phoenix blessing.', cid)
+		end
+		npcHandler.topic[cid] = 0
+		npcHandler:resetNpc(cid)
+		return true
+	end, {npcHandler = npcHandler})
+	missionKeyword:addChildKeyword({''}, StdModule.say, {npcHandler = npcHandler, text = 'Fine. You are free to decline my offer.', reset = true})
+
+-- Basic
+keywordHandler:addKeyword({'god'}, StdModule.say, {npcHandler = npcHandler, text = 'The gods are treacherous and vain. They want to use us like they did in the past. Only the elements can be trusted, because all they want is for nature to run its set course.'})
+keywordHandler:addKeyword({'job'}, StdModule.say, {npcHandler = npcHandler, text = 'I am the great geomancer of dwarvenkind.'})
+keywordHandler:addKeyword({'geomancer'}, StdModule.say, {npcHandler = npcHandler, text = 'We investigate the will of the earth. It is our duty to make sure things to work in their natural way.'})
+keywordHandler:addKeyword({'life'}, StdModule.say, {npcHandler = npcHandler, text = 'Life is born by earth and fed by earth.'})
+keywordHandler:addKeyword({'name'}, StdModule.say, {npcHandler = npcHandler, text = 'I am Kawill Marbleeye, Son of Earth, from the Molten Rock.'})
+keywordHandler:addKeyword({'quest'}, StdModule.say, {npcHandler = npcHandler, text = 'There\'s nothing I need, better ask others.'})
+keywordHandler:addKeyword({'tibia'}, StdModule.say, {npcHandler = npcHandler, text = 'Nice world in general. It\'s a shame there is so much water ruining the general impression.'})
+keywordHandler:addKeyword({'time'}, StdModule.say, {npcHandler = npcHandler, text = 'Time is not of importance.'})
+keywordHandler:addKeyword({'monsters'}, StdModule.say, {npcHandler = npcHandler, text = 'May the earth swallow them all!'})
+keywordHandler:addKeyword({'excalibug'}, StdModule.say, {npcHandler = npcHandler, text = 'Ah, a weapon to be feared by man, beast and god alike, jawoll. He who wields it will be both blessed and cursed at the same time.'})
+keywordHandler:addKeyword({'ferumbras'}, StdModule.say, {npcHandler = npcHandler, text = 'The day will come when he finally bites the dust.'})
+keywordHandler:addKeyword({'kazordoon'}, StdModule.say, {npcHandler = npcHandler, text = 'By using the powers of fire and earth we forced the river that once wound its way through the big old one in other directions, and created our home.'})
+keywordHandler:addKeyword({'bezil'}, StdModule.say, {npcHandler = npcHandler, text = 'Bezil and Nezil have pawn and equpiment shop with an amazing stock.'})
+keywordHandler:addKeyword({'nezil'}, StdModule.say, {npcHandler = npcHandler, text = 'Bezil and Nezil have pawn and equpiment shop with an amazing stock.'})
+keywordHandler:addKeyword({'duria'}, StdModule.say, {npcHandler = npcHandler, text = 'The first knight of dwarvenkind is a fine woman.'})
+keywordHandler:addKeyword({'etzel'}, StdModule.say, {npcHandler = npcHandler, text = 'I fear the sorcerers focus on the destructive forces of fire. They forget about the protection earth could provide.'})
+keywordHandler:addKeyword({'jimbin'}, StdModule.say, {npcHandler = npcHandler, text = 'He is a jolly fellow and one of the oldest dwarves alive.'})
+keywordHandler:addKeyword({'kroox'}, StdModule.say, {npcHandler = npcHandler, text = 'He is a fine smith and his armour may save your neck one day.'})
+keywordHandler:addKeyword({'maryza'}, StdModule.say, {npcHandler = npcHandler, text = 'She is a fine cook, jawoll.'})
+keywordHandler:addKeyword({'uzgod'}, StdModule.say, {npcHandler = npcHandler, text = 'Uzgod is a blacksmith and understands the ways of his element well.'})
+keywordHandler:addKeyword({'kruzak'}, StdModule.say, {npcHandler = npcHandler, text = 'The emperor has rarely visited the temple district in the last years. He should care more about spirituality then about politics. Jawoll.'})
+keywordHandler:addKeyword({'emperor'}, StdModule.say, {npcHandler = npcHandler, text = 'The emperor has rarely visited the temple district in the last years. He should care more about spirituality then about politics. Jawoll.'})
+keywordHandler:addKeyword({'durin'}, StdModule.say, {npcHandler = npcHandler, text = 'The celestial paladin, the protector of our race. The only divine being we care for and the only one who still cares for dwarfs.'})
+keywordHandler:addKeyword({'fire'}, StdModule.say, {npcHandler = npcHandler, text = 'Where earth is giving, fire is taking. That is the way of the elements.'})
+keywordHandler:addKeyword({'earth'}, StdModule.say, {npcHandler = npcHandler, text = 'The lifegiving earth protects us, feeds us and takes us home after death.'})
+keywordHandler:addKeyword({'the big old one'}, StdModule.say, {npcHandler = npcHandler, text = 'The mountain we live in is called the big old one. It\'s the mountain of mountains, and it isand like a friend and protector to our race.'})
+
+npcHandler:setMessage(MESSAGE_GREET, 'Welcome |PLAYERNAME|! May earth protect you!')
+npcHandler:setMessage(MESSAGE_FAREWELL, 'Earth under your feet, |PLAYERNAME|!')
+npcHandler:setMessage(MESSAGE_WALKAWAY, 'Earth under your feet, pilgrim. What brings you here?')
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

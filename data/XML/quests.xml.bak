@@ -1,0 +1,680 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<quests>
+<!-- The Explorer Society quest has been moved to data/scripts/quests/explorer_society.lua -->
+<!-- Factions quest migrated to data/scripts/quests/Ankrahmun/factions.lua -->
+<!-- Friends and Traders quest migrated to data/scripts/quests/Ankrahmun/friends_and_traders.lua -->
+<quest name="Hot Cuisine" startstorageid="50022" startstoragevalue="1">
+     <mission name="Hot Cuisine" storageid="50024" startvalue="1" endvalue="16">
+         <missionstate id="1" description="You've become the apprentice of Maltre Jean Pierre. The first dish he will teach you to prepare is Rotworm Stew. Bring him the ingredients he told you."/>
+         <missionstate id="2" description="You have completed the first dish, the second dish he will teach you to prepare is Hydra Tongue Salad. Bring him the ingredients he told you."/>
+         <missionstate id="3" description="You have completed the second dish, the third dish he will teach you to prepare is Roasted Dragon Wings. Bring him the ingredients he told you."/>
+         <missionstate id="4" description="You have completed the third dish, the fourth dish he will teach you to prepare is Tropical Fried Terrorbird. Bring him the ingredients he told you."/>
+         <missionstate id="5" description="You have completed the fourth dish, the fifth dish he will teach you to prepare is Banana Chocolate Shake. Bring him the ingredients he told you."/>
+         <missionstate id="6" description="You have completed the fifth dish, the sixth dish he will teach you to prepare is Veggie Casserole. Bring him the ingredients he told you."/>
+         <missionstate id="7" description="You have completed the sixth dish, the seventh dish he will teach you to prepare is Filled Jalapeno Peppers. Bring him the ingredients he told you."/>
+         <missionstate id="8" description="You have completed the seventh dish, the eight dish he will teach you to prepare is Blessed Steak. Bring him the ingredients he told you."/>
+         <missionstate id="9" description="You have completed the eight dish, the ninth dish he will teach you to prepare is Northern Fishburger. Bring him the ingredients he told you."/>
+         <missionstate id="10" description="You have completed the ninth dish, the tenth dish he will teach you to prepare is Carrot Cake. Bring him the ingredients he told you."/>
+         <missionstate id="11" description="You have completed the tenth dish. You are now able to obtain the cookbook from Jean Pierre's room upstairs."/>
+         <missionstate id="12" description="The eleventh dish he will teach you to prepare is Coconut Shrimp Bake. Bring him the ingredients he told you."/>
+         <missionstate id="13" description="You have completed the eleventh dish, the twelfth dish he will teach you to prepare is Blackjack. Bring him the ingredients he told you."/>
+         <missionstate id="14" description="You have completed the twelfth dish, the thirteenth dish he will teach you to prepare is Demonic Candy Balls. Bring him the ingredients he told you."/>
+         <missionstate id="15" description="You have completed the thirteenth dish, the fourteenth dish he will teach you to prepare is Sweet Mangonaise Elixir. Bring him the ingredients he told you."/>
+         <missionstate id="16" description="You have completed all the dishes. You are now able to make all the dishes in any order you want."/>
+     </mission>
+</quest>
+<!-- In Service of Yalahar quest migrated to data/scripts/quests/in_service_of_yalahar.lua -->
+<!-- Blood Brothers Quest migrated to data/scripts/quests/Yalahar/blood_brothers.lua -->
+<!-- Sam's Old Backpack quest migrated to data/scripts/quests/Thais/sams_old_backpack.lua -->
+<quest name="Sea of Light" startstorageid="50250" startstoragevalue="1">
+     <mission name="Mission 1: The Plans" storageid="50251" startvalue="1" endvalue="4">
+         <missionstate id="1" description="Spectulus in Edron has sent you on a mission to find out the whereabouts of a certain inventor. A beggar in Edron seems to know more about this topic than he wants to tell."/>
+         <missionstate id="2" description="The beggar turned out to be the inventor himself. You successfully convinced him to give you the only remaining plans of his creation. You should return to Spectulus in Edron to tell him the news."/>
+         <missionstate id="3" description="You gave the plans to the astronomer. He began reconstructing the invention as soon as he got ahold of them. It will take a while for him to work out the problem which caused the initial failure."/>
+         <missionstate id="4" description="You returned to Speculus who finally worked out the failure of the initial construction. He recapitulated the plans and needs only one item before he can start building the magic device."/>
+     </mission>
+     <mission name="Mission 2: The Collector" storageid="50252" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Spectulus asked you to enter the Lost Mines beneath Edron and recover a rare crystal. In exchange for it you will gain access to the lair of the Collector who guards a vital component of the device."/>
+         <missionstate id="2" description="Luckily, you survived the horrors of the Lost Mines and recovered a rare crystal. You should visit Spectulus in Edron to seek counsel on what to do next."/>
+         <missionstate id="3" description="You returned to astronomer Spectulus and gave him the rare crystal."/>
+     </mission>
+     <mission name="Mission 3: The Mirror Crystal" storageid="50253" startvalue="1" endvalue="4">
+         <missionstate id="1" description="In order to access the lair of the Collector, you will need to find the creature's well on an ice isle near Carlin. To donate the rare crystal overcome your greed and use it at the well's pedestal."/>
+         <missionstate id="2" description="You offered the rare crystal to the creature and can now enter the Collector's lair. Its crystal chamber cannot be accessed by outsiders. You need to find a way to snatch the Mirror Crystal."/>
+         <missionstate id="3" description="The Collector has been defeated. You packed the fragile Mirror Crystal into the device Spectulus gave you. All yo have to do now is to return to the astronomer and to present him your acquisition."/>
+         <missionstate id="4" description="It may have been the excitement or simple nervousness but as soon as Spectulus removed the crystal, it somehow slipped. Unfinishable for all eternity, the device left yet another scholar in despair."/>
+     </mission>
+</quest>
+<!-- Secret Service quest migrated to data/scripts/quests/Thais/secret_service.lua -->
+<quest name="The Ancient Tombs" startstorageid="12100" startstoragevalue="1">
+     <mission name="Omruc's Treasure" storageid="12101" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You defeated Omruc and received a helmet adornment."/>
+     </mission>
+     <mission name="Thalas' Treasure" storageid="12102" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You defeated Thalas and received a Gem Holder."/>
+     </mission>
+     <mission name="Diphtrah's Treasure" storageid="12103" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You defeated Dipthrah and received a Damaged Helmet."/>
+     </mission>
+     <mission name="Mahrdis' Treasure" storageid="12104" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You defeated Mahrdis and received a Helmet Ornament."/>
+     </mission>
+     <mission name="Vashresamun's Treasure" storageid="12105" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You solved the musical riddles of Vashresamun's Tomb and received a left horn."/>
+     </mission>
+     <mission name="Morguthis' Treasure" storageid="12106" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You defeated Morguthis and received a Right Horn."/>
+     </mission>
+     <mission name="Rahemos' Treasure" storageid="12107" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You defeated Rahemos and received a Helmet Piece."/>
+     </mission>
+</quest>
+<quest name="The Ape City" startstorageid="30285" startstoragevalue="1">
+     <mission name="Hairycles' Missions" storageid="30285" startvalue="1" endvalue="18">
+         <missionstate id="1" description="Find whisper moss in the dworc settlement south of Port Hope and bring it back to Hairycles."/>
+         <missionstate id="2" description="You have completed the first mission. Hairycles was happy about the whisper moss you gave to him. He might have another mission for you."/>
+         <missionstate id="3" description="Hairycles asked you to bring him cough syrup from a human settlement. A healer might know more about this medicine."/>
+         <missionstate id="4" description="You have completed the second mission. Hairycles was happy about the cough syrup you gave to him. He might have another mission for you."/>
+         <missionstate id="5" description="Hairycles asked you to bring him a magical scroll from the lizard settlement Chor."/>
+         <missionstate id="6" description="You have completed the third mission. Hairycles appreciated that you brought the scroll to him and will try to read it. Maybe he has another mission for you later."/>
+         <missionstate id="7" description="Since Hairycles was not able to read the scroll you brought him, he asked you dig for a tomb in the desert to the east. Proceed in this tomb until you find an obelisk between red stones and read it."/>
+         <missionstate id="8" description="You have completed the fourth mission. Hairycles read your mind and can now translate the lizard scroll. He might have another mission for you."/>
+         <missionstate id="9" description="Hairycles wants to create a life charm for the ape people. He needs a hydra egg since it has strong regenerating powers."/>
+         <missionstate id="10" description="You have completed the fifth mission. Hairycles attempts to create a might charm for the protection of the ape people. He might have another mission for you later."/>
+         <missionstate id="11" description="Hairycles need a witches' cap mushroom which is supposed to be hidden in a dungeon deep under Fibula."/>
+         <missionstate id="12" description="You have completed the sixth mission. You brought the witches' cap mushroom back to Hairycles. He might have another mission for you."/>
+         <missionstate id="13" description="Hairycles is worried about an ape cult which drinks some strange fluid that the lizards left behind. Go to the old lizard temple under Banuta and destroy three of the casks there with a crowbar."/>
+         <missionstate id="14" description="You have completed the seventh mission. You found the old lizard ruins under Banuta and destroyed three of the casks with snake blood. Hairycles might have another mission for you."/>
+         <missionstate id="15" description="The apes now need a symbol of their faith. Speak with the blind prophet in a cave to the northeast and go to the Forbidden Land. Find a hair of the giant, holy ape Bong and bring it back."/>
+         <missionstate id="16" description="You completed the eighth mission. Hairycles gladly accepted the hair of the ape god which you brought him. He told you to have one final mission for you."/>
+         <missionstate id="17" description="Go into the deepest catacombs under Banuta and destroy the monument of the snake god with the hammer that Hairycles gave to you."/>
+         <missionstate id="18" description="You successfully destroyed the monument of the snake god. As reward, you can buy sacred statues from Hairycles. If you haven't done so yet, you should also ask him for a shaman outfit."/>
+     </mission>
+</quest>
+<quest name="The Beginning" startstorageid="50087" startstoragevalue="1">
+     <mission name="The Cockroach Plague" storageid="50087" startvalue="1" endvalue="11">
+         <missionstate id="1" description="You have found a fisherman called Santiago, who has a little problem. Maybe you should talk to him again to find out more."/>
+         <missionstate id="2" description="Santiago asked you to go into his house. Upstairs you will find a chest. You can keep what you find inside of it. Once you got that, talk to Santiago again."/>
+         <missionstate id="3" description="You have found Santiago's Coat and reported back to him. Your quest is not done yet, you should talk to him a bit more."/>
+         <missionstate id="4" description="Santiago gave you a weapon. After equipping it, go to the cellar of his house to find out about the cockroach plague."/>
+         <missionstate id="5" description="You brought the cockroach legs to Santiago. He still has something to tell you though."/>
+         <missionstate id="6" description="Santiago asked you, if those cockroaches hurt you. You should reply to him!"/>
+         <missionstate id="7" description="Santiago has a valuable lesson for you. You should talk to him again."/>
+         <missionstate id="8" description="Santiago showed you how some monsters might hurt you. Better to talk to him to learn a way to heal yourself."/>
+         <missionstate id="9" description="Santiago gave you some fish! Just 'use' it to eat it and regain health. Afterwards, you should talk to Santiago again."/>
+         <missionstate id="10" description="Santiago asked you if you had seen Zirella. Don't let him wait for the answer."/>
+         <missionstate id="11" description="You have helped Santiago a lot by killing the cokcroaches in his cellar. In exchange, he gave you equipment and some valuable experience. Well done!"/>
+     </mission>
+     <mission name="Collecting Wood" storageid="50092" startvalue="1" endvalue="8">
+         <missionstate id="1" description="You have a vague idea that Zirella might need you for collecting firewood, but you don't know yet where to get it. You should talk to her again."/>
+         <missionstate id="2" description="You know that the branches Zirella needs might be gotten from dead trees in the forest south of here, but you don't know the details yet. You should talk to her again."/>
+         <missionstate id="3" description="You have learned that you need to 'Use' the dead tree to break a branch from it, but there is some information missing. You should talk to Zirella again."/>
+         <missionstate id="4" description="You have learned that you can push the branch which you've broken from a dead tree by 'Drag &amp; Drop', but you still need some information. You should talk to Zirella again."/>
+         <missionstate id="5" description="You know that you have to 'Use' the branch. Then leftclick with the changed cursor on the cart. Now you just have to tell Zirella that you will help her."/>
+         <missionstate id="6" description="Go into the forest south of here and look for trees without leaves. 'Use' one to break a branch from it, then drag &amp; drop the branch back to her cart and 'Use' it with the cart."/>
+         <missionstate id="7" description="You have brought a branch to Zirella, congratulations! You should talk to her again for your reward."/>
+         <missionstate id="8" description="You have helped Zirella by collecting wood for her. The reward can be found in her house."/>
+     </mission>
+     <mission name="A Hungry Tailor" storageid="50098" startvalue="1" endvalue="8">
+         <missionstate id="1" description="You found another person named Carlos. You should talk to him learn how to change your outfit."/>
+         <missionstate id="2" description="Carlos taught you how to change your outfit. Now he seems to be wanting a small favour from you. Talk to him again to learn more."/>
+         <missionstate id="3" description="Carlos asked you whether you could bring him some food. Talk to him again to learn how to find food here."/>
+         <missionstate id="4" description="Carlos asked you to hunt some deer and rabbits and loot them to find a piece of ham or meat. However you haven't agreed yet, so you should tell him that you'll do it."/>
+         <missionstate id="5" description="You agreed to bring Carlos some food. Hunt some deer or rabbit until you find a piece of meat or ham talk to Carlos again."/>
+         <missionstate id="6" description="To sell the meat or ham to Carlos, talk to him and ask him for a 'trade'."/>
+         <missionstate id="7" description="You sucessfully learnt how to change your outfit and how to trade with NPCs. Time to head over the bridge to Rookgaard!"/>
+         <missionstate id="8" description="You have passed the bridge to Rookgaard and have sucessfully completed the Tutorial. If you want to skip the tutorial in the future with a new character, simply say 'skip tutorial' to Santiago."/>
+     </mission>
+</quest>
+<!-- The Djinn War - Efreet Faction quest migrated to data/scripts/quests/Ankrahmun/djinn_war_efreet.lua -->
+<!-- The Djinn War - Marid Faction quest migrated to data/scripts/quests/Ankrahmun/djinn_war_marid.lua -->
+<!--
+<quest name="The Djinn War - Efreet Faction" startstorageid="30081" startstoragevalue="1">
+     <mission name="Efreet Mission 1: The Supply Thief" storageid="30082" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Travel to Thais and keep your eyes open for something that might give you a clue on the supply thief."/>
+         <missionstate id="2" description="You have found the potential supply thief - Partos in Thais seemed very suspicious. Baa'leal might be interested in this matter."/>
+         <missionstate id="3" description="You have reported the case to Baa'leal. He seemed very satisfied and told you that Alesar might have another mission for you."/>
+     </mission>
+     <mission name="Efreet Mission 2: The Tear of Daraman" storageid="30083" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Sneak into Ashta'daramai and steal a &quot;Tear of Daraman&quot;. For more information about these gems visit the Efreet library."/>
+         <missionstate id="2" description="You have successfully managed to steal a Tear of Daraman from Ashta'daramai. Bring it to Alesar."/>
+         <missionstate id="3" description="You have delivered Daraman's Tear. Alesar seemed very satisfied and told you that Malor himself might have another mission for you."/>
+     </mission>
+     <mission name="Efreet Mission 3: The Sleeping Lamp" storageid="30084" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Malor asked you to find Fa'hradin's sleeping lamp in the orc fortress at Ulderek's Rock. Then, sneak into Ashta'daramai and exchange Gabel's sleeping lamp with Fa'hradin's lamp."/>
+         <missionstate id="2" description="You successfully exchanged the lamps. Malor will be happy to hear about this."/>
+         <missionstate id="3" description="The Efreet are very satisfied with your help. King Malor allowed you to trade with Yaman and Alesar."/>
+     </mission>
+</quest>
+<quest name="The Djinn War - Marid Faction" startstorageid="30087" startstoragevalue="1">
+     <mission name="Marid Mission 1: The Dwarven Kitchen" storageid="30088" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Bring a cookbook of the dwarven kitchen to Bo'ques."/>
+         <missionstate id="2" description="You have delivered the cookbook. Bo'ques seemed very satisfied and told you that Fa'hradin might have another mission for you."/>
+     </mission>
+     <mission name="Marid Mission 2: The Spyreport" storageid="30089" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Fa'hradin asked you to sneak into the Efreet fortress Mal'ouqhah and find their undercover spy. The codeword is PIEDPIPER."/>
+         <missionstate id="2" description="You have delivered the spyreport. Fa'hradin seemed impressed and told you that Gabel himself might have another mission for you."/>
+     </mission>
+     <mission name="Rata'Mari and the Cheese" storageid="30093" startvalue="1" endvalue="2">
+         <missionstate id="1" description="You have promised Rata'Mari cheese. Once you deliver some to him, he will hand over his spyreport."/>
+         <missionstate id="2" description="You got Rata'Mari's spyreport. He seems to be quite happy with the cheese you brought him."/>
+     </mission>
+     <mission name="Marid Mission 3: The Sleeping Lamp" storageid="30090" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Gabel asked you to find Fa'hradin's sleeping lamp in the orc fortress at Ulderek's Rock. Then, sneak into Mal'ouqhah and exchange Malor's sleeping lamp with Fa'hradin's lamp."/>
+         <missionstate id="2" description="You successfully exchanged the lamps. Gabel will be happy to hear about this."/>
+         <missionstate id="3" description="The Marid deeply appreciate your help. King Gabel allowed you to trade with Haroun and Nah'bob."/>
+     </mission>
+</quest>
+-->
+<quest name="The Hidden City of Beregar" startstorageid="30174" startstoragevalue="1">
+     <mission name="Way to Beregar" storageid="30186" startvalue="1" endvalue="1">
+         <missionstate id="0" description="Ask Maris Mistrock about mistrock to learn about the hidden passage to Beregar."/>
+         <missionstate id="1" description="You found the hidden passage to Beregar."/>
+     </mission>
+     <mission name="Going Down" storageid="30179" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Deliver 3 Gear Wheels to Xorlosh."/>
+         <missionstate id="2" description="You sucessfully helped Xorlosh in repairing the elevator. You can now enter the teleporter to the eastern part of the mine."/>
+     </mission>
+     <mission name="Justice for All" storageid="30180" startvalue="1" endvalue="6">
+         <missionstate id="1" description="Nokmir told you that he is falsely accused of being a thief. You could help him by talking to Grombur about the case. Furthermore you should try to find that ring which belongs to Rerun."/>
+         <missionstate id="2" description="You should talking to Grombur about Nokmir."/>
+         <missionstate id="3" description="You should try to find that ring which belongs to Rerun everywhere in the mine."/>
+         <missionstate id="4" description="You have found Rerun's ring. Bring the ring to the emperor Rehal and talk to him about Nokmir."/>
+         <missionstate id="5" description="You informed emperor Rehal about your recent discoveries and he acquitted Nokmir of being a thief."/>
+         <missionstate id="6" description="You told Nokmir about his acquittal and he granted you access to the northern mine."/>
+     </mission>
+     <mission name="Royal Rescue" storageid="30183" startvalue="1" endvalue="6">
+         <missionstate id="1" description="Emperor Rehal asked you to find his son who was captured by trolls."/>
+         <missionstate id="2" description="Use the ore wagon to travel deeper into the mine."/>
+         <missionstate id="3" description="Continue using wagons to navigate the mine tunnels."/>
+         <missionstate id="4" description="You found Tehlim who asked you to rescue his brothers from the troll hideout. Find the prison cell key."/>
+         <missionstate id="5" description="You rescued Rehon with the prison cell key. Report back to Emperor Rehal about rescuing his son."/>
+         <missionstate id="6" description="You successfully rescued the prince and received Dwarven Legs as reward from Emperor Rehal."/>
+     </mission>
+     <mission name="Pythius the Rotten" storageid="30182" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You won the battle against the malicious undead dragon Pythius the Rotten. He granted you firewalker boots as a reward."/>
+     </mission>
+     <mission name="Sweet as Chocolate Cake" storageid="30184" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Bake a Chocolate Cake and bring it to Bolfona at the bar."/>
+         <missionstate id="2" description="Report back to Frafnar by telling him about the mission."/>
+         <missionstate id="3" description="You told Frafnar that you did everything he asked you to do. You may now enter the western part of the mine."/>
+     </mission>
+     <mission name="The Good Guard" storageid="30185" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Grombur asked you to get him a cask of dwarven brown ale. You heard that Boozer in Venore tried to brew some. Maybe you should pay him a visit."/>
+         <missionstate id="2" description="Grombur liked the ale and you are now allowed to enter his part of the mine."/>
+     </mission>
+</quest>
+<quest name="The Ice Islands Quest" startstorageid="30249" startstoragevalue="1">
+     <mission name="Befriending the Musher" storageid="30232" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Find Sniffler the husky of Iskan. He should be somewhere north west of the town. He is probably marking his territory so you should be able to find his trace. Call him sniffler and feed him with meat."/>
+         <missionstate id="2" description="Tell Iskan that you found and feed Sniffler"/>
+         <missionstate id="3" description="You are now a friend of Iskan and can ask him for a passage to Nibelor. You should ask Hjaern in Nibelor if you can help him."/>
+     </mission>
+     <mission name="Nibelor 1: Breaking the Ice" storageid="30233" startvalue="1" endvalue="5">
+         <missionstate id="1" description="Chakoyas may use the ice for a passage to the west and attack Svargrond. Use the rocks at east of nibelor on at least three of these places and the chakoyas probably won't be able to pass the ice."/>
+         <missionstate id="2" description="You have broke 1 of 3 icepassages"/>
+         <missionstate id="3" description="You have broke 2 of 3 icepassages"/>
+         <missionstate id="4" description="You have broke 3 of 3 icepassages! Tell Hjaern your mission!"/>
+         <missionstate id="5" description="You should ask Silfind if you can help her in some matters."/>
+     </mission>
+    <mission name="Nibelor 2: Ecological Terrorism" storageid="30234" startvalue="1" endvalue="3">
+        <missionstate id="1" description="Siflind send you to travel to a distant land to get ants from an Ant-Hill to perform ecological terrorism on some pirates on Tyrsung. Just use the jug on an anthill."/>
+        <missionstate id="2" description="Now head back to Svargrond and go to Buddel, the drunk sailor in southern Svargrond, and ask him to take you to Tyrsung. Now go all the way to the southern shores where you find a outpost. Go to the bottom deck and use the jug with the wester"/>
+        <missionstate id="3" description="Go tell Siflind that you released the ants and aks her for mission!"/>
+    </mission>
+    <mission name="Nibelor 3: Artful Sabotage" storageid="30235" startvalue="1" endvalue="2">
+        <missionstate id="1" description="Siflind gave you a Vial of Paint to use on some Baby Seals. Go back to Tyrsung and follow the shore from Buddel south. Use the Vial of Paint on three of these seals."/>
+        <missionstate id="2" description="Go tell Siflind that you painted the seals and aks her for mission!"/>
+    </mission>
+    <mission name="Nibelor 4: Berserk Brewery" storageid="30236" startvalue="1" endvalue="6">
+        <missionstate id="1" description="The first things needed are 5 bat wings to brew a berserker elixir. Bring her them!"/>
+        <missionstate id="2" description="The next items Siflind need are 4 bear paws. Bring her them!"/>
+        <missionstate id="3" description="The next items Siflind need are 3 bonelord eyes. Bring her them!"/>
+        <missionstate id="4" description="The next items Siflind need are 2 fish fins. Bring her them!"/>
+        <missionstate id="5" description="The next item Siflind need is a green dragon scale. Bring her that!"/>
+        <missionstate id="6" description="You helped Siflind to defend Svargrond. Now Nilsor need help, go ask him for mission."/>
+    </mission>
+    <mission name="Nibelor 5: Cure the Dogs" storageid="30237" startvalue="1" endvalue="8">
+        <missionstate id="1" description="To cure Nilsor dogs, bring him the 1st of 7 ingredients: a Part of the Sun Adorer Cactus. Only an ordinary kitchen knife will be precise enough to produce the ingredient weneed."/>
+        <missionstate id="2" description="To cure Nilsor dogs, bring him the 2nd of 7 ingredients: Geyser Water in a Waterskin. Use it on a geyser that is NOT active. The water of active geysers is far too hot."/>
+        <missionstate id="3" description="To cure Nilsor dogs, bring him the 3rd of 7 ingredients: Fine Sulphur. Use an ordinary kitchen spoon on an inactive lava hole."/>
+        <missionstate id="4" description="To cure Nilsor dogs, bring him the 4th of 7 ingredients: the Frostbite Herb. You can find it on mountain peaks. You will need to cut it with a fine kitchen knife."/>
+        <missionstate id="5" description="To cure Nilsor dogs, bring him the 5th of 7 ingredients: Purple Kiss Blossom. The purple kiss is a plant that grows in a place called jungle. You will have to use a kitchen knife to harvest its blossom."/>
+        <missionstate id="6" description="To cure Nilsor dogs, bring him the 6th of 7 ingredients: the Hydra Tongue. The hydra tongue is a common pest plant in warmer regions. You might find one in a shop."/>
+        <missionstate id="7" description="To cure Nilsor dogs, bring him the 7th of 7 ingredients: Spores of a Giant Glimmercap Mushroom. The giant glimmercap mushroom exists in caves and other preferably warm and humid places. Use an ordinary kitchen spoon on a mushroom to collectit"/>
+        <missionstate id="8" description="You found all ingredients to cure Nilsor dogs, ask him for mission. You can now travel by Dog Sleds to Inukaya."/>
+    </mission>
+    <mission name="The Secret of Helheim" storageid="30238" startvalue="1" endvalue="3">
+        <missionstate id="1" description="Hjaern might have a mission for you. So maybe you go and talk to him."/>
+        <missionstate id="2" description="Hjaern send you to find someone in Svargrond who can give you a passage to Helheim and seek the reason for the unrest there."/>
+        <missionstate id="3" description="You discovered the necromantic altar and should report Hjaern about it."/>
+    </mission>
+    <mission name="The Contact" storageid="30239" startvalue="1" endvalue="4">
+        <missionstate id="1" description="Get out of Nibelor and go to the Svargrond Explorer's Society. Ask Lurik for the mission."/>
+        <missionstate id="2" description="Get to the raider camp, then follow to the extreme south where you find lots of barbarians. Near the southern most coastline, try looking for the NPC Nor. Ask him about Memory Crystal."/>
+        <missionstate id="3" description="Go back to Lurik and deliver him the memory crystal."/>
+        <missionstate id="4" description="Give Lurik some time to evaluate the information (ca. 5min). Then talk to him again about your mission."/>
+    </mission>
+    <mission name="Formorgar Mines 1: The Mission" storageid="30240" startvalue="1" endvalue="2">
+        <missionstate id="1" description="Find the entrance of the Formorgar Mines. Find some hint or someone who is willing to talk about what is going on there."/>
+        <missionstate id="2" description="You found a old and tattered written paper in a skeleton next to a Restless Soul, you can only make out a signature: Tylaf, apprentice of Hjaern. Ask Hjaern about Tylaf."/>
+    </mission>
+    <mission name="Formorgar Mines 2: Ghostwhisperer" storageid="30241" startvalue="1" endvalue="2">
+        <missionstate id="1" description="Go back to the mine and ask the restless soul about his story."/>
+        <missionstate id="2" description="You already have listen to his story!"/>
+    </mission>
+    <mission name="Formorgar Mines 3: The Secret" storageid="30242" startvalue="1" endvalue="2">
+        <missionstate id="1" description="The Cultists plan is to create a new demon army for their master to conquer the world. Hjaern and the other shamans must learn about it! Hurry before its too late."/>
+        <missionstate id="2" description="The Cultists plan is to create a new demon army for their master to conquer the world. Hjaern and the other shamans are already informed!"/>
+    </mission>
+    <mission name="Formorgar Mines 4: Retaliation" storageid="30243" startvalue="1" endvalue="6">
+        <missionstate id="1" description="Hjaern gave you a spirit charm of cold. Travel to the mines and find four special obelisks to mark them with the charm."/>
+        <missionstate id="2" description="1 of 4 obelisks are marked."/>
+        <missionstate id="3" description="2 of 4 obelisks are marked."/>
+        <missionstate id="4" description="3 of 4 obelisks are marked."/>
+        <missionstate id="5" description="Once all 4 obelisks are marked report back to Hjaern."/>
+        <missionstate id="6" description="You got the Norseman outfit and you have access to the Yakchal room deep in the Formorgar Mines."/>
+    </mission>
+</quest>
+<!-- The Inquisition quest migrated to data/scripts/quests/the_inquisition.lua -->
+<!-- The New Frontier quest migrated to data/scripts/quests/Farmine/the_new_frontier.lua -->
+<quest name="The Postman Missions" startstorageid="12450" startstoragevalue="1">
+     <mission name="Mission 01 - Check Postal Routes" storageid="12450" startvalue="1" endvalue="6">
+         <missionstate id="1" description="Kevin wants you to travel with Captain Bluebear to Carlin."/>
+         <missionstate id="2" description="Kevin wants you to travel with Uzon in Femor Hills to Edron."/>
+         <missionstate id="3" description="Kevin wants you to travel with Captain Seahorse to Venore."/>
+         <missionstate id="4" description="Kevin wants you to travel with Brodrosch to Cormaya"/>
+         <missionstate id="5" description="You have checked the Postal Routes, report back to Kevin!"/>
+         <missionstate id="6" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 02 - Fix Mailbox" storageid="12451" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Kevin wants you to fix one of their Mailboxes located on Folda with a crowbar."/>
+         <missionstate id="2" description="You have fixed the mailbox, report back to Kevin!"/>
+         <missionstate id="3" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 03 - Bill Delivery" storageid="12452" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Kevin wants you to deliver a bill to the stage magician David Brassacres. He's hiding from his creditors somewhere in Venore."/>
+         <missionstate id="2" description="You have delivered the bill to the stage magician David Brassacres, report back to Kevin!"/>
+         <missionstate id="3" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 04 - Aggressive Dogs" storageid="12453" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Kevin has asked you to deliver 20 Bones to him."/>
+         <missionstate id="2" description="You have delivered 20 Bones to Kevin."/>
+     </mission>
+     <mission name="Mission 05 - Present Delivery" storageid="12454" startvalue="1" endvalue="4">
+         <missionstate id="1" description="Kevin has asked you to retrieve the present behind the door on the lower right side of his room and deliver it to Dermot in Fibula."/>
+         <missionstate id="2" description="Deliver the present to Dermot in Fibula."/>
+         <missionstate id="3" description="You have delivered the present to Dermot, report back to Kevin!"/>
+         <missionstate id="4" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 06 - New Uniforms" storageid="12455" startvalue="1" endvalue="13">
+         <missionstate id="1" description="Kevin has asked you to travel to Venore and negotiate with Hugo for new uniforms."/>
+         <missionstate id="2" description="Hugo said that his dog ate the last dress pattern they used and he has no clue where Kevin Postner got it from, go ask Kevin."/>
+         <missionstate id="3" description="Kevin wants you to ask the great Technomancer Talphion in Kazordoon for the technical details."/>
+         <missionstate id="4" description="Talphion will send a copy to Kevin, report back to Kevin."/>
+         <missionstate id="5" description="Kevin wants you to ask Queen Eloise of Carlin for the perfect colours."/>
+         <missionstate id="6" description="Queen Eloise said she will send some color samples via mail to Kevin, report back to Kevin."/>
+         <missionstate id="7" description="Kevin has asked you to go to Noodles and find out what he dislikes the most: mouldy cheese, a piece of fur or a banana skin."/>
+         <missionstate id="8" description="Noodles seems to like banana skin, check if he likes dirty fur."/>
+         <missionstate id="9" description="Noodles seems to like dirty fur, check if he likes mouldy cheese."/>
+         <missionstate id="10" description="Noodles dislikes mouldy cheese! Report back to Kevin."/>
+         <missionstate id="11" description="Kevin wants you to tell Hugo that they order those uniforms."/>
+         <missionstate id="12" description="Hugo has agreed to make the uniforms, report back to Kevin!"/>
+         <missionstate id="13" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 07 - Measurements" storageid="12456" startvalue="1" endvalue="8">
+         <missionstate id="1" description="Kevin wants you to bring him the measurements of Benjamin, Lokur, Dove, Liane, Chrystal and Olrik."/>
+         <missionstate id="2" description="You have received the measurements from 1 of 6 post officers."/>
+         <missionstate id="3" description="You have received the measurements from 2 of 6 post officers."/>
+         <missionstate id="4" description="You have received the measurements from 3 of 6 post officers."/>
+         <missionstate id="5" description="You have received the measurements from 4 of 6 post officers."/>
+         <missionstate id="6" description="You have received the measurements from 5 of 6 post officers."/>
+         <missionstate id="7" description="You have received all measurements, report back to Kevin!"/>
+         <missionstate id="8" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 08 - Missing Courier" storageid="12457" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Kevin wants you to find the missing courier Waldo or at least his posthorn."/>
+         <missionstate id="2" description="You have found Waldos posthorn."/>
+         <missionstate id="3" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 09 - Dear Santa" storageid="12458" startvalue="1" endvalue="4">
+         <missionstate id="1" description="Kevin wants you to deliver som letters to Santa Claus on Vega."/>
+         <missionstate id="2" description="You have retrieved the letters, deliver them to Santa Claus on Vega."/>
+         <missionstate id="3" description="You have delivered the letters to Santa Claus on Vega."/>
+         <missionstate id="4" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 10 - Mintwallin" storageid="12459" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Kevin wants you to deliver a letter  to Markwin, king of Mintwallin from his mother."/>
+         <missionstate id="2" description="You have delivered the letter to Markwin."/>
+         <missionstate id="3" description="You have reported back that you have completed the mission."/>
+     </mission>
+     <mission name="Postman Rank" storageid="12460" startvalue="1" endvalue="5">
+         <missionstate id="1" description="Assistant Postman"/>
+         <missionstate id="2" description="Postman"/>
+         <missionstate id="3" description="Grand Postman"/>
+         <missionstate id="4" description="Grand Postman for Special Operations"/>
+         <missionstate id="5" description="Arch Postman"/>
+     </mission>
+</quest>
+<!-- The Shattered Isles quest migrated to data/scripts/quests/Liberty Bay/the_shattered_isles.lua -->
+<quest name="The Thieves Guild" startstorageid="12501" startstoragevalue="1">
+     <mission name="Mission 1: Ivory Poaching" storageid="12502" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Dorian wants you to collect 10 elephant tusks and deliver them to him."/>
+         <missionstate id="2" description="You delivered the ten tusks to Dorian."/>
+     </mission>
+     <mission name="Mission 2: Burglary" storageid="12503" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Dorian wants you to steal a vase from Sarina, the owner of Carlin's general store."/>
+         <missionstate id="2" description="You have stolen the vase, report back to Dorian!"/>
+         <missionstate id="3" description="You have delivered the stolen vase to Dorian, ask him for a new mission!"/>
+     </mission>
+     <mission name="Mission 3: Invitation" storageid="12504" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Your task is to somehow convince Oswald to hand you an invitation to the king's ball."/>
+         <missionstate id="2" description="You have received the invitation to the King's ball, report back to Dorian!"/>
+         <missionstate id="3" description="You have delivered the invitation to Dorian, ask him for a new mission!"/>
+     </mission>
+     <mission name="Mission 4: Bridge Robbery" storageid="12505" startvalue="1" endvalue="8">
+         <missionstate id="1" description="Dorian wants you to find a forger in the outlaw camp, go talk to Snake eye."/>
+         <missionstate id="2" description="Snake Eye told you to visit Ahmet in Ankrahmun."/>
+         <missionstate id="3" description="Ahmet told you that he will only help a friend and asked you to kill at least one Nomad."/>
+         <missionstate id="4" description="You have killed a Nomad, go back to Ahmet!"/>
+         <missionstate id="5" description="You have received the forged documents from Ahmet, next is to get a disguise from Percybald in Venore!"/>
+         <missionstate id="6" description="You have received the dwarf disguise from Percybald. Now go do the deal with Nurik."/>
+         <missionstate id="7" description="You have traded the forged documents for the painting, report back to Dorian."/>
+         <missionstate id="8" description="You have delivered the painting to Dorian, ask him for a new mission!"/>
+     </mission>
+     <mission name="Mission 5: Enforcing Debts" storageid="12506" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Your mission is to travel to Tiquanda. Fina a hidden smuggler cave to the north of Port Hope and try to retrieve the valuable goblet which Dorian is looking for. Once you got it, bring it to him."/>
+         <missionstate id="2" description="You have delivered the golden goblet to Dorian, ask him for a new mission!"/>
+     </mission>
+     <mission name="Mission 6: Fishnapping" storageid="12507" startvalue="1" endvalue="4">
+         <missionstate id="1" description="Dorian wants you to fishnap Theodore Loveless' fish, first you need to get the key to his room. Talk to Chantalle in Liberty Bay."/>
+         <missionstate id="2" description="You have received the key for Theodore Loveless' room, time to fishnap his fish!"/>
+         <missionstate id="3" description="You have fishnapped Theodore Loveless' fish, deliver it to Dorian."/>
+         <missionstate id="4" description="You have delivered the fish to Dorian, ask him for a new mission!"/>
+     </mission>
+     <mission name="Mission 7: Blackmail" storageid="12508" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Your current task is to find compromising information about one of the Venore city guards, no matter how. A good starting point might be in their barracks."/>
+         <missionstate id="2" description="You have delivered the compromising letter to Dorian, ask him for a new mission!"/>
+     </mission>
+     <mission name="Mission 8: Message" storageid="12509" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Dorian wants you to deliver a message to his competitors in the dark cathedral."/>
+         <missionstate id="2" description="You have put up the message, report back to Dorian."/>
+         <missionstate id="3" description="You have reported back that you have completed the mission, Dorian now allows you to trade with Black Bert."/>
+     </mission>
+</quest>
+<!-- The Travelling Trader Quest migrated to data/scripts/quests/Tibia/the_travelling_trader.lua -->
+<quest name="The Queen of the Banshees" startstorageid="50013" startstoragevalue="1">
+     <mission name="The Hidden Seal" storageid="50013" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke the first seal."/>
+     </mission>
+     <mission name="The Seal of Logic" storageid="50014" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke the sixth seal."/>
+     </mission>
+     <mission name="The Seal of True Path" storageid="50015" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke the fifth seal."/>
+     </mission>
+     <mission name="The Seal of Sacrifice" storageid="50016" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke the fourth seal."/>
+     </mission>
+     <mission name="The Seal of Demonrage" storageid="50018" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke the third seal."/>
+     </mission>
+     <mission name="The Plague Seal" storageid="50019" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke the second seal."/>
+     </mission>
+     <mission name="All Seals" storageid="50021" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You broke all the seals."/>
+     </mission>
+</quest>
+<quest name="The Ultimate Challenges" startstorageid="12010" startstoragevalue="1">
+     <mission name="Barbarian Arena - Greenhorn Mode" storageid="30147" startvalue="1" endvalue="2">
+         <missionstate id="1" description="You have to defeat all enemies in this mode."/>
+         <missionstate id="2" description="You have defeated all enemies in this mode."/>
+     </mission>
+     <mission name="Barbarian Arena - Scrapper Mode" storageid="30148" startvalue="1" endvalue="2">
+         <missionstate id="1" description="You have to defeat all enemies in this mode."/>
+         <missionstate id="2" description="You have defeated all enemies in this mode."/>
+     </mission>
+     <mission name="Barbarian Arena - Warlord Mode" storageid="30149" startvalue="1" endvalue="2">
+         <missionstate id="1" description="You have to defeat all enemies in this mode."/>
+         <missionstate id="2" description="You have defeated all enemies in this mode."/>
+     </mission>
+</quest>
+<quest name="The White Raven Monastery" startstorageid="50200" startstoragevalue="1">
+     <mission name="Access to the Isle of Kings" storageid="50201" startvalue="1" endvalue="1">
+         <missionstate id="1" description="You are a friend of Dalbrect. Since you returned his family brooch he will sail you to the Isle of Kings unless you do something stupid."/>
+     </mission>
+     <mission name="The Investigation" storageid="50202" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Investigate the catacombs. Abbot Costello should be interested in information about brother Fugio."/>
+         <missionstate id="2" description="You returned Fugio's Diary. Costello was very thankful about your help and gave you a blessed ankh as reward."/>
+     </mission>
+</quest>
+<quest name="Tibia Tales" startstorageid="12650" startstoragevalue="1">
+     <mission name="To Appease the Mighty" storageid="13330" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Kazzan sent you to talk with Ubaid and Umar to offer an appeasement treaty to the Djinn races. Talk to Umar first."/>         
+         <missionstate id="2" description="Umar and Ubaid said they won't be part of those plans. Return to Kazzan and collect your reward."/>
+         <missionstate id="3" description="You have completed the quest!"/>
+     </mission>
+     <mission name="Arito's Task" storageid="12690" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Arito asked you to make a peace agreement between him and the Nomads."/>
+         <missionstate id="2" description="Return to Arito and tell him the good news."/>
+         <missionstate id="3" description="Now Arito is safe and you have acess to Nomads Cave."/>
+     </mission>
+     <mission name="Against the Spider Cult" storageid="12652" startvalue="1" endvalue="6">
+         <missionstate id="1" description="Daniel Steelsoul in Edron wants you to infiltrate the Edron Orc Cave and destroy 4 Spider Eggs."/>
+         <missionstate id="2" description="You destroyed 1 of 4 Spider Eggs in the Edron Orc Cave"/>
+         <missionstate id="3" description="You destroyed 2 of 4 Spider Eggs in the Edron Orc Cave"/>
+         <missionstate id="4" description="You destroyed 3 of 4 Spider Eggs in the Edron Orc Cave"/>
+         <missionstate id="5" description="You destroyed all Spider Eggs in the Edron Orc Cave, report back to Daniel Steelsoul!"/>
+         <missionstate id="6" description="You have completed the Quest!"/>
+     </mission>
+     <mission name="An Interest In Botany" storageid="12653" startvalue="1" endvalue="4">
+         <missionstate id="1" description="Rabaz in Farmine asked you to collect samples from rare plant specimen in Zao. Go to the storage room to the west and receive the Botany Almanach. Find then the Giant Dreadcoil and use your Obsidian Knife on it to obtain a sample."/>
+         <missionstate id="2" description="Now you must find the second plant, a Giant Verminous and use your Obsidian Knife on it to obtain a sample."/>
+         <missionstate id="3" description="You found the two samples, report back to Rabaz in Farmine!"/>
+         <missionstate id="4" description="You have completed the Quest!"/>
+     </mission>     
+     <mission name="Into the Bone Pit" storageid="3938" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Search the Cursed Bone Pit in the dungeon north of Thais and dig for a well-preserved human bone for Muriel."/>
+         <missionstate id="2" description="You have found a desecrated bone for Muriel."/>
+         <missionstate id="3" description="You helped Muriel to obtain a desecrated bone."/>
+     </mission>
+     <mission name="Rest in Hallowed Ground" storageid="3940" startvalue="1" endvalue="5">
+         <missionstate id="1" description="Go to the white raven monastery and ask for some holy water for Amanda."/>
+         <missionstate id="2" description="You got the holy water from the white raven monastery. Go back to Amanda and report about your mission."/>
+         <missionstate id="3" description="Sanctify every single grave at the unholy graveyard north of Edron with the holy water."/>
+         <missionstate id="4" description="You have sanctified all graves at the unholy graveyard of Edron. Report about your mission at Amanda."/>
+         <missionstate id="5" description="You helped Amanda by sanctifying the cursed graveyard of Edron."/>
+     </mission>
+     <mission name="The Exterminator" storageid="3939" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Padreia in Carlin asked you to exterminate the slimes in the sewers of Carlin by poisoning their spawn pool."/>
+         <missionstate id="2" description="You poisoned the spawn pool of the slimes in the sewers of Carlin. Report to Padreia about your mission."/>
+         <missionstate id="3" description="You successfully helped Padreia in saving Carlin from a slimy disease."/>
+     </mission>
+     <mission name="The Ultimate Booze" storageid="12651" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Boozer in Vernore asked you to bring him some special dwarven brown ale. You may find some in the brewery in Kazordoon."/>
+         <missionstate id="2" description="You found the special dwarven brown ale. Bring it to Boozer in Vernore."/>
+         <missionstate id="3" description="You have completed The Ultimate Booze Quest!"/>
+     </mission>
+</quest>
+<quest name="Unnatural Selection" startstorageid="12330" startstoragevalue="1">
+     <mission name="Mission 1: Skulled" storageid="12331" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Your mission is to find the Holy Skull. It is in a cave in the northern orc settlement, which is located north-west on the Zao Steppe."/>
+         <missionstate id="2" description="You found the Holy Skull. Retrieve it to Lazaran in the Zao Mountains."/>
+         <missionstate id="3" description="You brought Lazaran the Holy Skull. Ask him for new mission!"/>
+     </mission>
+     <mission name="Mission 2: All Around the World" storageid="12332" startvalue="1" endvalue="13">
+         <missionstate id="1" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Edron."/>
+         <missionstate id="2" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Ab'dendriel."/>
+         <missionstate id="3" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Femor Hills."/>
+         <missionstate id="4" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Darashia"/>
+         <missionstate id="5" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Ankrahmun"/>
+         <missionstate id="6" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Port Hope"/>
+         <missionstate id="7" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Liberty Bay"/>
+         <missionstate id="8" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Yalahar"/>
+         <missionstate id="9" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Svargrond"/>
+         <missionstate id="10" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Thais"/>
+         <missionstate id="11" description="You received the Skull of a Caveman and need to explore the world, letting the skull see everything. You need to stand at the highest place of Carlin"/>
+         <missionstate id="12" description="You visited all the highest places with the skull. Turn the skull back to Lazaran and report him your mission!"/>
+         <missionstate id="13" description="You turned the skull already back to Lazaran. Ask him for new mission!"/>
+     </mission>
+     <mission name="Mission 3: Dance Dance Evolution" storageid="12333" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Lazaran told you to go to Ulala, who is located above Lazaran."/>
+         <missionstate id="2" description="Ulala told you to dance to please their god Krunus. On the south mountain in the camp you will find the Krunus altar, there are lots of leaves on the ground."/>
+         <missionstate id="3" description="You solved the dance. Head back to Ulala and report your mission!"/>
+     </mission>
+     <mission name="Mission 4: Bits and Pieces" storageid="12334" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Now the god Krunus is pleased, another god called Pandor needs to be pleased. Ulala wants you to collect 5 Orc Teeth, 5 Minotaur leathers and 5 Lizard Leathers. Bring them to her."/>
+         <missionstate id="2" description="You brought Ulala 5 Orc Teeth, 5 Minotaur leathers and 5 Lizard Leathers. Ask her for new mission!"/>
+     </mission>
+     <mission name="Mission 5: Ray of Light" storageid="12335" startvalue="1" endvalue="3">
+         <missionstate id="1" description="The third god which needs to be pleased is called Fasuon. Find the great crystal on top of mountain of Fasuon and pray there for his support!"/>
+         <missionstate id="2" description="You already prayed at the great crystal. Report it to Ulala"/>
+         <missionstate id="3" description="You have reported back to Ulala that you have completed the mission."/>
+     </mission>
+     <mission name="Mission 6: Firewater Burn" storageid="12336" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Speak with Lazaran and tell the gods are pleased now."/>
+         <missionstate id="2" description="Bring Lazaran a Pot of brown water for a party after the great hunt."/>
+         <missionstate id="3" description="You brought Lazaran the beer and got a Serpent Crest as reward!"/>
+     </mission>
+</quest>
+<quest name="What a foolish Quest" startstorageid="3900" startstoragevalue="1">
+     <mission name="What a foolish Quest - Tasks of a Fool" storageid="3901" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Cut a flower at the Whiteflower Temple south of Thais. Then report to Bozo about your mission."/>
+         <missionstate id="2" description="You have finished your first mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - That stinks!" storageid="3902" startvalue="1" endvalue="2">
+         <missionstate id="1" description="It sometimes stinks to be a fool. Collect some noxious fumes from a recently slain slime with the special vial. Then report to Bozo about your mission."/>
+         <missionstate id="2" description="You have finished your second mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - A Piece of Cake" storageid="3903" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Get 12 pies from Mirabell in Edron. Then report to Bozo about your mission."/>
+         <missionstate id="2" description="You have finished your third mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - Fool Spirits" storageid="3904" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Get 18 vials of wine for Bozo. Then report to Bozo about your mission."/>
+         <missionstate id="2" description="Exchange the crates in front of Xodet's house and return to Bozo with the swapped crate."/>
+         <missionstate id="3" description="You have finished your fourth mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - Watch out for the foolish" storageid="3905" startvalue="1" endvalue="3">
+         <missionstate id="1" description="Steal the magic watch from the Triangle Tower west of Jakundaf Desert. Then report to Bozo about your mission."/>
+         <missionstate id="2" description="Use the magic watch to steal the beard of the sleeping dwarven emperor."/>
+         <missionstate id="3" description="You have already finished five missions for that fool. You should definitely talk to Bozo about your jester outfit now!"/>
+     </mission>
+     <mission name="What a foolish Quest - The queen of farts" storageid="3906" startvalue="1" endvalue="5">
+         <missionstate id="1" description="Get Bozo 4 pieces of minotaur leather."/>
+         <missionstate id="2" description="Get Bozo a piece of giant spider silk."/>
+         <missionstate id="3" description="Ask Bozo about your mission, he might be finished with the whoopee cushion by now."/>
+         <missionstate id="4" description="Place the whoopee cushion on the queen's throne in Carlin by using the cushion with the throne."/>
+         <missionstate id="5" description="You have finished your sixth mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - For your mice only" storageid="3907" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Get the toy mouse of Queen Eloise's cat and show it to Carina, the jeweller in Venore, to scare her."/>
+         <missionstate id="2" description="You have finished your seventh mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - Smoking is a foolish thing" storageid="3908" startvalue="1" endvalue="5">
+         <missionstate id="1" description="Gather some easily inflammable sulphur using a spoon on an inactive lava hole."/>
+         <missionstate id="2" description="You brought Bozo the sulphur. Now cut him some leaves of the jungle dweller bush with a kitchen knife."/>
+         <missionstate id="3" description="You have gathered the ordered ingredients and should ask Bozo for the next mission."/>
+         <missionstate id="4" description="Deliver the exploding cigar to Theodore Loveless in Liberty Bay."/>
+         <missionstate id="5" description="You have finished your eighth mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - A fool's bargain" storageid="3909" startvalue="1" endvalue="5">
+         <missionstate id="1" description="Bozo wants you to fill a vial with the blood of a stalker. Use the vial on a slain stalker immediately after his death. Then report to Bozo about your mission."/>
+         <missionstate id="2" description="Bozo wants you to fill a vial with the ink of a quara constrictor. Use the vial on a slain constrictor immediately after its death. Then report to Bozo about your mission."/>
+         <missionstate id="3" description="You have gathered the ordered ingredients and should ask Bozo for the next mission."/>
+         <missionstate id="4" description="Order 2000 steel shields from Sam. Sign his contract with the magic ink."/>
+         <missionstate id="5" description="You have finished your ninth mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - A sweet surprise" storageid="3910" startvalue="1" endvalue="2">
+         <missionstate id="1" description="Deliver a cookie to Avar Tar, Simon, Ariella, Lorbas, King Markwin, Hjaern, Wyda, Hairycles, the orc king and EITHER Yaman OR Nah'Bob. Then report to Bozo about the mission."/>
+         <missionstate id="2" description="You have finished your tenth mission and should ask Bozo for the next mission."/>
+     </mission>
+     <mission name="What a foolish Quest - The final foolishness" storageid="3911" startvalue="1" endvalue="4">
+         <missionstate id="1" description="Gather 5 pieces of white cloth for Bozo. Then report about your mission."/>
+         <missionstate id="2" description="Travel to Darama and climb the highest point of the Plague Spike to give these pieces of white cloth an old and worn look. Some ancient altar should suit your needs best - use the white cloth on it."/>
+         <missionstate id="3" description="Use your mummy disguise to scare the caliph Kazzan in Darashia. DON'T use the disguise too early or you will fail the quest."/>
+         <missionstate id="4" description="You have finished all of Bozo's missions and you are a complete fool now. Yay!"/>
+     </mission>
+     <mission name="What a foolish Quest - To become a complete fool" storageid="3916" startvalue="4" endvalue="4">
+         <missionstate id="4" description="Now that you have a basic outfit, you should talk to Bozo about your missions to gain further rewards."/>
+     </mission>
+</quest>
+<!-- Wrath of the Emperor quest migrated to data/scripts/quests/Farmine/wrath_of_the_emperor.lua -->
+<!-- Sea Routes around Yalahar quest migrated to data/scripts/quests/Yalahar/searoutes_around_yalahar.lua -->
+<!--
+<quest name="Sea Routes around Yalahar" startstorageid="30300" startstoragevalue="0" endstorageid="30300" endstoragevalue="5">
+     <mission name="Ab'Dendriel" storageid="30301" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring bug milk from the elves of Ab'Dendriel to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought bug milk from Ab'Dendriel to Karith."/>
+     </mission>
+     <mission name="Darashia" storageid="30302" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring sand wasp honey from Darashia to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought sand wasp honey from Darashia to Karith."/>
+     </mission>
+     <mission name="Venore" storageid="30303" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring swamp spice from Venore to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought swamp spice from Venore to Karith."/>
+     </mission>
+     <mission name="Ankrahmun" storageid="30304" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring embalming fluid from Ankrahmun to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought embalming fluid from Ankrahmun to Karith."/>
+     </mission>
+     <mission name="Port Hope" storageid="30305" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring ivory from Port Hope to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought ivory from Port Hope to Karith."/>
+     </mission>
+     <mission name="Thais" storageid="30306" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring royal satin from Thais to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought royal satin from Thais to Karith."/>
+     </mission>
+     <mission name="Liberty Bay" storageid="30307" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring rum from Liberty Bay to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought rum from Liberty Bay to Karith."/>
+     </mission>
+     <mission name="Carlin" storageid="30308" startvalue="0" endvalue="1">
+         <missionstate id="0" description="Bring an evergreen flower pot from Carlin to prove the city is worth establishing ship routes to."/>
+         <missionstate id="1" description="You have brought an evergreen flower pot from Carlin to Karith."/>
+     </mission>
+     <mission name="Ship Routes Established" storageid="30300" startvalue="5" endvalue="9">
+         <missionstate id="5" description="You have proven that 5 cities are worth establishing ship routes to. Ship routes have been established to Ab'Dendriel, Darashia, Venore, Ankrahmun, Port Hope, Thais, Liberty Bay and Carlin."/>
+         <missionstate id="6" description="You have proven that 6 cities are worth establishing ship routes to. Ship routes have been established to Ab'Dendriel, Darashia, Venore, Ankrahmun, Port Hope, Thais, Liberty Bay and Carlin."/>
+         <missionstate id="7" description="You have proven that 7 cities are worth establishing ship routes to. Ship routes have been established to Ab'Dendriel, Darashia, Venore, Ankrahmun, Port Hope, Thais, Liberty Bay and Carlin."/>
+         <missionstate id="8" description="You have proven that all 8 cities are worth establishing ship routes to. Ship routes have been established to Ab'Dendriel, Darashia, Venore, Ankrahmun, Port Hope, Thais, Liberty Bay and Carlin."/>
+         <missionstate id="9" description="You have successfully completed the Sea Routes around Yalahar quest by proving the value of 8 major cities to Karith. Ship routes are now permanently established and you can sail to all these destinations from Yalahar."/>
+     </mission>
+</quest>
+-->
+	<quest name="Pits of Inferno" startstorageid="30035" startstoragevalue="1">
+		<mission name="Infernatil's Throne" storageid="30035" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Infernatil's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Tafariel's Throne" storageid="30036" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Tafariel's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Vermior's Throne" storageid="30037" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Vermior's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Apocalypse's Throne" storageid="30038" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Apocalypse's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Bazir's Throne" storageid="30039" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Bazir's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Ashfalor's Throne" storageid="30040" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Ashfalor's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Pumin's Throne" storageid="30041" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have touched Pumin's throne and absorbed some of his spirit."/>
+		</mission>
+		<mission name="Rewards" storageid="30042" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have claimed your rewards from the Pits of Inferno."/>
+		</mission>
+		<mission name="Shortcut Access" storageid="30043" startvalue="1" endvalue="1">
+			<missionstate id="1" description="You have unlocked the shortcut in the Pits of Inferno."/>
+		</mission>
+	</quest>
+	<!-- Killing in the Name of... quest migrated to data/scripts/quests/killing_in_the_name_of.lua -->
+	<!-- Pilgrimage of Ashes quest migrated to data/scripts/quests/Tibia/pilgrimage_of_ashes.lua -->
+</quests>
+

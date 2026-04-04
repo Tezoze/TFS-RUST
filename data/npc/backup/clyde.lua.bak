@@ -1,0 +1,183 @@
+-- Clyde - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Clyde.xml
+-- Original Script: data/npc/scripts/Clyde.lua
+
+local npcName = "Clyde"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a clyde")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 128, lookHead = 116, lookBody = 59, lookLegs = 47, lookFeet = 114})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+-- Shop items (from XML parameters)
+-- subType is used for fluid containers (wine, beer, etc.) to specify fluid type
+-- For regular items, subType should be 0
+-- NOTE: Using item 2328 for egg because 2695 and 2328 share the same clientId (3606)
+--       This is an OTB bug that should be fixed properly
+local shopItems = {
+    {id = 2006, buy = 10, sell = 0, subType = 15, name = "wine"},        -- vial of wine (fluid type 15)
+    {id = 2666, buy = 5, sell = 0, subType = 0, name = "meat"},
+    {id = 2696, buy = 5, sell = 0, subType = 0, name = "cheese"},
+    {id = 2671, buy = 8, sell = 0, subType = 0, name = "ham"},
+    {id = 2689, buy = 3, sell = 0, subType = 0, name = "bread"},
+    {id = 2687, buy = 2, sell = 0, subType = 0, name = "cookie"},
+    {id = 2328, buy = 2, sell = 0, subType = 0, name = "egg"},           -- Using 2328 instead of 2695 due to shared clientId
+    {id = 2685, buy = 3, sell = 0, subType = 0, name = "tomato"},
+    {id = 2012, buy = 3, sell = 0, subType = 15, name = "mug of wine"},  -- mug of wine (fluid type 15)
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+-- Buy callback function for openShopWindow
+local function onBuy(player, itemId, subType, amount, ignoreCap, inBackpacks)
+    local shopItem = getShopItem(itemId, subType, true)
+    if not shopItem or shopItem.buy <= 0 then 
+        return false 
+    end
+    
+    local totalCost = amount * shopItem.buy
+    if player:getTotalMoney() < totalCost then
+        player:sendCancelMessage("You don't have enough money.")
+        return false
+    end
+    
+    local itemType = ItemType(itemId)
+    local itemSubType = 1
+    if itemType:isFluidContainer() and shopItem.subType > 0 then
+        itemSubType = shopItem.subType
+    end
+    
+    local itemsAdded = 0
+    for i = 1, amount do
+        local item = player:addItem(itemId, itemSubType, true)
+        if item then
+            itemsAdded = itemsAdded + 1
+        else
+            if itemsAdded == 0 then
+                player:sendCancelMessage("You do not have enough capacity.")
+                return false
+            end
+            break
+        end
+    end
+    
+    if itemsAdded > 0 then
+        local cost = itemsAdded * shopItem.buy
+        player:removeTotalMoney(cost)
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Bought " .. itemsAdded .. "x " .. shopItem.name .. " for " .. cost .. " gold.")
+        return true
+    end
+    
+    return false
+end
+
+-- Sell callback function for openShopWindow
+local function onSell(player, itemId, subType, amount, ignoreEquipped)
+    local shopItem = getShopItem(itemId, subType, false)
+    if not shopItem or shopItem.sell <= 0 then return false end
+    
+    local itemSubType = shopItem.subType or 0
+    if not ItemType(itemId):isFluidContainer() then
+        itemSubType = -1
+    end
+
+    if player:removeItem(itemId, amount, itemSubType, ignoreEquipped) then
+        player:addMoney(amount * shopItem.sell)
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Sold " .. amount .. "x " .. shopItem.name .. " for " .. (amount * shopItem.sell) .. " gold.")
+        return true
+    end
+    player:sendCancelMessage("You do not have this object.")
+    return false
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    
+    npc:openShopWindow(player, shopList, onBuy, onSell)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

@@ -1,0 +1,12 @@
+-- Buddel (TravelBuilder)
+local npc = TravelBuilder:new("Buddel",
+	{lookType = 143, lookHead = 19, lookBody = 57, lookLegs = 22, lookFeet = 20})
+npc:addDestination("Okolnir", {x = 32225, y = 31381, z = 7}, 50)
+npc:addDestination("Helheim", {x = 32462, y = 31174, z = 7}, 50)
+npc:addDestination("Tyrsung", {x = 32333, y = 31227, z = 7}, 50)
+npc:addDestination("Camp", {x = 32021, y = 31294, z = 7}, 50)
+npc:addKeyword("passage", "Where are we at the moment? Is this Svargrond? Ahh yes!*HICKS* Where do you want to go?")
+npc:addKeyword("trip", "Where are we at the moment? Is this Svargrond? Ahh yes!*HICKS* Where do you want to go?")
+npc:addKeyword("go", "Where are we at the moment? Is this Svargrond? Ahh yes!*HICKS* Where do you want to go?")
+npc:addKeyword("sail", "Where are we at the moment? Is this Svargrond? Ahh yes!*HICKS* Where do you want to go?")
+npc:register()

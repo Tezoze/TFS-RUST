@@ -1,0 +1,10 @@
+-- Norbert (ShopBuilder)
+local npc = ShopBuilder:new("Norbert",
+	{lookType = 128, lookHead = 6, lookBody = 79, lookLegs = 93, lookFeet = 13})
+npc:addBuyableAndSellable("Coat", 2651, 8, 1)
+npc:addBuyableAndSellable("Doublet", 2485, 16, 3)
+npc:addBuyableAndSellable("Jacket", 2650, 12, 1)
+npc:addBuyableAndSellable("Leather Armor", 2467, 35, 12)
+npc:addBuyableAndSellable("Studded Armor", 2484, 90, 25)
+npc:addBuyable("Wedding Outfit Box", 10503, 5000)
+npc:register()

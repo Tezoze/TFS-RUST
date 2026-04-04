@@ -1,0 +1,163 @@
+-- Flint - Converted from XML to Lua NpcType
+-- Original XML: data/npc/Flint.xml
+-- Original Script: data/npc/scripts/Flint.lua
+
+local npcName = "Flint"
+local npcType = Game.createNpcType(npcName)
+
+-- NPC Properties (from XML)
+npcType:name(npcName)
+npcType:nameDescription("a flint")
+npcType:health(100)
+npcType:maxHealth(100)
+npcType:walkInterval(2000)
+npcType:walkRadius(2)
+npcType:baseSpeed(100)
+npcType:floorChange(false)
+npcType:isPushable(false)
+npcType:outfit({lookType = 134, lookHead = 95, lookBody = 57, lookLegs = 76, lookFeet = 39})
+npcType:speechBubble(SPEECHBUBBLE_NORMAL)
+
+-- Original Lua script content
+local keywordHandler = KeywordHandler:new()
+local npcHandler = NpcHandler:new(keywordHandler)
+
+
+-- Shop items (from XML parameters)
+local shopItems = {
+    {id = 23539, buy = 0, sell = 11000, subType = 0, name = "Alloy Legs"},
+    {id = 2386, buy = 0, sell = 7, subType = 0, name = "axe"},
+    {id = 24261, buy = 0, sell = 10000, subType = 0, name = "crest of the deep seas"},
+    {id = 2378, buy = 0, sell = 80, subType = 0, name = "Battle Axe"},
+    {id = 2417, buy = 0, sell = 120, subType = 0, name = "Battle Hammer"},
+    {id = 2513, buy = 0, sell = 95, subType = 0, name = "battle shield"},
+    {id = 2450, buy = 0, sell = 20, subType = 0, name = "Bone Sword"},
+    {id = 2465, buy = 0, sell = 150, subType = 0, name = "Brass Armor"},
+    {id = 2460, buy = 0, sell = 30, subType = 0, name = "Brass Helmet"},
+    {id = 2478, buy = 0, sell = 49, subType = 0, name = "Brass Legs"},
+    {id = 23548, buy = 0, sell = 2500, subType = 0, name = "Cowtana"},
+    {id = 2525, buy = 0, sell = 100, subType = 0, name = "Dwarven Shield"},
+    {id = 23547, buy = 0, sell = 12000, subType = 0, name = "Execowtioner Axe"},
+    {id = 2392, buy = 0, sell = 1000, subType = 0, name = "Fire Sword"},
+    {id = 23541, buy = 0, sell = 5000, subType = 0, name = "Gearwheel Chain"},
+    {id = 23554, buy = 0, sell = 2000, subType = 0, name = "Glooth Amulet"},
+    {id = 23551, buy = 0, sell = 1500, subType = 0, name = "Glooth Axe"},
+    {id = 23550, buy = 0, sell = 1500, subType = 0, name = "Glooth Blade"},
+    {id = 23535, buy = 0, sell = 7000, subType = 0, name = "Glooth cap"},
+    {id = 23549, buy = 0, sell = 1500, subType = 0, name = "Glooth Club"},
+    {id = 23543, buy = 0, sell = 2500, subType = 0, name = "Glooth Whip"},
+    {id = 2381, buy = 0, sell = 400, subType = 0, name = "Halberd"},
+    {id = 23538, buy = 0, sell = 10000, subType = 0, name = "Heat Core"},
+    {id = 23542, buy = 0, sell = 9000, subType = 0, name = "Metal Bat"},
+    {id = 23540, buy = 0, sell = 2000, subType = 0, name = "Metal Spats"},
+    {id = 23545, buy = 0, sell = 7000, subType = 0, name = "Mino Lance"},
+    {id = 23546, buy = 0, sell = 3000, subType = 0, name = "Mino Shield"},
+    {id = 23537, buy = 0, sell = 6000, subType = 0, name = "Moohtah Plate"},
+    {id = 23544, buy = 0, sell = 14000, subType = 0, name = "Moohtant Cudgel"},
+    {id = 2463, buy = 0, sell = 400, subType = 0, name = "Plate Armor"},
+    {id = 23536, buy = 0, sell = 11000, subType = 0, name = "Rubber Cap"},
+    {id = 2391, buy = 0, sell = 470, subType = 0, name = "War Hammer"},
+    {id = 2457, buy = 0, sell = 293, subType = 0, name = "Steel Helmet"},
+    {id = 2554, buy = 0, sell = 8, subType = 0, name = "shovel"},
+    {id = 2036, buy = 0, sell = 6, subType = 0, name = "watch"},
+    {id = 2556, buy = 0, sell = 15, subType = 0, name = "wooden hammer"},
+}
+
+-- Helper function to find shop item by id and subType (for fluid containers)
+local function getShopItem(itemId, subType, isBuying)
+    local itemType = ItemType(itemId)
+    if itemType:isFluidContainer() then
+        for _, item in ipairs(shopItems) do
+            if item.id == itemId and item.subType == subType then
+                return item
+            end
+        end
+    end
+    -- For non-fluid items, find the entry that matches the operation
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            if isBuying and item.buy > 0 then
+                return item
+            elseif not isBuying and item.sell > 0 then
+                return item
+            end
+        end
+    end
+    -- Fallback to first match
+    for _, item in ipairs(shopItems) do
+        if item.id == itemId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function openTradeWindow(cid, message, keywords, parameters, node)
+    if not npcHandler:isFocused(cid) then return false end
+    local player = Player(cid)
+    if not player then return false end
+    local npc = Npc(getNpcCid())
+    local shopList = {}
+    for _, item in ipairs(shopItems) do
+        table.insert(shopList, {id = item.id, buy = item.buy, sell = item.sell, subType = item.subType or 0, name = item.name})
+    end
+    npc:openShopWindow(player, shopList, function() return true end, function() return true end)
+    npcHandler:say('Take all the time you need to browse my wares.', cid)
+    return true
+end
+keywordHandler:addKeyword({'trade'}, openTradeWindow, {npcHandler = npcHandler})
+
+
+-- NpcType callbacks (MUST call setCurrentNpc first!)
+npcType:eventType(NPCS_EVENT_APPEAR)
+npcType:onAppear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureAppear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_DISAPPEAR)
+npcType:onDisappear(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureDisappear(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SAY)
+npcType:onSay(function(npc, creature, type, message)
+    setCurrentNpc(npc)
+    npcHandler:onCreatureSay(creature, type, message)
+end)
+
+npcType:eventType(NPCS_EVENT_THINK)
+npcType:onThink(function(npc, interval)
+    setCurrentNpc(npc)
+    npcHandler:onThink()
+end)
+
+npcType:eventType(NPCS_EVENT_CLOSECHANNEL)
+npcType:onCloseChannel(function(npc, creature)
+    setCurrentNpc(npc)
+    npcHandler:onPlayerCloseChannel(creature)
+end)
+
+npcType:eventType(NPCS_EVENT_SELLITEM)
+npcType:onSellItem(function(npc, player, itemId, subType, amount, ignoreEquipped)
+    local shopItem = getShopItem(itemId, subType, false)
+    if not shopItem or shopItem.sell <= 0 then return false end
+    local totalPrice = amount * shopItem.sell
+    local itemName = shopItem.name or ItemType(itemId):getName()
+    
+    local itemSubType = -1
+    if ItemType(itemId):isFluidContainer() then
+        itemSubType = subType
+    end
+    
+    if doPlayerSellItem(player:getId(), itemId, amount, totalPrice, itemSubType, ignoreEquipped) then
+        player:sendTextMessage(MESSAGE_INFO_DESCR, "Sold " .. amount .. "x " .. shopItem.name .. " for " .. (amount * shopItem.sell) .. " gold.")
+        return true
+    end
+    player:sendCancelMessage("You do not have this object.")
+    return false
+end)
+
+npcHandler:addModule(FocusModule:new())
+npcType:register()

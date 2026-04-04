@@ -1,0 +1,10 @@
+-- Nina (DialogueBuilder)
+local npc = DialogueBuilder:new("Nina",
+	{lookType = 152, lookHead = 114, lookBody = 95, lookLegs = 95, lookFeet = 95, lookAddons = 3})
+npc:greetMessage("Beware, if you go any further you will have to fight a large group of Chosen. This place is called the Fire Dragon Dojo. Tread carefully since these are lizard training grounds.")
+npc:farewellMessage("Goodbye. Human. Being!")
+npc:walkawayMessage("Goodbye. Human. Being!")
+npc:addResponse("chosen", "The lizards here are the chosen ones of their kind. We believe them to be the strongest warriors in these lands.So I lead my people here to learn their ways. We are mere assassins but they are using foreign techniques and seem to be far more efficient")
+npc:addResponse("fire dragon dojo", "We of the Grey Shadow clan are studying the ways of the Chosen. Our training is hard, encounters with the lizards often deadly. Every one of us fights on his own. Each one more deadly than the other. Under my lead we wil rise renewed, as the Shadow Nina.")
+npc:addResponse("name", "I am Nina, leader of the Grey Shadow clan. Me and my followers, the Shadow Nina, are exploring the largely uncharted parts of the continent Zao.")
+npc:register()

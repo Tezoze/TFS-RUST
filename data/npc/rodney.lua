@@ -1,0 +1,11 @@
+-- Rodney (ShopBuilder)
+local npc = ShopBuilder:new("Rodney",
+	{lookType = 128, lookHead = 95, lookBody = 100, lookLegs = 116, lookFeet = 76})
+npc:addBuyable("cherry", 2679, 1)
+npc:addBuyable("grapes", 2681, 3)
+npc:addBuyable("pear", 2673, 4)
+npc:addBuyable("plum", 8839, 3)
+npc:addBuyable("raspberry", 8840, 1)
+npc:addBuyable("red apple", 2674, 3)
+npc:addBuyable("sample of venorean spice", 9675, 200)
+npc:register()

@@ -1,0 +1,4 @@
+-- NPC Builder Cleanup
+-- NOTE: CreatureEvents cannot be registered from the lib/ loading context (Main Interface).
+-- The actual CreatureEvent registration is in data/scripts/creaturescripts/npc_builder_cleanup.lua
+-- This file is kept as a placeholder to maintain the init.lua loading order.

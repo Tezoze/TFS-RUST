@@ -1,0 +1,11 @@
+-- Hyacinth (ShopBuilder)
+local npc = ShopBuilder:new("Hyacinth",
+	{lookType = 130, lookHead = 11, lookBody = 123, lookLegs = 123, lookFeet = 94})
+npc:addSellable("empty potion flask", 7636, 5)
+npc:addBuyable("small health potion", 8704, 20)
+npc:addSellable("vial", 2006, 5)
+npc:greetMessage("Greetings, traveller |PLAYERNAME|. As you have found the way to my hut, how can I {help} you?")
+npc:farewellMessage("May Crunor bless you.")
+npc:walkawayMessage("May Crunor bless you.")
+npc:tradeMessage("Here. Don")
+npc:register()
