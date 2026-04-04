@@ -33,6 +33,9 @@ anyhow = "1.0"
 byteorder = "1.5"
 bytes = "1.5"
 rsa = "0.9"
+num-bigint-dig = "0.8"
+rand_core = { version = "0.6", features = ["getrandom"] }
+base64 = "0.22"
 flate2 = "1.0"
 sqlx = { version = "0.7", features = ["macros", "mysql", "runtime-tokio-rustls", "chrono", "migrate"] }
 async-trait = "0.1"

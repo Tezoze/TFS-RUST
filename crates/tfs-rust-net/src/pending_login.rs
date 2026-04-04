@@ -5,11 +5,7 @@ use std::collections::VecDeque;
 
 use tokio::sync::oneshot;
 
-use crate::game_command::GameCommand;
-
-/// Stable id for a TCP connection (allocated by the server).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ConnId(pub u32);
+use tfs_rust_common::{ConnId, GameCommand, GamePacket};
 
 /// Result delivered on the oneshot when async login/DB work finishes (placeholder until Phase 5).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,20 +60,14 @@ impl PendingLogin {
     /// Apply queue/drop rules from task 1.6b: movement/attack dropped; chat queued.
     pub fn dispatch_command(&mut self, cmd: GameCommand) -> PendingLoginPacketAction {
         match cmd {
-            GameCommand::PlayerMove(_) | GameCommand::PlayerAttack(_) => {
-                PendingLoginPacketAction::Dropped
+            GameCommand::Game { conn_id, packet } if conn_id == self.conn_id => {
+                dispatch_game_packet(&mut self.chat_queue, packet)
             }
-            GameCommand::PlayerSay(msg) => {
-                self.chat_queue.push_back(msg);
-                PendingLoginPacketAction::QueuedChat
-            }
-            GameCommand::PlayerLogin { .. }
-            | GameCommand::PlayerLogout
-            | GameCommand::PlayerUseItem(_)
-            | GameCommand::ExtendedOpcode(_, _)
+            GameCommand::Game { .. } => PendingLoginPacketAction::Dropped,
+            GameCommand::Shutdown
             | GameCommand::LuaCallback { .. }
-            | GameCommand::Shutdown
-            | GameCommand::Unknown(_) => PendingLoginPacketAction::Dropped,
+            | GameCommand::LuaAsyncResult { .. }
+            | GameCommand::PlayerLogin { .. } => PendingLoginPacketAction::Dropped,
         }
     }
 
@@ -104,6 +94,27 @@ impl PendingLogin {
     }
 }
 
+fn dispatch_game_packet(
+    chat_queue: &mut VecDeque<String>,
+    packet: GamePacket,
+) -> PendingLoginPacketAction {
+    match packet {
+        GamePacket::Say(p) => {
+            chat_queue.push_back(p.text);
+            PendingLoginPacketAction::QueuedChat
+        }
+        GamePacket::Move(_)
+        | GamePacket::AutoWalk { .. }
+        | GamePacket::StopAutoWalk
+        | GamePacket::Turn(_)
+        | GamePacket::Attack { .. }
+        | GamePacket::Follow { .. }
+        | GamePacket::CancelAttackAndFollow
+        | GamePacket::EquipObject { .. } => PendingLoginPacketAction::Dropped,
+        _ => PendingLoginPacketAction::Dropped,
+    }
+}
+
 /// Drop pending state; if the connection closes first, the game thread’s `send` will fail — discard there.
 pub fn disconnect_pending_login(pending: PendingLogin) {
     drop(pending);
@@ -121,25 +132,59 @@ pub fn send_login_result_or_discard(
 mod tests {
     use super::*;
     use tfs_rust_common::enums::Direction;
+    use tfs_rust_common::game_packet::SayPayload;
 
     #[test]
     fn drops_move_and_attack_queues_say() {
         let (_tx, rx) = oneshot::channel::<LoginPendingResult>();
         let mut p = PendingLogin::new(ConnId(1), "Test".to_string(), rx);
         assert_eq!(
-            p.dispatch_command(GameCommand::PlayerMove(Direction::North)),
+            p.dispatch_command(GameCommand::Game {
+                conn_id: ConnId(1),
+                packet: GamePacket::Move(Direction::North),
+            }),
             PendingLoginPacketAction::Dropped
         );
         assert_eq!(
-            p.dispatch_command(GameCommand::PlayerAttack(0)),
+            p.dispatch_command(GameCommand::Game {
+                conn_id: ConnId(1),
+                packet: GamePacket::Attack { creature_id: 0 },
+            }),
             PendingLoginPacketAction::Dropped
         );
         assert_eq!(
-            p.dispatch_command(GameCommand::PlayerSay("hi".to_string())),
+            p.dispatch_command(GameCommand::Game {
+                conn_id: ConnId(1),
+                packet: GamePacket::Say(SayPayload {
+                    speak_class: 0,
+                    channel_id: 0,
+                    receiver: String::new(),
+                    text: "hi".to_string(),
+                }),
+            }),
             PendingLoginPacketAction::QueuedChat
         );
         assert_eq!(p.drain_chat_queue().len(), 1);
         drop(_tx);
+    }
+
+    #[test]
+    fn mismatched_conn_id_dropped() {
+        let (_tx, rx) = oneshot::channel::<LoginPendingResult>();
+        let mut p = PendingLogin::new(ConnId(1), "Test".to_string(), rx);
+        assert_eq!(
+            p.dispatch_command(GameCommand::Game {
+                conn_id: ConnId(99),
+                packet: GamePacket::Say(SayPayload {
+                    speak_class: 0,
+                    channel_id: 0,
+                    receiver: String::new(),
+                    text: "nope".into(),
+                }),
+            }),
+            PendingLoginPacketAction::Dropped
+        );
+        assert!(p.drain_chat_queue().is_empty());
     }
 
     #[test]

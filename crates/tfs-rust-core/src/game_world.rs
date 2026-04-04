@@ -7,6 +7,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use slotmap::SlotMap;
 
+use tfs_rust_common::ConnId;
 use tfs_rust_db::DbPool;
 
 use crate::config::ConfigManager;
@@ -19,6 +20,7 @@ use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::map::Map;
 use crate::party::{Party, PartyInviteState};
+use crate::protocol_hooks::{NullProtocolHooks, SharedProtocolHooks};
 use crate::spawn::SpawnManager;
 use crate::stability::StabilityManager;
 use crate::wildcard::WildcardTree;
@@ -44,6 +46,12 @@ pub struct GameWorld {
     pub wildcards: WildcardTree,
     pub stability: StabilityManager,
     pub tick_counter: u64,
+    /// Per-connection outgoing payloads queued on the game thread; drained each tick (`flush_output_buffers`).
+    pub pending_outgoing: HashMap<ConnId, Vec<Vec<u8>>>,
+    /// Extended opcode + async Lua result hooks (Phase 8: Lua `PacketHandler`).
+    pub protocol_hooks: SharedProtocolHooks,
+    /// TCP connection → logged-in player (`conn_id` from `tfs-rust-net`).
+    pub conn_to_creature: HashMap<ConnId, CreatureId>,
 }
 
 impl GameWorld {
@@ -73,7 +81,25 @@ impl GameWorld {
             wildcards: WildcardTree::default(),
             stability: StabilityManager::default(),
             tick_counter: 0,
+            pending_outgoing: HashMap::new(),
+            protocol_hooks: Arc::new(NullProtocolHooks),
+            conn_to_creature: HashMap::new(),
         }
+    }
+
+    /// Test / custom hook injection (same thread as game loop).
+    pub fn set_protocol_hooks(&mut self, hooks: SharedProtocolHooks) {
+        self.protocol_hooks = hooks;
+    }
+
+    /// Queue raw packet bytes for a connection (built by `tfs-rust-net` outgoing helpers).
+    pub fn enqueue_outgoing(&mut self, conn: ConnId, packet: Vec<u8>) {
+        self.pending_outgoing.entry(conn).or_default().push(packet);
+    }
+
+    /// Drain all queued outgoing packets at end of tick; IO layer sends each blob in order per connection.
+    pub fn flush_output_buffers(&mut self) -> HashMap<ConnId, Vec<Vec<u8>>> {
+        std::mem::take(&mut self.pending_outgoing)
     }
 
     /// Remove creature from map index, player lookups, guild online; remove summons if master dies.

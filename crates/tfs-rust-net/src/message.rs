@@ -37,6 +37,16 @@ impl NetworkMessage {
         self.buf.len().saturating_sub(self.read_pos)
     }
 
+    /// Full buffer (including consumed prefix); used after writing outgoing payload.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf
+    }
+
+    /// Take owned copy of the full buffer (for enqueueing on the game thread).
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.buf.to_vec()
+    }
+
     pub fn skip(&mut self, offset: usize) -> Result<()> {
         if self.unread_bytes() < offset {
             return Err(TfsRustError::Protocol("EOF".into()));
@@ -129,6 +139,13 @@ impl NetworkMessage {
         self.write_u16(val.x);
         self.write_u16(val.y);
         self.write_u8(val.z);
+    }
+
+    /// `NetworkMessage::addDouble` (`src/networkmessage.cpp`).
+    pub fn write_double_tfs(&mut self, value: f64, precision: u8) {
+        self.write_u8(precision);
+        let scaled = (value * 10_f64.powi(precision as i32)) as i64 + i32::MAX as i64;
+        self.write_u32(scaled as u32);
     }
 
     pub fn decompress(&mut self) -> Result<()> {

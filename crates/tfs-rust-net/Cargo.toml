@@ -9,9 +9,13 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 bytes = { workspace = true }
-rsa = { workspace = true }
+rsa = { workspace = true, features = ["hazmat"] }
+num-bigint-dig = { workspace = true }
+rand_core = { workspace = true }
+base64 = { workspace = true }
 flate2 = { workspace = true }
 tfs-rust-common = { workspace = true }
+tfs-rust-db = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.4"

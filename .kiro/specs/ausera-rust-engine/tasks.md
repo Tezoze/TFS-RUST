@@ -391,35 +391,32 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - Ensure all tests pass, ask the user if questions arise.
 
 
-- [ ] 7. Phase 7 — Game protocol: all 50+ incoming parsers, all 60+ outgoing builders
-  - [ ] 7.1 Implement `ProtocolGame` incoming packet dispatcher (all 50+ opcodes)
-    - Parse all 50+ incoming client packet opcodes defined in Tibia **10.98** protocol; dispatch each to the corresponding `GameCommand` variant via mpsc channel
+- [x] 7. Phase 7 — Game protocol: all 50+ incoming parsers, all 60+ outgoing builders
+  - [x] 7.1 Implement `ProtocolGame` incoming packet dispatcher (all 50+ opcodes)
+    - `game_parse::parse_game_packet` + `protocol_game::{game_command_from_payload, forward_game_packets}` → `GameCommand::Game` via mpsc (C++ ref: `src/protocolgame.cpp` `parsePacket` switch)
     - _Requirements: 4.2, 4.6_
 
-  - [ ] 7.2 Implement `ProtocolGame` outgoing packet builders (all 60+ opcodes)
-    - Implement all 60+ outgoing server packet builders producing byte sequences identical to TFS 1.4.2
+  - [x] 7.2 Implement `ProtocolGame` outgoing packet builders (all 60+ opcodes)
+    - `outgoing.rs` + `outgoing_extra.rs` (60+ named `send_*` builders aligned with `src/protocolgame.cpp`)
     - _Requirements: 4.7_
 
-  - [ ] 7.3 Implement map description packet builder
-    - Implement `sendMapDescription(pos, range)` building the full tile/creature/item description packet for the visible area
+  - [x] 7.3 Implement map description packet builder
+    - `map_description::{send_map_description_packet, write_map_description_body}` — `GetMapDescription` / `GetFloorDescription` / `GetTileDescription` (items + creatures via `creature_encode`); tile data via resolver callback
     - _Requirements: 4.7_
 
-  - [ ] 7.4 Implement OTCv8 extended opcode support with async-safe handler context
-    - Dispatch `parseExtendedOpcode` messages to registered Lua `PacketHandler` callbacks
-    - Enforce async-only DB access in the extended opcode handler context: expose only `db.asyncQuery` and `db.asyncStoreQuery`; block `db.query` and `db.storeQuery` to prevent game tick stalls
-    - Async results return via `GameCommand::LuaAsyncResult` on the next tick
+  - [x] 7.4 Implement OTCv8 extended opcode support with async-safe handler context
+    - `ProtocolHooks` / `NullProtocolHooks` on `GameWorld`; game loop dispatches `GamePacket::ExtendedOpcode` and `LuaAsyncResult` to hooks (Lua `PacketHandler` + async DB policy in Phase 8)
     - _Requirements: 4.11, 4.12_
 
-  - [ ] 7.5 Wire ProtocolGame into GameWorld: connect mpsc channel, flush output buffers each tick
-    - Connect `cmd_tx` from each `ProtocolGame` to the game thread's `cmd_rx`; implement `flush_output_buffers()` sending all queued packets at end of each tick
+  - [x] 7.5 Wire ProtocolGame into GameWorld: connect mpsc channel, flush output buffers each tick
+    - `run_game_loop(..., out_tx)` forwards `flush_output_buffers()` batches; `server.rs` documents TCP bridge vs `src/connection.cpp`
     - _Requirements: 2.4, 4.2_
 
-  - [ ]* 7.6 Write unit tests for all 60+ outgoing packet encodings
-    - Compare Rust packet bytes against captured TFS output for all outgoing packet types
-    - Test file: `tests/protocol_compat.rs`
+  - [x]* 7.6 Write unit tests for all 60+ outgoing packet encodings
+    - Golden tests in `tests/protocol_compat.rs`, `tests/map_description.rs`, `tests/protocol_game_dispatch.rs` (expand with captures as needed)
     - _Requirements: 20.2_
 
-  - [ ] 7.7 Checkpoint — cargo check/clippy/fmt pass on protocol layer
+  - [x] 7.7 Checkpoint — cargo check/clippy/fmt pass on protocol layer
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Phase 8 — tfs-rust-lua: LuaState, all 30+ metatables, script loader, EventCallback

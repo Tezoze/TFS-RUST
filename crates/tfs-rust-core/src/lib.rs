@@ -15,12 +15,14 @@ pub mod house;
 pub mod ids;
 pub mod item;
 pub mod login;
+mod login_out;
 pub mod lua_command;
 pub mod map;
 pub mod matrix_area;
 pub mod output_queue;
 pub mod party;
 pub mod pathfinding;
+pub mod protocol_hooks;
 pub mod scheduler;
 pub mod spawn;
 pub mod spell;
@@ -50,6 +52,7 @@ pub use map::Map;
 pub use matrix_area::MatrixArea;
 pub use party::{split_shared_experience, Party, PartyInviteState};
 pub use pathfinding::pathfind;
+pub use protocol_hooks::{NullProtocolHooks, ProtocolHooks, SharedProtocolHooks};
 pub use scheduler::Scheduler;
 pub use spell::{
     can_cast_instant, matrix_tile_offsets, register_cast_cooldowns, SpellDefinition,
@@ -64,9 +67,11 @@ pub use wildcard::WildcardTree;
 
 use std::path::Path;
 
-/// Default entry used by the binary until the full server wires `run_game_loop`.
+/// Default entry: full OTBM/config bootstrap is not wired here yet. For Phase 7, run
+/// `cargo run -p tfs-rust-net --example game_login_smoke` with `DATABASE_URL` and combine with
+/// `run_game_loop(world, cmd_rx, Some(out_registry))` once a `GameWorld` is constructed.
 pub async fn run() -> anyhow::Result<()> {
-    tracing::info!("tfs-rust-core initialized (Phase 4 scaffolding)");
+    tracing::info!("tfs-rust-core: use `game_login_smoke` + `run_game_loop` for integrated login/game test.");
     let _ = Path::new("config.lua");
     Ok(())
 }

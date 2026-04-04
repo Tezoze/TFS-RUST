@@ -9,6 +9,7 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 tfs-rust-common = { workspace = true }
 tfs-rust-db = { workspace = true }
+tfs-rust-net = { workspace = true }
 tfs-rust-content = { workspace = true }
 slotmap = { workspace = true }
 dashmap = { workspace = true }
