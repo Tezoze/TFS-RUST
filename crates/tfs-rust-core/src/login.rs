@@ -1,6 +1,8 @@
 //! Character login: DB load → `Player` → world + indices.
 // C++ reference: `Game::placeCreature`, `IOLoginData::loadPlayer`.
 
+use std::collections::HashMap;
+
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::Position;
@@ -66,7 +68,7 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         speed: 220,
         base_speed: 220,
         skull: skull_from_i32(p.skull),
-        condition_ids: Vec::new(),
+        active_conditions: Vec::new(),
         walk_queue: Default::default(),
         follow_target: None,
         attack_target: None,
@@ -104,6 +106,8 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
             guild_id: data.guild.as_ref().map(|g| g.guild_id),
         },
         town_id: p.town_id,
+        spell_cooldown_end: HashMap::new(),
+        spell_group_cooldown_end: HashMap::new(),
     }
 }
 

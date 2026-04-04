@@ -1,6 +1,8 @@
 //! Player inventory, skills, economy, social — and level-up.
 // C++ reference: `Player` (`player.h` / `player.cpp`).
 
+use std::collections::HashMap;
+
 use crate::creature::base::CreatureBase;
 use crate::creature::vocation::{
     experience_to_next_level, recalculate_vitals, total_experience_for_level,
@@ -52,6 +54,10 @@ pub struct Player {
     pub economy: PlayerEconomy,
     pub social: PlayerSocial,
     pub town_id: i32,
+    /// Spell id → game tick when off cooldown.
+    pub spell_cooldown_end: HashMap<u16, u64>,
+    /// Spell group → game tick when group is off cooldown.
+    pub spell_group_cooldown_end: HashMap<u8, u64>,
 }
 
 impl Player {

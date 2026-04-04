@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use slotmap::SlotMap;
 use tfs_rust_common::enums::{Direction, SkullType};
@@ -20,7 +20,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             speed: 220,
             base_speed: 220,
             skull: SkullType::None,
-            condition_ids: Vec::new(),
+            active_conditions: Vec::new(),
             walk_queue: VecDeque::new(),
             follow_target: None,
             attack_target: None,
@@ -52,6 +52,8 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         },
         social: PlayerSocial::default(),
         town_id: 0,
+        spell_cooldown_end: HashMap::new(),
+        spell_group_cooldown_end: HashMap::new(),
     }
 }
 

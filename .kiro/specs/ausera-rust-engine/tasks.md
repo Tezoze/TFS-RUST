@@ -349,45 +349,45 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
   - [x] 5.10 Checkpoint — cargo check/clippy/fmt pass on creature system
     - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 6. Phase 6 — Combat system: damage formulas, conditions, weapons, spells
-  - [ ] 6.1 Implement `CombatParams` struct and `combat::execute` entry point
+- [x] 6. Phase 6 — Combat system: damage formulas, conditions, weapons, spells
+  - [x] 6.1 Implement `CombatParams` struct and `combat::execute` entry point
     - Implement `execute(world, attacker, params)` dispatching to health, mana, condition, or dispel sub-functions based on `combat_type`
     - Implement `can_attack(world, attacker, target)` enforcing PvP rules: protection zone, skull mode, secure mode, world type
     - _Requirements: 9.1, 9.2_
 
-  - [ ] 6.2 Implement `ConditionData` enum with all variants
+  - [x] 6.2 Implement `ConditionData` enum with all variants
     - Define `Damage`, `Speed`, `Outfit`, `Light`, `Regeneration`, `Soul`, `Attributes`, `SpellCooldown`, `SpellGroupCooldown`, `Generic` variants
     - Implement `addCondition` merge logic: when same type+id already exists, merge rather than duplicate
     - _Requirements: 9.3, 9.4_
 
-  - [ ]* 6.3 Write property test for condition merge idempotence (Property 10)
+  - [x]* 6.3 Write property test for condition merge idempotence (Property 10)
     - **Property 10: Condition Merge Idempotence**
     - **Validates: Requirements 9.4**
     - Test file: `tfs-rust-core/tests/conditions.rs`
 
-  - [ ] 6.4 Implement `MatrixArea` with flip, mirror, rotate90 transforms
+  - [x] 6.4 Implement `MatrixArea` with flip, mirror, rotate90 transforms
     - Implement `MatrixArea { data: Vec<Vec<bool>>, center_x, center_y }` with `flip`, `mirror`, `rotate90` producing results identical to TFS C++ implementation
     - _Requirements: 9.5_
 
-  - [ ]* 6.5 Write property test for MatrixArea transform correctness (Property 11)
+  - [x]* 6.5 Write property test for MatrixArea transform correctness (Property 11)
     - **Property 11: MatrixArea Transform Correctness**
     - **Validates: Requirements 9.5**
     - Test file: `tfs-rust-core/tests/matrix.rs`
 
-  - [ ] 6.6 Implement melee, distance, and wand weapon damage calculations
+  - [x] 6.6 Implement melee, distance, and wand weapon damage calculations
     - Implement `Weapon` module with element damage, producing results identical to TFS 1.4.2 formulas
     - _Requirements: 9.6_
 
-  - [ ]* 6.7 Write property test for combat damage formula equivalence (Property 8)
+  - [x]* 6.7 Write property test for combat damage formula equivalence (Property 8)
     - **Property 8: Combat Damage Formula Equivalence**
     - **Validates: Requirements 20.4, 9.1, 9.6**
     - Test file: `tfs-rust-core/tests/combat.rs`
 
-  - [ ] 6.8 Implement `Spell` module: instant spells and rune spells
+  - [x] 6.8 Implement `Spell` module: instant spells and rune spells
     - Enforce cooldown, mana cost, soul cost, level requirement, vocation restriction; apply `MatrixArea` effects
     - _Requirements: 9.7, 9.8_
 
-  - [ ] 6.9 Checkpoint — cargo check/clippy/fmt pass on combat system
+  - [x] 6.9 Checkpoint — cargo check/clippy/fmt pass on combat system
     - Ensure all tests pass, ask the user if questions arise.
 
 

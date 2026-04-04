@@ -13,6 +13,7 @@ tfs-rust-content = { workspace = true }
 slotmap = { workspace = true }
 dashmap = { workspace = true }
 mlua = { workspace = true }
+rand = "0.8"
 
 [dev-dependencies]
 proptest = "1.4"

@@ -69,6 +69,8 @@ pub enum SkullType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ZoneType {
     Normal,
+    /// Open PvP field (`TILESTATE_PVPZONE` in TFS).
+    Pvp,
     Protection,
     NoPvp,
     NoLogout,

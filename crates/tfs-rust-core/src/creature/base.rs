@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::condition::ActiveCondition;
 use crate::ids::CreatureId;
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
@@ -46,8 +47,8 @@ pub struct CreatureBase {
     pub speed: i32,
     pub base_speed: i32,
     pub skull: SkullType,
-    /// Opaque condition handles until Phase 6 `Condition` structs.
-    pub condition_ids: Vec<u32>,
+    /// Active conditions (merged per TFS `addCondition` rules).
+    pub active_conditions: Vec<ActiveCondition>,
     pub walk_queue: VecDeque<Direction>,
     pub follow_target: Option<CreatureId>,
     pub attack_target: Option<CreatureId>,
