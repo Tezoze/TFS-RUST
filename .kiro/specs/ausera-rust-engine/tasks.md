@@ -44,57 +44,57 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
     - Write a fixture-driven test asserting `PropStream` can deserialize all blobs without error (run this before Phase 2)
     - _Requirements: 23.1, 23.2, 23.4_
 
-- [ ] 1. Phase 1 — tfs-rust-net: TCP server, NetworkMessage, XTEA, RSA, protocols
-  - [ ] 1.1 Implement `NetworkMessage` byte buffer
+- [x] 1. Phase 1 — tfs-rust-net: TCP server, NetworkMessage, XTEA, RSA, protocols
+  - [x] 1.1 Implement `NetworkMessage` byte buffer
     - Implement `NetworkMessage { buf: BytesMut, read_pos: usize }` with typed `read_*` / `write_*` methods for `u8`, `u16`, `u32`, `u64`, `String` (length-prefixed), and `Position` in little-endian byte order
     - _Requirements: 4.5_
 
-  - [ ]* 1.2 Write property test for NetworkMessage round trip (Property 2)
+  - [x]* 1.2 Write property test for NetworkMessage round trip (Property 2)
     - **Property 2: NetworkMessage Round Trip**
     - **Validates: Requirements 20.2, 4.5**
     - Test file: `tfs-rust-net/tests/message.rs`
 
-  - [ ] 1.3 Implement XTEA encrypt/decrypt
+  - [x] 1.3 Implement XTEA encrypt/decrypt
     - Implement `xtea::encrypt(data: &mut [u8], key: &[u32; 4])` and `xtea::decrypt` as 64-round Feistel cipher on 8-byte blocks, output byte-for-byte identical to TFS C++ implementation
     - _Requirements: 4.3_
 
-  - [ ]* 1.4 Write property test for XTEA round trip (Property 1)
+  - [x]* 1.4 Write property test for XTEA round trip (Property 1)
     - **Property 1: XTEA Round Trip**
     - **Validates: Requirements 20.1, 4.3**
     - Test file: `tfs-rust-net/tests/xtea.rs`
 
-  - [ ] 1.5 Implement RSA login block decryption
+  - [x] 1.5 Implement RSA login block decryption
     - Implement `rsa::decrypt(block: &[u8; 128], private_key: &RsaPrivateKey) -> Result<Vec<u8>>` using the `rsa` crate (FFI boundary — only permitted `unsafe` site)
     - _Requirements: 4.4_
 
-  - [ ] 1.6 Implement `ConnectionState` state machine and TCP server
+  - [x] 1.6 Implement `ConnectionState` state machine and TCP server
     - Define `ConnectionState { Handshake, Login(ProtocolLogin), Game(ProtocolGame), Status(ProtocolStatus), Closed }`
     - Implement `Server` as a Tokio TCP listener that spawns one `Connection` task per accepted socket
     - Wire `XteaState { key: [u32; 4], enabled: bool }` into each connection
     - _Requirements: 4.1, 4.2, 4.10_
 
-  - [ ] 1.7 Implement `ProtocolLogin`: RSA decrypt, character list response
+  - [x] 1.7 Implement `ProtocolLogin`: RSA decrypt, character list response
     - Parse the first login message: RSA-decrypt the 128-byte block, extract account/password, query DB for character list, send character list or error packet
     - _Requirements: 4.1_
 
-  - [ ] 1.8 Implement `ProtocolStatus`: XML status response
+  - [x] 1.8 Implement `ProtocolStatus`: XML status response
     - Respond to status port queries with a valid XML status document
     - _Requirements: 4.9_
 
-  - [ ] 1.9 Define `GameCommand` enum covering all 50+ client packet types
+  - [x] 1.9 Define `GameCommand` enum covering all 50+ client packet types
     - Define all variants: `PlayerMove`, `PlayerSay`, `PlayerUseItem`, `PlayerAttack`, `PlayerLogin`, `PlayerLogout`, `ExtendedOpcode`, and all remaining TFS client opcodes
     - _Requirements: 4.6_
 
-  - [ ] 1.10 Implement zlib compression/decompression in NetworkMessage
+  - [x] 1.10 Implement zlib compression/decompression in NetworkMessage
     - Integrate `flate2` compress/decompress into the outgoing/incoming pipeline, gated by config flag
     - _Requirements: 4.8_
 
-  - [ ]* 1.11 Write property test for zlib compression round trip (Property 12)
+  - [x]* 1.11 Write property test for zlib compression round trip (Property 12)
     - **Property 12: zlib Compression Round Trip**
     - **Validates: Requirements 4.8**
     - Test file: `tfs-rust-net/tests/compression.rs`
 
-  - [ ] 1.12 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-net
+  - [x] 1.12 Checkpoint — cargo check/clippy/fmt pass on tfs-rust-net
     - Ensure all tests pass, ask the user if questions arise.
 
 

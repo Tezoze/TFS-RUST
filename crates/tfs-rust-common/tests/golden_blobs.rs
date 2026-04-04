@@ -1,4 +1,3 @@
-use proptest::prelude::*;
 use std::fs;
 use std::path::PathBuf;
 use tfs_rust_common::PropStream;
