@@ -6,7 +6,10 @@ use crate::Position;
 
 #[derive(Debug, Clone)]
 pub enum GameCommand {
-    PlayerLogin,
+    /// Enter game with a resolved character name (after DB auth in net layer).
+    PlayerLogin {
+        name: String,
+    },
     PlayerLogout,
     PlayerMove(Direction),
     PlayerSay(String),

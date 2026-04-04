@@ -71,7 +71,7 @@ impl PendingLogin {
                 self.chat_queue.push_back(msg);
                 PendingLoginPacketAction::QueuedChat
             }
-            GameCommand::PlayerLogin
+            GameCommand::PlayerLogin { .. }
             | GameCommand::PlayerLogout
             | GameCommand::PlayerUseItem(_)
             | GameCommand::ExtendedOpcode(_, _)

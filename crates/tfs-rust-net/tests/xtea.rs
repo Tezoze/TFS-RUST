@@ -5,7 +5,7 @@ proptest! {
     #[test]
     fn xtea_round_trip(
         data in prop::collection::vec(any::<u8>(), 0..=256).prop_map(|mut v| {
-            v.resize((v.len() + 7) / 8 * 8, 0);
+            v.resize(v.len().div_ceil(8) * 8, 0);
             v
         }),
         key in any::<[u32; 4]>()

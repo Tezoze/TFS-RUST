@@ -151,4 +151,10 @@ impl Map {
             }
         }
     }
+
+    pub fn unregister_creature_index(&mut self, pos: Position, id: CreatureId) {
+        if let Some(q) = self.qtrees.get_mut(&pos.z) {
+            q.remove_creature(pos, id);
+        }
+    }
 }

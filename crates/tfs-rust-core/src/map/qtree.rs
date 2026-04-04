@@ -1,5 +1,8 @@
 //! Quadtree over (x, y) with 32×32 leaves and per-leaf spectator cache invalidation.
 // C++ reference: `map.cpp` `QTreeNode`, spectator caching.
+//
+//! After invalidation (creature enter/leave), the first query that hits a leaf copies
+//! `creatures` into `cached_spectators`; later queries in that leaf use the cache slice only.
 
 use crate::creature::creature_id_eq_slice;
 use crate::ids::CreatureId;
@@ -183,7 +186,7 @@ impl QTreeNode {
     }
 
     /// Collect spectators within Chebyshev distance `range` of `center` (same floor).
-    pub fn get_spectators(&self, center: Position, range: u16) -> Vec<CreatureId> {
+    pub fn get_spectators(&mut self, center: Position, range: u16) -> Vec<CreatureId> {
         let r = range as i32;
         let min_x = (center.x as i32 - r).max(0) as u16;
         let max_x = (center.x as i32 + r).min(u16::MAX as i32) as u16;
@@ -197,7 +200,7 @@ impl QTreeNode {
     }
 
     fn collect_rect(
-        node: &QTreeNode,
+        node: &mut QTreeNode,
         rx0: u16,
         ry0: u16,
         rx1: u16,
@@ -217,10 +220,10 @@ impl QTreeNode {
                 ..
             } => {
                 if rects_overlap(*x0, *y0, *x1, *y1, rx0, ry0, rx1, ry1) {
-                    Self::collect_rect(nw.as_ref(), rx0, ry0, rx1, ry1, out);
-                    Self::collect_rect(ne.as_ref(), rx0, ry0, rx1, ry1, out);
-                    Self::collect_rect(sw.as_ref(), rx0, ry0, rx1, ry1, out);
-                    Self::collect_rect(se.as_ref(), rx0, ry0, rx1, ry1, out);
+                    Self::collect_rect(nw.as_mut(), rx0, ry0, rx1, ry1, out);
+                    Self::collect_rect(ne.as_mut(), rx0, ry0, rx1, ry1, out);
+                    Self::collect_rect(sw.as_mut(), rx0, ry0, rx1, ry1, out);
+                    Self::collect_rect(se.as_mut(), rx0, ry0, rx1, ry1, out);
                 }
             }
             QTreeNode::Leaf {
@@ -229,12 +232,18 @@ impl QTreeNode {
                 x1,
                 y1,
                 creatures,
-                ..
+                cached_spectators,
             } => {
                 if !rects_overlap(*x0, *y0, *x1, *y1, rx0, ry0, rx1, ry1) {
                     return;
                 }
-                out.extend_from_slice(creatures);
+                match cached_spectators {
+                    Some(ref cache) => out.extend_from_slice(cache),
+                    None => {
+                        out.extend_from_slice(creatures);
+                        *cached_spectators = Some(creatures.clone());
+                    }
+                }
             }
         }
     }
@@ -256,4 +265,24 @@ fn rects_overlap(
     by1: u16,
 ) -> bool {
     ax0 <= bx1 && bx0 <= ax1 && ay0 <= by1 && by0 <= ay1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slotmap::SlotMap;
+
+    #[test]
+    fn spectator_queries_stable_and_cache_populated() {
+        let mut tree = QTreeNode::build(0, 0, 31, 31);
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let id = sm.insert(());
+        tree.insert_creature(Position::new(10, 10, 0), id);
+
+        let center = Position::new(10, 10, 0);
+        let first = tree.get_spectators(center, 5);
+        let second = tree.get_spectators(center, 5);
+        assert_eq!(first, second);
+        assert_eq!(first, vec![id]);
+    }
 }

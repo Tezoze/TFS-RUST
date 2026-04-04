@@ -307,46 +307,46 @@ Ground-up Rust rewrite of the Australis TFS 1.4.2 C++ game server as a Cargo wor
 
 
 
-- [ ] 5. Phase 5 — Creature system: Player, Monster, Npc, Party, Guild, login flow
-  - [ ] 5.1 Implement `CreatureBase` struct
+- [x] 5. Phase 5 — Creature system: Player, Monster, Npc, Party, Guild, login flow
+  - [x] 5.1 Implement `CreatureBase` struct
     - Define all shared fields: id, name, position, direction, health, max_health, outfit, speed, base_speed, skull, conditions, walk_queue, follow_target, attack_target, master, damage_map
     - _Requirements: 8.1_
 
-  - [ ] 5.2 Implement `Player` struct with sub-structs
+  - [x] 5.2 Implement `Player` struct with sub-structs
     - Decompose into `PlayerInventory`, `PlayerSkills`, `PlayerEconomy`, `PlayerSocial` sub-structs
     - Implement level-up logic: recalculate max_health, max_mana, capacity per vocation formula on experience gain
     - _Requirements: 8.2, 8.3_
 
-  - [ ] 5.3 Implement `Monster` struct and AI loop
+  - [x] 5.3 Implement `Monster` struct and AI loop
     - Implement full TFS AI entirely in native Rust: target selection, flee behavior, friend/target list management, idle detection, return-to-spawn walk, per-think sub-routines (target, yell, defense)
     - Gate Lua `onThink` FFI call: only invoke `creature_events.execute_think(lua, creature, interval)` when `creature.base.registered_events` contains `"onThink"` — do NOT cross the FFI boundary for monsters without this registration
     - _Requirements: 8.4, 8.5_
 
-  - [ ] 5.4 Implement `Npc` struct and event model
+  - [x] 5.4 Implement `Npc` struct and event model
     - Implement `on_appear`, `on_disappear`, `on_say`, `on_buy`, `on_sell`, `on_check_item`, `on_close_channel` dispatching to NPC Lua script via `NpcEventsHandler`
     - _Requirements: 8.5_
 
-  - [ ] 5.5 Implement `Party` struct: shared XP, leadership transfer, invitations
+  - [x] 5.5 Implement `Party` struct: shared XP, leadership transfer, invitations
     - Implement shared experience distribution using Australis custom formula; party leadership transfer; invitation management; shared experience toggle
     - _Requirements: 8.6_
 
-  - [ ] 5.6 Implement `Guild` struct: load from DB, MOTD, war state
+  - [x] 5.6 Implement `Guild` struct: load from DB, MOTD, war state
     - Load guild data (name, motd, ranks, members) at player login; send MOTD on login; expose `is_in_war(player_a, player_b)`
     - _Requirements: 15.1, 15.2, 15.3_
 
-  - [ ] 5.7 Implement summon model
+  - [x] 5.7 Implement summon model
     - Implement `is_summon()` returning true when `base.master` is set; wire master/summon relationship into creature removal
     - _Requirements: 8.8_
 
-  - [ ] 5.8 Implement player login flow: DB load → place in world → send initial packets
+  - [x] 5.8 Implement player login flow: DB load → place in world → send initial packets
     - On `GameCommand::PlayerLogin`: load player from DB, place creature in world, add to name/guid maps, send login packets to client
     - _Requirements: 5.3_
 
-  - [ ] 5.9 Implement creature death sequence
+  - [x] 5.9 Implement creature death sequence
     - Drop corpse, drop loot, attribute XP to killers by damage ratio, fire `onKill` and `onDeath` creature events, schedule corpse decay
     - _Requirements: 8.7_
 
-  - [ ] 5.10 Checkpoint — cargo check/clippy/fmt pass on creature system
+  - [x] 5.10 Checkpoint — cargo check/clippy/fmt pass on creature system
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 6. Phase 6 — Combat system: damage formulas, conditions, weapons, spells

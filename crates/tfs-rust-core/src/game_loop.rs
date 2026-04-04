@@ -25,8 +25,13 @@ pub async fn run_game_loop(
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(GameCommand::Shutdown) | None => break,
+                    Some(GameCommand::PlayerLogin { name }) => {
+                        if let Err(e) = crate::login::login_player(&mut world, &name).await {
+                            tracing::warn!(?e, %name, "player login failed");
+                        }
+                    }
                     Some(_other) => {
-                        // Phase 5+: dispatch movement, speech, etc.
+                        // Phase 7+: movement, speech, combat, etc.
                     }
                 }
             }
