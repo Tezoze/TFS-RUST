@@ -2,6 +2,7 @@
 // C++ reference: `spells.cpp` `Spell::playerSpellCheck`, `playerInstantSpellCheck`.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::creature::Player;
 use crate::matrix_area::MatrixArea;
@@ -29,14 +30,20 @@ pub enum SpellFailReason {
     Vocation,
     Cooldown,
     GroupCooldown,
+    /// TFS `Player::canDoAction` — walking step `nextAction` lockout (`player.cpp` `onWalk`).
+    NextAction,
 }
 
 /// Returns `Ok` if the player may cast this spell at `now_tick` (ignores path / line of sight).
 pub fn can_cast_instant(
     player: &Player,
     spell: &SpellDefinition,
+    now: Instant,
     now_tick: u64,
 ) -> Result<(), SpellFailReason> {
+    if !player.timed_action_ready(now) {
+        return Err(SpellFailReason::NextAction);
+    }
     if (player.level as u16) < spell.level {
         return Err(SpellFailReason::Level);
     }
@@ -94,4 +101,110 @@ pub fn matrix_tile_offsets(area: &MatrixArea) -> Vec<(i32, i32)> {
         }
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::time::{Duration, Instant};
+
+    use crate::creature::{CreatureBase, Outfit};
+    use crate::creature::Player;
+    use crate::creature::PlayerEconomy;
+    use crate::creature::PlayerInventory;
+    use crate::creature::PlayerSkills;
+    use crate::creature::PlayerSocial;
+    use tfs_rust_common::enums::{Direction, SkullType};
+    use tfs_rust_common::Position;
+
+    fn minimal_player(next_action_until: Option<Instant>) -> Player {
+        Player {
+            base: CreatureBase {
+                name: "t".into(),
+                position: Position::new(0, 0, 7),
+                direction: Direction::North,
+                health: 100,
+                max_health: 100,
+                outfit: Outfit::default(),
+                speed: 220,
+                base_speed: 220,
+                skull: SkullType::None,
+                drunkenness: 0,
+                active_conditions: Vec::new(),
+                walk_queue: VecDeque::new(),
+                last_step: None,
+                last_step_cost: 1,
+                last_step_ground_speed: 150,
+                next_walk_check: None,
+                walk_timer: None,
+                cancel_next_walk: false,
+                force_update_follow_path: false,
+                movement_blocked: false,
+                follow_target: None,
+                attack_target: None,
+                master: None,
+                damage_map: Default::default(),
+            },
+            account_id: 1,
+            guid: 1,
+            vocation_id: 1,
+            level: 50,
+            experience: 0,
+            mana: 100,
+            max_mana: 100,
+            capacity: 100,
+            inventory: PlayerInventory::default(),
+            skills: PlayerSkills {
+                fist: 10,
+                club: 10,
+                sword: 10,
+                axe: 10,
+                dist: 10,
+                shielding: 10,
+                fishing: 10,
+                maglevel: 10,
+            },
+            economy: PlayerEconomy { balance: 0, soul: 100 },
+            social: PlayerSocial::default(),
+            town_id: 1,
+            premium_ends_at: 0,
+            stamina_minutes: 0,
+            offline_training_ms: 0,
+            spell_cooldown_end: HashMap::new(),
+            spell_group_cooldown_end: HashMap::new(),
+            operating_system: 0,
+            otclient_v8: 0,
+            ghost_mode: false,
+            inventory_slots: std::array::from_fn(|_| None),
+            vip_list: Vec::new(),
+            health_hidden: false,
+            last_activity: Instant::now(),
+            next_action_until,
+        }
+    }
+
+    #[test]
+    fn can_cast_instant_blocks_while_next_action_in_future() {
+        let spell = SpellDefinition {
+            id: 1,
+            level: 1,
+            mana: 0,
+            soul: 0,
+            cooldown_ticks: 0,
+            group_id: 0,
+            group_cooldown_ticks: 0,
+            vocation_mask: 0xFFFF_FFFF,
+        };
+        let now = Instant::now();
+        let p = minimal_player(Some(now + Duration::from_secs(60)));
+        assert_eq!(
+            can_cast_instant(&p, &spell, now, 0),
+            Err(SpellFailReason::NextAction)
+        );
+        let p2 = minimal_player(Some(now - Duration::from_millis(1)));
+        assert!(can_cast_instant(&p2, &spell, now, 0).is_ok());
+        let p3 = minimal_player(None);
+        assert!(can_cast_instant(&p3, &spell, now, 0).is_ok());
+    }
 }

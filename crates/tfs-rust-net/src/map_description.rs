@@ -872,6 +872,28 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     msg
 }
 
+/// Other creature's walk (not the local player): `ProtocolGame::sendMoveCreature` when
+/// `creature != player` and both old and new positions are visible (`protocolgame.cpp` ~2872–2887).
+/// No map row opcodes — client shifts the sprite from old stack to new tile.
+pub fn send_move_creature_spectator(
+    old_pos: Position,
+    new_pos: Position,
+    old_stack_pos: i32,
+    creature_id: u32,
+) -> NetworkMessage {
+    let mut msg = NetworkMessage::new();
+    msg.write_u8(0x6D);
+    if old_stack_pos >= 0 && old_stack_pos < 10 {
+        msg.write_position(&old_pos);
+        msg.write_u8(old_stack_pos as u8);
+    } else {
+        msg.write_u16(0xFFFF);
+        msg.write_u32(creature_id);
+    }
+    msg.write_position(&new_pos);
+    msg
+}
+
 /// `ProtocolGame::sendUpdateTile` (`src/protocolgame.cpp` ~2683).
 pub fn send_update_tile<F: FnMut(u32) -> bool>(
     pos: Position,

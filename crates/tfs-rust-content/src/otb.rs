@@ -12,6 +12,15 @@ pub struct ItemType {
     pub group: u8,
     pub name: String,
     pub flags: u32,
+    /// Ground speed from OTB (`ITEM_ATTR_SPEED`). C++ `ItemType::speed` (`src/items.cpp` `loadFromOtb` ~336–343, ~461).
+    /// This is the tile walk speed, NOT equipment speed bonus (which is `abilities.speed` from items.xml).
+    pub speed: u16,
+    /// `ITEM_ATTR_LIGHT2` — `lightBlock2::lightLevel` (`src/itemloader.h`).
+    pub light_level: u8,
+    /// `ITEM_ATTR_LIGHT2` — `lightBlock2::lightColor`.
+    pub light_color: u8,
+    /// `ITEM_ATTR_WAREID` (`src/items.cpp` `loadFromOtb` ~373–381).
+    pub ware_id: u16,
     pub weight: u32,
     pub rotate_to: u16,
     pub description: String,
@@ -54,12 +63,20 @@ const ITEM_ATTR_SERVERID: u8 = 0x10;
 const ITEM_ATTR_CLIENTID: u8 = 0x11;
 const ITEM_ATTR_NAME: u8 = 0x12;
 const ITEM_ATTR_DESCR: u8 = 0x13;
+/// `itemattrib_t::ITEM_ATTR_SPEED` (`src/itemloader.h`) — ground tile speed, `uint16_t`.
+const ITEM_ATTR_SPEED: u8 = 0x14;
 /// `itemattrib_t::ITEM_ATTR_WEIGHT` — **0x17**, not `0x16` (`MAXITEMS`) (`src/itemloader.h`).
 const ITEM_ATTR_WEIGHT: u8 = 0x17;
 /// `itemattrib_t::ITEM_ATTR_ROTATETO` — **0x1E** (`src/itemloader.h`).
 const ITEM_ATTR_ROTATETO: u8 = 0x1E;
+/// `itemattrib_t::ITEM_ATTR_LIGHT2` — `lightBlock2` {u16 lightLevel, u16 lightColor} (`src/itemloader.h`).
+const ITEM_ATTR_LIGHT2: u8 = 0x2A;
 /// `itemattrib_t::ITEM_ATTR_TOPORDER` (`src/itemloader.h`).
 const ITEM_ATTR_TOPORDER: u8 = 0x2B;
+/// `itemattrib_t::ITEM_ATTR_WAREID` (`src/itemloader.h`).
+const ITEM_ATTR_WAREID: u8 = 0x2D;
+/// `itemattrib_t::ITEM_ATTR_CLASSIFICATION` (`src/itemloader.h`) — skipped (1 byte), not stored.
+const ITEM_ATTR_CLASSIFICATION: u8 = 0x2E;
 
 /// `rootattrib_::ROOT_ATTR_VERSION` (`src/itemloader.h`).
 const ROOT_ATTR_VERSION: u8 = 0x01;
@@ -202,6 +219,20 @@ fn apply_attr(item: &mut ItemType, attr_type: u8, attr_data: &[u8]) {
         ITEM_ATTR_DESCR => {
             item.description = String::from_utf8_lossy(attr_data).to_string();
         }
+        ITEM_ATTR_SPEED if attr_data.len() >= 2 => {
+            item.speed = u16::from_le_bytes([attr_data[0], attr_data[1]]);
+        }
+        ITEM_ATTR_LIGHT2 if attr_data.len() >= 4 => {
+            // C++ `lightBlock2` is packed {u16 lightLevel, u16 lightColor} (`src/itemloader.h`).
+            item.light_level = u16::from_le_bytes([attr_data[0], attr_data[1]]) as u8;
+            item.light_color = u16::from_le_bytes([attr_data[2], attr_data[3]]) as u8;
+        }
+        ITEM_ATTR_WAREID if attr_data.len() >= 2 => {
+            item.ware_id = u16::from_le_bytes([attr_data[0], attr_data[1]]);
+        }
+        ITEM_ATTR_CLASSIFICATION => {
+            // C++ skips 1 byte (`stream.skip(1)`) — not stored.
+        }
         ITEM_ATTR_WEIGHT => {
             item.weight = match attr_data.len() {
                 0 => 0,
@@ -220,18 +251,136 @@ fn apply_attr(item: &mut ItemType, attr_type: u8, attr_data: &[u8]) {
     }
 }
 
-/// OTB flags / group — `src/items.cpp` `Items::loadFromOtb` (`FLAG_STACKABLE`, etc.).
+/// OTB flags / group — `src/items.cpp` `Items::loadFromOtb` ~438–457, `src/itemloader.h` `itemflags_t`.
 impl ItemType {
+    // ── Flag constants (`itemflags_t`) ──
+    const FLAG_BLOCK_SOLID: u32 = 1 << 0;
+    const FLAG_BLOCK_PROJECTILE: u32 = 1 << 1;
+    const FLAG_BLOCK_PATHFIND: u32 = 1 << 2;
+    const FLAG_HAS_HEIGHT: u32 = 1 << 3;
+    const FLAG_USEABLE: u32 = 1 << 4;
+    const FLAG_PICKUPABLE: u32 = 1 << 5;
+    const FLAG_MOVEABLE: u32 = 1 << 6;
     const FLAG_STACKABLE: u32 = 1 << 7;
+    const FLAG_ALWAYSONTOP: u32 = 1 << 13;
+    const FLAG_READABLE: u32 = 1 << 14;
+    const FLAG_ROTATABLE: u32 = 1 << 15;
+    const FLAG_HANGABLE: u32 = 1 << 16;
+    const FLAG_VERTICAL: u32 = 1 << 17;
+    const FLAG_HORIZONTAL: u32 = 1 << 18;
+    const FLAG_ALLOWDISTREAD: u32 = 1 << 20;
+    const FLAG_LOOKTHROUGH: u32 = 1 << 23;
     const FLAG_ANIMATION: u32 = 1 << 24;
+    const FLAG_FORCEUSE: u32 = 1 << 26;
+
+    // ── Group constants (`itemgroup_t`) ──
+    /// `itemgroup_t::ITEM_GROUP_GROUND` — numeric value `1` (`src/itemloader.h`).
+    pub const GROUP_GROUND: u8 = 1;
+    /// `itemgroup_t::ITEM_GROUP_CONTAINER`.
+    pub const GROUP_CONTAINER: u8 = 2;
     /// `itemgroup_t::ITEM_GROUP_SPLASH` (`src/itemloader.h`).
     const GROUP_SPLASH: u8 = 11;
     /// `itemgroup_t::ITEM_GROUP_FLUID`.
     const GROUP_FLUID: u8 = 12;
 
+    // ── Flag accessors ──
+
+    #[inline]
+    pub fn block_solid(&self) -> bool {
+        self.flags & Self::FLAG_BLOCK_SOLID != 0
+    }
+
+    #[inline]
+    pub fn block_projectile(&self) -> bool {
+        self.flags & Self::FLAG_BLOCK_PROJECTILE != 0
+    }
+
+    #[inline]
+    pub fn block_path_find(&self) -> bool {
+        self.flags & Self::FLAG_BLOCK_PATHFIND != 0
+    }
+
+    #[inline]
+    pub fn has_height(&self) -> bool {
+        self.flags & Self::FLAG_HAS_HEIGHT != 0
+    }
+
+    #[inline]
+    pub fn useable(&self) -> bool {
+        self.flags & Self::FLAG_USEABLE != 0
+    }
+
+    #[inline]
+    pub fn pickupable(&self) -> bool {
+        self.flags & Self::FLAG_PICKUPABLE != 0
+    }
+
+    #[inline]
+    pub fn moveable(&self) -> bool {
+        self.flags & Self::FLAG_MOVEABLE != 0
+    }
+
     #[inline]
     pub fn stackable(&self) -> bool {
         self.flags & Self::FLAG_STACKABLE != 0
+    }
+
+    #[inline]
+    pub fn always_on_top(&self) -> bool {
+        self.flags & Self::FLAG_ALWAYSONTOP != 0
+    }
+
+    #[inline]
+    pub fn can_read_text(&self) -> bool {
+        self.flags & Self::FLAG_READABLE != 0
+    }
+
+    #[inline]
+    pub fn rotatable(&self) -> bool {
+        self.flags & Self::FLAG_ROTATABLE != 0
+    }
+
+    #[inline]
+    pub fn is_hangable(&self) -> bool {
+        self.flags & Self::FLAG_HANGABLE != 0
+    }
+
+    #[inline]
+    pub fn is_vertical(&self) -> bool {
+        self.flags & Self::FLAG_VERTICAL != 0
+    }
+
+    #[inline]
+    pub fn is_horizontal(&self) -> bool {
+        self.flags & Self::FLAG_HORIZONTAL != 0
+    }
+
+    #[inline]
+    pub fn allow_dist_read(&self) -> bool {
+        self.flags & Self::FLAG_ALLOWDISTREAD != 0
+    }
+
+    #[inline]
+    pub fn look_through(&self) -> bool {
+        self.flags & Self::FLAG_LOOKTHROUGH != 0
+    }
+
+    #[inline]
+    pub fn is_animation(&self) -> bool {
+        self.flags & Self::FLAG_ANIMATION != 0
+    }
+
+    #[inline]
+    pub fn force_use(&self) -> bool {
+        self.flags & Self::FLAG_FORCEUSE != 0
+    }
+
+    // ── Group accessors ──
+
+    /// `ItemType::isGroundTile()` (`src/items.h`).
+    #[inline]
+    pub fn is_ground_tile(&self) -> bool {
+        self.group == Self::GROUP_GROUND
     }
 
     #[inline]
@@ -242,26 +391,6 @@ impl ItemType {
     #[inline]
     pub fn is_fluid_container(&self) -> bool {
         self.group == Self::GROUP_FLUID
-    }
-
-    #[inline]
-    pub fn is_animation(&self) -> bool {
-        self.flags & Self::FLAG_ANIMATION != 0
-    }
-
-    /// `itemgroup_t::ITEM_GROUP_GROUND` — numeric value `1` (`src/itemloader.h`).
-    pub const GROUP_GROUND: u8 = 1;
-
-    /// `ItemType::isGroundTile()` (`src/items.h`).
-    #[inline]
-    pub fn is_ground_tile(&self) -> bool {
-        self.group == Self::GROUP_GROUND
-    }
-
-    /// `FLAG_ALWAYSONTOP` (`src/itemloader.h` `itemflags_t`).
-    #[inline]
-    pub fn always_on_top(&self) -> bool {
-        self.flags & (1 << 13) != 0
     }
 }
 
@@ -343,5 +472,27 @@ mod tests {
             db.contains_key(&100) || db.len() > 100,
             "expected non-trivial item db"
         );
+    }
+
+    /// Verify `ITEM_ATTR_SPEED` is parsed from OTB for ground tiles (`group == 1`).
+    #[test]
+    fn ground_items_have_otb_speed() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let db = OtbLoader::load_from_file(&path).expect("items.otb should load");
+        let ground_with_speed: Vec<_> = db
+            .values()
+            .filter(|it| it.group == super::ItemType::GROUP_GROUND && it.speed > 0)
+            .collect();
+        assert!(
+            !ground_with_speed.is_empty(),
+            "expected at least one ground item with OTB speed > 0"
+        );
+        // Spot-check: print a few for manual verification.
+        for it in ground_with_speed.iter().take(3) {
+            eprintln!(
+                "  ground id={} client_id={} speed={}",
+                it.server_id, it.client_id, it.speed
+            );
+        }
     }
 }

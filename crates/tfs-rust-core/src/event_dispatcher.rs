@@ -11,6 +11,8 @@ pub trait EventDispatcher: Send + Sync + 'static {
     fn on_prepare_death(&self, _creature: CreatureId) {}
     fn on_death(&self, _creature: CreatureId) {}
     fn on_kill(&self, _killer: CreatureId, _target: CreatureId) {}
+    /// TFS `Creature::onWalkComplete` — walk queue empty after `getNextStep` false (`src/creature.cpp` ~215–219).
+    fn on_walk_complete(&self, _creature: CreatureId) {}
     fn on_advance(&self, _creature: CreatureId, _skill: u8, _old_level: u32, _new_level: u32) {}
     fn on_startup(&self) {}
     fn on_shutdown(&self) {}

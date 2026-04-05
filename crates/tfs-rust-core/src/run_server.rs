@@ -18,6 +18,7 @@ use crate::config::ConfigManager;
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_loop::run_game_loop;
 use crate::game_world::GameWorld;
+use crate::ids::CreatureId;
 use crate::map::Map;
 use crate::spawn::SpawnManager;
 
@@ -100,7 +101,17 @@ pub async fn run() -> anyhow::Result<()> {
     );
 
     let events: Box<dyn crate::event_dispatcher::EventDispatcher> = Box::new(NullEventDispatcher);
-    let world = GameWorld::new(map, events, config, db.clone(), spawns, items_db, vocations);
+    let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
+    let world = GameWorld::new(
+        map,
+        events,
+        config,
+        db.clone(),
+        spawns,
+        items_db,
+        vocations,
+        Some(walk_wake_tx),
+    );
     info!("GameWorld ready (map + spawns)");
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
@@ -168,7 +179,7 @@ pub async fn run() -> anyhow::Result<()> {
     local
         .run_until(async move {
             tokio::task::spawn_local(async move {
-                if let Err(e) = run_game_loop(world, cmd_rx, Some(out_for_loop)).await {
+                if let Err(e) = run_game_loop(world, cmd_rx, walk_wake_rx, Some(out_for_loop)).await {
                     tracing::error!(?e, "game loop exited");
                 }
             });

@@ -8,7 +8,7 @@ use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::Position;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
-use crate::creature::vocation::recalculate_vitals;
+use crate::creature::vocation::base_walk_speed;
 use crate::creature::CreatureKind;
 use crate::creature::{
     CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial,
@@ -46,10 +46,14 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         p.posy.clamp(0, u16::MAX as i32) as u16,
         p.posz.clamp(0, u8::MAX as i32) as u8,
     );
-    let (max_hp, max_mana, cap) = recalculate_vitals(p.vocation, p.level);
-    let max_hp = max_hp.max(p.healthmax);
-    let max_mana = max_mana.max(p.manamax);
-    let cap = cap.max(p.cap);
+    // C++ `IOLoginData::loadPlayer` uses raw DB values — no formula override.
+    // `recalculate_vitals` is only used on level-up (`Player::add_experience`).
+    let max_hp = p.healthmax;
+    let max_mana = p.manamax;
+    // C++ `iologindata.cpp` ~275: `player->capacity = result->getNumber("cap") * 100;`
+    // TFS stores capacity internally in 1/100 oz; the DB column is in oz.
+    let cap = p.cap * 100;
+    let walk_speed = base_walk_speed(p.vocation, p.level);
     let outfit = Outfit {
         look_type: p.looktype,
         look_head: p.lookhead,
@@ -65,11 +69,20 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         health: p.health.min(max_hp).max(1),
         max_health: max_hp,
         outfit,
-        speed: 220,
-        base_speed: 220,
+        speed: walk_speed,
+        base_speed: walk_speed,
         skull: skull_from_i32(i32::from(p.skull)),
+        drunkenness: 0,
         active_conditions: Vec::new(),
         walk_queue: Default::default(),
+        last_step: None,
+        last_step_cost: 1,
+        last_step_ground_speed: 150,
+        next_walk_check: None,
+        walk_timer: None,
+        cancel_next_walk: false,
+        force_update_follow_path: false,
+        movement_blocked: false,
         follow_target: None,
         attack_target: None,
         master: None,
@@ -88,8 +101,8 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         level: p.level,
         experience: p.experience,
         mana: p.mana,
-        max_mana: max_mana.max(p.manamax),
-        capacity: cap.max(p.cap),
+        max_mana,
+        capacity: cap,
         inventory: PlayerInventory { capacity_slots: 10 },
         skills: PlayerSkills {
             fist: p.skill_fist as i32,
@@ -115,7 +128,9 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         town_id: p.town_id,
         premium_ends_at: data.premium_ends_at,
         stamina_minutes: p.stamina,
-        offline_training_ms: u32::from(p.offlinetraining_time),
+        // C++ `iologindata.cpp` ~345: `offlineTrainingTime = result->getNumber("offlinetraining_time") * 1000;`
+        // DB column is in seconds; TFS internal representation is milliseconds.
+        offline_training_ms: u32::from(p.offlinetraining_time) * 1000,
         spell_cooldown_end: HashMap::new(),
         spell_group_cooldown_end: HashMap::new(),
         operating_system: 0,
@@ -127,6 +142,8 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         ),
         vip_list: data.vip_list.clone(),
         health_hidden: false,
+        last_activity: std::time::Instant::now(),
+        next_action_until: None,
     }
 }
 
@@ -169,6 +186,10 @@ pub async fn login_player(
     world.player_by_name.insert(key, cid);
     world.player_by_guid.insert(guid, cid);
     world.map.register_creature_index(pos, cid);
+    // TFS `Tile::internalAddThing` / creature on tile — must match `queryAdd` creature checks (`tile.cpp`).
+    if let Some(t) = world.map.get_tile_mut(pos) {
+        t.add_creature(cid);
+    }
 
     let guild_opt = world.creatures.get(cid).and_then(|k| match k {
         CreatureKind::Player(p) => p.social.guild_id,

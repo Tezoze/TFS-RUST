@@ -30,6 +30,7 @@ pub mod spawn;
 pub mod spell;
 pub mod stability;
 pub mod tile;
+pub mod walk;
 pub mod weapon;
 pub mod wildcard;
 pub mod world_light;

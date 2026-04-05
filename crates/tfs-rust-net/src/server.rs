@@ -192,6 +192,10 @@ async fn handle_login_connection(
 }
 
 async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyhow::Result<()> {
+    // C++ `server.cpp` ~163: `acceptor->set_option(boost::asio::ip::tcp::no_delay(true))`.
+    // Disables Nagle — small move packets hit the wire immediately instead of waiting for
+    // delayed ACKs (~40ms). Critical for walk smoothness.
+    let _ = stream.set_nodelay(true);
     let conn_id = ConnId(NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let mut stream = BufWriter::new(stream);
 

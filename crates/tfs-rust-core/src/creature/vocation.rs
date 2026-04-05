@@ -33,6 +33,17 @@ pub fn per_level_gains(vocation_id: i32) -> (i32, i32, i32) {
     }
 }
 
+/// TFS `Player::getBaseSpeed`: `vocation->getBaseSpeed() + 2 * (level - 1)` capped (`player.cpp`, `vocations.xml`).
+/// Stub vocation bases until `vocations.xml` is loaded at runtime.
+pub fn base_walk_speed(vocation_id: i32, level: i32) -> i32 {
+    let voc_base = match vocation_id {
+        3 | 7 => 200, // knight
+        _ => 220,     // sorcerer / druid / paladin / monk / default
+    };
+    let raw = voc_base + 2 * (level.max(1) - 1);
+    raw.clamp(10, 1500)
+}
+
 /// Recompute max health / mana / cap for current level (called on level-up).
 pub fn recalculate_vitals(vocation_id: i32, level: i32) -> (i32, i32, i32) {
     let (hp_gain, mana_gain, cap_gain) = per_level_gains(vocation_id);

@@ -78,6 +78,23 @@ impl ItemDatabase {
             .unwrap_or(0)
     }
 
+    /// TFS `ItemType::speed` for ground — `Creature::getStepDuration` (`creature.cpp` ~1513–1521).
+    /// Reads from OTB `ITEM_ATTR_SPEED` (`src/items.cpp` `loadFromOtb`), NOT `items.xml` `"speed"`
+    /// (which is equipment speed bonus = `abilities.speed`).
+    #[inline]
+    pub fn ground_speed_for_item(&self, server_id: u16) -> u32 {
+        let raw = self
+            .items
+            .get(&server_id)
+            .map(|t| t.speed)
+            .unwrap_or(0);
+        if raw == 0 {
+            150
+        } else {
+            raw as u32
+        }
+    }
+
     /// Resolve `name="..."` loot references; errors if unknown or ambiguous (see `monsters.cpp` `loadLootItem`).
     pub fn item_id_by_exact_name(&self, name: &str, file: &str) -> Result<u16> {
         let lower = name.to_ascii_lowercase();

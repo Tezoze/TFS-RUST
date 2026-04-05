@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::time::Instant;
 
 use slotmap::SlotMap;
 use tfs_rust_common::enums::{Direction, SkullType};
@@ -20,8 +21,17 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             speed: 220,
             base_speed: 220,
             skull: SkullType::None,
+            drunkenness: 0,
             active_conditions: Vec::new(),
             walk_queue: VecDeque::new(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_walk_check: None,
+            walk_timer: None,
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            movement_blocked: false,
             follow_target: None,
             attack_target: None,
             master: None,
@@ -63,6 +73,8 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         inventory_slots: std::array::from_fn(|_| None),
         vip_list: Vec::new(),
         health_hidden: false,
+        last_activity: Instant::now(),
+        next_action_until: None,
     }
 }
 

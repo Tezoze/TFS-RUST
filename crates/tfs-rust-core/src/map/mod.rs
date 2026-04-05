@@ -163,20 +163,26 @@ fn tile_from_data(td: TileData, items_db: &ItemDatabase) -> Tile {
 
 impl Map {
     pub fn register_creature_index(&mut self, pos: Position, id: CreatureId) {
-        if let Some(q) = self.qtrees.get_mut(&pos.z) {
-            q.insert_creature(pos, id);
-        }
+        let w = self.width.saturating_sub(1);
+        let h = self.height.saturating_sub(1);
+        let q = self
+            .qtrees
+            .entry(pos.z)
+            .or_insert_with(|| QTreeNode::build(0, 0, w, h));
+        q.insert_creature(pos, id);
     }
 
     pub fn move_creature_index(&mut self, from: Position, to: Position, id: CreatureId) {
         if let Some(q) = self.qtrees.get_mut(&from.z) {
             q.remove_creature(from, id);
         }
-        if from.z == to.z {
-            if let Some(q) = self.qtrees.get_mut(&to.z) {
-                q.insert_creature(to, id);
-            }
-        }
+        let w = self.width.saturating_sub(1);
+        let h = self.height.saturating_sub(1);
+        let q = self
+            .qtrees
+            .entry(to.z)
+            .or_insert_with(|| QTreeNode::build(0, 0, w, h));
+        q.insert_creature(to, id);
     }
 
     pub fn unregister_creature_index(&mut self, pos: Position, id: CreatureId) {

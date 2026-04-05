@@ -23,9 +23,8 @@ use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8
 use tfs_rust_net::outgoing_extra::{
     send_basic_data_1098, send_creature_light, send_enter_world, send_fight_modes, send_icons,
     send_inventory_item_template, send_inventory_slot_empty, send_otc_features_raw,
-    send_pending_state_entered, send_player_skills_1098, send_player_stats_1098,
+    send_pending_state_entered, send_player_skills_1098,
     send_self_appear_login, send_unjustified_stats_stub, send_vip_entry, send_world_light,
-    PlayerStats1098,
 };
 
 /// `GameFeature` (`src/const.h`) — `ProtocolGame::sendFeatures` (OTCv8), not `sendOTCFeatures`.
@@ -325,7 +324,6 @@ pub fn enqueue_initial_login_packets(
     let (
         pid,
         pos,
-        stats,
         skill_levels,
         skill_bases,
         skill_percents,
@@ -337,28 +335,6 @@ pub fn enqueue_initial_login_packets(
     ) = {
         let Some(CreatureKind::Player(p)) = world.creatures.get(creature_id) else {
             return;
-        };
-        let cap = p.capacity.max(0) as u32;
-        let hl = p.base.health.max(0).min(u16::MAX as i32) as u16;
-        let max_h = p.base.max_health.max(0).min(u16::MAX as i32) as u16;
-        let stats = PlayerStats1098 {
-            health: hl,
-            max_health: max_h,
-            free_capacity: cap,
-            total_capacity: cap,
-            experience: p.experience,
-            level: p.level.max(0).min(u16::MAX as i32) as u16,
-            level_percent: 0,
-            mana: p.mana.max(0).min(u16::MAX as i32) as u16,
-            max_mana: p.max_mana.max(0).min(u16::MAX as i32) as u16,
-            magic_level: p.skills.maglevel.clamp(0, 255) as u8,
-            base_magic_level: p.skills.maglevel.clamp(0, 255) as u8,
-            magic_level_percent: 0,
-            soul: p.economy.soul.clamp(0, 255) as u8,
-            stamina_minutes: p.stamina_minutes,
-            base_speed_half: speed_half(p.base.base_speed),
-            regeneration_ticks_sec: 0,
-            offline_training_time: (p.offline_training_ms / 60 / 1000).min(65535) as u16,
         };
         let sk = &p.skills;
         let lvl = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
@@ -377,7 +353,6 @@ pub fn enqueue_initial_login_packets(
         (
             p.guid,
             p.base.position,
-            stats,
             skill_levels,
             skill_bases,
             skill_percents,
@@ -467,7 +442,9 @@ pub fn enqueue_initial_login_packets(
         }
     }
 
-    world.enqueue_outgoing(conn_id, send_player_stats_1098(&stats).into_bytes());
+    // Use the centralized helper which correctly computes level_percent, capacity (1/100 oz),
+    // offline training time (ms→minutes), etc. — matching C++ `Player::sendStats` (`player.cpp` ~882).
+    world.send_player_stats(creature_id);
     world.enqueue_outgoing(conn_id, send_unjustified_stats_stub().into_bytes());
     world.enqueue_outgoing(
         conn_id,

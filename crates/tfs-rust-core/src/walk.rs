@@ -1,0 +1,1086 @@
+//! TFS 1.4.2 walking (1:1 targets in this repo’s `src/` tree):
+//!
+//! - `Game::playerMove` / `playerAutoWalk` / `playerStopAutoWalk` — `game.cpp` (~1880, ~2075, ~2087).
+//! - `Creature::startAutoWalk`, `addEventWalk`, `onWalk`, `getNextStep`, `getEventStepTicks`,
+//!   `getWalkDelay`, `getStepDuration` — `creature.cpp` (~200–322, ~1485–1547).
+//! - `Player::onWalk(Direction&)` (`nextAction` / `getStepDuration(dir)` **before** move) — `player.cpp` (~1339–1343).
+//! - `Creature::onCreatureMove` (`lastStep` / `lastStepCost`) — `creature.cpp` (~485–499).
+//! - `Map::moveCreature` (facing from dx/dy) — `map.cpp` (~295–306).
+//! - `Game::checkCreatureWalk` — `game.cpp` (~3773–3779).
+//!
+//! **Partial:** cardinal **floor change** before `queryAdd` (`game.cpp` ~804–834); `queryDestination`
+//! chaining (`game.cpp` ~863–880), full PZ / `Tile::queryAdd`, Lua — not ported.
+//!
+//! **Timing:** `get_walk_delay` uses `last_step_ground_speed` (**destination** tile of the completed step,
+//! OTCv8 / TFS `getWalkDelay`). When `walk_delay <= 0`, `get_event_step_ticks` uses the **current** tile for
+//! the *next* step. Wall `Instant::now()` samples (C++ `OTSYS_TIME()`).
+//! `next_walk_check` stores the **logical** deadline. Initial arms from a new move use `walk_sched_base`;
+//! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
+//! (`tasks/walk-audit.md` Issue 3).
+//!
+//! **Scheduling:** When the world has `walk_wake_tx` set, each
+//! `next_walk_check` arms a one-shot `tokio::time::sleep_until` (`src/scheduler.cpp` `steady_timer` +
+//! `async_wait` → `g_dispatcher.addTask`). Without it, [`Self::process_walk_deadlines`] polls deadlines
+//! (tests / fallback).
+
+use std::time::{Duration, Instant};
+
+/// TFS has no grace: timer fires → `onWalk` runs. Tokio may wake a hair early; 0ms avoids re-queue loops
+/// (`tasks/walk-audit.md` Issue 4).
+const WALK_DEADLINE_GRACE: Duration = Duration::ZERO;
+
+use rand::thread_rng;
+use tfs_rust_common::enums::{ConditionType, Direction, ReturnValue, SpeakType};
+use tfs_rust_common::Position;
+use tfs_rust_content::items::ItemDatabase;
+use tfs_rust_net::map_description::{send_move_creature_player, send_move_creature_spectator, TileContent};
+use tfs_rust_net::outgoing_extra::{send_cancel_walk, send_creature_turn, send_text_message_simple};
+
+use crate::combat::uniform_random;
+use crate::condition::ConditionData;
+use crate::creature::CreatureKind;
+use crate::game_world::{DeferredTurnBroadcast, GameWorld};
+use crate::ids::CreatureId;
+use crate::login_out::map_tile_content;
+use crate::map::Map;
+use crate::tile::client_creature_stack_pos;
+use tfs_rust_common::ConnId;
+
+/// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
+const FLAG_IGNOREBLOCKITEM: u32 = 1 << 1;
+const FLAG_IGNOREBLOCKCREATURE: u32 = 1 << 2;
+const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
+
+/// TFS `tile.h` — same layout as OTBM / `TileBody::flags`.
+mod tile_state {
+    pub const FLOORCHANGE: u32 = (1 << 0)
+        | (1 << 1)
+        | (1 << 2)
+        | (1 << 3)
+        | (1 << 4)
+        | (1 << 5)
+        | (1 << 6);
+    pub const BLOCKSOLID: u32 = 1 << 17;
+    pub const IMMOVABLEBLOCKSOLID: u32 = 1 << 19;
+}
+
+const SPEED_A: f64 = 857.36;
+const SPEED_B: f64 = 261.29;
+const SPEED_C: f64 = -4795.01;
+
+/// TFS `Player::getStepSpeed` clamp (`player.h` `PLAYER_MIN_SPEED` / `PLAYER_MAX_SPEED`).
+const PLAYER_MIN_SPEED: i32 = 10;
+const PLAYER_MAX_SPEED: i32 = 1500;
+
+fn direction_to_walk_byte(d: Direction) -> u8 {
+    match d {
+        Direction::East => 1,
+        Direction::NorthEast => 2,
+        Direction::North => 3,
+        Direction::NorthWest => 4,
+        Direction::West => 5,
+        Direction::SouthWest => 6,
+        Direction::South => 7,
+        Direction::SouthEast => 8,
+    }
+}
+
+/// TFS `Creature::getSpeed` — `baseSpeed + varSpeed` from conditions (`creature.h`); step uses `getStepSpeed` clamp.
+fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i32 {
+    let mut s = base.speed;
+    for c in &base.active_conditions {
+        if let ConditionData::Speed { flat_delta } = c.data {
+            s += flat_delta;
+        }
+    }
+    s
+}
+
+#[inline]
+fn player_step_speed_clamped(base: &crate::creature::CreatureBase) -> i32 {
+    creature_effective_speed_for_step(base).clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED)
+}
+
+fn has_drunk_condition(base: &crate::creature::CreatureBase) -> bool {
+    base.active_conditions
+        .iter()
+        .any(|c| c.ctype == ConditionType::Drunk)
+}
+
+/// TFS `Creature::onWalk(Direction&)` (`creature.cpp` ~236–248): `hasCondition(CONDITION_DRUNK)`,
+/// `uniform_random(0,399)`, `rand/4 > getDrunkenness()` early out, else `dir = rand%4` cardinal;
+/// caller sends `internalCreatureSay(..., "Hicks!")` when `Some`.
+fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Direction> {
+    if !has_drunk_condition(base) {
+        return None;
+    }
+    let d = base.drunkenness as u32;
+    let r = uniform_random(&mut thread_rng(), 0, 399) as u32;
+    if r / 4 > d {
+        return None;
+    }
+    Some(match r % 4 {
+        0 => Direction::North,
+        1 => Direction::East,
+        2 => Direction::South,
+        _ => Direction::West,
+    })
+}
+
+/// TFS `getReturnMessage` + `Player::sendCancelMessage` — `MESSAGE_STATUS_SMALL` (`const.h` / `player.h`).
+fn return_message_for_cancel(ret: ReturnValue) -> &'static str {
+    match ret {
+        ReturnValue::NotEnoughRoom => "There is not enough room.",
+        _ => "Sorry, not possible.",
+    }
+}
+
+/// `MESSAGE_STATUS_SMALL` (`src/const.h`).
+const MESSAGE_STATUS_SMALL: u8 = 21;
+
+/// TFS `Creature::getStepDuration()` — `creature.cpp` (uses `floor((A*log(...) + C) + 0.5)` and integer `stepSpeed/2`).
+fn calculated_step_speed_tfs(step_speed: i32) -> u32 {
+    if (step_speed as f64) <= -SPEED_B {
+        return 1;
+    }
+    // C++ uses integer division: `(stepSpeed / 2) + speedB` inside `log`.
+    let half = (step_speed / 2) as f64;
+    let raw = SPEED_A * (half + SPEED_B).ln() + SPEED_C;
+    let cs = (raw + 0.5).floor() as i32;
+    cs.max(1) as u32
+}
+
+fn get_step_duration(base: &crate::creature::CreatureBase, ground_speed: u32) -> i64 {
+    if base.health <= 0 {
+        return 0;
+    }
+    let step_speed = player_step_speed_clamped(base);
+    let calculated_step_speed = calculated_step_speed_tfs(step_speed);
+    let gs = if ground_speed == 0 { 150 } else { ground_speed };
+    let duration = (1000.0 * gs as f64 / calculated_step_speed as f64).floor();
+    ((duration / 50.0).ceil() * 50.0) as i64
+}
+
+/// Step duration for `next_action_until` — diagonal steps use `× last_step_cost` (3), matching
+/// TFS `Creature::getStepDuration` / `Player::nextAction` (`creature.cpp`, `player.cpp`).
+fn get_step_duration_ms_with_direction(
+    base: &crate::creature::CreatureBase,
+    direction: Direction,
+    ground_speed: u32,
+) -> i64 {
+    let mut ms = get_step_duration(base, ground_speed);
+    if matches!(
+        direction,
+        Direction::NorthEast | Direction::NorthWest | Direction::SouthEast | Direction::SouthWest
+    ) {
+        ms *= 3;
+    }
+    ms
+}
+
+/// TFS `Creature::onCreatureMove` — `lastStepCost` (`creature.cpp` ~489–499).
+fn last_step_cost_for_move(old_pos: Position, new_pos: Position) -> u32 {
+    if old_pos.z != new_pos.z {
+        2
+    } else if (old_pos.x as i32 - new_pos.x as i32).abs() >= 1
+        && (old_pos.y as i32 - new_pos.y as i32).abs() >= 1
+    {
+        3
+    } else {
+        1
+    }
+}
+
+fn get_walk_delay(base: &crate::creature::CreatureBase, now: Instant) -> i64 {
+    let Some(last) = base.last_step else {
+        return 0;
+    };
+    let elapsed = now.saturating_duration_since(last);
+    let gs = base.last_step_ground_speed;
+    let gs = if gs == 0 { 150 } else { gs };
+    let step_duration =
+        get_step_duration(base, gs).saturating_mul(base.last_step_cost as i64);
+    step_duration - elapsed.as_millis() as i64
+}
+
+fn get_event_step_ticks(
+    base: &crate::creature::CreatureBase,
+    only_delay: bool,
+    ground_speed_next: u32,
+    now: Instant,
+) -> i64 {
+    let walk_delay = get_walk_delay(base, now);
+    if walk_delay > 0 {
+        return walk_delay;
+    }
+    let step_duration = get_step_duration(base, ground_speed_next);
+    if only_delay && step_duration > 0 {
+        1
+    } else {
+        step_duration * base.last_step_cost as i64
+    }
+}
+
+fn ground_speed_for_tile_body(body: &crate::tile::TileBody, items_db: &ItemDatabase) -> u32 {
+    let Some(gid) = body.ground else {
+        return 150;
+    };
+    items_db.ground_speed_for_item(gid)
+}
+
+#[inline]
+fn is_diagonal(direction: Direction) -> bool {
+    matches!(
+        direction,
+        Direction::NorthEast | Direction::NorthWest | Direction::SouthEast | Direction::SouthWest
+    )
+}
+
+/// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
+fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, n: u32) -> bool {
+    let mut height = 0u32;
+    let mut step = |id: u16| -> bool {
+        if items_db.items.get(&id).is_some_and(|t| t.has_height()) {
+            height += 1;
+            return height == n;
+        }
+        false
+    };
+    if let Some(gid) = body.ground {
+        if step(gid) {
+            return true;
+        }
+    }
+    for &id in &body.down_items {
+        if step(id) {
+            return true;
+        }
+    }
+    for &id in &body.top_items {
+        if step(id) {
+            return true;
+        }
+    }
+    false
+}
+
+#[inline]
+fn tile_is_hole_like(body: &crate::tile::TileBody) -> bool {
+    body.ground.is_none() && (body.flags & tile_state::BLOCKSOLID) == 0
+}
+
+/// TFS `Game::internalMoveCreature(Creature*, Direction, flags)` — cardinal **floor change** only (`game.cpp` ~804–834).
+/// Diagonal steps skip this; `queryDestination` chaining is not ported here.
+fn resolve_player_move_destination(
+    map: &Map,
+    items_db: &ItemDatabase,
+    current_pos: Position,
+    direction: Direction,
+    mut flags: u32,
+) -> (Position, u32) {
+    let mut dest_pos = current_pos.offset(direction);
+    if is_diagonal(direction) {
+        return (dest_pos, flags);
+    }
+
+    // Try go up.
+    if current_pos.z != 8 {
+        if let Some(cur_tile) = map.get_tile(current_pos) {
+            let cur_body = cur_tile.body();
+            if tile_has_height_n(cur_body, items_db, 3) {
+                let z_above = current_pos.z.wrapping_sub(1);
+                let tmp1 = map.get_tile(Position {
+                    x: current_pos.x,
+                    y: current_pos.y,
+                    z: z_above,
+                });
+                let open = tmp1.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
+                if open {
+                    let dest_up_z = dest_pos.z.wrapping_sub(1);
+                    let tmp2 = map.get_tile(Position {
+                        x: dest_pos.x,
+                        y: dest_pos.y,
+                        z: dest_up_z,
+                    });
+                    if let Some(tt) = tmp2 {
+                        let tb = tt.body();
+                        if tb.ground.is_some() && (tb.flags & tile_state::IMMOVABLEBLOCKSOLID) == 0 {
+                            flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
+                            if (tb.flags & tile_state::FLOORCHANGE) == 0 {
+                                dest_pos.z = dest_pos.z.wrapping_sub(1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Try go down.
+    if current_pos.z != 7 && current_pos.z == dest_pos.z {
+        let tmp3 = map.get_tile(dest_pos);
+        let open = tmp3.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
+        if open {
+            let z_down = dest_pos.z.wrapping_add(1);
+            let tmp4 = map.get_tile(Position {
+                x: dest_pos.x,
+                y: dest_pos.y,
+                z: z_down,
+            });
+            if let Some(tt) = tmp4 {
+                let tb = tt.body();
+                if tile_has_height_n(tb, items_db, 3)
+                    && (tb.flags & tile_state::IMMOVABLEBLOCKSOLID) == 0
+                {
+                    flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
+                    dest_pos.z = dest_pos.z.wrapping_add(1);
+                }
+            }
+        }
+    }
+
+    (dest_pos, flags)
+}
+
+fn tile_query_add_player(world: &GameWorld, tile: &crate::tile::Tile, mover: CreatureId, flags: u32) -> ReturnValue {
+    let body = tile.body();
+    if body.ground.is_none() {
+        return ReturnValue::NotPossible;
+    }
+
+    if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 {
+        for &tile_c in &body.creatures {
+            if tile_c == mover {
+                continue;
+            }
+            let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
+                matches!(k, CreatureKind::Player(p) if p.ghost_mode)
+            });
+            if !other_ghost {
+                return ReturnValue::NotPossible;
+            }
+        }
+    }
+
+    if (body.flags & tile_state::BLOCKSOLID) != 0 {
+        return ReturnValue::NotEnoughRoom;
+    }
+
+    ReturnValue::NoError
+}
+
+fn set_direction_from_step(old_pos: Position, new_pos: Position, creature: &mut CreatureKind) {
+    let teleport = old_pos.z != new_pos.z
+        || (old_pos.x as i32 - new_pos.x as i32).abs() > 1
+        || (old_pos.y as i32 - new_pos.y as i32).abs() > 1;
+    if teleport {
+        return;
+    }
+    let mut d = None;
+    if old_pos.y > new_pos.y {
+        d = Some(Direction::North);
+    } else if old_pos.y < new_pos.y {
+        d = Some(Direction::South);
+    }
+    if old_pos.x < new_pos.x {
+        d = Some(Direction::East);
+    } else if old_pos.x > new_pos.x {
+        d = Some(Direction::West);
+    }
+    if let Some(dir) = d {
+        match creature {
+            CreatureKind::Player(p) => p.base.direction = dir,
+            CreatureKind::Monster(m) => m.base.direction = dir,
+            CreatureKind::Npc(n) => n.base.direction = dir,
+        }
+    }
+}
+
+impl GameWorld {
+    /// TFS `scheduler.cpp`: `steady_timer` + `stopEvent`; wake game thread like `g_dispatcher.addTask`.
+    fn commit_next_walk_deadline(&mut self, cid: CreatureId, deadline: Option<Instant>) {
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base.next_walk_check = deadline;
+        }
+        self.sync_walk_timer_arm(cid);
+    }
+
+    /// Arm or cancel the Tokio one-shot for `next_walk_check` (no-op when `walk_wake_tx` is `None`).
+    fn sync_walk_timer_arm(&mut self, cid: CreatureId) {
+        let (deadline, tx_opt) = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+                return;
+            };
+            if let Some(h) = p.base.walk_timer.take() {
+                h.abort();
+            }
+            (p.base.next_walk_check, self.walk_wake_tx.clone())
+        };
+        let Some(tx) = tx_opt else {
+            return;
+        };
+        let Some(deadline) = deadline else {
+            return;
+        };
+        let now = Instant::now();
+        if deadline <= now {
+            self.check_creature_walk(cid, Instant::now());
+            return;
+        }
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep_until(deadline.into()).await;
+            let _ = tx.send(cid);
+        });
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base.walk_timer = Some(handle);
+        }
+    }
+
+    /// Wake from [`tokio::time::sleep_until`] — one `Game::checkCreatureWalk` (`game.cpp` ~3773).
+    pub fn process_walk_due_from_wake(&mut self, cid: CreatureId) {
+        self.check_creature_walk(cid, Instant::now());
+    }
+
+    pub(crate) fn conn_for_creature(&self, cid: CreatureId) -> Option<ConnId> {
+        self.conn_to_creature
+            .iter()
+            .find(|(_, &c)| c == cid)
+            .map(|(k, _)| *k)
+    }
+
+    /// Send a deferred `0x6B` from [`Self::player_turn_request`], if any (`walk-smoothness-audit` Bug 7).
+    pub fn flush_deferred_turn_broadcast(&mut self, cid: CreatureId) {
+        let Some(data) = self.deferred_turn_broadcast.remove(&cid) else {
+            return;
+        };
+        let DeferredTurnBroadcast {
+            guid,
+            pos,
+            stack_u8,
+            dir,
+        } = data;
+        let spectators: Vec<ConnId> = self
+            .conn_to_creature
+            .iter()
+            .filter_map(|(&conn, &viewer)| {
+                if self.can_see_position(viewer, pos) {
+                    Some(conn)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for conn in spectators {
+            let packet = send_creature_turn(guid, stack_u8, pos, dir as u8, false).into_bytes();
+            self.enqueue_outgoing(conn, packet);
+        }
+    }
+
+    /// TFS `Game::playerMove` (`game.cpp` ~1880–1895).
+    pub fn player_move_request(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        direction: Direction,
+        now: Instant,
+    ) {
+        // `tasks/walk-direction-change-audit.md`: flush pending `0x6B` before move — do not drop it while
+        // the client already applied the turn locally (cancel caused facing desync).
+        self.flush_deferred_turn_broadcast(cid);
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        if p.base.movement_blocked {
+            self.enqueue_outgoing(
+                conn_id,
+                send_cancel_walk(direction_to_walk_byte(p.base.direction)).into_bytes(),
+            );
+            return;
+        }
+        if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
+            pl.last_activity = now;
+            // TFS `Creature::startAutoWalk(Direction)` (`creature.cpp` ~274–284): replace queue, then
+            // `addEventWalk(true)`. If `eventWalk != 0`, `addEventWalk` **returns without** stopping or
+            // rescheduling — the existing walk tick stays (`creature.cpp` ~307–309). Do **not** clear
+            // `next_walk_check` here; that was cancelling the pending tick and recomputing delays →
+            // direction-change desync vs OTClient + C++.
+            pl.base.walk_queue.clear();
+            pl.base.walk_queue.push_back(direction);
+        }
+        let walk_sched_base = Instant::now();
+        self.add_event_walk(cid, true, walk_sched_base);
+    }
+
+    /// TFS `Game::playerAutoWalk` (`game.cpp` ~2075–2084).
+    pub fn player_auto_walk_path(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        path: Vec<Direction>,
+        now: Instant,
+    ) {
+        self.flush_deferred_turn_broadcast(cid);
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        if p.base.movement_blocked {
+            self.enqueue_outgoing(
+                conn_id,
+                send_cancel_walk(direction_to_walk_byte(p.base.direction)).into_bytes(),
+            );
+            return;
+        }
+        let first_only = path.len() == 1;
+        if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
+            pl.last_activity = now;
+            // Same as `player_move_request`: do not clear `next_walk_check` — matches `startAutoWalk(listDir)`
+            // + `addEventWalk` when `eventWalk != 0` (`creature.cpp` ~287–297).
+            pl.base.walk_queue.clear();
+            for d in path {
+                pl.base.walk_queue.push_back(d);
+            }
+        }
+        let walk_sched_base = Instant::now();
+        self.add_event_walk(cid, first_only, walk_sched_base);
+    }
+
+    /// TFS `Game::playerTurn` + `internalCreatureTurn` (`game.cpp` ~3354–3366, ~3703–3720).
+    /// OTClient sends `0x6F–0x72` for in-place turns; ignoring them left server facing out of sync with
+    /// the client during sharp direction changes (Move + Turn ordering).
+    ///
+    /// `tasks/walk-smoothness-audit.md` Bug 7: `Map::moveCreature`-style facing from the next step can
+    /// overwrite `direction` immediately after a turn. We defer `0x6B` when standing so the game loop
+    /// can drop it if `Move`/`AutoWalk` is next on the wire; we skip deferring when a walk is already
+    /// queued (the next step sets facing).
+    pub fn player_turn_request(&mut self, cid: CreatureId, dir: Direction, now: Instant) {
+        let (already, guid, pos) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => (p.base.direction == dir, p.guid, p.base.position),
+            _ => return,
+        };
+        if already {
+            self.flush_deferred_turn_broadcast(cid);
+            return;
+        }
+
+        self.flush_deferred_turn_broadcast(cid);
+
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base.direction = dir;
+            p.last_activity = now;
+        }
+
+        if self.creatures.get(cid).is_some_and(|k| match k {
+            CreatureKind::Player(p) => !p.base.walk_queue.is_empty(),
+            _ => false,
+        }) {
+            return;
+        }
+
+        let stack_u8 = self
+            .map
+            .get_tile(pos)
+            .map(|t| {
+                let raw = client_creature_stack_pos(t.body(), cid);
+                if raw < 0 || raw >= 10 {
+                    10u8
+                } else {
+                    raw as u8
+                }
+            })
+            .unwrap_or(10);
+
+        self.deferred_turn_broadcast.insert(
+            cid,
+            DeferredTurnBroadcast {
+                guid,
+                pos,
+                stack_u8,
+                dir,
+            },
+        );
+    }
+
+    /// TFS `Player::stopWalk` (`player.cpp` ~3398).
+    pub fn player_stop_auto_walk(&mut self, cid: CreatureId) {
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base.cancel_next_walk = true;
+        }
+    }
+
+    fn emit_move_packet(
+        &mut self,
+        cid: CreatureId,
+        conn_id: ConnId,
+        old_pos: Position,
+        new_pos: Position,
+        old_stack: i32,
+    ) {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        let with_description = p.item_with_description();
+        let guid = p.guid;
+
+        let mut known = self
+            .known_creatures_by_conn
+            .remove(&conn_id)
+            .unwrap_or_default();
+        let packet = {
+            let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
+                map_tile_content(self, cid, new_pos, tx, ty, tz)
+            };
+            let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
+            send_move_creature_player(
+                old_pos,
+                new_pos,
+                old_stack,
+                guid,
+                &mut get_tile,
+                &mut known,
+                &mut can_see,
+                with_description,
+            )
+            .into_bytes()
+        };
+        self.known_creatures_by_conn.insert(conn_id, known);
+        self.enqueue_outgoing(conn_id, packet);
+    }
+
+    /// `ProtocolGame::sendMoveCreature` for other clients when both tiles are in view (`protocolgame.cpp` ~2872+).
+    fn broadcast_spectator_move(
+        &mut self,
+        mover: CreatureId,
+        old_pos: Position,
+        new_pos: Position,
+        old_stack: i32,
+    ) {
+        let Some(CreatureKind::Player(mover_p)) = self.creatures.get(mover) else {
+            return;
+        };
+        let guid = mover_p.guid;
+
+        let spectators: Vec<ConnId> = self
+            .conn_to_creature
+            .iter()
+            .filter_map(|(&conn, &viewer)| {
+                if viewer == mover {
+                    return None;
+                }
+                if self.can_see_position(viewer, old_pos) && self.can_see_position(viewer, new_pos) {
+                    Some(conn)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for conn in spectators {
+            let packet = send_move_creature_spectator(old_pos, new_pos, old_stack, guid).into_bytes();
+            self.enqueue_outgoing(conn, packet);
+        }
+    }
+
+    /// After synchronous `checkCreatureWalk` when `addEventWalk`'s initial `ticks == 1` and
+    /// `first_step` is true — set `next_walk_check` from **post-`on_walk`** timing (`getEventStepTicks(false)`).
+    ///
+    /// C++ uses the **same** pre-sync `ticks` for `scheduler.addEvent(ticks)` (`creature.cpp` ~311–321),
+    /// which is always `1` on that branch and adds an extra 1ms poll before the real walk delay elapses
+    /// (`tasks/walk-smoothness-audit` Bug 1 / 8). Recomputing after `last_step` is set tightens rhythm.
+    /// C++ `addEventWalk()` after the sync `ticks == 1` path — delay is from **now** when the callback runs
+    /// (`creature.cpp`), not from the pre-`on_walk` logical instant.
+    fn schedule_walk_followup_deadline(&mut self, cid: CreatureId) {
+        let wall_now = Instant::now();
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        if player_step_speed_clamped(&p.base) <= 0 {
+            return;
+        }
+        if p.base.next_walk_check.is_some() {
+            return;
+        }
+        let ground_speed = self
+            .map
+            .get_tile(p.base.position)
+            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+            .unwrap_or(150);
+        let ticks = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+                return;
+            };
+            get_event_step_ticks(&p.base, false, ground_speed, wall_now)
+        };
+        if ticks <= 0 {
+            return;
+        }
+        let delay_ms = ticks.max(1) as u64;
+        let anchor = Instant::now();
+        self.commit_next_walk_deadline(
+            cid,
+            Some(anchor + Duration::from_millis(delay_ms)),
+        );
+    }
+
+    /// TFS `Creature::addEventWalk` (`creature.cpp` ~299–322).
+    ///
+    /// `scheduling_base`: anchor for the **initial** timer when `first_step` is true and `ticks > 1`
+    /// (new move / long first delay). Reschedules (`first_step == false`) use `Instant::now()` instead.
+    fn add_event_walk(&mut self, cid: CreatureId, first_step: bool, scheduling_base: Instant) {
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base.cancel_next_walk = false;
+        }
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        if player_step_speed_clamped(&p.base) <= 0 {
+            return;
+        }
+        if p.base.next_walk_check.is_some() {
+            return;
+        }
+
+        let wall_now = Instant::now();
+
+        let ground_speed = self
+            .map
+            .get_tile(p.base.position)
+            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+            .unwrap_or(150);
+
+        let ticks = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+                return;
+            };
+            get_event_step_ticks(&p.base, first_step, ground_speed, wall_now)
+        };
+
+        if ticks <= 0 {
+            return;
+        }
+
+        if ticks == 1 {
+            // C++ ~316–321: synchronous `checkCreatureWalk`, then `scheduler.addEvent(ticks)` with the same `ticks`.
+            // `onWalk` does not call `addEventWalk` when `eventWalk == 0` (~228–232). For `first_step`, `ticks` is
+            // always `1` before `last_step` is updated — schedule the **follow-up** from post-step `getEventStepTicks`.
+            self.check_creature_walk_from_add_event_walk(cid, wall_now);
+            if first_step {
+                self.schedule_walk_followup_deadline(cid);
+            } else {
+                let anchor = Instant::now();
+                self.commit_next_walk_deadline(
+                    cid,
+                    Some(anchor + Duration::from_millis(1)),
+                );
+            }
+            return;
+        }
+
+        let delay_ms = ticks.max(1) as u64;
+        if first_step {
+            self.commit_next_walk_deadline(
+                cid,
+                Some(scheduling_base + Duration::from_millis(delay_ms)),
+            );
+        } else {
+            let anchor = Instant::now();
+            self.commit_next_walk_deadline(
+                cid,
+                Some(anchor + Duration::from_millis(delay_ms)),
+            );
+        }
+    }
+
+    pub(crate) fn stop_event_walk(&mut self, cid: CreatureId) {
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            if let Some(h) = p.base.walk_timer.take() {
+                h.abort();
+            }
+            p.base.next_walk_check = None;
+        }
+    }
+
+    /// TFS `Game::checkCreatureWalk` (`game.cpp` ~3773–3779).
+    pub fn check_creature_walk(&mut self, cid: CreatureId, now: Instant) {
+        let health_ok = self.creatures.get(cid).is_some_and(|k| match k {
+            CreatureKind::Player(p) => p.base.health > 0,
+            CreatureKind::Monster(m) => m.base.health > 0,
+            CreatureKind::Npc(n) => n.base.health > 0,
+        });
+        if !health_ok {
+            return;
+        }
+
+        let fired_deadline = match self.creatures.get_mut(cid) {
+            Some(CreatureKind::Player(p)) => p.base.next_walk_check.take(),
+            _ => None,
+        };
+        let Some(fired_deadline) = fired_deadline else {
+            return;
+        };
+
+        // Logical deadline still in the future — re-arm (timer coalescing / ordering).
+        if fired_deadline > now + WALK_DEADLINE_GRACE {
+            self.commit_next_walk_deadline(cid, Some(fired_deadline));
+            return;
+        }
+
+        self.on_walk(cid, true, now, Some(fired_deadline));
+        self.cleanup();
+    }
+
+    /// Same as [`check_creature_walk`], but the walk was **not** triggered by a prior `next_walk_check`
+    /// (sync branch inside `add_event_walk` when `ticks == 1`). Matches `eventWalk == 0` at `onWalk` exit in C++.
+    fn check_creature_walk_from_add_event_walk(&mut self, cid: CreatureId, now: Instant) {
+        let health_ok = self.creatures.get(cid).is_some_and(|k| match k {
+            CreatureKind::Player(p) => p.base.health > 0,
+            CreatureKind::Monster(m) => m.base.health > 0,
+            CreatureKind::Npc(n) => n.base.health > 0,
+        });
+        if !health_ok {
+            return;
+        }
+
+        self.commit_next_walk_deadline(cid, None);
+
+        self.on_walk(cid, false, now, None);
+        self.cleanup();
+    }
+
+    /// TFS `Creature::onWalk` (`creature.cpp` ~200–234).  
+    /// `reschedule_after` = C++ `eventWalk != 0` before the end block — only then does `onWalk` call `addEventWalk()`.
+    ///
+    /// `fired_deadline`: logical `next_walk_check` that triggered this `on_walk` (scheduler path); used to
+    /// chain the next deadline without cumulative timer jitter.
+    fn on_walk(
+        &mut self,
+        cid: CreatureId,
+        reschedule_after: bool,
+        now: Instant,
+        fired_deadline: Option<Instant>,
+    ) {
+        let walk_delay = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => get_walk_delay(&p.base, now),
+            _ => 0,
+        };
+
+        let mut stopped_without_reschedule = false;
+
+        if walk_delay <= 0 {
+            let pop_dir = self.creatures.get_mut(cid).and_then(|k| {
+                if let CreatureKind::Player(p) = k {
+                    // TFS `Creature::getNextStep` — `dir = listWalkDir.back(); pop_back();` (`creature.cpp`).
+                    // `tfs-rust-net::parse_auto_walk` reverses wire bytes so **first** client step sits at the
+                    // **back** of `walk_queue`; `pop_back` matches C++.
+                    p.base.walk_queue.pop_back()
+                } else {
+                    None
+                }
+            });
+
+            if let Some(mut dir) = pop_dir {
+                let mut drunk_hicks = false;
+                if let Some(CreatureKind::Player(p)) = self.creatures.get(cid) {
+                    if let Some(new_dir) = try_drunk_walk_direction(&p.base) {
+                        dir = new_dir;
+                        drunk_hicks = true;
+                    }
+                }
+                if drunk_hicks {
+                    self.broadcast_creature_say_viewport(cid, SpeakType::MonsterSay as u8, "Hicks!");
+                }
+                let old_pos = match self.creatures.get(cid) {
+                    Some(k) => k.position(),
+                    None => return,
+                };
+                let old_stack = self
+                    .map
+                    .get_tile(old_pos)
+                    .map(|t| client_creature_stack_pos(t.body(), cid))
+                    .filter(|s| *s >= 0)
+                    .unwrap_or(1);
+                let ret = self.internal_move_player_step(cid, dir, now);
+                if ret != ReturnValue::NoError {
+                    if let Some(conn) = self.conn_for_creature(cid) {
+                        let d = self
+                            .creatures
+                            .get(cid)
+                            .and_then(|k| match k {
+                                CreatureKind::Player(p) => Some(p.base.direction),
+                                _ => None,
+                            })
+                            .unwrap_or(Direction::North);
+                        let msg = return_message_for_cancel(ret);
+                        self.enqueue_outgoing(
+                            conn,
+                            send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+                        );
+                        self.enqueue_outgoing(
+                            conn,
+                            send_cancel_walk(direction_to_walk_byte(d)).into_bytes(),
+                        );
+                    }
+                    // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
+                    // popped in `getNextStep` (`src/creature.cpp` ~205–213).
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().force_update_follow_path = true;
+                    }
+                } else {
+                    let new_pos = match self.creatures.get(cid) {
+                        Some(k) => k.position(),
+                        None => return,
+                    };
+                    if let Some(conn) = self.conn_for_creature(cid) {
+                        self.emit_move_packet(cid, conn, old_pos, new_pos, old_stack);
+                    }
+                    self.broadcast_spectator_move(cid, old_pos, new_pos, old_stack);
+                    // TFS `lastStep` is set in `onCreatureMove` **after** `sendCreatureMove` (`map.cpp` ~309–324).
+                    // `Instant::now()` — not scheduler `now` — if the walk tick is late, `getWalkDelay` stays aligned.
+                    // OTCv8: step length from ground speed on tile **entered** (`m_lastStepToPosition`); TFS
+                    // `getWalkDelay` also uses creature tile after move.
+                    let gs_dest = self
+                        .map
+                        .get_tile(new_pos)
+                        .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+                        .unwrap_or(150);
+                    if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                        p.base.last_step = Some(Instant::now());
+                        p.base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
+                        p.base.last_step_ground_speed = gs_dest;
+                    }
+                }
+            } else {
+                // TFS: `getNextStep` false → `stopEventWalk`, `onWalkComplete` if queue empty (`src/creature.cpp` ~215–219).
+                self.stop_event_walk(cid);
+                stopped_without_reschedule = true;
+                self.events.on_walk_complete(cid);
+            }
+        }
+
+        if self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Player(p) if p.base.cancel_next_walk)
+        }) {
+            let dir_byte = self.creatures.get(cid).and_then(|k| match k {
+                CreatureKind::Player(p) => Some(direction_to_walk_byte(p.base.direction)),
+                _ => None,
+            });
+            let conn = self.conn_for_creature(cid);
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                p.base.walk_queue.clear();
+                p.base.cancel_next_walk = false;
+            }
+            // TFS `Player::onWalkAborted` — `sendCancelWalk` (`player.cpp` ~3384–3387).
+            if let (Some(conn), Some(db)) = (conn, dir_byte) {
+                self.enqueue_outgoing(conn, send_cancel_walk(db).into_bytes());
+            }
+        }
+
+        if !stopped_without_reschedule && reschedule_after {
+            if let Some(logical) = fired_deadline {
+                self.commit_next_walk_deadline(cid, None);
+                self.add_event_walk(cid, false, logical);
+            }
+        }
+    }
+
+    fn internal_move_player_step(&mut self, cid: CreatureId, direction: Direction, now: Instant) -> ReturnValue {
+        let current_pos = match self.creatures.get(cid) {
+            Some(k) => k.position(),
+            None => return ReturnValue::NotPossible,
+        };
+        let flags_in = FLAG_IGNOREFIELDDAMAGE;
+        let (dest_pos, flags) = resolve_player_move_destination(
+            &self.map,
+            self.items_db.as_ref(),
+            current_pos,
+            direction,
+            flags_in,
+        );
+        let Some(to_tile) = self.map.get_tile(dest_pos) else {
+            return ReturnValue::NotPossible;
+        };
+
+        let ret = tile_query_add_player(self, to_tile, cid, flags);
+        if ret != ReturnValue::NoError {
+            return ret;
+        }
+
+        let old_pos = current_pos;
+        // `Player::onWalk(Direction&)` runs **before** `internalMoveCreature` and calls
+        // `setNextAction(... + getStepDuration(dir))` — `getStepDuration` reads **this** tile’s ground
+        // (`creature.cpp` / `player.cpp` ~1339–1343), i.e. **source** tile, not destination.
+        let gs_next_action = self
+            .map
+            .get_tile(old_pos)
+            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+            .unwrap_or(150);
+
+        self.map.unregister_creature_index(old_pos, cid);
+        if let Some(t) = self.map.get_tile_mut(old_pos) {
+            t.remove_creature(cid);
+        }
+        if let Some(t) = self.map.get_tile_mut(dest_pos) {
+            t.add_creature(cid);
+        }
+        self.map.register_creature_index(dest_pos, cid);
+
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.set_position(dest_pos);
+            // `Map::moveCreature` (`map.cpp` ~295–306): N/S then E/W overwrite — same as TFS facing.
+            set_direction_from_step(old_pos, dest_pos, k);
+            if let CreatureKind::Player(p) = k {
+                if old_pos.z != dest_pos.z {
+                    // `Game::internalMoveCreature` sets facing on floor change (`game.cpp` ~815–816, ~829–830).
+                    p.base.direction = direction;
+                }
+                let dur_ms = get_step_duration_ms_with_direction(&p.base, direction, gs_next_action);
+                p.next_action_until = Some(now + Duration::from_millis(dur_ms.max(1) as u64));
+            }
+        }
+
+        ReturnValue::NoError
+    }
+
+    pub fn process_walk_deadlines(&mut self) {
+        if self.walk_wake_tx.is_some() {
+            return;
+        }
+        // Chain: nested `addEventWalk` / same-deadline walks should drain in one wake (scheduler coalesces).
+        // Sample `Instant::now()` each pass — do not use a snapshot from the game-loop branch (Bug 4).
+        const MAX_CHAIN: usize = 64;
+        for _ in 0..MAX_CHAIN {
+            let now = Instant::now();
+            let mut due: Vec<CreatureId> = Vec::new();
+            for (cid, k) in self.creatures.iter() {
+                let CreatureKind::Player(p) = k else {
+                    continue;
+                };
+                if let Some(deadline) = p.base.next_walk_check {
+                    if now >= deadline {
+                        due.push(cid);
+                    }
+                }
+            }
+            if due.is_empty() {
+                break;
+            }
+            for cid in due {
+                let step_now = Instant::now();
+                self.check_creature_walk(cid, step_now);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod step_speed_tests {
+    use super::calculated_step_speed_tfs;
+
+    /// Anchors from `src/creature.cpp` `Creature::getStepDuration` (`floor((A*log((step/2)+B)+C)+0.5)`).
+    #[test]
+    fn calculated_step_speed_matches_tfs_creature_cpp() {
+        assert_eq!(calculated_step_speed_tfs(10), 1);
+        assert_eq!(calculated_step_speed_tfs(220), 278);
+        assert_eq!(calculated_step_speed_tfs(400), 464);
+        assert_eq!(calculated_step_speed_tfs(1500), 1137);
+    }
+}

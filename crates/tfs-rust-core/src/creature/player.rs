@@ -2,13 +2,14 @@
 // C++ reference: `Player` (`player.h` / `player.cpp`).
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
 use tfs_rust_db::{ItemRecord, VipEntry};
 
 use crate::creature::base::CreatureBase;
 use crate::creature::vocation::{
-    experience_to_next_level, recalculate_vitals, total_experience_for_level,
+    base_walk_speed, experience_to_next_level, recalculate_vitals, total_experience_for_level,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -79,6 +80,10 @@ pub struct Player {
     pub vip_list: Vec<VipEntry>,
     /// When true, other players receive `0` health percent on map (`Player::isHealthHidden` in TFS).
     pub health_hidden: bool,
+    /// TFS idle / kick — `resetIdleTime` updates this (`player.cpp`).
+    pub last_activity: Instant,
+    /// TFS `nextAction` — `Player::onWalk` blocks actions until this instant (`player.cpp` ~1343).
+    pub next_action_until: Option<Instant>,
 }
 
 impl Player {
@@ -102,10 +107,19 @@ impl Player {
             self.max_mana = max_mana;
             self.mana = self.mana.min(max_mana);
             self.capacity = cap;
+            let sp = base_walk_speed(self.vocation_id, self.level);
+            self.base.speed = sp;
+            self.base.base_speed = sp;
         }
     }
 
     pub fn exp_to_next_level(&self) -> u64 {
         experience_to_next_level(self.level)
+    }
+
+    /// TFS `Player::canDoAction` / `nextAction` comparison (`player.cpp`).
+    #[inline]
+    pub fn timed_action_ready(&self, now: Instant) -> bool {
+        self.next_action_until.map_or(true, |t| now >= t)
     }
 }
