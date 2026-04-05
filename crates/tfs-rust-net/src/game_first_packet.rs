@@ -12,6 +12,8 @@ pub type XteaKey = [u32; 4];
 #[derive(Debug, Clone)]
 pub struct GameFirstParsed {
     pub xtea_key: XteaKey,
+    /// First u16 in game prelude (`protocolgame.cpp` `onRecvFirstMessage`); `OperatingSystem_t`.
+    pub operating_system: u16,
     pub account_name: String,
     pub password: String,
     pub token: String,
@@ -19,6 +21,8 @@ pub struct GameFirstParsed {
     pub character_name: String,
     pub challenge_ts: u32,
     pub challenge_rand: u8,
+    /// `0` if the `"OTCv8"` probe was not present; else build number (253, 260, …).
+    pub otclient_v8: u16,
 }
 
 /// Parsed first message: **game** (session + character + challenge) or **login** (account + password only).
@@ -29,6 +33,8 @@ pub enum FirstClientPacket {
         xtea_key: XteaKey,
         account: String,
         password: String,
+        operating_system: u16,
+        otclient_v8: u16,
     },
 }
 
@@ -91,9 +97,14 @@ pub fn parse_first_client_packet(
         let tail = &body[off + 128..];
 
         let parsed = match off {
-            PROTO_1098_GAME_RSA_OFF | GAME_RSA_OFF => parse_game_first(key, rsa_arr, tail),
+            PROTO_1098_GAME_RSA_OFF | GAME_RSA_OFF => parse_game_first(
+                key,
+                rsa_arr,
+                tail,
+                operating_system_from_game_prelude(body, off),
+            ),
             PROTO_1098_LOGIN_RSA_OFF | LOGIN_RSA_OFF_GE_971 | LOGIN_RSA_OFF_LT_971 => {
-                parse_login_first(key, rsa_arr)
+                parse_login_first(key, rsa_arr, tail, operating_system_login_prelude(body))
             }
             _ => unreachable!(),
         };
@@ -129,18 +140,77 @@ fn xtea_key_from_plain(rsa_plain: &[u8; 128]) -> XteaKey {
     ]
 }
 
-fn parse_login_first(key: XteaKey, rsa_plain: &[u8; 128]) -> Result<FirstClientPacket> {
-    let mut s = &rsa_plain[17..128];
+/// `msg.skipBytes(2) // client OS` — first payload u16 after checksum (`protocollogin.cpp` ~149).
+fn operating_system_login_prelude(body: &[u8]) -> u16 {
+    if body.len() >= 6 {
+        u16::from_le_bytes([body[4], body[5]])
+    } else {
+        0
+    }
+}
+
+/// Game prelude before RSA: `0x0A` + **OS u16** at offset 5 for 10.98 layouts (`protocolgame.cpp` ~381).
+fn operating_system_from_game_prelude(body: &[u8], rsa_off: usize) -> u16 {
+    if (rsa_off == 16 || rsa_off == 15) && body.len() >= 7 {
+        u16::from_le_bytes([body[5], body[6]])
+    } else {
+        0
+    }
+}
+
+/// `uint16_t len` + optional `"OTCv8"` + `uint16_t` build (`protocolgame.cpp` ~468–472, `protocollogin.cpp` ~243–249).
+fn parse_otcv8_string_probe(s: &[u8]) -> Result<(u16, &[u8])> {
+    if s.len() < 2 {
+        return Ok((0, s));
+    }
+    let len = u16::from_le_bytes([s[0], s[1]]) as usize;
+    if s.len() < 2 + len {
+        return Err(TfsRustError::Protocol(
+            "truncated OTCv8 / string probe after credentials".into(),
+        ));
+    }
+    let chunk = &s[2..2 + len];
+    let tail = &s[2 + len..];
+    if len == 5 && chunk == b"OTCv8" {
+        if tail.len() < 2 {
+            return Err(TfsRustError::Protocol(
+                "truncated OTCv8 version u16".into(),
+            ));
+        }
+        let ver = u16::from_le_bytes([tail[0], tail[1]]);
+        return Ok((ver, &tail[2..]));
+    }
+    Ok((0, tail))
+}
+
+fn parse_login_first(
+    key: XteaKey,
+    rsa_plain: &[u8; 128],
+    tail: &[u8],
+    operating_system: u16,
+) -> Result<FirstClientPacket> {
+    let mut stream = Vec::new();
+    stream.extend_from_slice(&rsa_plain[17..128]);
+    stream.extend_from_slice(tail);
+    let mut s = stream.as_slice();
     let account = read_string(&mut s)?;
     let password = read_string(&mut s)?;
+    let (otclient_v8, _) = parse_otcv8_string_probe(s)?;
     Ok(FirstClientPacket::Login {
         xtea_key: key,
         account,
         password,
+        operating_system,
+        otclient_v8,
     })
 }
 
-fn parse_game_first(key: XteaKey, rsa_plain: &[u8; 128], tail: &[u8]) -> Result<FirstClientPacket> {
+fn parse_game_first(
+    key: XteaKey,
+    rsa_plain: &[u8; 128],
+    tail: &[u8],
+    operating_system: u16,
+) -> Result<FirstClientPacket> {
     let mut stream = Vec::new();
     stream.extend_from_slice(&rsa_plain[17..128]);
     stream.extend_from_slice(tail);
@@ -161,6 +231,7 @@ fn parse_game_first(key: XteaKey, rsa_plain: &[u8; 128], tail: &[u8]) -> Result<
     }
     let challenge_ts = read_u32(&mut s)?;
     let challenge_rand = read_u8(&mut s)?;
+    let (otclient_v8, _) = parse_otcv8_string_probe(s)?;
 
     let parts: Vec<&str> = session.splitn(4, '\n').collect();
     if parts.len() != 4 {
@@ -177,6 +248,7 @@ fn parse_game_first(key: XteaKey, rsa_plain: &[u8; 128], tail: &[u8]) -> Result<
 
     Ok(FirstClientPacket::Game(GameFirstParsed {
         xtea_key: key,
+        operating_system,
         account_name,
         password,
         token,
@@ -184,6 +256,7 @@ fn parse_game_first(key: XteaKey, rsa_plain: &[u8; 128], tail: &[u8]) -> Result<
         character_name,
         challenge_ts,
         challenge_rand,
+        otclient_v8,
     }))
 }
 

@@ -5,6 +5,18 @@ use tfs_rust_common::{ConnId, GameCommand, GamePacket};
 use tfs_rust_net::protocol_game::game_command_from_payload;
 
 #[test]
+fn parses_enter_game() {
+    let payload = [0x0Fu8];
+    let cmd = game_command_from_payload(ConnId(1), &payload).expect("parse");
+    match cmd {
+        GameCommand::Game { packet, .. } => {
+            assert!(matches!(packet, GamePacket::EnterGame));
+        }
+        _ => panic!("expected Game"),
+    }
+}
+
+#[test]
 fn parses_move_north() {
     let payload = [0x65u8];
     let cmd = game_command_from_payload(ConnId(1), &payload).expect("parse");

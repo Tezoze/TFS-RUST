@@ -44,7 +44,7 @@ pub struct MapData {
     pub spawn_file: Option<String>,
     /// Filename from `OTBM_ATTR_EXT_HOUSE_FILE`, if set.
     pub house_file: Option<String>,
-    /// Filled by `pipeline::load_all` when `*-spawn.xml` exists (see `spawn_file` / default name).
+    /// Filled by `pipeline::load_all` when `*-spawn.xml` exists (see `spawn_file` / default name; map path is configurable).
     pub spawn_zones: Vec<crate::spawns::SpawnZone>,
     pub tiles: HashMap<Position, TileData>,
     pub houses: HashMap<u32, HouseData>,
@@ -483,4 +483,28 @@ fn read_prop_string(data: &[u8], cursor: &mut usize, path: &Path) -> Result<Stri
     let value = String::from_utf8_lossy(&data[*cursor..*cursor + len]).to_string();
     *cursor += len;
     Ok(value)
+}
+
+// --- OTBM item stream ids (C++ `Item::CreateItem(PropStream&)` — `src/item.cpp`) ---
+
+/// PVP field / magic wall ids in map files map to persistent ids (same as C++ switch in `Item::CreateItem(PropStream&)`).
+pub fn remap_create_item_stream_id(id: u16) -> u16 {
+    match id {
+        1487 => 1492, // ITEM_FIREFIELD_PVP_FULL -> PERSISTENT_FULL
+        1488 => 1493,
+        1489 => 1494,
+        1490 => 1496, // ITEM_POISONFIELD_PVP -> PERSISTENT
+        1491 => 1495, // ITEM_ENERGYFIELD_PVP -> PERSISTENT
+        1497 => 1498, // ITEM_MAGICWALL -> PERSISTENT
+        1499 => 2721, // ITEM_WILDGROWTH -> ITEM_WILDGROWTH_PERSISTENT
+        _ => id,
+    }
+}
+
+/// First `u16` of an `OTBM_ITEM` props buffer is the item type id (`Item::CreateItem(PropStream)`).
+pub fn item_id_from_otbm_item_props(raw: &[u8]) -> Option<u16> {
+    if raw.len() < 2 {
+        return None;
+    }
+    Some(remap_create_item_stream_id(u16::from_le_bytes([raw[0], raw[1]])))
 }

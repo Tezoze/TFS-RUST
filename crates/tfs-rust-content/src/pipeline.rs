@@ -20,7 +20,9 @@ pub struct Content {
     pub map: MapData,
 }
 
-pub async fn load_all(data_dir: &Path) -> Result<Content> {
+/// Load server content. `map_otbm_relative` is under `data_dir` (e.g. `world/world.otbm`);
+/// default for this repo’s data pack: `world/forgotten.otbm`.
+pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Result<Content> {
     info!("Starting concurrent content pipeline...");
 
     let otb_path = data_dir.join("items/items.otb");
@@ -30,7 +32,8 @@ pub async fn load_all(data_dir: &Path) -> Result<Content> {
     let out_path = data_dir.join("XML/outfits.xml");
     let mounts_path = data_dir.join("XML/mounts.xml");
     let groups_path = data_dir.join("XML/groups.xml");
-    let map_path = data_dir.join("world/world.otbm");
+    let map_rel = map_otbm_relative.unwrap_or("world/forgotten.otbm");
+    let map_path = data_dir.join(map_rel);
     let map_path_for_task = map_path.clone();
 
     let items_future =

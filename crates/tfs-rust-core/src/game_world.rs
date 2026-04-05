@@ -1,16 +1,20 @@
 //! Central simulation state: entities, map, managers, DB handle.
 // C++ reference: `Game` / `Map` ownership in `game.cpp`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use slotmap::SlotMap;
+use tfs_rust_content::items::ItemDatabase;
+use tfs_rust_content::vocations::VocationDatabase;
+use slotmap::{Key, SlotMap};
 
 use tfs_rust_common::ConnId;
+use tfs_rust_common::enums::ConditionType;
 use tfs_rust_db::DbPool;
 
 use crate::config::ConfigManager;
+use crate::condition::ActiveCondition;
 use crate::creature::CreatureKind;
 use crate::decay::DecayManager;
 use crate::event_dispatcher::EventDispatcher;
@@ -52,6 +56,11 @@ pub struct GameWorld {
     pub protocol_hooks: SharedProtocolHooks,
     /// TCP connection → logged-in player (`conn_id` from `tfs-rust-net`).
     pub conn_to_creature: HashMap<ConnId, CreatureId>,
+    /// `ProtocolGame::knownCreatureSet` — must persist across `0x64` / move strips (`src/protocolgame.cpp`).
+    pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
+    /// OTB + `items.xml` — server item id → client id for map / `addItem` (`src/items.cpp`).
+    pub items_db: Arc<ItemDatabase>,
+    pub vocations: Arc<VocationDatabase>,
 }
 
 impl GameWorld {
@@ -61,6 +70,8 @@ impl GameWorld {
         config: Arc<ConfigManager>,
         db: DbPool,
         spawns: SpawnManager,
+        items_db: Arc<ItemDatabase>,
+        vocations: Arc<VocationDatabase>,
     ) -> Self {
         Self {
             creatures: SlotMap::with_key(),
@@ -84,6 +95,9 @@ impl GameWorld {
             pending_outgoing: HashMap::new(),
             protocol_hooks: Arc::new(NullProtocolHooks),
             conn_to_creature: HashMap::new(),
+            known_creatures_by_conn: HashMap::new(),
+            items_db,
+            vocations,
         }
     }
 
@@ -174,5 +188,52 @@ impl GameWorld {
         if self.tick_counter.is_multiple_of(5) {
             self.events.lua_gc_step();
         }
+    }
+
+    /// Whether `viewer` may treat `target_protocol_id` as “seen” for `knownCreatureSet` eviction.
+    /// C++: `ProtocolGame::canSee` / `Player::canSeeCreature` (`protocolgame.cpp` ~778+).
+    pub fn can_see_creature_for_known_set(&self, viewer: CreatureId, target_protocol_id: u32) -> bool {
+        if self.player_guid(viewer) == Some(target_protocol_id) {
+            return true;
+        }
+        for (cid, k) in self.creatures.iter() {
+            let wire_id = match k {
+                CreatureKind::Player(p) => p.guid,
+                CreatureKind::Monster(_) | CreatureKind::Npc(_) => {
+                    (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
+                }
+            };
+            if wire_id != target_protocol_id {
+                continue;
+            }
+            let invisible = match k {
+                CreatureKind::Player(p) => Self::has_invisible(&p.base.active_conditions),
+                CreatureKind::Monster(m) => Self::has_invisible(&m.base.active_conditions),
+                CreatureKind::Npc(n) => Self::has_invisible(&n.base.active_conditions),
+            };
+            if invisible && viewer != cid {
+                return false;
+            }
+            if let CreatureKind::Player(p) = k {
+                if p.ghost_mode {
+                    return false;
+                }
+            }
+            return true;
+        }
+        true
+    }
+
+    fn has_invisible(conditions: &[ActiveCondition]) -> bool {
+        conditions
+            .iter()
+            .any(|c| c.ctype == ConditionType::Invisible)
+    }
+
+    fn player_guid(&self, cid: CreatureId) -> Option<u32> {
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.guid),
+            _ => None,
+        })
     }
 }

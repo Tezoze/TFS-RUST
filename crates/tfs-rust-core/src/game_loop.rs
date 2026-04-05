@@ -13,7 +13,10 @@ use tracing::{trace, warn};
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
+use crate::login_out::map_tile_content;
 use crate::stability::ErrorCategory;
+use crate::tile::client_creature_stack_pos;
+use tfs_rust_net::map_description::{send_move_creature_player, TileContent};
 use tfs_rust_net::OutRegistry;
 
 /// Process incoming commands until shutdown; runs world ticks on a fixed interval.
@@ -31,8 +34,20 @@ pub async fn run_game_loop(
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(GameCommand::Shutdown) | None => break,
-                    Some(GameCommand::PlayerLogin { conn_id, name }) => {
-                        match crate::login::login_player(&mut world, &name).await {
+                    Some(GameCommand::PlayerLogin {
+                        conn_id,
+                        name,
+                        operating_system,
+                        otclient_v8,
+                    }) => {
+                        match crate::login::login_player(
+                            &mut world,
+                            &name,
+                            operating_system,
+                            otclient_v8,
+                        )
+                        .await
+                        {
                             Ok(cid) => {
                                 world.conn_to_creature.insert(conn_id, cid);
                                 crate::login_out::enqueue_initial_login_packets(&mut world, conn_id, cid);
@@ -57,6 +72,7 @@ pub async fn run_game_loop(
                     }
                     Some(GameCommand::Game { conn_id, packet }) => {
                         match packet {
+                            GamePacket::EnterGame => {}
                             GamePacket::ExtendedOpcode { opcode, buffer } => {
                                 world.protocol_hooks.extended_opcode(conn_id, opcode, buffer);
                             }
@@ -105,22 +121,55 @@ fn handle_player_move(world: &mut GameWorld, conn_id: ConnId, dir: Direction) {
     let Some(cid) = world.conn_to_creature.get(&conn_id).copied() else {
         return;
     };
-    let Some(k) = world.creatures.get_mut(cid) else {
+    let Some(k) = world.creatures.get(cid) else {
         return;
     };
-    let CreatureKind::Player(ref mut p) = k else {
+    let CreatureKind::Player(p) = k else {
         return;
     };
+    let with_description = p.item_with_description();
     let old_pos = p.base.position;
     let new_pos = old_pos.offset(dir);
-    p.base.direction = dir;
-    p.base.position = new_pos;
+    let guid = p.guid;
+
+    let old_stack = world
+        .map
+        .get_tile(old_pos)
+        .map(|t| client_creature_stack_pos(t.body(), cid))
+        .filter(|s| *s >= 0)
+        .unwrap_or(1);
+
+    if let Some(CreatureKind::Player(ref mut pl)) = world.creatures.get_mut(cid) {
+        pl.base.direction = dir;
+        pl.base.position = new_pos;
+    }
     world.map.unregister_creature_index(old_pos, cid);
     world.map.register_creature_index(new_pos, cid);
-    world.enqueue_outgoing(
-        conn_id,
-        tfs_rust_net::map_description::send_map_description_stub(new_pos, new_pos).into_bytes(),
-    );
+
+    let mut known = world
+        .known_creatures_by_conn
+        .remove(&conn_id)
+        .unwrap_or_default();
+    let packet = {
+        let mut get_tile =
+            |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
+                map_tile_content(world, cid, new_pos, tx, ty, tz)
+            };
+        let mut can_see = |id: u32| world.can_see_creature_for_known_set(cid, id);
+        send_move_creature_player(
+            old_pos,
+            new_pos,
+            old_stack,
+            guid,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            with_description,
+        )
+        .into_bytes()
+    };
+    world.known_creatures_by_conn.insert(conn_id, known);
+    world.enqueue_outgoing(conn_id, packet);
 }
 
 /// Wait for Ctrl+C (SIGINT) — SIGTERM requires more setup on some platforms.

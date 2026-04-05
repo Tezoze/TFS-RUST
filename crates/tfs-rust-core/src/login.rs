@@ -67,7 +67,7 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         outfit,
         speed: 220,
         base_speed: 220,
-        skull: skull_from_i32(p.skull),
+        skull: skull_from_i32(i32::from(p.skull)),
         active_conditions: Vec::new(),
         walk_queue: Default::default(),
         follow_target: None,
@@ -76,10 +76,14 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         damage_map: Default::default(),
     };
 
+    let account_id =
+        u32::try_from(p.account_id).expect("players.account_id must fit u32 for runtime Player");
+    let guid = u32::try_from(p.id).expect("players.id must fit u32 for runtime Player");
+
     Player {
         base,
-        account_id: p.account_id,
-        guid: p.id,
+        account_id,
+        guid,
         vocation_id: p.vocation,
         level: p.level,
         experience: p.experience,
@@ -88,31 +92,51 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         capacity: cap.max(p.cap),
         inventory: PlayerInventory { capacity_slots: 10 },
         skills: PlayerSkills {
-            fist: p.skill_fist,
-            club: p.skill_club,
-            sword: p.skill_sword,
-            axe: p.skill_axe,
-            dist: p.skill_dist,
-            shielding: p.skill_shielding,
-            fishing: p.skill_fishing,
+            fist: p.skill_fist as i32,
+            club: p.skill_club as i32,
+            sword: p.skill_sword as i32,
+            axe: p.skill_axe as i32,
+            dist: p.skill_dist as i32,
+            shielding: p.skill_shielding as i32,
+            fishing: p.skill_fishing as i32,
             maglevel: p.maglevel,
         },
         economy: PlayerEconomy {
             balance: p.balance,
-            soul: p.soul,
+            soul: p.soul as i32,
         },
         social: PlayerSocial {
             party_id: None,
-            guild_id: data.guild.as_ref().map(|g| g.guild_id),
+            guild_id: data
+                .guild
+                .as_ref()
+                .and_then(|g| u32::try_from(g.guild_id).ok()),
         },
         town_id: p.town_id,
+        premium_ends_at: data.premium_ends_at,
+        stamina_minutes: p.stamina,
+        offline_training_ms: u32::from(p.offlinetraining_time),
         spell_cooldown_end: HashMap::new(),
         spell_group_cooldown_end: HashMap::new(),
+        operating_system: 0,
+        otclient_v8: 0,
+        ghost_mode: false,
+        inventory_slots: crate::inventory_slots::build_equipment_slots(
+            &data.items.inventory,
+            &data.items.store_inbox,
+        ),
+        vip_list: data.vip_list.clone(),
+        health_hidden: false,
     }
 }
 
 /// Load character by name, insert into world and indices. Returns new `CreatureId`.
-pub async fn login_player(world: &mut GameWorld, name: &str) -> Result<CreatureId> {
+pub async fn login_player(
+    world: &mut GameWorld,
+    name: &str,
+    operating_system: u16,
+    otclient_v8: u16,
+) -> Result<CreatureId> {
     let store = PlayerStore::new(&world.db);
     let Some(loaded) = store.load_player_full(name).await? else {
         return Err(TfsRustError::Database(format!(
@@ -121,7 +145,12 @@ pub async fn login_player(world: &mut GameWorld, name: &str) -> Result<CreatureI
     };
 
     let key = loaded.player.name.clone();
-    let guid = loaded.player.id;
+    let guid = u32::try_from(loaded.player.id).map_err(|_| {
+        TfsRustError::Database(format!(
+            "player id out of u32 range: {}",
+            loaded.player.id
+        ))
+    })?;
     let pos = {
         let p = &loaded.player;
         Position::new(
@@ -131,7 +160,9 @@ pub async fn login_player(world: &mut GameWorld, name: &str) -> Result<CreatureI
         )
     };
 
-    let player = player_from_loaded(loaded);
+    let mut player = player_from_loaded(loaded);
+    player.operating_system = operating_system;
+    player.otclient_v8 = otclient_v8;
     let cid = world.creatures.insert(CreatureKind::Player(player));
 
     // GAME THREAD ONLY

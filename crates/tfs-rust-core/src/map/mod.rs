@@ -7,7 +7,8 @@ pub mod qtree;
 use std::collections::HashMap;
 
 use tfs_rust_common::Position;
-use tfs_rust_content::otbm::{MapData, TileData};
+use tfs_rust_content::items::ItemDatabase;
+use tfs_rust_content::otbm::{self, MapData, TileData, TileThing};
 
 use crate::ids::CreatureId;
 use crate::tile::HouseTile;
@@ -31,10 +32,11 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn from_map_data(data: MapData) -> Self {
+    /// Build runtime tiles from parsed OTBM (`IOMap::parseTileArea` + `Tile::internalAddThing` — `src/iomap.cpp`, `src/tile.cpp`).
+    pub fn from_map_data(data: MapData, items_db: &ItemDatabase) -> Self {
         let mut tiles: HashMap<Position, Tile> = HashMap::new();
         for (pos, td) in data.tiles {
-            tiles.insert(pos, tile_from_data(td));
+            tiles.insert(pos, tile_from_data(td, items_db));
         }
         let mut qtrees = HashMap::new();
         qtrees.insert(
@@ -99,31 +101,56 @@ impl Map {
     }
 }
 
-fn tile_from_data(td: TileData) -> Tile {
-    let mut ground: Option<u16> = None;
-    let mut items: Vec<u16> = Vec::new();
-    for thing in td.things {
-        match thing {
-            tfs_rust_content::otbm::TileThing::EmbeddedItemId(id) => {
-                if ground.is_none() {
-                    ground = Some(id);
-                } else {
-                    items.push(id);
-                }
-            }
-            tfs_rust_content::otbm::TileThing::ItemNodeProps(_) => {
-                // Full item nodes deferred to item pipeline.
-            }
-        }
+/// C++ `Tile::internalAddThing` for item ids (`src/tile.cpp`).
+fn internal_add_item_id(id: u16, items_db: &ItemDatabase, body: &mut TileBody) {
+    let id = otbm::remap_create_item_stream_id(id);
+    let it = items_db.items.get(&id);
+    let is_ground = it.map(|t| t.is_ground_tile()).unwrap_or(false);
+    if is_ground && body.ground.is_none() {
+        body.ground = Some(id);
+        return;
     }
-    let body = TileBody {
+    let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);
+    if always_on_top {
+        let order = it.map(|t| t.always_on_top_order).unwrap_or(0);
+        let pos = body.top_items.iter().position(|&tid| {
+            items_db
+                .items
+                .get(&tid)
+                .map(|t| t.always_on_top_order > order)
+                .unwrap_or(true)
+        });
+        match pos {
+            Some(i) => body.top_items.insert(i, id),
+            None => body.top_items.push(id),
+        }
+    } else {
+        body.down_items.insert(0, id);
+    }
+}
+
+fn tile_from_data(td: TileData, items_db: &ItemDatabase) -> Tile {
+    let mut body = TileBody {
         position: td.position,
-        ground,
-        items,
+        ground: None,
+        down_items: Vec::new(),
+        top_items: Vec::new(),
         creatures: Vec::new(),
         flags: td.tile_flags,
         zone: tfs_rust_common::ZoneType::Normal,
     };
+    for thing in td.things {
+        match thing {
+            TileThing::EmbeddedItemId(id) => {
+                internal_add_item_id(id, items_db, &mut body);
+            }
+            TileThing::ItemNodeProps(raw) => {
+                if let Some(id) = otbm::item_id_from_otbm_item_props(&raw) {
+                    internal_add_item_id(id, items_db, &mut body);
+                }
+            }
+        }
+    }
     if let Some(hid) = td.house_id {
         Tile::House(HouseTile {
             inner: body,

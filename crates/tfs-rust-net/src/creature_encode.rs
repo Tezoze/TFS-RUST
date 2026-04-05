@@ -32,6 +32,35 @@ pub fn write_outfit(msg: &mut NetworkMessage, o: &OutfitWire) {
     msg.write_u16(o.look_mount);
 }
 
+/// Byte length of [`write_outfit`].
+#[inline]
+pub fn outfit_wire_len(o: &OutfitWire) -> usize {
+    2 + if o.look_type != 0 { 5 } else { 2 } + 2
+}
+
+/// Byte length of [`write_add_creature`].
+pub fn add_creature_wire_len(c: &AddCreatureWire) -> usize {
+    let head = if c.known {
+        2 + 4
+    } else {
+        2 + 4 + 4 + 1 + 2 + c.name.len()
+    };
+    head + 1
+        + 1
+        + outfit_wire_len(&c.outfit)
+        + 1
+        + 1
+        + 2
+        + 1
+        + 1
+        + if !c.known { 1 } else { 0 }
+        + 1
+        + 1
+        + 1
+        + 2
+        + 1
+}
+
 /// Parameters for `AddCreature` (map / tooling — viewer defaults).
 #[derive(Debug, Clone)]
 pub struct AddCreatureWire {

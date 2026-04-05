@@ -14,11 +14,24 @@ pub struct Vocation {
     pub from_vocation: u16,
 }
 
+#[derive(Debug, Clone)]
 pub struct VocationDatabase {
     pub vocations: HashMap<u16, Vocation>,
 }
 
 impl VocationDatabase {
+    /// `Player::vocation` id → protocol `u8` client id (`ProtocolGame::sendBasicData`).
+    pub fn client_id_u8(&self, vocation_id: i32) -> u8 {
+        if vocation_id < 0 {
+            return 0;
+        }
+        let id = vocation_id as u16;
+        self.vocations
+            .get(&id)
+            .map(|v| (v.client_id.min(255)) as u8)
+            .unwrap_or(0)
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         info!("Loading vocations from {:?}", path);
         let xml = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {

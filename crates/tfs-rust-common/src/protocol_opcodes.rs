@@ -3,6 +3,9 @@
 
 /// First byte of an **incoming** game packet (client → server).
 pub mod client {
+    /// OTClient `ClientEnterGame` / `sendEnterGame` (e.g. `protocolgamesend.cpp`). Single-byte, no payload.
+    /// TFS 1.4.2 `ProtocolGame::parsePacket`: no `case 0x0F` when `player` is set — falls through to `default` (no-op).
+    pub const ENTER_GAME: u8 = 0x0F;
     pub const LOGOUT: u8 = 0x14;
     pub const PING_BACK: u8 = 0x1D;
     pub const PING: u8 = 0x1E;

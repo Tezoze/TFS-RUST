@@ -1,0 +1,20 @@
+[package]
+name = "packet-proxy"
+version = "0.1.0"
+edition = "2021"
+description = "TCP proxy between OTClient and TFS Rust — log raw and XTEA-decrypted game packets"
+
+[[bin]]
+name = "packet-proxy"
+path = "src/main.rs"
+
+[dependencies]
+tfs-rust-net = { workspace = true }
+tfs-rust-common = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hex = "0.4"
+clap = { version = "4", features = ["derive"] }
+anyhow = { workspace = true }
+rsa = { workspace = true }

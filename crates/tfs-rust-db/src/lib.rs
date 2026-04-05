@@ -18,6 +18,6 @@ pub use market::{
 pub use migrations::{default_migrations_dir, run_migrations};
 pub use player::{
     GuildMembershipRow, LoadedPlayerData, PlayerItemPayload, PlayerRecord, PlayerSaveData,
-    PlayerStore,
+    PlayerStore, VipEntry,
 };
 pub use pool::DbPool;

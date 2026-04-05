@@ -21,6 +21,7 @@ pub fn parse_game_packet(msg: &mut NetworkMessage) -> Result<(u8, GamePacket)> {
 /// Parse payload after the opcode byte.
 pub fn parse_game_opcode(opcode: u8, msg: &mut NetworkMessage) -> Result<GamePacket> {
     match opcode {
+        C::ENTER_GAME => Ok(GamePacket::EnterGame),
         C::LOGOUT => Ok(GamePacket::Logout),
         C::PING_BACK => Ok(GamePacket::PingBack),
         C::PING => Ok(GamePacket::Ping),
@@ -128,21 +129,30 @@ pub fn parse_game_opcode(opcode: u8, msg: &mut NetworkMessage) -> Result<GamePac
             receiver: msg.read_string()?,
         }),
         C::CLOSE_NPC_CHANNEL => Ok(GamePacket::CloseNpcChannel),
-        C::FIGHT_MODES => Ok(GamePacket::FightModes {
-            raw_fight_mode: msg.read_u8()?,
-            raw_chase_mode: msg.read_u8()?,
-            raw_secure_mode: msg.read_u8()?,
+        C::FIGHT_MODES => {
+            let raw_fight_mode = msg.read_u8()?;
+            let raw_chase_mode = msg.read_u8()?;
+            let raw_secure_mode = msg.read_u8()?;
+            // OTClient v8 may send PVP mode as 4th byte (`GamePVPMode`); official client sends 3.
+            let raw_pvp_mode = if msg.unread_bytes() > 0 {
+                msg.read_u8()?
+            } else {
+                0
+            };
+            Ok(GamePacket::FightModes {
+                raw_fight_mode,
+                raw_chase_mode,
+                raw_secure_mode,
+                raw_pvp_mode,
+            })
+        }
+        // C++ reads one `uint32_t`; second read is commented out (`src/protocolgame.cpp` ~1034).
+        C::ATTACK => Ok(GamePacket::Attack {
+            creature_id: msg.read_u32()?,
         }),
-        C::ATTACK => {
-            let creature_id = msg.read_u32()?;
-            let _dup = msg.read_u32()?; // TFS reads duplicate id
-            Ok(GamePacket::Attack { creature_id })
-        }
-        C::FOLLOW => {
-            let creature_id = msg.read_u32()?;
-            let _dup = msg.read_u32()?;
-            Ok(GamePacket::Follow { creature_id })
-        }
+        C::FOLLOW => Ok(GamePacket::Follow {
+            creature_id: msg.read_u32()?,
+        }),
         C::PARTY_INVITE => Ok(GamePacket::PartyInvite {
             target_id: msg.read_u32()?,
         }),
@@ -252,9 +262,13 @@ fn parse_auto_walk(msg: &mut NetworkMessage) -> Result<GamePacket> {
     if n == 0 || msg.unread_bytes() < n {
         return Err(TfsRustError::Protocol("invalid auto-walk length".into()));
     }
-    let mut path = Vec::with_capacity(n);
+    let mut raw_dirs = Vec::with_capacity(n);
     for _ in 0..n {
-        let raw = msg.read_u8()?;
+        raw_dirs.push(msg.read_u8()?);
+    }
+    // C++ reads with `getPreviousByte()` — last queued step is executed first (`protocolgame.cpp` ~857–889).
+    let mut path = Vec::with_capacity(n);
+    for raw in raw_dirs.into_iter().rev() {
         path.push(raw_dir_to_direction(raw)?);
     }
     Ok(GamePacket::AutoWalk { path })

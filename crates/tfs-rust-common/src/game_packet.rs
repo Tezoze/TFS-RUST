@@ -69,6 +69,8 @@ pub struct BugReportPayload {
 
 #[derive(Debug, Clone)]
 pub enum GamePacket {
+    /// Client finished pending → in-game (`ClientEnterGame` / `0x0F`). Server already sent map; no action.
+    EnterGame,
     Logout,
     PingBack,
     Ping,
@@ -176,6 +178,8 @@ pub enum GamePacket {
         raw_fight_mode: u8,
         raw_chase_mode: u8,
         raw_secure_mode: u8,
+        /// OTClient v8 may send a 4th byte when `GamePVPMode` is enabled (`protocolgame.cpp` parseFightModes).
+        raw_pvp_mode: u8,
     },
     Attack {
         creature_id: u32,

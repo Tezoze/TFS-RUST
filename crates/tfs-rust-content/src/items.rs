@@ -9,9 +9,51 @@ use tracing::info;
 #[derive(Clone)]
 pub struct ItemDatabase {
     pub items: HashMap<u16, ItemType>,
+    /// C++ `clientIdToServerIdMap` — first server id wins for duplicate client ids (`src/items.cpp` `loadFromOtb`).
+    pub client_to_server: HashMap<u16, u16>,
 }
 
 impl ItemDatabase {
+    /// OTB / `ItemType::clientId` for map and inventory protocol (`addItem`); 0 if unknown.
+    // C++: `Items::getItemType(serverId).clientId` — `src/items.cpp`
+    #[inline]
+    pub fn client_id_for_server(&self, server_id: u16) -> u16 {
+        self.items
+            .get(&server_id)
+            .map(|t| t.client_id)
+            .unwrap_or(0)
+    }
+
+    /// Reverse lookup: OT client sprite id → server item id (`Items::getServerId` patterns / `clientIdToServerIdMap`).
+    #[inline]
+    pub fn server_id_for_client(&self, client_id: u16) -> Option<u16> {
+        self.client_to_server.get(&client_id).copied()
+    }
+
+    /// OTB `FLAG_ANIMATION` — extra `0xFE` before duration in `addItem` (`src/networkmessage.cpp`).
+    #[inline]
+    pub fn is_animation_for_server(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_animation())
+    }
+
+    /// OTB `FLAG_STACKABLE` — `ItemType::stackable` (`src/items.cpp`).
+    #[inline]
+    pub fn stackable_for_server(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.stackable())
+    }
+
+    /// Splash / fluid container group — `NetworkMessage::addItem` fluid byte (`src/networkmessage.cpp`).
+    #[inline]
+    pub fn is_splash_or_fluid_for_server(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_splash() || t.is_fluid_container())
+    }
+
     /// Whether this item behaves as a container for loot nesting (`loadLootContainer` in TFS).
     /// C++ uses `ItemType::isContainer()` (OTB group); we approximate via merged `items.xml`
     /// `containerSize` / `type=container` when OTB group is not decoded yet.
@@ -66,7 +108,21 @@ impl ItemDatabase {
         info!("Merging items.xml from {:?}", xml_path);
         Self::merge_xml(&mut items, xml_path)?;
 
-        Ok(Self { items })
+        let client_to_server = Self::build_client_to_server_map(&items);
+        Ok(Self {
+            items,
+            client_to_server,
+        })
+    }
+
+    fn build_client_to_server_map(items: &HashMap<u16, ItemType>) -> HashMap<u16, u16> {
+        let mut m = HashMap::new();
+        for (&sid, it) in items {
+            if it.client_id != 0 {
+                m.entry(it.client_id).or_insert(sid);
+            }
+        }
+        m
     }
 
     fn merge_xml(items: &mut HashMap<u16, ItemType>, xml_path: &Path) -> Result<()> {

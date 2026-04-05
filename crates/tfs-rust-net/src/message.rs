@@ -141,11 +141,13 @@ impl NetworkMessage {
         self.write_u8(val.z);
     }
 
-    /// `NetworkMessage::addDouble` (`src/networkmessage.cpp`).
+    /// `NetworkMessage::addDouble` (`src/networkmessage.cpp`): `u8` precision + `u32`
+    /// `((value * pow(10f, precision)) + INT_MAX)` cast to `uint32_t` — **not** IEEE-754.
     pub fn write_double_tfs(&mut self, value: f64, precision: u8) {
         self.write_u8(precision);
-        let scaled = (value * 10_f64.powi(precision as i32)) as i64 + i32::MAX as i64;
-        self.write_u32(scaled as u32);
+        let factor = 10f32.powi(i32::from(precision)) as f64;
+        let encoded = (value * factor + f64::from(i32::MAX)) as u32;
+        self.write_u32(encoded);
     }
 
     pub fn decompress(&mut self) -> Result<()> {

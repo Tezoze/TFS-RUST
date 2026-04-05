@@ -3,6 +3,9 @@
 
 use std::collections::HashMap;
 
+use tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
+use tfs_rust_db::{ItemRecord, VipEntry};
+
 use crate::creature::base::CreatureBase;
 use crate::creature::vocation::{
     experience_to_next_level, recalculate_vitals, total_experience_for_level,
@@ -54,13 +57,39 @@ pub struct Player {
     pub economy: PlayerEconomy,
     pub social: PlayerSocial,
     pub town_id: i32,
+    /// `accounts.premium_ends_at` (unix seconds).
+    pub premium_ends_at: u32,
+    /// Stamina minutes for `0xA0` stats (`players.stamina`).
+    pub stamina_minutes: u16,
+    /// Offline training time in ms (`players.offlinetraining_time` / C++ `offlineTrainingTime`).
+    pub offline_training_ms: u32,
     /// Spell id → game tick when off cooldown.
     pub spell_cooldown_end: HashMap<u16, u64>,
     /// Spell group → game tick when group is off cooldown.
     pub spell_group_cooldown_end: HashMap<u8, u64>,
+    /// First-packet OS id (`protocolgame.cpp`); used for OTClient vs official behaviour.
+    pub operating_system: u16,
+    /// `0` = not OTCv8; otherwise client build from first-packet probe.
+    pub otclient_v8: u16,
+    /// GM / spectator ghost — hidden from other players’ maps (`Player::isInGhostMode` in TFS).
+    pub ghost_mode: bool,
+    /// Equipment + store inbox slot snapshot from DB (`player_items` / `player_storeinboxitems`).
+    pub inventory_slots: [Option<ItemRecord>; 11],
+    /// `sendVIPEntries` payload from `account_viplist`.
+    pub vip_list: Vec<VipEntry>,
+    /// When true, other players receive `0` health percent on map (`Player::isHealthHidden` in TFS).
+    pub health_hidden: bool,
 }
 
 impl Player {
+    /// `NetworkMessage::addItem(..., withDescription)` / OTCv8 item template: empty string before duration.
+    /// C++ sets `withDescription` from `otclientV8` (probe after `"OTCv8"`); if the probe is missing,
+    /// OTClient still identifies via `operatingSystem >= CLIENTOS_OTCLIENT_LINUX`.
+    #[inline]
+    pub fn item_with_description(&self) -> bool {
+        self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
+    }
+
     pub fn add_experience(&mut self, amount: u64) {
         self.experience = self.experience.saturating_add(amount);
         while self.level < 2000

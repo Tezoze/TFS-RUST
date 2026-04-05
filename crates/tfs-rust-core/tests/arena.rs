@@ -52,8 +52,17 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         },
         social: PlayerSocial::default(),
         town_id: 0,
+        premium_ends_at: 0,
+        stamina_minutes: 0,
+        offline_training_ms: 0,
         spell_cooldown_end: HashMap::new(),
         spell_group_cooldown_end: HashMap::new(),
+        operating_system: 0,
+        otclient_v8: 0,
+        ghost_mode: false,
+        inventory_slots: std::array::from_fn(|_| None),
+        vip_list: Vec::new(),
+        health_hidden: false,
     }
 }
 

@@ -20,18 +20,13 @@ pub fn game_command_from_payload(conn_id: ConnId, payload: &[u8]) -> Result<Game
     Ok(GameCommand::Game { conn_id, packet })
 }
 
-/// XTEA decrypt + inner length trim (`Protocol::XTEA_decrypt` in `src/protocol.cpp`).
-/// `body` is the TCP packet body only (after the 2-byte size prefix): `[checksum u32][ciphertext…]`.
+/// XTEA decrypt + payload trim (matches OTClient `xteaDecrypt` / TFS crypto: first `u16` `v` means
+/// total plaintext size = `v + 2`, i.e. opcode payload is `v` bytes after the length prefix).
+/// `body` is the TCP packet body only (after the 2-byte outer size): `[Adler u32][XTEA ciphertext…]`.
 pub fn decrypt_xtea_game_body<'a>(body: &'a mut [u8], keys: &RoundKeys) -> Result<&'a [u8]> {
     let n = body.len();
-    if n < 4 {
+    if n < 4 + 8 {
         return Err(TfsRustError::Protocol("game body too short".into()));
-    }
-    let full_len = n + 2;
-    if ((full_len - 6) & 7) != 0 {
-        return Err(TfsRustError::Protocol(
-            "xtea cipher length not multiple of 8".into(),
-        ));
     }
     let recv = u32::from_le_bytes(body[0..4].try_into().unwrap());
     let expected = adler_checksum(&body[4..]);
@@ -41,35 +36,43 @@ pub fn decrypt_xtea_game_body<'a>(body: &'a mut [u8], keys: &RoundKeys) -> Resul
         ));
     }
     let cipher_len = n - 4;
-    crate::xtea_tfs::decrypt(&mut body[4..n], cipher_len, keys);
-
-    let inner = u16::from_le_bytes([body[4], body[5]]) as usize;
-    if inner + 8 > full_len {
-        return Err(TfsRustError::Protocol("inner length overflow".into()));
+    if cipher_len % 8 != 0 {
+        return Err(TfsRustError::Protocol(
+            "xtea cipher length not multiple of 8".into(),
+        ));
     }
-    if inner < 8 {
+    xtea_tfs::decrypt(&mut body[4..n], cipher_len, keys);
+
+    let v = u16::from_le_bytes([body[4], body[5]]) as usize;
+    let total = v.checked_add(2).ok_or_else(|| {
+        TfsRustError::Protocol("inner length overflow (v + 2)".into())
+    })?;
+    if total > cipher_len {
+        return Err(TfsRustError::Protocol(
+            "inner length overflow vs cipher block".into(),
+        ));
+    }
+    if total < 3 {
         return Err(TfsRustError::Protocol("inner length too small".into()));
     }
-    let end = inner - 2;
-    if end < 6 || end > n {
-        return Err(TfsRustError::Protocol("inner length inconsistent".into()));
-    }
-    Ok(&body[6..end])
+    // Opcode stream: plaintext bytes [2..total] (length `v`), same as `body[6..4+total]`.
+    Ok(&body[6..4 + total])
 }
 
-/// Inverse of [`decrypt_xtea_game_body`]: one logical game payload → TCP frame (`u16` size + Adler + XTEA).
-// C++ reference: `src/protocol.cpp` `XTEA_encrypt`, `OutputMessage::addCryptoHeader`.
+/// Inverse of [`decrypt_xtea_game_body`]: one logical game payload → TCP frame (`u16` outer + Adler + XTEA).
+// Plaintext: [u16 v][payload…] zero-padded to a multiple of 8 bytes for XTEA. `v` is **`payload.len()`** (bytes
+// after the 2-byte header), not the padded block size minus 2 — matches OTClient/TFS inner length semantics.
 pub fn encrypt_xtea_game_frame(payload: &[u8], keys: &RoundKeys) -> Vec<u8> {
-    // Plaintext: [u16 inner][payload…][pad to `inner` bytes] — see `decrypt_xtea_game_body` (`body[6..]` = opcodes).
-    let inner_sem = (8 + payload.len()).max(10);
-    let mut plain = vec![0u8; inner_sem];
-    plain[0..2].copy_from_slice(&(inner_sem as u16).to_le_bytes());
-    plain[2..2 + payload.len()].copy_from_slice(payload);
-    while !plain.len().is_multiple_of(8) {
-        plain.push(0);
+    let content_len = 2 + payload.len();
+    let mut plain_len = content_len;
+    while plain_len % 8 != 0 {
+        plain_len += 1;
     }
-    let plen = plain.len();
-    xtea_tfs::encrypt(&mut plain, plen, keys);
+    let v = payload.len();
+    let mut plain = vec![0u8; plain_len];
+    plain[0..2].copy_from_slice(&(v as u16).to_le_bytes());
+    plain[2..2 + payload.len()].copy_from_slice(payload);
+    xtea_tfs::encrypt(&mut plain, plain_len, keys);
     let mut body = vec![0u8; 4 + plain.len()];
     body[4..4 + plain.len()].copy_from_slice(&plain);
     let c = adler_checksum(&body[4..]);

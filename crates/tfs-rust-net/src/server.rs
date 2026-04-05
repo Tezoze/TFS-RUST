@@ -144,6 +144,8 @@ async fn handle_login_connection(
         xtea_key,
         account,
         password,
+        operating_system: _,
+        otclient_v8: _,
     } = parsed
     else {
         let _ = stream.shutdown().await;
@@ -242,6 +244,13 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         ));
     }
 
+    info!(
+        conn_id = conn_id.0,
+        account = %game.account_name,
+        character = %game.character_name,
+        "game port: authenticated; handing session to game loop"
+    );
+
     let xtea_key = game.xtea_key;
     let character_name = game.character_name.clone();
 
@@ -271,6 +280,8 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         .send(GameCommand::PlayerLogin {
             conn_id,
             name: character_name,
+            operating_system: game.operating_system,
+            otclient_v8: game.otclient_v8,
         })
         .await
         .map_err(|_| anyhow::anyhow!("game command channel closed"))?;

@@ -66,7 +66,7 @@ impl<'a> ItemStore<'a> {
 
     /// C++ loads with `ORDER BY sid DESC` for tree reconstruction; order is irrelevant when
     /// rebuilding sid-keyed maps.
-    pub async fn load_items(&self, player_id: u32, table: ItemTable) -> Result<Vec<ItemRecord>> {
+    pub async fn load_items(&self, player_id: i32, table: ItemTable) -> Result<Vec<ItemRecord>> {
         const Q_INV: &str = "SELECT pid, sid, itemtype, count, attributes FROM player_items WHERE player_id = ? ORDER BY sid ASC";
         const Q_DEPOT: &str = "SELECT pid, sid, itemtype, count, attributes FROM player_depotitems WHERE player_id = ? ORDER BY sid ASC";
         const Q_INBOX: &str = "SELECT pid, sid, itemtype, count, attributes FROM player_inboxitems WHERE player_id = ? ORDER BY sid ASC";
@@ -93,7 +93,7 @@ impl<'a> ItemStore<'a> {
 
     pub async fn save_items(
         &self,
-        player_id: u32,
+        player_id: i32,
         table: ItemTable,
         items: &[ItemRecord],
     ) -> Result<()> {
@@ -113,7 +113,7 @@ impl<'a> ItemStore<'a> {
     /// Save items inside an existing transaction (used by `PlayerStore::save_player`).
     pub async fn save_items_tx(
         tx: &mut Transaction<'_, MySql>,
-        player_id: u32,
+        player_id: i32,
         table: ItemTable,
         items: &[ItemRecord],
     ) -> Result<()> {

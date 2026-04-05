@@ -14,7 +14,8 @@ members = [
     "crates/tfs-rust-db",
     "crates/tfs-rust-net",
     "crates/tfs-rust-lua",
-    "crates/tfs-rust-core"
+    "crates/tfs-rust-core",
+    "tools/packet-proxy",
 ]
 resolver = "2"
 
@@ -48,4 +49,5 @@ mlua = { version = "0.9", default-features = false, features = ["lua51", "vendor
 tfs-rust-core = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

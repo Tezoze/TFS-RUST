@@ -16,7 +16,10 @@ pub mod flags {
 pub struct TileBody {
     pub position: Position,
     pub ground: Option<u16>,
-    pub items: Vec<u16>,
+    /// Non-ground items below creatures on the wire (`Tile::getBeginDownItem`, `src/tile.cpp`).
+    pub down_items: Vec<u16>,
+    /// Always-on-top items, sent before creatures (`getBeginTopItem` … `getEndTopItem`).
+    pub top_items: Vec<u16>,
     pub creatures: Vec<CreatureId>,
     pub flags: u32,
     pub zone: ZoneType,
@@ -79,4 +82,19 @@ impl Tile {
         }
         false
     }
+}
+
+/// TFS `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
+// C++ reference: `src/tile.cpp` `Tile::getClientIndexOfCreature`.
+pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
+    // C++ `Tile::getClientIndexOfCreature` — only ground + top items count before creatures (`src/tile.cpp`).
+    let mut n: i32 = if body.ground.is_some() { 1 } else { 0 };
+    n += body.top_items.len() as i32;
+    for &c in body.creatures.iter().rev() {
+        if c == creature {
+            return n;
+        }
+        n += 1;
+    }
+    -1
 }

@@ -1,17 +1,19 @@
 //! Player load/save aligned with TFS `IOLoginData::loadPlayer` / `savePlayer`.
 // C++ reference: src/iologindata.cpp IOLoginData::{loadPlayer, savePlayer}
+//
+// SQL types: `schema.sql` / `migrations/20240101000000_tfs_142_baseline.sql` (`players`, `guild_membership`, …).
 
 use crate::items::{ItemRecord, ItemStore, ItemTable};
 use crate::pool::DbPool;
 use sqlx::FromRow;
 use tfs_rust_common::error::{Result, TfsRustError};
 
-/// Full `players` row used by load/save (extended beyond the original minimal struct).
+/// Full `players` row — Rust types match TFS 1.4.2 MariaDB column signedness/size.
 #[derive(Debug, Clone, FromRow)]
 pub struct PlayerRecord {
-    pub id: u32,
+    pub id: i32,
     pub name: String,
-    pub account_id: u32,
+    pub account_id: i32,
     pub group_id: i32,
     pub sex: i32,
     pub vocation: i32,
@@ -20,11 +22,11 @@ pub struct PlayerRecord {
     pub maglevel: i32,
     pub health: i32,
     pub healthmax: i32,
-    pub blessings: i32,
+    pub blessings: i8,
     pub mana: i32,
     pub manamax: i32,
     pub manaspent: u64,
-    pub soul: i32,
+    pub soul: u32,
     pub lookbody: i32,
     pub lookfeet: i32,
     pub lookhead: i32,
@@ -35,30 +37,30 @@ pub struct PlayerRecord {
     pub posy: i32,
     pub posz: i32,
     pub cap: i32,
-    pub lastlogin: i64,
-    pub lastlogout: i64,
+    pub lastlogin: u64,
+    pub lastlogout: u64,
     pub lastip: u32,
     pub conditions: Option<Vec<u8>>,
     pub skulltime: i64,
-    pub skull: i32,
+    pub skull: i8,
     pub town_id: i32,
     pub balance: u64,
-    pub offlinetraining_time: i32,
+    pub offlinetraining_time: u16,
     pub offlinetraining_skill: i32,
-    pub stamina: i32,
-    pub skill_fist: i32,
+    pub stamina: u16,
+    pub skill_fist: u32,
     pub skill_fist_tries: u64,
-    pub skill_club: i32,
+    pub skill_club: u32,
     pub skill_club_tries: u64,
-    pub skill_sword: i32,
+    pub skill_sword: u32,
     pub skill_sword_tries: u64,
-    pub skill_axe: i32,
+    pub skill_axe: u32,
     pub skill_axe_tries: u64,
-    pub skill_dist: i32,
+    pub skill_dist: u32,
     pub skill_dist_tries: u64,
-    pub skill_shielding: i32,
+    pub skill_shielding: u32,
     pub skill_shielding_tries: u64,
-    pub skill_fishing: i32,
+    pub skill_fishing: u32,
     pub skill_fishing_tries: u64,
     pub direction: u8,
     pub save: i8,
@@ -68,8 +70,8 @@ pub struct PlayerRecord {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct GuildMembershipRow {
-    pub guild_id: u32,
-    pub rank_id: u32,
+    pub guild_id: i32,
+    pub rank_id: i32,
     pub nick: String,
 }
 
@@ -81,14 +83,26 @@ pub struct PlayerItemPayload {
     pub store_inbox: Vec<ItemRecord>,
 }
 
+/// One row from `account_viplist` + friend name (`IOLoginData::getVIPEntries`).
+#[derive(Debug, Clone)]
+pub struct VipEntry {
+    pub player_id: u32,
+    pub name: String,
+    pub description: String,
+    pub icon: u32,
+    pub notify: bool,
+}
+
 /// Everything `IOLoginData::loadPlayer` pulls from SQL for one character.
 #[derive(Debug, Clone)]
 pub struct LoadedPlayerData {
     pub player: PlayerRecord,
+    /// `accounts.premium_ends_at` (unix seconds); used for `0x9F` basic data / premium checks.
+    pub premium_ends_at: u32,
     pub spells: Vec<String>,
     pub storage: Vec<(u32, i32)>,
-    /// VIP targets (`player_id` of friends) for this account.
-    pub vip_entries: Vec<u32>,
+    /// VIP list for `sendVIPEntries` / opcode `0xD2`.
+    pub vip_list: Vec<VipEntry>,
     pub guild: Option<GuildMembershipRow>,
     pub items: PlayerItemPayload,
 }
@@ -146,9 +160,26 @@ impl<'a> PlayerStore<'a> {
         let pid = player.id;
         let account_id = player.account_id;
 
+        let premium_ends_at: u32 = self
+            .pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                async move {
+                    // `accounts.premium_ends_at` is `INT UNSIGNED` in TFS 1.4.2 — not `BIGINT`.
+                    let v: Option<u32> = sqlx::query_scalar(
+                        "SELECT premium_ends_at FROM accounts WHERE id = ?",
+                    )
+                    .bind(account_id)
+                    .fetch_one(&pool)
+                    .await?;
+                    Ok(v.unwrap_or(0))
+                }
+            })
+            .await?;
+
         let spells = self.load_spells(pid).await?;
         let storage = self.load_storage(pid).await?;
-        let vip_entries = self.load_vip_list(account_id).await?;
+        let vip_list = self.load_vip_entries(account_id).await?;
         let guild = self.load_guild(pid).await?;
 
         let items = PlayerItemPayload {
@@ -168,15 +199,16 @@ impl<'a> PlayerStore<'a> {
 
         Ok(Some(LoadedPlayerData {
             player,
+            premium_ends_at,
             spells,
             storage,
-            vip_entries,
+            vip_list,
             guild,
             items,
         }))
     }
 
-    async fn load_spells(&self, player_id: u32) -> Result<Vec<String>> {
+    async fn load_spells(&self, player_id: i32) -> Result<Vec<String>> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
@@ -193,7 +225,7 @@ impl<'a> PlayerStore<'a> {
             .map_err(|e| TfsRustError::Database(e.to_string()))
     }
 
-    async fn load_storage(&self, player_id: u32) -> Result<Vec<(u32, i32)>> {
+    async fn load_storage(&self, player_id: i32) -> Result<Vec<(u32, i32)>> {
         #[derive(FromRow)]
         struct Row {
             key: u32,
@@ -217,13 +249,25 @@ impl<'a> PlayerStore<'a> {
         Ok(rows.into_iter().map(|r| (r.key, r.value)).collect())
     }
 
-    async fn load_vip_list(&self, account_id: u32) -> Result<Vec<u32>> {
-        self.pool
+    async fn load_vip_entries(&self, account_id: i32) -> Result<Vec<VipEntry>> {
+        #[derive(FromRow)]
+        struct Row {
+            player_id: i32,
+            name: Option<String>,
+            description: String,
+            icon: i32,
+            notify: i8,
+        }
+        let rows: Vec<Row> = self
+            .pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
                 async move {
-                    sqlx::query_scalar::<_, u32>(
-                        "SELECT player_id FROM account_viplist WHERE account_id = ?",
+                    sqlx::query_as::<_, Row>(
+                        r#"SELECT v.player_id, p.name, v.description, v.icon, v.notify
+                           FROM account_viplist v
+                           INNER JOIN players p ON p.id = v.player_id
+                           WHERE v.account_id = ?"#,
                     )
                     .bind(account_id)
                     .fetch_all(&pool)
@@ -231,10 +275,20 @@ impl<'a> PlayerStore<'a> {
                 }
             })
             .await
-            .map_err(|e| TfsRustError::Database(e.to_string()))
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| VipEntry {
+                player_id: r.player_id as u32,
+                name: r.name.unwrap_or_default(),
+                description: r.description,
+                icon: r.icon.max(0) as u32,
+                notify: r.notify != 0,
+            })
+            .collect())
     }
 
-    async fn load_guild(&self, player_id: u32) -> Result<Option<GuildMembershipRow>> {
+    async fn load_guild(&self, player_id: i32) -> Result<Option<GuildMembershipRow>> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
@@ -389,7 +443,7 @@ impl<'a> PlayerStore<'a> {
     }
 
     /// C++ branch when `save == 0`: only `lastlogin` + `lastip`.
-    async fn save_login_only(&self, id: u32, lastlogin: i64, lastip: u32) -> Result<()> {
+    async fn save_login_only(&self, id: i32, lastlogin: u64, lastip: u32) -> Result<()> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();

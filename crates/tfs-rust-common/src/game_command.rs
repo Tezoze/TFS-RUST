@@ -19,7 +19,14 @@ pub enum GameCommand {
         success: bool,
     },
     /// Character selected — enter world (may originate outside game opcode stream).
-    PlayerLogin { conn_id: ConnId, name: String },
+    PlayerLogin {
+        conn_id: ConnId,
+        name: String,
+        /// `OperatingSystem_t` from first game TCP message (`protocolgame.cpp` `onRecvFirstMessage`).
+        operating_system: u16,
+        /// `0` = not detected; else OTCv8 build (253, 260, …) after `"OTCv8"` probe.
+        otclient_v8: u16,
+    },
     /// One decoded client game packet.
     Game { conn_id: ConnId, packet: GamePacket },
 }

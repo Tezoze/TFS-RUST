@@ -1,6 +1,11 @@
 //! Protocol sizes and viewport constants (game world / map).
 // C++ reference (this repo): `src/map.h`, `src/const.h`.
 
+/// `CLIENTOS_OTCLIENT_LINUX` — first `OperatingSystem_t` value used for the OTClient family.
+/// C++ uses `operatingSystem >= CLIENTOS_OTCLIENT_LINUX` for extended opcode / OTClient behaviour
+/// (`protocolgame.cpp` `onRecvFirstMessage`).
+pub const CLIENTOS_OTCLIENT_LINUX: u16 = 10;
+
 /// `Map::MAP_MAX_LAYERS` — used by `GetMapDescription` z-loop.
 pub const MAP_MAX_LAYERS: i32 = 16;
 
