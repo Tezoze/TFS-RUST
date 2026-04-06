@@ -1,5 +1,5 @@
 use crate::error::{Result, TfsRustError};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
 pub struct PropWriteStream {
@@ -22,15 +22,15 @@ impl PropWriteStream {
     }
 
     pub fn write_u16(&mut self, v: u16) {
-        let _ = self.buf.write_u16::<LittleEndian>(v);
+        self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
     pub fn write_u32(&mut self, v: u32) {
-        let _ = self.buf.write_u32::<LittleEndian>(v);
+        self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
     pub fn write_u64(&mut self, v: u64) {
-        let _ = self.buf.write_u64::<LittleEndian>(v);
+        self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
     pub fn write_string(&mut self, s: &str) {

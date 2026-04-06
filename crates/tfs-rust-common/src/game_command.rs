@@ -27,6 +27,13 @@ pub enum GameCommand {
         /// `0` = not detected; else OTCv8 build (253, 260, …) after `"OTCv8"` probe.
         otclient_v8: u16,
     },
+    /// Close connection and clean up player session (logout / kick).
+    // C++ reference: `ProtocolGame::disconnect()` (`src/protocolgame.cpp`).
+    PlayerDisconnect {
+        conn_id: ConnId,
+        /// Send logout effect (poff) before closing.
+        display_effect: bool,
+    },
     /// One decoded client game packet.
     Game { conn_id: ConnId, packet: GamePacket },
 }

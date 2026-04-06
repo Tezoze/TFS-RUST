@@ -91,7 +91,10 @@ pub async fn run() -> anyhow::Result<()> {
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
     let items_db = std::sync::Arc::new(content.items);
-    let map = Map::from_map_data(content.map, items_db.as_ref());
+    
+    // Create items SlotMap first - needed for map loading to create Item instances
+    let mut items = slotmap::SlotMap::with_key();
+    let map = Map::from_map_data(content.map, items_db.as_ref(), &mut items);
     let spawns = SpawnManager::from_zones(spawn_zones);
     let vocations = std::sync::Arc::new(content.vocations);
 
@@ -104,6 +107,7 @@ pub async fn run() -> anyhow::Result<()> {
     let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
     let world = GameWorld::new(
         map,
+        items,
         events,
         config,
         db.clone(),

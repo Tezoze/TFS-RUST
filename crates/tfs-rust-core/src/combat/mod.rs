@@ -98,40 +98,16 @@ fn apply_health_delta(
     let Some(kind) = creatures.get_mut(target) else {
         return false;
     };
-
-    match kind {
-        CreatureKind::Player(p) => {
-            let old_hp = p.base.health;
-            let max_hp = p.base.max_health;
-            let new_hp = (old_hp + delta).clamp(0, max_hp);
-            if new_hp < old_hp {
-                if let Some(aid) = attacker {
-                    *p.base.damage_map.entry(aid).or_insert(0) += (old_hp - new_hp) as u64;
-                }
-            }
-            p.base.health = new_hp;
-            old_hp != new_hp
-        }
-        CreatureKind::Monster(m) => {
-            let old_hp = m.base.health;
-            let max_hp = m.base.max_health;
-            let new_hp = (old_hp + delta).clamp(0, max_hp);
-            if new_hp < old_hp {
-                if let Some(aid) = attacker {
-                    *m.base.damage_map.entry(aid).or_insert(0) += (old_hp - new_hp) as u64;
-                }
-            }
-            m.base.health = new_hp;
-            old_hp != new_hp
-        }
-        CreatureKind::Npc(n) => {
-            let old_hp = n.base.health;
-            let max_hp = n.base.max_health;
-            let new_hp = (old_hp + delta).clamp(0, max_hp);
-            n.base.health = new_hp;
-            old_hp != new_hp
+    let base = kind.base_mut();
+    let old_hp = base.health;
+    let new_hp = (old_hp + delta).clamp(0, base.max_health);
+    if new_hp < old_hp {
+        if let Some(aid) = attacker {
+            *base.damage_map.entry(aid).or_insert(0) += (old_hp - new_hp) as u64;
         }
     }
+    base.health = new_hp;
+    old_hp != new_hp
 }
 
 fn dispel_conditions(
@@ -142,11 +118,7 @@ fn dispel_conditions(
     let Some(kind) = creatures.get_mut(target) else {
         return false;
     };
-    let base = match kind {
-        CreatureKind::Player(p) => &mut p.base,
-        CreatureKind::Monster(m) => &mut m.base,
-        CreatureKind::Npc(n) => &mut n.base,
-    };
+    let base = kind.base_mut();
     let before = base.active_conditions.len();
     base.active_conditions.retain(|c| c.ctype != dtype);
     before != base.active_conditions.len()
@@ -161,10 +133,5 @@ pub fn apply_condition(
     let Some(kind) = creatures.get_mut(target) else {
         return;
     };
-    let base = match kind {
-        CreatureKind::Player(p) => &mut p.base,
-        CreatureKind::Monster(m) => &mut m.base,
-        CreatureKind::Npc(n) => &mut n.base,
-    };
-    add_condition_merge(&mut base.active_conditions, cond);
+    add_condition_merge(&mut kind.base_mut().active_conditions, cond);
 }

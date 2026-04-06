@@ -79,7 +79,7 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         last_step_cost: 1,
         last_step_ground_speed: 150,
         next_walk_check: None,
-        walk_timer: None,
+        walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
         movement_blocked: false,

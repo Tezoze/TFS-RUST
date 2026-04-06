@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 const WALK_DEADLINE_GRACE: Duration = Duration::ZERO;
 
 use rand::thread_rng;
-use tfs_rust_common::enums::{ConditionType, Direction, ReturnValue, SpeakType};
+use tfs_rust_common::enums::{ConditionType, Direction, SpeakType};
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{send_move_creature_player, send_move_creature_spectator, TileContent};
@@ -38,6 +38,7 @@ use tfs_rust_net::outgoing_extra::{send_cancel_walk, send_creature_turn, send_te
 
 use crate::combat::uniform_random;
 use crate::condition::ConditionData;
+use crate::return_value::ReturnValue;
 use crate::creature::CreatureKind;
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
@@ -237,28 +238,34 @@ fn is_diagonal(direction: Direction) -> bool {
 }
 
 /// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
-fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, n: u32) -> bool {
+fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>, n: u32) -> bool {
     let mut height = 0u32;
-    let mut step = |id: u16| -> bool {
-        if items_db.items.get(&id).is_some_and(|t| t.has_height()) {
-            height += 1;
-            return height == n;
-        }
-        false
-    };
     if let Some(gid) = body.ground {
-        if step(gid) {
-            return true;
+        if items_db.items.get(&gid).is_some_and(|t| t.has_height()) {
+            height += 1;
+            if height == n {
+                return true;
+            }
         }
     }
-    for &id in &body.down_items {
-        if step(id) {
-            return true;
+    for &item_id in &body.down_items {
+        if let Some(item) = items.get(item_id) {
+            if items_db.items.get(&item.item_type).is_some_and(|t| t.has_height()) {
+                height += 1;
+                if height == n {
+                    return true;
+                }
+            }
         }
     }
-    for &id in &body.top_items {
-        if step(id) {
-            return true;
+    for &item_id in &body.top_items {
+        if let Some(item) = items.get(item_id) {
+            if items_db.items.get(&item.item_type).is_some_and(|t| t.has_height()) {
+                height += 1;
+                if height == n {
+                    return true;
+                }
+            }
         }
     }
     false
@@ -274,6 +281,7 @@ fn tile_is_hole_like(body: &crate::tile::TileBody) -> bool {
 fn resolve_player_move_destination(
     map: &Map,
     items_db: &ItemDatabase,
+    items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>,
     current_pos: Position,
     direction: Direction,
     mut flags: u32,
@@ -287,7 +295,7 @@ fn resolve_player_move_destination(
     if current_pos.z != 8 {
         if let Some(cur_tile) = map.get_tile(current_pos) {
             let cur_body = cur_tile.body();
-            if tile_has_height_n(cur_body, items_db, 3) {
+            if tile_has_height_n(cur_body, items_db, items, 3) {
                 let z_above = current_pos.z.wrapping_sub(1);
                 let tmp1 = map.get_tile(Position {
                     x: current_pos.x,
@@ -329,7 +337,7 @@ fn resolve_player_move_destination(
             });
             if let Some(tt) = tmp4 {
                 let tb = tt.body();
-                if tile_has_height_n(tb, items_db, 3)
+                if tile_has_height_n(tb, items_db, items, 3)
                     && (tb.flags & tile_state::IMMOVABLEBLOCKSOLID) == 0
                 {
                     flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
@@ -388,11 +396,7 @@ fn set_direction_from_step(old_pos: Position, new_pos: Position, creature: &mut 
         d = Some(Direction::West);
     }
     if let Some(dir) = d {
-        match creature {
-            CreatureKind::Player(p) => p.base.direction = dir,
-            CreatureKind::Monster(m) => m.base.direction = dir,
-            CreatureKind::Npc(n) => n.base.direction = dir,
-        }
+        creature.base_mut().direction = dir;
     }
 }
 
@@ -432,7 +436,7 @@ impl GameWorld {
             let _ = tx.send(cid);
         });
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.base.walk_timer = Some(handle);
+            *p.base.walk_timer = Some(handle);
         }
     }
 
@@ -674,9 +678,9 @@ impl GameWorld {
             })
             .collect();
 
+        let packet = send_move_creature_spectator(old_pos, new_pos, old_stack, guid).into_bytes();
         for conn in spectators {
-            let packet = send_move_creature_spectator(old_pos, new_pos, old_stack, guid).into_bytes();
-            self.enqueue_outgoing(conn, packet);
+            self.enqueue_outgoing(conn, packet.clone());
         }
     }
 
@@ -991,6 +995,7 @@ impl GameWorld {
         let (dest_pos, flags) = resolve_player_move_destination(
             &self.map,
             self.items_db.as_ref(),
+            &self.items,
             current_pos,
             direction,
             flags_in,

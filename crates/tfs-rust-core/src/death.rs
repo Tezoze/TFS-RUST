@@ -56,9 +56,6 @@ pub fn handle_creature_death(
 
     events.on_death(victim);
 
-    let corpse = items.insert(Item {
-        item_type: 3058,
-        count: 1,
-    });
-    decay.schedule(corpse, tick.saturating_add(600), None);
+    let corpse_id = items.insert(Item::new(ItemId::default(), 3058, 1));
+    decay.schedule(corpse_id, tick.saturating_add(600), None);
 }

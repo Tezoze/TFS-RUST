@@ -9,6 +9,31 @@ use crate::ids::CreatureId;
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
 
+/// Tokio one-shot aligned with `Creature::eventWalk` (`creature.cpp`) — **not** carried across `Clone`
+/// of [`CreatureBase`] (mirrors dropping the scheduler event when copying state).
+#[derive(Debug, Default)]
+pub struct WalkTimer(Option<tokio::task::JoinHandle<()>>);
+
+impl Clone for WalkTimer {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
+
+impl std::ops::Deref for WalkTimer {
+    type Target = Option<tokio::task::JoinHandle<()>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for WalkTimer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Outfit mirrors TFS `Outfit_t` / player look fields.
 #[derive(Debug, Clone)]
 pub struct Outfit {
@@ -36,7 +61,7 @@ impl Default for Outfit {
 /// Damage contribution for XP attribution (`Creature::damageMap` in TFS).
 pub type DamageMap = HashMap<CreatureId, u64>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CreatureBase {
     /// Stable id is the `CreatureId` key in `GameWorld::creatures` (not duplicated here).
     pub name: String,
@@ -66,7 +91,7 @@ pub struct CreatureBase {
     pub next_walk_check: Option<Instant>,
     /// When [`GameWorld`](crate::game_world::GameWorld) has `walk_wake_tx`, one-shot `tokio::time::sleep_until`
     /// tasks (`src/scheduler.cpp` Boost.Asio `steady_timer` + `stopEvent`).
-    pub walk_timer: Option<tokio::task::JoinHandle<()>>,
+    pub walk_timer: WalkTimer,
     /// TFS `Creature::cancelNextWalk` — cleared in `addEventWalk`, processed in `onWalk` (`creature.cpp`).
     pub cancel_next_walk: bool,
     /// TFS `Creature::forceUpdateFollowPath` — set when `internalMoveCreature` fails (`src/creature.cpp` ~213);
@@ -78,37 +103,6 @@ pub struct CreatureBase {
     pub attack_target: Option<CreatureId>,
     pub master: Option<CreatureId>,
     pub damage_map: DamageMap,
-}
-
-impl Clone for CreatureBase {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            position: self.position,
-            direction: self.direction,
-            health: self.health,
-            max_health: self.max_health,
-            outfit: self.outfit.clone(),
-            speed: self.speed,
-            base_speed: self.base_speed,
-            skull: self.skull,
-            drunkenness: self.drunkenness,
-            active_conditions: self.active_conditions.clone(),
-            walk_queue: self.walk_queue.clone(),
-            last_step: self.last_step,
-            last_step_cost: self.last_step_cost,
-            last_step_ground_speed: self.last_step_ground_speed,
-            next_walk_check: self.next_walk_check,
-            walk_timer: None,
-            cancel_next_walk: self.cancel_next_walk,
-            force_update_follow_path: self.force_update_follow_path,
-            movement_blocked: self.movement_blocked,
-            follow_target: self.follow_target,
-            attack_target: self.attack_target,
-            master: self.master,
-            damage_map: self.damage_map.clone(),
-        }
-    }
 }
 
 impl CreatureBase {

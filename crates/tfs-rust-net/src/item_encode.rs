@@ -26,15 +26,16 @@ pub fn server_fluid_to_client(server_fluid: u8) -> u8 {
 }
 
 /// Template item (no live `Item*`): matches `NetworkMessage::addItem(uint16_t id, uint8_t count, …)`
-/// except for the **trailing duration byte** (see below).
+/// **without** the trailing duration byte (OTClient v8 compatibility).
 ///
 /// Writes stack count or fluid sub-type, optional `0xFE` animation phase, then when
 /// `with_description` (OTCv8): empty `addString("")` (`src/networkmessage.cpp` ~109–110).
 ///
-/// **Deviation from C++ (`networkmessage.cpp` L113–114):** TFS appends `addByte(0x00)` (“duration”
+/// **Deviation from C++ (`networkmessage.cpp` L113–114):** TFS appends `addByte(0x00)` ("duration"
 /// for templates). **OTClient v8** `ProtocolGame::getItem` does **not** consume that byte when
 /// `GameDisplayItemDuration` (129) is off — which is the default — so the byte shifts every later
 /// field (`docs/OTCLIENT_INFO.md`). We omit it for wire compatibility with stock OTClient v8.
+// C++ ref: `src/networkmessage.cpp` L100-114 (deviation documented above)
 pub fn write_item_template(
     msg: &mut NetworkMessage,
     client_id: u16,

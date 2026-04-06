@@ -67,7 +67,8 @@ impl PendingLogin {
             GameCommand::Shutdown
             | GameCommand::LuaCallback { .. }
             | GameCommand::LuaAsyncResult { .. }
-            | GameCommand::PlayerLogin { .. } => PendingLoginPacketAction::Dropped,
+            | GameCommand::PlayerLogin { .. }
+            | GameCommand::PlayerDisconnect { .. } => PendingLoginPacketAction::Dropped,
         }
     }
 

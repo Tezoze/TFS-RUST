@@ -16,18 +16,18 @@ pub enum CreatureKind {
 
 impl CreatureKind {
     pub fn position(&self) -> Position {
-        match self {
-            CreatureKind::Player(p) => p.base.position,
-            CreatureKind::Monster(m) => m.base.position,
-            CreatureKind::Npc(n) => n.base.position,
-        }
+        self.base().position
     }
 
     pub fn set_position(&mut self, pos: Position) {
+        self.base_mut().position = pos;
+    }
+
+    pub fn base(&self) -> &crate::creature::base::CreatureBase {
         match self {
-            CreatureKind::Player(p) => p.base.position = pos,
-            CreatureKind::Monster(m) => m.base.position = pos,
-            CreatureKind::Npc(n) => n.base.position = pos,
+            CreatureKind::Player(p) => &p.base,
+            CreatureKind::Monster(m) => &m.base,
+            CreatureKind::Npc(n) => &n.base,
         }
     }
 
@@ -40,11 +40,7 @@ impl CreatureKind {
     }
 
     pub fn is_summon(&self) -> bool {
-        match self {
-            CreatureKind::Player(p) => p.base.is_summon(),
-            CreatureKind::Monster(m) => m.base.is_summon(),
-            CreatureKind::Npc(n) => n.base.is_summon(),
-        }
+        self.base().is_summon()
     }
 }
 

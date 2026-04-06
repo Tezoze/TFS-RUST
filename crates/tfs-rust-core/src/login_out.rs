@@ -194,7 +194,12 @@ pub(crate) fn map_tile_content(
                 }
             }
         }
-        for &iid in &body.top_items {
+        for &item_id in &body.top_items {
+            // Get the actual item from world storage
+            let Some(item) = world.items.get(item_id) else {
+                continue;
+            };
+            let iid = item.item_type;
             if iid == 0 {
                 continue;
             }
@@ -206,7 +211,7 @@ pub(crate) fn map_tile_content(
             let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
             content.top_items.push(ItemStack {
                 client_id: cid,
-                count: 1,
+                count: item.client_count(),
                 stackable,
                 is_splash_or_fluid: splash_fluid && !stackable,
                 is_animation: world.items_db.is_animation_for_server(iid),
@@ -246,7 +251,12 @@ pub(crate) fn map_tile_content(
                 content.creatures.push(w);
             }
         }
-        for &iid in &body.down_items {
+        for &item_id in &body.down_items {
+            // Get the actual item from world storage
+            let Some(item) = world.items.get(item_id) else {
+                continue;
+            };
+            let iid = item.item_type;
             if iid == 0 {
                 continue;
             }
@@ -258,7 +268,7 @@ pub(crate) fn map_tile_content(
             let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
             content.bottom_items.push(ItemStack {
                 client_id: cid,
-                count: 1,
+                count: item.client_count(),
                 stackable,
                 is_splash_or_fluid: splash_fluid && !stackable,
                 is_animation: world.items_db.is_animation_for_server(iid),

@@ -162,6 +162,35 @@ pub async fn run_game_loop(
                             .protocol_hooks
                             .lua_async_result(conn_id, request_id, &payload, success);
                     }
+                    Some(GameCommand::PlayerDisconnect {
+                        conn_id,
+                        display_effect,
+                    }) => {
+                        // C++ ProtocolGame::disconnect() flow:
+                        // 1. Send logout effect (optional)
+                        // 2. Flush remaining packets
+                        // 3. Remove from registry to close TCP connection
+                        if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                            if display_effect {
+                                let pos = world.creatures.get(cid).map(|k| k.position());
+                                if let Some(p) = pos {
+                                    world.broadcast_magic_effect(p, 4); // CONST_ME_POFF
+                                }
+                            }
+                            world.remove_creature(cid);
+                        }
+                        // Flush any pending packets (including the effect)
+                        flush_pending_outgoing(&mut world, &out_registry);
+                        // Remove from registry to close connection
+                        world.conn_to_creature.remove(&conn_id);
+                        world.known_creatures_by_conn.remove(&conn_id);
+                        if let Some(reg) = out_registry.as_ref() {
+                            if let Ok(mut g) = reg.lock() {
+                                g.remove(&conn_id); // This drops batch_tx, causing writer task to close TCP
+                            }
+                        }
+                        trace!(conn_id = conn_id.0, "player disconnected");
+                    }
                     Some(GameCommand::Game { conn_id, packet }) => {
                         let now = Instant::now();
                         if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
@@ -240,6 +269,50 @@ pub async fn run_game_loop(
                                 if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                                     world.player_stop_auto_walk(cid);
                                 }
+                            }
+                            // B.5: Throw (item/creature move)
+                            GamePacket::Throw(payload) => {
+                                if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_move_thing(
+                                        conn_id,
+                                        cid,
+                                        payload.from_pos,
+                                        payload.sprite_id,
+                                        payload.from_stack_pos,
+                                        payload.to_pos,
+                                        payload.count,
+                                    );
+                                }
+                            }
+                            // B.7: Container UI packets
+                            GamePacket::CloseContainer { cid: client_cid } => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_close_container(conn_id, creature_id, client_cid);
+                                }
+                            }
+                            GamePacket::UpArrowContainer { cid: client_cid } => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_up_container(conn_id, creature_id, client_cid);
+                                }
+                            }
+                            GamePacket::UpdateContainer { cid: client_cid } => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_update_container(conn_id, creature_id, client_cid);
+                                }
+                            }
+                            GamePacket::SeekInContainer { cid: client_cid, index } => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_seek_in_container(conn_id, creature_id, client_cid, index);
+                                }
+                            }
+                            // Logout packet (0x14) - client requests logout
+                            GamePacket::Logout => {
+                                // C++: ProtocolGame::logout(displayEffect=true, forced=false)
+                                // Send disconnect command to properly close connection
+                                pending.push_back(GameCommand::PlayerDisconnect {
+                                    conn_id,
+                                    display_effect: true,
+                                });
                             }
                             _ => trace!(conn_id = conn_id.0, ?packet, "game packet — simulation Phase 9+"),
                         }

@@ -9,10 +9,16 @@ pub mod protocol_constants;
 pub mod protocol_opcodes;
 
 pub use conn_id::ConnId;
-pub use enums::*;
-pub use error::*;
-pub use game_command::*;
+pub use enums::{
+    CombatType, ConditionType, Direction, ItemGroup, MagicEffect, PlayerSex, ShootEffect, Skill,
+    SkullType, SpeakType, WeaponType, WorldType, ZoneType,
+};
+pub use error::{Result, TfsRustError};
+pub use game_command::GameCommand;
 pub use game_packet::GamePacket;
-pub use position::*;
-pub use propstream::*;
-pub use protocol_constants::*;
+pub use position::Position;
+pub use propstream::{PropStream, PropWriteStream};
+pub use protocol_constants::{
+    CLIENTOS_OTCLIENT_LINUX, MAP_MAX_LAYERS, MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y,
+    client_viewport_height, client_viewport_width,
+};
