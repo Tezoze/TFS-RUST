@@ -754,15 +754,8 @@ impl GameWorld {
         self.validate_item_in_cylinder(&from_cylinder, item_id)?;
         let source_parent = from_cylinder.as_container();
 
-        let (to_work, to_merge_item) = match to_cylinder {
-            Cylinder::Container { .. } => self.resolve_container_move_destination(
-                to_cylinder,
-                item_id,
-                source_parent,
-                flags,
-            )?,
-            _ => (to_cylinder, None),
-        };
+        let (to_work, to_merge_item) =
+            self.resolve_move_destination(to_cylinder, item_id, source_parent, flags)?;
 
         // For tile destinations, check queryAdd
         if let Cylinder::Tile { pos } = to_work {

@@ -400,6 +400,22 @@ mod tests {
         it
     }
 
+    fn shovel_type() -> ItemType {
+        let mut it = ItemType::default();
+        it.slot_position = SLOTP_HAND;
+        it.weapon_type = WEAPON_NONE;
+        it
+    }
+
+    fn test_config(lua_source: &str) -> ConfigManager {
+        let path = std::env::temp_dir().join(format!(
+            "tfs_classic_equipment_slots_test_{}.lua",
+            std::process::id()
+        ));
+        std::fs::write(&path, lua_source).expect("write temp config.lua");
+        ConfigManager::load(&path).expect("load temp config.lua")
+    }
+
     #[test]
     fn head_item_fits_head_slot() {
         let ret = evaluate_player_inventory_slot_query(
@@ -525,6 +541,41 @@ mod tests {
         assert_eq!(ret, ReturnValue::NoError);
     }
 
+    /// Regression: tools (e.g. shovel) in hand slots — `player.cpp` ~2516–2552 with classic slots.
+    #[test]
+    fn classic_hand_slots_accept_tools_like_tfs() {
+        let shovel = shovel_type();
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let ret = evaluate_player_inventory_slot_query(
+                slot,
+                true,
+                &shovel,
+                ItemId::default(),
+                1,
+                None,
+                None,
+            );
+            assert_eq!(ret, ReturnValue::NoError, "slot {slot}");
+        }
+    }
+
+    #[test]
+    fn non_classic_hand_slots_reject_tools_like_tfs() {
+        let shovel = shovel_type();
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let ret = evaluate_player_inventory_slot_query(
+                slot,
+                false,
+                &shovel,
+                ItemId::default(),
+                1,
+                None,
+                None,
+            );
+            assert_eq!(ret, ReturnValue::CannotBeDressed, "slot {slot}");
+        }
+    }
+
     #[test]
     fn non_classic_left_shield_cannot_be_dressed() {
         let ret = evaluate_player_inventory_slot_query(
@@ -541,16 +592,13 @@ mod tests {
 
     #[test]
     fn classic_equipment_slots_config_default() {
-        let lua = mlua::Lua::new();
-        let cfg = crate::config::ConfigManager { lua };
+        let cfg = test_config("");
         assert!(!classic_equipment_slots_from_config(&cfg));
     }
 
     #[test]
     fn classic_equipment_slots_config_reads_key() {
-        let lua = mlua::Lua::new();
-        lua.load("classicEquipmentSlots = true").exec().unwrap();
-        let cfg = crate::config::ConfigManager { lua };
+        let cfg = test_config("classicEquipmentSlots = true");
         assert!(classic_equipment_slots_from_config(&cfg));
     }
 }

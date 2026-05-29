@@ -401,10 +401,14 @@ impl GameWorld {
                     self.send_cancel_message(conn_id, ReturnValue::NotPossible);
                     return;
                 };
+                let container_capacity = self
+                    .container_registry
+                    .get(item_id)
+                    .map(|c| c.capacity);
                 let msg = if let Some(it) = self.items_db.items.get(&item.item_type) {
                     format!(
                         "You see {}",
-                        item_get_description_cpp(item, it, w, look_d)
+                        item_get_description_cpp(item, it, w, look_d, container_capacity)
                     )
                 } else {
                     format!("You see an item of type {}.", item.item_type)

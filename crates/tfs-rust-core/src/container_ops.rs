@@ -419,25 +419,51 @@ impl GameWorld {
         })
     }
 
-    pub(crate) fn resolve_container_move_destination(
-        &self,
+    /// TFS cylinder chain — `Game::internalMoveItem` + `Player::queryDestination` / `Container::queryDestination`.
+    pub(crate) fn resolve_move_destination(
+        &mut self,
         mut to: Cylinder,
         item_id: ItemId,
         source_parent: Option<ItemId>,
         flags: CylinderFlags,
     ) -> Result<(Cylinder, Option<ItemId>), ReturnValue> {
-        let mut to_item: Option<ItemId> = None;
+        let mut to_merge_item: Option<ItemId> = None;
         let mut floor_n = 0u32;
         loop {
             match to {
+                Cylinder::Inventory { player_id, slot } => {
+                    if let Some(next) =
+                        self.player_inventory_query_destination(player_id, slot, item_id)?
+                    {
+                        if let Cylinder::Container { item_id: cid, .. } = next {
+                            self.hydrate_container_if_needed(cid);
+                        }
+                        to = next;
+                        floor_n += 1;
+                        if floor_n >= 16 {
+                            break;
+                        }
+                        continue;
+                    }
+                    to = Cylinder::Inventory { player_id, slot };
+                    break;
+                }
                 Cylinder::Container {
                     item_id: cid,
                     mut index,
                 } => {
-                    let res =
-                        self.container_query_destination(cid, &mut index, item_id, source_parent, flags)?;
+                    let res = self.container_query_destination(
+                        cid,
+                        &mut index,
+                        item_id,
+                        source_parent,
+                        flags,
+                    )?;
                     match res {
                         ContainerDestResolution::Redirect(next) => {
+                            if let Cylinder::Container { item_id: cid, .. } = next {
+                                self.hydrate_container_if_needed(cid);
+                            }
                             to = next;
                             floor_n += 1;
                             if floor_n >= 16 {
@@ -449,7 +475,7 @@ impl GameWorld {
                             index: idx,
                             dest_stack_item,
                         } => {
-                            to_item = dest_stack_item;
+                            to_merge_item = dest_stack_item;
                             to = Cylinder::Container {
                                 item_id: cid,
                                 index: idx,
@@ -461,7 +487,30 @@ impl GameWorld {
                 _ => break,
             }
         }
-        Ok((to, to_item))
+        Ok((to, to_merge_item))
+    }
+
+    /// `Player::queryDestination` for a concrete equipment slot — `player.cpp` ~2828–2840.
+    fn player_inventory_query_destination(
+        &self,
+        cid: CreatureId,
+        slot: u8,
+        moving_item_id: ItemId,
+    ) -> Result<Option<Cylinder>, ReturnValue> {
+        let Some(dest_id) = self.get_player_inventory_item(cid, slot) else {
+            return Ok(None);
+        };
+        if dest_id == moving_item_id {
+            return Ok(None);
+        }
+        let dest_type = self.items.get(dest_id).map(|i| i.item_type).unwrap_or(0);
+        if self.items_db.is_container(dest_type) {
+            return Ok(Some(Cylinder::Container {
+                item_id: dest_id,
+                index: INDEX_WHEREEVER,
+            }));
+        }
+        Ok(None)
     }
 
     pub(crate) fn get_thing_index_in_container(

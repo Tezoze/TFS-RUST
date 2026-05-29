@@ -326,6 +326,33 @@ fn build_vocation_list(names: &[String]) -> String {
     }
 }
 
+/// `(Vol:N)` for containers — `item.cpp` ~1367–1379.
+fn container_volume_suffix(
+    item: &Item,
+    it: &ItemType,
+    hydrated_capacity: Option<u32>,
+) -> Option<String> {
+    let is_container_type = it.group == ItemType::GROUP_CONTAINER;
+    if !is_container_type && hydrated_capacity.is_none() {
+        return None;
+    }
+    if item.attributes.has_unique_id() {
+        return None;
+    }
+    let volume = hydrated_capacity.unwrap_or_else(|| {
+        if is_container_type {
+            u32::from(it.max_items)
+        } else {
+            0
+        }
+    });
+    if volume == 0 {
+        None
+    } else {
+        Some(format!(" (Vol:{volume})"))
+    }
+}
+
 fn append_equip_requirements(s: &mut String, it: &ItemType) {
     if it.min_req_level > 0 || !it.voc_equip_names.is_empty() {
         let voc_part = if it.voc_equip_names.is_empty() {
@@ -357,6 +384,7 @@ pub fn item_get_description_cpp(
     it: &ItemType,
     total_weight_hundredths: u32,
     look_distance: i32,
+    hydrated_container_capacity: Option<u32>,
 ) -> String {
     let mut s = item_name_description(item, it, true);
 
@@ -366,6 +394,8 @@ pub fn item_get_description_cpp(
         }
     } else if let Some(st) = stats_and_abilities_suffix(item, it) {
         s.push_str(&st);
+    } else if let Some(vol) = container_volume_suffix(item, it, hydrated_container_capacity) {
+        s.push_str(&vol);
     }
 
     if it.show_charges {
@@ -429,7 +459,7 @@ mod tests {
 
         let item = Item::new(ItemId::default(), it.id, 4);
         let total = 8000u32;
-        let s = item_get_description_cpp(&item, &it, total, 1);
+        let s = item_get_description_cpp(&item, &it, total, 1, None);
         assert_eq!(s, "4 spears (Atk:25).\nThey weigh 80.00 oz.");
     }
 
@@ -457,13 +487,30 @@ mod tests {
         it.min_req_level = 80;
 
         let item = Item::new(ItemId::default(), it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 3500, 1);
+        let s = item_get_description_cpp(&item, &it, 3500, 1, None);
         assert_eq!(
             s,
             "a yalahari mask (Arm:5, magic level +2).\n\
 It weighs 35.00 oz.\n\
 It can only be wielded properly by sorcerers and druids of level 80 or higher."
         );
+    }
+
+    /// Regression: container `(Vol:N)` — `item.cpp` ~1367–1379.
+    #[test]
+    fn backpack_shows_volume_like_tfs() {
+        let mut it = ItemType::default();
+        it.id = 1988;
+        it.name = "backpack".into();
+        it.article = "a".into();
+        it.flags |= FLAG_PICKUPABLE;
+        it.group = ItemType::GROUP_CONTAINER;
+        it.max_items = 20;
+        it.weight = 1800;
+
+        let item = Item::new(ItemId::default(), it.id, 1);
+        let s = item_get_description_cpp(&item, &it, 1800, 1, None);
+        assert_eq!(s, "a backpack (Vol:20).\nIt weighs 18.00 oz.");
     }
 
     /// Regression: non-armor absorb + charges + level (`item.cpp` getDescription).
@@ -480,7 +527,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
 
         let mut item = Item::new(ItemId::default(), it.id, 1);
         item.set_charges(50);
-        let s = item_get_description_cpp(&item, &it, 500, 1);
+        let s = item_get_description_cpp(&item, &it, 500, 1, None);
         assert_eq!(
             s,
             "a necklace of the deep (protection life drain +50%) that has 50 charges left.\n\

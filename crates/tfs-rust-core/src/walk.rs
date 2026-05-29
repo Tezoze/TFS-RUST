@@ -137,29 +137,6 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
     })
 }
 
-/// TFS `getReturnMessage` + `Player::sendCancelMessage` — `MESSAGE_STATUS_SMALL` (`const.h` / `player.h`).
-fn return_message_for_cancel(ret: ReturnValue) -> &'static str {
-    match ret {
-        ReturnValue::DestinationOutOfReach => "Destination is out of range.",
-        ReturnValue::NotMoveable => "You cannot move this object.",
-        ReturnValue::NotEnoughRoom => "There is not enough room.",
-        ReturnValue::FirstGoDownStairs => "First go downstairs.",
-        ReturnValue::FirstGoUpStairs => "First go upstairs.",
-        ReturnValue::NotEnoughCapacity => "This object is too heavy for you to carry.",
-        ReturnValue::ContainerNotEnoughRoom => "You cannot put more objects in this container.",
-        ReturnValue::CannotPickup => "You cannot take this object.",
-        ReturnValue::CannotThrow => "You cannot throw there.",
-        ReturnValue::ThereIsNoWay => "There is no way.",
-        ReturnValue::ThisIsImpossible => "This is impossible.",
-        ReturnValue::PlayerIsPzLocked => "You can not enter a protection zone after attacking another player.",
-        ReturnValue::PlayerIsNotInvited => "You are not invited.",
-        ReturnValue::CreatureDoesNotExist => "Creature does not exist.",
-        ReturnValue::DepotIsFull => "You cannot put more items in this depot.",
-        ReturnValue::NotPossible => "Sorry, not possible.",
-        _ => "Sorry, not possible.",
-    }
-}
-
 /// `MESSAGE_STATUS_SMALL` (`src/const.h`).
 const MESSAGE_STATUS_SMALL: u8 = 21;
 
@@ -1151,7 +1128,7 @@ impl GameWorld {
                                     _ => None,
                                 })
                                 .unwrap_or(Direction::North);
-                            let msg = return_message_for_cancel(ret);
+                            let msg = ret.description();
                             self.enqueue_outgoing(
                                 conn,
                                 send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
