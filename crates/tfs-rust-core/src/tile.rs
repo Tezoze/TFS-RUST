@@ -4,12 +4,48 @@
 use crate::ids::{CreatureId, ItemId};
 use tfs_rust_common::{enums::ZoneType, Position};
 
-/// OTBM / TFS tile bitfield (subset; extend as engine grows).
+/// TFS `tileflags_t` (`src/tile.h`) — runtime tile state bitfield.
+/// C++ ref: src/tile.h:23-52
 pub mod flags {
     pub const NONE: u32 = 0;
-    /// Blocks line of sight / projectiles when combined with item blocking (simplified).
-    pub const BLOCK_SOLID: u32 = 1 << 0;
-    pub const BLOCK_PROJECTILE: u32 = 1 << 1;
+
+    // ── Floor-change bits (0–6) ──
+    pub const FLOORCHANGE_DOWN: u32 = 1 << 0;
+    pub const FLOORCHANGE_NORTH: u32 = 1 << 1;
+    pub const FLOORCHANGE_SOUTH: u32 = 1 << 2;
+    pub const FLOORCHANGE_EAST: u32 = 1 << 3;
+    pub const FLOORCHANGE_WEST: u32 = 1 << 4;
+    pub const FLOORCHANGE_SOUTH_ALT: u32 = 1 << 5;
+    pub const FLOORCHANGE_EAST_ALT: u32 = 1 << 6;
+
+    // ── Zone / special bits (7–16) ──
+    pub const PROTECTIONZONE: u32 = 1 << 7;
+    pub const NOPVPZONE: u32 = 1 << 8;
+    pub const NOLOGOUT: u32 = 1 << 9;
+    pub const PVPZONE: u32 = 1 << 10;
+    pub const TELEPORT: u32 = 1 << 11;
+    pub const MAGICFIELD: u32 = 1 << 12;
+    pub const MAILBOX: u32 = 1 << 13;
+    pub const TRASHHOLDER: u32 = 1 << 14;
+    pub const BED: u32 = 1 << 15;
+    pub const DEPOT: u32 = 1 << 16;
+
+    // ── Blocking bits (17–23) ──
+    pub const BLOCKSOLID: u32 = 1 << 17;
+    pub const BLOCKPATH: u32 = 1 << 18;
+    pub const IMMOVABLEBLOCKSOLID: u32 = 1 << 19;
+    pub const IMMOVABLEBLOCKPATH: u32 = 1 << 20;
+    pub const IMMOVABLENOFIELDBLOCKPATH: u32 = 1 << 21;
+    pub const NOFIELDBLOCKPATH: u32 = 1 << 22;
+    pub const SUPPORTS_HANGABLE: u32 = 1 << 23;
+
+    // ── Composite masks ──
+    pub const FLOORCHANGE: u32 = FLOORCHANGE_DOWN | FLOORCHANGE_NORTH | FLOORCHANGE_SOUTH
+        | FLOORCHANGE_EAST | FLOORCHANGE_WEST | FLOORCHANGE_SOUTH_ALT | FLOORCHANGE_EAST_ALT;
+
+    // Legacy aliases used by map/LOS code.
+    pub const BLOCK_SOLID: u32 = BLOCKSOLID;
+    pub const BLOCK_PROJECTILE: u32 = BLOCKPATH;
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +194,32 @@ impl Tile {
         n = n.saturating_add(body.top_items.len() as u8);
         n = n.saturating_add(body.creatures.len() as u8);
         n
+    }
+
+    /// Inverse of [`Tile::get_item_stack_pos`] — resolve client `stack_pos` to an item on this tile.
+    // C++ ref: `Tile::getThing` / `Game::playerUseItem` stack walk (`tile.cpp`, `game.cpp`).
+    pub fn item_id_at_stack_pos(&self, stack_pos: u8) -> Option<ItemId> {
+        let body = self.body();
+        let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
+        for &tid in &body.top_items {
+            if n == stack_pos {
+                return Some(tid);
+            }
+            n = n.saturating_add(1);
+        }
+        let after_top = n;
+        let creature_end = after_top.saturating_add(body.creatures.len() as u8);
+        if stack_pos >= after_top && stack_pos < creature_end {
+            return None;
+        }
+        n = creature_end;
+        for &did in &body.down_items {
+            if n == stack_pos {
+                return Some(did);
+            }
+            n = n.saturating_add(1);
+        }
+        None
     }
 }
 

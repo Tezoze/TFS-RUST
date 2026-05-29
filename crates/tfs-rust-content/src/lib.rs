@@ -1,4 +1,6 @@
 pub mod groups;
+pub mod item_abilities;
+mod items_xml_keys;
 pub mod items;
 pub mod monsters;
 pub mod mounts;

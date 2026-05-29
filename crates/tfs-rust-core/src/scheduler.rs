@@ -5,19 +5,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::runtime::Handle;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
 use tfs_rust_common::GameCommand;
 
 #[derive(Debug)]
 pub struct Scheduler {
-    tx: Sender<GameCommand>,
+    tx: UnboundedSender<GameCommand>,
     handle: Handle,
     next_id: AtomicU64,
 }
 
 impl Scheduler {
-    pub fn new(tx: Sender<GameCommand>, handle: Handle) -> Self {
+    pub fn new(tx: UnboundedSender<GameCommand>, handle: Handle) -> Self {
         Self {
             tx,
             handle,
@@ -31,7 +31,7 @@ impl Scheduler {
         let tx = self.tx.clone();
         self.handle.spawn(async move {
             tokio::time::sleep(delay).await;
-            let _ = tx.send(GameCommand::LuaCallback { event_id: id }).await;
+            let _ = tx.send(GameCommand::LuaCallback { event_id: id });
         });
         id
     }

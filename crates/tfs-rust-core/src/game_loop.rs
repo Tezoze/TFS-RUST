@@ -5,18 +5,81 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use tokio::signal;
-use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::task::JoinSet;
 use tokio::time::{interval, MissedTickBehavior};
 
 use crate::ids::CreatureId;
 
 use tfs_rust_common::{GameCommand, GamePacket};
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{trace, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::game_world::GameWorld;
 use crate::stability::ErrorCategory;
+use tfs_rust_db::player::PlayerStore;
 use tfs_rust_net::OutRegistry;
+
+/// Persist every player still tied to a live game connection. Used for SIGINT / graceful shutdown
+/// (awaited; not fire-and-forget). Bounded concurrency to limit DB load.
+// C++ ref: `src/game.cpp` `Game::saveGameState`
+async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
+    let cids: Vec<CreatureId> = world.conn_to_creature.values().copied().collect();
+    let mut datas = Vec::with_capacity(cids.len());
+    for cid in cids {
+        match world.build_player_save_data(cid) {
+            Ok(d) => datas.push(d),
+            Err(e) => {
+                warn!(?e, ?cid, "build_player_save_data failed during shutdown flush");
+            }
+        }
+    }
+    if datas.is_empty() {
+        return Ok(());
+    }
+    let n = datas.len();
+    let db = world.db.clone();
+    const MAX_IN_FLIGHT: usize = 8;
+    let mut set = JoinSet::new();
+    let mut any_err = false;
+    for data in datas {
+        while set.len() >= MAX_IN_FLIGHT {
+            if let Some(j) = set.join_next().await {
+                match j {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        any_err = true;
+                        error!(?e, "player save on shutdown failed");
+                    }
+                    Err(e) => {
+                        any_err = true;
+                        error!(?e, "shutdown save task join error");
+                    }
+                }
+            }
+        }
+        let dpool = db.clone();
+        set.spawn(async move { PlayerStore::new(&dpool).save_player(&data).await });
+    }
+    while let Some(j) = set.join_next().await {
+        match j {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                any_err = true;
+                error!(?e, "player save on shutdown failed");
+            }
+            Err(e) => {
+                any_err = true;
+                error!(?e, "shutdown save task join error");
+            }
+        }
+    }
+    if any_err {
+        anyhow::bail!("shutdown flush: one or more player saves failed (see error logs above)");
+    }
+    info!(saved = n, "shutdown: flushed online players to DB");
+    Ok(())
+}
 
 fn flush_pending_outgoing(world: &mut GameWorld, out_registry: &Option<OutRegistry>) {
     let flushed = world.flush_output_buffers();
@@ -71,7 +134,7 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
         | GamePacket::OpenPrivateChannel { .. }
         | GamePacket::CloseNpcChannel => false,
 
-        // Container navigation only (opening a container uses items — still unimplemented).
+        // Container navigation + `UseItem` to open bags (`player_use_item` / `container_ui.rs`).
         GamePacket::CloseContainer { .. }
         | GamePacket::UpArrowContainer { .. }
         | GamePacket::UpdateContainer { .. }
@@ -92,15 +155,28 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
     }
 }
 
+/// Movement / facing packets that must hit the wire before the next 50ms tick.
+// C++ reference: walk + turn replies are sent from the dispatcher immediately, not batched to tick end.
+fn game_packet_needs_immediate_flush(packet: &GamePacket) -> bool {
+    matches!(
+        packet,
+        GamePacket::Move(_)
+            | GamePacket::AutoWalk { .. }
+            | GamePacket::StopAutoWalk
+            | GamePacket::Turn(_)
+    )
+}
+
 /// Process incoming commands until shutdown; runs world ticks on a fixed interval.
 ///
-/// `out_registry`: when set, each tick forwards `flush_output_buffers()` to per-connection writers (`server.rs`).
+/// `out_registry`: drained once per tick; also after walk/login/disconnect and movement packets
+/// (see [`game_packet_needs_immediate_flush`]).
 ///
 /// `walk_wake_rx`: one-shot walk wakes from `tokio::time::sleep_until` (`src/scheduler.cpp`); pairs with
 /// [`GameWorld::walk_wake_tx`].
 pub async fn run_game_loop(
     mut world: GameWorld,
-    mut cmd_rx: Receiver<GameCommand>,
+    mut cmd_rx: UnboundedReceiver<GameCommand>,
     mut walk_wake_rx: UnboundedReceiver<CreatureId>,
     out_registry: Option<OutRegistry>,
 ) -> anyhow::Result<()> {
@@ -125,7 +201,13 @@ pub async fn run_game_loop(
                 }
             } => {
                 match cmd {
-                    Some(GameCommand::Shutdown) | None => break,
+                    Some(GameCommand::Shutdown) => {
+                        if let Err(e) = flush_online_players_to_db(&world).await {
+                            return Err(e);
+                        }
+                        break;
+                    }
+                    None => break,
                     Some(GameCommand::PlayerLogin {
                         conn_id,
                         name,
@@ -143,6 +225,7 @@ pub async fn run_game_loop(
                             Ok(cid) => {
                                 world.conn_to_creature.insert(conn_id, cid);
                                 crate::login_out::enqueue_initial_login_packets(&mut world, conn_id, cid);
+                                flush_pending_outgoing(&mut world, &out_registry);
                             }
                             Err(e) => {
                                 tracing::warn!(?e, %name, conn_id = conn_id.0, "player login failed");
@@ -177,6 +260,31 @@ pub async fn run_game_loop(
                                     world.broadcast_magic_effect(p, 4); // CONST_ME_POFF
                                 }
                             }
+                            // C++ `Game::playerLogout` → `IOLoginData::savePlayer` (async offload).
+                            // C++ ref: `src/iologindata.cpp` `savePlayer`
+                            let db = world.db.clone();
+                            match world.build_player_save_data(cid) {
+                                Ok(data) => {
+                                    let guid = data.player.id;
+                                    tokio::spawn(async move {
+                                        if let Err(e) = PlayerStore::new(&db).save_player(&data).await
+                                        {
+                                            tracing::error!(
+                                                ?e,
+                                                guid,
+                                                "player save on disconnect failed"
+                                            );
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        ?e,
+                                        ?cid,
+                                        "build_player_save_data failed — disconnect continues"
+                                    );
+                                }
+                            }
                             world.remove_creature(cid);
                         }
                         // Flush any pending packets (including the effect)
@@ -193,6 +301,7 @@ pub async fn run_game_loop(
                     }
                     Some(GameCommand::Game { conn_id, packet }) => {
                         let now = Instant::now();
+                        let immediate_flush = game_packet_needs_immediate_flush(&packet);
                         if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                             if game_packet_requires_timed_action(&packet)
                                 && !world.player_timed_action_ready(cid, now)
@@ -284,6 +393,16 @@ pub async fn run_game_loop(
                                     );
                                 }
                             }
+                            GamePacket::UseItem(payload) => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_use_item(conn_id, creature_id, payload, now);
+                                }
+                            }
+                            GamePacket::UseItemEx(payload) => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_use_item_ex(conn_id, creature_id, payload, now);
+                                }
+                            }
                             // B.7: Container UI packets
                             GamePacket::CloseContainer { cid: client_cid } => {
                                 if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
@@ -305,6 +424,16 @@ pub async fn run_game_loop(
                                     world.player_seek_in_container(conn_id, creature_id, client_cid, index);
                                 }
                             }
+                            GamePacket::EquipObject { sprite_id } => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_quick_equip(conn_id, creature_id, sprite_id);
+                                }
+                            }
+                            GamePacket::LookAt { pos, stack_pos } => {
+                                if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_look_at(conn_id, creature_id, pos, stack_pos);
+                                }
+                            }
                             // Logout packet (0x14) - client requests logout
                             GamePacket::Logout => {
                                 // C++: ProtocolGame::logout(displayEffect=true, forced=false)
@@ -317,7 +446,9 @@ pub async fn run_game_loop(
                             _ => trace!(conn_id = conn_id.0, ?packet, "game packet — simulation Phase 9+"),
                         }
                         world.process_walk_deadlines();
-                        flush_pending_outgoing(&mut world, &out_registry);
+                        if immediate_flush {
+                            flush_pending_outgoing(&mut world, &out_registry);
+                        }
                     }
                 }
             }
@@ -355,14 +486,12 @@ pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Stop accepting work, persist players, flush DB — full wiring in Phase 5/10.
-// C++ reference: `Game::saveGameState`, `Dispatcher::shutdown`.
+/// Reserved for a future "save houses / close pool" pass after the game thread stops.
+/// Online player persistence is handled inside [`run_game_loop`] on [`GameCommand::Shutdown`]
+/// (bounded concurrent `PlayerStore::save_player`), with SIGINT in `run_server` sending that command.
+// C++ reference: `Game::saveGameState` (player portion implemented in the game loop, not here).
 pub async fn graceful_shutdown(_db: &tfs_rust_db::DbPool) -> anyhow::Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        // Phase 5+: save all online players, house data, then close pool.
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("shutdown timed out after 30s"))?;
+    let _ = _db;
     Ok(())
 }
 
@@ -371,7 +500,7 @@ mod timed_action_gate_tests {
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::game_packet::GamePacket;
 
-    use super::game_packet_requires_timed_action;
+    use super::{game_packet_needs_immediate_flush, game_packet_requires_timed_action};
 
     #[test]
     fn walk_ping_and_extended_are_never_gated() {
@@ -401,6 +530,20 @@ mod timed_action_gate_tests {
             creature_id: 1
         }));
         assert!(game_packet_requires_timed_action(&GamePacket::UseItem(
+            tfs_rust_common::game_packet::UseItemPayload {
+                pos: tfs_rust_common::Position::new(0, 0, 7),
+                sprite_id: 100,
+                stack_pos: 0,
+                index: 0,
+            }
+        )));
+    }
+
+    #[test]
+    fn movement_packets_flush_immediately() {
+        assert!(game_packet_needs_immediate_flush(&GamePacket::Move(Direction::North)));
+        assert!(game_packet_needs_immediate_flush(&GamePacket::Turn(Direction::West)));
+        assert!(!game_packet_needs_immediate_flush(&GamePacket::UseItem(
             tfs_rust_common::game_packet::UseItemPayload {
                 pos: tfs_rust_common::Position::new(0, 0, 7),
                 sprite_id: 100,

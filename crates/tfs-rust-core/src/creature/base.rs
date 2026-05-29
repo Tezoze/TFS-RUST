@@ -99,6 +99,10 @@ pub struct CreatureBase {
     pub force_update_follow_path: bool,
     /// TFS `Creature::movementBlocked` — Lua `setMovementBlocked` (`creature.h`).
     pub movement_blocked: bool,
+    /// TFS `Player::onCreatureMove` stairhop delay — `CONDITION_PACIFIED` for `STAIRHOP_DELAY` ms
+    /// (default 2000 ms) added whenever `oldPos.z != newPos.z` (`player.cpp` ~1392–1398).
+    /// Movement requests are rejected while `Instant::now() < stairhop_blocked_until`.
+    pub stairhop_blocked_until: Option<Instant>,
     pub follow_target: Option<CreatureId>,
     pub attack_target: Option<CreatureId>,
     pub master: Option<CreatureId>,

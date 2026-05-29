@@ -14,4 +14,6 @@ pub use kind::CreatureKind;
 pub(crate) use kind::creature_id_eq_slice;
 pub use monster::{Monster, MonsterAiPhase};
 pub use npc::{Npc, NpcEventsHandler, NullNpcHandler};
-pub use player::{Player, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial};
+pub use player::{
+    Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+};

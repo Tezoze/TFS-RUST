@@ -61,13 +61,16 @@ async fn main() -> anyhow::Result<()> {
 
     let database_url = std::env::var("DATABASE_URL")
         .context("set DATABASE_URL (MariaDB) for authentication")?;
-    let db = tfs_rust_db::DbPool::connect(&database_url, 1, 5)
-        .await
-        .context("database connect")?;
+    let db = tfs_rust_db::DbPool::connect(
+        &database_url,
+        &tfs_rust_db::DbPoolConnectOptions::default(),
+    )
+    .await
+    .context("database connect")?;
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
 
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<GameCommand>(256);
+    let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<GameCommand>();
     tokio::spawn(async move {
         while let Some(cmd) = cmd_rx.recv().await {
             eprintln!("[game_login_smoke] {:?}", cmd);

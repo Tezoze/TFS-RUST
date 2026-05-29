@@ -1,6 +1,9 @@
 //! World `Item` node with full attribute system.
 // C++ reference: `src/item.h` (Item class)
 
+use tfs_rust_content::items::ItemDatabase;
+use tfs_rust_db::ItemRecord;
+
 use crate::ids::ItemId;
 use crate::item_attributes::{DecayState, ItemAttributes};
 
@@ -123,9 +126,50 @@ impl Item {
         self.count.min(255) as u8
     }
 
+    /// `Item::getWeight` — `src/item.cpp` (~930–936); `type_weight` is OTB `ItemType::weight` (1/100 oz).
+    pub fn total_weight_oz(&self, type_weight: u32, stackable: bool) -> u32 {
+        let w = self.attributes.base_weight_oz(type_weight);
+        if stackable {
+            w.saturating_mul(self.count.max(1) as u32)
+        } else {
+            w
+        }
+    }
+
+    /// Load from DB row (`IOLoginData::loadItems` — `src/iologindata.cpp`).
+    pub fn from_player_item_record(
+        id: ItemId,
+        rec: &ItemRecord,
+        items_db: &ItemDatabase,
+    ) -> tfs_rust_common::Result<Self> {
+        let count = rec.count.max(0).min(10000) as u16;
+        let mut item = Item::new(id, rec.itemtype, count);
+        let is_container = items_db.is_container(rec.itemtype);
+        if !rec.attributes.is_empty() {
+            match crate::item_blob::parse_item_blob(&rec.attributes, is_container) {
+                Ok(p) => {
+                    item.attributes = p.attrs;
+                    if let Some(st) = p.subtype_override {
+                        item.count = u16::from(st).max(1);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(?e, itemtype = rec.itemtype, "item blob parse failed");
+                }
+            }
+        }
+        Ok(item)
+    }
+
     /// Check if this item is stackable based on count > 1
     pub fn is_stack(&self) -> bool {
         self.count > 1
+    }
+
+    /// TFS `Item::isStoreItem`
+    #[inline]
+    pub fn is_store_item(&self) -> bool {
+        self.attributes.is_store_item()
     }
 }
 

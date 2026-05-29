@@ -32,6 +32,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             cancel_next_walk: false,
             force_update_follow_path: false,
             movement_blocked: false,
+            stairhop_blocked_until: None,
             follow_target: None,
             attack_target: None,
             master: None,
@@ -70,11 +71,13 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         operating_system: 0,
         otclient_v8: 0,
         ghost_mode: false,
-        inventory_slots: std::array::from_fn(|_| None),
+        equipment_slots: std::array::from_fn(|_| None),
+        inventory_weight: 0,
         vip_list: Vec::new(),
         health_hidden: false,
         last_activity: Instant::now(),
         next_action_until: None,
+        persist: None,
     }
 }
 

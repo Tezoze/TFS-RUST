@@ -20,4 +20,4 @@ pub use player::{
     GuildMembershipRow, LoadedPlayerData, PlayerItemPayload, PlayerRecord, PlayerSaveData,
     PlayerStore, VipEntry,
 };
-pub use pool::DbPool;
+pub use pool::{DbPool, DbPoolConnectOptions};

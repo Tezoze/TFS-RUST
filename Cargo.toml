@@ -44,7 +44,7 @@ quick-xml = { version = "0.31", features = ["serialize"] }
 slotmap = "1.0"
 bitflags = "2.6"
 dashmap = "6.1"
-mlua = { version = "0.9", default-features = false, features = ["lua51", "vendored", "async", "send"] }
+mlua = { version = "0.10", default-features = false, features = ["luajit", "vendored"] }
 
 [dependencies]
 tfs-rust-core = { workspace = true }

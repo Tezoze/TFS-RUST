@@ -72,6 +72,17 @@ impl Map {
         self.tiles.get_mut(&pos)
     }
 
+    /// Find a tile that holds `item_id` (down or top stack). Used for house / auto-close checks.
+    // C++ ref: `Thing::getTile` / map item position queries (`game.cpp`).
+    pub fn find_item_position(&self, item_id: ItemId) -> Option<Position> {
+        for tile in self.tiles.values() {
+            if tile.has_item(item_id) {
+                return Some(tile.position());
+            }
+        }
+        None
+    }
+
     pub fn qtree_mut(&mut self, z: u8) -> &mut QTreeNode {
         let w = self.width.saturating_sub(1);
         let h = self.height.saturating_sub(1);
@@ -135,21 +146,111 @@ fn internal_add_item_id(
     }
 }
 
+/// Convert raw OTBM tile flags to TILESTATE flags.
+/// C++ ref: src/iomap.cpp:270-280 — OTBM zone flags use a different bit layout than runtime TILESTATE.
+fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
+    // C++ ref: src/iomap.h:59-64
+    const OTBM_TILEFLAG_PROTECTIONZONE: u32 = 1 << 0;
+    const OTBM_TILEFLAG_NOPVPZONE: u32 = 1 << 2;
+    const OTBM_TILEFLAG_NOLOGOUT: u32 = 1 << 3;
+    const OTBM_TILEFLAG_PVPZONE: u32 = 1 << 4;
+
+    let mut tileflags = 0u32;
+    let mut zone = tfs_rust_common::ZoneType::Normal;
+
+    // C++ uses `else if` for zones — only one zone type per tile.
+    if otbm_flags & OTBM_TILEFLAG_PROTECTIONZONE != 0 {
+        tileflags |= flags::PROTECTIONZONE;
+        zone = tfs_rust_common::ZoneType::Protection;
+    } else if otbm_flags & OTBM_TILEFLAG_NOPVPZONE != 0 {
+        tileflags |= flags::NOPVPZONE;
+        zone = tfs_rust_common::ZoneType::NoPvp;
+    } else if otbm_flags & OTBM_TILEFLAG_PVPZONE != 0 {
+        tileflags |= flags::PVPZONE;
+        zone = tfs_rust_common::ZoneType::Pvp;
+    }
+
+    if otbm_flags & OTBM_TILEFLAG_NOLOGOUT != 0 {
+        tileflags |= flags::NOLOGOUT;
+    }
+
+    (tileflags, zone)
+}
+
+/// Set runtime tile-state flags from an item's OTB properties, matching C++ `Tile::setTileFlags`.
+/// C++ ref: src/tile.cpp:1478-1535
+fn apply_item_tile_flags(body: &mut TileBody, item_type: &tfs_rust_content::otb::ItemType) {
+    // Floorchange — C++ `ItemType::floorChange` bitmask → tile state (`tile.cpp` / `setTileFlags`).
+    if body.flags & flags::FLOORCHANGE == 0 {
+        let typed = u32::from(item_type.floor_change);
+        if typed != 0 {
+            body.flags |= typed;
+        } else if let Some(fc) = item_type.xml_attributes.get("floorchange") {
+            // Legacy: single string in `xml_attributes` (last key wins; prefer typed `floor_change` from items.xml).
+            let fc_flag = match fc.as_str() {
+                "down" => flags::FLOORCHANGE_DOWN,
+                "north" => flags::FLOORCHANGE_NORTH,
+                "south" => flags::FLOORCHANGE_SOUTH,
+                "east" => flags::FLOORCHANGE_EAST,
+                "west" => flags::FLOORCHANGE_WEST,
+                "southalt" => flags::FLOORCHANGE_SOUTH_ALT,
+                "eastalt" => flags::FLOORCHANGE_EAST_ALT,
+                _ => 0,
+            };
+            body.flags |= fc_flag;
+        }
+    }
+
+    // CONST_PROP_BLOCKSOLID — `blockSolid && !moveable` (immovable) or `blockSolid` (any).
+    // C++ `hasProperty(CONST_PROP_BLOCKSOLID)` = `blockSolid`.
+    if item_type.block_solid() {
+        body.flags |= flags::BLOCKSOLID;
+    }
+
+    // CONST_PROP_IMMOVABLEBLOCKSOLID — `blockSolid && !moveable`.
+    if item_type.block_solid() && !item_type.moveable() {
+        body.flags |= flags::IMMOVABLEBLOCKSOLID;
+    }
+
+    // CONST_PROP_BLOCKPATH — `blockPathFind`.
+    if item_type.block_path_find() {
+        body.flags |= flags::BLOCKPATH;
+    }
+}
+
 fn tile_from_data(
     td: TileData,
     items_db: &ItemDatabase,
     items: &mut SlotMap<ItemId, Item>,
 ) -> Tile {
+    // Convert OTBM flags → TILESTATE (different bit layouts!).
+    // C++ ref: src/iomap.cpp:270-280
+    let (converted_flags, zone) = convert_otbm_flags(td.tile_flags);
+
     let mut body = TileBody {
         position: td.position,
         ground: None,
         down_items: Vec::new(),
         top_items: Vec::new(),
         creatures: Vec::new(),
-        flags: td.tile_flags,
-        zone: tfs_rust_common::ZoneType::Normal,
+        flags: converted_flags,
+        zone,
     };
+
     for thing in td.things {
+        let id = match &thing {
+            TileThing::EmbeddedItemId(id) => *id,
+            TileThing::ItemNodeProps(raw) => match otbm::item_id_from_otbm_item_props(raw) {
+                Some(id) => id,
+                None => continue,
+            },
+        };
+
+        // C++ `Tile::setTileFlags(item)` — apply tile-level flags from each item's properties.
+        if let Some(item_type) = items_db.items.get(&id) {
+            apply_item_tile_flags(&mut body, item_type);
+        }
+
         match thing {
             TileThing::EmbeddedItemId(id) => {
                 internal_add_item_id(id, items_db, &mut body, items);
@@ -161,6 +262,7 @@ fn tile_from_data(
             }
         }
     }
+
     if let Some(hid) = td.house_id {
         Tile::House(HouseTile {
             inner: body,

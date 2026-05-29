@@ -26,7 +26,7 @@ pub struct Server {
 /// RSA + game thread + DB + per-connection outgoing writers (`src/connection.cpp` send path).
 #[derive(Clone)]
 pub struct GameWireConfig {
-    pub cmd_tx: mpsc::Sender<GameCommand>,
+    pub cmd_tx: mpsc::UnboundedSender<GameCommand>,
     pub rsa_private_key: RsaPrivateKey,
     pub db: tfs_rust_db::DbPool,
     pub out_registry: OutRegistry,
@@ -287,7 +287,6 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
             operating_system: game.operating_system,
             otclient_v8: game.otclient_v8,
         })
-        .await
         .map_err(|_| anyhow::anyhow!("game command channel closed"))?;
 
     forward_game_packets_xtea(read_half, conn_id, wire.cmd_tx, &round_keys).await?;

@@ -1,0 +1,248 @@
+---
+name: tfs-database
+description: SQLx patterns, transaction rules, and database schema compatibility for TFS 1.4.2 parity.
+version: "1.0"
+globs: ["crates/tfs-rust-db/**/*.rs"]
+alwaysApply: false
+---
+
+# Database Operations (SQLx and MariaDB)
+
+All database access uses SQLx with compile-time checked queries for type safety.
+
+## Tech Stack
+
+```rust
+use sqlx::{MySql, MySqlPool, query, query_as};
+
+pub type DbPool = MySqlPool;
+```
+
+## Query Patterns
+
+### Compile-Time Checked (Preferred)
+
+```rust
+// Good: Type-safe, compile-time verified
+let player = sqlx::query_as!(
+    PlayerRow,
+    "SELECT id, name, level, health FROM players WHERE id = ?",
+    player_id
+)
+.fetch_one(&pool)
+.await?;
+```
+
+**Use `query!` / `query_as!` for:**
+- Critical paths (login, save, load)
+- Fixed schema queries
+- Type safety required
+
+### Runtime Queries (Dynamic SQL)
+
+```rust
+// Acceptable for: admin tools, dynamic filters
+let players = sqlx::query("SELECT * FROM players WHERE name LIKE ?")
+    .bind(pattern)
+    .fetch_all(&pool)
+    .await?;
+```
+
+## Error Handling
+
+Always propagate with context:
+
+```rust
+// Good: Context for debugging
+let player = load_player_by_guid(&pool, guid)
+    .await
+    .context(format!("failed to load player guid {}", guid))?;
+
+// Bad: Silent failure
+let player = load_player_by_guid(&pool, guid).await.ok()?;
+```
+
+## Transaction Rules
+
+### Multi-Statement Operations
+
+```rust
+// Good: Transactional save
+pub async fn save_player_full(pool: &DbPool, player: &Player) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    
+    // Save player
+    sqlx::query!(
+        "UPDATE players SET health = ?, mana = ?, level = ? WHERE id = ?",
+        player.health, player.mana, player.level, player.guid
+    )
+    .execute(&mut *tx)
+    .await?;
+    
+    // Save inventory
+    for (slot, item_id) in &player.inventory {
+        sqlx::query!(
+            "INSERT INTO player_items (player_id, slot, item_id) VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE item_id = VALUES(item_id)",
+            player.guid, slot, item_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    
+    tx.commit().await?;
+    Ok(())
+}
+```
+
+### Rollback on Error
+
+The `?` operator automatically rolls back:
+
+```rust
+let mut tx = pool.begin().await?;
+
+query!("UPDATE accounts SET ...").execute(&mut *tx).await?;
+query!("INSERT INTO logs ...").execute(&mut *tx).await?; // If this fails, UPDATE rolls back
+
+tx.commit().await?; // Only commits if all queries succeeded
+```
+
+## Connection Pool Management
+
+```rust
+// Create pool at startup
+let pool = sqlx::MySqlPoolOptions::new()
+    .max_connections(10)
+    .connect(&database_url)
+    .await?;
+
+// Pass &DbPool, not owned
+pub async fn load_player(pool: &DbPool, guid: u32) -> Result<Player> { ... }
+```
+
+## Schema Compatibility (TFS 1.4.2 Parity)
+
+**Maintain exact compatibility with TFS database schema:**
+- Table names match TFS (e.g., `players`, `accounts`, `houses`)
+- Column names match TFS
+- Data types compatible (MySQL → Rust mapping)
+- Foreign keys preserved
+- Indexes match TFS for performance
+
+### Example Mapping
+
+```sql
+-- TFS schema
+CREATE TABLE players (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    level INT UNSIGNED NOT NULL DEFAULT 1,
+    health INT NOT NULL DEFAULT 150
+);
+```
+
+```rust
+// Rust struct
+#[derive(sqlx::FromRow)]
+pub struct PlayerRow {
+    pub id: u32,
+    pub name: String,
+    pub level: u32,
+    pub health: i32,
+}
+```
+
+## Migrations
+
+Use SQLx migrations:
+
+```rust
+// migrations/20240101_initial.sql
+CREATE TABLE players ( ... );
+
+// Apply at startup
+sqlx::migrate!("./migrations")
+    .run(&pool)
+    .await?;
+```
+
+**Never:**
+- Manually ALTER tables in production
+- Skip migrations
+- Change schema without migration file
+
+## Optional Features (Offline Mode)
+
+For testing without DB:
+
+```rust
+#[cfg(feature = "offline")]
+pub async fn create_offline_pool() -> DbPool {
+    // Mock pool for tests
+}
+```
+
+See `crates/tfs-rust-db/src/sqlx_offline.rs`.
+
+## Common Patterns
+
+### Load or Create
+
+```rust
+pub async fn load_or_create_player(pool: &DbPool, name: &str) -> Result<Player> {
+    match load_player_by_name(pool, name).await {
+        Ok(player) => Ok(player),
+        Err(_) => {
+            let player = create_default_player(name);
+            save_player(pool, &player).await?;
+            Ok(player)
+        }
+    }
+}
+```
+
+### Batch Inserts
+
+```rust
+// Good: Single transaction
+let mut tx = pool.begin().await?;
+for item in items {
+    query!("INSERT INTO ...").execute(&mut *tx).await?;
+}
+tx.commit().await?;
+
+// Bad: N transactions
+for item in items {
+    query!("INSERT INTO ...").execute(&pool).await?; // Slow!
+}
+```
+
+## Logging
+
+Log slow queries for optimization:
+
+```rust
+let start = Instant::now();
+let result = query!("SELECT ...").fetch_all(&pool).await?;
+let elapsed = start.elapsed();
+
+if elapsed > Duration::from_millis(100) {
+    tracing::warn!("slow query: {:?}", elapsed);
+}
+```
+
+## Testing
+
+Use `sqlx::test` for integration tests:
+
+```rust
+#[sqlx::test]
+async fn test_load_player(pool: MySqlPool) -> sqlx::Result<()> {
+    // Test DB is created/cleaned automatically
+    let player = create_test_player(&pool).await?;
+    let loaded = load_player(&pool, player.id).await?;
+    assert_eq!(player.name, loaded.name);
+    Ok(())
+}
+```

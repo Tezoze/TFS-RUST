@@ -188,3 +188,5 @@ config.lua
 /target/
 **/*.rs.bk
 Cargo.lock
+# Added by code-review-graph
+.code-review-graph/

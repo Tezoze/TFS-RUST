@@ -1,9 +1,13 @@
+//! OTB item loader and item metadata model.
+//! C++ reference: `src/items.cpp` (`Items::loadFromOtb`), `src/itemloader.h` (`itemattrib_t`, `itemflags_t`).
+
 use std::collections::HashMap;
 use std::path::Path;
+use crate::item_abilities::ItemAbilities;
 use tfs_rust_common::error::{Result, TfsRustError};
 use tracing::warn;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ItemType {
     pub id: u16,
     pub server_id: u16,
@@ -15,6 +19,8 @@ pub struct ItemType {
     /// Ground speed from OTB (`ITEM_ATTR_SPEED`). C++ `ItemType::speed` (`src/items.cpp` `loadFromOtb` ~336–343, ~461).
     /// This is the tile walk speed, NOT equipment speed bonus (which is `abilities.speed` from items.xml).
     pub speed: u16,
+    /// C++ `ItemType::abilities` — `src/items.h` (`struct Abilities`); populated from items.xml (`src/items.cpp`).
+    pub abilities: ItemAbilities,
     /// `ITEM_ATTR_LIGHT2` — `lightBlock2::lightLevel` (`src/itemloader.h`).
     pub light_level: u8,
     /// `ITEM_ATTR_LIGHT2` — `lightBlock2::lightColor`.
@@ -29,6 +35,125 @@ pub struct ItemType {
     pub xml_attributes: HashMap<String, String>,
     /// `ITEM_ATTR_TOPORDER` — used when `always_on_top` is true (`src/items.cpp` `loadFromOtb`).
     pub always_on_top_order: u8,
+    /// `SlotPositionBits` — `src/items.h`; default `SLOTP_HAND` (`src/items.h` ItemType).
+    pub slot_position: u32,
+    /// C++ `ItemType::floorChange` — `TileStatesMap` bits (`src/items.cpp`, `src/tile.h`).
+    pub floor_change: u8,
+    /// C++ `ItemType::charges` (`src/items.h`); default `0`.
+    pub charges: u32,
+    /// C++ `ItemType::maxItems` (`src/items.h`) from XML `containersize` only (OTB `ITEM_ATTR_MAXITEMS` skipped like C++).
+    pub max_items: u16,
+    /// `WeaponType_t` — `src/const.h`; default `WEAPON_NONE`.
+    pub weapon_type: u8,
+    /// `items.xml` combat — `ItemType::attack` (`src/items.h`).
+    pub attack: i32,
+    pub defense: i32,
+    pub extra_defense: i32,
+    /// `article="..."` on `<item>` (`src/items.cpp`).
+    pub article: String,
+    /// `plural="..."` on `<item>`; empty → `ItemType::getPluralName` rules (`src/items.h`).
+    pub plural_name: String,
+    /// Default `true` — `ItemType::showCount` (`src/items.h`).
+    pub show_count: bool,
+    /// `Ammo_t` — `src/const.h`; `AMMO_NONE` = 0.
+    pub ammo_type: u8,
+    /// `items.xml` — `ItemType::armor`.
+    pub armor: i32,
+    /// Milliseconds — `ItemType::attackSpeed` (`item.cpp` `/ 1000` for display).
+    pub attack_speed: u32,
+    /// `range` — `ItemType::shootRange`; default `1` (`src/items.h` / `items.cpp` `parseItemNode`).
+    pub shoot_range: i32,
+    /// `hitchance` — `ItemType::hitChance` (`int8_t`), clamped in C++ to `[-100, 100]` (`items.cpp`).
+    pub hit_chance: i8,
+    /// `maxhitchance` — `ItemType::maxHitChance` (`int32_t`), default `-1` (`src/items.h`).
+    pub max_hit_chance: i32,
+    /// XML override parity fields (`Items::parseItemNode` in `src/items.cpp`).
+    pub moveable_override: Option<bool>,
+    pub block_projectile_override: Option<bool>,
+    pub block_solid_override: Option<bool>,
+    pub allow_dist_read_override: Option<bool>,
+    /// `readable` / `writeable` set `canReadText` in C++; OTB uses `FLAG_READABLE`. When present,
+    /// XML wins (`src/items.cpp` `ITEM_PARSE_READABLE`, `ITEM_PARSE_WRITEABLE`).
+    pub can_read_text_override: Option<bool>,
+    pub allow_pickupable: bool,
+    pub force_serialize: bool,
+    pub replaceable: bool,
+    pub walk_stack: bool,
+    pub store_item: bool,
+    pub can_write_text: bool,
+    pub max_text_len: u16,
+    /// C++ `ItemType::showCharges` — `src/items.h`.
+    pub show_charges: bool,
+    /// C++ `ItemType::showAttributes` — `src/items.h`; default `false`.
+    pub show_attributes: bool,
+    /// C++ `ItemType::minReqLevel` — `src/items.h`; default `0`.
+    pub min_req_level: u32,
+    /// C++ `ItemType::minReqMagicLevel` — `src/items.h`; default `0`.
+    pub min_req_magic_level: u32,
+    /// C++ `ItemType::vocEquipMap` keys — lowercase vocation names from items.xml `vocation`.
+    pub voc_equip_names: Vec<String>,
+}
+
+/// `SLOTP_HAND` — `src/items.h`
+const SLOTP_LEFT: u32 = 1 << 5;
+const SLOTP_RIGHT: u32 = 1 << 4;
+const SLOTP_HAND_DEFAULT: u32 = SLOTP_LEFT | SLOTP_RIGHT;
+
+impl Default for ItemType {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            server_id: 0,
+            client_id: 0,
+            group: 0,
+            name: String::new(),
+            flags: 0,
+            speed: 0,
+            abilities: ItemAbilities::default(),
+            light_level: 0,
+            light_color: 0,
+            ware_id: 0,
+            weight: 0,
+            rotate_to: 0,
+            description: String::new(),
+            xml_attributes: HashMap::new(),
+            always_on_top_order: 0,
+            slot_position: SLOTP_HAND_DEFAULT,
+            floor_change: 0,
+            charges: 0,
+            max_items: 8,
+            weapon_type: 0,
+            attack: 0,
+            defense: 0,
+            extra_defense: 0,
+            article: String::new(),
+            plural_name: String::new(),
+            show_count: true,
+            ammo_type: 0,
+            armor: 0,
+            attack_speed: 0,
+            shoot_range: 1,
+            hit_chance: 0,
+            max_hit_chance: -1,
+            moveable_override: None,
+            block_projectile_override: None,
+            block_solid_override: None,
+            allow_dist_read_override: None,
+            can_read_text_override: None,
+            allow_pickupable: false,
+            force_serialize: false,
+            replaceable: true,
+            walk_stack: true,
+            store_item: false,
+            can_write_text: false,
+            max_text_len: 0,
+            show_charges: false,
+            show_attributes: false,
+            min_req_level: 0,
+            min_req_magic_level: 0,
+            voc_equip_names: Vec::new(),
+        }
+    }
 }
 
 pub struct OtbLoader;
@@ -61,13 +186,21 @@ const NODE_END: u8 = 0xFF;
 
 const ITEM_ATTR_SERVERID: u8 = 0x10;
 const ITEM_ATTR_CLIENTID: u8 = 0x11;
+/// C++ skips in `loadFromOtb` — not handled in `apply_attr`. IDs kept for tests / reference (`src/items.cpp`).
+#[allow(dead_code)]
 const ITEM_ATTR_NAME: u8 = 0x12;
+#[allow(dead_code)]
 const ITEM_ATTR_DESCR: u8 = 0x13;
 /// `itemattrib_t::ITEM_ATTR_SPEED` (`src/itemloader.h`) — ground tile speed, `uint16_t`.
 const ITEM_ATTR_SPEED: u8 = 0x14;
-/// `itemattrib_t::ITEM_ATTR_WEIGHT` — **0x17**, not `0x16` (`MAXITEMS`) (`src/itemloader.h`).
+/// `itemattrib_t::ITEM_ATTR_MAXITEMS` (`src/itemloader.h`) — C++ skips; see `otb_does_not_apply_maxitems_attribute`.
+#[allow(dead_code)]
+const ITEM_ATTR_MAXITEMS: u8 = 0x16;
+/// `itemattrib_t::ITEM_ATTR_WEIGHT` — **0x17**, not `0x16` (`MAXITEMS`) (`src/itemloader.h`). C++ skips in OTB load.
+#[allow(dead_code)]
 const ITEM_ATTR_WEIGHT: u8 = 0x17;
-/// `itemattrib_t::ITEM_ATTR_ROTATETO` — **0x1E** (`src/itemloader.h`).
+/// `itemattrib_t::ITEM_ATTR_ROTATETO` — **0x1E** (`src/itemloader.h`). C++ skips in OTB load.
+#[allow(dead_code)]
 const ITEM_ATTR_ROTATETO: u8 = 0x1E;
 /// `itemattrib_t::ITEM_ATTR_LIGHT2` — `lightBlock2` {u16 lightLevel, u16 lightColor} (`src/itemloader.h`).
 const ITEM_ATTR_LIGHT2: u8 = 0x2A;
@@ -114,7 +247,7 @@ fn parse_node(
                 let attr_type = read_data_u8(data, index, path)?;
                 let attr_size = read_data_u16(data, index, path)? as usize;
                 let attr_data = read_data_bytes(data, index, attr_size, path)?;
-                apply_attr(&mut item, attr_type, &attr_data);
+                apply_attr(&mut item, attr_type, &attr_data, path)?;
             }
         }
     }
@@ -205,50 +338,64 @@ fn validate_items_otb_root_version(data: &[u8], path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn apply_attr(item: &mut ItemType, attr_type: u8, attr_data: &[u8]) {
+fn apply_attr(item: &mut ItemType, attr_type: u8, attr_data: &[u8], path: &Path) -> Result<()> {
+    let invalid_attr_len = |expected: &str| TfsRustError::Content {
+        file: path.to_string_lossy().into_owned(),
+        message: format!(
+            "items.otb: invalid length {} for attr {attr_type:#04x}, got {}",
+            expected,
+            attr_data.len()
+        ),
+    };
+
+    // C++ `Items::loadFromOtb` only reads a subset of `itemattrib_t`; `ITEM_ATTR_NAME` (0x12),
+    // `ITEM_ATTR_DESCR` (0x13), `ITEM_ATTR_MAXITEMS` (0x16), `ITEM_ATTR_WEIGHT` (0x17),
+    // `ITEM_ATTR_ROTATETO` (0x1E) fall through to `default: stream.skip(datalen)` — not stored (`src/items.cpp`).
     match attr_type {
-        ITEM_ATTR_SERVERID if attr_data.len() >= 2 => {
+        ITEM_ATTR_SERVERID => {
+            if attr_data.len() != 2 {
+                return Err(invalid_attr_len("(expected 2 bytes)"));
+            }
             item.server_id = u16::from_le_bytes([attr_data[0], attr_data[1]]);
         }
-        ITEM_ATTR_CLIENTID if attr_data.len() >= 2 => {
+        ITEM_ATTR_CLIENTID => {
+            if attr_data.len() != 2 {
+                return Err(invalid_attr_len("(expected 2 bytes)"));
+            }
             item.client_id = u16::from_le_bytes([attr_data[0], attr_data[1]]);
         }
-        ITEM_ATTR_NAME => {
-            item.name = String::from_utf8_lossy(attr_data).to_string();
-        }
-        ITEM_ATTR_DESCR => {
-            item.description = String::from_utf8_lossy(attr_data).to_string();
-        }
-        ITEM_ATTR_SPEED if attr_data.len() >= 2 => {
+        ITEM_ATTR_SPEED => {
+            if attr_data.len() != 2 {
+                return Err(invalid_attr_len("(expected 2 bytes)"));
+            }
             item.speed = u16::from_le_bytes([attr_data[0], attr_data[1]]);
         }
-        ITEM_ATTR_LIGHT2 if attr_data.len() >= 4 => {
+        ITEM_ATTR_LIGHT2 => {
+            if attr_data.len() != 4 {
+                return Err(invalid_attr_len("(expected 4 bytes)"));
+            }
             // C++ `lightBlock2` is packed {u16 lightLevel, u16 lightColor} (`src/itemloader.h`).
             item.light_level = u16::from_le_bytes([attr_data[0], attr_data[1]]) as u8;
             item.light_color = u16::from_le_bytes([attr_data[2], attr_data[3]]) as u8;
         }
-        ITEM_ATTR_WAREID if attr_data.len() >= 2 => {
+        ITEM_ATTR_WAREID => {
+            if attr_data.len() != 2 {
+                return Err(invalid_attr_len("(expected 2 bytes)"));
+            }
             item.ware_id = u16::from_le_bytes([attr_data[0], attr_data[1]]);
         }
         ITEM_ATTR_CLASSIFICATION => {
             // C++ skips 1 byte (`stream.skip(1)`) — not stored.
         }
-        ITEM_ATTR_WEIGHT => {
-            item.weight = match attr_data.len() {
-                0 => 0,
-                1 => attr_data[0] as u32,
-                2 => u16::from_le_bytes([attr_data[0], attr_data[1]]) as u32,
-                _ => u32::from_le_bytes([attr_data[0], attr_data[1], attr_data[2], attr_data[3]]),
-            };
-        }
-        ITEM_ATTR_ROTATETO if attr_data.len() >= 2 => {
-            item.rotate_to = u16::from_le_bytes([attr_data[0], attr_data[1]]);
-        }
-        ITEM_ATTR_TOPORDER if !attr_data.is_empty() => {
+        ITEM_ATTR_TOPORDER => {
+            if attr_data.len() != 1 {
+                return Err(invalid_attr_len("(expected 1 byte)"));
+            }
             item.always_on_top_order = attr_data[0];
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// OTB flags / group — `src/items.cpp` `Items::loadFromOtb` ~438–457, `src/itemloader.h` `itemflags_t`.
@@ -285,14 +432,17 @@ impl ItemType {
 
     // ── Flag accessors ──
 
+    /// C++ `ItemType::blockSolid` — OTB flag, overridden by XML `blocking` (`items.cpp` `ITEM_PARSE_BLOCKING`).
     #[inline]
     pub fn block_solid(&self) -> bool {
-        self.flags & Self::FLAG_BLOCK_SOLID != 0
+        self.block_solid_override
+            .unwrap_or(self.flags & Self::FLAG_BLOCK_SOLID != 0)
     }
 
     #[inline]
     pub fn block_projectile(&self) -> bool {
-        self.flags & Self::FLAG_BLOCK_PROJECTILE != 0
+        self.block_projectile_override
+            .unwrap_or(self.flags & Self::FLAG_BLOCK_PROJECTILE != 0)
     }
 
     #[inline]
@@ -312,12 +462,13 @@ impl ItemType {
 
     #[inline]
     pub fn pickupable(&self) -> bool {
-        self.flags & Self::FLAG_PICKUPABLE != 0
+        self.flags & Self::FLAG_PICKUPABLE != 0 || self.allow_pickupable
     }
 
     #[inline]
     pub fn moveable(&self) -> bool {
-        self.flags & Self::FLAG_MOVEABLE != 0
+        self.moveable_override
+            .unwrap_or(self.flags & Self::FLAG_MOVEABLE != 0)
     }
 
     #[inline]
@@ -332,7 +483,8 @@ impl ItemType {
 
     #[inline]
     pub fn can_read_text(&self) -> bool {
-        self.flags & Self::FLAG_READABLE != 0
+        self.can_read_text_override
+            .unwrap_or(self.flags & Self::FLAG_READABLE != 0)
     }
 
     #[inline]
@@ -355,9 +507,11 @@ impl ItemType {
         self.flags & Self::FLAG_HORIZONTAL != 0
     }
 
+    /// C++ `ItemType::allowDistRead` — XML `allowdistread` (`items.cpp` `ITEM_PARSE_ALLOWDISTREAD`).
     #[inline]
     pub fn allow_dist_read(&self) -> bool {
-        self.flags & Self::FLAG_ALLOWDISTREAD != 0
+        self.allow_dist_read_override
+            .unwrap_or(self.flags & Self::FLAG_ALLOWDISTREAD != 0)
     }
 
     #[inline]
@@ -451,9 +605,9 @@ fn read_data_u32(data: &[u8], index: &mut usize, path: &Path) -> Result<u32> {
     Ok(u32::from_le_bytes([b0, b1, b2, b3]))
 }
 
-fn read_data_bytes(data: &[u8], index: &mut usize, count: usize, path: &Path) -> Result<Vec<u8>> {
-    let mut bytes = Vec::with_capacity(count);
-    for _ in 0..count {
+fn read_data_bytes(data: &[u8], index: &mut usize, len: usize, path: &Path) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(len);
+    for _ in 0..len {
         bytes.push(read_data_u8(data, index, path)?);
     }
     Ok(bytes)
@@ -495,4 +649,31 @@ mod tests {
             );
         }
     }
+
+    /// C++ skips `ITEM_ATTR_MAXITEMS` in `loadFromOtb`; `maxItems` comes from items.xml `containersize`.
+    #[test]
+    fn otb_does_not_apply_maxitems_attribute() {
+        let mut item = super::ItemType::default();
+        let path = Path::new("items.otb");
+        let data = 12u16.to_le_bytes();
+        let res = super::apply_attr(&mut item, super::ITEM_ATTR_MAXITEMS, &data, path);
+        assert!(res.is_ok());
+        assert_eq!(item.max_items, 8);
+    }
+
+    #[test]
+    fn fails_on_invalid_known_attr_length() {
+        let mut item = super::ItemType::default();
+        let path = Path::new("items.otb");
+        let err = super::apply_attr(&mut item, super::ITEM_ATTR_CLIENTID, &[0x01], path)
+            .expect_err("must error");
+        match err {
+            tfs_rust_common::error::TfsRustError::Content { message, .. } => {
+                assert!(message.contains("invalid length"));
+                assert!(message.contains("0x11"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
 }

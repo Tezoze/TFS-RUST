@@ -29,12 +29,13 @@ use std::time::{Duration, Instant};
 /// (`tasks/walk-audit.md` Issue 4).
 const WALK_DEADLINE_GRACE: Duration = Duration::ZERO;
 
+
 use rand::thread_rng;
 use tfs_rust_common::enums::{ConditionType, Direction, SpeakType};
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
-use tfs_rust_net::map_description::{send_move_creature_player, send_move_creature_spectator, TileContent};
-use tfs_rust_net::outgoing_extra::{send_cancel_walk, send_creature_turn, send_text_message_simple};
+use tfs_rust_net::map_description::{send_map_description_packet, send_move_creature_player, send_move_creature_spectator, TileContent};
+use tfs_rust_net::outgoing_extra::{send_cancel_walk, send_creature_turn, send_remove_tile_thing, send_text_message_simple};
 
 use crate::combat::uniform_random;
 use crate::condition::ConditionData;
@@ -48,22 +49,30 @@ use crate::tile::client_creature_stack_pos;
 use tfs_rust_common::ConnId;
 
 /// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
+const FLAG_NOLIMIT: u32 = 1 << 0;
 const FLAG_IGNOREBLOCKITEM: u32 = 1 << 1;
 const FLAG_IGNOREBLOCKCREATURE: u32 = 1 << 2;
 const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
 
-/// TFS `tile.h` — same layout as OTBM / `TileBody::flags`.
-mod tile_state {
-    pub const FLOORCHANGE: u32 = (1 << 0)
-        | (1 << 1)
-        | (1 << 2)
-        | (1 << 3)
-        | (1 << 4)
-        | (1 << 5)
-        | (1 << 6);
-    pub const BLOCKSOLID: u32 = 1 << 17;
-    pub const IMMOVABLEBLOCKSOLID: u32 = 1 << 19;
+/// One movement segment emitted by `internal_move_player_step`.
+/// C++ `map.moveCreature` emits a packet per call; we collect segments and emit afterwards.
+struct MoveSegment {
+    from: Position,
+    to: Position,
+    old_stack: i32,
+    /// C++ `Map::moveCreature`: `teleport = forceTeleport || !ground || !areInRange<1,1,0>`
+    teleport: bool,
 }
+
+/// C++ `Position::areInRange<1,1,0>` — dx<=1, dy<=1, dz==0.
+fn are_in_range_1_1_0(a: Position, b: Position) -> bool {
+    let dx = (a.x as i32 - b.x as i32).unsigned_abs();
+    let dy = (a.y as i32 - b.y as i32).unsigned_abs();
+    let dz = (a.z as i32 - b.z as i32).unsigned_abs();
+    dx <= 1 && dy <= 1 && dz == 0
+}
+
+use crate::tile::flags as tilestate;
 
 const SPEED_A: f64 = 857.36;
 const SPEED_B: f64 = 261.29;
@@ -131,7 +140,22 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
 /// TFS `getReturnMessage` + `Player::sendCancelMessage` — `MESSAGE_STATUS_SMALL` (`const.h` / `player.h`).
 fn return_message_for_cancel(ret: ReturnValue) -> &'static str {
     match ret {
+        ReturnValue::DestinationOutOfReach => "Destination is out of range.",
+        ReturnValue::NotMoveable => "You cannot move this object.",
         ReturnValue::NotEnoughRoom => "There is not enough room.",
+        ReturnValue::FirstGoDownStairs => "First go downstairs.",
+        ReturnValue::FirstGoUpStairs => "First go upstairs.",
+        ReturnValue::NotEnoughCapacity => "This object is too heavy for you to carry.",
+        ReturnValue::ContainerNotEnoughRoom => "You cannot put more objects in this container.",
+        ReturnValue::CannotPickup => "You cannot take this object.",
+        ReturnValue::CannotThrow => "You cannot throw there.",
+        ReturnValue::ThereIsNoWay => "There is no way.",
+        ReturnValue::ThisIsImpossible => "This is impossible.",
+        ReturnValue::PlayerIsPzLocked => "You can not enter a protection zone after attacking another player.",
+        ReturnValue::PlayerIsNotInvited => "You are not invited.",
+        ReturnValue::CreatureDoesNotExist => "Creature does not exist.",
+        ReturnValue::DepotIsFull => "You cannot put more items in this depot.",
+        ReturnValue::NotPossible => "Sorry, not possible.",
         _ => "Sorry, not possible.",
     }
 }
@@ -237,11 +261,34 @@ fn is_diagonal(direction: Direction) -> bool {
     )
 }
 
+/// TFS `Position::getDirectionTo` — cardinal/diagonal direction between two positions.
+/// C++ ref: src/position.h getDirectionTo
+fn direction_from_positions(from: Position, to: Position) -> Direction {
+    let dx = to.x as i32 - from.x as i32;
+    let dy = to.y as i32 - from.y as i32;
+    match (dx.signum(), dy.signum()) {
+        (0, -1) => Direction::North,
+        (0, 1) => Direction::South,
+        (1, 0) => Direction::East,
+        (-1, 0) => Direction::West,
+        (1, -1) => Direction::NorthEast,
+        (-1, -1) => Direction::NorthWest,
+        (1, 1) => Direction::SouthEast,
+        (-1, 1) => Direction::SouthWest,
+        _ => Direction::South, // fallback
+    }
+}
+
 /// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
 fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>, n: u32) -> bool {
     let mut height = 0u32;
+    tracing::debug!("tile_has_height_n: checking tile at {:?}, ground: {:?}, down_items: {:?}, top_items: {:?}", 
+        body.position, body.ground, body.down_items, body.top_items);
+    
     if let Some(gid) = body.ground {
-        if items_db.items.get(&gid).is_some_and(|t| t.has_height()) {
+        let has_height = items_db.items.get(&gid).is_some_and(|t| t.has_height());
+        tracing::debug!("tile_has_height_n: ground item {} has_height: {} at {:?}", gid, has_height, body.position);
+        if has_height {
             height += 1;
             if height == n {
                 return true;
@@ -250,7 +297,9 @@ fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, item
     }
     for &item_id in &body.down_items {
         if let Some(item) = items.get(item_id) {
-            if items_db.items.get(&item.item_type).is_some_and(|t| t.has_height()) {
+            let has_height = items_db.items.get(&item.item_type).is_some_and(|t| t.has_height());
+            tracing::debug!("tile_has_height_n: down item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, body.position);
+            if has_height {
                 height += 1;
                 if height == n {
                     return true;
@@ -260,7 +309,9 @@ fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, item
     }
     for &item_id in &body.top_items {
         if let Some(item) = items.get(item_id) {
-            if items_db.items.get(&item.item_type).is_some_and(|t| t.has_height()) {
+            let has_height = items_db.items.get(&item.item_type).is_some_and(|t| t.has_height());
+            tracing::debug!("tile_has_height_n: top item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, body.position);
+            if has_height {
                 height += 1;
                 if height == n {
                     return true;
@@ -268,16 +319,18 @@ fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, item
             }
         }
     }
+    tracing::debug!("tile_has_height_n: total height {} at {:?}, needed {}", height, body.position, n);
     false
 }
 
 #[inline]
 fn tile_is_hole_like(body: &crate::tile::TileBody) -> bool {
-    body.ground.is_none() && (body.flags & tile_state::BLOCKSOLID) == 0
+    body.ground.is_none() && (body.flags & tilestate::BLOCKSOLID) == 0
 }
 
-/// TFS `Game::internalMoveCreature(Creature*, Direction, flags)` — cardinal **floor change** only (`game.cpp` ~804–834).
-/// Diagonal steps skip this; `queryDestination` chaining is not ported here.
+/// TFS `Game::internalMoveCreature(Creature*, Direction, flags)` — height-based floor change
+/// (`game.cpp` ~804–834). Only runs for cardinal (non-diagonal) player moves.
+/// C++ ref: src/game.cpp:797-841
 fn resolve_player_move_destination(
     map: &Map,
     items_db: &ItemDatabase,
@@ -291,31 +344,22 @@ fn resolve_player_move_destination(
         return (dest_pos, flags);
     }
 
-    // Try go up.
+    // C++ ref: src/game.cpp:807-820 — try to go up
     if current_pos.z != 8 {
         if let Some(cur_tile) = map.get_tile(current_pos) {
-            let cur_body = cur_tile.body();
-            if tile_has_height_n(cur_body, items_db, items, 3) {
+            let has_h3 = tile_has_height_n(cur_tile.body(), items_db, items, 3);
+            if has_h3 {
                 let z_above = current_pos.z.wrapping_sub(1);
-                let tmp1 = map.get_tile(Position {
-                    x: current_pos.x,
-                    y: current_pos.y,
-                    z: z_above,
-                });
-                let open = tmp1.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
+                let tmp = map.get_tile(Position { x: current_pos.x, y: current_pos.y, z: z_above });
+                let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
                 if open {
-                    let dest_up_z = dest_pos.z.wrapping_sub(1);
-                    let tmp2 = map.get_tile(Position {
-                        x: dest_pos.x,
-                        y: dest_pos.y,
-                        z: dest_up_z,
-                    });
+                    let tmp2 = map.get_tile(Position { x: dest_pos.x, y: dest_pos.y, z: z_above });
                     if let Some(tt) = tmp2 {
                         let tb = tt.body();
-                        if tb.ground.is_some() && (tb.flags & tile_state::IMMOVABLEBLOCKSOLID) == 0 {
+                        if tb.ground.is_some() && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0 {
                             flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
-                            if (tb.flags & tile_state::FLOORCHANGE) == 0 {
-                                dest_pos.z = dest_pos.z.wrapping_sub(1);
+                            if (tb.flags & tilestate::FLOORCHANGE) == 0 {
+                                dest_pos.z = z_above;
                             }
                         }
                     }
@@ -324,24 +368,19 @@ fn resolve_player_move_destination(
         }
     }
 
-    // Try go down.
+    // C++ ref: src/game.cpp:823-833 — try to go down
     if current_pos.z != 7 && current_pos.z == dest_pos.z {
-        let tmp3 = map.get_tile(dest_pos);
-        let open = tmp3.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
+        let tmp = map.get_tile(dest_pos);
+        let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
         if open {
-            let z_down = dest_pos.z.wrapping_add(1);
-            let tmp4 = map.get_tile(Position {
-                x: dest_pos.x,
-                y: dest_pos.y,
-                z: z_down,
-            });
-            if let Some(tt) = tmp4 {
+            let z_below = dest_pos.z.wrapping_add(1);
+            if let Some(tt) = map.get_tile(Position { x: dest_pos.x, y: dest_pos.y, z: z_below }) {
                 let tb = tt.body();
                 if tile_has_height_n(tb, items_db, items, 3)
-                    && (tb.flags & tile_state::IMMOVABLEBLOCKSOLID) == 0
+                    && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0
                 {
                     flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
-                    dest_pos.z = dest_pos.z.wrapping_add(1);
+                    dest_pos.z = z_below;
                 }
             }
         }
@@ -350,12 +389,88 @@ fn resolve_player_move_destination(
     (dest_pos, flags)
 }
 
+/// TFS `Tile::queryDestination` — flag-based floor change after creature has landed on a tile.
+/// Called in a while-loop by `internalMoveCreature(Creature&, Tile&, flags)`.
+/// C++ ref: src/tile.cpp:735-830
+fn query_destination(
+    map: &Map,
+    tile_pos: Position,
+    tile_flags: u32,
+) -> Option<(Position, u32)> {
+    if tile_flags & tilestate::FLOORCHANGE_DOWN != 0 {
+        // C++ ref: src/tile.cpp:740-784
+        let mut dx = tile_pos.x;
+        let mut dy = tile_pos.y;
+        let dz = tile_pos.z.wrapping_add(1);
+
+        // Check south-alt first
+        if let Some(south_down) = map.get_tile(Position { x: dx, y: dy.wrapping_sub(1), z: dz }) {
+            if south_down.body().flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0 {
+                dy = dy.wrapping_sub(2);
+                let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
+                return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+            }
+        }
+
+        // Check east-alt
+        if let Some(east_down) = map.get_tile(Position { x: dx.wrapping_sub(1), y: dy, z: dz }) {
+            if east_down.body().flags & tilestate::FLOORCHANGE_EAST_ALT != 0 {
+                dx = dx.wrapping_sub(2);
+                let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
+                return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+            }
+        }
+
+        // Normal directional check on the tile below
+        if let Some(down_tile) = map.get_tile(Position { x: dx, y: dy, z: dz }) {
+            let df = down_tile.body().flags;
+            if df & tilestate::FLOORCHANGE_NORTH != 0 { dy = dy.wrapping_add(1); }
+            if df & tilestate::FLOORCHANGE_SOUTH != 0 { dy = dy.wrapping_sub(1); }
+            if df & tilestate::FLOORCHANGE_SOUTH_ALT != 0 { dy = dy.wrapping_sub(2); }
+            if df & tilestate::FLOORCHANGE_EAST != 0 { dx = dx.wrapping_sub(1); }
+            if df & tilestate::FLOORCHANGE_EAST_ALT != 0 { dx = dx.wrapping_sub(2); }
+            if df & tilestate::FLOORCHANGE_WEST != 0 { dx = dx.wrapping_add(1); }
+        }
+
+        let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
+        return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+    }
+
+    // C++ ref: src/tile.cpp:785-814 — upward floor change (any non-DOWN floorchange flag)
+    if tile_flags & tilestate::FLOORCHANGE != 0 {
+        let mut dx = tile_pos.x;
+        let mut dy = tile_pos.y;
+        let dz = tile_pos.z.wrapping_sub(1);
+
+        if tile_flags & tilestate::FLOORCHANGE_NORTH != 0 { dy = dy.wrapping_sub(1); }
+        if tile_flags & tilestate::FLOORCHANGE_SOUTH != 0 { dy = dy.wrapping_add(1); }
+        if tile_flags & tilestate::FLOORCHANGE_EAST != 0 { dx = dx.wrapping_add(1); }
+        if tile_flags & tilestate::FLOORCHANGE_WEST != 0 { dx = dx.wrapping_sub(1); }
+        if tile_flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0 { dy = dy.wrapping_add(2); }
+        if tile_flags & tilestate::FLOORCHANGE_EAST_ALT != 0 { dx = dx.wrapping_add(2); }
+
+        let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
+        return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+    }
+
+    None
+}
+
+/// TFS `Tile::queryAdd` for player creatures.
+/// C++ ref: src/tile.cpp:484-628
 fn tile_query_add_player(world: &GameWorld, tile: &crate::tile::Tile, mover: CreatureId, flags: u32) -> ReturnValue {
     let body = tile.body();
+
+    // C++ ref: src/tile.cpp:487-488 — FLAG_NOLIMIT bypasses all checks.
+    if (flags & FLAG_NOLIMIT) != 0 {
+        return ReturnValue::NoError;
+    }
+
     if body.ground.is_none() {
         return ReturnValue::NotPossible;
     }
 
+    // C++ ref: src/tile.cpp:567-573 — creature blocking (players)
     if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 {
         for &tile_c in &body.creatures {
             if tile_c == mover {
@@ -370,8 +485,31 @@ fn tile_query_add_player(world: &GameWorld, tile: &crate::tile::Tile, mover: Cre
         }
     }
 
-    if (body.flags & tile_state::BLOCKSOLID) != 0 {
-        return ReturnValue::NotEnoughRoom;
+    // C++ ref: src/tile.cpp:606-628 — block solid checks, respecting FLAG_IGNOREBLOCKITEM.
+    if (flags & FLAG_IGNOREBLOCKITEM) == 0 {
+        // No FLAG_IGNOREBLOCKITEM — just check the tile-level BLOCKSOLID flag.
+        if (body.flags & tilestate::BLOCKSOLID) != 0 {
+            return ReturnValue::NotEnoughRoom;
+        }
+    } else {
+        // FLAG_IGNOREBLOCKITEM is set — only block on *immovable* blocksolid items.
+        // C++ ref: src/tile.cpp:613-627
+        if let Some(ground_id) = body.ground {
+            if let Some(gt) = world.items_db.items.get(&ground_id) {
+                if gt.block_solid() && !gt.moveable() {
+                    return ReturnValue::NotPossible;
+                }
+            }
+        }
+        for &item_id in body.top_items.iter().chain(body.down_items.iter()) {
+            if let Some(item) = world.items.get(item_id) {
+                if let Some(it) = world.items_db.items.get(&item.item_type) {
+                    if it.block_solid() && !it.moveable() {
+                        return ReturnValue::NotPossible;
+                    }
+                }
+            }
+        }
     }
 
     ReturnValue::NoError
@@ -397,6 +535,64 @@ fn set_direction_from_step(old_pos: Position, new_pos: Position, creature: &mut 
     }
     if let Some(dir) = d {
         creature.base_mut().direction = dir;
+    }
+}
+
+/// TFS `Game::internalCreatureTurn` (`game.cpp` ~3703–3721).
+///
+/// Sets the creature's direction **and** broadcasts a `0x6B` creature-turn packet to every
+/// player-spectator that can see the position.  No-op when direction is already equal
+/// (mirrors the C++ `if (creature->getDirection() == dir) return false;` guard).
+///
+/// Called exclusively from the post-`queryDestination` chain step in
+/// `internal_move_player_step` — the only place TFS calls `internalCreatureTurn` during
+/// a player's own walk.
+fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId, dir: Direction) {
+    // Guard: no-op when direction unchanged — matches C++ early-return.
+    let old_dir = match world.creatures.get(cid) {
+        Some(k) => k.base().direction,
+        None => return,
+    };
+    if old_dir == dir {
+        return;
+    }
+
+    // Mutate direction in creature state.
+    if let Some(k) = world.creatures.get_mut(cid) {
+        k.base_mut().direction = dir;
+    }
+
+    // Gather: guid, position, stack position (needed for the 0x6B wire format).
+    let (guid, pos) = match world.creatures.get(cid) {
+        Some(CreatureKind::Player(p)) => (p.guid, p.base.position),
+        _ => return,
+    };
+    let stack_u8 = world
+        .map
+        .get_tile(pos)
+        .map(|t| {
+            let raw = client_creature_stack_pos(t.body(), cid);
+            if raw < 0 || raw >= 10 { 10u8 } else { raw as u8 }
+        })
+        .unwrap_or(10);
+
+    // Broadcast `0x6B` to ALL spectators (inc. the mover) that can see the position.
+    // C++ `map.getSpectators(spectators, pos, true, true)` → players only.
+    let spectators: Vec<ConnId> = world
+        .conn_to_creature
+        .iter()
+        .filter_map(|(&conn, &viewer)| {
+            if world.can_see_position(viewer, pos) {
+                Some(conn)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let packet = send_creature_turn(guid, stack_u8, pos, dir as u8, false).into_bytes();
+    for conn in spectators {
+        world.enqueue_outgoing(conn, packet.clone());
     }
 }
 
@@ -650,6 +846,53 @@ impl GameWorld {
         self.enqueue_outgoing(conn_id, packet);
     }
 
+    /// C++ `sendCreatureMove` teleport path: `sendRemoveTileCreature` + `sendMapDescription`.
+    /// Used for queryDestination chain steps where `areInRange<1,1,0>` fails (z-change or >1 tile).
+    fn emit_teleport_move_packet(
+        &mut self,
+        cid: CreatureId,
+        conn_id: ConnId,
+        old_pos: Position,
+        new_pos: Position,
+        old_stack: i32,
+    ) {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        let with_description = p.item_with_description();
+
+        // 1) sendRemoveTileCreature(creature, oldPos, oldStackPos)
+        let remove_pkt = if old_stack >= 0 && old_stack < 10 {
+            send_remove_tile_thing(old_pos, old_stack as u8).into_bytes()
+        } else {
+            tfs_rust_net::outgoing_extra::send_remove_tile_creature_by_id(p.guid).into_bytes()
+        };
+        self.enqueue_outgoing(conn_id, remove_pkt);
+
+        // 2) sendMapDescription(newPos)
+        let mut known = self
+            .known_creatures_by_conn
+            .remove(&conn_id)
+            .unwrap_or_default();
+        let map_pkt = {
+            let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
+                map_tile_content(self, cid, new_pos, tx, ty, tz)
+            };
+            let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
+            send_map_description_packet(
+                new_pos,
+                new_pos,
+                &mut get_tile,
+                &mut known,
+                &mut can_see,
+                with_description,
+            )
+            .into_bytes()
+        };
+        self.known_creatures_by_conn.insert(conn_id, known);
+        self.enqueue_outgoing(conn_id, map_pkt);
+    }
+
     /// `ProtocolGame::sendMoveCreature` for other clients when both tiles are in view (`protocolgame.cpp` ~2872+).
     fn broadcast_spectator_move(
         &mut self,
@@ -896,60 +1139,69 @@ impl GameWorld {
                     Some(k) => k.position(),
                     None => return,
                 };
-                let old_stack = self
-                    .map
-                    .get_tile(old_pos)
-                    .map(|t| client_creature_stack_pos(t.body(), cid))
-                    .filter(|s| *s >= 0)
-                    .unwrap_or(1);
-                let ret = self.internal_move_player_step(cid, dir, now);
-                if ret != ReturnValue::NoError {
-                    if let Some(conn) = self.conn_for_creature(cid) {
-                        let d = self
-                            .creatures
-                            .get(cid)
-                            .and_then(|k| match k {
-                                CreatureKind::Player(p) => Some(p.base.direction),
-                                _ => None,
-                            })
-                            .unwrap_or(Direction::North);
-                        let msg = return_message_for_cancel(ret);
-                        self.enqueue_outgoing(
-                            conn,
-                            send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
-                        );
-                        self.enqueue_outgoing(
-                            conn,
-                            send_cancel_walk(direction_to_walk_byte(d)).into_bytes(),
-                        );
+                let result = self.internal_move_player_step(cid, dir, now);
+                match result {
+                    Err(ret) => {
+                        if let Some(conn) = self.conn_for_creature(cid) {
+                            let d = self
+                                .creatures
+                                .get(cid)
+                                .and_then(|k| match k {
+                                    CreatureKind::Player(p) => Some(p.base.direction),
+                                    _ => None,
+                                })
+                                .unwrap_or(Direction::North);
+                            let msg = return_message_for_cancel(ret);
+                            self.enqueue_outgoing(
+                                conn,
+                                send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+                            );
+                            self.enqueue_outgoing(
+                                conn,
+                                send_cancel_walk(direction_to_walk_byte(d)).into_bytes(),
+                            );
+                        }
+                        // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
+                        // popped in `getNextStep` (`src/creature.cpp` ~205–213).
+                        if let Some(k) = self.creatures.get_mut(cid) {
+                            k.base_mut().force_update_follow_path = true;
+                        }
                     }
-                    // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
-                    // popped in `getNextStep` (`src/creature.cpp` ~205–213).
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        k.base_mut().force_update_follow_path = true;
-                    }
-                } else {
-                    let new_pos = match self.creatures.get(cid) {
-                        Some(k) => k.position(),
-                        None => return,
-                    };
-                    if let Some(conn) = self.conn_for_creature(cid) {
-                        self.emit_move_packet(cid, conn, old_pos, new_pos, old_stack);
-                    }
-                    self.broadcast_spectator_move(cid, old_pos, new_pos, old_stack);
-                    // TFS `lastStep` is set in `onCreatureMove` **after** `sendCreatureMove` (`map.cpp` ~309–324).
-                    // `Instant::now()` — not scheduler `now` — if the walk tick is late, `getWalkDelay` stays aligned.
-                    // OTCv8: step length from ground speed on tile **entered** (`m_lastStepToPosition`); TFS
-                    // `getWalkDelay` also uses creature tile after move.
-                    let gs_dest = self
-                        .map
-                        .get_tile(new_pos)
-                        .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
-                        .unwrap_or(150);
-                    if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                        p.base.last_step = Some(Instant::now());
-                        p.base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
-                        p.base.last_step_ground_speed = gs_dest;
+                    Ok(segments) => {
+                        let new_pos = match self.creatures.get(cid) {
+                            Some(k) => k.position(),
+                            None => return,
+                        };
+
+                        // Emit per-segment move packets — matches C++ `Map::moveCreature` which
+                        // sends a packet for each call (game.cpp ~863-864 loop).
+                        if let Some(conn) = self.conn_for_creature(cid) {
+                            for seg in &segments {
+                                if seg.teleport {
+                                    // C++ teleport path: sendRemoveTileCreature + sendMapDescription
+                                    self.emit_teleport_move_packet(cid, conn, seg.from, seg.to, seg.old_stack);
+                                } else {
+                                    self.emit_move_packet(cid, conn, seg.from, seg.to, seg.old_stack);
+                                }
+                            }
+                        }
+                        // Broadcast to spectators using overall old→new for now.
+                        // C++ broadcasts per moveCreature call, but the initial step is most
+                        // important for spectator rendering.
+                        let overall_old_stack = segments.first().map(|s| s.old_stack).unwrap_or(1);
+                        self.broadcast_spectator_move(cid, old_pos, new_pos, overall_old_stack);
+
+                        // TFS `lastStep` is set in `onCreatureMove` **after** `sendCreatureMove` (`map.cpp` ~309–324).
+                        let gs_dest = self
+                            .map
+                            .get_tile(new_pos)
+                            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+                            .unwrap_or(150);
+                        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                            p.base.last_step = Some(Instant::now());
+                            p.base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
+                            p.base.last_step_ground_speed = gs_dest;
+                        }
                     }
                 }
             } else {
@@ -986,12 +1238,25 @@ impl GameWorld {
         }
     }
 
-    fn internal_move_player_step(&mut self, cid: CreatureId, direction: Direction, now: Instant) -> ReturnValue {
+    /// TFS `Game::internalMoveCreature` — both overloads combined.
+    /// C++ ref: src/game.cpp:797-894
+    ///
+    /// Returns `Ok(segments)` on success — each segment corresponds to one C++
+    /// `Map::moveCreature` call and needs its own move packet.
+    /// Returns `Err(ret)` when the move is rejected.
+    fn internal_move_player_step(
+        &mut self,
+        cid: CreatureId,
+        direction: Direction,
+        now: Instant,
+    ) -> Result<Vec<MoveSegment>, ReturnValue> {
         let current_pos = match self.creatures.get(cid) {
             Some(k) => k.position(),
-            None => return ReturnValue::NotPossible,
+            None => return Err(ReturnValue::NotPossible),
         };
         let flags_in = FLAG_IGNOREFIELDDAMAGE;
+
+        // Phase 1: height-based floor change (game.cpp ~797-841)
         let (dest_pos, flags) = resolve_player_move_destination(
             &self.map,
             self.items_db.as_ref(),
@@ -1001,48 +1266,154 @@ impl GameWorld {
             flags_in,
         );
         let Some(to_tile) = self.map.get_tile(dest_pos) else {
-            return ReturnValue::NotPossible;
+            return Err(ReturnValue::NotPossible);
         };
 
         let ret = tile_query_add_player(self, to_tile, cid, flags);
         if ret != ReturnValue::NoError {
-            return ret;
+            return Err(ret);
         }
 
         let old_pos = current_pos;
-        // `Player::onWalk(Direction&)` runs **before** `internalMoveCreature` and calls
-        // `setNextAction(... + getStepDuration(dir))` — `getStepDuration` reads **this** tile’s ground
-        // (`creature.cpp` / `player.cpp` ~1339–1343), i.e. **source** tile, not destination.
+        // `Player::onWalk(Direction&)` — `getStepDuration` reads **source** tile ground speed.
         let gs_next_action = self
             .map
             .get_tile(old_pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
 
-        self.map.unregister_creature_index(old_pos, cid);
-        if let Some(t) = self.map.get_tile_mut(old_pos) {
-            t.remove_creature(cid);
-        }
-        if let Some(t) = self.map.get_tile_mut(dest_pos) {
-            t.add_creature(cid);
-        }
-        self.map.register_creature_index(dest_pos, cid);
+        let mut segments: Vec<MoveSegment> = Vec::new();
 
+        // Collect old_stack for the initial move BEFORE moving the creature.
+        let initial_old_stack = self
+            .map
+            .get_tile(old_pos)
+            .map(|t| client_creature_stack_pos(t.body(), cid))
+            .filter(|s| *s >= 0)
+            .unwrap_or(1);
+
+        // C++ map.cpp:262 — teleport detection for initial step.
+        let has_ground = self.map.get_tile(dest_pos)
+            .map(|t| t.body().ground.is_some())
+            .unwrap_or(false);
+        let initial_teleport = !has_ground || !are_in_range_1_1_0(old_pos, dest_pos);
+
+        // Move creature to initial destination.
+        self.move_creature_on_map(cid, old_pos, dest_pos);
+
+        segments.push(MoveSegment {
+            from: old_pos,
+            to: dest_pos,
+            old_stack: initial_old_stack,
+            teleport: initial_teleport,
+        });
+
+        // Phase 2: queryDestination while-loop (game.cpp ~863-880).
+        // C++ ref: src/tile.cpp:735-830 — chain floor changes up to MAP_MAX_LAYERS (16).
+        const MAP_MAX_LAYERS: usize = 16;
+        let mut final_pos = dest_pos;
+        let mut from_pos: Option<Position> = None;
+        for _ in 0..MAP_MAX_LAYERS {
+            let tile_flags = match self.map.get_tile(final_pos) {
+                Some(t) => t.body().flags,
+                None => break,
+            };
+            let Some((new_pos, _new_flags)) = query_destination(&self.map, final_pos, tile_flags) else {
+                break;
+            };
+
+            // Collect old_stack for this chain step BEFORE moving.
+            let chain_old_stack = self
+                .map
+                .get_tile(final_pos)
+                .map(|t| client_creature_stack_pos(t.body(), cid))
+                .filter(|s| *s >= 0)
+                .unwrap_or(1);
+
+            let chain_has_ground = self.map.get_tile(new_pos)
+                .map(|t| t.body().ground.is_some())
+                .unwrap_or(false);
+            let chain_teleport = !chain_has_ground || !are_in_range_1_1_0(final_pos, new_pos);
+
+            // Move creature to the chained destination.
+            self.move_creature_on_map(cid, final_pos, new_pos);
+
+            segments.push(MoveSegment {
+                from: final_pos,
+                to: new_pos,
+                old_stack: chain_old_stack,
+                teleport: chain_teleport,
+            });
+
+            from_pos = Some(final_pos);
+            final_pos = new_pos;
+        }
+
+        // ── Direction setting (must match C++ order) ──
+        //
+        // C++ `Map::moveCreature` (map.cpp ~295-306): sets direction from dx/dy of the
+        // *initial* move (old_pos → dest_pos), but only when NOT a teleport (same z, ≤1 tile).
+        // C++ `game.cpp:815,829`: height-based z-change → direction = walk input direction.
+        // C++ `game.cpp:882-891`: after queryDestination chain → direction from chain from→to.
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.set_position(dest_pos);
-            // `Map::moveCreature` (`map.cpp` ~295–306): N/S then E/W overwrite — same as TFS facing.
+            // Step 1: direction from the initial move (same as Map::moveCreature).
+            // C++ ref: src/map.cpp:295-306
             set_direction_from_step(old_pos, dest_pos, k);
+
+            // Step 2: height-based z-change overrides with walk input direction.
+            // C++ ref: src/game.cpp:815,829
+            if old_pos.z != dest_pos.z {
+                k.base_mut().direction = direction;
+            }
+        }
+
+        // Set the authoritative position FIRST — must happen before any broadcast so that
+        // `can_see_position(viewer=self, pos=final_pos)` reads the correct z-level and
+        // includes the moving player themselves in the `0x6B` spectator set.
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.set_position(final_pos);
             if let CreatureKind::Player(p) = k {
-                if old_pos.z != dest_pos.z {
-                    // `Game::internalMoveCreature` sets facing on floor change (`game.cpp` ~815–816, ~829–830).
-                    p.base.direction = direction;
-                }
                 let dur_ms = get_step_duration_ms_with_direction(&p.base, direction, gs_next_action);
                 p.next_action_until = Some(now + Duration::from_millis(dur_ms.max(1) as u64));
             }
         }
 
-        ReturnValue::NoError
+        // Step 3: post-queryDestination chain turn overrides everything.
+        // C++ ref: src/game.cpp:882-891
+        // C++ calls `internalCreatureTurn` here — which sets direction AND sends `0x6B`.
+        // Now that creature.position() == final_pos, the broadcast will correctly reach
+        // the moving player (previously dropped due to z-mismatch in can_see_position).
+        if let Some(fp) = from_pos {
+            if fp.z != final_pos.z && (fp.x != final_pos.x || fp.y != final_pos.y) {
+                let dir = direction_from_positions(fp, final_pos);
+                if !is_diagonal(dir) {
+                    internal_creature_turn_with_broadcast(self, cid, dir);
+                }
+            }
+        }
+
+        if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(_)))
+        {
+            self.auto_close_containers_for_player(cid);
+        }
+
+        Ok(segments)
+    }
+
+    /// Move a creature between tiles on the map (unregister from old, register at new).
+    fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
+        if from == to { return; }
+        self.map.unregister_creature_index(from, cid);
+        if let Some(t) = self.map.get_tile_mut(from) {
+            t.remove_creature(cid);
+        }
+        if let Some(t) = self.map.get_tile_mut(to) {
+            t.add_creature(cid);
+        }
+        self.map.register_creature_index(to, cid);
     }
 
     pub fn process_walk_deadlines(&mut self) {

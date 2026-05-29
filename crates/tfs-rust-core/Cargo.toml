@@ -11,6 +11,7 @@ tfs-rust-common = { workspace = true }
 tfs-rust-db = { workspace = true }
 tfs-rust-net = { workspace = true }
 tfs-rust-content = { workspace = true }
+tfs-rust-lua = { path = "../tfs-rust-lua" }
 slotmap = { workspace = true }
 dashmap = { workspace = true }
 mlua = { workspace = true }

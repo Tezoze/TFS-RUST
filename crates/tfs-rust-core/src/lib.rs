@@ -13,16 +13,25 @@ pub mod game_world;
 pub mod guild;
 pub mod house;
 pub mod ids;
-mod inventory_slots;
 pub mod item;
 pub mod item_attributes;
+mod item_blob;
+mod item_look;
+pub mod inventory;
+mod player_inventory_load;
+mod game_world_inventory;
+mod game_world_save;
+mod container_ui;
 pub mod container;
+mod container_ops;
 pub mod cylinder;
 pub mod thing;
 pub mod return_value;
 pub mod login;
 mod login_out;
 pub mod lua_command;
+pub mod lua_event_dispatcher;
+pub mod lua_scope;
 pub mod map;
 pub mod matrix_area;
 pub mod output_queue;
@@ -48,20 +57,25 @@ pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
 pub use config::ConfigManager;
 pub use creature::{
     CreatureBase, CreatureKind, DamageMap, Monster, MonsterAiPhase, Npc, NpcEventsHandler,
-    NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial,
+    NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
+    PlayerSkills, PlayerSocial,
 };
 pub use event_dispatcher::{EventDispatcher, NullEventDispatcher};
 pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
 pub use game_world::GameWorld;
 pub use guild::{Guild, GuildRank, GuildRegistry, GuildWarTracker};
 pub use ids::{CreatureId, ItemId};
-pub use container::{Container, ContainerError, ContainerRegistry, ContainerType};
-pub use cylinder::{Cylinder, CylinderFlags, CylinderLink, CylinderType, VirtualCylinder, INDEX_WHEREEVER};
+pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
+pub use cylinder::{
+    Cylinder, CylinderFlags, CylinderLink, CylinderType, VirtualCylinder, INDEX_ADD_WHEREVER, INDEX_MOVE_UP,
+    INDEX_WHEREEVER,
+};
 pub use item::{Item, ItemPosition};
 pub use item_attributes::{AttrType, CustomAttrValue, CustomAttributeMap, DecayState, ItemAttrFlags, ItemAttributes};
 pub use return_value::ReturnValue;
 pub use thing::Thing;
 pub use lua_command::LuaCommand;
+pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;
 pub use matrix_area::MatrixArea;
 pub use party::{split_shared_experience, Party, PartyInviteState};

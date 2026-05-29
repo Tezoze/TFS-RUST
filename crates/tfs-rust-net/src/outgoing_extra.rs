@@ -1076,6 +1076,8 @@ pub fn send_add_container_item_template(
     client_id: u16,
     count: u8,
     stackable: bool,
+    is_splash_or_fluid: bool,
+    is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
     let mut m = NetworkMessage::new();
@@ -1087,8 +1089,8 @@ pub fn send_add_container_item_template(
         client_id,
         count,
         stackable,
-        false,
-        false,
+        is_splash_or_fluid,
+        is_animation,
         with_description,
     );
     m
@@ -1100,6 +1102,8 @@ pub fn send_update_container_item_template(
     client_id: u16,
     count: u8,
     stackable: bool,
+    is_splash_or_fluid: bool,
+    is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
     let mut m = NetworkMessage::new();
@@ -1111,8 +1115,8 @@ pub fn send_update_container_item_template(
         client_id,
         count,
         stackable,
-        false,
-        false,
+        is_splash_or_fluid,
+        is_animation,
         with_description,
     );
     m

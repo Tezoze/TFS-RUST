@@ -11,10 +11,12 @@ use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 use crate::creature::vocation::base_walk_speed;
 use crate::creature::CreatureKind;
 use crate::creature::{
-    CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial,
+    CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
+    PlayerSkills, PlayerSocial,
 };
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::lua_scope::fire_on_login;
 
 fn direction_from_u8(d: u8) -> Direction {
     match d {
@@ -39,7 +41,15 @@ fn skull_from_i32(s: i32) -> SkullType {
 }
 
 /// Build runtime `Player` from SQL load result.
-pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
+pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
+    let persist = PlayerPersistBaseline {
+        player_row: data.player.clone(),
+        spells: std::mem::take(&mut data.spells),
+        storage: std::mem::take(&mut data.storage),
+        depot: std::mem::take(&mut data.items.depot),
+        inbox: std::mem::take(&mut data.items.inbox),
+        last_depot_id: -1,
+    };
     let p = &data.player;
     let pos = Position::new(
         p.posx.clamp(0, u16::MAX as i32) as u16,
@@ -83,6 +93,7 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         cancel_next_walk: false,
         force_update_follow_path: false,
         movement_blocked: false,
+        stairhop_blocked_until: None,
         follow_target: None,
         attack_target: None,
         master: None,
@@ -136,14 +147,13 @@ pub fn player_from_loaded(data: LoadedPlayerData) -> Player {
         operating_system: 0,
         otclient_v8: 0,
         ghost_mode: false,
-        inventory_slots: crate::inventory_slots::build_equipment_slots(
-            &data.items.inventory,
-            &data.items.store_inbox,
-        ),
+        equipment_slots: std::array::from_fn(|_| None),
+        inventory_weight: 0,
         vip_list: data.vip_list.clone(),
         health_hidden: false,
         last_activity: std::time::Instant::now(),
         next_action_until: None,
+        persist: Some(persist),
     }
 }
 
@@ -160,6 +170,9 @@ pub async fn login_player(
             "character `{name}` not found"
         )));
     };
+
+    let inventory_rows = loaded.items.inventory.clone();
+    let store_inbox_rows = loaded.items.store_inbox.clone();
 
     let key = loaded.player.name.clone();
     let guid = u32::try_from(loaded.player.id).map_err(|_| {
@@ -182,6 +195,8 @@ pub async fn login_player(
     player.otclient_v8 = otclient_v8;
     let cid = world.creatures.insert(CreatureKind::Player(player));
 
+    world.hydrate_player_inventory_from_db(cid, &inventory_rows, &store_inbox_rows);
+
     // GAME THREAD ONLY
     world.player_by_name.insert(key, cid);
     world.player_by_guid.insert(guid, cid);
@@ -199,6 +214,6 @@ pub async fn login_player(
         world.guilds.register_online(cid, gid);
     }
 
-    world.events.on_login(cid);
+    fire_on_login(world, cid);
     Ok(cid)
 }

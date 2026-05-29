@@ -29,6 +29,22 @@ impl PropWriteStream {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
+    pub fn write_i8(&mut self, v: i8) {
+        self.buf.push(v as u8);
+    }
+
+    pub fn write_i32(&mut self, v: i32) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+
+    pub fn write_i64(&mut self, v: i64) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+
+    pub fn write_f64(&mut self, v: f64) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+
     pub fn write_u64(&mut self, v: u64) {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
@@ -61,6 +77,12 @@ impl<'a> PropStream<'a> {
             .map_err(|_| TfsRustError::PropStream("EOF reading u8".into()))
     }
 
+    pub fn read_i8(&mut self) -> Result<i8> {
+        self.cursor
+            .read_i8()
+            .map_err(|_| TfsRustError::PropStream("EOF reading i8".into()))
+    }
+
     pub fn read_u16(&mut self) -> Result<u16> {
         self.cursor
             .read_u16::<LittleEndian>()
@@ -71,6 +93,12 @@ impl<'a> PropStream<'a> {
         self.cursor
             .read_u32::<LittleEndian>()
             .map_err(|_| TfsRustError::PropStream("EOF reading u32".into()))
+    }
+
+    pub fn read_i32(&mut self) -> Result<i32> {
+        self.cursor
+            .read_i32::<LittleEndian>()
+            .map_err(|_| TfsRustError::PropStream("EOF reading i32".into()))
     }
 
     pub fn read_u64(&mut self) -> Result<u64> {
@@ -87,5 +115,24 @@ impl<'a> PropStream<'a> {
             .map_err(|_| TfsRustError::PropStream("EOF reading string".into()))?;
         String::from_utf8(string_buf)
             .map_err(|_| TfsRustError::PropStream("Invalid UTF-8 in string".into()))
+    }
+
+    /// C++ `PropStream::read<int64_t>` — `src/propstream.h`.
+    pub fn read_i64(&mut self) -> Result<i64> {
+        self.cursor
+            .read_i64::<LittleEndian>()
+            .map_err(|_| TfsRustError::PropStream("EOF reading i64".into()))
+    }
+
+    /// C++ `PropStream::read<double>` — custom attributes (`item.h` CustomAttribute::unserialize).
+    pub fn read_f64(&mut self) -> Result<f64> {
+        self.cursor
+            .read_f64::<LittleEndian>()
+            .map_err(|_| TfsRustError::PropStream("EOF reading f64".into()))
+    }
+
+    /// C++ `PropStream::read<bool>` (1 byte).
+    pub fn read_bool_byte(&mut self) -> Result<bool> {
+        Ok(self.read_u8()? != 0)
     }
 }

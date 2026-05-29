@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Integrated server: OTBM + DB + game loop + login/game ports (7171 / 7172).
 # Usage from repo root:
-#   export DATABASE_URL='mysql://tfs@127.0.0.1:3306/TFS'
 #   ./scripts/run_server.sh
+#
+# MariaDB: if DATABASE_URL is **unset**, the binary builds a URL from `config.lua` (mysqlHost, mysqlUser,
+# mysqlPass, mysqlDatabase, mysqlPort) — same as TFS C++. Set DATABASE_URL only to override, e.g. Docker:
+#   export DATABASE_URL='mysql://tfs@127.0.0.1:3306/TFS'
 #
 # Optional: TFS_DATA_DIR (default `data` at repo root), TFS_MAP_OTBM (default world/forgotten.otbm),
 # TFS_CONFIG (default config.lua), TFS_RSA_PEM, TFS_LOGIN_ADDR, TFS_GAME_ADDR
@@ -11,9 +14,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -z "${DATABASE_URL:-}" ]]; then
-  echo "Set DATABASE_URL (MariaDB), e.g. export DATABASE_URL='mysql://tfs@127.0.0.1:3306/TFS'" >&2
-  exit 1
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  echo "run_server: using DATABASE_URL from environment" >&2
+else
+  echo "run_server: DATABASE_URL not set — using MySQL keys from \${TFS_CONFIG:-config.lua}" >&2
 fi
 
 if command -v fuser >/dev/null 2>&1; then

@@ -337,6 +337,69 @@ impl ItemAttributes {
         }
     }
 
+    /// `Item::getAttack` — `src/item.h` (attribute overrides `ItemType::attack`).
+    pub fn get_attack(&self) -> Option<i32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::ATTACK)
+            .then_some(self.attack)
+    }
+
+    /// `Item::getDefense` — `src/item.h`.
+    pub fn get_defense(&self) -> Option<i32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::DEFENSE)
+            .then_some(self.defense)
+    }
+
+    /// `Item::getExtraDefense` — `src/item.h`.
+    pub fn get_extra_defense(&self) -> Option<i32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::EXTRA_DEFENSE)
+            .then_some(self.extra_defense)
+    }
+
+    /// `Item::getArmor` — `src/item.h`.
+    pub fn get_armor(&self) -> Option<i32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::ARMOR)
+            .then_some(self.armor)
+    }
+
+    /// `Item::getShootRange` — `src/item.h`.
+    pub fn get_shoot_range_attr(&self) -> Option<i32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::SHOOT_RANGE)
+            .then_some(self.shoot_range)
+    }
+
+    /// `Item::getHitChance` — `src/item.h`.
+    pub fn get_hit_chance_attr(&self) -> Option<i32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::HIT_CHANCE)
+            .then_some(self.hit_chance)
+    }
+
+    pub fn get_name_str(&self) -> Option<&str> {
+        self.name.as_deref().filter(|s| !s.is_empty())
+    }
+
+    pub fn get_article_str(&self) -> Option<&str> {
+        self.article.as_deref().filter(|s| !s.is_empty())
+    }
+
+    pub fn get_plural_name_str(&self) -> Option<&str> {
+        self.plural_name.as_deref().filter(|s| !s.is_empty())
+    }
+
+    /// Base weight in 1/100 oz — `Item::getBaseWeight` (`item.cpp`).
+    pub fn base_weight_oz(&self, type_weight: u32) -> u32 {
+        if self.attribute_bits.contains(ItemAttrFlags::WEIGHT) {
+            self.weight
+        } else {
+            type_weight
+        }
+    }
+
     // === Setters ===
 
     pub fn set_action_id(&mut self, value: u16) {
@@ -440,6 +503,112 @@ impl ItemAttributes {
     pub fn set_attack_speed(&mut self, value: u32) {
         self.attribute_bits.insert(ItemAttrFlags::ATTACK_SPEED);
         self.attack_speed = value;
+    }
+
+    pub fn set_name(&mut self, value: impl Into<String>) {
+        self.attribute_bits.insert(ItemAttrFlags::NAME);
+        self.name = Some(value.into());
+    }
+
+    pub fn set_article(&mut self, value: impl Into<String>) {
+        self.attribute_bits.insert(ItemAttrFlags::ARTICLE);
+        self.article = Some(value.into());
+    }
+
+    pub fn set_plural_name(&mut self, value: impl Into<String>) {
+        self.attribute_bits.insert(ItemAttrFlags::PLURAL_NAME);
+        self.plural_name = Some(value.into());
+    }
+
+    pub fn set_weight_attr(&mut self, value: u32) {
+        self.attribute_bits.insert(ItemAttrFlags::WEIGHT);
+        self.weight = value;
+    }
+
+    pub fn set_attack(&mut self, value: i32) {
+        self.attribute_bits.insert(ItemAttrFlags::ATTACK);
+        self.attack = value;
+    }
+
+    pub fn set_defense(&mut self, value: i32) {
+        self.attribute_bits.insert(ItemAttrFlags::DEFENSE);
+        self.defense = value;
+    }
+
+    pub fn set_extra_defense(&mut self, value: i32) {
+        self.attribute_bits.insert(ItemAttrFlags::EXTRA_DEFENSE);
+        self.extra_defense = value;
+    }
+
+    pub fn set_armor(&mut self, value: i32) {
+        self.attribute_bits.insert(ItemAttrFlags::ARMOR);
+        self.armor = value;
+    }
+
+    pub fn set_hit_chance(&mut self, value: i32) {
+        self.attribute_bits.insert(ItemAttrFlags::HIT_CHANCE);
+        self.hit_chance = value;
+    }
+
+    pub fn set_shoot_range(&mut self, value: i32) {
+        self.attribute_bits.insert(ItemAttrFlags::SHOOT_RANGE);
+        self.shoot_range = value;
+    }
+
+    pub fn set_store_item(&mut self, value: u32) {
+        self.attribute_bits.insert(ItemAttrFlags::STORE_ITEM);
+        self.store_item = value;
+    }
+
+    /// TFS `Item::isStoreItem` — `src/item.h`
+    #[inline]
+    pub fn is_store_item(&self) -> bool {
+        self.attribute_bits.contains(ItemAttrFlags::STORE_ITEM)
+    }
+
+    /// Byte written for `ATTR_STOREITEM` (`item.cpp` `serializeAttr`).
+    #[inline]
+    pub fn store_item_serial_byte(&self) -> u8 {
+        self.store_item.min(u32::from(u8::MAX)) as u8
+    }
+
+    /// `ATTR_WEIGHT` payload when the weight override flag is set.
+    #[inline]
+    pub fn weight_serial(&self) -> Option<u32> {
+        self.attribute_bits
+            .contains(ItemAttrFlags::WEIGHT)
+            .then_some(self.weight)
+    }
+
+    pub fn set_auto_open(&mut self, value: u8) {
+        self.attribute_bits.insert(ItemAttrFlags::AUTO_OPEN);
+        self.auto_open = value;
+    }
+
+    /// TFS `ATTR_OPEN_CONTAINER` — saved client window id for `Player::autoOpenContainers` (`player.cpp`).
+    #[inline]
+    pub fn has_auto_open(&self) -> bool {
+        self.attribute_bits.contains(ItemAttrFlags::AUTO_OPEN)
+    }
+
+    #[inline]
+    pub fn get_auto_open(&self) -> u8 {
+        if self.has_auto_open() {
+            self.auto_open
+        } else {
+            0
+        }
+    }
+
+    pub fn set_container_size(&mut self, value: u8) {
+        self.attribute_bits.insert(ItemAttrFlags::CONTAINER_SIZE);
+        self.container_size = value;
+    }
+
+    /// `ATTR_CONTAINERSIZE` payload when flag is set.
+    #[inline]
+    pub fn container_size_serial(&self) -> u8 {
+        self.container_size
     }
 
     // === Custom Attributes ===

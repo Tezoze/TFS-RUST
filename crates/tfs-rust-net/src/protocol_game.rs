@@ -104,12 +104,12 @@ mod encrypt_tests {
 pub async fn forward_game_packets<R: AsyncRead + Unpin>(
     mut read: R,
     conn_id: ConnId,
-    cmd_tx: mpsc::Sender<GameCommand>,
+    cmd_tx: mpsc::UnboundedSender<GameCommand>,
 ) -> std::io::Result<()> {
     while let Some(payload) = read_sized_payload(&mut read).await? {
         match game_command_from_payload(conn_id, &payload) {
             Ok(cmd) => {
-                if cmd_tx.send(cmd).await.is_err() {
+                if cmd_tx.send(cmd).is_err() {
                     break;
                 }
             }
@@ -125,7 +125,7 @@ pub async fn forward_game_packets<R: AsyncRead + Unpin>(
 pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
     mut read: R,
     conn_id: ConnId,
-    cmd_tx: mpsc::Sender<GameCommand>,
+    cmd_tx: mpsc::UnboundedSender<GameCommand>,
     keys: &RoundKeys,
 ) -> std::io::Result<()> {
     while let Some(mut body) = read_sized_payload(&mut read).await? {
@@ -138,7 +138,7 @@ pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
         };
         match game_command_from_payload(conn_id, plain) {
             Ok(cmd) => {
-                if cmd_tx.send(cmd).await.is_err() {
+                if cmd_tx.send(cmd).is_err() {
                     break;
                 }
             }

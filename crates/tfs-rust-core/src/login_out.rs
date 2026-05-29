@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use slotmap::Key;
-use tracing::{info, warn};
+use tracing::warn;
 use tfs_rust_common::enums::{ConditionType, SkullType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -339,7 +339,7 @@ pub fn enqueue_initial_login_packets(
         skill_percents,
         vocation_id,
         premium_ends_at,
-        inventory_slots,
+        equipment_slots,
         vip_list,
         with_desc_inv,
     ) = {
@@ -368,7 +368,7 @@ pub fn enqueue_initial_login_packets(
             skill_percents,
             p.vocation_id,
             p.premium_ends_at,
-            p.inventory_slots.clone(),
+            p.equipment_slots,
             p.vip_list.clone(),
             with_desc_inv,
         )
@@ -423,14 +423,18 @@ pub fn enqueue_initial_login_packets(
 
     for slot in 1u8..=11 {
         let idx = (slot - 1) as usize;
-        if let Some(ref rec) = inventory_slots[idx] {
-            let sid = rec.itemtype;
+        if let Some(item_id) = equipment_slots[idx] {
+            let Some(item) = world.items.get(item_id) else {
+                world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
+                continue;
+            };
+            let sid = item.item_type;
             let cid = world.items_db.client_id_for_server(sid);
             if cid == 0 {
                 world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
                 continue;
             }
-            let cnt = rec.count.max(1).min(255) as u8;
+            let cnt = item.client_count().max(1);
             let stackable = world.items_db.stackable_for_server(sid);
             let splash = world.items_db.is_splash_or_fluid_for_server(sid);
             let anim = world.items_db.is_animation_for_server(sid);
@@ -502,6 +506,8 @@ pub fn enqueue_initial_login_packets(
     world.enqueue_outgoing(conn_id, send_icons(0).into_bytes());
     world.enqueue_outgoing(conn_id, send_fight_modes(1, 0, 0, 0).into_bytes());
 
+    world.auto_open_containers_on_login(conn_id, creature_id);
+
     if map_0x64_len < 32 {
         warn!(
             conn_id = conn_id.0,
@@ -511,14 +517,4 @@ pub fn enqueue_initial_login_packets(
             "initial 0x64 map packet is very small — possible stub (creature/world not ready)"
         );
     }
-    info!(
-        conn_id = conn_id.0,
-        player_id = pid,
-        ?pos,
-        map_0x64_bytes = map_0x64_len,
-        world_time = wt,
-        world_light_level = wl,
-        inventory_otcv8_item_descriptions = with_desc_inv,
-        "initial login burst enqueued (0x64 + stats + light); check OTClient log if the screen stays black"
-    );
 }

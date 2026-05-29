@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
+use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::{ItemRecord, VipEntry};
+
+use crate::ids::ItemId;
 
 use crate::creature::base::CreatureBase;
 use crate::creature::vocation::{
@@ -42,6 +45,19 @@ pub struct PlayerSocial {
     pub guild_id: Option<u32>,
 }
 
+/// SQL + item payloads copied at login for fields not fully mirrored in runtime `Player`.
+// C++ ref: `Player` fields carried across session until `IOLoginData::savePlayer`.
+#[derive(Debug, Clone)]
+pub struct PlayerPersistBaseline {
+    pub player_row: PlayerRecord,
+    pub spells: Vec<String>,
+    pub storage: Vec<(u32, i32)>,
+    pub depot: Vec<ItemRecord>,
+    pub inbox: Vec<ItemRecord>,
+    /// C++ `Player::lastDepotId` — `-1` skips depot `DELETE`/`INSERT` in `savePlayer`.
+    pub last_depot_id: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Player {
     pub base: CreatureBase,
@@ -74,8 +90,11 @@ pub struct Player {
     pub otclient_v8: u16,
     /// GM / spectator ghost — hidden from other players’ maps (`Player::isInGhostMode` in TFS).
     pub ghost_mode: bool,
-    /// Equipment + store inbox slot snapshot from DB (`player_items` / `player_storeinboxitems`).
-    pub inventory_slots: [Option<ItemRecord>; 11],
+    /// Runtime equipment + store inbox: `CONST_SLOT_HEAD`..=`CONST_SLOT_AMMO` + `CONST_SLOT_STORE_INBOX`.
+    /// Array index `i` = slot `i + 1` for 0..9, index 10 = store inbox (`src/creature.h` `slots_t`).
+    pub equipment_slots: [Option<ItemId>; 11],
+    /// Sum of `Item::getWeight` for slots 1–10 + store inbox contents — `Player::inventoryWeight` (`player.cpp`).
+    pub inventory_weight: u32,
     /// `sendVIPEntries` payload from `account_viplist`.
     pub vip_list: Vec<VipEntry>,
     /// When true, other players receive `0` health percent on map (`Player::isHealthHidden` in TFS).
@@ -84,6 +103,8 @@ pub struct Player {
     pub last_activity: Instant,
     /// TFS `nextAction` — `Player::onWalk` blocks actions until this instant (`player.cpp` ~1343).
     pub next_action_until: Option<Instant>,
+    /// Present for characters that logged in via DB; required for `IOLoginData::savePlayer`.
+    pub persist: Option<PlayerPersistBaseline>,
 }
 
 impl Player {
@@ -121,5 +142,17 @@ impl Player {
     #[inline]
     pub fn timed_action_ready(&self, now: Instant) -> bool {
         self.next_action_until.map_or(true, |t| now >= t)
+    }
+
+    /// `Player::getCapacity` — `player.h` (simplified: no GM infinite-cap flags).
+    #[inline]
+    pub fn get_capacity_u32(&self) -> u32 {
+        self.capacity.max(0) as u32
+    }
+
+    /// `Player::getFreeCapacity` — `player.h`.
+    #[inline]
+    pub fn get_free_capacity_u32(&self) -> u32 {
+        self.get_capacity_u32().saturating_sub(self.inventory_weight)
     }
 }

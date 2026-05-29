@@ -11,7 +11,12 @@ use crate::thing::Thing;
 use tfs_rust_common::Position;
 
 /// Special index values for cylinder operations
+// C++ ref: `src/const.h` / client container slot indices (`container.cpp` `queryDestination`)
 pub const INDEX_WHEREEVER: i32 = -1;
+/// Client "move up" to parent container (`container.cpp` `queryDestination` ~line 380).
+pub const INDEX_MOVE_UP: i32 = 254;
+/// Client "add wherever" (`container.cpp` `queryDestination` ~line 389).
+pub const INDEX_ADD_WHEREVER: i32 = 255;
 
 /// Flags for cylinder operations
 // C++ ref: `src/cylinder.h:17-26`
@@ -80,9 +85,10 @@ pub enum Cylinder {
     /// Item is on a tile at the given position
     /// Items are stored in the tile's down_items/top_items vectors
     Tile { pos: Position },
-    /// Item is inside a container
-    /// Items are stored in the container's itemlist
-    Container { item_id: ItemId },
+    /// Item is inside a container (`item_id` = the container item instance).
+    /// `index` is the client slot / `INDEX_WHEREEVER` / `INDEX_MOVE_UP` / `INDEX_ADD_WHEREVER`.
+    // C++ ref: `Cylinder` for `Container` — destination index for `addThing` / `queryDestination`.
+    Container { item_id: ItemId, index: i32 },
     /// Item is in a player's inventory slot
     /// Items are stored in the player's inventory.slots array
     Inventory { player_id: CreatureId, slot: u8 },
@@ -124,7 +130,7 @@ impl Cylinder {
     /// Get the container item ID if this is a container cylinder
     pub fn as_container(&self) -> Option<ItemId> {
         match self {
-            Cylinder::Container { item_id } => Some(*item_id),
+            Cylinder::Container { item_id, .. } => Some(*item_id),
             _ => None,
         }
     }
@@ -141,7 +147,9 @@ impl Cylinder {
     pub fn description(&self) -> String {
         match self {
             Cylinder::Tile { pos } => format!("tile at ({}, {}, {})", pos.x, pos.y, pos.z),
-            Cylinder::Container { item_id } => format!("container {:?}", item_id),
+            Cylinder::Container { item_id, index } => {
+                format!("container {:?} @{}", item_id, index)
+            }
             Cylinder::Inventory { player_id, slot } => format!("player {:?} slot {}", player_id, slot),
         }
     }
@@ -155,7 +163,10 @@ impl From<Position> for Cylinder {
 
 impl From<ItemId> for Cylinder {
     fn from(item_id: ItemId) -> Self {
-        Cylinder::Container { item_id }
+        Cylinder::Container {
+            item_id,
+            index: INDEX_WHEREEVER,
+        }
     }
 }
 
@@ -200,6 +211,13 @@ mod tests {
         assert!(container_cyl.is_container());
         assert!(!container_cyl.is_inventory());
         assert_eq!(container_cyl.as_container(), Some(container_id));
+        assert_eq!(
+            container_cyl,
+            Cylinder::Container {
+                item_id: container_id,
+                index: INDEX_WHEREEVER,
+            }
+        );
     }
 
     #[test]

@@ -1,8 +1,20 @@
 //! Container implementation for items (bags, chests, etc.)
 // C++ reference: `src/container.h`, `src/container.cpp`
 
-use crate::ids::ItemId;
-use crate::item::Item;
+use std::collections::{HashMap, VecDeque};
+
+use crate::ids::{CreatureId, ItemId};
+
+/// Open container window state — `Player::openContainers` (`player.h`, `player.cpp`).
+// C++ ref: `OpenContainer` struct — `containerId` + `index` (first visible slot / scroll).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenContainer {
+    pub container_id: ItemId,
+    pub first_index: u16,
+}
+
+/// Max simultaneous container windows per player (client cid nibble 0–15).
+pub const MAX_CONTAINER_WINDOWS: u8 = 16;
 
 /// Error type for container operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +46,86 @@ pub enum ContainerType {
     BrowseField,
 }
 
+/// Recursive item iterator — matches TFS `ContainerIterator` (`container.h`, `container.cpp` ~762–795).
+// C++ ref: `ContainerIterator` — `std::list<Container*> over`, DFS-like order over nested item lists.
+pub struct ContainerIterator<'a> {
+    registry: &'a ContainerRegistry,
+    over: VecDeque<ItemId>,
+    index: usize,
+}
+
+impl<'a> ContainerIterator<'a> {
+    /// Start iteration over all items held in `root_container_item_id` (not including the container item itself).
+    pub fn new(registry: &'a ContainerRegistry, root_container_item_id: ItemId) -> Self {
+        let mut over = VecDeque::new();
+        if let Some(c) = registry.get(root_container_item_id) {
+            if !c.items.is_empty() {
+                over.push_back(root_container_item_id);
+            }
+        }
+        Self {
+            registry,
+            over,
+            index: 0,
+        }
+    }
+
+    #[inline]
+    pub fn has_next(&self) -> bool {
+        !self.over.is_empty()
+    }
+
+    fn peek(&self) -> Option<ItemId> {
+        let cid = *self.over.front()?;
+        let c = self.registry.get(cid)?;
+        c.items.get(self.index).copied()
+    }
+
+    /// Advance to the next item (C++ `ContainerIterator::advance`).
+    pub fn advance(&mut self) {
+        let Some(&front_cid) = self.over.front() else {
+            return;
+        };
+        let Some(cur_item) = self
+            .registry
+            .get(front_cid)
+            .and_then(|c| c.items.get(self.index).copied())
+        else {
+            return;
+        };
+        if let Some(cc) = self.registry.get(cur_item) {
+            if !cc.items.is_empty() {
+                self.over.push_back(cur_item);
+            }
+        }
+        self.index += 1;
+        loop {
+            let Some(&fc) = self.over.front() else {
+                break;
+            };
+            let clen = self.registry.get(fc).map(|c| c.items.len()).unwrap_or(0);
+            if self.index < clen {
+                break;
+            }
+            self.over.pop_front();
+            self.index = 0;
+        }
+    }
+}
+
+impl<'a> Iterator for ContainerIterator<'a> {
+    type Item = ItemId;
+
+    fn next(&mut self) -> Option<ItemId> {
+        if !self.has_next() {
+            return None;
+        }
+        let id = self.peek()?;
+        self.advance();
+        Some(id)
+    }
+}
+
 /// A container holds items and provides stack-like operations
 // C++ ref: `src/container.h` Container class
 #[derive(Debug, Clone)]
@@ -52,10 +144,13 @@ pub struct Container {
     pub pagination: bool,
     /// Parent container ID (for nested containers)
     pub parent_container: Option<ItemId>,
-    /// Players currently viewing this container (cid list)
-    pub open_by: Vec<u32>,
-    /// Total recursive item count (including items in nested containers)
+    /// Players currently viewing this container (protocol player id — same as `CreatureId` keying)
+    pub open_by: Vec<CreatureId>,
+    /// Recursive holding count — matches `getItemHoldingCount` / `ContainerIterator` (`container.cpp`).
     pub total_item_count: u32,
+    /// Sum of `Item::getWeight()` for all descendants — matches `totalWeight` (`container.h`).
+    // C++ ref: `Container::totalWeight` — updated via `updateItemWeight`.
+    pub total_weight: u32,
 }
 
 impl Container {
@@ -71,14 +166,14 @@ impl Container {
             parent_container: None,
             open_by: Vec::new(),
             total_item_count: 0,
+            total_weight: 0,
         }
     }
 
     /// Create a depot container
-    pub fn new_depot(item_id: ItemId, depot_id: u16, capacity: u32) -> Self {
+    pub fn new_depot(item_id: ItemId, _depot_id: u16, capacity: u32) -> Self {
         let mut container = Self::new(item_id, capacity);
         container.container_type = ContainerType::Depot;
-        // Store depot_id in a field or attribute - for now we'll handle this at higher level
         container
     }
 
@@ -97,7 +192,7 @@ impl Container {
     }
 
     /// Create a browse-field container for viewing a tile
-    pub fn new_browse_field(item_id: ItemId, tile_pos: (u16, u16, u8)) -> Self {
+    pub fn new_browse_field(item_id: ItemId, _tile_pos: (u16, u16, u8)) -> Self {
         let mut container = Self::new(item_id, 64); // Browse fields have larger capacity
         container.container_type = ContainerType::BrowseField;
         container.pagination = true; // Browse fields always have pagination
@@ -143,12 +238,17 @@ impl Container {
         self.items.iter().position(|&id| id == item_id)
     }
 
-    /// Check if this container contains a specific item
+    /// Check if this container contains a specific item (direct child only)
     pub fn contains(&self, item_id: ItemId) -> bool {
         self.items.contains(&item_id)
     }
 
-    /// Add an item to the container (at the top/end)
+    /// TFS `Container::isHoldingItem` — `container.cpp` ~258–266
+    pub fn is_holding_item(&self, registry: &ContainerRegistry, target: ItemId) -> bool {
+        ContainerIterator::new(registry, self.item_id).any(|id| id == target)
+    }
+
+    /// Add an item to the container (at the top/end) — **structural only**; use `GameWorld` to update weight/counts.
     pub fn add_item(&mut self, item_id: ItemId) -> Result<(), ContainerError> {
         if !self.unlocked {
             return Err(ContainerError::Locked);
@@ -157,7 +257,6 @@ impl Container {
             return Err(ContainerError::Full);
         }
         self.items.push(item_id);
-        self.total_item_count += 1;
         Ok(())
     }
 
@@ -173,7 +272,6 @@ impl Container {
             return Err(ContainerError::InvalidSlot);
         }
         self.items.insert(index, item_id);
-        self.total_item_count += 1;
         Ok(())
     }
 
@@ -186,7 +284,6 @@ impl Container {
             return Err(ContainerError::InvalidSlot);
         }
         let item_id = self.items.remove(index);
-        self.total_item_count = self.total_item_count.saturating_sub(1);
         Ok(item_id)
     }
 
@@ -198,7 +295,6 @@ impl Container {
         match self.index_of(item_id) {
             Some(index) => {
                 self.items.remove(index);
-                self.total_item_count = self.total_item_count.saturating_sub(1);
                 Ok(index)
             }
             None => Err(ContainerError::ItemNotFound),
@@ -210,7 +306,8 @@ impl Container {
         if index >= self.items.len() {
             return Err(ContainerError::InvalidSlot);
         }
-        let old_item_id = std::mem::replace(&mut self.items[index], new_item_id);
+        let slot = self.items.get_mut(index).ok_or(ContainerError::InvalidSlot)?;
+        let old_item_id = std::mem::replace(slot, new_item_id);
         Ok(old_item_id)
     }
 
@@ -226,20 +323,20 @@ impl Container {
     // === Viewer tracking ===
 
     /// Register a player as viewing this container
-    pub fn add_viewer(&mut self, player_cid: u32) {
-        if !self.open_by.contains(&player_cid) {
-            self.open_by.push(player_cid);
+    pub fn add_viewer(&mut self, player: CreatureId) {
+        if !self.open_by.contains(&player) {
+            self.open_by.push(player);
         }
     }
 
     /// Unregister a player from viewing this container
-    pub fn remove_viewer(&mut self, player_cid: u32) {
-        self.open_by.retain(|&cid| cid != player_cid);
+    pub fn remove_viewer(&mut self, player: CreatureId) {
+        self.open_by.retain(|&cid| cid != player);
     }
 
     /// Check if a specific player is viewing this container
-    pub fn is_viewer(&self, player_cid: u32) -> bool {
-        self.open_by.contains(&player_cid)
+    pub fn is_viewer(&self, player: CreatureId) -> bool {
+        self.open_by.contains(&player)
     }
 
     /// Get the number of players viewing this container
@@ -256,7 +353,12 @@ impl Container {
 
     /// Get items for a specific page (for pagination)
     pub fn get_page(&self, start_index: usize, count: usize) -> Vec<ItemId> {
-        self.items.iter().skip(start_index).take(count).copied().collect()
+        self.items
+            .iter()
+            .skip(start_index)
+            .take(count)
+            .copied()
+            .collect()
     }
 
     /// Get the total number of items (for pagination UI)
@@ -264,7 +366,7 @@ impl Container {
         self.items.len()
     }
 
-    // === Query methods (for Cylinder trait integration) ===
+    // === Query methods (legacy stubs — full logic in `container_ops.rs` / `GameWorld`) ===
 
     /// Query if an item can be added at a specific index
     pub fn query_add(&self, _index: i32, _item_id: ItemId) -> Result<(), ContainerError> {
@@ -290,16 +392,36 @@ impl Container {
 #[derive(Debug, Default)]
 pub struct ContainerRegistry {
     /// Map from container item ID to Container
-    containers: std::collections::HashMap<ItemId, Container>,
-    /// Map from player CID to their open container IDs (ordered by cid)
-    player_containers: std::collections::HashMap<u32, Vec<ItemId>>,
-    /// Next container CID (0-255) for client communication
-    next_cid: u8,
+    containers: HashMap<ItemId, Container>,
+    /// TFS `Player::openContainers` — client cid (`0..MAX_CONTAINER_WINDOWS`) → open state.
+    player_open: HashMap<CreatureId, HashMap<u8, OpenContainer>>,
 }
 
 impl ContainerRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn alloc_free_cid(map: &HashMap<u8, OpenContainer>) -> Option<u8> {
+        for c in 0u8..MAX_CONTAINER_WINDOWS {
+            if !map.contains_key(&c) {
+                return Some(c);
+            }
+        }
+        None
+    }
+
+    /// All registered container item instance ids (for recomputing derived fields after load).
+    pub fn registered_container_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
+        self.containers.keys().copied()
+    }
+
+    /// Open container windows for a player: `(client_cid, container_item_id)`.
+    pub fn open_container_entries(&self, player: CreatureId) -> Vec<(u8, ItemId)> {
+        self.player_open
+            .get(&player)
+            .map(|m| m.iter().map(|(&cid, oc)| (cid, oc.container_id)).collect())
+            .unwrap_or_default()
     }
 
     /// Register a new container
@@ -319,83 +441,184 @@ impl ContainerRegistry {
         self.containers.get_mut(&item_id)
     }
 
-    /// Remove a container from the registry
-    pub fn remove(&mut self, item_id: ItemId) -> Option<Container> {
-        // Also remove from all player container lists
-        for containers in self.player_containers.values_mut() {
-            containers.retain(|&id| id != item_id);
+    /// Remove a container from the registry; returns `(player, client_cid)` for each closed UI window.
+    // C++ ref: closing views when container item is destroyed — `Player::onRemoveContainer`.
+    pub fn remove(&mut self, item_id: ItemId) -> (Option<Container>, Vec<(CreatureId, u8)>) {
+        let mut closed = Vec::new();
+        let players: Vec<CreatureId> = self.player_open.keys().copied().collect();
+        for pid in players {
+            let Some(map) = self.player_open.get(&pid) else {
+                continue;
+            };
+            let to_drop: Vec<u8> = map
+                .iter()
+                .filter(|(_, oc)| oc.container_id == item_id)
+                .map(|(&cid, _)| cid)
+                .collect();
+            for cid in to_drop {
+                if self.close_container_for_player(pid, cid) {
+                    closed.push((pid, cid));
+                }
+            }
         }
-        self.containers.remove(&item_id)
+        let c = self.containers.remove(&item_id);
+        (c, closed)
     }
 
-    /// Assign a new client CID for a player opening a container
-    pub fn assign_cid(&mut self, player_cid: u32, container_id: ItemId) -> u8 {
-        let cid = self.next_cid;
-        self.next_cid = self.next_cid.wrapping_add(1);
-        
-        // Track which containers this player has open
-        self.player_containers
-            .entry(player_cid)
-            .or_default()
-            .push(container_id);
-        
-        // Add player as viewer
+    /// TFS `Player::addContainer` — open, replace contents of an existing cid, or set scroll; returns client cid.
+    // C++ ref: `player.cpp` `Player::addContainer` — if `openContainers[cid]` exists, swap to the new container.
+    pub fn add_container(
+        &mut self,
+        player: CreatureId,
+        container_id: ItemId,
+        preferred_cid: Option<u8>,
+        first_index: u16,
+    ) -> Option<u8> {
+        let map = self.player_open.entry(player).or_default();
+
+        let cid = if let Some(pc) = preferred_cid {
+            if pc < MAX_CONTAINER_WINDOWS {
+                pc
+            } else {
+                Self::alloc_free_cid(map)?
+            }
+        } else {
+            Self::alloc_free_cid(map)?
+        };
+
+        if let Some(old_oc) = map.get_mut(&cid) {
+            let old_id = old_oc.container_id;
+            if old_id != container_id {
+                if let Some(c) = self.containers.get_mut(&old_id) {
+                    c.remove_viewer(player);
+                }
+                if let Some(c) = self.containers.get_mut(&container_id) {
+                    c.add_viewer(player);
+                }
+                old_oc.container_id = container_id;
+            }
+            old_oc.first_index = first_index;
+            return Some(cid);
+        }
+
+        map.insert(
+            cid,
+            OpenContainer {
+                container_id,
+                first_index,
+            },
+        );
+
         if let Some(container) = self.containers.get_mut(&container_id) {
-            container.add_viewer(player_cid);
+            container.add_viewer(player);
         }
-        
-        cid
+
+        Some(cid)
     }
 
-    /// Release a CID when a player closes a container
-    pub fn release_cid(&mut self, player_cid: u32, cid: u8) {
-        // Remove player from container viewers
-        if let Some(containers) = self.player_containers.get(&player_cid) {
-            if let Some(&container_id) = containers.get(cid as usize) {
-                if let Some(container) = self.containers.get_mut(&container_id) {
-                    container.remove_viewer(player_cid);
-                }
+    /// TFS `Player::setContainerIndex` — pagination scroll offset.
+    pub fn set_container_index(&mut self, player: CreatureId, cid: u8, first_index: u16) -> bool {
+        let Some(m) = self.player_open.get_mut(&player) else {
+            return false;
+        };
+        let Some(oc) = m.get_mut(&cid) else {
+            return false;
+        };
+        oc.first_index = first_index;
+        true
+    }
+
+    /// TFS `Player::closeContainer` — returns the container item id that was closed, if any.
+    pub fn close_container_for_player(&mut self, player: CreatureId, cid: u8) -> bool {
+        let container_id = {
+            let Some(m) = self.player_open.get_mut(&player) else {
+                return false;
+            };
+            let Some(oc) = m.remove(&cid) else {
+                return false;
+            };
+            oc.container_id
+        };
+        if let Some(c) = self.containers.get_mut(&container_id) {
+            c.remove_viewer(player);
+        }
+        if self
+            .player_open
+            .get(&player)
+            .is_some_and(|m| m.is_empty())
+        {
+            self.player_open.remove(&player);
+        }
+        true
+    }
+
+    /// Legacy name — `Player::closeContainer`.
+    #[inline]
+    pub fn release_cid(&mut self, player: CreatureId, cid: u8) -> bool {
+        self.close_container_for_player(player, cid)
+    }
+
+    /// TFS `Player::getContainerByID` — resolve client cid → container item.
+    #[inline]
+    pub fn get_container_by_cid(&self, player: CreatureId, cid: u8) -> Option<ItemId> {
+        self.player_open
+            .get(&player)
+            .and_then(|m| m.get(&cid))
+            .map(|oc| oc.container_id)
+    }
+
+    /// TFS `Player::getContainerID` — resolve container item → client cid for this player.
+    pub fn get_cid_for_container(&self, player: CreatureId, container_id: ItemId) -> Option<u8> {
+        self.player_open.get(&player).and_then(|m| {
+            m.iter()
+                .find(|(_, oc)| oc.container_id == container_id)
+                .map(|(&cid, _)| cid)
+        })
+    }
+
+    /// TFS `Player::getContainerIndex` — scroll offset for a cid.
+    pub fn get_container_first_index(&self, player: CreatureId, cid: u8) -> Option<u16> {
+        self.player_open
+            .get(&player)
+            .and_then(|m| m.get(&cid))
+            .map(|oc| oc.first_index)
+    }
+
+    /// All open container roots for a player (for iteration).
+    pub fn open_container_roots(&self, player: CreatureId) -> impl Iterator<Item = ItemId> + '_ {
+        self.player_open
+            .get(&player)
+            .into_iter()
+            .flat_map(|m| m.values())
+            .map(|oc| oc.container_id)
+    }
+
+    /// Close all containers for a player (e.g., on logout); returns `(client_cid, container_id)` pairs.
+    pub fn close_all_for_player(&mut self, player: CreatureId) -> Vec<(u8, ItemId)> {
+        let Some(map) = self.player_open.remove(&player) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (cid, oc) in map {
+            if let Some(container) = self.containers.get_mut(&oc.container_id) {
+                container.remove_viewer(player);
             }
+            out.push((cid, oc.container_id));
         }
-        
-        // Remove from player's container list
-        if let Some(containers) = self.player_containers.get_mut(&player_cid) {
-            if (cid as usize) < containers.len() {
-                containers.remove(cid as usize);
-            }
-        }
+        out
     }
 
-    /// Get container ID by player CID and client CID
-    pub fn get_container_by_cid(&self, player_cid: u32, cid: u8) -> Option<ItemId> {
-        self.player_containers
-            .get(&player_cid)
-            .and_then(|containers| containers.get(cid as usize).copied())
-    }
-
-    /// Get all containers open by a player
-    pub fn get_player_containers(&self, player_cid: u32) -> &[ItemId] {
-        self.player_containers
-            .get(&player_cid)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
-    }
-
-    /// Close all containers for a player (e.g., on logout)
-    pub fn close_all_for_player(&mut self, player_cid: u32) {
-        if let Some(containers) = self.player_containers.remove(&player_cid) {
-            for container_id in containers {
-                if let Some(container) = self.containers.get_mut(&container_id) {
-                    container.remove_viewer(player_cid);
-                }
-            }
-        }
+    /// Assign a new client CID for a player opening a container (compat — uses `add_container` with scroll 0).
+    #[inline]
+    pub fn assign_cid(&mut self, player: CreatureId, container_id: ItemId) -> Option<u8> {
+        self.add_container(player, container_id, None, 0)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slotmap::SlotMap;
 
     #[test]
     fn test_container_creation() {
@@ -411,12 +634,10 @@ mod tests {
         let item1 = ItemId::default();
         let item2 = ItemId::default();
 
-        // Add items
         assert!(container.add_item(item1).is_ok());
         assert!(container.add_item(item2).is_ok());
         assert_eq!(container.size(), 2);
 
-        // Remove by index
         let removed = container.remove_item(0).unwrap();
         assert_eq!(removed, item1);
         assert_eq!(container.size(), 1);
@@ -425,13 +646,15 @@ mod tests {
     #[test]
     fn test_container_full() {
         let mut container = Container::new(ItemId::default(), 2);
-        
+
         assert!(container.add_item(ItemId::default()).is_ok());
         assert!(container.add_item(ItemId::default()).is_ok());
         assert!(container.is_full());
-        
-        // Should fail when full
-        assert!(matches!(container.add_item(ItemId::default()), Err(ContainerError::Full)));
+
+        assert!(matches!(
+            container.add_item(ItemId::default()),
+            Err(ContainerError::Full)
+        ));
     }
 
     #[test]
@@ -439,22 +662,32 @@ mod tests {
         let mut container = Container::new(ItemId::default(), 5);
         container.unlocked = false;
 
-        assert!(matches!(container.add_item(ItemId::default()), Err(ContainerError::Locked)));
-        assert!(matches!(container.remove_item(0), Err(ContainerError::Locked)));
+        assert!(matches!(
+            container.add_item(ItemId::default()),
+            Err(ContainerError::Locked)
+        ));
+        assert!(matches!(
+            container.remove_item(0),
+            Err(ContainerError::Locked)
+        ));
     }
 
     #[test]
     fn test_viewer_tracking() {
         let mut container = Container::new(ItemId::default(), 5);
-        
-        container.add_viewer(100);
-        container.add_viewer(101);
-        assert!(container.is_viewer(100));
-        assert!(container.is_viewer(101));
-        assert!(!container.is_viewer(102));
-        
-        container.remove_viewer(100);
-        assert!(!container.is_viewer(100));
+        let p1 = CreatureId::default();
+        let mut sm: SlotMap<CreatureId, u8> = SlotMap::with_capacity_and_key(4);
+        let p2 = sm.insert(0);
+        let p3 = sm.insert(0);
+
+        container.add_viewer(p1);
+        container.add_viewer(p2);
+        assert!(container.is_viewer(p1));
+        assert!(container.is_viewer(p2));
+        assert!(!container.is_viewer(p3));
+
+        container.remove_viewer(p1);
+        assert!(!container.is_viewer(p1));
     }
 
     #[test]
@@ -462,14 +695,81 @@ mod tests {
         let mut registry = ContainerRegistry::new();
         let container = Container::new(ItemId::default(), 10);
         let item_id = container.item_id;
-        
+        let player = CreatureId::default();
+
         registry.register(container);
         assert!(registry.get(item_id).is_some());
-        
-        let cid = registry.assign_cid(100, item_id);
-        assert_eq!(cid, 0); // First CID should be 0
-        
-        let retrieved = registry.get_container_by_cid(100, cid);
+
+        let cid = registry.assign_cid(player, item_id);
+        assert_eq!(cid, Some(0));
+
+        let retrieved = registry.get_container_by_cid(player, cid.unwrap_or(0));
         assert_eq!(retrieved, Some(item_id));
+    }
+
+    #[test]
+    fn container_iterator_order_matches_cpp_pattern() {
+        // Root [A, B], A inner [A1] → order A, B, A1 (see `ContainerIterator::advance`).
+        let mut sm: SlotMap<ItemId, u8> = SlotMap::with_capacity_and_key(16);
+        let root = sm.insert(0);
+        let a = sm.insert(0);
+        let b = sm.insert(0);
+        let a1 = sm.insert(0);
+
+        let mut inner = Container::new(a, 8);
+        inner.add_item(a1).unwrap();
+        let mut outer = Container::new(root, 8);
+        outer.add_item(a).unwrap();
+        outer.add_item(b).unwrap();
+
+        let mut registry = ContainerRegistry::new();
+        registry.register(outer);
+        registry.register(inner);
+
+        let order: Vec<ItemId> = ContainerIterator::new(&registry, root).collect();
+        assert_eq!(order, vec![a, b, a1]);
+    }
+
+    #[test]
+    fn is_holding_item_nested() {
+        let mut sm: SlotMap<ItemId, u8> = SlotMap::with_capacity_and_key(16);
+        let root = sm.insert(0);
+        let a = sm.insert(0);
+        let a1 = sm.insert(0);
+
+        let mut inner = Container::new(a, 8);
+        inner.add_item(a1).unwrap();
+        let mut outer = Container::new(root, 8);
+        outer.add_item(a).unwrap();
+
+        let mut registry = ContainerRegistry::new();
+        registry.register(outer);
+        registry.register(inner);
+
+        let c = registry.get(root).unwrap();
+        assert!(c.is_holding_item(&registry, a1));
+        assert!(!c.is_holding_item(&registry, root));
+    }
+
+    /// C++ `Player::addContainer` — occupied `cid` swaps to the new container and transfers viewers.
+    #[test]
+    fn add_container_same_cid_replaces_and_moves_viewers() {
+        let mut sm: SlotMap<ItemId, u8> = SlotMap::with_capacity_and_key(8);
+        let c1 = sm.insert(0);
+        let c2 = sm.insert(0);
+        let player = CreatureId::default();
+
+        let mut registry = ContainerRegistry::new();
+        registry.register(Container::new(c1, 10));
+        registry.register(Container::new(c2, 10));
+
+        assert_eq!(registry.add_container(player, c1, Some(3), 0), Some(3));
+        assert!(registry.get(c1).unwrap().is_viewer(player));
+        assert!(!registry.get(c2).unwrap().is_viewer(player));
+
+        assert_eq!(registry.add_container(player, c2, Some(3), 0), Some(3));
+        assert!(!registry.get(c1).unwrap().is_viewer(player));
+        assert!(registry.get(c2).unwrap().is_viewer(player));
+        assert_eq!(registry.get_container_by_cid(player, 3), Some(c2));
     }
 }

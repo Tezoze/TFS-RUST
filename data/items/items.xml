@@ -17281,6 +17281,10 @@
 		<attribute key="armor" value="5" />
 		<attribute key="slotType" value="head" />
 		<attribute key="magiclevelpoints" value="2" />
+		<attribute key="showattributes" value="1" />
+		<attribute key="levelrequired" value="80" />
+		<attribute key="vocation" value="sorcerer" />
+		<attribute key="vocation" value="druid" />
 	</item>
 	<item id="9779" article="a" name="crystal column" />
 	<item id="9780" article="a" name="dead tortoise">
@@ -24601,6 +24605,7 @@
 		<attribute key="slotType" value="necklace" />
 		<attribute key="absorbPercentLifeDrain" value="50" />
 		<attribute key="showattributes" value="1" />
+		<attribute key="levelrequired" value="120" />
 	</item>
 	<item id="15404" article="a" name="deepling axe">
 		<attribute key="weight" value="9100" />
