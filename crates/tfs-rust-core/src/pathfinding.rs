@@ -1,12 +1,54 @@
-//! A* pathfinding on the map grid (8 directions).
-// C++ reference: `map.cpp` `AStarNodes`, `PathFinding`.
+//! A* pathfinding — TFS `Map::getPathMatching` / `AStarNodes` (`map.cpp`).
+// C++ reference: `map.cpp` `getPathMatching`, `canWalkTo`; `creature.cpp` `getPathTo`, `FrozenPathingConditionCall`.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use tfs_rust_common::{enums::Direction, Position};
 
 use crate::map::Map;
+
+/// TFS `map.h` — `MAP_NORMALWALKCOST`.
+pub const MAP_NORMAL_WALK_COST: u32 = 10;
+/// TFS `map.h` — `MAP_DIAGONALWALKCOST`.
+const MAP_DIAGONAL_WALK_COST: u32 = 25;
+/// TFS `AStarNodes::getTileWalkCost` — occupied tile penalty (`map.cpp` ~929–931).
+pub const CREATURE_ON_TILE_PATH_COST: u32 = MAP_NORMAL_WALK_COST * 3;
+/// TFS closed-node cap when `maxSearchDist == 0` (`map.cpp` ~680).
+const MAX_CLOSED_NODES: usize = 100;
+
+/// TFS `FindPathParams` (`creature.h`).
+#[derive(Clone, Copy, Debug)]
+pub struct FindPathParams {
+    pub min_target_dist: i32,
+    pub max_target_dist: i32,
+    pub clear_sight: bool,
+    pub allow_diagonal: bool,
+    /// `0` = unlimited (still capped by [`MAX_CLOSED_NODES`] like C++).
+    pub max_search_dist: u32,
+}
+
+impl FindPathParams {
+    /// Walk-to-use / walk-to-move item — `getPathTo(..., 0, 1, true, true)` (`game.cpp` ~973, ~2229).
+    pub fn walk_to_adjacent() -> Self {
+        Self {
+            min_target_dist: 0,
+            max_target_dist: 1,
+            clear_sight: true,
+            allow_diagonal: true,
+            max_search_dist: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PathGoalMatch {
+    None,
+    /// TFS `bestMatchDist == 0` — stop searching.
+    Exact,
+    /// TFS partial endpoint — keep searching for an exact match.
+    Partial { dist: i32 },
+}
 
 #[derive(Eq, PartialEq)]
 struct OpenNode {
@@ -26,112 +68,313 @@ impl PartialOrd for OpenNode {
     }
 }
 
-/// Returns step directions from `from` to `to`, or `None` if unreachable.
-/// Costs: cardinal 10, diagonal 14 (common integer sqrt2 approximation).
-pub fn pathfind(map: &Map, from: Position, to: Position) -> Option<Vec<Direction>> {
-    if from.z != to.z {
+struct AStarNode {
+    parent: Option<Position>,
+    f: u32,
+}
+
+/// TFS `Map::getPathMatching` — creature-aware via `can_walk_to` / `tile_walk_cost` callbacks.
+pub fn get_path_matching<C, T>(
+    map: &Map,
+    start: Position,
+    target: Position,
+    fpp: &FindPathParams,
+    can_walk_to: C,
+    tile_walk_cost: T,
+) -> Option<Vec<Direction>>
+where
+    C: Fn(Position) -> bool,
+    T: Fn(Position) -> u32,
+{
+    if start.z != target.z {
         return None;
     }
-    if from == to {
+
+    if matches!(
+        evaluate_path_goal(map, start, target, fpp, 0),
+        PathGoalMatch::Exact | PathGoalMatch::Partial { .. }
+    ) {
         return Some(Vec::new());
     }
 
+    let mut nodes: HashMap<Position, AStarNode> = HashMap::new();
     let mut open: BinaryHeap<OpenNode> = BinaryHeap::new();
-    let mut came: HashMap<Position, (Position, Direction)> = HashMap::new();
-    let mut g_score: HashMap<Position, u32> = HashMap::new();
+    let mut closed: HashSet<Position> = HashSet::new();
+    let mut best_match_dist = 0i32;
+    let mut found_end: Option<Position> = None;
 
-    let h = heuristic(from, to);
-    g_score.insert(from, 0);
-    open.push(OpenNode { f: h, pos: from });
+    nodes.insert(
+        start,
+        AStarNode {
+            parent: None,
+            f: 0,
+        },
+    );
+    open.push(OpenNode { f: 0, pos: start });
 
-    const DIRS: [(i32, i32, Direction, u32); 8] = [
-        (0, -1, Direction::North, 10),
-        (1, 0, Direction::East, 10),
-        (0, 1, Direction::South, 10),
-        (-1, 0, Direction::West, 10),
-        (-1, 1, Direction::SouthWest, 14),
-        (1, 1, Direction::SouthEast, 14),
-        (-1, -1, Direction::NorthWest, 14),
-        (1, -1, Direction::NorthEast, 14),
-    ];
-
-    while let Some(OpenNode { pos: current, .. }) = open.pop() {
-        if current == to {
-            return Some(reconstruct(&came, from, to));
-        }
-        let base = *g_score.get(&current).unwrap_or(&u32::MAX);
-        if base == u32::MAX {
+    while fpp.max_search_dist != 0 || closed.len() < MAX_CLOSED_NODES {
+        let Some(OpenNode { pos: current, .. }) = open.pop() else {
+            break;
+        };
+        if !closed.insert(current) {
             continue;
         }
 
-        for (dx, dy, dir, step_cost) in DIRS {
-            let nx = current.x as i32 + dx;
-            let ny = current.y as i32 + dy;
-            if nx < 0 || ny < 0 {
-                continue;
+        match evaluate_path_goal(map, current, target, fpp, best_match_dist) {
+            PathGoalMatch::None => {}
+            PathGoalMatch::Exact => {
+                found_end = Some(current);
+                best_match_dist = 0;
             }
-            let next = Position {
-                x: nx as u16,
-                y: ny as u16,
-                z: current.z,
+            PathGoalMatch::Partial { dist } => {
+                found_end = Some(current);
+                best_match_dist = dist;
+            }
+        }
+
+        if found_end.is_some() && best_match_dist == 0 {
+            break;
+        }
+
+        let base_f = nodes.get(&current).map(|n| n.f).unwrap_or(u32::MAX);
+        if base_f == u32::MAX {
+            continue;
+        }
+
+        let parent = nodes.get(&current).and_then(|n| n.parent);
+        let (neighbor_list, dir_count) = neighbor_offsets(parent, current, fpp.allow_diagonal);
+
+        for &(ox, oy) in &neighbor_list[..dir_count] {
+            let Some(next) = offset_position(current, ox, oy) else {
+                continue;
             };
-            if !map.is_walkable(next) {
-                continue;
-            }
-            // C++ often blocks diagonal corner cutting if adjacent cardinals blocked.
-            if step_cost == 14 {
-                let ox = current.x as i32;
-                let oy = current.y as i32;
-                let a = Position {
-                    x: (ox + dx) as u16,
-                    y: current.y,
-                    z: current.z,
-                };
-                let b = Position {
-                    x: current.x,
-                    y: (oy + dy) as u16,
-                    z: current.z,
-                };
-                if !map.is_walkable(a) || !map.is_walkable(b) {
+
+            if fpp.max_search_dist != 0 {
+                let sdx = (start.x as i32 - next.x as i32).unsigned_abs();
+                let sdy = (start.y as i32 - next.y as i32).unsigned_abs();
+                if sdx > fpp.max_search_dist || sdy > fpp.max_search_dist {
                     continue;
                 }
             }
 
-            let tentative = base + step_cost;
-            let prev = g_score.get(&next).copied().unwrap_or(u32::MAX);
-            if tentative < prev {
-                came.insert(next, (current, dir));
-                g_score.insert(next, tentative);
-                let f = tentative + heuristic(next, to);
-                open.push(OpenNode { f, pos: next });
+            if closed.contains(&next) {
+                continue;
+            }
+
+            let is_diagonal = ox != 0 && oy != 0;
+            if !nodes.contains_key(&next) && !can_walk_to(next) {
+                continue;
+            }
+
+            let step_cost = if is_diagonal {
+                MAP_DIAGONAL_WALK_COST
+            } else {
+                MAP_NORMAL_WALK_COST
+            };
+            let new_f = base_f
+                .saturating_add(step_cost)
+                .saturating_add(tile_walk_cost(next));
+
+            let prev_f = nodes.get(&next).map(|n| n.f).unwrap_or(u32::MAX);
+            if new_f < prev_f {
+                nodes.insert(
+                    next,
+                    AStarNode {
+                        parent: Some(current),
+                        f: new_f,
+                    },
+                );
+                // C++ `AStarNodes` stores **g** in `node->f` and picks lowest g — no heuristic (`map.cpp`).
+                open.push(OpenNode { f: new_f, pos: next });
             }
         }
     }
 
-    None
+    let end_pos = found_end?;
+    Some(reconstruct_walk_queue_dirs(&nodes, end_pos))
 }
 
-fn heuristic(a: Position, b: Position) -> u32 {
-    let dx = (a.x as i32 - b.x as i32).unsigned_abs();
-    let dy = (a.y as i32 - b.y as i32).unsigned_abs();
-    10 * dx.max(dy)
-}
-
-fn reconstruct(
-    came: &HashMap<Position, (Position, Direction)>,
-    start: Position,
-    goal: Position,
-) -> Vec<Direction> {
-    let mut out = Vec::new();
-    let mut cur = goal;
-    while cur != start {
-        if let Some(&(prev, dir)) = came.get(&cur) {
-            out.push(dir);
-            cur = prev;
-        } else {
-            break;
-        }
+/// TFS `FrozenPathingConditionCall::operator()` (`creature.cpp` ~1688–1720).
+fn evaluate_path_goal(
+    map: &Map,
+    test: Position,
+    target: Position,
+    fpp: &FindPathParams,
+    best_match_dist: i32,
+) -> PathGoalMatch {
+    if !path_in_search_box(test, target, fpp) {
+        return PathGoalMatch::None;
     }
-    out.reverse();
-    out
+    if fpp.clear_sight && !map.is_sight_clear(test, target) {
+        return PathGoalMatch::None;
+    }
+
+    let test_dist = chebyshev_dist(test, target);
+    if fpp.max_target_dist == 1 {
+        return if (fpp.min_target_dist..=fpp.max_target_dist).contains(&test_dist) {
+            PathGoalMatch::Exact
+        } else {
+            PathGoalMatch::None
+        };
+    }
+
+    if test_dist > fpp.max_target_dist || test_dist < fpp.min_target_dist {
+        return PathGoalMatch::None;
+    }
+
+    if test_dist == fpp.max_target_dist {
+        PathGoalMatch::Exact
+    } else if test_dist > best_match_dist {
+        PathGoalMatch::Partial { dist: test_dist }
+    } else {
+        PathGoalMatch::None
+    }
+}
+
+fn path_in_search_box(test: Position, target: Position, fpp: &FindPathParams) -> bool {
+    let dx = (test.x as i32 - target.x as i32).abs();
+    let dy = (test.y as i32 - target.y as i32).abs();
+    dx <= fpp.max_target_dist && dy <= fpp.max_target_dist
+}
+
+fn chebyshev_dist(a: Position, b: Position) -> i32 {
+    let dx = (a.x as i32 - b.x as i32).unsigned_abs() as i32;
+    let dy = (a.y as i32 - b.y as i32).unsigned_abs() as i32;
+    dx.max(dy)
+}
+
+fn offset_position(from: Position, ox: i32, oy: i32) -> Option<Position> {
+    let nx = from.x as i32 + ox;
+    let ny = from.y as i32 + oy;
+    if nx < 0 || ny < 0 {
+        return None;
+    }
+    Some(Position {
+        x: nx as u16,
+        y: ny as u16,
+        z: from.z,
+    })
+}
+
+/// C++ `dirNeighbors` / `allNeighbors` (`map.cpp` ~663–675).
+/// `DIR_NEIGHBORS` rows are indexed by `Direction` enum (`position.h`: N=0, E=1, S=2, W=3, …).
+fn neighbor_offsets(
+    parent: Option<Position>,
+    current: Position,
+    allow_diagonal: bool,
+) -> (&'static [(i32, i32)], usize) {
+    const ALL_NEIGHBORS: [(i32, i32); 8] = [
+        (-1, 0),
+        (0, 1),
+        (1, 0),
+        (0, -1),
+        (-1, -1),
+        (1, -1),
+        (1, 1),
+        (-1, 1),
+    ];
+    const DIR_NEIGHBORS: [[(i32, i32); 5]; 8] = [
+        [(-1, 0), (0, 1), (1, 0), (1, 1), (-1, 1)],       // DIRECTION_NORTH = 0
+        [(-1, 0), (0, 1), (0, -1), (-1, -1), (-1, 1)],   // DIRECTION_EAST = 1
+        [(-1, 0), (1, 0), (0, -1), (-1, -1), (1, -1)],   // DIRECTION_SOUTH = 2
+        [(0, 1), (1, 0), (0, -1), (1, -1), (1, 1)],      // DIRECTION_WEST = 3
+        [(1, 0), (0, -1), (-1, -1), (1, -1), (1, 1)],    // DIRECTION_SOUTHWEST = 4
+        [(-1, 0), (0, -1), (-1, -1), (1, -1), (-1, 1)],  // DIRECTION_SOUTHEAST = 5
+        [(0, 1), (1, 0), (1, -1), (1, 1), (-1, 1)],      // DIRECTION_NORTHWEST = 6
+        [(-1, 0), (0, 1), (-1, -1), (1, 1), (-1, 1)],    // DIRECTION_NORTHEAST = 7
+    ];
+
+    let Some(prev) = parent else {
+        return (&ALL_NEIGHBORS, ALL_NEIGHBORS.len());
+    };
+
+    // Parent→current step direction class (`map.cpp` ~703–728).
+    let dx = prev.x as i32 - current.x as i32;
+    let dy = prev.y as i32 - current.y as i32;
+    let idx = if dy == 0 {
+        if dx == -1 { 3 } else { 1 } // WEST / EAST
+    } else if !allow_diagonal || dx == 0 {
+        if dy == -1 { 0 } else { 2 } // NORTH / SOUTH
+    } else if dy == -1 {
+        if dx == -1 { 6 } else { 7 } // NW / NE
+    } else if dx == -1 {
+        4 // SW
+    } else {
+        5 // SE
+    };
+    let dir_count = if allow_diagonal { 5 } else { 3 };
+    (&DIR_NEIGHBORS[idx], dir_count)
+}
+
+/// Walk-queue order: **last** element is the **first** step (`Creature::getNextStep` pops back).
+fn reconstruct_walk_queue_dirs(nodes: &HashMap<Position, AStarNode>, end: Position) -> Vec<Direction> {
+    let mut dir_list = Vec::new();
+    let mut prev = end;
+    let mut cur = nodes.get(&end).and_then(|n| n.parent);
+    while let Some(pos) = cur {
+        dir_list.push(walk_queue_direction(pos, prev));
+        prev = pos;
+        cur = nodes.get(&pos).and_then(|n| n.parent);
+    }
+    dir_list
+}
+
+/// TFS parent-chain direction encoding (`map.cpp` ~806–821).
+fn walk_queue_direction(from: Position, to: Position) -> Direction {
+    let dx = from.x as i32 - to.x as i32;
+    let dy = from.y as i32 - to.y as i32;
+    match (dx, dy) {
+        (1, 1) => Direction::NorthWest,
+        (-1, 1) => Direction::NorthEast,
+        (1, -1) => Direction::SouthWest,
+        (-1, -1) => Direction::SouthEast,
+        (1, 0) => Direction::West,
+        (-1, 0) => Direction::East,
+        (0, 1) => Direction::North,
+        (0, -1) => Direction::South,
+        _ => Direction::North,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn walk_queue_direction_matches_cpp_parent_delta_table() {
+        // C++ encodes direction from parent→child delta (`map.cpp` ~806–821), not intuitive map north.
+        assert_eq!(
+            walk_queue_direction(Position::new(9, 9, 7), Position::new(10, 10, 7)),
+            Direction::SouthEast
+        );
+        assert_eq!(
+            walk_queue_direction(Position::new(11, 9, 7), Position::new(10, 10, 7)),
+            Direction::SouthWest
+        );
+    }
+
+    #[test]
+    fn neighbor_index_matches_cpp_direction_enum() {
+        // Approaching from WEST (parent west of current): `map.cpp` uses `DIRECTION_WEST` (=3).
+        let current = Position::new(10, 10, 7);
+        let parent = Position::new(9, 10, 7);
+        let (list, n) = neighbor_offsets(Some(parent), current, true);
+        assert_eq!(n, 5);
+        assert_eq!(list[0], (0, 1)); // first neighbor for WEST row in C++
+
+        // Approaching from NORTH (parent north = smaller y).
+        let parent = Position::new(10, 9, 7);
+        let (list, _) = neighbor_offsets(Some(parent), current, true);
+        assert_eq!(list[0], (-1, 0)); // NORTH row
+    }
+
+    #[test]
+    fn walk_to_adjacent_params_use_chebyshev_one() {
+        let fpp = FindPathParams::walk_to_adjacent();
+        assert_eq!(fpp.min_target_dist, 0);
+        assert_eq!(fpp.max_target_dist, 1);
+        assert!(fpp.clear_sight);
+        assert_eq!(chebyshev_dist(Position::new(11, 10, 7), Position::new(10, 10, 7)), 1);
+        assert_eq!(chebyshev_dist(Position::new(12, 10, 7), Position::new(10, 10, 7)), 2);
+    }
 }

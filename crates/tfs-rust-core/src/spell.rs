@@ -185,6 +185,8 @@ mod tests {
             last_ping_sent: Instant::now(),
             last_pong_at: Instant::now(),
             next_action_until,
+            walk_action: None,
+            walk_action_due: None,
             persist: None,
         }
     }

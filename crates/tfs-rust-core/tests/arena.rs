@@ -79,6 +79,8 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         last_ping_sent: Instant::now(),
         last_pong_at: Instant::now(),
         next_action_until: None,
+        walk_action: None,
+        walk_action_due: None,
         persist: None,
     }
 }

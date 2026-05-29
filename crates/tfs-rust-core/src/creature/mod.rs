@@ -16,4 +16,5 @@ pub use monster::{Monster, MonsterAiPhase};
 pub use npc::{Npc, NpcEventsHandler, NullNpcHandler};
 pub use player::{
     Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+    PlayerWalkAction,
 };

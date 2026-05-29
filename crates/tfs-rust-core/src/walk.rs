@@ -52,7 +52,11 @@ use tfs_rust_common::ConnId;
 const FLAG_NOLIMIT: u32 = 1 << 0;
 const FLAG_IGNOREBLOCKITEM: u32 = 1 << 1;
 const FLAG_IGNOREBLOCKCREATURE: u32 = 1 << 2;
+const FLAG_PATHFINDING: u32 = 1 << 4;
 const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
+
+/// Pathfinding query flags — `Map::canWalkTo` (`map.cpp` ~638).
+pub(crate) const PATHFIND_WALK_FLAGS: u32 = FLAG_PATHFINDING | FLAG_IGNOREFIELDDAMAGE;
 
 /// One movement segment emitted by `internal_move_player_step`.
 /// C++ `map.moveCreature` emits a packet per call; we collect segments and emit afterwards.
@@ -433,6 +437,18 @@ fn query_destination(
     None
 }
 
+/// Whether `cid` can stand on `pos` during pathfinding (`Map::canWalkTo` / `Tile::queryAdd`).
+pub(crate) fn player_can_stand_for_pathfind(
+    world: &GameWorld,
+    cid: CreatureId,
+    pos: Position,
+) -> bool {
+    let Some(tile) = world.map.get_tile(pos) else {
+        return false;
+    };
+    tile_query_add_player(world, tile, cid, PATHFIND_WALK_FLAGS) == ReturnValue::NoError
+}
+
 /// TFS `Tile::queryAdd` for player creatures.
 /// C++ ref: src/tile.cpp:484-628
 fn tile_query_add_player(world: &GameWorld, tile: &crate::tile::Tile, mover: CreatureId, flags: u32) -> ReturnValue {
@@ -444,6 +460,18 @@ fn tile_query_add_player(world: &GameWorld, tile: &crate::tile::Tile, mover: Cre
     }
 
     if body.ground.is_none() {
+        return ReturnValue::NotPossible;
+    }
+
+    // C++ ref: src/tile.cpp:491-493 — skip floor-change / teleport tiles while pathfinding.
+    if (flags & FLAG_PATHFINDING) != 0
+        && (body.flags & (tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0
+    {
+        return ReturnValue::NotPossible;
+    }
+
+    // C++ ref: src/tile.cpp:531-533 (monster); same flag checked for players on path tiles.
+    if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::IMMOVABLENOFIELDBLOCKPATH) != 0 {
         return ReturnValue::NotPossible;
     }
 
@@ -464,9 +492,12 @@ fn tile_query_add_player(world: &GameWorld, tile: &crate::tile::Tile, mover: Cre
 
     // C++ ref: src/tile.cpp:606-628 — block solid checks, respecting FLAG_IGNOREBLOCKITEM.
     if (flags & FLAG_IGNOREBLOCKITEM) == 0 {
-        // No FLAG_IGNOREBLOCKITEM — just check the tile-level BLOCKSOLID flag.
         if (body.flags & tilestate::BLOCKSOLID) != 0 {
             return ReturnValue::NotEnoughRoom;
+        }
+        // C++ ref: src/tile.cpp:535 — `TILESTATE_NOFIELDBLOCKPATH` with `FLAG_PATHFINDING`.
+        if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0 {
+            return ReturnValue::NotPossible;
         }
     } else {
         // FLAG_IGNOREBLOCKITEM is set — only block on *immovable* blocksolid items.
@@ -664,6 +695,8 @@ impl GameWorld {
         // `tasks/walk-direction-change-audit.md`: flush pending `0x6B` before move — do not drop it while
         // the client already applied the turn locally (cancel caused facing desync).
         self.flush_deferred_turn_broadcast(cid);
+        // TFS `Game::playerMove` clears pending walk-action (`game.cpp` ~1893).
+        self.clear_player_walk_action(cid);
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return;
         };
@@ -1186,6 +1219,7 @@ impl GameWorld {
                 self.stop_event_walk(cid);
                 stopped_without_reschedule = true;
                 self.events.on_walk_complete(cid);
+                self.on_player_walk_complete(cid, now);
             }
         }
 
@@ -1205,6 +1239,7 @@ impl GameWorld {
             if let (Some(conn), Some(db)) = (conn, dir_byte) {
                 self.enqueue_outgoing(conn, send_cancel_walk(db).into_bytes());
             }
+            self.clear_player_walk_action(cid);
         }
 
         if !stopped_without_reschedule && reschedule_after {
@@ -1421,6 +1456,56 @@ impl GameWorld {
                 self.check_creature_walk(cid, step_now);
             }
         }
+    }
+
+    /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).
+    pub(crate) fn get_creature_path_to(
+        &self,
+        cid: CreatureId,
+        target: Position,
+        min_target_dist: i32,
+        max_target_dist: i32,
+    ) -> Option<Vec<Direction>> {
+        use crate::pathfinding::{get_path_matching, FindPathParams, CREATURE_ON_TILE_PATH_COST};
+
+        let start = self.creatures.get(cid)?.position();
+        let fpp = FindPathParams {
+            min_target_dist,
+            max_target_dist,
+            clear_sight: true,
+            allow_diagonal: true,
+            max_search_dist: 0,
+        };
+        struct PathCtx<'a> {
+            world: &'a GameWorld,
+            cid: CreatureId,
+        }
+        let ctx = PathCtx { world: self, cid };
+        get_path_matching(
+            &self.map,
+            start,
+            target,
+            &fpp,
+            |pos| {
+                let Some(tile) = ctx.world.map.get_tile(pos) else {
+                    return false;
+                };
+                tile_query_add_player(ctx.world, tile, ctx.cid, PATHFIND_WALK_FLAGS)
+                    == ReturnValue::NoError
+            },
+            |pos| {
+                let Some(tile) = ctx.world.map.get_tile(pos) else {
+                    return 0;
+                };
+                let mut cost = 0u32;
+                for &c in tile.body().creatures.iter() {
+                    if c != ctx.cid {
+                        cost += CREATURE_ON_TILE_PATH_COST;
+                    }
+                }
+                cost
+            },
+        )
     }
 }
 

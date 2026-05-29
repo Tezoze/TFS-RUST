@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
+use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
+use tfs_rust_common::{Position, CLIENTOS_OTCLIENT_LINUX};
 use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::{ItemRecord, VipEntry};
 
@@ -43,6 +44,21 @@ pub struct PlayerEconomy {
 pub struct PlayerSocial {
     pub party_id: Option<u32>,
     pub guild_id: Option<u32>,
+}
+
+/// Deferred action after auto-walk completes — TFS `Player::walkTask` (`player.cpp` ~1298).
+// C++ reference: `game.cpp` `playerMoveItem` (~977), `playerUseItem` (~2233), `playerUseItemEx` (~2156).
+#[derive(Debug, Clone)]
+pub enum PlayerWalkAction {
+    MoveItem {
+        from_pos: Position,
+        sprite_id: u16,
+        from_stack_pos: u8,
+        to_pos: Position,
+        count: u8,
+    },
+    UseItem(UseItemPayload),
+    UseItemEx(UseItemExPayload),
 }
 
 /// SQL + item payloads copied at login for fields not fully mirrored in runtime `Player`.
@@ -107,6 +123,10 @@ pub struct Player {
     pub last_pong_at: Instant,
     /// TFS `nextAction` — `Player::onWalk` blocks actions until this instant (`player.cpp` ~1343).
     pub next_action_until: Option<Instant>,
+    /// Pending action stored by `setNextWalkActionTask` — fired from `onWalkComplete` (`player.cpp` ~3390).
+    pub walk_action: Option<PlayerWalkAction>,
+    /// When `walk_action` should run (`createSchedulerTask(400, ...)` in `game.cpp`).
+    pub walk_action_due: Option<Instant>,
     /// Present for characters that logged in via DB; required for `IOLoginData::savePlayer`.
     pub persist: Option<PlayerPersistBaseline>,
 }

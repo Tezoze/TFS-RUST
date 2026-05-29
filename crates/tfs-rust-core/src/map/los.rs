@@ -45,10 +45,15 @@ pub fn walk_grid_line(a: Position, b: Position) -> Vec<Position> {
 }
 
 impl Map {
-    /// C++ `Map::isSightClear` — walks the grid and checks blocking tiles.
+    /// C++ `Map::isSightClear` (same floor) — adjacent tiles skip line checks (`map.cpp` ~571–575).
     pub fn is_sight_clear(&self, from: Position, to: Position) -> bool {
         if from.z != to.z {
             return false;
+        }
+        let dx = (from.x as i32 - to.x as i32).unsigned_abs();
+        let dy = (from.y as i32 - to.y as i32).unsigned_abs();
+        if dx < 2 && dy < 2 {
+            return true;
         }
         for p in walk_grid_line(from, to) {
             if p == from || p == to {

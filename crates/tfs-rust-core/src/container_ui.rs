@@ -14,6 +14,7 @@ use tfs_rust_net::outgoing_extra::{
     send_remove_container_item_empty, send_update_container_item_template,
 };
 
+use crate::creature::PlayerWalkAction;
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -464,7 +465,10 @@ impl GameWorld {
                 return;
             };
             if look_distance_tfs(pp, payload.pos) > 1 {
-                self.send_cancel_message(conn_id, ReturnValue::TooFarAway);
+                let action = PlayerWalkAction::UseItem(payload.clone());
+                if !self.try_walk_to_and_action(conn_id, cid, payload.pos, action, now) {
+                    self.send_cancel_message(conn_id, ReturnValue::ThereIsNoWay);
+                }
                 return;
             }
         }
@@ -503,7 +507,10 @@ impl GameWorld {
                 return;
             };
             if look_distance_tfs(pp, payload.from_pos) > 1 {
-                self.send_cancel_message(conn_id, ReturnValue::TooFarAway);
+                let action = PlayerWalkAction::UseItemEx(payload.clone());
+                if !self.try_walk_to_and_action(conn_id, cid, payload.from_pos, action, now) {
+                    self.send_cancel_message(conn_id, ReturnValue::ThereIsNoWay);
+                }
                 return;
             }
         }

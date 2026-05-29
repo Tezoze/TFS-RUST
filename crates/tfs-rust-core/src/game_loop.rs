@@ -402,6 +402,7 @@ pub async fn run_game_loop(
                                         payload.from_stack_pos,
                                         payload.to_pos,
                                         payload.count,
+                                        now,
                                     );
                                 }
                             }

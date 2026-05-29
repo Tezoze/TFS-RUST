@@ -155,6 +155,8 @@ pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
         last_ping_sent: std::time::Instant::now(),
         last_pong_at: std::time::Instant::now(),
         next_action_until: None,
+        walk_action: None,
+        walk_action_due: None,
         persist: Some(persist),
     }
 }
