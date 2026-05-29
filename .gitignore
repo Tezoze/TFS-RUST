@@ -181,6 +181,23 @@ pip-log.txt
 ## TFS / OT
 #############
 config.lua
+*.bak
+
+#############
+## AI / agent tooling (local IDE config — do not commit)
+#############
+.agent/
+.claude/
+.cursor/
+.kiro/
+.cursorrules
+.windsurfrules
+AGENTS.md
+
+#############
+## Local session notes (agent-generated scratch docs)
+#############
+/*_SUMMARY.md
 
 #############
 ## Rust
