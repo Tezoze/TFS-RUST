@@ -21,12 +21,6 @@ function Player.feed(self, food)
 	return true
 end
 
-function Player.isMage(self)
-	local vocationId = self:getVocation():getBase():getId()
-	-- Sorcerer (1) or Druid (2)
-	return vocationId == 1 or vocationId == 2
-end
-
 function Player.getClosestFreePosition(self, position, extended)
 	if self:getGroup():getAccess() and self:getAccountType() >= ACCOUNT_TYPE_GOD then
 		return position
@@ -42,48 +36,23 @@ function Player.hasFlag(self, flag)
 	return self:getGroup():hasFlag(flag)
 end
 
--- Count player's blessings (1-5)
-function Player.getBlessingCount(self)
+function Player.getLossPercent(self)
 	local blessings = 0
+	local lossPercent = {
+		[0] = 100,
+		[1] = 70,
+		[2] = 45,
+		[3] = 25,
+		[4] = 10,
+		[5] = 0
+	}
+
 	for i = 1, 5 do
 		if self:hasBlessing(i) then
 			blessings = blessings + 1
 		end
 	end
-	return blessings
-end
-
--- Equipment loss % based on blessings (for armor, weapons, etc.)
--- 0 bless=10%, 1=7%, 2=4.5%, 3=2.5%, 4=1%, 5=0% (safe)
-function Player.getEquipmentLossPercent(self)
-	local lossPercent = {
-		[0] = 100,   -- 10% (divided by 10 in droploot.lua since it uses 1000 random)
-		[1] = 70,    -- 7%
-		[2] = 45,    -- 4.5%
-		[3] = 25,    -- 2.5%
-		[4] = 10,    -- 1%
-		[5] = 0      -- safe
-	}
-	return lossPercent[self:getBlessingCount()]
-end
-
--- Container loss % based on blessings (for backpacks)
--- 0 bless=100%, 1=70%, 2=45%, 3=25%, 4=10%, 5=0% (safe)
-function Player.getContainerLossPercent(self)
-	local lossPercent = {
-		[0] = 1000,  -- 100%
-		[1] = 700,   -- 70%
-		[2] = 450,   -- 45%
-		[3] = 250,   -- 25%
-		[4] = 100,   -- 10%
-		[5] = 0      -- safe
-	}
-	return lossPercent[self:getBlessingCount()]
-end
-
--- Legacy function for backwards compatibility
-function Player.getLossPercent(self)
-	return self:getContainerLossPercent() / 10
+	return lossPercent[blessings]
 end
 
 function Player.getPremiumTime(self)
@@ -180,36 +149,12 @@ function Player.transferMoneyTo(self, target, amount)
 		return false
 	end
 
-	local targetGuid
-	local targetPlayer
-
-	-- Handle both string (player name) and object (player with guid) inputs
-	if type(target) == "string" then
-		-- target is a player name, look up the player
-		targetPlayer = Player(target)
-		if targetPlayer then
-			targetGuid = targetPlayer:getGuid()
-		else
-			-- Player is offline, get GUID from database
-			local resultId = db.storeQuery('SELECT `id` FROM `players` WHERE `name` = ' .. db.escapeString(target))
-			if resultId then
-				targetGuid = result.getNumber(resultId, "id")
-				result.free(resultId)
-			else
-				return false -- Player doesn't exist
-			end
-		end
-	else
-		-- target is already a player object
-		targetGuid = target.guid
-		targetPlayer = Player(targetGuid)
-	end
-
-	-- Transfer the money
+	-- See if player is online
+	local targetPlayer = Player(target.guid)
 	if targetPlayer then
 		targetPlayer:setBankBalance(targetPlayer:getBankBalance() + amount)
 	else
-		db.query("UPDATE `players` SET `balance` = `balance` + " .. amount .. " WHERE `id` = '" .. targetGuid .. "'")
+		db.query("UPDATE `players` SET `balance` = `balance` + " .. amount .. " WHERE `id` = '" .. target.guid .. "'")
 	end
 
 	self:setBankBalance(self:getBankBalance() - amount)
@@ -390,73 +335,4 @@ end
 
 function Player.getTotalMoney(self)
 	return self:getMoney() + self:getBankBalance()
-end
-
-local function getStaminaBonus(staminaMinutes)
-	if staminaMinutes > 2400 then
-		return 150
-	elseif staminaMinutes <= 840 then
-		return 50
-	else
-		return 100
-	end
-end
-
-function Player.calculateLowLevelBonus(self, level)
-	if level > 1 and level <= 50 then
-		local expBonus = {minlevel = 2, maxlevel = 50, bonus = 1}
-		local bonusPercentage = (expBonus.maxlevel - level) / (expBonus.maxlevel - expBonus.minlevel)
-		return expBonus.bonus * 100 * bonusPercentage
-	else
-		return 0
-	end
-end
-
--- Note: updateClientExpDisplay is not implemented in this TFS version
--- Client stamina bonus display functionality is not available
-
-function Player.updateKillTracker(self, monster, corpse)
-	local monsterType = monster:getType()
-	if not monsterType then
-		return false
-	end
-
-	local msg = NetworkMessage()
-	msg:addByte(0xD1) -- GameServerKillTracker
-	msg:addString(monster:getName())
-
-	-- Add monster outfit
-	local monsterOutfit = monsterType:getOutfit()
-	msg:addU16(monsterOutfit.lookType or 19)
-	msg:addByte(monsterOutfit.lookHead or 0)
-	msg:addByte(monsterOutfit.lookBody or 0)
-	msg:addByte(monsterOutfit.lookLegs or 0)
-	msg:addByte(monsterOutfit.lookFeet or 0)
-	msg:addByte(monsterOutfit.lookAddons or 0)
-
-	-- Add loot items
-	local corpseSize = corpse:getSize()
-	msg:addByte(corpseSize)
-	for index = corpseSize - 1, 0, -1 do
-		local item = corpse:getItem(index)
-		if item then
-			msg:addItem(item)
-		end
-	end
-
-	-- Send to player and party
-	local party = self:getParty()
-	if party then
-		local members = party:getMembers()
-		members[#members + 1] = party:getLeader()
-
-		for _, member in ipairs(members) do
-			msg:sendToPlayer(member)
-		end
-	else
-		msg:sendToPlayer(self)
-	end
-
-	msg:delete()
-	return true
 end

@@ -222,16 +222,9 @@ function onUseShovel(player, item, fromPosition, target, toPosition, isHotkey)
 		end
 	elseif table.contains(sandIds, groundId) then
 		local randomValue = math.random(1, 100)
-		if ground.actionid == actionIds.sandHole and randomValue <= 20 then  -- Check ground.actionid like pick does
+		if target.actionid == actionIds.sandHole and randomValue <= 20 then
 			ground:transform(489)
 			ground:decay()
-			-- Remove splashes (blood, slime, etc) from the tile so they don't cover the hole
-			for _, item in ipairs(tile:getItems() or {}) do
-				local itemType = item:getType()
-				if itemType and (itemType:getGroup() == ITEM_GROUP_SPLASH or itemType:getGroup() == ITEM_GROUP_FLUID) then
-					item:remove()
-				end
-			end
 		elseif randomValue == 1 then
 			Game.createItem(2159, 1, toPosition)
 			player:addAchievementProgress("Gold Digger", 100)

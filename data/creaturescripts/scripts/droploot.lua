@@ -24,18 +24,10 @@ function onDeath(player, corpse, killer, mostDamageKiller, lastHitUnjustified, m
 	else
 		for i = CONST_SLOT_HEAD, CONST_SLOT_AMMO do
 			local item = player:getSlotItem(i)
+			local lossPercent = player:getLossPercent()
 			if item then
-				-- Use different loss percentages for equipment vs containers
-				local lossChance
-				if item:isContainer() then
-					lossChance = player:getContainerLossPercent()
-				else
-					lossChance = player:getEquipmentLossPercent()
-				end
-				
-				-- Roll out of 1000 (e.g., 100 = 10%, 70 = 7%, etc.)
-				if isRedOrBlack or math.random(1000) <= lossChance then
-					if (isRedOrBlack or lossChance > 0) and not item:moveTo(corpse) then
+				if isRedOrBlack or math.random(item:isContainer() and 100 or 1000) <= lossPercent then
+					if (isRedOrBlack or lossPercent ~= 0) and not item:moveTo(corpse) then
 						item:remove()
 					end
 				end

@@ -26,11 +26,6 @@ function Position:moveUpstairs()
 	end
 
 	self.z = self.z - 1
-	
-	-- Validate z-coordinate is within valid range (0-15)
-	if self.z < 0 or self.z > 15 then
-		return self
-	end
 
 	local defaultPosition = self + Position.directionOffset[DIRECTION_SOUTH]
 	local toTile = Tile(defaultPosition)

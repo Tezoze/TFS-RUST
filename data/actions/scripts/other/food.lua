@@ -75,9 +75,7 @@ local foods = {
 	[8845] = {5, "Munch."}, -- beetroot
 	[8847] = {11, "Yum."}, -- chocolate cake
 	[9005] = {7, "Slurp."}, -- yummy gummy worm
-	[9111] = {10, "Mmmm."}, -- garlic bread
 	[9114] = {5, "Crunch."}, -- bulb of garlic
-	[9116] = {2, "Urgh."}, -- garlic cookie
 	[9996] = {0, "Slurp."}, -- banana chocolate shake
 	[10454] = {0, "Your head begins to feel better."}, -- headache pill
 	[11246] = {15, "Yum."}, -- rice ball
@@ -121,35 +119,6 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	else
 		player:feed(food[1] * 12)
 		player:say(food[2], TALKTYPE_MONSTER_SAY)
-
-		-- Special handling for garlic bread - check if Julius is nearby for Blood Brothers Mission 1
-		if item.itemid == 9111 then
-			local playerPosition = player:getPosition()
-
-			-- Check if Julius is within 4 tiles and player is on Mission 1
-			if player:getStorageValue(Storage.BloodBrothers.Mission01) == 1 then
-				local spectators = Game.getSpectators(playerPosition, false, false, 4, 4)
-				local juliusNearby = false
-
-				for i = 1, #spectators do
-					local spectator = spectators[i]
-					if spectator:isNpc() and spectator:getName() == "Julius" then
-						juliusNearby = true
-						break
-					end
-				end
-
-				if juliusNearby then
-					player:setStorageValue(Storage.BloodBrothers.Questline, 2)
-					player:setStorageValue(Storage.BloodBrothers.Mission01, 2) -- Mission 1 complete
-					player:setStorageValue(Storage.BloodBrothers.Mission02, 1) -- Mark as active for quest log
-					player:setStorageValue(Storage.BloodBrothers.GarlicCookieCount, 0) -- Initialize cookie count for quest log
-					player:addExperience(1000, true)
-					player:sendTextMessage(MESSAGE_EVENT_ADVANCE, "Very good! I can see you're definitely not a vampire. Now I can trust you with our real mission.")
-				end
-			end
-		end
-
 		item:remove(1)
 	end
 	return true

@@ -182,6 +182,10 @@ pip-log.txt
 #############
 config.lua
 *.bak
+*.backup
+data/npc/backup/
+data/logs/*
+!data/logs/.gitignore
 
 #############
 ## AI / agent tooling (local IDE config — do not commit)

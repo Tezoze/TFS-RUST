@@ -159,15 +159,6 @@ function Player:onGainExperience(source, exp, rawExp)
 		end
 	end
 
-	-- Double XP Event check (storage 39901 = enabled, 39902 = end timestamp)
-	local doubleExpEnabled = Game.getStorageValue(39901)
-	if doubleExpEnabled == 1 then
-		local endTime = Game.getStorageValue(39902)
-		if endTime <= 0 or os.time() < endTime then
-			exp = exp * 2
-		end
-	end
-
 	return hasEventCallback(EVENT_CALLBACK_ONGAINEXPERIENCE) and EventCallback(EVENT_CALLBACK_ONGAINEXPERIENCE, self, source, exp, rawExp) or exp
 end
 
@@ -223,8 +214,4 @@ function Player:onWrapItem(item)
 			item:setAttribute("wrapid", oldId)
 		end
 	end
-end
-
-function Player:onInventoryUpdate(item, slot, equip)
-    itemAttributes(self, item, slot, equip)
 end

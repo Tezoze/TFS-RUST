@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <globalevents>
 	<globalevent type="startup" name="ServerStartup" script="startup.lua" />
-	<!-- <globalevent type="startup" name="ConnectionPoolTest" script="connection_pool_test.lua" /> -->
-	<!-- <globalevent type="startup" name="LoginSimulationTest" script="test_login_simulation.lua" /> -->
-	<!-- <globalevent type="startup" name="OutputMessagePoolMonitor" script="monitor_outputmessagepool.lua" /> -->
 	<globalevent type="record" name="PlayerRecord" script="record.lua" />
-	<!-- <globalevent name="Server Save" time="10:10:00" script="serversave.lua" /> --> <!-- Migrated to data/scripts/globalevents/server_save.lua -->
+	<globalevent name="Server Save" time="09:55:00" script="serversave.lua" />
 	<!--
 	<globalevent name="timer_example" time="12:00:00" script="my_script.lua" />
 	-->

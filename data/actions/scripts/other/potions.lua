@@ -74,7 +74,7 @@ local potions = {
 		flask = 7636
 	},
 	[7620] = { -- mana potion
-		mana = {86, 144}, -- buffed by 15% from {75, 125}
+		mana = {75, 125},
 		flask = 7636
 	},
 	[8472] = { -- great spirit potion
@@ -151,11 +151,6 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 		item:remove(1)
 		return true
 	else
-		-- Ensure target is valid (can be nil when using from hotkey without target)
-		if not target or type(target) ~= "userdata" or not target:isPlayer() then
-			target = player
-		end
-
 		if potion.health then
 			doTargetCombat(player, target, COMBAT_HEALING, potion.health[1], potion.health[2])
 		end
@@ -174,22 +169,10 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 		target:getPosition():sendMagicEffect(CONST_ME_MAGIC_BLUE)
 	end
 
+	if not configManager.getBoolean(configKeys.REMOVE_POTION_CHARGES) then
+		return true
+	end
 
-if not configManager.getBoolean(configKeys.REMOVE_POTION_CHARGES) then
+	item:remove(1)
 	return true
-end
-
--- Hook for Zorro Tracking
-if ZorroTrackPotion then
-    ZorroTrackPotion(player, item)
-end
-
--- DISABLED: Supply tracking temporarily disabled
--- Track supply usage for game analyzer (only when potion is actually consumed)
--- if trackSupplyUsage then
--- 	trackSupplyUsage(player, item:getId())
--- end
-
-item:remove(1)
-return true
 end

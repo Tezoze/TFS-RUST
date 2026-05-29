@@ -1,7 +1,7 @@
 local statues = {
-	[18488] = SKILL_SWORD,  -- Melee Fighting
-	[18489] = SKILL_SWORD,  -- Melee Fighting (was Axe)
-	[18490] = SKILL_SWORD,  -- Melee Fighting (was Club)
+	[18488] = SKILL_SWORD,
+	[18489] = SKILL_AXE,
+	[18490] = SKILL_CLUB,
 	[18491] = SKILL_DISTANCE,
 	[18492] = SKILL_MAGLEVEL
 }

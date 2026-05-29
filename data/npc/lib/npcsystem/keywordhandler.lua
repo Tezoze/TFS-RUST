@@ -58,13 +58,9 @@ if not KeywordHandler then
 		return self.keywords
 	end
 
-	-- Adds a childNode to this node. Creates the childNode based on the parameters (k = keywords, c = callback, p = parameters, ...options)
-	function KeywordNode:addChildKeyword(keywords, callback, parameters, ...)
+	-- Adds a childNode to this node. Creates the childNode based on the parameters (k = keywords, c = callback, p = parameters)
+	function KeywordNode:addChildKeyword(keywords, callback, parameters)
 		local new = KeywordNode:new(keywords, callback, parameters)
-		local args = {...}
-		if #args > 0 then
-			new.action = args[#args]  -- Last argument is assumed to be the action
-		end
 		return self:addChildKeywordNode(new)
 	end
 
@@ -76,8 +72,7 @@ if not KeywordHandler then
 		end
 
 		local prevNode = self.children[#self.children]
-		local new = KeywordNode:new(keywords, prevNode.callback, prevNode.parameters)
-		new.action = prevNode.action
+		local new = KeywordNode:new(keywords, prevNode.callback, prevNode.parameters, prevNode.condition, prevNode.action)
 		for i = 1, #prevNode.children do
 			new:addChildKeywordNode(prevNode.children[i])
 		end
@@ -148,34 +143,16 @@ if not KeywordHandler then
 	--	Returns the childNode which processed the message or nil if no such node was found.
 	function KeywordHandler:processNodeMessage(node, cid, message)
 		local messageLower = string.lower(message)
-		
-		-- Collect all matching nodes with their keyword count (specificity)
-		local matches = {}
 		for i, childNode in pairs(node.children) do
 			if childNode:checkMessage(messageLower) then
-				local keywordCount = 0
-				if childNode.keywords and type(childNode.keywords) == "table" then
-					keywordCount = #childNode.keywords
+				local oldLast = self.lastNode[cid]
+				self.lastNode[cid] = childNode
+				childNode.parent = node -- Make sure node is the parent of childNode (as one node can be parent to several nodes).
+				if childNode:processMessage(cid, message) then
+					return true
 				end
-				table.insert(matches, {node = childNode, specificity = keywordCount, index = i})
+				self.lastNode[cid] = oldLast
 			end
-		end
-		
-		-- Sort by specificity (more keywords = more specific = higher priority)
-		table.sort(matches, function(a, b)
-			return a.specificity > b.specificity
-		end)
-		
-		-- Try matches in order of specificity (most specific first)
-		for _, match in ipairs(matches) do
-			local childNode = match.node
-			local oldLast = self.lastNode[cid]
-			self.lastNode[cid] = childNode
-			childNode.parent = node -- Make sure node is the parent of childNode (as one node can be parent to several nodes).
-			if childNode:processMessage(cid, message) then
-				return true
-			end
-			self.lastNode[cid] = oldLast
 		end
 		return false
 	end
@@ -213,107 +190,5 @@ if not KeywordHandler then
 			self.lastNode[cid] = self.lastNode[cid]:getParent() or self:getRoot()
 		end
 		return self.lastNode[cid]
-	end
-
-	-- Compatibility method for old NPC spell system
-	function KeywordHandler:addSpellKeyword(keywords, parameters)
-		local npcHandler = parameters.npcHandler
-		if not npcHandler then
-			return
-		end
-
-		local spellName = parameters.spellName
-		local price = parameters.price or 0
-		local level = parameters.level or 0
-		local vocation = parameters.vocation
-
-		-- Add keyword for spell learning/teaching
-		local node = self:addKeyword(keywords, function(cid, message, keywords, parameters, node)
-			local player = Player(cid)
-			if not player then
-				return false
-			end
-
-			-- Check level requirement
-			if player:getLevel() < level then
-				npcHandler:say("You need to be at least level " .. level .. " to learn this spell.", cid)
-				return true
-			end
-
-			-- Check vocation requirement
-			if vocation and type(vocation) == "table" then
-				local playerVocation = player:getVocation():getId()
-				local allowed = false
-				for _, v in ipairs(vocation) do
-					if playerVocation == v then
-						allowed = true
-						break
-					end
-				end
-				if not allowed then
-					npcHandler:say("This spell is not available for your vocation.", cid)
-					return true
-				end
-			end
-
-			-- Check if player already knows the spell
-			if player:hasLearnedSpell(spellName) then
-				npcHandler:say("You already know this spell.", cid)
-				return true
-			end
-
-			-- Check if player can afford it
-			if not player:removeTotalMoney(price) then
-				npcHandler:say("You don't have enough money. This spell costs " .. price .. " gold coins.", cid)
-				return true
-			end
-
-			-- Teach the spell
-			player:learnSpell(spellName)
-			npcHandler:say("You have learned " .. spellName .. "!", cid)
-			return true
-		end, parameters)
-
-		return node
-	end
-
-	-- Compatibility method for old NPC greet system
-	function KeywordHandler:addGreetKeyword(keywords, parameters)
-		local npcHandler = parameters.npcHandler
-		if not npcHandler then
-			return
-		end
-
-		local text = parameters.text
-		local node = self:addKeyword(keywords, function(cid, message, keywords, parameters, node)
-			local npcHandler = parameters.npcHandler
-			if npcHandler then
-				npcHandler:say(parameters.text, cid)
-				npcHandler:onGreet(cid)
-			end
-			return true
-		end, parameters)
-
-		return node
-	end
-
-	-- Compatibility method for old NPC farewell system
-	function KeywordHandler:addFarewellKeyword(keywords, parameters)
-		local npcHandler = parameters.npcHandler
-		if not npcHandler then
-			return
-		end
-
-		local text = parameters.text
-		local node = self:addKeyword(keywords, function(cid, message, keywords, parameters, node)
-			local npcHandler = parameters.npcHandler
-			if npcHandler then
-				npcHandler:say(parameters.text, cid)
-				npcHandler:onFarewell(cid)
-			end
-			return true
-		end, parameters)
-
-		return node
 	end
 end

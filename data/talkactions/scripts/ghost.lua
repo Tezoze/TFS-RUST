@@ -3,7 +3,7 @@ function onSay(player, words, param)
 		return true
 	end
 
-	if player:getGroup():getId() <= 4 then
+	if player:getAccountType() < ACCOUNT_TYPE_GOD then
 		return false
 	end
 
@@ -11,12 +11,11 @@ function onSay(player, words, param)
 	local isGhost = not player:isInGhostMode()
 
 	player:setGhostMode(isGhost)
-	player:setPassThroughMode(isGhost)
 	if isGhost then
-		player:sendTextMessage(MESSAGE_INFO_DESCR, "You are now in ghost mode (invisible and can walk through walls).")
+		player:sendTextMessage(MESSAGE_INFO_DESCR, "You are now invisible.")
 		position:sendMagicEffect(CONST_ME_YALAHARIGHOST)
 	else
-		player:sendTextMessage(MESSAGE_INFO_DESCR, "You are visible again and can no longer walk through walls.")
+		player:sendTextMessage(MESSAGE_INFO_DESCR, "You are visible again.")
 		position.x = position.x + 1
 		position:sendMagicEffect(CONST_ME_SMOKE)
 	end

@@ -1,9 +1,4 @@
 registerMonsterType = {}
-
-local function isInteger(number)
-	return type(number) == "number" and number % 1 == 0
-end
-
 setmetatable(registerMonsterType,
 {
 	__call =
@@ -134,9 +129,6 @@ registerMonsterType.flags = function(mtype, mask)
 		if mask.flags.staticAttackChance then
 			mtype:staticAttackChance(mask.flags.staticAttackChance)
 		end
-		if mask.flags.runHealth then
-			mtype:runHealth(mask.flags.runHealth)
-		end
 		if mask.flags.canWalkOnEnergy ~= nil then
 			mtype:canWalkOnEnergy(mask.flags.canWalkOnEnergy)
 		end
@@ -210,14 +202,8 @@ registerMonsterType.loot = function(mtype, mask)
 			if loot.aid or loot.actionId then
 				parent:setActionId(loot.aid or loot.actionId)
 			end
-			-- Handle charges/subType - auto-detect from item if not specified
 			if loot.subType or loot.charges then
 				parent:setSubType(loot.subType or loot.charges)
-			else
-				local itemType = ItemType(loot.id)
-				if itemType and itemType:getCharges() > 1 then
-					parent:setSubType(itemType:getCharges())
-				end
 			end
 			if loot.text or loot.description then
 				parent:setDescription(loot.text or loot.description)
@@ -237,14 +223,8 @@ registerMonsterType.loot = function(mtype, mask)
 					if children.aid or children.actionId then
 						child:setActionId(children.aid or children.actionId)
 					end
-					-- Handle charges/subType for child loot - auto-detect from item if not specified
 					if children.subType or children.charges then
 						child:setSubType(children.subType or children.charges)
-					else
-						local childItemType = ItemType(children.id)
-						if childItemType and childItemType:getCharges() > 1 then
-							child:setSubType(childItemType:getCharges())
-						end
 					end
 					if children.text or children.description then
 						child:setDescription(children.text or children.description)
@@ -282,17 +262,6 @@ registerMonsterType.immunities = function(mtype, mask)
 end
 registerMonsterType.attacks = function(mtype, mask)
 	if type(mask.attacks) == "table" then
-		local conditionToCombat = {
-			[CONDITION_POISON] = COMBAT_EARTHDAMAGE,
-			[CONDITION_FIRE] = COMBAT_FIREDAMAGE,
-			[CONDITION_ENERGY] = COMBAT_ENERGYDAMAGE,
-			[CONDITION_BLEEDING] = COMBAT_PHYSICALDAMAGE,
-			[CONDITION_DROWN] = COMBAT_DROWNDAMAGE,
-			[CONDITION_FREEZING] = COMBAT_ICEDAMAGE,
-			[CONDITION_DAZZLED] = COMBAT_HOLYDAMAGE,
-			[CONDITION_CURSED] = COMBAT_DEATHDAMAGE,
-		}
-
 		for _, attack in pairs(mask.attacks) do
 			local spell = MonsterSpell()
 			if attack.name then
@@ -329,28 +298,10 @@ registerMonsterType.attacks = function(mtype, mask)
 						end
 					end
 				else
-					if attack.name == "condition" then
-						spell:setType("condition")
-						spell:setCombatValue(0, 0)
-						if attack.type and conditionToCombat[attack.type] then
-							-- spell:setCombatType(conditionToCombat[attack.type])
-							spell:setCombatType(COMBAT_NONE)
-						else
-							spell:setCombatType(COMBAT_NONE)
-						end
-					else
-						spell:setType(attack.name)
-					end
-					
+					spell:setType(attack.name)
 					if attack.type then
-						if attack.name == "combat" or attack.name == "condition" then
-							if attack.name == "combat" then
-								spell:setCombatType(attack.type)
-							end
-							-- condition handling is done above for combat type, but we still need to setConditionType
-							if attack.name == "condition" then
-								spell:setConditionType(attack.type)
-							end
+						if attack.name == "combat" then
+							spell:setCombatType(attack.type)
 						else
 							spell:setConditionType(attack.type)
 						end
@@ -366,9 +317,6 @@ registerMonsterType.attacks = function(mtype, mask)
 					end
 					if attack.duration then
 						spell:setConditionDuration(attack.duration)
-					end
-					if attack.tick then
-						spell:setConditionTickInterval(attack.tick)
 					end
 					if attack.speed then
 						if type(attack.speed) ~= "table" then
@@ -407,12 +355,6 @@ registerMonsterType.attacks = function(mtype, mask)
 					end
 					if attack.shootEffect then
 						spell:setCombatShootEffect(attack.shootEffect)
-					end
-					if attack.monster then
-						spell:setOutfitMonster(attack.monster)
-					end
-					if attack.item then
-						spell:setOutfitItem(attack.item)
 					end
 					if attack.name == "drunk" then
 						spell:setConditionType(CONDITION_DRUNK)
@@ -545,12 +487,6 @@ registerMonsterType.defenses = function(mtype, mask)
 						end
 						if defense.shootEffect then
 							spell:setCombatShootEffect(defense.shootEffect)
-						end
-						if defense.monster then
-							spell:setOutfitMonster(defense.monster)
-						end
-						if defense.item then
-							spell:setOutfitItem(defense.item)
 						end
 					end
 				elseif defense.script then

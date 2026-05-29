@@ -107,111 +107,7 @@ local config = {
 local skinning = Action()
 
 function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey)
-	if not item or not item:isItem() then
-		return false
-	end
-
-	if not target or not target:isItem() then
-		return false
-	end
-
-	-- Handle Blessed Wooden Stake on vampire brother remains
-	if item:getId() == 5942 and target:getId() == 8938 then
-		-- Mission 7: Boreth
-		if player:getStorageValue(Storage.BloodBrothers.Mission07) == 1 and player:getStorageValue(Storage.BloodBrothers.BorekthKill) ~= 1 then
-			-- Transform Boreth's remains to next decay stage
-			target:transform(8939)
-
-			-- Give The Dust of Boreth
-			player:addItem(9633, 1)
-
-			-- Mark Boreth as killed
-			player:setStorageValue(Storage.BloodBrothers.BorekthKill, 1)
-
-			-- Send effect
-			player:getPosition():sendMagicEffect(CONST_ME_MAGIC_RED)
-
-			player:sendTextMessage(MESSAGE_EVENT_ADVANCE, "You have obtained the dust of Boreth! Return it to Julius.")
-
-			return true
-		end
-
-		-- Mission 8: Lersatio
-		local mission08 = player:getStorageValue(Storage.BloodBrothers.Mission08)
-		if mission08 >= 1 and player:getStorageValue(Storage.BloodBrothers.LersatioKill) ~= 1 then
-			-- Transform Lersatio's remains to next decay stage
-			target:transform(8939)
-
-			-- Give The Dust of Lersatio
-			player:addItem(9634, 1)
-
-			-- Mark Lersatio as killed
-			player:setStorageValue(Storage.BloodBrothers.LersatioKill, 1)
-
-			-- Send effect
-			player:getPosition():sendMagicEffect(CONST_ME_MAGIC_RED)
-
-			player:sendTextMessage(MESSAGE_EVENT_ADVANCE, "You have obtained the dust of Lersatio! Return it to Julius.")
-
-			return true
-		end
-
-		-- Mission 9: Marziel (if they use blessed stake on remains)
-		if player:getStorageValue(Storage.BloodBrothers.Mission09) >= 1 and player:getStorageValue(Storage.BloodBrothers.MarzielKill) ~= 1 then
-			-- Transform Marziel's remains to next decay stage
-			target:transform(8939)
-
-			-- Give The Dust of Marziel
-			player:addItem(9635, 1)
-
-			-- Mark Marziel as killed
-			player:setStorageValue(Storage.BloodBrothers.MarzielKill, 1)
-
-			-- Send effect
-			player:getPosition():sendMagicEffect(CONST_ME_MAGIC_RED)
-
-			player:sendTextMessage(MESSAGE_EVENT_ADVANCE, "You have obtained the dust of Marziel! Return it to Julius.")
-
-			return true
-		end
-
-		-- Mission 10: Arthei (if they use blessed stake on remains)
-		if player:getStorageValue(Storage.BloodBrothers.Mission10) >= 1 and player:getStorageValue(Storage.BloodBrothers.ArtheiKill) ~= 1 then
-			-- Transform Arthei's remains to next decay stage
-			target:transform(8939)
-
-			-- Give The Dust of Arthei
-			player:addItem(9636, 1)
-
-			-- Mark Arthei as killed
-			player:setStorageValue(Storage.BloodBrothers.ArtheiKill, 1)
-
-			-- Send effect
-			player:getPosition():sendMagicEffect(CONST_ME_MAGIC_RED)
-
-			player:sendTextMessage(MESSAGE_EVENT_ADVANCE, "You have obtained the dust of Arthei! Return it to Julius.")
-
-			return true
-		end
-
-		-- No valid mission/remains combination
-		player:sendTextMessage(MESSAGE_EVENT_ADVANCE, "Nothing happens.")
-		return true
-	end
-
-	-- Handle obsidian knife quest logic first
-	if item:getId() == 5908 and target:getId() == 12295 then
-		if player:getStorageValue(Storage.WrathoftheEmperor.Mission02) == 1 then
-			player:say("You carefully carve the sacred wood into a bowl.", TALKTYPE_MONSTER_SAY)
-			target:remove()
-			player:addItem(12287, 1) -- sacred bowl
-		else
-			player:say("This wood doesn't seem special enough to carve.", TALKTYPE_MONSTER_SAY)
-		end
-		return true
-	end
-
-	local skin = config[item:getId()][target:getId()]
+	local skin = config[item.itemid][target.itemid]
 	if not skin then
 		player:sendCancelMessage(RETURNVALUE_NOTPOSSIBLE)
 		return true
@@ -222,8 +118,8 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 	if type(skin[1]) == "table" then
 		local added = false
 		for _, skinChild in ipairs(skin) do
-			if randomChance <= skinChild.chance and not target:getId() == 13583 then
-				if target:getId() == 11343 then
+			if randomChance <= skinChild.chance and not target.itemid == 13583 then
+				if target.itemid == 11343 then
 					local marble = player:addItem(skinChild.newItem, skinChild.amount or 1)
 					if marble then
 						marble:setAttribute(ITEM_ATTRIBUTE_DESCRIPTION, skinChild.desc:gsub("|PLAYERNAME|", player:getName()))
@@ -244,14 +140,14 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 			end
 		end
 
-		if not added and target:getId() == 11343 then
+		if not added and target.itemid == 11343 then
 			effect = CONST_ME_HITAREA
 			player:say("Your attempt at shaping that marble rock failed miserably.", TALKTYPE_MONSTER_SAY)
 			transform = false
 			target:remove()
 		end
 	elseif randomChance <= skin.chance then
-		if table.contains({7441, 7442, 7444, 7445}, target:getId()) then
+		if table.contains({7441, 7442, 7444, 7445}, target.itemid) then
 			if skin.newItem == 7446 then
 				player:addAchievement("Ice Sculptor")
 				player:addAchievementProgress("Cold as Ice", 10)
@@ -267,7 +163,7 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 			player:addItem(skin.newItem, skin.amount or 1)
 		end
 	else
-		if table.contains({7441, 7442, 7444, 7445}, target:getId()) then
+		if table.contains({7441, 7442, 7444, 7445}, target.itemid) then
 			player:say("The attempt of sculpting failed miserably.", TALKTYPE_MONSTER_SAY)
 			effect = CONST_ME_HITAREA
 			target:remove()
@@ -276,22 +172,7 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 		end
 	end
 	if transform then
-		-- Don't decay vampire boss remains (8938, 8939) - they should persist for quest purposes
-		if target:getId() ~= 8938 and target:getId() ~= 8939 then
-			local transformId = skin.after
-			if not transformId or transformId <= 0 then
-				transformId = target:getType():getDecayId()
-			end
-			if not transformId or transformId <= 0 then
-				transformId = target:getId() + 1
-			end
-			-- Only transform if we have a valid ID
-			if transformId > 0 then
-				target:transform(transformId)
-			else
-				target:remove() -- Fallback: remove if no valid transform ID
-			end
-		end
+		target:transform(skin.after or target:getType():getDecayId() or target.itemid + 1)
 	else
 		target:remove()
 	end

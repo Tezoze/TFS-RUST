@@ -57,14 +57,7 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 			player:say(fluidMessage[item.type] or "Gulp.", TALKTYPE_MONSTER_SAY)
 			item:transform(item:getId(), 0)
 		else
-			local pool = Game.createItem(2016, item.type, toPosition)
-			if pool then
-				pool:decay()
-				-- Check for Arito's Task cave entrance (water type 1)
-				if item.type == 1 then
-					checkWallArito(pool, toPosition)
-				end
-			end
+			Game.createItem(2016, item.type, toPosition):decay()
 			item:transform(item:getId(), 0)
 		end
 	else
@@ -84,14 +77,7 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 			if toPosition.x == CONTAINER_POSITION then
 				toPosition = player:getPosition()
 			end
-			local pool = Game.createItem(2016, item.type, toPosition)
-			if pool then
-				pool:decay()
-				-- Check for Arito's Task cave entrance (water type 1)
-				if item.type == 1 then
-					checkWallArito(pool, toPosition)
-				end
-			end
+			Game.createItem(2016, item.type, toPosition):decay()
 			item:transform(item:getId(), 0)
 		end
 	end

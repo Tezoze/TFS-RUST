@@ -7,11 +7,8 @@ function msgcontains(message, keyword)
 		return true
 	end
 
-	-- Check if keyword appears as a whole word using word boundaries
-	return message:find('%f[%w]' .. keyword .. '%f[%W]') ~= nil
+	return message:find(keyword) and not message:find('(%w+)' .. keyword)
 end
-
-ITEM_STACK_SIZE = 100
 
 function doNpcSellItem(cid, itemid, amount, subType, ignoreCap, inBackpacks, backpack)
 	local amount = amount or 1
@@ -20,9 +17,9 @@ function doNpcSellItem(cid, itemid, amount, subType, ignoreCap, inBackpacks, bac
 	if ItemType(itemid):isStackable() then
 		if inBackpacks then
 			stuff = Game.createItem(backpack, 1)
-			item = stuff:addItem(itemid, math.min(ITEM_STACK_SIZE, amount))
+			item = stuff:addItem(itemid, math.min(100, amount))
 		else
-			stuff = Game.createItem(itemid, math.min(ITEM_STACK_SIZE, amount))
+			stuff = Game.createItem(itemid, math.min(100, amount))
 		end
 		return Player(cid):addItemEx(stuff, ignoreCap) ~= RETURNVALUE_NOERROR and 0 or amount, 0
 	end
@@ -73,18 +70,12 @@ function doCreatureSayWithDelay(cid, text, type, delay, e, pcid)
 	end
 end
 
-function doPlayerSellItem(cid, itemid, count, cost, subType, ignoreEquipped)
+function doPlayerSellItem(cid, itemid, count, cost)
 	local player = Player(cid)
-	if not player then
-		return false
-	end
-	-- Use subType for fluid containers, otherwise use -1 to match any subType
-	local itemSubType = -1
-	if subType and ItemType(itemid):isFluidContainer() then
-		itemSubType = subType
-	end
-	if player:removeItem(itemid, count, itemSubType, ignoreEquipped) then
-		player:addMoney(cost)
+	if player:removeItem(itemid, count) then
+		if not player:addMoney(cost) then
+			error('Could not add money to ' .. player:getName() .. '(' .. cost .. 'gp)')
+		end
 		return true
 	end
 	return false
@@ -111,14 +102,11 @@ end
 
 function getCount(string)
 	local b, e = string:find("%d+")
-	if not b then
-		return -1
+	local tonumber = tonumber(string:sub(b, e))
+	if tonumber > 2 ^ 32 - 1 then
+		print("Warning: Casting value to 32bit to prevent crash\n"..debug.traceback())
 	end
-	local count = tonumber(string:sub(b, e))
-	if count > 2 ^ 32 - 1 then
-		print("Warning: Casting value to 32bit to prevent crash\n" .. debug.traceback())
-	end
-	return math.min(2 ^ 32 - 1, count)
+	return b and e and math.min(2 ^ 32 - 1, tonumber) or -1
 end
 
 function isValidMoney(money)
@@ -127,14 +115,11 @@ end
 
 function getMoneyCount(string)
 	local b, e = string:find("%d+")
-	if not b then
-		return -1
+	local tonumber = tonumber(string:sub(b, e))
+	if tonumber > 2 ^ 32 - 1 then
+		print("Warning: Casting value to 32bit to prevent crash\n"..debug.traceback())
 	end
-	local count = tonumber(string:sub(b, e))
-	if count > 2 ^ 32 - 1 then
-		print("Warning: Casting value to 32bit to prevent crash\n" .. debug.traceback())
-	end
-	local money = math.min(2 ^ 32 - 1, count)
+	local money = b and e and math.min(2 ^ 32 - 1, tonumber) or -1
 	if isValidMoney(money) then
 		return money
 	end

@@ -23,59 +23,27 @@ function Party:onDisband()
 end
 
 function Party:onShareExperience(exp)
-	local sharedExperienceMultiplier = 120 --120% (1.20x)
+	local sharedExperienceMultiplier = 1.20 --20%
+	local vocationsIds = {}
 	local rawExp = exp
 
-	-- Count unique vocations in the party (using base vocations to group promoted forms)
-	local vocations = {}
-	local leader = self:getLeader()
-	if leader then
-		local baseVocation = leader:getVocation():getBase()
-		vocations[baseVocation:getId()] = true
+	local vocationId = self:getLeader():getVocation():getBase():getId()
+	if vocationId ~= VOCATION_NONE then
+		table.insert(vocationsIds, vocationId)
 	end
-	
+
 	for _, member in ipairs(self:getMembers()) do
-		local baseVocation = member:getVocation():getBase()
-		vocations[baseVocation:getId()] = true
-	end
-	
-	-- Count unique vocations, cap at 4 for bonus calculation
-	local uniqueVocations = 0
-	for _ in pairs(vocations) do
-		uniqueVocations = uniqueVocations + 1
-	end
-	uniqueVocations = math.min(uniqueVocations, 4)
-
-	-- Count party members (leader + members), cap at 4 for bonus calculation
-	local partySize = math.min(#self:getMembers() + 1, 4)
-
-	-- Calculate vocation-based bonus (full bonus)
-	-- 2 vocations: +30%
-	-- 3 vocations: +60%
-	-- 4 vocations: +100%
-	local vocationBonus = 0
-	if uniqueVocations > 1 then
-		vocationBonus = uniqueVocations * (5 * (uniqueVocations - 1) + 10)
+		vocationId = member:getVocation():getBase():getId()
+		if not table.contains(vocationsIds, vocationId) and vocationId ~= VOCATION_NONE then
+			table.insert(vocationsIds, vocationId)
+		end
 	end
 
-	-- Calculate player-based bonus (50% of vocation formula)
-	-- 2 players: +15%
-	-- 3 players: +30%
-	-- 4 players: +50%
-	local playerBonus = 0
-	if partySize > 1 then
-		playerBonus = (partySize * (5 * (partySize - 1) + 10)) * 0.5
+	local size = #vocationsIds
+	if size > 1 then
+		sharedExperienceMultiplier = 1.0 + ((size * (5 * (size - 1) + 10)) / 100)
 	end
 
-	-- Use whichever bonus is higher (they don't stack)
-	local finalBonus = math.max(vocationBonus, playerBonus)
-	sharedExperienceMultiplier = 100 + finalBonus
-
-	-- Apply the multiplier to the raw experience and return the final amount
-	local result = sharedExperienceMultiplier
-	if hasEventCallback(EVENT_CALLBACK_ONSHAREEXPERIENCE) then
-		result = EventCallback(EVENT_CALLBACK_ONSHAREEXPERIENCE, self, sharedExperienceMultiplier, rawExp)
-	end
-	
-	return rawExp * (result / 100)
+	exp = math.ceil((exp * sharedExperienceMultiplier) / (#self:getMembers() + 1))
+	return hasEventCallback(EVENT_CALLBACK_ONSHAREEXPERIENCE) and EventCallback(EVENT_CALLBACK_ONSHAREEXPERIENCE, self, exp, rawExp) or exp
 end

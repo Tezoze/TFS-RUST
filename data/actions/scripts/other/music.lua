@@ -35,58 +35,6 @@ local instruments = {
 }
 
 function onUse(player, item, fromPosition, target, toPosition, isHotkey)
-	-- Special handling for An Uneasy Alliance Foul Spirits task
-	if item:getId() == 2070 and player:getStorageValue(Storage.AnUneasyAllianceTasks.FoulSpirits) == 1 then
-		-- Haunted trees location in Zao - set these coordinates in your map editor
-		local hauntedTreesPos = Position(33298, 31387, 7) 
-
-		if player:getPosition() == hauntedTreesPos then
-			-- 50% chance to fail and spawn monsters
-			if math.random(1, 100) <= 50 then
-				-- Failure - spawn monsters
-				local monsters = {"Haunted Treeling", "Carniphila"}
-				local chosenMonster = monsters[math.random(#monsters)]
-
-				-- Spawn 2 monsters around the player
-				for i = 1, 2 do
-					local offsetX = math.random(-2, 2)
-					local offsetY = math.random(-2, 2)
-					local spawnPos = Position(hauntedTreesPos.x + offsetX, hauntedTreesPos.y + offsetY, hauntedTreesPos.z)
-
-					if spawnPos ~= hauntedTreesPos then -- Don't spawn on the flute playing position
-						local monster = Game.createMonster(chosenMonster, spawnPos, true)
-						if monster then
-							monster:setTarget(player)
-						end
-					end
-				end
-
-				-- 30% chance to get cursed
-				if math.random(1, 100) <= 30 then
-					player:addCondition(Condition(CONDITION_CURSED, 20, 15)) -- 20 turns, 15 damage per turn = 300 total
-					player:say("You have been cursed by the angry spirit!", TALKTYPE_MONSTER_SAY)
-				end
-
-				player:say("The tree spirit becomes enraged and summons creatures to attack you!", TALKTYPE_MONSTER_SAY)
-				fromPosition:sendMagicEffect(CONST_ME_SOUND_RED)
-				player:addAchievementProgress("Rockstar", 10000)
-				return true
-			else
-				-- Success - complete the task
-				player:setStorageValue(Storage.AnUneasyAllianceTasks.FoulSpirits, 2)
-				player:say("You play the flute and the tree spirit calms down, its evil presence fading away.", TALKTYPE_MONSTER_SAY)
-				fromPosition:sendMagicEffect(CONST_ME_SOUND_BLUE)
-				player:addAchievementProgress("Rockstar", 10000)
-				return true
-			end
-		else
-			player:say("This doesn't seem like the right place to play the flute for the tree spirit.", TALKTYPE_MONSTER_SAY)
-			fromPosition:sendMagicEffect(CONST_ME_SOUND_GREEN)
-			player:addAchievementProgress("Rockstar", 10000)
-			return true
-		end
-	end
-
 	local instrument, chance = instruments[item:getId()]
 	if instrument.chance then
 		chance = instrument.chance >= math.random(1, 100)

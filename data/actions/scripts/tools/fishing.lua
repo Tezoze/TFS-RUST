@@ -1,23 +1,9 @@
 local waterIds = {493, 4608, 4609, 4610, 4611, 4612, 4613, 4614, 4615, 4616, 4617, 4618, 4619, 4620, 4621, 4622, 4623, 4624, 4625, 7236, 10499, 15401, 15402}
+local lootTrash = {2234, 2238, 2376, 2509, 2667}
+local lootCommon = {2152, 2167, 2168, 2669, 7588, 7589}
+local lootRare = {2143, 2146, 2149, 7158, 7159}
+local lootVeryRare = {7632, 7633, 10220}
 local useWorms = true
-
--- Water Elemental loot table with proper chances from water_elemental.xml
-local waterElementalLoot = {
-	{itemId = 2145, chance = 1000, count = 1},      -- small diamond
-	{itemId = 2146, chance = 1000, count = 1},      -- small sapphire
-	{itemId = 2148, chance = 50000, countMax = 100}, -- gold coin
-	{itemId = 2149, chance = 1000, countMax = 2},   -- small emerald
-	{itemId = 2152, chance = 10000, count = 1},     -- platinum coin
-	{itemId = 2167, chance = 950, count = 1},       -- energy ring
-	{itemId = 2168, chance = 930, count = 1},       -- life ring
-	{itemId = 2667, chance = 20000, count = 1},     -- fish
-	{itemId = 7158, chance = 940, count = 1},       -- rainbow trout
-	{itemId = 7159, chance = 1050, count = 1},      -- green perch
-	{itemId = 7588, chance = 10000, count = 1},     -- strong health potion
-	{itemId = 7589, chance = 10000, count = 1},     -- strong mana potion
-	{itemId = 7632, chance = 800, count = 1},       -- giant shimmering pearl
-	{itemId = 7633, chance = 800, count = 1}        -- giant shimmering pearl
-}
 
 function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	local targetId = target.itemid
@@ -36,18 +22,15 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 		target:transform(targetId + 1)
 		target:decay()
 
-		-- Generate loot using water elemental's proper loot table
-		local lootRate = configManager.getNumber(configKeys.RATE_LOOT)
-		for _, lootItem in pairs(waterElementalLoot) do
-			-- Apply loot rate multiplier to the chance
-			local adjustedChance = lootItem.chance * lootRate
-			if math.random(100000) <= adjustedChance then
-				local count = lootItem.count or 1
-				if lootItem.countMax then
-					count = math.random(1, lootItem.countMax)
-				end
-				player:addItem(lootItem.itemId, count)
-			end
+		local rareChance = math.random(1, 100)
+		if rareChance == 1 then
+			player:addItem(lootVeryRare[math.random(#lootVeryRare)], 1)
+		elseif rareChance <= 3 then
+			player:addItem(lootRare[math.random(#lootRare)], 1)
+		elseif rareChance <= 10 then
+			player:addItem(lootCommon[math.random(#lootCommon)], 1)
+		else
+			player:addItem(lootTrash[math.random(#lootTrash)], 1)
 		end
 		return true
 	end

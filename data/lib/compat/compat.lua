@@ -56,9 +56,6 @@ do
 			return 1
 		elseif key == "actionid" then
 			return 0
-		elseif key == "removeMoneyNpc" and methods.isPlayer and methods.isPlayer(self) then
-			-- Use removeTotalMoney to accept payment from both inventory and bank account
-			return Player.removeTotalMoney
 		end
 		return methods[key]
 	end
@@ -221,41 +218,6 @@ do
 	end
 	rawgetmetatable("GlobalEvent").__newindex = GlobalEventNewIndex
 end
-
-do
-	local function NpcNewIndex(self, key, value)
-		if key == "addGreetMessage" then
-			self:addGreet("message", value)
-			return
-		elseif key == "addSpellKeyword" then
-			self:addKeyword(value.keyword, value.spell, value.price, value.level, value.discount)
-			return
-		elseif key == "addGreetKeyword" then
-			self:addGreet("keyword", value)
-			return
-		elseif key == "titleCase" then
-			-- Simple title case function for NPC travel keywords
-			local function titleCase(str)
-				return str:gsub("(%a)([%w_']*)", function(first, rest)
-					return first:upper() .. rest:lower()
-				end)
-			end
-			return titleCase(value)
-		end
-		rawset(self, key, value)
-	end
-	rawgetmetatable("Npc").__newindex = NpcNewIndex
-end
-
-
--- Game compatibility functions
-function Game.getCurrencyItems()
-	-- Return empty table as stub
-	return {}
-end
-
--- NPC System will be loaded from TFS NPC system files
--- These are fallback shims in case the TFS system doesn't load properly
 
 do
 	local function WeaponNewIndex(self, key, value)
@@ -580,7 +542,6 @@ function getPlayerLearnedInstantSpell(cid, name) local p = Player(cid) return p 
 function isPlayerGhost(cid) local p = Player(cid) return p and p:isInGhostMode() or false end
 function isPlayerPzLocked(cid) local p = Player(cid) return p and p:isPzLocked() or false end
 function isPremium(cid) local p = Player(cid) return p and p:isPremium() or false end
-function isPlayerPremium(cid) local p = Player(cid) return p and p:isPremium() or false end
 function getPlayersByIPAddress(ip, mask)
 	if mask == nil then mask = 0xFFFFFFFF end
 	local masked = bit.band(ip, mask)
@@ -670,7 +631,6 @@ function doPlayerSetGuildLevel(cid, level) local p = Player(cid) return p and p:
 function doPlayerSetGuildNick(cid, nick) local p = Player(cid) return p and p:setGuildNick(nick) or false end
 function doPlayerSetOfflineTrainingSkill(cid, skillId) local p = Player(cid) return p and p:setOfflineTrainingSkill(skillId) or false end
 function doShowTextDialog(cid, itemId, text) local p = Player(cid) return p and p:showTextDialog(itemId, text) or false end
-function doPlayerAddItem(cid, itemid, count, ...) local p = Player(cid) return p and p:addItem(itemid, count or 1, ...) or false end
 function doPlayerAddItemEx(cid, uid, ...) local p = Player(cid) return p and p:addItemEx(Item(uid), ...) or false end
 function doPlayerRemoveItem(cid, itemid, count, ...) local p = Player(cid) return p and p:removeItem(itemid, count, ...) or false end
 function doPlayerAddPremiumDays(cid, days) local p = Player(cid) return p and p:addPremiumDays(days) or false end
@@ -705,14 +665,6 @@ doPlayerSendTutorial = doSendTutorial
 function doAddMapMark(cid, pos, type, description) local p = Player(cid) return p and p:addMapMark(pos, type, description or "") or false end
 doPlayerAddMapMark = doAddMapMark
 function doPlayerSendTextMessage(cid, type, text, ...) local p = Player(cid) return p and p:sendTextMessage(type, text, ...) or false end
-
--- NPC compatibility functions
-function selfSay(text, cid, publicize)
-	local npc = Npc(getNpcCid())
-	if npc then
-		npc:say(text, TALKTYPE_PRIVATE_NP, publicize or false, cid or 0, npc:getPosition())
-	end
-end
 function doSendAnimatedText() debugPrint("Deprecated function.") return true end
 function getPlayerAccountManager() debugPrint("Deprecated function.") return true end
 function doPlayerSetExperienceRate() debugPrint("Deprecated function, use Player:onGainExperience event instead.") return true end
@@ -1536,99 +1488,6 @@ end
 
 function showpos(v)
 	return v > 0 and '+' or '-'
-end
-
-
--- Event callback compatibility
-Event = function(name)
-	if name then
-		local event = Game.getEventCallback and Game.getEventCallback(name)
-		if not event then
-			return nil
-		end
-		return event
-	else
-		-- Create a mock event handler for compatibility
-		local event = {
-			onGainExperience = nil,
-			onShareExperience = nil,
-			onLookInShop = nil,
-			onRotateItem = nil,
-			onTurn = nil,
-			onUpdateStorage = nil,
-			register = function(self)
-				-- Stub registration - in newer TFS versions this might be handled differently
-				return true
-			end
-		}
-		return event
-	end
-end
-
--- PacketHandler compatibility
-PacketHandler = function(opcode)
-	local handler = Game.getPacketHandler and Game.getPacketHandler(opcode)
-	if not handler then
-		-- Create a mock handler for compatibility
-		handler = {
-			opcode = opcode,
-			onReceive = nil,
-			register = function(self)
-				-- Stub registration - in newer TFS versions this might be handled differently
-				return true
-			end
-		}
-	end
-	return handler
-end
-
--- XML compatibility (basic stubs)
-XMLNode = {}
-XMLDocument = function(filename)
-	return {
-		child = function(self, name)
-			return nil
-		end,
-		attr = function(self, name)
-			return nil
-		end
-	}
-end
-
--- Add titleCase method to strings for NPC compatibility
-function string:titleCase()
-	return self:gsub("(%a)([%w_']*)", function(first, rest)
-		return first:upper() .. rest:lower()
-	end)
-end
-
--- Add exhaustion compatibility methods for Player class
-function Player.getExhaustion(player, storageKey)
-	if not player then
-		return 0
-	end
-	local exhaustionTime = player:getStorageValue(storageKey)
-	if exhaustionTime <= 0 then
-		return 0
-	end
-	local currentTime = os.time()
-	if exhaustionTime > currentTime then
-		return exhaustionTime - currentTime
-	else
-		player:setStorageValue(storageKey, 0)
-		return 0
-	end
-end
-
-function Player.setExhaustion(player, storageKey, seconds)
-	if not player then
-		return
-	end
-	if seconds <= 0 then
-		player:setStorageValue(storageKey, 0)
-	else
-		player:setStorageValue(storageKey, os.time() + seconds)
-	end
 end
 
 -- this is a fix for lua52 or higher which has the function renamed to table.unpack, while luajit still uses unpack
