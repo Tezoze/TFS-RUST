@@ -19,6 +19,8 @@ mod item_blob;
 mod item_look;
 pub mod inventory;
 mod player_inventory_load;
+mod player_inventory_query_add;
+mod player_ping;
 mod game_world_inventory;
 mod game_world_save;
 mod container_ui;

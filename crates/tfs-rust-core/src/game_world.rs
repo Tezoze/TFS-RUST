@@ -401,6 +401,7 @@ impl GameWorld {
         if self.tick_counter.is_multiple_of(5) {
             self.events.lua_gc_step();
         }
+        self.tick_player_pings(_now);
     }
 
     /// Whether `viewer` may treat `target_protocol_id` as “seen” for `knownCreatureSet` eviction.
@@ -772,22 +773,18 @@ impl GameWorld {
         }
         if let Cylinder::Inventory {
             player_id: to_pid,
-            ..
+            slot: to_slot,
         } = to_work
         {
-            // Item already on this player — net weight unchanged (`player.cpp` `hasCapacity`).
-            let same_player_inv_move = matches!(
-                from_cylinder,
-                Cylinder::Inventory {
-                    player_id: from_pid,
-                    ..
-                } if from_pid == to_pid
-            );
-            if !same_player_inv_move {
-                let rv = self.query_add_item_to_inventory(to_pid, item_id);
-                if rv.is_error() {
-                    return Err(rv);
-                }
+            let move_count = self
+                .items
+                .get(item_id)
+                .map(|i| (i.count as u32).min(u32::from(count)))
+                .unwrap_or(1);
+            let rv = self.player_query_add(to_pid, to_slot, item_id, move_count, flags);
+            match rv {
+                ReturnValue::NoError | ReturnValue::NeedExchange => {}
+                _ => return Err(rv),
             }
         }
         if let Cylinder::Container { item_id: cid, index } = to_work {
@@ -1158,10 +1155,6 @@ impl GameWorld {
                     if dest_id == item_id {
                         return Ok(item_id);
                     }
-                    let it = self.items_db.items.get(&item_type).ok_or(ReturnValue::NotPossible)?;
-                    if !crate::inventory::item_fits_equipment_slot(slot, it) {
-                        return Err(ReturnValue::CannotBeDressed);
-                    }
                     let idx = self
                         .get_thing_index_in_container(from_container, item_id)
                         .ok_or(ReturnValue::NotPossible)? as usize;
@@ -1304,10 +1297,6 @@ impl GameWorld {
                     if dest_id == item_id {
                         return Ok(item_id);
                     }
-                    let it = self.items_db.items.get(&item_type).ok_or(ReturnValue::NotPossible)?;
-                    if !crate::inventory::item_fits_equipment_slot(slot, it) {
-                        return Err(ReturnValue::CannotBeDressed);
-                    }
                     let stack_pos = self.map.get_tile(from_pos)
                         .and_then(|t| t.get_item_stack_pos(item_id))
                         .unwrap_or(0);
@@ -1370,23 +1359,15 @@ impl GameWorld {
                 if is_stackable && m < item_count {
                     return Err(ReturnValue::NotPossible);
                 }
-                let it = self.items_db.items.get(&item_type).ok_or(ReturnValue::NotPossible)?;
-                if !crate::inventory::item_fits_equipment_slot(*to_slot, it) {
-                    return Err(ReturnValue::CannotBeDressed);
-                }
                 let dest_id = self.get_player_inventory_item(cid, *to_slot);
                 if let Some(did) = dest_id {
                     if did == item_id {
                         return Ok(item_id);
                     }
-                    let dest_item = self.items.get(did).ok_or(ReturnValue::NotPossible)?;
-                    let dest_type = self
-                        .items_db
-                        .items
-                        .get(&dest_item.item_type)
-                        .ok_or(ReturnValue::NotPossible)?;
-                    if !crate::inventory::item_fits_equipment_slot(*from_slot, dest_type) {
-                        return Err(ReturnValue::CannotBeDressed);
+                    let dest_count = self.items.get(did).map(|i| i.count as u32).unwrap_or(1);
+                    let rv = self.player_query_add(cid, *from_slot, did, dest_count, flags);
+                    if rv != ReturnValue::NoError {
+                        return Err(rv);
                     }
                     let idx_f = crate::inventory::slot_to_array_index(*from_slot)
                         .ok_or(ReturnValue::NotPossible)?;

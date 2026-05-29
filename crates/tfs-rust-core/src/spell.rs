@@ -182,6 +182,8 @@ mod tests {
             vip_list: Vec::new(),
             health_hidden: false,
             last_activity: Instant::now(),
+            last_ping_sent: Instant::now(),
+            last_pong_at: Instant::now(),
             next_action_until,
             persist: None,
         }

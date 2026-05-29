@@ -152,6 +152,8 @@ pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
         vip_list: data.vip_list.clone(),
         health_hidden: false,
         last_activity: std::time::Instant::now(),
+        last_ping_sent: std::time::Instant::now(),
+        last_pong_at: std::time::Instant::now(),
         next_action_until: None,
         persist: Some(persist),
     }

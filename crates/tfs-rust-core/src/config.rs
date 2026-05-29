@@ -48,7 +48,7 @@ fn get_i64_or(cfg: &ConfigManager, key: &str, default: i64) -> Result<i64> {
     }
 }
 
-fn get_bool_or(cfg: &ConfigManager, key: &str, default: bool) -> Result<bool> {
+pub(crate) fn get_bool_or(cfg: &ConfigManager, key: &str, default: bool) -> Result<bool> {
     match cfg.get_bool(key) {
         Ok(v) => Ok(v),
         Err(e) if is_missing_config_key(&e) => Ok(default),

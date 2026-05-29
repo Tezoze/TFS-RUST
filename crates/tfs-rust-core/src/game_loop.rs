@@ -164,6 +164,8 @@ fn game_packet_needs_immediate_flush(packet: &GamePacket) -> bool {
             | GamePacket::AutoWalk { .. }
             | GamePacket::StopAutoWalk
             | GamePacket::Turn(_)
+            | GamePacket::Ping
+            | GamePacket::PingBack
     )
 }
 
@@ -316,6 +318,16 @@ pub async fn run_game_loop(
                         }
                         match packet {
                             GamePacket::EnterGame => {}
+                            GamePacket::Ping => {
+                                if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_receive_ping(conn_id, cid, now);
+                                }
+                            }
+                            GamePacket::PingBack => {
+                                if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                                    world.player_receive_ping_back(conn_id, cid);
+                                }
+                            }
                             GamePacket::ExtendedOpcode { opcode, buffer } => {
                                 world.protocol_hooks.extended_opcode(conn_id, opcode, buffer);
                             }

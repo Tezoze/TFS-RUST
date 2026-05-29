@@ -48,20 +48,20 @@ impl GameWorld {
         Ok(())
     }
 
-    /// Capacity check before moving into player inventory (`Player::hasCapacity` — `player.cpp`).
+    /// Capacity-only path for child containers (`Player::queryAdd` + `FLAG_CHILDISOWNER`).
     pub(crate) fn query_add_item_to_inventory(
         &self,
         cid: CreatureId,
         item_id: ItemId,
     ) -> ReturnValue {
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return ReturnValue::NotPossible;
-        };
-        let w = self.item_recursive_weight_oz(item_id);
-        if w > p.get_free_capacity_u32() {
-            return ReturnValue::NotEnoughCapacity;
-        }
-        ReturnValue::NoError
+        let count = self.items.get(item_id).map(|i| i.count as u32).unwrap_or(1);
+        self.player_query_add(
+            cid,
+            crate::inventory::InventorySlot::Wherever as u8,
+            item_id,
+            count,
+            CylinderFlags::CHILD_IS_OWNER,
+        )
     }
 
     pub(crate) fn internal_remove_item_from_inventory_slot(

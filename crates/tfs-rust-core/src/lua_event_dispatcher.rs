@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use crate::event_dispatcher::EventDispatcher;
 use crate::ids::CreatureId;
+use crate::return_value::ReturnValue;
 use slotmap::Key;
 use tfs_rust_lua::{CreatureEventType, CallbackRef, LuaRuntime, with_lua_context};
 
@@ -31,6 +32,16 @@ impl LuaEventDispatcher {
 }
 
 impl EventDispatcher for LuaEventDispatcher {
+    fn on_player_equip_check(
+        &self,
+        player: CreatureId,
+        item: crate::ids::ItemId,
+        slot: u8,
+    ) -> ReturnValue {
+        tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_equip_check");
+        ReturnValue::NoError
+    }
+
     fn on_player_equip(&self, player: CreatureId, item: crate::ids::ItemId, slot: u8) {
         tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_equip");
     }

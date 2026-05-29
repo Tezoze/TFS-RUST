@@ -101,6 +101,10 @@ pub struct Player {
     pub health_hidden: bool,
     /// TFS idle / kick — `resetIdleTime` updates this (`player.cpp`).
     pub last_activity: Instant,
+    /// Last server `sendPing` (`0x1D`) — `Player::lastPing` (`player.cpp`).
+    pub last_ping_sent: Instant,
+    /// Last client pong — `Player::lastPong` / `receivePing` (`player.cpp`).
+    pub last_pong_at: Instant,
     /// TFS `nextAction` — `Player::onWalk` blocks actions until this instant (`player.cpp` ~1343).
     pub next_action_until: Option<Instant>,
     /// Present for characters that logged in via DB; required for `IOLoginData::savePlayer`.

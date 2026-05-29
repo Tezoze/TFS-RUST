@@ -5,6 +5,7 @@
 // C++ reference: `CreatureEvent::dispatch`, `LuaScriptInterface` hooks.
 
 use crate::ids::{CreatureId, ItemId};
+use crate::return_value::ReturnValue;
 use tfs_rust_common::ScriptContext;
 
 /// Script and engine events. Default bodies are no-ops until `tfs-rust-lua` implements dispatch.
@@ -22,6 +23,10 @@ pub trait EventDispatcher {
     fn on_shutdown(&self) {}
     /// Spread LuaJIT GC across ticks (Phase 4 game loop). No-op without Lua.
     fn lua_gc_step(&self) {}
+    /// TFS `MoveEvents::onPlayerEquip` with `isCheck == true` — `player.cpp` `queryAdd`.
+    fn on_player_equip_check(&self, _player: CreatureId, _item: ItemId, _slot: u8) -> ReturnValue {
+        ReturnValue::NoError
+    }
     /// TFS `MoveEvent::onPlayerEquip` — `player.cpp` `postAddNotification` (`g_moveEvents->onPlayerEquip`).
     fn on_player_equip(&self, _player: CreatureId, _item: ItemId, _slot: u8) {}
     /// TFS `MoveEvent::onPlayerDeEquip` — `postRemoveNotification` (`g_moveEvents->onPlayerDeEquip`).
