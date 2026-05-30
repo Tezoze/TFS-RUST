@@ -101,6 +101,8 @@ pub struct CreatureBase {
     pub walk_update_ticks: u32,
     /// TFS `Creature::isUpdatingPath` — set when follow path should recompute (`creature.cpp` ~156–161).
     pub is_updating_path: bool,
+    /// TFS `Creature::hasFollowPath` — path queued in `listWalkDir` (`creature.h` ~530).
+    pub has_follow_path: bool,
     /// TFS `Creature::movementBlocked` — Lua `setMovementBlocked` (`creature.h`).
     pub movement_blocked: bool,
     /// TFS `Player::onCreatureMove` stairhop delay — `CONDITION_PACIFIED` for `STAIRHOP_DELAY` ms

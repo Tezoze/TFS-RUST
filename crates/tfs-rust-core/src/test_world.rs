@@ -18,7 +18,7 @@ pub mod support {
 
     use crate::config::ConfigManager;
     use crate::creature::{
-        CreatureBase, CreatureKind, Monster, Npc, Outfit, Player, PlayerEconomy, PlayerInventory,
+        CreatureBase, CreatureKind, Monster, MonsterAiConfig, Npc, Outfit, Player, PlayerEconomy, PlayerInventory,
         PlayerPersistBaseline, PlayerSkills, PlayerSocial,
     };
     use crate::event_dispatcher::{EventDispatcher, NullEventDispatcher};
@@ -76,6 +76,7 @@ freePremium = false
                 force_update_follow_path: false,
                 walk_update_ticks: 0,
                 is_updating_path: false,
+                has_follow_path: false,
                 movement_blocked: false,
                 stairhop_blocked_until: None,
                 follow_target: None,
@@ -296,6 +297,16 @@ freePremium = false
     }
 
     pub fn insert_monster(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
+        insert_monster_with_config(world, name, pos, speed, MonsterAiConfig::default())
+    }
+
+    pub fn insert_monster_with_config(
+        world: &mut GameWorld,
+        name: &str,
+        pos: Position,
+        speed: i32,
+        config: MonsterAiConfig,
+    ) -> CreatureId {
         let base = CreatureBase {
             name: name.into(),
             position: pos,
@@ -318,6 +329,7 @@ freePremium = false
             force_update_follow_path: false,
             walk_update_ticks: 0,
             is_updating_path: false,
+            has_follow_path: false,
             movement_blocked: false,
             stairhop_blocked_until: None,
             follow_target: None,
@@ -327,7 +339,7 @@ freePremium = false
         };
         let cid = world
             .creatures
-            .insert(CreatureKind::Monster(Monster::new(base, pos)));
+            .insert(CreatureKind::Monster(Monster::with_config(base, pos, config)));
         world.map.register_creature_index(pos, cid);
         if let Some(t) = world.map.get_tile_mut(pos) {
             t.add_creature(cid);
@@ -358,6 +370,7 @@ freePremium = false
             force_update_follow_path: false,
             walk_update_ticks: 0,
             is_updating_path: false,
+            has_follow_path: false,
             movement_blocked: false,
             stairhop_blocked_until: None,
             follow_target: None,

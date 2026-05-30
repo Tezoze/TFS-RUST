@@ -117,22 +117,17 @@ impl GameWorld {
 
             if base.is_updating_path {
                 base.is_updating_path = false;
-                // D.5: `go_to_follow_creature` path recompute.
+                self.go_to_follow_creature(cid);
             }
         }
 
         self.events.on_think(cid, interval_ms);
     }
 
-    /// TFS `Monster::onThink` — base think + stub for native AI (D.4).
+    /// TFS `Monster::onThink` — base think + native AI (D.4).
     pub fn monster_on_think(&mut self, cid: CreatureId, interval_ms: u32) {
         self.creature_on_think(cid, interval_ms);
-        // D.4: searchTarget, chase, flee, return-to-spawn, idle step, updateLookDirection.
-        let _ = interval_ms;
-        let _ = self.creatures.get(cid).and_then(|k| match k {
-            CreatureKind::Monster(m) if m.wants_lua_think() => Some(()),
-            _ => None,
-        });
+        self.monster_native_on_think(cid, interval_ms);
     }
 
     /// TFS `Npc::onThink` — base think + stub for idle walk / focus (D.6).

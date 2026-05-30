@@ -82,6 +82,9 @@ pub struct GameWorld {
     pub deferred_turn_broadcast: HashMap<CreatureId, DeferredTurnBroadcast>,
     /// `ProtocolGame::knownCreatureSet` — must persist across `0x64` / move strips (`src/protocolgame.cpp`).
     pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
+    /// Wire ids this conn received with a full `AddCreature` block (map `known=false` or `0x6A`).
+    /// Prevents `known=true` short encoding before the client has outfit/name data.
+    pub creature_fully_sent_by_conn: HashMap<ConnId, HashSet<u32>>,
     /// OTB + `items.xml` — server item id → client id for map / `addItem` (`src/items.cpp`).
     pub items_db: Arc<ItemDatabase>,
     /// `data/monster/` — spawn instantiation (`monsters.cpp`).
@@ -129,6 +132,37 @@ pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
     let max_y = my_y + (MAX_CLIENT_VIEWPORT_Y + 1) + offsetz;
 
     (min_x..=max_x).contains(&x) && (min_y..=max_y).contains(&y)
+}
+
+/// C++ `Creature::canSee(myPos, pos, viewRangeX, viewRangeY)` — `creature.cpp` ~45–66.
+/// Monster target list / follow use `Map::maxViewportX` / `maxViewportY` (11), not client viewport.
+pub fn creature_can_see(viewer_pos: Position, target: Position, view_range_x: i32, view_range_y: i32) -> bool {
+    let my_z = i32::from(viewer_pos.z);
+    let tz = i32::from(target.z);
+
+    if my_z <= 7 {
+        if tz > 7 {
+            return false;
+        }
+    } else if my_z >= 8 {
+        if tz < 8 {
+            return false;
+        }
+        if (my_z - tz).abs() > 2 {
+            return false;
+        }
+    }
+
+    let offsetz = my_z - tz;
+    let my_x = i32::from(viewer_pos.x);
+    let my_y = i32::from(viewer_pos.y);
+    let tx = i32::from(target.x);
+    let ty = i32::from(target.y);
+
+    tx >= my_x - view_range_x + offsetz
+        && tx <= my_x + view_range_x + offsetz
+        && ty >= my_y - view_range_y + offsetz
+        && ty <= my_y + view_range_y + offsetz
 }
 
 impl GameWorld {
@@ -203,6 +237,7 @@ impl GameWorld {
             conn_to_creature: HashMap::new(),
             deferred_turn_broadcast: HashMap::new(),
             known_creatures_by_conn: HashMap::new(),
+            creature_fully_sent_by_conn: HashMap::new(),
             items_db,
             monsters_db,
             groups,
@@ -393,6 +428,7 @@ impl GameWorld {
         // Remove connection mapping
         self.conn_to_creature.remove(&conn_id);
         self.known_creatures_by_conn.remove(&conn_id);
+        self.creature_fully_sent_by_conn.remove(&conn_id);
 
         // Remove creature from world (C++: g_game.removeCreature(player))
         self.remove_creature(cid);
@@ -439,6 +475,31 @@ impl GameWorld {
             self.events.lua_gc_step();
         }
         self.tick_player_pings(now);
+    }
+
+    /// Strip wire ids from `known` that this conn never received as a full `AddCreature` block.
+    /// C++ `ProtocolGame::knownCreatureSet` only marks known after the client got full data.
+    pub fn reconcile_known_creatures_for_send(&self, conn_id: ConnId, known: &mut HashSet<u32>) {
+        let Some(sent) = self.creature_fully_sent_by_conn.get(&conn_id) else {
+            return;
+        };
+        known.retain(|id| sent.contains(id));
+    }
+
+    /// Persist post-packet known set and record all ids as fully sent to this conn.
+    pub fn commit_known_creatures_after_send(&mut self, conn_id: ConnId, known: &HashSet<u32>) {
+        self.known_creatures_by_conn
+            .insert(conn_id, known.clone());
+        self.creature_fully_sent_by_conn
+            .insert(conn_id, known.clone());
+    }
+
+    /// Record one wire id as fully sent (e.g. after `0x6A` tile appear).
+    pub fn mark_creature_fully_sent(&mut self, conn_id: ConnId, wire_id: u32) {
+        self.creature_fully_sent_by_conn
+            .entry(conn_id)
+            .or_default()
+            .insert(wire_id);
     }
 
     /// Whether `viewer` may treat `target_protocol_id` as “seen” for `knownCreatureSet` eviction.
@@ -2325,5 +2386,24 @@ mod protocol_can_see_tests {
         let viewer = Position::new(100, 100, 10);
         let target = Position::new(100, 100, 7);
         assert!(!protocol_can_see(viewer, target));
+    }
+}
+
+#[cfg(test)]
+mod creature_can_see_tests {
+    use super::*;
+
+    #[test]
+    fn within_map_viewport_range() {
+        let viewer = Position::new(100, 100, 8);
+        let target = Position::new(110, 100, 8);
+        assert!(creature_can_see(viewer, target, 11, 11));
+    }
+
+    #[test]
+    fn outside_map_viewport_range() {
+        let viewer = Position::new(100, 100, 8);
+        let target = Position::new(130, 100, 8);
+        assert!(!creature_can_see(viewer, target, 11, 11));
     }
 }

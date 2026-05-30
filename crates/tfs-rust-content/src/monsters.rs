@@ -69,6 +69,34 @@ impl Default for MonsterOutfit {
     }
 }
 
+/// AI/movement flags from `<flags>` — C++ `MonsterType` (`monsters.h`).
+#[derive(Debug, Clone, Copy)]
+pub struct MonsterTypeFlags {
+    /// `<flag targetdistance=…>` — default 1 (`monsters.h`).
+    pub target_distance: i32,
+    /// `<flag runonhealth=…>` — default 0.
+    pub run_away_health: i32,
+    /// `<flag staticattack=…>` — default 95.
+    pub static_attack_chance: u32,
+    pub can_push_creatures: bool,
+    pub can_push_items: bool,
+    /// `<flag hostile=…>` — default true for wild monsters.
+    pub is_hostile: bool,
+}
+
+impl Default for MonsterTypeFlags {
+    fn default() -> Self {
+        Self {
+            target_distance: 1,
+            run_away_health: 0,
+            static_attack_chance: 95,
+            can_push_creatures: false,
+            can_push_items: false,
+            is_hostile: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MonsterType {
     pub name: String,
@@ -80,6 +108,7 @@ pub struct MonsterType {
     pub health_now: u32,
     pub health_max: u32,
     pub outfit: MonsterOutfit,
+    pub flags: MonsterTypeFlags,
     pub loot: Vec<LootBlock>,
     pub attack_spells: Vec<MonsterSpellNode>,
     pub defenses: MonsterDefenses,
@@ -406,6 +435,7 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
     }
 
     let mut outfit = MonsterOutfit::default();
+    let mut flags = MonsterTypeFlags::default();
     let mut loot = Vec::new();
     let mut attack_spells = Vec::new();
     let mut defenses = MonsterDefenses {
@@ -416,7 +446,9 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
 
     for child in monster.children().filter(|n| n.is_element()) {
         let tag = child.tag_name().name();
-        if tag.eq_ignore_ascii_case("look") {
+        if tag.eq_ignore_ascii_case("flags") {
+            parse_monster_flags(child, &mut flags, &file_str);
+        } else if tag.eq_ignore_ascii_case("look") {
             outfit.look_type = child.attribute("type").and_then(|a| a.parse().ok()).unwrap_or(136);
             outfit.look_head = child.attribute("head").and_then(|a| a.parse().ok()).unwrap_or(0);
             outfit.look_body = child.attribute("body").and_then(|a| a.parse().ok()).unwrap_or(0);
@@ -450,16 +482,99 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
         health_now,
         health_max,
         outfit,
+        flags,
         loot,
         attack_spells,
         defenses,
     })
 }
 
+/// C++ `Monsters::loadMonster` flags block (`monsters.cpp` ~959–1001).
+fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFlags, file: &str) {
+    for flag in node.children().filter(|n| n.is_element()) {
+        if !flag.tag_name().name().eq_ignore_ascii_case("flag") {
+            continue;
+        }
+        for attr in flag.attributes() {
+            let name = attr.name();
+            let value = attr.value();
+            match name {
+                "canpushitems" => flags.can_push_items = parse_bool_flag(value),
+                "canpushcreatures" => flags.can_push_creatures = parse_bool_flag(value),
+                "staticattack" => {
+                    let mut v: u32 = value.parse().unwrap_or(flags.static_attack_chance);
+                    if v > 100 {
+                        warn!(
+                            file,
+                            staticattack = v,
+                            "staticattack greater than 100, clamping to 100"
+                        );
+                        v = 100;
+                    }
+                    flags.static_attack_chance = v;
+                }
+                "targetdistance" => {
+                    let mut v: i32 = value.parse().unwrap_or(1);
+                    if v < 1 {
+                        warn!(file, "targetdistance less than 1, using 1");
+                        v = 1;
+                    }
+                    flags.target_distance = v;
+                }
+                "runonhealth" => flags.run_away_health = value.parse().unwrap_or(0),
+                "hostile" => flags.is_hostile = parse_bool_flag(value),
+                _ => {}
+            }
+        }
+    }
+    if flags.can_push_creatures {
+        // C++: canPushCreatures forces non-pushable (`monsters.cpp` ~997–1000).
+    }
+}
+
+fn parse_bool_flag(value: &str) -> bool {
+    value == "1" || value.eq_ignore_ascii_case("true")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn parses_monster_ai_flags() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<monster name="Test" speed="100">
+    <health now="20" max="20"/>
+    <flags>
+        <flag targetdistance="4" runonhealth="5" staticattack="90"
+              canpushcreatures="1" canpushitems="1" hostile="1"/>
+    </flags>
+</monster>"#;
+        let dir = std::env::temp_dir().join(format!(
+            "tfs_monster_flags_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        std::fs::create_dir_all(&dir).expect("tmpdir");
+        let path = dir.join("test.xml");
+        std::fs::write(&path, xml).expect("write xml");
+        let items = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let m = parse_monster_file(&path, &items).expect("parse");
+        assert_eq!(m.flags.target_distance, 4);
+        assert_eq!(m.flags.run_away_health, 5);
+        assert_eq!(m.flags.static_attack_chance, 90);
+        assert!(m.flags.can_push_creatures);
+        assert!(m.flags.can_push_items);
+        assert!(m.flags.is_hostile);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn index_name_is_lookup_key_not_file_name_attr() {

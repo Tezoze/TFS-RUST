@@ -17,7 +17,7 @@ use tfs_rust_net::outgoing_extra::{
 
 use crate::creature::CreatureBase;
 use crate::creature::CreatureKind;
-use crate::creature::{Monster, Npc, Outfit};
+use crate::creature::{Monster, MonsterAiConfig, Npc, Outfit};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::login_out::{build_add_creature_wire, creature_wire_id};
@@ -90,6 +90,15 @@ impl GameWorld {
 
     /// Execute one spawn plan entry from [`crate::spawn::SpawnManager`].
     pub fn process_spawn_request(&mut self, req: SpawnRequest) {
+        if self
+            .spawns
+            .slot(req.slot_index)
+            .and_then(|s| s.current)
+            .is_some()
+        {
+            return;
+        }
+
         let Some(slot) = self.spawns.slot(req.slot_index).cloned() else {
             return;
         };
@@ -130,6 +139,14 @@ impl GameWorld {
         let indices = self.spawns.due_slot_indices(now);
         self.spawns.mark_checked(now);
         for slot_index in indices {
+            if self
+                .spawns
+                .slot(slot_index)
+                .and_then(|s| s.current)
+                .is_some()
+            {
+                continue;
+            }
             let blocked = self
                 .spawns
                 .slot(slot_index)
@@ -221,6 +238,7 @@ impl GameWorld {
             force_update_follow_path: false,
             walk_update_ticks: 0,
             is_updating_path: false,
+            has_follow_path: false,
             movement_blocked: false,
             stairhop_blocked_until: None,
             follow_target: None,
@@ -229,9 +247,12 @@ impl GameWorld {
             damage_map: Default::default(),
         };
 
-        let cid = self
-            .creatures
-            .insert(CreatureKind::Monster(Monster::new(base, spawn_pos)));
+        let ai_config = MonsterAiConfig::from(mtype.flags);
+        let cid = self.creatures.insert(CreatureKind::Monster(Monster::with_config(
+            base,
+            spawn_pos,
+            ai_config,
+        )));
 
         let placed = self.find_and_place_creature(cid, center, extended_pos, !startup);
         if !placed {
@@ -241,11 +262,14 @@ impl GameWorld {
                 "could not place spawned monster on map"
             );
             self.creatures.remove(cid);
+            // Avoid tight respawn loops on blocked tiles — C++ `checkSpawn` only advances timer on success.
+            self.spawns.stall_respawn(slot_index, std::time::Instant::now());
             return None;
         }
 
         self.spawns.on_creature_spawned(slot_index, cid);
         self.spawn_slot_by_creature.insert(cid, slot_index);
+        self.monster_on_creature_appear_self(cid);
 
         if !startup {
             let pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);
@@ -289,6 +313,7 @@ impl GameWorld {
             force_update_follow_path: false,
             walk_update_ticks: 0,
             is_updating_path: false,
+            has_follow_path: false,
             movement_blocked: false,
             stairhop_blocked_until: None,
             follow_target: None,
@@ -397,24 +422,83 @@ impl GameWorld {
         true
     }
 
-    /// C++ `Game::placeCreature` → `sendAddCreature` for spectators (`game.cpp` ~552).
-    pub fn broadcast_creature_appear(&mut self, cid: CreatureId, pos: Position) {
+    /// Whether `conn` received a full `AddCreature` block for `wire_id`.
+    pub(crate) fn is_creature_fully_sent_to_conn(&self, conn: ConnId, wire_id: u32) -> bool {
+        self.creature_fully_sent_by_conn
+            .get(&conn)
+            .is_some_and(|s| s.contains(&wire_id))
+    }
+
+    /// C++ `ProtocolGame::sendAddCreature` for one viewer (`protocolgame.cpp` ~2730).
+    pub(crate) fn send_creature_appear_to_conn(
+        &mut self,
+        conn: ConnId,
+        viewer: CreatureId,
+        cid: CreatureId,
+        pos: Position,
+    ) -> bool {
         let wire_id = match self.creatures.get(cid) {
             Some(k) => creature_wire_id(cid, k),
-            None => return,
+            None => return false,
         };
-
         let stack_raw = self
             .map
             .get_tile(pos)
             .map(|t| client_creature_stack_pos(t.body(), cid))
             .unwrap_or(-1);
         if stack_raw < 0 || stack_raw >= 10 {
-            tracing::warn!(?cid, stack_raw, "spawn appear stackpos out of range; skipping 0x6A");
-            return;
+            tracing::warn!(?cid, stack_raw, "creature appear stackpos out of range; skipping 0x6A");
+            return false;
         }
         let stack_pos = stack_raw as u8;
+        let mut known = self
+            .known_creatures_by_conn
+            .remove(&conn)
+            .unwrap_or_default();
+        let mut can_see = |id: u32| self.can_see_creature_for_known_set(viewer, id);
+        let (known_flag, remove_known) =
+            check_creature_known(wire_id, &mut known, &mut can_see);
+        let mut wire = build_add_creature_wire(self, cid, viewer);
+        wire.known = known_flag;
+        wire.remove_known = remove_known;
+        wire.id = wire_id;
+        let packet = send_add_tile_creature(pos, stack_pos, &wire).into_bytes();
+        self.known_creatures_by_conn.insert(conn, known);
+        if !known_flag {
+            self.mark_creature_fully_sent(conn, wire_id);
+        }
+        self.enqueue_outgoing(conn, packet);
+        true
+    }
 
+    /// C++ `ProtocolGame::sendRemoveTileCreature` for one viewer.
+    pub(crate) fn send_creature_remove_to_conn(
+        &mut self,
+        conn: ConnId,
+        cid: CreatureId,
+        pos: Position,
+        stack_raw: i32,
+    ) {
+        let wire_id = match self.creatures.get(cid) {
+            Some(k) => creature_wire_id(cid, k),
+            None => return,
+        };
+        let packet = if stack_raw >= 0 && stack_raw < 10 {
+            send_remove_tile_thing(pos, stack_raw as u8).into_bytes()
+        } else {
+            send_remove_tile_creature_by_id(wire_id).into_bytes()
+        };
+        self.enqueue_outgoing(conn, packet);
+        if let Some(known) = self.known_creatures_by_conn.get_mut(&conn) {
+            known.remove(&wire_id);
+        }
+        if let Some(sent) = self.creature_fully_sent_by_conn.get_mut(&conn) {
+            sent.remove(&wire_id);
+        }
+    }
+
+    /// C++ `Game::placeCreature` → `sendAddCreature` for spectators (`game.cpp` ~552).
+    pub fn broadcast_creature_appear(&mut self, cid: CreatureId, pos: Position) {
         let spectators: Vec<(ConnId, CreatureId)> = self
             .conn_to_creature
             .iter()
@@ -431,20 +515,7 @@ impl GameWorld {
             .collect();
 
         for (conn, viewer) in spectators {
-            let mut known = self
-                .known_creatures_by_conn
-                .remove(&conn)
-                .unwrap_or_default();
-            let mut can_see = |id: u32| self.can_see_creature_for_known_set(viewer, id);
-            let (known_flag, remove_known) =
-                check_creature_known(wire_id, &mut known, &mut can_see);
-            let mut wire = build_add_creature_wire(self, cid, viewer);
-            wire.known = known_flag;
-            wire.remove_known = remove_known;
-            wire.id = wire_id;
-            let packet = send_add_tile_creature(pos, stack_pos, &wire).into_bytes();
-            self.known_creatures_by_conn.insert(conn, known);
-            self.enqueue_outgoing(conn, packet);
+            self.send_creature_appear_to_conn(conn, viewer, cid, pos);
         }
     }
 
@@ -455,11 +526,6 @@ impl GameWorld {
         pos: Position,
         stack_raw: i32,
     ) {
-        let wire_id = match self.creatures.get(cid) {
-            Some(k) => creature_wire_id(cid, k),
-            None => return,
-        };
-
         let spectators: Vec<(ConnId, CreatureId)> = self
             .conn_to_creature
             .iter()
@@ -476,15 +542,7 @@ impl GameWorld {
             .collect();
 
         for (conn, _viewer) in spectators {
-            let packet = if stack_raw >= 0 && stack_raw < 10 {
-                send_remove_tile_thing(pos, stack_raw as u8).into_bytes()
-            } else {
-                send_remove_tile_creature_by_id(wire_id).into_bytes()
-            };
-            self.enqueue_outgoing(conn, packet);
-            if let Some(known) = self.known_creatures_by_conn.get_mut(&conn) {
-                known.remove(&wire_id);
-            }
+            self.send_creature_remove_to_conn(conn, cid, pos, stack_raw);
         }
     }
 
@@ -515,7 +573,7 @@ mod tests {
         ensure_walkable_tile, insert_player, minimal_world, test_player,
     };
     use tfs_rust_common::ConnId;
-    use tfs_rust_content::monsters::{MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterType};
+    use tfs_rust_content::monsters::{MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags};
     use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -532,6 +590,7 @@ mod tests {
             health_now: 20,
             health_max: 20,
             outfit: MonsterOutfit::default(),
+            flags: MonsterTypeFlags::default(),
             loot: Vec::new(),
             attack_spells: Vec::new(),
             defenses: MonsterDefenses {
@@ -569,6 +628,25 @@ mod tests {
         world.startup_spawns();
         assert_eq!(world.creatures.len(), 1);
         assert!(world.pending_outgoing.is_empty());
+    }
+
+    #[test]
+    fn respawn_skips_when_slot_still_occupied() {
+        let mut world = world_with_spawn();
+        world.startup_spawns();
+        assert_eq!(world.creatures.len(), 1);
+
+        let req = world.spawns.startup_requests();
+        assert!(req.is_empty(), "slot should be occupied after startup");
+
+        // Force a respawn request while the live monster still holds the slot.
+        let forced = crate::spawn::SpawnRequest {
+            slot_index: 0,
+            monster_name: Some("Rat".into()),
+            startup: false,
+        };
+        world.process_spawn_request(forced);
+        assert_eq!(world.creatures.len(), 1, "must not spawn duplicate while slot.current is set");
     }
 
     #[test]

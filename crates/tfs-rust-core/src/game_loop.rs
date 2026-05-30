@@ -299,6 +299,7 @@ pub async fn run_game_loop(
                         // Remove from registry to close connection
                         world.conn_to_creature.remove(&conn_id);
                         world.known_creatures_by_conn.remove(&conn_id);
+                        world.creature_fully_sent_by_conn.remove(&conn_id);
                         if let Some(reg) = out_registry.as_ref() {
                             if let Ok(mut g) = reg.lock() {
                                 g.remove(&conn_id); // This drops batch_tx, causing writer task to close TCP

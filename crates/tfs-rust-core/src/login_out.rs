@@ -443,9 +443,10 @@ pub fn enqueue_initial_login_packets(
         .known_creatures_by_conn
         .remove(&conn_id)
         .unwrap_or_default();
+    world.reconcile_known_creatures_for_send(conn_id, &mut known);
     let map_bytes = build_initial_map_packet(world, creature_id, pos, &mut known);
     let map_0x64_len = map_bytes.len();
-    world.known_creatures_by_conn.insert(conn_id, known);
+    world.commit_known_creatures_after_send(conn_id, &known);
 
     // `ProtocolGame::login` — OTCv8 (`src/protocolgame.cpp` ~168–178): `sendFeatures` + extended opcode init.
     world.enqueue_outgoing(

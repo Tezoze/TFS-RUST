@@ -221,6 +221,20 @@ fn apply_item_tile_flags(
         body.flags |= flags::BLOCKPATH;
     }
 
+    // C++ `Item::hasProperty` — `item.cpp` ~923–924; `Tile::setTileFlags` ~1495–1500.
+    // Non-field items with `blockPathFind` set both NOFIELDBLOCKPATH and (when immovable) IMMOVABLENOFIELDBLOCKPATH.
+    if item_type.block_path_find() {
+        body.flags |= flags::NOFIELDBLOCKPATH;
+        if !item_type.moveable() {
+            body.flags |= flags::IMMOVABLENOFIELDBLOCKPATH;
+        }
+    }
+
+    // C++ `CONST_PROP_IMMOVABLEBLOCKPATH` — immovable path block without magic field.
+    if item_type.block_path_find() && !item_type.moveable() {
+        body.flags |= flags::IMMOVABLEBLOCKPATH;
+    }
+
     // C++ `Tile::setTileFlags` — depot locker on tile (`tile.cpp` ~1528).
     if items_db.is_depot(item_type.server_id) {
         body.flags |= flags::DEPOT;

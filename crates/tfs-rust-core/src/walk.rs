@@ -544,10 +544,11 @@ fn tile_query_add_monster(
         return ReturnValue::NotPossible;
     }
 
-    // §5.1: `canpushcreatures` / `canpushitems` default false until MonsterType flags are parsed.
-    let can_push_creatures = false;
-    let can_push_items = false;
-    let is_summon = world.creatures.get(mover).is_some_and(|k| k.is_summon());
+    // `canpushcreatures` / `canpushitems` from monster type at spawn.
+    let (can_push_creatures, can_push_items, is_summon) = match world.creatures.get(mover) {
+        Some(CreatureKind::Monster(m)) => (m.can_push_creatures, m.can_push_items, m.base.is_summon()),
+        _ => (false, false, false),
+    };
 
     if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 {
         if can_push_creatures && !is_summon {
@@ -791,6 +792,11 @@ fn set_direction_from_step(old_pos: Position, new_pos: Position, creature: &mut 
 ///
 /// Called exclusively from the post-`queryDestination` chain step in
 /// `internal_move_creature_step` — post-`queryDestination` chain turn (`game.cpp` ~882–891).
+/// Broadcast creature turn (`0x6B`) — used by walk chain and monster look-at-target.
+pub(crate) fn creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId, dir: Direction) {
+    internal_creature_turn_with_broadcast(world, cid, dir);
+}
+
 fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId, dir: Direction) {
     // Guard: no-op when direction unchanged — matches C++ early-return.
     let old_dir = match world.creatures.get(cid) {
@@ -836,7 +842,9 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 
     let packet = send_creature_turn(wire_id, stack_u8, pos, dir as u8, false).into_bytes();
     for conn in spectators {
-        world.enqueue_outgoing(conn, packet.clone());
+        if world.is_creature_fully_sent_to_conn(conn, wire_id) {
+            world.enqueue_outgoing(conn, packet.clone());
+        }
     }
 }
 
@@ -1071,6 +1079,7 @@ impl GameWorld {
             .known_creatures_by_conn
             .remove(&conn_id)
             .unwrap_or_default();
+        self.reconcile_known_creatures_for_send(conn_id, &mut known);
         let packet = {
             let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
                 map_tile_content(self, cid, new_pos, tx, ty, tz)
@@ -1088,7 +1097,7 @@ impl GameWorld {
             )
             .into_bytes()
         };
-        self.known_creatures_by_conn.insert(conn_id, known);
+        self.commit_known_creatures_after_send(conn_id, &known);
         self.enqueue_outgoing(conn_id, packet);
     }
 
@@ -1120,6 +1129,7 @@ impl GameWorld {
             .known_creatures_by_conn
             .remove(&conn_id)
             .unwrap_or_default();
+        self.reconcile_known_creatures_for_send(conn_id, &mut known);
         let map_pkt = {
             let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
                 map_tile_content(self, cid, new_pos, tx, ty, tz)
@@ -1135,11 +1145,11 @@ impl GameWorld {
             )
             .into_bytes()
         };
-        self.known_creatures_by_conn.insert(conn_id, known);
+        self.commit_known_creatures_after_send(conn_id, &known);
         self.enqueue_outgoing(conn_id, map_pkt);
     }
 
-    /// `ProtocolGame::sendMoveCreature` for other clients when both tiles are in view (`protocolgame.cpp` ~2872+).
+    /// `ProtocolGame::sendMoveCreature` for other clients (`protocolgame.cpp` ~2872–2893).
     fn broadcast_spectator_move(
         &mut self,
         mover: CreatureId,
@@ -1152,24 +1162,42 @@ impl GameWorld {
             None => return,
         };
 
-        let spectators: Vec<ConnId> = self
+        // C++ spectator branch: remove+add on teleport or surface→underground (7→8+).
+        let surface_to_underground = old_pos.z == 7 && new_pos.z >= 8;
+        let z_changed = old_pos.z != new_pos.z;
+
+        let spectators: Vec<(ConnId, CreatureId)> = self
             .conn_to_creature
             .iter()
             .filter_map(|(&conn, &viewer)| {
                 if viewer == mover {
                     return None;
                 }
-                if self.can_see_position(viewer, old_pos) && self.can_see_position(viewer, new_pos) {
-                    Some(conn)
-                } else {
-                    None
-                }
+                Some((conn, viewer))
             })
             .collect();
 
-        let packet = send_move_creature_spectator(old_pos, new_pos, old_stack, wire_id).into_bytes();
-        for conn in spectators {
-            self.enqueue_outgoing(conn, packet.clone());
+        let move_packet =
+            send_move_creature_spectator(old_pos, new_pos, old_stack, wire_id).into_bytes();
+
+        for (conn, viewer) in spectators {
+            let can_see_old = self.can_see_position(viewer, old_pos);
+            let can_see_new = self.can_see_position(viewer, new_pos);
+
+            if can_see_old && can_see_new {
+                if z_changed && surface_to_underground {
+                    self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
+                    self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
+                } else if self.is_creature_fully_sent_to_conn(conn, wire_id) {
+                    self.enqueue_outgoing(conn, move_packet.clone());
+                } else {
+                    self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
+                }
+            } else if can_see_old {
+                self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
+            } else if can_see_new {
+                self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
+            }
         }
     }
 
@@ -1231,6 +1259,20 @@ impl GameWorld {
             k.base_mut().walk_queue.push_back(direction);
         }
         self.add_event_walk(cid, true, Instant::now());
+    }
+
+    /// TFS `Creature::startAutoWalk` + `addEventWalk` — all creature kinds (`creature.cpp` ~274–297).
+    pub(crate) fn creature_start_auto_walk(&mut self, cid: CreatureId) {
+        let first_only = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().walk_queue.len() == 1);
+        let walk_sched_base = Instant::now();
+        self.add_event_walk(cid, first_only, walk_sched_base);
+    }
+
+    pub(crate) fn add_event_walk_creature(&mut self, cid: CreatureId) {
+        self.creature_start_auto_walk(cid);
     }
 
     /// TFS `Creature::addEventWalk` (`creature.cpp` ~299–322).
@@ -1482,6 +1524,13 @@ impl GameWorld {
                 {
                     self.on_player_walk_complete(cid, now);
                 }
+                if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+                {
+                    self.monster_on_walk_complete(cid);
+                }
             }
         }
 
@@ -1568,12 +1617,16 @@ impl GameWorld {
         let mut segments: Vec<MoveSegment> = Vec::new();
 
         // Collect old_stack for the initial move BEFORE moving the creature.
-        let initial_old_stack = self
+        let raw_initial_stack = self
             .map
             .get_tile(old_pos)
             .map(|t| client_creature_stack_pos(t.body(), cid))
-            .filter(|s| *s >= 0)
-            .unwrap_or(1);
+            .unwrap_or(-1);
+        let initial_old_stack = if raw_initial_stack >= 0 {
+            raw_initial_stack
+        } else {
+            1
+        };
 
         // C++ map.cpp:262 — teleport detection for initial step.
         let has_ground = self.map.get_tile(dest_pos)
@@ -1697,6 +1750,7 @@ impl GameWorld {
             t.add_creature(cid);
         }
         self.map.register_creature_index(to, cid);
+        self.monster_notify_creature_moved(cid);
     }
 
     pub fn process_walk_deadlines(&mut self) {
