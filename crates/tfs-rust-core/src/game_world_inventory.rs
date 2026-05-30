@@ -5,6 +5,7 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_net::outgoing_extra::{send_inventory_item_template, send_inventory_slot_empty, send_text_message_simple};
 
+use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
 use crate::item_look::{item_get_description_cpp, look_distance_tfs};
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
@@ -345,6 +346,62 @@ impl GameWorld {
         {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
         }
+    }
+
+    /// C++ `ITEM_STACK_SIZE` — `items.h`.
+    const ITEM_STACK_MAX: u16 = 100;
+
+    /// Remaining count that can merge into `merge_id` before hitting the stack cap.
+    pub(crate) fn stack_merge_room(&self, merge_id: ItemId) -> u16 {
+        Self::ITEM_STACK_MAX.saturating_sub(self.items.get(merge_id).map(|i| i.count).unwrap_or(0))
+    }
+
+    /// TFS stack-merge room check — `Game::internalMoveItem` merge paths (`game.cpp`).
+    pub(crate) fn ensure_stack_merge_room(
+        &self,
+        merge_id: ItemId,
+        m_move: u16,
+        not_enough: ReturnValue,
+    ) -> Result<(), ReturnValue> {
+        if self.stack_merge_room(merge_id) < m_move {
+            return Err(not_enough);
+        }
+        Ok(())
+    }
+
+    /// Partial merge: subtract from source stack and add to destination stack.
+    pub(crate) fn transfer_stack_merge_counts(
+        &mut self,
+        source_id: ItemId,
+        merge_id: ItemId,
+        m_move: u16,
+    ) {
+        if let Some(src) = self.items.get_mut(source_id) {
+            src.count = src.count.saturating_sub(m_move);
+        }
+        if let Some(t) = self.items.get_mut(merge_id) {
+            t.count = t.count.saturating_add(m_move);
+        }
+    }
+
+    /// Full merge after source detach: add moved count to the destination stack only.
+    pub(crate) fn add_to_stack_merge_target(&mut self, merge_id: ItemId, m_move: u16) {
+        if let Some(t) = self.items.get_mut(merge_id) {
+            t.count = t.count.saturating_add(m_move);
+        }
+    }
+
+    /// Hydrate container registry and notify clients that a stack slot changed.
+    pub(crate) fn notify_container_stack_merge(&mut self, container_id: ItemId, merge_id: ItemId) {
+        self.hydrate_container_if_needed(container_id);
+        let merge_slot = self
+            .get_thing_index_in_container(container_id, merge_id)
+            .map(|i| i as u16)
+            .unwrap_or(0);
+        self.notify_container_content_changed(
+            container_id,
+            ContainerContentChange::Update { slot: merge_slot },
+        );
     }
 
     fn search_item_in_container_by_type(

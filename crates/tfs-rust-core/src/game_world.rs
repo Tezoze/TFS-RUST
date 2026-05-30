@@ -19,7 +19,6 @@ use tfs_rust_net::outgoing_extra::{send_creature_say, send_player_stats_1098, Pl
 
 use crate::config::ConfigManager;
 use crate::condition::ActiveCondition;
-use crate::container_ui::ContainerContentChange;
 use crate::creature::PlayerWalkAction;
 use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags};
@@ -940,8 +939,7 @@ impl GameWorld {
         };
 
         if let Some(merge_id) = to_merge_item {
-            let merge_room = 100u16.saturating_sub(self.items.get(merge_id).map(|i| i.count).unwrap_or(0));
-            m_move = m_move.min(merge_room);
+            m_move = m_move.min(self.stack_merge_room(merge_id));
         }
 
         match &from_cylinder {
@@ -1001,33 +999,19 @@ impl GameWorld {
                         if merge_id == item_id {
                             return Ok(item_id);
                         }
-                        let room = 100u16.saturating_sub(
-                            self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                        );
-                        if room < m_move {
-                            return Err(ReturnValue::ContainerNotEnoughRoom);
-                        }
-                        if let Some(src) = self.items.get_mut(item_id) {
-                            src.count = src.count.saturating_sub(m_move);
-                        }
+                        self.ensure_stack_merge_room(
+                            merge_id,
+                            m_move,
+                            ReturnValue::ContainerNotEnoughRoom,
+                        )?;
+                        self.transfer_stack_merge_counts(item_id, merge_id, m_move);
                         let src_stack_pos = self
                             .map
                             .get_tile(from_pos)
                             .and_then(|t| t.get_item_stack_pos(item_id))
                             .unwrap_or(0);
                         self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
-                        if let Some(t) = self.items.get_mut(merge_id) {
-                            t.count = t.count.saturating_add(m_move);
-                        }
-                        self.refresh_container_chain(dest_cid);
-                        let merge_slot = self
-                            .get_thing_index_in_container(dest_cid, merge_id)
-                            .map(|i| i as u16)
-                            .unwrap_or(0);
-                        self.notify_container_content_changed(
-                            dest_cid,
-                            ContainerContentChange::Update { slot: merge_slot },
-                        );
+                        self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
                     return Err(ReturnValue::NotPossible);
@@ -1051,27 +1035,14 @@ impl GameWorld {
                 }
                 self.broadcast_tile_item_remove(from_pos, stack_pos);
                 if let Some(merge_id) = to_merge_item {
-                    let room = 100u16.saturating_sub(
-                        self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                    );
-                    if room < m_move {
-                        return Err(ReturnValue::ContainerNotEnoughRoom);
-                    }
-                    if let Some(t) = self.items.get_mut(merge_id) {
-                        t.count = t.count.saturating_add(m_move);
-                    }
+                    self.ensure_stack_merge_room(
+                        merge_id,
+                        m_move,
+                        ReturnValue::ContainerNotEnoughRoom,
+                    )?;
+                    self.add_to_stack_merge_target(merge_id, m_move);
                     self.items.remove(item_id);
-                    self.refresh_container_chain(dest_cid);
-                    let merge_slot = self
-                        .get_thing_index_in_container(dest_cid, merge_id)
-                        .map(|i| i as u16)
-                        .unwrap_or(0);
-                    self.notify_container_content_changed(
-                        dest_cid,
-                        ContainerContentChange::Update {
-                            slot: merge_slot,
-                        },
-                    );
+                    self.notify_container_stack_merge(dest_cid, merge_id);
                     return Ok(merge_id);
                 }
                 self.container_add_thing(dest_cid, dest_idx, item_id)?;
@@ -1155,26 +1126,13 @@ impl GameWorld {
                         if merge_id == item_id {
                             return Ok(item_id);
                         }
-                        let room = 100u16.saturating_sub(
-                            self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                        );
-                        if room < m_move {
-                            return Err(ReturnValue::ContainerNotEnoughRoom);
-                        }
-                        if let Some(t) = self.items.get_mut(merge_id) {
-                            t.count = t.count.saturating_add(m_move);
-                        }
-                        self.refresh_container_chain(dest_cid);
-                        let merge_slot = self
-                            .get_thing_index_in_container(dest_cid, merge_id)
-                            .map(|i| i as u16)
-                            .unwrap_or(0);
-                        self.notify_container_content_changed(
-                            dest_cid,
-                            ContainerContentChange::Update {
-                                slot: merge_slot,
-                            },
-                        );
+                        self.ensure_stack_merge_room(
+                            merge_id,
+                            m_move,
+                            ReturnValue::ContainerNotEnoughRoom,
+                        )?;
+                        self.add_to_stack_merge_target(merge_id, m_move);
+                        self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
                     let new_item = Item::new(ItemId::default(), item_type, m_move);
@@ -1193,27 +1151,14 @@ impl GameWorld {
                     return Err(rv);
                 }
                 if let Some(merge_id) = to_merge_item {
-                    let room = 100u16.saturating_sub(
-                        self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                    );
-                    if room < m_move {
-                        return Err(ReturnValue::ContainerNotEnoughRoom);
-                    }
+                    self.ensure_stack_merge_room(
+                        merge_id,
+                        m_move,
+                        ReturnValue::ContainerNotEnoughRoom,
+                    )?;
                     self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    if let Some(t) = self.items.get_mut(merge_id) {
-                        t.count = t.count.saturating_add(m_move);
-                    }
-                    self.refresh_container_chain(dest_cid);
-                    let merge_slot = self
-                        .get_thing_index_in_container(dest_cid, merge_id)
-                        .map(|i| i as u16)
-                        .unwrap_or(0);
-                    self.notify_container_content_changed(
-                        dest_cid,
-                        ContainerContentChange::Update {
-                            slot: merge_slot,
-                        },
-                    );
+                    self.add_to_stack_merge_target(merge_id, m_move);
+                    self.notify_container_stack_merge(dest_cid, merge_id);
                     return Ok(merge_id);
                 }
                 let dest_has_room = self
@@ -1317,102 +1262,37 @@ impl GameWorld {
                     if merge_id == item_id {
                         return Ok(item_id);
                     }
-                    let room = 100u16.saturating_sub(
-                        self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                    );
-                    if room < m_move {
-                        return Err(ReturnValue::ContainerNotEnoughRoom);
-                    }
+                    self.ensure_stack_merge_room(
+                        merge_id,
+                        m_move,
+                        ReturnValue::ContainerNotEnoughRoom,
+                    )?;
                     if is_stackable && m_move < item_count {
-                        if let Some(src) = self.items.get_mut(item_id) {
-                            src.count = src.count.saturating_sub(m_move);
-                        }
-                        if let Some(t) = self.items.get_mut(merge_id) {
-                            t.count = t.count.saturating_add(m_move);
-                        }
+                        self.transfer_stack_merge_counts(item_id, merge_id, m_move);
                         self.recompute_player_inventory_weight(cid);
                         self.send_player_stats(cid);
-                        let mut registry = std::mem::take(&mut self.container_registry);
-                        self.ensure_container_registered(&mut registry, to_container);
-                        self.container_registry = registry;
-                        self.refresh_container_chain(to_container);
-                        let merge_slot = self
-                            .get_thing_index_in_container(to_container, merge_id)
-                            .map(|i| i as u16)
-                            .unwrap_or(0);
-                        self.notify_container_content_changed(
-                            to_container,
-                            ContainerContentChange::Update { slot: merge_slot },
-                        );
+                        self.notify_container_stack_merge(to_container, merge_id);
                         self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                         return Ok(merge_id);
                     }
                     self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
                     self.broadcast_player_inventory_slot(cid, slot, None);
-                    if let Some(t) = self.items.get_mut(merge_id) {
-                        t.count = t.count.saturating_add(m_move);
-                    }
+                    self.add_to_stack_merge_target(merge_id, m_move);
                     self.items.remove(item_id);
-                    let mut registry = std::mem::take(&mut self.container_registry);
-                    self.ensure_container_registered(&mut registry, to_container);
-                    self.container_registry = registry;
-                    self.refresh_container_chain(to_container);
-                    let merge_slot = self
-                        .get_thing_index_in_container(to_container, merge_id)
-                        .map(|i| i as u16)
-                        .unwrap_or(0);
-                    self.notify_container_content_changed(
-                        to_container,
-                        ContainerContentChange::Update { slot: merge_slot },
-                    );
+                    self.notify_container_stack_merge(to_container, merge_id);
                     self.recompute_player_inventory_weight(cid);
                     self.send_player_stats(cid);
                     return Ok(merge_id);
                 }
 
                 if is_stackable && m_move < item_count {
-                    if let Some(merge_id) = to_merge_item {
-                        if merge_id == item_id {
-                            return Ok(item_id);
-                        }
-                        let room = 100u16.saturating_sub(
-                            self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                        );
-                        if room < m_move {
-                            return Err(ReturnValue::ContainerNotEnoughRoom);
-                        }
-                        if let Some(src) = self.items.get_mut(item_id) {
-                            src.count = src.count.saturating_sub(m_move);
-                        }
-                        if let Some(t) = self.items.get_mut(merge_id) {
-                            t.count = t.count.saturating_add(m_move);
-                        }
-                        self.recompute_player_inventory_weight(cid);
-                        self.send_player_stats(cid);
-                        let mut registry = std::mem::take(&mut self.container_registry);
-                        self.ensure_container_registered(&mut registry, to_container);
-                        self.container_registry = registry;
-                        self.refresh_container_chain(to_container);
-                        let merge_slot = self
-                            .get_thing_index_in_container(to_container, merge_id)
-                            .map(|i| i as u16)
-                            .unwrap_or(0);
-                        self.notify_container_content_changed(
-                            to_container,
-                            ContainerContentChange::Update { slot: merge_slot },
-                        );
-                        self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                        return Ok(merge_id);
-                    }
                     let new_item = Item::new(ItemId::default(), item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count = src.count.saturating_sub(m_move);
                     }
                     self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                    let mut registry = std::mem::take(&mut self.container_registry);
-                    self.ensure_container_registered(&mut registry, to_container);
-                    self.container_registry = registry;
+                    self.hydrate_container_if_needed(to_container);
                     self.container_add_thing(to_container, to_idx, new_id)?;
                     self.recompute_player_inventory_weight(cid);
                     self.send_player_stats(cid);
@@ -1428,9 +1308,7 @@ impl GameWorld {
                 }
                 self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
                 self.broadcast_player_inventory_slot(cid, slot, None);
-                let mut registry = std::mem::take(&mut self.container_registry);
-                self.ensure_container_registered(&mut registry, to_container);
-                self.container_registry = registry;
+                self.hydrate_container_if_needed(to_container);
                 self.container_add_thing(to_container, to_idx, item_id)?;
                 self.recompute_player_inventory_weight(cid);
                 self.send_player_stats(cid);
@@ -1445,25 +1323,19 @@ impl GameWorld {
                     if merge_id == item_id {
                         return Ok(item_id);
                     }
-                    let room = 100u16.saturating_sub(
-                        self.items.get(merge_id).map(|i| i.count).unwrap_or(0),
-                    );
-                    if room < m_move {
-                        return Err(ReturnValue::NotEnoughCapacity);
-                    }
+                    self.ensure_stack_merge_room(
+                        merge_id,
+                        m_move,
+                        ReturnValue::NotEnoughCapacity,
+                    )?;
                     if is_stackable && m_move < item_count {
-                        if let Some(src) = self.items.get_mut(item_id) {
-                            src.count = src.count.saturating_sub(m_move);
-                        }
+                        self.transfer_stack_merge_counts(item_id, merge_id, m_move);
                         let src_stack_pos = self
                             .map
                             .get_tile(from_pos)
                             .and_then(|t| t.get_item_stack_pos(item_id))
                             .unwrap_or(0);
                         self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
-                        if let Some(t) = self.items.get_mut(merge_id) {
-                            t.count = t.count.saturating_add(m_move);
-                        }
                         self.recompute_player_inventory_weight(cid);
                         self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
                         self.send_player_stats(cid);
@@ -1479,9 +1351,7 @@ impl GameWorld {
                         return Err(ReturnValue::NotPossible);
                     }
                     self.broadcast_tile_item_remove(from_pos, stack_pos);
-                    if let Some(t) = self.items.get_mut(merge_id) {
-                        t.count = t.count.saturating_add(m_move);
-                    }
+                    self.add_to_stack_merge_target(merge_id, m_move);
                     self.recompute_player_inventory_weight(cid);
                     self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
                     self.send_player_stats(cid);
