@@ -191,6 +191,10 @@ mod tests {
             next_action_until,
             walk_action: None,
             walk_action_due: None,
+            depot_chests: HashMap::new(),
+            depot_lockers: HashMap::new(),
+            inbox_root: None,
+            last_depot_id: -1,
             persist: None,
         }
     }

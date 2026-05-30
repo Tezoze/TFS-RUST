@@ -165,6 +165,18 @@ impl ConfigManager {
     pub fn lua(&self) -> &Lua {
         &self.lua
     }
+
+    /// C++ `ConfigManager::DEPOT_FREE_LIMIT` — `configmanager.cpp` (default 2000).
+    pub fn depot_free_limit(&self) -> Result<u32> {
+        let v = get_i64_or(self, "depotFreeLimit", 2000)?;
+        Ok(v.max(0) as u32)
+    }
+
+    /// C++ `ConfigManager::DEPOT_PREMIUM_LIMIT` — `configmanager.cpp` (default 10000).
+    pub fn depot_premium_limit(&self) -> Result<u32> {
+        let v = get_i64_or(self, "depotPremiumLimit", 10000)?;
+        Ok(v.max(0) as u32)
+    }
 }
 
 impl NetConfig {

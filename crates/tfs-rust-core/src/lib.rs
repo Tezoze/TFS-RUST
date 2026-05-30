@@ -16,6 +16,7 @@ pub mod ids;
 pub mod item;
 pub mod item_attributes;
 mod item_blob;
+mod item_constants;
 mod item_look;
 pub mod inventory;
 mod player_flags;
@@ -23,6 +24,9 @@ mod player_inventory_load;
 mod player_inventory_notifications;
 mod player_inventory_query_add;
 mod player_inventory_util;
+mod player_depot;
+#[cfg(test)]
+mod test_world;
 mod player_ping;
 mod game_world_inventory;
 mod game_world_save;

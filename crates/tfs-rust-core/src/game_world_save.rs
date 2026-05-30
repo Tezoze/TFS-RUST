@@ -178,7 +178,31 @@ impl GameWorld {
         let mut store_inbox = Vec::new();
         append_save_item_tree(self, &store_roots, &mut store_inbox)?;
 
-        let skip_depot_save = baseline.last_depot_id == -1;
+        let skip_depot_save = player.last_depot_id == -1;
+
+        let mut depot = Vec::new();
+        if !skip_depot_save {
+            let mut depot_roots: Vec<(i32, ItemId)> = Vec::new();
+            for (&town_id, &chest_id) in &player.depot_chests {
+                if let Some(cont) = self.container_registry.get(chest_id) {
+                    for &child in &cont.items {
+                        depot_roots.push((town_id as i32, child));
+                    }
+                }
+            }
+            append_save_item_tree(self, &depot_roots, &mut depot)?;
+        }
+
+        let mut inbox_roots: Vec<(i32, ItemId)> = Vec::new();
+        if let Some(inbox_id) = player.inbox_root {
+            if let Some(cont) = self.container_registry.get(inbox_id) {
+                for &child in &cont.items {
+                    inbox_roots.push((0, child));
+                }
+            }
+        }
+        let mut inbox = Vec::new();
+        append_save_item_tree(self, &inbox_roots, &mut inbox)?;
 
         Ok(PlayerSaveData {
             player: row,
@@ -186,11 +210,52 @@ impl GameWorld {
             storage: baseline.storage.clone(),
             items: PlayerItemPayload {
                 inventory,
-                depot: baseline.depot.clone(),
-                inbox: baseline.inbox.clone(),
+                depot,
+                inbox,
                 store_inbox,
             },
             skip_depot_save,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tfs_rust_common::Position;
+
+    use crate::item::Item;
+    use crate::test_world::support::{insert_player, minimal_world, test_player};
+
+    #[test]
+    fn save_depot_skipped_when_never_opened() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("save", pos));
+        let save = world.build_player_save_data(cid).expect("save data");
+        assert!(save.skip_depot_save);
+        assert!(save.items.depot.is_empty());
+    }
+
+    #[test]
+    fn save_depot_live_after_open_and_mutation() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("save", pos));
+        let chest = world
+            .player_get_depot_chest(cid, 1, true)
+            .expect("depot chest");
+        world.player_set_last_depot_id(cid, 1);
+        let coin = world.items.insert(Item::new_single(ItemId::default(), 2148));
+        if let Some(cont) = world.container_registry.get_mut(chest) {
+            let _ = cont.add_item(coin);
+        }
+        world.refresh_container_derived(chest);
+
+        let save = world.build_player_save_data(cid).expect("save data");
+        assert!(!save.skip_depot_save);
+        assert_eq!(save.items.depot.len(), 1);
+        assert_eq!(save.items.depot[0].pid, 1);
+        assert_eq!(save.items.depot[0].itemtype, 2148);
     }
 }

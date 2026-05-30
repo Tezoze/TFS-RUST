@@ -179,7 +179,11 @@ fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
 
 /// Set runtime tile-state flags from an item's OTB properties, matching C++ `Tile::setTileFlags`.
 /// C++ ref: src/tile.cpp:1478-1535
-fn apply_item_tile_flags(body: &mut TileBody, item_type: &tfs_rust_content::otb::ItemType) {
+fn apply_item_tile_flags(
+    body: &mut TileBody,
+    item_type: &tfs_rust_content::otb::ItemType,
+    items_db: &ItemDatabase,
+) {
     // Floorchange — C++ `ItemType::floorChange` bitmask → tile state (`tile.cpp` / `setTileFlags`).
     if body.flags & flags::FLOORCHANGE == 0 {
         let typed = u32::from(item_type.floor_change);
@@ -216,6 +220,11 @@ fn apply_item_tile_flags(body: &mut TileBody, item_type: &tfs_rust_content::otb:
     if item_type.block_path_find() {
         body.flags |= flags::BLOCKPATH;
     }
+
+    // C++ `Tile::setTileFlags` — depot locker on tile (`tile.cpp` ~1528).
+    if items_db.is_depot(item_type.server_id) {
+        body.flags |= flags::DEPOT;
+    }
 }
 
 fn tile_from_data(
@@ -248,7 +257,7 @@ fn tile_from_data(
 
         // C++ `Tile::setTileFlags(item)` — apply tile-level flags from each item's properties.
         if let Some(item_type) = items_db.items.get(&id) {
-            apply_item_tile_flags(&mut body, item_type);
+            apply_item_tile_flags(&mut body, item_type, items_db);
         }
 
         match thing {

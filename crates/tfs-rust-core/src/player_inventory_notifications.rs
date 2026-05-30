@@ -191,13 +191,16 @@ impl GameWorld {
             self.refresh_container_ui_for_all_viewers(item_id);
             return;
         }
+        if self.player_owns_depot_container_tree(cid, top) {
+            self.refresh_container_ui_for_all_viewers(item_id);
+            return;
+        }
         if let Some(cpos) = self.container_item_position(item_id) {
             if !Self::positions_in_range_1(player_pos, cpos) {
                 self.auto_close_containers_for_container_item(cid, item_id);
                 return;
             }
         }
-        // Depot owner branch deferred until P4 — auto-close when not held.
         self.auto_close_containers_for_container_item(cid, item_id);
     }
 
@@ -436,6 +439,10 @@ mod tests {
             next_action_until: None,
             walk_action: None,
             walk_action_due: None,
+            depot_chests: HashMap::new(),
+            depot_lockers: HashMap::new(),
+            inbox_root: None,
+            last_depot_id: -1,
             persist: None,
         }
     }

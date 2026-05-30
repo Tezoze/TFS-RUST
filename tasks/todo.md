@@ -30,6 +30,16 @@
 - [x] Unit tests: `tile::look_tests`, `item_look::ground_water_description`
 - [x] Update `docs/INVENTORY_STATUS.md`, `tasks/lessons.md`
 
+## P4 — Depot & inbox runtime — done
+- [x] Item typing: `is_depot()`, `depot_id` attributes, `DEPOT` tile flag, item constants
+- [x] `player_depot.rs`: getInbox, getDepotChest, getDepotLocker, getMaxDepotItems, isNearDepotBox, last_depot_id
+- [x] `load_depot_table` + `load_inbox_table`; login wiring; store inbox `ContainerType::StoreInbox`
+- [x] Depot locker open branch in `container_ui.rs`; locker/inbox `queryAdd` rules
+- [x] `DepotIsFull` in `container_ops.rs`; `depotFreeLimit` / `depotPremiumLimit` config
+- [x] Live depot/inbox serialization in `game_world_save.rs`
+- [x] Depot-owner container refresh in `player_inventory_notifications.rs`
+- [x] Unit tests + `docs/INVENTORY_STATUS.md` update
+
 ## Throw destination validation parity (B.5)
 - [ ] Confirm C++ reference behavior for `Game::playerMoveItem` throw gating.
 - [ ] Add Rust throw-destination validation before `internal_move_item`.

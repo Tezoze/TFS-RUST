@@ -2032,7 +2032,7 @@ impl GameWorld {
                 .get(root)
                 .is_some_and(|i| self.items_db.is_container(i.item_type))
             {
-                self.ensure_container_registered(&mut registry, root);
+                self.ensure_container_registered_simple(&mut registry, root, cid);
             }
         }
         self.container_registry = registry;

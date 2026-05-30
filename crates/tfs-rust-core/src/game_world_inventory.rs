@@ -165,7 +165,7 @@ impl GameWorld {
             return Err("no backpack".into());
         };
         let mut registry = std::mem::take(&mut self.container_registry);
-        self.ensure_container_registered(&mut registry, bp);
+        self.ensure_container_registered_simple(&mut registry, bp, cid);
         self.container_registry = registry;
         let cont = self
             .container_registry
@@ -436,7 +436,7 @@ impl GameWorld {
             return;
         }
         let mut registry = std::mem::take(&mut self.container_registry);
-        self.ensure_container_registered(&mut registry, backpack_id);
+        self.ensure_container_registered_simple(&mut registry, backpack_id, cid);
         self.container_registry = registry;
 
         let Some(found_id) = self.search_item_in_container_by_type(backpack_id, server_id) else {

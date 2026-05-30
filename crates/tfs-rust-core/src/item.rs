@@ -115,6 +115,14 @@ impl Item {
         self.attributes.set_fluid_type(value);
     }
 
+    pub fn depot_id(&self) -> u16 {
+        self.attributes.get_depot_id()
+    }
+
+    pub fn set_depot_id(&mut self, value: u16) {
+        self.attributes.set_depot_id(value);
+    }
+
     /// Check if this item has a specific attribute set
     pub fn has_attribute(&self, flag: crate::item_attributes::ItemAttrFlags) -> bool {
         crate::item_attributes::ItemAttrFlags::from_bits_truncate(self.attributes.attribute_bits())

@@ -125,17 +125,30 @@
 
 ---
 
-### P4 — Depot & inbox runtime
+### P4 — Depot & inbox runtime — done
 
-**C++ load:** `iologindata.cpp` ~449–491 → `getDepotChest` / `getInbox()` live containers.
+**C++ load:** `iologindata.cpp` ~449–506 → `getDepotChest` / `getInbox()` live containers.
 
 **Rust today:**
 
-- Depot/inbox rows stored in `PlayerPersistBaseline` at login
-- **No** runtime depot chest hydration (`ContainerType::Depot` unused in live path)
-- Save: `build_player_save_data` **clones `baseline.depot` / `baseline.inbox`** — in-session depot edits do not persist
+| Piece | Status |
+|-------|--------|
+| `is_depot()` / `depot_id` attr / `TILESTATE_DEPOT` on map load | ✅ |
+| `player_depot.rs` — `getInbox`, `getDepotChest`, `getDepotLocker`, `getMaxDepotItems`, `isNearDepotBox`, `last_depot_id` | ✅ |
+| Login hydration — `load_depot_table` / `load_inbox_table`; store inbox `ContainerType::StoreInbox` | ✅ |
+| Depot locker open via `UseItem` (`container_ui.rs`) | ✅ |
+| `DepotIsFull` + locker/inbox `queryAdd` (`container_ops.rs`); `depotFreeLimit` / `depotPremiumLimit` | ✅ |
+| Live depot/inbox save when `last_depot_id != -1` (`game_world_save.rs`) | ✅ |
+| Depot-owner container UI refresh (`player_inventory_notifications.rs`) | ✅ |
 
-**Missing:** `isNearDepotBox`, open depot UI, `getMaxDepotItems`, `DepotIsFull`, live depot save.
+**Manual smoke checklist:**
+
+- [ ] Connect → walk to depot → use locker → locker UI (market / inbox / town chests)
+- [ ] Move item into town depot chest → logout → `player_depotitems` updated
+- [ ] Fill depot to limit → next add shows cancel message (`DepotIsFull`)
+- [ ] Never open depot → logout → depot rows unchanged in DB
+
+**Deferred (P5+):** Lua `getDepotChest` / `getInbox`, full market runtime (`0xF6`), `onReceiveMail`.
 
 ---
 

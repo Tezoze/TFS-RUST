@@ -63,6 +63,15 @@ impl DbPool {
         &self.pool
     }
 
+    /// Lazy pool for unit tests that never execute SQL.
+    #[doc(hidden)]
+    pub fn lazy_for_tests() -> Result<Self> {
+        let pool = MySqlPoolOptions::new()
+            .connect_lazy("mysql://127.0.0.1:3306/tfs_rust_unit_test_unused")
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(Self { pool })
+    }
+
     /// Execute a closure that returns a Future with exponential backoff on transient errors.
     pub async fn execute_with_retry<F, Fut, T>(&self, mut operation: F) -> Result<T>
     where

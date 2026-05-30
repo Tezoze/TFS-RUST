@@ -143,7 +143,7 @@ fn read_one_attr(
             }
         }
         x if x == AttrType::DepotId as u8 => {
-            let _ = stream.read_u16()?;
+            attrs.set_depot_id(stream.read_u16()?);
         }
         x if x == AttrType::HouseDoorId as u8 => {
             let _ = stream.read_u8()?;
@@ -294,6 +294,11 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
             w.write_u8(AttrType::UniqueId as u8);
             w.write_u16(uid);
         }
+    }
+
+    if item.attributes.has_depot_id() {
+        w.write_u8(AttrType::DepotId as u8);
+        w.write_u16(item.attributes.get_depot_id());
     }
 
     let text = item.attributes.get_text();

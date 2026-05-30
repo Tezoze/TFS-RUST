@@ -163,6 +163,10 @@ pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
         next_action_until: None,
         walk_action: None,
         walk_action_due: None,
+        depot_chests: HashMap::new(),
+        depot_lockers: HashMap::new(),
+        inbox_root: None,
+        last_depot_id: -1,
         persist: Some(persist),
     }
 }
@@ -183,6 +187,8 @@ pub async fn login_player(
 
     let inventory_rows = loaded.items.inventory.clone();
     let store_inbox_rows = loaded.items.store_inbox.clone();
+    let depot_rows = loaded.items.depot.clone();
+    let inbox_rows = loaded.items.inbox.clone();
 
     let key = loaded.player.name.clone();
     let guid = u32::try_from(loaded.player.id).map_err(|_| {
@@ -205,7 +211,13 @@ pub async fn login_player(
     player.otclient_v8 = otclient_v8;
     let cid = world.creatures.insert(CreatureKind::Player(player));
 
-    world.hydrate_player_inventory_from_db(cid, &inventory_rows, &store_inbox_rows);
+    world.hydrate_player_inventory_from_db(
+        cid,
+        &inventory_rows,
+        &store_inbox_rows,
+        &depot_rows,
+        &inbox_rows,
+    );
 
     // GAME THREAD ONLY
     world.player_by_name.insert(key, cid);

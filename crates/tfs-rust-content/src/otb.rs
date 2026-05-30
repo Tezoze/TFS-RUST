@@ -92,6 +92,8 @@ pub struct ItemType {
     pub min_req_magic_level: u32,
     /// C++ `ItemType::vocEquipMap` keys — lowercase vocation names from items.xml `vocation`.
     pub voc_equip_names: Vec<String>,
+    /// C++ `ItemTypes_t` from items.xml `type="..."` — `src/items.h` (`ITEM_TYPE_DEPOT`, etc.).
+    pub type_tag: u8,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -152,6 +154,7 @@ impl Default for ItemType {
             min_req_level: 0,
             min_req_magic_level: 0,
             voc_equip_names: Vec::new(),
+            type_tag: 0,
         }
     }
 }

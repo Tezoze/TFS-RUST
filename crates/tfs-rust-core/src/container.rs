@@ -151,6 +151,12 @@ pub struct Container {
     /// Sum of `Item::getWeight()` for all descendants — matches `totalWeight` (`container.h`).
     // C++ ref: `Container::totalWeight` — updated via `updateItemWeight`.
     pub total_weight: u32,
+    /// Town id for `DepotChest` save `pid` — `player_depotitems`.
+    pub depot_town_id: Option<u32>,
+    /// Map locker town id for virtual `DepotLocker` instances.
+    pub depot_locker_town_id: Option<u32>,
+    /// C++ `DepotChest::maxDepotItems` — shared limit across universal depot parent.
+    pub max_depot_items: u32,
 }
 
 impl Container {
@@ -167,13 +173,23 @@ impl Container {
             open_by: Vec::new(),
             total_item_count: 0,
             total_weight: 0,
+            depot_town_id: None,
+            depot_locker_town_id: None,
+            max_depot_items: 0,
         }
     }
 
-    /// Create a depot container
-    pub fn new_depot(item_id: ItemId, _depot_id: u16, capacity: u32) -> Self {
+    /// Create a depot chest container for a town.
+    pub fn new_depot(
+        item_id: ItemId,
+        depot_town_id: u32,
+        capacity: u32,
+        max_depot_items: u32,
+    ) -> Self {
         let mut container = Self::new(item_id, capacity);
         container.container_type = ContainerType::Depot;
+        container.depot_town_id = Some(depot_town_id);
+        container.max_depot_items = max_depot_items;
         container
     }
 

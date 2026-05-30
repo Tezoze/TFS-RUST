@@ -136,6 +136,14 @@ pub struct Player {
     pub walk_action: Option<PlayerWalkAction>,
     /// When `walk_action` should run (`createSchedulerTask(400, ...)` in `game.cpp`).
     pub walk_action_due: Option<Instant>,
+    /// Town id → live depot chest root — C++ `Player::depotChests` (`player.h`).
+    pub depot_chests: HashMap<u32, ItemId>,
+    /// Map locker town id → virtual locker item — C++ `depotLockerMap`.
+    pub depot_lockers: HashMap<u32, ItemId>,
+    /// C++ `Player::inbox` — lazy-created inbox container item.
+    pub inbox_root: Option<ItemId>,
+    /// C++ `Player::lastDepotId` — `-1` skips depot save until a depot is opened.
+    pub last_depot_id: i32,
     /// Present for characters that logged in via DB; required for `IOLoginData::savePlayer`.
     pub persist: Option<PlayerPersistBaseline>,
 }

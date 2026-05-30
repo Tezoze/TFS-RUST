@@ -248,6 +248,9 @@ impl GameWorld {
         if self.player_holds_container_tree(viewer, top) {
             return true;
         }
+        if self.player_owns_depot_container_tree(viewer, top) {
+            return true;
+        }
         if let Some(pos) = self.map.find_item_position(top) {
             return self.can_see_position(viewer, pos);
         }
@@ -564,11 +567,46 @@ impl GameWorld {
         item_id: ItemId,
         preferred_cid: Option<u8>,
     ) {
+        let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
+        if self.items_db.is_depot(item_type) {
+            let fallback_town = self
+                .creatures
+                .get(cid)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => Some(p.town_id),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let depot_id = self.depot_id_from_locker_item(item_id, fallback_town);
+            let Some(locker_id) = self.player_get_depot_locker(cid, depot_id) else {
+                self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+                return;
+            };
+            self.player_set_last_depot_id(cid, depot_id);
+            if let Some(open_cid) = self.container_registry.get_cid_for_container(cid, locker_id) {
+                let _ = self.container_registry.close_container_for_player(cid, open_cid);
+                self.send_close_container_packet(conn_id, open_cid);
+                return;
+            }
+            let mut reg = std::mem::take(&mut self.container_registry);
+            self.ensure_container_registered_simple(&mut reg, locker_id, cid);
+            self.container_registry = reg;
+            let Some(client_cid) = self
+                .container_registry
+                .add_container(cid, locker_id, preferred_cid, 0)
+            else {
+                self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+                return;
+            };
+            self.send_container_open_to_player(conn_id, cid, client_cid, locker_id, 0);
+            return;
+        }
+
         let Some(item) = self.items.get(item_id) else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
-        if !self.items_db.is_container(item.item_type) {
+        if !self.items_db.is_openable_container(item.item_type) {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         }
@@ -580,7 +618,7 @@ impl GameWorld {
         }
 
         let mut reg = std::mem::take(&mut self.container_registry);
-        self.ensure_container_registered(&mut reg, item_id);
+        self.ensure_container_registered_simple(&mut reg, item_id, cid);
         self.container_registry = reg;
 
         let Some(client_cid) =
@@ -615,7 +653,7 @@ impl GameWorld {
             return;
         };
         let mut reg = std::mem::take(&mut self.container_registry);
-        self.ensure_container_registered(&mut reg, parent_id);
+        self.ensure_container_registered_simple(&mut reg, parent_id, cid);
         self.container_registry = reg;
 
         let Some(_) = self
@@ -693,7 +731,7 @@ impl GameWorld {
                 continue;
             }
             let mut reg = std::mem::take(&mut self.container_registry);
-            self.ensure_container_registered(&mut reg, slot_item);
+            self.ensure_container_registered_simple(&mut reg, slot_item, cid);
             self.container_registry = reg;
             let Some(ccid) = self
                 .container_registry

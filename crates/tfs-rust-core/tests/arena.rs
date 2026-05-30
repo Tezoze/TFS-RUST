@@ -85,6 +85,10 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         next_action_until: None,
         walk_action: None,
         walk_action_due: None,
+        depot_chests: HashMap::new(),
+        depot_lockers: HashMap::new(),
+        inbox_root: None,
+        last_depot_id: -1,
         persist: None,
     }
 }

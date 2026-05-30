@@ -14,6 +14,13 @@ use tracing::{info, warn};
 
 static UNKNOWN_XML_KEYS_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
+/// C++ `ItemTypes_t` — `src/items.h`.
+pub const ITEM_TYPE_NONE: u8 = 0;
+pub const ITEM_TYPE_DEPOT: u8 = 1;
+pub const ITEM_TYPE_MAILBOX: u8 = 2;
+pub const ITEM_TYPE_TRASHHOLDER: u8 = 3;
+pub const ITEM_TYPE_CONTAINER: u8 = 4;
+
 #[derive(Clone)]
 pub struct ItemDatabase {
     pub items: HashMap<u16, ItemType>,
@@ -115,6 +122,20 @@ impl ItemDatabase {
         self.items
             .get(&id)
             .is_some_and(|t| t.group == ItemType::GROUP_CONTAINER)
+    }
+
+    /// C++ `ItemType::isDepot()` — `src/items.h` (`type == ITEM_TYPE_DEPOT`).
+    #[inline]
+    pub fn is_depot(&self, id: u16) -> bool {
+        self.items
+            .get(&id)
+            .is_some_and(|t| t.type_tag == ITEM_TYPE_DEPOT)
+    }
+
+    /// Openable as a container window — normal bags or map depot lockers (`actions.cpp`).
+    #[inline]
+    pub fn is_openable_container(&self, id: u16) -> bool {
+        self.is_container(id) || self.is_depot(id)
     }
 
     /// Default `subType` for loot when omitted: C++ uses `ItemType::charges` (`src/items.h`).
@@ -590,9 +611,14 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         "type" => {
             let type_value = value.to_ascii_lowercase();
             match type_value.as_str() {
-                "container" => item.group = ItemType::GROUP_CONTAINER,
-                "magicfield" | "key" | "depot" | "mailbox" | "trashholder" | "teleport"
-                | "door" | "bed" | "rune" => {}
+                "container" => {
+                    item.group = ItemType::GROUP_CONTAINER;
+                    item.type_tag = ITEM_TYPE_CONTAINER;
+                }
+                "depot" => item.type_tag = ITEM_TYPE_DEPOT,
+                "mailbox" => item.type_tag = ITEM_TYPE_MAILBOX,
+                "trashholder" => item.type_tag = ITEM_TYPE_TRASHHOLDER,
+                "magicfield" | "key" | "teleport" | "door" | "bed" | "rune" => {}
                 _ => {
                     warn!(
                         target: "tfs_rust_content::items",

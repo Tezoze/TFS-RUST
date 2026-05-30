@@ -84,6 +84,7 @@ bitflags::bitflags! {
         const AUTO_OPEN          = 1 << 27;
         const DURATION_TIMESTAMP = 1 << 28;
         const CONTAINER_SIZE     = 1 << 29;
+        const DEPOT_ID           = 1 << 30;
         const CUSTOM             = 1 << 31;
     }
 }
@@ -157,6 +158,7 @@ pub struct ItemAttributes {
     auto_open: u8,
     duration_timestamp: i64,
     container_size: u8,
+    depot_id: u16,
     /// String attributes
     description: Option<String>,
     text: Option<String>,
@@ -335,6 +337,19 @@ impl ItemAttributes {
         } else {
             0
         }
+    }
+
+    /// C++ `DepotLocker::getDepotId` / `ATTR_DEPOT_ID` — `depotlocker.cpp`, `item.h`.
+    pub fn get_depot_id(&self) -> u16 {
+        if self.attribute_bits.contains(ItemAttrFlags::DEPOT_ID) {
+            self.depot_id
+        } else {
+            0
+        }
+    }
+
+    pub fn has_depot_id(&self) -> bool {
+        self.attribute_bits.contains(ItemAttrFlags::DEPOT_ID)
     }
 
     /// `Item::getAttack` — `src/item.h` (attribute overrides `ItemType::attack`).
@@ -603,6 +618,11 @@ impl ItemAttributes {
     pub fn set_container_size(&mut self, value: u8) {
         self.attribute_bits.insert(ItemAttrFlags::CONTAINER_SIZE);
         self.container_size = value;
+    }
+
+    pub fn set_depot_id(&mut self, value: u16) {
+        self.attribute_bits.insert(ItemAttrFlags::DEPOT_ID);
+        self.depot_id = value;
     }
 
     /// `ATTR_CONTAINERSIZE` payload when flag is set.

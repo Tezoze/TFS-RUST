@@ -142,6 +142,12 @@ impl GameWorld {
         let Some(cont) = self.container_registry.get(container_item_id) else {
             return ReturnValue::NotPossible;
         };
+        if cont.depot_locker_town_id.is_some() && !flags.contains(CylinderFlags::NO_LIMIT) {
+            return ReturnValue::ContainerNotEnoughRoom;
+        }
+        if cont.container_type == ContainerType::Inbox && !flags.contains(CylinderFlags::NO_LIMIT) {
+            return ReturnValue::ContainerNotEnoughRoom;
+        }
         if !cont.unlocked {
             return ReturnValue::NotPossible;
         }
@@ -154,6 +160,21 @@ impl GameWorld {
         }
         if container_item_id == item_id {
             return ReturnValue::ThisIsImpossible;
+        }
+
+        if cont.container_type == ContainerType::Depot && !flags.contains(CylinderFlags::NO_LIMIT) {
+            if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
+                let add_count =
+                    self.depot_add_count_for_item(container_item_id, item_id, _count);
+                let holder_count = self
+                    .container_registry
+                    .get(holder_id)
+                    .map(|c| c.total_item_count)
+                    .unwrap_or(0);
+                if holder_count.saturating_add(add_count) > max_items {
+                    return ReturnValue::DepotIsFull;
+                }
+            }
         }
 
         if item.is_store_item()
@@ -620,7 +641,7 @@ impl GameWorld {
         }
         if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
             let mut reg = std::mem::take(&mut self.container_registry);
-            self.ensure_container_registered(&mut reg, item_id);
+            self.ensure_container_registered(&mut reg, item_id, CreatureId::default(), ContainerType::Normal, None);
             self.container_registry = reg;
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = Some(container_item_id);
@@ -664,7 +685,7 @@ impl GameWorld {
         }
         if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
             let mut reg = std::mem::take(&mut self.container_registry);
-            self.ensure_container_registered(&mut reg, item_id);
+            self.ensure_container_registered(&mut reg, item_id, CreatureId::default(), ContainerType::Normal, None);
             self.container_registry = reg;
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = Some(container_item_id);
@@ -678,5 +699,65 @@ impl GameWorld {
             },
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod depot_query_tests {
+    use super::*;
+    use tfs_rust_common::Position;
+
+    use crate::container::Container;
+    use crate::cylinder::CylinderFlags;
+    use crate::item::Item;
+    use crate::item_constants::ITEM_INBOX;
+    use crate::return_value::ReturnValue;
+    use crate::test_world::support::{insert_player, minimal_world, test_player};
+
+    #[test]
+    fn inbox_blocks_player_move_without_no_limit() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("inbox", pos));
+        let inbox_id = world.player_get_inbox(cid, true).expect("inbox");
+        let coin = world.items.insert(Item::new_single(ItemId::default(), 2148));
+        let ret = world.container_query_add(inbox_id, -1, coin, 1, CylinderFlags::NONE, Some(cid));
+        assert_eq!(ret, ReturnValue::ContainerNotEnoughRoom);
+    }
+
+    #[test]
+    fn depot_query_add_at_limit_returns_depot_is_full() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("depot", pos));
+        let chest = world
+            .player_get_depot_chest(cid, 1, true)
+            .expect("depot chest");
+
+        let uni_id = world.items.insert(Item::new_single(ItemId::default(), ITEM_INBOX));
+        {
+            let mut reg = std::mem::take(&mut world.container_registry);
+            reg.register(Container::new(uni_id, 5));
+            if let Some(chest_cont) = reg.get_mut(chest) {
+                chest_cont.parent_container = Some(uni_id);
+                chest_cont.max_depot_items = 1;
+            }
+            if let Some(uni) = reg.get_mut(uni_id) {
+                uni.total_item_count = 1;
+                let _ = uni.add_item(chest);
+            }
+            world.container_registry = reg;
+        }
+
+        let coin = world.items.insert(Item::new_single(ItemId::default(), 2148));
+        let ret = world.container_query_add(
+            chest,
+            -1,
+            coin,
+            1,
+            CylinderFlags::NONE,
+            Some(cid),
+        );
+        assert_eq!(ret, ReturnValue::DepotIsFull);
     }
 }
