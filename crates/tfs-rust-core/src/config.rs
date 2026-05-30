@@ -284,6 +284,18 @@ impl MysqlPoolConfig {
     }
 }
 
+/// Password hashing settings (`config.lua` `legacySha1Enabled`, `passwordHashCost`).
+pub fn password_hash_config_from(cfg: &ConfigManager) -> Result<tfs_rust_db::PasswordHashConfig> {
+    let legacy_sha1_enabled = get_bool_or(cfg, "legacySha1Enabled", true)?;
+    let bcrypt_cost = get_i64_or(cfg, "passwordHashCost", 12)?;
+    if bcrypt_cost < 0 {
+        return Err(TfsRustError::Config(
+            "passwordHashCost must be >= 0".into(),
+        ));
+    }
+    tfs_rust_db::PasswordHashConfig::new(legacy_sha1_enabled, bcrypt_cost as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,6 +431,34 @@ mod tests {
             "#,
         );
         let err = MysqlPoolConfig::from_config(&cfg).expect_err("min > max");
+        assert!(matches!(err, TfsRustError::Config(_)));
+    }
+
+    #[test]
+    fn password_hash_config_defaults_when_keys_missing() {
+        let cfg = config_from_lua("");
+        let p = password_hash_config_from(&cfg).expect("defaults");
+        assert!(p.legacy_sha1_enabled);
+        assert_eq!(p.bcrypt_cost, 12);
+    }
+
+    #[test]
+    fn password_hash_config_reads_keys() {
+        let cfg = config_from_lua(
+            r#"
+            legacySha1Enabled = false
+            passwordHashCost = 10
+            "#,
+        );
+        let p = password_hash_config_from(&cfg).expect("password hash config");
+        assert!(!p.legacy_sha1_enabled);
+        assert_eq!(p.bcrypt_cost, 10);
+    }
+
+    #[test]
+    fn password_hash_config_rejects_invalid_cost() {
+        let cfg = config_from_lua("passwordHashCost = 3");
+        let err = password_hash_config_from(&cfg).expect_err("cost too low");
         assert!(matches!(err, TfsRustError::Config(_)));
     }
 }

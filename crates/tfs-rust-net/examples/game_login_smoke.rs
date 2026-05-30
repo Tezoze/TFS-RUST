@@ -120,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
     let login_cfg = LoginWireConfig {
         rsa_private_key: rsa_private_key.clone(),
         db: db.clone(),
+        password_hash: tfs_rust_db::PasswordHashConfig::default(),
         motd_num,
         motd: motd.clone(),
         server_name: server_name.clone(),
@@ -132,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
         cmd_tx,
         rsa_private_key,
         db,
+        password_hash: tfs_rust_db::PasswordHashConfig::default(),
         out_registry,
         motd_num,
         motd,

@@ -45,6 +45,7 @@ slotmap = "1.0"
 bitflags = "2.6"
 dashmap = "6.1"
 mlua = { version = "0.10", default-features = false, features = ["luajit", "vendored"] }
+bcrypt = "0.16"
 
 [dependencies]
 tfs-rust-core = { workspace = true }

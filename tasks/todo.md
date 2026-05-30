@@ -1,5 +1,11 @@
 # TODO
 
+## Bcrypt password migration — done
+- [x] `tfs-rust-db/src/password.rs`: verify, hash, upgrade-on-login, unit tests
+- [x] Refactor `account.rs` auth paths; wire `PasswordHashConfig` through net + `run_server`
+- [x] SQLx migration widen `accounts.password`; update `schema.sql`, `config.lua`
+- [x] `cargo test` / `cargo check` / clippy
+
 ## Config-and-save plan — Step 2 (run_server wiring)
 - [x] Wire `run_server::run` listener bind addresses to `NetConfig` with env overrides preserved.
 - [x] Wire database URL resolution to `DbConfig` when `DATABASE_URL` is unset.

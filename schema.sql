@@ -1,7 +1,8 @@
 CREATE TABLE IF NOT EXISTS `accounts` (
   `id` int NOT NULL AUTO_INCREMENT,
   `name` varchar(32) NOT NULL,
-  `password` char(40) NOT NULL,
+  -- bcrypt ($2b$…, ~60 chars) or legacy SHA1 hex (40 chars); see tfs-rust-db password module
+  `password` varchar(255) NOT NULL,
   `secret` char(16) DEFAULT NULL,
   `type` int NOT NULL DEFAULT '1',
   `premium_ends_at` int unsigned NOT NULL DEFAULT '0',
@@ -357,7 +358,7 @@ CREATE TABLE IF NOT EXISTS `towns` (
   UNIQUE KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8;
 
-INSERT INTO `server_config` (`config`, `value`) VALUES ('db_version', '29'), ('motd_hash', ''), ('motd_num', '0'), ('players_record', '0');
+INSERT IGNORE INTO `server_config` (`config`, `value`) VALUES ('db_version', '29'), ('motd_hash', ''), ('motd_num', '0'), ('players_record', '0');
 
 DROP TRIGGER IF EXISTS `ondelete_players`;
 DROP TRIGGER IF EXISTS `oncreate_guilds`;

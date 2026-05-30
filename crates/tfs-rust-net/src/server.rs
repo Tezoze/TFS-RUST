@@ -29,6 +29,7 @@ pub struct GameWireConfig {
     pub cmd_tx: mpsc::UnboundedSender<GameCommand>,
     pub rsa_private_key: RsaPrivateKey,
     pub db: tfs_rust_db::DbPool,
+    pub password_hash: tfs_rust_db::PasswordHashConfig,
     pub out_registry: OutRegistry,
     pub motd_num: u32,
     pub motd: String,
@@ -43,6 +44,7 @@ pub struct GameWireConfig {
 pub struct LoginWireConfig {
     pub rsa_private_key: RsaPrivateKey,
     pub db: tfs_rust_db::DbPool,
+    pub password_hash: tfs_rust_db::PasswordHashConfig,
     pub motd_num: u32,
     pub motd: String,
     pub server_name: String,
@@ -153,7 +155,7 @@ async fn handle_login_connection(
     };
 
     let round_keys = expand_key(&xtea_key);
-    let auth = tfs_rust_db::loginserver_authentication(&cfg.db, &account, &password)
+    let auth = tfs_rust_db::loginserver_authentication(&cfg.db, &cfg.password_hash, &account, &password)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
@@ -236,6 +238,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     let acc = tfs_rust_db::gameworld_authentication(
         &wire.db,
+        &wire.password_hash,
         &game.account_name,
         &game.password,
         &game.character_name,

@@ -8,6 +8,7 @@ migrations-dir = "migrations"
 
 [dependencies]
 sha1 = "0.10"
+bcrypt = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }

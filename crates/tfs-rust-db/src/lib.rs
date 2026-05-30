@@ -3,12 +3,14 @@ pub mod house;
 pub mod items;
 pub mod market;
 pub mod migrations;
+pub mod password;
 pub mod player;
 pub mod pool;
 
 mod sqlx_offline;
 
-pub use account::{gameworld_authentication, loginserver_authentication, sha1_password_hex};
+pub use account::{gameworld_authentication, loginserver_authentication};
+pub use password::{hash_bcrypt, sha1_password_hex, PasswordHashConfig};
 pub use house::{HouseListRow, HouseStore, TileStoreRow};
 pub use items::{ItemRecord, ItemStore, ItemTable};
 pub use market::{

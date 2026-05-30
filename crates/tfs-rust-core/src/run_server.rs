@@ -14,7 +14,7 @@ use tracing::info;
 use tfs_rust_common::GameCommand;
 use tfs_rust_net::{GameWireConfig, LoginWireConfig, OutRegistry, Server};
 
-use crate::config::{ConfigManager, DbConfig, MysqlPoolConfig, NetConfig};
+use crate::config::{password_hash_config_from, ConfigManager, DbConfig, MysqlPoolConfig, NetConfig};
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
@@ -74,6 +74,8 @@ pub async fn run() -> anyhow::Result<()> {
     );
     let net_cfg = NetConfig::from_config(config.as_ref())
         .map_err(|e| anyhow::anyhow!("config network settings: {e}"))?;
+    let password_hash = password_hash_config_from(config.as_ref())
+        .map_err(|e| anyhow::anyhow!("config password hash settings: {e}"))?;
 
     // C++ ref: src/configmanager.cpp:178-184 (MySQL defaults and keys)
     let database_url = match std::env::var("DATABASE_URL") {
@@ -109,6 +111,9 @@ pub async fn run() -> anyhow::Result<()> {
     let db = tfs_rust_db::DbPool::connect(&database_url, &pool_cfg.to_db_pool_options())
         .await
         .map_err(|e| anyhow::anyhow!("database connect: {e}"))?;
+    tfs_rust_db::run_migrations(&db, &tfs_rust_db::default_migrations_dir())
+        .await
+        .map_err(|e| anyhow::anyhow!("database migrations: {e}"))?;
 
     let data_dir = std::env::var("TFS_DATA_DIR").unwrap_or_else(|_| "data".to_string());
     let data_path = PathBuf::from(&data_dir);
@@ -235,6 +240,7 @@ pub async fn run() -> anyhow::Result<()> {
     let login_cfg = LoginWireConfig {
         rsa_private_key: rsa_private_key.clone(),
         db: db.clone(),
+        password_hash,
         motd_num,
         motd: motd.clone(),
         server_name: server_name.clone(),
@@ -247,6 +253,7 @@ pub async fn run() -> anyhow::Result<()> {
         cmd_tx,
         rsa_private_key,
         db,
+        password_hash,
         out_registry,
         motd_num,
         motd,

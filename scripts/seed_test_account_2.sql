@@ -1,13 +1,13 @@
--- Test account for local dev — matches login: account `1` / password `1`, character `Test`.
--- Password is SHA1 hex of plain text `1` (TFS `transformToSHA1` / `tfs_rust_db::sha1_password_hex`).
+-- Test account for bcrypt upgrade smoke test — login: account `2` / password `2`, character `Two`.
+-- Password is SHA1 hex of plain text `2` (TFS `transformToSHA1` / `tfs_rust_db::sha1_password_hex`).
 -- First successful login upgrades this row to bcrypt (`legacySha1Enabled` in config.lua).
 -- Temple spawn: Thais (town_id 1) on the default Forgotten Server map.
 
-DELETE FROM `players` WHERE `name` = 'Test';
-DELETE FROM `accounts` WHERE `name` = '1';
+DELETE FROM `players` WHERE `name` = 'Two';
+DELETE FROM `accounts` WHERE `name` = '2';
 
 INSERT INTO `accounts` (`name`, `password`, `type`, `premium_ends_at`, `email`, `creation`)
-VALUES ('1', '356a192b7913b04c54574d18c28d46e6395428ab', 1, 0, '', UNIX_TIMESTAMP());
+VALUES ('2', 'da4b9237bacccdf19c0760cab7aec4a8359010b0', 1, 0, '', UNIX_TIMESTAMP());
 
 SET @account_id = LAST_INSERT_ID();
 
@@ -19,7 +19,7 @@ INSERT INTO `players` (
   `soul`, `town_id`, `posx`, `posy`, `posz`,
   `cap`, `sex`
 ) VALUES (
-  'Test', 1, @account_id, 1, 0,
+  'Two', 1, @account_id, 1, 0,
   150, 150, 0,
   0, 0, 0, 0, 136, 0,
   2, 0, 0, 0,
