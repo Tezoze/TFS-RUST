@@ -24,6 +24,8 @@ pub struct FindPathParams {
     pub max_target_dist: i32,
     pub clear_sight: bool,
     pub allow_diagonal: bool,
+    /// C++ `FindPathParams::fullPathSearch` — symmetric vs directional search box.
+    pub full_path_search: bool,
     /// `0` = unlimited (still capped by [`MAX_CLOSED_NODES`] like C++).
     pub max_search_dist: u32,
 }
@@ -36,6 +38,7 @@ impl FindPathParams {
             max_target_dist: 1,
             clear_sight: true,
             allow_diagonal: true,
+            full_path_search: true,
             max_search_dist: 0,
         }
     }
@@ -91,7 +94,7 @@ where
     }
 
     if matches!(
-        evaluate_path_goal(map, start, target, fpp, 0),
+        evaluate_path_goal(map, start, start, target, fpp, 0),
         PathGoalMatch::Exact | PathGoalMatch::Partial { .. }
     ) {
         return Some(Vec::new());
@@ -120,7 +123,7 @@ where
             continue;
         }
 
-        match evaluate_path_goal(map, current, target, fpp, best_match_dist) {
+        match evaluate_path_goal(map, start, current, target, fpp, best_match_dist) {
             PathGoalMatch::None => {}
             PathGoalMatch::Exact => {
                 found_end = Some(current);
@@ -197,12 +200,13 @@ where
 /// TFS `FrozenPathingConditionCall::operator()` (`creature.cpp` ~1688–1720).
 fn evaluate_path_goal(
     map: &Map,
+    start: Position,
     test: Position,
     target: Position,
     fpp: &FindPathParams,
     best_match_dist: i32,
 ) -> PathGoalMatch {
-    if !path_in_search_box(test, target, fpp) {
+    if !path_in_search_box(start, test, target, fpp) {
         return PathGoalMatch::None;
     }
     if fpp.clear_sight && !map.is_sight_clear(test, target) {
@@ -231,10 +235,35 @@ fn evaluate_path_goal(
     }
 }
 
-fn path_in_search_box(test: Position, target: Position, fpp: &FindPathParams) -> bool {
-    let dx = (test.x as i32 - target.x as i32).abs();
-    let dy = (test.y as i32 - target.y as i32).abs();
-    dx <= fpp.max_target_dist && dy <= fpp.max_target_dist
+/// TFS `FrozenPathingConditionCall::isInRange` (`creature.cpp` ~1641–1685).
+fn path_in_search_box(start: Position, test: Position, target: Position, fpp: &FindPathParams) -> bool {
+    if fpp.full_path_search {
+        let dx = (test.x as i32 - target.x as i32).abs();
+        let dy = (test.y as i32 - target.y as i32).abs();
+        return dx <= fpp.max_target_dist && dy <= fpp.max_target_dist;
+    }
+
+    let offset_x = start.x as i32 - target.x as i32;
+    let offset_y = start.y as i32 - target.y as i32;
+
+    let dx_max = if offset_x >= 0 { fpp.max_target_dist } else { 0 };
+    if (test.x as i32) > (target.x as i32) + dx_max {
+        return false;
+    }
+    let dx_min = if offset_x <= 0 { fpp.max_target_dist } else { 0 };
+    if (test.x as i32) < (target.x as i32) - dx_min {
+        return false;
+    }
+
+    let dy_max = if offset_y >= 0 { fpp.max_target_dist } else { 0 };
+    if (test.y as i32) > (target.y as i32) + dy_max {
+        return false;
+    }
+    let dy_min = if offset_y <= 0 { fpp.max_target_dist } else { 0 };
+    if (test.y as i32) < (target.y as i32) - dy_min {
+        return false;
+    }
+    true
 }
 
 fn chebyshev_dist(a: Position, b: Position) -> i32 {

@@ -102,8 +102,10 @@ pub struct GameWorld {
     items_pending_release: Vec<ItemId>,
     /// Open bags / loaded `player_items` containers — `container.h` / `player.cpp`.
     pub container_registry: ContainerRegistry,
-    /// Wall-clock of last creature-think sweep (TFS `Game::checkCreatures` cadence).
-    pub(crate) last_creature_check: Option<Instant>,
+    /// Next bucket index for TFS staggered `Game::checkCreatures` (`game.cpp` ~3819).
+    pub(crate) check_creature_bucket_index: u32,
+    /// Wall-clock of last per-bucket think tick (`EVENT_CHECK_CREATURE_INTERVAL`).
+    pub(crate) last_creature_bucket_tick: Option<Instant>,
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
@@ -251,7 +253,8 @@ impl GameWorld {
             creatures_pending_release: Vec::new(),
             items_pending_release: Vec::new(),
             container_registry: ContainerRegistry::new(),
-            last_creature_check: None,
+            check_creature_bucket_index: 0,
+            last_creature_bucket_tick: None,
             spawn_slot_by_creature: HashMap::new(),
             monster_world_config,
         }
@@ -372,6 +375,7 @@ impl GameWorld {
 
         self.deferred_turn_broadcast.remove(&id);
         self.stop_event_walk(id);
+        self.remove_creature_think_check(id);
         self.creatures.remove(id);
     }
 

@@ -15,7 +15,7 @@ use slotmap::Key;
 use crate::creature::{CreatureKind, MonsterAiPhase};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
-use crate::monster_distance_step::{get_dance_step, get_distance_step, get_random_step};
+use crate::monster_distance_step::{get_dance_step, get_distance_step, get_random_step, DistanceStepOutcome};
 use crate::pathfinding::FindPathParams;
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
 use crate::walk::{creature_turn_with_broadcast, PATHFIND_WALK_FLAGS, tile_query_add_creature};
@@ -91,11 +91,10 @@ pub fn is_within_walk_to_spawn_range(pos: Position, spawn: Position, radius: i32
 }
 
 /// TFS `Monster::updateLookDirection` — `monster.cpp` ~1967.
-/// C++ `getOffsetX(attackedCreaturePos, pos)` = `offset_x(monster, target)` in Rust
-/// (`offset_x(a,b)` = b.x − a.x; C++ `getOffsetX(p1,p2)` = p1.x − p2.x).
+/// C++ `getOffsetX(attackedCreaturePos, pos)` = target.x − monster.x.
 pub fn compute_look_toward_target(from: Position, target: Position, current: Direction) -> Direction {
-    let ox = offset_x(from, target);
-    let oy = offset_y(from, target);
+    let ox = offset_x(target, from);
+    let oy = offset_y(target, from);
     let dx = ox.unsigned_abs() as i32;
     let dy = oy.unsigned_abs() as i32;
 
@@ -145,10 +144,11 @@ impl GameWorld {
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
         self.monster_update_target_list(cid);
         self.monster_update_idle_status(cid);
+        self.monster_try_acquire_chase_target(cid, None);
     }
 
     /// TFS `Monster::onThink` native body — `monster.cpp` ~732.
-    pub fn monster_native_on_think(&mut self, cid: CreatureId, _interval_ms: u32) {
+    pub fn monster_native_on_think(&mut self, cid: CreatureId, interval_ms: u32) {
         if !self.creatures.contains_key(cid) {
             return;
         }
@@ -201,6 +201,8 @@ impl GameWorld {
         };
 
         if !is_idle {
+            self.monster_arm_event_walk(cid);
+
             if is_summon {
                 self.monster_think_summon_stub(cid);
             } else if has_opponents {
@@ -219,10 +221,8 @@ impl GameWorld {
                 }
             }
 
-            self.monster_arm_event_walk(cid);
+            self.monster_on_think_target(cid, interval_ms);
         }
-
-        self.monster_update_look_direction(cid);
 
         let phase = if fleeing {
             MonsterAiPhase::Flee
@@ -254,12 +254,24 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return,
         };
-        let (target_distance, fleeing, is_summon) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (m.target_distance, m.is_fleeing(), m.base.is_summon()),
+        let (target_distance, fleeing, is_summon, has_follow_path) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.target_distance,
+                m.is_fleeing(),
+                m.base.is_summon(),
+                m.base.has_follow_path,
+            ),
             _ => return,
         };
 
-        let fpp = self.monster_path_search_params(cid, follow_id, fleeing, target_distance, is_summon);
+        let fpp = self.monster_path_search_params(
+            cid,
+            follow_id,
+            fleeing,
+            target_distance,
+            is_summon,
+            has_follow_path,
+        );
 
         if !is_summon && (fleeing || fpp.max_target_dist > 1) {
             let pos = match self.creatures.get(cid) {
@@ -269,7 +281,7 @@ impl GameWorld {
             let sight = self.map.is_sight_clear(pos, target_pos);
             let mut rng = rand::thread_rng();
             let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-            if let Some(dir) = get_distance_step(
+            match get_distance_step(
                 pos,
                 target_pos,
                 target_distance,
@@ -278,17 +290,32 @@ impl GameWorld {
                 can_walk,
                 &mut rng,
             ) {
-                self.monster_start_follow_step(cid, dir);
-                return;
-            }
-            if fleeing {
-                // C++: fleeing uses getDistanceStep only — no A* fallback.
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().has_follow_path = false;
+                DistanceStepOutcome::Step(dir) => {
+                    self.monster_start_follow_step(cid, dir);
+                    if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+                        self.monster_on_follow_creature_complete(cid, follow_id);
+                    }
+                    return;
                 }
-                return;
+                DistanceStepOutcome::AtTargetDistance => {
+                    if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+                        self.monster_on_follow_creature_complete(cid, follow_id);
+                    }
+                    return;
+                }
+                DistanceStepOutcome::NeedPathfinding => {
+                    if fleeing {
+                        if let Some(k) = self.creatures.get_mut(cid) {
+                            k.base_mut().has_follow_path = false;
+                        }
+                        if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+                            self.monster_on_follow_creature_complete(cid, follow_id);
+                        }
+                        return;
+                    }
+                    // keep-distance: fall through to A* when getDistanceStep fails.
+                }
             }
-            // keep-distance: fall through to A* when getDistanceStep fails.
         }
 
         let path = self.get_creature_path_to_with_fpp(cid, target_pos, &fpp);
@@ -302,9 +329,13 @@ impl GameWorld {
                 base.has_follow_path = true;
             }
             self.stop_event_walk(cid);
-            self.creature_start_auto_walk(cid);
+            self.creature_start_chase_auto_walk(cid);
         } else if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().has_follow_path = false;
+        }
+
+        if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+            self.monster_on_follow_creature_complete(cid, follow_id);
         }
     }
 
@@ -316,36 +347,52 @@ impl GameWorld {
             base.has_follow_path = true;
         }
         self.stop_event_walk(cid);
-        self.creature_start_auto_walk(cid);
+        self.creature_start_chase_auto_walk(cid);
     }
 
     fn monster_path_search_params(
         &self,
         cid: CreatureId,
-        _follow_id: CreatureId,
+        follow_id: CreatureId,
         fleeing: bool,
         target_distance: i32,
         is_summon: bool,
+        has_follow_path: bool,
     ) -> FindPathParams {
+        let pos = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or(Position::new(0, 0, 7));
         let mut fpp = FindPathParams {
             min_target_dist: 1,
             max_target_dist: target_distance,
             clear_sight: true,
             allow_diagonal: true,
+            full_path_search: !has_follow_path,
             max_search_dist: 12,
         };
 
         if is_summon {
-            fpp.max_target_dist = 2;
+            let master = self.creatures.get(cid).and_then(|k| k.base().master);
+            if master == Some(follow_id) {
+                fpp.max_target_dist = 2;
+                fpp.full_path_search = true;
+            } else if target_distance <= 1 {
+                fpp.full_path_search = true;
+            } else {
+                fpp.full_path_search = !self.monster_can_use_attack(cid, pos, follow_id);
+            }
         } else if fleeing {
             fpp.max_target_dist = i32::from(MAP_MAX_VIEWPORT);
             fpp.clear_sight = false;
+            fpp.full_path_search = false;
         } else if target_distance <= 1 {
-            fpp.min_target_dist = 1;
-            fpp.max_target_dist = 1;
+            fpp.full_path_search = true;
+        } else {
+            fpp.full_path_search = !self.monster_can_use_attack(cid, pos, follow_id);
         }
 
-        let _ = cid;
         fpp
     }
 
@@ -409,28 +456,35 @@ impl GameWorld {
         0..=7
     }
 
-    /// Creatures within `Creature::canSee` of `center` (C++ `Map::getSpectators` + per-creature filter).
-    fn collect_creature_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
-        let range = i32::from(MAP_MAX_VIEWPORT);
+    /// C++ `Map::getSpectators` — spatial viewport box only (`map.cpp` ~386–474).
+    /// Used for move/appear fan-out; per-creature `canSee` is checked in `Monster::onCreatureMove`.
+    fn collect_spatial_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
         let mut out = Vec::new();
         for z in Self::spectator_z_range(center.z, multifloor) {
             let query_center = Position::new(center.x, center.y, z);
-            let candidates = self
-                .map
-                .qtree_mut(z)
-                .get_spectators(query_center, MAP_MAX_VIEWPORT);
-            for other in candidates {
-                let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
-                    continue;
-                };
-                if creature_can_see(center, other_pos, range, range) {
-                    out.push(other);
-                }
-            }
+            out.extend(
+                self.map
+                    .qtree_mut(z)
+                    .get_spectators(query_center, MAP_MAX_VIEWPORT),
+            );
         }
         out.sort_by_key(|id| id.data().as_ffi());
         out.dedup();
         out
+    }
+
+    /// Creatures within `Creature::canSee` of `center` (monster `updateTargetList` / spawn scan).
+    fn collect_creature_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
+        let range = i32::from(MAP_MAX_VIEWPORT);
+        self.collect_spatial_spectators(center, multifloor)
+            .into_iter()
+            .filter(|&other| {
+                let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
+                    return false;
+                };
+                creature_can_see(center, other_pos, range, range)
+            })
+            .collect()
     }
 
     /// TFS `Monster::updateTargetList` — `monster.cpp` ~366.
@@ -454,9 +508,9 @@ impl GameWorld {
     /// Monsters that should receive `Monster::onCreatureMove` for a move (`map.cpp` ~264–323).
     fn monsters_witnessing_move(&mut self, old_pos: Position, new_pos: Position) -> Vec<CreatureId> {
         let mut ids: Vec<CreatureId> = self
-            .collect_creature_spectators(old_pos, true)
+            .collect_spatial_spectators(old_pos, true)
             .into_iter()
-            .chain(self.collect_creature_spectators(new_pos, true))
+            .chain(self.collect_spatial_spectators(new_pos, true))
             .filter(|&id| {
                 self.creatures
                     .get(id)
@@ -532,15 +586,12 @@ impl GameWorld {
         }
 
         if !is_summon && self.monster_is_opponent(monster_id, creature_id) && follow.is_none() {
-            let _ = self.monster_select_target(monster_id, creature_id);
+            self.monster_try_acquire_chase_target(monster_id, Some(creature_id));
         }
     }
 
     /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
-    fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, has_path: bool) {
-        if !has_path {
-            return;
-        }
+    fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, _has_path: bool) {
         if self
             .creatures
             .get(monster_id)
@@ -553,9 +604,9 @@ impl GameWorld {
             base.walk_queue.clear();
             base.walk_update_ticks = 0;
             base.is_updating_path = false;
+            base.force_update_follow_path = false;
         }
-        self.go_to_follow_creature(monster_id);
-        self.monster_arm_event_walk(monster_id);
+        self.monster_follow_repath_now(monster_id);
     }
 
     fn monster_remove_creature_from_lists(&mut self, monster_id: CreatureId, creature_id: CreatureId) {
@@ -637,6 +688,28 @@ impl GameWorld {
             self.monster_add_opponent(monster_id, creature_id, push_front);
         }
         self.monster_update_idle_status(monster_id);
+        if self.monster_is_opponent(monster_id, creature_id) {
+            self.monster_try_acquire_chase_target(monster_id, Some(creature_id));
+        }
+    }
+
+    /// Acquire `follow_target` immediately when a player/opponent enters range — do not wait for `onThink`.
+    fn monster_try_acquire_chase_target(
+        &mut self,
+        monster_id: CreatureId,
+        preferred: Option<CreatureId>,
+    ) {
+        if self.creatures.get(monster_id).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.base.is_summon()) || k.base().follow_target.is_some()
+        }) {
+            return;
+        }
+        if let Some(pid) = preferred {
+            if self.monster_select_target(monster_id, pid) {
+                return;
+            }
+        }
+        let _ = self.monster_search_target(monster_id, TargetSearchType::Default);
     }
 
     fn monster_is_friend(&self, monster_id: CreatureId, creature_id: CreatureId) -> bool {
@@ -709,23 +782,31 @@ impl GameWorld {
     }
 
     fn monster_set_idle(&mut self, cid: CreatureId, idle: bool) {
-        let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) else {
-            return;
+        let became_idle = {
+            let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) else {
+                return;
+            };
+            if m.base.health <= 0 {
+                return;
+            }
+            if m.is_idle == idle {
+                return;
+            }
+            m.is_idle = idle;
+            if idle {
+                m.base.damage_map.clear();
+                m.opponent_ids.clear();
+                m.friend_ids.clear();
+                m.base.clear_targets();
+                m.base.has_follow_path = false;
+                m.base.walk_queue.clear();
+            }
+            idle
         };
-        if m.base.health <= 0 {
-            return;
-        }
-        if m.is_idle == idle {
-            return;
-        }
-        m.is_idle = idle;
-        if idle {
-            m.base.damage_map.clear();
-            m.opponent_ids.clear();
-            m.friend_ids.clear();
-            m.base.clear_targets();
-            m.base.has_follow_path = false;
-            m.base.walk_queue.clear();
+        if became_idle {
+            self.remove_creature_think_check(cid);
+        } else {
+            self.add_creature_think_check(cid);
         }
     }
 
@@ -888,7 +969,7 @@ impl GameWorld {
         }
 
         if let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) {
-            if m.is_hostile && !m.base.is_summon() {
+            if m.is_hostile || m.base.is_summon() {
                 if let Some(k) = self.creatures.get_mut(monster_id) {
                     k.base_mut().attack_target = Some(target_id);
                 }
@@ -896,6 +977,25 @@ impl GameWorld {
         }
 
         self.monster_set_follow_creature(monster_id, Some(target_id))
+    }
+
+    /// Recompute chase path immediately — C++ `Creature::onCreatureMove` instant repath
+    /// (`creature.cpp` ~619–637) and avoids waiting for `onThink` (1 s bucket).
+    pub(crate) fn monster_follow_repath_now(&mut self, cid: CreatureId) {
+        if !self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(_)) && k.base().follow_target.is_some()
+        }) {
+            return;
+        }
+        self.go_to_follow_creature(cid);
+        if self.creatures.get(cid).is_some_and(|k| !k.base().walk_queue.is_empty()) {
+            self.check_creature_walk(cid, std::time::Instant::now());
+        }
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.force_update_follow_path = false;
+            base.is_updating_path = false;
+        }
     }
 
     /// TFS `Creature::setFollowCreature` — `creature.cpp` ~1058.
@@ -909,6 +1009,15 @@ impl GameWorld {
             }
             return true;
         };
+
+        if self
+            .creatures
+            .get(monster_id)
+            .and_then(|k| k.base().follow_target)
+            == Some(target_id)
+        {
+            return true;
+        }
 
         let (monster_pos, target_pos) = {
             let Some(mp) = self.creatures.get(monster_id).map(|k| k.position()) else {
@@ -943,6 +1052,7 @@ impl GameWorld {
             base.follow_target = Some(target_id);
             base.is_updating_path = true;
         }
+        self.monster_follow_repath_now(monster_id);
         true
     }
 
@@ -965,6 +1075,74 @@ impl GameWorld {
             if self.creatures.get(cid).map(|k| k.base().follow_target) != Some(Some(attack_id)) {
                 let _ = self.monster_set_follow_creature(cid, Some(attack_id));
             }
+        }
+    }
+
+    /// TFS `Monster::onThinkTarget` — `monster.cpp` ~923.
+    fn monster_on_think_target(&mut self, cid: CreatureId, interval_ms: u32) {
+        let (
+            change_speed,
+            change_chance,
+            target_distance,
+            is_summon,
+            mut target_change_ticks,
+            mut target_change_cooldown,
+            mut challenge_focus_duration,
+        ) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.change_target_speed,
+                m.change_target_chance,
+                m.target_distance,
+                m.base.is_summon(),
+                m.target_change_ticks,
+                m.target_change_cooldown,
+                m.challenge_focus_duration,
+            ),
+            _ => return,
+        };
+
+        if is_summon || change_speed == 0 {
+            return;
+        }
+
+        let mut can_change_target = true;
+
+        if challenge_focus_duration > 0 {
+            challenge_focus_duration = challenge_focus_duration.saturating_sub(interval_ms);
+        }
+
+        if target_change_cooldown > 0 {
+            target_change_cooldown = target_change_cooldown.saturating_sub(interval_ms);
+            if target_change_cooldown == 0 {
+                target_change_ticks = change_speed;
+            } else {
+                can_change_target = false;
+            }
+        }
+
+        if can_change_target {
+            target_change_ticks = target_change_ticks.saturating_add(interval_ms);
+            if target_change_ticks >= change_speed {
+                target_change_ticks = 0;
+                target_change_cooldown = change_speed;
+                if challenge_focus_duration > 0 {
+                    challenge_focus_duration = 0;
+                }
+                let roll = i32::try_from(rand::random::<u32>() % 100 + 1).unwrap_or(100);
+                if change_chance >= roll {
+                    if target_distance <= 1 {
+                        let _ = self.monster_search_target(cid, TargetSearchType::Random);
+                    } else {
+                        let _ = self.monster_search_target(cid, TargetSearchType::Nearest);
+                    }
+                }
+            }
+        }
+
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.target_change_ticks = target_change_ticks;
+            m.target_change_cooldown = target_change_cooldown;
+            m.challenge_focus_duration = challenge_focus_duration;
         }
     }
 
@@ -1294,7 +1472,7 @@ impl GameWorld {
     /// TFS `Monster::onCreatureEnter` via `onCreatureAppear` spectator fan-out — `monster.cpp` ~435.
     pub fn monster_notify_creature_enter_viewport(&mut self, creature_id: CreatureId, pos: Position) {
         let monsters: Vec<CreatureId> = self
-            .collect_creature_spectators(pos, true)
+            .collect_spatial_spectators(pos, true)
             .into_iter()
             .filter(|&id| {
                 id != creature_id
@@ -1305,21 +1483,8 @@ impl GameWorld {
             })
             .collect();
         for monster_id in monsters {
+            // C++ `Monster::onCreatureAppear` → `onCreatureEnter` for each spatial spectator (`monster.cpp` ~167).
             self.monster_on_creature_found(monster_id, creature_id, true);
-            self.monster_update_idle_status(monster_id);
-            if !self
-                .creatures
-                .get(monster_id)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.base.is_summon()))
-                && self.monster_is_opponent(monster_id, creature_id)
-                && self
-                    .creatures
-                    .get(monster_id)
-                    .and_then(|k| k.base().follow_target)
-                    .is_none()
-            {
-                let _ = self.monster_select_target(monster_id, creature_id);
-            }
         }
     }
 
@@ -1427,7 +1592,6 @@ mod world_tests {
     use tfs_rust_common::Position;
 
     use crate::creature::{CreatureKind, MonsterAiConfig};
-    use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
     use crate::login_out::creature_wire_id;
     use crate::test_world::support::{
         ensure_walkable_tile, insert_monster_with_config, insert_player, insert_spectator_player,
@@ -1471,10 +1635,11 @@ mod world_tests {
                 .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.opponent_ids.is_empty())),
             "player should be registered as opponent"
         );
+        assert!(
+            world.creatures.get(monster).unwrap().base().follow_target.is_some(),
+            "appear-self should select target without waiting for onThink"
+        );
 
-        // Two think cycles: tick 1 selects target; tick 2 runs go_to_follow_creature + walk arm.
-        world.monster_on_think(monster, EVENT_CREATURE_THINK_INTERVAL_MS);
-        world.monster_on_think(monster, EVENT_CREATURE_THINK_INTERVAL_MS);
         if let Some(k) = world.creatures.get_mut(monster) {
             k.base_mut().next_walk_check = Some(Instant::now());
         }
@@ -1490,6 +1655,49 @@ mod world_tests {
         assert!(
             world.creatures.get(monster).unwrap().base().follow_target.is_some(),
             "monster should acquire follow target"
+        );
+    }
+
+    #[test]
+    fn monster_acquires_target_when_player_walks_into_viewport() {
+        let mut world = minimal_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let far = Position::new(112, 100, 7);
+        let near = Position::new(111, 100, 7);
+        for x in 100..=112 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Wolf",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", far));
+        world.map.register_creature_index(far, player);
+        if let Some(t) = world.map.get_tile_mut(far) {
+            t.add_creature(player);
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = near;
+        }
+        world.map.unregister_creature_index(far, player);
+        if let Some(t) = world.map.get_tile_mut(far) {
+            t.remove_creature(player);
+        }
+        world.map.register_creature_index(near, player);
+        if let Some(t) = world.map.get_tile_mut(near) {
+            t.add_creature(player);
+        }
+        world.monster_dispatch_creature_move(player, far, near);
+
+        assert!(
+            world.creatures.get(monster).unwrap().base().follow_target == Some(player),
+            "monster should target player as soon as they enter viewport"
         );
     }
 

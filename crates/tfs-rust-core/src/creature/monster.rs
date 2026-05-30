@@ -25,6 +25,10 @@ pub struct MonsterAiConfig {
     pub can_push_creatures: bool,
     pub can_push_items: bool,
     pub is_hostile: bool,
+    /// C++ `MonsterType::changeTargetSpeed` — `monsters.h`.
+    pub change_target_speed: u32,
+    /// C++ `MonsterType::changeTargetChance` — `monsters.h`.
+    pub change_target_chance: i32,
 }
 
 impl Default for MonsterAiConfig {
@@ -37,6 +41,8 @@ impl Default for MonsterAiConfig {
             can_push_creatures: d.can_push_creatures,
             can_push_items: d.can_push_items,
             is_hostile: d.is_hostile,
+            change_target_speed: d.change_target_speed,
+            change_target_chance: d.change_target_chance,
         }
     }
 }
@@ -50,6 +56,8 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             can_push_creatures: f.can_push_creatures,
             can_push_items: f.can_push_items,
             is_hostile: f.is_hostile,
+            change_target_speed: f.change_target_speed,
+            change_target_chance: f.change_target_chance,
         }
     }
 }
@@ -70,6 +78,14 @@ pub struct Monster {
     pub is_hostile: bool,
     pub is_idle: bool,
     pub walking_to_spawn: bool,
+    pub change_target_speed: u32,
+    pub change_target_chance: i32,
+    /// C++ `Monster::targetChangeTicks` — `monster.cpp` `onThinkTarget`.
+    pub target_change_ticks: u32,
+    /// C++ `Monster::targetChangeCooldown`.
+    pub target_change_cooldown: u32,
+    /// C++ `Monster::challengeFocusDuration` — blocks flee while challenged.
+    pub challenge_focus_duration: u32,
     /// C++ `Monster::targetList` — live hostile creature ids in view.
     pub opponent_ids: Vec<CreatureId>,
     /// C++ `Monster::friendList`.
@@ -97,6 +113,11 @@ impl Monster {
             is_hostile: config.is_hostile,
             is_idle: true,
             walking_to_spawn: false,
+            change_target_speed: config.change_target_speed,
+            change_target_chance: config.change_target_chance,
+            target_change_ticks: 0,
+            target_change_cooldown: 0,
+            challenge_focus_duration: 0,
             opponent_ids: Vec::new(),
             friend_ids: Vec::new(),
         }
@@ -111,5 +132,6 @@ impl Monster {
         !self.base.is_summon()
             && self.run_away_health > 0
             && self.base.health <= self.run_away_health
+            && self.challenge_focus_duration == 0
     }
 }

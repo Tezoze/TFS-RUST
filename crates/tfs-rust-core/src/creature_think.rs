@@ -6,6 +6,8 @@
 
 use std::time::{Duration, Instant};
 
+use rand::Rng;
+
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -13,12 +15,10 @@ use crate::ids::CreatureId;
 /// TFS `creature.h` `EVENT_CREATURE_THINK_INTERVAL`.
 pub const EVENT_CREATURE_THINK_INTERVAL_MS: u32 = 1000;
 
-/// TFS `creature.h` `EVENT_CREATURECOUNT` — bucket count for staggered checks (optimization deferred).
-#[allow(dead_code)]
+/// TFS `creature.h` `EVENT_CREATURECOUNT` — bucket count for staggered checks.
 pub const EVENT_CREATURECOUNT: u32 = 10;
 
 /// TFS `creature.h` `EVENT_CHECK_CREATURE_INTERVAL` = think interval / bucket count.
-#[allow(dead_code)]
 pub const EVENT_CHECK_CREATURE_INTERVAL_MS: u32 =
     EVENT_CREATURE_THINK_INTERVAL_MS / EVENT_CREATURECOUNT;
 
@@ -26,29 +26,61 @@ pub const EVENT_CHECK_CREATURE_INTERVAL_MS: u32 =
 const FOLLOW_PATH_UPDATE_INTERVAL_MS: u32 = 200;
 
 impl GameWorld {
-    /// TFS `Game::checkCreatures` — ~1 Hz think sweep for monsters and NPCs.
-    ///
-    /// C++ registers all placed creatures via `addCreatureCheck`; Phase D only dispatches
-    /// monsters/NPCs here. Player think (ping, idle kick) stays in [`GameWorld::tick_player_pings`].
+    /// TFS `Game::addCreatureCheck` — random bucket assignment (`game.cpp` ~3798).
+    pub(crate) fn add_creature_think_check(&mut self, cid: CreatureId) {
+        let Some(k) = self.creatures.get_mut(cid) else {
+            return;
+        };
+        if k.base().health <= 0 {
+            return;
+        }
+        let bucket = rand::thread_rng().gen_range(0..EVENT_CREATURECOUNT) as u8;
+        k.base_mut().think_check_bucket = Some(bucket);
+    }
+
+    /// TFS `Game::removeCreatureCheck` — idle / removed creatures skip think sweeps.
+    pub(crate) fn remove_creature_think_check(&mut self, cid: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().think_check_bucket = None;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_creature_think_check_bucket(&mut self, cid: CreatureId, bucket: u8) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().think_check_bucket = Some(bucket % EVENT_CREATURECOUNT as u8);
+        }
+    }
+
+    /// TFS `Game::checkCreatures` — one bucket every 100 ms, full cycle 1 s (`game.cpp` ~3819).
     pub fn check_creatures(&mut self, now: Instant) {
-        let Some(last) = self.last_creature_check else {
-            self.last_creature_check = Some(now);
+        let Some(last) = self.last_creature_bucket_tick else {
+            self.last_creature_bucket_tick = Some(now);
             return;
         };
 
-        if now.duration_since(last) < Duration::from_millis(u64::from(EVENT_CREATURE_THINK_INTERVAL_MS))
+        if now.duration_since(last)
+            < Duration::from_millis(u64::from(EVENT_CHECK_CREATURE_INTERVAL_MS))
         {
             return;
         }
 
-        self.last_creature_check = Some(now);
+        self.last_creature_bucket_tick = Some(now);
+
+        let bucket = self.check_creature_bucket_index;
+        self.check_creature_bucket_index =
+            (self.check_creature_bucket_index + 1) % EVENT_CREATURECOUNT;
 
         let interval_ms = EVENT_CREATURE_THINK_INTERVAL_MS;
+        let bucket_u8 = bucket as u8;
 
         let ids: Vec<CreatureId> = self
             .creatures
             .iter()
-            .filter(|(_, k)| matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_)))
+            .filter(|(_, k)| {
+                matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+                    && k.base().think_check_bucket == Some(bucket_u8)
+            })
             .map(|(id, _)| id)
             .collect();
 
@@ -147,7 +179,7 @@ mod tests {
 
     use crate::creature::CreatureKind;
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_monster, insert_npc, minimal_world, CountingEventDispatcher,
+        ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
     };
 
     use super::*;
@@ -178,34 +210,47 @@ mod tests {
     }
 
     #[test]
-    fn think_sweep_fires_at_1hz() {
+    fn think_sweep_fires_at_1hz_per_bucket() {
         let (mut world, counter) = world_with_counter();
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
 
-        insert_monster(&mut world, "rat", pos, 200);
+        let npc = insert_npc(&mut world, "Tom", pos, 100);
+        world.set_creature_think_check_bucket(npc, 0);
 
         let start = Instant::now();
         step_ticks(&mut world, start, 50, 50);
 
-        assert_eq!(counter.total_think_calls(), 2, "expected 2 think sweeps in 2.5 s at 1 Hz");
+        assert_eq!(
+            counter.total_think_calls(),
+            2,
+            "NPC in bucket 0 should think twice in 2.5 s at 1 Hz"
+        );
     }
 
     #[test]
-    fn dead_monster_skipped() {
+    fn idle_monster_not_in_think_sweep() {
         let (mut world, counter) = world_with_counter();
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
 
-        let cid = insert_monster(&mut world, "rat", pos, 200);
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
-            m.base.health = 0;
-        }
+        let cid = crate::test_world::support::insert_monster(&mut world, "rat", pos, 200);
+        assert!(
+            world
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().think_check_bucket.is_none()),
+            "idle monster must not be registered for think checks"
+        );
 
         let start = Instant::now();
         step_ticks(&mut world, start, 50, 50);
 
-        assert_eq!(counter.total_think_calls(), 0, "dead monsters must not receive onThink");
+        assert_eq!(
+            counter.total_think_calls(),
+            0,
+            "idle monsters must not receive onThink"
+        );
     }
 
     #[test]
@@ -214,7 +259,8 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
 
-        insert_npc(&mut world, "Tom", pos, 100);
+        let npc = insert_npc(&mut world, "Tom", pos, 100);
+        world.set_creature_think_check_bucket(npc, 0);
 
         let start = Instant::now();
         step_ticks(&mut world, start, 25, 50);
@@ -228,7 +274,8 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
 
-        insert_monster(&mut world, "rat", pos, 200);
+        let npc = insert_npc(&mut world, "Tom", pos, 100);
+        world.set_creature_think_check_bucket(npc, 0);
 
         let start = Instant::now();
         step_ticks(&mut world, start, 25, 50);
@@ -240,11 +287,32 @@ mod tests {
     }
 
     #[test]
+    fn staggered_buckets_spread_thinks() {
+        let (mut world, counter) = world_with_counter();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+
+        let npc0 = insert_npc(&mut world, "Tom", pos, 100);
+        let npc5 = insert_npc(&mut world, "Tim", Position::new(101, 100, 7), 100);
+        world.set_creature_think_check_bucket(npc0, 0);
+        world.set_creature_think_check_bucket(npc5, 5);
+
+        let start = Instant::now();
+        step_ticks(&mut world, start, 10, 100);
+
+        assert_eq!(
+            counter.total_think_calls(),
+            1,
+            "only one bucket fires per 100 ms tick"
+        );
+    }
+
+    #[test]
     fn creature_removed_during_think_safe() {
         let mut world = minimal_world();
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
-        let cid = insert_monster(&mut world, "rat", pos, 200);
+        let cid = crate::test_world::support::insert_monster(&mut world, "rat", pos, 200);
 
         world.monster_on_think(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
         world.remove_creature(cid);

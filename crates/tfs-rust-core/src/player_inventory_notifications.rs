@@ -399,6 +399,7 @@ mod tests {
                 attack_target: None,
                 master: None,
                 damage_map: Default::default(),
+                think_check_bucket: None,
             },
             account_id: 0,
             guid: 1,

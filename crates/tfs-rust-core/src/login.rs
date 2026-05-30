@@ -101,6 +101,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
         attack_target: None,
         master: None,
         damage_map: Default::default(),
+        think_check_bucket: None,
     };
 
     let account_id =

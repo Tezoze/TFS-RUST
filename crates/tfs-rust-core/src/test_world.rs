@@ -83,6 +83,7 @@ freePremium = false
                 attack_target: None,
                 master: None,
                 damage_map: Default::default(),
+                think_check_bucket: None,
             },
             account_id: 1,
             guid: 1,
@@ -336,6 +337,7 @@ freePremium = false
             attack_target: None,
             master: None,
             damage_map: Default::default(),
+            think_check_bucket: None,
         };
         let cid = world
             .creatures
@@ -377,6 +379,7 @@ freePremium = false
             attack_target: None,
             master: None,
             damage_map: Default::default(),
+            think_check_bucket: None,
         };
         let cid = world.creatures.insert(CreatureKind::Npc(Npc {
             base,
@@ -386,6 +389,7 @@ freePremium = false
         if let Some(t) = world.map.get_tile_mut(pos) {
             t.add_creature(cid);
         }
+        world.add_creature_think_check(cid);
         cid
     }
 

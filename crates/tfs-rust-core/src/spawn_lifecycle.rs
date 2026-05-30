@@ -245,6 +245,7 @@ impl GameWorld {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
+            think_check_bucket: None,
         };
 
         let ai_config = MonsterAiConfig::from(mtype.flags);
@@ -320,6 +321,7 @@ impl GameWorld {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
+            think_check_bucket: None,
         };
 
         let cid = self
@@ -338,6 +340,7 @@ impl GameWorld {
 
         self.spawns.on_creature_spawned(slot_index, cid);
         self.spawn_slot_by_creature.insert(cid, slot_index);
+        self.add_creature_think_check(cid);
 
         if !startup {
             let pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);

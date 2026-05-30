@@ -82,6 +82,10 @@ pub struct MonsterTypeFlags {
     pub can_push_items: bool,
     /// `<flag hostile=…>` — default true for wild monsters.
     pub is_hostile: bool,
+    /// `<targetchange interval/speed=…>` — default 0 (`monsters.h`).
+    pub change_target_speed: u32,
+    /// `<targetchange chance=…>` — default 0.
+    pub change_target_chance: i32,
 }
 
 impl Default for MonsterTypeFlags {
@@ -93,6 +97,8 @@ impl Default for MonsterTypeFlags {
             can_push_creatures: false,
             can_push_items: false,
             is_hostile: true,
+            change_target_speed: 0,
+            change_target_chance: 0,
         }
     }
 }
@@ -380,14 +386,17 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
         message: e.to_string(),
     })?;
     let file_str = path.to_string_lossy().into_owned();
+    parse_monster_xml(&xml, &file_str, items)
+}
 
-    let doc = Document::parse(&xml).map_err(|e| TfsRustError::Content {
-        file: file_str.clone(),
+fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<MonsterType> {
+    let doc = Document::parse(xml).map_err(|e| TfsRustError::Content {
+        file: file_str.to_string(),
         message: e.to_string(),
     })?;
 
     let monster = find_monster_element(&doc).ok_or_else(|| TfsRustError::Content {
-        file: file_str.clone(),
+        file: file_str.to_string(),
         message: "missing root <monster>".to_string(),
     })?;
 
@@ -429,7 +438,7 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
 
     if name.is_empty() {
         return Err(TfsRustError::Content {
-            file: file_str,
+            file: file_str.to_string(),
             message: "monster file missing root 'monster name'".to_string(),
         });
     }
@@ -469,12 +478,14 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
             for d in child.children().filter(|n| n.is_element()) {
                 defenses.spells.push(parse_spell_node(d));
             }
+        } else if tag.eq_ignore_ascii_case("targetchange") {
+            parse_target_change(child, &mut flags, &file_str);
         }
     }
 
     Ok(MonsterType {
         name,
-        filename: file_str,
+        filename: file_str.to_string(),
         name_description,
         race,
         experience,
@@ -532,6 +543,25 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
     }
 }
 
+/// C++ `<targetchange speed/interval/chance>` — `monsters.cpp` ~1007–1023.
+fn parse_target_change(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFlags, file: &str) {
+    if let Some(a) = node.attribute("speed").or_else(|| node.attribute("interval")) {
+        flags.change_target_speed = a.parse().unwrap_or(0);
+    } else {
+        warn!(file, "monster targetchange missing speed/interval");
+    }
+    if let Some(a) = node.attribute("chance") {
+        let mut chance: i32 = a.parse().unwrap_or(0);
+        if chance > 100 {
+            warn!(file, chance, "targetchange chance out of bounds, clamping to 100");
+            chance = 100;
+        }
+        flags.change_target_chance = chance;
+    } else {
+        warn!(file, "monster targetchange missing chance");
+    }
+}
+
 fn parse_bool_flag(value: &str) -> bool {
     value == "1" || value.eq_ignore_ascii_case("true")
 }
@@ -551,29 +581,17 @@ mod tests {
               canpushcreatures="1" canpushitems="1" hostile="1"/>
     </flags>
 </monster>"#;
-        let dir = std::env::temp_dir().join(format!(
-            "tfs_monster_flags_test_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
-        ));
-        std::fs::create_dir_all(&dir).expect("tmpdir");
-        let path = dir.join("test.xml");
-        std::fs::write(&path, xml).expect("write xml");
         let items = ItemDatabase {
             items: HashMap::new(),
             client_to_server: HashMap::new(),
         };
-        let m = parse_monster_file(&path, &items).expect("parse");
+        let m = parse_monster_xml(xml, "test.xml", &items).expect("parse");
         assert_eq!(m.flags.target_distance, 4);
         assert_eq!(m.flags.run_away_health, 5);
         assert_eq!(m.flags.static_attack_chance, 90);
         assert!(m.flags.can_push_creatures);
         assert!(m.flags.can_push_items);
         assert!(m.flags.is_hostile);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

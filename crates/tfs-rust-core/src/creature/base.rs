@@ -113,6 +113,8 @@ pub struct CreatureBase {
     pub attack_target: Option<CreatureId>,
     pub master: Option<CreatureId>,
     pub damage_map: DamageMap,
+    /// C++ `inCheckCreaturesVector` bucket (`game.cpp` `addCreatureCheck`); `None` = not scheduled.
+    pub think_check_bucket: Option<u8>,
 }
 
 impl CreatureBase {

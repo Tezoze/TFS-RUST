@@ -40,6 +40,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
+            think_check_bucket: None,
         },
         account_id: 0,
         guid,

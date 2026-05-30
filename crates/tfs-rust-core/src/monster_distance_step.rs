@@ -8,6 +8,17 @@ use rand::seq::SliceRandom;
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
 
+/// Result of TFS `Monster::getDistanceStep` — `monster.cpp` ~1386.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistanceStepOutcome {
+    /// Step direction chosen.
+    Step(Direction),
+    /// At desired distance (`!flee && distance == targetDistance`) — hold position.
+    AtTargetDistance,
+    /// Out of range / blocked — caller should run A* (`getPathTo`).
+    NeedPathfinding,
+}
+
 fn distance_x(creature: Position, target: Position) -> i32 {
     (creature.x as i32 - target.x as i32).unsigned_abs() as i32
 }
@@ -187,7 +198,7 @@ pub fn get_distance_step<F>(
     sight_clear: bool,
     can_walk: F,
     rng: &mut impl Rng,
-) -> Option<Direction>
+) -> DistanceStepOutcome
 where
     F: Fn(Direction) -> bool,
 {
@@ -196,21 +207,25 @@ where
     let distance = dx.max(dy);
 
     if !flee && (distance > target_distance || !sight_clear) {
-        return None;
+        return DistanceStepOutcome::NeedPathfinding;
     }
     if !flee && distance == target_distance {
-        return None;
+        return DistanceStepOutcome::AtTargetDistance;
     }
 
     let offsetx = offset_x(creature_pos, target_pos);
     let offsety = offset_y(creature_pos, target_pos);
 
     if offsetx == 0 && offsety == 0 {
-        return get_random_step(can_walk, rng);
+        return get_random_step(can_walk, rng)
+            .map(DistanceStepOutcome::Step)
+            .unwrap_or(DistanceStepOutcome::NeedPathfinding);
     }
 
     if dx == dy {
-        return diagonal_distance_step(offsetx, offsety, flee, &can_walk, rng);
+        return diagonal_distance_step(offsetx, offsety, flee, &can_walk, rng)
+            .map(DistanceStepOutcome::Step)
+            .unwrap_or(DistanceStepOutcome::NeedPathfinding);
     }
 
     if dy > dx {
@@ -219,7 +234,9 @@ where
         } else {
             Direction::North
         };
-        return vertical_distance_step(player_dir, offsetx, flee, &can_walk, rng);
+        return vertical_distance_step(player_dir, offsetx, flee, &can_walk, rng)
+            .map(DistanceStepOutcome::Step)
+            .unwrap_or(DistanceStepOutcome::NeedPathfinding);
     }
 
     let player_dir = if offsetx < 0 {
@@ -228,6 +245,8 @@ where
         Direction::West
     };
     horizontal_distance_step(player_dir, offsety, flee, &can_walk, rng)
+        .map(DistanceStepOutcome::Step)
+        .unwrap_or(DistanceStepOutcome::NeedPathfinding)
 }
 
 fn diagonal_distance_step<F>(
@@ -259,7 +278,7 @@ where
         if can_walk(Direction::North) && can_walk(Direction::NorthEast) {
             return Some(Direction::North);
         }
-        return Some(Direction::North);
+        return None;
     }
 
     if offsetx <= -1 && offsety <= -1 {
@@ -281,7 +300,7 @@ where
         if can_walk(Direction::East) && can_walk(Direction::NorthEast) {
             return Some(Direction::East);
         }
-        return Some(Direction::East);
+        return None;
     }
 
     if offsetx >= 1 && offsety <= -1 {
@@ -303,7 +322,7 @@ where
         if can_walk(Direction::South) && can_walk(Direction::SouthEast) {
             return Some(Direction::South);
         }
-        return Some(Direction::South);
+        return None;
     }
 
     if offsetx <= -1 && offsety >= 1 {
@@ -325,7 +344,7 @@ where
         if can_walk(Direction::North) && can_walk(Direction::NorthWest) {
             return Some(Direction::North);
         }
-        return Some(Direction::North);
+        return None;
     }
 
     None
@@ -538,12 +557,39 @@ mod tests {
     }
 
     #[test]
+    fn at_target_distance_holds_without_pathfinding() {
+        let from = Position::new(10, 10, 7);
+        let target = Position::new(14, 10, 7);
+        let can_walk = |_d: Direction| true;
+        let mut rng = StdRng::seed_from_u64(3);
+        assert_eq!(
+            get_distance_step(from, target, 4, false, true, can_walk, &mut rng),
+            DistanceStepOutcome::AtTargetDistance
+        );
+    }
+
+    #[test]
+    fn diagonal_chase_blocked_falls_back_to_pathfinding() {
+        let from = Position::new(10, 10, 7);
+        let target = Position::new(8, 8, 7);
+        let can_walk = |_d: Direction| false;
+        let mut rng = StdRng::seed_from_u64(7);
+        assert_eq!(
+            get_distance_step(from, target, 4, false, true, can_walk, &mut rng),
+            DistanceStepOutcome::NeedPathfinding
+        );
+    }
+
+    #[test]
     fn flee_step_increases_distance_when_escape_open() {
         let from = Position::new(10, 10, 7);
         let target = Position::new(10, 12, 7);
         let can_walk = |_d: Direction| true;
         let mut rng = StdRng::seed_from_u64(1);
-        let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng).unwrap();
+        let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng);
+        let DistanceStepOutcome::Step(dir) = dir else {
+            panic!("expected flee step");
+        };
         let next = from.offset(dir);
         assert!(chebyshev(next, target) > chebyshev(from, target));
     }
@@ -554,8 +600,8 @@ mod tests {
         let target = Position::new(101, 100, 7);
         let can_walk = |_d: Direction| true;
         let mut rng = StdRng::seed_from_u64(42);
-        let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng).unwrap();
-        assert_eq!(dir, Direction::West);
+        let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng);
+        assert_eq!(dir, DistanceStepOutcome::Step(Direction::West));
     }
 
     #[test]
@@ -564,7 +610,10 @@ mod tests {
         let target = Position::new(10, 12, 7);
         let can_walk = |d: Direction| !matches!(d, Direction::North);
         let mut rng = StdRng::seed_from_u64(2);
-        let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng).unwrap();
+        let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng);
+        let DistanceStepOutcome::Step(dir) = dir else {
+            panic!("expected perpendicular flee step");
+        };
         assert!(matches!(dir, Direction::West | Direction::East));
     }
 

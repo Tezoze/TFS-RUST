@@ -1271,6 +1271,11 @@ impl GameWorld {
         self.add_event_walk(cid, first_only, walk_sched_base);
     }
 
+    /// Monster chase — first queued step runs immediately (`addEventWalk(true)` / `ticks == 1`).
+    pub(crate) fn creature_start_chase_auto_walk(&mut self, cid: CreatureId) {
+        self.add_event_walk(cid, true, Instant::now());
+    }
+
     pub(crate) fn add_event_walk_creature(&mut self, cid: CreatureId) {
         self.creature_start_auto_walk(cid);
     }
@@ -1489,6 +1494,12 @@ impl GameWorld {
                         // popped in `getNextStep` (`src/creature.cpp` ~205–213).
                         if let Some(k) = self.creatures.get_mut(cid) {
                             k.base_mut().force_update_follow_path = true;
+                        }
+                        // C++ defers to `onThink`; repath now so diagonal/blocked steps do not stall until the 1 s bucket.
+                        if self.creatures.get(cid).is_some_and(|k| {
+                            matches!(k, CreatureKind::Monster(_)) && k.base().follow_target.is_some()
+                        }) {
+                            self.monster_follow_repath_now(cid);
                         }
                     }
                     Ok(segments) => {
@@ -1818,6 +1829,7 @@ impl GameWorld {
             max_target_dist,
             clear_sight: true,
             allow_diagonal: true,
+            full_path_search: true,
             max_search_dist: 0,
         };
         struct PathCtx<'a> {
