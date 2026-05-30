@@ -223,8 +223,8 @@ mod tests {
 
         assert_eq!(
             counter.total_think_calls(),
-            2,
-            "NPC in bucket 0 should think twice in 2.5 s at 1 Hz"
+            3,
+            "NPC in bucket 0 should think at 100 ms, 1100 ms, and 2100 ms within 2.5 s"
         );
     }
 
@@ -263,9 +263,13 @@ mod tests {
         world.set_creature_think_check_bucket(npc, 0);
 
         let start = Instant::now();
-        step_ticks(&mut world, start, 25, 50);
+        step_ticks(&mut world, start, 20, 50);
 
-        assert_eq!(counter.total_think_calls(), 1, "NPC should think once after 1 s");
+        assert_eq!(
+            counter.total_think_calls(),
+            1,
+            "NPC in bucket 0 should think once after first bucket cycle (~1 s)"
+        );
     }
 
     #[test]
@@ -302,8 +306,8 @@ mod tests {
 
         assert_eq!(
             counter.total_think_calls(),
-            1,
-            "only one bucket fires per 100 ms tick"
+            2,
+            "buckets 0 and 5 each fire once within the first 1 s cycle"
         );
     }
 

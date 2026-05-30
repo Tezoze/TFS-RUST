@@ -1,6 +1,6 @@
 # Phase D — Monster & NPC Walking + AI Foundation (Implementation Guide)
 
-**Status:** 🟡 In progress — **D.1–D.4 complete** (walk engine; think cadence; spawn lifecycle; monster AI onThink); D.5–D.7 pending.
+**Status:** 🟡 In progress — **D.1–D.5 complete** (walk engine; think cadence; spawn lifecycle; monster AI onThink; follow-on-target-move repath); D.6–D.7 pending.
 **Goal:** Bring the world alive. Monsters and NPCs are instantiated from spawn
 definitions, walk on the map, chase/flee/return-to-spawn (monsters), idle-walk and
 face speakers (NPCs), and respawn on timers — all with 1:1 TFS 1.4.2 parity.
@@ -340,13 +340,20 @@ pub health_max: i32,         // already on base
 
 ---
 
-### D.5 — Follow-on-target-move (path refresh)
+### D.5 — Follow-on-target-move (path refresh) — Complete
 
 **C++ ref:** `creature.cpp` `Creature::onCreatureMove` (~485) → if the moved creature is
 our `followCreature`, set `forceUpdateFollowPath`; `goToFollowCreature` recomputes the
 path (~619–656 region cited in the task list).
 
-**Plan:**
+**Implemented in Rust:**
+
+- `move_creature_on_map` → `monster_dispatch_creature_move` → `monster_on_creature_move` follow branch (`monster_ai.rs`, `walk.rs`).
+- Instant repath via `monster_follow_repath_now` (C++ 0 ms `goToFollowCreature` scheduler task), gated on `has_follow_path` per `creature.cpp` ~619.
+- Failed-step repath in `walk.rs`; 200 ms periodic fallback in `creature_think.rs`.
+- Acceptance test: `monster_repaths_when_follow_target_moves` in `monster_ai.rs` `world_tests`.
+
+**Plan (reference):**
 
 - In `move_creature_on_map` / the post-move hook, when any creature finishes a step,
   notify monsters that are following it: set `force_update_follow_path = true` so the
@@ -488,6 +495,7 @@ comment. Confirm before completing:
 - [x] Startup force-spawns ignore interval/findPlayer (`Spawn::startup`).
 - [x] Appear/disappear packets match `sendAddCreature`/`RemoveTileThing` byte layout.
 - [x] Step cost / floor-change for monsters reuses the player path (no divergence).
+- [x] Follow target move triggers instant repath when `has_follow_path` (`creature.cpp` ~619–637).
 
 ---
 

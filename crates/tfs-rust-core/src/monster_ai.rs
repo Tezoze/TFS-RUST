@@ -93,8 +93,8 @@ pub fn is_within_walk_to_spawn_range(pos: Position, spawn: Position, radius: i32
 /// TFS `Monster::updateLookDirection` — `monster.cpp` ~1967.
 /// C++ `getOffsetX(attackedCreaturePos, pos)` = target.x − monster.x.
 pub fn compute_look_toward_target(from: Position, target: Position, current: Direction) -> Direction {
-    let ox = offset_x(target, from);
-    let oy = offset_y(target, from);
+    let ox = offset_x(from, target);
+    let oy = offset_y(from, target);
     let dx = ox.unsigned_abs() as i32;
     let dy = oy.unsigned_abs() as i32;
 
@@ -319,19 +319,35 @@ impl GameWorld {
         }
 
         let path = self.get_creature_path_to_with_fpp(cid, target_pos, &fpp);
-        if let Some(path) = path {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                let base = k.base_mut();
-                base.walk_queue.clear();
-                for d in path {
-                    base.walk_queue.push_back(d);
+        match path {
+            Some(steps) if !steps.is_empty() => {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    let base = k.base_mut();
+                    base.walk_queue.clear();
+                    for d in steps {
+                        base.walk_queue.push_back(d);
+                    }
+                    base.has_follow_path = true;
                 }
-                base.has_follow_path = true;
+                self.stop_event_walk(cid);
+                self.creature_start_chase_auto_walk(cid);
             }
-            self.stop_event_walk(cid);
-            self.creature_start_chase_auto_walk(cid);
-        } else if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().has_follow_path = false;
+            Some(_empty) => {
+                // C++ `getPathTo` returns true with empty `listWalkDir` when already in range —
+                // still calls `startAutoWalk()` so `Monster::getNextStep` can run dance steps.
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    let base = k.base_mut();
+                    base.walk_queue.clear();
+                    base.has_follow_path = true;
+                }
+                self.stop_event_walk(cid);
+                self.creature_start_chase_auto_walk(cid);
+            }
+            None => {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().has_follow_path = false;
+                }
+            }
         }
 
         if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
@@ -590,13 +606,50 @@ impl GameWorld {
         }
     }
 
+    /// True when follow A* would return an empty path — monster already in follow/attack range.
+    fn monster_follow_path_is_at_goal(&self, monster_id: CreatureId) -> bool {
+        let follow_id = match self.creatures.get(monster_id).and_then(|k| k.base().follow_target) {
+            Some(id) => id,
+            None => return false,
+        };
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
+            return false;
+        };
+        let target_pos = match self.creatures.get(follow_id) {
+            Some(k) => k.position(),
+            None => return false,
+        };
+        let fpp = self.monster_path_search_params(
+            monster_id,
+            follow_id,
+            m.is_fleeing(),
+            m.target_distance,
+            m.base.is_summon(),
+            m.base.has_follow_path,
+        );
+        matches!(
+            self.get_creature_path_to_with_fpp(monster_id, target_pos, &fpp),
+            Some(steps) if steps.is_empty()
+        )
+    }
+
     /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
-    fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, _has_path: bool) {
+    fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, has_path: bool) {
+        // C++ only repaths when `hasFollowPath` is set (`creature.cpp` ~619–643).
+        if !has_path {
+            return;
+        }
         if self
             .creatures
             .get(monster_id)
             .is_some_and(|k| k.base().is_updating_path)
         {
+            return;
+        }
+        if self.monster_follow_path_is_at_goal(monster_id) {
+            if let Some(k) = self.creatures.get_mut(monster_id) {
+                k.base_mut().force_update_follow_path = false;
+            }
             return;
         }
         if let Some(k) = self.creatures.get_mut(monster_id) {
@@ -981,6 +1034,8 @@ impl GameWorld {
 
     /// Recompute chase path immediately — C++ `Creature::onCreatureMove` instant repath
     /// (`creature.cpp` ~619–637) and avoids waiting for `onThink` (1 s bucket).
+    /// Walk execution stays in `creature_start_chase_auto_walk` / scheduler — do not call
+    /// `check_creature_walk` here (would deepen the `onWalk` stack and risk recursion on blocked tiles).
     pub(crate) fn monster_follow_repath_now(&mut self, cid: CreatureId) {
         if !self.creatures.get(cid).is_some_and(|k| {
             matches!(k, CreatureKind::Monster(_)) && k.base().follow_target.is_some()
@@ -988,9 +1043,6 @@ impl GameWorld {
             return;
         }
         self.go_to_follow_creature(cid);
-        if self.creatures.get(cid).is_some_and(|k| !k.base().walk_queue.is_empty()) {
-            self.check_creature_walk(cid, std::time::Instant::now());
-        }
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.force_update_follow_path = false;
@@ -1146,15 +1198,38 @@ impl GameWorld {
         }
     }
 
+    /// True when an active melee chase should keep polling `getDanceStep` with an armed walk timer.
+    pub(crate) fn monster_should_keep_dance_walk_alive(&self, cid: CreatureId) -> bool {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        !m.is_idle
+            && m.base.health > 0
+            && m.base.walk_queue.is_empty()
+            && m.base.follow_target.is_some()
+            && m.base.follow_target == m.base.attack_target
+    }
+
     /// C++ `Monster::onThink` `addEventWalk()` — `monster.cpp` ~772.
     /// Unlike players, monsters arm walk while active even with an empty queue so
     /// `Monster::getNextStep` can random-roam or wait for the next flee/chase step.
     fn monster_arm_event_walk(&mut self, cid: CreatureId) {
-        let should_arm = self.creatures.get(cid).is_some_and(|k| {
-            k.base().health > 0 && k.base().next_walk_check.is_none()
-        });
+        let (should_arm, chasing) = self
+            .creatures
+            .get(cid)
+            .map(|k| {
+                (
+                    k.base().health > 0 && k.base().next_walk_check.is_none(),
+                    k.base().follow_target.is_some(),
+                )
+            })
+            .unwrap_or((false, false));
         if should_arm {
-            self.creature_start_auto_walk(cid);
+            if chasing {
+                self.creature_start_chase_auto_walk(cid);
+            } else {
+                self.creature_start_auto_walk(cid);
+            }
         }
     }
 
@@ -1295,10 +1370,8 @@ impl GameWorld {
             if let Some(target_id) = follow {
                 self.monster_on_follow_creature_complete(cid, target_id);
             }
-            if follow.is_some() {
-                self.go_to_follow_creature(cid);
-                self.monster_arm_event_walk(cid);
-            }
+            // C++ `Monster::onWalkComplete` only continues walk-to-spawn — follow repath runs
+            // from `onThink` / target-move (`monster.cpp` ~1113), not here.
         }
     }
 
@@ -1320,6 +1393,7 @@ impl GameWorld {
             pos,
             fleeing,
             static_attack_chance,
+            target_distance,
         ) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
                 m.walking_to_spawn,
@@ -1333,6 +1407,7 @@ impl GameWorld {
                 m.base.position,
                 m.is_fleeing(),
                 m.static_attack_chance,
+                m.target_distance,
             ),
             _ => return None,
         };
@@ -1381,6 +1456,11 @@ impl GameWorld {
             if follow == attack {
                 if let Some(target_id) = follow {
                     let target_pos = self.creatures.get(target_id).map(|k| k.position())?;
+                    let dist = chebyshev(pos, target_pos);
+                    // C++ dance triggers only once follow queue is drained — at attack distance.
+                    if dist > target_distance {
+                        return None;
+                    }
                     let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
                     let can_use_now = self.monster_can_use_attack(cid, pos, target_id);
                     let can_use_from = |from: Position| {
@@ -1388,7 +1468,7 @@ impl GameWorld {
                     };
                     let mut rng = rand::thread_rng();
                     if fleeing {
-                        return get_dance_step(
+                        let step = get_dance_step(
                             pos,
                             target_pos,
                             false,
@@ -1398,6 +1478,7 @@ impl GameWorld {
                             can_use_now,
                             &mut rng,
                         );
+                        return step;
                     }
                     if static_attack_chance < rng.gen_range(1..=100) {
                         return get_dance_step(
@@ -1655,6 +1736,98 @@ mod world_tests {
         assert!(
             world.creatures.get(monster).unwrap().base().follow_target.is_some(),
             "monster should acquire follow target"
+        );
+    }
+
+    #[test]
+    fn monster_repaths_when_follow_target_moves() {
+        let mut world = minimal_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        let ppos_moved = Position::new(104, 100, 7);
+        for x in 100..=106 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_index(ppos, player);
+        if let Some(t) = world.map.get_tile_mut(ppos) {
+            t.add_creature(player);
+        }
+
+        world.monster_on_creature_appear_self(monster);
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().follow_target,
+            Some(player),
+            "monster should be chasing player before target moves"
+        );
+        let queue_before = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .clone();
+        assert!(
+            !queue_before.is_empty(),
+            "chasing monster should have a follow path queued"
+        );
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .has_follow_path,
+            "chasing monster should have has_follow_path set"
+        );
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_moved;
+        }
+        world.map.unregister_creature_index(ppos, player);
+        if let Some(t) = world.map.get_tile_mut(ppos) {
+            t.remove_creature(player);
+        }
+        world.map.register_creature_index(ppos_moved, player);
+        if let Some(t) = world.map.get_tile_mut(ppos_moved) {
+            t.add_creature(player);
+        }
+        world.monster_dispatch_creature_move(player, ppos, ppos_moved);
+
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().follow_target,
+            Some(player),
+            "follow target should remain after target moves one tile"
+        );
+        let queue_after = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .clone();
+        assert!(
+            !queue_after.is_empty(),
+            "monster should repath when follow target moves"
+        );
+        assert_ne!(
+            queue_before, queue_after,
+            "walk queue should be recomputed after target move"
+        );
+        assert!(
+            queue_after.iter().all(|&d| d == Direction::East),
+            "repath should still step east toward player at {:?}, got {:?}",
+            ppos_moved,
+            queue_after
         );
     }
 

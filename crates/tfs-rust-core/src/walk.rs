@@ -1492,14 +1492,10 @@ impl GameWorld {
                         }
                         // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
                         // popped in `getNextStep` (`src/creature.cpp` ~205–213).
+                        // C++ sets `forceUpdateFollowPath` only — repath runs from `onThink` / follow refresh,
+                        // not synchronously from `onWalk` (avoids repath→step→fail infinite recursion).
                         if let Some(k) = self.creatures.get_mut(cid) {
                             k.base_mut().force_update_follow_path = true;
-                        }
-                        // C++ defers to `onThink`; repath now so diagonal/blocked steps do not stall until the 1 s bucket.
-                        if self.creatures.get(cid).is_some_and(|k| {
-                            matches!(k, CreatureKind::Monster(_)) && k.base().follow_target.is_some()
-                        }) {
-                            self.monster_follow_repath_now(cid);
                         }
                     }
                     Ok(segments) => {
@@ -1543,7 +1539,13 @@ impl GameWorld {
             } else {
                 // TFS: `getNextStep` false → `stopEventWalk`, `onWalkComplete` if queue empty (`src/creature.cpp` ~215–219).
                 self.stop_event_walk(cid);
-                stopped_without_reschedule = true;
+                if self.monster_should_keep_dance_walk_alive(cid) {
+                    // C++ still has a pending `eventWalk` task after a failed dance poll; Rust must re-arm
+                    // or the loop dies once the chase path queue is drained.
+                    self.schedule_walk_followup_deadline(cid);
+                } else {
+                    stopped_without_reschedule = true;
+                }
                 self.events.on_walk_complete(cid);
                 if self
                     .creatures

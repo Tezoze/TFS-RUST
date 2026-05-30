@@ -63,6 +63,12 @@
 - [x] `creature_queue_walk_step` + `monster_walk_step_broadcasts_spectator_move` test
 - [x] `cargo test -p tfs-rust-core monster_walk`
 
+## Phase D.5 — Follow-on-target-move repath — done
+- [x] `has_follow_path` gate in `monster_on_follow_creature_moved` (`creature.cpp` ~619)
+- [x] Acceptance test `monster_repaths_when_follow_target_moves`
+- [x] Fix `compute_look_toward_target` offset args (lesson #25 contract)
+- [x] `cargo test --workspace` green
+
 ## Throw destination validation parity (B.5)
 - [ ] Confirm C++ reference behavior for `Game::playerMoveItem` throw gating.
 - [ ] Add Rust throw-destination validation before `internal_move_item`.
