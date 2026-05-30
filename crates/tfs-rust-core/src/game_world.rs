@@ -21,7 +21,8 @@ use crate::config::ConfigManager;
 use crate::condition::ActiveCondition;
 use crate::creature::PlayerWalkAction;
 use crate::creature::CreatureKind;
-use crate::cylinder::{Cylinder, CylinderFlags};
+use crate::cylinder::{Cylinder, CylinderFlags, CylinderLink};
+use crate::player_inventory_notifications::NotificationParent;
 use crate::decay::DecayManager;
 use crate::event_dispatcher::EventDispatcher;
 use crate::container::ContainerRegistry;
@@ -148,7 +149,7 @@ impl GameWorld {
 
     /// Enqueue the same packet bytes for every connection that can see `pos` (clone per viewer).
     // C++ ref: repeated `ProtocolGame` fan-out in `game.cpp` / `protocolgame.cpp`.
-    fn broadcast_to_spectators(&mut self, pos: Position, packet: Vec<u8>) {
+    pub(crate) fn broadcast_to_spectators(&mut self, pos: Position, packet: Vec<u8>) {
         let conns = self.spectator_conns(pos);
         for conn in conns {
             self.enqueue_outgoing(conn, packet.clone());
@@ -1203,10 +1204,12 @@ impl GameWorld {
                     self.container_remove_thing(from_container, item_id, u32::from(m_move))?;
                     let new_item = Item::new(ItemId::default(), item_type, m_move);
                     let new_id = self.items.insert(new_item);
-                    self.internal_add_item_to_inventory_slot(cid, slot, new_id)?;
-                    self.recompute_player_inventory_weight(cid);
-                    self.broadcast_player_inventory_slot(cid, slot, Some(new_id));
-                    self.send_player_stats(cid);
+                    self.equip_item_to_inventory_slot(
+                        cid,
+                        slot,
+                        new_id,
+                        NotificationParent::Container(from_container),
+                    )?;
                     return Ok(new_id);
                 }
                 let rv = self.container_query_remove(
@@ -1227,20 +1230,28 @@ impl GameWorld {
                         .get_thing_index_in_container(from_container, item_id)
                         .ok_or(ReturnValue::NotPossible)? as usize;
                     self.container_detach_item(from_container, item_id)?;
-                    self.internal_remove_item_from_inventory_slot(cid, slot, dest_id)?;
-                    self.broadcast_player_inventory_slot(cid, slot, None);
+                    self.unequip_item_from_inventory_slot(
+                        cid,
+                        slot,
+                        dest_id,
+                        NotificationParent::Container(from_container),
+                    )?;
                     self.container_insert_item_at(from_container, idx, dest_id)?;
-                    self.internal_add_item_to_inventory_slot(cid, slot, item_id)?;
-                    self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                    self.recompute_player_inventory_weight(cid);
-                    self.send_player_stats(cid);
+                    self.equip_item_to_inventory_slot(
+                        cid,
+                        slot,
+                        item_id,
+                        NotificationParent::Container(from_container),
+                    )?;
                     return Ok(item_id);
                 }
                 self.container_detach_item(from_container, item_id)?;
-                self.internal_add_item_to_inventory_slot(cid, slot, item_id)?;
-                self.recompute_player_inventory_weight(cid);
-                self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                self.send_player_stats(cid);
+                self.equip_item_to_inventory_slot(
+                    cid,
+                    slot,
+                    item_id,
+                    NotificationParent::Container(from_container),
+                )?;
                 Ok(item_id)
             }
             (
@@ -1269,19 +1280,26 @@ impl GameWorld {
                     )?;
                     if is_stackable && m_move < item_count {
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        self.recompute_player_inventory_weight(cid);
-                        self.send_player_stats(cid);
+                        self.notify_player_container_tree_changed(
+                            cid,
+                            to_container,
+                            merge_id,
+                            false,
+                            NotificationParent::Player,
+                        );
                         self.notify_container_stack_merge(to_container, merge_id);
                         self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                         return Ok(merge_id);
                     }
-                    self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
-                    self.broadcast_player_inventory_slot(cid, slot, None);
+                    self.unequip_item_from_inventory_slot(
+                        cid,
+                        slot,
+                        item_id,
+                        NotificationParent::Container(to_container),
+                    )?;
                     self.merge_detached_stack_counts(merge_id, m_move);
                     self.items.remove(item_id);
                     self.notify_container_stack_merge(to_container, merge_id);
-                    self.recompute_player_inventory_weight(cid);
-                    self.send_player_stats(cid);
                     return Ok(merge_id);
                 }
 
@@ -1294,8 +1312,13 @@ impl GameWorld {
                     self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                     self.hydrate_container_if_needed(to_container);
                     self.container_add_thing(to_container, to_idx, new_id)?;
-                    self.recompute_player_inventory_weight(cid);
-                    self.send_player_stats(cid);
+                    self.notify_player_container_tree_changed(
+                        cid,
+                        to_container,
+                        new_id,
+                        true,
+                        NotificationParent::Player,
+                    );
                     return Ok(new_id);
                 }
                 let dest_has_room = self
@@ -1306,12 +1329,14 @@ impl GameWorld {
                 if !dest_has_room {
                     return Err(ReturnValue::ContainerNotEnoughRoom);
                 }
-                self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
-                self.broadcast_player_inventory_slot(cid, slot, None);
+                self.unequip_item_from_inventory_slot(
+                    cid,
+                    slot,
+                    item_id,
+                    NotificationParent::Container(to_container),
+                )?;
                 self.hydrate_container_if_needed(to_container);
                 self.container_add_thing(to_container, to_idx, item_id)?;
-                self.recompute_player_inventory_weight(cid);
-                self.send_player_stats(cid);
                 Ok(item_id)
             }
             (Cylinder::Tile { pos: from_pos }, Cylinder::Inventory { player_id, slot }) => {
@@ -1337,9 +1362,14 @@ impl GameWorld {
                             .and_then(|t| t.get_item_stack_pos(item_id))
                             .unwrap_or(0);
                         self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
-                        self.recompute_player_inventory_weight(cid);
+                        self.player_post_add_notification(
+                            cid,
+                            merge_id,
+                            slot,
+                            CylinderLink::TopParent,
+                            NotificationParent::Tile(from_pos),
+                        );
                         self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
-                        self.send_player_stats(cid);
                         return Ok(merge_id);
                     }
                     let stack_pos = self
@@ -1354,9 +1384,14 @@ impl GameWorld {
                     self.broadcast_tile_item_remove(from_pos, stack_pos);
                     // Full: source removed from tile above — only bump hand stack.
                     self.merge_detached_stack_counts(merge_id, m_move);
-                    self.recompute_player_inventory_weight(cid);
+                    self.player_post_add_notification(
+                        cid,
+                        merge_id,
+                        slot,
+                        CylinderLink::TopParent,
+                        NotificationParent::Tile(from_pos),
+                    );
                     self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
-                    self.send_player_stats(cid);
                     return Ok(merge_id);
                 }
 
@@ -1375,10 +1410,12 @@ impl GameWorld {
                     self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
                     let new_item = Item::new(ItemId::default(), item_type, m_move);
                     let new_id = self.items.insert(new_item);
-                    self.internal_add_item_to_inventory_slot(cid, slot, new_id)?;
-                    self.recompute_player_inventory_weight(cid);
-                    self.broadcast_player_inventory_slot(cid, slot, Some(new_id));
-                    self.send_player_stats(cid);
+                    self.equip_item_to_inventory_slot(
+                        cid,
+                        slot,
+                        new_id,
+                        NotificationParent::Tile(from_pos),
+                    )?;
                     return Ok(new_id);
                 }
                 if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
@@ -1393,13 +1430,19 @@ impl GameWorld {
                         return Err(ReturnValue::NotPossible);
                     }
                     self.broadcast_tile_item_remove(from_pos, stack_pos);
-                    self.internal_remove_item_from_inventory_slot(cid, slot, dest_id)?;
-                    self.broadcast_player_inventory_slot(cid, slot, None);
-                    self.internal_add_item_to_inventory_slot(cid, slot, item_id)?;
-                    self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
+                    self.unequip_item_from_inventory_slot(
+                        cid,
+                        slot,
+                        dest_id,
+                        NotificationParent::Tile(from_pos),
+                    )?;
                     self.internal_add_item_to_tile(from_pos, dest_id, flags)?;
-                    self.recompute_player_inventory_weight(cid);
-                    self.send_player_stats(cid);
+                    self.equip_item_to_inventory_slot(
+                        cid,
+                        slot,
+                        item_id,
+                        NotificationParent::Tile(from_pos),
+                    )?;
                     return Ok(item_id);
                 }
                 let stack_pos = self.map.get_tile(from_pos)
@@ -1410,19 +1453,24 @@ impl GameWorld {
                     return Err(ReturnValue::NotPossible);
                 }
                 self.broadcast_tile_item_remove(from_pos, stack_pos);
-                self.internal_add_item_to_inventory_slot(cid, slot, item_id)?;
-                self.recompute_player_inventory_weight(cid);
-                self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                self.send_player_stats(cid);
+                self.equip_item_to_inventory_slot(
+                    cid,
+                    slot,
+                    item_id,
+                    NotificationParent::Tile(from_pos),
+                )?;
                 Ok(item_id)
             }
             (Cylinder::Inventory { player_id, slot }, Cylinder::Tile { pos: to_pos }) => {
                 let cid = *player_id;
                 let slot = *slot;
                 let to_pos = *to_pos;
-                self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
-                self.recompute_player_inventory_weight(cid);
-                self.broadcast_player_inventory_slot(cid, slot, None);
+                self.unequip_item_from_inventory_slot(
+                    cid,
+                    slot,
+                    item_id,
+                    NotificationParent::Tile(to_pos),
+                )?;
                 self.internal_add_item_to_tile(to_pos, item_id, flags)?;
                 Ok(item_id)
             }
@@ -1465,18 +1513,50 @@ impl GameWorld {
                         p.equipment_slots[idx_f] = Some(did);
                         p.equipment_slots[idx_t] = Some(item_id);
                     }
-                    self.events.on_player_deequip(cid, item_id, *from_slot);
-                    self.events.on_player_equip(cid, item_id, *to_slot);
-                    self.events.on_player_deequip(cid, did, *to_slot);
-                    self.events.on_player_equip(cid, did, *from_slot);
+                    self.player_post_remove_notification(
+                        cid,
+                        item_id,
+                        *from_slot,
+                        CylinderLink::Owner,
+                        NotificationParent::Player,
+                    );
+                    self.player_post_add_notification(
+                        cid,
+                        item_id,
+                        *to_slot,
+                        CylinderLink::Owner,
+                        NotificationParent::Player,
+                    );
+                    self.player_post_remove_notification(
+                        cid,
+                        did,
+                        *to_slot,
+                        CylinderLink::Owner,
+                        NotificationParent::Player,
+                    );
+                    self.player_post_add_notification(
+                        cid,
+                        did,
+                        *from_slot,
+                        CylinderLink::Owner,
+                        NotificationParent::Player,
+                    );
                     self.broadcast_player_inventory_slot(cid, *from_slot, Some(did));
                     self.broadcast_player_inventory_slot(cid, *to_slot, Some(item_id));
                     return Ok(item_id);
                 }
-                self.internal_remove_item_from_inventory_slot(cid, *from_slot, item_id)?;
-                self.internal_add_item_to_inventory_slot(cid, *to_slot, item_id)?;
-                self.broadcast_player_inventory_slot(cid, *from_slot, None);
-                self.broadcast_player_inventory_slot(cid, *to_slot, Some(item_id));
+                self.unequip_item_from_inventory_slot(
+                    cid,
+                    *from_slot,
+                    item_id,
+                    NotificationParent::Player,
+                )?;
+                self.equip_item_to_inventory_slot(
+                    cid,
+                    *to_slot,
+                    item_id,
+                    NotificationParent::Player,
+                )?;
                 Ok(item_id)
             }
         }

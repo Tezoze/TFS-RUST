@@ -18,5 +18,5 @@ pub use lua_mutation::{
     LuaMutation,
 };
 pub use runtime::{LuaRuntime, CallbackRef, RegisterLuaFunctions, LuaError};
-pub use script_loader::{ScriptLoader, CreatureEventType, LoadError};
+pub use script_loader::{ScriptLoader, CreatureEventType, PlayerEventType, LoadError};
 pub use userdata::{register_creature_metatable, register_item_metatable};

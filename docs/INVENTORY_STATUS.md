@@ -10,7 +10,7 @@
 
 **Playable Phase C is in place:** players can log in with equipment and nested containers, see real `0x78` inventory packets, move/equip/unequip via `internal_move_item`, use quick-equip, look at items and terrain (floors, water, trees), and **save the live worn-item tree** on logout.
 
-**Not yet at full C++ parity:** post-equip side effects (light, abilities, full notification chain), depot/inbox as **runtime** cylinders, trade-item guards in moves, and the rest of the **gradual Lua inventory API** (see [P5 — Lua API](#p5--lua-api-gradual-build--track-2)).
+**Not yet at full C++ parity:** MoveEvent equip script execution (`data/movements/`), depot/inbox as **runtime** cylinders, trade-item guards in moves, shop list refresh, and the rest of the **gradual Lua inventory API** (see [P5 — Lua API](#p5--lua-api-gradual-build--track-2)).
 
 **Design rule:** Use idiomatic Rust (SlotMap, `Cylinder` enum, pure query functions) while preserving **observable** TFS 1.4.2 behavior — not a line-by-line C++ port.
 
@@ -94,21 +94,23 @@
 
 ---
 
-### P2 — Notification & stat side effects
+### P2 — Notification & stat side effects ✅ DONE
 
 **C++:** `player.cpp` `postAddNotification` / `postRemoveNotification` (~3076–3191).
 
 | Effect | Rust |
 |--------|------|
-| `g_moveEvents->onPlayerEquip` / deequip | ✅ via `events.on_player_*` |
-| `eventPlayerOnInventoryUpdate` | ❌ |
-| `updateInventoryWeight` | ✅ explicit recompute on moves |
-| `updateItemsLight` | ❌ |
-| `sendStats` | ✅ on many inventory moves |
-| `inventoryAbilities[]` | ❌ |
-| `onUpdateInventoryItem` / `onRemoveInventoryItem` | ❌ |
-| Shop list refresh | ❌ |
-| `onSendContainer` / `autoCloseContainers` | Partial via `container_ui` |
+| `g_moveEvents->onPlayerEquip` / deequip | ✅ via `events.on_player_*` (Owner link only) |
+| `eventPlayerOnInventoryUpdate` | ✅ `fire_on_player_inventory_update` + `PlayerEventType::InventoryUpdate` loader |
+| `updateInventoryWeight` | ✅ via `player_post_*` (Owner/TopParent) |
+| `updateItemsLight` | ✅ `update_player_items_light` + `change_creature_light` |
+| `sendStats` | ✅ via `player_post_*` |
+| `inventoryAbilities[]` | ✅ `Player::inventory_abilities` + clear on deequip |
+| `onUpdateInventoryItem` / `onRemoveInventoryItem` | 🟡 stubs (trade guards deferred) |
+| Shop list refresh | 🟡 stub (`shop_owner` + debug log until shop runtime) |
+| `onSendContainer` / `autoCloseContainers` | ✅ postAdd refresh + `auto_close_containers_for_container_item` |
+
+**Rust:** [`player_inventory_notifications.rs`](crates/tfs-rust-core/src/player_inventory_notifications.rs), [`game_world_inventory.rs`](crates/tfs-rust-core/src/game_world_inventory.rs), [`container_ui.rs`](crates/tfs-rust-core/src/container_ui.rs), [`lua_scope.rs`](crates/tfs-rust-core/src/lua_scope.rs).
 
 ---
 
@@ -239,7 +241,7 @@ flowchart TD
     done[Done: slots, moves, 0x78, load, save inv]
     p0[✅ Player::queryAdd + wire internal_move_item]
     p1[✅ queryRemove / queryMaxCount / queryDestination]
-    p2[postAdd/postRemove chain: light, abilities, inventory update event]
+    p2[✅ postAdd/postRemove chain: light, abilities, inventory update event]
     p3[getItemTypeCount, removeItemOfType, getWeapon from inventory]
     p4[Depot/inbox hydrate + UI + live save]
     p5[Lua container + inventory API]
@@ -258,7 +260,7 @@ flowchart TD
 | **9** | Tests: hand/two-hand/classic `ReturnValue` matrix | Inline in `player_inventory_query_add.rs` | `player.cpp` cases | ✅ (inline) |
 | **3** | `Player::queryDestination` (auto-stack to backpack) | `player_inventory_query_add.rs`, `container_ops.rs` | `player.cpp` 2718–2841 | ✅ |
 | **4** | `queryMaxCount` / `queryRemove` for inventory cylinder | `player_inventory_query_add.rs`, `game_world.rs` | `player.cpp` 2619–2716 | ✅ |
-| **5** | `postAddNotification` parity (light, abilities, inventory update) | `game_world_inventory.rs`, `creature/player.rs` | `player.cpp` 3076–3191 | ❌ |
+| **5** | `postAddNotification` parity (light, abilities, inventory update) | `player_inventory_notifications.rs`, `game_world_inventory.rs` | `player.cpp` 3076–3191 | ✅ |
 | **6** | `getItemTypeCount`, `removeItemOfType` | `game_world_inventory.rs` | `player.cpp` 2974–3047 | ❌ |
 | **7** | Depot/inbox runtime + save from live state | `player_inventory_load.rs`, `game_world_save.rs`, `login.rs` | `iologindata.cpp` 449–491, save depot block | ❌ |
 | **8** | Lua bindings | `tfs-rust-lua` | `luascript.cpp` player/item/container | ❌ |
@@ -307,4 +309,4 @@ SQLX_OFFLINE=true cargo check --workspace
 
 **Where we are:** Inventory is **playable** for a live client session (wear, move, quick-equip, look, save worn gear). Container **UI** and **container query*** are in place. **P0** (`queryAdd`) and **P1** (`queryDestination` / `queryMaxCount` / `queryRemove`) are **complete** — wired through `resolve_move_destination` and `internal_move_item`.
 
-**What’s next:** `postAddNotification` side effects (P2), `getItemTypeCount` / `removeItemOfType` (P3), depot runtime (P4), and Lua (P5).
+**What’s next:** `getItemTypeCount` / `removeItemOfType` (P3), depot runtime (P4), and Lua (P5).

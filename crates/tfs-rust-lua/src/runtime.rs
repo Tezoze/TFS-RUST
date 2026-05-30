@@ -96,6 +96,53 @@ impl LuaRuntime {
             .map_err(LuaError::Init)?;
         function.call::<bool>(player).map_err(LuaError::Init)
     }
+
+    /// Register `TableName.methodName` from a loaded script (e.g. `Player.onInventoryUpdate`).
+    pub fn register_table_method_callback(
+        &mut self,
+        callback_key: String,
+        table_name: &str,
+        method_name: &str,
+    ) -> Result<CallbackRef, LuaError> {
+        let globals = self.lua.globals();
+        let table: mlua::Table = globals
+            .get(table_name)
+            .map_err(|_| LuaError::MissingFunction(format!("{table_name} table")))?;
+        let function: mlua::Function = table
+            .get(method_name)
+            .map_err(|_| LuaError::MissingFunction(format!("{table_name}:{method_name}")))?;
+        let registry_key = self.lua.create_registry_value(function)?;
+        let callback = CallbackRef(registry_key);
+        self.script_registry.insert(callback_key, ());
+        Ok(callback)
+    }
+
+    /// TFS `Events::eventPlayerOnInventoryUpdate` — `Player:onInventoryUpdate(item, slot, equip)`.
+    pub fn call_player_inventory_update(
+        &self,
+        callback: &CallbackRef,
+        player: crate::context::CreatureId,
+        item: crate::context::ItemId,
+        slot: u8,
+        equip: bool,
+    ) -> Result<(), LuaError> {
+        use crate::context::ItemRef;
+        let function: mlua::Function = self
+            .lua
+            .registry_value(&callback.0)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        let item_ud = self
+            .lua
+            .create_userdata(ItemRef(item))
+            .map_err(LuaError::Init)?;
+        function
+            .call::<()>( (player_ud, item_ud, slot, equip) )
+            .map_err(LuaError::Init)
+    }
 }
 
 /// Trait for incremental global function registration.

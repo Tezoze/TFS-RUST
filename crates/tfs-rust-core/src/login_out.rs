@@ -481,7 +481,13 @@ pub fn enqueue_initial_login_packets(
     world.enqueue_outgoing(conn_id, send_world_light(wl, 215, false).into_bytes());
     world.enqueue_outgoing(
         conn_id,
-        send_creature_light(pid, 0, 0, false).into_bytes(),
+        send_creature_light(
+            pid,
+            world.player_creature_light(creature_id).level,
+            world.player_creature_light(creature_id).color,
+            false,
+        )
+        .into_bytes(),
     );
     for e in &vip_list {
         let online = world.player_by_guid.contains_key(&e.player_id);

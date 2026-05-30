@@ -31,6 +31,15 @@ pub trait EventDispatcher {
     fn on_player_equip(&self, _player: CreatureId, _item: ItemId, _slot: u8) {}
     /// TFS `MoveEvent::onPlayerDeEquip` — `postRemoveNotification` (`g_moveEvents->onPlayerDeEquip`).
     fn on_player_deequip(&self, _player: CreatureId, _item: ItemId, _slot: u8) {}
+    /// TFS `Events::eventPlayerOnInventoryUpdate` — `player.cpp` `postAddNotification` / `postRemoveNotification`.
+    fn on_player_inventory_update(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _slot: u8,
+        _equip: bool,
+    ) {
+    }
 }
 
 /// Default no-op dispatcher for tests and early wiring.

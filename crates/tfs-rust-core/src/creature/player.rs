@@ -12,6 +12,7 @@ use tfs_rust_db::{ItemRecord, VipEntry};
 use crate::ids::ItemId;
 
 use crate::creature::base::CreatureBase;
+use crate::creature::light::LightInfo;
 use crate::creature::vocation::{
     base_walk_speed, experience_to_next_level, recalculate_vitals, total_experience_for_level,
 };
@@ -111,6 +112,12 @@ pub struct Player {
     pub equipment_slots: [Option<ItemId>; 11],
     /// Sum of `Item::getWeight` for slots 1–10 + store inbox contents — `Player::inventoryWeight` (`player.cpp`).
     pub inventory_weight: u32,
+    /// Max light from equipped items — `Player::itemsLight` (`player.h`).
+    pub items_light: LightInfo,
+    /// MoveEvent ability guard per slot — `Player::inventoryAbilities` (`player.h`).
+    pub inventory_abilities: [bool; 11],
+    /// Active NPC shop session — `Player::shopOwner` (`player.h`); list refresh deferred until shop runtime.
+    pub shop_owner: Option<u32>,
     /// `sendVIPEntries` payload from `account_viplist`.
     pub vip_list: Vec<VipEntry>,
     /// When true, other players receive `0` health percent on map (`Player::isHealthHidden` in TFS).
@@ -178,5 +185,19 @@ impl Player {
     #[inline]
     pub fn get_free_capacity_u32(&self) -> u32 {
         self.get_capacity_u32().saturating_sub(self.inventory_weight)
+    }
+
+    /// TFS `Player::isItemAbilityEnabled` — `player.h`.
+    #[inline]
+    pub fn is_item_ability_enabled(&self, slot: u8) -> bool {
+        crate::inventory::slot_to_array_index(slot)
+            .is_some_and(|idx| self.inventory_abilities[idx])
+    }
+
+    /// TFS `Player::setItemAbility` — `player.h`.
+    pub fn set_item_ability(&mut self, slot: u8, enabled: bool) {
+        if let Some(idx) = crate::inventory::slot_to_array_index(slot) {
+            self.inventory_abilities[idx] = enabled;
+        }
     }
 }

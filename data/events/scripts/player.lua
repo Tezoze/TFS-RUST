@@ -215,3 +215,8 @@ function Player:onWrapItem(item)
 		end
 	end
 end
+
+function Player:onInventoryUpdate(item, slot, equip)
+	-- Hook for scripts; enable via events.xml `Player:onInventoryUpdate`.
+	return
+end

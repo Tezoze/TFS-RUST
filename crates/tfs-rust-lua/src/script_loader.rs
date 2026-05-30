@@ -14,6 +14,12 @@ pub enum CreatureEventType {
     // Others deferred to Track 2
 }
 
+/// Player events from `data/events/events.xml` — `Events::load` (`src/events.cpp`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PlayerEventType {
+    InventoryUpdate,
+}
+
 /// Script loading errors.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -131,6 +137,64 @@ impl<'a> ScriptLoader<'a> {
 
         Ok(result)
     }
+
+    /// Load enabled player events from `data/events/events.xml` + `data/events/scripts/player.lua`.
+    ///
+    /// C++ ref: `Events::load` — `src/events.cpp`.
+    pub fn load_player_events(
+        &mut self,
+        data_dir: &Path,
+    ) -> Result<HashMap<PlayerEventType, Vec<CallbackRef>>, LoadError> {
+        let xml_path = data_dir.join("events/events.xml");
+        if !xml_path.exists() {
+            tracing::warn!("Events XML not found: {}", xml_path.display());
+            return Ok(HashMap::new());
+        }
+
+        let xml_content = std::fs::read_to_string(&xml_path)?;
+        let events: EventsXml = quick_xml::de::from_str(&xml_content)?;
+
+        let player_script = data_dir.join("events/scripts/player.lua");
+        if player_script.exists() {
+            let path_string = player_script.display().to_string();
+            if let Err(e) = self.runtime.load_script(&path_string) {
+                tracing::warn!("Failed to load player events script {}: {}", player_script.display(), e);
+            }
+        } else {
+            tracing::warn!("Player events script not found: {}", player_script.display());
+            return Ok(HashMap::new());
+        }
+
+        let mut result: HashMap<PlayerEventType, Vec<CallbackRef>> = HashMap::new();
+        for event in events.events {
+            if event.class_name != "Player" || !event.enabled {
+                continue;
+            }
+            let event_type = match event.method.as_str() {
+                "onInventoryUpdate" => PlayerEventType::InventoryUpdate,
+                _ => continue,
+            };
+            match self.runtime.register_table_method_callback(
+                format!("Player::{}", event.method),
+                "Player",
+                &event.method,
+            ) {
+                Ok(callback) => {
+                    tracing::info!("Registered Player event callback: {}", event.method);
+                    result.entry(event_type).or_default().push(callback);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Player::{} missing/invalid in {}: {}",
+                        event.method,
+                        player_script.display(),
+                        e
+                    );
+                }
+            }
+        }
+        Ok(result)
+    }
 }
 
 /// XML structure for creaturescripts.xml.
@@ -138,6 +202,23 @@ impl<'a> ScriptLoader<'a> {
 struct CreaturescriptsXml {
     #[serde(rename = "event")]
     events: Vec<EventXml>,
+}
+
+/// XML structure for events.xml.
+#[derive(Debug, serde::Deserialize)]
+struct EventsXml {
+    #[serde(rename = "event")]
+    events: Vec<PlayerEventXml>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PlayerEventXml {
+    #[serde(rename = "@class")]
+    class_name: String,
+    #[serde(rename = "@method")]
+    method: String,
+    #[serde(rename = "@enabled")]
+    enabled: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]

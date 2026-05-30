@@ -3,7 +3,7 @@
 //! C++ reference: `LuaScriptInterface::executeTimer` / creature event dispatch — single game thread.
 
 use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
+use crate::ids::{CreatureId, ItemId};
 use tfs_rust_lua::{self, LuaMutation, with_lua_context, with_lua_mutation_scope};
 
 fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), String> {
@@ -44,6 +44,26 @@ pub fn fire_on_login(world: &mut GameWorld, cid: CreatureId) {
         with_lua_context(ctx, || {
             let world = unsafe { &mut *world_ptr };
             world.events.on_login(cid, world);
+        });
+    });
+}
+
+/// TFS `Events::eventPlayerOnInventoryUpdate` with read/mutation scope for userdata.
+pub fn fire_on_player_inventory_update(
+    world: &mut GameWorld,
+    player: CreatureId,
+    item: ItemId,
+    slot: u8,
+    equip: bool,
+) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world
+                .events
+                .on_player_inventory_update(player, item, slot, equip);
         });
     });
 }

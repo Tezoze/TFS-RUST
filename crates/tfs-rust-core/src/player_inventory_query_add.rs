@@ -913,10 +913,11 @@ mod tests {
         it
     }
 
-    fn test_config(lua_source: &str) -> ConfigManager {
+    fn test_config(lua_source: &str, tag: &str) -> ConfigManager {
         let path = std::env::temp_dir().join(format!(
-            "tfs_classic_equipment_slots_test_{}.lua",
-            std::process::id()
+            "tfs_classic_equipment_slots_test_{}_{}.lua",
+            std::process::id(),
+            tag,
         ));
         std::fs::write(&path, lua_source).expect("write temp config.lua");
         ConfigManager::load(&path).expect("load temp config.lua")
@@ -966,10 +967,12 @@ mod tests {
 
     #[test]
     fn two_handed_with_left_occupied_needs_free_hands() {
-        let left_id = SlotMap::<ItemId, ()>::with_key().insert(());
-        let left = OccupiedSlot {
-            item_id: left_id,
-            slot_position: SLOTP_LEFT,
+        // C++ `CONST_SLOT_LEFT` + non-classic: `inventory[CONST_SLOT_RIGHT]` blocks two-hand
+        // (`player.cpp` ~2522–2523).
+        let right_id = SlotMap::<ItemId, ()>::with_key().insert(());
+        let right = OccupiedSlot {
+            item_id: right_id,
+            slot_position: SLOTP_RIGHT,
             weapon_type: 1,
             count: 1,
         };
@@ -979,8 +982,8 @@ mod tests {
             &two_hand_type(),
             ItemId::default(),
             1,
-            Some(left),
             None,
+            Some(right),
         );
         assert_eq!(ret, ReturnValue::BothHandsNeedToBeFree);
     }
@@ -1098,13 +1101,13 @@ mod tests {
 
     #[test]
     fn classic_equipment_slots_config_default() {
-        let cfg = test_config("");
+        let cfg = test_config("", "default");
         assert!(!classic_equipment_slots_from_config(&cfg));
     }
 
     #[test]
     fn classic_equipment_slots_config_reads_key() {
-        let cfg = test_config("classicEquipmentSlots = true");
+        let cfg = test_config("classicEquipmentSlots = true", "enabled");
         assert!(classic_equipment_slots_from_config(&cfg));
     }
 

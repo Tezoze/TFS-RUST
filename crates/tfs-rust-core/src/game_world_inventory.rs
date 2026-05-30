@@ -72,7 +72,6 @@ impl GameWorld {
         item_id: ItemId,
     ) -> Result<(), ReturnValue> {
         self.validate_inventory_item(cid, slot, item_id)?;
-        self.events.on_player_deequip(cid, item_id, slot);
         let idx = crate::inventory::slot_to_array_index(slot).ok_or(ReturnValue::NotPossible)?;
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.equipment_slots[idx] = None;
@@ -90,9 +89,34 @@ impl GameWorld {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.equipment_slots[idx] = Some(item_id);
         }
-        self.events.on_player_equip(cid, item_id, slot);
         // C++: carrying a bag updates parent chain / `totalWeight` — ground→inventory must keep registry in sync for look/capacity.
         self.hydrate_container_if_needed(item_id);
+        Ok(())
+    }
+
+    /// Slot mutation + `postAddNotification` (Owner) + 0x78.
+    pub(crate) fn equip_item_to_inventory_slot(
+        &mut self,
+        cid: CreatureId,
+        slot: u8,
+        item_id: ItemId,
+        old_parent: crate::player_inventory_notifications::NotificationParent,
+    ) -> Result<(), ReturnValue> {
+        self.internal_add_item_to_inventory_slot(cid, slot, item_id)?;
+        self.notify_player_inventory_slot_add(cid, slot, item_id, old_parent);
+        Ok(())
+    }
+
+    /// Slot mutation + `postRemoveNotification` (Owner) + 0x78 empty.
+    pub(crate) fn unequip_item_from_inventory_slot(
+        &mut self,
+        cid: CreatureId,
+        slot: u8,
+        item_id: ItemId,
+        new_parent: crate::player_inventory_notifications::NotificationParent,
+    ) -> Result<(), ReturnValue> {
+        self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
+        self.notify_player_inventory_slot_remove(cid, slot, item_id, new_parent);
         Ok(())
     }
 

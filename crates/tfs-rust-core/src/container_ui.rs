@@ -210,6 +210,33 @@ impl GameWorld {
         }
     }
 
+    /// Close open windows whose chain includes `container_item_id` — `Player::autoCloseContainers` (`player.cpp`).
+    pub(crate) fn auto_close_containers_for_container_item(
+        &mut self,
+        viewer: CreatureId,
+        container_item_id: ItemId,
+    ) {
+        let entries = self.container_registry.open_container_entries(viewer);
+        let to_close: Vec<u8> = entries
+            .into_iter()
+            .filter(|(_, root_id)| {
+                *root_id == container_item_id
+                    || self
+                        .container_registry
+                        .get(*root_id)
+                        .is_some_and(|c| c.is_holding_item(&self.container_registry, container_item_id))
+            })
+            .map(|(ccid, _)| ccid)
+            .collect();
+        let Some(conn) = self.conn_id_for_creature(viewer) else {
+            return;
+        };
+        for client_cid in to_close {
+            let _ = self.container_registry.close_container_for_player(viewer, client_cid);
+            self.send_close_container_packet(conn, client_cid);
+        }
+    }
+
     /// Whether `viewer` may keep a window open on `container_root` (held in inventory or sees map tile).
     // C++ ref: `Player::autoCloseContainers`, `Thing::getTile` (`player.cpp`, `thing.h`).
     fn player_may_view_open_container_window(
@@ -227,17 +254,28 @@ impl GameWorld {
         false
     }
 
-    /// If the open container chain is carried by a player, refresh weight + stats after contents change.
+    /// If the open container chain is carried by a player, refresh weight/light/stats via TopParent notify.
     pub(crate) fn notify_container_owner_carry_weight(&mut self, container_item_id: ItemId) {
         let top = self.top_container_item_id(container_item_id);
-        for (cid, k) in self.creatures.iter() {
-            if let CreatureKind::Player(_) = k {
-                if self.player_holds_container_tree(cid, top) {
-                    self.recompute_player_inventory_weight(cid);
-                    self.send_player_stats(cid);
-                    return;
+        let holders: Vec<(CreatureId, ItemId)> = self
+            .creatures
+            .iter()
+            .filter_map(|(cid, k)| {
+                if matches!(k, CreatureKind::Player(_)) && self.player_holds_container_tree(cid, top) {
+                    Some((cid, top))
+                } else {
+                    None
                 }
-            }
+            })
+            .collect();
+        for (cid, root) in holders {
+            self.notify_player_container_tree_changed(
+                cid,
+                root,
+                container_item_id,
+                true,
+                crate::player_inventory_notifications::NotificationParent::Player,
+            );
         }
     }
 

@@ -6,10 +6,12 @@
 use std::collections::HashMap;
 
 use crate::event_dispatcher::EventDispatcher;
-use crate::ids::CreatureId;
+use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use slotmap::Key;
-use tfs_rust_lua::{CreatureEventType, CallbackRef, LuaRuntime, with_lua_context};
+use tfs_rust_lua::{
+    CreatureEventType, CallbackRef, LuaRuntime, PlayerEventType, with_lua_context,
+};
 
 /// Lua-based event dispatcher.
 ///
@@ -17,16 +19,19 @@ use tfs_rust_lua::{CreatureEventType, CallbackRef, LuaRuntime, with_lua_context}
 pub struct LuaEventDispatcher {
     runtime: LuaRuntime,
     creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
+    player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
 }
 
 impl LuaEventDispatcher {
     pub fn new(
         runtime: LuaRuntime,
         creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
+        player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
     ) -> Self {
         Self {
             runtime,
             creature_events,
+            player_events,
         }
     }
 }
@@ -35,19 +40,51 @@ impl EventDispatcher for LuaEventDispatcher {
     fn on_player_equip_check(
         &self,
         player: CreatureId,
-        item: crate::ids::ItemId,
+        item: ItemId,
         slot: u8,
     ) -> ReturnValue {
         tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_equip_check");
         ReturnValue::NoError
     }
 
-    fn on_player_equip(&self, player: CreatureId, item: crate::ids::ItemId, slot: u8) {
+    fn on_player_equip(&self, player: CreatureId, item: ItemId, slot: u8) {
         tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_equip");
     }
 
-    fn on_player_deequip(&self, player: CreatureId, item: crate::ids::ItemId, slot: u8) {
+    fn on_player_deequip(&self, player: CreatureId, item: ItemId, slot: u8) {
         tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_deequip");
+    }
+
+    fn on_player_inventory_update(
+        &self,
+        player: CreatureId,
+        item: ItemId,
+        slot: u8,
+        equip: bool,
+    ) {
+        let Some(callbacks) = self
+            .player_events
+            .get(&PlayerEventType::InventoryUpdate)
+        else {
+            return;
+        };
+        for callback in callbacks {
+            if let Err(e) = self.runtime.call_player_inventory_update(
+                callback,
+                player.data().as_ffi(),
+                item.data().as_ffi(),
+                slot,
+                equip,
+            ) {
+                tracing::error!(
+                    ?player,
+                    ?item,
+                    slot,
+                    equip,
+                    "Lua onInventoryUpdate failed: {e}"
+                );
+            }
+        }
     }
 
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {

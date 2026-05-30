@@ -3,12 +3,14 @@
 
 mod base;
 mod kind;
+mod light;
 mod monster;
 mod npc;
 mod player;
 pub mod vocation;
 
 pub use base::{CreatureBase, DamageMap, Outfit, WalkTimer};
+pub use light::LightInfo;
 pub use kind::CreatureKind;
 
 pub(crate) use kind::creature_id_eq_slice;

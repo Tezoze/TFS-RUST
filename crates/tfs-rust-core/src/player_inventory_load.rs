@@ -26,6 +26,8 @@ impl GameWorld {
         self.load_one_item_table(cid, inventory);
         self.load_store_inbox_table(cid, store_inbox);
         self.recompute_player_inventory_weight(cid);
+        self.update_player_items_light(cid, true);
+        self.change_creature_light(cid);
     }
 
     fn container_capacity(&self, server_id: u16) -> u32 {

@@ -149,16 +149,29 @@ pub async fn run() -> anyhow::Result<()> {
             let mut loader = ScriptLoader::new(&mut lua_runtime);
             match loader.load_creaturescripts(&data_path) {
                 Ok(creature_events) => {
+                    let player_events = loader
+                        .load_player_events(&data_path)
+                        .unwrap_or_else(|e| {
+                            tracing::warn!("Lua player events loading failed: {}", e);
+                            HashMap::new()
+                        });
                     tracing::info!(
-                        "Lua creaturescripts loaded: login={} logout={}",
+                        "Lua creaturescripts loaded: login={} logout={} inventory_update={}",
                         creature_events
                             .get(&tfs_rust_lua::CreatureEventType::Login)
                             .map_or(0, |v| v.len()),
                         creature_events
                             .get(&tfs_rust_lua::CreatureEventType::Logout)
-                            .map_or(0, |v| v.len())
+                            .map_or(0, |v| v.len()),
+                        player_events
+                            .get(&tfs_rust_lua::PlayerEventType::InventoryUpdate)
+                            .map_or(0, |v| v.len()),
                     );
-                    Box::new(LuaEventDispatcher::new(lua_runtime, creature_events))
+                    Box::new(LuaEventDispatcher::new(
+                        lua_runtime,
+                        creature_events,
+                        player_events,
+                    ))
                 }
                 Err(e) => {
                     tracing::warn!("Lua creaturescript loading failed, using NullEventDispatcher: {}", e);

@@ -19,6 +19,7 @@ mod item_blob;
 mod item_look;
 pub mod inventory;
 mod player_inventory_load;
+mod player_inventory_notifications;
 mod player_inventory_query_add;
 mod player_ping;
 mod game_world_inventory;
@@ -59,7 +60,7 @@ pub use combat::{
 pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
 pub use config::ConfigManager;
 pub use creature::{
-    CreatureBase, CreatureKind, DamageMap, Monster, MonsterAiPhase, Npc, NpcEventsHandler,
+    CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc, NpcEventsHandler,
     NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
     PlayerSkills, PlayerSocial,
 };
