@@ -9,6 +9,7 @@
 use tfs_rust_common::enums::{Direction, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterSpellNode;
+use slotmap::Key;
 
 use crate::creature::{CreatureKind, MonsterAiPhase};
 use crate::game_world::{creature_can_see, GameWorld};
@@ -384,6 +385,49 @@ impl GameWorld {
         )
     }
 
+    /// TFS `Map::getSpectators` multifloor Z span — `map.cpp` ~444–462.
+    fn spectator_z_range(center_z: u8, multifloor: bool) -> std::ops::RangeInclusive<u8> {
+        if !multifloor {
+            return center_z..=center_z;
+        }
+        if center_z > 7 {
+            let min_z = center_z.saturating_sub(2);
+            let max_z = (center_z + 2).min(15);
+            return min_z..=max_z;
+        }
+        if center_z == 6 {
+            return 0..=8;
+        }
+        if center_z == 7 {
+            return 0..=9;
+        }
+        0..=7
+    }
+
+    /// Creatures within `Creature::canSee` of `center` (C++ `Map::getSpectators` + per-creature filter).
+    fn collect_creature_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
+        let range = i32::from(MAP_MAX_VIEWPORT);
+        let mut out = Vec::new();
+        for z in Self::spectator_z_range(center.z, multifloor) {
+            let query_center = Position::new(center.x, center.y, z);
+            let candidates = self
+                .map
+                .qtree_mut(z)
+                .get_spectators(query_center, MAP_MAX_VIEWPORT);
+            for other in candidates {
+                let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
+                    continue;
+                };
+                if creature_can_see(center, other_pos, range, range) {
+                    out.push(other);
+                }
+            }
+        }
+        out.sort_by_key(|id| id.data().as_ffi());
+        out.dedup();
+        out
+    }
+
     /// TFS `Monster::updateTargetList` — `monster.cpp` ~366.
     pub fn monster_update_target_list(&mut self, cid: CreatureId) {
         let pos = match self.creatures.get(cid) {
@@ -393,13 +437,128 @@ impl GameWorld {
 
         self.monster_prune_creature_lists(cid);
 
-        let spectators = self.map.qtree_mut(pos.z).get_spectators(pos, MAP_MAX_VIEWPORT);
+        let spectators = self.collect_creature_spectators(pos, true);
         for other in spectators {
             if other == cid {
                 continue;
             }
             self.monster_on_creature_found(cid, other, false);
         }
+    }
+
+    /// Monsters that should receive `Monster::onCreatureMove` for a move (`map.cpp` ~264–323).
+    fn monsters_witnessing_move(&mut self, old_pos: Position, new_pos: Position) -> Vec<CreatureId> {
+        let mut ids: Vec<CreatureId> = self
+            .collect_creature_spectators(old_pos, true)
+            .into_iter()
+            .chain(self.collect_creature_spectators(new_pos, true))
+            .filter(|&id| {
+                self.creatures
+                    .get(id)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+            })
+            .collect();
+        ids.sort_by_key(|id| id.data().as_ffi());
+        ids.dedup();
+        ids
+    }
+
+    /// TFS `Monster::onCreatureMove` — `monster.cpp` ~212.
+    pub fn monster_on_creature_move(
+        &mut self,
+        monster_id: CreatureId,
+        creature_id: CreatureId,
+        old_pos: Position,
+        new_pos: Position,
+    ) {
+        if !self.creatures.contains_key(monster_id) {
+            return;
+        }
+
+        if creature_id == monster_id {
+            self.monster_update_target_list(monster_id);
+            self.monster_update_idle_status(monster_id);
+            return;
+        }
+
+        let monster_pos = match self.creatures.get(monster_id) {
+            Some(k) => k.position(),
+            None => return,
+        };
+        let range = i32::from(MAP_MAX_VIEWPORT);
+        let can_see_new = creature_can_see(monster_pos, new_pos, range, range);
+        let can_see_old = creature_can_see(monster_pos, old_pos, range, range);
+
+        if can_see_new && !can_see_old {
+            self.monster_on_creature_found(monster_id, creature_id, true);
+        } else if !can_see_new && can_see_old {
+            self.monster_remove_creature_from_lists(monster_id, creature_id);
+        }
+
+        self.monster_update_idle_status(monster_id);
+
+        let (is_summon, follow, has_path) = match self.creatures.get(monster_id) {
+            Some(CreatureKind::Monster(m)) => (
+                m.base.is_summon(),
+                m.base.follow_target,
+                m.base.has_follow_path,
+            ),
+            _ => return,
+        };
+
+        if follow == Some(creature_id) {
+            self.monster_on_follow_creature_moved(monster_id, has_path);
+            let target_visible = self
+                .creatures
+                .get(creature_id)
+                .map(|k| creature_can_see(monster_pos, k.position(), range, range))
+                .unwrap_or(false);
+            if new_pos.z != old_pos.z || !target_visible {
+                if let Some(k) = self.creatures.get_mut(monster_id) {
+                    if k.base().follow_target == Some(creature_id) {
+                        k.base_mut().clear_follow_for_target(creature_id);
+                    }
+                    if k.base().attack_target == Some(creature_id) {
+                        k.base_mut().clear_attack_for_target(creature_id);
+                    }
+                }
+            }
+            return;
+        }
+
+        if !is_summon && self.monster_is_opponent(monster_id, creature_id) && follow.is_none() {
+            let _ = self.monster_select_target(monster_id, creature_id);
+        }
+    }
+
+    /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
+    fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, has_path: bool) {
+        if !has_path {
+            return;
+        }
+        if self
+            .creatures
+            .get(monster_id)
+            .is_some_and(|k| k.base().is_updating_path)
+        {
+            return;
+        }
+        if let Some(k) = self.creatures.get_mut(monster_id) {
+            let base = k.base_mut();
+            base.walk_queue.clear();
+            base.walk_update_ticks = 0;
+            base.is_updating_path = false;
+        }
+        self.go_to_follow_creature(monster_id);
+        self.monster_arm_event_walk(monster_id);
+    }
+
+    fn monster_remove_creature_from_lists(&mut self, monster_id: CreatureId, creature_id: CreatureId) {
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
+            m.opponent_ids.retain(|&id| id != creature_id);
+            m.friend_ids.retain(|&id| id != creature_id);
+        }
+        self.monster_update_idle_status(monster_id);
     }
 
     fn monster_prune_creature_lists(&mut self, cid: CreatureId) {
@@ -804,11 +963,11 @@ impl GameWorld {
     }
 
     /// C++ `Monster::onThink` `addEventWalk()` — `monster.cpp` ~772.
+    /// Unlike players, monsters arm walk while active even with an empty queue so
+    /// `Monster::getNextStep` can random-roam or wait for the next flee/chase step.
     fn monster_arm_event_walk(&mut self, cid: CreatureId) {
         let should_arm = self.creatures.get(cid).is_some_and(|k| {
-            k.base().health > 0
-                && k.base().next_walk_check.is_none()
-                && !k.base().walk_queue.is_empty()
+            k.base().health > 0 && k.base().next_walk_check.is_none()
         });
         if should_arm {
             self.creature_start_auto_walk(cid);
@@ -874,17 +1033,93 @@ impl GameWorld {
 
     /// TFS `Monster::onWalkComplete` spawn continuation — `monster.cpp` ~1113.
     pub fn monster_on_walk_complete(&mut self, cid: CreatureId) {
-        let walking = self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.walking_to_spawn));
-        if !walking {
+        let (walking_to_spawn, follow, queue_empty) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.walking_to_spawn,
+                m.base.follow_target,
+                m.base.walk_queue.is_empty(),
+            ),
+            _ => return,
+        };
+
+        if walking_to_spawn {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.walking_to_spawn = false;
+            }
+            self.monster_walk_to_spawn(cid);
             return;
         }
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            m.walking_to_spawn = false;
+
+        // Queue next flee/chase distance step without waiting for the 1 Hz think tick.
+        if queue_empty && follow.is_some() {
+            self.go_to_follow_creature(cid);
+            self.monster_arm_event_walk(cid);
         }
-        self.monster_walk_to_spawn(cid);
+    }
+
+    /// TFS `Monster::getNextStep` — `monster.cpp` ~1224.
+    pub(crate) fn monster_next_walk_step(
+        &mut self,
+        cid: CreatureId,
+        now: std::time::Instant,
+    ) -> Option<Direction> {
+        use crate::monster_distance_step::get_random_step;
+
+        let (walking_to_spawn, is_idle, health, follow, has_path, is_summon, master, pos) =
+            match self.creatures.get(cid) {
+                Some(CreatureKind::Monster(m)) => (
+                    m.walking_to_spawn,
+                    m.is_idle,
+                    m.base.health,
+                    m.base.follow_target,
+                    m.base.has_follow_path,
+                    m.base.is_summon(),
+                    m.base.master,
+                    m.base.position,
+                ),
+                _ => return None,
+            };
+
+        if !walking_to_spawn && (is_idle || health <= 0) {
+            return None;
+        }
+
+        let master_in_range = master.is_some_and(|mid| {
+            self.creatures.get(mid).is_some_and(|master_kind| {
+                creature_can_see(
+                    pos,
+                    master_kind.position(),
+                    i32::from(MAP_MAX_VIEWPORT),
+                    i32::from(MAP_MAX_VIEWPORT),
+                )
+            })
+        });
+
+        if !walking_to_spawn
+            && (follow.is_none() || !has_path)
+            && (!is_summon || !master_in_range)
+        {
+            let elapsed_ms = self
+                .creatures
+                .get(cid)
+                .and_then(|k| k.base().last_step)
+                .map(|last| now.duration_since(last).as_millis())
+                .unwrap_or(u128::MAX);
+            if elapsed_ms < 1000 {
+                return None;
+            }
+            let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
+            let mut rng = rand::thread_rng();
+            return get_random_step(can_walk, &mut rng);
+        }
+
+        if (is_summon && master_in_range) || follow.is_some() || walking_to_spawn {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                return k.base_mut().walk_queue.pop_back();
+            }
+        }
+
+        None
     }
 
     /// Out-of-range despawn: teleport to `spawn_position` (C++ `internalTeleport` branch).
@@ -938,25 +1173,48 @@ impl GameWorld {
         true
     }
 
-    /// D.5 minimal: refresh follow path when the followed creature moves.
-    pub fn monster_notify_creature_moved(&mut self, moved: CreatureId) {
-        let followers: Vec<CreatureId> = self
-            .creatures
-            .iter()
-            .filter_map(|(id, k)| {
-                if matches!(k, CreatureKind::Monster(_))
-                    && k.base().follow_target == Some(moved)
-                {
-                    Some(id)
-                } else {
-                    None
-                }
+    /// TFS `Monster::onCreatureEnter` via `onCreatureAppear` spectator fan-out — `monster.cpp` ~435.
+    pub fn monster_notify_creature_enter_viewport(&mut self, creature_id: CreatureId, pos: Position) {
+        let monsters: Vec<CreatureId> = self
+            .collect_creature_spectators(pos, true)
+            .into_iter()
+            .filter(|&id| {
+                id != creature_id
+                    && self
+                        .creatures
+                        .get(id)
+                        .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
             })
             .collect();
-        for id in followers {
-            if let Some(k) = self.creatures.get_mut(id) {
-                k.base_mut().force_update_follow_path = true;
+        for monster_id in monsters {
+            self.monster_on_creature_found(monster_id, creature_id, true);
+            self.monster_update_idle_status(monster_id);
+            if !self
+                .creatures
+                .get(monster_id)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.base.is_summon()))
+                && self.monster_is_opponent(monster_id, creature_id)
+                && self
+                    .creatures
+                    .get(monster_id)
+                    .and_then(|k| k.base().follow_target)
+                    .is_none()
+            {
+                let _ = self.monster_select_target(monster_id, creature_id);
             }
+        }
+    }
+
+    /// Notify monsters near a creature move (`Map::moveCreature` spectator fan-out).
+    pub fn monster_dispatch_creature_move(
+        &mut self,
+        moved: CreatureId,
+        old_pos: Position,
+        new_pos: Position,
+    ) {
+        let monsters = self.monsters_witnessing_move(old_pos, new_pos);
+        for monster_id in monsters {
+            self.monster_on_creature_move(monster_id, moved, old_pos, new_pos);
         }
     }
 }

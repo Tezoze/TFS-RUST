@@ -1429,10 +1429,27 @@ impl GameWorld {
         let mut stopped_without_reschedule = false;
 
         if walk_delay <= 0 {
-            let pop_dir = self
+            let pop_dir = if self
                 .creatures
-                .get_mut(cid)
-                .and_then(|k| k.base_mut().walk_queue.pop_back());
+                .get(cid)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+            {
+                if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| !k.base().walk_queue.is_empty())
+                {
+                    self.creatures
+                        .get_mut(cid)
+                        .and_then(|k| k.base_mut().walk_queue.pop_back())
+                } else {
+                    self.monster_next_walk_step(cid, now)
+                }
+            } else {
+                self.creatures
+                    .get_mut(cid)
+                    .and_then(|k| k.base_mut().walk_queue.pop_back())
+            };
 
             if let Some(mut dir) = pop_dir {
                 let mut drunk_hicks = false;
@@ -1740,6 +1757,8 @@ impl GameWorld {
     }
 
     /// Move a creature between tiles on the map (unregister from old, register at new).
+    /// C++ `Map::moveCreature` — position follows the tile (`newTile.addThing`) before
+    /// `onCreatureMove` fan-out (`map.cpp` ~293–324).
     fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
         if from == to { return; }
         self.map.unregister_creature_index(from, cid);
@@ -1750,7 +1769,10 @@ impl GameWorld {
             t.add_creature(cid);
         }
         self.map.register_creature_index(to, cid);
-        self.monster_notify_creature_moved(cid);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.set_position(to);
+        }
+        self.monster_dispatch_creature_move(cid, from, to);
     }
 
     pub fn process_walk_deadlines(&mut self) {

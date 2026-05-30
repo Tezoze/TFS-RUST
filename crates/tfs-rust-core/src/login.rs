@@ -230,6 +230,7 @@ pub async fn login_player(
     if let Some(t) = world.map.get_tile_mut(pos) {
         t.add_creature(cid);
     }
+    world.monster_notify_creature_enter_viewport(cid, pos);
 
     let guild_opt = world.creatures.get(cid).and_then(|k| match k {
         CreatureKind::Player(p) => p.social.guild_id,
