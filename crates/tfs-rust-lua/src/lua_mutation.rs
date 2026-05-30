@@ -17,6 +17,8 @@ pub enum LuaMutation {
         creature_id: u64,
         item_type: u16,
         count: u32,
+        sub_type: i32,
+        ignore_equipped: bool,
     },
 }
 
@@ -68,10 +70,18 @@ pub fn call_lua_add_item(creature_id: u64, item_type: u16, count: u16) -> Result
     })
 }
 
-pub fn call_lua_remove_item(creature_id: u64, item_type: u16, count: u32) -> Result<(), String> {
+pub fn call_lua_remove_item(
+    creature_id: u64,
+    item_type: u16,
+    count: u32,
+    sub_type: i32,
+    ignore_equipped: bool,
+) -> Result<(), String> {
     apply_mutation(LuaMutation::PlayerRemoveItem {
         creature_id,
         item_type,
         count,
+        sub_type,
+        ignore_equipped,
     })
 }

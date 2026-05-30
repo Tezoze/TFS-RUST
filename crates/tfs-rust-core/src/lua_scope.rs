@@ -23,7 +23,12 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             item_type,
             count,
-        } => unsafe { &mut *world }.lua_script_remove_item(creature_id, item_type, count),
+            sub_type,
+            ignore_equipped,
+        } => unsafe {
+            &mut *world
+        }
+        .lua_script_remove_item(creature_id, item_type, count, sub_type, ignore_equipped),
     }
 }
 

@@ -394,6 +394,7 @@ mod tests {
             },
             account_id: 0,
             guid: 1,
+            group_id: 1,
             vocation_id: 0,
             level: 1,
             experience: 0,

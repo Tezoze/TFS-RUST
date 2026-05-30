@@ -37,8 +37,8 @@
 | Slot constants | `creature.h` `slots_t` | `inventory.rs` `InventorySlot` | ✅ |
 | Load `player_items` | `iologindata.cpp` ~426–446 | `player_inventory_load.rs` | ✅ |
 | Load store inbox | `iologindata.cpp` ~508+ | `load_store_inbox_table` | ✅ |
-| Inventory weight | `player.cpp` `updateInventoryWeight` | `recompute_player_inventory_weight` | ✅ (no `HasInfiniteCapacity` flag yet) |
-| Free capacity | `player.h` `getFreeCapacity` | `Player::get_free_capacity_u32` | ✅ simplified |
+| Inventory weight | `player.cpp` `updateInventoryWeight` | `recompute_player_inventory_weight` | ✅ (skips when `HasInfiniteCapacity`) |
+| Free capacity | `player.h` `getFreeCapacity` | `get_free_capacity_u32_with_flags` + group flags | ✅ |
 | `sendInventoryItem` (0x78) | `protocolgame.cpp` | `login_out.rs`, `broadcast_player_inventory_slot` | ✅ |
 | `internalMoveItem` (inv paths) | `game.cpp` ~1078+ | `game_world.rs` | ✅ tile↔inv, container↔inv, inv↔inv, swap, partial stack |
 | `getSlotType` / quick equip | `game.cpp` `getSlotType`, `playerEquipItem` | `inventory.rs`, `player_quick_equip` | ✅ subset of unequip (`WHEREEVER` vs explicit container) |
@@ -114,14 +114,14 @@
 
 ---
 
-### P3 — Inventory utilities (combat / Lua / spells)
+### P3 — Inventory utilities (combat / Lua / spells) ✅ DONE
 
 | C++ | Rust |
 |-----|------|
-| `getItemTypeCount` / `getAllItemTypeCount` | ❌ |
-| `removeItemOfType` | Backpack-only in `lua_script_remove_item` |
-| `getWeapon` / `getWeaponSkill` | Combat skeleton; not inventory-aware |
-| GM flags (`HasInfiniteCapacity`, etc.) | ❌ on capacity |
+| `getItemTypeCount` / `getAllItemTypeCount` | ✅ `player_inventory_util.rs` |
+| `removeItemOfType` | ✅ `player_remove_item_of_type` + `internal_remove_items` |
+| `getWeapon` / `getWeaponSkill` | ✅ `player_get_weapon*` / `player_get_weapon_skill` |
+| GM flags (`HasInfiniteCapacity`, etc.) | ✅ `player_flags.rs`, `groups.xml` on `GameWorld` |
 
 ---
 
@@ -184,7 +184,8 @@ Registered in `crates/tfs-rust-lua/src/userdata/player.rs` (shared `CreatureRef`
 | `getCapacity` | `get_player_capacity` | ✅ |
 | `getFreeCapacity` | `get_player_free_capacity` | ✅ |
 | `addItem(itemId[, count])` | `lua_script_add_item` (backpack only) | 🟡 subset — no `canDropOnMap`, slot arg, subType |
-| `removeItem(itemId, count)` | `lua_script_remove_item` (backpack tree) | 🟡 subset — not full `removeItemOfType` / equipped scan |
+| `removeItem(itemId, count[, subType[, ignoreEquipped]])` | `player_remove_item_of_type` via `LuaMutation` | ✅ |
+| `getItemCount(itemId[, subType])` | `player_get_item_type_count` via `ScriptContext` | ✅ |
 
 #### `Item` userdata — implemented (read-only)
 
@@ -212,7 +213,7 @@ Equip/deequip **game** hooks exist (`game_world_inventory` → `events.on_player
 
 | Lua API (C++) | Blocked by |
 |---------------|------------|
-| `player:getItemCount` / `getItemById` | `getItemTypeCount`, deep container search (P3) |
+| `player:getItemById` | `findItemOfType` (P5) |
 | `player:addItemEx` | `internalAddItem` / remainder (Phase 9) |
 | `player:getDepotChest` / `getInbox` | Depot/inbox runtime (P4) |
 | `player:getContainerId` / `getContainerById` / `getContainerIndex` | Open-container registry already in core; bindings missing |
@@ -242,7 +243,7 @@ flowchart TD
     p0[✅ Player::queryAdd + wire internal_move_item]
     p1[✅ queryRemove / queryMaxCount / queryDestination]
     p2[✅ postAdd/postRemove chain: light, abilities, inventory update event]
-    p3[getItemTypeCount, removeItemOfType, getWeapon from inventory]
+    p3[✅ getItemTypeCount, removeItemOfType, getWeapon from inventory]
     p4[Depot/inbox hydrate + UI + live save]
     p5[Lua container + inventory API]
     done --> p0
@@ -261,7 +262,7 @@ flowchart TD
 | **3** | `Player::queryDestination` (auto-stack to backpack) | `player_inventory_query_add.rs`, `container_ops.rs` | `player.cpp` 2718–2841 | ✅ |
 | **4** | `queryMaxCount` / `queryRemove` for inventory cylinder | `player_inventory_query_add.rs`, `game_world.rs` | `player.cpp` 2619–2716 | ✅ |
 | **5** | `postAddNotification` parity (light, abilities, inventory update) | `player_inventory_notifications.rs`, `game_world_inventory.rs` | `player.cpp` 3076–3191 | ✅ |
-| **6** | `getItemTypeCount`, `removeItemOfType` | `game_world_inventory.rs` | `player.cpp` 2974–3047 | ❌ |
+| **6** | `getItemTypeCount`, `removeItemOfType` | `player_inventory_util.rs`, `game_world_inventory.rs` | `player.cpp` 2974–3047 | ✅ |
 | **7** | Depot/inbox runtime + save from live state | `player_inventory_load.rs`, `game_world_save.rs`, `login.rs` | `iologindata.cpp` 449–491, save depot block | ❌ |
 | **8** | Lua bindings | `tfs-rust-lua` | `luascript.cpp` player/item/container | ❌ |
 
@@ -309,4 +310,4 @@ SQLX_OFFLINE=true cargo check --workspace
 
 **Where we are:** Inventory is **playable** for a live client session (wear, move, quick-equip, look, save worn gear). Container **UI** and **container query*** are in place. **P0** (`queryAdd`) and **P1** (`queryDestination` / `queryMaxCount` / `queryRemove`) are **complete** — wired through `resolve_move_destination` and `internal_move_item`.
 
-**What’s next:** `getItemTypeCount` / `removeItemOfType` (P3), depot runtime (P4), and Lua (P5).
+**What’s next:** Depot/inbox runtime (P4), then expanded Lua container/inventory API (P5).

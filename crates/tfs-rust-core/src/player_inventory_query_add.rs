@@ -316,6 +316,12 @@ impl GameWorld {
         if flags.contains(CylinderFlags::NO_LIMIT) {
             return true;
         }
+        if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM) {
+            return false;
+        }
+        if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY) {
+            return true;
+        }
         if self.player_carries_item(cid, item_id) {
             return true;
         }
@@ -323,10 +329,10 @@ impl GameWorld {
             return false;
         };
         let weight = self.player_query_weight_for_capacity(item_id, item, count);
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+        let Some(free) = self.player_free_capacity_u32(cid) else {
             return false;
         };
-        weight <= p.get_free_capacity_u32()
+        weight <= free
     }
 
     fn player_query_weight_for_capacity(

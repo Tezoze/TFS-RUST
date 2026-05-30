@@ -99,8 +99,29 @@ impl UserData for CreatureRef {
                 .map_err(|e| mlua::Error::runtime(e))
         });
 
-        methods.add_method("removeItem", |_, this, (item_type, count): (u16, u32)| {
-            call_lua_remove_item(this.0, item_type, count).map_err(|e| mlua::Error::runtime(e))
+        methods.add_method("getItemCount", |_, this, (item_type, sub_type): (u16, Option<i32>)| {
+            let sub_type = sub_type.unwrap_or(-1);
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                ctx.get_player_item_type_count(this.0, item_type, sub_type)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
         });
+
+        methods.add_method(
+            "removeItem",
+            |_,
+             this,
+             (item_type, count, sub_type, ignore_equipped): (u16, u32, Option<i32>, Option<bool>)| {
+                let sub_type = sub_type.unwrap_or(-1);
+                let ignore_equipped = ignore_equipped.unwrap_or(false);
+                call_lua_remove_item(this.0, item_type, count, sub_type, ignore_equipped)
+                    .map_err(|e| mlua::Error::runtime(e))
+            },
+        );
     }
 }

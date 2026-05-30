@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::sync::mpsc::UnboundedSender;
+use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::vocations::VocationDatabase;
 use slotmap::{Key, SlotMap};
@@ -82,6 +83,8 @@ pub struct GameWorld {
     pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
     /// OTB + `items.xml` — server item id → client id for map / `addItem` (`src/items.cpp`).
     pub items_db: Arc<ItemDatabase>,
+    /// `data/XML/groups.xml` — player GM flags (`src/groups.cpp`).
+    pub groups: Arc<GroupDatabase>,
     pub vocations: Arc<VocationDatabase>,
     /// C++ `ProtocolGame::sendCreatureSay` static `statementId` (`src/protocolgame.cpp` ~2432).
     pub next_statement_id: u32,
@@ -164,6 +167,7 @@ impl GameWorld {
         db: DbPool,
         spawns: SpawnManager,
         items_db: Arc<ItemDatabase>,
+        groups: Arc<GroupDatabase>,
         vocations: Arc<VocationDatabase>,
         walk_wake_tx: Option<UnboundedSender<CreatureId>>,
     ) -> Self {
@@ -192,6 +196,7 @@ impl GameWorld {
             deferred_turn_broadcast: HashMap::new(),
             known_creatures_by_conn: HashMap::new(),
             items_db,
+            groups,
             vocations,
             next_statement_id: 0,
             walk_wake_tx,
@@ -504,12 +509,18 @@ impl GameWorld {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return;
         };
-
+        let flags = crate::player_flags::flags_for_group(&self.groups, p.group_id);
+        let cannot =
+            crate::player_flags::has_player_flag(flags, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM);
+        let infinite = crate::player_flags::has_player_flag(
+            flags,
+            crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY,
+        );
         let hl = p.base.health.max(0).min(u16::MAX as i32) as u16;
         let max_h = p.base.max_health.max(0).min(u16::MAX as i32) as u16;
-        let total_cap = p.get_capacity_u32();
-        let free_cap = p.get_free_capacity_u32();
         let level = p.level.max(0).min(u16::MAX as i32) as u16;
+        let total_cap = p.get_capacity_u32_with_flags(cannot, infinite);
+        let free_cap = p.get_free_capacity_u32_with_flags(cannot, infinite);
 
         // C++ `Player::getPercentLevel` (`player.cpp` ~1914).
         let level_percent = {
@@ -1975,6 +1986,59 @@ impl GameWorld {
 
 }
 
+impl GameWorld {
+    /// Resolved `PlayerFlag` bits for `players.group_id`.
+    pub fn player_group_flags(&self, cid: CreatureId) -> u64 {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return 0;
+        };
+        crate::player_flags::flags_for_group(&self.groups, p.group_id)
+    }
+
+    pub fn player_has_flag(&self, cid: CreatureId, flag: u64) -> bool {
+        crate::player_flags::has_player_flag(self.player_group_flags(cid), flag)
+    }
+
+    pub fn player_capacity_u32(&self, cid: CreatureId) -> Option<u32> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return None;
+        };
+        let cannot = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM);
+        let infinite = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY);
+        Some(p.get_capacity_u32_with_flags(cannot, infinite))
+    }
+
+    pub fn player_free_capacity_u32(&self, cid: CreatureId) -> Option<u32> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return None;
+        };
+        let cannot = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM);
+        let infinite = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY);
+        Some(p.get_free_capacity_u32_with_flags(cannot, infinite))
+    }
+
+    /// Ensure all worn containers are registered before inventory scans.
+    pub(crate) fn hydrate_player_equipment_containers(&mut self, cid: CreatureId) {
+        let roots: Vec<ItemId> = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => {
+                p.equipment_slots.iter().flatten().copied().collect()
+            }
+            _ => return,
+        };
+        let mut registry = std::mem::take(&mut self.container_registry);
+        for root in roots {
+            if self
+                .items
+                .get(root)
+                .is_some_and(|i| self.items_db.is_container(i.item_type))
+            {
+                self.ensure_container_registered(&mut registry, root);
+            }
+        }
+        self.container_registry = registry;
+    }
+}
+
 impl tfs_rust_common::ScriptContext for GameWorld {
     fn get_creature(&self, id: tfs_rust_common::ScriptCreatureId) -> Option<tfs_rust_common::ScriptCreatureData> {
         self.creatures.iter().find_map(|(cid, k)| {
@@ -2029,10 +2093,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .iter()
             .find(|(k, _)| k.data().as_ffi() == creature_id)
             .map(|(k, _)| k)?;
-        match self.creatures.get(_cid)? {
-            CreatureKind::Player(p) => Some(p.get_capacity_u32()),
-            _ => None,
-        }
+        self.player_capacity_u32(_cid)
     }
 
     fn get_player_free_capacity(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u32> {
@@ -2041,10 +2102,21 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .iter()
             .find(|(k, _)| k.data().as_ffi() == creature_id)
             .map(|(k, _)| k)?;
-        match self.creatures.get(_cid)? {
-            CreatureKind::Player(p) => Some(p.get_free_capacity_u32()),
-            _ => None,
-        }
+        self.player_free_capacity_u32(_cid)
+    }
+
+    fn get_player_item_type_count(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        item_id: u16,
+        sub_type: i32,
+    ) -> Option<u32> {
+        let cid = self
+            .creatures
+            .iter()
+            .find(|(k, _)| k.data().as_ffi() == creature_id)
+            .map(|(k, _)| k)?;
+        Some(self.player_get_item_type_count(cid, item_id, sub_type))
     }
 
     fn get_item_data(&self, id: tfs_rust_common::ScriptItemId) -> Option<tfs_rust_common::ScriptItemData> {

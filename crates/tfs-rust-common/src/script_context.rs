@@ -57,6 +57,15 @@ pub trait ScriptContext {
         let _ = creature_id;
         None
     }
+    fn get_player_item_type_count(
+        &self,
+        creature_id: ScriptCreatureId,
+        item_id: u16,
+        sub_type: i32,
+    ) -> Option<u32> {
+        let _ = (creature_id, item_id, sub_type);
+        None
+    }
     fn get_item_data(&self, id: ScriptItemId) -> Option<ScriptItemData> {
         let _ = id;
         None

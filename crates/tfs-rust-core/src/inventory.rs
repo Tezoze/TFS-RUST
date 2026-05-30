@@ -38,7 +38,17 @@ pub const SLOTP_HAND: u32 = SLOTP_LEFT | SLOTP_RIGHT;
 
 /// C++ `WeaponType_t` — `src/const.h`
 pub const WEAPON_NONE: u8 = 0;
+pub const WEAPON_SWORD: u8 = 1;
+pub const WEAPON_CLUB: u8 = 2;
+pub const WEAPON_AXE: u8 = 3;
 pub const WEAPON_SHIELD: u8 = 4;
+pub const WEAPON_DISTANCE: u8 = 5;
+pub const WEAPON_WAND: u8 = 6;
+pub const WEAPON_AMMO: u8 = 7;
+
+/// `CONST_SLOT_FIRST`..=`CONST_SLOT_LAST` — `creature.h` (excludes store inbox 11).
+pub const PLAYER_INVENTORY_SLOT_FIRST: u8 = 1;
+pub const PLAYER_INVENTORY_SLOT_LAST: u8 = 10;
 
 /// Map `pid` / `CONST_SLOT_*` to array index `0..=10` for `[Option<ItemId>; 11]`.
 #[inline]

@@ -104,10 +104,13 @@ pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
         u32::try_from(p.account_id).expect("players.account_id must fit u32 for runtime Player");
     let guid = u32::try_from(p.id).expect("players.id must fit u32 for runtime Player");
 
+    let group_id = u16::try_from(p.group_id.max(0)).unwrap_or(1);
+
     Player {
         base,
         account_id,
         guid,
+        group_id,
         vocation_id: p.vocation,
         level: p.level,
         experience: p.experience,

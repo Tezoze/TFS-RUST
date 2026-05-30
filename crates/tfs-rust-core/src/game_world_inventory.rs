@@ -7,6 +7,8 @@ use tfs_rust_net::outgoing_extra::{send_inventory_item_template, send_inventory_
 
 use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
+use crate::player_inventory_notifications::NotificationParent;
+use crate::player_inventory_util::{InventoryItemRef, ItemCylinder};
 use crate::item_look::{item_get_description_cpp, look_distance_tfs};
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
 use crate::game_world::GameWorld;
@@ -178,73 +180,183 @@ impl GameWorld {
         Ok(())
     }
 
-    /// Lua `Player:removeItem` — removes from backpack contents only (subset until full inventory scan exists).
+    /// Lua `Player:removeItem` — `luascript.cpp` `luaPlayerRemoveItem` → `removeItemOfType`.
     pub fn lua_script_remove_item(
         &mut self,
         creature_u64: u64,
         item_type: u16,
-        mut count: u32,
+        count: u32,
+        sub_type: i32,
+        ignore_equipped: bool,
     ) -> Result<(), String> {
-        if count == 0 {
-            return Ok(());
-        }
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
-        let backpack = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.equipment_slots[2],
-            _ => None,
-        };
-        let Some(bp) = backpack else {
-            return Err("no backpack".into());
-        };
-        let mut registry = std::mem::take(&mut self.container_registry);
-        self.ensure_container_registered(&mut registry, bp);
-        self.container_registry = registry;
-        self.lua_remove_item_type_from_container(bp, item_type, &mut count)?;
-        if count > 0 {
+        if !self.player_remove_item_of_type(cid, item_type, count, sub_type, ignore_equipped) {
             return Err("not enough items".into());
         }
-        self.recompute_player_inventory_weight(cid);
         Ok(())
     }
 
-    fn lua_remove_item_type_from_container(
+    /// TFS `Player::removeItemOfType` — `player.cpp` ~2998–3047.
+    pub fn player_remove_item_of_type(
         &mut self,
-        container_item_id: ItemId,
-        item_type: u16,
-        count: &mut u32,
-    ) -> Result<(), String> {
-        if *count == 0 {
-            return Ok(());
+        cid: CreatureId,
+        item_id: u16,
+        amount: u32,
+        sub_type: i32,
+        ignore_equipped: bool,
+    ) -> bool {
+        if amount == 0 {
+            return true;
         }
-        let child_ids: Vec<ItemId> = self
-            .container_registry
-            .get(container_item_id)
-            .map(|c| c.items.clone())
-            .ok_or_else(|| "container not registered".to_string())?;
-        for iid in child_ids {
-            if *count == 0 {
-                break;
-            }
-            let ty = self.items.get(iid).map(|i| i.item_type);
-            if ty == Some(item_type) {
-                let n = self.items.get(iid).map(|i| i.count as u32).unwrap_or(1);
-                let take = n.min(*count);
-                if take == n {
-                    self.internal_remove_item_from_container(container_item_id, iid)
-                        .map_err(|_| "remove from container failed".to_string())?;
-                    self.items.remove(iid);
-                } else if let Some(it) = self.items.get_mut(iid) {
-                    it.count -= take as u16;
+        self.hydrate_player_equipment_containers(cid);
+        let entries = self.collect_items_of_type(cid, item_id, sub_type, ignore_equipped);
+        let total = self.sum_collected_item_counts(&entries, item_id, sub_type);
+        if total < amount {
+            return false;
+        }
+        let stackable = self
+            .items_db
+            .items
+            .get(&item_id)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        self.internal_remove_items(cid, entries, amount, stackable)
+    }
+
+    /// TFS `Game::internalRemoveItems` — `game.cpp` ~5785–5801.
+    pub(crate) fn internal_remove_items(
+        &mut self,
+        cid: CreatureId,
+        entries: Vec<InventoryItemRef>,
+        mut amount: u32,
+        stackable: bool,
+    ) -> bool {
+        if amount == 0 {
+            return true;
+        }
+        let mut removed_any = false;
+        if stackable {
+            for entry in entries {
+                if amount == 0 {
+                    break;
                 }
-                *count -= take;
-            } else if ty.is_some_and(|t| self.items_db.is_container(t)) {
-                self.lua_remove_item_type_from_container(iid, item_type, count)?;
+                let item_count = self
+                    .items
+                    .get(entry.item_id)
+                    .map(|i| u32::from(i.count.max(1)))
+                    .unwrap_or(0);
+                if item_count > amount {
+                    let taken = self.remove_inventory_item_count(cid, entry, amount);
+                    if taken > 0 {
+                        amount = 0;
+                        removed_any = true;
+                    }
+                    break;
+                }
+                let taken = self.remove_inventory_item_count(cid, entry, item_count);
+                if taken > 0 {
+                    amount = amount.saturating_sub(taken);
+                    removed_any = true;
+                }
+            }
+        } else {
+            for entry in entries {
+                if amount == 0 {
+                    break;
+                }
+                let item_count = self
+                    .items
+                    .get(entry.item_id)
+                    .map(|i| u32::from(i.count.max(1)))
+                    .unwrap_or(0);
+                let take = item_count.min(amount);
+                let taken = self.remove_inventory_item_count(cid, entry, take);
+                if taken > 0 {
+                    amount = amount.saturating_sub(taken);
+                    removed_any = true;
+                }
             }
         }
-        self.refresh_container_chain(container_item_id);
-        Ok(())
+        if removed_any {
+            self.recompute_player_inventory_weight(cid);
+            self.update_player_items_light(cid, false);
+            self.send_player_stats(cid);
+        }
+        amount == 0
+    }
+
+    fn remove_inventory_item_count(
+        &mut self,
+        cid: CreatureId,
+        entry: InventoryItemRef,
+        count: u32,
+    ) -> u32 {
+        if count == 0 {
+            return 0;
+        }
+        match entry.cylinder {
+            ItemCylinder::Inventory { slot } => {
+                self.remove_from_inventory_slot(cid, slot, entry.item_id, count)
+            }
+            ItemCylinder::Container { parent_container } => {
+                if self
+                    .container_remove_thing(parent_container, entry.item_id, count)
+                    .is_ok()
+                {
+                    if let Some(slot) =
+                        self.equipment_slot_holding_container(cid, parent_container)
+                    {
+                        if let Some(root_id) = self.get_player_inventory_item(cid, slot) {
+                            self.notify_player_container_tree_changed(
+                                cid,
+                                root_id,
+                                entry.item_id,
+                                false,
+                                NotificationParent::None,
+                            );
+                        }
+                    }
+                    count
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
+    fn remove_from_inventory_slot(
+        &mut self,
+        cid: CreatureId,
+        slot: u8,
+        item_id: ItemId,
+        count: u32,
+    ) -> u32 {
+        let item_count = self.items.get(item_id).map(|i| u32::from(i.count.max(1))).unwrap_or(0);
+        let stackable = self
+            .items
+            .get(item_id)
+            .and_then(|i| self.items_db.items.get(&i.item_type))
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        if stackable && count < item_count {
+            if let Some(item) = self.items.get_mut(item_id) {
+                item.count = item.count.saturating_sub(count as u16);
+            }
+            self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
+            count
+        } else {
+            let removed = item_count.min(count);
+            let _ = self.unequip_item_from_inventory_slot(
+                cid,
+                slot,
+                item_id,
+                NotificationParent::None,
+            );
+            self.items.remove(item_id);
+            removed
+        }
     }
 
     pub(crate) fn broadcast_player_inventory_slot(

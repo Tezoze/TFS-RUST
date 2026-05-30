@@ -80,6 +80,8 @@ pub struct Player {
     pub base: CreatureBase,
     pub account_id: u32,
     pub guid: u32,
+    /// `players.group_id` — `groups.xml` flags (`player.h` `Group`).
+    pub group_id: u16,
     pub vocation_id: i32,
     pub level: i32,
     pub experience: u64,
@@ -175,16 +177,33 @@ impl Player {
         self.next_action_until.map_or(true, |t| now >= t)
     }
 
-    /// `Player::getCapacity` — `player.h` (simplified: no GM infinite-cap flags).
+    /// `Player::getCapacity` — `player.h` ~454–461.
     #[inline]
-    pub fn get_capacity_u32(&self) -> u32 {
-        self.capacity.max(0) as u32
+    pub fn get_capacity_u32_with_flags(&self, cannot_pickup: bool, infinite_capacity: bool) -> u32 {
+        if cannot_pickup {
+            0
+        } else if infinite_capacity {
+            u32::MAX
+        } else {
+            self.capacity.max(0) as u32
+        }
     }
 
-    /// `Player::getFreeCapacity` — `player.h`.
+    /// `Player::getFreeCapacity` — `player.h` ~463–471.
     #[inline]
-    pub fn get_free_capacity_u32(&self) -> u32 {
-        self.get_capacity_u32().saturating_sub(self.inventory_weight)
+    pub fn get_free_capacity_u32_with_flags(
+        &self,
+        cannot_pickup: bool,
+        infinite_capacity: bool,
+    ) -> u32 {
+        if cannot_pickup {
+            0
+        } else if infinite_capacity {
+            u32::MAX
+        } else {
+            self.get_capacity_u32_with_flags(false, false)
+                .saturating_sub(self.inventory_weight)
+        }
     }
 
     /// TFS `Player::isItemAbilityEnabled` — `player.h`.

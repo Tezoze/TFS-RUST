@@ -137,6 +137,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
     let items_db = std::sync::Arc::new(content.items);
+    let groups = std::sync::Arc::new(content.groups);
     
     // Create items SlotMap first - needed for map loading to create Item instances
     let mut items = slotmap::SlotMap::with_key();
@@ -193,6 +194,7 @@ pub async fn run() -> anyhow::Result<()> {
         db.clone(),
         spawns,
         items_db,
+        groups,
         vocations,
         Some(walk_wake_tx),
     );

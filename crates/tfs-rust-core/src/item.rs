@@ -2,6 +2,7 @@
 // C++ reference: `src/item.h` (Item class)
 
 use tfs_rust_content::items::ItemDatabase;
+use tfs_rust_content::otb::ItemType;
 use tfs_rust_db::ItemRecord;
 
 use crate::ids::ItemId;
@@ -171,6 +172,28 @@ impl Item {
     pub fn is_store_item(&self) -> bool {
         self.attributes.is_store_item()
     }
+
+    /// TFS `Item::getSubType` — `item.cpp` ~341–352.
+    pub fn get_sub_type(&self, it: &ItemType) -> u16 {
+        if it.is_fluid_container() || it.is_splash() {
+            self.fluid_type()
+        } else if it.stackable() {
+            self.count
+        } else if it.charges != 0 {
+            self.charges()
+        } else {
+            self.count
+        }
+    }
+
+    /// TFS `Item::countByType` — `item.h` ~981–987.
+    pub fn count_by_type(&self, it: &ItemType, sub_type: i32) -> u32 {
+        if sub_type == -1 || sub_type == i32::from(self.get_sub_type(it)) {
+            u32::from(self.count.max(1))
+        } else {
+            0
+        }
+    }
 }
 
 #[cfg(test)]
@@ -216,5 +239,14 @@ mod tests {
 
         let stack = Item::new(ItemId::default(), 100, 5);
         assert!(stack.is_stack());
+    }
+
+    #[test]
+    fn count_by_type_matches_sub_type() {
+        let it = ItemType::default();
+        let item = Item::new(ItemId::default(), 100, 42);
+        assert_eq!(item.count_by_type(&it, 42), 42);
+        assert_eq!(item.count_by_type(&it, 41), 0);
+        assert_eq!(item.count_by_type(&it, -1), 42);
     }
 }

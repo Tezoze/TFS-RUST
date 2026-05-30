@@ -40,6 +40,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         },
         account_id: 0,
         guid,
+        group_id: 1,
         vocation_id: 0,
         level: 1,
         experience: 0,

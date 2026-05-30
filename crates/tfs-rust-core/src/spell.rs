@@ -149,6 +149,7 @@ mod tests {
             },
             account_id: 1,
             guid: 1,
+            group_id: 1,
             vocation_id: 1,
             level: 50,
             experience: 0,

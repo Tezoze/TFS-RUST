@@ -222,6 +222,9 @@ impl GameWorld {
 
     /// TFS `Player::updateInventoryWeight` — `player.cpp` ~419–436.
     pub fn recompute_player_inventory_weight(&mut self, cid: CreatureId) {
+        if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY) {
+            return;
+        }
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
             return;
         };
