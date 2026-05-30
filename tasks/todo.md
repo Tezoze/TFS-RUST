@@ -23,6 +23,13 @@
 - [x] Unit tests: `player_max_count_index`, slot range constants
 - [x] Update `docs/INVENTORY_STATUS.md`
 
+## Terrain look parity — done
+- [x] `LookTarget` enum + `internal_get_thing_look` (`STACKPOS_LOOK`, `game.cpp` ~223)
+- [x] `Tile::top_visible_look_target` / `getTopVisibleThing` (`tile.cpp` ~322)
+- [x] `player_look_at` ground + immovable terrain descriptions; `can_see_position` gate
+- [x] Unit tests: `tile::look_tests`, `item_look::ground_water_description`
+- [x] Update `docs/INVENTORY_STATUS.md`, `tasks/lessons.md`
+
 ## Throw destination validation parity (B.5)
 - [ ] Confirm C++ reference behavior for `Game::playerMoveItem` throw gating.
 - [ ] Add Rust throw-destination validation before `internal_move_item`.

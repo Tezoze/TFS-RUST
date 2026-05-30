@@ -36,7 +36,7 @@ use crate::protocol_hooks::{NullProtocolHooks, SharedProtocolHooks};
 use crate::return_value::ReturnValue;
 use crate::spawn::SpawnManager;
 use crate::stability::StabilityManager;
-use crate::thing::Thing;
+use crate::thing::{LookTarget, Thing};
 use crate::wildcard::WildcardTree;
 
 /// Pending `0x6B` from `player_turn_request` — flushed or dropped after the next command is known
@@ -95,6 +95,32 @@ pub struct GameWorld {
     pub container_registry: ContainerRegistry,
 }
 
+/// C++ `ProtocolGame::canSee(int32_t x, int32_t y, int32_t z)` — `protocolgame.cpp` ~796–823.
+pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
+    let my_x = i32::from(viewer_pos.x);
+    let my_y = i32::from(viewer_pos.y);
+    let my_z = i32::from(viewer_pos.z);
+    let x = i32::from(target.x);
+    let y = i32::from(target.y);
+    let z = i32::from(target.z);
+
+    if my_z <= 7 {
+        if z > 7 {
+            return false;
+        }
+    } else if (my_z - z).abs() > 2 {
+        return false;
+    }
+
+    let offsetz = my_z - z;
+    let min_x = my_x - MAX_CLIENT_VIEWPORT_X + offsetz;
+    let max_x = my_x + (MAX_CLIENT_VIEWPORT_X + 1) + offsetz;
+    let min_y = my_y - MAX_CLIENT_VIEWPORT_Y + offsetz;
+    let max_y = my_y + (MAX_CLIENT_VIEWPORT_Y + 1) + offsetz;
+
+    (min_x..=max_x).contains(&x) && (min_y..=max_y).contains(&y)
+}
+
 impl GameWorld {
     /// TFS `Player::canDoAction` — false while `nextAction` is in the future (`player.cpp`).
     /// Non-players are treated as ready (no `next_action_until`).
@@ -105,17 +131,12 @@ impl GameWorld {
         }
     }
 
-    /// TFS `ProtocolGame::canSee(Position)` — viewport around viewer (`protocolgame.cpp`).
+    /// TFS `ProtocolGame::canSee(Position)` — multi-floor viewport (`protocolgame.cpp` ~796–823).
     pub fn can_see_position(&self, viewer: CreatureId, pos: Position) -> bool {
-        let Some(vp) = self.creatures.get(viewer).map(|k| k.position()) else {
+        let Some(viewer_pos) = self.creatures.get(viewer).map(|k| k.position()) else {
             return false;
         };
-        if vp.z != pos.z {
-            return false;
-        }
-        let dx = (vp.x as i32 - pos.x as i32).unsigned_abs();
-        let dy = (vp.y as i32 - pos.y as i32).unsigned_abs();
-        dx <= MAX_CLIENT_VIEWPORT_X as u32 && dy <= MAX_CLIENT_VIEWPORT_Y as u32
+        protocol_can_see(viewer_pos, pos)
     }
 
     /// Collect all `ConnId`s whose creature can see `pos`. Used by every broadcast.
@@ -422,16 +443,40 @@ impl GameWorld {
             if wire_id != target_protocol_id {
                 continue;
             }
-            let invisible = Self::has_invisible(&k.base().active_conditions);
-            if invisible && viewer != cid {
-                return false;
-            }
-            if let CreatureKind::Player(p) = k {
-                if p.ghost_mode {
+            return self.can_see_creature(viewer, cid);
+        }
+        true
+    }
+
+    /// C++ `Creature::canSeeCreature` / `Player::canSeeCreature` — ghost mode + invisibility.
+    /// `creature.cpp` ~74, `player.cpp` ~715–726.
+    pub fn can_see_creature(&self, viewer: CreatureId, target: CreatureId) -> bool {
+        if viewer == target {
+            return true;
+        }
+        let Some(target_kind) = self.creatures.get(target) else {
+            return false;
+        };
+        if let CreatureKind::Player(tp) = target_kind {
+            if tp.ghost_mode {
+                let viewer_has_access = self
+                    .creatures
+                    .get(viewer)
+                    .and_then(|k| match k {
+                        CreatureKind::Player(p) => Some(p.ghost_mode),
+                        _ => None,
+                    })
+                    .unwrap_or(false);
+                if !viewer_has_access {
                     return false;
                 }
             }
-            return true;
+        }
+        // C++ `Player::canSeeCreature` — invisibility only hides non-players from viewers without `canSeeInvisibility`.
+        if !matches!(target_kind, CreatureKind::Player(_))
+            && Self::has_invisible(&target_kind.base().active_conditions)
+        {
+            return false;
         }
         true
     }
@@ -569,6 +614,51 @@ impl GameWorld {
             return Some(Thing::Item(iid));
         }
         None
+    }
+
+    /// C++ `Game::internalGetThing` with `STACKPOS_LOOK` — `game.cpp` ~223–224.
+    /// Client `stack_pos` is ignored for map tiles (uses `getTopVisibleThing`).
+    pub fn internal_get_thing_look(&self, cid: CreatureId, pos: Position, _stack_pos: u8) -> Option<LookTarget> {
+        if pos.x != 0xFFFF {
+            let tile = self.map.get_tile(pos)?;
+            return self.top_visible_look_target_on_tile(tile, cid);
+        }
+        if pos.y & 0x40 != 0 {
+            let client_cid = (pos.y & 0x0F) as u8;
+            let slot = pos.z as usize;
+            let container_id = self.container_registry.get_container_by_cid(cid, client_cid)?;
+            let c = self.container_registry.get(container_id)?;
+            let iid = c.get_item(slot)?;
+            return Some(LookTarget::Item(iid));
+        }
+        let slot = pos.y as u8;
+        let iid = self.get_player_inventory_item(cid, slot)?;
+        Some(LookTarget::Item(iid))
+    }
+
+    /// C++ `Tile::getTopVisibleThing` — `tile.cpp` ~322–347.
+    pub(crate) fn top_visible_look_target_on_tile(
+        &self,
+        tile: &crate::tile::Tile,
+        viewer: CreatureId,
+    ) -> Option<LookTarget> {
+        tile.top_visible_look_target(
+            |cid| self.can_see_creature(viewer, cid),
+            |iid| self.item_is_opaque_for_look(iid),
+        )
+    }
+
+    /// First non-`lookThrough` item in the look stack walk.
+    fn item_is_opaque_for_look(&self, item_id: ItemId) -> bool {
+        let Some(item) = self.items.get(item_id) else {
+            return true;
+        };
+        !self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.look_through())
+            .unwrap_or(false)
     }
 
     /// Query if a tile can accept an item.
@@ -2022,5 +2112,53 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             weight: w,
             name: it.map(|t| t.name.clone()).unwrap_or_default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod protocol_can_see_tests {
+    use super::*;
+    use tfs_rust_common::Position;
+
+    #[test]
+    fn same_floor_in_viewport() {
+        let viewer = Position::new(100, 100, 7);
+        let target = Position::new(105, 103, 7);
+        assert!(protocol_can_see(viewer, target));
+    }
+
+    #[test]
+    fn same_floor_outside_viewport() {
+        let viewer = Position::new(100, 100, 7);
+        let target = Position::new(120, 100, 7);
+        assert!(!protocol_can_see(viewer, target));
+    }
+
+    #[test]
+    fn surface_look_one_floor_below_same_xy() {
+        let viewer = Position::new(100, 100, 7);
+        let target = Position::new(100, 100, 6);
+        assert!(protocol_can_see(viewer, target));
+    }
+
+    #[test]
+    fn surface_cannot_see_underground() {
+        let viewer = Position::new(100, 100, 7);
+        let target = Position::new(100, 100, 8);
+        assert!(!protocol_can_see(viewer, target));
+    }
+
+    #[test]
+    fn underground_within_two_floors() {
+        let viewer = Position::new(100, 100, 10);
+        let target = Position::new(100, 100, 8);
+        assert!(protocol_can_see(viewer, target));
+    }
+
+    #[test]
+    fn underground_beyond_two_floors() {
+        let viewer = Position::new(100, 100, 10);
+        let target = Position::new(100, 100, 7);
+        assert!(!protocol_can_see(viewer, target));
     }
 }

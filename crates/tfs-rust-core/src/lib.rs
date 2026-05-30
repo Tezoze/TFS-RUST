@@ -76,7 +76,7 @@ pub use cylinder::{
 pub use item::{Item, ItemPosition};
 pub use item_attributes::{AttrType, CustomAttrValue, CustomAttributeMap, DecayState, ItemAttrFlags, ItemAttributes};
 pub use return_value::ReturnValue;
-pub use thing::Thing;
+pub use thing::{LookTarget, Thing};
 pub use lua_command::LuaCommand;
 pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;

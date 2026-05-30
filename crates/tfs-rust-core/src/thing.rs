@@ -11,6 +11,15 @@ pub enum Thing {
     Creature(CreatureId),
 }
 
+/// Target resolved by `Game::playerLookAt` / `STACKPOS_LOOK` (`game.cpp` ~3156).
+// C++ ref: `Tile::getTopVisibleThing` — ground is an `Item*` in C++; Rust stores `u16` type id on tile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookTarget {
+    Item(ItemId),
+    Ground(u16),
+    Creature(CreatureId),
+}
+
 impl Thing {
     /// Check if this thing is an item
     pub fn is_item(&self) -> bool {

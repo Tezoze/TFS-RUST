@@ -535,4 +535,16 @@ It weighs 5.00 oz.\n\
 It can only be wielded properly by players of level 120 or higher."
         );
     }
+
+    /// Ground tiles use ephemeral items — `Item::getDescription` with type-only weight (`item.cpp` ~1548).
+    #[test]
+    fn ground_water_description() {
+        let mut it = ItemType::default();
+        it.id = 1;
+        it.name = "water".into();
+
+        let item = Item::new_single(ItemId::default(), it.id);
+        let s = item_get_description_cpp(&item, &it, it.weight, 3, None);
+        assert_eq!(s, "water.");
+    }
 }

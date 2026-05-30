@@ -8,7 +8,7 @@
 
 ## Executive summary
 
-**Playable Phase C is in place:** players can log in with equipment and nested containers, see real `0x78` inventory packets, move/equip/unequip via `internal_move_item`, use quick-equip, look at items, and **save the live worn-item tree** on logout.
+**Playable Phase C is in place:** players can log in with equipment and nested containers, see real `0x78` inventory packets, move/equip/unequip via `internal_move_item`, use quick-equip, look at items and terrain (floors, water, trees), and **save the live worn-item tree** on logout.
 
 **Not yet at full C++ parity:** post-equip side effects (light, abilities, full notification chain), depot/inbox as **runtime** cylinders, trade-item guards in moves, and the rest of the **gradual Lua inventory API** (see [P5 — Lua API](#p5--lua-api-gradual-build--track-2)).
 
@@ -42,7 +42,7 @@
 | `sendInventoryItem` (0x78) | `protocolgame.cpp` | `login_out.rs`, `broadcast_player_inventory_slot` | ✅ |
 | `internalMoveItem` (inv paths) | `game.cpp` ~1078+ | `game_world.rs` | ✅ tile↔inv, container↔inv, inv↔inv, swap, partial stack |
 | `getSlotType` / quick equip | `game.cpp` `getSlotType`, `playerEquipItem` | `inventory.rs`, `player_quick_equip` | ✅ subset of unequip (`WHEREEVER` vs explicit container) |
-| `playerLookAt` | `game.cpp` ~3156 | `player_look_at` | ✅ |
+| `playerLookAt` | `game.cpp` ~3156 | `player_look_at`, `internal_get_thing_look`, `protocol_can_see` | ✅ items + ground/terrain + cross-floor look; creature text stubbed |
 | Container open UI | `player.cpp` openContainers | `container_ui.rs`, `ContainerRegistry` | ✅ |
 | Auto-open on login | `player.cpp` `autoOpenContainers` | `auto_open_containers_on_login` | ✅ |
 | Equip move events | `postAddNotification` → move events | `on_player_equip` / `on_player_deequip` | ✅ partial |

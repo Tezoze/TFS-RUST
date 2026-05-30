@@ -13,7 +13,7 @@ use crate::ids::{CreatureId, ItemId};
 use crate::inventory::slot_type_for_item_type;
 use crate::item::Item;
 use crate::return_value::ReturnValue;
-use crate::thing::Thing;
+use crate::thing::LookTarget;
 use slotmap::Key;
 
 impl GameWorld {
@@ -369,32 +369,39 @@ impl GameWorld {
 
     /// `Game::playerLookAt` — `game.cpp` ~3156–3187.
     pub fn player_look_at(&mut self, conn_id: ConnId, cid: CreatureId, pos: Position, stack_pos: u8) {
-        let Some(thing) = self.internal_get_thing_move(cid, pos, stack_pos) else {
+        let Some(target) = self.internal_get_thing_look(cid, pos, stack_pos) else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
-        match thing {
-            Thing::Creature(_) => {
-                self.enqueue_outgoing(
-                    conn_id,
-                    send_text_message_simple(22, "You see nothing special.").into_bytes(),
-                );
-            }
-            Thing::Item(item_id) => {
-                let player_pos = self
-                    .creatures
-                    .get(cid)
-                    .map(|k| k.position())
-                    .unwrap_or(pos);
-                // Client encodes inventory / non-map targets with `x == 0xFFFF`. C++ uses
-                // `thing->getPosition()` for distance (`game.cpp` `playerLookAt`); for items
-                // carried by the player that resolves to the player's map tile — not raw `pos`.
-                let thing_pos = if pos.x == 0xFFFF {
-                    player_pos
+
+        let player_pos = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or(pos);
+        // C++ `thing->getPosition()` for map targets; inventory/container use player tile.
+        let thing_pos = if pos.x == 0xFFFF { player_pos } else { pos };
+        // C++ `player->canSee(thingPos)` — `ProtocolGame::canSee` (`protocolgame.cpp` ~796).
+        if !self.can_see_position(cid, thing_pos) {
+            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+            return;
+        }
+        let look_d = look_distance_tfs(player_pos, thing_pos);
+
+        let msg = match target {
+            LookTarget::Creature(_) => "You see nothing special.".to_string(),
+            LookTarget::Ground(ground_type) => {
+                let ephemeral = Item::new_single(ItemId::default(), ground_type);
+                if let Some(it) = self.items_db.items.get(&ground_type) {
+                    format!(
+                        "You see {}",
+                        item_get_description_cpp(&ephemeral, it, it.weight, look_d, None)
+                    )
                 } else {
-                    pos
-                };
-                let look_d = look_distance_tfs(player_pos, thing_pos);
+                    format!("You see an item of type {ground_type}.")
+                }
+            }
+            LookTarget::Item(item_id) => {
                 self.hydrate_container_if_needed(item_id);
                 let w = self.item_recursive_weight_oz(item_id);
                 let Some(item) = self.items.get(item_id) else {
@@ -405,16 +412,16 @@ impl GameWorld {
                     .container_registry
                     .get(item_id)
                     .map(|c| c.capacity);
-                let msg = if let Some(it) = self.items_db.items.get(&item.item_type) {
+                if let Some(it) = self.items_db.items.get(&item.item_type) {
                     format!(
                         "You see {}",
                         item_get_description_cpp(item, it, w, look_d, container_capacity)
                     )
                 } else {
                     format!("You see an item of type {}.", item.item_type)
-                };
-                self.enqueue_outgoing(conn_id, send_text_message_simple(22, &msg).into_bytes());
+                }
             }
-        }
+        };
+        self.enqueue_outgoing(conn_id, send_text_message_simple(22, &msg).into_bytes());
     }
 }

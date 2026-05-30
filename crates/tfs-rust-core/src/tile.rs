@@ -2,6 +2,7 @@
 // C++ reference: `Tile` (`tile.h`), `Tile::queryAdd`, `queryRemove`, `addThing`, `removeThing`.
 
 use crate::ids::{CreatureId, ItemId};
+use crate::thing::LookTarget;
 use tfs_rust_common::{enums::ZoneType, Position};
 
 /// TFS `tileflags_t` (`src/tile.h`) — runtime tile state bitfield.
@@ -221,6 +222,43 @@ impl Tile {
         }
         None
     }
+
+    /// C++ `Tile::getTopVisibleThing` — `tile.cpp` ~322–347.
+    pub fn top_visible_look_target<F, G>(&self, can_see_creature: F, item_is_opaque: G) -> Option<LookTarget>
+    where
+        F: Fn(CreatureId) -> bool,
+        G: Fn(ItemId) -> bool,
+    {
+        top_visible_look_target_from_body(self.body(), can_see_creature, item_is_opaque)
+    }
+}
+
+/// Shared look stack walk for [`Tile::top_visible_look_target`] and tests.
+pub fn top_visible_look_target_from_body<F, G>(
+    body: &TileBody,
+    can_see_creature: F,
+    item_is_opaque: G,
+) -> Option<LookTarget>
+where
+    F: Fn(CreatureId) -> bool,
+    G: Fn(ItemId) -> bool,
+{
+    for &creature_id in &body.creatures {
+        if can_see_creature(creature_id) {
+            return Some(LookTarget::Creature(creature_id));
+        }
+    }
+    for &item_id in &body.down_items {
+        if item_is_opaque(item_id) {
+            return Some(LookTarget::Item(item_id));
+        }
+    }
+    for &item_id in body.top_items.iter().rev() {
+        if item_is_opaque(item_id) {
+            return Some(LookTarget::Item(item_id));
+        }
+    }
+    body.ground.map(LookTarget::Ground)
 }
 
 /// TFS `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
@@ -236,4 +274,59 @@ pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
         n += 1;
     }
     -1
+}
+
+#[cfg(test)]
+mod look_tests {
+    use super::*;
+    use slotmap::SlotMap;
+
+    fn tile_body(ground: Option<u16>, down: Vec<ItemId>, top: Vec<ItemId>, creatures: Vec<CreatureId>) -> TileBody {
+        TileBody {
+            position: Position::new(100, 100, 7),
+            ground,
+            down_items: down,
+            top_items: top,
+            creatures,
+            flags: 0,
+            zone: ZoneType::Normal,
+        }
+    }
+
+    #[test]
+    fn get_top_visible_ground_only() {
+        let body = tile_body(Some(106), vec![], vec![], vec![]);
+        let got = top_visible_look_target_from_body(&body, |_| true, |_| true);
+        assert_eq!(got, Some(LookTarget::Ground(106)));
+    }
+
+    #[test]
+    fn get_top_visible_immovable_down_item_over_ground() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let tree = items.insert(());
+        let body = tile_body(Some(106), vec![tree], vec![], vec![]);
+        let got = top_visible_look_target_from_body(&body, |_| true, |_| true);
+        assert_eq!(got, Some(LookTarget::Item(tree)));
+    }
+
+    #[test]
+    fn get_top_visible_skips_look_through_to_ground() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let transparent = items.insert(());
+        let opaque = |id: ItemId| id != transparent;
+        let body = tile_body(Some(1), vec![transparent], vec![], vec![]);
+        let got = top_visible_look_target_from_body(&body, |_| true, opaque);
+        assert_eq!(got, Some(LookTarget::Ground(1)));
+    }
+
+    #[test]
+    fn get_top_visible_creature_wins_over_items() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let tree = items.insert(());
+        let mut creatures: SlotMap<CreatureId, _> = SlotMap::with_key();
+        let monster = creatures.insert(());
+        let body = tile_body(Some(106), vec![tree], vec![], vec![monster]);
+        let got = top_visible_look_target_from_body(&body, |_| true, |_| true);
+        assert_eq!(got, Some(LookTarget::Creature(monster)));
+    }
 }
