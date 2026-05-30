@@ -5,6 +5,7 @@ pub mod combat;
 pub mod condition;
 pub mod config;
 pub mod creature;
+mod creature_think;
 mod death;
 mod decay;
 pub mod event_dispatcher;

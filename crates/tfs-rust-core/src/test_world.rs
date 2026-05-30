@@ -18,10 +18,10 @@ pub mod support {
 
     use crate::config::ConfigManager;
     use crate::creature::{
-        CreatureBase, CreatureKind, Monster, Outfit, Player, PlayerEconomy, PlayerInventory,
+        CreatureBase, CreatureKind, Monster, Npc, Outfit, Player, PlayerEconomy, PlayerInventory,
         PlayerPersistBaseline, PlayerSkills, PlayerSocial,
     };
-    use crate::event_dispatcher::NullEventDispatcher;
+    use crate::event_dispatcher::{EventDispatcher, NullEventDispatcher};
     use crate::game_world::GameWorld;
     use crate::ids::CreatureId;
     use crate::map::Map;
@@ -73,6 +73,8 @@ freePremium = false
                 walk_timer: Default::default(),
                 cancel_next_walk: false,
                 force_update_follow_path: false,
+                walk_update_ticks: 0,
+                is_updating_path: false,
                 movement_blocked: false,
                 stairhop_blocked_until: None,
                 follow_target: None,
@@ -310,6 +312,8 @@ freePremium = false
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
             movement_blocked: false,
             stairhop_blocked_until: None,
             follow_target: None,
@@ -325,6 +329,80 @@ freePremium = false
             t.add_creature(cid);
         }
         cid
+    }
+
+    pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
+        let base = CreatureBase {
+            name: name.into(),
+            position: pos,
+            direction: Direction::North,
+            health: 100,
+            max_health: 100,
+            outfit: Outfit::default(),
+            speed,
+            base_speed: speed,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_walk_check: None,
+            walk_timer: Default::default(),
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+        };
+        let cid = world.creatures.insert(CreatureKind::Npc(Npc {
+            base,
+            npc_type_id: 0,
+        }));
+        world.map.register_creature_index(pos, cid);
+        if let Some(t) = world.map.get_tile_mut(pos) {
+            t.add_creature(cid);
+        }
+        cid
+    }
+
+    /// Test helper — counts `EventDispatcher::on_think` calls per creature.
+    #[derive(Debug, Default)]
+    pub struct CountingEventDispatcher {
+        think_calls: std::sync::Mutex<HashMap<CreatureId, u32>>,
+        intervals: std::sync::Mutex<Vec<u32>>,
+    }
+
+    impl CountingEventDispatcher {
+        pub fn total_think_calls(&self) -> u32 {
+            self.think_calls
+                .lock()
+                .expect("lock")
+                .values()
+                .sum()
+        }
+
+        pub fn intervals(&self) -> Vec<u32> {
+            self.intervals.lock().expect("lock").clone()
+        }
+    }
+
+    impl EventDispatcher for CountingEventDispatcher {
+        fn on_think(&self, creature: CreatureId, interval_ms: u32) {
+            *self
+                .think_calls
+                .lock()
+                .expect("lock")
+                .entry(creature)
+                .or_insert(0) += 1;
+            self.intervals.lock().expect("lock").push(interval_ms);
+        }
     }
 
     /// Logged-in spectator with a connection mapping (for outgoing packet assertions).

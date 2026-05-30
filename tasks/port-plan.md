@@ -144,7 +144,8 @@ Strategy: Fix protocol correctness first (the world must *render* correctly), th
 **Estimated effort:** 3–4 days
 
 - [x] **D.1** Extend walk system to `CreatureKind::Monster` and `CreatureKind::Npc` (Phase 3 items 8–10 from `walk-fix-todo.md`).
-- [ ] **D.2** Port `Creature::onCreatureMove` — `localMapCache` shifting for pathfinding.
+- [x] **D.2** Creature think cadence + dispatch — see [PHASE_D_IMPLEMENTATION.md](../docs/PHASE_D_IMPLEMENTATION.md).
+- [ ] **D.2b** Port `Creature::onCreatureMove` — `localMapCache` shifting for pathfinding.
 - [ ] **D.3** Port follow-creature walk update on target move (`creature.cpp` ~619–656).
 - [ ] **D.4** Spawn system — instantiate monsters from `SpawnManager` definitions, respawn timers.
 - [ ] **D.5** Monster AI `onThink` — target selection (nearest hostile in range), chase pathfinding, flee at low HP, return to spawn.

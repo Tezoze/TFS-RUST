@@ -96,6 +96,8 @@ pub struct GameWorld {
     items_pending_release: Vec<ItemId>,
     /// Open bags / loaded `player_items` containers — `container.h` / `player.cpp`.
     pub container_registry: ContainerRegistry,
+    /// Wall-clock of last creature-think sweep (TFS `Game::checkCreatures` cadence).
+    pub(crate) last_creature_check: Option<Instant>,
 }
 
 /// C++ `ProtocolGame::canSee(int32_t x, int32_t y, int32_t z)` — `protocolgame.cpp` ~796–823.
@@ -203,6 +205,7 @@ impl GameWorld {
             creatures_pending_release: Vec::new(),
             items_pending_release: Vec::new(),
             container_registry: ContainerRegistry::new(),
+            last_creature_check: None,
         }
     }
 
@@ -417,15 +420,10 @@ impl GameWorld {
 
         self.tick_counter = self.tick_counter.wrapping_add(1);
 
-        let tick = self.tick_counter;
-        for (cid, k) in self.creatures.iter_mut() {
-            if let CreatureKind::Monster(m) = k {
-                m.think_tick(tick, cid);
-            }
-        }
+        self.check_creatures(now);
 
         let _ = self.decay.tick(self.tick_counter);
-        self.spawns.tick(std::time::Instant::now());
+        self.spawns.tick(now);
         if self.tick_counter.is_multiple_of(5) {
             self.events.lua_gc_step();
         }

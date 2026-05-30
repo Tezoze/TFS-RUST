@@ -1,6 +1,6 @@
 # Phase D — Monster & NPC Walking + AI Foundation (Implementation Guide)
 
-**Status:** 🟡 In progress — **D.1 complete** (walk engine generalized); D.2–D.7 pending.
+**Status:** 🟡 In progress — **D.1–D.2 complete** (walk engine generalized; think cadence + dispatch); D.3–D.7 pending.
 **Goal:** Bring the world alive. Monsters and NPCs are instantiated from spawn
 definitions, walk on the map, chase/flee/return-to-spawn (monsters), idle-walk and
 face speakers (NPCs), and respawn on timers — all with 1:1 TFS 1.4.2 parity.
@@ -70,7 +70,7 @@ Each pillar is a vertical slice that compiles and is testable on its own.
 
 1. Walk engine generalized to monsters/NPCs (currently every `on_walk`/
    `add_event_walk`/`check_creature_walk` branch matches only `CreatureKind::Player`).
-2. `Creature::onThink` bucketing — a `checkCreatures` cadence (every ~`EVENT_CREATURE_THINK_INTERVAL` = 1000 ms) distinct from the walk scheduler.
+2. `Creature::onThink` bucketing — a `checkCreatures` cadence (every ~`EVENT_CREATURE_THINK_INTERVAL` = 1000 ms) distinct from the walk scheduler. **Done (D.2):** `creature_think.rs` flat 1 Hz sweep for monsters/NPCs.
 3. Spawn instantiation + respawn timers in `SpawnManager`.
 4. A creature **place/appear broadcast** path (no `sendAddCreature`-equivalent for
    non-players exists yet — players appear via initial login packets only).
@@ -111,7 +111,7 @@ on_tick (50ms)
 > Order is chosen so each step compiles and is independently testable. D.1 first
 > because everything else depends on creatures being able to take a step.
 
-### D.1 — Generalize the walk engine to all creature kinds
+### D.1 — Generalize the walk engine to all creature kinds - Complete
 
 **C++ ref:** `creature.cpp` `Creature::getNextStep`/`onWalk`/`addEventWalk` are on the
 **base** `Creature`; only `Player::getNextStep` / `Monster::getNextStep` override the
@@ -457,6 +457,7 @@ useful for debugging/telemetry, but drive it from real logic.
 
 | New / changed file | Contents |
 |--------------------|----------|
+| `crates/tfs-rust-core/src/creature_think.rs` | **Done (D.2)** — `check_creatures`, `creature_on_think`, monster/NPC dispatch stubs. |
 | `crates/tfs-rust-core/src/walk.rs` | Generalize helpers to `CreatureBase`; add `internal_move_creature_step`, monster/NPC `tile_query_add_*`. |
 | `crates/tfs-rust-core/src/creature/monster.rs` | Real AI fields + `Monster` helpers (pure, no world borrow). |
 | `crates/tfs-rust-core/src/creature/npc.rs` | NPC idle/focus fields + helpers. |

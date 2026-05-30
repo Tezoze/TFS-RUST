@@ -390,6 +390,8 @@ mod tests {
                 walk_timer: Default::default(),
                 cancel_next_walk: false,
                 force_update_follow_path: false,
+                walk_update_ticks: 0,
+                is_updating_path: false,
                 movement_blocked: false,
                 stairhop_blocked_until: None,
                 follow_target: None,

@@ -7,7 +7,8 @@
 ---
 
 - [x] **D.1** Extend walk system to `CreatureKind::Monster` and `CreatureKind::Npc` (Phase 3 items 8–10 from `walk-fix-todo.md`).
-- [ ] **D.2** Port `Creature::onCreatureMove` — `localMapCache` shifting for pathfinding.
+- [x] **D.2** Creature think cadence + dispatch — `Game::checkCreatures` → `Creature::onThink` at 1 Hz for monsters/NPCs (`creature_think.rs`). See [PHASE_D_IMPLEMENTATION.md](../docs/PHASE_D_IMPLEMENTATION.md) for canonical numbering.
+- [ ] **D.2b** Port `Creature::onCreatureMove` — `localMapCache` shifting for pathfinding *(legacy checklist item; not in implementation guide)*.
 - [ ] **D.3** Port follow-creature walk update on target move (`creature.cpp` ~619–656).
 - [ ] **D.4** Spawn system — instantiate monsters from `SpawnManager` definitions, respawn timers.
 - [ ] **D.5** Monster AI `onThink` — target selection (nearest hostile in range), chase pathfinding, flee at low HP, return to spawn.

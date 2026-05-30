@@ -97,6 +97,10 @@ pub struct CreatureBase {
     /// TFS `Creature::forceUpdateFollowPath` — set when `internalMoveCreature` fails (`src/creature.cpp` ~213);
     /// cleared when follow path refreshes (`creature.cpp` ~153–155, ~1077).
     pub force_update_follow_path: bool,
+    /// TFS `Creature::walkUpdateTicks` — ms accumulated toward follow path refresh (`creature.cpp` ~150).
+    pub walk_update_ticks: u32,
+    /// TFS `Creature::isUpdatingPath` — set when follow path should recompute (`creature.cpp` ~156–161).
+    pub is_updating_path: bool,
     /// TFS `Creature::movementBlocked` — Lua `setMovementBlocked` (`creature.h`).
     pub movement_blocked: bool,
     /// TFS `Player::onCreatureMove` stairhop delay — `CONDITION_PACIFIED` for `STAIRHOP_DELAY` ms
@@ -117,5 +121,19 @@ impl CreatureBase {
     pub fn clear_targets(&mut self) {
         self.follow_target = None;
         self.attack_target = None;
+    }
+
+    /// TFS `Creature::onCreatureDisappear` — follow half (`creature.cpp` ~465–467).
+    pub fn clear_follow_for_target(&mut self, target: CreatureId) {
+        if self.follow_target == Some(target) {
+            self.follow_target = None;
+        }
+    }
+
+    /// TFS `Creature::onCreatureDisappear` — attack half (`creature.cpp` ~460–462).
+    pub fn clear_attack_for_target(&mut self, target: CreatureId) {
+        if self.attack_target == Some(target) {
+            self.attack_target = None;
+        }
     }
 }
