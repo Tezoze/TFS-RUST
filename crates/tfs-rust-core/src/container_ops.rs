@@ -2,6 +2,7 @@
 // C++ ref: `src/container.cpp` `Container::queryAdd`, `queryDestination`, `addThing`, `removeThing`, etc.
 
 use crate::container::{ContainerIterator, ContainerType};
+use crate::player_inventory_query_add::PlayerDestResolution;
 use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_ADD_WHEREVER, INDEX_MOVE_UP, INDEX_WHEREEVER};
@@ -386,9 +387,11 @@ impl GameWorld {
             .map(|t| t.stackable())
             .unwrap_or(false);
 
-        if auto_stack && stackable && source_parent_container != Some(container_item_id) {
+        // C++ sets `*destItem` from `getItemByIndex(index)` before the `getParent() != this` autostack guard.
+        if auto_stack && stackable {
             if let Some(dest_id) = dest_from_index {
-                if self.items_stack_mergeable(item_id, dest_id)
+                if dest_id != item_id
+                    && self.items_stack_mergeable(item_id, dest_id)
                     && self.items.get(dest_id).is_some_and(|d| d.count < 100)
                 {
                     return Ok(ContainerDestResolution::StayHere {
@@ -397,7 +400,9 @@ impl GameWorld {
                     });
                 }
             }
+        }
 
+        if auto_stack && stackable && source_parent_container != Some(container_item_id) {
             let mut n: i32 = 0;
             for &list_item in &cont.items {
                 if list_item != item_id
@@ -432,21 +437,30 @@ impl GameWorld {
         loop {
             match to {
                 Cylinder::Inventory { player_id, slot } => {
-                    if let Some(next) =
-                        self.player_inventory_query_destination(player_id, slot, item_id)?
-                    {
-                        if let Cylinder::Container { item_id: cid, .. } = next {
-                            self.hydrate_container_if_needed(cid);
+                    match self.player_query_destination(player_id, slot, item_id, flags)? {
+                        PlayerDestResolution::Redirect(next) => {
+                            if let Cylinder::Container { item_id: cid, .. } = next {
+                                self.hydrate_container_if_needed(cid);
+                            }
+                            to = next;
+                            floor_n += 1;
+                            if floor_n >= 16 {
+                                break;
+                            }
+                            continue;
                         }
-                        to = next;
-                        floor_n += 1;
-                        if floor_n >= 16 {
+                        PlayerDestResolution::StayHere {
+                            slot: resolved_slot,
+                            dest_stack_item,
+                        } => {
+                            to_merge_item = dest_stack_item;
+                            to = Cylinder::Inventory {
+                                player_id,
+                                slot: resolved_slot,
+                            };
                             break;
                         }
-                        continue;
                     }
-                    to = Cylinder::Inventory { player_id, slot };
-                    break;
                 }
                 Cylinder::Container {
                     item_id: cid,
@@ -488,29 +502,6 @@ impl GameWorld {
             }
         }
         Ok((to, to_merge_item))
-    }
-
-    /// `Player::queryDestination` for a concrete equipment slot — `player.cpp` ~2828–2840.
-    fn player_inventory_query_destination(
-        &self,
-        cid: CreatureId,
-        slot: u8,
-        moving_item_id: ItemId,
-    ) -> Result<Option<Cylinder>, ReturnValue> {
-        let Some(dest_id) = self.get_player_inventory_item(cid, slot) else {
-            return Ok(None);
-        };
-        if dest_id == moving_item_id {
-            return Ok(None);
-        }
-        let dest_type = self.items.get(dest_id).map(|i| i.item_type).unwrap_or(0);
-        if self.items_db.is_container(dest_type) {
-            return Ok(Some(Cylinder::Container {
-                item_id: dest_id,
-                index: INDEX_WHEREEVER,
-            }));
-        }
-        Ok(None)
     }
 
     pub(crate) fn get_thing_index_in_container(

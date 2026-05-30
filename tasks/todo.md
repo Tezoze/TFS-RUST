@@ -17,6 +17,12 @@
 ## Phase C (inventory / Lua) — done
 - Runtime equipment slots, capacity, `internal_move_item` container↔inventory, quick-equip, equip/deequip `EventDispatcher` hooks, Lua `ItemRef` + `Player` inventory methods (`register_game_lua_item_hooks` + script cookie in `login.rs`).
 
+## P1 — Player inventory cylinder queries — done
+- [x] `player_query_remove`, `player_query_max_count`, `player_query_destination` (`player_inventory_query_add.rs`)
+- [x] Wire `resolve_move_destination` + `internal_move_item` query chain (`container_ops.rs`, `game_world.rs`)
+- [x] Unit tests: `player_max_count_index`, slot range constants
+- [x] Update `docs/INVENTORY_STATUS.md`
+
 ## Throw destination validation parity (B.5)
 - [ ] Confirm C++ reference behavior for `Game::playerMoveItem` throw gating.
 - [ ] Add Rust throw-destination validation before `internal_move_item`.

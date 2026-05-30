@@ -10,7 +10,7 @@
 
 **Playable Phase C is in place:** players can log in with equipment and nested containers, see real `0x78` inventory packets, move/equip/unequip via `internal_move_item`, use quick-equip, look at items, and **save the live worn-item tree** on logout.
 
-**Not yet at full C++ parity:** `Player::queryAdd` (hand/two-hand/classic rules), inventory `queryDestination` / `queryMaxCount`, post-equip side effects (light, abilities, full notification chain), depot/inbox as **runtime** cylinders, and the rest of the **gradual Lua inventory API** (see [P5 — Lua API](#p5--lua-api-gradual-build--track-2)).
+**Not yet at full C++ parity:** post-equip side effects (light, abilities, full notification chain), depot/inbox as **runtime** cylinders, trade-item guards in moves, and the rest of the **gradual Lua inventory API** (see [P5 — Lua API](#p5--lua-api-gradual-build--track-2)).
 
 **Design rule:** Use idiomatic Rust (SlotMap, `Cylinder` enum, pure query functions) while preserving **observable** TFS 1.4.2 behavior — not a line-by-line C++ port.
 
@@ -47,7 +47,10 @@
 | Auto-open on login | `player.cpp` `autoOpenContainers` | `auto_open_containers_on_login` | ✅ |
 | Equip move events | `postAddNotification` → move events | `on_player_equip` / `on_player_deequip` | ✅ partial |
 | Save worn + nested items | `iologindata.cpp` `saveItems` | `game_world_save.rs` `append_save_item_tree` | ✅ inventory + store inbox from runtime |
-| Slot mask check | `queryAdd` per-slot `SLOTP_*` | `item_fits_equipment_slot` | ✅ subset only |
+| Slot mask check | `queryAdd` per-slot `SLOTP_*` | `item_fits_equipment_slot` | ✅ (superseded by `player_query_add` in move path) |
+| `Player::queryAdd` full | `player.cpp` 2397–2617 | `player_inventory_query_add.rs` `player_query_add` | ✅ classic/non-classic, hand/two-hand, capacity, store-item, equip probe, `NeedExchange` |
+| `Player::hasCapacity` | `player.cpp` ~2380–2395 | `player_has_capacity` | ✅ |
+| `classicEquipmentSlots` config | `ConfigManager::CLASSIC_EQUIPMENT_SLOTS` | `classic_equipment_slots_from_config` | ✅ |
 
 **Manual smoke:** connect → login → equip/deequip/move in backpack → disconnect → verify `player_items` rows updated.
 
@@ -55,37 +58,39 @@
 
 ## Gaps vs C++ (prioritized)
 
-### P0 — `Player::queryAdd` (largest behavior gap)
+### P0 — `Player::queryAdd` ✅ DONE
 
 **C++:** `player.cpp` ~2397–2617 (~220 lines).
 
-**Rust today:** `item_fits_equipment_slot()` — slot-position bitmask only; used from `internal_move_item`, not a full query.
+**Rust:** `player_inventory_query_add.rs` — `player_query_add` wired into `internal_move_item` for all `Cylinder::Inventory` destinations (`game_world.rs` ~779). `item_fits_equipment_slot` retained in `inventory.rs` for legacy call-sites but is no longer used in the move path.
 
-**Missing:**
+**Implemented:**
 
-- `CLASSIC_EQUIPMENT_SLOTS` (`ConfigManager::CLASSIC_EQUIPMENT_SLOTS`)
+- `CLASSIC_EQUIPMENT_SLOTS` via `classic_equipment_slots_from_config` + `config.lua`
 - Right/left hand: shield-only (non-classic), two-hand vs occupied hand
-- `BOTHHANDSNEEDTOBEFREE`, `DROPTWOHANDEDITEM`, `CANONLYUSEONEWEAPON`, `CANONLYUSEONESHIELD`
+- `BothHandsNeedToBeFree`, `DropTwoHandedItem`, `CanOnlyUseOneWeapon`, `CanOnlyUseOneShield`
 - Ammo slot + classic exception
 - `isPickupable` / `isStoreItem` on direct slot add
 - `FLAG_CHILDISOWNER` → capacity-only path for child-container queries
-- `g_moveEvents->onPlayerEquip(..., true)` probe before move
-- `NEEDEXCHANGE` vs stackable same-id (C++ end of `queryAdd`)
-- Distinct `ReturnValue` messages (enums exist in `return_value.rs`; inventory path rarely uses them)
-
-**Suggested Rust shape:** `player_inventory_query_add.rs` — `fn player_query_add(world, cid, index, item_id, count, flags) -> ReturnValue` with `match` on slot; wire from `internal_move_item` inventory destinations.
+- `on_player_equip_check` probe before move (via `EventDispatcher` / `LuaEventDispatcher`)
+- `NeedExchange` vs stackable same-id
+- Unit tests inline in `player_inventory_query_add.rs` (classic/non-classic matrix, dual-weapon, dual-shield, two-hand)
 
 ---
 
-### P1 — Other Player cylinder queries
+### P1 — Other Player cylinder queries ✅ DONE
 
 | C++ | Rust |
 |-----|------|
-| `Player::queryRemove` (~2695) | Not on inventory cylinder |
-| `Player::queryMaxCount` (~2619) | Not for inventory (containers: yes in `container_ops.rs`) |
-| `Player::queryDestination` (~2718) | No BFS auto-stack into bags on equip |
+| `Player::queryRemove` (~2695) | `player_query_remove` in `player_inventory_query_add.rs` |
+| `Player::queryMaxCount` (~2619) | `player_query_max_count` (slots 1–10 + nested `ContainerIterator`) |
+| `Player::queryDestination` (~2718) | `player_query_destination` (wherever BFS + concrete-slot redirect) |
 
-**C++ move pipeline:** `game.cpp` `internalMoveItem` always uses `queryDestination` loop then `queryAdd` on destination cylinder.
+**Wired:** `resolve_move_destination` (`container_ops.rs`), `internal_move_item` (`game_world.rs`) — `queryMaxCount` / `queryRemove` on inventory, `NeedExchange` pre-swap (`try_resolve_inventory_need_exchange`), partial stack inv→container.
+
+**Deferred (same as C++ scope gaps):** `tradeItem` skip in destination BFS (stub until trade port); store inbox (slot 11) excluded from wherever scans (`CONST_SLOT_LAST`).
+
+**C++ move pipeline:** `game.cpp` `internalMoveItem` — `queryDestination` loop → `queryAdd` → `NeedExchange` → `queryMaxCount` → `queryRemove`.
 
 ---
 
@@ -232,8 +237,8 @@ MoveEvent equip scripts → LuaEventDispatcher + movements loader (parallel to u
 ```mermaid
 flowchart TD
     done[Done: slots, moves, 0x78, load, save inv]
-    p0[Port Player::queryAdd + wire internal_move_item]
-    p1[queryRemove / queryMaxCount / queryDestination for inventory]
+    p0[✅ Player::queryAdd + wire internal_move_item]
+    p1[✅ queryRemove / queryMaxCount / queryDestination]
     p2[postAdd/postRemove chain: light, abilities, inventory update event]
     p3[getItemTypeCount, removeItemOfType, getWeapon from inventory]
     p4[Depot/inbox hydrate + UI + live save]
@@ -246,17 +251,17 @@ flowchart TD
     p4 --> p5
 ```
 
-| Step | Work | Primary files | C++ ref |
-|------|------|---------------|---------|
-| **1** | Port `Player::queryAdd` + config `classicEquipmentSlots` | New `player_inventory_query_add.rs`, `game_world.rs`, `config.rs` | `player.cpp` 2397–2617 |
-| **2** | Replace `item_fits_equipment_slot`-only checks in inv moves | `game_world.rs` | `game.cpp` 1117+ |
-| **3** | `Player::queryDestination` (auto-stack to backpack) | `player_inventory_query_add.rs` or `game_world_inventory.rs` | `player.cpp` 2718–2841 |
-| **4** | `queryMaxCount` / `queryRemove` for inventory cylinder | Same module | `player.cpp` 2619–2716 |
-| **5** | `postAddNotification` parity (light, abilities, inventory update) | `game_world_inventory.rs`, `creature/player.rs` | `player.cpp` 3076–3191 |
-| **6** | `getItemTypeCount`, `removeItemOfType` | `game_world_inventory.rs` | `player.cpp` 2974–3047 |
-| **7** | Depot/inbox runtime + save from live state | `player_inventory_load.rs`, `game_world_save.rs`, `login.rs` | `iologindata.cpp` 449–491, save depot block |
-| **8** | Lua bindings | `tfs-rust-lua` | `luascript.cpp` player/item/container |
-| **9** | Tests: hand/two-hand/classic `ReturnValue` matrix | `tests/player_query_add.rs` | `player.cpp` cases |
+| Step | Work | Primary files | C++ ref | Status |
+|------|------|---------------|---------|--------|
+| **1** | Port `Player::queryAdd` + config `classicEquipmentSlots` | `player_inventory_query_add.rs`, `game_world.rs` | `player.cpp` 2397–2617 | ✅ |
+| **2** | Replace `item_fits_equipment_slot`-only checks in inv moves | `game_world.rs` | `game.cpp` 1117+ | ✅ |
+| **9** | Tests: hand/two-hand/classic `ReturnValue` matrix | Inline in `player_inventory_query_add.rs` | `player.cpp` cases | ✅ (inline) |
+| **3** | `Player::queryDestination` (auto-stack to backpack) | `player_inventory_query_add.rs`, `container_ops.rs` | `player.cpp` 2718–2841 | ✅ |
+| **4** | `queryMaxCount` / `queryRemove` for inventory cylinder | `player_inventory_query_add.rs`, `game_world.rs` | `player.cpp` 2619–2716 | ✅ |
+| **5** | `postAddNotification` parity (light, abilities, inventory update) | `game_world_inventory.rs`, `creature/player.rs` | `player.cpp` 3076–3191 | ❌ |
+| **6** | `getItemTypeCount`, `removeItemOfType` | `game_world_inventory.rs` | `player.cpp` 2974–3047 | ❌ |
+| **7** | Depot/inbox runtime + save from live state | `player_inventory_load.rs`, `game_world_save.rs`, `login.rs` | `iologindata.cpp` 449–491, save depot block | ❌ |
+| **8** | Lua bindings | `tfs-rust-lua` | `luascript.cpp` player/item/container | ❌ |
 
 **Doc hygiene (optional, same PR or follow-up):**
 
@@ -273,7 +278,7 @@ cargo test -p tfs-rust-core --test inventory_container_gaps
 SQLX_OFFLINE=true cargo check --workspace
 ```
 
-**Manual parity checks (after step 1):**
+**Manual parity checks (steps 1–2 done; re-verify with a live client):**
 
 - Two-handed weapon with item in opposite hand → `BothHandsNeedToBeFree`
 - Non-classic: non-shield in right slot → `CannotBeDressed`
@@ -300,6 +305,6 @@ SQLX_OFFLINE=true cargo check --workspace
 
 ## Bottom line
 
-**Where we are:** Inventory is **playable** for a live client session (wear, move, quick-equip, look, save worn gear). Container **UI** and **container query*** are largely in place.
+**Where we are:** Inventory is **playable** for a live client session (wear, move, quick-equip, look, save worn gear). Container **UI** and **container query*** are in place. **P0** (`queryAdd`) and **P1** (`queryDestination` / `queryMaxCount` / `queryRemove`) are **complete** — wired through `resolve_move_destination` and `internal_move_item`.
 
-**What’s next:** Port **`Player::queryAdd`** (and wire it) so equip rules match C++ — then destination/max-count queries, notification side effects, depot runtime, and Lua. Implement as **idiomatic Rust functions** on `GameWorld` / pure helpers, not C++ class clones.
+**What’s next:** `postAddNotification` side effects (P2), `getItemTypeCount` / `removeItemOfType` (P3), depot runtime (P4), and Lua (P5).

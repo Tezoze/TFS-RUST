@@ -1,10 +1,10 @@
-//! TFS `Player::queryAdd` for equipment slots — `player.cpp` ~2397–2617.
-// C++ reference: `src/player.cpp` `Player::queryAdd`, `Player::hasCapacity` (~2380–2395).
+//! TFS `Player` inventory cylinder queries — `player.cpp` ~2397–2841.
+// C++ reference: `Player::queryAdd`, `queryMaxCount`, `queryRemove`, `queryDestination`, `hasCapacity`.
 
 use crate::config::ConfigManager;
+use crate::container::ContainerIterator;
 use crate::creature::CreatureKind;
-use crate::cylinder::CylinderFlags;
-use crate::event_dispatcher::EventDispatcher;
+use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{
@@ -16,6 +16,19 @@ use tfs_rust_content::otb::ItemType;
 
 /// C++ `WEAPON_AMMO` — `src/const.h`
 const WEAPON_AMMO: u8 = 7;
+
+/// `CONST_SLOT_FIRST`..=`CONST_SLOT_LAST` — `creature.h` (excludes store inbox 11).
+const PLAYER_INVENTORY_SLOT_FIRST: u8 = 1;
+const PLAYER_INVENTORY_SLOT_LAST: u8 = 10;
+
+/// Result of `Player::queryDestination` — `player.cpp` ~2718–2841.
+pub(crate) enum PlayerDestResolution {
+    StayHere {
+        slot: u8,
+        dest_stack_item: Option<ItemId>,
+    },
+    Redirect(Cylinder),
+}
 
 /// Occupied equipment slot metadata for hand-conflict checks.
 #[derive(Debug, Clone, Copy)]
@@ -364,6 +377,499 @@ impl GameWorld {
             count: dest_item.count,
         })
     }
+
+    /// C++ `Player::getThingIndex` — `player.cpp` ~2954–2961 (equipment slots 1–10 only).
+    pub(crate) fn inventory_thing_index(&self, player_id: CreatureId, item_id: ItemId) -> Option<u8> {
+        for slot in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
+            if self.get_player_inventory_item(player_id, slot) == Some(item_id) {
+                return Some(slot);
+            }
+        }
+        None
+    }
+
+    /// Trade item excluded from auto-destination — `player.cpp` ~2737. Stub until trade is ported.
+    fn player_trade_item(&self, _player_id: CreatureId) -> Option<ItemId> {
+        None
+    }
+
+    fn player_skip_destination_item(
+        &self,
+        candidate: ItemId,
+        moving_item_id: ItemId,
+        trade_item: Option<ItemId>,
+    ) -> bool {
+        candidate == moving_item_id || trade_item == Some(candidate)
+    }
+
+    /// Map inventory `Cylinder::Inventory` slot to `queryMaxCount` index (`0` → `INDEX_WHEREEVER`).
+    pub(crate) fn player_max_count_index(slot: u8) -> i32 {
+        if slot == InventorySlot::Wherever as u8 {
+            INDEX_WHEREEVER
+        } else {
+            i32::from(slot)
+        }
+    }
+
+    /// TFS `Player::queryRemove` — `player.cpp` ~2695–2716.
+    pub(crate) fn player_query_remove(
+        &self,
+        player_id: CreatureId,
+        item_id: ItemId,
+        count: u32,
+        flags: CylinderFlags,
+    ) -> ReturnValue {
+        if self.inventory_thing_index(player_id, item_id).is_none() {
+            return ReturnValue::NotPossible;
+        }
+        let Some(item) = self.items.get(item_id) else {
+            return ReturnValue::NotPossible;
+        };
+        let stackable = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        if count == 0 || (stackable && count > item.count as u32) {
+            return ReturnValue::NotPossible;
+        }
+        let moveable = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.moveable())
+            .unwrap_or(false);
+        if !moveable && !flags.contains(CylinderFlags::IGNORE_NOT_MOVEABLE) {
+            return ReturnValue::NotMoveable;
+        }
+        ReturnValue::NoError
+    }
+
+    /// TFS `Player::queryMaxCount` — `player.cpp` ~2619–2693.
+    pub(crate) fn player_query_max_count(
+        &self,
+        player_id: CreatureId,
+        index: i32,
+        item_id: ItemId,
+        count: u32,
+        flags: CylinderFlags,
+    ) -> Result<u32, ReturnValue> {
+        let Some(item) = self.items.get(item_id) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let item_count = item.count as u32;
+        let stackable = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+
+        let max_query_count = if index == INDEX_WHEREEVER {
+            let mut n = 0u32;
+            for slot_index in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
+                if let Some(inventory_item) = self.get_player_inventory_item(player_id, slot_index) {
+                    let inv_type = self.items.get(inventory_item).map(|i| i.item_type).unwrap_or(0);
+                    if self.items_db.is_container(inv_type) {
+                        if let Ok(q) = self.container_query_max_count(
+                            inventory_item,
+                            INDEX_WHEREEVER,
+                            item_id,
+                            item_count,
+                            flags,
+                        ) {
+                            n = n.saturating_add(q);
+                        }
+                        for nested in
+                            ContainerIterator::new(&self.container_registry, inventory_item)
+                        {
+                            let nested_type =
+                                self.items.get(nested).map(|i| i.item_type).unwrap_or(0);
+                            if self.items_db.is_container(nested_type) {
+                                if let Ok(q) = self.container_query_max_count(
+                                    nested,
+                                    INDEX_WHEREEVER,
+                                    item_id,
+                                    item_count,
+                                    flags,
+                                ) {
+                                    n = n.saturating_add(q);
+                                }
+                            }
+                        }
+                    } else if stackable
+                        && self.items_stack_mergeable(item_id, inventory_item)
+                        && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
+                    {
+                        let remainder = 100u32.saturating_sub(
+                            self.items.get(inventory_item).map(|i| i.count).unwrap_or(0) as u32,
+                        );
+                        if self.player_query_add(
+                            player_id,
+                            slot_index,
+                            item_id,
+                            remainder,
+                            flags,
+                        ) == ReturnValue::NoError
+                        {
+                            n = n.saturating_add(remainder);
+                        }
+                    }
+                } else if self.player_query_add(
+                    player_id,
+                    slot_index,
+                    item_id,
+                    item_count,
+                    flags,
+                ) == ReturnValue::NoError
+                {
+                    if stackable {
+                        n = n.saturating_add(100);
+                    } else {
+                        n = n.saturating_add(1);
+                    }
+                }
+            }
+            n
+        } else {
+            let slot = index as u8;
+            let mut max = 0u32;
+            if let Some(dest_id) = self.get_player_inventory_item(player_id, slot) {
+                if stackable
+                    && self.items_stack_mergeable(item_id, dest_id)
+                    && self.items.get(dest_id).is_some_and(|d| d.count < 100)
+                {
+                    max = 100u32.saturating_sub(self.items.get(dest_id).map(|d| d.count).unwrap_or(0) as u32);
+                }
+            } else if self.player_query_add(player_id, slot, item_id, count, flags)
+                == ReturnValue::NoError
+            {
+                if stackable {
+                    return Ok(100);
+                }
+                return Ok(1);
+            }
+            max
+        };
+
+        if max_query_count < count {
+            Err(ReturnValue::NotEnoughRoom)
+        } else {
+            Ok(max_query_count)
+        }
+    }
+
+    /// TFS `Player::queryDestination` — `player.cpp` ~2718–2841.
+    pub(crate) fn player_query_destination(
+        &self,
+        player_id: CreatureId,
+        slot: u8,
+        item_id: ItemId,
+        flags: CylinderFlags,
+    ) -> Result<PlayerDestResolution, ReturnValue> {
+        if slot == InventorySlot::Wherever as u8 || slot == INDEX_WHEREEVER as u8 {
+            return self.player_query_destination_wherever(player_id, item_id, flags);
+        }
+
+        if let Some(dest_id) = self.get_player_inventory_item(player_id, slot) {
+            if dest_id == item_id {
+                return Ok(PlayerDestResolution::StayHere {
+                    slot,
+                    dest_stack_item: None,
+                });
+            }
+            let dest_type = self.items.get(dest_id).map(|i| i.item_type).unwrap_or(0);
+            if self.items_db.is_container(dest_type) {
+                return Ok(PlayerDestResolution::Redirect(Cylinder::Container {
+                    item_id: dest_id,
+                    index: INDEX_WHEREEVER,
+                }));
+            }
+            return Ok(PlayerDestResolution::StayHere {
+                slot,
+                dest_stack_item: Some(dest_id),
+            });
+        }
+
+        Ok(PlayerDestResolution::StayHere {
+            slot,
+            dest_stack_item: None,
+        })
+    }
+
+    fn player_query_destination_wherever(
+        &self,
+        player_id: CreatureId,
+        item_id: ItemId,
+        flags: CylinderFlags,
+    ) -> Result<PlayerDestResolution, ReturnValue> {
+        let Some(item) = self.items.get(item_id) else {
+            return Ok(PlayerDestResolution::StayHere {
+                slot: InventorySlot::Wherever as u8,
+                dest_stack_item: None,
+            });
+        };
+
+        let trade_item = self.player_trade_item(player_id);
+        let auto_stack = !flags.contains(CylinderFlags::IGNORE_AUTO_STACK);
+        let stackable = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        let item_count = item.count as u32;
+
+        let mut containers: Vec<ItemId> = Vec::new();
+
+        for slot_index in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
+            let Some(inventory_item) = self.get_player_inventory_item(player_id, slot_index) else {
+                if self.player_query_add(player_id, slot_index, item_id, item_count, flags)
+                    == ReturnValue::NoError
+                {
+                    return Ok(PlayerDestResolution::StayHere {
+                        slot: slot_index,
+                        dest_stack_item: None,
+                    });
+                }
+                continue;
+            };
+
+            if self.player_skip_destination_item(inventory_item, item_id, trade_item) {
+                continue;
+            }
+
+            let inv_type = self.items.get(inventory_item).map(|i| i.item_type).unwrap_or(0);
+            if self.items_db.is_container(inv_type) {
+                if auto_stack && stackable {
+                    if self.player_query_add(player_id, slot_index, item_id, item_count, CylinderFlags::NONE)
+                        == ReturnValue::NoError
+                        && self.items_stack_mergeable(item_id, inventory_item)
+                        && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
+                    {
+                        return Ok(PlayerDestResolution::StayHere {
+                            slot: slot_index,
+                            dest_stack_item: Some(inventory_item),
+                        });
+                    }
+                    containers.push(inventory_item);
+                } else {
+                    containers.push(inventory_item);
+                }
+            } else if auto_stack && stackable {
+                if self.player_query_add(player_id, slot_index, item_id, item_count, CylinderFlags::NONE)
+                    == ReturnValue::NoError
+                    && self.items_stack_mergeable(item_id, inventory_item)
+                    && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
+                {
+                    return Ok(PlayerDestResolution::StayHere {
+                        slot: slot_index,
+                        dest_stack_item: Some(inventory_item),
+                    });
+                }
+            }
+        }
+
+        let mut i = 0usize;
+        while i < containers.len() {
+            let tmp_container = containers[i];
+            i += 1;
+
+            let Some(cont) = self.container_registry.get(tmp_container) else {
+                continue;
+            };
+
+            if !auto_stack || !stackable {
+                let free = cont.capacity.saturating_sub(cont.size() as u32);
+                let mut n = free;
+                while n > 0 {
+                    let try_index = cont.capacity.saturating_sub(n) as i32;
+                    if self.container_query_add(
+                        tmp_container,
+                        try_index,
+                        item_id,
+                        item_count,
+                        flags,
+                        None,
+                    ) == ReturnValue::NoError
+                    {
+                        return Ok(PlayerDestResolution::Redirect(Cylinder::Container {
+                            item_id: tmp_container,
+                            index: try_index,
+                        }));
+                    }
+                    n -= 1;
+                }
+                for &list_item in &cont.items {
+                    let child_type = self.items.get(list_item).map(|it| it.item_type).unwrap_or(0);
+                    if self.items_db.is_container(child_type) {
+                        containers.push(list_item);
+                    }
+                }
+                continue;
+            }
+
+            let mut n: i32 = 0;
+            for &tmp_item in &cont.items {
+                if self.player_skip_destination_item(tmp_item, item_id, trade_item) {
+                    n += 1;
+                    continue;
+                }
+                if self.items_stack_mergeable(item_id, tmp_item)
+                    && self.items.get(tmp_item).is_some_and(|t| t.count < 100)
+                {
+                    return Ok(PlayerDestResolution::Redirect(Cylinder::Container {
+                        item_id: tmp_container,
+                        index: n,
+                    }));
+                }
+                let child_type = self.items.get(tmp_item).map(|it| it.item_type).unwrap_or(0);
+                if self.items_db.is_container(child_type) {
+                    containers.push(tmp_item);
+                }
+                n += 1;
+            }
+
+            if (n as u32) < cont.capacity
+                && self.container_query_add(tmp_container, n, item_id, item_count, flags, None)
+                    == ReturnValue::NoError
+            {
+                return Ok(PlayerDestResolution::Redirect(Cylinder::Container {
+                    item_id: tmp_container,
+                    index: n,
+                }));
+            }
+        }
+
+        Ok(PlayerDestResolution::StayHere {
+            slot: InventorySlot::Wherever as u8,
+            dest_stack_item: None,
+        })
+    }
+
+    /// C++ `internalMoveItem` NeedExchange block — `game.cpp` ~1118–1159 (inventory destination).
+    pub(crate) fn try_resolve_inventory_need_exchange(
+        &mut self,
+        acting_player: Option<CreatureId>,
+        from_cylinder: &Cylinder,
+        to_pid: CreatureId,
+        to_slot: u8,
+        moving_item_id: ItemId,
+        to_merge_item: Option<ItemId>,
+        flags: CylinderFlags,
+    ) -> Result<(), ReturnValue> {
+        let exchange_id = to_merge_item
+            .or_else(|| self.get_player_inventory_item(to_pid, to_slot))
+            .filter(|&id| id != moving_item_id);
+        let Some(exchange_id) = exchange_id else {
+            return Err(ReturnValue::NeedExchange);
+        };
+        let exchange_count = self
+            .items
+            .get(exchange_id)
+            .map(|i| i.count as u32)
+            .unwrap_or(1);
+
+        let can_add_to_source = match from_cylinder {
+            Cylinder::Inventory {
+                player_id,
+                slot,
+            } => self.player_query_add(*player_id, *slot, exchange_id, exchange_count, CylinderFlags::NONE),
+            Cylinder::Container {
+                item_id: from_cid,
+                ..
+            } => {
+                let idx = self
+                    .get_thing_index_in_container(*from_cid, moving_item_id)
+                    .unwrap_or(INDEX_WHEREEVER);
+                self.container_query_add(
+                    *from_cid,
+                    idx,
+                    exchange_id,
+                    exchange_count,
+                    CylinderFlags::NONE,
+                    acting_player,
+                )
+            }
+            Cylinder::Tile { pos } => self.query_add_item_to_tile(*pos, exchange_id, CylinderFlags::NONE),
+            _ => ReturnValue::NotPossible,
+        };
+        if can_add_to_source != ReturnValue::NoError {
+            return Err(can_add_to_source);
+        }
+
+        let max_exchange = match from_cylinder {
+            Cylinder::Inventory { player_id, slot } => self.player_query_max_count(
+                *player_id,
+                Self::player_max_count_index(*slot),
+                exchange_id,
+                exchange_count,
+                CylinderFlags::NONE,
+            ),
+            Cylinder::Container {
+                item_id: from_cid,
+                index,
+            } => self.container_query_max_count(
+                *from_cid,
+                *index,
+                exchange_id,
+                exchange_count,
+                CylinderFlags::NONE,
+            ),
+            // C++ `Tile::queryMaxCount` — `tile.cpp` ~706–709.
+            Cylinder::Tile { .. } => Ok(exchange_count),
+            _ => Err(ReturnValue::NotPossible),
+        };
+        let Ok(max_exchange) = max_exchange else {
+            return Err(max_exchange.unwrap_err());
+        };
+        if max_exchange == 0 {
+            return Err(ReturnValue::NotEnoughRoom);
+        }
+
+        if self.player_query_remove(to_pid, exchange_id, exchange_count, flags) != ReturnValue::NoError
+        {
+            return Err(ReturnValue::NotPossible);
+        }
+
+        match from_cylinder {
+            Cylinder::Inventory {
+                player_id,
+                slot,
+            } => {
+                self.internal_remove_item_from_inventory_slot(to_pid, to_slot, exchange_id)?;
+                self.broadcast_player_inventory_slot(to_pid, to_slot, None);
+                self.internal_add_item_to_inventory_slot(*player_id, *slot, exchange_id)?;
+                self.broadcast_player_inventory_slot(*player_id, *slot, Some(exchange_id));
+            }
+            Cylinder::Container {
+                item_id: from_cid,
+                index: from_idx,
+            } => {
+                self.internal_remove_item_from_inventory_slot(to_pid, to_slot, exchange_id)?;
+                self.broadcast_player_inventory_slot(to_pid, to_slot, None);
+                self.container_add_thing(*from_cid, *from_idx, exchange_id)?;
+            }
+            Cylinder::Tile { pos } => {
+                self.internal_remove_item_from_inventory_slot(to_pid, to_slot, exchange_id)?;
+                self.broadcast_player_inventory_slot(to_pid, to_slot, None);
+                self.internal_add_item_to_tile(*pos, exchange_id, flags)?;
+            }
+            _ => return Err(ReturnValue::NotPossible),
+        }
+
+        let move_count = self
+            .items
+            .get(moving_item_id)
+            .map(|i| i.count as u32)
+            .unwrap_or(1);
+        let rv = self.player_query_add(to_pid, to_slot, moving_item_id, move_count, flags);
+        if rv != ReturnValue::NoError {
+            return Err(rv);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -600,5 +1106,20 @@ mod tests {
     fn classic_equipment_slots_config_reads_key() {
         let cfg = test_config("classicEquipmentSlots = true");
         assert!(classic_equipment_slots_from_config(&cfg));
+    }
+
+    #[test]
+    fn player_max_count_index_maps_wherever() {
+        assert_eq!(
+            GameWorld::player_max_count_index(InventorySlot::Wherever as u8),
+            INDEX_WHEREEVER
+        );
+        assert_eq!(GameWorld::player_max_count_index(3), 3);
+    }
+
+    #[test]
+    fn player_inventory_slot_range_matches_creature_h() {
+        assert_eq!(PLAYER_INVENTORY_SLOT_FIRST, 1);
+        assert_eq!(PLAYER_INVENTORY_SLOT_LAST, 10);
     }
 }
