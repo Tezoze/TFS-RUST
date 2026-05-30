@@ -83,6 +83,32 @@ pub(crate) fn creature_wire_id(cid: CreatureId, kind: &CreatureKind) -> u32 {
 }
 
 /// C++ `ProtocolGame::AddCreature` — `protocolgame.cpp` ~3206 (`getCreatureLight`, viewer `isAccessPlayer`).
+/// Build `AddCreatureWire` for map description and tile appear packets.
+pub(crate) fn build_add_creature_wire(
+    world: &GameWorld,
+    cid: CreatureId,
+    viewer: CreatureId,
+) -> AddCreatureWire {
+    let viewer_access = world.player_is_access_player(viewer);
+    match world.creatures.get(cid) {
+        Some(CreatureKind::Player(p)) => {
+            let light = world.player_creature_light(cid);
+            let is_self = world
+                .creatures
+                .get(viewer)
+                .and_then(|k| match k {
+                    CreatureKind::Player(vp) => Some(vp.guid == p.guid),
+                    _ => None,
+                })
+                .unwrap_or(false);
+            player_to_add_creature_wire(p, is_self, light, viewer_access)
+        }
+        Some(CreatureKind::Monster(m)) => monster_to_add_creature_wire(cid, m),
+        Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(cid, n),
+        None => AddCreatureWire::default(),
+    }
+}
+
 fn player_to_add_creature_wire(
     p: &Player,
     is_self: bool,

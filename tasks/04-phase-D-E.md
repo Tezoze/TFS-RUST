@@ -10,7 +10,7 @@
 - [x] **D.2** Creature think cadence + dispatch — `Game::checkCreatures` → `Creature::onThink` at 1 Hz for monsters/NPCs (`creature_think.rs`). See [PHASE_D_IMPLEMENTATION.md](../docs/PHASE_D_IMPLEMENTATION.md) for canonical numbering.
 - [ ] **D.2b** Port `Creature::onCreatureMove` — `localMapCache` shifting for pathfinding *(legacy checklist item; not in implementation guide)*.
 - [ ] **D.3** Port follow-creature walk update on target move (`creature.cpp` ~619–656).
-- [ ] **D.4** Spawn system — instantiate monsters from `SpawnManager` definitions, respawn timers.
+- [x] **D.4** Spawn system — instantiate monsters from `SpawnManager` definitions, respawn timers, appear/disappear packets (`spawn.rs`, `spawn_lifecycle.rs`). See [PHASE_D_IMPLEMENTATION.md](../docs/PHASE_D_IMPLEMENTATION.md) §D.3.
 - [ ] **D.5** Monster AI `onThink` — target selection (nearest hostile in range), chase pathfinding, flee at low HP, return to spawn.
 - [ ] **D.6** NPC idle walk, focus system (face speaker), walkback to spawn.
 - [ ] **D.7** Port deferred condition add/remove during walk — haste/paralyze interaction (Phase 4 item 11 from `walk-fix-todo.md`).

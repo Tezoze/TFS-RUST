@@ -50,7 +50,7 @@ use tfs_rust_common::ConnId;
 
 /// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
 const FLAG_NOLIMIT: u32 = 1 << 0;
-const FLAG_IGNOREBLOCKITEM: u32 = 1 << 1;
+pub(crate) const FLAG_IGNOREBLOCKITEM: u32 = 1 << 1;
 const FLAG_IGNOREBLOCKCREATURE: u32 = 1 << 2;
 const FLAG_PATHFINDING: u32 = 1 << 4;
 const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
@@ -503,7 +503,7 @@ pub(crate) fn creature_can_stand_for_pathfind(
 }
 
 /// TFS `Tile::queryAdd` dispatch for creatures (`tile.cpp` ~484–628).
-fn tile_query_add_creature(
+pub(crate) fn tile_query_add_creature(
     world: &GameWorld,
     tile: &crate::tile::Tile,
     mover: CreatureId,

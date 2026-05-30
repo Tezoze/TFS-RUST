@@ -41,6 +41,34 @@ pub struct MonsterDefenses {
     pub spells: Vec<MonsterSpellNode>,
 }
 
+/// Monster `<look>` block — C++ `MonsterType` look fields (`monsters.cpp` `loadMonster`).
+#[derive(Debug, Clone)]
+pub struct MonsterOutfit {
+    pub look_type: i32,
+    pub look_head: i32,
+    pub look_body: i32,
+    pub look_legs: i32,
+    pub look_feet: i32,
+    pub look_addons: i32,
+    pub look_type_ex: i32,
+    pub look_mount: i32,
+}
+
+impl Default for MonsterOutfit {
+    fn default() -> Self {
+        Self {
+            look_type: 136,
+            look_head: 0,
+            look_body: 0,
+            look_legs: 0,
+            look_feet: 0,
+            look_addons: 0,
+            look_type_ex: 0,
+            look_mount: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MonsterType {
     pub name: String,
@@ -51,6 +79,7 @@ pub struct MonsterType {
     pub speed: u32,
     pub health_now: u32,
     pub health_max: u32,
+    pub outfit: MonsterOutfit,
     pub loot: Vec<LootBlock>,
     pub attack_spells: Vec<MonsterSpellNode>,
     pub defenses: MonsterDefenses,
@@ -80,24 +109,42 @@ impl MonsterDatabase {
                         message: e.to_string(),
                     })?;
                     if entry.path().extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                        files.push(format!("monsters/{}", entry.file_name().to_string_lossy()));
+                        let file = format!("monsters/{}", entry.file_name().to_string_lossy());
+                        let stem = entry
+                            .path()
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .replace('_', " ");
+                        files.push(MonsterIndexEntry {
+                            index_name: stem,
+                            file,
+                        });
                     }
                 }
             }
         }
 
         let mut monsters = HashMap::new();
-        for file in files {
-            let monster_path = dir.join(&file);
+        for entry in files {
+            let monster_path = dir.join(&entry.file);
             let monster = parse_monster_file(&monster_path, items)?;
-            monsters.insert(monster.name.to_lowercase(), monster);
+            // C++ `Monsters::loadMonster(file, monsterName)` — map key is index `name`, not file attr.
+            monsters.insert(entry.index_name.to_lowercase(), monster);
         }
 
         Ok(Self { monsters })
     }
 }
 
-fn parse_monster_index(path: &Path) -> Result<Vec<String>> {
+#[derive(Debug, Clone)]
+struct MonsterIndexEntry {
+    /// `monsters.xml` `<monster name="...">` — spawn lookup key in C++.
+    index_name: String,
+    file: String,
+}
+
+fn parse_monster_index(path: &Path) -> Result<Vec<MonsterIndexEntry>> {
     let xml = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
         file: path.to_string_lossy().into_owned(),
         message: e.to_string(),
@@ -105,19 +152,26 @@ fn parse_monster_index(path: &Path) -> Result<Vec<String>> {
     let mut reader = Reader::from_str(&xml);
     reader.trim_text(true);
     let mut buf = Vec::new();
-    let mut files = Vec::new();
+    let mut entries = Vec::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"monster" => {
+                let mut index_name = String::new();
+                let mut file = String::new();
                 for attr in e.attributes() {
                     let attr = attr.map_err(|err| TfsRustError::Content {
                         file: path.to_string_lossy().into_owned(),
                         message: err.to_string(),
                     })?;
-                    if attr.key.as_ref() == b"file" {
-                        files.push(String::from_utf8_lossy(attr.value.as_ref()).into_owned());
+                    if attr.key.as_ref() == b"name" {
+                        index_name = String::from_utf8_lossy(attr.value.as_ref()).into_owned();
+                    } else if attr.key.as_ref() == b"file" {
+                        file = String::from_utf8_lossy(attr.value.as_ref()).into_owned();
                     }
+                }
+                if !index_name.is_empty() && !file.is_empty() {
+                    entries.push(MonsterIndexEntry { index_name, file });
                 }
             }
             Ok(Event::Eof) => break,
@@ -132,7 +186,7 @@ fn parse_monster_index(path: &Path) -> Result<Vec<String>> {
         buf.clear();
     }
 
-    Ok(files)
+    Ok(entries)
 }
 
 fn find_monster_element<'a, 'input>(
@@ -351,6 +405,7 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
         });
     }
 
+    let mut outfit = MonsterOutfit::default();
     let mut loot = Vec::new();
     let mut attack_spells = Vec::new();
     let mut defenses = MonsterDefenses {
@@ -361,7 +416,16 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
 
     for child in monster.children().filter(|n| n.is_element()) {
         let tag = child.tag_name().name();
-        if tag.eq_ignore_ascii_case("loot") {
+        if tag.eq_ignore_ascii_case("look") {
+            outfit.look_type = child.attribute("type").and_then(|a| a.parse().ok()).unwrap_or(136);
+            outfit.look_head = child.attribute("head").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_body = child.attribute("body").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_legs = child.attribute("legs").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_feet = child.attribute("feet").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_addons = child.attribute("addons").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_type_ex = child.attribute("typeex").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_mount = child.attribute("mount").and_then(|a| a.parse().ok()).unwrap_or(0);
+        } else if tag.eq_ignore_ascii_case("loot") {
             loot = parse_loot_section(child, items, &file_str)?;
         } else if tag.eq_ignore_ascii_case("attacks") {
             for a in child.children().filter(|n| n.is_element()) {
@@ -385,8 +449,31 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
         speed,
         health_now,
         health_max,
+        outfit,
         loot,
         attack_spells,
         defenses,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn index_name_is_lookup_key_not_file_name_attr() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        if !data.join("monster/monsters.xml").is_file() {
+            return;
+        }
+        let items = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let db = MonsterDatabase::load_dir(&data.join("monster"), &items).expect("load monsters");
+        let red = db.monsters.get("red butterfly").expect("index key red butterfly");
+        assert_eq!(red.name, "Butterfly", "display name comes from file XML");
+        assert!(db.monsters.get("butterfly").is_none(), "file name attr must not be the key");
+    }
 }

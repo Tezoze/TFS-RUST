@@ -356,6 +356,20 @@ pub fn send_remove_tile_creature_by_id(creature_id: u32) -> NetworkMessage {
     m
 }
 
+/// C++ `ProtocolGame::sendAddCreature` non-self branch — opcode `0x6A` (`protocolgame.cpp` ~2730).
+pub fn send_add_tile_creature(
+    pos: Position,
+    stack_pos: u8,
+    wire: &crate::creature_encode::AddCreatureWire,
+) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0x6A);
+    m.write_position(&pos);
+    m.write_u8(stack_pos);
+    crate::creature_encode::write_add_creature(&mut m, wire);
+    m
+}
+
 pub fn send_close_container(cid: u8) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0x6F);

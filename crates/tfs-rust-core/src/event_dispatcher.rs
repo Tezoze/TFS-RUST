@@ -7,6 +7,7 @@
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_common::ScriptContext;
+use tfs_rust_common::Position;
 
 /// Script and engine events. Default bodies are no-ops until `tfs-rust-lua` implements dispatch.
 pub trait EventDispatcher {
@@ -21,6 +22,10 @@ pub trait EventDispatcher {
     fn on_advance(&self, creature: CreatureId, skill: u8, old_level: u32, new_level: u32) {}
     fn on_startup(&self) {}
     fn on_shutdown(&self) {}
+    /// C++ `Events::eventMonsterOnSpawn` — default allow (`events.cpp`).
+    fn on_monster_spawn(&self, _name: &str, _pos: Position, _startup: bool) -> bool {
+        true
+    }
     /// Spread LuaJIT GC across ticks (Phase 4 game loop). No-op without Lua.
     fn lua_gc_step(&self) {}
     /// TFS `MoveEvents::onPlayerEquip` with `isCheck == true` — `player.cpp` `queryAdd`.

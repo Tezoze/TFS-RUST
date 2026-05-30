@@ -8,6 +8,7 @@ use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
+use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::vocations::VocationDatabase;
 use slotmap::{Key, SlotMap};
 
@@ -83,6 +84,8 @@ pub struct GameWorld {
     pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
     /// OTB + `items.xml` — server item id → client id for map / `addItem` (`src/items.cpp`).
     pub items_db: Arc<ItemDatabase>,
+    /// `data/monster/` — spawn instantiation (`monsters.cpp`).
+    pub monsters_db: Arc<MonsterDatabase>,
     /// `data/XML/groups.xml` — player GM flags (`src/groups.cpp`).
     pub groups: Arc<GroupDatabase>,
     pub vocations: Arc<VocationDatabase>,
@@ -98,6 +101,8 @@ pub struct GameWorld {
     pub container_registry: ContainerRegistry,
     /// Wall-clock of last creature-think sweep (TFS `Game::checkCreatures` cadence).
     pub(crate) last_creature_check: Option<Instant>,
+    /// Reverse link spawn slot ↔ creature for respawn scheduling.
+    pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
 }
 
 /// C++ `ProtocolGame::canSee(int32_t x, int32_t y, int32_t z)` — `protocolgame.cpp` ~796–823.
@@ -169,6 +174,7 @@ impl GameWorld {
         db: DbPool,
         spawns: SpawnManager,
         items_db: Arc<ItemDatabase>,
+        monsters_db: Arc<MonsterDatabase>,
         groups: Arc<GroupDatabase>,
         vocations: Arc<VocationDatabase>,
         walk_wake_tx: Option<UnboundedSender<CreatureId>>,
@@ -198,6 +204,7 @@ impl GameWorld {
             deferred_turn_broadcast: HashMap::new(),
             known_creatures_by_conn: HashMap::new(),
             items_db,
+            monsters_db,
             groups,
             vocations,
             next_statement_id: 0,
@@ -206,6 +213,7 @@ impl GameWorld {
             items_pending_release: Vec::new(),
             container_registry: ContainerRegistry::new(),
             last_creature_check: None,
+            spawn_slot_by_creature: HashMap::new(),
         }
     }
 
@@ -281,8 +289,11 @@ impl GameWorld {
     }
 
     /// Remove creature from map index, player lookups, guild online; remove summons if master dies.
-    // C++ reference: `Game::removeCreature` — summon chain.
+    // C++ reference: `Game::removeCreature` — summon chain + spectator disappear.
     pub fn remove_creature(&mut self, id: CreatureId) {
+        let now = Instant::now();
+        self.on_creature_removed_for_spawn(id, now);
+
         let mut summons: Vec<CreatureId> = Vec::new();
         for (cid, k) in self.creatures.iter() {
             if k.base().master == Some(id) {
@@ -423,7 +434,7 @@ impl GameWorld {
         self.check_creatures(now);
 
         let _ = self.decay.tick(self.tick_counter);
-        self.spawns.tick(now);
+        self.poll_spawn_respawns(now);
         if self.tick_counter.is_multiple_of(5) {
             self.events.lua_gc_step();
         }

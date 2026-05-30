@@ -137,6 +137,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
     let items_db = std::sync::Arc::new(content.items);
+    let monsters_db = std::sync::Arc::new(content.monsters);
     let groups = std::sync::Arc::new(content.groups);
     
     // Create items SlotMap first - needed for map loading to create Item instances
@@ -192,7 +193,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
     let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
-    let world = GameWorld::new(
+    let mut world = GameWorld::new(
         map,
         items,
         events,
@@ -200,11 +201,13 @@ pub async fn run() -> anyhow::Result<()> {
         db.clone(),
         spawns,
         items_db,
+        monsters_db,
         groups,
         vocations,
         Some(walk_wake_tx),
     );
-    info!("GameWorld ready (map + spawns)");
+    world.startup_spawns();
+    info!("GameWorld ready (map + spawns + startup creatures)");
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<GameCommand>();

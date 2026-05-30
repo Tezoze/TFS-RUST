@@ -1,6 +1,6 @@
 # Phase D — Monster & NPC Walking + AI Foundation (Implementation Guide)
 
-**Status:** 🟡 In progress — **D.1–D.2 complete** (walk engine generalized; think cadence + dispatch); D.3–D.7 pending.
+**Status:** 🟡 In progress — **D.1–D.3 complete** (walk engine; think cadence; spawn instantiation + respawn + appear/disappear); D.4–D.7 pending.
 **Goal:** Bring the world alive. Monsters and NPCs are instantiated from spawn
 definitions, walk on the map, chase/flee/return-to-spawn (monsters), idle-walk and
 face speakers (NPCs), and respawn on timers — all with 1:1 TFS 1.4.2 parity.

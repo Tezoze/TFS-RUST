@@ -26,6 +26,7 @@ pub mod support {
     use crate::ids::CreatureId;
     use crate::map::Map;
     use crate::spawn::SpawnManager;
+    use tfs_rust_content::monsters::MonsterDatabase;
     use crate::tile::{Tile, TileBody};
     use tfs_rust_common::ConnId;
     use tfs_rust_common::enums::ZoneType;
@@ -261,6 +262,9 @@ freePremium = false
             DbPool::lazy_for_tests().expect("lazy db pool"),
             SpawnManager::from_zones(Vec::new()),
             items_db,
+            Arc::new(MonsterDatabase {
+                monsters: HashMap::new(),
+            }),
             Arc::new(GroupDatabase {
                 groups: HashMap::new(),
             }),

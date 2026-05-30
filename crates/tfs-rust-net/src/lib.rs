@@ -1,5 +1,6 @@
 pub mod adler;
 pub mod creature_encode;
+pub mod creature_known;
 pub mod game_challenge;
 pub mod game_command;
 pub mod game_first_packet;

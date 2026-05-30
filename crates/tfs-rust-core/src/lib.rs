@@ -52,6 +52,7 @@ pub mod pathfinding;
 pub mod protocol_hooks;
 mod run_server;
 pub mod scheduler;
+mod spawn_lifecycle;
 pub mod spawn;
 pub mod spell;
 pub mod stability;
