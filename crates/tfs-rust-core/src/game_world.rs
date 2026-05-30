@@ -1004,7 +1004,7 @@ impl GameWorld {
                             m_move,
                             ReturnValue::ContainerNotEnoughRoom,
                         )?;
-                        self.transfer_stack_merge_counts(item_id, merge_id, m_move);
+                        self.merge_partial_stack_counts(item_id, merge_id, m_move);
                         let src_stack_pos = self
                             .map
                             .get_tile(from_pos)
@@ -1040,7 +1040,7 @@ impl GameWorld {
                         m_move,
                         ReturnValue::ContainerNotEnoughRoom,
                     )?;
-                    self.add_to_stack_merge_target(merge_id, m_move);
+                    self.merge_detached_stack_counts(merge_id, m_move);
                     self.items.remove(item_id);
                     self.notify_container_stack_merge(dest_cid, merge_id);
                     return Ok(merge_id);
@@ -1131,7 +1131,7 @@ impl GameWorld {
                             m_move,
                             ReturnValue::ContainerNotEnoughRoom,
                         )?;
-                        self.add_to_stack_merge_target(merge_id, m_move);
+                        self.merge_detached_stack_counts(merge_id, m_move);
                         self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
@@ -1157,7 +1157,7 @@ impl GameWorld {
                         ReturnValue::ContainerNotEnoughRoom,
                     )?;
                     self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    self.add_to_stack_merge_target(merge_id, m_move);
+                    self.merge_detached_stack_counts(merge_id, m_move);
                     self.notify_container_stack_merge(dest_cid, merge_id);
                     return Ok(merge_id);
                 }
@@ -1268,7 +1268,7 @@ impl GameWorld {
                         ReturnValue::ContainerNotEnoughRoom,
                     )?;
                     if is_stackable && m_move < item_count {
-                        self.transfer_stack_merge_counts(item_id, merge_id, m_move);
+                        self.merge_partial_stack_counts(item_id, merge_id, m_move);
                         self.recompute_player_inventory_weight(cid);
                         self.send_player_stats(cid);
                         self.notify_container_stack_merge(to_container, merge_id);
@@ -1277,7 +1277,7 @@ impl GameWorld {
                     }
                     self.internal_remove_item_from_inventory_slot(cid, slot, item_id)?;
                     self.broadcast_player_inventory_slot(cid, slot, None);
-                    self.add_to_stack_merge_target(merge_id, m_move);
+                    self.merge_detached_stack_counts(merge_id, m_move);
                     self.items.remove(item_id);
                     self.notify_container_stack_merge(to_container, merge_id);
                     self.recompute_player_inventory_weight(cid);
@@ -1329,7 +1329,8 @@ impl GameWorld {
                         ReturnValue::NotEnoughCapacity,
                     )?;
                     if is_stackable && m_move < item_count {
-                        self.transfer_stack_merge_counts(item_id, merge_id, m_move);
+                        // Partial: source stack stays on tile; only counts change.
+                        self.merge_partial_stack_counts(item_id, merge_id, m_move);
                         let src_stack_pos = self
                             .map
                             .get_tile(from_pos)
@@ -1351,7 +1352,8 @@ impl GameWorld {
                         return Err(ReturnValue::NotPossible);
                     }
                     self.broadcast_tile_item_remove(from_pos, stack_pos);
-                    self.add_to_stack_merge_target(merge_id, m_move);
+                    // Full: source removed from tile above — only bump hand stack.
+                    self.merge_detached_stack_counts(merge_id, m_move);
                     self.recompute_player_inventory_weight(cid);
                     self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
                     self.send_player_stats(cid);

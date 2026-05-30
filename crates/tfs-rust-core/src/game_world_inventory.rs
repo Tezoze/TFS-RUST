@@ -369,8 +369,13 @@ impl GameWorld {
         Ok(())
     }
 
-    /// Partial merge: subtract from source stack and add to destination stack.
-    pub(crate) fn transfer_stack_merge_counts(
+    /// Partial stack merge — source item **still on its cylinder** (tile, hand slot, container).
+    ///
+    /// Subtracts `m_move` from `source_id` and adds it to `merge_id`. Call this when the
+    /// source stack remains in place (e.g. tile `broadcast_tile_item_update`, hand slot still
+    /// holds the item). Do **not** use after `remove_item_by_id`, `internal_remove_item_from_inventory_slot`,
+    /// or `container_remove_thing` — use [`Self::merge_detached_stack_counts`] instead.
+    pub(crate) fn merge_partial_stack_counts(
         &mut self,
         source_id: ItemId,
         merge_id: ItemId,
@@ -384,8 +389,12 @@ impl GameWorld {
         }
     }
 
-    /// Full merge after source detach: add moved count to the destination stack only.
-    pub(crate) fn add_to_stack_merge_target(&mut self, merge_id: ItemId, m_move: u16) {
+    /// Full stack merge — source **already detached** from its cylinder.
+    ///
+    /// Adds `m_move` to `merge_id` only. The caller must have removed the source from tile,
+    /// inventory, or container (and optionally `items.remove`) before calling — never pair this
+    /// with a prior subtract on the same move.
+    pub(crate) fn merge_detached_stack_counts(&mut self, merge_id: ItemId, m_move: u16) {
         if let Some(t) = self.items.get_mut(merge_id) {
             t.count = t.count.saturating_add(m_move);
         }
