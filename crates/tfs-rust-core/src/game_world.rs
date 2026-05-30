@@ -1829,7 +1829,7 @@ impl GameWorld {
             if dx > throw_range || dy > throw_range {
                 continue;
             }
-            if !crate::walk::player_can_stand_for_pathfind(self, cid, stand) {
+            if !crate::walk::creature_can_stand_for_pathfind(self, cid, stand) {
                 continue;
             }
             return true;

@@ -43,7 +43,7 @@ use crate::return_value::ReturnValue;
 use crate::creature::CreatureKind;
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
-use crate::login_out::map_tile_content;
+use crate::login_out::{creature_wire_id, map_tile_content};
 use crate::map::Map;
 use crate::tile::client_creature_stack_pos;
 use tfs_rust_common::ConnId;
@@ -58,7 +58,7 @@ const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
 /// Pathfinding query flags — `Map::canWalkTo` (`map.cpp` ~638).
 pub(crate) const PATHFIND_WALK_FLAGS: u32 = FLAG_PATHFINDING | FLAG_IGNOREFIELDDAMAGE;
 
-/// One movement segment emitted by `internal_move_player_step`.
+/// One movement segment emitted by `internal_move_creature_step`.
 /// C++ `map.moveCreature` emits a packet per call; we collect segments and emit afterwards.
 struct MoveSegment {
     from: Position,
@@ -113,6 +113,14 @@ fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i3
 #[inline]
 fn player_step_speed_clamped(base: &crate::creature::CreatureBase) -> i32 {
     creature_effective_speed_for_step(base).clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED)
+}
+
+/// TFS `getStepSpeed` — `Player::getStepSpeed` clamp vs base `Creature::getStepSpeed` (`creature.h`, `player.h`).
+fn step_speed_for_walk(kind: &CreatureKind, base: &crate::creature::CreatureBase) -> i32 {
+    match kind {
+        CreatureKind::Player(_) => player_step_speed_clamped(base),
+        CreatureKind::Monster(_) | CreatureKind::Npc(_) => creature_effective_speed_for_step(base),
+    }
 }
 
 fn has_drunk_condition(base: &crate::creature::CreatureBase) -> bool {
@@ -483,7 +491,7 @@ pub(crate) fn internal_teleport_player(
 }
 
 /// Whether `cid` can stand on `pos` during pathfinding (`Map::canWalkTo` / `Tile::queryAdd`).
-pub(crate) fn player_can_stand_for_pathfind(
+pub(crate) fn creature_can_stand_for_pathfind(
     world: &GameWorld,
     cid: CreatureId,
     pos: Position,
@@ -491,7 +499,191 @@ pub(crate) fn player_can_stand_for_pathfind(
     let Some(tile) = world.map.get_tile(pos) else {
         return false;
     };
-    tile_query_add_player(world, tile, cid, PATHFIND_WALK_FLAGS) == ReturnValue::NoError
+    tile_query_add_creature(world, tile, cid, PATHFIND_WALK_FLAGS) == ReturnValue::NoError
+}
+
+/// TFS `Tile::queryAdd` dispatch for creatures (`tile.cpp` ~484–628).
+fn tile_query_add_creature(
+    world: &GameWorld,
+    tile: &crate::tile::Tile,
+    mover: CreatureId,
+    flags: u32,
+) -> ReturnValue {
+    match world.creatures.get(mover) {
+        Some(CreatureKind::Player(_)) => tile_query_add_player(world, tile, mover, flags),
+        Some(CreatureKind::Monster(_)) => tile_query_add_monster(world, tile, mover, flags),
+        Some(CreatureKind::Npc(_)) => tile_query_add_npc(world, tile, mover, flags),
+        None => ReturnValue::NotPossible,
+    }
+}
+
+/// TFS `Tile::queryAdd` monster branch (`tile.cpp` ~499–563).
+fn tile_query_add_monster(
+    world: &GameWorld,
+    tile: &crate::tile::Tile,
+    mover: CreatureId,
+    flags: u32,
+) -> ReturnValue {
+    let body = tile.body();
+
+    if (flags & FLAG_NOLIMIT) != 0 {
+        return ReturnValue::NoError;
+    }
+
+    if body.ground.is_none() {
+        return ReturnValue::NotPossible;
+    }
+
+    if (flags & FLAG_PATHFINDING) != 0
+        && (body.flags & (tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0
+    {
+        return ReturnValue::NotPossible;
+    }
+
+    if (body.flags & (tilestate::PROTECTIONZONE | tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0 {
+        return ReturnValue::NotPossible;
+    }
+
+    // §5.1: `canpushcreatures` / `canpushitems` default false until MonsterType flags are parsed.
+    let can_push_creatures = false;
+    let can_push_items = false;
+    let is_summon = world.creatures.get(mover).is_some_and(|k| k.is_summon());
+
+    if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 {
+        if can_push_creatures && !is_summon {
+            for &tile_c in &body.creatures {
+                if tile_c == mover {
+                    continue;
+                }
+                let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
+                    matches!(k, CreatureKind::Player(p) if p.ghost_mode)
+                });
+                if other_ghost {
+                    continue;
+                }
+                let Some(other) = world.creatures.get(tile_c) else {
+                    return ReturnValue::NotPossible;
+                };
+                let other_monster_pushable = matches!(other, CreatureKind::Monster(_));
+                let other_summon_with_player_master = other.is_summon()
+                    && other
+                        .base()
+                        .master
+                        .and_then(|mid| world.creatures.get(mid))
+                        .is_some_and(|m| matches!(m, CreatureKind::Player(_)));
+                if !other_monster_pushable || other_summon_with_player_master {
+                    return ReturnValue::NotPossible;
+                }
+            }
+        } else if !body.creatures.is_empty() {
+            for &tile_c in &body.creatures {
+                if tile_c == mover {
+                    continue;
+                }
+                let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
+                    matches!(k, CreatureKind::Player(p) if p.ghost_mode)
+                });
+                if !other_ghost {
+                    return ReturnValue::NotEnoughRoom;
+                }
+            }
+        }
+    }
+
+    if (body.flags & tilestate::IMMOVABLEBLOCKSOLID) != 0 {
+        return ReturnValue::NotPossible;
+    }
+
+    if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::IMMOVABLENOFIELDBLOCKPATH) != 0 {
+        return ReturnValue::NotPossible;
+    }
+
+    if (body.flags & tilestate::BLOCKSOLID) != 0
+        || ((flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0)
+    {
+        if !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0) {
+            return ReturnValue::NotPossible;
+        }
+    }
+
+    // Full field immunity deferred until Monster combat fields land; block damaging fields without ignore flag.
+    if (body.flags & tilestate::MAGICFIELD) != 0 && (flags & FLAG_IGNOREFIELDDAMAGE) == 0 {
+        return ReturnValue::NotPossible;
+    }
+
+    ReturnValue::NoError
+}
+
+/// TFS `Tile::queryAdd` NPC / generic creature branch (`tile.cpp` ~598–628); NPCs cannot enter houses or PZ.
+fn tile_query_add_npc(
+    world: &GameWorld,
+    tile: &crate::tile::Tile,
+    mover: CreatureId,
+    flags: u32,
+) -> ReturnValue {
+    if matches!(tile, crate::tile::Tile::House(_)) {
+        return ReturnValue::NotPossible;
+    }
+
+    let body = tile.body();
+
+    if (flags & FLAG_NOLIMIT) != 0 {
+        return ReturnValue::NoError;
+    }
+
+    if body.ground.is_none() {
+        return ReturnValue::NotPossible;
+    }
+
+    if (flags & FLAG_PATHFINDING) != 0
+        && (body.flags & (tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0
+    {
+        return ReturnValue::NotPossible;
+    }
+
+    if (body.flags & tilestate::PROTECTIONZONE) != 0 {
+        return ReturnValue::NotPossible;
+    }
+
+    if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 && !body.creatures.is_empty() {
+        for &tile_c in &body.creatures {
+            if tile_c == mover {
+                continue;
+            }
+            let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
+                matches!(k, CreatureKind::Player(p) if p.ghost_mode)
+            });
+            if !other_ghost {
+                return ReturnValue::NotEnoughRoom;
+            }
+        }
+    }
+
+    if (flags & FLAG_IGNOREBLOCKITEM) == 0 {
+        if (body.flags & tilestate::BLOCKSOLID) != 0 {
+            return ReturnValue::NotEnoughRoom;
+        }
+        if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0 {
+            return ReturnValue::NotPossible;
+        }
+    } else if let Some(ground_id) = body.ground {
+        if let Some(gt) = world.items_db.items.get(&ground_id) {
+            if gt.block_solid() && !gt.moveable() {
+                return ReturnValue::NotPossible;
+            }
+        }
+        for &item_id in body.top_items.iter().chain(body.down_items.iter()) {
+            if let Some(item) = world.items.get(item_id) {
+                if let Some(it) = world.items_db.items.get(&item.item_type) {
+                    if it.block_solid() && !it.moveable() {
+                        return ReturnValue::NotPossible;
+                    }
+                }
+            }
+        }
+    }
+
+    ReturnValue::NoError
 }
 
 /// TFS `Tile::queryAdd` for player creatures.
@@ -598,8 +790,7 @@ fn set_direction_from_step(old_pos: Position, new_pos: Position, creature: &mut 
 /// (mirrors the C++ `if (creature->getDirection() == dir) return false;` guard).
 ///
 /// Called exclusively from the post-`queryDestination` chain step in
-/// `internal_move_player_step` — the only place TFS calls `internalCreatureTurn` during
-/// a player's own walk.
+/// `internal_move_creature_step` — post-`queryDestination` chain turn (`game.cpp` ~882–891).
 fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId, dir: Direction) {
     // Guard: no-op when direction unchanged — matches C++ early-return.
     let old_dir = match world.creatures.get(cid) {
@@ -615,10 +806,10 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
         k.base_mut().direction = dir;
     }
 
-    // Gather: guid, position, stack position (needed for the 0x6B wire format).
-    let (guid, pos) = match world.creatures.get(cid) {
-        Some(CreatureKind::Player(p)) => (p.guid, p.base.position),
-        _ => return,
+    // Gather wire id, position, stack position (needed for the 0x6B wire format).
+    let (wire_id, pos) = match world.creatures.get(cid) {
+        Some(k) => (creature_wire_id(cid, k), k.position()),
+        None => return,
     };
     let stack_u8 = world
         .map
@@ -643,7 +834,7 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
         })
         .collect();
 
-    let packet = send_creature_turn(guid, stack_u8, pos, dir as u8, false).into_bytes();
+    let packet = send_creature_turn(wire_id, stack_u8, pos, dir as u8, false).into_bytes();
     for conn in spectators {
         world.enqueue_outgoing(conn, packet.clone());
     }
@@ -652,8 +843,8 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 impl GameWorld {
     /// TFS `scheduler.cpp`: `steady_timer` + `stopEvent`; wake game thread like `g_dispatcher.addTask`.
     fn commit_next_walk_deadline(&mut self, cid: CreatureId, deadline: Option<Instant>) {
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.base.next_walk_check = deadline;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().next_walk_check = deadline;
         }
         self.sync_walk_timer_arm(cid);
     }
@@ -661,13 +852,13 @@ impl GameWorld {
     /// Arm or cancel the Tokio one-shot for `next_walk_check` (no-op when `walk_wake_tx` is `None`).
     fn sync_walk_timer_arm(&mut self, cid: CreatureId) {
         let (deadline, tx_opt) = {
-            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            let Some(k) = self.creatures.get_mut(cid) else {
                 return;
             };
-            if let Some(h) = p.base.walk_timer.take() {
+            if let Some(h) = k.base_mut().walk_timer.take() {
                 h.abort();
             }
-            (p.base.next_walk_check, self.walk_wake_tx.clone())
+            (k.base().next_walk_check, self.walk_wake_tx.clone())
         };
         let Some(tx) = tx_opt else {
             return;
@@ -684,8 +875,8 @@ impl GameWorld {
             tokio::time::sleep_until(deadline.into()).await;
             let _ = tx.send(cid);
         });
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            *p.base.walk_timer = Some(handle);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            *k.base_mut().walk_timer = Some(handle);
         }
     }
 
@@ -956,10 +1147,10 @@ impl GameWorld {
         new_pos: Position,
         old_stack: i32,
     ) {
-        let Some(CreatureKind::Player(mover_p)) = self.creatures.get(mover) else {
-            return;
+        let wire_id = match self.creatures.get(mover) {
+            Some(k) => creature_wire_id(mover, k),
+            None => return,
         };
-        let guid = mover_p.guid;
 
         let spectators: Vec<ConnId> = self
             .conn_to_creature
@@ -976,7 +1167,7 @@ impl GameWorld {
             })
             .collect();
 
-        let packet = send_move_creature_spectator(old_pos, new_pos, old_stack, guid).into_bytes();
+        let packet = send_move_creature_spectator(old_pos, new_pos, old_stack, wire_id).into_bytes();
         for conn in spectators {
             self.enqueue_outgoing(conn, packet.clone());
         }
@@ -992,25 +1183,35 @@ impl GameWorld {
     /// (`creature.cpp`), not from the pre-`on_walk` logical instant.
     fn schedule_walk_followup_deadline(&mut self, cid: CreatureId) {
         let wall_now = Instant::now();
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return;
+        let (pos, step_speed) = {
+            let Some(k) = self.creatures.get(cid) else {
+                return;
+            };
+            (
+                k.position(),
+                step_speed_for_walk(k, k.base()),
+            )
         };
-        if player_step_speed_clamped(&p.base) <= 0 {
+        if step_speed <= 0 {
             return;
         }
-        if p.base.next_walk_check.is_some() {
+        if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().next_walk_check.is_some())
+        {
             return;
         }
         let ground_speed = self
             .map
-            .get_tile(p.base.position)
+            .get_tile(pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
         let ticks = {
-            let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            let Some(k) = self.creatures.get(cid) else {
                 return;
             };
-            get_event_step_ticks(&p.base, false, ground_speed, wall_now)
+            get_event_step_ticks(k.base(), false, ground_speed, wall_now)
         };
         if ticks <= 0 {
             return;
@@ -1023,21 +1224,40 @@ impl GameWorld {
         );
     }
 
+    /// Queue one step and arm the walk timer (monster/NPC AI and tests).
+    pub(crate) fn creature_queue_walk_step(&mut self, cid: CreatureId, direction: Direction) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().walk_queue.clear();
+            k.base_mut().walk_queue.push_back(direction);
+        }
+        self.add_event_walk(cid, true, Instant::now());
+    }
+
     /// TFS `Creature::addEventWalk` (`creature.cpp` ~299–322).
     ///
     /// `scheduling_base`: anchor for the **initial** timer when `first_step` is true and `ticks > 1`
     /// (new move / long first delay). Reschedules (`first_step == false`) use `Instant::now()` instead.
     fn add_event_walk(&mut self, cid: CreatureId, first_step: bool, scheduling_base: Instant) {
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.base.cancel_next_walk = false;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().cancel_next_walk = false;
         }
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return;
+        let (pos, step_speed) = {
+            let Some(k) = self.creatures.get(cid) else {
+                return;
+            };
+            (
+                k.position(),
+                step_speed_for_walk(k, k.base()),
+            )
         };
-        if player_step_speed_clamped(&p.base) <= 0 {
+        if step_speed <= 0 {
             return;
         }
-        if p.base.next_walk_check.is_some() {
+        if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().next_walk_check.is_some())
+        {
             return;
         }
 
@@ -1045,15 +1265,15 @@ impl GameWorld {
 
         let ground_speed = self
             .map
-            .get_tile(p.base.position)
+            .get_tile(pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
 
         let ticks = {
-            let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            let Some(k) = self.creatures.get(cid) else {
                 return;
             };
-            get_event_step_ticks(&p.base, first_step, ground_speed, wall_now)
+            get_event_step_ticks(k.base(), first_step, ground_speed, wall_now)
         };
 
         if ticks <= 0 {
@@ -1093,29 +1313,28 @@ impl GameWorld {
     }
 
     pub(crate) fn stop_event_walk(&mut self, cid: CreatureId) {
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            if let Some(h) = p.base.walk_timer.take() {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            if let Some(h) = k.base_mut().walk_timer.take() {
                 h.abort();
             }
-            p.base.next_walk_check = None;
+            k.base_mut().next_walk_check = None;
         }
     }
 
     /// TFS `Game::checkCreatureWalk` (`game.cpp` ~3773–3779).
     pub fn check_creature_walk(&mut self, cid: CreatureId, now: Instant) {
-        let health_ok = self.creatures.get(cid).is_some_and(|k| match k {
-            CreatureKind::Player(p) => p.base.health > 0,
-            CreatureKind::Monster(m) => m.base.health > 0,
-            CreatureKind::Npc(n) => n.base.health > 0,
-        });
+        let health_ok = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().health > 0);
         if !health_ok {
             return;
         }
 
-        let fired_deadline = match self.creatures.get_mut(cid) {
-            Some(CreatureKind::Player(p)) => p.base.next_walk_check.take(),
-            _ => None,
-        };
+        let fired_deadline = self
+            .creatures
+            .get_mut(cid)
+            .and_then(|k| k.base_mut().next_walk_check.take());
         let Some(fired_deadline) = fired_deadline else {
             return;
         };
@@ -1133,11 +1352,10 @@ impl GameWorld {
     /// Same as [`check_creature_walk`], but the walk was **not** triggered by a prior `next_walk_check`
     /// (sync branch inside `add_event_walk` when `ticks == 1`). Matches `eventWalk == 0` at `onWalk` exit in C++.
     fn check_creature_walk_from_add_event_walk(&mut self, cid: CreatureId, now: Instant) {
-        let health_ok = self.creatures.get(cid).is_some_and(|k| match k {
-            CreatureKind::Player(p) => p.base.health > 0,
-            CreatureKind::Monster(m) => m.base.health > 0,
-            CreatureKind::Npc(n) => n.base.health > 0,
-        });
+        let health_ok = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().health > 0);
         if !health_ok {
             return;
         }
@@ -1160,24 +1378,19 @@ impl GameWorld {
         now: Instant,
         fired_deadline: Option<Instant>,
     ) {
-        let walk_delay = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => get_walk_delay(&p.base, now),
-            _ => 0,
-        };
+        let walk_delay = self
+            .creatures
+            .get(cid)
+            .map(|k| get_walk_delay(k.base(), now))
+            .unwrap_or(0);
 
         let mut stopped_without_reschedule = false;
 
         if walk_delay <= 0 {
-            let pop_dir = self.creatures.get_mut(cid).and_then(|k| {
-                if let CreatureKind::Player(p) = k {
-                    // TFS `Creature::getNextStep` — `dir = listWalkDir.back(); pop_back();` (`creature.cpp`).
-                    // `tfs-rust-net::parse_auto_walk` reverses wire bytes so **first** client step sits at the
-                    // **back** of `walk_queue`; `pop_back` matches C++.
-                    p.base.walk_queue.pop_back()
-                } else {
-                    None
-                }
-            });
+            let pop_dir = self
+                .creatures
+                .get_mut(cid)
+                .and_then(|k| k.base_mut().walk_queue.pop_back());
 
             if let Some(mut dir) = pop_dir {
                 let mut drunk_hicks = false;
@@ -1194,17 +1407,14 @@ impl GameWorld {
                     Some(k) => k.position(),
                     None => return,
                 };
-                let result = self.internal_move_player_step(cid, dir, now);
+                let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
                         if let Some(conn) = self.conn_for_creature(cid) {
                             let d = self
                                 .creatures
                                 .get(cid)
-                                .and_then(|k| match k {
-                                    CreatureKind::Player(p) => Some(p.base.direction),
-                                    _ => None,
-                                })
+                                .map(|k| k.base().direction)
                                 .unwrap_or(Direction::North);
                             let msg = ret.description();
                             self.enqueue_outgoing(
@@ -1252,10 +1462,11 @@ impl GameWorld {
                             .get_tile(new_pos)
                             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
                             .unwrap_or(150);
-                        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                            p.base.last_step = Some(Instant::now());
-                            p.base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
-                            p.base.last_step_ground_speed = gs_dest;
+                        if let Some(k) = self.creatures.get_mut(cid) {
+                            let base = k.base_mut();
+                            base.last_step = Some(Instant::now());
+                            base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
+                            base.last_step_ground_speed = gs_dest;
                         }
                     }
                 }
@@ -1264,7 +1475,13 @@ impl GameWorld {
                 self.stop_event_walk(cid);
                 stopped_without_reschedule = true;
                 self.events.on_walk_complete(cid);
-                self.on_player_walk_complete(cid, now);
+                if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(_)))
+                {
+                    self.on_player_walk_complete(cid, now);
+                }
             }
         }
 
@@ -1301,7 +1518,7 @@ impl GameWorld {
     /// Returns `Ok(segments)` on success — each segment corresponds to one C++
     /// `Map::moveCreature` call and needs its own move packet.
     /// Returns `Err(ret)` when the move is rejected.
-    fn internal_move_player_step(
+    fn internal_move_creature_step(
         &mut self,
         cid: CreatureId,
         direction: Direction,
@@ -1313,20 +1530,29 @@ impl GameWorld {
         };
         let flags_in = FLAG_IGNOREFIELDDAMAGE;
 
-        // Phase 1: height-based floor change (game.cpp ~797-841)
-        let (dest_pos, flags) = resolve_player_move_destination(
-            &self.map,
-            self.items_db.as_ref(),
-            &self.items,
-            current_pos,
-            direction,
-            flags_in,
-        );
+        let is_player = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+
+        // Phase 1: destination — height-based floor change is player-only (`game.cpp` ~805).
+        let (dest_pos, flags) = if is_player {
+            resolve_player_move_destination(
+                &self.map,
+                self.items_db.as_ref(),
+                &self.items,
+                current_pos,
+                direction,
+                flags_in,
+            )
+        } else {
+            (current_pos.offset(direction), flags_in)
+        };
         let Some(to_tile) = self.map.get_tile(dest_pos) else {
             return Err(ReturnValue::NotPossible);
         };
 
-        let ret = tile_query_add_player(self, to_tile, cid, flags);
+        let ret = tile_query_add_creature(self, to_tile, cid, flags);
         if ret != ReturnValue::NoError {
             return Err(ret);
         }
@@ -1417,9 +1643,9 @@ impl GameWorld {
             // C++ ref: src/map.cpp:295-306
             set_direction_from_step(old_pos, dest_pos, k);
 
-            // Step 2: height-based z-change overrides with walk input direction.
+            // Step 2: height-based z-change overrides with walk input direction (player height walk only).
             // C++ ref: src/game.cpp:815,829
-            if old_pos.z != dest_pos.z {
+            if is_player && old_pos.z != dest_pos.z {
                 k.base_mut().direction = direction;
             }
         }
@@ -1484,10 +1710,7 @@ impl GameWorld {
             let now = Instant::now();
             let mut due: Vec<CreatureId> = Vec::new();
             for (cid, k) in self.creatures.iter() {
-                let CreatureKind::Player(p) = k else {
-                    continue;
-                };
-                if let Some(deadline) = p.base.next_walk_check {
+                if let Some(deadline) = k.base().next_walk_check {
                     if now >= deadline {
                         due.push(cid);
                     }
@@ -1535,7 +1758,7 @@ impl GameWorld {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
                     return false;
                 };
-                tile_query_add_player(ctx.world, tile, ctx.cid, PATHFIND_WALK_FLAGS)
+                tile_query_add_creature(ctx.world, tile, ctx.cid, PATHFIND_WALK_FLAGS)
                     == ReturnValue::NoError
             },
             |pos| {
@@ -1565,5 +1788,54 @@ mod step_speed_tests {
         assert_eq!(calculated_step_speed_tfs(220), 278);
         assert_eq!(calculated_step_speed_tfs(400), 464);
         assert_eq!(calculated_step_speed_tfs(1500), 1137);
+    }
+}
+
+#[cfg(test)]
+mod monster_walk_tests {
+    use crate::test_world::support;
+    use tfs_rust_common::ConnId;
+    use tfs_rust_common::enums::Direction;
+    use tfs_rust_common::Position;
+
+    #[test]
+    fn monster_walk_step_broadcasts_spectator_move() {
+        let mut world = support::minimal_world();
+        let spectator_pos = Position::new(100, 100, 7);
+        let monster_start = Position::new(100, 101, 7);
+        let monster_end = Position::new(101, 101, 7);
+
+        support::ensure_walkable_tile(&mut world.map, spectator_pos, 2148);
+        support::ensure_walkable_tile(&mut world.map, monster_start, 2148);
+        support::ensure_walkable_tile(&mut world.map, monster_end, 2148);
+
+        let conn = ConnId(42);
+        support::insert_spectator_player(
+            &mut world,
+            conn,
+            support::test_player("Spectator", spectator_pos),
+        );
+        let monster = support::insert_monster(&mut world, "Rat", monster_start, 200);
+
+        world.creature_queue_walk_step(monster, Direction::East);
+
+        for _ in 0..32 {
+            if world.creatures.get(monster).map(|k| k.position()) == Some(monster_end) {
+                break;
+            }
+            world.process_walk_deadlines();
+        }
+
+        assert_eq!(
+            world.creatures.get(monster).map(|k| k.position()),
+            Some(monster_end),
+            "monster should have stepped east"
+        );
+
+        let packets = world.pending_outgoing.get(&conn).cloned().unwrap_or_default();
+        assert!(
+            packets.iter().any(|p| !p.is_empty() && p[0] == 0x6D),
+            "spectator should receive 0x6D move packet"
+        );
     }
 }

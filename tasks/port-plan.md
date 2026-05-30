@@ -143,7 +143,7 @@ Strategy: Fix protocol correctness first (the world must *render* correctly), th
 **C++ ref files:** `creature.cpp`, `monster.cpp`, `npc.cpp`, `spawn.cpp`
 **Estimated effort:** 3–4 days
 
-- [ ] **D.1** Extend walk system to `CreatureKind::Monster` and `CreatureKind::Npc` (Phase 3 items 8–10 from `walk-fix-todo.md`).
+- [x] **D.1** Extend walk system to `CreatureKind::Monster` and `CreatureKind::Npc` (Phase 3 items 8–10 from `walk-fix-todo.md`).
 - [ ] **D.2** Port `Creature::onCreatureMove` — `localMapCache` shifting for pathfinding.
 - [ ] **D.3** Port follow-creature walk update on target move (`creature.cpp` ~619–656).
 - [ ] **D.4** Spawn system — instantiate monsters from `SpawnManager` definitions, respawn timers.

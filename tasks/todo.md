@@ -56,6 +56,13 @@
 - [x] Tranche 6: MoveEvents XML loader + equip dispatch (defer tile MoveEvents + `MoveEvent():register()`)
 - [x] `docs/INVENTORY_STATUS.md`, `tasks/lessons.md` updated
 
+## Phase D.1 — Generalize walk engine (Monster/NPC) — done
+- [x] Route walk timing through `CreatureBase`; `step_speed_for_walk` (player clamp vs base speed)
+- [x] `tile_query_add_monster` / `tile_query_add_npc` / `tile_query_add_creature`; `creature_can_stand_for_pathfind`
+- [x] `internal_move_creature_step` (player height walk only); spectator `0x6D` via `creature_wire_id`
+- [x] `creature_queue_walk_step` + `monster_walk_step_broadcasts_spectator_move` test
+- [x] `cargo test -p tfs-rust-core monster_walk`
+
 ## Throw destination validation parity (B.5)
 - [ ] Confirm C++ reference behavior for `Game::playerMoveItem` throw gating.
 - [ ] Add Rust throw-destination validation before `internal_move_item`.

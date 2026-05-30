@@ -74,6 +74,14 @@ fn non_player_wire_id(cid: CreatureId) -> u32 {
     (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
 }
 
+/// Protocol creature id for move/turn packets (`protocolgame.cpp` `sendMoveCreature`).
+pub(crate) fn creature_wire_id(cid: CreatureId, kind: &CreatureKind) -> u32 {
+    match kind {
+        CreatureKind::Player(p) => p.guid,
+        CreatureKind::Monster(_) | CreatureKind::Npc(_) => non_player_wire_id(cid),
+    }
+}
+
 /// C++ `ProtocolGame::AddCreature` — `protocolgame.cpp` ~3206 (`getCreatureLight`, viewer `isAccessPlayer`).
 fn player_to_add_creature_wire(
     p: &Player,

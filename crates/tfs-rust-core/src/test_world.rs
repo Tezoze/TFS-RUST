@@ -18,7 +18,7 @@ pub mod support {
 
     use crate::config::ConfigManager;
     use crate::creature::{
-        CreatureBase, CreatureKind, Outfit, Player, PlayerEconomy, PlayerInventory,
+        CreatureBase, CreatureKind, Monster, Outfit, Player, PlayerEconomy, PlayerInventory,
         PlayerPersistBaseline, PlayerSkills, PlayerSocial,
     };
     use crate::event_dispatcher::NullEventDispatcher;
@@ -26,6 +26,9 @@ pub mod support {
     use crate::ids::CreatureId;
     use crate::map::Map;
     use crate::spawn::SpawnManager;
+    use crate::tile::{Tile, TileBody};
+    use tfs_rust_common::ConnId;
+    use tfs_rust_common::enums::ZoneType;
 
     pub fn test_config() -> ConfigManager {
         let path = std::env::temp_dir().join(format!(
@@ -268,5 +271,75 @@ freePremium = false
 
     pub fn insert_player(world: &mut GameWorld, player: Player) -> CreatureId {
         world.creatures.insert(CreatureKind::Player(player))
+    }
+
+    /// Walkable ground tile for walk / pathfinding tests.
+    pub fn ensure_walkable_tile(map: &mut Map, pos: Position, ground_type: u16) {
+        map.tiles.insert(
+            pos,
+            Tile::Normal(TileBody {
+                position: pos,
+                ground: Some(ground_type),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: 0,
+                zone: ZoneType::Normal,
+            }),
+        );
+    }
+
+    pub fn insert_monster(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
+        let base = CreatureBase {
+            name: name.into(),
+            position: pos,
+            direction: Direction::North,
+            health: 100,
+            max_health: 100,
+            outfit: Outfit::default(),
+            speed,
+            base_speed: speed,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_walk_check: None,
+            walk_timer: Default::default(),
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+        };
+        let cid = world
+            .creatures
+            .insert(CreatureKind::Monster(Monster::new(base, pos)));
+        world.map.register_creature_index(pos, cid);
+        if let Some(t) = world.map.get_tile_mut(pos) {
+            t.add_creature(cid);
+        }
+        cid
+    }
+
+    /// Logged-in spectator with a connection mapping (for outgoing packet assertions).
+    pub fn insert_spectator_player(
+        world: &mut GameWorld,
+        conn_id: ConnId,
+        player: Player,
+    ) -> CreatureId {
+        let pos = player.base.position;
+        let cid = insert_player(world, player);
+        world.conn_to_creature.insert(conn_id, cid);
+        world.map.register_creature_index(pos, cid);
+        if let Some(t) = world.map.get_tile_mut(pos) {
+            t.add_creature(cid);
+        }
+        cid
     }
 }
