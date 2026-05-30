@@ -9,22 +9,17 @@
 use tfs_rust_common::enums::{Direction, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterSpellNode;
+use rand::Rng;
 use slotmap::Key;
 
 use crate::creature::{CreatureKind, MonsterAiPhase};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
-use crate::monster_distance_step::get_distance_step;
+use crate::monster_distance_step::{get_dance_step, get_distance_step, get_random_step};
 use crate::pathfinding::FindPathParams;
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
 use crate::walk::{creature_turn_with_broadcast, PATHFIND_WALK_FLAGS, tile_query_add_creature};
 
-/// C++ `configmanager.cpp` `deSpawnRadius` default.
-pub const DEFAULT_DESPAWN_RADIUS: i32 = 50;
-/// C++ `configmanager.cpp` `deSpawnRange` default (Z delta).
-pub const DEFAULT_DESPAWN_Z_RANGE: i32 = 2;
-/// C++ `ConfigManager::DEFAULT_WALKTOSPAWNRADIUS`.
-pub const DEFAULT_WALK_TO_SPAWN_RADIUS: i32 = 15;
 /// C++ `Map::maxViewportX` (`map.h`).
 const MAP_MAX_VIEWPORT: u16 = 11;
 
@@ -87,7 +82,17 @@ pub fn is_in_spawn_range(
     z_dist <= despawn_z_range
 }
 
+/// TFS `Position::areInRange` for walk-back — `position.h` ~38, `monster.cpp` ~510.
+pub fn is_within_walk_to_spawn_range(pos: Position, spawn: Position, radius: i32) -> bool {
+    if radius <= 0 {
+        return true;
+    }
+    distance_x(pos, spawn) <= radius && distance_y(pos, spawn) <= radius
+}
+
 /// TFS `Monster::updateLookDirection` — `monster.cpp` ~1967.
+/// C++ `getOffsetX(attackedCreaturePos, pos)` = `offset_x(monster, target)` in Rust
+/// (`offset_x(a,b)` = b.x − a.x; C++ `getOffsetX(p1,p2)` = p1.x − p2.x).
 pub fn compute_look_toward_target(from: Position, target: Position, current: Direction) -> Direction {
     let ox = offset_x(from, target);
     let oy = offset_y(from, target);
@@ -157,25 +162,25 @@ impl GameWorld {
 
         self.monster_update_target_list(cid);
 
-        let (pos, _spawn_pos, in_range) = {
+        let (pos, in_range) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
             let pos = m.base.position;
+            let cfg = self.monster_world_config;
             (
                 pos,
-                m.spawn_position,
                 is_in_spawn_range(
                     pos,
                     m.spawn_position,
-                    DEFAULT_DESPAWN_RADIUS,
-                    DEFAULT_DESPAWN_Z_RANGE,
+                    cfg.despawn_radius,
+                    cfg.despawn_z_range,
                 ),
             )
         };
 
         if !in_range {
-            self.monster_teleport_to_spawn(cid);
+            self.monster_handle_out_of_spawn_range(cid);
             return;
         }
 
@@ -559,6 +564,7 @@ impl GameWorld {
             m.friend_ids.retain(|&id| id != creature_id);
         }
         self.monster_update_idle_status(monster_id);
+        self.monster_maybe_walk_to_spawn(monster_id);
     }
 
     fn monster_prune_creature_lists(&mut self, cid: CreatureId) {
@@ -1031,6 +1037,63 @@ impl GameWorld {
         self.creature_start_auto_walk(cid);
     }
 
+    /// TFS `Monster::onCreatureLeave` walk-back trigger — `monster.cpp` ~508–512.
+    pub fn monster_maybe_walk_to_spawn(&mut self, cid: CreatureId) {
+        let (walking, is_summon, opponents_empty, pos, spawn) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.walking_to_spawn,
+                m.base.is_summon(),
+                m.opponent_ids.is_empty(),
+                m.base.position,
+                m.spawn_position,
+            ),
+            _ => return,
+        };
+        if walking || is_summon || !opponents_empty {
+            return;
+        }
+        let radius = self.monster_world_config.walk_to_spawn_radius;
+        if radius <= 0 || is_within_walk_to_spawn_range(pos, spawn, radius) {
+            return;
+        }
+        self.monster_walk_to_spawn(cid);
+    }
+
+    /// TFS `Monster::onFollowCreatureComplete` — `monster.cpp` ~599.
+    fn monster_on_follow_creature_complete(&mut self, cid: CreatureId, target_id: CreatureId) {
+        let (has_path, is_summon) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (m.base.has_follow_path, m.base.is_summon()),
+            _ => return,
+        };
+        let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) else {
+            return;
+        };
+        let idx = m.opponent_ids.iter().position(|&id| id == target_id);
+        let Some(idx) = idx else {
+            return;
+        };
+        m.opponent_ids.remove(idx);
+        if has_path {
+            m.opponent_ids.insert(0, target_id);
+        } else if !is_summon {
+            m.opponent_ids.push(target_id);
+        }
+    }
+
+    /// Out-of-despawn-range handling — `monster.cpp` ~760–767.
+    fn monster_handle_out_of_spawn_range(&mut self, cid: CreatureId) {
+        let pos = match self.creatures.get(cid) {
+            Some(k) => k.position(),
+            None => return,
+        };
+        self.broadcast_magic_effect(pos, 4); // CONST_ME_POFF
+        if self.monster_world_config.remove_on_despawn {
+            self.remove_creature(cid);
+        } else {
+            self.monster_teleport_to_spawn(cid);
+        }
+    }
+
     /// TFS `Monster::onWalkComplete` spawn continuation — `monster.cpp` ~1113.
     pub fn monster_on_walk_complete(&mut self, cid: CreatureId) {
         let (walking_to_spawn, follow, queue_empty) = match self.creatures.get(cid) {
@@ -1050,10 +1113,14 @@ impl GameWorld {
             return;
         }
 
-        // Queue next flee/chase distance step without waiting for the 1 Hz think tick.
-        if queue_empty && follow.is_some() {
-            self.go_to_follow_creature(cid);
-            self.monster_arm_event_walk(cid);
+        if queue_empty {
+            if let Some(target_id) = follow {
+                self.monster_on_follow_creature_complete(cid, target_id);
+            }
+            if follow.is_some() {
+                self.go_to_follow_creature(cid);
+                self.monster_arm_event_walk(cid);
+            }
         }
     }
 
@@ -1063,22 +1130,34 @@ impl GameWorld {
         cid: CreatureId,
         now: std::time::Instant,
     ) -> Option<Direction> {
-        use crate::monster_distance_step::get_random_step;
-
-        let (walking_to_spawn, is_idle, health, follow, has_path, is_summon, master, pos) =
-            match self.creatures.get(cid) {
-                Some(CreatureKind::Monster(m)) => (
-                    m.walking_to_spawn,
-                    m.is_idle,
-                    m.base.health,
-                    m.base.follow_target,
-                    m.base.has_follow_path,
-                    m.base.is_summon(),
-                    m.base.master,
-                    m.base.position,
-                ),
-                _ => return None,
-            };
+        let (
+            walking_to_spawn,
+            is_idle,
+            health,
+            follow,
+            attack,
+            has_path,
+            is_summon,
+            master,
+            pos,
+            fleeing,
+            static_attack_chance,
+        ) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.walking_to_spawn,
+                m.is_idle,
+                m.base.health,
+                m.base.follow_target,
+                m.base.attack_target,
+                m.base.has_follow_path,
+                m.base.is_summon(),
+                m.base.master,
+                m.base.position,
+                m.is_fleeing(),
+                m.static_attack_chance,
+            ),
+            _ => return None,
+        };
 
         if !walking_to_spawn && (is_idle || health <= 0) {
             return None;
@@ -1115,7 +1194,46 @@ impl GameWorld {
 
         if (is_summon && master_in_range) || follow.is_some() || walking_to_spawn {
             if let Some(k) = self.creatures.get_mut(cid) {
-                return k.base_mut().walk_queue.pop_back();
+                if let Some(dir) = k.base_mut().walk_queue.pop_back() {
+                    return Some(dir);
+                }
+            }
+
+            // C++ target dancing when follow queue empty — `monster.cpp` ~1244–1256.
+            if follow == attack {
+                if let Some(target_id) = follow {
+                    let target_pos = self.creatures.get(target_id).map(|k| k.position())?;
+                    let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
+                    let can_use_now = self.monster_can_use_attack(cid, pos, target_id);
+                    let can_use_from = |from: Position| {
+                        self.monster_can_use_attack(cid, from, target_id)
+                    };
+                    let mut rng = rand::thread_rng();
+                    if fleeing {
+                        return get_dance_step(
+                            pos,
+                            target_pos,
+                            false,
+                            false,
+                            can_walk,
+                            can_use_from,
+                            can_use_now,
+                            &mut rng,
+                        );
+                    }
+                    if static_attack_chance < rng.gen_range(1..=100) {
+                        return get_dance_step(
+                            pos,
+                            target_pos,
+                            true,
+                            true,
+                            can_walk,
+                            can_use_from,
+                            can_use_now,
+                            &mut rng,
+                        );
+                    }
+                }
             }
         }
 
@@ -1151,15 +1269,15 @@ impl GameWorld {
 
     fn monster_can_walk_to(&self, cid: CreatureId, from: Position, dir: Direction) -> bool {
         let to = from.offset(dir);
-        let spawn = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => m.spawn_position,
+        let (spawn, cfg) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (m.spawn_position, self.monster_world_config),
             _ => return false,
         };
         if !is_in_spawn_range(
             to,
             spawn,
-            DEFAULT_DESPAWN_RADIUS,
-            DEFAULT_DESPAWN_Z_RANGE,
+            cfg.despawn_radius,
+            cfg.despawn_z_range,
         ) {
             return false;
         }
@@ -1267,6 +1385,26 @@ mod tests {
     }
 
     #[test]
+    fn is_within_walk_to_spawn_range_axis_box() {
+        let spawn = Position::new(100, 100, 7);
+        assert!(is_within_walk_to_spawn_range(
+            Position::new(110, 110, 7),
+            spawn,
+            15
+        ));
+        assert!(!is_within_walk_to_spawn_range(
+            Position::new(120, 100, 7),
+            spawn,
+            15
+        ));
+        assert!(is_within_walk_to_spawn_range(
+            Position::new(100, 100, 7),
+            spawn,
+            15
+        ));
+    }
+
+    #[test]
     fn compute_look_faces_target() {
         let from = Position::new(10, 10, 7);
         assert_eq!(
@@ -1290,6 +1428,7 @@ mod world_tests {
 
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
+    use crate::login_out::creature_wire_id;
     use crate::test_world::support::{
         ensure_walkable_tile, insert_monster_with_config, insert_player, insert_spectator_player,
         minimal_world, test_player,
@@ -1407,6 +1546,12 @@ mod world_tests {
             m.base.attack_target = Some(player);
             m.base.direction = Direction::North;
         }
+        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+        world
+            .creature_fully_sent_by_conn
+            .entry(conn)
+            .or_default()
+            .insert(wire_id);
 
         world.monster_update_look_direction(monster);
 
@@ -1504,6 +1649,155 @@ mod world_tests {
                 .get(monster)
                 .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.opponent_ids.is_empty())),
             "opponent must be pruned when outside Creature::canSee range"
+        );
+    }
+
+    #[test]
+    fn monster_walks_back_when_target_lost() {
+        let mut world = minimal_world();
+        world.walk_wake_tx = None;
+        let spawn = Position::new(100, 100, 7);
+        let far = Position::new(120, 100, 7);
+        for x in 100..=120 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            far,
+            200,
+            MonsterAiConfig::default(),
+        );
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.spawn_position = spawn;
+            m.is_idle = false;
+        }
+        let player = insert_player(&mut world, test_player("Hero", Position::new(121, 100, 7)));
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.opponent_ids.push(player);
+        }
+
+        world.monster_remove_creature_from_lists(monster, player);
+
+        assert!(
+            world.creatures.get(monster).is_some_and(|k| {
+                matches!(k, CreatureKind::Monster(m) if m.walking_to_spawn && !m.base.walk_queue.is_empty())
+            }),
+            "monster outside walkToSpawnRadius should path toward spawn when last opponent leaves"
+        );
+    }
+
+    #[test]
+    fn idle_monster_does_not_random_walk() {
+        let mut world = minimal_world();
+        world.walk_wake_tx = None;
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            pos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_idle))
+        );
+
+        let now = Instant::now();
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().last_step = Some(now - Duration::from_secs(2));
+            k.base_mut().next_walk_check = Some(now);
+        }
+        world.process_walk_deadlines();
+
+        assert_eq!(world.creatures.get(monster).unwrap().position(), pos);
+    }
+
+    #[test]
+    fn active_monster_random_roams_after_one_second() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        for dx in -1..=1_i32 {
+            for dy in -1..=1_i32 {
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
+                    100,
+                );
+            }
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            pos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+        }
+
+        let now = Instant::now();
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().last_step = Some(now - Duration::from_secs(2));
+        }
+        let step = world.monster_next_walk_step(monster, now);
+        assert!(
+            step.is_some(),
+            "active monster should pick a random roam direction after 1 s idle on tile"
+        );
+    }
+
+    #[test]
+    fn ranged_monster_steps_away_when_adjacent() {
+        let mut world = minimal_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        for x in 99..=102 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let mut config = MonsterAiConfig::default();
+        config.target_distance = 4;
+        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = true;
+        }
+
+        world.go_to_follow_creature(monster);
+
+        let stepped_away = world.creatures.get(monster).is_some_and(|k| {
+            k.base().walk_queue.iter().any(|&d| d == Direction::West)
+        });
+        if stepped_away {
+            return;
+        }
+
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().next_walk_check = Some(Instant::now());
+        }
+        world.process_walk_deadlines();
+
+        let final_pos = world.creatures.get(monster).unwrap().position();
+        assert!(
+            final_pos.x < mpos.x,
+            "ranged monster should step west away from adjacent player (was {:?}, now {:?})",
+            mpos,
+            final_pos
         );
     }
 }

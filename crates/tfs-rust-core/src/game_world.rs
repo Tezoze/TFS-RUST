@@ -106,6 +106,8 @@ pub struct GameWorld {
     pub(crate) last_creature_check: Option<Instant>,
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
+    /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
+    pub monster_world_config: crate::config::MonsterWorldConfig,
 }
 
 /// C++ `ProtocolGame::canSee(int32_t x, int32_t y, int32_t z)` — `protocolgame.cpp` ~796–823.
@@ -213,6 +215,8 @@ impl GameWorld {
         vocations: Arc<VocationDatabase>,
         walk_wake_tx: Option<UnboundedSender<CreatureId>>,
     ) -> Self {
+        let monster_world_config = crate::config::MonsterWorldConfig::from_config(config.as_ref())
+            .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
         Self {
             creatures: SlotMap::with_key(),
             items,
@@ -249,6 +253,7 @@ impl GameWorld {
             container_registry: ContainerRegistry::new(),
             last_creature_check: None,
             spawn_slot_by_creature: HashMap::new(),
+            monster_world_config,
         }
     }
 

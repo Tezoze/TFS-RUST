@@ -1,6 +1,6 @@
 # Phase D — Monster & NPC Walking + AI Foundation (Implementation Guide)
 
-**Status:** 🟡 In progress — **D.1–D.3 complete** (walk engine; think cadence; spawn instantiation + respawn + appear/disappear); D.4–D.7 pending.
+**Status:** 🟡 In progress — **D.1–D.4 complete** (walk engine; think cadence; spawn lifecycle; monster AI onThink); D.5–D.7 pending.
 **Goal:** Bring the world alive. Monsters and NPCs are instantiated from spawn
 definitions, walk on the map, chase/flee/return-to-spawn (monsters), idle-walk and
 face speakers (NPCs), and respawn on timers — all with 1:1 TFS 1.4.2 parity.
@@ -480,14 +480,14 @@ Per `.cursor/rules/TFS-cpp-references.mdc`, every ported fn needs a `// C++ refe
 comment. Confirm before completing:
 
 - [x] Walk timing identical for players after D.1 refactor (run existing walk tests).
-- [ ] `searchTarget` nearest/random selection matches `monster.cpp` ~517–600.
-- [ ] `getDistanceStep` keep-distance behavior for ranged monsters.
-- [ ] `isInSpawnRange` uses spawn center + radius (Chebyshev) like `monster.cpp` ~1931.
-- [ ] `updateLookDirection` face rules match `monster.cpp` ~1967.
-- [ ] `Spawn::checkSpawn` interval = min spawntime; `findPlayer` suppresses respawn.
-- [ ] Startup force-spawns ignore interval/findPlayer (`Spawn::startup`).
-- [ ] Appear/disappear packets match `sendAddCreature`/`RemoveTileThing` byte layout.
-- [ ] Step cost / floor-change for monsters reuses the player path (no divergence).
+- [x] `searchTarget` nearest/random selection matches `monster.cpp` ~517–600.
+- [x] `getDistanceStep` keep-distance behavior for ranged monsters.
+- [x] `isInSpawnRange` uses spawn center + radius (Chebyshev) like `monster.cpp` ~1931.
+- [x] `updateLookDirection` face rules match `monster.cpp` ~1967.
+- [x] `Spawn::checkSpawn` interval = min spawntime; `findPlayer` suppresses respawn.
+- [x] Startup force-spawns ignore interval/findPlayer (`Spawn::startup`).
+- [x] Appear/disappear packets match `sendAddCreature`/`RemoveTileThing` byte layout.
+- [x] Step cost / floor-change for monsters reuses the player path (no divergence).
 
 ---
 

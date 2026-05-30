@@ -1869,6 +1869,7 @@ mod step_speed_tests {
 
 #[cfg(test)]
 mod monster_walk_tests {
+    use crate::login_out::creature_wire_id;
     use crate::test_world::support;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::enums::Direction;
@@ -1892,6 +1893,12 @@ mod monster_walk_tests {
             support::test_player("Spectator", spectator_pos),
         );
         let monster = support::insert_monster(&mut world, "Rat", monster_start, 200);
+        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+        world
+            .creature_fully_sent_by_conn
+            .entry(conn)
+            .or_default()
+            .insert(wire_id);
 
         world.creature_queue_walk_step(monster, Direction::East);
 

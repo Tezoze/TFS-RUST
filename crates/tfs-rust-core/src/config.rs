@@ -179,6 +179,40 @@ impl ConfigManager {
     }
 }
 
+/// Monster despawn / walk-back settings — C++ `configmanager.cpp` ~232–251.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterWorldConfig {
+    /// C++ `deSpawnRadius` / `Monster::despawnRadius` (default 50).
+    pub despawn_radius: i32,
+    /// C++ `deSpawnRange` / `Monster::despawnRange` Z delta (default 2).
+    pub despawn_z_range: i32,
+    /// C++ `walkToSpawnRadius` / `DEFAULT_WALKTOSPAWNRADIUS` (default 15; 0 disables).
+    pub walk_to_spawn_radius: i32,
+    /// C++ `removeOnDespawn` — remove creature vs teleport to spawn (default true).
+    pub remove_on_despawn: bool,
+}
+
+impl MonsterWorldConfig {
+    /// C++ `configmanager.cpp` defaults when keys are absent.
+    pub fn defaults() -> Self {
+        Self {
+            despawn_radius: 50,
+            despawn_z_range: 2,
+            walk_to_spawn_radius: 15,
+            remove_on_despawn: true,
+        }
+    }
+
+    pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
+        Ok(Self {
+            despawn_radius: get_i64_or(cfg, "deSpawnRadius", 50)? as i32,
+            despawn_z_range: get_i64_or(cfg, "deSpawnRange", 2)? as i32,
+            walk_to_spawn_radius: get_i64_or(cfg, "walkToSpawnRadius", 15)? as i32,
+            remove_on_despawn: get_bool_or(cfg, "removeOnDespawn", true)?,
+        })
+    }
+}
+
 impl NetConfig {
     // C++ ref: src/configmanager.cpp:168-194
     pub fn from_config(cfg: &ConfigManager) -> Result<Self> {

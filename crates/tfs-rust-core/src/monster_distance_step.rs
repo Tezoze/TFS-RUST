@@ -95,6 +95,89 @@ where
     None
 }
 
+/// TFS `Monster::getDanceStep` — `monster.cpp` ~1295.
+pub fn get_dance_step<F, G>(
+    creature_pos: Position,
+    target_pos: Position,
+    keep_attack: bool,
+    keep_distance: bool,
+    can_walk: F,
+    can_use_attack_from: G,
+    can_use_attack_now: bool,
+    rng: &mut impl Rng,
+) -> Option<Direction>
+where
+    F: Fn(Direction) -> bool,
+    G: Fn(Position) -> bool,
+{
+    let offset_x = offset_x(creature_pos, target_pos);
+    let offset_y = offset_y(creature_pos, target_pos);
+    let distance_x = offset_x.unsigned_abs() as i32;
+    let distance_y = offset_y.unsigned_abs() as i32;
+    let center_to_dist = distance_x.max(distance_y);
+
+    let mut dir_list: Vec<Direction> = Vec::new();
+
+    let mut try_dir = |dir: Direction, dest: Position| {
+        if !can_walk(dir) {
+            return;
+        }
+        if keep_attack {
+            let ok = !can_use_attack_now || can_use_attack_from(dest);
+            if !ok {
+                return;
+            }
+        }
+        dir_list.push(dir);
+    };
+
+    if !keep_distance || offset_y >= 0 {
+        let tmp_dist = distance_x.max((creature_pos.y as i32 - 1 - target_pos.y as i32).unsigned_abs() as i32);
+        if tmp_dist == center_to_dist {
+            try_dir(
+                Direction::North,
+                Position::new(creature_pos.x, creature_pos.y.saturating_sub(1), creature_pos.z),
+            );
+        }
+    }
+
+    if !keep_distance || offset_y <= 0 {
+        let tmp_dist = distance_x.max((creature_pos.y as i32 + 1 - target_pos.y as i32).unsigned_abs() as i32);
+        if tmp_dist == center_to_dist {
+            try_dir(
+                Direction::South,
+                Position::new(creature_pos.x, creature_pos.y.saturating_add(1), creature_pos.z),
+            );
+        }
+    }
+
+    if !keep_distance || offset_x <= 0 {
+        let tmp_dist = ((creature_pos.x as i32 + 1 - target_pos.x as i32).unsigned_abs() as i32).max(distance_y);
+        if tmp_dist == center_to_dist {
+            try_dir(
+                Direction::East,
+                Position::new(creature_pos.x.saturating_add(1), creature_pos.y, creature_pos.z),
+            );
+        }
+    }
+
+    if !keep_distance || offset_x >= 0 {
+        let tmp_dist = ((creature_pos.x as i32 - 1 - target_pos.x as i32).unsigned_abs() as i32).max(distance_y);
+        if tmp_dist == center_to_dist {
+            try_dir(
+                Direction::West,
+                Position::new(creature_pos.x.saturating_sub(1), creature_pos.y, creature_pos.z),
+            );
+        }
+    }
+
+    if dir_list.is_empty() {
+        return None;
+    }
+    dir_list.shuffle(rng);
+    Some(dir_list[rng.gen_range(0..dir_list.len())])
+}
+
 /// TFS `Monster::getDistanceStep` — `monster.cpp` ~1386.
 pub fn get_distance_step<F>(
     creature_pos: Position,
@@ -483,5 +566,25 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(2);
         let dir = get_distance_step(from, target, 1, true, true, can_walk, &mut rng).unwrap();
         assert!(matches!(dir, Direction::West | Direction::East));
+    }
+
+    #[test]
+    fn dance_step_picks_valid_lateral_when_chase_queue_empty() {
+        let creature = Position::new(10, 10, 7);
+        let target = Position::new(12, 10, 7);
+        let can_walk = |d: Direction| matches!(d, Direction::North | Direction::South);
+        let can_attack = |_from: Position| true;
+        let mut rng = StdRng::seed_from_u64(99);
+        let dir = get_dance_step(
+            creature,
+            target,
+            true,
+            true,
+            can_walk,
+            can_attack,
+            false,
+            &mut rng,
+        );
+        assert!(matches!(dir, Some(Direction::North) | Some(Direction::South)));
     }
 }
