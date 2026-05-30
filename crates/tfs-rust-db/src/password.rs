@@ -88,6 +88,14 @@ pub fn hash_bcrypt(plaintext: &str, cost: u32) -> Result<String> {
     bcrypt::hash(plaintext, cost).map_err(|e| TfsRustError::Database(format!("bcrypt hash: {e}")))
 }
 
+/// Async bcrypt hash — runs on the blocking thread pool (cost 12 ≈ hundreds of ms).
+pub async fn hash_bcrypt_async(plaintext: &str, cost: u32) -> Result<String> {
+    let plaintext = plaintext.to_owned();
+    tokio::task::spawn_blocking(move || hash_bcrypt(&plaintext, cost))
+        .await
+        .map_err(|e| TfsRustError::Database(format!("password hash task: {e}")))?
+}
+
 /// Synchronous verify — run on `spawn_blocking` when bcrypt is involved.
 pub fn verify_password_sync(plaintext: &str, stored: &str, cfg: &PasswordHashConfig) -> bool {
     match detect_format(stored) {

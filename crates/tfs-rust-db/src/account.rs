@@ -4,7 +4,7 @@
 use sqlx::Row;
 use tfs_rust_common::error::{Result, TfsRustError};
 
-use crate::password::{hash_bcrypt, needs_upgrade, verify_password, PasswordHashConfig};
+use crate::password::{hash_bcrypt_async, needs_upgrade, verify_password, PasswordHashConfig};
 use crate::pool::DbPool;
 
 async fn load_character_names(pool: &DbPool, account_id: i32) -> Result<Vec<String>> {
@@ -52,7 +52,7 @@ async fn authenticate_account_password(
     }
 
     if needs_upgrade(&stored) {
-        let upgraded = hash_bcrypt(password, hash_cfg.bcrypt_cost)?;
+        let upgraded = hash_bcrypt_async(password, hash_cfg.bcrypt_cost).await?;
         sqlx::query("UPDATE accounts SET password = ? WHERE id = ?")
             .bind(&upgraded)
             .bind(account_id)
