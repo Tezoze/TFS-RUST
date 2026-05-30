@@ -10,7 +10,7 @@
 
 **Playable Phase C is in place:** players can log in with equipment and nested containers, see real `0x78` inventory packets, move/equip/unequip via `internal_move_item`, use quick-equip, look at items and terrain (floors, water, trees), and **save the live worn-item tree** on logout.
 
-**Not yet at full C++ parity:** MoveEvent equip script execution (`data/movements/`), depot/inbox as **runtime** cylinders, trade-item guards in moves, shop list refresh, and the rest of the **gradual Lua inventory API** (see [P5 — Lua API](#p5--lua-api-gradual-build--track-2)).
+**Not yet at full C++ parity:** trade-item guards in moves, shop list refresh, full `data/lib` bootstrap, MoveEvent `inventoryAbilities` from XML child nodes, and deferred APIs (`addItemEx`, `item:transform`, tile MoveEvents).
 
 **Design rule:** Use idiomatic Rust (SlotMap, `Cylinder` enum, pure query functions) while preserving **observable** TFS 1.4.2 behavior — not a line-by-line C++ port.
 
@@ -45,7 +45,7 @@
 | `playerLookAt` | `game.cpp` ~3156 | `player_look_at`, `internal_get_thing_look`, `protocol_can_see` | ✅ items + ground/terrain + cross-floor look; creature text stubbed |
 | Container open UI | `player.cpp` openContainers | `container_ui.rs`, `ContainerRegistry` | ✅ |
 | Auto-open on login | `player.cpp` `autoOpenContainers` | `auto_open_containers_on_login` | ✅ |
-| Equip move events | `postAddNotification` → move events | `on_player_equip` / `on_player_deequip` | ✅ partial |
+| Equip move events | `postAddNotification` → move events | `fire_on_player_equip*` + `MoveEventsRegistry` | ✅ XML `function=` equip/deequip |
 | Save worn + nested items | `iologindata.cpp` `saveItems` | `game_world_save.rs` `append_save_item_tree` | ✅ inventory + store inbox from runtime |
 | Slot mask check | `queryAdd` per-slot `SLOTP_*` | `item_fits_equipment_slot` | ✅ (superseded by `player_query_add` in move path) |
 | `Player::queryAdd` full | `player.cpp` 2397–2617 | `player_inventory_query_add.rs` `player_query_add` | ✅ classic/non-classic, hand/two-hand, capacity, store-item, equip probe, `NeedExchange` |
@@ -125,7 +125,7 @@
 
 ---
 
-### P4 — Depot & inbox runtime — done
+### P4 — Depot & inbox runtime — ✅ DONE
 
 **C++ load:** `iologindata.cpp` ~449–506 → `getDepotChest` / `getInbox()` live containers.
 
@@ -148,103 +148,81 @@
 - [ ] Fill depot to limit → next add shows cancel message (`DepotIsFull`)
 - [ ] Never open depot → logout → depot rows unchanged in DB
 
-**Deferred (P5+):** Lua `getDepotChest` / `getInbox`, full market runtime (`0xF6`), `onReceiveMail`.
+**Deferred (P5+):** full market runtime (`0xF6`), `onReceiveMail`, MoveEvent `inventoryAbilities` from XML nested nodes, Lua `MoveEvent():register()` compat scripts.
 
 ---
 
-### P5 — Lua API (gradual build — Track 2)
+### P5 — Lua API (gradual build — Track 2) — ✅ DONE (core tranche)
 
-**Binding rules:** `@.cursor/rules/TFS-lua-boundaries.mdc` (path-scoped to `crates/tfs-rust-core/**/*.rs`, `crates/tfs-rust-lua/**/*.rs`). Any inventory Lua work must follow that file — summarized below.
+**Binding rules:** `@.cursor/rules/TFS-lua-boundaries.mdc`. Reads → `ScriptContext`; mutations → `LuaMutation` + immediate `apply_lua_mutation`; equip MoveEvents → `fire_on_player_equip*` under mutation scope.
 
-Inventory-related Lua is being added incrementally in `tfs-rust-lua`, with game-thread mutations routed through `lua_scope` + `LuaMutation` (not direct `GameWorld` access from the VM).
+**C++ reference:** `src/luascript.cpp`, `src/movement.cpp` `MoveEvents::fireEquip`.
 
-**C++ reference:** `src/luascript.cpp` — `Creature` / `Player` / `Item` userdata; `luaPlayerAddItem`, `luaPlayerGetItemCount`, move-event equip scripts, etc.
+#### Core prerequisites (Tranche 0)
 
-#### Mandatory Lua boundaries (from `TFS-lua-boundaries.mdc`)
-
-| Rule | Requirement |
-|------|-------------|
-| Engine | **mlua + LuaJIT** (`luajit`, `vendored`) — not Rhai / Lua 5.4 |
-| Threading | `LuaRuntime` is `!Send`, **game thread only** (`LocalSet`) |
-| Dependencies | `tfs-rust-lua` must **not** depend on `tfs-rust-core` — `core` → `lua` wiring only |
-| Reads | `ScriptContext` in `tfs-rust-common`; userdata holds **IDs only**; `with_lua_context` |
-| Mutations | `LuaMutation` + **immediate** `apply_lua_mutation` in `lua_scope.rs` if scripts read state in the same callback (e.g. `addItem`) |
-| Dispatch | New events → `fire_on_*` in `lua_scope.rs` — no scattered world pointers in mlua closures |
-| `EventDispatcher` | Must not import `tfs-rust-lua` |
-| New methods | Classify each `luascript.cpp` port as **read** (`ScriptContext`) vs **mutation** (`LuaMutation`) |
-| Equip MoveEvents | When wired: dispatch from `fire_on_*` / `LuaEventDispatcher` under `with_lua_mutation_scope` if scripts can mutate inventory in the callback |
-
-#### Infrastructure (done)
-
-| Piece | Rust | Notes |
+| Piece | Rust | Status |
 |-------|------|--------|
-| VM + script load | `tfs-rust-lua` `LuaRuntime`, `ScriptLoader` | `data/lib/`, creaturescripts, actions |
-| Read context during Lua | `LuaContext` + `with_lua_context` | `get_creature`, `get_item_data`, slot/capacity queries |
-| Mutations from Lua | `LuaMutation` + `register_lua_mutation_applier` | Game thread only; `lua_scope.rs` applies to `GameWorld` |
-| Login scripts | `fire_on_login` → `LuaEventDispatcher::on_login` | Real callback dispatch |
-| Core hook points | `EventDispatcher::on_player_equip` / `on_player_deequip` | Called from inventory moves; **Lua move scripts not wired yet** |
+| `findItemOfType` | `player_inventory_util.rs` | ✅ slots 1–10 + BFS |
+| Cylinder/parent reads | `ScriptContext` + `player_lua_context.rs` | ✅ `ScriptCylinder`, container queries |
+| Lua mutation helpers | `game_world_inventory.rs` `lua_script_*` | ✅ moveTo, remove, depot, container addItem, attrs |
+| Equip dispatch scope | `lua_scope.rs` `fire_on_player_equip*` | ✅ replaces bare `EventDispatcher` calls |
+| `player_query_add` equip probe | `player_inventory_query_add.rs` | ✅ `&mut self` + level/slot-mask in dispatcher |
 
-#### `Player` / `Creature` userdata — implemented
-
-Registered in `crates/tfs-rust-lua/src/userdata/player.rs` (shared `CreatureRef` metatable):
-
-| Lua method | Backed by | Parity |
-|------------|-----------|--------|
-| `getId` | FFI creature id | ✅ |
-| `getName` | `LuaContext::get_creature` | ✅ |
-| `getGuid` | player guid | ✅ |
-| `getSlotItem(slot)` | `get_player_slot_item_id` → `ItemRef` | ✅ equipment slots |
-| `getCapacity` | `get_player_capacity` | ✅ |
-| `getFreeCapacity` | `get_player_free_capacity` | ✅ |
-| `addItem(itemId[, count])` | `lua_script_add_item` (backpack only) | 🟡 subset — no `canDropOnMap`, slot arg, subType |
-| `removeItem(itemId, count[, subType[, ignoreEquipped]])` | `player_remove_item_of_type` via `LuaMutation` | ✅ |
-| `getItemCount(itemId[, subType])` | `player_get_item_type_count` via `ScriptContext` | ✅ |
-
-#### `Item` userdata — implemented (read-only)
-
-`crates/tfs-rust-lua/src/userdata/item.rs`:
+#### `Player` userdata — implemented
 
 | Lua method | Status |
 |------------|--------|
-| `getId` | ✅ (script id / handle) |
-| `getType` | ✅ server item type |
-| `getCount` | ✅ |
-| `getWeight` | ✅ |
-| `getName` | ✅ |
+| `getId`, `getName`, `getGuid` | ✅ |
+| `getSlotItem`, `getCapacity`, `getFreeCapacity`, `getItemCount` | ✅ |
+| `getItemById(id\|name[, deep[, subType]])` | ✅ via `find_item_of_type` |
+| `getDepotChest(id[, autoCreate])`, `getInbox()` | ✅ mutation when auto-create |
+| `getContainerId`, `getContainerById`, `getContainerIndex` | ✅ |
+| `addItem(id[, count[, canDropOnMap[, subType[, slot]]]])` | ✅ expanded (not `addItemEx`) |
+| `removeItem` | ✅ |
 
-#### Creature events — inventory-related
+#### `Item` userdata — implemented
 
-| Event | Status |
+| Lua method | Status |
+|------------|--------|
+| `getId`, `getType`, `getCount`, `getWeight`, `getName` | ✅ |
+| `moveTo(cylinder\|position[, flags])` | ✅ Container/Player/Position |
+| `remove([count])` | ✅ |
+| `getParent`, `getTopParent`, `getPosition` | ✅ |
+| `isContainer`, `getContainer` | ✅ |
+| `getActionId` / `setActionId`, `getUniqueId` / `setUniqueId`, store flags | ✅ |
+
+#### `Container` userdata — implemented
+
+Inherits Item methods via mlua metatable chain (`userdata/container.rs`). Read: `getSize`, `getCapacity`, `getEmptySlots`, `getItem`, `getItems`, `getItemHoldingCount`, `getItemCountById`, `hasItem`, `getCorpseOwner`. Mutation: `addItem`. Deferred: `addItemEx`, `getContentDescription`, `setCapacity`.
+
+#### MoveEvents equip scripts
+
+| Piece | Status |
 |-------|--------|
-| `onLogin` | ✅ dispatched |
-| `onLogout` | ✅ dispatched |
-| MoveEvent `onEquip` / `onDeEquip` | ❌ `LuaEventDispatcher` only **traces** today — does not run `data/movements/` equip scripts |
+| XML `function="onEquipItem"` / `onDeEquipItem` | ✅ `move_events.rs` loader |
+| Default equip globals when lib empty | ✅ bootstrap chunk in loader |
+| `req_level` + slot mask | ✅ checked in `LuaEventDispatcher` |
+| Lua callback `(player, item, slot, isCheck)` | ✅ `call_move_equip` |
+| Step-in/step-out tile MoveEvents | ❌ deferred |
+| `MoveEvent():register()` from `data/scripts/movements/` | ❌ deferred (needs compat `MoveEvent` metatable) |
+| XML nested `inventoryAbilities` | ❌ deferred (needs full `onEquipItem` lib port) |
 
-Equip/deequip **game** hooks exist (`game_world_inventory` → `events.on_player_*`); wiring those to Lua MoveEvents is a separate step from userdata methods.
+#### Explicit deferrals
 
-#### Not started (typical next Lua tranche)
+| API | Blocker |
+|-----|---------|
+| `player:addItemEx`, `container:addItemEx` | Virtual cylinder + `internalAddItem` (Phase 9) |
+| `item:transform` | No `transform_item` in core |
+| `Tile` userdata for `moveTo` | Position→tile path works |
+| Full `data/lib` load | `LuaRuntime::new` TODO — movements bootstrap only |
 
-| Lua API (C++) | Blocked by |
-|---------------|------------|
-| `player:getItemById` | `findItemOfType` (P5) |
-| `player:addItemEx` | `internalAddItem` / remainder (Phase 9) |
-| `player:getDepotChest` / `getInbox` | Depot/inbox runtime (P4) |
-| `player:getContainerId` / `getContainerById` / `getContainerIndex` | Open-container registry already in core; bindings missing |
-| `Container` userdata | No `userdata/container.rs` yet |
-| `item:moveTo`, `item:remove`, `item:transform` | `internalMoveItem` / `transformItem` from Lua |
-| `item:getParent`, `getTopParent`, `getPosition` | Cylinder/parent resolution in `LuaContext` |
-| `item:getActionId`, `setAttribute`, store flags, etc. | Item attribute API surface |
+**Manual smoke checklist (P5):**
 
-#### Lua ↔ core dependency
-
-```text
-Player:addItem/removeItem (today) → LuaMutation → GameWorld::lua_script_* (backpack)
-Future getItemCount/removeItem(full) → getItemTypeCount / removeItemOfType (P3) first
-Future item:moveTo → internal_move_item + full Player::queryAdd (P0)
-MoveEvent equip scripts → LuaEventDispatcher + movements loader (parallel to userdata)
-```
-
-**Step 8** in the table below = expand this section as each binding lands; prefer mutation applier + `LuaContext` over calling core from raw Lua C API style.
+- [ ] GM: `player:addItem(2160, 100)` → `getItemCount` reflects immediately
+- [ ] `player:getDepotChest(id, true):getItemHoldingCount()` from `data/lib/core/player.lua`
+- [ ] Death/drop script: `item:moveTo(corpse)`
+- [ ] Equip level-gated boots (`movements.xml` `level=`) → low level blocked
+- [ ] `player:getItemById(2148, true)` finds gold in nested backpack
 
 ---
 
@@ -257,8 +235,8 @@ flowchart TD
     p1[✅ queryRemove / queryMaxCount / queryDestination]
     p2[✅ postAdd/postRemove chain: light, abilities, inventory update event]
     p3[✅ getItemTypeCount, removeItemOfType, getWeapon from inventory]
-    p4[Depot/inbox hydrate + UI + live save]
-    p5[Lua container + inventory API]
+    p4[✅ Depot/inbox hydrate + UI + live save]
+    p5[✅ Lua container + inventory API]
     done --> p0
     p0 --> p1
     p0 --> p2
@@ -276,8 +254,8 @@ flowchart TD
 | **4** | `queryMaxCount` / `queryRemove` for inventory cylinder | `player_inventory_query_add.rs`, `game_world.rs` | `player.cpp` 2619–2716 | ✅ |
 | **5** | `postAddNotification` parity (light, abilities, inventory update) | `player_inventory_notifications.rs`, `game_world_inventory.rs` | `player.cpp` 3076–3191 | ✅ |
 | **6** | `getItemTypeCount`, `removeItemOfType` | `player_inventory_util.rs`, `game_world_inventory.rs` | `player.cpp` 2974–3047 | ✅ |
-| **7** | Depot/inbox runtime + save from live state | `player_inventory_load.rs`, `game_world_save.rs`, `login.rs` | `iologindata.cpp` 449–491, save depot block | ❌ |
-| **8** | Lua bindings | `tfs-rust-lua` | `luascript.cpp` player/item/container | ❌ |
+| **7** | Depot/inbox runtime + save from live state | `player_depot.rs`, `game_world_save.rs`, `login.rs` | `iologindata.cpp` 449–491 | ✅ |
+| **8** | Lua bindings | `tfs-rust-lua`, `lua_scope.rs`, `move_events.rs` | `luascript.cpp`, `movement.cpp` | ✅ core tranche |
 
 **Doc hygiene (optional, same PR or follow-up):**
 
@@ -289,6 +267,7 @@ flowchart TD
 ## Verification
 
 ```bash
+cargo test -p tfs-rust-core --lib find_item_in_backpack
 cargo test -p tfs-rust-core inventory
 cargo test -p tfs-rust-core --test inventory_container_gaps
 SQLX_OFFLINE=true cargo check --workspace
@@ -321,6 +300,6 @@ SQLX_OFFLINE=true cargo check --workspace
 
 ## Bottom line
 
-**Where we are:** Inventory is **playable** for a live client session (wear, move, quick-equip, look, save worn gear). Container **UI** and **container query*** are in place. **P0** (`queryAdd`) and **P1** (`queryDestination` / `queryMaxCount` / `queryRemove`) are **complete** — wired through `resolve_move_destination` and `internal_move_item`.
+**Where we are:** Inventory is **playable** for a live client session (wear, move, quick-equip, look, save worn gear + depot/inbox). **P0–P5 core tranches are complete** — cylinder queries, notifications, utilities, depot runtime, Lua Player/Item/Container API, and XML equip MoveEvents.
 
-**What’s next:** Depot/inbox runtime (P4), then expanded Lua container/inventory API (P5).
+**What’s next:** Full `data/lib` bootstrap, MoveEvent `inventoryAbilities` / compat `MoveEvent():register()`, trade guards, shop refresh, Phase 9 `addItemEx` / `transform`.

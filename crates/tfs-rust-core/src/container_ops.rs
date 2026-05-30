@@ -128,7 +128,7 @@ impl GameWorld {
 
     /// TFS `Container::queryAdd` — `container.cpp` ~243–366.
     pub(crate) fn container_query_add(
-        &self,
+        &mut self,
         container_item_id: ItemId,
         index: i32,
         item_id: ItemId,
@@ -273,7 +273,7 @@ impl GameWorld {
 
     /// TFS `Container::queryMaxCount` — `container.cpp` ~311–329.
     pub(crate) fn container_query_max_count(
-        &self,
+        &mut self,
         container_item_id: ItemId,
         index: i32,
         item_id: ItemId,
@@ -291,12 +291,13 @@ impl GameWorld {
             return Err(ReturnValue::NotPossible);
         };
         let free_slots = (cont.capacity as i32 - cont.size() as i32).max(0) as u32;
+        let container_items: Vec<ItemId> = cont.items.clone();
 
         if it.map(|t| t.stackable()).unwrap_or(false) {
             let mut n = 0u32;
             if index == INDEX_WHEREEVER {
                 let mut slot_index: i32 = 0;
-                for &container_item in &cont.items {
+                for &container_item in &container_items {
                     if container_item != item_id
                         && self.items_stack_mergeable(item_id, container_item)
                         && self.items.get(container_item).is_some_and(|ci| ci.count < 100)
@@ -319,7 +320,7 @@ impl GameWorld {
                 }
             } else if index >= 0 {
                 let idx = index as usize;
-                if let Some(dest_id) = cont.get_item(idx) {
+                if let Some(dest_id) = container_items.get(idx).copied() {
                     if self.items_stack_mergeable(item_id, dest_id)
                         && self.items.get(dest_id).is_some_and(|d| d.count < 100)
                         && self.container_query_add(container_item_id, index, item_id, count, flags, None)
@@ -344,7 +345,7 @@ impl GameWorld {
 
     /// TFS `Container::queryDestination` — `container.cpp` ~369–428.
     pub(crate) fn container_query_destination(
-        &self,
+        &mut self,
         container_item_id: ItemId,
         index: &mut i32,
         item_id: ItemId,

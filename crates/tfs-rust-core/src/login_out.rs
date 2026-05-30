@@ -11,6 +11,7 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 
 use crate::creature::CreatureKind;
+use crate::creature::LightInfo;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::{Monster, Npc, Outfit, Player};
@@ -73,7 +74,13 @@ fn non_player_wire_id(cid: CreatureId) -> u32 {
     (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
 }
 
-fn player_to_add_creature_wire(p: &Player, is_self: bool) -> AddCreatureWire {
+/// C++ `ProtocolGame::AddCreature` — `protocolgame.cpp` ~3206 (`getCreatureLight`, viewer `isAccessPlayer`).
+fn player_to_add_creature_wire(
+    p: &Player,
+    is_self: bool,
+    light: LightInfo,
+    viewer_is_access: bool,
+) -> AddCreatureWire {
     let hp = if !is_self && p.health_hidden {
         0
     } else {
@@ -88,8 +95,8 @@ fn player_to_add_creature_wire(p: &Player, is_self: bool) -> AddCreatureWire {
         health_percent: hp,
         direction: p.base.direction as u8,
         outfit: outfit_to_wire(&p.base.outfit),
-        light_level: 0,
-        light_color: 0,
+        light_level: light.level,
+        light_color: light.color,
         speed_half: speed_half(p.base.speed),
         skull: skull_byte(p.base.skull),
         party_shield: 0,
@@ -97,7 +104,7 @@ fn player_to_add_creature_wire(p: &Player, is_self: bool) -> AddCreatureWire {
         speech_bubble: 0,
         helpers: 0,
         walkthrough_blocked: 1,
-        access_player: is_self,
+        access_player: viewer_is_access,
     }
 }
 
@@ -165,7 +172,9 @@ pub(crate) fn map_tile_content(
     let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {
         return None;
     };
-    let self_wire = player_to_add_creature_wire(self_player, true);
+    let viewer_access = world.player_is_access_player(self_cid);
+    let self_light = world.player_creature_light(self_cid);
+    let self_wire = player_to_add_creature_wire(self_player, true, self_light, viewer_access);
     let self_guid = self_player.guid;
 
     let px = player_pos.x as i32;
@@ -244,7 +253,10 @@ pub(crate) fn map_tile_content(
                     }
                 }
                 let w = match k {
-                    CreatureKind::Player(p) => player_to_add_creature_wire(p, p.guid == self_guid),
+                    CreatureKind::Player(p) => {
+                        let light = world.player_creature_light(ocid);
+                        player_to_add_creature_wire(p, p.guid == self_guid, light, viewer_access)
+                    }
                     CreatureKind::Monster(m) => monster_to_add_creature_wire(ocid, m),
                     CreatureKind::Npc(n) => npc_to_add_creature_wire(ocid, n),
                 };
@@ -522,5 +534,33 @@ pub fn enqueue_initial_login_packets(
             map_0x64_len,
             "initial 0x64 map packet is very small — possible stub (creature/world not ready)"
         );
+    }
+}
+
+#[cfg(test)]
+mod map_creature_wire_tests {
+    use super::*;
+    use crate::creature::LightInfo;
+    use crate::test_world::support::test_player;
+    use tfs_rust_common::Position;
+
+    #[test]
+    fn self_map_wire_uses_creature_light_not_is_self_access() {
+        let p = test_player("Test", Position::new(100, 100, 7));
+        let light = LightInfo {
+            level: 7,
+            color: 215,
+        };
+        let wire = player_to_add_creature_wire(&p, true, light, false);
+        assert!(!wire.access_player);
+        assert_eq!(wire.light_level, 7);
+        assert_eq!(wire.light_color, 215);
+    }
+
+    #[test]
+    fn gm_viewer_uses_access_player_wire_flag() {
+        let p = test_player("GM", Position::new(100, 100, 7));
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true);
+        assert!(wire.access_player);
     }
 }

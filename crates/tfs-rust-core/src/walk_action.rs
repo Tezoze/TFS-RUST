@@ -64,7 +64,7 @@ impl GameWorld {
     }
 
     /// Reschedule a deferred walk-action when `nextAction` is still active (`game.cpp` ~908–913).
-    fn defer_player_walk_action(&mut self, cid: CreatureId, action: PlayerWalkAction, now: Instant) {
+    pub(crate) fn defer_player_walk_action(&mut self, cid: CreatureId, action: PlayerWalkAction, now: Instant) {
         let due = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.next_action_until.filter(|t| *t > now),
             _ => None,

@@ -224,15 +224,18 @@ pub(crate) fn evaluate_player_inventory_slot_query(
 impl GameWorld {
     /// TFS `Player::queryAdd` — `player.cpp` ~2397–2617.
     pub(crate) fn player_query_add(
-        &self,
+        &mut self,
         cid: CreatureId,
         index: u8,
         item_id: ItemId,
         count: u32,
         flags: CylinderFlags,
     ) -> ReturnValue {
-        let Some(item) = self.items.get(item_id) else {
-            return ReturnValue::NotPossible;
+        let (item_type, item_count, is_store_item) = {
+            let Some(item) = self.items.get(item_id) else {
+                return ReturnValue::NotPossible;
+            };
+            (item.item_type, item.count, item.is_store_item())
         };
 
         if flags.contains(CylinderFlags::CHILD_IS_OWNER) {
@@ -244,13 +247,13 @@ impl GameWorld {
             return ReturnValue::NotEnoughCapacity;
         }
 
-        let Some(it) = self.items_db.items.get(&item.item_type) else {
+        let Some(it) = self.items_db.items.get(&item_type) else {
             return ReturnValue::NotPossible;
         };
         if !it.pickupable() {
             return ReturnValue::CannotPickup;
         }
-        if item.is_store_item() {
+        if is_store_item {
             return ReturnValue::ItemCannotBeMovedThere;
         }
 
@@ -263,7 +266,7 @@ impl GameWorld {
             classic,
             it,
             item_id,
-            item.count,
+            item_count,
             left,
             right,
         );
@@ -277,9 +280,8 @@ impl GameWorld {
         }
 
         if index != InventorySlot::Wherever as u8 {
-            let probe = self
-                .events
-                .on_player_equip_check(cid, item_id, index);
+            let probe =
+                crate::lua_scope::fire_on_player_equip_check(self, cid, item_id, index);
             if probe != ReturnValue::NoError {
                 return probe;
             }
@@ -297,7 +299,7 @@ impl GameWorld {
                 .map(|t| t.stackable())
                 .unwrap_or(false);
             let dest_type = self.items.get(dest_id).map(|i| i.item_type).unwrap_or(0);
-            if !dest_stackable || dest_type != item.item_type {
+            if !dest_stackable || dest_type != item_type {
                 return ReturnValue::NeedExchange;
             }
         }
@@ -454,7 +456,7 @@ impl GameWorld {
 
     /// TFS `Player::queryMaxCount` — `player.cpp` ~2619–2693.
     pub(crate) fn player_query_max_count(
-        &self,
+        &mut self,
         player_id: CreatureId,
         index: i32,
         item_id: ItemId,
@@ -487,9 +489,9 @@ impl GameWorld {
                         ) {
                             n = n.saturating_add(q);
                         }
-                        for nested in
-                            ContainerIterator::new(&self.container_registry, inventory_item)
-                        {
+                        let nested_containers: Vec<ItemId> =
+                            ContainerIterator::new(&self.container_registry, inventory_item).collect();
+                        for nested in nested_containers {
                             let nested_type =
                                 self.items.get(nested).map(|i| i.item_type).unwrap_or(0);
                             if self.items_db.is_container(nested_type) {
@@ -568,7 +570,7 @@ impl GameWorld {
 
     /// TFS `Player::queryDestination` — `player.cpp` ~2718–2841.
     pub(crate) fn player_query_destination(
-        &self,
+        &mut self,
         player_id: CreatureId,
         slot: u8,
         item_id: ItemId,
@@ -605,7 +607,7 @@ impl GameWorld {
     }
 
     fn player_query_destination_wherever(
-        &self,
+        &mut self,
         player_id: CreatureId,
         item_id: ItemId,
         flags: CylinderFlags,
@@ -685,12 +687,15 @@ impl GameWorld {
             let Some(cont) = self.container_registry.get(tmp_container) else {
                 continue;
             };
+            let cont_capacity = cont.capacity;
+            let cont_size = cont.size();
+            let cont_items: Vec<ItemId> = cont.items.clone();
 
             if !auto_stack || !stackable {
-                let free = cont.capacity.saturating_sub(cont.size() as u32);
+                let free = cont_capacity.saturating_sub(cont_size as u32);
                 let mut n = free;
                 while n > 0 {
-                    let try_index = cont.capacity.saturating_sub(n) as i32;
+                    let try_index = cont_capacity.saturating_sub(n) as i32;
                     if self.container_query_add(
                         tmp_container,
                         try_index,
@@ -707,7 +712,7 @@ impl GameWorld {
                     }
                     n -= 1;
                 }
-                for &list_item in &cont.items {
+                for &list_item in &cont_items {
                     let child_type = self.items.get(list_item).map(|it| it.item_type).unwrap_or(0);
                     if self.items_db.is_container(child_type) {
                         containers.push(list_item);
@@ -717,7 +722,7 @@ impl GameWorld {
             }
 
             let mut n: i32 = 0;
-            for &tmp_item in &cont.items {
+            for &tmp_item in &cont_items {
                 if self.player_skip_destination_item(tmp_item, item_id, trade_item) {
                     n += 1;
                     continue;
@@ -737,7 +742,7 @@ impl GameWorld {
                 n += 1;
             }
 
-            if (n as u32) < cont.capacity
+            if (n as u32) < cont_capacity
                 && self.container_query_add(tmp_container, n, item_id, item_count, flags, None)
                     == ReturnValue::NoError
             {

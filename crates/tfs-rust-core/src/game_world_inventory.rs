@@ -13,7 +13,7 @@ use crate::item_look::{item_get_description_cpp, look_distance_tfs};
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::inventory::slot_type_for_item_type;
+use crate::inventory::{slot_type_for_item_type, InventorySlot};
 use crate::item::Item;
 use crate::return_value::ReturnValue;
 use crate::thing::LookTarget;
@@ -53,7 +53,7 @@ impl GameWorld {
 
     /// Capacity-only path for child containers (`Player::queryAdd` + `FLAG_CHILDISOWNER`).
     pub(crate) fn query_add_item_to_inventory(
-        &self,
+        &mut self,
         cid: CreatureId,
         item_id: ItemId,
     ) -> ReturnValue {
@@ -196,6 +196,333 @@ impl GameWorld {
             return Err("not enough items".into());
         }
         Ok(())
+    }
+
+    /// Default Lua `item:moveTo` flags — `luascript.cpp` `luaItemMoveTo`.
+    pub(crate) fn lua_default_move_flags() -> CylinderFlags {
+        CylinderFlags::NO_LIMIT
+            .union(CylinderFlags::IGNORE_BLOCK_ITEM)
+            .union(CylinderFlags::IGNORE_BLOCK_CREATURE)
+            .union(CylinderFlags::IGNORE_NOT_MOVEABLE)
+    }
+
+    /// Lua `player:getDepotChest` — `luascript.cpp` `luaPlayerGetDepotChest`.
+    pub fn lua_script_get_depot_chest(
+        &mut self,
+        creature_u64: u64,
+        depot_id: u32,
+        auto_create: bool,
+    ) -> Result<Option<u64>, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let chest = self.player_get_depot_chest(cid, depot_id, auto_create);
+        if let Some(iid) = chest {
+            self.player_set_last_depot_id(cid, depot_id);
+            Ok(Some(iid.data().as_ffi()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Lua `player:getInbox` — `luascript.cpp` `luaPlayerGetInbox`.
+    pub fn lua_script_get_inbox(&mut self, creature_u64: u64) -> Result<Option<u64>, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        Ok(self
+            .player_get_inbox(cid, true)
+            .map(|i| i.data().as_ffi()))
+    }
+
+    /// Lua `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
+    pub fn lua_script_item_move_to(
+        &mut self,
+        item_u64: u64,
+        dest: tfs_rust_lua::LuaMoveDestination,
+        flags_bits: u32,
+    ) -> Result<bool, String> {
+        use tfs_rust_lua::LuaMoveDestination;
+        let item_id = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        let from = self
+            .resolve_item_parent_cylinder(item_id)
+            .ok_or_else(|| "item has no parent".to_string())?;
+        let flags = if flags_bits == 0 {
+            Self::lua_default_move_flags()
+        } else {
+            CylinderFlags { bits: flags_bits }
+        };
+        let acting = self
+            .resolve_creature_u64(
+                match from {
+                    Cylinder::Inventory { player_id, .. } => player_id.data().as_ffi(),
+                    _ => 0,
+                },
+            )
+            .or_else(|| {
+                dest_player_creature(&dest).and_then(|u| self.resolve_creature_u64(u))
+            });
+        let to = match dest {
+            LuaMoveDestination::Container { item_id: cid_u64 } => {
+                let cid = self
+                    .resolve_item_u64(cid_u64)
+                    .ok_or_else(|| "container not found".to_string())?;
+                Cylinder::Container {
+                    item_id: cid,
+                    index: INDEX_WHEREEVER,
+                }
+            }
+            LuaMoveDestination::Player { creature_id } => {
+                let pid = self
+                    .resolve_creature_u64(creature_id)
+                    .ok_or_else(|| "player not found".to_string())?;
+                Cylinder::Inventory {
+                    player_id: pid,
+                    slot: InventorySlot::Wherever as u8,
+                }
+            }
+            LuaMoveDestination::Tile { x, y, z } => Cylinder::Tile {
+                pos: tfs_rust_common::Position::new(x, y, z),
+            },
+        };
+        if from == to {
+            return Ok(true);
+        }
+        let count = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
+        let ok = self
+            .internal_move_item(acting, from, to, item_id, count, flags)
+            .is_ok();
+        Ok(ok)
+    }
+
+    /// Lua `item:remove` — `luascript.cpp` `luaItemRemove`.
+    pub fn lua_script_item_remove(
+        &mut self,
+        item_u64: u64,
+        count: i32,
+    ) -> Result<bool, String> {
+        let item_id = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        let parent = self
+            .resolve_item_parent_cylinder(item_id)
+            .ok_or_else(|| "item has no parent".to_string())?;
+        let item_count = i32::from(self.items.get(item_id).map(|i| i.count).unwrap_or(1));
+        let remove_count = if count < 0 { item_count } else { count.min(item_count) };
+        if remove_count <= 0 {
+            return Ok(true);
+        }
+        let rv = match parent {
+            Cylinder::Tile { pos } => self.internal_remove_item_from_tile(
+                pos,
+                item_id,
+                remove_count as u16,
+            ),
+            Cylinder::Inventory { player_id, slot } => {
+                let taken = self.remove_from_inventory_slot(
+                    player_id,
+                    slot,
+                    item_id,
+                    remove_count as u32,
+                );
+                if taken > 0 {
+                    Ok(())
+                } else {
+                    Err(ReturnValue::NotPossible)
+                }
+            }
+            Cylinder::Container {
+                item_id: container_id,
+                ..
+            } => self.container_remove_thing(container_id, item_id, remove_count as u32),
+        };
+        Ok(rv.is_ok())
+    }
+
+    /// Lua `container:addItem` — `luascript.cpp` `luaContainerAddItem`.
+    pub fn lua_script_container_add_item(
+        &mut self,
+        container_u64: u64,
+        item_type: u16,
+        count: u32,
+        index: i32,
+        flags_bits: u32,
+    ) -> Result<Option<u64>, String> {
+        let container_id = self
+            .resolve_item_u64(container_u64)
+            .ok_or_else(|| "container not found".to_string())?;
+        let stackable = self
+            .items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        let stack_count = if stackable {
+            count.min(100).max(1) as u16
+        } else {
+            count.max(1).min(u32::from(u16::MAX)) as u16
+        };
+        let new_item = Item::new(ItemId::default(), item_type, stack_count);
+        let iid = self.items.insert(new_item);
+        let flags = CylinderFlags {
+            bits: flags_bits,
+        };
+        let rv = self.container_query_add(
+            container_id,
+            index,
+            iid,
+            u32::from(stack_count),
+            flags,
+            None,
+        );
+        if rv.is_error() {
+            self.items.remove(iid);
+            return Ok(None);
+        }
+        if self.container_add_thing(container_id, index, iid).is_err() {
+            self.items.remove(iid);
+            return Ok(None);
+        }
+        Ok(Some(iid.data().as_ffi()))
+    }
+
+    /// Lua `Player:addItem` full — `luascript.cpp` `luaPlayerAddItem`.
+    pub fn lua_script_player_add_item_full(
+        &mut self,
+        creature_u64: u64,
+        item_type: u16,
+        count: u32,
+        sub_type: i32,
+        can_drop_on_map: bool,
+        slot: u8,
+    ) -> Result<Option<u64>, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let stackable = self
+            .items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        let stack_count = if stackable {
+            count.min(100).max(1) as u16
+        } else {
+            count.max(1).min(u32::from(u16::MAX)) as u16
+        };
+        let mut new_item = Item::new(ItemId::default(), item_type, stack_count);
+        if sub_type > 0 && !stackable {
+            new_item.count = sub_type as u16;
+        }
+        let iid = self.items.insert(new_item);
+        self.hydrate_player_equipment_containers(cid);
+
+        let target_slot = if slot == 0 {
+            InventorySlot::Wherever as u8
+        } else {
+            slot
+        };
+
+        if target_slot != InventorySlot::Wherever as u8 {
+            let rv = self.player_query_add(
+                cid,
+                target_slot,
+                iid,
+                u32::from(stack_count),
+                CylinderFlags::NONE,
+            );
+            if rv == ReturnValue::NoError {
+                if self
+                    .internal_add_item_to_inventory_slot(cid, target_slot, iid)
+                    .is_ok()
+                {
+                    self.notify_player_inventory_slot_add(
+                        cid,
+                        target_slot,
+                        iid,
+                        NotificationParent::None,
+                    );
+                    return Ok(Some(iid.data().as_ffi()));
+                }
+            }
+        }
+
+        if self.query_add_item_to_inventory(cid, iid) == ReturnValue::NoError {
+            let backpack = match self.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.equipment_slots[2],
+                _ => None,
+            };
+            if let Some(bp) = backpack {
+                let mut registry = std::mem::take(&mut self.container_registry);
+                self.ensure_container_registered_simple(&mut registry, bp, cid);
+                self.container_registry = registry;
+                if self
+                    .container_registry
+                    .get_mut(bp)
+                    .and_then(|c| c.add_item(iid).ok())
+                    .is_some()
+                {
+                    self.refresh_container_chain(bp);
+                    self.recompute_player_inventory_weight(cid);
+                    return Ok(Some(iid.data().as_ffi()));
+                }
+            }
+        }
+
+        if can_drop_on_map {
+            let pos = self
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or_default();
+            if self
+                .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+                .is_ok()
+            {
+                return Ok(Some(iid.data().as_ffi()));
+            }
+        }
+
+        self.items.remove(iid);
+        Ok(None)
+    }
+
+    pub fn lua_script_set_action_id(&mut self, item_u64: u64, action_id: u16) -> Result<(), String> {
+        let iid = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        if let Some(item) = self.items.get_mut(iid) {
+            item.set_action_id(action_id);
+            Ok(())
+        } else {
+            Err("item not found".into())
+        }
+    }
+
+    pub fn lua_script_set_unique_id(&mut self, item_u64: u64, unique_id: u16) -> Result<(), String> {
+        let iid = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        if let Some(item) = self.items.get_mut(iid) {
+            item.set_unique_id(unique_id);
+            Ok(())
+        } else {
+            Err("item not found".into())
+        }
+    }
+
+    pub fn lua_script_set_store_item(&mut self, item_u64: u64, store: bool) -> Result<(), String> {
+        let iid = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        if let Some(item) = self.items.get_mut(iid) {
+            item.attributes.set_store_item(if store { 1 } else { 0 });
+            Ok(())
+        } else {
+            Err("item not found".into())
+        }
     }
 
     /// TFS `Player::removeItemOfType` — `player.cpp` ~2998–3047.
@@ -625,5 +952,12 @@ impl GameWorld {
             }
         };
         self.enqueue_outgoing(conn_id, send_text_message_simple(22, &msg).into_bytes());
+    }
+}
+
+fn dest_player_creature(dest: &tfs_rust_lua::LuaMoveDestination) -> Option<u64> {
+    match dest {
+        tfs_rust_lua::LuaMoveDestination::Player { creature_id } => Some(*creature_id),
+        _ => None,
     }
 }

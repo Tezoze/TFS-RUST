@@ -138,7 +138,10 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
         GamePacket::CloseContainer { .. }
         | GamePacket::UpArrowContainer { .. }
         | GamePacket::UpdateContainer { .. }
-        | GamePacket::SeekInContainer { .. } => false,
+        | GamePacket::SeekInContainer { .. }
+        // `player_use_item` defers on `nextAction` like TFS `setNextActionTask` — do not drop silently.
+        | GamePacket::UseItem(_)
+        | GamePacket::UseItemEx(_) => false,
 
         // Client diagnostics / thanks — never gameplay-blocking.
         GamePacket::BugReport(_)
@@ -166,6 +169,8 @@ fn game_packet_needs_immediate_flush(packet: &GamePacket) -> bool {
             | GamePacket::Turn(_)
             | GamePacket::Ping
             | GamePacket::PingBack
+            | GamePacket::UseItem(_)
+            | GamePacket::UseItemEx(_)
     )
 }
 
@@ -538,11 +543,15 @@ mod timed_action_gate_tests {
     }
 
     #[test]
-    fn attack_and_use_item_are_gated() {
+    fn attack_is_gated() {
         assert!(game_packet_requires_timed_action(&GamePacket::Attack {
             creature_id: 1
         }));
-        assert!(game_packet_requires_timed_action(&GamePacket::UseItem(
+    }
+
+    #[test]
+    fn use_item_defers_to_handler_not_game_loop_gate() {
+        assert!(!game_packet_requires_timed_action(&GamePacket::UseItem(
             tfs_rust_common::game_packet::UseItemPayload {
                 pos: tfs_rust_common::Position::new(0, 0, 7),
                 sprite_id: 100,
@@ -556,7 +565,7 @@ mod timed_action_gate_tests {
     fn movement_packets_flush_immediately() {
         assert!(game_packet_needs_immediate_flush(&GamePacket::Move(Direction::North)));
         assert!(game_packet_needs_immediate_flush(&GamePacket::Turn(Direction::West)));
-        assert!(!game_packet_needs_immediate_flush(&GamePacket::UseItem(
+        assert!(game_packet_needs_immediate_flush(&GamePacket::UseItem(
             tfs_rust_common::game_packet::UseItemPayload {
                 pos: tfs_rust_common::Position::new(0, 0, 7),
                 sprite_id: 100,

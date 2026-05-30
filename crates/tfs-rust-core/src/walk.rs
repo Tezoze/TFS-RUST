@@ -437,6 +437,51 @@ fn query_destination(
     None
 }
 
+/// Whether `cid` can stand on `pos` (non-pathfinding `Tile::queryAdd`).
+pub(crate) fn player_can_stand_at(world: &GameWorld, cid: CreatureId, pos: Position) -> bool {
+    let Some(tile) = world.map.get_tile(pos) else {
+        return false;
+    };
+    tile_query_add_player(world, tile, cid, 0) == ReturnValue::NoError
+}
+
+/// TFS `Game::internalTeleport` for players — `game.cpp` ~1784–1804.
+pub(crate) fn internal_teleport_player(
+    world: &mut GameWorld,
+    conn_id: ConnId,
+    cid: CreatureId,
+    new_pos: Position,
+) -> ReturnValue {
+    let old_pos = match world.creatures.get(cid) {
+        Some(k) => k.position(),
+        None => return ReturnValue::NotPossible,
+    };
+    if old_pos == new_pos {
+        return ReturnValue::NoError;
+    }
+    let Some(to_tile) = world.map.get_tile(new_pos) else {
+        return ReturnValue::NotPossible;
+    };
+    if tile_query_add_player(world, to_tile, cid, FLAG_NOLIMIT) != ReturnValue::NoError {
+        return ReturnValue::NotPossible;
+    }
+
+    let old_stack = world
+        .map
+        .get_tile(old_pos)
+        .map(|t| client_creature_stack_pos(t.body(), cid))
+        .filter(|s| *s >= 0)
+        .unwrap_or(1);
+
+    world.move_creature_on_map(cid, old_pos, new_pos);
+    if let Some(k) = world.creatures.get_mut(cid) {
+        k.set_position(new_pos);
+    }
+
+    world.emit_teleport_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
+    ReturnValue::NoError
+}
+
 /// Whether `cid` can stand on `pos` during pathfinding (`Map::canWalkTo` / `Tile::queryAdd`).
 pub(crate) fn player_can_stand_for_pathfind(
     world: &GameWorld,

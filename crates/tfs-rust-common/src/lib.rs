@@ -24,6 +24,6 @@ pub use protocol_constants::{
     client_viewport_height, client_viewport_width,
 };
 pub use script_context::{
-    ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptCreatureRef, ScriptItemData,
-    ScriptItemId, ScriptItemRef,
+    ScriptContainerData, ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptCreatureRef,
+    ScriptCylinder, ScriptItemData, ScriptItemId, ScriptItemRef,
 };

@@ -40,6 +40,22 @@
 - [x] Depot-owner container refresh in `player_inventory_notifications.rs`
 - [x] Unit tests + `docs/INVENTORY_STATUS.md` update
 
+## Ladder / grate UseItem teleport — done
+- [x] `Tile::item_id_for_use` (`getUseItem` parity) + sprite-id fallback on map tiles
+- [x] Defer `UseItem` on `nextAction` (not silent game-loop drop / cancel)
+- [x] Immediate flush for `UseItem` / teleport packets
+- [x] Unit tests: `tile::look_tests`, `game_loop::timed_action_gate_tests`
+
+## P5 — Lua Container + Inventory API — done
+- [x] Tranche 0: `find_item_of_type`, `ScriptContext` cylinder reads, `lua_script_*`, `fire_on_player_equip*`
+- [x] Tranche 1: Player `getItemById`, container id round-trip bindings
+- [x] Tranche 2: `getDepotChest`, `getInbox`, expanded `addItem`
+- [x] Tranche 3: `Container` userdata (inherits Item)
+- [x] Tranche 4: `item:moveTo`, `item:remove`
+- [x] Tranche 5: item parent/position/attrs
+- [x] Tranche 6: MoveEvents XML loader + equip dispatch (defer tile MoveEvents + `MoveEvent():register()`)
+- [x] `docs/INVENTORY_STATUS.md`, `tasks/lessons.md` updated
+
 ## Throw destination validation parity (B.5)
 - [ ] Confirm C++ reference behavior for `Game::playerMoveItem` throw gating.
 - [ ] Add Rust throw-destination validation before `internal_move_item`.

@@ -197,6 +197,36 @@ impl Tile {
         n
     }
 
+    /// C++ `Tile::getUseItem` — `tile.cpp` ~1603 (container priority + `getThing` stack walk).
+    pub fn item_id_for_use<F>(&self, stack_pos: u8, is_container: F) -> Option<ItemId>
+    where
+        F: Fn(ItemId) -> bool,
+    {
+        let body = self.body();
+        if body.down_items.is_empty() && body.top_items.is_empty() {
+            // C++ returns `ground` when the item list is empty; ground has no `ItemId` in Rust.
+            return None;
+        }
+
+        let container_item = body
+            .down_items
+            .iter()
+            .chain(body.top_items.iter())
+            .copied()
+            .find(|&id| is_container(id));
+
+        let thing_at = self.item_id_at_stack_pos(stack_pos);
+
+        if let Some(container_id) = container_item {
+            return match thing_at {
+                Some(item_id) => Some(item_id),
+                None => Some(container_id),
+            };
+        }
+
+        thing_at
+    }
+
     /// Inverse of [`Tile::get_item_stack_pos`] — resolve client `stack_pos` to an item on this tile.
     // C++ ref: `Tile::getThing` / `Game::playerUseItem` stack walk (`tile.cpp`, `game.cpp`).
     pub fn item_id_at_stack_pos(&self, stack_pos: u8) -> Option<ItemId> {
@@ -328,5 +358,26 @@ mod look_tests {
         let body = tile_body(Some(106), vec![tree], vec![], vec![monster]);
         let got = top_visible_look_target_from_body(&body, |_| true, |_| true);
         assert_eq!(got, Some(LookTarget::Creature(monster)));
+    }
+
+    #[test]
+    fn get_item_stack_pos_roundtrip_for_down_item() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let ladder = items.insert(());
+        let body = tile_body(Some(106), vec![ladder], vec![], vec![]);
+        let tile = Tile::Normal(body);
+        let stack = tile.get_item_stack_pos(ladder).expect("ladder stack pos");
+        assert_eq!(stack, 1);
+        assert_eq!(tile.item_id_at_stack_pos(stack), Some(ladder));
+        assert_eq!(tile.item_id_for_use(stack, |_| false), Some(ladder));
+    }
+
+    #[test]
+    fn get_use_item_prefers_container_when_stack_misses() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let bag = items.insert(());
+        let body = tile_body(Some(106), vec![bag], vec![], vec![]);
+        let tile = Tile::Normal(body);
+        assert_eq!(tile.item_id_for_use(99, |id| id == bag), Some(bag));
     }
 }

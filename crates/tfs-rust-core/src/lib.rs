@@ -24,7 +24,9 @@ mod player_inventory_load;
 mod player_inventory_notifications;
 mod player_inventory_query_add;
 mod player_inventory_util;
+mod player_lua_context;
 mod player_depot;
+mod floor_change_use;
 #[cfg(test)]
 mod test_world;
 mod player_ping;

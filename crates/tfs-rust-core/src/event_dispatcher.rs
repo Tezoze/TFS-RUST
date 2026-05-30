@@ -24,13 +24,36 @@ pub trait EventDispatcher {
     /// Spread LuaJIT GC across ticks (Phase 4 game loop). No-op without Lua.
     fn lua_gc_step(&self) {}
     /// TFS `MoveEvents::onPlayerEquip` with `isCheck == true` — `player.cpp` `queryAdd`.
-    fn on_player_equip_check(&self, _player: CreatureId, _item: ItemId, _slot: u8) -> ReturnValue {
+    fn on_player_equip_check(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _item_type: u16,
+        _slot: u8,
+        _player_level: u32,
+    ) -> ReturnValue {
         ReturnValue::NoError
     }
     /// TFS `MoveEvent::onPlayerEquip` — `player.cpp` `postAddNotification` (`g_moveEvents->onPlayerEquip`).
-    fn on_player_equip(&self, _player: CreatureId, _item: ItemId, _slot: u8) {}
+    fn on_player_equip(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _item_type: u16,
+        _slot: u8,
+        _player_level: u32,
+    ) {
+    }
     /// TFS `MoveEvent::onPlayerDeEquip` — `postRemoveNotification` (`g_moveEvents->onPlayerDeEquip`).
-    fn on_player_deequip(&self, _player: CreatureId, _item: ItemId, _slot: u8) {}
+    fn on_player_deequip(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _item_type: u16,
+        _slot: u8,
+        _player_level: u32,
+    ) {
+    }
     /// TFS `Events::eventPlayerOnInventoryUpdate` — `player.cpp` `postAddNotification` / `postRemoveNotification`.
     fn on_player_inventory_update(
         &self,

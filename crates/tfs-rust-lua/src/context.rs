@@ -7,8 +7,9 @@
 use std::cell::RefCell;
 
 pub use tfs_rust_common::{
-    ScriptContext as LuaContext, ScriptCreatureData as CreatureData,
-    ScriptCreatureId as CreatureId, ScriptItemData as ItemData, ScriptItemId as ItemId,
+    ScriptContainerData, ScriptContext as LuaContext, ScriptCreatureData as CreatureData,
+    ScriptCreatureId as CreatureId, ScriptCylinder, ScriptItemData as ItemData,
+    ScriptItemId as ItemId,
 };
 
 /// ID handle wrapper for creatures passed to Lua userdata (local newtype for mlua `UserData`).

@@ -9,7 +9,9 @@ use crate::creature::CreatureKind;
 use crate::cylinder::CylinderLink;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::lua_scope::fire_on_player_inventory_update;
+use crate::lua_scope::{
+    fire_on_player_deequip, fire_on_player_equip, fire_on_player_inventory_update,
+};
 
 /// Parent cylinder hint for `requireListUpdate` / shop refresh — `player.cpp` postAdd/postRemove.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,7 +216,7 @@ impl GameWorld {
         old_parent: NotificationParent,
     ) {
         if link == CylinderLink::Owner {
-            self.events.on_player_equip(cid, item_id, slot);
+            fire_on_player_equip(self, cid, item_id, slot);
             fire_on_player_inventory_update(self, cid, item_id, slot, true);
             self.on_update_inventory_item(cid, slot, None, item_id);
         }
@@ -248,7 +250,7 @@ impl GameWorld {
         new_parent: NotificationParent,
     ) {
         if link == CylinderLink::Owner {
-            self.events.on_player_deequip(cid, item_id, slot);
+            fire_on_player_deequip(self, cid, item_id, slot);
             fire_on_player_inventory_update(self, cid, item_id, slot, false);
             self.clear_inventory_ability_on_deequip(cid, slot);
             self.on_remove_inventory_item(cid, item_id);

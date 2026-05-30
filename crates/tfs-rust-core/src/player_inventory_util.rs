@@ -157,6 +157,78 @@ impl GameWorld {
         out
     }
 
+    /// TFS `Game::findItemOfType` on player cylinder — `game.cpp` ~1442–1487.
+    ///
+    /// Scans equipment slots `PLAYER_INVENTORY_SLOT_FIRST..=LAST` (store inbox excluded,
+    /// matching C++ `Player::getLastIndex()` = `CONST_SLOT_LAST + 1`).
+    pub fn find_item_of_type(
+        &self,
+        cid: CreatureId,
+        item_id: u16,
+        depth_search: bool,
+        sub_type: i32,
+    ) -> Option<ItemId> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return None;
+        };
+        let mut pending_containers: Vec<ItemId> = Vec::new();
+
+        for slot in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
+            let idx = (slot - 1) as usize;
+            let Some(slot_item) = p.equipment_slots[idx] else {
+                continue;
+            };
+            if self.item_matches_find_type(slot_item, item_id, sub_type) {
+                return Some(slot_item);
+            }
+            if depth_search
+                && self
+                    .items
+                    .get(slot_item)
+                    .is_some_and(|i| self.items_db.is_container(i.item_type))
+            {
+                pending_containers.push(slot_item);
+            }
+        }
+
+        let mut i = 0usize;
+        while i < pending_containers.len() {
+            let root = pending_containers[i];
+            i += 1;
+            if let Some(cont) = self.container_registry.get(root) {
+                for &child in &cont.items {
+                    if self.item_matches_find_type(child, item_id, sub_type) {
+                        return Some(child);
+                    }
+                    if self
+                        .items
+                        .get(child)
+                        .is_some_and(|it| self.items_db.is_container(it.item_type))
+                    {
+                        pending_containers.push(child);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn item_matches_find_type(&self, iid: ItemId, item_id: u16, sub_type: i32) -> bool {
+        let Some(item) = self.items.get(iid) else {
+            return false;
+        };
+        if item.item_type != item_id {
+            return false;
+        }
+        if sub_type == -1 {
+            return true;
+        }
+        let Some(it) = self.items_db.items.get(&item_id) else {
+            return false;
+        };
+        i32::from(item.get_sub_type(it)) == sub_type
+    }
+
     fn item_count_for_type(&self, iid: ItemId, item_id: u16, sub_type: i32) -> u32 {
         let Some(item) = self.items.get(iid) else {
             return 0;
@@ -278,5 +350,40 @@ impl GameWorld {
             crate::inventory::WEAPON_DISTANCE => p.skills.dist,
             _ => 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod find_item_of_type_tests {
+    use super::*;
+    use crate::container::Container;
+    use crate::creature::CreatureKind;
+    use crate::item::Item;
+    use crate::test_world::support::{minimal_world, test_player};
+    use tfs_rust_common::Position;
+
+    fn insert_player_with_backpack(world: &mut GameWorld, gold_type: u16) -> CreatureId {
+        let cid = world.creatures.insert(CreatureKind::Player(test_player(
+            "FindTest",
+            Position::new(100, 100, 7),
+        )));
+        let bp = world.items.insert(Item::new_single(ItemId::default(), 1987));
+        let gold = world.items.insert(Item::new(ItemId::default(), gold_type, 10));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.equipment_slots[2] = Some(bp);
+        }
+        let mut reg = std::mem::take(&mut world.container_registry);
+        reg.register(Container::new(bp, 20));
+        reg.get_mut(bp).unwrap().add_item(gold).expect("add gold");
+        world.container_registry = reg;
+        cid
+    }
+
+    #[test]
+    fn find_item_in_backpack() {
+        let mut world = minimal_world();
+        let cid = insert_player_with_backpack(&mut world, 2148);
+        assert!(world.find_item_of_type(cid, 2148, true, -1).is_some());
+        assert!(world.find_item_of_type(cid, 2148, false, -1).is_none());
     }
 }

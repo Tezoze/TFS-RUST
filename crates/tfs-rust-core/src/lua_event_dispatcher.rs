@@ -1,7 +1,6 @@
 //! Lua-based event dispatcher implementation.
 //!
-//! This module provides LuaEventDispatcher which implements EventDispatcher
-//! by dispatching events to Lua callbacks.
+//! C++ reference: `src/movement.cpp` `MoveEvents::onPlayerEquip`, `MoveEvent::fireEquip`.
 
 use std::collections::HashMap;
 
@@ -10,16 +9,16 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use slotmap::Key;
 use tfs_rust_lua::{
-    CreatureEventType, CallbackRef, LuaRuntime, PlayerEventType, with_lua_context,
+    CreatureEventType, CallbackRef, LuaRuntime, MoveEventKind, MoveEventsRegistry,
+    PlayerEventType, with_lua_context,
 };
 
 /// Lua-based event dispatcher.
-///
-/// Owns the LuaRuntime and maps event types to registered Lua callbacks.
 pub struct LuaEventDispatcher {
     runtime: LuaRuntime,
     creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
     player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
+    move_events: MoveEventsRegistry,
 }
 
 impl LuaEventDispatcher {
@@ -27,11 +26,85 @@ impl LuaEventDispatcher {
         runtime: LuaRuntime,
         creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
         player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
+        move_events: MoveEventsRegistry,
     ) -> Self {
         Self {
             runtime,
             creature_events,
             player_events,
+            move_events,
+        }
+    }
+
+    fn slot_mask_for_slot(slot: u8) -> u32 {
+        match slot {
+            1 => 1 << 0,
+            2 => 1 << 1,
+            3 => 1 << 2,
+            4 => 1 << 3,
+            5 => 1 << 4,
+            6 => 1 << 5,
+            7 => 1 << 6,
+            8 => 1 << 7,
+            9 => 1 << 8,
+            10 => 1 << 9,
+            _ => 0,
+        }
+    }
+
+    fn dispatch_move_equip(
+        &self,
+        kind: MoveEventKind,
+        player: CreatureId,
+        item: ItemId,
+        item_type: u16,
+        slot: u8,
+        player_level: u32,
+        is_check: bool,
+    ) -> ReturnValue {
+        let Some(entry) = self.move_events.get(kind, item_type) else {
+            return ReturnValue::NoError;
+        };
+        if entry.req_level > 0 && player_level < entry.req_level {
+            return if is_check {
+                ReturnValue::NotEnoughLevel
+            } else {
+                ReturnValue::NoError
+            };
+        }
+        if entry.slot_mask != 0 {
+            let slot_mask = Self::slot_mask_for_slot(slot);
+            if entry.slot_mask & slot_mask == 0 {
+                return ReturnValue::NoError;
+            }
+        }
+        match self.runtime.call_move_equip(
+            &entry.callback,
+            player.data().as_ffi(),
+            item.data().as_ffi(),
+            slot,
+            is_check,
+        ) {
+            Ok(true) => ReturnValue::NoError,
+            Ok(false) => {
+                if is_check {
+                    ReturnValue::CannotBeDressed
+                } else {
+                    ReturnValue::NoError
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    ?player,
+                    ?item,
+                    item_type,
+                    slot,
+                    ?kind,
+                    is_check,
+                    "MoveEvent equip Lua failed: {e}"
+                );
+                ReturnValue::NoError
+            }
         }
     }
 }
@@ -41,18 +114,57 @@ impl EventDispatcher for LuaEventDispatcher {
         &self,
         player: CreatureId,
         item: ItemId,
+        item_type: u16,
         slot: u8,
+        player_level: u32,
     ) -> ReturnValue {
-        tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_equip_check");
-        ReturnValue::NoError
+        self.dispatch_move_equip(
+            MoveEventKind::Equip,
+            player,
+            item,
+            item_type,
+            slot,
+            player_level,
+            true,
+        )
     }
 
-    fn on_player_equip(&self, player: CreatureId, item: ItemId, slot: u8) {
-        tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_equip");
+    fn on_player_equip(
+        &self,
+        player: CreatureId,
+        item: ItemId,
+        item_type: u16,
+        slot: u8,
+        player_level: u32,
+    ) {
+        let _ = self.dispatch_move_equip(
+            MoveEventKind::Equip,
+            player,
+            item,
+            item_type,
+            slot,
+            player_level,
+            false,
+        );
     }
 
-    fn on_player_deequip(&self, player: CreatureId, item: ItemId, slot: u8) {
-        tracing::trace!(?player, ?item, slot, "LuaEventDispatcher::on_player_deequip");
+    fn on_player_deequip(
+        &self,
+        player: CreatureId,
+        item: ItemId,
+        item_type: u16,
+        slot: u8,
+        player_level: u32,
+    ) {
+        let _ = self.dispatch_move_equip(
+            MoveEventKind::DeEquip,
+            player,
+            item,
+            item_type,
+            slot,
+            player_level,
+            false,
+        );
     }
 
     fn on_player_inventory_update(
@@ -128,6 +240,4 @@ impl EventDispatcher for LuaEventDispatcher {
             }
         });
     }
-
-    // Other methods: no-op until Track 2
 }

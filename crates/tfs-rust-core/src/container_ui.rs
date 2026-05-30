@@ -443,10 +443,36 @@ impl GameWorld {
         self.get_player_inventory_item(cid, slot)
     }
 
-    /// Resolve item on map tile from client `stack_pos` (ground / top / creatures / down order).
+    /// Resolve item on map tile for `UseItem` (`STACKPOS_USEITEM` / `Tile::getUseItem`).
+    // C++ ref: `Game::internalGetThing` + `Tile::getUseItem` (`game.cpp`, `tile.cpp`).
     pub(crate) fn item_id_for_tile_use(&self, pos: Position, stack_pos: u8) -> Option<ItemId> {
         let tile = self.map.get_tile(pos)?;
-        tile.item_id_at_stack_pos(stack_pos)
+        tile.item_id_for_use(stack_pos, |item_id| {
+            self.items
+                .get(item_id)
+                .map(|i| self.items_db.is_container(i.item_type))
+                .unwrap_or(false)
+        })
+    }
+
+    /// Fallback when client `stack_pos` does not resolve but `sprite_id` matches a tile item.
+    pub(crate) fn find_tile_item_by_client_sprite(
+        &self,
+        pos: Position,
+        sprite_id: u16,
+    ) -> Option<ItemId> {
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        for &item_id in body
+            .down_items
+            .iter()
+            .chain(body.top_items.iter())
+        {
+            if self.validate_item_sprite(item_id, sprite_id) {
+                return Some(item_id);
+            }
+        }
+        None
     }
 
     /// Match client sprite id to `ItemId` when multiple items could match (validates `sprite_id`).
@@ -486,12 +512,24 @@ impl GameWorld {
         payload: UseItemPayload,
         now: Instant,
     ) {
-        let _ = now;
+        // C++ `internalGetCylinder`: map tile when `pos.x != 0xFFFF` — `game.cpp` ~199.
+        // `pos.y & 0x40` is container encoding only when x is 0xFFFF, not a map-tile test.
+        let is_map_tile = payload.pos.x != 0xFFFF;
         if !self.player_timed_action_ready(cid, now) {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+            // C++ `createSchedulerTask(delay, playerUseItem)` when `!canDoAction` (`game.cpp` ~2246).
+            self.defer_player_walk_action(cid, PlayerWalkAction::UseItem(payload.clone()), now);
             return;
         }
-        let Some(item_id) = self.resolve_item_at_position(cid, payload.pos, payload.stack_pos) else {
+        let item_id = if let Some(id) =
+            self.resolve_item_at_position(cid, payload.pos, payload.stack_pos)
+        {
+            Some(id)
+        } else if is_map_tile {
+            self.find_tile_item_by_client_sprite(payload.pos, payload.sprite_id)
+        } else {
+            None
+        };
+        let Some(item_id) = item_id else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
@@ -499,7 +537,6 @@ impl GameWorld {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         }
-        let is_map_tile = payload.pos.x != 0xFFFF && (payload.pos.y & 0x40) == 0;
         if is_map_tile {
             let Some(pp) = self.creatures.get(cid).map(|k| k.position()) else {
                 self.send_cancel_message(conn_id, ReturnValue::NotPossible);
@@ -515,6 +552,20 @@ impl GameWorld {
         }
         let preferred_cid = (payload.index < crate::container::MAX_CONTAINER_WINDOWS)
             .then_some(payload.index);
+        let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
+        if is_map_tile && crate::floor_change_use::is_teleport_floor_use_item(item_type) {
+            let dest = crate::floor_change_use::resolve_teleport_use_destination(
+                self,
+                cid,
+                item_type,
+                payload.pos,
+            );
+            let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
+            if ret != ReturnValue::NoError {
+                self.send_cancel_message(conn_id, ret);
+            }
+            return;
+        }
         self.try_open_container_for_item(conn_id, cid, item_id, preferred_cid);
     }
 
@@ -526,14 +577,21 @@ impl GameWorld {
         payload: UseItemExPayload,
         now: Instant,
     ) {
-        let _ = now;
+        let is_map_tile = payload.from_pos.x != 0xFFFF;
         if !self.player_timed_action_ready(cid, now) {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+            self.defer_player_walk_action(cid, PlayerWalkAction::UseItemEx(payload.clone()), now);
             return;
         }
-        let Some(item_id) =
+        let item_id = if let Some(id) =
             self.resolve_item_at_position(cid, payload.from_pos, payload.from_stack_pos)
-        else {
+        {
+            Some(id)
+        } else if is_map_tile {
+            self.find_tile_item_by_client_sprite(payload.from_pos, payload.from_sprite_id)
+        } else {
+            None
+        };
+        let Some(item_id) = item_id else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
@@ -541,7 +599,6 @@ impl GameWorld {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         }
-        let is_map_tile = payload.from_pos.x != 0xFFFF && (payload.from_pos.y & 0x40) == 0;
         if is_map_tile {
             let Some(pp) = self.creatures.get(cid).map(|k| k.position()) else {
                 self.send_cancel_message(conn_id, ReturnValue::NotPossible);

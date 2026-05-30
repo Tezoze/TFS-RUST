@@ -147,6 +147,10 @@ pub async fn run() -> anyhow::Result<()> {
 
     let events: Box<dyn crate::event_dispatcher::EventDispatcher> = match LuaRuntime::new() {
         Ok(mut lua_runtime) => {
+            let mut move_events = tfs_rust_lua::MoveEventsRegistry::default();
+            if let Err(e) = move_events.load_from_xml(&mut lua_runtime, &data_path) {
+                tracing::warn!("Lua movements loading failed: {}", e);
+            }
             let mut loader = ScriptLoader::new(&mut lua_runtime);
             match loader.load_creaturescripts(&data_path) {
                 Ok(creature_events) => {
@@ -157,7 +161,7 @@ pub async fn run() -> anyhow::Result<()> {
                             HashMap::new()
                         });
                     tracing::info!(
-                        "Lua creaturescripts loaded: login={} logout={} inventory_update={}",
+                        "Lua creaturescripts loaded: login={} logout={} inventory_update={} move_events={}",
                         creature_events
                             .get(&tfs_rust_lua::CreatureEventType::Login)
                             .map_or(0, |v| v.len()),
@@ -167,11 +171,13 @@ pub async fn run() -> anyhow::Result<()> {
                         player_events
                             .get(&tfs_rust_lua::PlayerEventType::InventoryUpdate)
                             .map_or(0, |v| v.len()),
+                        move_events.len(),
                     );
                     Box::new(LuaEventDispatcher::new(
                         lua_runtime,
                         creature_events,
                         player_events,
+                        move_events,
                     ))
                 }
                 Err(e) => {

@@ -7,8 +7,8 @@ use mlua::Lua;
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::context::CreatureRef;
-use crate::userdata::{register_creature_metatable, register_item_metatable};
+use crate::context::{CreatureRef, ItemRef};
+use crate::userdata::{register_container_metatable, register_creature_metatable, register_item_metatable};
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
 #[derive(Debug)]
@@ -37,6 +37,8 @@ impl LuaRuntime {
 
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
+        register_container_metatable(&lua).map_err(LuaError::Registration)?;
+        register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
 
         // Load data/lib/*.lua files (fatal if any fail)
         // TODO: Implement lib loading after we have a data directory path
@@ -64,6 +66,15 @@ impl LuaRuntime {
 
         let key = self.lua.create_registry_value(true)?;
         Ok(CallbackRef(key))
+    }
+
+    /// Execute a Lua chunk (bootstrap globals, compat stubs).
+    pub fn exec_chunk(&self, name: &str, chunk: &str) -> Result<(), LuaError> {
+        self.lua
+            .load(chunk)
+            .set_name(name)
+            .exec()
+            .map_err(LuaError::Init)
     }
 
     pub fn register_callback(
@@ -143,11 +154,86 @@ impl LuaRuntime {
             .call::<()>( (player_ud, item_ud, slot, equip) )
             .map_err(LuaError::Init)
     }
+
+    /// TFS `MoveEvent::executeEquip` — `(player, item, slot, isCheck)`.
+    pub fn call_move_equip(
+        &self,
+        callback: &CallbackRef,
+        player: crate::context::CreatureId,
+        item: crate::context::ItemId,
+        slot: u8,
+        is_check: bool,
+    ) -> Result<bool, LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(&callback.0)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        let item_ud = self
+            .lua
+            .create_userdata(ItemRef(item))
+            .map_err(LuaError::Init)?;
+        function
+            .call::<bool>((player_ud, item_ud, slot, is_check))
+            .map_err(LuaError::Init)
+    }
 }
 
 /// Trait for incremental global function registration.
 pub trait RegisterLuaFunctions {
     fn register_functions(&self, lua: &Lua) -> Result<(), mlua::Error>;
+}
+
+/// Class tables and stubs so `data/events/scripts/*.lua` can use `function Player:…`.
+///
+/// C++ reference: `LuaScriptInterface::registerClass` — `src/luascript.cpp`.
+fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
+    let globals = lua.globals();
+
+    globals.set("Player", lua.create_table()?)?;
+
+    for name in [
+        "Creature", "Monster", "Npc", "Game", "Tile", "Item", "Container",
+    ] {
+        globals.set(name, lua.create_table()?)?;
+    }
+
+    // `player.lua` constructs `soulCondition` at load time (lines 100–102).
+    let condition = lua.create_function(|lua, (_kind, _id): (i32, i32)| {
+        let condition_obj = lua.create_table()?;
+        condition_obj.set(
+            "setTicks",
+            lua.create_function(|_, _: mlua::MultiValue| Ok(()))?,
+        )?;
+        condition_obj.set(
+            "setParameter",
+            lua.create_function(|_, _: mlua::MultiValue| Ok(()))?,
+        )?;
+        Ok(condition_obj)
+    })?;
+    globals.set("Condition", condition)?;
+
+    globals.set("CONDITION_SOUL", 0i32)?;
+    globals.set("CONDITIONID_DEFAULT", 0i32)?;
+    globals.set("CONDITION_PARAM_SOULGAIN", 0i32)?;
+    globals.set("CONDITION_PARAM_SOULTICKS", 0i32)?;
+    globals.set("RETURNVALUE_NOERROR", 0i32)?;
+    globals.set("nextUseStaminaTime", lua.create_table()?)?;
+    globals.set("APPLY_SKILL_MULTIPLIER", true)?;
+
+    globals.set(
+        "hasEventCallback",
+        lua.create_function(|_, _: i32| Ok(false))?,
+    )?;
+    globals.set(
+        "EventCallback",
+        lua.create_function(|_, _: mlua::MultiValue| Ok(false))?,
+    )?;
+
+    Ok(())
 }
 
 /// Minimal global functions for Track 1 PoC.
@@ -218,4 +304,34 @@ pub enum LuaError {
 
     #[error("Not implemented")]
     NotImplemented,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn workspace_data_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/events/scripts/player.lua")
+    }
+
+    #[test]
+    fn player_events_script_loads_with_bootstrap() {
+        let path = workspace_data_path();
+        if !path.exists() {
+            return;
+        }
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        runtime
+            .load_script(path.to_str().expect("utf8 path"))
+            .expect("player.lua should load");
+        runtime
+            .register_table_method_callback(
+                "test::onInventoryUpdate".to_string(),
+                "Player",
+                "onInventoryUpdate",
+            )
+            .expect("onInventoryUpdate registered");
+    }
 }
