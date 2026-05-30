@@ -89,7 +89,11 @@ impl GameWorld {
             return false;
         };
         if path.is_empty() {
-            return false;
+            // Already adjacent — skip the walk, schedule action like onWalkComplete would.
+            // C++ `playerAutoWalk([]) → startAutoWalk([]) → addEventWalk → onWalkComplete`.
+            self.set_next_walk_action_task(cid, action);
+            self.on_player_walk_complete(cid, now);
+            return true;
         }
         self.set_next_walk_action_task(cid, action);
         self.player_auto_walk_path(conn_id, cid, path, now);

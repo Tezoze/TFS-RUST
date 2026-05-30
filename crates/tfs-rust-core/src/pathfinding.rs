@@ -288,7 +288,9 @@ fn neighbor_offsets(
         return (&ALL_NEIGHBORS, ALL_NEIGHBORS.len());
     };
 
-    // Parent→current step direction class (`map.cpp` ~703–728).
+    // C++ `map.cpp` ~703–728: `offset = parent - current` = vector pointing BACK toward the parent
+    // = the direction we "came from". DIRECTION_WEST (=3) when parent is to the west, even
+    // though we travelled east. This matches C++ exactly (same delta formula, same direction enum).
     let dx = prev.x as i32 - current.x as i32;
     let dy = prev.y as i32 - current.y as i32;
     let idx = if dy == 0 {

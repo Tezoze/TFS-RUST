@@ -1603,6 +1603,11 @@ impl GameWorld {
 
     /// Before walk-to-item: reject if no stand tile adjacent to the source can reach the destination.
     /// Matches post-walk `playerPos`→`mapToPos` + `canThrowObjectTo` checks in `game.cpp` (~1051–1060).
+    ///
+    /// **Intentional deviation from C++**: TFS has no pre-check here — it walks the player
+    /// to the item then fails at `playerMoveItem` execution time. This early rejection avoids
+    /// the "walk all the way there, then get an error" UX failure.
+    /// Approved improvement — does not affect any observable packet sequence when the throw IS valid.
     fn throw_dest_reachable_after_walk_to_item(
         &self,
         cid: CreatureId,
