@@ -21,11 +21,11 @@ use tfs_rust_net::map_description::{
     send_map_description_packet, send_map_description_stub, ItemStack, TileContent,
 };
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
+use tfs_rust_net::codec::{ItemTemplateArgs, PlayerSkillsWire};
 use tfs_rust_net::outgoing_extra::{
-    send_basic_data_1098, send_creature_light, send_enter_world, send_fight_modes, send_icons,
-    send_inventory_item_template, send_inventory_slot_empty, send_otc_features_raw,
-    send_pending_state_entered, send_player_skills_1098,
-    send_self_appear_login, send_unjustified_stats_stub, send_vip_entry, send_world_light,
+    send_enter_world, send_fight_modes, send_icons, send_inventory_slot_empty,
+    send_otc_features_raw, send_pending_state_entered, send_unjustified_stats_stub, send_vip_entry,
+    send_world_light,
 };
 
 /// `GameFeature` (`src/const.h`) — `ProtocolGame::sendFeatures` (OTCv8), not `sendOTCFeatures`.
@@ -359,6 +359,7 @@ fn build_initial_map_packet(
     let mut can_see = |guid: u32| world.can_see_creature_for_known_set(self_cid, guid);
 
     send_map_description_packet(
+        &world.codec,
         center,
         center,
         &mut get_tile,
@@ -459,7 +460,7 @@ pub fn enqueue_initial_login_packets(
     );
     world.enqueue_outgoing(conn_id, send_extended_opcode(0, "").into_bytes());
 
-    world.enqueue_outgoing(conn_id, send_self_appear_login(pid).into_bytes());
+    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid));
     world.enqueue_outgoing(conn_id, send_pending_state_entered().into_bytes());
     world.enqueue_outgoing(conn_id, send_otc_features_raw().into_bytes());
     world.enqueue_outgoing(conn_id, send_enter_world().into_bytes());
@@ -485,18 +486,19 @@ pub fn enqueue_initial_login_packets(
             let stackable = world.items_db.stackable_for_server(sid);
             let splash = world.items_db.is_splash_or_fluid_for_server(sid);
             let anim = world.items_db.is_animation_for_server(sid);
-            world.enqueue_outgoing(
+            world.enqueue_encoded(
                 conn_id,
-                send_inventory_item_template(
+                world.codec.encode_inventory_item(
                     slot,
-                    cid,
-                    cnt,
-                    stackable,
-                    splash && !stackable,
-                    anim,
-                    with_desc_inv,
-                )
-                .into_bytes(),
+                    ItemTemplateArgs {
+                        client_id: cid,
+                        count: cnt,
+                        stackable,
+                        is_splash_or_fluid: splash && !stackable,
+                        is_animation: anim,
+                        with_description: with_desc_inv,
+                    },
+                ),
             );
         } else {
             world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
@@ -507,34 +509,30 @@ pub fn enqueue_initial_login_packets(
     // offline training time (ms→minutes), etc. — matching C++ `Player::sendStats` (`player.cpp` ~882).
     world.send_player_stats(creature_id);
     world.enqueue_outgoing(conn_id, send_unjustified_stats_stub().into_bytes());
-    world.enqueue_outgoing(
+    world.enqueue_encoded(
         conn_id,
-        send_basic_data_1098(has_premium, premium_packet_ends, voc_client).into_bytes(),
+        world
+            .codec
+            .encode_basic_data(has_premium, premium_packet_ends, voc_client),
     );
-    world.enqueue_outgoing(
+    world.enqueue_encoded(
         conn_id,
-        send_player_skills_1098(
-            &skill_levels,
-            &skill_bases,
-            &skill_percents,
-            &additional_skill_levels,
-            &additional_skill_bases,
-        )
-        .into_bytes(),
+        world.codec.encode_player_skills(&PlayerSkillsWire {
+            levels: skill_levels,
+            bases: skill_bases,
+            percents: skill_percents,
+            additional_levels: additional_skill_levels,
+            additional_bases: additional_skill_bases,
+        }),
     );
 
     let wt = crate::world_light::world_time_from_local_clock();
     let wl = crate::world_light::light_level_from_world_time(wt);
     world.enqueue_outgoing(conn_id, send_world_light(wl, 215, false).into_bytes());
-    world.enqueue_outgoing(
+    let pl = world.player_creature_light(creature_id);
+    world.enqueue_encoded(
         conn_id,
-        send_creature_light(
-            pid,
-            world.player_creature_light(creature_id).level,
-            world.player_creature_light(creature_id).color,
-            false,
-        )
-        .into_bytes(),
+        world.codec.encode_creature_light(pid, pl.level, pl.color, false),
     );
     for e in &vip_list {
         let online = world.player_by_guid.contains_key(&e.player_id);
@@ -552,9 +550,11 @@ pub fn enqueue_initial_login_packets(
             .into_bytes(),
         );
     }
-    world.enqueue_outgoing(
+    world.enqueue_encoded(
         conn_id,
-        send_basic_data_1098(has_premium, premium_packet_ends, voc_client).into_bytes(),
+        world
+            .codec
+            .encode_basic_data(has_premium, premium_packet_ends, voc_client),
     );
     world.enqueue_outgoing(conn_id, send_icons(0).into_bytes());
     world.enqueue_outgoing(conn_id, send_fight_modes(1, 0, 0, 0).into_bytes());

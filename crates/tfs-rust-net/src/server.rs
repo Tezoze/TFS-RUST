@@ -7,7 +7,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tracing::{error, info, trace};
 
-use tfs_rust_common::{ConnId, GameCommand};
+use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
 use crate::game_challenge::{send_game_challenge, GameChallenge};
 use crate::game_first_packet::{parse_first_client_packet, FirstClientPacket};
@@ -37,6 +37,8 @@ pub struct GameWireConfig {
     pub public_ip: String,
     pub game_port: u16,
     pub free_premium: bool,
+    pub protocol_version: ProtocolVersion,
+    pub protocol_caps: ProtocolCaps,
 }
 
 /// Login port: character list only (`src/protocollogin.cpp`).
@@ -51,6 +53,8 @@ pub struct LoginWireConfig {
     pub public_ip: String,
     pub game_port: u16,
     pub free_premium: bool,
+    pub protocol_version: ProtocolVersion,
+    pub protocol_caps: ProtocolCaps,
 }
 
 static NEXT_CONN_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
@@ -133,6 +137,10 @@ async fn handle_login_connection(
     mut stream: TcpStream,
     cfg: LoginWireConfig,
 ) -> anyhow::Result<()> {
+    trace!(
+        version = %cfg.protocol_version,
+        "login connection accept"
+    );
     let first_body = match read_sized_payload(&mut stream).await {
         Ok(Some(b)) => b,
         Ok(None) => return Ok(()),
@@ -199,6 +207,11 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     // delayed ACKs (~40ms). Critical for walk smoothness.
     let _ = stream.set_nodelay(true);
     let conn_id = ConnId(NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    trace!(
+        conn_id = conn_id.0,
+        version = %wire.protocol_version,
+        "game connection accept"
+    );
     let mut stream = BufWriter::new(stream);
 
     let challenge: GameChallenge = send_game_challenge(&mut stream).await?;

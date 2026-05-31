@@ -1,17 +1,28 @@
 //! Golden-byte checks for outgoing game packets against the C++ implementation in this repo.
+//! Phase A1 regression gate — bytes must match pre-codec output.
 // C++ reference: `src/protocolgame.cpp` (`ProtocolGame::send*`).
 
-use tfs_rust_common::Position;
+use tfs_rust_common::{Position, ProtocolVersion};
+use tfs_rust_net::codec::{
+    AddCreatureWire, Codec, Codec1098, ItemTemplateArgs, OutfitWire, PlayerSkillsWire,
+    PlayerStatsWire,
+};
+use tfs_rust_net::creature_encode::write_add_creature;
 use tfs_rust_net::map_description::send_map_description_stub;
 use tfs_rust_net::outgoing::{
     send_creature_health, send_extended_opcode, send_magic_effect, send_otcv8_features, send_ping,
     send_ping_back, send_text_message,
 };
-use tfs_rust_net::outgoing_extra::{send_player_skills_1098, send_unjustified_stats_stub};
+use tfs_rust_net::outgoing_extra::send_unjustified_stats_stub;
+use tfs_rust_net::{item_encode::write_item_template, NetworkMessage};
 
 /// `GameFeature::GameExtendedOpcode` / `GameItemTooltip` (`src/const.h`) — same pair as `ProtocolGame::sendFeatures`.
 const GAME_EXTENDED_OPCODE: u8 = 80;
 const GAME_ITEM_TOOLTIP: u8 = 93;
+
+fn codec() -> Codec {
+    Codec::from_version(ProtocolVersion::V1098).expect("1098 codec")
+}
 
 #[test]
 fn ping_and_ping_back() {
@@ -89,8 +100,124 @@ fn player_skills_1098_otc_thirteen_skill_layout_length() {
     let percents = [0u8; 7];
     let add_lv = [10u16; 6];
     let add_bs = [10u16; 6];
-    let msg = send_player_skills_1098(&levels, &bases, &percents, &add_lv, &add_bs);
+    let msg = codec().encode_player_skills(&PlayerSkillsWire {
+        levels,
+        bases,
+        percents,
+        additional_levels: add_lv,
+        additional_bases: add_bs,
+    });
     let b = msg.as_bytes();
     assert_eq!(b.len(), 1 + 35 + 24);
     assert_eq!(b[0], 0xA1);
+}
+
+#[test]
+fn item_template_plain_via_codec_matches_legacy_bytes() {
+    let mut legacy = NetworkMessage::new();
+    write_item_template(&mut legacy, 0x1234, 1, false, false, false, false);
+    let mut via_codec = NetworkMessage::new();
+    codec().write_item_template(&mut via_codec, 0x1234, 1, false, false, false, false);
+    assert_eq!(legacy.as_bytes(), via_codec.as_bytes());
+    assert_eq!(legacy.as_bytes(), &[0x34, 0x12, 0xFF]);
+}
+
+#[test]
+fn item_template_fluid_via_codec() {
+    let mut m = NetworkMessage::new();
+    codec().write_item_template(&mut m, 0x1234, 3, false, true, false, false);
+    assert_eq!(m.as_bytes(), &[0x34, 0x12, 0xFF, 0x03]);
+}
+
+#[test]
+fn outfit_looktype_via_codec() {
+    let o = OutfitWire {
+        look_type: 128,
+        look_head: 1,
+        look_body: 2,
+        look_legs: 3,
+        look_feet: 4,
+        look_addons: 0,
+        look_mount: 0,
+        look_type_ex: 0,
+    };
+    let mut m = NetworkMessage::new();
+    codec().write_outfit(&mut m, &o);
+    assert_eq!(
+        m.as_bytes(),
+        &[128, 0, 1, 2, 3, 4, 0, 0, 0]
+    );
+}
+
+#[test]
+fn player_stats_packet_via_codec() {
+    let stats = PlayerStatsWire {
+        health: 100,
+        max_health: 100,
+        free_capacity: 40000,
+        total_capacity: 40000,
+        experience: 4200,
+        level: 8,
+        level_percent: 50,
+        mana: 50,
+        max_mana: 50,
+        magic_level: 0,
+        base_magic_level: 0,
+        magic_level_percent: 0,
+        soul: 100,
+        stamina_minutes: 2520,
+        base_speed_half: 110,
+        regeneration_ticks_sec: 0,
+        offline_training_time: 0,
+    };
+    let b = codec().encode_player_stats(&stats).as_bytes().to_vec();
+    assert_eq!(b[0], 0xA0);
+    assert_eq!(b.len(), 1 + 2 + 2 + 4 + 4 + 8 + 2 + 1 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 1 + 2 + 2 + 2 + 2 + 2 + 1);
+}
+
+#[test]
+fn add_creature_known_header_via_codec() {
+    let c = AddCreatureWire {
+        id: 0x11223344,
+        remove_known: 0,
+        known: true,
+        creature_type: 0,
+        name: String::new(),
+        health_percent: 100,
+        direction: 2,
+        outfit: OutfitWire::default(),
+        light_level: 0,
+        light_color: 0,
+        speed_half: 110,
+        skull: 0,
+        party_shield: 0,
+        guild_emblem: 0,
+        speech_bubble: 0,
+        helpers: 0,
+        walkthrough_blocked: 1,
+        access_player: false,
+    };
+    let mut legacy = NetworkMessage::new();
+    write_add_creature(&mut legacy, &c);
+    let mut via_codec = NetworkMessage::new();
+    codec().write_add_creature(&mut via_codec, &c);
+    assert_eq!(legacy.as_bytes(), via_codec.as_bytes());
+}
+
+#[test]
+fn encode_add_tile_item_matches_deprecated_helper() {
+    let pos = Position::new(10, 20, 7);
+    let args = ItemTemplateArgs {
+        client_id: 0x1234,
+        count: 3,
+        stackable: true,
+        is_splash_or_fluid: false,
+        is_animation: false,
+        with_description: false,
+    };
+    let via_codec = codec().encode_add_tile_item(pos, 2, args).into_bytes();
+    let via_legacy =
+        Codec1098.encode_add_tile_item(pos, 2, args).into_bytes();
+    assert_eq!(via_codec, via_legacy);
+    assert_eq!(via_codec[0], 0x6A);
 }

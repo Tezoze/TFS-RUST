@@ -3,7 +3,8 @@
 
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
-use tfs_rust_net::outgoing_extra::{send_inventory_item_template, send_inventory_slot_empty, send_text_message_simple};
+use tfs_rust_net::codec::ItemTemplateArgs;
+use tfs_rust_net::outgoing_extra::{send_inventory_slot_empty, send_text_message_simple};
 
 use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
@@ -719,18 +720,19 @@ impl GameWorld {
             let stackable = self.items_db.stackable_for_server(sid);
             let splash = self.items_db.is_splash_or_fluid_for_server(sid);
             let anim = self.items_db.is_animation_for_server(sid);
-            self.enqueue_outgoing(
+            self.enqueue_encoded(
                 conn,
-                send_inventory_item_template(
+                self.codec.encode_inventory_item(
                     slot,
-                    cid_client,
-                    cnt,
-                    stackable,
-                    splash && !stackable,
-                    anim,
-                    with_desc,
-                )
-                .into_bytes(),
+                    ItemTemplateArgs {
+                        client_id: cid_client,
+                        count: cnt,
+                        stackable,
+                        is_splash_or_fluid: splash && !stackable,
+                        is_animation: anim,
+                        with_description: with_desc,
+                    },
+                ),
             );
         } else {
             self.enqueue_outgoing(conn, send_inventory_slot_empty(slot).into_bytes());

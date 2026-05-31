@@ -3,28 +3,20 @@
 
 use tfs_rust_common::Position;
 
+use crate::codec::{Codec1098, ItemTemplateArgs, PlayerSkillsWire, PlayerStatsWire};
 use crate::creature_encode::OutfitWire;
 use crate::NetworkMessage;
+
+#[allow(deprecated)]
+pub use crate::codec::wire::PlayerStats1098;
 
 pub use crate::map_description::send_update_tile;
 
 /// `ProtocolGame::sendAddCreature` self branch — `0x17` (`src/protocolgame.cpp` ~2771–2793).
 /// Matches OTClient `parseLogin` / `GameNewSpeedLaw` + 1054/1058 + `GameIngameStore` tail.
+#[deprecated(note = "use Codec::encode_self_appear_login")]
 pub fn send_self_appear_login(player_id: u32) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x17);
-    m.write_u32(player_id);
-    m.write_u16(0x32); // server beat (50 × 0.1 s), same as TFS
-    m.write_double_tfs(857.36, 3);
-    m.write_double_tfs(261.29, 3);
-    m.write_double_tfs(-4795.01, 3);
-    m.write_u8(0); // can report bugs
-    m.write_u8(0); // protocol ≥ 1054: PVP framing option
-    m.write_u8(0); // protocol ≥ 1058: expert PVP
-    // `GameIngameStore`: `getString()` URL + `getU16()` coin pack size (TFS: empty URL, 25)
-    m.write_string("");
-    m.write_u16(25);
-    m
+    Codec1098.encode_self_appear_login(player_id)
 }
 
 #[inline]
@@ -51,58 +43,9 @@ pub fn send_fight_modes(fight: u8, chase: u8, secure: u8, pvp: u8) -> NetworkMes
     m
 }
 
-/// `ProtocolGame::AddPlayerStats` opcode `0xA0` (1098 layout).
-// C++ reference: `src/protocolgame.cpp` `ProtocolGame::AddPlayerStats` (~3246)
-#[derive(Debug, Clone)]
-pub struct PlayerStats1098 {
-    pub health: u16,
-    pub max_health: u16,
-    pub free_capacity: u32,
-    pub total_capacity: u32,
-    pub experience: u64,
-    pub level: u16,
-    pub level_percent: u8,
-    pub mana: u16,
-    pub max_mana: u16,
-    pub magic_level: u8,
-    pub base_magic_level: u8,
-    pub magic_level_percent: u8,
-    pub soul: u8,
-    pub stamina_minutes: u16,
-    /// `getBaseSpeed() / 2` (C++).
-    pub base_speed_half: u16,
-    pub regeneration_ticks_sec: u16,
-    pub offline_training_time: u16,
-}
-
-pub fn send_player_stats_1098(s: &PlayerStats1098) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0xA0);
-    m.write_u16(s.health);
-    m.write_u16(s.max_health);
-    m.write_u32(s.free_capacity);
-    m.write_u32(s.total_capacity);
-    m.write_u64(s.experience);
-    m.write_u16(s.level);
-    m.write_u8(s.level_percent);
-    m.write_u16(100);
-    m.write_u16(0);
-    m.write_u16(0);
-    m.write_u16(0);
-    m.write_u16(100);
-    m.write_u16(s.mana);
-    m.write_u16(s.max_mana);
-    m.write_u8(s.magic_level);
-    m.write_u8(s.base_magic_level);
-    m.write_u8(s.magic_level_percent);
-    m.write_u8(s.soul);
-    m.write_u16(s.stamina_minutes);
-    m.write_u16(s.base_speed_half);
-    m.write_u16(s.regeneration_ticks_sec);
-    m.write_u16(s.offline_training_time);
-    m.write_u16(0);
-    m.write_u8(0);
-    m
+#[deprecated(note = "use Codec::encode_player_stats")]
+pub fn send_player_stats_1098(s: &PlayerStatsWire) -> NetworkMessage {
+    Codec1098.encode_player_stats(s)
 }
 
 /// `GameServerPlayerSkills` opcode `0xA1` — layout for **OTClient v8** with `GameAdditionalSkills` (≥1094).
@@ -113,6 +56,7 @@ pub fn send_player_stats_1098(s: &PlayerStats1098) -> NetworkMessage {
 /// **Deviation from C++** `AddPlayerSkills` in this repo (~3289): TFS sends 7 core + **7** trailing `(u16,u16)` special rows.
 /// OTC 1098 expects **6** extra skills **without** percent in the **same** loop — see `docs/OTCLIENT_INFO.md` §2.
 // C++ reference (TFS classic shape): `src/protocolgame.cpp` `ProtocolGame::AddPlayerSkills`
+#[deprecated(note = "use Codec::encode_player_skills")]
 pub fn send_player_skills_1098(
     levels: &[u16; 7],
     bases: &[u16; 7],
@@ -120,38 +64,20 @@ pub fn send_player_skills_1098(
     additional_levels: &[u16; 6],
     additional_bases: &[u16; 6],
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0xA1);
-    for i in 0..7 {
-        m.write_u16(levels[i]);
-        m.write_u16(bases[i]);
-        m.write_u8(percents[i]);
-    }
-    for i in 0..6 {
-        m.write_u16(additional_levels[i]);
-        m.write_u16(additional_bases[i]);
-    }
-    m
+    Codec1098.encode_player_skills(&PlayerSkillsWire {
+        levels: *levels,
+        bases: *bases,
+        percents: *percents,
+        additional_levels: *additional_levels,
+        additional_bases: *additional_bases,
+    })
 }
 
 /// `ProtocolGame::sendBasicData` opcode `0x9F` — `0xFF` “known spells” + 255 bytes `0x00..=0xFE`.
 // C++ reference: `src/protocolgame.cpp` `ProtocolGame::sendBasicData` (~1564)
+#[deprecated(note = "use Codec::encode_basic_data")]
 pub fn send_basic_data_1098(is_premium: bool, premium_ends_at: u32, vocation_client_id: u8) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x9F);
-    if is_premium {
-        m.write_u8(1);
-        m.write_u32(premium_ends_at);
-    } else {
-        m.write_u8(0);
-        m.write_u32(0);
-    }
-    m.write_u8(vocation_client_id);
-    m.write_u16(0xFF);
-    for spell_id in 0u16..=254 {
-        m.write_u8(spell_id as u8);
-    }
-    m
+    Codec1098.encode_basic_data(is_premium, premium_ends_at, vocation_client_id)
 }
 
 pub fn send_world_light(level: u8, color: u8, access_player: bool) -> NetworkMessage {
@@ -162,18 +88,14 @@ pub fn send_world_light(level: u8, color: u8, access_player: bool) -> NetworkMes
     m
 }
 
+#[deprecated(note = "use Codec::encode_creature_light")]
 pub fn send_creature_light(
     creature_id: u32,
     level: u8,
     color: u8,
     access_player: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x8D);
-    m.write_u32(creature_id);
-    m.write_u8(if access_player { 0xFF } else { level });
-    m.write_u8(color);
-    m
+    Codec1098.encode_creature_light(creature_id, level, color, access_player)
 }
 
 pub fn send_open_private_channel(receiver: &str) -> NetworkMessage {
@@ -317,11 +239,9 @@ pub fn send_change_speed(creature_id: u32, base_speed: u32, speed: u32) -> Netwo
 }
 
 /// C++ `ProtocolGame::sendCancelWalk` (`src/protocolgame.cpp` ~2515).
+#[deprecated(note = "use Codec::encode_cancel_walk")]
 pub fn send_cancel_walk(direction: u8) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0xB5);
-    m.write_u8(direction);
-    m
+    Codec1098.encode_cancel_walk(direction)
 }
 
 pub fn send_distance_shoot(from: Position, to: Position, shoot_type: u8) -> NetworkMessage {
@@ -340,34 +260,24 @@ pub fn send_fyi_box(message: &str) -> NetworkMessage {
     m
 }
 
+#[deprecated(note = "use Codec::encode_remove_tile_thing")]
 pub fn send_remove_tile_thing(pos: Position, stackpos: u8) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x6C);
-    m.write_position(&pos);
-    m.write_u8(stackpos);
-    m
+    Codec1098.encode_remove_tile_thing(pos, stackpos)
 }
 
+#[deprecated(note = "use Codec::encode_remove_tile_creature_by_id")]
 pub fn send_remove_tile_creature_by_id(creature_id: u32) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x6C);
-    m.write_u16(0xFFFF);
-    m.write_u32(creature_id);
-    m
+    Codec1098.encode_remove_tile_creature_by_id(creature_id)
 }
 
 /// C++ `ProtocolGame::sendAddCreature` non-self branch — opcode `0x6A` (`protocolgame.cpp` ~2730).
+#[deprecated(note = "use Codec::encode_add_tile_creature")]
 pub fn send_add_tile_creature(
     pos: Position,
     stack_pos: u8,
     wire: &crate::creature_encode::AddCreatureWire,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x6A);
-    m.write_position(&pos);
-    m.write_u8(stack_pos);
-    crate::creature_encode::write_add_creature(&mut m, wire);
-    m
+    Codec1098.encode_add_tile_creature(pos, stack_pos, wire)
 }
 
 pub fn send_close_container(cid: u8) -> NetworkMessage {
@@ -826,6 +736,7 @@ pub fn send_icons(icons: u16) -> NetworkMessage {
 }
 
 /// C++ `ProtocolGame::sendCreatureTurn` (`src/protocolgame.cpp` ~2404).
+#[deprecated(note = "use Codec::encode_creature_turn")]
 pub fn send_creature_turn(
     creature_id: u32,
     stack_pos: u8,
@@ -833,20 +744,7 @@ pub fn send_creature_turn(
     direction: u8,
     can_walkthrough: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x6B);
-    if stack_pos >= 10 {
-        m.write_u16(0xFFFF);
-        m.write_u32(creature_id);
-    } else {
-        m.write_position(&tile_pos);
-        m.write_u8(stack_pos);
-    }
-    m.write_u16(0x63);
-    m.write_u32(creature_id);
-    m.write_u8(direction);
-    m.write_u8(if can_walkthrough { 0x00 } else { 0x01 });
-    m
+    Codec1098.encode_creature_turn(creature_id, stack_pos, tile_pos, direction, can_walkthrough)
 }
 
 pub fn send_trade_request(trader: &str, ack: bool) -> NetworkMessage {
@@ -925,6 +823,7 @@ pub fn send_inventory_slot_empty(slot: u8) -> NetworkMessage {
 }
 
 /// C++ `sendAddTileItem` with template `addItem` (`src/protocolgame.cpp` ~2605).
+#[deprecated(note = "use Codec::encode_add_tile_item")]
 pub fn send_add_tile_item_template(
     pos: Position,
     stack_pos: u8,
@@ -935,23 +834,22 @@ pub fn send_add_tile_item_template(
     is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x6A);
-    m.write_position(&pos);
-    m.write_u8(stack_pos);
-    crate::item_encode::write_item_template(
-        &mut m,
-        client_id,
-        count,
-        stackable,
-        is_splash_or_fluid,
-        is_animation,
-        with_description,
-    );
-    m
+    Codec1098.encode_add_tile_item(
+        pos,
+        stack_pos,
+        ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description,
+        },
+    )
 }
 
 /// C++ `sendUpdateTileItem` template path (`src/protocolgame.cpp` ~2619).
+#[deprecated(note = "use Codec::encode_update_tile_item")]
 pub fn send_update_tile_item_template(
     pos: Position,
     stack_pos: u8,
@@ -962,20 +860,18 @@ pub fn send_update_tile_item_template(
     is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x6B);
-    m.write_position(&pos);
-    m.write_u8(stack_pos);
-    crate::item_encode::write_item_template(
-        &mut m,
-        client_id,
-        count,
-        stackable,
-        is_splash_or_fluid,
-        is_animation,
-        with_description,
-    );
-    m
+    Codec1098.encode_update_tile_item(
+        pos,
+        stack_pos,
+        ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description,
+        },
+    )
 }
 
 /// C++ `sendRemoveContainerItem` when `lastItem == nullptr` (`src/protocolgame.cpp` ~2952).
@@ -989,6 +885,7 @@ pub fn send_remove_container_item_empty(cid: u8, slot: u16) -> NetworkMessage {
 }
 
 /// C++ `sendInventoryItem` with item (`src/protocolgame.cpp` ~2896).
+#[deprecated(note = "use Codec::encode_inventory_item")]
 pub fn send_inventory_item_template(
     slot: u8,
     client_id: u16,
@@ -998,19 +895,17 @@ pub fn send_inventory_item_template(
     is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x78);
-    m.write_u8(slot);
-    crate::item_encode::write_item_template(
-        &mut m,
-        client_id,
-        count,
-        stackable,
-        is_splash_or_fluid,
-        is_animation,
-        with_description,
-    );
-    m
+    Codec1098.encode_inventory_item(
+        slot,
+        ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description,
+        },
+    )
 }
 
 /// `sendInventoryItem` with live `addItem(const Item*)` (`src/networkmessage.cpp` L117+).
@@ -1084,6 +979,7 @@ pub fn send_text_message_damage(
     m
 }
 
+#[deprecated(note = "use Codec::encode_add_container_item")]
 pub fn send_add_container_item_template(
     cid: u8,
     slot: u16,
@@ -1094,22 +990,21 @@ pub fn send_add_container_item_template(
     is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x70);
-    m.write_u8(cid);
-    m.write_u16(slot);
-    crate::item_encode::write_item_template(
-        &mut m,
-        client_id,
-        count,
-        stackable,
-        is_splash_or_fluid,
-        is_animation,
-        with_description,
-    );
-    m
+    Codec1098.encode_add_container_item(
+        cid,
+        slot,
+        ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description,
+        },
+    )
 }
 
+#[deprecated(note = "use Codec::encode_update_container_item")]
 pub fn send_update_container_item_template(
     cid: u8,
     slot: u16,
@@ -1120,18 +1015,16 @@ pub fn send_update_container_item_template(
     is_animation: bool,
     with_description: bool,
 ) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x71);
-    m.write_u8(cid);
-    m.write_u16(slot);
-    crate::item_encode::write_item_template(
-        &mut m,
-        client_id,
-        count,
-        stackable,
-        is_splash_or_fluid,
-        is_animation,
-        with_description,
-    );
-    m
+    Codec1098.encode_update_container_item(
+        cid,
+        slot,
+        ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description,
+        },
+    )
 }

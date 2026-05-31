@@ -19,6 +19,8 @@ expFromPlayersLevelRange = 75
 -- Connection Config
 -- NOTE: maxPlayers set to 0 means no limit
 -- NOTE: allowWalkthrough is only applicable to players
+-- Tibia client protocol version (772 = 7.72, 1098 = 10.98). Override: TFS_PROTOCOL_VERSION.
+clientVersion = 1098
 ip = "127.0.0.1"
 bindOnlyGlobalAddress = false
 loginProtocolPort = 7171

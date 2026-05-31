@@ -12,9 +12,12 @@ use tokio::task::LocalSet;
 use tracing::info;
 
 use tfs_rust_common::GameCommand;
-use tfs_rust_net::{GameWireConfig, LoginWireConfig, OutRegistry, Server};
+use tfs_rust_net::{Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server};
 
-use crate::config::{password_hash_config_from, ConfigManager, DbConfig, MysqlPoolConfig, NetConfig};
+use crate::config::{
+    password_hash_config_from, resolve_protocol_version, ConfigManager, DbConfig, MysqlPoolConfig,
+    NetConfig,
+};
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
@@ -76,6 +79,16 @@ pub async fn run() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("config network settings: {e}"))?;
     let password_hash = password_hash_config_from(config.as_ref())
         .map_err(|e| anyhow::anyhow!("config password hash settings: {e}"))?;
+    let protocol_version = resolve_protocol_version(config.as_ref())
+        .map_err(|e| anyhow::anyhow!("config protocol version: {e}"))?;
+    let codec = Codec::from_version(protocol_version)
+        .map_err(|e| anyhow::anyhow!("wire codec: {e}"))?;
+    let protocol_caps = protocol_version.caps();
+    info!(
+        version = %protocol_version,
+        ?protocol_caps,
+        "protocol version"
+    );
 
     // C++ ref: src/configmanager.cpp:178-184 (MySQL defaults and keys)
     let database_url = match std::env::var("DATABASE_URL") {
@@ -205,6 +218,7 @@ pub async fn run() -> anyhow::Result<()> {
         groups,
         vocations,
         Some(walk_wake_tx),
+        codec,
     );
     world.startup_spawns();
     info!("GameWorld ready (map + spawns + startup creatures)");
@@ -271,6 +285,8 @@ pub async fn run() -> anyhow::Result<()> {
         public_ip: public_ip.clone(),
         game_port,
         free_premium: true,
+        protocol_version,
+        protocol_caps,
     };
 
     let game_cfg = GameWireConfig {
@@ -285,6 +301,8 @@ pub async fn run() -> anyhow::Result<()> {
         public_ip,
         game_port,
         free_premium: true,
+        protocol_version,
+        protocol_caps,
     };
 
     // `GameWorld` holds `ConfigManager` → mlua `Lua` (not `Send`); drive the simulation on a `LocalSet`.

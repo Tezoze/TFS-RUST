@@ -4,6 +4,7 @@
 use mlua::{Lua, Value};
 use std::path::Path;
 use tfs_rust_common::error::{Result, TfsRustError};
+use tfs_rust_common::{protocol_version_from_i64, ProtocolVersion};
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,6 +343,23 @@ pub fn password_hash_config_from(cfg: &ConfigManager) -> Result<tfs_rust_db::Pas
     tfs_rust_db::PasswordHashConfig::new(legacy_sha1_enabled, bcrypt_cost as u32)
 }
 
+/// `config.lua` `clientVersion` (default 1098). C++ ref: OTClient/TFS client protocol id.
+pub fn protocol_version_from_config(cfg: &ConfigManager) -> Result<ProtocolVersion> {
+    let raw = get_i64_or(cfg, "clientVersion", 1098)?;
+    protocol_version_from_i64(raw).map_err(TfsRustError::Config)
+}
+
+/// `TFS_PROTOCOL_VERSION` env overrides `config.lua` `clientVersion`.
+pub fn resolve_protocol_version(cfg: &ConfigManager) -> Result<ProtocolVersion> {
+    if let Ok(env) = std::env::var("TFS_PROTOCOL_VERSION") {
+        let raw: i64 = env.parse().map_err(|_| {
+            TfsRustError::Config(format!("TFS_PROTOCOL_VERSION invalid: {env:?}"))
+        })?;
+        return protocol_version_from_i64(raw).map_err(TfsRustError::Config);
+    }
+    protocol_version_from_config(cfg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,6 +523,27 @@ mod tests {
     fn password_hash_config_rejects_invalid_cost() {
         let cfg = config_from_lua("passwordHashCost = 3");
         let err = password_hash_config_from(&cfg).expect_err("cost too low");
+        assert!(matches!(err, TfsRustError::Config(_)));
+    }
+
+    #[test]
+    fn protocol_version_defaults_when_key_missing() {
+        let cfg = config_from_lua("");
+        let v = protocol_version_from_config(&cfg).expect("default 1098");
+        assert_eq!(v, ProtocolVersion::V1098);
+    }
+
+    #[test]
+    fn protocol_version_reads_772() {
+        let cfg = config_from_lua("clientVersion = 772");
+        let v = protocol_version_from_config(&cfg).expect("772");
+        assert_eq!(v, ProtocolVersion::V772);
+    }
+
+    #[test]
+    fn protocol_version_rejects_unsupported() {
+        let cfg = config_from_lua("clientVersion = 999");
+        let err = protocol_version_from_config(&cfg).expect_err("unsupported");
         assert!(matches!(err, TfsRustError::Config(_)));
     }
 }

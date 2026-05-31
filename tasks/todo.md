@@ -93,3 +93,19 @@
 - [ ] Add parity diagnostics for unknown keys/types and duplicate XML item definitions.
 - [ ] Add regression tests for OTB decode coverage, XML parity keys, nested attribute parsing, and container truth.
 - [ ] Run `cargo test -p tfs-rust-content`, `cargo check`, and `cargo test -p tfs-rust-core`.
+
+## Phase A0 — Protocol version scaffolding (Track A)
+- [x] `ProtocolVersion`, `ProtocolCaps`, `ProtocolCaps::for_version` in `tfs-rust-common`
+- [x] `clientVersion` in `config.lua.dist`; `resolve_protocol_version` + `TFS_PROTOCOL_VERSION` override
+- [x] Thread `protocol_version` + `protocol_caps` on `GameWireConfig` / `LoginWireConfig`
+- [x] Unit tests: `protocol_caps.rs` (1098 matrix + 772 invariants) + config tests
+- [x] `cargo check --workspace`, `cargo test -p tfs-rust-common protocol_caps`, `cargo clippy`
+
+## Phase A1 — Codec seam (10.98 only, Track A)
+- [x] `codec/{mod,wire,v1098}.rs`: `ProtocolCodec`, `Codec1098`, `Codec` enum, `from_version` (772 rejected until A5)
+- [x] `PlayerStatsWire`, `PlayerSkillsWire`, `ItemTemplateArgs`; deprecated shims in `outgoing_extra.rs`
+- [x] `map_description.rs`: tile/map/move encoders take `&Codec`
+- [x] `GameWorld.codec` + `enqueue_encoded`; `run_server` / `test_world` init
+- [x] §3.5 rewire: `game_world`, `login_out`, `walk`, `container_ui`, `game_world_inventory`, `spawn_lifecycle`, `player_inventory_notifications`
+- [x] Golden tests: `protocol_compat.rs` + `map_description.rs` via `Codec1098`
+- [x] `cargo check --workspace`, `cargo test -p tfs-rust-net`

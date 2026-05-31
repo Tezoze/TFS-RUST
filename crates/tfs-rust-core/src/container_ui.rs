@@ -8,10 +8,9 @@ use std::time::Instant;
 use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
-use tfs_rust_net::item_encode::write_item_template;
+use tfs_rust_net::codec::ItemTemplateArgs;
 use tfs_rust_net::outgoing_extra::{
-    send_add_container_item_template, send_close_container, send_container_open,
-    send_remove_container_item_empty, send_update_container_item_template,
+    send_close_container, send_container_open, send_remove_container_item_empty,
 };
 
 use crate::creature::PlayerWalkAction;
@@ -167,28 +166,19 @@ impl GameWorld {
         let cstack = self.items_db.items.get(&ch_sid).map(|t| t.stackable()).unwrap_or(false);
         let csplash = self.items_db.is_splash_or_fluid_for_server(ch_sid);
         let canim = self.items_db.is_animation_for_server(ch_sid);
+        let args = ItemTemplateArgs {
+            client_id: ccid,
+            count: ccnt,
+            stackable: cstack,
+            is_splash_or_fluid: csplash,
+            is_animation: canim,
+            with_description: with_desc,
+        };
         let pkt = if is_add {
-            send_add_container_item_template(
-                client_cid,
-                slot,
-                ccid,
-                ccnt,
-                cstack,
-                csplash,
-                canim,
-                with_desc,
-            )
+            self.codec.encode_add_container_item(client_cid, slot, args)
         } else {
-            send_update_container_item_template(
-                client_cid,
-                slot,
-                ccid,
-                ccnt,
-                cstack,
-                csplash,
-                canim,
-                with_desc,
-            )
+            self.codec
+                .encode_update_container_item(client_cid, slot, args)
         };
         self.enqueue_outgoing(conn_id, pkt.into_bytes());
     }
@@ -353,6 +343,7 @@ impl GameWorld {
 
         let n_write = children.len() as u8;
 
+        let codec = self.codec;
         let pkt = send_container_open(
             client_cid,
             capacity,
@@ -363,7 +354,7 @@ impl GameWorld {
             first,
             n_write,
             move |m| {
-                write_item_template(
+                codec.write_item_template(
                     m,
                     client_id_hdr,
                     cnt,
@@ -380,7 +371,7 @@ impl GameWorld {
                 move |m| {
                     let ch = &children[i];
                     i += 1;
-                    write_item_template(
+                    codec.write_item_template(
                         m,
                         ch.client_id,
                         ch.count,

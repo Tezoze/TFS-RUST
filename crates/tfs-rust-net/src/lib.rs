@@ -1,4 +1,5 @@
 pub mod adler;
+pub mod codec;
 pub mod creature_encode;
 pub mod creature_known;
 pub mod game_challenge;
@@ -20,6 +21,9 @@ pub mod server;
 pub mod xtea;
 pub mod xtea_tfs;
 
+pub use codec::{
+    Codec, Codec1098, ItemTemplateArgs, ItemWire, PlayerSkillsWire, PlayerStatsWire, ProtocolCodec,
+};
 pub use game_command::GameCommand;
 pub use message::*;
 pub use outgoing::*;
@@ -31,4 +35,4 @@ pub use pending_login::{
 pub use protocol::ConnectionState;
 pub use protocol_login_out::{build_login_error_new, build_login_success_packet};
 pub use server::{GameWireConfig, LoginWireConfig, OutRegistry, Server};
-pub use tfs_rust_common::ConnId;
+pub use tfs_rust_common::{ConnId, ProtocolCaps, ProtocolVersion};

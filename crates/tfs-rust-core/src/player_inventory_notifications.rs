@@ -2,7 +2,6 @@
 // C++ reference: `src/player.cpp` ~3076–3191, `src/container.cpp` ~697–725.
 
 use tfs_rust_common::Position;
-use tfs_rust_net::outgoing_extra::send_creature_light;
 
 use crate::creature::LightInfo;
 use crate::creature::CreatureKind;
@@ -111,7 +110,10 @@ impl GameWorld {
         let pid = p.guid;
         let light = self.player_creature_light(cid);
         let access_player = false;
-        let pkt = send_creature_light(pid, light.level, light.color, access_player).into_bytes();
+        let pkt = self
+            .codec
+            .encode_creature_light(pid, light.level, light.color, access_player)
+            .into_bytes();
         self.broadcast_to_spectators(pos, pkt);
     }
 

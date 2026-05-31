@@ -35,7 +35,7 @@ use tfs_rust_common::enums::{ConditionType, Direction, SpeakType};
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{send_map_description_packet, send_move_creature_player, send_move_creature_spectator, TileContent};
-use tfs_rust_net::outgoing_extra::{send_cancel_walk, send_creature_turn, send_remove_tile_thing, send_text_message_simple};
+use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::combat::uniform_random;
 use crate::condition::ConditionData;
@@ -840,7 +840,10 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
         })
         .collect();
 
-    let packet = send_creature_turn(wire_id, stack_u8, pos, dir as u8, false).into_bytes();
+    let packet = world
+        .codec
+        .encode_creature_turn(wire_id, stack_u8, pos, dir as u8, false)
+        .into_bytes();
     for conn in spectators {
         if world.is_creature_fully_sent_to_conn(conn, wire_id) {
             world.enqueue_outgoing(conn, packet.clone());
@@ -923,7 +926,10 @@ impl GameWorld {
             })
             .collect();
         for conn in spectators {
-            let packet = send_creature_turn(guid, stack_u8, pos, dir as u8, false).into_bytes();
+            let packet = self
+                .codec
+                .encode_creature_turn(guid, stack_u8, pos, dir as u8, false)
+                .into_bytes();
             self.enqueue_outgoing(conn, packet);
         }
     }
@@ -947,7 +953,9 @@ impl GameWorld {
         if p.base.movement_blocked {
             self.enqueue_outgoing(
                 conn_id,
-                send_cancel_walk(direction_to_walk_byte(p.base.direction)).into_bytes(),
+                self.codec
+                    .encode_cancel_walk(direction_to_walk_byte(p.base.direction))
+                    .into_bytes(),
             );
             return;
         }
@@ -980,7 +988,9 @@ impl GameWorld {
         if p.base.movement_blocked {
             self.enqueue_outgoing(
                 conn_id,
-                send_cancel_walk(direction_to_walk_byte(p.base.direction)).into_bytes(),
+                self.codec
+                    .encode_cancel_walk(direction_to_walk_byte(p.base.direction))
+                    .into_bytes(),
             );
             return;
         }
@@ -1086,6 +1096,7 @@ impl GameWorld {
             };
             let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
             send_move_creature_player(
+                &self.codec,
                 old_pos,
                 new_pos,
                 old_stack,
@@ -1118,9 +1129,13 @@ impl GameWorld {
 
         // 1) sendRemoveTileCreature(creature, oldPos, oldStackPos)
         let remove_pkt = if old_stack >= 0 && old_stack < 10 {
-            send_remove_tile_thing(old_pos, old_stack as u8).into_bytes()
+            self.codec
+                .encode_remove_tile_thing(old_pos, old_stack as u8)
+                .into_bytes()
         } else {
-            tfs_rust_net::outgoing_extra::send_remove_tile_creature_by_id(p.guid).into_bytes()
+            self.codec
+                .encode_remove_tile_creature_by_id(p.guid)
+                .into_bytes()
         };
         self.enqueue_outgoing(conn_id, remove_pkt);
 
@@ -1136,6 +1151,7 @@ impl GameWorld {
             };
             let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
             send_map_description_packet(
+                &self.codec,
                 new_pos,
                 new_pos,
                 &mut get_tile,
@@ -1487,7 +1503,9 @@ impl GameWorld {
                             );
                             self.enqueue_outgoing(
                                 conn,
-                                send_cancel_walk(direction_to_walk_byte(d)).into_bytes(),
+                                self.codec
+                                    .encode_cancel_walk(direction_to_walk_byte(d))
+                                    .into_bytes(),
                             );
                         }
                         // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
@@ -1578,7 +1596,7 @@ impl GameWorld {
             }
             // TFS `Player::onWalkAborted` — `sendCancelWalk` (`player.cpp` ~3384–3387).
             if let (Some(conn), Some(db)) = (conn, dir_byte) {
-                self.enqueue_outgoing(conn, send_cancel_walk(db).into_bytes());
+                self.enqueue_encoded(conn, self.codec.encode_cancel_walk(db));
             }
             self.clear_player_walk_action(cid);
         }

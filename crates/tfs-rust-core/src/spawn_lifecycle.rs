@@ -11,9 +11,6 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterOutfit;
 use tfs_rust_net::creature_known::check_creature_known;
-use tfs_rust_net::outgoing_extra::{
-    send_add_tile_creature, send_remove_tile_creature_by_id, send_remove_tile_thing,
-};
 
 use crate::creature::CreatureBase;
 use crate::creature::CreatureKind;
@@ -465,7 +462,7 @@ impl GameWorld {
         wire.known = known_flag;
         wire.remove_known = remove_known;
         wire.id = wire_id;
-        let packet = send_add_tile_creature(pos, stack_pos, &wire).into_bytes();
+        let packet = self.codec.encode_add_tile_creature(pos, stack_pos, &wire).into_bytes();
         self.known_creatures_by_conn.insert(conn, known);
         if !known_flag {
             self.mark_creature_fully_sent(conn, wire_id);
@@ -487,9 +484,13 @@ impl GameWorld {
             None => return,
         };
         let packet = if stack_raw >= 0 && stack_raw < 10 {
-            send_remove_tile_thing(pos, stack_raw as u8).into_bytes()
+            self.codec
+                .encode_remove_tile_thing(pos, stack_raw as u8)
+                .into_bytes()
         } else {
-            send_remove_tile_creature_by_id(wire_id).into_bytes()
+            self.codec
+                .encode_remove_tile_creature_by_id(wire_id)
+                .into_bytes()
         };
         self.enqueue_outgoing(conn, packet);
         if let Some(known) = self.known_creatures_by_conn.get_mut(&conn) {

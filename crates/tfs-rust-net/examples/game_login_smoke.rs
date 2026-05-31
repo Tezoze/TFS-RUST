@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use tfs_rust_common::GameCommand;
+use tfs_rust_common::ProtocolVersion;
 use tfs_rust_net::{GameWireConfig, LoginWireConfig, OutRegistry, Server};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -117,6 +118,9 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
+    let protocol_version = ProtocolVersion::V1098;
+    let protocol_caps = protocol_version.caps();
+
     let login_cfg = LoginWireConfig {
         rsa_private_key: rsa_private_key.clone(),
         db: db.clone(),
@@ -127,6 +131,8 @@ async fn main() -> anyhow::Result<()> {
         public_ip: public_ip.clone(),
         game_port,
         free_premium: true,
+        protocol_version,
+        protocol_caps,
     };
 
     let game_cfg = GameWireConfig {
@@ -141,6 +147,8 @@ async fn main() -> anyhow::Result<()> {
         public_ip,
         game_port,
         free_premium: true,
+        protocol_version,
+        protocol_caps,
     };
 
     tokio::spawn(async move {

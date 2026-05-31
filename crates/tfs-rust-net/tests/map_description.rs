@@ -2,12 +2,16 @@
 
 use std::collections::HashSet;
 
-use tfs_rust_common::Position;
+use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::map_description::{
     send_map_description_packet, send_move_creature_player, send_move_creature_spectator,
     TileContent,
 };
-use tfs_rust_net::NetworkMessage;
+use tfs_rust_net::{Codec, NetworkMessage};
+
+fn codec_1098() -> Codec {
+    Codec::from_version(ProtocolVersion::V1098).expect("1098 codec")
+}
 
 #[test]
 fn full_map_description_empty_map_terminates_skip() {
@@ -17,6 +21,7 @@ fn full_map_description_empty_map_terminates_skip() {
     let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
     let mut can_see = |_id: u32| true;
     let msg: NetworkMessage = send_map_description_packet(
+        &codec_1098(),
         player,
         center,
         &mut get_tile,
@@ -41,6 +46,7 @@ fn move_creature_player_starts_with_6d_not_full_map_stub() {
     let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
     let mut can_see = |_id: u32| true;
     let msg = send_move_creature_player(
+        &codec_1098(),
         old_p,
         new_p,
         1,

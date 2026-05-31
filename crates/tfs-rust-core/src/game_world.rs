@@ -17,7 +17,9 @@ use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_common::protocol_constants::{MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y};
 use tfs_rust_common::Position;
 use tfs_rust_db::DbPool;
-use tfs_rust_net::outgoing_extra::{send_creature_say, send_player_stats_1098, PlayerStats1098};
+use tfs_rust_net::codec::{ItemTemplateArgs, PlayerStatsWire};
+use tfs_rust_net::outgoing_extra::send_creature_say;
+use tfs_rust_net::{Codec, NetworkMessage};
 
 use crate::config::ConfigManager;
 use crate::condition::ActiveCondition;
@@ -76,6 +78,8 @@ pub struct GameWorld {
     pub pending_outgoing: HashMap<ConnId, Vec<Vec<u8>>>,
     /// Extended opcode + async Lua result hooks (Phase 8: Lua `PacketHandler`).
     pub protocol_hooks: SharedProtocolHooks,
+    /// Wire encoder for `clientVersion` (GAME THREAD ONLY — Phase A1 codec seam).
+    pub codec: Codec,
     /// TCP connection → logged-in player (`conn_id` from `tfs-rust-net`).
     pub conn_to_creature: HashMap<ConnId, CreatureId>,
     /// Game-thread only — see [`DeferredTurnBroadcast`].
@@ -216,6 +220,7 @@ impl GameWorld {
         groups: Arc<GroupDatabase>,
         vocations: Arc<VocationDatabase>,
         walk_wake_tx: Option<UnboundedSender<CreatureId>>,
+        codec: Codec,
     ) -> Self {
         let monster_world_config = crate::config::MonsterWorldConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
@@ -240,6 +245,7 @@ impl GameWorld {
             tick_counter: 0,
             pending_outgoing: HashMap::new(),
             protocol_hooks: Arc::new(NullProtocolHooks),
+            codec,
             conn_to_creature: HashMap::new(),
             deferred_turn_broadcast: HashMap::new(),
             known_creatures_by_conn: HashMap::new(),
@@ -324,6 +330,10 @@ impl GameWorld {
     /// Queue raw packet bytes for a connection (built by `tfs-rust-net` outgoing helpers).
     pub fn enqueue_outgoing(&mut self, conn: ConnId, packet: Vec<u8>) {
         self.pending_outgoing.entry(conn).or_default().push(packet);
+    }
+
+    pub fn enqueue_encoded(&mut self, conn: ConnId, msg: NetworkMessage) {
+        self.enqueue_outgoing(conn, msg.into_bytes());
     }
 
     /// Drain all queued outgoing packets at end of tick; IO layer sends each blob in order per connection.
@@ -612,7 +622,7 @@ impl GameWorld {
             }
         };
 
-        let stats = PlayerStats1098 {
+        let stats = PlayerStatsWire {
             health: hl,
             max_health: max_h,
             free_capacity: free_cap,
@@ -632,7 +642,7 @@ impl GameWorld {
             offline_training_time: (p.offline_training_ms / 60 / 1000).min(65535) as u16,
         };
 
-        self.enqueue_outgoing(conn_id, send_player_stats_1098(&stats).into_bytes());
+        self.enqueue_encoded(conn_id, self.codec.encode_player_stats(&stats));
     }
 
     // === Item Movement (B.4) ===
@@ -2028,10 +2038,15 @@ impl GameWorld {
             }
             None => return,
         };
-        let pkt = tfs_rust_net::outgoing_extra::send_add_tile_item_template(
-            pos, stack_pos, client_id, count, stackable, is_splash_or_fluid, is_animation, false,
-        )
-        .into_bytes();
+        let args = ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description: false,
+        };
+        let pkt = self.codec.encode_add_tile_item(pos, stack_pos, args).into_bytes();
         self.broadcast_to_spectators(pos, pkt);
     }
 
@@ -2050,16 +2065,24 @@ impl GameWorld {
             }
             None => return,
         };
-        let pkt = tfs_rust_net::outgoing_extra::send_update_tile_item_template(
-            pos, stack_pos, client_id, count, stackable, is_splash_or_fluid, is_animation, false,
-        )
-        .into_bytes();
+        let args = ItemTemplateArgs {
+            client_id,
+            count,
+            stackable,
+            is_splash_or_fluid,
+            is_animation,
+            with_description: false,
+        };
+        let pkt = self
+            .codec
+            .encode_update_tile_item(pos, stack_pos, args)
+            .into_bytes();
         self.broadcast_to_spectators(pos, pkt);
     }
 
     /// Broadcast `sendRemoveTileThing` (0x6C) to all spectators.
     fn broadcast_tile_item_remove(&mut self, pos: Position, stack_pos: u8) {
-        let pkt = tfs_rust_net::outgoing_extra::send_remove_tile_thing(pos, stack_pos).into_bytes();
+        let pkt = self.codec.encode_remove_tile_thing(pos, stack_pos).into_bytes();
         self.broadcast_to_spectators(pos, pkt);
     }
 
