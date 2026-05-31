@@ -122,3 +122,18 @@ C++ refs — 772: `gameserver/src/protocol.cpp` `XTEA_decrypt` (no checksum, `le
 - [x] A3.5 Update callers: `server.rs` (game + login), packet-proxy `decrypt.rs`/`connection.rs`, tests.
 - [x] Tests: XTEA frame encode→decode round-trip under both caps profiles; 772 no-checksum; cross-profile guard; 1098 unchanged.
 - [x] Gate: `cargo check --workspace`, `cargo test -p tfs-rust-net -p tfs-rust-common` green (clippy errors are pre-existing baseline, unchanged by A3).
+
+## Phase A4 — Login capability gating (772 / 1098) — done
+
+Goal: login parse/encode branch on caps; DB gains account-number auth; 1098 byte-identical.
+C++ refs — 772: `gameserver/src/protocolgame.cpp` `onRecvFirstMessage`, `protocollogin.cpp`
+`onRecvFirstMessage`/`getCharacterList`/`disconnectClient`, `iologindata.cpp` `gameworldAuthentication`/
+`loginserverAuthentication` (`accounts.id`). 1098: repo-root `src/protocollogin.cpp`, `protocolgame.cpp`.
+
+- [x] A4.1 `LoginIdentity` enum (`AccountName(String)` 1098 | `AccountNumber(u32)` 772) in `game_first_packet.rs`; thread `&ProtocolCaps` into parse.
+- [x] A4.2 Branch credential-block parse: 1098 session key (`acc\npass\ntoken\ntime` + char + challenge); 772 inline `[u8 gm][u32 acct][string char][string pass]` (game) / `[u32 acct][string pass]` (login). Split testable `parse_{game,login}_credentials`.
+- [x] A4.3 DB `loginserver_authentication_by_number` / `gameworld_authentication_by_number` (`accounts.id`).
+- [x] A4.4 `build_login_success`/`build_login_error` caps-gated: 772 = no `0x28`, per-char `name+server+u32 ip+u16 port`, `u16` premium days, `0x0A` error; 1098 byte-identical (legacy shim retained).
+- [x] A4.5 `0x28` session-key send gated (772 omits); self-appear opcode already version-keyed (A2).
+- [x] server.rs branches DB auth on `LoginIdentity`; packet-proxy threads 1098 caps.
+- [x] Tests: 1098 encode/parse unchanged + new 772 credential/char-list units. `cargo check/clippy/test -p tfs-rust-net -p tfs-rust-common -p tfs-rust-db` green.

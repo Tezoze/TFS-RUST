@@ -9,7 +9,10 @@ pub mod pool;
 
 mod sqlx_offline;
 
-pub use account::{gameworld_authentication, loginserver_authentication};
+pub use account::{
+    gameworld_authentication, gameworld_authentication_by_number, loginserver_authentication,
+    loginserver_authentication_by_number,
+};
 pub use password::{hash_bcrypt, hash_bcrypt_async, sha1_password_hex, PasswordHashConfig};
 pub use house::{HouseListRow, HouseStore, TileStoreRow};
 pub use items::{ItemRecord, ItemStore, ItemTable};

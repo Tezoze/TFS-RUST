@@ -7,6 +7,7 @@ use rsa::RsaPrivateKey;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use tfs_rust_common::{ProtocolCaps, ProtocolVersion};
 use tfs_rust_net::game_frame::read_sized_payload;
 use tfs_rust_net::xtea_tfs::{expand_key, RoundKeys};
 
@@ -101,13 +102,13 @@ async fn game_c2s(
             .context("game C->S forward")?;
         let ts = crate::logger::timestamp_rfc3339_ms();
         if idx == 0 {
-            match parse_first_game_packet(&body, &rsa) {
+            match parse_first_game_packet(&body, &rsa, &ProtocolCaps::for_version(ProtocolVersion::V1098)) {
                 Ok(g) => {
                     *keys.lock().expect("keys") = Some(expand_key(&g.xtea_key));
                     log.line(&format!(
                         "[{ts}] [C->S] first packet {} bytes — XTEA key captured (account={}, char={})",
                         body.len(),
-                        g.account_name,
+                        g.identity.as_display(),
                         g.character_name
                     ));
                     log.hex_dump(&body);

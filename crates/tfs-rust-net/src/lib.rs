@@ -33,6 +33,9 @@ pub use pending_login::{
     PendingLoginPacketAction,
 };
 pub use protocol::ConnectionState;
-pub use protocol_login_out::{build_login_error_new, build_login_success_packet};
+pub use protocol_login_out::{
+    build_login_error, build_login_error_new, build_login_success, build_login_success_packet,
+    LoginSuccess,
+};
 pub use server::{GameWireConfig, LoginWireConfig, OutRegistry, Server};
 pub use tfs_rust_common::{ConnId, ProtocolCaps, ProtocolVersion};

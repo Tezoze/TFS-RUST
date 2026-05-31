@@ -40,8 +40,8 @@ What already exists so later phases don't re-do it:
 | `ProtocolCaps` invariants test | `crates/tfs-rust-common/tests/protocol_caps.rs` | `[x]` |
 | Golden-byte 1098 tests | `crates/tfs-rust-net/tests/protocol_compat.rs`, `tests/map_description.rs` | `[x]` (1098 only) |
 
-**Not yet started:** A2 (per-version opcodes), A3 (transport gating), A4 (login gating), A5
-(`Codec772`), A6 (wire-up). Entire Track B (`MechanicsProfile` / `data/formulas/`).
+**Not yet started:** A5 (`Codec772`), A6 (wire-up). Entire Track B (`MechanicsProfile` /
+`data/formulas/`). **Done:** A0–A4.
 
 > **Gap to close in A2** even though A0/A1 are done: `ProtocolCaps` currently models per-field booleans
 > but `Codec1098` does **not yet read them** — it writes 1098 layout unconditionally. A3/A4/A5 will make
@@ -162,38 +162,51 @@ in the crate is unchanged by A3.)
 
 ---
 
-### Phase A4 — Login capability gating `[ ]`
+### Phase A4 — Login capability gating `[x]`
 
 **Goal:** login parse/encode branch on `account_name_login` / `session_key_login`; DB gains an
 account-number auth path; self-appear opcode gated.
 
-**C++ ref:** 772 `gameserver/src/protocollogin.cpp` + `protocolgame.cpp` (`u32` account number, inline
-GM flag + account + char + password, char-list entry = name + world + `u32` IP + `u16` port, premium
-`u16` days, self-appear `0x0A` + `u16` beat + `u8` canReportBugs); 1098 repo-root `src/`. Design §2.2,
-§2.6.
+**C++ ref:** 772 `gameserver/src/protocollogin.cpp` (`onRecvFirstMessage`: `u32` accountNumber +
+`string` password; `getCharacterList`: char = name + serverName + `u32` IP + `u16` port, premium
+`u16` days; `disconnectClient` = `0x0A`) + `gameserver/src/protocolgame.cpp` `onRecvFirstMessage`
+(gm flag + `u32` accountNumber + char + password) + `gameserver/src/iologindata.cpp`
+(account number = `accounts.id`); 1098 repo-root `src/`. Design §2.2, §2.6.
 
-**Files:**
-- `crates/tfs-rust-net/src/game_first_packet.rs` — `parse_login_first` / `parse_game_first`: branch
-  account identity + credential block + 2FA presence on caps.
-- `crates/tfs-rust-net/src/protocol_login_out.rs` — char-list shape + premium representation per caps.
-- `crates/tfs-rust-net/src/pending_login.rs` — carry account-number identity variant.
-- `crates/tfs-rust-net/src/server.rs` — session-key packet `0x28` only when `session_key_login`.
-- `crates/tfs-rust-db/src/...` (auth) — add `gameworld_authentication_by_number` /
-  `loginserver_authentication_by_number`; keep name-based path for 1098 (design §3.4). This is the only
-  version-specific DB surface (auth identity, char-list query, premium repr).
-- self-appear: route through codec `encode_self_appear_login` using `caps.self_appear_opcode`.
+**Files (done):**
+- `crates/tfs-rust-net/src/game_first_packet.rs` — added `LoginIdentity` enum
+  (`AccountName(String)` 1098 | `AccountNumber(u32)` 772); `parse_first_client_packet` /
+  `parse_first_game_packet` now take `&ProtocolCaps`. RSA-offset candidates + checksum handling are
+  caps-driven (1098 set unchanged; 772 adds checksum-free game off 5 / login off 17). Credential
+  parse split into testable `parse_game_credentials` / `parse_login_credentials`.
+- `crates/tfs-rust-net/src/protocol_login_out.rs` — `LoginSuccess` neutral struct +
+  `build_login_success(caps, &LoginSuccess)` and `build_login_error(caps, msg)`. 1098 path byte-
+  identical to the legacy `build_login_success_packet` (kept as a thin shim). 772 path: no `0x28`,
+  per-char `name+server+u32 ip+u16 port`, `u16` premium days, `0x0A` error opcode.
+- `crates/tfs-rust-db/src/account.rs` — added `loginserver_authentication_by_number` /
+  `gameworld_authentication_by_number` (`accounts.id`); refactored shared verify/premium helpers.
+- `crates/tfs-rust-net/src/server.rs` — login + game handlers pass caps to parse and branch DB auth
+  on `LoginIdentity`; emit via the new caps-gated builders.
+- `tools/packet-proxy/src/connection.rs` — threads 1098 caps into `parse_first_game_packet`.
 
 **Tasks:**
-- [ ] A4.1 Model login identity as an enum (`AccountName(String)` | `AccountNumber(u32)`); fill from caps.
-- [ ] A4.2 Branch credential parse (session key string vs inline GM+acct+char+pass).
-- [ ] A4.3 DB account-number auth query (compile-time checked `query_as!`, `tfs-database` rules).
-- [ ] A4.4 Char-list + premium encode per caps (`u16` days vs `u8` flag + `u32` ts).
-- [ ] A4.5 Gate `0x28` session-key send; gate self-appear opcode via caps.
+- [x] A4.1 `LoginIdentity` enum (name | number), filled from caps.
+- [x] A4.2 Branch credential parse (1098 session key vs 772 inline acct-number + char + password).
+- [x] A4.3 DB account-number auth queries (`accounts.id`, bind-parameterized).
+- [x] A4.4 Char-list + premium encode per caps (`u16` days vs `u8` flag + `u32` ts).
+- [x] A4.5 `0x28` session-key send gated (772 omits it); self-appear opcode already version-keyed (A2).
 
-**Tests:** login encode golden bytes for 1098 unchanged. Add 772 char-list/self-appear golden once A5
-land (or stub with caps + neutral struct now, byte-assert in A5).
+**Tests (done):** lib unit tests — 1098/772 game + login credential parse, 772 char-list layout,
+`0x0A`/`0x0B` error opcode, premium-days math, `inet_addr` LE bytes, and a 1098
+success-byte-identical regression vs the legacy builder. `protocol_compat.rs` 1098 goldens unchanged.
 
-**Gate:** 1098 login flow unchanged end-to-end (smoke via `examples/game_login_smoke.rs`).
+**Gate:** ✅ `cargo check --workspace`, `cargo clippy --workspace --all-targets`,
+`cargo test -p tfs-rust-net -p tfs-rust-common -p tfs-rust-db` green. 1098 login bytes unchanged.
+
+> **Deferred to A5/A6 (intentional):** exact 772 first-packet *framing* offsets (the `0x0A`/`0x01`
+> proto-id byte handling and prelude widths) are best-effort from `gameserver/src/` and tagged
+> `// PROTOCOL:`; confirm against a live 7.72 capture before flipping `clientVersion = 772`. The 772
+> self-appear *payload* (`0x0A` + `u16` beat + `u8` canReportBugs) lands with `Codec772` in A5.9.
 
 ---
 
@@ -405,7 +418,7 @@ validated against captured CipSoft outputs (772) and current TFS values (1098).
 ## Dependency graph
 
 ```
-A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 [x] ─► A4 ─► A5 ─► A6   (wire: connectable 772, 1098-behaving)
+A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 [x] ─► A4 [x] ─► A5 ─► A6   (wire: connectable 772, 1098-behaving)
                                    │
 B0 ──► B1 ──► B2 ──► B3 ──► B4 ──► B5                  (mechanics: 772 behavior; B0 needs only A0)
 ```

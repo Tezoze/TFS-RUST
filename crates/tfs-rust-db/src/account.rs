@@ -25,7 +25,7 @@ async fn load_character_names(pool: &DbPool, account_id: i32) -> Result<Vec<Stri
     Ok(out)
 }
 
-/// Load account, verify password, upgrade legacy SHA1 to bcrypt on success.
+/// Load account by `name` (1098 / TFS 1.4.2), verify password, upgrade legacy SHA1 to bcrypt.
 async fn authenticate_account_password(
     pool: &DbPool,
     hash_cfg: &PasswordHashConfig,
@@ -37,6 +37,39 @@ async fn authenticate_account_password(
         .fetch_optional(pool.inner())
         .await
         .map_err(|e| TfsRustError::Database(e.to_string()))?;
+    verify_loaded_account(pool, hash_cfg, row, password).await
+}
+
+/// Load account by numeric `id` (7.72 account number), verify password, upgrade legacy SHA1.
+//
+// C++ reference: `gameserver/src/iologindata.cpp` `IOLoginData::loginserverAuthentication` /
+// `gameworldAuthentication` — both `SELECT ... FROM accounts WHERE id = {accountNumber}`. The 7.72
+// "account number" is the `accounts.id` primary key, not a separate column.
+async fn authenticate_account_password_by_number(
+    pool: &DbPool,
+    hash_cfg: &PasswordHashConfig,
+    account_number: u32,
+    password: &str,
+) -> Result<Option<i32>> {
+    let account_number = i32::try_from(account_number).map_err(|_| {
+        TfsRustError::Database(format!("account number out of range: {account_number}"))
+    })?;
+    let row = sqlx::query("SELECT id, password FROM accounts WHERE id = ?")
+        .bind(account_number)
+        .fetch_optional(pool.inner())
+        .await
+        .map_err(|e| TfsRustError::Database(e.to_string()))?;
+    verify_loaded_account(pool, hash_cfg, row, password).await
+}
+
+/// Shared tail of the name/number auth paths: verify password against the loaded row and
+/// transparently re-hash legacy SHA1 stores to bcrypt on success.
+async fn verify_loaded_account(
+    pool: &DbPool,
+    hash_cfg: &PasswordHashConfig,
+    row: Option<sqlx::mysql::MySqlRow>,
+    password: &str,
+) -> Result<Option<i32>> {
     let Some(row) = row else {
         return Ok(None);
     };
@@ -64,54 +97,42 @@ async fn authenticate_account_password(
     Ok(Some(account_id))
 }
 
-/// Returns `None` if account missing or password wrong. `(account_id, characters, premium_ends_at)`.
-pub async fn loginserver_authentication(
-    pool: &DbPool,
-    hash_cfg: &PasswordHashConfig,
-    account_name: &str,
-    password: &str,
-) -> Result<Option<(u32, Vec<String>, i64)>> {
-    let Some(account_id) =
-        authenticate_account_password(pool, hash_cfg, account_name, password).await?
-    else {
-        return Ok(None);
-    };
-
+/// Load premium expiry + character names for an authenticated account id.
+async fn load_account_premium(pool: &DbPool, account_id: i32) -> Result<i64> {
     let row = sqlx::query("SELECT premium_ends_at FROM accounts WHERE id = ?")
         .bind(account_id)
         .fetch_optional(pool.inner())
         .await
         .map_err(|e| TfsRustError::Database(e.to_string()))?;
-    let premium_ends_at: i64 = row
+    Ok(row
         .map(|r| {
             r.try_get::<Option<u32>, _>("premium_ends_at")
                 .map_err(|e| TfsRustError::Database(e.to_string()))
                 .map(|v| v.map(i64::from).unwrap_or(0))
         })
         .transpose()?
-        .unwrap_or(0);
-
-    let chars = load_character_names(pool, account_id).await?;
-    let id_u32 = u32::try_from(account_id).map_err(|_| {
-        TfsRustError::Database(format!("account id out of range: {account_id}"))
-    })?;
-    Ok(Some((id_u32, chars, premium_ends_at)))
+        .unwrap_or(0))
 }
 
-/// Validate account password + that character belongs to account. Returns account id or None.
-pub async fn gameworld_authentication(
+/// Build the login-server result tuple `(account_id, characters, premium_ends_at)` for an
+/// already-authenticated account id. Shared between the name- and number-keyed entry points.
+async fn loginserver_result(
     pool: &DbPool,
-    hash_cfg: &PasswordHashConfig,
-    account_name: &str,
-    password: &str,
+    account_id: i32,
+) -> Result<(u32, Vec<String>, i64)> {
+    let premium_ends_at = load_account_premium(pool, account_id).await?;
+    let chars = load_character_names(pool, account_id).await?;
+    let id_u32 = u32::try_from(account_id)
+        .map_err(|_| TfsRustError::Database(format!("account id out of range: {account_id}")))?;
+    Ok((id_u32, chars, premium_ends_at))
+}
+
+/// Confirm a character belongs to an authenticated account; returns the account id as `u32`.
+async fn gameworld_result(
+    pool: &DbPool,
+    account_id: i32,
     character_name: &str,
 ) -> Result<Option<u32>> {
-    let Some(account_id) =
-        authenticate_account_password(pool, hash_cfg, account_name, password).await?
-    else {
-        return Ok(None);
-    };
-
     let pid: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM players WHERE name = ? AND account_id = ? AND deletion = 0 LIMIT 1",
     )
@@ -126,4 +147,77 @@ pub async fn gameworld_authentication(
     u32::try_from(account_id)
         .map(Some)
         .map_err(|_| TfsRustError::Database(format!("account id out of range: {account_id}")))
+}
+
+/// Returns `None` if account missing or password wrong. `(account_id, characters, premium_ends_at)`.
+///
+/// 1098 / TFS 1.4.2 account-**name** login (`src/iologindata.cpp` `loginserverAuthentication`).
+pub async fn loginserver_authentication(
+    pool: &DbPool,
+    hash_cfg: &PasswordHashConfig,
+    account_name: &str,
+    password: &str,
+) -> Result<Option<(u32, Vec<String>, i64)>> {
+    let Some(account_id) =
+        authenticate_account_password(pool, hash_cfg, account_name, password).await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(loginserver_result(pool, account_id).await?))
+}
+
+/// 7.72 account-**number** login.
+//
+// C++ reference: `gameserver/src/iologindata.cpp` `IOLoginData::loginserverAuthentication(uint32_t
+// accountNumber, ...)` — `SELECT id, password, type, premium_ends_at FROM accounts WHERE id = ?`.
+pub async fn loginserver_authentication_by_number(
+    pool: &DbPool,
+    hash_cfg: &PasswordHashConfig,
+    account_number: u32,
+    password: &str,
+) -> Result<Option<(u32, Vec<String>, i64)>> {
+    let Some(account_id) =
+        authenticate_account_password_by_number(pool, hash_cfg, account_number, password).await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(loginserver_result(pool, account_id).await?))
+}
+
+/// Validate account password + that character belongs to account. Returns account id or None.
+///
+/// 1098 / TFS 1.4.2 account-**name** game login (`src/iologindata.cpp` `gameworldAuthentication`).
+pub async fn gameworld_authentication(
+    pool: &DbPool,
+    hash_cfg: &PasswordHashConfig,
+    account_name: &str,
+    password: &str,
+    character_name: &str,
+) -> Result<Option<u32>> {
+    let Some(account_id) =
+        authenticate_account_password(pool, hash_cfg, account_name, password).await?
+    else {
+        return Ok(None);
+    };
+    gameworld_result(pool, account_id, character_name).await
+}
+
+/// 7.72 account-**number** game login.
+//
+// C++ reference: `gameserver/src/iologindata.cpp` `IOLoginData::gameworldAuthentication(uint32_t
+// accountNumber, const std::string& password, std::string& characterName)` —
+// `SELECT id, password FROM accounts WHERE id = ?` then character-ownership check.
+pub async fn gameworld_authentication_by_number(
+    pool: &DbPool,
+    hash_cfg: &PasswordHashConfig,
+    account_number: u32,
+    password: &str,
+    character_name: &str,
+) -> Result<Option<u32>> {
+    let Some(account_id) =
+        authenticate_account_password_by_number(pool, hash_cfg, account_number, password).await?
+    else {
+        return Ok(None);
+    };
+    gameworld_result(pool, account_id, character_name).await
 }

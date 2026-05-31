@@ -10,10 +10,10 @@ use tracing::{error, info, trace};
 use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
 use crate::game_challenge::{send_game_challenge, GameChallenge};
-use crate::game_first_packet::{parse_first_client_packet, FirstClientPacket};
+use crate::game_first_packet::{parse_first_client_packet, FirstClientPacket, LoginIdentity};
 use crate::game_frame::read_sized_payload;
 use crate::protocol_game::{encrypt_xtea_game_frame, forward_game_packets_xtea};
-use crate::protocol_login_out::{build_login_error_new, build_login_success_packet};
+use crate::protocol_login_out::{build_login_error, build_login_success, LoginSuccess};
 use crate::xtea_tfs::expand_key;
 
 /// Per-connection writer for `flush_output_buffers` batches (`src/connection.cpp`).
@@ -147,12 +147,12 @@ async fn handle_login_connection(
         Err(e) => return Err(e.into()),
     };
 
-    let parsed = parse_first_client_packet(&first_body, &cfg.rsa_private_key)
+    let parsed = parse_first_client_packet(&first_body, &cfg.rsa_private_key, &cfg.protocol_caps)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let FirstClientPacket::Login {
         xtea_key,
-        account,
+        identity,
         password,
         operating_system: _,
         otclient_v8: _,
@@ -163,9 +163,24 @@ async fn handle_login_connection(
     };
 
     let round_keys = expand_key(&xtea_key);
-    let auth = tfs_rust_db::loginserver_authentication(&cfg.db, &cfg.password_hash, &account, &password)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+    // Account identity is capability-gated: 1098 logs in by account name, 772 by account number
+    // (`docs/PROTOCOL_VERSIONING.md` §2.2). Auth is the only version-specific DB surface (§3.4).
+    let auth = match &identity {
+        LoginIdentity::AccountName(name) => {
+            tfs_rust_db::loginserver_authentication(&cfg.db, &cfg.password_hash, name, &password)
+                .await
+        }
+        LoginIdentity::AccountNumber(number) => {
+            tfs_rust_db::loginserver_authentication_by_number(
+                &cfg.db,
+                &cfg.password_hash,
+                *number,
+                &password,
+            )
+            .await
+        }
+    }
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     let (read_half, mut write_half) = stream.into_split();
     let now = std::time::SystemTime::now()
@@ -174,22 +189,29 @@ async fn handle_login_connection(
         .as_secs() as i64;
     let ticks = (now / 30) as u32;
 
+    let account_display = identity.as_display();
     let plain = match auth {
-        None => build_login_error_new("Account name or password is not correct."),
-        Some((_, chars, prem)) => build_login_success_packet(
-            cfg.motd_num,
-            &cfg.motd,
-            &account,
-            &password,
-            "",
-            ticks,
-            &cfg.server_name,
-            &cfg.public_ip,
-            cfg.game_port,
-            &chars,
-            prem,
-            cfg.free_premium,
-            now,
+        None => build_login_error(
+            &cfg.protocol_caps,
+            "Account name or password is not correct.",
+        ),
+        Some((_, chars, prem)) => build_login_success(
+            &cfg.protocol_caps,
+            &LoginSuccess {
+                motd_num: cfg.motd_num,
+                motd: &cfg.motd,
+                account_name: &account_display,
+                password: &password,
+                token: "",
+                ticks,
+                server_name: &cfg.server_name,
+                ip: &cfg.public_ip,
+                game_port: cfg.game_port,
+                characters: &chars,
+                premium_ends_at: prem,
+                free_premium: cfg.free_premium,
+                now_unix: now,
+            },
         ),
     };
 
@@ -229,13 +251,14 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         Err(e) => return Err(e.into()),
     };
 
-    let parsed = parse_first_client_packet(&first_body, &wire.rsa_private_key).map_err(|e| {
-        eprintln!(
-            "[tfs-rust-net] conn {}: first packet parse: {}",
-            conn_id.0, e
-        );
-        anyhow::anyhow!(e)
-    })?;
+    let parsed = parse_first_client_packet(&first_body, &wire.rsa_private_key, &wire.protocol_caps)
+        .map_err(|e| {
+            eprintln!(
+                "[tfs-rust-net] conn {}: first packet parse: {}",
+                conn_id.0, e
+            );
+            anyhow::anyhow!(e)
+        })?;
 
     let game = match parsed {
         FirstClientPacket::Game(g) => g,
@@ -254,14 +277,24 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         }
     }
 
-    let acc = tfs_rust_db::gameworld_authentication(
-        &wire.db,
-        &wire.password_hash,
-        &game.account_name,
-        &game.password,
-        &game.character_name,
-    )
-    .await
+    let acc = match &game.identity {
+        LoginIdentity::AccountName(name) => tfs_rust_db::gameworld_authentication(
+            &wire.db,
+            &wire.password_hash,
+            name,
+            &game.password,
+            &game.character_name,
+        )
+        .await,
+        LoginIdentity::AccountNumber(number) => tfs_rust_db::gameworld_authentication_by_number(
+            &wire.db,
+            &wire.password_hash,
+            *number,
+            &game.password,
+            &game.character_name,
+        )
+        .await,
+    }
     .map_err(|e| anyhow::anyhow!(e))?;
     if acc.is_none() {
         return Err(anyhow::anyhow!(
@@ -271,7 +304,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     info!(
         conn_id = conn_id.0,
-        account = %game.account_name,
+        account = %game.identity.as_display(),
         character = %game.character_name,
         "game port: authenticated; handing session to game loop"
     );
