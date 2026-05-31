@@ -1,5 +1,6 @@
 //! Capability invariants for 772 vs 1098 (Phase A0 — docs/PROTOCOL_VERSIONING.md §2, §7).
 
+use tfs_rust_common::protocol_opcodes::{client, server};
 use tfs_rust_common::{ProtocolCaps, ProtocolVersion};
 
 #[test]
@@ -54,5 +55,70 @@ fn version_caps_round_trip() {
         assert_eq!(version.caps(), ProtocolCaps::for_version(version));
         let round = ProtocolVersion::try_from(version.raw()).expect("supported");
         assert_eq!(round, version);
+    }
+}
+
+/// Phase A2 — server self-appear opcode is version-keyed (`0x0A` in 772 vs `0x17` in 1098), sourced
+/// from `ProtocolCaps::self_appear_opcode`. Executable §2.6 matrix entry.
+#[test]
+fn server_self_appear_opcode_is_version_keyed() {
+    assert_eq!(server::self_appear(ProtocolVersion::V772), 0x0A);
+    assert_eq!(server::self_appear(ProtocolVersion::V1098), 0x17);
+}
+
+/// Phase A2 — incoming opcode dispatch is version-keyed (§2.7).
+#[test]
+fn client_opcode_support_matrix() {
+    // Shared commands accepted in both eras.
+    for op in [
+        client::MOVE_NORTH,
+        client::SAY,
+        client::ATTACK,
+        client::SET_OUTFIT,
+        client::USE_ITEM,
+    ] {
+        assert!(client::is_supported(op, ProtocolVersion::V772), "772 {op:#x}");
+        assert!(
+            client::is_supported(op, ProtocolVersion::V1098),
+            "1098 {op:#x}"
+        );
+    }
+
+    // 10.98-only blocks are rejected on 772 (shop / market / quest / mount / equip / wrap / VIP-edit).
+    for op in [
+        client::EQUIP_OBJECT,
+        client::LOOK_IN_SHOP,
+        client::PURCHASE,
+        client::TOGGLE_MOUNT,
+        client::WRAP_ITEM,
+        client::QUEST_LOG,
+        client::MARKET_LEAVE,
+        client::MODAL_WINDOW_ANSWER,
+        client::RULE_VIOLATION_REPORT, // 0xF2 — 772 uses the 0x9B trio instead
+    ] {
+        assert!(
+            !client::is_supported(op, ProtocolVersion::V772),
+            "772 must reject {op:#x}"
+        );
+        assert!(
+            client::is_supported(op, ProtocolVersion::V1098),
+            "1098 accepts {op:#x}"
+        );
+    }
+
+    // 7.72-only rule-violation trio accepted on 772, rejected on 1098.
+    for op in [
+        client::v772::PROCESS_RULE_VIOLATION_REPORT,
+        client::v772::CLOSE_RULE_VIOLATION_REPORT,
+        client::v772::CANCEL_RULE_VIOLATION_REPORT,
+    ] {
+        assert!(
+            client::is_supported(op, ProtocolVersion::V772),
+            "772 accepts {op:#x}"
+        );
+        assert!(
+            !client::is_supported(op, ProtocolVersion::V1098),
+            "1098 rejects {op:#x}"
+        );
     }
 }

@@ -4,21 +4,22 @@
 **Goal:** Support multiple Tibia protocol versions (and their mechanics) from one codebase, switchable by config.
 **Anchors:** `7.72` (the `gameserver/` C++ reference, "The Violet Project") and `10.98` (current Rust target, OTClientv8).
 **Reference trees (each has a distinct role):**
-- `gameserver/src/` = **TVP**, a TFS fork ported to 7.72 that tries to reproduce the decompiled server.
-  → **Style & structure authority** (TFS-idiomatic code, easy Lua scripting) **and** the 7.72
-  wire-format reference (§2–§11). Follow *how* TVP does it for wire/mechanics; **NPC scripts stay
-  TFS 1.4.2 Lua** (§12.6) — TVP's `.ndb` engine is reference-only for conversion, not a Rust port target.
-- `tibia-game-master/src/` = the leaked CipSoft 7.72 **decompile**. → **Behavioral source of truth**:
-  when TVP and the decompile disagree on an *outcome*, the decompile wins (§12).
+- `gameserver/src/` = **TVP**, a TFS fork ported to 7.72. → **Sole authority for 772 wire/packets**
+  (§2–§11): opcodes, byte layouts, login, transport. **Never** use `tibia-game-master` or repo-root
+  `src/` for 772 protocol work.
+- `tibia-game-master/src/` = the leaked CipSoft 7.72 **decompile**. → **772 behavioral source of truth**
+  (§12 mechanics only — not wire). When TVP and the decompile disagree on a *game outcome*, the
+  decompile wins; wire always follows `gameserver/src/`.
 - repo-root `src/` = TFS 1.4.2 / 10.98 = what the Rust port currently mirrors.
 
 **Guiding principles (apply throughout):**
-1. **Clean-room behavior, not code.** Copy the *observable outcomes* of the decompile (damage rolls,
+1. **Outcome parity, not code parity.** C++ reference defines *observable behavior* (bytes, damage, ticks, DB results). Implement in idiomatic Rust (`SlotMap`, enums, traits, channels) — never line-translate or transcribe reference source.
+2. **Clean-room behavior, not code.** Copy the *observable outcomes* of the decompile (damage rolls,
    step timing, AI decisions), validated against captured results — **never transcribe its source**.
    Implement in our own Rust, in TFS/TVP style.
-2. **Stay TFS-style.** Keep the easy, Lua-first scripting surface and TVP's structure; do not invent a
+3. **Stay TFS-style.** Keep the easy, Lua-first scripting surface and TVP's structure; do not invent a
    foreign architecture.
-3. **No magic numbers.** Combat/damage/speed/attack-speed/exp/condition formulas are **data- and
+4. **No magic numbers.** Combat/damage/speed/attack-speed/exp/condition formulas are **data- and
    Lua-tunable** (§12.13), not constants buried in Rust. Anyone should be able to retune a shard
    without recompiling.
 
@@ -672,8 +673,8 @@ module header.
 | "Is checksum on? halved speed? addons?" | `ProtocolCaps` | ❌ version-specific flag |
 | A balance constant / formula (damage, speed, exp…) | `MechanicsProfile` / `data/formulas/<version>.lua` | tunable, Lua-exposed (§12.13) |
 
-> These rules can be promoted into `.cursor/rules/` (e.g. a `TFS-protocol-versioning.mdc` scoped to
-> `crates/tfs-rust-net/**` and `crates/tfs-rust-core/**`) so they are enforced on every future edit.
+> Enforced in `.cursor/rules/`: `TFS-protocol-versioning.mdc` (always apply),
+> `TFS-wire-codec.mdc` (net + protocol common), `TFS-mechanics-profile.mdc` (core + `data/formulas/`).
 
 ---
 
@@ -705,11 +706,12 @@ This section maps CipSoft → TVP → our Rust port so the mechanics can be mirr
 (SlotMap entities, neutral structs, single-threaded tick, Lua-first scripting) while preserving
 original behavior.
 
-> **Two authorities, two questions:**
-> - *"What should the outcome be?"* → **`tibia-game-master/src/`** (CipSoft decompile) is truth.
-> - *"How do we structure it in TFS style?"* → **`gameserver/src/`** (TVP) for wire/mechanics;
->   repo-root `src/` (TFS 1.4.2) for **NPC scripting** (Lua npcsystem — §12.6).
-> - repo-root `src/` (TFS 1.4.2) = 10.98 mechanics we currently mirror.
+> **Three authorities, three questions:**
+> - *"What bytes on the wire (772)?"* → **`gameserver/src/` only** — never decompile, never repo-root `src/`.
+> - *"What should the game outcome be (772)?"* → **`tibia-game-master/src/`** (CipSoft decompile).
+> - *"What bytes / mechanics (1098)?"* → repo-root **`src/`** (TFS 1.4.2).
+> - *"How do we structure NPC scripting?"* → repo-root `src/` (TFS 1.4.2 Lua npcsystem — §12.6).
+>   TVP's `.ndb` engine is reference-only for conversion, not a Rust port target.
 >
 > **Clean-room rule:** reproduce the decompile's *outputs*, validated against captured values — do
 > **not** copy its code. Write our own Rust in TVP/TFS style. (See the legal note in §12.12.)

@@ -2,7 +2,7 @@
 // C++ reference (this repo): `src/protocolgame.cpp` `parsePacket`, `src/connection.cpp`.
 
 use tfs_rust_common::error::{Result, TfsRustError};
-use tfs_rust_common::{ConnId, GameCommand};
+use tfs_rust_common::{ConnId, GameCommand, ProtocolVersion};
 
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
@@ -14,9 +14,14 @@ use crate::message::NetworkMessage;
 use crate::xtea_tfs::{self, RoundKeys};
 
 /// Parse decrypted game payload (first byte = opcode) and build `GameCommand::Game`.
-pub fn game_command_from_payload(conn_id: ConnId, payload: &[u8]) -> Result<GameCommand> {
+/// `version` selects the per-era opcode dispatch table (Phase A2).
+pub fn game_command_from_payload(
+    conn_id: ConnId,
+    payload: &[u8],
+    version: ProtocolVersion,
+) -> Result<GameCommand> {
     let mut msg = NetworkMessage::from_bytes(payload);
-    let (_op, packet) = parse_game_packet(&mut msg)?;
+    let (_op, packet) = parse_game_packet(&mut msg, version)?;
     Ok(GameCommand::Game { conn_id, packet })
 }
 
@@ -105,9 +110,10 @@ pub async fn forward_game_packets<R: AsyncRead + Unpin>(
     mut read: R,
     conn_id: ConnId,
     cmd_tx: mpsc::UnboundedSender<GameCommand>,
+    version: ProtocolVersion,
 ) -> std::io::Result<()> {
     while let Some(payload) = read_sized_payload(&mut read).await? {
-        match game_command_from_payload(conn_id, &payload) {
+        match game_command_from_payload(conn_id, &payload, version) {
             Ok(cmd) => {
                 if cmd_tx.send(cmd).is_err() {
                     break;
@@ -127,6 +133,7 @@ pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
     conn_id: ConnId,
     cmd_tx: mpsc::UnboundedSender<GameCommand>,
     keys: &RoundKeys,
+    version: ProtocolVersion,
 ) -> std::io::Result<()> {
     while let Some(mut body) = read_sized_payload(&mut read).await? {
         let plain = match decrypt_xtea_game_body(&mut body, keys) {
@@ -136,7 +143,7 @@ pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
                 continue;
             }
         };
-        match game_command_from_payload(conn_id, plain) {
+        match game_command_from_payload(conn_id, plain, version) {
             Ok(cmd) => {
                 if cmd_tx.send(cmd).is_err() {
                     break;

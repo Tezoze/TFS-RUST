@@ -1,5 +1,7 @@
 //! Decode client → game packets (opcode first byte). Matches `ProtocolGame::parsePacket`.
-// C++ reference: `src/protocolgame.cpp` (incoming `case 0x..` switch).
+// C++ reference: 1098 repo-root `src/protocolgame.cpp`; 772 `gameserver/src/protocolgame.cpp`
+// (incoming `case 0x..` switch ~L466–528). Opcode support is version-keyed via
+// `protocol_opcodes::client::is_supported` (Phase A2).
 
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::error::{Result, TfsRustError};
@@ -8,18 +10,33 @@ use tfs_rust_common::game_packet::{
     UseItemExPayload, UseItemPayload,
 };
 use tfs_rust_common::protocol_opcodes::client as C;
+use tfs_rust_common::ProtocolVersion;
 
 use crate::NetworkMessage;
 
-/// Read opcode byte and dispatch to structured `GamePacket`.
-pub fn parse_game_packet(msg: &mut NetworkMessage) -> Result<(u8, GamePacket)> {
+/// Read opcode byte and dispatch to structured `GamePacket` for the connection's `version`.
+pub fn parse_game_packet(
+    msg: &mut NetworkMessage,
+    version: ProtocolVersion,
+) -> Result<(u8, GamePacket)> {
     let opcode = msg.read_u8()?;
-    let packet = parse_game_opcode(opcode, msg)?;
+    let packet = parse_game_opcode(opcode, msg, version)?;
     Ok((opcode, packet))
 }
 
-/// Parse payload after the opcode byte.
-pub fn parse_game_opcode(opcode: u8, msg: &mut NetworkMessage) -> Result<GamePacket> {
+/// Parse payload after the opcode byte. Rejects opcodes the active protocol version does not dispatch
+/// (`protocol_opcodes::client::is_supported`) so a 772 client cannot drive 1098-only handlers (and
+/// vice versa).
+pub fn parse_game_opcode(
+    opcode: u8,
+    msg: &mut NetworkMessage,
+    version: ProtocolVersion,
+) -> Result<GamePacket> {
+    if !C::is_supported(opcode, version) {
+        return Err(TfsRustError::Protocol(format!(
+            "client game opcode 0x{opcode:02x} not valid for protocol {version}"
+        )));
+    }
     match opcode {
         C::ENTER_GAME => Ok(GamePacket::EnterGame),
         C::LOGOUT => Ok(GamePacket::Logout),

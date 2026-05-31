@@ -305,7 +305,14 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         })
         .map_err(|_| anyhow::anyhow!("game command channel closed"))?;
 
-    forward_game_packets_xtea(read_half, conn_id, wire.cmd_tx, &round_keys).await?;
+    forward_game_packets_xtea(
+        read_half,
+        conn_id,
+        wire.cmd_tx,
+        &round_keys,
+        wire.protocol_version,
+    )
+    .await?;
     let mut g = wire.out_registry.lock().expect("out_registry lock");
     g.remove(&conn_id);
     Ok(())

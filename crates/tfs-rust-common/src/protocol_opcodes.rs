@@ -1,7 +1,19 @@
 //! Client → game and game → client opcode bytes (game protocol).
-// C++ reference (this repo): `src/protocolgame.cpp` — `parsePacket` (incoming), `ProtocolGame::send*` (outgoing).
+//!
+//! Per-version opcode tables (Phase A2 — `docs/PROTOCOL_VERSIONING.md` §2.7, §4.3).
+//! C++ reference:
+//! - **1098** (canonical here): repo-root `src/protocolgame.cpp` — `parsePacket` (incoming),
+//!   `ProtocolGame::send*` (outgoing).
+//! - **772**: `gameserver/src/protocolgame.cpp` `parsePacket` (incoming switch ~L466–528) — sole
+//!   wire authority for 7.72. Byte values for *shared* commands are identical across both eras; only
+//!   a handful diverge (rule-violation block) or are era-exclusive (see grouping below).
+
+use crate::protocol_version::ProtocolVersion;
 
 /// First byte of an **incoming** game packet (client → server).
+///
+/// Byte values are shared between 772 and 1098 **unless** marked otherwise. Era-exclusive opcodes are
+/// grouped at the end. Use [`client::is_supported`] to gate dispatch by the connection's version.
 pub mod client {
     /// OTClient `ClientEnterGame` / `sendEnterGame` (e.g. `protocolgamesend.cpp`). Single-byte, no payload.
     /// TFS 1.4.2 `ProtocolGame::parsePacket`: no `case 0x0F` when `player` is set — falls through to `default` (no-op).
@@ -88,9 +100,168 @@ pub mod client {
     pub const MARKET_CANCEL_OFFER: u8 = 0xF7;
     pub const MARKET_ACCEPT_OFFER: u8 = 0xF8;
     pub const MODAL_WINDOW_ANSWER: u8 = 0xF9;
+
+    /// 7.72-only incoming opcodes (`gameserver/src/protocolgame.cpp` `parsePacket` ~L504–506).
+    /// 10.98 collapses the rule-violation flow into a single [`RULE_VIOLATION_REPORT`] (`0xF2`).
+    pub mod v772 {
+        pub const PROCESS_RULE_VIOLATION_REPORT: u8 = 0x9B;
+        pub const CLOSE_RULE_VIOLATION_REPORT: u8 = 0x9C;
+        pub const CANCEL_RULE_VIOLATION_REPORT: u8 = 0x9D;
+    }
+
+    /// Every incoming opcode the 10.98 client protocol dispatches (repo-root `src/protocolgame.cpp`
+    /// `parsePacket`). This is the canonical 10.98 set; `0x0F` (ENTER_GAME) falls through to the
+    /// default no-op in C++ but is parsed here as a semantic `EnterGame`.
+    const SUPPORTED_V1098: &[u8] = &[
+        ENTER_GAME,
+        LOGOUT,
+        PING_BACK,
+        PING,
+        EXTENDED_OPCODE,
+        AUTO_WALK,
+        MOVE_NORTH,
+        MOVE_EAST,
+        MOVE_SOUTH,
+        MOVE_WEST,
+        STOP_AUTO_WALK,
+        MOVE_NORTHEAST,
+        MOVE_SOUTHEAST,
+        MOVE_SOUTHWEST,
+        MOVE_NORTHWEST,
+        TURN_NORTH,
+        TURN_EAST,
+        TURN_SOUTH,
+        TURN_WEST,
+        EQUIP_OBJECT,
+        THROW,
+        LOOK_IN_SHOP,
+        PURCHASE,
+        SALE,
+        CLOSE_SHOP,
+        REQUEST_TRADE,
+        LOOK_IN_TRADE,
+        ACCEPT_TRADE,
+        CLOSE_TRADE,
+        USE_ITEM,
+        USE_ITEM_EX,
+        USE_WITH_CREATURE,
+        ROTATE_ITEM,
+        CLOSE_CONTAINER,
+        UP_ARROW_CONTAINER,
+        TEXT_WINDOW,
+        HOUSE_WINDOW,
+        WRAP_ITEM,
+        LOOK_AT,
+        LOOK_IN_BATTLE_LIST,
+        JOIN_AGGRESSION,
+        SAY,
+        REQUEST_CHANNELS,
+        OPEN_CHANNEL,
+        CLOSE_CHANNEL,
+        OPEN_PRIVATE_CHANNEL,
+        CLOSE_NPC_CHANNEL,
+        FIGHT_MODES,
+        ATTACK,
+        FOLLOW,
+        PARTY_INVITE,
+        PARTY_JOIN,
+        PARTY_REVOKE_INVITE,
+        PARTY_PASS_LEADERSHIP,
+        PARTY_LEAVE,
+        PARTY_SHARE_EXPERIENCE,
+        CREATE_PRIVATE_CHANNEL,
+        CHANNEL_INVITE,
+        CHANNEL_EXCLUDE,
+        CANCEL_ATTACK_AND_FOLLOW,
+        UPDATE_TILE,
+        UPDATE_CONTAINER,
+        BROWSE_FIELD,
+        SEEK_IN_CONTAINER,
+        REQUEST_OUTFIT,
+        SET_OUTFIT,
+        TOGGLE_MOUNT,
+        VIP_ADD,
+        VIP_REMOVE,
+        VIP_EDIT,
+        BUG_REPORT,
+        THANK_YOU,
+        DEBUG_ASSERT,
+        QUEST_LOG,
+        QUEST_LINE,
+        RULE_VIOLATION_REPORT,
+        GET_OBJECT_INFO,
+        MARKET_LEAVE,
+        MARKET_BROWSE,
+        MARKET_CREATE_OFFER,
+        MARKET_CANCEL_OFFER,
+        MARKET_ACCEPT_OFFER,
+        MODAL_WINDOW_ANSWER,
+    ];
+
+    /// 10.98 opcodes with **no** 7.72 equivalent (`docs/PROTOCOL_VERSIONING.md` §2.7): modern shop,
+    /// market, quest-log, mount, equip, wrap, browse/seek-container, VIP-edit, and the `0xF2`
+    /// rule-violation report (7.72 uses the [`v772`] trio instead).
+    const V772_REMOVED: &[u8] = &[
+        EQUIP_OBJECT,
+        LOOK_IN_SHOP,
+        PURCHASE,
+        SALE,
+        CLOSE_SHOP,
+        WRAP_ITEM,
+        JOIN_AGGRESSION,
+        CLOSE_NPC_CHANNEL,
+        BROWSE_FIELD,
+        SEEK_IN_CONTAINER,
+        TOGGLE_MOUNT,
+        VIP_EDIT,
+        THANK_YOU,
+        QUEST_LOG,
+        QUEST_LINE,
+        RULE_VIOLATION_REPORT,
+        GET_OBJECT_INFO,
+        MARKET_LEAVE,
+        MARKET_BROWSE,
+        MARKET_CREATE_OFFER,
+        MARKET_CANCEL_OFFER,
+        MARKET_ACCEPT_OFFER,
+        MODAL_WINDOW_ANSWER,
+    ];
+
+    /// Incoming opcodes unique to 7.72 (the [`v772`] rule-violation trio).
+    const V772_ADDED: &[u8] = &[
+        v772::PROCESS_RULE_VIOLATION_REPORT,
+        v772::CLOSE_RULE_VIOLATION_REPORT,
+        v772::CANCEL_RULE_VIOLATION_REPORT,
+    ];
+
+    /// Does the 10.98 client protocol dispatch `op`?
+    fn is_supported_v1098(op: u8) -> bool {
+        SUPPORTED_V1098.contains(&op)
+    }
+
+    /// Does the 7.72 client protocol dispatch `op`? Derived from the 10.98 set minus
+    /// [`V772_REMOVED`] plus [`V772_ADDED`], matching `gameserver/src/protocolgame.cpp` `parsePacket`.
+    fn is_supported_v772(op: u8) -> bool {
+        (is_supported_v1098(op) && !V772_REMOVED.contains(&op)) || V772_ADDED.contains(&op)
+    }
+
+    /// Is `op` a valid incoming opcode for `version`? Gates dispatch so each era only accepts its own
+    /// client packets (`docs/PROTOCOL_VERSIONING.md` §2.7, §4.3). Unknown / unsupported opcodes are
+    /// rejected by the caller (`game_parse`).
+    pub fn is_supported(op: u8, version: super::ProtocolVersion) -> bool {
+        match version.raw() {
+            772 => is_supported_v772(op),
+            1098 => is_supported_v1098(op),
+            _ => false,
+        }
+    }
 }
 
 /// First payload byte of an **outgoing** game packet (server → client), after encryption/checksum framing.
+///
+/// Most server→client opcode **byte values** are shared between 772 and 1098; the layouts differ
+/// (handled per-codec), not the opcode. The exception is the self-appear opcode, which is genuinely
+/// version-keyed (`0x0A` in 772 vs `0x17` in 1098) — use [`server::self_appear`].
 pub mod server {
     pub const MAP_DESCRIPTION: u8 = 0x64;
     pub const MAGIC_EFFECT: u8 = 0x83;
@@ -101,4 +272,12 @@ pub mod server {
     pub const EXTENDED_OPCODE: u8 = 0x32;
     /// OTCv8 feature list (`ProtocolGame::sendFeatures` / `sendOTCFeatures` — opcode 0x43).
     pub const OTCV8_FEATURES: u8 = 0x43;
+
+    /// Self-appear opcode (`ProtocolGame::sendAddCreature` self branch). Version-keyed:
+    /// 772 = `0x0A` (`gameserver/src/protocolgame.cpp`), 1098 = `0x17` (repo-root `src/protocolgame.cpp`).
+    /// Sourced from [`ProtocolCaps::self_appear_opcode`](crate::ProtocolCaps) — single source of truth.
+    #[inline]
+    pub fn self_appear(version: super::ProtocolVersion) -> u8 {
+        version.caps().self_appear_opcode
+    }
 }
