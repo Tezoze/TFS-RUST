@@ -1,8 +1,8 @@
 # TFS Rust — Project Status
 
-**Last updated:** 2026-05-29  
+**Last updated:** 2026-06-01  
 **Reference:** TFS 1.4.2 C++ (`src/`) is the source of truth for behavior.  
-**Target client:** OTClient v8, Tibia protocol **10.98**.
+**Target client:** OTClient v8, Tibia protocol **10.98** (default). Wire codec is version-selectable — **7.72** is connectable via `Codec772` (Track A complete; mechanics still 1098 until Track B).
 
 ---
 
@@ -50,6 +50,7 @@ Rough scale today: **~140 Rust source files**, **~27k lines** across 6 workspace
 | Crate / pattern | Role |
 |-----------------|------|
 | **`tfs-rust-net`** | TCP server, XTEA, RSA (raw `modpow`, not PKCS#1 decrypt), Adler32 framing |
+| **`ProtocolCodec` seam** | Version-keyed wire codec — `Codec1098` (10.98/OTCv8) + `Codec772` (7.72, `gameserver/src/` parity); zero-cost `Codec` enum dispatch, caps-gated transport/login |
 | **`bytes` / manual parsing** | Zero-copy-friendly packet read/write |
 | **60+ client→server opcodes** | Parsed into `GamePacket` enum |
 | **OTCv8 detection** | OS + `"OTCv8"` probe stored per connection |

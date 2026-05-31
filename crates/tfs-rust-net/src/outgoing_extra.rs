@@ -290,6 +290,7 @@ pub fn send_close_container(cid: u8) -> NetworkMessage {
 /// `ProtocolGame::sendContainer` — opcode `0x6E` (`src/protocolgame.cpp` ~1751).
 /// `write_container_header` must write `addItem` + `addString(name)` (or browse-field bag + name).
 /// `write_item` is called once per item in the window (`addItem` each).
+#[deprecated(note = "use Codec::encode_container_open")]
 #[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendContainer` parameters (parity)
 pub fn send_container_open(
     cid: u8,

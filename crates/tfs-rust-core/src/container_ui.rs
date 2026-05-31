@@ -8,10 +8,8 @@ use std::time::Instant;
 use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
-use tfs_rust_net::codec::ItemTemplateArgs;
-use tfs_rust_net::outgoing_extra::{
-    send_close_container, send_container_open, send_remove_container_item_empty,
-};
+use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
+use tfs_rust_net::outgoing_extra::{send_close_container, send_remove_container_item_empty};
 
 use crate::creature::PlayerWalkAction;
 use crate::creature::CreatureKind;
@@ -341,49 +339,36 @@ impl GameWorld {
             });
         }
 
-        let n_write = children.len() as u8;
-
-        let codec = self.codec;
-        let pkt = send_container_open(
-            client_cid,
+        let wire = ContainerOpenWire {
+            cid: client_cid,
+            header_item: ItemTemplateArgs {
+                client_id: client_id_hdr,
+                count: cnt,
+                stackable,
+                is_splash_or_fluid: splash && !stackable,
+                is_animation: anim,
+                with_description: with_desc,
+            },
+            name,
             capacity,
             has_parent,
             unlocked,
             pagination,
-            total_items,
-            first,
-            n_write,
-            move |m| {
-                codec.write_item_template(
-                    m,
-                    client_id_hdr,
-                    cnt,
-                    stackable,
-                    splash && !stackable,
-                    anim,
-                    with_desc,
-                );
-                m.write_string(&name);
-            },
-            {
-                let children = children;
-                let mut i = 0usize;
-                move |m| {
-                    let ch = &children[i];
-                    i += 1;
-                    codec.write_item_template(
-                        m,
-                        ch.client_id,
-                        ch.count,
-                        ch.stackable,
-                        ch.splash_nf,
-                        ch.anim,
-                        with_desc,
-                    );
-                }
-            },
-        );
-        Some(pkt.into_bytes())
+            total_size: total_items,
+            first_index: first,
+            items: children
+                .into_iter()
+                .map(|ch| ItemTemplateArgs {
+                    client_id: ch.client_id,
+                    count: ch.count,
+                    stackable: ch.stackable,
+                    is_splash_or_fluid: ch.splash_nf,
+                    is_animation: ch.anim,
+                    with_description: with_desc,
+                })
+                .collect(),
+        };
+        Some(self.codec.encode_container_open(&wire).into_bytes())
     }
 
     /// After any change to container contents, sync clients (`0x6E` or per-slot `0x70`–`0x72`).

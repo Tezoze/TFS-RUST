@@ -75,7 +75,9 @@ pub struct AddCreatureWire {
     pub outfit: OutfitWire,
     pub light_level: u8,
     pub light_color: u8,
-    pub speed_half: u16,
+    /// Full `Creature::getStepSpeed()` (max width — never pre-narrowed; design §9.5).
+    /// 10.98 writes `step_speed / 2` (`ProtocolCaps::speed_halved`); 7.72 writes it in full.
+    pub step_speed: u16,
     pub skull: u8,
     pub party_shield: u8,
     pub guild_emblem: u8,
@@ -98,7 +100,7 @@ impl Default for AddCreatureWire {
             outfit: OutfitWire::default(),
             light_level: 0,
             light_color: 0,
-            speed_half: 110,
+            step_speed: 220,
             skull: 0,
             party_shield: 0,
             guild_emblem: 0,
@@ -131,7 +133,9 @@ pub fn write_add_creature(msg: &mut NetworkMessage, c: &AddCreatureWire) {
     msg.write_u8(ll);
     msg.write_u8(c.light_color);
 
-    msg.write_u16(c.speed_half);
+    // 10.98 writes `getStepSpeed() / 2` (`src/protocolgame.cpp` ~3210). 7.72 writes it in full
+    // (`Codec772::write_add_creature`).
+    msg.write_u16(c.step_speed / 2);
     msg.write_u8(c.skull);
     msg.write_u8(c.party_shield);
 

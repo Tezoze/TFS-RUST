@@ -348,4 +348,31 @@ impl Codec1098 {
         m.write_u8(direction);
         m
     }
+
+    /// `ProtocolGame::sendContainer` opcode `0x6E` (`src/protocolgame.cpp` ~1751): cid + container
+    /// item + name + `u8` capacity + `u8` hasParent + `u8` unlocked + `u8` pagination + `u16` size +
+    /// `u16` firstIndex + (`u8` count + items) when `firstIndex < size`.
+    pub fn encode_container_open(&self, c: &super::wire::ContainerOpenWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x6E);
+        m.write_u8(c.cid);
+        self.write_item_template_args(&mut m, c.header_item);
+        m.write_string(&c.name);
+        m.write_u8(c.capacity);
+        m.write_u8(u8::from(c.has_parent));
+        m.write_u8(u8::from(c.unlocked));
+        m.write_u8(u8::from(c.pagination));
+        m.write_u16(c.total_size);
+        m.write_u16(c.first_index);
+        if u32::from(c.first_index) < u32::from(c.total_size) {
+            let n = c.items.len().min(u8::MAX as usize) as u8;
+            m.write_u8(n);
+            for args in c.items.iter().take(n as usize) {
+                self.write_item_template_args(&mut m, *args);
+            }
+        } else {
+            m.write_u8(0);
+        }
+        m
+    }
 }

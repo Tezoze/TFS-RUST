@@ -137,3 +137,34 @@ C++ refs — 772: `gameserver/src/protocolgame.cpp` `onRecvFirstMessage`, `proto
 - [x] A4.5 `0x28` session-key send gated (772 omits); self-appear opcode already version-keyed (A2).
 - [x] server.rs branches DB auth on `LoginIdentity`; packet-proxy threads 1098 caps.
 - [x] Tests: 1098 encode/parse unchanged + new 772 credential/char-list units. `cargo check/clippy/test -p tfs-rust-net -p tfs-rust-common -p tfs-rust-db` green.
+
+## Phase A5 — Implement `Codec772` (772 wire layouts) — done
+
+C++ refs (772 wire — `gameserver/src/` ONLY):
+- `networkmessage.cpp` `addItem` (2-byte min, no MARK/anim/desc/duration); fluid via `tools.cpp` `getLiquidColor`.
+- `protocolgame.cpp` `AddCreature` (~2051), `AddPlayerStats` (~2090), `AddPlayerSkills` (~2118),
+  `AddOutfit`, `AddCreatureLight` (~2149), `sendContainer`/`sendAddContainerItem`/`sendUpdateContainerItem`,
+  tile item senders (~1591), `sendAddCreature` self branch (0x0A self-appear, ~1694), `sendCreatureTurn`,
+  `sendCancelWalk`, `RemoveTileThing`.
+
+- [x] A5.0 Widened neutral `AddCreatureWire.speed_half` → `step_speed` (full `getStepSpeed()`; design §9.5). 1098 codec writes `/2`, 772 writes full. New `ContainerOpenWire` (1098 writes unlock/pagination/size/firstIndex; 772 omits).
+- [x] A5.1 `write_item_template` / `item_template_wire_len` — 772 (count + `getLiquidColor`; no mark/anim/desc).
+- [x] A5.2 `write_add_creature` / `add_creature_wire_len` — 772 (no creature-type/emblem/bubble/MARK/helpers/walkthrough; full step speed; raw light).
+- [x] A5.3 `write_outfit` — 772 (no addons, no mount; lookTypeEx path).
+- [x] A5.4 `encode_player_stats` — 772 (`u16` cap=free/100, `u32` exp w/ overflow→0, no base-magic/stamina/speed block).
+- [x] A5.5 `encode_player_skills` — 772 (7 × `u8` level + `u8`%).
+- [x] A5.6 container open via `encode_container_open` (`0x6E` no unlock/pagination/size/firstIndex); add `0x70` no slot; update `0x71` `u8` slot; inventory `0x78`.
+- [x] A5.7 tile item add/update/remove, add-tile-creature, creature light/turn, cancel-walk — 772.
+- [x] A5.8 `encode_self_appear_login` — 772 (`0x0A` + id + `u16` beat + `u8` canReportBugs).
+- [x] A5.9 `encode_basic_data` / `encode_remove_tile_creature_by_id` — 772 has none → empty msg; empty-skip guard in `enqueue_outgoing`.
+- [x] A5.10 Wired `Codec::V772` into enum + every `delegate_codec!` arm + `from_version(772) => Ok(V772)`.
+- [x] A5.11 Golden tests: `mod v772` in `protocol_compat.rs` (item/creature/outfit/stats/skills/self-appear/container/tile/light/turn/cancel + empty guard) + 1098 container-open regression.
+- Deferred: `sendIcons 0xA2` `u8`-vs-`u16` (built by `send_icons` helper, not yet a codec method); OTClient-772 `0x6A` stackpos byte omitted (canonical 7.72 client).
+
+## Phase A6 — Wire it up & document — done (live smoke test pending 772 content)
+
+- [x] A6.1 `from_version(772)` end-to-end; no `Codec1098`/`*_1098` direct imports in core (grep clean); all §3.5 sites route through `world.codec`.
+- [~] A6.2 Live 7.72 smoke test deferred (needs a real client + 772 content). Wire frozen as goldens vs `gameserver/src/`. Login-choreography caps-gating (OTCv8-only preamble) to skip for 772 before live test.
+- [x] A6.3 Updated `docs/PROJECT_STATUS.md`, `tasks/lessons.md`, `PROTOCOL_VERSIONING_IMPLEMENTATION_PLAN.md`, `codec/v772.rs` C++ refs.
+- [x] A6.4 Flagged 772 content prerequisite (items.otb/.spr/.dat/OTBM) as separate follow-up.
+- [x] Gate: `cargo check/test --workspace`, `cargo clippy --workspace --all-targets` green; 1098 goldens unchanged.

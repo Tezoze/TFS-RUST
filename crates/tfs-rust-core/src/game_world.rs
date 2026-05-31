@@ -333,6 +333,13 @@ impl GameWorld {
 
     /// Queue raw packet bytes for a connection (built by `tfs-rust-net` outgoing helpers).
     pub fn enqueue_outgoing(&mut self, conn: ConnId, packet: Vec<u8>) {
+        // A codec may produce an empty packet for an opcode with no equivalent in the active era
+        // (e.g. 7.72 has no `sendBasicData` / by-id tile removal). Drop those so the framing layer
+        // never emits a zero-length body. 10.98 never enqueues an empty packet, so this is a no-op
+        // there.
+        if packet.is_empty() {
+            return;
+        }
         self.pending_outgoing.entry(conn).or_default().push(packet);
     }
 

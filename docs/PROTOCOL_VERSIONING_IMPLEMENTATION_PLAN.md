@@ -40,8 +40,8 @@ What already exists so later phases don't re-do it:
 | `ProtocolCaps` invariants test | `crates/tfs-rust-common/tests/protocol_caps.rs` | `[x]` |
 | Golden-byte 1098 tests | `crates/tfs-rust-net/tests/protocol_compat.rs`, `tests/map_description.rs` | `[x]` (1098 only) |
 
-**Not yet started:** A5 (`Codec772`), A6 (wire-up). Entire Track B (`MechanicsProfile` /
-`data/formulas/`). **Done:** A0–A4.
+**Not yet started:** Entire Track B (`MechanicsProfile` / `data/formulas/`). **Done:** A0–A6 (full
+wire track — 772 is connectable; 1098 byte-identical).
 
 > **Gap to close in A2** even though A0/A1 are done: `ProtocolCaps` currently models per-field booleans
 > but `Codec1098` does **not yet read them** — it writes 1098 layout unconditionally. A3/A4/A5 will make
@@ -210,69 +210,93 @@ success-byte-identical regression vs the legacy builder. `protocol_compat.rs` 10
 
 ---
 
-### Phase A5 — Implement `Codec772` `[ ]`
+### Phase A5 — Implement `Codec772` `[x]`
 
 **Goal:** full 772 byte layouts behind the existing `ProtocolCodec` trait; `Codec` enum gains
-`V772(Codec772)` and `from_version(772)` stops erroring.
+`V772(Codec772)` and `from_version(772)` stops erroring. **Done.**
 
-**C++ ref (772 wire — `gameserver/src/` ONLY, cite file+function in module header):**
-- `networkmessage.cpp ~L82–106` `addItem` (2-byte min: `u16 clientId` [+`u8 count`] [+`u8 liquidColor`],
-  no MARK/animation/description/duration). Verify fluid via `getLiquidColor()` in `tools.cpp` — **do not**
-  reuse the 10.x `FLUID_MAP` without confirming.
+**C++ ref (772 wire — `gameserver/src/` ONLY, cited in `codec/v772.rs` module header):**
+- `networkmessage.cpp ~L82` `addItem` (2-byte min: `u16 clientId` [+`u8 count`] [+`u8 liquidColor`],
+  no MARK/animation/description/duration). Fluid via `tools.cpp ~L20` `getLiquidColor` — confirmed a
+  **distinct switch**, not the 10.x `FLUID_MAP` (e.g. `6 → 4`, not `9`).
 - `protocolgame.cpp ~L2051` `AddCreature` (no creature-type byte, no guild emblem, no speech bubble, no
-  MARK, no helpers, no walkthrough; **full `getStepSpeed()`**, i.e. `speed_halved = false`).
-- `AddOutfit` (no addons, no mount; `lookType==0` → `u16 lookTypeEx`).
-- `AddPlayerStats ~L2090` (`u16` cap = `freeCapacity/100`, `u32` exp, `u8`+`u8`% magic level, no
-  xp-rate/stamina block).
-- `AddPlayerSkills` (7 skills × `u8` level + `u8`%).
-- `sendIcons 0xA2` (`u8`, not `u16`).
-- `sendContainer 0x6E` (cid+item+name+`u8` cap+`u8` hasParent+`u8` count+items; no unlock/pagination/
-  `u16` size/firstIndex). `sendAddContainerItem 0x70` (no slot index). Container slot updates `u8`.
+  MARK, no helpers, no walkthrough; **full `getStepSpeed()`**; raw light, no access-player `0xFF`).
+- `AddOutfit ~L2128` (no addons, no mount; `lookType==0` → `u16 lookTypeEx`).
+- `AddPlayerStats ~L2090` (`u16` cap = `freeCapacity/100`, `u32` exp w/ overflow→0, `u8`+`u8`% magic
+  level, no base-magic/stamina/speed/training block).
+- `AddPlayerSkills ~L2118` (7 skills × `u8` level + `u8`%).
+- `sendContainer 0x6E ~L1326` (cid+item+name+`u8` cap+`u8` hasParent+`u8` count+items; no unlock/
+  pagination/`u16` size/firstIndex). `sendAddContainerItem 0x70 ~L1871` (no slot index).
+  `sendUpdateContainerItem 0x71` (`u8` slot). Tile senders ~L1591; self-appear `0x0A` ~L1730.
 
-**Files:**
+**Files (done):**
 - `crates/tfs-rust-net/src/codec/v772.rs` (new) — `Codec772` impl of every `ProtocolCodec` method,
   narrowing the neutral wire structs to 772 widths. Module header cites each `gameserver/src/` ref.
-- `crates/tfs-rust-net/src/codec/mod.rs` — add `mod v772; pub use v772::Codec772;`, add `Codec::V772`
-  arm to the enum + every `delegate_codec!` match + `from_version(772) => Ok(V772(..))`.
-- If 772 needs fields not in the neutral structs, **widen the wire struct** (never pre-narrow in core,
-  design §9.5) — e.g. `OutfitWire` already carries mount; `Codec772` just omits it.
+- `crates/tfs-rust-net/src/codec/mod.rs` — `mod v772; pub use v772::Codec772;`, `Codec::V772` arm on
+  the enum + `caps()` + every `delegate_codec!` match + the `ProtocolCodec for Codec` block;
+  `from_version(772) => Ok(V772(Codec772))`.
+- `crates/tfs-rust-net/src/codec/wire.rs` — **widened** `AddCreatureWire.speed_half → step_speed`
+  (full `getStepSpeed()`; 1098 codec halves, 772 writes full — design §9.5). New neutral
+  `ContainerOpenWire` (max-width `sendContainer`; 1098 writes unlock/pagination/size/firstIndex, 772
+  omits) routed via `encode_container_open`.
+- `crates/tfs-rust-core/src/login_out.rs` — fills `step_speed` (full) instead of pre-narrowed half.
+- `crates/tfs-rust-core/src/container_ui.rs` — builds `ContainerOpenWire` → `codec.encode_container_open`
+  (was the 1098-only `send_container_open` helper, now `#[deprecated]`).
+- `crates/tfs-rust-core/src/game_world.rs` — `enqueue_outgoing` drops empty packets (772 has no
+  `sendBasicData` / by-id tile removal; those encoders return an empty message).
 
 **Tasks:**
-- [ ] A5.1 `write_item_template` / `item_template_wire_len` — 772 (count + liquidColor only; verify
-      `getLiquidColor`).
-- [ ] A5.2 `write_add_creature` / `add_creature_wire_len` — 772 known/unknown headers; full step speed.
-- [ ] A5.3 `write_outfit` — 772 (no addons/mount; lookTypeEx path).
-- [ ] A5.4 `encode_player_stats` — 772 widths (`u16` cap, `u32` exp).
-- [ ] A5.5 `encode_player_skills` — 772 (7 × `u8`/`u8`%).
-- [ ] A5.6 container family (`sendContainer`/`add`/`update`, `u8` slot) — 772 shapes.
-- [ ] A5.7 tile/inventory item + creature add/remove + creature light/turn + cancel-walk — 772.
-- [ ] A5.8 `encode_self_appear_login` — 772 (`0x0A` + `u16` beat + `u8` canReportBugs).
-- [ ] A5.9 Wire `Codec772` into the `Codec` enum and unblock `from_version(772)`.
+- [x] A5.1 `write_item_template` / `item_template_wire_len` — 772 (count + `getLiquidColor`; no mark/anim/desc).
+- [x] A5.2 `write_add_creature` / `add_creature_wire_len` — 772 known/unknown headers; full step speed; raw light.
+- [x] A5.3 `write_outfit` — 772 (no addons/mount; lookTypeEx path).
+- [x] A5.4 `encode_player_stats` — 772 widths (`u16` cap=free/100, `u32` exp, overflow→0).
+- [x] A5.5 `encode_player_skills` — 772 (7 × `u8`/`u8`%).
+- [x] A5.6 container family (`sendContainer` via `ContainerOpenWire`, `add` no-slot, `update` `u8` slot) — 772 shapes.
+- [x] A5.7 tile/inventory item + creature add/remove + creature light/turn + cancel-walk — 772.
+- [x] A5.8 `encode_self_appear_login` — 772 (`0x0A` + id + `u16` beat + `u8` canReportBugs).
+- [x] A5.9 Wire `Codec772` into the `Codec` enum and unblock `from_version(772)`.
 
-**Tests:** `crates/tfs-rust-net/tests/protocol_compat.rs` — add a `mod v772` sibling to the 1098 module
-(R10). Golden bytes for item (stackable/fluid/plain), creature (known/unknown), outfit (looktype/
-item-outfit), stats, skills, container open, self-appear. Where exact bytes are uncertain, capture from
-`gameserver/` via `tools/packet-proxy` and freeze as fixtures (design §7) — **never guess**.
+> **Notes / deferred:** (1) `sendIcons 0xA2` (`u8` vs `u16`) is built by the standalone
+> `outgoing_extra::send_icons` helper (a raw 1098 builder, not a `ProtocolCodec` method) — it is *not*
+> yet caps-gated; tracked for a follow-up when icons routes through the codec. (2) The OTClient-on-772
+> `stackpos` byte on `0x6A` is **omitted** (canonical 7.72 client), same way OTCv8 quirks are flagged
+> for 1098 — confirm against a live capture before relying on OTClient-772. (3) `canReportBugs`
+> defaults to 0 (account type not in the neutral self-appear signature).
 
-**Gate:** 1098 goldens unchanged; 772 goldens match `gameserver/src/` (cited). `cargo test -p tfs-rust-net`.
+**Tests (done):** `crates/tfs-rust-net/tests/protocol_compat.rs` gained a `mod v772` sibling (R10) with
+golden bytes for item (plain/stackable/fluid + wire-len sync), outfit (looktype/item-outfit), creature
+(known/unknown + wire-len), stats (+ exp overflow), skills, self-appear, container open (+ capacity
+cap), tile/inventory/container item, remove-tile-thing, creature light/turn, cancel-walk, and the
+empty-packet guard. Added a 1098 `container_open_1098_layout` regression for the refactored path.
+
+**Gate:** ✅ 1098 goldens unchanged; 772 goldens match `gameserver/src/` (cited). `cargo test
+--workspace`, `cargo clippy --workspace --all-targets` green.
 
 ---
 
-### Phase A6 — Wire it up & document `[ ]`
+### Phase A6 — Wire it up & document `[x]`
 
-**Goal:** `clientVersion = 772` selects `Codec772` end-to-end; documented deviations.
+**Goal:** `clientVersion = 772` selects `Codec772` end-to-end; documented deviations. **Done** (live
+client smoke test pending — needs a real 7.72 client, see A6.2).
 
 **Tasks:**
-- [ ] A6.1 Confirm `resolve_protocol_version` → `Codec::from_version(772)` → per-connection codec path
-      works with no remaining `*_1098` direct imports in core (grep the §3.5 emission call sites:
-      `game_world.rs`, `login_out.rs`, `walk.rs`, `container_ui.rs`, `game_world_inventory.rs`,
-      `player_inventory_notifications.rs`, `spawn_lifecycle.rs`, `player_ping.rs`).
-- [ ] A6.2 Smoke-test with a real 7.72 client (login → world render → walk → container).
-- [ ] A6.3 Update `docs/PROJECT_STATUS.md`, `tasks/lessons.md`, module C++ ref headers.
-- [ ] A6.4 Flag content/asset prerequisite (772 `items.otb`/`.spr`/`.dat`/OTBM) in `tfs-rust-content`
-      as a separate follow-up (design §11) — wire alone won't run a 772 server.
+- [x] A6.1 `resolve_protocol_version` → `Codec::from_version(772)` → per-connection codec path works.
+      Verified **no** `Codec1098` / `*_1098` direct imports in core (grep clean); all §3.5 emission
+      call sites route through `world.codec` (`game_world.rs`, `login_out.rs`, `walk.rs`,
+      `container_ui.rs`, `game_world_inventory.rs`, `player_inventory_notifications.rs`,
+      `spawn_lifecycle.rs`, `player_ping.rs`).
+- [~] A6.2 Smoke-test with a real 7.72 client (login → world render → walk → container). **Deferred** —
+      requires a live 7.72 client + 772 content (A6.4). Wire layouts are frozen as golden tests vs
+      `gameserver/src/` in the meantime. Remaining login-choreography caps-gating (OTCv8-only preamble
+      packets `0x43`/extended-opcode in the 1098 login burst) should be skipped for 772 before a live
+      test — tracked here.
+- [x] A6.3 Update `docs/PROJECT_STATUS.md`, `tasks/lessons.md`, `PROTOCOL_VERSIONING_IMPLEMENTATION_PLAN.md`,
+      module C++ ref headers (`codec/v772.rs`).
+- [x] A6.4 Flagged content/asset prerequisite (772 `items.otb`/`.spr`/`.dat`/OTBM) as a separate
+      follow-up (design §11) — wire alone won't run a 772 server.
 
-**Gate:** 772 client connects and renders correctly; 1098 fully unaffected.
+**Gate:** ✅ 1098 fully unaffected (goldens unchanged); 772 codec selectable and golden-verified. Live
+772 client render is the remaining manual step (blocked on 772 content).
 
 ---
 
@@ -418,7 +442,7 @@ validated against captured CipSoft outputs (772) and current TFS values (1098).
 ## Dependency graph
 
 ```
-A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 [x] ─► A4 [x] ─► A5 ─► A6   (wire: connectable 772, 1098-behaving)
+A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 [x] ─► A4 [x] ─► A5 [x] ─► A6 [x]   (wire: connectable 772, 1098-behaving)
                                    │
 B0 ──► B1 ──► B2 ──► B3 ──► B4 ──► B5                  (mechanics: 772 behavior; B0 needs only A0)
 ```

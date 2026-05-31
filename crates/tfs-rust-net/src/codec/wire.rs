@@ -53,5 +53,28 @@ pub struct ItemTemplateArgs {
     pub with_description: bool,
 }
 
+/// `ProtocolGame::sendContainer` (`0x6E`) at max width. Core fills every field; each codec narrows:
+/// 10.98 writes `unlocked` / `pagination` / `total_size` / `first_index`; 7.72 omits them
+/// (`gameserver/src/protocolgame.cpp` `sendContainer` ~L1326). `items` is the already-windowed list
+/// (core applies `first_index` + capacity); 7.72 never paginates so it is the leading slice.
+#[derive(Debug, Clone)]
+pub struct ContainerOpenWire {
+    pub cid: u8,
+    /// Container item itself (template `addItem`) + its name.
+    pub header_item: ItemTemplateArgs,
+    pub name: String,
+    pub capacity: u8,
+    pub has_parent: bool,
+    /// 10.98 only.
+    pub unlocked: bool,
+    /// 10.98 only.
+    pub pagination: bool,
+    /// 10.98 only — total item count (for pagination).
+    pub total_size: u16,
+    /// 10.98 only — index of the first item in `items`.
+    pub first_index: u16,
+    pub items: Vec<ItemTemplateArgs>,
+}
+
 #[deprecated(note = "use PlayerStatsWire")]
 pub type PlayerStats1098 = PlayerStatsWire;

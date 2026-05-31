@@ -64,9 +64,8 @@ fn health_percent(cur: i32, max_hp: i32) -> u8 {
     ((cur.max(0) as u64 * 100) / max_hp as u64).min(100) as u8
 }
 
-fn speed_half(base_speed: i32) -> u16 {
-    let s = base_speed.max(0) as u32 / 2;
-    s.min(0xFFFF) as u16
+fn step_speed(base_speed: i32) -> u16 {
+    base_speed.max(0).min(u16::MAX as i32) as u16
 }
 
 /// Non-player creatures: use slot key index (low 32 bits of `KeyData::as_ffi`) as protocol id until a global id allocator exists.
@@ -131,7 +130,7 @@ fn player_to_add_creature_wire(
         outfit: outfit_to_wire(&p.base.outfit),
         light_level: light.level,
         light_color: light.color,
-        speed_half: speed_half(p.base.speed),
+        step_speed: step_speed(p.base.speed),
         skull: skull_byte(p.base.skull),
         party_shield: 0,
         guild_emblem: 0,
@@ -154,7 +153,7 @@ fn monster_to_add_creature_wire(cid: CreatureId, m: &Monster) -> AddCreatureWire
         outfit: outfit_to_wire(&m.base.outfit),
         light_level: 0,
         light_color: 0,
-        speed_half: speed_half(m.base.speed),
+        step_speed: step_speed(m.base.speed),
         skull: skull_byte(m.base.skull),
         party_shield: 0,
         guild_emblem: 0,
@@ -177,7 +176,7 @@ fn npc_to_add_creature_wire(cid: CreatureId, n: &Npc) -> AddCreatureWire {
         outfit: outfit_to_wire(&n.base.outfit),
         light_level: 0,
         light_color: 0,
-        speed_half: speed_half(n.base.speed),
+        step_speed: step_speed(n.base.speed),
         skull: skull_byte(n.base.skull),
         party_shield: 0,
         guild_emblem: 0,
