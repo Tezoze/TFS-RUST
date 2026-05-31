@@ -99,10 +99,7 @@ impl<'a> ContainerIterator<'a> {
             }
         }
         self.index += 1;
-        loop {
-            let Some(&fc) = self.over.front() else {
-                break;
-            };
+        while let Some(&fc) = self.over.front() {
             let clen = self.registry.get(fc).map(|c| c.items.len()).unwrap_or(0);
             if self.index < clen {
                 break;
@@ -419,12 +416,7 @@ impl ContainerRegistry {
     }
 
     fn alloc_free_cid(map: &HashMap<u8, OpenContainer>) -> Option<u8> {
-        for c in 0u8..MAX_CONTAINER_WINDOWS {
-            if !map.contains_key(&c) {
-                return Some(c);
-            }
-        }
-        None
+        (0u8..MAX_CONTAINER_WINDOWS).find(|c| !map.contains_key(c))
     }
 
     /// All registered container item instance ids (for recomputing derived fields after load).

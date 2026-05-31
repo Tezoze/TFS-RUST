@@ -49,7 +49,7 @@ pub enum AttrType {
     ContainerSize = 42,
 }
 
-/// Item attribute bitflags for internal tracking (itemAttrTypes in C++)
+// Item attribute bitflags for internal tracking (itemAttrTypes in C++)
 // C++ ref: `src/enums.h:50-85`
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +110,9 @@ pub enum DecayState {
 /// A single custom attribute value (CustomAttribute in C++)
 // C++ ref: `src/item.h:217-347`
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum CustomAttrValue {
+    #[default]
     None,
     String(String),
     Integer(i64),
@@ -118,11 +120,6 @@ pub enum CustomAttrValue {
     Boolean(bool),
 }
 
-impl Default for CustomAttrValue {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 /// Custom attribute map type
 pub type CustomAttributeMap = HashMap<String, CustomAttrValue>;

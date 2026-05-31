@@ -19,6 +19,9 @@ impl Codec1098 {
         ProtocolVersion::V1098.caps()
     }
 
+    /// Mirrors C++ `NetworkMessage::addItem(uint16_t, uint8_t)` template field list (parity); the
+    /// arg-struct form is `ItemTemplateArgs`, used at the higher-level call sites.
+    #[allow(clippy::too_many_arguments)]
     pub fn write_item_template(
         &self,
         msg: &mut NetworkMessage,
@@ -210,6 +213,8 @@ impl Codec1098 {
         m
     }
 
+    /// Mirrors C++ live `NetworkMessage::addItem(const Item*, bool)` field list (parity).
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_inventory_item_live(
         &self,
         slot: u8,

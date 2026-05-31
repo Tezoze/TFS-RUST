@@ -472,10 +472,8 @@ impl GameWorld {
         };
         let slots = player.equipment_slots;
         let mut total = 0u32;
-        for i in 0..11 {
-            if let Some(iid) = slots[i] {
-                total = total.saturating_add(self.item_recursive_weight_oz(iid));
-            }
+        for slot in slots.iter().flatten() {
+            total = total.saturating_add(self.item_recursive_weight_oz(*slot));
         }
         if let Some(CreatureKind::Player(player)) = self.creatures.get_mut(cid) {
             player.inventory_weight = total;

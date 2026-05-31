@@ -151,7 +151,7 @@ impl Item {
         rec: &ItemRecord,
         items_db: &ItemDatabase,
     ) -> tfs_rust_common::Result<Self> {
-        let count = rec.count.max(0).min(10000) as u16;
+        let count = rec.count.clamp(0, 10000) as u16;
         let mut item = Item::new(id, rec.itemtype, count);
         let is_container = items_db.is_container(rec.itemtype);
         if !rec.attributes.is_empty() {

@@ -119,8 +119,10 @@ mod tests {
 
     #[test]
     fn head_armor_slot_masks() {
-        let mut it = ItemType::default();
-        it.slot_position = SLOTP_HEAD;
+        let it = ItemType {
+            slot_position: SLOTP_HEAD,
+            ..Default::default()
+        };
         assert!(item_fits_equipment_slot(1, &it));
         assert!(!item_fits_equipment_slot(5, &it));
         assert!(!item_fits_equipment_slot(6, &it));

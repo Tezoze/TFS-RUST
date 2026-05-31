@@ -52,6 +52,7 @@ impl LuaEventDispatcher {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_move_equip(
         &self,
         kind: MoveEventKind,

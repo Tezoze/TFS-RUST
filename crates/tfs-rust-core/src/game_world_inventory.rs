@@ -124,6 +124,8 @@ impl GameWorld {
     }
 
     /// Remove a specific item instance from a registered container (`container.cpp`).
+    // Parity helper; pairs with the inventory-slot remove path. Retained ahead of caller.
+    #[allow(dead_code)]
     pub(crate) fn internal_remove_item_from_container(
         &mut self,
         container_item_id: ItemId,
@@ -361,9 +363,9 @@ impl GameWorld {
             .map(|t| t.stackable())
             .unwrap_or(false);
         let stack_count = if stackable {
-            count.min(100).max(1) as u16
+            count.clamp(1, 100) as u16
         } else {
-            count.max(1).min(u32::from(u16::MAX)) as u16
+            count.clamp(1, u32::from(u16::MAX)) as u16
         };
         let new_item = Item::new(ItemId::default(), item_type, stack_count);
         let iid = self.items.insert(new_item);
@@ -409,9 +411,9 @@ impl GameWorld {
             .map(|t| t.stackable())
             .unwrap_or(false);
         let stack_count = if stackable {
-            count.min(100).max(1) as u16
+            count.clamp(1, 100) as u16
         } else {
-            count.max(1).min(u32::from(u16::MAX)) as u16
+            count.clamp(1, u32::from(u16::MAX)) as u16
         };
         let mut new_item = Item::new(ItemId::default(), item_type, stack_count);
         if sub_type > 0 && !stackable {
@@ -434,8 +436,8 @@ impl GameWorld {
                 u32::from(stack_count),
                 CylinderFlags::NONE,
             );
-            if rv == ReturnValue::NoError {
-                if self
+            if rv == ReturnValue::NoError
+                && self
                     .internal_add_item_to_inventory_slot(cid, target_slot, iid)
                     .is_ok()
                 {
@@ -447,7 +449,6 @@ impl GameWorld {
                     );
                     return Ok(Some(iid.data().as_ffi()));
                 }
-            }
         }
 
         if self.query_add_item_to_inventory(cid, iid) == ReturnValue::NoError {

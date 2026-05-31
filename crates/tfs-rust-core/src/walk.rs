@@ -136,7 +136,7 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
     if !has_drunk_condition(base) {
         return None;
     }
-    let d = base.drunkenness as u32;
+    let d = base.drunkenness;
     let r = uniform_random(&mut thread_rng(), 0, 399) as u32;
     if r / 4 > d {
         return None;
@@ -599,13 +599,11 @@ fn tile_query_add_monster(
         return ReturnValue::NotPossible;
     }
 
-    if (body.flags & tilestate::BLOCKSOLID) != 0
-        || ((flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0)
-    {
-        if !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0) {
+    if ((body.flags & tilestate::BLOCKSOLID) != 0
+        || ((flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0))
+        && !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0) {
             return ReturnValue::NotPossible;
         }
-    }
 
     // Full field immunity deferred until Monster combat fields land; block damaging fields without ignore flag.
     if (body.flags & tilestate::MAGICFIELD) != 0 && (flags & FLAG_IGNOREFIELDDAMAGE) == 0 {
@@ -822,7 +820,7 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
         .get_tile(pos)
         .map(|t| {
             let raw = client_creature_stack_pos(t.body(), cid);
-            if raw < 0 || raw >= 10 { 10u8 } else { raw as u8 }
+            if !(0..10).contains(&raw) { 10u8 } else { raw as u8 }
         })
         .unwrap_or(10);
 
@@ -1045,7 +1043,7 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| {
                 let raw = client_creature_stack_pos(t.body(), cid);
-                if raw < 0 || raw >= 10 {
+                if !(0..10).contains(&raw) {
                     10u8
                 } else {
                     raw as u8
@@ -1128,7 +1126,7 @@ impl GameWorld {
         let with_description = p.item_with_description();
 
         // 1) sendRemoveTileCreature(creature, oldPos, oldStackPos)
-        let remove_pkt = if old_stack >= 0 && old_stack < 10 {
+        let remove_pkt = if (0..10).contains(&old_stack) {
             self.codec
                 .encode_remove_tile_thing(old_pos, old_stack as u8)
                 .into_bytes()
@@ -1269,6 +1267,8 @@ impl GameWorld {
     }
 
     /// Queue one step and arm the walk timer (monster/NPC AI and tests).
+    // Parity helper for monster/NPC AI; currently exercised by tests. Retained ahead of caller.
+    #[allow(dead_code)]
     pub(crate) fn creature_queue_walk_step(&mut self, cid: CreatureId, direction: Direction) {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().walk_queue.clear();
@@ -1290,10 +1290,6 @@ impl GameWorld {
     /// Monster chase — first queued step runs immediately (`addEventWalk(true)` / `ticks == 1`).
     pub(crate) fn creature_start_chase_auto_walk(&mut self, cid: CreatureId) {
         self.add_event_walk(cid, true, Instant::now());
-    }
-
-    pub(crate) fn add_event_walk_creature(&mut self, cid: CreatureId) {
-        self.creature_start_auto_walk(cid);
     }
 
     /// TFS `Creature::addEventWalk` (`creature.cpp` ~299–322).

@@ -177,7 +177,7 @@ mod tests {
 
     use tfs_rust_common::Position;
 
-    use crate::creature::CreatureKind;
+    
     use crate::test_world::support::{
         ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
     };

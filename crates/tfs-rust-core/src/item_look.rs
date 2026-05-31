@@ -447,15 +447,17 @@ mod tests {
 
     #[test]
     fn spear_stack_description_like_tfs_item_cpp() {
-        let mut it = ItemType::default();
-        it.id = 2389;
-        it.name = "spear".into();
-        it.article = "a".into();
-        it.flags |= FLAG_STACKABLE | FLAG_PICKUPABLE;
-        it.weapon_type = WEAPON_DISTANCE;
-        it.attack = 25;
-        it.weight = 2000;
-        it.ammo_type = 0;
+        let it = ItemType {
+            id: 2389,
+            name: "spear".into(),
+            article: "a".into(),
+            flags: FLAG_STACKABLE | FLAG_PICKUPABLE,
+            weapon_type: WEAPON_DISTANCE,
+            attack: 25,
+            weight: 2000,
+            ammo_type: 0,
+            ..Default::default()
+        };
 
         let item = Item::new(ItemId::default(), it.id, 4);
         let total = 8000u32;
@@ -475,16 +477,18 @@ mod tests {
     fn armor_shows_magic_level_and_requirements_like_tfs() {
         use tfs_rust_content::item_abilities::STAT_MAGICPOINTS;
 
-        let mut it = ItemType::default();
-        it.name = "yalahari mask".into();
-        it.article = "a".into();
-        it.flags |= FLAG_PICKUPABLE;
-        it.weight = 3500;
-        it.armor = 5;
-        it.show_attributes = true;
+        let mut it = ItemType {
+            name: "yalahari mask".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 3500,
+            armor: 5,
+            show_attributes: true,
+            voc_equip_names: vec!["sorcerer".into(), "druid".into()],
+            min_req_level: 80,
+            ..Default::default()
+        };
         it.abilities.stats[STAT_MAGICPOINTS] = 2;
-        it.voc_equip_names = vec!["sorcerer".into(), "druid".into()];
-        it.min_req_level = 80;
 
         let item = Item::new(ItemId::default(), it.id, 1);
         let s = item_get_description_cpp(&item, &it, 3500, 1, None);
@@ -499,14 +503,16 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
     /// Regression: container `(Vol:N)` — `item.cpp` ~1367–1379.
     #[test]
     fn backpack_shows_volume_like_tfs() {
-        let mut it = ItemType::default();
-        it.id = 1988;
-        it.name = "backpack".into();
-        it.article = "a".into();
-        it.flags |= FLAG_PICKUPABLE;
-        it.group = ItemType::GROUP_CONTAINER;
-        it.max_items = 20;
-        it.weight = 1800;
+        let it = ItemType {
+            id: 1988,
+            name: "backpack".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            group: ItemType::GROUP_CONTAINER,
+            max_items: 20,
+            weight: 1800,
+            ..Default::default()
+        };
 
         let item = Item::new(ItemId::default(), it.id, 1);
         let s = item_get_description_cpp(&item, &it, 1800, 1, None);
@@ -516,13 +522,15 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
     /// Regression: non-armor absorb + charges + level (`item.cpp` getDescription).
     #[test]
     fn necklace_shows_protection_charges_and_level_requirement() {
-        let mut it = ItemType::default();
-        it.name = "necklace of the deep".into();
-        it.article = "a".into();
-        it.flags |= FLAG_PICKUPABLE;
-        it.weight = 500;
-        it.show_charges = true;
-        it.min_req_level = 120;
+        let mut it = ItemType {
+            name: "necklace of the deep".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 500,
+            show_charges: true,
+            min_req_level: 120,
+            ..Default::default()
+        };
         it.abilities.absorb_percent[5] = 50; // `CombatType::LifeDrain` index
 
         let mut item = Item::new(ItemId::default(), it.id, 1);
@@ -539,9 +547,11 @@ It can only be wielded properly by players of level 120 or higher."
     /// Ground tiles use ephemeral items — `Item::getDescription` with type-only weight (`item.cpp` ~1548).
     #[test]
     fn ground_water_description() {
-        let mut it = ItemType::default();
-        it.id = 1;
-        it.name = "water".into();
+        let it = ItemType {
+            id: 1,
+            name: "water".into(),
+            ..Default::default()
+        };
 
         let item = Item::new_single(ItemId::default(), it.id);
         let s = item_get_description_cpp(&item, &it, it.weight, 3, None);

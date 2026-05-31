@@ -18,13 +18,13 @@ pub fn light_level_from_world_time(wt: i16) -> u8 {
     const LIGHT_DAY: f32 = 250.0;
     const LIGHT_NIGHT: f32 = 40.0;
 
-    if wt >= GAME_SUNRISE && wt <= GAME_DAYTIME {
+    if (GAME_SUNRISE..=GAME_DAYTIME).contains(&wt) {
         let t = (wt - GAME_SUNRISE) as f32 / (GAME_DAYTIME - GAME_SUNRISE) as f32;
         (LIGHT_NIGHT + t * (LIGHT_DAY - LIGHT_NIGHT)) as u8
-    } else if wt >= GAME_SUNSET && wt <= GAME_NIGHTTIME {
+    } else if (GAME_SUNSET..=GAME_NIGHTTIME).contains(&wt) {
         let t = (wt - GAME_SUNSET) as f32 / (GAME_NIGHTTIME - GAME_SUNSET) as f32;
         (LIGHT_DAY - t * (LIGHT_DAY - LIGHT_NIGHT)) as u8
-    } else if wt >= GAME_NIGHTTIME || wt < GAME_SUNRISE {
+    } else if !(GAME_SUNRISE..GAME_NIGHTTIME).contains(&wt) {
         LIGHT_NIGHT as u8
     } else {
         LIGHT_DAY as u8

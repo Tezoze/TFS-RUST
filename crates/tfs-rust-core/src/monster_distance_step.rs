@@ -98,15 +98,11 @@ where
         Direction::South,
     ];
     dirs.shuffle(rng);
-    for dir in dirs {
-        if can_walk(dir) {
-            return Some(dir);
-        }
-    }
-    None
+    dirs.into_iter().find(|&dir| can_walk(dir))
 }
 
 /// TFS `Monster::getDanceStep` — `monster.cpp` ~1295.
+#[allow(clippy::too_many_arguments)]
 pub fn get_dance_step<F, G>(
     creature_pos: Position,
     target_pos: Position,

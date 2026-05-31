@@ -168,7 +168,9 @@ fn log_decrypted_frame(
 ) -> anyhow::Result<()> {
     let rk_opt = *keys.lock().expect("keys");
     if let Some(rk) = rk_opt {
-        if let Some(plain) = decrypt_game_body(body, &rk) {
+        // Proxy logs 10.98 traffic; transport layout follows the 1098 caps profile.
+        let caps = tfs_rust_net::ProtocolCaps::for_version(tfs_rust_net::ProtocolVersion::V1098);
+        if let Some(plain) = decrypt_game_body(body, &rk, &caps) {
             let op = plain.first().copied().unwrap_or(0);
             let name = if is_c2s {
                 client_opcode_name(op)

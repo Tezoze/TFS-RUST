@@ -296,13 +296,12 @@ impl GameWorld {
         if it.map(|t| t.stackable()).unwrap_or(false) {
             let mut n = 0u32;
             if index == INDEX_WHEREEVER {
-                let mut slot_index: i32 = 0;
-                for &container_item in &container_items {
+                for (slot_index, &container_item) in container_items.iter().enumerate() {
+                    let slot_index = slot_index as i32;
                     if container_item != item_id
                         && self.items_stack_mergeable(item_id, container_item)
                         && self.items.get(container_item).is_some_and(|ci| ci.count < 100)
-                    {
-                        if self.container_query_add(
+                        && self.container_query_add(
                             container_item_id,
                             slot_index,
                             item_id,
@@ -315,8 +314,6 @@ impl GameWorld {
                                 .saturating_sub(self.items.get(container_item).map(|i| i.count).unwrap_or(0) as u32);
                             n = n.saturating_add(room);
                         }
-                    }
-                    slot_index += 1;
                 }
             } else if index >= 0 {
                 let idx = index as usize;
@@ -376,9 +373,7 @@ impl GameWorld {
             });
         }
 
-        if *index == INDEX_ADD_WHEREVER {
-            *index = INDEX_WHEREEVER;
-        } else if *index >= cont.capacity as i32 {
+        if *index == INDEX_ADD_WHEREVER || *index >= cont.capacity as i32 {
             *index = INDEX_WHEREEVER;
         }
 
@@ -425,18 +420,16 @@ impl GameWorld {
         }
 
         if auto_stack && stackable && source_parent_container != Some(container_item_id) {
-            let mut n: i32 = 0;
-            for &list_item in &cont.items {
+            for (n, &list_item) in cont.items.iter().enumerate() {
                 if list_item != item_id
                     && self.items_stack_mergeable(item_id, list_item)
                     && self.items.get(list_item).is_some_and(|d| d.count < 100)
                 {
                     return Ok(ContainerDestResolution::StayHere {
-                        index: n,
+                        index: n as i32,
                         dest_stack_item: Some(list_item),
                     });
                 }
-                n += 1;
             }
         }
 

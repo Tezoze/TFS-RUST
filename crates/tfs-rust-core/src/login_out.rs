@@ -200,7 +200,7 @@ pub(crate) fn map_tile_content(
     ty: i32,
     tz: i32,
 ) -> Option<TileContent> {
-    if tx < 0 || ty < 0 || tz < 0 || tz > 15 {
+    if tx < 0 || ty < 0 || !(0..=15).contains(&tz) {
         return None;
     }
     let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {

@@ -58,6 +58,8 @@ fn offset_y(from: Position, to: Position) -> i32 {
 }
 
 /// TFS `Monster::isFleeing` gate — `monster.h` ~154.
+// Parity helper; wired into monster AI flee logic (see todo.md). Retained ahead of caller.
+#[allow(dead_code)]
 pub fn is_fleeing(health: i32, run_away_health: i32, is_summon: bool) -> bool {
     !is_summon && run_away_health > 0 && health <= run_away_health
 }
@@ -1679,12 +1681,6 @@ mod world_tests {
         minimal_world, test_player,
     };
 
-    fn step_world(world: &mut crate::game_world::GameWorld, start: Instant, ticks: u32) {
-        for i in 0..ticks {
-            world.on_tick(start + Duration::from_millis(u64::from(i) * 50));
-        }
-    }
-
     #[test]
     fn monster_acquires_target_and_steps_toward_player() {
         let mut world = minimal_world();
@@ -1884,8 +1880,10 @@ mod world_tests {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
         }
 
-        let mut config = MonsterAiConfig::default();
-        config.run_away_health = 50;
+        let config = MonsterAiConfig {
+            run_away_health: 50,
+            ..Default::default()
+        };
         let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
         let player = insert_player(&mut world, test_player("Hero", ppos));
 
@@ -2146,8 +2144,10 @@ mod world_tests {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
         }
 
-        let mut config = MonsterAiConfig::default();
-        config.target_distance = 4;
+        let config = MonsterAiConfig {
+            target_distance: 4,
+            ..Default::default()
+        };
         let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
         let player = insert_player(&mut world, test_player("Hero", ppos));
 

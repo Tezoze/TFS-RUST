@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
@@ -72,7 +73,7 @@ pub async fn run() -> anyhow::Result<()> {
         .context("load PKCS#1 RSA private key (BEGIN RSA PRIVATE KEY)")?;
 
     let config_path = std::env::var("TFS_CONFIG").unwrap_or_else(|_| "config.lua".to_string());
-    let config = Arc::new(
+    let config = Rc::new(
         ConfigManager::load(Path::new(&config_path)).map_err(|e| anyhow::anyhow!("config: {e}"))?,
     );
     let net_cfg = NetConfig::from_config(config.as_ref())

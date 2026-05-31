@@ -20,11 +20,7 @@ pub fn parse_item_blob(blob: &[u8], is_container: bool) -> TfsResult<ParsedItemB
     let mut attrs = ItemAttributes::new();
     let mut subtype_override: Option<u8> = None;
     let mut stream = PropStream::new(blob);
-    loop {
-        let attr_type = match stream.read_u8() {
-            Ok(b) => b,
-            Err(_) => break,
-        };
+    while let Ok(attr_type) = stream.read_u8() {
         if attr_type == 0 {
             break;
         }
@@ -202,43 +198,6 @@ fn read_one_attr(
     Ok(true)
 }
 
-#[cfg(test)]
-mod write_roundtrip_tests {
-    use super::{parse_item_blob, write_item_blob};
-    use crate::ids::ItemId;
-    use crate::item::Item;
-    use std::collections::HashMap;
-    use tfs_rust_content::items::ItemDatabase;
-    use tfs_rust_content::otb::ItemType;
-
-    #[test]
-    fn minimal_item_roundtrips_through_parse() {
-        let db = ItemDatabase {
-            items: HashMap::new(),
-            client_to_server: HashMap::new(),
-        };
-        let item = Item::new_single(ItemId::default(), 99);
-        let blob = write_item_blob(&item, &db);
-        let parsed = parse_item_blob(&blob, false).expect("parse");
-        assert_eq!(parsed.attrs.attribute_bits(), item.attributes.attribute_bits());
-    }
-
-    #[test]
-    fn stackable_writes_count_attr_and_parse_sets_subtype() {
-        let mut it = ItemType::default();
-        it.server_id = 1000;
-        it.flags |= 1 << 7; // OTB `FLAG_STACKABLE` (`otb.rs`)
-        let db = ItemDatabase {
-            items: HashMap::from([(1000, it)]),
-            client_to_server: HashMap::new(),
-        };
-        let item = Item::new(ItemId::default(), 1000, 42);
-        let blob = write_item_blob(&item, &db);
-        let parsed = parse_item_blob(&blob, false).expect("parse");
-        assert_eq!(parsed.subtype_override, Some(42));
-    }
-}
-
 fn write_custom_value(w: &mut PropWriteStream, v: &CustomAttrValue) {
     match v {
         CustomAttrValue::None => {}
@@ -280,7 +239,7 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
         w.write_u16(charges);
     }
 
-    let moveable = it.map_or(true, |t| t.moveable());
+    let moveable = it.is_none_or(|t| t.moveable());
     if moveable {
         let action_id = item.attributes.get_action_id();
         if action_id != 0 {
@@ -412,4 +371,43 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
     }
 
     w.finish()
+}
+
+#[cfg(test)]
+mod write_roundtrip_tests {
+    use super::{parse_item_blob, write_item_blob};
+    use crate::ids::ItemId;
+    use crate::item::Item;
+    use std::collections::HashMap;
+    use tfs_rust_content::items::ItemDatabase;
+    use tfs_rust_content::otb::ItemType;
+
+    #[test]
+    fn minimal_item_roundtrips_through_parse() {
+        let db = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let item = Item::new_single(ItemId::default(), 99);
+        let blob = write_item_blob(&item, &db);
+        let parsed = parse_item_blob(&blob, false).expect("parse");
+        assert_eq!(parsed.attrs.attribute_bits(), item.attributes.attribute_bits());
+    }
+
+    #[test]
+    fn stackable_writes_count_attr_and_parse_sets_subtype() {
+        let mut it = ItemType {
+            server_id: 1000,
+            ..Default::default()
+        };
+        it.flags |= 1 << 7; // OTB `FLAG_STACKABLE` (`otb.rs`)
+        let db = ItemDatabase {
+            items: HashMap::from([(1000, it)]),
+            client_to_server: HashMap::new(),
+        };
+        let item = Item::new(ItemId::default(), 1000, 42);
+        let blob = write_item_blob(&item, &db);
+        let parsed = parse_item_blob(&blob, false).expect("parse");
+        assert_eq!(parsed.subtype_override, Some(42));
+    }
 }

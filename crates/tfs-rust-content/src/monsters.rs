@@ -456,7 +456,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
     for child in monster.children().filter(|n| n.is_element()) {
         let tag = child.tag_name().name();
         if tag.eq_ignore_ascii_case("flags") {
-            parse_monster_flags(child, &mut flags, &file_str);
+            parse_monster_flags(child, &mut flags, file_str);
         } else if tag.eq_ignore_ascii_case("look") {
             outfit.look_type = child.attribute("type").and_then(|a| a.parse().ok()).unwrap_or(136);
             outfit.look_head = child.attribute("head").and_then(|a| a.parse().ok()).unwrap_or(0);
@@ -467,7 +467,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
             outfit.look_type_ex = child.attribute("typeex").and_then(|a| a.parse().ok()).unwrap_or(0);
             outfit.look_mount = child.attribute("mount").and_then(|a| a.parse().ok()).unwrap_or(0);
         } else if tag.eq_ignore_ascii_case("loot") {
-            loot = parse_loot_section(child, items, &file_str)?;
+            loot = parse_loot_section(child, items, file_str)?;
         } else if tag.eq_ignore_ascii_case("attacks") {
             for a in child.children().filter(|n| n.is_element()) {
                 attack_spells.push(parse_spell_node(a));
@@ -479,7 +479,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                 defenses.spells.push(parse_spell_node(d));
             }
         } else if tag.eq_ignore_ascii_case("targetchange") {
-            parse_target_change(child, &mut flags, &file_str);
+            parse_target_change(child, &mut flags, file_str);
         }
     }
 
@@ -607,6 +607,6 @@ mod tests {
         let db = MonsterDatabase::load_dir(&data.join("monster"), &items).expect("load monsters");
         let red = db.monsters.get("red butterfly").expect("index key red butterfly");
         assert_eq!(red.name, "Butterfly", "display name comes from file XML");
-        assert!(db.monsters.get("butterfly").is_none(), "file name attr must not be the key");
+        assert!(!db.monsters.contains_key("butterfly"), "file name attr must not be the key");
     }
 }

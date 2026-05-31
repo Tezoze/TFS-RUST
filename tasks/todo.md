@@ -109,3 +109,16 @@
 - [x] §3.5 rewire: `game_world`, `login_out`, `walk`, `container_ui`, `game_world_inventory`, `spawn_lifecycle`, `player_inventory_notifications`
 - [x] Golden tests: `protocol_compat.rs` + `map_description.rs` via `Codec1098`
 - [x] `cargo check --workspace`, `cargo test -p tfs-rust-net`
+
+## Phase A3 — Transport capability gating (Track A) — done
+C++ refs — 772: `gameserver/src/protocol.cpp` `XTEA_decrypt` (no checksum, `len-4`), `networkmessage.h`
+`INITIAL_BUFFER_POSITION = 4`, `connection.cpp` (no `onConnect` challenge). 1098: repo-root
+`src/protocol.cpp` `XTEA_decrypt` (4-byte Adler header, `len-6`), `networkmessage.h` IBP = 8,
+`connection.cpp` checksum read.
+- [x] A3.1 Plumb `ProtocolCaps` into `decrypt_xtea_game_body` / `encrypt_xtea_game_frame` (caps already on wire config).
+- [x] A3.2 Gate Adler header read/write + buffer offset by `caps.adler_checksum` / `caps.initial_buffer_position` (cipher offset = `IBP - 4`).
+- [x] A3.3 XTEA recv slack `-4` vs `-6` subsumed by the caps-driven cipher offset (772 = 0, 1098 = 4).
+- [x] A3.4 Gate pre-login `0x1F` challenge send by `caps.prelogin_challenge`; only verify echo when sent (`Option<GameChallenge>`).
+- [x] A3.5 Update callers: `server.rs` (game + login), packet-proxy `decrypt.rs`/`connection.rs`, tests.
+- [x] Tests: XTEA frame encode→decode round-trip under both caps profiles; 772 no-checksum; cross-profile guard; 1098 unchanged.
+- [x] Gate: `cargo check --workspace`, `cargo test -p tfs-rust-net -p tfs-rust-common` green (clippy errors are pre-existing baseline, unchanged by A3).

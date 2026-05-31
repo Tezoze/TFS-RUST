@@ -97,13 +97,47 @@ every phase: `cargo check --workspace && cargo clippy --workspace --all-targets 
 
 ---
 
-### Phase A3 — Transport capability gating `[ ]`
+### Phase A3 — Transport capability gating `[x]`
 
 **Goal:** Adler32, pre-login challenge, and XTEA slack honor `ProtocolCaps`. 1098 defaults intact.
 
-**C++ ref:** 772 `gameserver/src/protocolgame.cpp` (`parseFirstPacket`, no `onConnect` challenge),
-`networkmessage.cpp` (no checksum, `INITIAL_BUFFER_POSITION = 4`); 1098 repo-root equivalents. Design
+**C++ ref:** 772 `gameserver/src/protocol.cpp` `XTEA_decrypt` (no checksum, `getLength() - 4`),
+`networkmessage.h` (no checksum, `INITIAL_BUFFER_POSITION = 4`), `connection.cpp` (no `onConnect`
+challenge); 1098 repo-root `src/protocol.cpp` `XTEA_decrypt` (`getLength() - 6`), `networkmessage.h`
+(`INITIAL_BUFFER_POSITION = 8`, 4-byte checksum), `connection.cpp` (reads + verifies checksum). Design
 §2.1.
+
+**Files (done):**
+- `crates/tfs-rust-net/src/protocol_game.rs` — `decrypt_xtea_game_body` / `encrypt_xtea_game_frame` now
+  take `&ProtocolCaps`. Cipher region offset = `caps.initial_buffer_position - 4` (4 for 1098, 0 for
+  772 = checksum width); Adler header read/write gated on `caps.adler_checksum`. `forward_game_packets_xtea`
+  threads caps.
+- `crates/tfs-rust-net/src/game_challenge.rs` — `send_game_challenge(&mut w, &caps)` returns
+  `Option<GameChallenge>`; emits `0x1F` only when `caps.prelogin_challenge`.
+- `crates/tfs-rust-net/src/server.rs` — game + login connections pass caps to encrypt/decrypt; challenge
+  echo verified only when a challenge was issued.
+- `tools/packet-proxy/src/{decrypt,connection}.rs` — caller threads 1098 caps (proxy logs 10.98 only).
+
+**Tasks:**
+- [x] A3.1 Plumb `ProtocolCaps` into the decrypt/encrypt fns (passed from the conn's wire config).
+- [x] A3.2 Gate Adler header read/write + buffer offset by `adler_checksum` / `initial_buffer_position`.
+- [x] A3.3 XTEA recv slack `-4` vs `-6` subsumed by the caps-driven cipher offset — the C++ slack is a
+      `getLength()`/`getBufferPosition()` artifact, not a value to subtract in Rust (decrypt processes the
+      exact 8-byte-aligned region). See `tasks/lessons.md` #19.
+- [x] A3.4 Gate the pre-login challenge send by `prelogin_challenge`.
+
+**Tests:** `tests/xtea_game_body.rs` — round-trip under both caps profiles (1098 with Adler, 772 no
+checksum) + a cross-profile guard (1098 decode of a 772 frame must not silently reproduce the payload).
+Inline `protocol_game::encrypt_tests` gained the 772 no-checksum round-trip. 1098 round-trip unchanged.
+
+**Gate:** ✅ 1098 frames byte-identical (offset 4 == old hardcoded `body[4..]`); 772-caps round-trip
+succeeds in unit test (no live client yet). `cargo check --workspace`, `cargo test -p tfs-rust-net
+-p tfs-rust-common` green. (Pre-existing clippy `too_many_arguments` / `items_after_test_module` baseline
+in the crate is unchanged by A3.)
+
+---
+
+#### A3 historical detail (original plan)
 
 **Files:**
 - `crates/tfs-rust-net/src/protocol_game.rs` — `decrypt_xtea_game_body` / `encrypt_xtea_game_frame`:
@@ -371,7 +405,7 @@ validated against captured CipSoft outputs (772) and current TFS values (1098).
 ## Dependency graph
 
 ```
-A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 ─► A4 ─► A5 ─► A6   (wire: connectable 772, 1098-behaving)
+A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 [x] ─► A4 ─► A5 ─► A6   (wire: connectable 772, 1098-behaving)
                                    │
 B0 ──► B1 ──► B2 ──► B3 ──► B4 ──► B5                  (mechanics: 772 behavior; B0 needs only A0)
 ```

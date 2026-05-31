@@ -112,7 +112,7 @@ impl UserData for CreatureRef {
                         can_drop,
                         slot,
                     )
-                    .map_err(|e| mlua::Error::runtime(e))?;
+                    .map_err(mlua::Error::runtime)?;
                     match id_opt {
                         Some(iid) => {
                             let ud = lua.create_userdata(ItemRef(iid))?;
@@ -122,7 +122,7 @@ impl UserData for CreatureRef {
                     }
                 } else {
                     call_lua_add_item(this.0, item_type, count.min(u16::MAX as u32) as u16)
-                        .map_err(|e| mlua::Error::runtime(e))?;
+                        .map_err(mlua::Error::runtime)?;
                     Ok(Value::Nil)
                 }
             },
@@ -144,7 +144,7 @@ impl UserData for CreatureRef {
                 let sub_type = sub_type.unwrap_or(-1);
                 let ignore_equipped = ignore_equipped.unwrap_or(false);
                 call_lua_remove_item(this.0, item_type, count, sub_type, ignore_equipped)
-                    .map_err(|e| mlua::Error::runtime(e))
+                    .map_err(mlua::Error::runtime)
             },
         );
 
@@ -184,7 +184,7 @@ impl UserData for CreatureRef {
             |lua, this, (depot_id, auto_create): (u32, Option<bool>)| {
                 let auto_create = auto_create.unwrap_or(false);
                 let id_opt = call_lua_get_depot_chest(this.0, depot_id, auto_create)
-                    .map_err(|e| mlua::Error::runtime(e))?;
+                    .map_err(mlua::Error::runtime)?;
                 match id_opt {
                     Some(iid) => {
                         let ud = lua.create_userdata(ContainerRef(iid))?;
@@ -197,7 +197,7 @@ impl UserData for CreatureRef {
 
         methods.add_method("getInbox", |lua, this, ()| {
             let id_opt =
-                call_lua_get_inbox(this.0).map_err(|e| mlua::Error::runtime(e))?;
+                call_lua_get_inbox(this.0).map_err(mlua::Error::runtime)?;
             match id_opt {
                 Some(iid) => {
                     let ud = lua.create_userdata(ContainerRef(iid))?;

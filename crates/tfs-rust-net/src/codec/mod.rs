@@ -22,6 +22,9 @@ use crate::NetworkMessage;
 pub trait ProtocolCodec {
     fn caps(&self) -> ProtocolCaps;
 
+    /// Mirrors C++ `NetworkMessage::addItem` template field list (parity); higher-level call sites
+    /// use the `ItemTemplateArgs` struct form.
+    #[allow(clippy::too_many_arguments)]
     fn write_item_template(
         &self,
         msg: &mut NetworkMessage,
@@ -322,6 +325,9 @@ impl Codec {
 macro_rules! delegate_codec {
     ($($name:ident ( $($arg:ident : $ty:ty),* $(,)? ) -> $ret:ty);+ $(;)?) => {
         $(
+            // Delegated wire encoders mirror C++ `NetworkMessage` field lists (parity); arg count
+            // matches the trait method it forwards to.
+            #[allow(clippy::too_many_arguments)]
             pub fn $name(&self, $($arg: $ty),*) -> $ret {
                 match self {
                     Self::V1098(c) => ProtocolCodec::$name(c, $($arg),*),

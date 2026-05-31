@@ -461,6 +461,7 @@ pub fn send_map_description_packet<F: FnMut(u32) -> bool>(
 }
 
 /// `ProtocolGame::MoveUpCreature` (`src/protocolgame.cpp` ~3363–3404).
+#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::MoveUpCreature` parameters (parity)
 fn append_move_up_creature<F: FnMut(u32) -> bool>(
     codec: &Codec,
     msg: &mut NetworkMessage,
@@ -558,6 +559,7 @@ fn append_move_up_creature<F: FnMut(u32) -> bool>(
 }
 
 /// `ProtocolGame::MoveDownCreature` (`src/protocolgame.cpp` ~3406–3446).
+#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::MoveDownCreature` parameters (parity)
 fn append_move_down_creature<F: FnMut(u32) -> bool>(
     codec: &Codec,
     msg: &mut NetworkMessage,
@@ -656,6 +658,7 @@ fn append_move_down_creature<F: FnMut(u32) -> bool>(
 
 /// Local player walk: `ProtocolGame::sendMoveCreature` when `creature == player` and not teleport.
 // C++ reference: `src/protocolgame.cpp` `ProtocolGame::sendMoveCreature` (lines ~2827–2870).
+#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendMoveCreature` parameters (parity)
 pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     codec: &Codec,
     old_pos: Position,
@@ -670,7 +673,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     if old_pos.z != new_pos.z {
         let mut msg = NetworkMessage::new();
         if old_pos.z == 7 && new_pos.z >= 8 {
-            if old_stack_pos >= 0 && old_stack_pos < 10 {
+            if (0..10).contains(&old_stack_pos) {
                 msg.write_u8(0x6C);
                 msg.write_position(&old_pos);
                 msg.write_u8(old_stack_pos as u8);
@@ -681,7 +684,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
             }
         } else {
             msg.write_u8(0x6D);
-            if old_stack_pos >= 0 && old_stack_pos < 10 {
+            if (0..10).contains(&old_stack_pos) {
                 msg.write_position(&old_pos);
                 msg.write_u8(old_stack_pos as u8);
             } else {
@@ -792,7 +795,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 
     let mut msg = NetworkMessage::new();
     msg.write_u8(0x6D);
-    if old_stack_pos >= 0 && old_stack_pos < 10 {
+    if (0..10).contains(&old_stack_pos) {
         msg.write_position(&old_pos);
         msg.write_u8(old_stack_pos as u8);
     } else {
@@ -887,7 +890,7 @@ pub fn send_move_creature_spectator(
 ) -> NetworkMessage {
     let mut msg = NetworkMessage::new();
     msg.write_u8(0x6D);
-    if old_stack_pos >= 0 && old_stack_pos < 10 {
+    if (0..10).contains(&old_stack_pos) {
         msg.write_position(&old_pos);
         msg.write_u8(old_stack_pos as u8);
     } else {

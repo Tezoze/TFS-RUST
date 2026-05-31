@@ -125,7 +125,7 @@ impl UserData for ItemRef {
         });
 
         methods.add_method("setActionId", |_, this, action_id: u16| {
-            call_lua_set_action_id(this.0, action_id).map_err(|e| mlua::Error::runtime(e))
+            call_lua_set_action_id(this.0, action_id).map_err(mlua::Error::runtime)
         });
 
         methods.add_method("getUniqueId", |_, this, ()| {
@@ -133,7 +133,7 @@ impl UserData for ItemRef {
         });
 
         methods.add_method("setUniqueId", |_, this, unique_id: u16| {
-            call_lua_set_unique_id(this.0, unique_id).map_err(|e| mlua::Error::runtime(e))
+            call_lua_set_unique_id(this.0, unique_id).map_err(mlua::Error::runtime)
         });
 
         methods.add_method("isStoreItem", |_, this, ()| {
@@ -141,7 +141,7 @@ impl UserData for ItemRef {
         });
 
         methods.add_method("setStoreItem", |_, this, store: bool| {
-            call_lua_set_store_item(this.0, store).map_err(|e| mlua::Error::runtime(e))
+            call_lua_set_store_item(this.0, store).map_err(mlua::Error::runtime)
         });
 
         methods.add_method("isContainer", |_, this, ()| {
@@ -186,12 +186,12 @@ impl UserData for ItemRef {
         methods.add_method("moveTo", |lua, this, (dest, flags): (Value, Option<u32>)| {
             let dest = parse_move_destination(lua, dest)?;
             let flags = flags.unwrap_or(0);
-            call_lua_item_move_to(this.0, dest, flags).map_err(|e| mlua::Error::runtime(e))
+            call_lua_item_move_to(this.0, dest, flags).map_err(mlua::Error::runtime)
         });
 
         methods.add_method("remove", |_, this, count: Option<i32>| {
             let count = count.unwrap_or(-1);
-            call_lua_item_remove(this.0, count).map_err(|e| mlua::Error::runtime(e))
+            call_lua_item_remove(this.0, count).map_err(mlua::Error::runtime)
         });
     }
 }

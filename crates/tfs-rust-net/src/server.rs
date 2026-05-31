@@ -193,7 +193,7 @@ async fn handle_login_connection(
         ),
     };
 
-    let frame = encrypt_xtea_game_frame(&plain, &round_keys);
+    let frame = encrypt_xtea_game_frame(&plain, &round_keys, &cfg.protocol_caps);
     write_half.write_all(&frame).await?;
     write_half.flush().await?;
     drop(write_half);
@@ -214,7 +214,8 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     );
     let mut stream = BufWriter::new(stream);
 
-    let challenge: GameChallenge = send_game_challenge(&mut stream).await?;
+    let challenge: Option<GameChallenge> =
+        send_game_challenge(&mut stream, &wire.protocol_caps).await?;
     stream.flush().await?;
 
     let mut stream = stream.into_inner();
@@ -245,8 +246,12 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         }
     };
 
-    if game.challenge_ts != challenge.timestamp || game.challenge_rand != challenge.random {
-        return Err(anyhow::anyhow!("game login challenge mismatch"));
+    // 1098 echoes the `0x1F` challenge in the first game packet; 772 sends none, so only verify the
+    // echo when we actually issued a challenge (`caps.prelogin_challenge`).
+    if let Some(challenge) = challenge {
+        if game.challenge_ts != challenge.timestamp || game.challenge_rand != challenge.random {
+            return Err(anyhow::anyhow!("game login challenge mismatch"));
+        }
     }
 
     let acc = tfs_rust_db::gameworld_authentication(
@@ -276,6 +281,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     let (read_half, mut write_half) = stream.into_split();
     let round_keys = expand_key(&xtea_key);
+    let caps = wire.protocol_caps;
 
     let (batch_tx, mut batch_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<Vec<u8>>>();
     {
@@ -286,7 +292,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     tokio::spawn(async move {
         while let Some(blobs) = batch_rx.recv().await {
             for b in blobs {
-                let frame = encrypt_xtea_game_frame(&b, &round_keys);
+                let frame = encrypt_xtea_game_frame(&b, &round_keys, &caps);
                 if write_half.write_all(&frame).await.is_err() {
                     break;
                 }
@@ -311,6 +317,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         wire.cmd_tx,
         &round_keys,
         wire.protocol_version,
+        &caps,
     )
     .await?;
     let mut g = wire.out_registry.lock().expect("out_registry lock");

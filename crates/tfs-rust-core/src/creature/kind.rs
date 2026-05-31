@@ -8,6 +8,10 @@ use crate::ids::CreatureId;
 use tfs_rust_common::Position;
 
 #[derive(Debug)]
+// `Player` is the largest variant, but boxing it would add indirection to the hottest
+// creature-access path. Entity storage is intentionally contiguous / no-indirection
+// (see steering: tfs-entity-storage). Keep inline.
+#[allow(clippy::large_enum_variant)]
 pub enum CreatureKind {
     Player(Player),
     Monster(Monster),

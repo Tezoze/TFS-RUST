@@ -454,16 +454,10 @@ impl GameWorld {
     ) -> Option<ItemId> {
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        for &item_id in body
+        body
             .down_items
             .iter()
-            .chain(body.top_items.iter())
-        {
-            if self.validate_item_sprite(item_id, sprite_id) {
-                return Some(item_id);
-            }
-        }
-        None
+            .chain(body.top_items.iter()).find(|&&item_id| self.validate_item_sprite(item_id, sprite_id)).copied()
     }
 
     /// Match client sprite id to `ItemId` when multiple items could match (validates `sprite_id`).

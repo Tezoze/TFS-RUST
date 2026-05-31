@@ -550,7 +550,7 @@ fn warn_bed_type_mismatch(item_id: u16, item: &ItemType) {
     let is_bed = item
         .xml_attributes
         .get("type")
-        .is_some_and(|s| s.to_ascii_lowercase() == "bed");
+        .is_some_and(|s| s.eq_ignore_ascii_case("bed"));
     if is_bed {
         return;
     }
@@ -1302,20 +1302,26 @@ mod tests {
     /// C++: `Items::buildInventoryList` — `src/items.cpp` (lines 511–530).
     #[test]
     fn inventory_client_ids_matches_cpp_predicate() {
-        let mut i = ItemType::default();
-        i.id = 1;
-        i.server_id = 1;
-        i.client_id = 5000;
-        i.attack = 10;
-        let mut j = ItemType::default();
-        j.id = 2;
-        j.server_id = 2;
-        j.client_id = 6000;
-        let mut k = ItemType::default();
-        k.id = 3;
-        k.server_id = 3;
-        k.client_id = 7000;
-        k.slot_position = super::SLOTP_HEAD;
+        let i = ItemType {
+            id: 1,
+            server_id: 1,
+            client_id: 5000,
+            attack: 10,
+            ..Default::default()
+        };
+        let j = ItemType {
+            id: 2,
+            server_id: 2,
+            client_id: 6000,
+            ..Default::default()
+        };
+        let k = ItemType {
+            id: 3,
+            server_id: 3,
+            client_id: 7000,
+            slot_position: super::SLOTP_HEAD,
+            ..Default::default()
+        };
         let mut items = HashMap::new();
         items.insert(1, i);
         items.insert(2, j);

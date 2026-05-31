@@ -184,6 +184,7 @@ impl GameWorld {
     }
 
     /// C++ `Spawn::spawnMonster` + `Game::internalPlaceCreature` / `placeCreature`.
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_monster(
         &mut self,
         name: &str,
@@ -279,6 +280,7 @@ impl GameWorld {
     }
 
     /// NPC spawn from spawn XML — no respawn timer (C++ `Spawns::startup` NPC path).
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_npc(
         &mut self,
         name: &str,
@@ -446,7 +448,7 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| client_creature_stack_pos(t.body(), cid))
             .unwrap_or(-1);
-        if stack_raw < 0 || stack_raw >= 10 {
+        if !(0..10).contains(&stack_raw) {
             tracing::warn!(?cid, stack_raw, "creature appear stackpos out of range; skipping 0x6A");
             return false;
         }
@@ -483,7 +485,7 @@ impl GameWorld {
             Some(k) => creature_wire_id(cid, k),
             None => return,
         };
-        let packet = if stack_raw >= 0 && stack_raw < 10 {
+        let packet = if (0..10).contains(&stack_raw) {
             self.codec
                 .encode_remove_tile_thing(pos, stack_raw as u8)
                 .into_bytes()

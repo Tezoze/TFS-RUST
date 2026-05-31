@@ -182,7 +182,7 @@ impl Player {
     /// TFS `Player::canDoAction` / `nextAction` comparison (`player.cpp`).
     #[inline]
     pub fn timed_action_ready(&self, now: Instant) -> bool {
-        self.next_action_until.map_or(true, |t| now >= t)
+        self.next_action_until.is_none_or(|t| now >= t)
     }
 
     /// `Player::getCapacity` — `player.h` ~454–461.

@@ -2,6 +2,7 @@
 // C++ reference: `Game` / `Map` ownership in `game.cpp`.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -58,7 +59,8 @@ pub struct GameWorld {
     pub items: SlotMap<ItemId, Item>,
     pub map: Map,
     pub events: Box<dyn EventDispatcher>,
-    pub config: Arc<ConfigManager>,
+    /// Game-thread-only: holds an `mlua::Lua` (`!Send`), so `Rc` not `Arc`.
+    pub config: Rc<ConfigManager>,
     pub db: DbPool,
     /// GAME THREAD ONLY — insert/remove from IO threads must not be added without review.
     pub player_by_name: HashMap<String, CreatureId>,
@@ -208,11 +210,13 @@ impl GameWorld {
         }
     }
 
+    // C++-shaped constructor; mirrors `Game`/`GameWorld` wiring inputs.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         map: Map,
         items: SlotMap<ItemId, Item>,
         events: Box<dyn EventDispatcher>,
-        config: Arc<ConfigManager>,
+        config: Rc<ConfigManager>,
         db: DbPool,
         spawns: SpawnManager,
         items_db: Arc<ItemDatabase>,
@@ -1033,24 +1037,17 @@ impl GameWorld {
             )?,
             _ => u32::from(m),
         };
-        let mut m_move = if is_stackable {
-            m.min(max_query_count as u16)
-        } else {
-            m.min(max_query_count as u16)
-        };
+        let mut m_move = m.min(max_query_count as u16);
 
         if let Some(merge_id) = to_merge_item {
             m_move = m_move.min(self.stack_merge_room(merge_id));
         }
 
-        match &from_cylinder {
-            Cylinder::Inventory { player_id, .. } => {
-                let rv = self.player_query_remove(*player_id, item_id, u32::from(m_move), flags);
-                if rv.is_error() {
-                    return Err(rv);
-                }
+        if let Cylinder::Inventory { player_id, .. } = &from_cylinder {
+            let rv = self.player_query_remove(*player_id, item_id, u32::from(m_move), flags);
+            if rv.is_error() {
+                return Err(rv);
             }
-            _ => {}
         }
 
         match (&from_cylinder, &to_work) {
@@ -1666,6 +1663,8 @@ impl GameWorld {
     // C++ ref: src/game.cpp:644 Game::playerMoveThing, :905 Game::playerMoveItem
 
     /// Handle `parseThrow` — player moves a thing from one position to another.
+    // C++ ref: src/game.cpp Game::playerMoveThing — signature mirrors the protocol call.
+    #[allow(clippy::too_many_arguments)]
     pub fn player_move_thing(
         &mut self,
         conn_id: ConnId,
@@ -1710,6 +1709,7 @@ impl GameWorld {
 
     /// Handle the item branch of playerMoveThing.
     // C++ ref: src/game.cpp:905 Game::playerMoveItem
+    #[allow(clippy::too_many_arguments)]
     fn player_move_item(
         &mut self,
         conn_id: ConnId,
@@ -1928,7 +1928,7 @@ impl GameWorld {
 
     // Check if the destination tile can accept thrown items
     // C++ ref: Part of Tile::queryAdd logic for thrown items
-    fn can_throw_to_tile(&self, pos: Position, item_id: ItemId) -> bool {
+    fn can_throw_to_tile(&self, pos: Position, _item_id: ItemId) -> bool {
         let Some(tile) = self.map.get_tile(pos) else {
             // No tile means you can't throw there
             return false;
@@ -2266,7 +2266,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     ) -> Option<tfs_rust_common::ScriptItemId> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.find_item_of_type(cid, item_id, depth_search, sub_type)
-            .map(|i| GameWorld::item_to_script_id(i))
+            .map(GameWorld::item_to_script_id)
     }
 
     fn is_registered_container(&self, item_id: tfs_rust_common::ScriptItemId) -> bool {

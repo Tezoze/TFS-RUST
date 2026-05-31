@@ -32,7 +32,7 @@ pub(crate) enum PlayerDestResolution {
 
 /// Occupied equipment slot metadata for hand-conflict checks.
 #[derive(Debug, Clone, Copy)]
-struct OccupiedSlot {
+pub(crate) struct OccupiedSlot {
     item_id: ItemId,
     slot_position: u32,
     weapon_type: u8,
@@ -261,7 +261,7 @@ impl GameWorld {
         let left = self.occupied_slot(cid, InventorySlot::Left as u8);
         let right = self.occupied_slot(cid, InventorySlot::Right as u8);
 
-        let mut ret = evaluate_player_inventory_slot_query(
+        let ret = evaluate_player_inventory_slot_query(
             index,
             classic,
             it,
@@ -388,12 +388,8 @@ impl GameWorld {
 
     /// C++ `Player::getThingIndex` — `player.cpp` ~2954–2961 (equipment slots 1–10 only).
     pub(crate) fn inventory_thing_index(&self, player_id: CreatureId, item_id: ItemId) -> Option<u8> {
-        for slot in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
-            if self.get_player_inventory_item(player_id, slot) == Some(item_id) {
-                return Some(slot);
-            }
-        }
-        None
+        (PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST)
+            .find(|&slot| self.get_player_inventory_item(player_id, slot) == Some(item_id))
     }
 
     /// Trade item excluded from auto-destination — `player.cpp` ~2737. Stub until trade is ported.
@@ -665,8 +661,8 @@ impl GameWorld {
                 } else {
                     containers.push(inventory_item);
                 }
-            } else if auto_stack && stackable {
-                if self.player_query_add(player_id, slot_index, item_id, item_count, CylinderFlags::NONE)
+            } else if auto_stack && stackable
+                && self.player_query_add(player_id, slot_index, item_id, item_count, CylinderFlags::NONE)
                     == ReturnValue::NoError
                     && self.items_stack_mergeable(item_id, inventory_item)
                     && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
@@ -676,7 +672,6 @@ impl GameWorld {
                         dest_stack_item: Some(inventory_item),
                     });
                 }
-            }
         }
 
         let mut i = 0usize;
@@ -760,6 +755,7 @@ impl GameWorld {
     }
 
     /// C++ `internalMoveItem` NeedExchange block — `game.cpp` ~1118–1159 (inventory destination).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_resolve_inventory_need_exchange(
         &mut self,
         acting_player: Option<CreatureId>,
@@ -804,7 +800,6 @@ impl GameWorld {
                 )
             }
             Cylinder::Tile { pos } => self.query_add_item_to_tile(*pos, exchange_id, CylinderFlags::NONE),
-            _ => ReturnValue::NotPossible,
         };
         if can_add_to_source != ReturnValue::NoError {
             return Err(can_add_to_source);
@@ -830,7 +825,6 @@ impl GameWorld {
             ),
             // C++ `Tile::queryMaxCount` — `tile.cpp` ~706–709.
             Cylinder::Tile { .. } => Ok(exchange_count),
-            _ => Err(ReturnValue::NotPossible),
         };
         let Ok(max_exchange) = max_exchange else {
             return Err(max_exchange.unwrap_err());
@@ -867,7 +861,6 @@ impl GameWorld {
                 self.broadcast_player_inventory_slot(to_pid, to_slot, None);
                 self.internal_add_item_to_tile(*pos, exchange_id, flags)?;
             }
-            _ => return Err(ReturnValue::NotPossible),
         }
 
         let move_count = self
@@ -891,37 +884,42 @@ mod tests {
     use tfs_rust_content::otb::ItemType;
 
     fn sword_type() -> ItemType {
-        let mut it = ItemType::default();
-        it.slot_position = SLOTP_LEFT | SLOTP_RIGHT;
-        it.weapon_type = 1; // sword
-        it
+        ItemType {
+            slot_position: SLOTP_LEFT | SLOTP_RIGHT,
+            weapon_type: 1, // sword
+            ..Default::default()
+        }
     }
 
     fn shield_type() -> ItemType {
-        let mut it = ItemType::default();
-        it.slot_position = SLOTP_RIGHT;
-        it.weapon_type = WEAPON_SHIELD;
-        it
+        ItemType {
+            slot_position: SLOTP_RIGHT,
+            weapon_type: WEAPON_SHIELD,
+            ..Default::default()
+        }
     }
 
     fn two_hand_type() -> ItemType {
-        let mut it = ItemType::default();
-        it.slot_position = SLOTP_TWO_HAND | SLOTP_LEFT | SLOTP_RIGHT;
-        it.weapon_type = 1;
-        it
+        ItemType {
+            slot_position: SLOTP_TWO_HAND | SLOTP_LEFT | SLOTP_RIGHT,
+            weapon_type: 1,
+            ..Default::default()
+        }
     }
 
     fn head_type() -> ItemType {
-        let mut it = ItemType::default();
-        it.slot_position = SLOTP_HEAD;
-        it
+        ItemType {
+            slot_position: SLOTP_HEAD,
+            ..Default::default()
+        }
     }
 
     fn shovel_type() -> ItemType {
-        let mut it = ItemType::default();
-        it.slot_position = SLOTP_HAND;
-        it.weapon_type = WEAPON_NONE;
-        it
+        ItemType {
+            slot_position: SLOTP_HAND,
+            weapon_type: WEAPON_NONE,
+            ..Default::default()
+        }
     }
 
     fn test_config(lua_source: &str, tag: &str) -> ConfigManager {
@@ -1047,8 +1045,10 @@ mod tests {
 
     #[test]
     fn classic_ammo_slot_accepts_non_ammo() {
-        let mut generic = ItemType::default();
-        generic.slot_position = SLOTP_HAND;
+        let generic = ItemType {
+            slot_position: SLOTP_HAND,
+            ..Default::default()
+        };
         let ret = evaluate_player_inventory_slot_query(
             InventorySlot::Ammo as u8,
             true,

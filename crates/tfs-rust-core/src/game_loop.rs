@@ -209,9 +209,7 @@ pub async fn run_game_loop(
             } => {
                 match cmd {
                     Some(GameCommand::Shutdown) => {
-                        if let Err(e) = flush_online_players_to_db(&world).await {
-                            return Err(e);
-                        }
+                        flush_online_players_to_db(&world).await?;
                         break;
                     }
                     None => break,

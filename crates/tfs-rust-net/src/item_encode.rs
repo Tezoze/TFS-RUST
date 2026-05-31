@@ -71,9 +71,8 @@ pub fn item_template_wire_len(
     with_description: bool,
 ) -> usize {
     let mut n = 2 + 1; // client id + MARK_UNMARKED
-    if stackable {
-        n += 1;
-    } else if is_splash_or_fluid {
+    // Stackable writes a count byte; splash/fluid writes a liquid-color byte — both 1 byte.
+    if stackable || is_splash_or_fluid {
         n += 1;
     }
     if is_animation {
@@ -88,6 +87,7 @@ pub fn item_template_wire_len(
 /// Live `Item*` serialization (`NetworkMessage::addItem(const Item* item, bool withDescription)`).
 /// `duration_pickup`: `Some((duration, stop_time_byte))` for non-stackable timed pickup items (C++ branch).
 // C++ reference: `src/networkmessage.cpp` L117–152.
+#[allow(clippy::too_many_arguments)] // mirrors C++ `NetworkMessage::addItem` live field list (parity)
 pub fn write_item_live(
     msg: &mut NetworkMessage,
     client_id: u16,
@@ -102,7 +102,7 @@ pub fn write_item_live(
     msg.write_u16(client_id);
     msg.write_u8(0xFF); // MARK_UNMARKED
     if stackable {
-        msg.write_u8(count.min(0xFF));
+        msg.write_u8(count); // count is u8; C++ `std::min<uint16_t>(count, 0xFF)` is a no-op here
     } else if is_splash_or_fluid {
         msg.write_u8(fluid_map_byte(count));
     }

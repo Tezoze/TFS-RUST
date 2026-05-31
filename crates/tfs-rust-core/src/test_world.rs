@@ -2,6 +2,7 @@
 #[cfg(test)]
 pub mod support {
     use std::collections::HashMap;
+    use std::rc::Rc;
     use std::sync::{Arc, OnceLock};
     use std::time::Instant;
 
@@ -208,20 +209,23 @@ freePremium = false
     }
 
     pub fn bag_item_type(server_id: u16) -> ItemType {
-        let mut it = ItemType::default();
-        it.group = ItemType::GROUP_CONTAINER;
-        it.allow_pickupable = true;
+        let mut it = ItemType {
+            group: ItemType::GROUP_CONTAINER,
+            allow_pickupable: true,
+            server_id,
+            ..Default::default()
+        };
         it.xml_attributes
             .insert("containersize".into(), "20".into());
-        it.server_id = server_id;
         it
     }
 
     pub fn pickup_item_type(server_id: u16) -> ItemType {
-        let mut it = ItemType::default();
-        it.allow_pickupable = true;
-        it.server_id = server_id;
-        it
+        ItemType {
+            allow_pickupable: true,
+            server_id,
+            ..Default::default()
+        }
     }
 
     fn test_runtime() -> &'static tokio::runtime::Runtime {
@@ -260,7 +264,7 @@ freePremium = false
             map,
             SlotMap::default(),
             Box::new(NullEventDispatcher),
-            Arc::new(test_config()),
+            Rc::new(test_config()),
             DbPool::lazy_for_tests().expect("lazy db pool"),
             SpawnManager::from_zones(Vec::new()),
             items_db,

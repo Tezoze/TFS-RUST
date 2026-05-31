@@ -38,6 +38,10 @@ impl MoveEventsRegistry {
         self.by_item.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.by_item.is_empty()
+    }
+
     pub fn register(&mut self, entry: MoveEventEntry) {
         self.by_item.insert((entry.kind, entry.item_id), entry);
     }

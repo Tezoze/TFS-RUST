@@ -1,8 +1,12 @@
 //! Outgoing game login challenge (`ProtocolGame::onConnect`).
-// C++ reference: `src/protocolgame.cpp` `ProtocolGame::onConnect`.
+// C++ reference: 1098 repo-root `src/protocolgame.cpp` `ProtocolGame::onConnect` (sends `0x1F`
+// timestamp/random challenge). 772 `gameserver/src/`: no `onConnect` challenge — the client sends
+// the first packet directly, so 772 connections must NOT emit `0x1F`.
 
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
+
+use tfs_rust_common::ProtocolCaps;
 
 use crate::adler::adler_checksum;
 
@@ -13,10 +17,15 @@ pub struct GameChallenge {
     pub random: u8,
 }
 
-/// Send the 0x1F timestamp/random challenge (2-byte LE size + 12-byte body with Adler).
+/// Send the `0x1F` timestamp/random challenge **only when the era uses it** (`caps.prelogin_challenge`).
+/// Returns `None` for 772 (no challenge); the caller then skips challenge-echo verification.
 pub async fn send_game_challenge<W: AsyncWrite + Unpin>(
     w: &mut W,
-) -> std::io::Result<GameChallenge> {
+    caps: &ProtocolCaps,
+) -> std::io::Result<Option<GameChallenge>> {
+    if !caps.prelogin_challenge {
+        return Ok(None);
+    }
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -35,8 +44,8 @@ pub async fn send_game_challenge<W: AsyncWrite + Unpin>(
     out[0..2].copy_from_slice(&(12u16).to_le_bytes());
     out[2..].copy_from_slice(&body);
     w.write_all(&out).await?;
-    Ok(GameChallenge {
+    Ok(Some(GameChallenge {
         timestamp: ts,
         random: rand,
-    })
+    }))
 }

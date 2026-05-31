@@ -81,9 +81,9 @@ static MUTATION_APPLIER: OnceLock<LuaMutationApplier> = OnceLock::new();
 thread_local! {
     /// Opaque `&mut GameWorld` as `*mut ()` — set only for the duration of
     /// [`with_lua_mutation_scope`] on the game thread.
-    static MUTATION_WORLD: Cell<*mut ()> = Cell::new(std::ptr::null_mut());
-    static MUTATION_BOOL_RESULT: Cell<Option<bool>> = Cell::new(None);
-    static MUTATION_ITEM_RESULT: Cell<Option<u64>> = Cell::new(None);
+    static MUTATION_WORLD: Cell<*mut ()> = const { Cell::new(std::ptr::null_mut()) };
+    static MUTATION_BOOL_RESULT: Cell<Option<bool>> = const { Cell::new(None) };
+    static MUTATION_ITEM_RESULT: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 /// Register the core handler that applies mutations (called once at startup).

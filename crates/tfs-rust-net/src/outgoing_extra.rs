@@ -290,6 +290,7 @@ pub fn send_close_container(cid: u8) -> NetworkMessage {
 /// `ProtocolGame::sendContainer` — opcode `0x6E` (`src/protocolgame.cpp` ~1751).
 /// `write_container_header` must write `addItem` + `addString(name)` (or browse-field bag + name).
 /// `write_item` is called once per item in the window (`addItem` each).
+#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendContainer` parameters (parity)
 pub fn send_container_open(
     cid: u8,
     capacity: u8,
@@ -531,6 +532,7 @@ pub fn send_text_window_item(
 }
 
 /// Second `sendTextWindow` overload — template item id (`src/protocolgame.cpp` ~2999).
+#[allow(clippy::too_many_arguments)] // mirrors C++ `sendTextWindow` item-template parameters (parity)
 pub fn send_text_window_simple_item(
     window_text_id: u32,
     client_id: u16,
@@ -618,6 +620,7 @@ pub fn send_market_browse_item_offers(
 }
 
 /// `ProtocolGame::sendModalWindow` — opcode `0xFA` (`src/protocolgame.cpp` ~3145).
+#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendModalWindow` parameters (parity)
 pub fn send_modal_window(
     id: u32,
     title: &str,
@@ -824,6 +827,7 @@ pub fn send_inventory_slot_empty(slot: u8) -> NetworkMessage {
 
 /// C++ `sendAddTileItem` with template `addItem` (`src/protocolgame.cpp` ~2605).
 #[deprecated(note = "use Codec::encode_add_tile_item")]
+#[allow(clippy::too_many_arguments)] // mirrors C++ `sendAddTileItem` item-template parameters (parity)
 pub fn send_add_tile_item_template(
     pos: Position,
     stack_pos: u8,
@@ -850,6 +854,7 @@ pub fn send_add_tile_item_template(
 
 /// C++ `sendUpdateTileItem` template path (`src/protocolgame.cpp` ~2619).
 #[deprecated(note = "use Codec::encode_update_tile_item")]
+#[allow(clippy::too_many_arguments)] // mirrors C++ `sendUpdateTileItem` item-template parameters (parity)
 pub fn send_update_tile_item_template(
     pos: Position,
     stack_pos: u8,
@@ -909,6 +914,7 @@ pub fn send_inventory_item_template(
 }
 
 /// `sendInventoryItem` with live `addItem(const Item*)` (`src/networkmessage.cpp` L117+).
+#[allow(clippy::too_many_arguments)] // mirrors C++ live `addItem` inventory parameters (parity)
 pub fn send_inventory_item_live(
     slot: u8,
     client_id: u16,
@@ -980,6 +986,7 @@ pub fn send_text_message_damage(
 }
 
 #[deprecated(note = "use Codec::encode_add_container_item")]
+#[allow(clippy::too_many_arguments)] // mirrors C++ `sendAddContainerItem` item-template parameters (parity)
 pub fn send_add_container_item_template(
     cid: u8,
     slot: u16,
@@ -1005,6 +1012,7 @@ pub fn send_add_container_item_template(
 }
 
 #[deprecated(note = "use Codec::encode_update_container_item")]
+#[allow(clippy::too_many_arguments)] // mirrors C++ `sendUpdateContainerItem` item-template parameters (parity)
 pub fn send_update_container_item_template(
     cid: u8,
     slot: u16,

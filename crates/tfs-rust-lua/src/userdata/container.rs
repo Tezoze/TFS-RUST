@@ -126,7 +126,7 @@ impl UserData for ContainerRef {
                 let index = index.unwrap_or(-1);
                 let flags = flags.unwrap_or(0);
                 let id_opt = call_lua_container_add_item(this.0, item_type, count, index, flags)
-                    .map_err(|e| mlua::Error::runtime(e))?;
+                    .map_err(mlua::Error::runtime)?;
                 match id_opt {
                     Some(iid) => {
                         let ud = lua.create_userdata(ItemRef(iid))?;
