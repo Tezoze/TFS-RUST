@@ -1,24 +1,79 @@
-TFS Rust [![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml "Rust build status")
-===============
+# TFS Rust
 
-TFS Rust is a ground-up rewrite of the Australis TFS 1.4.2 C++ game server into idiomatic Rust. It replaces the legacy codebase with a modern asynchronous architecture while preserving **10.98** protocol compatibility (OTClient), 100% Lua API compatibility, and full database schema compatibility. To connect to the server, you should use a custom OTClientv8.
+[![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml)
 
-### Engine Architecture
+Rust rewrite of **The Forgotten Server 1.4.2** (TFS C++ in repo-root `src/` is the behavioral reference). The goal is **1:1 parity** with TFS 1.4.2 mechanics, database schema, and Lua scripting, with a modern architecture: Tokio for I/O, a single-threaded game simulation, and generational entity storage via `slotmap`.
 
-* **Memory Safety & True Concurrency:** Eliminates traditional C++ crashes by utilizing a generational arena (`slotmap::SlotMap`) for entity storage. Network I/O is completely decoupled from the single-threaded game state using the Tokio async runtime and `mpsc` channels.
-* **Database Integrity:** Built on async MariaDB access via `sqlx` using only prepared statements, structurally eliminating SQL injection risks.
-* **Scripting Bridge:** Features a highly isolated LuaJIT scripting bridge via `mlua`. Script errors are isolated, caught, and logged, allowing the game tick to continue.
+**Default target today:** OTClient v8, Tibia protocol **10.98**. Multi-version wire support (e.g. 7.72) is in progress — see [Protocol versioning](docs/PROTOCOL_VERSIONING.md).
 
-### Getting Started
+Use a **custom OTClient v8** build aligned with this server’s protocol expectations.
 
-* [Compiling](https://github.com/Tezoze/TFS-RUST/wiki/Compiling), alternatively download [releases](https://github.com/Tezoze/TFS-RUST/releases)
-* [Scripting Reference](https://github.com/Tezoze/TFS-RUST/wiki/Script-Interface)
-* [Contributing](https://github.com/Tezoze/TFS-RUST/wiki/Contributing)
+---
 
-### Support
+## Architecture
 
-If you need help, please visit the [support forum on OTLand](https://otland.net/forums/support.16/). Our issue tracker is not a support forum, and using it as one will result in your issue being closed. If you were unable to get assistance in the support forum, you should consider [becoming a premium user on OTLand](https://otland.net/account/upgrades) which grants you access to the premium support forum and supports OTLand financially.
+| Layer | Crate | Role |
+|-------|--------|------|
+| Simulation | `tfs-rust-core` | `GameWorld`, map, creatures, items, combat hooks, Lua events — **game thread only** |
+| Networking | `tfs-rust-net` | TCP, RSA/XTEA, packet parse/encode, version-aware **codec** seam |
+| Database | `tfs-rust-db` | MariaDB via SQLx (prepared statements, migrations) |
+| Content | `tfs-rust-content` | OTB, OTBM, `items.xml`, monsters, vocations |
+| Scripting | `tfs-rust-lua` | LuaJIT (`mlua`) bridge to TFS-style APIs |
+| Shared | `tfs-rust-common` | IDs, positions, opcodes, `ProtocolVersion` / `ProtocolCaps` |
 
-### Issues
+I/O threads parse packets and run DB queries; the game thread owns all world state and communicates over `mpsc` channels (`GameCommand` in, encoded packets out). See [Protocol versioning](docs/PROTOCOL_VERSIONING.md) for how wire format is separated from mechanics.
 
-We use the [issue tracker on GitHub](https://github.com/Tezoze/TFS-RUST/issues). Keep in mind that everyone who is watching the repository gets notified by e-mail when there is activity, so be thoughtful and avoid writing comments that aren't meaningful for an issue (e.g. "+1"). If you'd like for an issue to be fixed faster, you should either fix it yourself and submit a pull request, or place a bounty on the issue.
+---
+
+## Quick start
+
+1. **Build and run** — follow [docs/COMPILING.md](docs/COMPILING.md) (requirements, `cargo build`, `config.lua`, MariaDB, `scripts/run_server.sh`).
+2. Copy `config.lua.dist` → `config.lua` and set `clientVersion = 1098` (and MySQL credentials).
+3. Ensure `data/`, `key.pem`, and your OTBM map path (`TFS_DATA_DIR` / `TFS_MAP_OTBM`) are in place.
+
+```bash
+cargo build --release --bin tfs-rust
+cp config.lua.dist config.lua
+./scripts/run_server.sh
+```
+
+Login **7171**, game **7172** by default.
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/COMPILING.md](docs/COMPILING.md) | Build, test, first-time DB and server setup |
+| [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | What works today vs still open |
+| [docs/PROTOCOL_VERSIONING.md](docs/PROTOCOL_VERSIONING.md) | 7.72 vs 10.98 wire/mechanics plan (Track A/B) |
+| [docs/OTCLIENT_INFO.md](docs/OTCLIENT_INFO.md) | OTCv8 protocol quirks vs vanilla TFS |
+
+Legacy C++ reference trees (`gameserver/`, `tibia-game-master/`) are local-only (gitignored) for 7.72 porting — not required to run 10.98.
+
+---
+
+## Workspace layout
+
+```
+crates/tfs-rust-{common,content,db,net,lua,core}/   # Rust server
+rust-src/main.rs                                    # `tfs-rust` binary entry
+data/                                               # Lua scripts, XML, map assets
+src/                                                # TFS 1.4.2 C++ (reference, not built by Cargo)
+tools/packet-proxy/                                 # Optional packet capture helper
+```
+
+---
+
+## Contributing
+
+- Match TFS 1.4.2 behavior unless explicitly documented; cite C++ file + function in ported Rust.
+- Run before a PR: `SQLX_OFFLINE=true cargo test --workspace`, `cargo clippy --workspace -- -D warnings`, `cargo fmt --all`.
+- Use [GitHub Issues](https://github.com/Tezoze/TFS-RUST/issues) for bugs and features (not general support threads).
+
+---
+
+## License
+
+Same lineage as The Forgotten Server — see repository history and `LICENSE` if present. Third-party assets under `data/` follow their original Tibia/OT community terms.

@@ -180,6 +180,9 @@ pip-log.txt
 #############
 ## TFS / OT
 #############
+# Local C++ reference trees (7.72 TVP + CipSoft decompile) — see docs/PROTOCOL_VERSIONING.md
+gameserver/
+tibia-game-master/
 config.lua
 *.bak
 *.backup
