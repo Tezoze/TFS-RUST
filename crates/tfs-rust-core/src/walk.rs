@@ -29,7 +29,6 @@ use std::time::{Duration, Instant};
 /// (`tasks/walk-audit.md` Issue 4).
 const WALK_DEADLINE_GRACE: Duration = Duration::ZERO;
 
-
 use rand::thread_rng;
 use tfs_rust_common::enums::{ConditionType, Direction, SpeakType};
 use tfs_rust_common::Position;
@@ -138,8 +137,9 @@ fn go_strength_for_walk(
     let raw = creature_effective_speed_for_step(base);
     match role {
         WalkSpeedRole::Player => match mech.profile.step_speed {
-            // TFS `Player::getStepSpeed` clamps linear speed (`src/player.h`); 772 sends raw `getSpeed()`.
+            // TFS `Player::getStepSpeed` clamps linear speed (`src/player.h`).
             crate::formulas::StepSpeedModel::TfsLog => raw.clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED),
+            // 772 wire + walk GoStrength (`baseSpeed`); effective `GetSpeed` is for server timers only.
             crate::formulas::StepSpeedModel::CipSoft => raw.max(0),
         },
         WalkSpeedRole::MonsterOrNpc => raw,
@@ -174,15 +174,29 @@ fn walk_timing_speed_kind(
     walk_timing_speed(role, base, mech)
 }
 
-/// Protocol `AddCreature` step speed — TFS stat vs CipSoft `GetSpeed()` (`protocolgame.cpp` `AddCreature`).
+/// Protocol `AddCreature` speed byte(s).
+///
+/// - **1098** — clamped GoStrength; codec halves on wire (`getStepSpeed()/2`, `protocolgame.cpp`).
+/// - **772 players** — GoStrength on wire (220 at level 1); OTC animates from this, not `2×go+80`.
+/// - **772 monsters/NPCs** — full `getStepSpeed()` / `getSpeed()` (`gameserver` `AddCreature`), e.g. wolf
+///   GoStrength 42 → wire **164**.
+///
+/// Server walk timers always use [`walk_timing_speed`] (effective speed on 772).
 pub(crate) fn wire_step_speed(
     role: WalkSpeedRole,
     base: &crate::creature::CreatureBase,
     mech: &crate::formulas::Mechanics,
 ) -> u16 {
-    walk_timing_speed(role, base, mech)
-        .max(0)
-        .min(u16::MAX as i32) as u16
+    let wire = match (mech.profile.step_speed, role) {
+        (crate::formulas::StepSpeedModel::CipSoft, WalkSpeedRole::Player) => {
+            go_strength_for_walk(role, base, mech)
+        }
+        (crate::formulas::StepSpeedModel::CipSoft, WalkSpeedRole::MonsterOrNpc) => {
+            walk_timing_speed(role, base, mech)
+        }
+        (crate::formulas::StepSpeedModel::TfsLog, _) => go_strength_for_walk(role, base, mech),
+    };
+    wire.max(0).min(u16::MAX as i32) as u16
 }
 
 fn has_drunk_condition(base: &crate::creature::CreatureBase) -> bool {
@@ -326,7 +340,11 @@ fn get_event_step_ticks(
         return walk_delay;
     }
     let step_duration = get_step_duration(kind, base, ground_speed_next, mech);
-    if only_delay && step_duration > 0 {
+    // TFS `getEventStepTicks(onlyDelay)` returns `1` when `getWalkDelay() <= 0` (`creature.cpp` ~1536–1546).
+    // When `walk_delay < 0` the creature is **overdue** — `on_walk` will step immediately; arming `ticks == 1`
+    // here would run `checkCreatureWalk` again in the same burst (log: `walk_delay:-15`, `ticks:1` ~15 ms after
+    // a 300 ms step). Reserve the 1 ms priming arm for the exact fresh boundary (`walk_delay == 0`).
+    if only_delay && step_duration > 0 && walk_delay == 0 {
         1
     } else {
         step_duration * base.last_step_cost as i64
@@ -1990,7 +2008,12 @@ impl GameWorld {
 
 #[cfg(test)]
 mod step_speed_tests {
-    use super::{calculated_step_speed_tfs, get_step_duration};
+    use std::time::{Duration, Instant};
+
+    use super::{
+        calculated_step_speed_tfs, get_event_step_ticks, get_step_duration, walk_timing_speed,
+        wire_step_speed, WalkSpeedRole,
+    };
     use crate::creature::CreatureKind;
     use crate::formulas::{cipsoft_effective_speed, Mechanics};
     use crate::Monster;
@@ -2004,6 +2027,96 @@ mod step_speed_tests {
         assert_eq!(calculated_step_speed_tfs(220), 278);
         assert_eq!(calculated_step_speed_tfs(400), 464);
         assert_eq!(calculated_step_speed_tfs(1500), 1137);
+    }
+
+    /// 772 player wire uses GoStrength (220 at level 1), not `2*go+80` (520).
+    #[test]
+    fn wire_step_speed_772_player_is_go_strength() {
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 220;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        assert_eq!(
+            wire_step_speed(WalkSpeedRole::Player, &base, &mech),
+            220
+        );
+        assert_eq!(walk_timing_speed(WalkSpeedRole::Player, &base, &mech), 520);
+    }
+
+    /// 772 player GoStrength scales with level (`gameserver/src/player.h` `updateBaseSpeed`).
+    #[test]
+    fn wire_step_speed_772_player_scales_with_level() {
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        for (level, expected_go) in [(1, 220), (2, 222), (8, 228), (50, 270)] {
+            let go = crate::creature::vocation::base_walk_speed(
+                crate::formulas::StepSpeedModel::CipSoft,
+                1,
+                level,
+            );
+            assert_eq!(go, expected_go, "level {level}");
+            let mut base = test_player("Walker", Position::new(100, 100, 7)).base;
+            base.speed = go;
+            base.base_speed = go;
+            assert_eq!(
+                wire_step_speed(WalkSpeedRole::Player, &base, &mech),
+                expected_go as u16,
+                "level {level}"
+            );
+        }
+    }
+
+    /// 772 monster wire matches TVP `getStepSpeed()` — wolf GoStrength 42 → 164 on wire.
+    #[test]
+    fn wire_step_speed_772_monster_is_effective_get_speed() {
+        let mut base = test_player("Wolf", Position::new(100, 100, 7)).base;
+        base.speed = 42;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
+        assert_eq!(
+            wire_step_speed(WalkSpeedRole::MonsterOrNpc, &base, &mech),
+            164
+        );
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+    }
+
+    /// 1098 wire payload is halved in codec; neutral struct holds full GoStrength before `/2`.
+    #[test]
+    fn wire_step_speed_1098_player_is_clamped_go() {
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 220;
+        let mech = Mechanics::for_version(ProtocolVersion::V1098);
+        assert_eq!(
+            wire_step_speed(WalkSpeedRole::Player, &base, &mech),
+            220
+        );
+    }
+
+    /// Overdue `addEventWalk(true)` must not return `ticks == 1` (debug log `walk_delay:-15`).
+    #[test]
+    fn event_step_ticks_overdue_only_delay_uses_full_step_duration() {
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 220;
+        base.last_step = Some(Instant::now() - Duration::from_millis(315));
+        base.last_step_ground_speed = 150;
+        base.last_step_cost = 1;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let kind = CreatureKind::Player(p);
+        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech);
+        assert_eq!(ticks, 300);
+    }
+
+    #[test]
+    fn event_step_ticks_fresh_only_delay_returns_one_ms() {
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 220;
+        base.last_step = None;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let kind = CreatureKind::Player(p);
+        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech);
+        assert_eq!(ticks, 1);
     }
 
     /// 772 wolf GoStrength 42 → `GetSpeed` 164; TVP walk quantizer 50 ms → 950 ms on ground 150.

@@ -118,6 +118,7 @@ fn player_to_add_creature_wire(
     } else {
         health_percent(p.base.health, p.base.max_health)
     };
+    let step_speed = wire_step_speed(WalkSpeedRole::Player, &p.base, mech);
     AddCreatureWire {
         id: p.guid,
         remove_known: 0,
@@ -129,7 +130,7 @@ fn player_to_add_creature_wire(
         outfit: outfit_to_wire(&p.base.outfit),
         light_level: light.level,
         light_color: light.color,
-        step_speed: wire_step_speed(WalkSpeedRole::Player, &p.base, mech),
+        step_speed,
         skull: skull_byte(p.base.skull),
         party_shield: 0,
         guild_emblem: 0,
