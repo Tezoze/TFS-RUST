@@ -107,6 +107,29 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
     }
 }
 
+/// Per-tick DoT damage for an elemental field condition (B4.6), profile-driven.
+///
+/// Maps a fire/energy [`ConditionType`] to its `(damage_per_tick, tick_count)` from the active
+/// [`MechanicsProfile`] (or a Tier-2 `getConditionTick` override). Returns `None` for condition
+/// types without a profiled DoT spec (poison decays differently; haste/paralyze are speed, not DoT).
+/// This is the seam Phase G ticking will call once `ConditionDamage` ticks are implemented.
+///
+/// C++ reference: CipSoft `TSkillBurning::Event` (10/8) / `TSkillEnergy::Event` (25/10)
+/// (`tibia-game-master/src/crskill.cc:1064,1090`); TFS `ConditionDamage` (`condition.cpp:1330`).
+pub fn dot_tick_for_condition(
+    profile: &crate::formulas::MechanicsProfile,
+    hooks: &crate::formulas::FormulaHooks,
+    ctype: ConditionType,
+    round: i32,
+) -> Option<(i32, i32)> {
+    use crate::combat::math::{condition_tick, DotElement};
+    match ctype {
+        ConditionType::Fire => Some(condition_tick(profile, hooks, DotElement::Fire, round)),
+        ConditionType::Energy => Some(condition_tick(profile, hooks, DotElement::Energy, round)),
+        _ => None,
+    }
+}
+
 /// Applying the same merge twice is equivalent to applying it once (for supported variants).
 #[cfg(test)]
 mod tests {
@@ -130,5 +153,23 @@ mod tests {
         let one = v.clone();
         add_condition_merge(&mut v, again);
         assert_eq!(one, v);
+    }
+
+    #[test]
+    fn dot_tick_uses_profile_and_skips_non_dot() {
+        use tfs_rust_common::ProtocolVersion;
+        let m = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        // Fire 10/8, energy 25/10 from the profile.
+        assert_eq!(
+            dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Fire, 0),
+            Some((10, 8))
+        );
+        assert_eq!(
+            dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Energy, 0),
+            Some((25, 10))
+        );
+        // Non-DoT conditions have no profiled tick.
+        assert_eq!(dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Haste, 0), None);
+        assert_eq!(dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Pz, 0), None);
     }
 }

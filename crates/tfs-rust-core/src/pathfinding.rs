@@ -6,6 +6,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use tfs_rust_common::{enums::Direction, Position};
 
+use crate::formulas::PathCostModel;
 use crate::map::Map;
 
 /// TFS `map.h` — `MAP_NORMALWALKCOST`.
@@ -77,17 +78,29 @@ struct AStarNode {
 }
 
 /// TFS `Map::getPathMatching` — creature-aware via `can_walk_to` / `tile_walk_cost` callbacks.
-pub fn get_path_matching<C, T>(
+///
+/// `cost_model` selects the edge-cost function (B2):
+/// - [`PathCostModel::Fixed`] — TFS 1.4.2: 10 normal / 25 diagonal (`map.cpp`). 1098 default, unchanged.
+/// - [`PathCostModel::TerrainWeighted`] — CipSoft 7.72 `TShortway` (`cract.cc:136–155`): step cost is
+///   the **current** tile's terrain waypoints (from `ground_cost`), diagonal = `×3` that tile.
+///
+/// `ground_cost(pos)` returns the tile's terrain waypoint weight (only consulted for
+/// `TerrainWeighted`; `Fixed` ignores it). The algorithm/search box are identical for both models.
+#[allow(clippy::too_many_arguments)]
+pub fn get_path_matching<C, T, G>(
     map: &Map,
     start: Position,
     target: Position,
     fpp: &FindPathParams,
+    cost_model: PathCostModel,
     can_walk_to: C,
     tile_walk_cost: T,
+    ground_cost: G,
 ) -> Option<Vec<Direction>>
 where
     C: Fn(Position) -> bool,
     T: Fn(Position) -> u32,
+    G: Fn(Position) -> u32,
 {
     if start.z != target.z {
         return None;
@@ -169,11 +182,7 @@ where
                 continue;
             }
 
-            let step_cost = if is_diagonal {
-                MAP_DIAGONAL_WALK_COST
-            } else {
-                MAP_NORMAL_WALK_COST
-            };
+            let step_cost = path_step_cost(cost_model, is_diagonal, || ground_cost(current));
             let new_f = base_f
                 .saturating_add(step_cost)
                 .saturating_add(tile_walk_cost(next));
@@ -264,6 +273,31 @@ fn path_in_search_box(start: Position, test: Position, target: Position, fpp: &F
         return false;
     }
     true
+}
+
+/// Per-step edge cost for the A* expansion (B2).
+///
+/// - [`PathCostModel::Fixed`] — TFS 1.4.2 constants 10 / 25 (`map.cpp`), terrain ignored.
+/// - [`PathCostModel::TerrainWeighted`] — CipSoft 7.72 (`cract.cc:136–155` `TShortway::Expand`):
+///   cost = current tile waypoints; a diagonal step costs `×3` (cardinal `+wp`, diagonal `+wp*3`).
+fn path_step_cost(model: PathCostModel, is_diagonal: bool, ground_cost: impl FnOnce() -> u32) -> u32 {
+    match model {
+        PathCostModel::Fixed => {
+            if is_diagonal {
+                MAP_DIAGONAL_WALK_COST
+            } else {
+                MAP_NORMAL_WALK_COST
+            }
+        }
+        PathCostModel::TerrainWeighted => {
+            let wp = ground_cost().max(1);
+            if is_diagonal {
+                wp.saturating_mul(3)
+            } else {
+                wp
+            }
+        }
+    }
 }
 
 fn chebyshev_dist(a: Position, b: Position) -> i32 {
@@ -407,5 +441,25 @@ mod tests {
         assert!(fpp.clear_sight);
         assert_eq!(chebyshev_dist(Position::new(11, 10, 7), Position::new(10, 10, 7)), 1);
         assert_eq!(chebyshev_dist(Position::new(12, 10, 7), Position::new(10, 10, 7)), 2);
+    }
+
+    /// B2 — fixed (1098) edge cost is the unchanged TFS 10/25; terrain (772) weights by tile speed.
+    #[test]
+    fn path_step_cost_fixed_is_tfs_10_25() {
+        assert_eq!(path_step_cost(PathCostModel::Fixed, false, || 9999), MAP_NORMAL_WALK_COST);
+        assert_eq!(path_step_cost(PathCostModel::Fixed, true, || 9999), MAP_DIAGONAL_WALK_COST);
+        assert_eq!(MAP_NORMAL_WALK_COST, 10);
+        assert_eq!(MAP_DIAGONAL_WALK_COST, 25);
+    }
+
+    /// B2 — CipSoft terrain weight: cardinal = tile waypoints, diagonal = ×3 (`cract.cc` `TShortway`).
+    #[test]
+    fn path_step_cost_terrain_weighted_uses_ground_and_diagonal_3x() {
+        // Fast tile (low ground speed value) costs less than a slow tile.
+        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, false, || 100), 100);
+        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, true, || 100), 300);
+        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, false, || 250), 250);
+        // Zero ground never yields a free edge.
+        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, false, || 0), 1);
     }
 }

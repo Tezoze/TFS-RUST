@@ -229,7 +229,9 @@ pub async fn run_game_loop(
                         {
                             Ok(cid) => {
                                 world.conn_to_creature.insert(conn_id, cid);
-                                crate::login_out::enqueue_initial_login_packets(&mut world, conn_id, cid);
+                                crate::login_out::enqueue_initial_login_packets(
+                                    &mut world, conn_id, cid,
+                                );
                                 flush_pending_outgoing(&mut world, &out_registry);
                             }
                             Err(e) => {

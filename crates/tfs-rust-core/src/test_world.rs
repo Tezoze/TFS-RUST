@@ -280,6 +280,7 @@ freePremium = false
             None,
             tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V1098)
                 .expect("1098 codec"),
+            crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V1098),
         )
     }
 

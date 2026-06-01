@@ -9,6 +9,7 @@ mod creature_think;
 mod death;
 mod decay;
 pub mod event_dispatcher;
+pub mod formulas;
 pub mod game_loop;
 pub mod game_world;
 pub mod guild;
@@ -71,6 +72,11 @@ pub use combat::{
 };
 pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
 pub use config::ConfigManager;
+pub use formulas::{
+    load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DistanceKeep, FightModes,
+    FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, PathCostModel, SpawnNearPlayer,
+    SpellCoeff, TickSpec, WeakestTargetMetric,
+};
 pub use creature::{
     CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc, NpcEventsHandler,
     NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,

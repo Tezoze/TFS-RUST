@@ -739,6 +739,15 @@ pub fn send_icons(icons: u16) -> NetworkMessage {
     m
 }
 
+/// 7.72 status icons — `gameserver/src/protocolgame.cpp` `sendIcons` (~L1318): `0xA2` + **`u8`**
+/// (`addByte(static_cast<uint8_t>(icons))`), vs 10.98's `u16`.
+pub fn send_icons_772(icons: u16) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0xA2);
+    m.write_u8(icons as u8);
+    m
+}
+
 /// C++ `ProtocolGame::sendCreatureTurn` (`src/protocolgame.cpp` ~2404).
 #[deprecated(note = "use Codec::encode_creature_turn")]
 pub fn send_creature_turn(

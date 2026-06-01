@@ -24,6 +24,13 @@ use crate::NetworkMessage;
 pub trait ProtocolCodec {
     fn caps(&self) -> ProtocolCaps;
 
+    /// Per-tile `GetTileDescription` prefix. 10.98 writes a `u16` "environmental effects" field
+    /// (`src/protocolgame.cpp`); 7.72 (`gameserver/src/protocolgame.cpp`) writes nothing.
+    fn write_tile_environment_prefix(&self, msg: &mut NetworkMessage);
+
+    /// Byte length of [`Self::write_tile_environment_prefix`] (2 for 1098, 0 for 772).
+    fn tile_environment_prefix_len(&self) -> usize;
+
     /// Mirrors C++ `NetworkMessage::addItem` template field list (parity); higher-level call sites
     /// use the `ItemTemplateArgs` struct form.
     #[allow(clippy::too_many_arguments)]
@@ -133,6 +140,15 @@ pub trait ProtocolCodec {
 impl ProtocolCodec for Codec1098 {
     fn caps(&self) -> ProtocolCaps {
         Codec1098::caps(self)
+    }
+
+    fn write_tile_environment_prefix(&self, msg: &mut NetworkMessage) {
+        // 10.98 `GetTileDescription` — `msg.add<uint16_t>(0x00)` environmental effects.
+        msg.write_u16(0);
+    }
+
+    fn tile_environment_prefix_len(&self) -> usize {
+        2
     }
 
     fn write_item_template(
@@ -307,6 +323,14 @@ impl ProtocolCodec for Codec1098 {
 impl ProtocolCodec for Codec772 {
     fn caps(&self) -> ProtocolCaps {
         Codec772::caps(self)
+    }
+
+    fn write_tile_environment_prefix(&self, _msg: &mut NetworkMessage) {
+        // 7.72 `GetTileDescription` (`gameserver/src/protocolgame.cpp`) has no environmental-effects field.
+    }
+
+    fn tile_environment_prefix_len(&self) -> usize {
+        0
     }
 
     fn write_item_template(
@@ -522,6 +546,10 @@ macro_rules! delegate_codec {
 
 impl Codec {
     delegate_codec! {
+        write_tile_environment_prefix(msg: &mut NetworkMessage) -> ();
+
+        tile_environment_prefix_len() -> usize;
+
         write_item_template(
             msg: &mut NetworkMessage,
             client_id: u16,
@@ -599,6 +627,14 @@ impl Codec {
 impl ProtocolCodec for Codec {
     fn caps(&self) -> ProtocolCaps {
         Codec::caps(self)
+    }
+
+    fn write_tile_environment_prefix(&self, msg: &mut NetworkMessage) {
+        Codec::write_tile_environment_prefix(self, msg);
+    }
+
+    fn tile_environment_prefix_len(&self) -> usize {
+        Codec::tile_environment_prefix_len(self)
     }
 
     fn write_item_template(

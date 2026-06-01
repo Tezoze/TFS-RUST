@@ -30,6 +30,9 @@ pub enum TargetSearchType {
     Nearest,
     AttackRange,
     Random,
+    /// Lowest-health opponent (CipSoft `Strategy` weakest bucket / TFS `<targetstrategy>` health).
+    /// The HP metric (current vs max) is profile-driven (B3.1, `WeakestTargetMetric`).
+    HealthLow,
 }
 
 /// TFS `Position::getDistanceX/Y` — absolute axis delta.
@@ -142,6 +145,40 @@ pub fn compute_look_toward_target(from: Position, target: Position, current: Dir
 }
 
 impl GameWorld {
+    /// B3.2 — effective monster distance-keeping range.
+    ///
+    /// [`DistanceKeep::PerType`] (1098) returns the monster's XML `targetDistance` unchanged;
+    /// [`DistanceKeep::Fixed`] (CipSoft 7.72) overrides every monster to the era constant (4),
+    /// matching `crnonpl.cc:2716` where the keep range is hardcoded rather than per-type.
+    #[inline]
+    pub(crate) fn monster_effective_target_distance(&self, per_type: i32) -> i32 {
+        match self.mechanics.profile.distance_keep {
+            crate::formulas::DistanceKeep::PerType => per_type,
+            crate::formulas::DistanceKeep::Fixed(n) => n,
+        }
+    }
+
+    /// B3.1 — lowest-health opponent from `candidates`, using the profile's [`WeakestTargetMetric`]
+    /// (current HP for CipSoft 7.72, max HP for TFS). Ties keep the first candidate.
+    pub(crate) fn monster_weakest_opponent(&self, candidates: &[CreatureId]) -> Option<CreatureId> {
+        let metric = self.mechanics.profile.weakest_target_metric;
+        let mut best: Option<(CreatureId, i32)> = None;
+        for &oid in candidates {
+            let Some(k) = self.creatures.get(oid) else {
+                continue;
+            };
+            let base = k.base();
+            let hp = match metric {
+                crate::formulas::WeakestTargetMetric::CurrentHp => base.health,
+                crate::formulas::WeakestTargetMetric::MaxHp => base.max_health,
+            };
+            if best.map(|(_, b)| hp < b).unwrap_or(true) {
+                best = Some((oid, hp));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     /// C++ `Monster::onCreatureAppear` self branch — `monster.cpp` ~159–166.
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
         self.monster_update_target_list(cid);
@@ -258,7 +295,7 @@ impl GameWorld {
         };
         let (target_distance, fleeing, is_summon, has_follow_path) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
-                m.target_distance,
+                self.monster_effective_target_distance(m.target_distance),
                 m.is_fleeing(),
                 m.base.is_summon(),
                 m.base.has_follow_path,
@@ -433,6 +470,7 @@ impl GameWorld {
             start,
             target,
             fpp,
+            self.mechanics.profile.path_cost,
             |pos| {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
                     return false;
@@ -451,6 +489,14 @@ impl GameWorld {
                     }
                 }
                 cost
+            },
+            // CipSoft terrain weight: ground "waypoints" (= TFS ground speed; higher = slower tile).
+            |pos| {
+                ctx.world
+                    .map
+                    .get_tile(pos)
+                    .map(|t| ctx.world.tile_ground_speed(t.body()))
+                    .unwrap_or(150)
             },
         )
     }
@@ -479,12 +525,14 @@ impl GameWorld {
     fn collect_spatial_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
         let mut out = Vec::new();
         for z in Self::spectator_z_range(center.z, multifloor) {
+            // Only query floors that already have a spatial index (creatures registered via
+            // `register_creature_index`). `qtree_mut` would `QTreeNode::build(0,0,width,height)` on
+            // first touch — ~seconds on Forgotten-sized maps when multifloor login scans z=0..=9.
+            let Some(q) = self.map.qtrees.get_mut(&z) else {
+                continue;
+            };
             let query_center = Position::new(center.x, center.y, z);
-            out.extend(
-                self.map
-                    .qtree_mut(z)
-                    .get_spectators(query_center, MAP_MAX_VIEWPORT),
-            );
+            out.extend(q.get_spectators(query_center, MAP_MAX_VIEWPORT));
         }
         out.sort_by_key(|id| id.data().as_ffi());
         out.dedup();
@@ -625,7 +673,7 @@ impl GameWorld {
             monster_id,
             follow_id,
             m.is_fleeing(),
-            m.target_distance,
+            self.monster_effective_target_distance(m.target_distance),
             m.base.is_summon(),
             m.base.has_follow_path,
         );
@@ -743,9 +791,10 @@ impl GameWorld {
             self.monster_add_opponent(monster_id, creature_id, push_front);
         }
         self.monster_update_idle_status(monster_id);
-        if self.monster_is_opponent(monster_id, creature_id) {
-            self.monster_try_acquire_chase_target(monster_id, Some(creature_id));
-        }
+        // C++ `Monster::onCreatureFound` stops here (`monster.cpp` ~414) — no `searchTarget` /
+        // `setFollowCreature` on enter. Chase is acquired from `onThink` / move handlers only;
+        // calling `monster_try_acquire_chase_target` here ran A* for every viewport monster on
+        // player login (~4s on Forgotten).
     }
 
     /// Acquire `follow_target` immediately when a player/opponent enters range — do not wait for `onThink`.
@@ -944,6 +993,14 @@ impl GameWorld {
         }
 
         match search_type {
+            TargetSearchType::HealthLow => {
+                // B3.1 — pick the weakest reachable opponent. Metric (current vs max HP) is
+                // profile-driven: CipSoft 7.72 compares **current** HP (`crnonpl.cc` Strategy),
+                // TFS compares **max** HP (`monsters.cpp` `<targetstrategy>`).
+                if let Some(best) = self.monster_weakest_opponent(&result_list) {
+                    return self.monster_select_target(monster_id, best);
+                }
+            }
             TargetSearchType::Nearest => {
                 if !result_list.is_empty() {
                     let mut best = result_list[0];
@@ -1146,7 +1203,7 @@ impl GameWorld {
             Some(CreatureKind::Monster(m)) => (
                 m.change_target_speed,
                 m.change_target_chance,
-                m.target_distance,
+                self.monster_effective_target_distance(m.target_distance),
                 m.base.is_summon(),
                 m.target_change_ticks,
                 m.target_change_cooldown,
@@ -1409,7 +1466,7 @@ impl GameWorld {
                 m.base.position,
                 m.is_fleeing(),
                 m.static_attack_chance,
-                m.target_distance,
+                self.monster_effective_target_distance(m.target_distance),
             ),
             _ => return None,
         };
@@ -2180,5 +2237,52 @@ mod world_tests {
             mpos,
             final_pos
         );
+    }
+
+    // ---- B3 mechanics-profile knobs ----
+
+    /// B3.2 — `DistanceKeep::PerType` (1098) keeps the monster's XML range; `Fixed` (772) overrides.
+    #[test]
+    fn effective_target_distance_follows_profile() {
+        use tfs_rust_common::ProtocolVersion;
+        let mut world = minimal_world();
+
+        // 1098 default: per-type passes through unchanged.
+        assert_eq!(world.monster_effective_target_distance(1), 1);
+        assert_eq!(world.monster_effective_target_distance(7), 7);
+
+        // 772: every monster keeps the hardcoded distance 4 regardless of its XML value.
+        world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        assert_eq!(world.monster_effective_target_distance(1), 4);
+        assert_eq!(world.monster_effective_target_distance(7), 4);
+    }
+
+    /// B3.1 — weakest-target metric: 772 compares current HP, 1098 compares max HP. Construct two
+    /// players where the lowest-current and lowest-max are different creatures.
+    #[test]
+    fn weakest_opponent_metric_follows_profile() {
+        use tfs_rust_common::ProtocolVersion;
+        let mut world = minimal_world();
+
+        // Player A: big max pool, badly wounded (low current).
+        let a = insert_player(&mut world, test_player("Tank", Position::new(100, 100, 7)));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
+            p.base.max_health = 1000;
+            p.base.health = 20;
+        }
+        // Player B: small max pool, full health (low max, higher current than A).
+        let b = insert_player(&mut world, test_player("Squire", Position::new(101, 100, 7)));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(b) {
+            p.base.max_health = 100;
+            p.base.health = 100;
+        }
+        let candidates = [a, b];
+
+        // 1098 (max HP): B is weakest (max 100 < 1000).
+        assert_eq!(world.monster_weakest_opponent(&candidates), Some(b));
+
+        // 772 (current HP): A is weakest (current 20 < 100).
+        world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        assert_eq!(world.monster_weakest_opponent(&candidates), Some(a));
     }
 }

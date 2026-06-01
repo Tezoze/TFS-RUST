@@ -218,8 +218,15 @@ const ITEM_ATTR_CLASSIFICATION: u8 = 0x2E;
 const ROOT_ATTR_VERSION: u8 = 0x01;
 /// `sizeof(VERSIONINFO)` in C++ (`src/itemloader.h`) — `uint32_t`×3 + `uint8_t[128]`.
 const VERSIONINFO_SIZE: usize = 4 + 4 + 4 + 128;
-/// `CLIENT_VERSION_1098` (`src/itemloader.h`).
+/// OTB `majorVersion` (format) + `minorVersion` (client) per era. The OTB file is self-describing and
+/// the Rust binary serves both eras by `clientVersion`, so accept either era's pair (each C++ tree
+/// accepts only its own: 1098 `src/items.cpp` major 3 / `CLIENT_VERSION_1098` 57; 772
+/// `gameserver/src/items.cpp` major 2 / `CLIENT_VERSION_800` 7). Item-node attribute IDs are identical
+/// across both (`itemattrib_t` is the same auto-incremented enum in both `itemloader.h`).
+const OTB_MAJOR_1098: u32 = 3;
 const CLIENT_VERSION_1098: u32 = 57;
+const OTB_MAJOR_772: u32 = 2;
+const CLIENT_VERSION_800: u32 = 7;
 
 fn parse_node(
     data: &[u8],
@@ -322,19 +329,18 @@ fn validate_items_otb_root_version(data: &[u8], path: &Path) -> Result<()> {
         );
         return Ok(());
     }
-    if major != 3 {
+    // Accept either supported era's self-describing version pair (1098 major 3 / minor 57;
+    // 772 major 2 / minor 7). C++ ref: `src/items.cpp` (1098) and `gameserver/src/items.cpp` (772)
+    // `Items::loadFromOtb` version gates.
+    let ok = (major == OTB_MAJOR_1098 && minor >= CLIENT_VERSION_1098)
+        || (major == OTB_MAJOR_772 && minor == CLIENT_VERSION_800);
+    if !ok {
         return Err(TfsRustError::Content {
             file: path.to_string_lossy().into_owned(),
             message: format!(
-                "items.otb: majorVersion must be 3, got {major} (Items::loadFromOtb)"
-            ),
-        });
-    }
-    if minor < CLIENT_VERSION_1098 {
-        return Err(TfsRustError::Content {
-            file: path.to_string_lossy().into_owned(),
-            message: format!(
-                "items.otb: minorVersion must be >= {CLIENT_VERSION_1098} (10.98), got {minor}"
+                "items.otb: unsupported version (major {major}, minor {minor}); \
+                 expected major {OTB_MAJOR_1098}/minor>={CLIENT_VERSION_1098} (10.98) \
+                 or major {OTB_MAJOR_772}/minor {CLIENT_VERSION_800} (7.72) (Items::loadFromOtb)"
             ),
         });
     }

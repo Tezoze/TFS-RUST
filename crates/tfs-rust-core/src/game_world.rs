@@ -82,6 +82,8 @@ pub struct GameWorld {
     pub protocol_hooks: SharedProtocolHooks,
     /// Wire encoder for `clientVersion` (GAME THREAD ONLY — Phase A1 codec seam).
     pub codec: Codec,
+    /// Era-tuned mechanics knobs + Tier-2 Lua formula hooks (GAME THREAD ONLY — Track B §12.11/§12.13).
+    pub mechanics: crate::formulas::Mechanics,
     /// TCP connection → logged-in player (`conn_id` from `tfs-rust-net`).
     pub conn_to_creature: HashMap<ConnId, CreatureId>,
     /// Game-thread only — see [`DeferredTurnBroadcast`].
@@ -225,6 +227,7 @@ impl GameWorld {
         vocations: Arc<VocationDatabase>,
         walk_wake_tx: Option<UnboundedSender<CreatureId>>,
         codec: Codec,
+        mechanics: crate::formulas::Mechanics,
     ) -> Self {
         let monster_world_config = crate::config::MonsterWorldConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
@@ -250,6 +253,7 @@ impl GameWorld {
             pending_outgoing: HashMap::new(),
             protocol_hooks: Arc::new(NullProtocolHooks),
             codec,
+            mechanics,
             conn_to_creature: HashMap::new(),
             deferred_turn_broadcast: HashMap::new(),
             known_creatures_by_conn: HashMap::new(),
@@ -299,6 +303,15 @@ impl GameWorld {
     pub fn alloc_statement_id(&mut self) -> u32 {
         self.next_statement_id = self.next_statement_id.wrapping_add(1);
         self.next_statement_id
+    }
+
+    /// Terrain "waypoint" weight of a tile's ground (= TFS ground speed; higher = slower tile).
+    /// Used by the CipSoft terrain-weighted path cost model (B2) and walk timing.
+    pub(crate) fn tile_ground_speed(&self, body: &crate::tile::TileBody) -> u32 {
+        match body.ground {
+            Some(gid) => self.items_db.ground_speed_for_item(gid),
+            None => 150,
+        }
     }
 
     /// TFS `Game::internalCreatureSay` — one `ProtocolGame::sendCreatureSay` per viewer in range (`game.cpp` ~3723–3758).

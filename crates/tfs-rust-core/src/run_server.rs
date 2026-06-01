@@ -207,6 +207,8 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
     let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
+    let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
+    info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
     let mut world = GameWorld::new(
         map,
         items,
@@ -220,6 +222,7 @@ pub async fn run() -> anyhow::Result<()> {
         vocations,
         Some(walk_wake_tx),
         codec,
+        mechanics,
     );
     world.startup_spawns();
     info!("GameWorld ready (map + spawns + startup creatures)");

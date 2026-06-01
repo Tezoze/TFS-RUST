@@ -23,7 +23,7 @@ use tfs_rust_net::map_description::{
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
 use tfs_rust_net::codec::{ItemTemplateArgs, PlayerSkillsWire};
 use tfs_rust_net::outgoing_extra::{
-    send_enter_world, send_fight_modes, send_icons, send_inventory_slot_empty,
+    send_enter_world, send_fight_modes, send_icons, send_icons_772, send_inventory_slot_empty,
     send_otc_features_raw, send_pending_state_entered, send_unjustified_stats_stub, send_vip_entry,
     send_world_light,
 };
@@ -369,10 +369,173 @@ fn build_initial_map_packet(
     .into_bytes()
 }
 
-/// Enqueue initial packets for a freshly loaded player (`protocolgame.cpp` `sendAddCreature` self path).
+/// Enqueue the initial login burst for a freshly placed player, selecting the version-specific
+/// sequence by the active wire codec. 1098 (`ProtocolGame::login` repo-root `src/protocolgame.cpp`)
+/// sends the OTCv8/10.98 preamble; 772 (`gameserver/src/protocolgame.cpp` `login` + `sendAddCreature`
+/// self branch) sends the lean CipSoft sequence. Mixing them desyncs the client (e.g. 1098's
+/// pending-state `0x0A` collides with 772's self-appear opcode → black screen).
+pub fn enqueue_initial_login_packets(
+    world: &mut GameWorld,
+    conn_id: ConnId,
+    creature_id: CreatureId,
+) {
+    match world.codec {
+        tfs_rust_net::Codec::V772(_) => {
+            enqueue_initial_login_packets_772(world, conn_id, creature_id)
+        }
+        tfs_rust_net::Codec::V1098(_) => {
+            enqueue_initial_login_packets_1098(world, conn_id, creature_id)
+        }
+    }
+}
+
+/// 7.72 login burst — `gameserver/src/protocolgame.cpp` `ProtocolGame::login` (OTCv8 extended-opcode
+/// preamble, OTClient only) + `sendAddCreature` self branch (~L1733):
+/// `[0x32 ext-opcode init if OTClient]` → `0x0A` self-appear → `0x64` map → inventory (`0x78`/`0x79`)
+/// → `0xA0` stats → `0xA1` skills → `0x82` world light → `0x8D` creature light → VIP → `0xA2` icons.
+/// No `0x17`/`0x43`/`0x0F`/pending-state/enter-world/magic-teleport/unjustified/basic-data/fight-modes
+/// (all 10.98-only).
+fn enqueue_initial_login_packets_772(
+    world: &mut GameWorld,
+    conn_id: ConnId,
+    creature_id: CreatureId,
+) {
+    let (pid, pos, skill_levels, equipment_slots, vip_list, with_desc_inv, is_otclient) = {
+        let Some(CreatureKind::Player(p)) = world.creatures.get(creature_id) else {
+            return;
+        };
+        let sk = &p.skills;
+        let lvl = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
+        let skill_levels = [
+            lvl(sk.fist),
+            lvl(sk.club),
+            lvl(sk.sword),
+            lvl(sk.axe),
+            lvl(sk.dist),
+            lvl(sk.shielding),
+            lvl(sk.fishing),
+        ];
+        let is_otclient =
+            p.otclient_v8 != 0 || p.operating_system >= tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
+        (
+            p.guid,
+            p.base.position,
+            skill_levels,
+            p.equipment_slots,
+            p.vip_list.clone(),
+            p.item_with_description(),
+            is_otclient,
+        )
+    };
+
+    // OTCv8 extended-opcode preamble — `gameserver/src/protocolgame.cpp` `login` ~L142: only when the
+    // client is OTClient. Raw `0x32 0x00 0x0000` (extended opcode 0, empty buffer).
+    if is_otclient {
+        world.enqueue_outgoing(conn_id, send_extended_opcode(0, "").into_bytes());
+    }
+
+    // Self-appear (`0x0A` in 772 via the codec) then the full map description (`0x64`).
+    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid));
+
+    let mut known = world
+        .known_creatures_by_conn
+        .remove(&conn_id)
+        .unwrap_or_default();
+    world.reconcile_known_creatures_for_send(conn_id, &mut known);
+    let map_bytes = build_initial_map_packet(world, creature_id, pos, &mut known);
+    let map_0x64_len = map_bytes.len();
+    world.commit_known_creatures_after_send(conn_id, &known);
+    world.enqueue_outgoing(conn_id, map_bytes);
+
+    // Inventory slots 1..=10 (`sendInventoryItem`: `0x78` item / `0x79` empty). 772 has no slot 11 store.
+    for slot in 1u8..=10 {
+        let idx = (slot - 1) as usize;
+        if let Some(item_id) = equipment_slots[idx] {
+            let Some(item) = world.items.get(item_id) else {
+                world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
+                continue;
+            };
+            let sid = item.item_type;
+            let cid = world.items_db.client_id_for_server(sid);
+            if cid == 0 {
+                world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
+                continue;
+            }
+            let cnt = item.client_count().max(1);
+            let stackable = world.items_db.stackable_for_server(sid);
+            let splash = world.items_db.is_splash_or_fluid_for_server(sid);
+            let anim = world.items_db.is_animation_for_server(sid);
+            world.enqueue_encoded(
+                conn_id,
+                world.codec.encode_inventory_item(
+                    slot,
+                    ItemTemplateArgs {
+                        client_id: cid,
+                        count: cnt,
+                        stackable,
+                        is_splash_or_fluid: splash && !stackable,
+                        is_animation: anim,
+                        with_description: with_desc_inv,
+                    },
+                ),
+            );
+        } else {
+            world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
+        }
+    }
+
+    // Stats (`0xA0`) + skills (`0xA1`) via the codec (772 widths).
+    world.send_player_stats(creature_id);
+    world.enqueue_encoded(
+        conn_id,
+        world.codec.encode_player_skills(&PlayerSkillsWire {
+            levels: skill_levels,
+            bases: skill_levels,
+            percents: [0u8; 7],
+            additional_levels: [0u16; 6],
+            additional_bases: [0u16; 6],
+        }),
+    );
+
+    // World light (`0x82`) + this player's creature light (`0x8D`).
+    let wt = crate::world_light::world_time_from_local_clock();
+    let wl = crate::world_light::light_level_from_world_time(wt);
+    world.enqueue_outgoing(conn_id, send_world_light(wl, 215, false).into_bytes());
+    let pl = world.player_creature_light(creature_id);
+    world.enqueue_encoded(
+        conn_id,
+        world.codec.encode_creature_light(pid, pl.level, pl.color, false),
+    );
+
+    // VIP entries, then status icons (`0xA2` + `u8` in 772 — `sendIcons(uint16_t)` truncates to a byte).
+    for e in &vip_list {
+        let online = world.player_by_guid.contains_key(&e.player_id);
+        let status = if online { 1 } else { 0 };
+        world.enqueue_outgoing(
+            conn_id,
+            send_vip_entry(e.player_id, &e.name, &e.description, e.icon, e.notify, status)
+                .into_bytes(),
+        );
+    }
+    world.enqueue_outgoing(conn_id, send_icons_772(0).into_bytes());
+
+    world.auto_open_containers_on_login(conn_id, creature_id);
+
+    if map_0x64_len < 32 {
+        warn!(
+            conn_id = conn_id.0,
+            player_id = pid,
+            ?pos,
+            map_0x64_len,
+            "initial 772 0x64 map packet is very small — possible stub (creature/world not ready)"
+        );
+    }
+}
+
+/// 10.98 / OTCv8 login burst (repo-root `src/protocolgame.cpp` `ProtocolGame::login`).
 /// C++ order: `0x17` → `0x0A` → `0x43` → `0x0F` → map → magic → inventory → stats → unjustified →
 /// basic → skills → world light → creature light → VIP → basic → icons (then fight modes queued here).
-pub fn enqueue_initial_login_packets(
+fn enqueue_initial_login_packets_1098(
     world: &mut GameWorld,
     conn_id: ConnId,
     creature_id: CreatureId,

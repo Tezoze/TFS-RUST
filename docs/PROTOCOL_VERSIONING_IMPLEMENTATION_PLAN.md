@@ -293,7 +293,10 @@ client smoke test pending — needs a real 7.72 client, see A6.2).
 - [x] A6.3 Update `docs/PROJECT_STATUS.md`, `tasks/lessons.md`, `PROTOCOL_VERSIONING_IMPLEMENTATION_PLAN.md`,
       module C++ ref headers (`codec/v772.rs`).
 - [x] A6.4 Flagged content/asset prerequisite (772 `items.otb`/`.spr`/`.dat`/OTBM) as a separate
-      follow-up (design §11) — wire alone won't run a 772 server.
+      follow-up (design §11) — wire alone won't run a 772 server. **Update (June 2026):** the
+      `items.otb` version gate now accepts the 772 pair (OTB major 2 / minor `CLIENT_VERSION_800` 7)
+      as well as 1098 (major 3 / minor ≥ 57) — `crates/tfs-rust-content/src/otb.rs`, lessons #31.
+      Remaining 772 assets (`.spr`/`.dat`/OTBM client ids) still per §11.
 
 **Gate:** ✅ 1098 fully unaffected (goldens unchanged); 772 codec selectable and golden-verified. Live
 772 client render is the remaining manual step (blocked on 772 content).
@@ -309,133 +312,113 @@ never a bare Rust literal.
 
 Verification gate per phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core --all-targets && cargo test -p tfs-rust-core`.
 
-### Phase B0 — `MechanicsProfile` + Lua loader (no behavior change) `[ ]`
+### Phase B0 — `MechanicsProfile` + Lua loader (no behavior change) `[x]`
 
-**Goal:** add the profile value + version-keyed Lua loader; 1098 values match today's constants.
-
-**Files:**
-- `crates/tfs-rust-core/src/formulas.rs` (new) — `MechanicsProfile` struct (mirror of `ProtocolCaps`)
-  with §12.11 knobs: `beat_ms`, path-cost model enum, attack-speed source, armor-reduction mode,
-  fight-mode modifiers, weakest-target metric, distance-keep range, damage-formula selector,
-  condition-tick constants (fire 10/8, energy 25/10, poison decay), spawn-near-player policy, exp
-  attribution window, PvP exp cap, spell coefficients, level-exp polynomial coeffs. Plus
-  `MechanicsProfile::for_version(v)` built-in defaults, and a Tier-2 hook registry
-  (`Option<LuaFn>` per hook, design §12.13 table).
-- `data/formulas/1098.lua` (new) — TFS 1.4.2 defaults (`beatMs=50`, `attackSpeedMs=0`, `armor="full"`, …).
-- `data/formulas/772.lua` (new) — CipSoft defaults (`beatMs=200`, `attackSpeedMs=2000`,
-  `armor="randomized"`, fight modes, condition ticks).
-- `crates/tfs-rust-core/src/config.rs` / `run_server.rs` — load `data/formulas/<clientVersion>.lua` at
-  startup into `MechanicsProfile`; missing file → `for_version` defaults. Thread onto the game thread
-  alongside `Codec` (game-thread-only, `tfs-threading`).
-- `crates/tfs-rust-lua/...` — register (but no-op) the Tier-2 override hooks.
-
-**Tasks:**
-- [ ] B0.1 Define `MechanicsProfile` + enums + `for_version`.
-- [ ] B0.2 Author both `data/formulas/*.lua` (Tier-1 constants + commented Tier-2 examples).
-- [ ] B0.3 Loader (reuse existing Lua runtime; resolve by `clientVersion`; fallback to defaults).
-- [ ] B0.4 Thread profile onto game thread; expose to mechanics modules read-only.
-- [ ] B0.5 Bind Tier-2 hook registry (registered, unregistered = native fast path).
-
-**Tests:** unit-test loaded 1098 profile == today's hardcoded constants; missing-file fallback ==
-`for_version`; 772 file loads the CipSoft knobs.
-
-**Gate:** zero behavior change (1098 profile drives identical outcomes). Mechanics modules still use
-their current literals — B1–B4 migrate them.
+**Done.** `MechanicsProfile` (Copy Tier-1) + `Mechanics { profile, hooks }` + `FormulaHooks` (Tier-2,
+owns its `Lua`) in `crates/tfs-rust-core/src/formulas.rs`; `load_mechanics(data_dir, version)` overlays
+`data/formulas/<v>.lua` onto `MechanicsProfile::for_version` (missing/partial file → era defaults).
+Threaded onto `GameWorld.mechanics` (game thread), wired in `run_server`/`test_world`. Enums:
+`PathCostModel`, `ArmorReduction`, `WeakestTargetMetric`, `DistanceKeep`, `DamageFormula`,
+`LevelExpModel`, `SpawnNearPlayer`, plus `FightModes`/`ConditionTicks`/`SpellCoeff`/`TickSpec`. Tests:
+1098 == defaults, 772 == CipSoft knobs, missing-file fallback, partial overlay, nested condition table,
+Tier-2 used when registered.
 
 ---
 
-### Phase B1 — Movement & scheduling `[ ]`
+### Phase B1 — Movement & scheduling `[x]`
 
-**CipSoft ref:** `cract.cc` `TCreature::Execute`/`CalculateDelay`/`NotifyGo`, `crmain.cc:445` `GetSpeed`.
-**TFS structure:** `creature.cpp:185`. Design §12.1–§12.2.
+**Done.** `walk.rs` step-duration helpers (`get_step_duration`, `get_step_duration_ms_with_direction`,
+`get_walk_delay`, `get_event_step_ticks`) now take `&Mechanics`; the final quantizer uses
+`profile.beat_ms` (50 TFS / 200 CipSoft) instead of a hardcoded `50.0`. TFS speed/log-curve kept; only
+the quantizer is profiled. Tier-2 `getStepDuration(speed, ground, diagonal)` honored before the native
+path. Tests: `beat_quantization_is_profile_driven` (772 = same raw value rounded to 200, `>=` 1098,
+within one beat), `tier2_step_duration_hook_overrides_native`.
 
-**Files:** `crates/tfs-rust-core/src/walk.rs`, `creature_think.rs`.
-
-**Tasks:**
-- [ ] B1.1 Beat quantization (200 vs 50 ms) reads `profile.beat_ms`.
-- [ ] B1.2 Step-delay formula reads profile; keep TFS speed formula (`2*(base+var)+80`), profile only
-      the quantizer (design §12.2: `wp=100,speed=200` → 772 600 ms vs 1098 500 ms).
-- [ ] B1.3 Optional `getStepDuration` / `getCreatureSpeed` Tier-2 hooks honored if registered.
-
-**Tests:** unit-test step-duration under both profiles matches the §12.2 worked example.
+**CipSoft ref:** `cract.cc:1462` `NotifyGo` (`Delay=(wp*1000)/GetSpeed()`, `BeatCount=ceil`), `config.cc`
+`Beat=200`, `crmain.cc:445` `GetSpeed`. **TFS:** `creature.cpp` `getStepDuration` (ceil to 50).
 
 ---
 
-### Phase B2 — Pathfinding `[ ]`
+### Phase B2 — Pathfinding `[x]`
 
-**CipSoft ref:** `cract.cc:7–262` `TShortway` (reverse A*, terrain-weighted `WAYPOINTS`, diagonal 3×).
-**TFS structure:** `map.cpp:689` `getPathMatching`. Design §12.3.
+**Done.** `get_path_matching` gained a `cost_model: PathCostModel` + `ground_cost(pos)` closure.
+`path_step_cost(Fixed, …)` = TFS 10/25 (1098, byte-identical); `path_step_cost(TerrainWeighted, …)` =
+CipSoft current-tile waypoints, diagonal `×3` (`cract.cc:136–155` `TShortway::Expand` — the per-step
+cost is the **current** node's `Waypoints`, not the destination's). Both callers (`monster_ai`,
+`walk`) pass `self.mechanics.profile.path_cost` + a `tile_ground_speed` ground-cost closure. Tests:
+`path_step_cost_fixed_is_tfs_10_25`, `path_step_cost_terrain_weighted_uses_ground_and_diagonal_3x`.
 
-**Files:** `crates/tfs-rust-core/src/pathfinding.rs`.
-
-**Tasks:**
-- [ ] B2.1 Add a path-cost model selector to `get_path_matching` (`profile.path_cost`): 1098 keeps
-      fixed 10/25 (+creature 30, field 180); 772 = terrain-speed-weighted, diagonal 3× tile cost.
-- [ ] B2.2 Keep the algorithm shared; only the edge-cost function diverges.
-
-**Tests:** path over mixed terrain differs between profiles per §12.3; 1098 path unchanged.
+**CipSoft ref:** `cract.cc:7–262` `TShortway`. **TFS:** `map.cpp:689` `getPathMatching`.
 
 ---
 
-### Phase B3 — Monster AI `[ ]`
+### Phase B3 — Monster AI `[~]`
 
-**CipSoft ref:** `crnonpl.cc` `IdleStimulus`/`Strategy[4]`/`IsFleeing`/distance-4/`MonsterhomeInRange`.
-**TFS structure:** `monster.cpp`. Design §12.4–§12.5.
+**Done (profile-gated knobs):** B3.1 weakest-target metric (`monster_weakest_opponent` +
+`TargetSearchType::HealthLow`; current HP 772 / max HP 1098), B3.2 distance-keep
+(`monster_effective_target_distance` applied at all 4 `m.target_distance` extraction sites; fixed 4 for
+772 / per-type for 1098), B3.4 spawn-near-player (`poll_spawn_respawns` stalls on `Block` 1098 / never
+stalls on `RadiusShrink` 772). Tests: `weakest_opponent_metric_follows_profile`,
+`effective_target_distance_follows_profile`.
 
-**Files:** `crates/tfs-rust-core/src/monster_ai.rs`, `monster_distance_step.rs`, `spawn_lifecycle.rs`,
-`spawn.rs`.
+**Deferred (not era-divergent enough to gate now):** B3.3 lose-target roll + Strategy[3]=RANDOM 4th
+bucket — the port's `monster_on_think_target` change-roll already covers the observable behavior; the
+explicit CipSoft 4-bucket roulette is content/AI tuning, not a profile flag. B3.5 NPCs stay Lua-only
+(design §12.6) — no Rust `.ndb` engine; unchanged.
 
-**Tasks:**
-- [ ] B3.1 Weakest-target metric via profile: current HP (772) vs max HP (1098).
-- [ ] B3.2 Distance-keep range via profile: hardcoded 4 (772) vs per-type `target_distance` (1098).
-- [ ] B3.3 Lose-target roll + Strategy[3]=RANDOM 4th bucket per CipSoft.
-- [ ] B3.4 Spawn-near-player policy: radius-shrink (772) vs block (1098); respawn scaling already shared.
-- [ ] B3.5 **NPCs stay Lua-only** for both eras (design §12.6) — no `.ndb` engine in Rust. 772 NPC
-      content (`gameserver/data/npc/behavior/*.ndb` → `data/npc/scripts/*.lua`) is out-of-band content
-      work, NOT a Rust task here.
-
-**Tests:** target selection on wounded creatures differs by metric; distance-step behavior per profile.
+**CipSoft ref:** `crnonpl.cc` `IdleStimulus`/`Strategy`/`IsFleeing`/distance-4/`MonsterhomeInRange`.
 
 ---
 
-### Phase B4 — Combat, skills, conditions, magic `[ ]`
+### Phase B4 — Combat, skills, conditions, magic `[x]`
 
-**CipSoft ref:** `crcombat.cc` (attack 2000 ms +200 lead-in, defense 2000 ms gate, `ProbeValue` damage,
-randomized armor `(A/2)+rand(A/2)`, fight-mode %, 20-slot exp distribution, PvP cap 11/10, 60-round
-window), `crskill.cc` (level-exp polynomial, geometric skill tries, DoT timer-skills fire 10/8 energy
-25/10 poison decay), `magic.cc:776` (spell `2*lvl+3*ml`). **TFS structure:** `weapons.cpp`,
-`creature.cpp:500–533`, `vocation.cpp`, `condition.cpp:1330`, `spells.cpp`. Design §12.7–§12.10.
+**Done (formula engine).** Combat execution (`combat/mod.rs`) and condition ticking (Phase G) are still
+skeleton, so B4 builds the *math* as pure, profile-driven, Tier-2-hookable fns in
+`crates/tfs-rust-core/src/combat/math.rs`, ready to be called when the loops land. Each fn checks its
+Tier-2 hook first (native fast path when unregistered).
 
-**Files:** `crates/tfs-rust-core/src/combat/mod.rs`, `combat/pvp.rs`, `condition.rs`, `spell.rs`,
-skills/exp module (`creature/vocation.rs` + new as needed). Note: combat damage and condition ticks are
-**skeleton/merge-only today** (design §12.7, §12.9) — this phase builds the math on top.
+- B4.1 `attack_speed_ms` (flat 2000 ms 772 vs vocation value 1098) + `defense_gate_ms` + Tier-2 `getAttackSpeed`.
+- B4.2 `probe_value` (`((rand%100+rand%100)/2)*(attack*(skill*5+50))/10000`), `weapon_damage`,
+  `defense_value`, `melee_damage_after_defense_and_armor` (`max(0,Atk−Def)` then armor) + Tier-2
+  `getWeaponDamage`/`getDefense`.
+- B4.3 `armor_reduction` (randomized `(A/2)+rand%(A/2)` 772 / full 1098) + Tier-2 `getArmorReduction`.
+- B4.4 fight-mode multipliers (`apply_attack_mode`/`apply_defense_mode`; CipSoft 1.2/0.6/0.6/1.8, TFS
+  1.2/0.8/0.8/1.2).
+- B4.5 `distribute_experience` (20-slot proportional), `pvp_exp_cap` (11/10), `experience_for_level`
+  (shared polynomial `(((L-6)*L+17)*L-12)/6 * delta`), `req_skill_tries` (geometric) + Tier-2 hooks.
+- B4.6 `condition_tick` + `condition::dot_tick_for_condition` (fire 10/8, energy 25/10 from
+  `profile.conditions`) + Tier-2 `getConditionTick`.
+- B4.7 `spell_damage` + `spell::spell_damage_scaled` (`2*lvl+3*ml` % with `&4`/`&8` clamp flags) +
+  Tier-2 `getSpellDamage`.
 
-**Tasks:**
-- [ ] B4.1 Attack/defense cadence via profile (flat 2000 ms 772 vs `getAttackSpeed` 1098) +
-      `getAttackSpeed` Tier-2 hook.
-- [ ] B4.2 Melee damage `max(0, Attack−Defense)` then armor; `getWeaponDamage` (`ProbeValue`) +
-      `getDefense` hooks; validate vs captured CipSoft values (clean-room).
-- [ ] B4.3 Armor reduction mode via profile (randomized 772 vs full 1098) + `getArmorReduction` hook.
-- [ ] B4.4 Fight-mode modifiers from profile (CipSoft ±20/40/80, balanced 0%; TFS 1.2×).
-- [ ] B4.5 Exp distribution (20-slot proportional, PvP cap, attribution window) + `getExperienceForLevel`
-      polynomial + `getReqSkillTries` geometric hooks.
-- [ ] B4.6 Condition ticks (Phase G dependency): implement DoT ticking using
-      `profile.conditions` (fire 10/8, energy 25/10, poison decay) + `getConditionTick` hook.
-- [ ] B4.7 Spell damage `2*lvl+3*ml` with clamp flags + `getSpellDamage` hook.
+15 golden numeric tests under both profiles validate against the cited CipSoft / TFS values.
 
-**Tests:** golden numeric tests for damage/armor/exp/skill-tries/condition-tick under both profiles,
-validated against captured CipSoft outputs (772) and current TFS values (1098).
+**Key finding:** TFS `getExpForLevel` (`player.h:171`) is the *same* polynomial as CipSoft
+(`crskill.cc:352`) with `Delta=100` — not a separate cubic. Both `LevelExpModel` variants share it;
+only `level_exp_delta` differs.
+
+**CipSoft ref:** `crcombat.cc` (`GetAttackDamage`/`GetDefendDamage`/`GetArmorStrength`/`CloseAttack`),
+`crskill.cc:535` `ProbeValue` / `:352` level exp / `:1064,1090` DoT, `magic.cc:784` `ComputeDamage`.
 
 ---
 
-### Phase B5 — Flip & validate the 772 profile `[ ]`
+### Phase B5 — Flip & validate the 772 profile `[~]`
+
+**Done (load-path validation).** `clientVersion = 772` selects `Codec772` (A6) **and** loads
+`data/formulas/772.lua` into the 772 `MechanicsProfile` (B0 loader). `tests/mechanics_formulas.rs`
+loads the *shipped* `772.lua`/`1098.lua` and asserts they equal the built-in era defaults end-to-end
+(catches drift in the deployed files). Lessons captured (`tasks/lessons.md` #30).
+
+**Remaining (needs a live shard / captured CipSoft values):** numeric validation of step cadence,
+combat damage, and DoT ticks against real CipSoft captures — the formulas match the decompile's
+*written* constants (cited + unit-tested), but end-to-end behavioral validation against a running 772
+client is blocked on 772 content (same gate as A6.2). The combat/condition *execution* loops
+(`combat/mod.rs`, Phase G) must also be built before in-game numbers can be observed.
 
 **Tasks:**
-- [ ] B5.1 `clientVersion = 772` loads `data/formulas/772.lua`; validate step cadence, monster behavior,
-      combat numbers, DoT ticks against CipSoft constants.
-- [ ] B5.2 Capture lessons (`tasks/lessons.md`); document chosen CipSoft↔TFS deviations.
-
-**Gate:** 1098 shard outcomes unchanged; 772 shard matches CipSoft within validated tolerances.
+- [x] B5.1 772 loads `data/formulas/772.lua`; shipped-file == era-defaults integration test.
+- [x] B5.2 Lessons + CipSoft↔TFS deviations documented.
+- [~] B5.3 Live numeric validation vs CipSoft captures — deferred (needs 772 content + combat loop).
 
 ---
 
@@ -444,7 +427,7 @@ validated against captured CipSoft outputs (772) and current TFS values (1098).
 ```
 A0 [x] ─► A1 [x] ─► A2 [x] ─► A3 [x] ─► A4 [x] ─► A5 [x] ─► A6 [x]   (wire: connectable 772, 1098-behaving)
                                    │
-B0 ──► B1 ──► B2 ──► B3 ──► B4 ──► B5                  (mechanics: 772 behavior; B0 needs only A0)
+B0 [x] ─► B1 [x] ─► B2 [x] ─► B3 [~] ─► B4 [x] ─► B5 [~]   (mechanics: 772 profile + formula engine; B0 needs only A0)
 ```
 
 - Track A and Track B are independent after A0. B0–B4 can be built/validated on the 1098 shard before

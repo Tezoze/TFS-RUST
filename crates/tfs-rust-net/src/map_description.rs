@@ -46,7 +46,7 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
     can_see_creature: &mut F,
     _with_description: bool,
 ) {
-    msg.write_u16(0);
+    codec.write_tile_environment_prefix(msg);
 
     let mut count: i32 = if tile.ground.is_some() {
         1
@@ -129,7 +129,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
     known_creatures: &mut HashSet<u32>,
     can_see_creature: &mut F,
 ) -> usize {
-    let mut n = 2; // environmental effects u16
+    let mut n = codec.tile_environment_prefix_len(); // environmental effects (2 for 1098, 0 for 772)
 
     let mut count: i32 = if tile.ground.is_some() {
         1

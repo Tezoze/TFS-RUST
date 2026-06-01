@@ -13,6 +13,62 @@ fn codec_1098() -> Codec {
     Codec::from_version(ProtocolVersion::V1098).expect("1098 codec")
 }
 
+fn codec_772() -> Codec {
+    Codec::from_version(ProtocolVersion::V772).expect("772 codec")
+}
+
+/// A single non-empty tile (ground item only) under each codec. 1098 prefixes every tile with a
+/// `u16` environmental-effects field (`0x00 0x00`); 772 (`gameserver/src`) omits it entirely.
+fn single_ground_tile_map(codec: &Codec, center: Position) -> Vec<u8> {
+    use tfs_rust_net::map_description::ItemStack;
+    let mut known = HashSet::new();
+    let mut get_tile = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
+        if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+            Some(TileContent {
+                ground: Some(ItemStack {
+                    client_id: 0x0673,
+                    count: 1,
+                    stackable: false,
+                    is_splash_or_fluid: false,
+                    is_animation: false,
+                }),
+                ..TileContent::default()
+            })
+        } else {
+            None
+        }
+    };
+    let mut can_see = |_id: u32| true;
+    send_map_description_packet(
+        codec, center, center, &mut get_tile, &mut known, &mut can_see, false,
+    )
+    .into_bytes()
+}
+
+#[test]
+fn tile_environment_prefix_is_1098_only() {
+    // Center the player so the very first described tile (top-left of the viewport at floor 7's
+    // first non-empty scan) is deterministic; we only assert on the env-prefix presence/absence by
+    // length difference for the same content.
+    let center = Position::new(100, 200, 7);
+    let b1098 = single_ground_tile_map(&codec_1098(), center);
+    let b772 = single_ground_tile_map(&codec_772(), center);
+
+    // Both start with the 0x64 map opcode + position (6 bytes).
+    assert_eq!(b1098[0], 0x64);
+    assert_eq!(b772[0], 0x64);
+    assert_eq!(&b1098[1..6], &[100, 0, 200, 0, 7]);
+    assert_eq!(&b772[1..6], &[100, 0, 200, 0, 7]);
+
+    // Same single ground item (client id 0x0673, 2-byte item, no count for non-stackable) on both,
+    // but 1098 carries exactly one extra `0x00 0x00` environmental-effects field for that tile.
+    assert_eq!(
+        b1098.len(),
+        b772.len() + 2,
+        "1098 map must be exactly 2 bytes longer (per-tile env prefix); 772 omits it"
+    );
+}
+
 #[test]
 fn full_map_description_empty_map_terminates_skip() {
     let player = Position::new(100, 200, 7);
