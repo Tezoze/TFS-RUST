@@ -1,35 +1,35 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Cyclops" nameDescription="a cyclops" race="blood" experience="150" speed="190" manacost="490">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Cyclops" nameDescription="a cyclops" race="blood" experience="150" speed="55" manacost="490">
 	<health now="260" max="260" />
-	<look type="22" corpse="5962" />
-	<targetchange interval="4000" chance="10" />
+	<look type="22" head="0" body="0" legs="0" feet="0" corpse="2808" />
+	<targetchange chance="5" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="1" />
 		<flag pushable="0" />
+		<flag convinceable="1" />
 		<flag canpushitems="1" />
 		<flag canpushcreatures="1" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-105" />
+		<attack name="melee" skillfactor="2000" skillnextlevel="100" skilladdcount="1" skill="50" attack="30" />
 	</attacks>
-	<defenses armor="17" defense="17" />
-	<elements>
-		<element energyPercent="25" />
-		<element holyPercent="20" />
-		<element earthPercent="-10" />
-		<element deathPercent="-10" />
-	</elements>
-	<voices interval="5000" chance="10">
+	<defenses armor="17" defense="24">
+	</defenses>
+	<immunities>
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="0" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
+	</immunities>
+	<voices>
 		<voice sentence="Il lorstok human!" />
 		<voice sentence="Toks utat." />
 		<voice sentence="Human, uh whil dyh!" />
@@ -37,18 +37,16 @@
 		<voice sentence="Let da mashing begin!" />
 	</voices>
 	<loot>
-		<item name="gold coin" countmax="47" chance="82000" />
-		<item name="meat" chance="30070" />
-		<item name="short sword" chance="8000" />
-		<item name="cyclops toe" chance="4930" />
-		<item name="plate shield" chance="2500" />
-		<!-- Heavy Old Tome 2.02% -->
-		<item name="battle shield" chance="1400" />
-		<item id="2381" chance="730" /><!-- halberd -->
-		<item name="wolf tooth chain" chance="360" />
-		<item name="dark helmet" chance="230" />
-		<item id="7398" chance="180" /><!-- cyclops trophy -->
-		<item name="club ring" chance="140" />
-		<item name="health potion" chance="50" />
+		<item id="2129" countmax="1" chance="200" /><!-- wolf tooth chain -->
+		<item id="2406" countmax="1" chance="8000" /><!-- short sword -->
+		<item id="2510" countmax="1" chance="2000" /><!-- plate shield -->
+		<item id="2666" countmax="1" chance="50000" /><!-- meat -->
+		<item id="2671" countmax="2" chance="20000" /><!-- ham -->
+		<item id="2381" countmax="1" chance="700" /><!-- halberd -->
+		<item id="2148" countmax="20" chance="40000" /><!-- gold coin -->
+		<item id="2148" countmax="10" chance="70000" /><!-- gold coin -->
+		<item id="2490" countmax="1" chance="200" /><!-- dark helmet -->
+		<item id="2209" countmax="1" chance="100" /><!-- club ring -->
+		<item id="2513" countmax="1" chance="1500" /><!-- battle shield -->
 	</loot>
 </monster>

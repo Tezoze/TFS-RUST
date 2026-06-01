@@ -1,37 +1,35 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Wasp" nameDescription="a wasp" race="venom" experience="24" speed="320" manacost="280">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Wasp" nameDescription="a wasp" race="venom" experience="24" speed="120" manacost="280">
 	<health now="35" max="35" />
-	<look type="44" corpse="5989" />
-	<targetchange interval="4000" chance="10" />
+	<look type="44" head="0" body="0" legs="0" feet="0" corpse="2899" />
+	<targetchange chance="10" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="0" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-20" poison="20" />
+		<attack name="melee" skillfactor="1100" skillnextlevel="100" skilladdcount="1" skill="23" attack="12" poisoncycles="25" />
 	</attacks>
-	<defenses armor="4" defense="4" />
-	<elements>
-		<element firePercent="-10" />
-	</elements>
+	<defenses armor="4" defense="8">
+	</defenses>
 	<immunities>
-		<immunity earth="1" />
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
 	</immunities>
-	<voices interval="5000" chance="10">
-		<voice sentence="Bssssss" />
+	<voices>
+		<voice sentence="Bsssssss" />
 	</voices>
-	<loot>
-		<item name="honeycomb" chance="3000" />
-	</loot>
 </monster>

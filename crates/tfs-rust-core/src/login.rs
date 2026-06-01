@@ -9,6 +9,7 @@ use tfs_rust_common::Position;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
 use crate::creature::vocation::base_walk_speed;
+use crate::formulas::StepSpeedModel;
 use crate::creature::CreatureKind;
 use crate::creature::{
     CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
@@ -41,7 +42,7 @@ fn skull_from_i32(s: i32) -> SkullType {
 }
 
 /// Build runtime `Player` from SQL load result.
-pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
+pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpeedModel) -> Player {
     let persist = PlayerPersistBaseline {
         player_row: data.player.clone(),
         spells: std::mem::take(&mut data.spells),
@@ -63,7 +64,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData) -> Player {
     // C++ `iologindata.cpp` ~275: `player->capacity = result->getNumber("cap") * 100;`
     // TFS stores capacity internally in 1/100 oz; the DB column is in oz.
     let cap = p.cap * 100;
-    let walk_speed = base_walk_speed(p.vocation, p.level);
+    let walk_speed = base_walk_speed(step_speed_model, p.vocation, p.level);
     let outfit = Outfit {
         look_type: p.looktype,
         look_head: p.lookhead,
@@ -210,7 +211,7 @@ pub async fn login_player(
         )
     };
 
-    let mut player = player_from_loaded(loaded);
+    let mut player = player_from_loaded(loaded, world.mechanics.profile.step_speed);
     player.operating_system = operating_system;
     player.otclient_v8 = otclient_v8;
     let cid = world.creatures.insert(CreatureKind::Player(player));

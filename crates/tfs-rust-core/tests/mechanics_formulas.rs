@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 
 use tfs_rust_core::formulas::{
-    load_mechanics, ArmorReduction, DistanceKeep, MechanicsProfile, PathCostModel, SpawnNearPlayer,
-    WeakestTargetMetric,
+    load_mechanics,     ArmorReduction, DistanceKeep, MechanicsProfile, PathCostModel, SpawnNearPlayer,
+    StepSpeedModel, WeakestTargetMetric,
 };
 use tfs_rust_common::ProtocolVersion;
 
@@ -38,6 +38,8 @@ fn shipped_1098_formulas_match_era_defaults() {
     assert_eq!(p.distance_keep, DistanceKeep::PerType);
     assert_eq!(p.spawn_near_player, SpawnNearPlayer::Block);
     assert_eq!(p.attack_speed_ms, 0);
+    assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
+    assert_eq!(p.step_beat_ms, 50);
 }
 
 #[test]
@@ -57,6 +59,8 @@ fn shipped_772_formulas_match_cipsoft_defaults() {
     assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
     assert_eq!(p.distance_keep, DistanceKeep::Fixed(4));
     assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
+    assert_eq!(p.step_speed, StepSpeedModel::CipSoft);
+    assert_eq!(p.step_beat_ms, 50);
     assert_eq!(p.conditions.fire.dmg, 10);
     assert_eq!(p.conditions.fire.ticks, 8);
     assert_eq!(p.conditions.energy.dmg, 25);

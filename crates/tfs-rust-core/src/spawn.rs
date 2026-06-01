@@ -22,6 +22,8 @@ pub struct SpawnSlot {
     pub zone_index: usize,
     pub entry_index: usize,
     pub position: Position,
+    /// C++ spawn block radius (`spawn.cpp` / TVP `TvpSpawn`); `-1` → search distance 1.
+    pub radius: i32,
     pub spawntime_ms: u64,
     pub direction: Option<u16>,
     pub entry: SpawnEntryKind,
@@ -132,6 +134,7 @@ impl SpawnManager {
                     zone_index,
                     entry_index,
                     position,
+                    radius: zone.radius,
                     spawntime_ms: spawntime_ms.max(1000),
                     direction,
                     entry: kind,

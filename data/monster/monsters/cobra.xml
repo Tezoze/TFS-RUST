@@ -1,42 +1,38 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Cobra" namedescription="a cobra" race="blood" experience="30" speed="120" manacost="275">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Cobra" nameDescription="a cobra" race="blood" experience="30" speed="20" manacost="275">
 	<health now="65" max="65" />
-	<look type="81" corpse="3007" />
-	<targetchange interval="4000" chance="10" />
+	<look type="81" head="0" body="0" legs="0" feet="0" corpse="3007" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="0" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="0" poison="100" />
-		<attack name="poisoncondition" interval="2000" chance="15" range="7" min="-20" max="-40">
+		<attack name="melee" skillfactor="1500" skillnextlevel="100" skilladdcount="1" skill="23" attack="15" poisoncycles="100" />
+		<attack name="poisoncondition" delay="4" cycle="20" mincycle="6" range="5">
 			<attribute key="shooteffect" value="poison" />
 		</attack>
 	</attacks>
-	<defenses armor="1" defense="1" />
-	<elements>
-		<element firePercent="-10" />
-	</elements>
+	<defenses armor="1" defense="6">
+	</defenses>
 	<immunities>
-		<immunity drunk="1" />
-		<immunity earth="1" />
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
 	</immunities>
-	<voices interval="5000" chance="10">
+	<voices>
 		<voice sentence="Zzzzzz" />
-		<voice sentence="Fsssss" />
 	</voices>
-	<loot>
-		<item name="cobra tongue" chance="5000" />
-	</loot>
 </monster>

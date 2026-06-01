@@ -1,85 +1,80 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Omruc" nameDescription="Omruc" race="undead" experience="2950" speed="370">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Omruc" race="undead" experience="2950" speed="115" manacost="0">
 	<health now="4300" max="4300" />
-	<look type="90" corpse="6025" />
-	<targetchange interval="5000" chance="8" />
+	<look type="90" head="0" body="0" legs="0" feet="0" corpse="3016" />
+	<targetchange chance="7" />
 	<flags>
-		<flag summonable="0" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="0" />
 		<flag illusionable="0" />
-		<flag convinceable="0" />
 		<flag pushable="0" />
+		<flag convinceable="0" />
 		<flag canpushitems="1" />
 		<flag canpushcreatures="1" />
 		<flag targetdistance="4" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-120" poison="65" />
-		<attack name="lifedrain" interval="5000" chance="20" range="1" min="-100" max="-250" />
-		<attack name="earth" interval="2000" chance="20" min="-200" max="-500">
-			<attribute key="shootEffect" value="poisonarrow" />
+		<attack name="melee" skillfactor="1500" skillnextlevel="100" skilladdcount="1" skill="75" attack="65" poisoncycles="65" />
+		<attack name="speed" delay="4" duration="50000" speed="-100" speedvariation="10" range="7">
+			<attribute key="areaeffect" value="redshimmer" />
 		</attack>
-		<attack name="fire" interval="1000" chance="20" range="3" min="-120" max="-450">
-			<attribute key="shootEffect" value="burstarrow" />
-			<attribute key="areaEffect" value="explosionarea" />
+		<attack name="physical" delay="5" min="-200" max="-400" range="7">
+			<attribute key="shooteffect" value="arrow" />
+			<attribute key="areaeffect" value="explosion" />
 		</attack>
-		<attack name="melee" interval="3000" chance="20" min="-150" max="-500">
-			<attribute key="shootEffect" value="arrow" />
+		<attack name="fire" delay="8" min="-50" max="-450" range="7">
+			<attribute key="shooteffect" value="burstarrow" />
+			<attribute key="areaeffect" value="explosion" />
 		</attack>
-		<attack name="speed" interval="1000" chance="25" range="7" speedchange="-900" duration="50000">
-			<attribute key="areaEffect" value="redshimmer" />
+		<attack name="poison" delay="5" min="-200" max="-500" range="7">
+			<attribute key="shooteffect" value="poisonarrow" />
+			<attribute key="areaeffect" value="greenbubble" />
 		</attack>
+		<attack name="lifedrain" delay="20" min="-50" max="-350" range="1" />
 	</attacks>
-	<defenses armor="60" defense="60">
-		<defense name="healing" interval="1000" chance="17" min="100" max="200">
-			<attribute key="areaEffect" value="blueshimmer" />
+	<defenses armor="60" defense="65">
+		<defense name="invisible" delay="3" duration="20000">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</defense>
-		<defense name="invisible" interval="2000" chance="14" duration="8000">
-			<attribute key="areaEffect" value="blueshimmer" />
+		<defense name="healing" delay="6" min="100" max="200">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</defense>
 	</defenses>
-	<elements>
-		<element energyPercent="5" />
-		<element icePercent="5" />
-		<element firePercent="20" />
-		<element earthPercent="20" />
-		<element holyPercent="-10" />
-	</elements>
 	<immunities>
-		<immunity death="1" />
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="1" />
+		<immunity lifedrain="1" />
 		<immunity paralyze="1" />
 		<immunity invisible="1" />
 	</immunities>
 	<summons maxSummons="4">
-		<summon name="Stalker" interval="2000" chance="100" />
+		<summon name="Stalker" max="4" delay="7" />
 	</summons>
-	<voices interval="5000" chance="10">
+	<voices>
+		<voice sentence="Psssst, I am over chhhere." />
 		<voice sentence="Now chhhou shhhee me ... Now chhhou don't." />
 		<voice sentence="Chhhhou are marked ashhh my prey." />
-		<voice sentence="Psssst, I am over chhhere." />
 		<voice sentence="Catchhhh me if chhhou can." />
+		<voice sentence="Bullshhheye." />
 		<voice sentence="Die!" />
 	</voices>
 	<loot>
-		<item name="crystal arrow" chance="100000" />
-		<item name="gold coin" countmax="100" chance="43000" />
-		<item name="gold coin" countmax="60" chance="43000" />
-		<item name="red apple" countmax="2" chance="76000" />
-		<item name="poison arrow" countmax="20" chance="56000" />
-		<item name="burst arrow" countmax="15" chance="47000" />
-		<item name="onyx arrow" countmax="6" chance="32000" />
-		<item name="arrow" countmax="25" chance="23000" />
-		<item name="power bolt" countmax="5" chance="16000" />
-		<item name="great health potion" chance="11000" />
-		<item name="small diamond" countmax="3" chance="10000" />
-		<item name="mini mummy" chance="2250" />
-		<item name="stealth ring" chance="2250" />
-		<item name="boots of haste" chance="1100" />
+		<item id="2154" countmax="1" chance="1000" /><!-- yellow gem -->
+		<item id="2165" countmax="1" chance="5000" /><!-- stealth ring -->
+		<item id="2145" countmax="3" chance="10000" /><!-- small diamond -->
+		<item id="2674" countmax="2" chance="80000" /><!-- red apple -->
+		<item id="2547" countmax="5" chance="10000" /><!-- power bolt -->
+		<item id="2545" countmax="20" chance="60000" /><!-- poison arrow -->
+		<item id="2148" countmax="95" chance="35000" /><!-- gold coin -->
+		<item id="2148" countmax="85" chance="50000" /><!-- gold coin -->
+		<item id="2148" countmax="80" chance="70000" /><!-- gold coin -->
+		<item id="2352" countmax="1" chance="100000" /><!-- crystal arrow -->
+		<item id="2546" countmax="15" chance="40000" /><!-- burst arrow -->
+		<item id="2195" countmax="1" chance="100" /><!-- boots of haste -->
+		<item id="2544" countmax="25" chance="20000" /><!-- arrow -->
 	</loot>
 </monster>

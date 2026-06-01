@@ -1,122 +1,129 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Morgaroth" nameDescription="Morgaroth" race="fire" experience="15000" speed="400">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Morgaroth" race="fire" experience="15000" speed="185" manacost="0">
 	<health now="55000" max="55000" />
-	<look type="12" head="1" body="75" legs="59" feet="1" corpse="6068" />
-	<targetchange interval="10000" chance="20" />
+	<look type="35" head="0" body="0" legs="0" feet="0" corpse="2916" />
+	<targetchange chance="10" />
 	<flags>
-		<flag summonable="0" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="0" />
 		<flag illusionable="0" />
-		<flag convinceable="0" />
 		<flag pushable="0" />
+		<flag convinceable="0" />
 		<flag canpushitems="1" />
 		<flag canpushcreatures="1" />
-		<flag staticattack="98" />
 		<flag targetdistance="1" />
-		<flag runonhealth="0" />
-		<flag isboss="1" />
+		<flag runonhealth="2500" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-2000" />
-		<attack name="fire" interval="3000" chance="35" range="7" radius="7" target="1" min="-700" max="-1200">
-			<attribute key="shootEffect" value="fire" />
-			<attribute key="areaEffect" value="firearea" />
+		<attack name="melee" skillfactor="1000" skillnextlevel="50" skilladdcount="5" skill="200" attack="200" />
+		<attack name="lifedrain" delay="7" min="-500" max="-850" length="8" spread="0">
+			<attribute key="areaeffect" value="redshimmer" />
 		</attack>
-		<attack name="melee" interval="1800" chance="40" range="7" radius="5" target="0" min="-250" max="-400">
-			<attribute key="areaEffect" value="blackspark" />
+		<attack name="fire" delay="3" min="-100" max="-900" range="7" radius="7" target="1">
+			<attribute key="shooteffect" value="fire" />
+			<attribute key="areaeffect" value="firearea" />
 		</attack>
-		<attack name="energy" interval="3000" chance="30" length="8" spread="0" min="-300" max="-1000">
-			<attribute key="areaEffect" value="energy" />
+		<attack name="speed" delay="8" duration="30000" speed="-90" speedvariation="10" radius="8" target="0">
+			<attribute key="areaeffect" value="rednote" />
 		</attack>
-		<attack name="physical" interval="2500" chance="20" range="7" radius="5" target="0" min="-200" max="-480">
-			<attribute key="areaEffect" value="greenshimmer" />
+		<attack name="manadrain" delay="10" min="-400" max="-700" radius="8" target="0">
+			<attribute key="areaeffect" value="greenshimmer" />
 		</attack>
-		<attack name="physical" interval="2000" chance="15" range="7" radius="13" target="0" min="-250" max="-500">
-			<attribute key="areaEffect" value="rednote" />
+		<attack name="lifedrain" delay="8" min="-400" max="-700" radius="8" target="0">
+			<attribute key="areaeffect" value="bluebubble" />
 		</attack>
-		<attack name="physical" interval="2000" chance="20" radius="14" target="0" min="-200" max="-450">
-			<attribute key="areaEffect" value="bluebubble" />
-		</attack>
-		<attack name="melee" interval="3000" chance="15" range="7" radius="3" target="0" min="-100" max="-200">
-			<attribute key="areaEffect" value="blueshimmer" />
+		<attack name="manadrain" delay="16" min="-100" max="-1000" range="7">
+			<attribute key="shooteffect" value="energy" />
+			<attribute key="areaeffect" value="poff" />
 		</attack>
 	</attacks>
-	<defenses armor="55" defense="65">
-		<defense name="healing" interval="3000" chance="35" min="300" max="800">
-			<attribute key="areaEffect" value="blueshimmer" />
+	<defenses armor="130" defense="130">
+		<defense name="speed" delay="18" duration="7000" speed="95" speedvariation="5">
+			<attribute key="areaeffect" value="redshimmer" />
 		</defense>
-		<defense name="speed" interval="4000" chance="80" speedchange="440" duration="6000">
-			<attribute key="areaEffect" value="redshimmer" />
+		<defense name="healing" delay="4" min="800" max="1200">
+			<attribute key="areaeffect" value="blueshimmer" />
+		</defense>
+		<defense name="healing" delay="7" min="3000" max="6000">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</defense>
 	</defenses>
-	<elements>
-		<element energyPercent="1" />
-		<element deathPercent="80" />
-		<element physicalPercent="1" />
-		<element icePercent="-5" />
-	</elements>
 	<immunities>
 		<immunity fire="1" />
-		<immunity earth="1" />
+		<immunity energy="1" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="1" />
+		<immunity lifedrain="1" />
 		<immunity paralyze="1" />
 		<immunity invisible="1" />
 	</immunities>
 	<summons maxSummons="6">
-		<summon name="Demon" interval="4000" chance="33" />
+		<summon name="Demon" max="6" delay="8" />
 	</summons>
-	<voices interval="5000" chance="30">
-		<voice sentence="I AM MORGAROTH, LORD OF THE TRIANGLE... AND YOU ARE LOST!" yell="1" />
+	<voices>
+		<voice sentence="I AM MORGAROTH, LORD OF THE TRIANGLE ... AND YOU ARE LOST!" yell="1" />
+		<voice sentence="THE TRIANGLE OF TERROR WILL RISE!" yell="1" />
 		<voice sentence="MY SEED IS FEAR AND MY HARVEST ARE YOUR SOULS!" yell="1" />
 		<voice sentence="ZATHROTH! LOOK AT THE DESTRUCTION I AM CAUSING IN YOUR NAME!" yell="1" />
-		<voice sentence="THE TRIANGLE OF TERROR WILL RISE!" yell="1" />
 	</voices>
 	<loot>
-		<item name="red tome" chance="20000" />
-		<item name="golden mug" chance="16666" />
-		<item name="teddy bear" chance="11111" />
-		<item id="2124" chance="5882" /><!-- crystal ring -->
-		<item name="white pearl" countmax="13" chance="11111" />
-		<item name="black pearl" countmax="15" chance="16666" />
-		<item name="small sapphire" countmax="8" chance="25000" />
-		<item name="small emerald" countmax="6" chance="20000" />
-		<item name="small amethyst" countmax="18" chance="33333" />
-		<item name="talon" countmax="7" chance="16666" />
-		<item name="platinum coin" countmax="74" chance="50000" />
-		<item name="green gem" chance="33333" />
-		<item name="blue gem" chance="11111" />
-		<item name="might ring" chance="20000" />
-		<item name="stealth ring" chance="11111" />
-		<item name="energy ring" chance="5882" />
-		<item name="strange symbol" chance="11111" />
-		<item name="life crystal" chance="11111" />
-		<item name="life crystal" chance="11111" />
-		<item name="mind stone" chance="16666" />
-		<item name="gold ring" chance="5882" />
-		<item name="ring of healing" chance="25000" />
-		<item name="double axe" chance="16666" />
-		<item name="giant sword" chance="11111" />
-		<item name="golden legs" chance="11111" />
-		<item name="magic plate armor" chance="20000" />
-		<item name="steel boots" chance="11111" />
-		<item name="Morgaroth's heart" chance="16666" />
-		<item name="demon horn" countmax="2" chance="20000" />
-		<item id="6300" chance="16666" /><!-- death ring -->
-		<item name="demonic essence" chance="50000" />
-		<item name="assassin star" countmax="28" chance="16666" />
-		<item name="demonbone" chance="16666" />
-		<item name="scrying crystal ball" chance="11111" />
-		<item name="great mana potion" chance="50000" />
-		<item name="great health potion" chance="5882" />
-		<item name="great spirit potion" chance="5882" />
-		<item name="ultimate health potion" chance="20000" />
-		<item name="chain bolter" chance="20000" />
-		<item name="royal crossbow" chance="11111" />
-		<item name="the devileye" chance="33333" />
-		<item name="the ironworker" chance="25000" />
-		<item name="dark lord's cape" chance="20000" />
-		<item name="dragon robe" chance="5882" />
-		<item name="fireborn giant armor" chance="16666" />
-		<item name="obsidian truncheon" chance="16666" />
+		<item id="2143" countmax="15" chance="12500" /><!-- white pearl -->
+		<item id="2185" countmax="1" chance="3500" /><!-- volcanic rod -->
+		<item id="3955" countmax="1" chance="100" /><!-- voodoo doll -->
+		<item id="2377" countmax="1" chance="20000" /><!-- two handed sword -->
+		<item id="2421" countmax="1" chance="13500" /><!-- thunder hammer -->
+		<item id="2112" countmax="1" chance="14500" /><!-- teddy bear -->
+		<item id="2151" countmax="7" chance="14000" /><!-- talon -->
+		<item id="2174" countmax="1" chance="2500" /><!-- strange symbol -->
+		<item id="2197" countmax="1" chance="4000" /><!-- stone skin amulet -->
+		<item id="2165" countmax="1" chance="9500" /><!-- stealth ring -->
+		<item id="2146" countmax="10" chance="13500" /><!-- small sapphire -->
+		<item id="2149" countmax="10" chance="15500" /><!-- small emerald -->
+		<item id="2145" countmax="5" chance="9500" /><!-- small diamond -->
+		<item id="2150" countmax="20" chance="13500" /><!-- small amethyst -->
+		<item id="2436" countmax="1" chance="5000" /><!-- skull staff -->
+		<item id="2402" countmax="1" chance="15500" /><!-- silver dagger -->
+		<item id="2170" countmax="1" chance="13000" /><!-- silver amulet -->
+		<item id="2123" countmax="1" chance="3500" /><!-- ring of the sky -->
+		<item id="2214" countmax="1" chance="13000" /><!-- ring of healing -->
+		<item id="1982" countmax="1" chance="2600" /><!-- purple tome -->
+		<item id="2200" countmax="1" chance="4500" /><!-- protection amulet -->
+		<item id="2171" countmax="1" chance="4500" /><!-- platinum amulet -->
+		<item id="2176" countmax="1" chance="12000" /><!-- orb -->
+		<item id="2178" countmax="1" chance="4000" /><!-- mind stone -->
+		<item id="2164" countmax="1" chance="5000" /><!-- might ring -->
+		<item id="2514" countmax="1" chance="7500" /><!-- mastermind shield -->
+		<item id="2472" countmax="1" chance="3000" /><!-- magic plate armor -->
+		<item id="2162" countmax="1" chance="11500" /><!-- magic light wand -->
+		<item id="2177" countmax="1" chance="1000" /><!-- life crystal -->
+		<item id="2396" countmax="1" chance="7500" /><!-- ice rapier -->
+		<item id="2188" countmax="1" chance="2500" /><!-- wand of plague -->
+		<item id="2155" countmax="1" chance="1500" /><!-- green gem -->
+		<item id="2182" countmax="1" chance="3500" /><!-- snakebite rod -->
+		<item id="2418" countmax="1" chance="4500" /><!-- golden sickle -->
+		<item id="2033" countmax="1" chance="7500" /><!-- golden mug -->
+		<item id="2470" countmax="1" chance="5000" /><!-- golden legs -->
+		<item id="2179" countmax="1" chance="8000" /><!-- gold ring -->
+		<item id="2148" countmax="100" chance="66600" /><!-- gold coin -->
+		<item id="2148" countmax="100" chance="77700" /><!-- gold coin -->
+		<item id="2148" countmax="100" chance="88800" /><!-- gold coin -->
+		<item id="2148" countmax="100" chance="99900" /><!-- gold coin -->
+		<item id="2393" countmax="1" chance="12500" /><!-- giant sword -->
+		<item id="2432" countmax="1" chance="17000" /><!-- fire axe -->
+		<item id="2167" countmax="1" chance="13500" /><!-- energy ring -->
+		<item id="2434" countmax="1" chance="4500" /><!-- dragon hammer -->
+		<item id="2387" countmax="1" chance="20000" /><!-- double axe -->
+		<item id="2462" countmax="1" chance="11000" /><!-- devil helmet -->
+		<item id="2520" countmax="1" chance="15500" /><!-- demon shield -->
+		<item id="2124" countmax="1" chance="5500" /><!-- crystal ring -->
+		<item id="2125" countmax="1" chance="1500" /><!-- crystal necklace -->
+		<item id="2192" countmax="1" chance="2500" /><!-- crystal ball -->
+		<item id="2186" countmax="1" chance="3500" /><!-- moonlight rod -->
+		<item id="2195" countmax="1" chance="4000" /><!-- boots of haste -->
+		<item id="2158" countmax="1" chance="1500" /><!-- blue gem -->
+		<item id="2144" countmax="15" chance="15000" /><!-- black pearl -->
+		<item id="2231" countmax="1" chance="9000" /><!-- big bone -->
+		<item id="2142" countmax="1" chance="3500" /><!-- ancient amulet -->
 	</loot>
 </monster>

@@ -1,91 +1,79 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Marid" nameDescription="a marid" race="blood" experience="410" speed="234">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Marid" nameDescription="a marid" race="blood" experience="300" speed="77" manacost="0">
 	<health now="550" max="550" />
-	<look type="104" corpse="6033" />
-	<targetchange interval="4000" chance="10" />
+	<look type="104" head="0" body="0" legs="0" feet="0" corpse="3040" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="0" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="0" />
 		<flag illusionable="0" />
-		<flag convinceable="0" />
 		<flag pushable="0" />
+		<flag convinceable="0" />
 		<flag canpushitems="1" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-90" />
-		<attack name="energy" interval="2000" chance="10" range="7" min="-100" max="-250">
-			<attribute key="shootEffect" value="energyball" />
+		<attack name="melee" skillfactor="2000" skillnextlevel="100" skilladdcount="1" skill="55" attack="35" />
+		<attack name="energycondition" delay="6" cycle="80" mincycle="20" radius="3" target="0">
+			<attribute key="areaeffect" value="energy" />
 		</attack>
-		<attack name="lifedrain" interval="2000" chance="15" range="7" min="-30" max="-90">
-			<attribute key="areaEffect" value="redshimmer" />
+		<attack name="outfit" monster="Rabbit" delay="6" duration="20000" range="7">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</attack>
-		<attack name="speed" interval="2000" chance="15" range="7" speedchange="-650" duration="1500">
-			<attribute key="areaEffect" value="redshimmer" />
+		<attack name="drunk" duration="60000" drunkness="120" delay="5" range="7">
+			<attribute key="shooteffect" value="energy" />
+			<attribute key="areaeffect" value="teleport" />
 		</attack>
-		<attack name="drunk" interval="2000" chance="10" range="7" duration="6000">
-			<attribute key="shootEffect" value="energy" />
+		<attack name="speed" delay="8" duration="15000" speed="-75" speedvariation="25" range="7">
+			<attribute key="areaeffect" value="redshimmer" />
 		</attack>
-		<attack name="outfit" interval="2000" chance="1" range="7" monster="rabbit" duration="4000">
-			<attribute key="areaEffect" value="blueshimmer" />
+		<attack name="lifedrain" delay="5" min="-60" max="-120" range="7">
+			<attribute key="shooteffect" value="death" />
 		</attack>
-		<attack name="djinn electrify" interval="2000" range="5" chance="15" />
-		<attack name="energy" interval="2000" chance="15" radius="3" target="0" min="-30" max="-90">
-			<attribute key="areaEffect" value="energy" />
+		<attack name="energy" delay="4" min="-65" max="-115" range="7">
+			<attribute key="shooteffect" value="energy" />
+		</attack>
+		<attack name="fire" delay="2" min="-40" max="-110" range="7">
+			<attribute key="shooteffect" value="fire" />
 		</attack>
 	</attacks>
-	<defenses armor="24" defense="24">
-		<defense name="healing" interval="2000" chance="15" min="50" max="80">
-			<attribute key="areaEffect" value="blueshimmer" />
+	<defenses armor="24" defense="35">
+		<defense name="healing" delay="7" min="50" max="80">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</defense>
 	</defenses>
-	<elements>
-		<element firePercent="90" />
-		<element earthPercent="10" />
-		<element energyPercent="60" />
-		<element holyPercent="10" />
-		<element icePercent="-5" />
-		<element deathPercent="-8" />
-	</elements>
 	<immunities>
+		<immunity fire="1" />
+		<immunity energy="1" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="1" />
+		<immunity lifedrain="1" />
 		<immunity paralyze="1" />
 		<immunity invisible="1" />
 	</immunities>
 	<summons maxSummons="2">
-		<summon name="blue djinn" interval="2000" chance="10" />
+		<summon name="Blue Djinn" max="2" delay="7" />
 	</summons>
-	<voices interval="5000" chance="10">
+	<voices>
 		<voice sentence="Simsalabim" />
 		<voice sentence="Feel the power of my magic, tiny mortal!" />
+		<voice sentence="Be careful what you wish for." />
 		<voice sentence="Wishes can come true." />
-		<voice sentence="Djinns will soon again be the greatest!" />
-		<voice sentence="Be careful what you wish." />
 	</voices>
 	<loot>
-		<item name="gold coin" countmax="100" chance="49000" />
-		<item name="gold coin" countmax="29" chance="49000" />
-		<item name="blueberry" countmax="25" chance="25000" />
-		<item name="royal spear" countmax="3" chance="15500" />
-		<item name="strong mana potion" chance="9800" />
-		<item name="jewelled belt" chance="8000" />
-		<item name="small sapphire" chance="6200" />
-		<item name="heavy machete" chance="4700" />
-		<item name="blue piece of cloth" chance="3750" />
-		<item id="1872" chance="2560" /><!-- blue tapestry -->
-		<item name="seeds" chance="2400" />
-		<item name="hailstorm rod" chance="770" />
-		<item name="noble turban" chance="530" />
-		<item name="mystic turban" chance="290" />
-		<item name="magma monocle" chance="260" />
-		<item id="2374" chance="260" /><!-- wooden flute -->
-		<item name="small oil lamp" chance="130" />
-		<item name="blue gem" chance="80" />
+		<item id="2070" countmax="1" chance="300" /><!-- wooden flute -->
+		<item id="2183" countmax="1" chance="500" /><!-- tempest rod -->
+		<item id="2146" countmax="2" chance="7000" /><!-- small sapphire -->
+		<item id="2063" countmax="1" chance="20000" /><!-- small oil lamp -->
+		<item id="2663" countmax="1" chance="200" /><!-- mystic turban -->
+		<item id="2442" countmax="1" chance="20000" /><!-- heavy machete -->
+		<item id="2148" countmax="80" chance="50000" /><!-- gold coin -->
+		<item id="2148" countmax="50" chance="70000" /><!-- gold coin -->
+		<item id="2677" countmax="25" chance="25000" /><!-- blueberry -->
+		<item id="1872" countmax="1" chance="2500" /><!-- blue tapestry -->
+		<item id="2158" countmax="1" chance="100" /><!-- blue gem -->
 	</loot>
 </monster>

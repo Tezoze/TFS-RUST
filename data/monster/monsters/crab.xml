@@ -1,39 +1,36 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Crab" namedescription="a crab" race="blood" experience="30" speed="144" manacost="305">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Crab" nameDescription="a crab" race="blood" experience="30" speed="60" manacost="305">
 	<health now="55" max="55" />
-	<look type="112" corpse="6039" />
-	<targetchange interval="4000" chance="0" />
+	<look type="112" head="0" body="0" legs="0" feet="0" corpse="4253" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="1" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-20" />
+		<attack name="melee" skillfactor="1500" skillnextlevel="100" skilladdcount="1" skill="25" attack="15" />
 	</attacks>
-	<defenses armor="8" defense="8" />
-	<elements>
-		<element icePercent="20" />
-		<element firePercent="-10" />
-		<element energyPercent="-10" />
-	</elements>
+	<defenses armor="28" defense="30">
+	</defenses>
 	<immunities>
-		<immunity earth="1" />
-		<immunity drown="1" />
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
 	</immunities>
 	<loot>
-		<item name="gold coin" countmax="10" chance="80000" />
-		<item name="crab pincers" chance="20000" />
-		<item id="2667" chance="20000" /><!-- fish -->
+		<item id="2148" countmax="10" chance="80000" /><!-- gold coin -->
+		<item id="2667" countmax="1" chance="20000" /><!-- fish -->
 	</loot>
 </monster>

@@ -1,76 +1,75 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Thalas" nameDescription="Thalas" race="undead" experience="2950" speed="320">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Thalas" race="undead" experience="2950" speed="90" manacost="0">
 	<health now="4100" max="4100" />
-	<look type="90" corpse="6025" />
-	<targetchange interval="5000" chance="8" />
+	<look type="89" head="0" body="0" legs="0" feet="0" corpse="3016" />
+	<targetchange chance="3" />
 	<flags>
-		<flag summonable="0" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="0" />
 		<flag illusionable="0" />
-		<flag convinceable="0" />
 		<flag pushable="0" />
+		<flag convinceable="0" />
 		<flag canpushitems="1" />
 		<flag canpushcreatures="1" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-900" />
-		<attack name="earth" interval="2000" chance="25" range="7" min="-150" max="-650">
-			<attribute key="shootEffect" value="poison" />
-			<attribute key="areaEffect" value="poison" />
+		<attack name="melee" skillfactor="1500" skillnextlevel="100" skilladdcount="1" skill="110" attack="65" poisoncycles="700" />
+		<attack name="poison" delay="6" min="-250" max="-550" length="8" spread="3">
+			<attribute key="areaeffect" value="poison" />
 		</attack>
-		<attack name="melee" interval="3000" chance="20" range="7" radius="1" target="1" min="-150" max="-650">
-			<attribute key="shootEffect" value="poison" />
-			<attribute key="areaEffect" value="poison" />
+		<attack name="speed" delay="7" duration="12000" speed="-80" speedvariation="20" radius="5" target="0">
+			<attribute key="areaeffect" value="poison" />
 		</attack>
-		<attack name="speed" interval="1000" chance="6" range="7" speedchange="-800" duration="20000">
-			<attribute key="areaEffect" value="redshimmer" />
+		<attack name="poisoncondition" delay="7" cycle="550" mincycle="150" radius="5" target="0">
+			<attribute key="areaeffect" value="poison" />
 		</attack>
-		<attack name="poisoncondition" interval="1000" chance="15" radius="5" target="0" min="-34" max="-35">
-			<attribute key="areaEffect" value="poison" />
+		<attack name="speed" delay="17" duration="50000" speed="-100" speedvariation="10" range="7">
+			<attribute key="areaeffect" value="redshimmer" />
 		</attack>
-		<attack name="earth" interval="3000" chance="17" length="8" spread="3" min="-55" max="-550">
-			<attribute key="areaEffect" value="poison" />
+		<attack name="poison" delay="4" min="-300" max="-650" range="7">
+			<attribute key="shooteffect" value="poison" />
+			<attribute key="areaeffect" value="poison" />
 		</attack>
+		<attack name="lifedrain" delay="16" min="-400" max="-900" range="1" />
 	</attacks>
-	<defenses armor="40" defense="40">
-		<defense name="healing" interval="1000" chance="20" min="150" max="450">
-			<attribute key="areaEffect" value="blueshimmer" />
+	<defenses armor="40" defense="60">
+		<defense name="healing" delay="5" min="150" max="450">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</defense>
 	</defenses>
-	<elements>
-		<element holyPercent="-20" />
-		<element firePercent="-10" />
-		<element icePercent="-10" />
-		<element energyPercent="20" />
-	</elements>
 	<immunities>
-		<immunity death="1" />
-		<immunity earth="1" />
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="1" />
+		<immunity lifedrain="1" />
+		<immunity paralyze="1" />
 		<immunity invisible="1" />
 	</immunities>
 	<summons maxSummons="8">
-		<summon name="Slime" interval="2000" chance="100" />
+		<summon name="Slime" max="8" delay="12" />
 	</summons>
-	<voices interval="5000" chance="10">
-		<voice sentence="You will become a feast for my maggots!" />
+	<voices>
+		<voice sentence="You will become a feast for my maggots." />
+		<voice sentence="Death and decay!" />
+		<voice sentence="Death awaits you." />
+		<voice sentence="Your precious life will be wasted." />
+		<voice sentence="Green is my favourite color." />
+		<voice sentence="Flesssh to dussst!" />
 	</voices>
 	<loot>
-		<item name="cobrafang dagger" chance="100000" />
-		<item name="gold coin" countmax="100" chance="30000" />
-		<item name="gold coin" countmax="100" chance="30000" />
-		<item name="gold coin" countmax="38" chance="30000" />
-		<item name="poison dagger" chance="21000" />
-		<item name="small emerald" countmax="3" chance="9000" />
-		<item name="great health potion" chance="8200" />
-		<item id="2169" chance="5200" /><!-- time ring -->
-		<item name="serpent sword" chance="2700" />
-		<item name="djinn blade" chance="1000" />
-		<item name="green gem" chance="100" />
+		<item id="2169" countmax="1" chance="5000" /><!-- time ring -->
+		<item id="2149" countmax="3" chance="10000" /><!-- small emerald -->
+		<item id="2409" countmax="1" chance="2000" /><!-- serpent sword -->
+		<item id="2411" countmax="1" chance="20000" /><!-- poison dagger -->
+		<item id="2155" countmax="1" chance="1000" /><!-- green gem -->
+		<item id="2148" countmax="95" chance="35000" /><!-- gold coin -->
+		<item id="2148" countmax="85" chance="50000" /><!-- gold coin -->
+		<item id="2148" countmax="80" chance="70000" /><!-- gold coin -->
+		<item id="2451" countmax="1" chance="1500" /><!-- djinn blade -->
+		<item id="2351" countmax="1" chance="100000" /><!-- cobrafang dagger -->
 	</loot>
 </monster>

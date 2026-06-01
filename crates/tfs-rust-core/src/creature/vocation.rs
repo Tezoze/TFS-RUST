@@ -1,5 +1,5 @@
 //! Level and vocation stat progression (TFS `Player::getReqExperience`, vocation gains).
-// C++ reference: `player.cpp`, `vocation.cpp`.
+// C++ reference: `player.cpp`, `vocation.cpp`; 772 base speed — `gameserver/src/player.h` `updateBaseSpeed`.
 
 /// Total experience required to **reach** `level` (level >= 2). Matches common TFS polynomial.
 // C++ reference: `Player::getExpForLevel` / level progression tables.
@@ -33,15 +33,43 @@ pub fn per_level_gains(vocation_id: i32) -> (i32, i32, i32) {
     }
 }
 
-/// TFS `Player::getBaseSpeed`: `vocation->getBaseSpeed() + 2 * (level - 1)` capped (`player.cpp`, `vocations.xml`).
-/// Stub vocation bases until `vocations.xml` is loaded at runtime.
-pub fn base_walk_speed(vocation_id: i32, level: i32) -> i32 {
-    let voc_base = match vocation_id {
-        3 | 7 => 200, // knight
-        _ => 220,     // sorcerer / druid / paladin / monk / default
-    };
-    let raw = voc_base + 2 * (level.max(1) - 1);
-    raw.clamp(10, 1500)
+use crate::formulas::StepSpeedModel;
+
+/// Vocation `basespeed` from `data/XML/vocations.xml` (all 220 in shipped 772 pack).
+fn vocation_base_speed(vocation_id: i32) -> i32 {
+    let _ = vocation_id;
+    220
+}
+
+/// Stored `Creature::baseSpeed` (GoStrength) before `GetSpeed = 2*base+80`.
+///
+/// - **1098** — TFS `vocation->getBaseSpeed() + 2*(level-1)` (`src/player.h` `updateBaseSpeed`).
+/// - **772** — TVP `vocation->getBaseSpeed() + (level > 1 ? level : 0)` (`gameserver/src/player.h`).
+pub fn base_walk_speed(model: StepSpeedModel, vocation_id: i32, level: i32) -> i32 {
+    let voc_base = vocation_base_speed(vocation_id);
+    let l = level.max(1);
+    match model {
+        StepSpeedModel::CipSoft => voc_base + if l > 1 { l } else { 0 },
+        StepSpeedModel::TfsLog => (voc_base + 2 * (l - 1)).clamp(10, 1500),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::formulas::StepSpeedModel;
+
+    #[test]
+    fn base_walk_speed_matches_gameserver_player_update() {
+        // voc 220, level 8 → base 228, GetSpeed 536
+        assert_eq!(base_walk_speed(StepSpeedModel::CipSoft, 1, 8), 228);
+        assert_eq!(
+            crate::formulas::cipsoft_effective_speed(base_walk_speed(StepSpeedModel::CipSoft, 1, 8)),
+            536
+        );
+        // TFS 1098: 220 + 2*7 = 234
+        assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, 1, 8), 234);
+    }
 }
 
 /// Recompute max health / mana / cap for current level (called on level-up).

@@ -1,82 +1,72 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Banshee" nameDescription="a banshee" race="undead" experience="900" speed="220">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Banshee" nameDescription="a banshee" race="undead" experience="900" speed="70" manacost="0">
 	<health now="1000" max="1000" />
-	<look type="78" corpse="6019" />
-	<targetchange interval="4000" chance="10" />
+	<look type="78" head="0" body="0" legs="0" feet="0" corpse="2998" />
+	<targetchange chance="3" />
 	<flags>
-		<flag summonable="0" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="0" />
 		<flag illusionable="0" />
-		<flag convinceable="0" />
 		<flag pushable="0" />
+		<flag convinceable="0" />
 		<flag canpushitems="1" />
 		<flag canpushcreatures="1" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
-		<flag runonhealth="599" />
-		<flag canwalkonenergy="0" />
+		<flag runonhealth="500" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-100" poison="3" />
-		<attack name="lifedrain" interval="2000" chance="15" radius="4" target="0" min="-100" max="-200">
-			<attribute key="areaEffect" value="rednote" />
+		<attack name="melee" skillfactor="1500" skillnextlevel="100" skilladdcount="1" skill="45" attack="30" poisoncycles="65" />
+		<attack name="lifedrain" delay="3" min="-120" max="-200" radius="4" target="0">
+			<attribute key="areaeffect" value="rednote" />
 		</attack>
-		<attack name="death" interval="2000" chance="5" range="1" target="1" radius="1" min="-55" max="-350">
-			<attribute key="areaEffect" value="smallclouds" />
+		<attack name="speed" delay="10" duration="20000" speed="-90" speedvariation="30" range="7">
+			<attribute key="areaeffect" value="redshimmer" />
 		</attack>
-		<attack name="speed" interval="2000" chance="10" range="7" speedchange="-300" duration="15000">
-			<attribute key="areaEffect" value="redshimmer" />
-		</attack>
+		<attack name="lifedrain" delay="30" min="-50" max="-350" range="1" />
 	</attacks>
-	<defenses armor="25" defense="25">
-		<defense name="healing" interval="2000" chance="15" min="120" max="190">
-			<attribute key="areaEffect" value="blueshimmer" />
+	<defenses armor="25" defense="65">
+		<defense name="healing" delay="4" min="113" max="187">
+			<attribute key="areaeffect" value="blueshimmer" />
 		</defense>
 	</defenses>
-	<elements>
-		<element holyPercent="-25" />
-	</elements>
 	<immunities>
-		<immunity death="1" />
 		<immunity fire="1" />
-		<immunity earth="1" />
-		<immunity drown="1" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="1" />
 		<immunity lifedrain="1" />
 		<immunity paralyze="1" />
 		<immunity invisible="1" />
 	</immunities>
-	<voices interval="5000" chance="10">
-		<voice sentence="Dance for me your dance of death!" />
+	<voices>
+		<voice sentence="Are you ready to rock?" />
+		<voice sentence="That's what I call easy listening!" />
 		<voice sentence="Let the music play!" />
 		<voice sentence="I will mourn your death!" />
-		<voice sentence="Are you ready to rock?" />
+		<voice sentence="IIIIEEEeeeeeehhhHHHHH!" yell="1" />
+		<voice sentence="Dance for me your dance of death!" />
 		<voice sentence="Feel my gentle kiss of death." />
-		<voice sentence="That's what I call easy listening!" />
-		<voice sentence="IIIIEEEeeeeeehhhHHHH!" yell="1" />
 	</voices>
 	<loot>
-		<item name="candlestick" chance="70000" />
-		<item name="gold coin" countmax="80" chance="30000" />
-		<item name="silver amulet" chance="9400" />
-		<item name="simple dress" chance="6300" />
-		<item name="hair of a banshee" chance="5000" />
-		<item name="petrified scream" chance="4250" />
-		<item name="black pearl" chance="2130" />
-		<item name="silver brooch" chance="1550" />
-		<item name="poison dagger" chance="1550" />
-		<item name="white pearl" chance="1110" />
-		<item id="2372" chance="970" /><!-- lyre -->
-		<item name="stone skin amulet" chance="820" />
-		<item name="strong mana potion" chance="770" />
-		<item name="ring of healing" chance="750" />
-		<item name="blue robe" chance="700" />
-		<item name="wedding ring" chance="560" />
-		<item id="2175" chance="520" /><!-- spellbook -->
-		<item name="terra mantle" chance="340" />
-		<item id="2124" chance="180" /><!-- crystal ring -->
-		<item name="red robe" chance="150" />
-		<item name="life crystal" chance="100" />
-		<item name="sweet smelling bait" chance="40" />
+		<item id="2143" countmax="1" chance="1000" /><!-- white pearl -->
+		<item id="2121" countmax="1" chance="500" /><!-- wedding ring -->
+		<item id="2197" countmax="1" chance="800" /><!-- stone skin amulet -->
+		<item id="2175" countmax="1" chance="500" /><!-- spellbook -->
+		<item id="2657" countmax="1" chance="60000" /><!-- simple dress -->
+		<item id="2134" countmax="1" chance="1500" /><!-- silver brooch -->
+		<item id="2170" countmax="1" chance="9000" /><!-- silver amulet -->
+		<item id="2214" countmax="1" chance="800" /><!-- ring of healing -->
+		<item id="2655" countmax="1" chance="100" /><!-- red robe -->
+		<item id="2411" countmax="1" chance="1500" /><!-- poison dagger -->
+		<item id="2560" countmax="1" chance="7000" /><!-- mirror -->
+		<item id="2071" countmax="1" chance="1000" /><!-- lyre -->
+		<item id="2177" countmax="1" chance="100" /><!-- life crystal -->
+		<item id="2148" countmax="80" chance="30000" /><!-- gold coin -->
+		<item id="2237" countmax="1" chance="19900" /><!-- dirty cape -->
+		<item id="2124" countmax="1" chance="100" /><!-- crystal ring -->
+		<item id="2047" countmax="1" chance="70000" /><!-- candlestick -->
+		<item id="2656" countmax="1" chance="600" /><!-- blue robe -->
+		<item id="2144" countmax="1" chance="2000" /><!-- black pearl -->
 	</loot>
 </monster>

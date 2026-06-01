@@ -13,6 +13,7 @@ use tfs_rust_common::Position;
 use crate::creature::CreatureKind;
 use crate::creature::LightInfo;
 use crate::game_world::GameWorld;
+use crate::walk::{wire_step_speed, WalkSpeedRole};
 use crate::ids::CreatureId;
 use crate::{Monster, Npc, Outfit, Player};
 
@@ -64,9 +65,6 @@ fn health_percent(cur: i32, max_hp: i32) -> u8 {
     ((cur.max(0) as u64 * 100) / max_hp as u64).min(100) as u8
 }
 
-fn step_speed(base_speed: i32) -> u16 {
-    base_speed.max(0).min(u16::MAX as i32) as u16
-}
 
 /// Non-player creatures: use slot key index (low 32 bits of `KeyData::as_ffi`) as protocol id until a global id allocator exists.
 fn non_player_wire_id(cid: CreatureId) -> u32 {
@@ -100,10 +98,10 @@ pub(crate) fn build_add_creature_wire(
                     _ => None,
                 })
                 .unwrap_or(false);
-            player_to_add_creature_wire(p, is_self, light, viewer_access)
+            player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics)
         }
-        Some(CreatureKind::Monster(m)) => monster_to_add_creature_wire(cid, m),
-        Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(cid, n),
+        Some(CreatureKind::Monster(m)) => monster_to_add_creature_wire(cid, m, &world.mechanics),
+        Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(cid, n, &world.mechanics),
         None => AddCreatureWire::default(),
     }
 }
@@ -113,6 +111,7 @@ fn player_to_add_creature_wire(
     is_self: bool,
     light: LightInfo,
     viewer_is_access: bool,
+    mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
     let hp = if !is_self && p.health_hidden {
         0
@@ -130,7 +129,7 @@ fn player_to_add_creature_wire(
         outfit: outfit_to_wire(&p.base.outfit),
         light_level: light.level,
         light_color: light.color,
-        step_speed: step_speed(p.base.speed),
+        step_speed: wire_step_speed(WalkSpeedRole::Player, &p.base, mech),
         skull: skull_byte(p.base.skull),
         party_shield: 0,
         guild_emblem: 0,
@@ -141,7 +140,11 @@ fn player_to_add_creature_wire(
     }
 }
 
-fn monster_to_add_creature_wire(cid: CreatureId, m: &Monster) -> AddCreatureWire {
+fn monster_to_add_creature_wire(
+    cid: CreatureId,
+    m: &Monster,
+    mech: &crate::formulas::Mechanics,
+) -> AddCreatureWire {
     AddCreatureWire {
         id: non_player_wire_id(cid),
         remove_known: 0,
@@ -153,7 +156,7 @@ fn monster_to_add_creature_wire(cid: CreatureId, m: &Monster) -> AddCreatureWire
         outfit: outfit_to_wire(&m.base.outfit),
         light_level: 0,
         light_color: 0,
-        step_speed: step_speed(m.base.speed),
+        step_speed: wire_step_speed(WalkSpeedRole::MonsterOrNpc, &m.base, mech),
         skull: skull_byte(m.base.skull),
         party_shield: 0,
         guild_emblem: 0,
@@ -164,7 +167,11 @@ fn monster_to_add_creature_wire(cid: CreatureId, m: &Monster) -> AddCreatureWire
     }
 }
 
-fn npc_to_add_creature_wire(cid: CreatureId, n: &Npc) -> AddCreatureWire {
+fn npc_to_add_creature_wire(
+    cid: CreatureId,
+    n: &Npc,
+    mech: &crate::formulas::Mechanics,
+) -> AddCreatureWire {
     AddCreatureWire {
         id: non_player_wire_id(cid),
         remove_known: 0,
@@ -176,7 +183,7 @@ fn npc_to_add_creature_wire(cid: CreatureId, n: &Npc) -> AddCreatureWire {
         outfit: outfit_to_wire(&n.base.outfit),
         light_level: 0,
         light_color: 0,
-        step_speed: step_speed(n.base.speed),
+        step_speed: wire_step_speed(WalkSpeedRole::MonsterOrNpc, &n.base, mech),
         skull: skull_byte(n.base.skull),
         party_shield: 0,
         guild_emblem: 0,
@@ -207,7 +214,8 @@ pub(crate) fn map_tile_content(
     };
     let viewer_access = world.player_is_access_player(self_cid);
     let self_light = world.player_creature_light(self_cid);
-    let self_wire = player_to_add_creature_wire(self_player, true, self_light, viewer_access);
+    let self_wire =
+        player_to_add_creature_wire(self_player, true, self_light, viewer_access, &world.mechanics);
     let self_guid = self_player.guid;
 
     let px = player_pos.x as i32;
@@ -288,10 +296,18 @@ pub(crate) fn map_tile_content(
                 let w = match k {
                     CreatureKind::Player(p) => {
                         let light = world.player_creature_light(ocid);
-                        player_to_add_creature_wire(p, p.guid == self_guid, light, viewer_access)
+                        player_to_add_creature_wire(
+                            p,
+                            p.guid == self_guid,
+                            light,
+                            viewer_access,
+                            &world.mechanics,
+                        )
                     }
-                    CreatureKind::Monster(m) => monster_to_add_creature_wire(ocid, m),
-                    CreatureKind::Npc(n) => npc_to_add_creature_wire(ocid, n),
+                    CreatureKind::Monster(m) => {
+                        monster_to_add_creature_wire(ocid, m, &world.mechanics)
+                    }
+                    CreatureKind::Npc(n) => npc_to_add_creature_wire(ocid, n, &world.mechanics),
                 };
                 content.creatures.push(w);
             }
@@ -738,17 +754,19 @@ fn enqueue_initial_login_packets_1098(
 mod map_creature_wire_tests {
     use super::*;
     use crate::creature::LightInfo;
+    use crate::formulas::Mechanics;
     use crate::test_world::support::test_player;
-    use tfs_rust_common::Position;
+    use tfs_rust_common::{Position, ProtocolVersion};
 
     #[test]
     fn self_map_wire_uses_creature_light_not_is_self_access() {
         let p = test_player("Test", Position::new(100, 100, 7));
+        let mech = Mechanics::for_version(ProtocolVersion::V1098);
         let light = LightInfo {
             level: 7,
             color: 215,
         };
-        let wire = player_to_add_creature_wire(&p, true, light, false);
+        let wire = player_to_add_creature_wire(&p, true, light, false, &mech);
         assert!(!wire.access_player);
         assert_eq!(wire.light_level, 7);
         assert_eq!(wire.light_color, 215);
@@ -757,7 +775,8 @@ mod map_creature_wire_tests {
     #[test]
     fn gm_viewer_uses_access_player_wire_flag() {
         let p = test_player("GM", Position::new(100, 100, 7));
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true);
+        let mech = Mechanics::for_version(ProtocolVersion::V1098);
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true, &mech);
         assert!(wire.access_player);
     }
 }

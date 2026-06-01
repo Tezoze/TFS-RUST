@@ -1,38 +1,36 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Larva" nameDescription="a larva" race="venom" experience="44" speed="124" manacost="355">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Larva" nameDescription="a larva" race="venom" experience="44" speed="22" manacost="355">
 	<health now="70" max="70" />
-	<look type="82" corpse="6023" />
-	<targetchange interval="5000" chance="0" />
+	<look type="82" head="0" body="0" legs="0" feet="0" corpse="3010" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="0" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="0" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-35" poison="15" />
+		<attack name="melee" skillfactor="1500" skillnextlevel="100" skilladdcount="1" skill="30" attack="20" poisoncycles="15" />
 	</attacks>
-	<defenses armor="5" defense="5" />
-	<elements>
-		<element energyPercent="10" />
-		<element firePercent="-10" />
-		<element icePercent="-5" />
-	</elements>
+	<defenses armor="5" defense="11">
+	</defenses>
 	<immunities>
-		<immunity earth="1" />
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="1" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
 		<immunity paralyze="1" />
+		<immunity invisible="0" />
 	</immunities>
 	<loot>
-		<item name="gold coin" countmax="15" chance="65000" />
-		<item name="meat" chance="15000" />
+		<item id="2666" countmax="1" chance="30000" /><!-- meat -->
+		<item id="2148" countmax="10" chance="35000" /><!-- gold coin -->
 	</loot>
 </monster>

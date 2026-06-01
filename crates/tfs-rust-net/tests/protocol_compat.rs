@@ -215,7 +215,7 @@ fn encode_add_tile_item_matches_deprecated_helper() {
         is_animation: false,
         with_description: false,
     };
-    let via_codec = codec().encode_add_tile_item(pos, 2, args).into_bytes();
+    let via_codec = codec().encode_add_tile_item(pos, 2, args, false).into_bytes();
     let via_legacy =
         Codec1098.encode_add_tile_item(pos, 2, args).into_bytes();
     assert_eq!(via_codec, via_legacy);
@@ -595,8 +595,27 @@ mod v772 {
             is_animation: false,
             with_description: false,
         };
-        let b = codec().encode_add_tile_item(pos, 2, args).into_bytes();
+        let b = codec().encode_add_tile_item(pos, 2, args, false).into_bytes();
         assert_eq!(b, vec![0x6A, 0x02, 0x01, 0x04, 0x03, 0x05, 0x34, 0x12, 3]);
+    }
+
+    /// `sendAddTileItem` (`0x6A`): OTClient on 7.72 adds `stackpos` after position.
+    #[test]
+    fn add_tile_item_772_otclient_stackpos() {
+        let pos = Position::new(0x0102, 0x0304, 5);
+        let args = ItemTemplateArgs {
+            client_id: 0x1234,
+            count: 3,
+            stackable: true,
+            is_splash_or_fluid: false,
+            is_animation: false,
+            with_description: false,
+        };
+        let b = codec().encode_add_tile_item(pos, 2, args, true).into_bytes();
+        assert_eq!(
+            b,
+            vec![0x6A, 0x02, 0x01, 0x04, 0x03, 0x05, 0x02, 0x34, 0x12, 3]
+        );
     }
 
     /// `sendUpdateTileItem` (`0x6B`): position + `u8` stackpos + item.

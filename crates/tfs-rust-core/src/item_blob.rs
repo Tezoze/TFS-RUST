@@ -233,7 +233,12 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
         w.write_u8(item.client_count());
     }
 
-    let charges = item.attributes.get_charges();
+    let attrs = match item.attributes.as_deref() {
+        Some(a) => a,
+        None => return w.finish(),
+    };
+
+    let charges = attrs.get_charges();
     if charges != 0 {
         w.write_u8(AttrType::Charges as u8);
         w.write_u16(charges);
@@ -241,127 +246,127 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
 
     let moveable = it.is_none_or(|t| t.moveable());
     if moveable {
-        let action_id = item.attributes.get_action_id();
+        let action_id = attrs.get_action_id();
         if action_id != 0 {
             w.write_u8(AttrType::ActionId as u8);
             w.write_u16(action_id);
         }
     }
-    if item.attributes.has_unique_id() {
-        let uid = item.attributes.get_unique_id();
+    if attrs.has_unique_id() {
+        let uid = attrs.get_unique_id();
         if uid != 0 {
             w.write_u8(AttrType::UniqueId as u8);
             w.write_u16(uid);
         }
     }
 
-    if item.attributes.has_depot_id() {
+    if attrs.has_depot_id() {
         w.write_u8(AttrType::DepotId as u8);
-        w.write_u16(item.attributes.get_depot_id());
+        w.write_u16(attrs.get_depot_id());
     }
 
-    let text = item.attributes.get_text();
+    let text = attrs.get_text();
     if !text.is_empty() {
         w.write_u8(AttrType::Text as u8);
         w.write_string(text);
     }
 
-    let date = item.attributes.get_date();
+    let date = attrs.get_date();
     if date != 0 {
         w.write_u8(AttrType::WrittenDate as u8);
         w.write_u32(date as u32);
     }
 
-    let writer = item.attributes.get_writer();
+    let writer = attrs.get_writer();
     if !writer.is_empty() {
         w.write_u8(AttrType::WrittenBy as u8);
         w.write_string(writer);
     }
 
-    let desc = item.attributes.get_description();
+    let desc = attrs.get_description();
     if !desc.is_empty() {
         w.write_u8(AttrType::Description as u8);
         w.write_string(desc);
     }
 
-    if item.attributes.has_duration() {
+    if attrs.has_duration() {
         w.write_u8(AttrType::Duration as u8);
-        w.write_i32(item.attributes.get_duration_raw());
+        w.write_i32(attrs.get_duration_raw());
     }
 
-    let decay = item.attributes.get_decaying();
+    let decay = attrs.get_decaying();
     if decay == DecayState::True || decay == DecayState::Pending {
         w.write_u8(AttrType::DecayingState as u8);
         w.write_u8(decay as u8);
     }
 
-    if let Some(s) = item.attributes.get_name_str() {
+    if let Some(s) = attrs.get_name_str() {
         w.write_u8(AttrType::Name as u8);
         w.write_string(s);
     }
-    if let Some(s) = item.attributes.get_article_str() {
+    if let Some(s) = attrs.get_article_str() {
         w.write_u8(AttrType::Article as u8);
         w.write_string(s);
     }
-    if let Some(s) = item.attributes.get_plural_name_str() {
+    if let Some(s) = attrs.get_plural_name_str() {
         w.write_u8(AttrType::PluralName as u8);
         w.write_string(s);
     }
-    if let Some(weight) = item.attributes.weight_serial() {
+    if let Some(weight) = attrs.weight_serial() {
         w.write_u8(AttrType::Weight as u8);
         w.write_u32(weight);
     }
-    if let Some(atk) = item.attributes.get_attack() {
+    if let Some(atk) = attrs.get_attack() {
         w.write_u8(AttrType::Attack as u8);
         w.write_i32(atk);
     }
-    let bits = ItemAttrFlags::from_bits_truncate(item.attributes.attribute_bits());
+    let bits = ItemAttrFlags::from_bits_truncate(attrs.attribute_bits());
     if bits.contains(ItemAttrFlags::ATTACK_SPEED) {
         w.write_u8(AttrType::AttackSpeed as u8);
-        w.write_u32(item.attributes.get_attack_speed());
+        w.write_u32(attrs.get_attack_speed());
     }
     if bits.contains(ItemAttrFlags::CONTAINER_SIZE) {
         w.write_u8(AttrType::ContainerSize as u8);
-        w.write_u32(u32::from(item.attributes.container_size_serial()));
+        w.write_u32(u32::from(attrs.container_size_serial()));
     }
-    if let Some(def) = item.attributes.get_defense() {
+    if let Some(def) = attrs.get_defense() {
         w.write_u8(AttrType::Defense as u8);
         w.write_i32(def);
     }
-    if let Some(ed) = item.attributes.get_extra_defense() {
+    if let Some(ed) = attrs.get_extra_defense() {
         w.write_u8(AttrType::ExtraDefense as u8);
         w.write_i32(ed);
     }
-    if let Some(ar) = item.attributes.get_armor() {
+    if let Some(ar) = attrs.get_armor() {
         w.write_u8(AttrType::Armor as u8);
         w.write_i32(ar);
     }
-    if let Some(hc) = item.attributes.get_hit_chance_attr() {
+    if let Some(hc) = attrs.get_hit_chance_attr() {
         w.write_u8(AttrType::HitChance as u8);
         w.write_i8(hc as i8);
     }
-    if let Some(sr) = item.attributes.get_shoot_range_attr() {
+    if let Some(sr) = attrs.get_shoot_range_attr() {
         w.write_u8(AttrType::ShootRange as u8);
         w.write_u8(sr as u8);
     }
     if bits.contains(ItemAttrFlags::DECAY_TO) {
         w.write_u8(AttrType::DecayTo as u8);
-        w.write_i32(item.attributes.get_decay_to() as i32);
+        w.write_i32(attrs.get_decay_to() as i32);
     }
     if bits.contains(ItemAttrFlags::WRAP_ID) {
         w.write_u8(AttrType::WrapId as u8);
-        w.write_u16(item.attributes.get_wrap_id() as u16);
+        w.write_u16(attrs.get_wrap_id() as u16);
     }
-    if item.attributes.is_store_item() {
+    if attrs.is_store_item() {
         w.write_u8(AttrType::StoreItem as u8);
-        w.write_u8(item.attributes.store_item_serial_byte());
+        w.write_u8(attrs.store_item_serial_byte());
     }
-    if item.attributes.has_auto_open() {
+    if attrs.has_auto_open() {
         w.write_u8(AttrType::OpenContainer as u8);
-        w.write_i8(item.attributes.get_auto_open() as i8);
+        w.write_i8(attrs.get_auto_open() as i8);
     }
 
-    if let Some(map) = item.attributes.custom_attributes() {
+    if let Some(map) = attrs.custom_attributes() {
         w.write_u8(AttrType::CustomAttributes as u8);
         w.write_u64(map.len() as u64);
         for (k, v) in map {
@@ -388,10 +393,10 @@ mod write_roundtrip_tests {
             items: HashMap::new(),
             client_to_server: HashMap::new(),
         };
-        let item = Item::new_single(ItemId::default(), 99);
+        let item = Item::new_single(99);
         let blob = write_item_blob(&item, &db);
         let parsed = parse_item_blob(&blob, false).expect("parse");
-        assert_eq!(parsed.attrs.attribute_bits(), item.attributes.attribute_bits());
+        assert_eq!(parsed.attrs.attribute_bits(), item.attributes.as_deref().map(|a| a.attribute_bits()).unwrap_or(0));
     }
 
     #[test]
@@ -405,7 +410,7 @@ mod write_roundtrip_tests {
             items: HashMap::from([(1000, it)]),
             client_to_server: HashMap::new(),
         };
-        let item = Item::new(ItemId::default(), 1000, 42);
+        let item = Item::new(1000, 42);
         let blob = write_item_blob(&item, &db);
         let parsed = parse_item_blob(&blob, false).expect("parse");
         assert_eq!(parsed.subtype_override, Some(42));

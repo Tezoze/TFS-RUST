@@ -68,7 +68,7 @@ fn type_plural_name(it: &ItemType) -> String {
 
 /// `Item::getPluralName` — `src/item.h` ~960–965.
 fn item_plural_name(item: &Item, it: &ItemType) -> String {
-    if let Some(p) = item.attributes.get_plural_name_str() {
+    if let Some(p) = item.attributes.as_deref().and_then(|a| a.get_plural_name_str()) {
         return p.to_string();
     }
     type_plural_name(it)
@@ -88,7 +88,8 @@ fn item_name_description(item: &Item, it: &ItemType, add_article: bool) -> Strin
 
     let name = item
         .attributes
-        .get_name_str()
+        .as_deref()
+        .and_then(|a| a.get_name_str())
         .unwrap_or(it.name.as_str());
     if name.is_empty() {
         return if add_article {
@@ -102,7 +103,8 @@ fn item_name_description(item: &Item, it: &ItemType, add_article: bool) -> Strin
     if add_article {
         let art = item
             .attributes
-            .get_article_str()
+            .as_deref()
+            .and_then(|a| a.get_article_str())
             .filter(|a| !a.is_empty())
             .unwrap_or(it.article.as_str());
         if !art.is_empty() {
@@ -116,22 +118,22 @@ fn item_name_description(item: &Item, it: &ItemType, add_article: bool) -> Strin
 
 #[inline]
 fn eff_attack(item: &Item, it: &ItemType) -> i32 {
-    item.attributes.get_attack().unwrap_or(it.attack)
+    item.attributes.as_deref().and_then(|a| a.get_attack()).unwrap_or(it.attack)
 }
 
 #[inline]
 fn eff_defense(item: &Item, it: &ItemType) -> i32 {
-    item.attributes.get_defense().unwrap_or(it.defense)
+    item.attributes.as_deref().and_then(|a| a.get_defense()).unwrap_or(it.defense)
 }
 
 #[inline]
 fn eff_extra_defense(item: &Item, it: &ItemType) -> i32 {
-    item.attributes.get_extra_defense().unwrap_or(it.extra_defense)
+    item.attributes.as_deref().and_then(|a| a.get_extra_defense()).unwrap_or(it.extra_defense)
 }
 
 #[inline]
 fn eff_attack_speed(item: &Item, it: &ItemType) -> u32 {
-    let v = item.attributes.get_attack_speed();
+    let v = item.attributes.as_deref().map(|a| a.get_attack_speed()).unwrap_or(0);
     if v != 0 {
         v
     } else {
@@ -143,7 +145,8 @@ fn eff_attack_speed(item: &Item, it: &ItemType) -> u32 {
 fn eff_shoot_range(item: &Item, it: &ItemType) -> i32 {
     item
         .attributes
-        .get_shoot_range_attr()
+        .as_deref()
+        .and_then(|a| a.get_shoot_range_attr())
         .unwrap_or(it.shoot_range)
 }
 
@@ -151,13 +154,14 @@ fn eff_shoot_range(item: &Item, it: &ItemType) -> i32 {
 fn eff_hit_chance(item: &Item, it: &ItemType) -> i32 {
     item
         .attributes
-        .get_hit_chance_attr()
+        .as_deref()
+        .and_then(|a| a.get_hit_chance_attr())
         .unwrap_or(i32::from(it.hit_chance))
 }
 
 #[inline]
 fn eff_armor(item: &Item, it: &ItemType) -> i32 {
-    item.attributes.get_armor().unwrap_or(it.armor)
+    item.attributes.as_deref().and_then(|a| a.get_armor()).unwrap_or(it.armor)
 }
 
 /// Ranged weapon with ammunition type — `item.cpp` ~1006–1027.
@@ -336,7 +340,7 @@ fn container_volume_suffix(
     if !is_container_type && hydrated_capacity.is_none() {
         return None;
     }
-    if item.attributes.has_unique_id() {
+    if item.attributes.as_deref().is_some_and(|a| a.has_unique_id()) {
         return None;
     }
     let volume = hydrated_capacity.unwrap_or_else(|| {
@@ -399,7 +403,7 @@ pub fn item_get_description_cpp(
     }
 
     if it.show_charges {
-        let charges = item.attributes.get_charges();
+        let charges = item.attributes.as_deref().map(|a| a.get_charges()).unwrap_or(0);
         if charges > 0 {
             let plural = if charges == 1 { "" } else { "s" };
             s.push_str(&format!(" that has {} charge{} left", charges, plural));
@@ -425,9 +429,9 @@ pub fn item_get_description_cpp(
         append_equip_requirements(&mut s, it);
     }
 
-    if item.attributes.has_description() && !item.attributes.get_description().is_empty() {
+    if item.attributes.as_deref().is_some_and(|a| a.has_description()) && !item.attributes.as_deref().expect("has desc").get_description().is_empty() {
         s.push('\n');
-        s.push_str(item.attributes.get_description());
+        s.push_str(item.attributes.as_deref().unwrap().get_description());
     } else if look_distance <= 1 && !it.description.is_empty() {
         s.push('\n');
         s.push_str(&it.description);
@@ -459,7 +463,7 @@ mod tests {
             ..Default::default()
         };
 
-        let item = Item::new(ItemId::default(), it.id, 4);
+        let item = Item::new(it.id, 4);
         let total = 8000u32;
         let s = item_get_description_cpp(&item, &it, total, 1, None);
         assert_eq!(s, "4 spears (Atk:25).\nThey weigh 80.00 oz.");
@@ -490,7 +494,7 @@ mod tests {
         };
         it.abilities.stats[STAT_MAGICPOINTS] = 2;
 
-        let item = Item::new(ItemId::default(), it.id, 1);
+        let item = Item::new(it.id, 1);
         let s = item_get_description_cpp(&item, &it, 3500, 1, None);
         assert_eq!(
             s,
@@ -514,7 +518,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
             ..Default::default()
         };
 
-        let item = Item::new(ItemId::default(), it.id, 1);
+        let item = Item::new(it.id, 1);
         let s = item_get_description_cpp(&item, &it, 1800, 1, None);
         assert_eq!(s, "a backpack (Vol:20).\nIt weighs 18.00 oz.");
     }
@@ -533,7 +537,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
         };
         it.abilities.absorb_percent[5] = 50; // `CombatType::LifeDrain` index
 
-        let mut item = Item::new(ItemId::default(), it.id, 1);
+        let mut item = Item::new(it.id, 1);
         item.set_charges(50);
         let s = item_get_description_cpp(&item, &it, 500, 1, None);
         assert_eq!(
@@ -553,7 +557,7 @@ It can only be wielded properly by players of level 120 or higher."
             ..Default::default()
         };
 
-        let item = Item::new_single(ItemId::default(), it.id);
+        let item = Item::new_single(it.id);
         let s = item_get_description_cpp(&item, &it, it.weight, 3, None);
         assert_eq!(s, "water.");
     }

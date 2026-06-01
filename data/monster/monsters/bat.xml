@@ -1,35 +1,35 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Bat" namedescription="a bat" race="blood" experience="10" speed="200" manacost="250">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Bat" nameDescription="a bat" race="blood" experience="10" speed="60" manacost="250">
 	<health now="30" max="30" />
-	<look type="122" corpse="6053" />
-	<targetchange interval="4000" chance="0" />
+	<look type="122" head="0" body="0" legs="0" feet="0" corpse="4298" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="1" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="1" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="3" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-8" />
+		<attack name="melee" skillfactor="1200" skillnextlevel="100" skilladdcount="1" skill="16" attack="8" />
 	</attacks>
-	<defenses armor="1" defense="1" />
-	<elements>
-		<element earthPercent="-10" />
-	</elements>
-	<voices interval="5000" chance="10">
+	<defenses armor="1" defense="6">
+	</defenses>
+	<immunities>
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="0" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
+	</immunities>
+	<voices>
 		<voice sentence="Flap! Flap!" />
 	</voices>
-	<loot>
-		<item name="bat wing" chance="1000" />
-	</loot>
 </monster>

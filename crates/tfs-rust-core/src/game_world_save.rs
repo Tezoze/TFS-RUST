@@ -246,7 +246,7 @@ mod tests {
             .player_get_depot_chest(cid, 1, true)
             .expect("depot chest");
         world.player_set_last_depot_id(cid, 1);
-        let coin = world.items.insert(Item::new_single(ItemId::default(), 2148));
+        let coin = world.items.insert(Item::new_single(2148));
         if let Some(cont) = world.container_registry.get_mut(chest) {
             let _ = cont.add_item(coin);
         }

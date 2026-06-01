@@ -54,8 +54,7 @@ monster.loot = {
 }
 
 monster.attacks = {
-	{name = "melee", attack = 130, skill = 70, effect = CONST_ME_DRAWBLOOD, interval = 2*1000},
-	{name = "energy strike", range = 1, chance = 10, interval = 2*1000, minDamage = -210, maxDamage = -300, target = true},
+	{name = "melee", attack = 130, skill = 70, interval = 2*1000},
 	{name = "combat", type = COMBAT_MANADRAIN, chance = 10, interval = 2*1000, minDamage = 0, maxDamage = -120, target = true, range = 7, effect = CONST_ME_MAGIC_BLUE},
 	{name = "combat", type = COMBAT_FIREDAMAGE, chance = 20, interval = 2*1000, minDamage = -150, maxDamage = -250, radius = 1, target = true, effect = CONST_ME_FIREAREA, shootEffect = CONST_ANI_FIRE},
 	{name = "speed", chance = 15, interval = 2*1000, speed = -700, radius = 1, target = true, duration = 30*1000, effect = CONST_ME_MAGIC_RED},
@@ -72,45 +71,15 @@ monster.defenses = {
 
 monster.elements = {
 	{type = COMBAT_PHYSICALDAMAGE, percent = 30},
-	{type = COMBAT_DEATHDAMAGE, percent = 30},
 	{type = COMBAT_ENERGYDAMAGE, percent = 50},
 	{type = COMBAT_EARTHDAMAGE, percent = 40},
-	{type = COMBAT_ICEDAMAGE, percent = -10},
-	{type = COMBAT_HOLYDAMAGE, percent = -10}
 }
 
 monster.immunities = {
 	{type = "fire", combat = true, condition = true},
-	{type = "drown", condition = true},
 	{type = "lifedrain", combat = true},
 	{type = "paralyze", condition = true},
 	{type = "invisible", condition = true}
 }
-
-mType.onThink = function(monster, interval)
-	print("I'm thinking")
-end
-
-mType.onAppear = function(monster, creature)
-	if monster:getId() == creature:getId() then
-		print(monster:getId(), creature:getId())
-	end
-end
-
-mType.onDisappear = function(monster, creature)
-	if monster:getId() == creature:getId() then
-		print(monster:getId(), creature:getId())
-	end
-end
-
-mType.onMove = function(monster, creature, fromPosition, toPosition)
-	if monster:getId() == creature:getId() then
-		print(monster:getId(), creature:getId(), fromPosition, toPosition)
-	end
-end
-
-mType.onSay = function(monster, creature, type, message)
-	print(monster:getId(), creature:getId(), type, message)
-end
 
 mType:register(monster)

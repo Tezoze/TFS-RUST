@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rand::seq::SliceRandom;
-use tracing::warn;
+use tracing::{info, warn};
 use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -72,6 +72,31 @@ const NORMAL_REL: [(i32, i32); 8] = [
     (1, 1),
 ];
 
+fn offset_position(center: Position, dx: i32, dy: i32) -> Position {
+    Position::new(
+        (center.x as i32 + dx).max(0) as u16,
+        (center.y as i32 + dy).max(0) as u16,
+        center.z,
+    )
+}
+
+/// Chebyshev ring offsets inside `radius`, excluding (0, 0) (handled separately).
+fn spawn_radius_offsets(radius: i32) -> Vec<(i32, i32)> {
+    let r = radius.clamp(1, 30);
+    let mut out = Vec::new();
+    for dx in -r..=r {
+        for dy in -r..=r {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if dx.abs().max(dy.abs()) <= r {
+                out.push((dx, dy));
+            }
+        }
+    }
+    out
+}
+
 impl GameWorld {
     /// C++ `Spawns::startup` — force-spawn all slots once after map load (`spawn.cpp` ~197).
     pub fn startup_spawns(&mut self) {
@@ -79,9 +104,17 @@ impl GameWorld {
             return;
         }
         let requests = self.spawns.startup_requests();
+        let slot_count = requests.len();
+        let creatures_before = self.creatures.len();
         for req in requests {
             self.process_spawn_request(req);
         }
+        let placed = self.creatures.len().saturating_sub(creatures_before);
+        info!(
+            spawn_slots = slot_count,
+            creatures_placed = placed,
+            "startup spawns finished"
+        );
         self.spawns.started = true;
     }
 
@@ -99,6 +132,7 @@ impl GameWorld {
         let Some(slot) = self.spawns.slot(req.slot_index).cloned() else {
             return;
         };
+        let radius = slot.radius;
         match &slot.entry {
             SpawnEntryKind::Npc { name } => {
                 let _ = self.spawn_npc(
@@ -107,6 +141,7 @@ impl GameWorld {
                     direction_from_spawn(slot.direction),
                     slot.position,
                     req.slot_index,
+                    radius,
                     req.startup,
                     req.startup,
                 );
@@ -121,6 +156,7 @@ impl GameWorld {
                     direction_from_spawn(slot.direction),
                     slot.position,
                     req.slot_index,
+                    radius,
                     req.startup,
                     req.startup,
                 );
@@ -199,6 +235,7 @@ impl GameWorld {
         dir: Direction,
         spawn_pos: Position,
         slot_index: usize,
+        spawn_radius: i32,
         startup: bool,
         extended_pos: bool,
     ) -> Option<CreatureId> {
@@ -260,11 +297,13 @@ impl GameWorld {
             ai_config,
         )));
 
-        let placed = self.find_and_place_creature(cid, center, extended_pos, !startup);
+        let placed =
+            self.find_and_place_creature(cid, center, extended_pos, !startup, spawn_radius);
         if !placed {
             warn!(
                 monster = %name,
                 ?center,
+                spawn_radius,
                 "could not place spawned monster on map"
             );
             self.creatures.remove(cid);
@@ -295,6 +334,7 @@ impl GameWorld {
         dir: Direction,
         _spawn_pos: Position,
         slot_index: usize,
+        spawn_radius: i32,
         startup: bool,
         extended_pos: bool,
     ) -> Option<CreatureId> {
@@ -337,9 +377,15 @@ impl GameWorld {
                 npc_type_id: 0,
             }));
 
-        let placed = self.find_and_place_creature(cid, center, extended_pos, !startup);
+        let placed =
+            self.find_and_place_creature(cid, center, extended_pos, !startup, spawn_radius);
         if !placed {
-            warn!(npc = %name, ?center, "could not place spawned NPC on map");
+            warn!(
+                npc = %name,
+                ?center,
+                spawn_radius,
+                "could not place spawned NPC on map"
+            );
             self.creatures.remove(cid);
             return None;
         }
@@ -357,13 +403,15 @@ impl GameWorld {
         Some(cid)
     }
 
-    /// C++ `Map::placeCreature` tile search (`map.cpp` ~183).
+    /// C++ `Map::placeCreature` tile search (`map.cpp` ~183); TVP uses `searchSpawnField` /
+    /// `searchFreeField` within spawn radius (`gameserver/src/game.cpp`, `spawn.cpp`).
     fn find_and_place_creature(
         &mut self,
         cid: CreatureId,
         center: Position,
         extended_pos: bool,
         forced: bool,
+        spawn_radius: i32,
     ) -> bool {
         let place_in_pz = self
             .map
@@ -371,17 +419,14 @@ impl GameWorld {
             .map(|t| t.body().zone == ZoneType::Protection)
             .unwrap_or(false);
 
-        let mut found_pos = None;
+        let search_radius = spawn_radius.clamp(-1, 30);
+        let search_radius = if search_radius < 0 {
+            1
+        } else {
+            search_radius
+        };
 
-        if let Some(tile) = self.map.get_tile(center) {
-            let ret = tile_query_add_creature(self, tile, cid, FLAG_IGNOREBLOCKITEM);
-            if forced
-                || ret == ReturnValue::NoError
-                || ret == ReturnValue::PlayerIsNotInvited
-            {
-                found_pos = Some(center);
-            }
-        }
+        let mut found_pos = self.try_creature_tile(cid, center, place_in_pz, forced);
 
         if found_pos.is_none() {
             let mut rel: Vec<(i32, i32)> = if extended_pos {
@@ -398,22 +443,30 @@ impl GameWorld {
             }
 
             for (dx, dy) in rel {
-                let try_pos = Position::new(
-                    (center.x as i32 + dx).max(0) as u16,
-                    (center.y as i32 + dy).max(0) as u16,
-                    center.z,
-                );
-                let Some(tile) = self.map.get_tile(try_pos) else {
-                    continue;
-                };
-                if place_in_pz && tile.body().zone != ZoneType::Protection {
-                    continue;
+                let try_pos = offset_position(center, dx, dy);
+                if self
+                    .try_creature_tile(cid, try_pos, place_in_pz, false)
+                    .is_some()
+                {
+                    found_pos = Some(try_pos);
+                    break;
                 }
-                if tile_query_add_creature(self, tile, cid, 0) != ReturnValue::NoError {
-                    continue;
+            }
+        }
+
+        if found_pos.is_none() && search_radius >= 2 {
+            let mut offsets = spawn_radius_offsets(search_radius);
+            let mut rng = rand::thread_rng();
+            offsets.shuffle(&mut rng);
+            for (dx, dy) in offsets {
+                let try_pos = offset_position(center, dx, dy);
+                if self
+                    .try_creature_tile(cid, try_pos, place_in_pz, false)
+                    .is_some()
+                {
+                    found_pos = Some(try_pos);
+                    break;
                 }
-                found_pos = Some(try_pos);
-                break;
             }
         }
 
@@ -429,6 +482,33 @@ impl GameWorld {
             t.add_creature(cid);
         }
         true
+    }
+
+    fn try_creature_tile(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        place_in_pz: bool,
+        forced: bool,
+    ) -> Option<Position> {
+        let tile = self.map.get_tile(pos)?;
+        if place_in_pz && tile.body().zone != ZoneType::Protection {
+            return None;
+        }
+        let flags = if forced {
+            FLAG_IGNOREBLOCKITEM
+        } else {
+            0
+        };
+        let ret = tile_query_add_creature(self, tile, cid, flags);
+        if forced
+            || ret == ReturnValue::NoError
+            || ret == ReturnValue::PlayerIsNotInvited
+        {
+            Some(pos)
+        } else {
+            None
+        }
     }
 
     /// Whether `conn` received a full `AddCreature` block for `wire_id`.
@@ -471,7 +551,11 @@ impl GameWorld {
         wire.known = known_flag;
         wire.remove_known = remove_known;
         wire.id = wire_id;
-        let packet = self.codec.encode_add_tile_creature(pos, stack_pos, &wire).into_bytes();
+        let otclient = self.conn_uses_772_otclient_stackpos(conn);
+        let packet = self
+            .codec
+            .encode_add_tile_creature(pos, stack_pos, &wire, otclient)
+            .into_bytes();
         self.known_creatures_by_conn.insert(conn, known);
         if !known_flag {
             self.mark_creature_fully_sent(conn, wire_id);

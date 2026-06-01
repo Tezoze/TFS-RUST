@@ -1,41 +1,40 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Parrot" nameDescription="a parrot" race="blood" experience="0" speed="320" manacost="250">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Parrot" nameDescription="a parrot" race="blood" experience="0" speed="120" manacost="250">
 	<health now="25" max="25" />
-	<look type="217" corpse="6056" />
-	<targetchange interval="5000" chance="0" />
+	<look type="217" head="0" body="0" legs="0" feet="0" corpse="4314" />
+	<targetchange chance="10" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="0" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="1" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="25" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
 	<attacks>
-		<attack name="melee" interval="2000" min="0" max="-5" />
+		<attack name="melee" skillfactor="1100" skillnextlevel="100" skilladdcount="1" skill="13" attack="6" />
 	</attacks>
-	<defenses armor="2" defense="2" />
-	<voices interval="5000" chance="10">
-		<voice sentence="You advanshed, you advanshed!" />
-		<voice sentence="Neeewbiiieee!" />
-		<voice sentence="Screeech!" />
-		<voice sentence="Hunterrr ish PK!" />
+	<defenses armor="2" defense="6">
+	</defenses>
+	<immunities>
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="0" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
+	</immunities>
+	<voices>
 		<voice sentence="BR? PL? SWE?" />
+		<voice sentence="Screeeeeeech!" />
+		<voice sentence="Neeeewbiiieee!" />
+		<voice sentence="You advanshed, you advanshed!" />
 		<voice sentence="Hope you die and loooosh it!" />
-		<voice sentence="You powerrrrrrabuserrrrr!" />
-		<voice sentence="You are corrrrupt! Corrrrupt!" />
-		<voice sentence="Tarrrrp?" />
-		<voice sentence="Blesshhh my stake! Screeech!" />
-		<voice sentence="Leeave orrr hunted!!" />
-		<voice sentence="Shhtop whining! Rraaah!" />
-		<voice sentence="I'm heeerrre! Screeeech!" />
+		<voice sentence="Hunterrr ish PK!" />
 	</voices>
 </monster>

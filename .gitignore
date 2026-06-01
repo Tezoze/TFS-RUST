@@ -180,6 +180,8 @@ pip-log.txt
 #############
 ## TFS / OT
 #############
+# Local 10.98 data tree (reference / side-by-side — not part of the Rust server repo)
+data1098/
 # Local C++ reference trees (7.72 TVP + CipSoft decompile) — see docs/PROTOCOL_VERSIONING.md
 gameserver/
 tibia-game-master/

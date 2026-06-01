@@ -367,8 +367,8 @@ mod find_item_of_type_tests {
             "FindTest",
             Position::new(100, 100, 7),
         )));
-        let bp = world.items.insert(Item::new_single(ItemId::default(), 1987));
-        let gold = world.items.insert(Item::new(ItemId::default(), gold_type, 10));
+        let bp = world.items.insert(Item::new_single(1987));
+        let gold = world.items.insert(Item::new(gold_type, 10));
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
             p.equipment_slots[2] = Some(bp);
         }

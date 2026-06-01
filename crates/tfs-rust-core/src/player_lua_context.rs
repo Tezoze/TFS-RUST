@@ -112,7 +112,7 @@ impl GameWorld {
             corpse_owner: self
                 .items
                 .get(container_id)
-                .map(|i| i.attributes.get_corpse_owner())
+                .map(|i| i.attributes.as_deref().map(|a| a.get_corpse_owner()).unwrap_or(0))
                 .unwrap_or(0),
         })
     }

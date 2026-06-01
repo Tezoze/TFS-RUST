@@ -18,6 +18,8 @@
 
 formulas = {
   beatMs = 200,
+  stepBeatMs = 50,              -- TVP walk quantizer (`gameserver/src/creature.cpp`), not CipSoft Beat 200
+  -- stepSpeedModel = "cipsoft",  -- default: GoStrength*2+80 linear delay
   attackSpeedMs = 2000,         -- flat swing, not weapon speed
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)

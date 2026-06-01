@@ -543,12 +543,12 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
     }
 }
 
-/// C++ `<targetchange speed/interval/chance>` — `monsters.cpp` ~1007–1023.
+/// `<targetchange>` — TFS 1.4.2 uses `interval` + `chance` (`src/monsters.cpp` ~1007, warns if
+/// interval missing). TVP 7.72 / `gameserver` data often has `chance` only (`gameserver` ~945,
+/// leaves `changeTargetSpeed` at 0).
 fn parse_target_change(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFlags, file: &str) {
     if let Some(a) = node.attribute("speed").or_else(|| node.attribute("interval")) {
         flags.change_target_speed = a.parse().unwrap_or(0);
-    } else {
-        warn!(file, "monster targetchange missing speed/interval");
     }
     if let Some(a) = node.attribute("chance") {
         let mut chance: i32 = a.parse().unwrap_or(0);

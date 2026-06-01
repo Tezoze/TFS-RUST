@@ -74,11 +74,14 @@ pub trait ProtocolCodec {
 
     fn encode_self_appear_login(&self, player_id: u32) -> NetworkMessage;
 
+    /// Standalone `0x6A` tile item. On 7.72, TVP adds a `stackpos` byte only for OTClient viewers
+    /// (`gameserver/src/protocolgame.cpp` `sendAddTileItem` ~1600); 10.98 always includes it (flag ignored).
     fn encode_add_tile_item(
         &self,
         pos: Position,
         stack_pos: u8,
         args: ItemTemplateArgs,
+        otclient_stackpos: bool,
     ) -> NetworkMessage;
 
     fn encode_update_tile_item(
@@ -104,11 +107,14 @@ pub trait ProtocolCodec {
         args: ItemTemplateArgs,
     ) -> NetworkMessage;
 
+    /// Standalone `0x6A` tile creature. On 7.72, OTClient viewers get a leading `stackpos` byte
+    /// (`gameserver/src/protocolgame.cpp` `sendAddCreature` ~1718); 10.98 always includes it (flag ignored).
     fn encode_add_tile_creature(
         &self,
         pos: Position,
         stack_pos: u8,
         wire: &CreatureWire,
+        otclient_stackpos: bool,
     ) -> NetworkMessage;
 
     fn encode_remove_tile_thing(&self, pos: Position, stackpos: u8) -> NetworkMessage;
@@ -231,6 +237,7 @@ impl ProtocolCodec for Codec1098 {
         pos: Position,
         stack_pos: u8,
         args: ItemTemplateArgs,
+        _otclient_stackpos: bool,
     ) -> NetworkMessage {
         Codec1098::encode_add_tile_item(self, pos, stack_pos, args)
     }
@@ -271,6 +278,7 @@ impl ProtocolCodec for Codec1098 {
         pos: Position,
         stack_pos: u8,
         wire: &CreatureWire,
+        _otclient_stackpos: bool,
     ) -> NetworkMessage {
         Codec1098::encode_add_tile_creature(self, pos, stack_pos, wire)
     }
@@ -413,8 +421,9 @@ impl ProtocolCodec for Codec772 {
         pos: Position,
         stack_pos: u8,
         args: ItemTemplateArgs,
+        otclient_stackpos: bool,
     ) -> NetworkMessage {
-        Codec772::encode_add_tile_item(self, pos, stack_pos, args)
+        Codec772::encode_add_tile_item(self, pos, stack_pos, args, otclient_stackpos)
     }
 
     fn encode_update_tile_item(
@@ -453,8 +462,9 @@ impl ProtocolCodec for Codec772 {
         pos: Position,
         stack_pos: u8,
         wire: &CreatureWire,
+        otclient_stackpos: bool,
     ) -> NetworkMessage {
-        Codec772::encode_add_tile_creature(self, pos, stack_pos, wire)
+        Codec772::encode_add_tile_creature(self, pos, stack_pos, wire, otclient_stackpos)
     }
 
     fn encode_remove_tile_thing(&self, pos: Position, stackpos: u8) -> NetworkMessage {
@@ -587,7 +597,12 @@ impl Codec {
 
         encode_self_appear_login(player_id: u32) -> NetworkMessage;
 
-        encode_add_tile_item(pos: Position, stack_pos: u8, args: ItemTemplateArgs) -> NetworkMessage;
+        encode_add_tile_item(
+            pos: Position,
+            stack_pos: u8,
+            args: ItemTemplateArgs,
+            otclient_stackpos: bool,
+        ) -> NetworkMessage;
 
         encode_update_tile_item(pos: Position, stack_pos: u8, args: ItemTemplateArgs) -> NetworkMessage;
 
@@ -597,7 +612,12 @@ impl Codec {
 
         encode_update_container_item(cid: u8, slot: u16, args: ItemTemplateArgs) -> NetworkMessage;
 
-        encode_add_tile_creature(pos: Position, stack_pos: u8, wire: &CreatureWire) -> NetworkMessage;
+        encode_add_tile_creature(
+            pos: Position,
+            stack_pos: u8,
+            wire: &CreatureWire,
+            otclient_stackpos: bool,
+        ) -> NetworkMessage;
 
         encode_remove_tile_thing(pos: Position, stackpos: u8) -> NetworkMessage;
 
@@ -717,8 +737,9 @@ impl ProtocolCodec for Codec {
         pos: Position,
         stack_pos: u8,
         args: ItemTemplateArgs,
+        otclient_stackpos: bool,
     ) -> NetworkMessage {
-        Codec::encode_add_tile_item(self, pos, stack_pos, args)
+        Codec::encode_add_tile_item(self, pos, stack_pos, args, otclient_stackpos)
     }
 
     fn encode_update_tile_item(
@@ -757,8 +778,9 @@ impl ProtocolCodec for Codec {
         pos: Position,
         stack_pos: u8,
         wire: &CreatureWire,
+        otclient_stackpos: bool,
     ) -> NetworkMessage {
-        Codec::encode_add_tile_creature(self, pos, stack_pos, wire)
+        Codec::encode_add_tile_creature(self, pos, stack_pos, wire, otclient_stackpos)
     }
 
     fn encode_remove_tile_thing(&self, pos: Position, stackpos: u8) -> NetworkMessage {

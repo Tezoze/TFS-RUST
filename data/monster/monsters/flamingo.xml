@@ -1,25 +1,32 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Flamingo" nameDescription="a flamingo" race="blood" experience="0" speed="210" manacost="250">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Flamingo" nameDescription="a flamingo" race="blood" experience="0" speed="44" manacost="250">
 	<health now="25" max="25" />
-	<look type="212" corpse="6054" />
-	<targetchange interval="5000" chance="0" />
+	<look type="212" head="0" body="0" legs="0" feet="0" corpse="4301" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="0" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="1" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
-		<flag staticattack="90" />
+		<flag targetdistance="1" />
 		<flag runonhealth="25" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
-	<defenses armor="1" defense="1" />
-	<loot>
-		<item name="downy feather" chance="1000" />
-	</loot>
+	<attacks>
+		<attack name="melee" skillfactor="1200" skillnextlevel="100" skilladdcount="1" skill="9" attack="4" />
+	</attacks>
+	<defenses armor="1" defense="6">
+	</defenses>
+	<immunities>
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="0" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
+	</immunities>
 </monster>

@@ -157,7 +157,7 @@ impl Player {
         self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
     }
 
-    pub fn add_experience(&mut self, amount: u64) {
+    pub fn add_experience(&mut self, amount: u64, step_speed_model: crate::formulas::StepSpeedModel) {
         self.experience = self.experience.saturating_add(amount);
         while self.level < 2000
             && self.experience >= total_experience_for_level((self.level + 1) as u32)
@@ -169,7 +169,7 @@ impl Player {
             self.max_mana = max_mana;
             self.mana = self.mana.min(max_mana);
             self.capacity = cap;
-            let sp = base_walk_speed(self.vocation_id, self.level);
+            let sp = base_walk_speed(step_speed_model, self.vocation_id, self.level);
             self.base.speed = sp;
             self.base.base_speed = sp;
         }

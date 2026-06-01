@@ -102,7 +102,7 @@ impl GameWorld {
     /// Resolve depot id from a map locker item — `DepotLocker::getDepotId` / `ATTR_DEPOT_ID`.
     pub fn depot_id_from_locker_item(&self, item_id: ItemId, fallback_town_id: i32) -> u32 {
         if let Some(item) = self.items.get(item_id) {
-            if item.attributes.has_depot_id() {
+            if item.attributes.as_deref().is_some_and(|a| a.has_depot_id()) {
                 return u32::from(item.depot_id());
             }
         }
@@ -122,7 +122,7 @@ impl GameWorld {
         if !auto_create {
             return None;
         }
-        let iid = self.items.insert(Item::new_single(ItemId::default(), ITEM_INBOX));
+        let iid = self.items.insert(Item::new_single(ITEM_INBOX));
         let mut reg = std::mem::take(&mut self.container_registry);
         reg.register(Container::new_inbox(iid, INBOX_CAPACITY));
         self.container_registry = reg;
@@ -149,7 +149,7 @@ impl GameWorld {
         }
         let max_items = self.player_get_max_depot_items(cid);
         let cap = self.container_capacity(ITEM_DEPOT);
-        let iid = self.items.insert(Item::new_single(ItemId::default(), ITEM_DEPOT));
+        let iid = self.items.insert(Item::new_single(ITEM_DEPOT));
         let mut reg = std::mem::take(&mut self.container_registry);
         reg.register(Container::new_depot(iid, town_id, cap, max_items));
         self.container_registry = reg;
@@ -181,11 +181,11 @@ impl GameWorld {
 
         let locker_cap = self.container_capacity(ITEM_LOCKER1);
         let max_items = self.player_get_max_depot_items(cid);
-        let locker_iid = self.items.insert(Item::new_single(ItemId::default(), ITEM_LOCKER1));
-        let market_iid = self.items.insert(Item::new_single(ItemId::default(), ITEM_MARKET));
+        let locker_iid = self.items.insert(Item::new_single(ITEM_LOCKER1));
+        let market_iid = self.items.insert(Item::new_single(ITEM_MARKET));
         let inbox_id = self.player_get_inbox(cid, true)?;
         let town_count = self.map.towns.len().max(1) as u32;
-        let uni_iid = self.items.insert(Item::new_single(ItemId::default(), ITEM_DEPOT));
+        let uni_iid = self.items.insert(Item::new_single(ITEM_DEPOT));
 
         let mut reg = std::mem::take(&mut self.container_registry);
         let mut locker = Container::new(locker_iid, locker_cap);

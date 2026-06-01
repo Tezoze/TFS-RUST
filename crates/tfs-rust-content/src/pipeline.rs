@@ -72,13 +72,47 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("world");
-    let spawn_rel = map
-        .spawn_file
-        .clone()
-        .unwrap_or_else(|| format!("{stem}-spawn.xml"));
-    let spawn_path = base.join(&spawn_rel);
-    if spawn_path.exists() {
+    // C++ `IOMap::loadSpawns` — OTBM `OTBM_ATTR_EXT_SPAWN_FILE`, else `{map}-spawn.xml`
+    // (`iomap.h`). TVP OTBMs often name `spawns.xml`; this repo also ships `{stem}-spawn.xml`.
+    let stem_spawn = format!("{stem}-spawn.xml");
+    let otbm_spawn = map.spawn_file.clone();
+    let primary_rel = otbm_spawn.clone().unwrap_or_else(|| stem_spawn.clone());
+    let primary_path = base.join(&primary_rel);
+
+    let primary_exists = primary_path.is_file();
+    let fallback_path = base.join(&stem_spawn);
+    let fallback_exists = fallback_path.is_file();
+    let use_fallback =
+        !primary_exists && otbm_spawn.is_some() && primary_rel != stem_spawn && fallback_exists;
+
+    let spawn_path = if primary_exists {
+        Some(primary_path)
+    } else if use_fallback {
+        tracing::warn!(
+            otbm_spawn = %primary_rel,
+            fallback = %stem_spawn,
+            "OTBM spawn file missing; using map stem fallback"
+        );
+        Some(fallback_path)
+    } else {
+        tracing::warn!(
+            primary = %primary_path.display(),
+            fallback = %base.join(&stem_spawn).display(),
+            "no spawn XML found for map"
+        );
+        None
+    };
+
+    if let Some(spawn_path) = spawn_path {
         map.spawn_zones = load_spawn_xml(&spawn_path)?;
+        let entry_count: usize = map.spawn_zones.iter().map(|z| z.entries.len()).sum();
+        info!(
+            spawn_file = %spawn_path.display(),
+            zones = map.spawn_zones.len(),
+            entries = entry_count,
+            used_fallback = use_fallback,
+            "loaded spawn XML"
+        );
     }
 
     info!("Content pipeline loaded successfully.");

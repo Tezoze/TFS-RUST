@@ -134,7 +134,7 @@ fn internal_add_item_id(
     }
 
     // Create an actual Item instance for this tile item
-    let item = Item::new_single(ItemId::default(), id);
+    let item = Item::new_single(id);
     let item_id = items.insert(item);
 
     let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);

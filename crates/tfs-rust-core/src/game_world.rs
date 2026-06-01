@@ -212,6 +212,23 @@ impl GameWorld {
         }
     }
 
+    /// TVP 7.72: standalone `0x6A` includes `stackpos` only for OTClient viewers.
+    /// C++: `player->getOperatingSystem() >= CLIENTOS_OTCLIENT_LINUX` (`protocolgame.cpp` ~1600, ~1718).
+    pub(crate) fn conn_uses_772_otclient_stackpos(&self, conn: ConnId) -> bool {
+        if self.codec.caps().adler_checksum {
+            return false;
+        }
+        let viewer = match self.conn_to_creature.get(&conn) {
+            Some(&v) => v,
+            None => return false,
+        };
+        matches!(
+            self.creatures.get(viewer),
+            Some(CreatureKind::Player(p))
+                if p.operating_system >= tfs_rust_common::CLIENTOS_OTCLIENT_LINUX
+        )
+    }
+
     // C++-shaped constructor; mirrors `Game`/`GameWorld` wiring inputs.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -497,6 +514,7 @@ impl GameWorld {
             victim,
             self.tick_counter,
             None,
+            self.mechanics.profile.step_speed,
         );
         self.remove_creature(victim);
     }
@@ -1086,7 +1104,7 @@ impl GameWorld {
                     self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
 
                     // Create new item for the moved portion
-                    let new_item = Item::new(ItemId::default(), item_type, m);
+                    let new_item = Item::new(item_type, m);
                     let new_id = self.items.insert(new_item);
                     self.internal_add_item_to_tile(to_pos, new_id, flags)?;
                     Ok(new_id)
@@ -1187,7 +1205,7 @@ impl GameWorld {
                         return Err(rv);
                     }
                     self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    let new_item = Item::new(ItemId::default(), item_type, m_move);
+                    let new_item = Item::new(item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     self.internal_add_item_to_tile(to_pos, new_id, flags)?;
                     return Ok(new_id);
@@ -1253,7 +1271,7 @@ impl GameWorld {
                         self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
-                    let new_item = Item::new(ItemId::default(), item_type, m_move);
+                    let new_item = Item::new(item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     self.container_add_thing(dest_cid, dest_idx, new_id)?;
                     return Ok(new_id);
@@ -1319,7 +1337,7 @@ impl GameWorld {
                         return Err(ReturnValue::NeedExchange);
                     }
                     self.container_remove_thing(from_container, item_id, u32::from(m_move))?;
-                    let new_item = Item::new(ItemId::default(), item_type, m_move);
+                    let new_item = Item::new(item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     self.equip_item_to_inventory_slot(
                         cid,
@@ -1421,7 +1439,7 @@ impl GameWorld {
                 }
 
                 if is_stackable && m_move < item_count {
-                    let new_item = Item::new(ItemId::default(), item_type, m_move);
+                    let new_item = Item::new(item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count = src.count.saturating_sub(m_move);
@@ -1525,7 +1543,7 @@ impl GameWorld {
                         .and_then(|t| t.get_item_stack_pos(item_id))
                         .unwrap_or(0);
                     self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
-                    let new_item = Item::new(ItemId::default(), item_type, m_move);
+                    let new_item = Item::new(item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     self.equip_item_to_inventory_slot(
                         cid,
@@ -2066,8 +2084,14 @@ impl GameWorld {
             is_animation,
             with_description: false,
         };
-        let pkt = self.codec.encode_add_tile_item(pos, stack_pos, args).into_bytes();
-        self.broadcast_to_spectators(pos, pkt);
+        for conn in self.spectator_conns(pos) {
+            let otclient = self.conn_uses_772_otclient_stackpos(conn);
+            let pkt = self
+                .codec
+                .encode_add_tile_item(pos, stack_pos, args, otclient)
+                .into_bytes();
+            self.enqueue_outgoing(conn, pkt);
+        }
     }
 
     /// Broadcast `sendUpdateTileItem` (0x6B) to all spectators.

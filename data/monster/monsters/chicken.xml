@@ -1,33 +1,41 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<monster name="Chicken" namedescription="a chicken" race="blood" experience="0" speed="128" manacost="220">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<monster name="Chicken" nameDescription="a chicken" race="blood" experience="0" speed="24" manacost="220">
 	<health now="15" max="15" />
-	<look type="111" corpse="6042" />
-	<targetchange interval="4000" chance="0" />
+	<look type="111" head="0" body="0" legs="0" feet="0" corpse="4265" />
+	<targetchange chance="0" />
 	<flags>
-		<flag summonable="1" />
-		<flag attackable="1" />
 		<flag hostile="0" />
+		<flag summonable="1" />
 		<flag illusionable="1" />
-		<flag convinceable="1" />
 		<flag pushable="1" />
+		<flag convinceable="1" />
 		<flag canpushitems="0" />
 		<flag canpushcreatures="0" />
 		<flag targetdistance="1" />
-		<flag staticattack="90" />
 		<flag runonhealth="15" />
-		<flag canwalkonenergy="0" />
-		<flag canwalkonfire="0" />
-		<flag canwalkonpoison="0" />
 	</flags>
-	<defenses armor="1" defense="1" />
-	<voices interval="5000" chance="10">
+	<attacks>
+		<attack name="melee" skillfactor="1200" skillnextlevel="0" skilladdcount="0" skill="0" attack="0" />
+	</attacks>
+	<defenses armor="1" defense="2">
+	</defenses>
+	<immunities>
+		<immunity fire="0" />
+		<immunity energy="0" />
+		<immunity poison="0" />
+		<immunity physical="0" />
+		<immunity outfit="0" />
+		<immunity lifedrain="0" />
+		<immunity paralyze="0" />
+		<immunity invisible="0" />
+	</immunities>
+	<voices>
 		<voice sentence="Gokgoooook" />
 		<voice sentence="Cluck Cluck" />
 	</voices>
 	<loot>
-		<item name="chicken feather" chance="20000" />
-		<item name="worm" chance="10000" />
-		<item name="meat" countmax="2" chance="2120" />
-		<item id="2695" chance="1000" /><!-- egg -->
+		<item id="3976" countmax="3" chance="30000" /><!-- worm -->
+		<item id="2666" countmax="2" chance="2000" /><!-- meat -->
+		<item id="2695" countmax="1" chance="1000" /><!-- egg -->
 	</loot>
 </monster>

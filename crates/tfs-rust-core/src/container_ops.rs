@@ -714,7 +714,7 @@ mod depot_query_tests {
         let pos = Position::new(50, 50, 7);
         let cid = insert_player(&mut world, test_player("inbox", pos));
         let inbox_id = world.player_get_inbox(cid, true).expect("inbox");
-        let coin = world.items.insert(Item::new_single(ItemId::default(), 2148));
+        let coin = world.items.insert(Item::new_single(2148));
         let ret = world.container_query_add(inbox_id, -1, coin, 1, CylinderFlags::NONE, Some(cid));
         assert_eq!(ret, ReturnValue::ContainerNotEnoughRoom);
     }
@@ -728,7 +728,7 @@ mod depot_query_tests {
             .player_get_depot_chest(cid, 1, true)
             .expect("depot chest");
 
-        let uni_id = world.items.insert(Item::new_single(ItemId::default(), ITEM_INBOX));
+        let uni_id = world.items.insert(Item::new_single(ITEM_INBOX));
         {
             let mut reg = std::mem::take(&mut world.container_registry);
             reg.register(Container::new(uni_id, 5));
@@ -743,7 +743,7 @@ mod depot_query_tests {
             world.container_registry = reg;
         }
 
-        let coin = world.items.insert(Item::new_single(ItemId::default(), 2148));
+        let coin = world.items.insert(Item::new_single(2148));
         let ret = world.container_query_add(
             chest,
             -1,

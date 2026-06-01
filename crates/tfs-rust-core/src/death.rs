@@ -6,6 +6,7 @@ use crate::decay::DecayManager;
 use crate::event_dispatcher::EventDispatcher;
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
+use crate::formulas::StepSpeedModel;
 use crate::party::split_shared_experience;
 use slotmap::SlotMap;
 /// Apply death for a creature: distribute XP, fire events, schedule corpse decay item.
@@ -19,6 +20,7 @@ pub fn handle_creature_death(
     victim: CreatureId,
     tick: u64,
     party_size_for_xp: Option<usize>,
+    step_speed_model: StepSpeedModel,
 ) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return;
@@ -49,13 +51,13 @@ pub fn handle_creature_death(
             share
         };
         if let Some(CreatureKind::Player(k)) = creatures.get_mut(killer_id) {
-            k.add_experience(share);
+            k.add_experience(share, step_speed_model);
         }
         events.on_kill(killer_id, victim);
     }
 
     events.on_death(victim);
 
-    let corpse_id = items.insert(Item::new(ItemId::default(), 3058, 1));
+    let corpse_id = items.insert(Item::new(3058, 1));
     decay.schedule(corpse_id, tick.saturating_add(600), None);
 }

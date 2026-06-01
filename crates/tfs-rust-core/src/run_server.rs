@@ -225,7 +225,23 @@ pub async fn run() -> anyhow::Result<()> {
         mechanics,
     );
     world.startup_spawns();
-    info!("GameWorld ready (map + spawns + startup creatures)");
+    let tile_stack_refs: usize = world
+        .map
+        .tiles
+        .values()
+        .map(|t| {
+            let b = t.body();
+            b.down_items.len() + b.top_items.len()
+        })
+        .sum();
+    info!(
+        map_tiles = world.map.tiles.len(),
+        items_slotmap = world.items.len(),
+        tile_stack_item_refs = tile_stack_refs,
+        creatures_slotmap = world.creatures.len(),
+        spawn_slots = world.spawns.slots.len(),
+        "GameWorld ready — steady-state entity counts (RSS diagnostic; compare to `ps` after load)"
+    );
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<GameCommand>();

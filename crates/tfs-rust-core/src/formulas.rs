@@ -76,6 +76,21 @@ pub enum DamageFormula {
     Modern,
 }
 
+/// Walk/step timing speed model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepSpeedModel {
+    /// TFS — per-tile duration from `floor(A*log((stepSpeed/2)+B)+C)` (`creature.cpp` `getStepDuration`).
+    TfsLog,
+    /// CipSoft / TVP — `GetSpeed = 2*GoStrength+80`, delay `(ground*1000)/speed` (`crmain.cc:445`, `cract.cc:1462`).
+    CipSoft,
+}
+
+/// CipSoft `TCreature::GetSpeed` — `gameserver/src/creature.h` `getSpeed()`.
+#[inline]
+pub fn cipsoft_effective_speed(go_strength: i32) -> i32 {
+    go_strength.saturating_mul(2).saturating_add(80).max(1)
+}
+
 /// Spawn behavior when a player is near the spawn point (`spawn_lifecycle.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnNearPlayer {
@@ -138,8 +153,12 @@ pub struct SpellCoeff {
 /// Era-tuned mechanics knobs (Tier-1). `Copy` — read freely on the game thread, no per-call cost.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MechanicsProfile {
-    /// Scheduler beat quantization in ms (CipSoft 200, TFS 50).
+    /// Scheduler / combat beat (CipSoft 200, TFS 50) — not always walk quantization on 772.
     pub beat_ms: u32,
+    /// Per-tile walk delay quantization (`gameserver` `creature.cpp` uses 50 for 7.72).
+    pub step_beat_ms: u32,
+    /// Per-tile walk duration curve (TFS log vs CipSoft linear speed).
+    pub step_speed: StepSpeedModel,
     /// A* edge-cost model.
     pub path_cost: PathCostModel,
     /// Flat attack interval in ms; `0` = use vocation/weapon `getAttackSpeed`.
@@ -179,6 +198,9 @@ impl MechanicsProfile {
         match version.raw() {
             772 => Self {
                 beat_ms: 200,
+                // TVP `gameserver/src/creature.cpp` — `50 * ((50 + 1000*wp/speed - 1) / 50)`.
+                step_beat_ms: 50,
+                step_speed: StepSpeedModel::CipSoft,
                 path_cost: PathCostModel::TerrainWeighted,
                 attack_speed_ms: 2000,
                 defense_gate_ms: 2000,
@@ -210,6 +232,8 @@ impl MechanicsProfile {
             },
             1098 => Self {
                 beat_ms: 50,
+                step_beat_ms: 50,
+                step_speed: StepSpeedModel::TfsLog,
                 path_cost: PathCostModel::Fixed,
                 attack_speed_ms: 0,
                 defense_gate_ms: 2000,
@@ -460,6 +484,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
 
     let mut p = defaults;
     p.beat_ms = num_or(lua, &formulas, "beatMs", p.beat_ms as i64).max(1) as u32;
+    p.step_beat_ms =
+        num_or(lua, &formulas, "stepBeatMs", p.step_beat_ms.max(1) as i64).max(1) as u32;
     p.attack_speed_ms = num_or(lua, &formulas, "attackSpeedMs", p.attack_speed_ms as i64).max(0) as u32;
     p.defense_gate_ms = num_or(lua, &formulas, "defenseGateMs", p.defense_gate_ms as i64).max(0) as u32;
     p.exp_attribution_rounds =
@@ -474,6 +500,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "terrain" | "terrainWeighted" => PathCostModel::TerrainWeighted,
         "fixed" => PathCostModel::Fixed,
         _ => p.path_cost,
+    };
+    p.step_speed = match str_or(&formulas, "stepSpeedModel", "").as_str() {
+        "cipsoft" | "cip" => StepSpeedModel::CipSoft,
+        "tfs" | "tfsLog" => StepSpeedModel::TfsLog,
+        _ => p.step_speed,
     };
     p.weakest_target_metric = match str_or(&formulas, "weakestTargetMetric", "").as_str() {
         "current" | "currentHp" => WeakestTargetMetric::CurrentHp,
@@ -563,6 +594,13 @@ mod tests {
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::Block);
         assert_eq!(p.level_exp, LevelExpModel::Tfs);
+        assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
+    }
+
+    #[test]
+    fn cipsoft_effective_speed_matches_gameserver() {
+        assert_eq!(cipsoft_effective_speed(42), 164);
+        assert_eq!(cipsoft_effective_speed(0), 80);
     }
 
     #[test]
@@ -576,6 +614,8 @@ mod tests {
         assert_eq!(p.distance_keep, DistanceKeep::Fixed(4));
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
         assert_eq!(p.level_exp, LevelExpModel::CipSoftPoly);
+        assert_eq!(p.step_speed, StepSpeedModel::CipSoft);
+        assert_eq!(p.step_beat_ms, 50);
         assert_eq!(p.conditions.fire, TickSpec { dmg: 10, ticks: 8 });
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });
         assert_eq!(p.fight_modes.defensive_def, 1.80);

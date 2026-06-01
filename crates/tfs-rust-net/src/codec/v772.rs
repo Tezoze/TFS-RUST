@@ -9,10 +9,9 @@
 //!   `sendInventoryItem` (~L1857), `sendAddCreature` self branch / self-appear `0x0A` (~L1694),
 //!   `sendCreatureTurn` (~L1768), `sendCancelWalk` (~L1503), `RemoveTileThing` (~L2161).
 //!
-//! PROTOCOL: this codec targets the **real 7.72 Tibia client**. TVP gates an extra `stackpos` byte on
-//! `0x6A` (add-tile-item / add-creature) behind `CLIENTOS_OTCLIENT_LINUX` (OTClient-on-772). That byte
-//! is **omitted** here for the canonical client — same way OTCv8 quirks are flagged separately for 1098
-//! (`docs/OTCLIENT_INFO.md`).
+//! Standalone `0x6A` packets take an optional `stackpos` prefix when `otclient_stackpos` is true
+//! (`gameserver/src/protocolgame.cpp` `sendAddTileItem` ~1600, `sendAddCreature` ~1718). The stock
+//! 7.72 client omits it; OTClient (`operatingSystem >= CLIENTOS_OTCLIENT_LINUX`) requires it.
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 
@@ -212,16 +211,20 @@ impl Codec772 {
         m
     }
 
-    /// 7.72 `sendAddTileItem` opcode `0x6A` (~L1591). Real client: no `stackpos` byte (OTClient-only).
+    /// 7.72 `sendAddTileItem` opcode `0x6A` (~L1591).
     pub fn encode_add_tile_item(
         &self,
         pos: Position,
-        _stack_pos: u8,
+        stack_pos: u8,
         args: ItemTemplateArgs,
+        otclient_stackpos: bool,
     ) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(0x6A);
         m.write_position(&pos);
+        if otclient_stackpos {
+            m.write_u8(stack_pos);
+        }
         self.write_item_template_args(&mut m, args);
         m
     }
@@ -279,16 +282,20 @@ impl Codec772 {
         m
     }
 
-    /// 7.72 `sendAddCreature` non-self branch opcode `0x6A` (~L1717). Real client: no `stackpos` byte.
+    /// 7.72 `sendAddCreature` non-self branch opcode `0x6A` (~L1717).
     pub fn encode_add_tile_creature(
         &self,
         pos: Position,
-        _stack_pos: u8,
+        stack_pos: u8,
         wire: &AddCreatureWire,
+        otclient_stackpos: bool,
     ) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(0x6A);
         m.write_position(&pos);
+        if otclient_stackpos {
+            m.write_u8(stack_pos);
+        }
         self.write_add_creature(&mut m, wire);
         m
     }

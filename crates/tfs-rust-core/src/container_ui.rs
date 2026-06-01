@@ -750,10 +750,10 @@ impl GameWorld {
                     }
                 }
             }
-            if !item.attributes.has_auto_open() {
+            if !item.attributes.as_deref().is_some_and(|a| a.has_auto_open()) {
                 continue;
             }
-            let saved_cid = item.attributes.get_auto_open();
+            let saved_cid = item.attributes.as_deref().map(|a| a.get_auto_open()).unwrap_or(0);
             if saved_cid >= crate::container::MAX_CONTAINER_WINDOWS {
                 continue;
             }

@@ -153,7 +153,7 @@ impl GameWorld {
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
         let count = count.max(1);
-        let new_item = Item::new(ItemId::default(), item_type, count);
+        let new_item = Item::new(item_type, count);
         let iid = self.items.insert(new_item);
         if self.query_add_item_to_inventory(cid, iid) != ReturnValue::NoError {
             self.items.remove(iid);
@@ -367,7 +367,7 @@ impl GameWorld {
         } else {
             count.clamp(1, u32::from(u16::MAX)) as u16
         };
-        let new_item = Item::new(ItemId::default(), item_type, stack_count);
+        let new_item = Item::new(item_type, stack_count);
         let iid = self.items.insert(new_item);
         let flags = CylinderFlags {
             bits: flags_bits,
@@ -415,7 +415,7 @@ impl GameWorld {
         } else {
             count.clamp(1, u32::from(u16::MAX)) as u16
         };
-        let mut new_item = Item::new(ItemId::default(), item_type, stack_count);
+        let mut new_item = Item::new(item_type, stack_count);
         if sub_type > 0 && !stackable {
             new_item.count = sub_type as u16;
         }
@@ -520,7 +520,7 @@ impl GameWorld {
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
         if let Some(item) = self.items.get_mut(iid) {
-            item.attributes.set_store_item(if store { 1 } else { 0 });
+            item.attributes.get_or_insert_with(|| Box::new(crate::item_attributes::ItemAttributes::new())).set_store_item(if store { 1 } else { 0 });
             Ok(())
         } else {
             Err("item not found".into())
@@ -923,7 +923,7 @@ impl GameWorld {
         let msg = match target {
             LookTarget::Creature(_) => "You see nothing special.".to_string(),
             LookTarget::Ground(ground_type) => {
-                let ephemeral = Item::new_single(ItemId::default(), ground_type);
+                let ephemeral = Item::new_single(ground_type);
                 if let Some(it) = self.items_db.items.get(&ground_type) {
                     format!(
                         "You see {}",

@@ -350,7 +350,8 @@ impl GameWorld {
         let tw = it.map(|t| t.weight).unwrap_or(0);
         let stackable = it.map(|t| t.stackable()).unwrap_or(false);
         if stackable {
-            let unit = item.attributes.base_weight_oz(tw);
+            let tw = self.items_db.items.get(&item.item_type).map_or(0, |it| it.weight);
+            let unit = item.attributes.as_deref().map(|a| a.base_weight_oz(tw)).unwrap_or(tw);
             unit.saturating_mul(count.max(1))
         } else {
             item.total_weight_oz(tw, false)
