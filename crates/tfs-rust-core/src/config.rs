@@ -178,6 +178,132 @@ impl ConfigManager {
         let v = get_i64_or(self, "depotPremiumLimit", 10000)?;
         Ok(v.max(0) as u32)
     }
+
+    /// C++ `ConfigManager::RATE_EXPERIENCE` (`rateExp`, default 1.0).
+    pub fn rate_experience(&self) -> Result<f64> {
+        match self.get_f64("rateExp") {
+            Ok(v) => Ok(v.max(0.0)),
+            Err(e) if is_missing_config_key(&e) => Ok(1.0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// C++ `ConfigManager::DEATH_LOSE_PERCENT` (`deathLosePercent`, default -1).
+    /// - `-1` => use default formula.
+    /// - `0..100` => fixed percentage loss.
+    pub fn death_lose_percent(&self) -> Result<i32> {
+        let v = get_i64_or(self, "deathLosePercent", -1)? as i32;
+        Ok(v)
+    }
+
+    /// Whether level-based experience stages are enabled (`expStages`, default false).
+    pub fn exp_stages_enabled(&self) -> Result<bool> {
+        get_bool_or(self, "expStages", false)
+    }
+
+    /// Effective experience rate for `level`.
+    ///
+    /// - `expStages = false` → returns `rateExp`.
+    /// - `expStages = true`  → uses `experienceStages` table when present; falls back to `rateExp`
+    ///   if missing/invalid/no-matching-stage.
+    pub fn experience_rate_for_level(&self, level: i32) -> Result<f64> {
+        let base_rate = self.rate_experience()?;
+        if !self.exp_stages_enabled()? {
+            return Ok(base_rate);
+        }
+        let stages = self.parse_experience_stages()?;
+        if stages.is_empty() {
+            return Ok(base_rate);
+        }
+        let l = level.max(1);
+        for stage in &stages {
+            if l >= stage.min_level && stage.max_level.is_none_or(|max| l <= max) {
+                return Ok(stage.multiplier.max(0.0));
+            }
+        }
+        Ok(base_rate)
+    }
+
+    fn parse_experience_stages(&self) -> Result<Vec<ExperienceStage>> {
+        let v: Value = self
+            .lua
+            .globals()
+            .get("experienceStages")
+            .map_err(|e| TfsRustError::Config(format!("lua get experienceStages: {e}")))?;
+        let Value::Table(stages_tbl) = v else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        for stage_val in stages_tbl.sequence_values::<Value>() {
+            let stage_val = stage_val
+                .map_err(|e| TfsRustError::Config(format!("experienceStages entry: {e}")))?;
+            let Value::Table(stage_tbl) = stage_val else {
+                continue;
+            };
+            let min_level = table_i32_required(&stage_tbl, "minlevel")?;
+            let max_level = table_i32_optional(&stage_tbl, "maxlevel")?;
+            let multiplier = table_f64_required(&stage_tbl, "multiplier")?;
+            out.push(ExperienceStage {
+                min_level,
+                max_level,
+                multiplier,
+            });
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExperienceStage {
+    min_level: i32,
+    max_level: Option<i32>,
+    multiplier: f64,
+}
+
+fn table_i32_required(table: &mlua::Table, key: &str) -> Result<i32> {
+    let v: Value = table
+        .get(key)
+        .map_err(|e| TfsRustError::Config(format!("experienceStages[{key}]: {e}")))?;
+    match v {
+        Value::Integer(i) => Ok(i as i32),
+        Value::Number(n) => Ok(n as i32),
+        Value::Nil => Err(TfsRustError::Config(format!(
+            "experienceStages entry missing `{key}`"
+        ))),
+        _ => Err(TfsRustError::Config(format!(
+            "experienceStages `{key}` must be a number"
+        ))),
+    }
+}
+
+fn table_i32_optional(table: &mlua::Table, key: &str) -> Result<Option<i32>> {
+    let v: Value = table
+        .get(key)
+        .map_err(|e| TfsRustError::Config(format!("experienceStages[{key}]: {e}")))?;
+    match v {
+        Value::Integer(i) => Ok(Some(i as i32)),
+        Value::Number(n) => Ok(Some(n as i32)),
+        Value::Nil => Ok(None),
+        _ => Err(TfsRustError::Config(format!(
+            "experienceStages `{key}` must be a number when present"
+        ))),
+    }
+}
+
+fn table_f64_required(table: &mlua::Table, key: &str) -> Result<f64> {
+    let v: Value = table
+        .get(key)
+        .map_err(|e| TfsRustError::Config(format!("experienceStages[{key}]: {e}")))?;
+    match v {
+        Value::Integer(i) => Ok(i as f64),
+        Value::Number(n) => Ok(n),
+        Value::Nil => Err(TfsRustError::Config(format!(
+            "experienceStages entry missing `{key}`"
+        ))),
+        _ => Err(TfsRustError::Config(format!(
+            "experienceStages `{key}` must be a number"
+        ))),
+    }
 }
 
 /// Monster despawn / walk-back settings — C++ `configmanager.cpp` ~232–251.
@@ -524,6 +650,51 @@ mod tests {
         let cfg = config_from_lua("passwordHashCost = 3");
         let err = password_hash_config_from(&cfg).expect_err("cost too low");
         assert!(matches!(err, TfsRustError::Config(_)));
+    }
+
+    #[test]
+    fn rate_experience_defaults_to_one() {
+        let cfg = config_from_lua("");
+        assert_eq!(cfg.rate_experience().expect("rateExp default"), 1.0);
+    }
+
+    #[test]
+    fn rate_experience_reads_config_value() {
+        let cfg = config_from_lua("rateExp = 3.5");
+        assert_eq!(cfg.rate_experience().expect("rateExp"), 3.5);
+    }
+
+    #[test]
+    fn experience_rate_for_level_uses_flat_rate_when_stages_disabled() {
+        let cfg = config_from_lua(
+            r#"
+            rateExp = 5.5
+            expStages = false
+            experienceStages = {
+                { minlevel = 1, maxlevel = 10, multiplier = 100 },
+            }
+            "#,
+        );
+        assert_eq!(cfg.experience_rate_for_level(1).expect("rate"), 5.5);
+        assert_eq!(cfg.experience_rate_for_level(500).expect("rate"), 5.5);
+    }
+
+    #[test]
+    fn experience_rate_for_level_uses_stage_table_when_enabled() {
+        let cfg = config_from_lua(
+            r#"
+            rateExp = 5.5
+            expStages = true
+            experienceStages = {
+                { minlevel = 1, maxlevel = 10, multiplier = 100 },
+                { minlevel = 11, maxlevel = 20, multiplier = 20 },
+                { minlevel = 21, multiplier = 12 },
+            }
+            "#,
+        );
+        assert_eq!(cfg.experience_rate_for_level(1).expect("rate"), 100.0);
+        assert_eq!(cfg.experience_rate_for_level(15).expect("rate"), 20.0);
+        assert_eq!(cfg.experience_rate_for_level(200).expect("rate"), 12.0);
     }
 
     #[test]

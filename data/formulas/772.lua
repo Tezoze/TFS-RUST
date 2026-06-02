@@ -3,33 +3,26 @@
 -- Tier-1 constants (loaded once into MechanicsProfile). Any key omitted falls back to the built-in
 -- MechanicsProfile::for_version(772) default. Edit a value to retune the shard without recompiling
 -- (docs/PROTOCOL_VERSIONING.md §12.13).
---
--- Behavior source (clean-room outcomes, R12): tibia-game-master/src/
---   beat 200            -> config.cc Beat = 200
---   speed*2+80          -> crmain.cc:445 TCreature::GetSpeed
---   step ceil to Beat   -> cract.cc:1462 TCreature::NotifyGo
---   terrain path        -> cract.cc TShortway (diagonal 3x tile cost)
---   attack 2000 ms      -> crcombat.cc:145 TCombat::DelayAttack(2000)
---   randomized armor    -> crcombat.cc:303 (A/2)+rand(A/2)
---   fight modes         -> crcombat.cc:222 (+20% atk / -40% def offensive; -40% atk / +80% def defensive)
---   fire 10/8 nrg 25/10 -> crskill.cc:1064 / :1090
---   spell 2*lvl+3*ml    -> magic.cc:784 ComputeDamage
---   level exp poly      -> crskill.cc:352 TSkillLevel::GetExpForLevel
+
 
 formulas = {
   beatMs = 200,
   stepBeatMs = 50,              -- TVP walk quantizer (`gameserver/src/creature.cpp`), not CipSoft Beat 200
-  -- stepSpeedModel = "cipsoft",  -- default: GoStrength*2+80 linear delay
-  attackSpeedMs = 2000,         -- flat swing, not weapon speed
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x
   weakestTargetMetric = "currentHp",
-  distanceKeep = 4,             -- hardcoded range 4 (crnonpl.cc:2716)
   damageFormula = "classic",    -- ProbeValue
+  damageTuning = {
+    skillMult = 5,
+    skillBase = 50,
+    randomMax = 99,
+  },
+  armorTuning = {
+    minArmorForRandom = 2,
+    divisor = 2,
+  },
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
-  levelExp = "cipsoft",
-  levelExpDelta = 100,
   expAttributionRounds = 60,
 
   fightModes = {
@@ -45,12 +38,23 @@ formulas = {
 
   spell = { levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 },
+  playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
 }
 
--- Tier-2 override hooks (optional). The native defaults already reproduce the CipSoft outcome, so
--- leave these unset for a faithful 7.72 shard. Example:
+-- Player speed model selector ------------------------------------------------------------
 --
--- function getWeaponDamage(skill, attack, mode, level)
---   local maxv = attack * (skill * 5 + 50)
---   return math.floor(((math.random(0,99) + math.random(0,99)) / 2) * maxv / 10000)
--- end
+-- Controls how walk speed scales with level. Set formulas.playerSpeed to one of:
+--
+--   "772"      classic CipSoft linear formula (base = 220 + level, eff = 2*base + 80).
+--              Gets very fast at high levels — breakpoints: 250ms@39, 200ms@114, 150ms@237.
+--
+--   "retail"   1098/TFS logarithmic formula (floor(857.36 * ln(base/2 + 261.29) - 4795.01)).
+--              Slower at low levels, never reaches 150ms in normal level ranges.
+--
+--   "balanced" Logarithmic diminishing-returns curve anchored to classic 772 feel up to ~100,
+--              then softened. Keeps the old-school speed tier feel without the "blink across
+--              screen" problem at high levels. 150ms delayed to ~level 453, 100ms unreachable.
+--              (See comparison: docs/PROTOCOL_VERSIONING.md §12.13)
+--
+-- Runtime note: playerSpeed / damageTuning / armorTuning are loaded once at startup into Rust
+-- `MechanicsProfile` and then run natively in the game loop (no per-step Lua callback overhead).

@@ -9,16 +9,21 @@
 
 formulas = {
   beatMs = 50,                  -- scheduler quantization (creature.cpp getStepDuration ceil to 50)
-  attackSpeedMs = 0,            -- 0 = use vocation/weapon getAttackSpeed()
   defenseGateMs = 2000,
   armor = "full",               -- subtract full armor value
   pathCost = "fixed",           -- A* 10 normal / 25 diagonal
   weakestTargetMetric = "maxHp",
-  distanceKeep = "perType",     -- per-MonsterType targetDistance
   damageFormula = "modern",
+  damageTuning = {
+    skillMult = 5,
+    skillBase = 50,
+    randomMax = 99,
+  },
+  armorTuning = {
+    minArmorForRandom = 2,
+    divisor = 2,
+  },
   spawnNearPlayer = "block",
-  levelExp = "tfs",
-  levelExpDelta = 100,            -- TFS getExpForLevel = (((L-6)*L+17)*L-12)/6 * 100
   expAttributionRounds = 60,
 
   fightModes = {
@@ -34,12 +39,28 @@ formulas = {
 
   spell = { levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 },
+  playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
 }
+
+-- Player speed model selector ------------------------------------------------------------
+--
+-- 1098 native step timing uses the TfsLog model in Rust (floor(857.36*ln(base/2+261.29)-4795.01))
+-- and does NOT call getCreatureSpeed() for the walk timer — it uses GoStrength directly.
+-- Setting playerSpeed = "retail" here is the default no-op (native TfsLog path, zero extra cost).
+--
+-- Set formulas.playerSpeed = "balanced" to apply the same diminishing-returns curve as 772 "balanced",
+-- useful if you want to share a speed feel across both eras.
+-- Set formulas.playerSpeed = "772" to force classic CipSoft linear speed on a 1098 shard (unusual).
+
+-- Runtime note: playerSpeed / damageTuning / armorTuning are loaded once at startup into Rust
+-- `MechanicsProfile` and then run natively in the game loop (no per-step Lua callback overhead).
 
 -- Tier-2 override hooks (optional). Omit to keep the native era-faithful default (zero runtime cost).
 -- Example — uncomment to reshape weapon damage from Lua:
 --
--- function getWeaponDamage(skill, attack, mode, level)
---   local maxv = attack * (skill * 5 + 50)
---   return math.floor(((math.random(0,99) + math.random(0,99)) / 2) * maxv / 10000)
--- end
+--[[
+function getWeaponDamage(skill, attack, mode, level)
+  local maxv = attack * (skill * 5 + 50)
+  return math.floor(((math.random(0,99) + math.random(0,99)) / 2) * maxv / 10000)
+end
+]]

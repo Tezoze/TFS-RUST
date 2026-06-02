@@ -154,11 +154,39 @@ fn walk_timing_speed(
 ) -> i32 {
     let go = go_strength_for_walk(role, base, mech);
     match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => mech
-            .hooks
-            .creature_speed(go, 0)
-            .unwrap_or_else(|| crate::formulas::cipsoft_effective_speed(go)),
+        crate::formulas::StepSpeedModel::CipSoft => cipsoft_speed_from_profile(go, mech),
         crate::formulas::StepSpeedModel::TfsLog => go,
+    }
+}
+
+fn tfs_retail_log_speed(go: i32) -> i32 {
+    if (go as f64) <= -SPEED_B {
+        return 1;
+    }
+    let half = (go / 2) as f64;
+    let raw = SPEED_A * (half + SPEED_B).ln() + SPEED_C;
+    (raw + 0.5).floor() as i32
+}
+
+fn balanced_softened_go(go: i32) -> i32 {
+    let anchor = 320;
+    if go <= anchor {
+        return go.max(1);
+    }
+    let scale = 100.0;
+    let divisor = 120.0;
+    let x = (go - anchor) as f64;
+    (anchor as f64 + scale * (1.0 + x / divisor).ln()).floor() as i32
+}
+
+fn cipsoft_speed_from_profile(go: i32, mech: &crate::formulas::Mechanics) -> i32 {
+    use crate::formulas::PlayerSpeedModel;
+    match mech.profile.player_speed_model {
+        PlayerSpeedModel::EraDefault | PlayerSpeedModel::Classic772 => {
+            crate::formulas::cipsoft_effective_speed(go)
+        }
+        PlayerSpeedModel::Retail1098 => tfs_retail_log_speed(go).max(1),
+        PlayerSpeedModel::BalancedLog => crate::formulas::cipsoft_effective_speed(balanced_softened_go(go)),
     }
 }
 
@@ -262,10 +290,7 @@ fn get_step_duration(
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::CipSoft => {
             // `cract.cc:1461` — `Delay = (Waypoints * 1000) / GetSpeed()`, ceil to `Beat`.
-            let eff = mech
-                .hooks
-                .creature_speed(go, 0)
-                .unwrap_or_else(|| crate::formulas::cipsoft_effective_speed(go));
+            let eff = cipsoft_speed_from_profile(go, mech);
             let delay = (gs as i64 * 1000) / i64::from(eff.max(1));
             ((delay + beat - 1) / beat) * beat
         }
@@ -385,14 +410,25 @@ fn direction_from_positions(from: Position, to: Position) -> Direction {
 }
 
 /// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
-fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>, n: u32) -> bool {
+fn tile_has_height_n(
+    pos: Position,
+    body: &crate::tile::TileBody,
+    items_db: &ItemDatabase,
+    items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>,
+    n: u32,
+) -> bool {
     let mut height = 0u32;
-    tracing::debug!("tile_has_height_n: checking tile at {:?}, ground: {:?}, down_items: {:?}, top_items: {:?}", 
-        body.position, body.ground, body.down_items, body.top_items);
-    
+    tracing::debug!(
+        "tile_has_height_n: checking tile at {:?}, ground: {:?}, down_items: {:?}, top_items: {:?}",
+        pos,
+        body.ground,
+        body.down_items,
+        body.top_items
+    );
+
     if let Some(gid) = body.ground {
         let has_height = items_db.items.get(&gid).is_some_and(|t| t.has_height());
-        tracing::debug!("tile_has_height_n: ground item {} has_height: {} at {:?}", gid, has_height, body.position);
+        tracing::debug!("tile_has_height_n: ground item {} has_height: {} at {:?}", gid, has_height, pos);
         if has_height {
             height += 1;
             if height == n {
@@ -403,7 +439,7 @@ fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, item
     for &item_id in &body.down_items {
         if let Some(item) = items.get(item_id) {
             let has_height = items_db.items.get(&item.item_type).is_some_and(|t| t.has_height());
-            tracing::debug!("tile_has_height_n: down item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, body.position);
+            tracing::debug!("tile_has_height_n: down item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, pos);
             if has_height {
                 height += 1;
                 if height == n {
@@ -415,7 +451,7 @@ fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, item
     for &item_id in &body.top_items {
         if let Some(item) = items.get(item_id) {
             let has_height = items_db.items.get(&item.item_type).is_some_and(|t| t.has_height());
-            tracing::debug!("tile_has_height_n: top item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, body.position);
+            tracing::debug!("tile_has_height_n: top item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, pos);
             if has_height {
                 height += 1;
                 if height == n {
@@ -424,7 +460,7 @@ fn tile_has_height_n(body: &crate::tile::TileBody, items_db: &ItemDatabase, item
             }
         }
     }
-    tracing::debug!("tile_has_height_n: total height {} at {:?}, needed {}", height, body.position, n);
+    tracing::debug!("tile_has_height_n: total height {} at {:?}, needed {}", height, pos, n);
     false
 }
 
@@ -452,7 +488,7 @@ fn resolve_player_move_destination(
     // C++ ref: src/game.cpp:807-820 — try to go up
     if current_pos.z != 8 {
         if let Some(cur_tile) = map.get_tile(current_pos) {
-            let has_h3 = tile_has_height_n(cur_tile.body(), items_db, items, 3);
+            let has_h3 = tile_has_height_n(current_pos, cur_tile.body(), items_db, items, 3);
             if has_h3 {
                 let z_above = current_pos.z.wrapping_sub(1);
                 let tmp = map.get_tile(Position { x: current_pos.x, y: current_pos.y, z: z_above });
@@ -481,8 +517,13 @@ fn resolve_player_move_destination(
             let z_below = dest_pos.z.wrapping_add(1);
             if let Some(tt) = map.get_tile(Position { x: dest_pos.x, y: dest_pos.y, z: z_below }) {
                 let tb = tt.body();
-                if tile_has_height_n(tb, items_db, items, 3)
-                    && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0
+                if tile_has_height_n(
+                    Position { x: dest_pos.x, y: dest_pos.y, z: z_below },
+                    tb,
+                    items_db,
+                    items,
+                    3,
+                ) && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0
                 {
                     flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
                     dest_pos.z = z_below;
@@ -1905,14 +1946,8 @@ impl GameWorld {
     /// `onCreatureMove` fan-out (`map.cpp` ~293–324).
     fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
         if from == to { return; }
-        self.map.unregister_creature_index(from, cid);
-        if let Some(t) = self.map.get_tile_mut(from) {
-            t.remove_creature(cid);
-        }
-        if let Some(t) = self.map.get_tile_mut(to) {
-            t.add_creature(cid);
-        }
-        self.map.register_creature_index(to, cid);
+        self.map.unregister_creature_at(from, cid);
+        self.map.register_creature_at(to, cid);
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(to);
         }

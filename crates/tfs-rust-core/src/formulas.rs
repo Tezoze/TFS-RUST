@@ -63,7 +63,7 @@ pub enum WeakestTargetMetric {
 pub enum DistanceKeep {
     /// TFS — per-`MonsterType` `targetDistance`.
     PerType,
-    /// CipSoft — hardcoded range (`crnonpl.cc:2716`, value 4).
+    /// Fixed override range for all monsters.
     Fixed(i32),
 }
 
@@ -83,6 +83,39 @@ pub enum StepSpeedModel {
     TfsLog,
     /// CipSoft / TVP — `GetSpeed = 2*GoStrength+80`, delay `(ground*1000)/speed` (`crmain.cc:445`, `cract.cc:1462`).
     CipSoft,
+}
+
+/// Startup-selected player speed scaling policy (loaded once from `formulas.playerSpeed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerSpeedModel {
+    /// Keep era-native behavior (`StepSpeedModel` default for the active protocol version).
+    EraDefault,
+    /// Classic CipSoft 7.72 linear (`GetSpeed = 2*go + 80`).
+    Classic772,
+    /// TFS 10.x logarithmic speed curve (`A*ln((go/2)+B)+C`).
+    Retail1098,
+    /// Logarithmic diminishing-returns curve anchored to classic progression.
+    BalancedLog,
+}
+
+/// Probe-based physical damage tuning constants (startup-loaded Tier-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DamageProbeTuning {
+    /// Multiplier in `attack * (skill * skill_mult + skill_base)`.
+    pub skill_mult: i32,
+    /// Base term in `attack * (skill * skill_mult + skill_base)`.
+    pub skill_base: i32,
+    /// Random upper bound (inclusive) for each roll term.
+    pub random_max: i32,
+}
+
+/// Randomized armor tuning constants (startup-loaded Tier-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArmorRandomTuning {
+    /// Minimum armor to use randomized mode.
+    pub min_armor_for_random: i32,
+    /// Divisor for randomized range (`armor/divisor`).
+    pub divisor: i32,
 }
 
 /// CipSoft `TCreature::GetSpeed` — `gameserver/src/creature.h` `getSpeed()`.
@@ -159,6 +192,8 @@ pub struct MechanicsProfile {
     pub step_beat_ms: u32,
     /// Per-tile walk duration curve (TFS log vs CipSoft linear speed).
     pub step_speed: StepSpeedModel,
+    /// Player speed scaling model loaded once from formulas.
+    pub player_speed_model: PlayerSpeedModel,
     /// A* edge-cost model.
     pub path_cost: PathCostModel,
     /// Flat attack interval in ms; `0` = use vocation/weapon `getAttackSpeed`.
@@ -175,6 +210,10 @@ pub struct MechanicsProfile {
     pub distance_keep: DistanceKeep,
     /// Weapon damage formula.
     pub damage_formula: DamageFormula,
+    /// Probe-value damage constants.
+    pub damage_probe: DamageProbeTuning,
+    /// Randomized armor constants.
+    pub armor_random: ArmorRandomTuning,
     /// DoT condition constants.
     pub conditions: ConditionTicks,
     /// Spawn-near-player policy.
@@ -201,8 +240,10 @@ impl MechanicsProfile {
                 // TVP `gameserver/src/creature.cpp` — `50 * ((50 + 1000*wp/speed - 1) / 50)`.
                 step_beat_ms: 50,
                 step_speed: StepSpeedModel::CipSoft,
+                player_speed_model: PlayerSpeedModel::BalancedLog,
                 path_cost: PathCostModel::TerrainWeighted,
-                attack_speed_ms: 2000,
+                // Use vocation/weapon attack speed from `vocations.xml` like 1098.
+                attack_speed_ms: 0,
                 defense_gate_ms: 2000,
                 armor: ArmorReduction::Randomized,
                 fight_modes: FightModes {
@@ -212,8 +253,17 @@ impl MechanicsProfile {
                     defensive_def: 1.80,
                 },
                 weakest_target_metric: WeakestTargetMetric::CurrentHp,
-                distance_keep: DistanceKeep::Fixed(4),
+                distance_keep: DistanceKeep::PerType,
                 damage_formula: DamageFormula::ClassicProbe,
+                damage_probe: DamageProbeTuning {
+                    skill_mult: 5,
+                    skill_base: 50,
+                    random_max: 99,
+                },
+                armor_random: ArmorRandomTuning {
+                    min_armor_for_random: 2,
+                    divisor: 2,
+                },
                 conditions: ConditionTicks {
                     fire: TickSpec { dmg: 10, ticks: 8 },
                     energy: TickSpec { dmg: 25, ticks: 10 },
@@ -234,6 +284,7 @@ impl MechanicsProfile {
                 beat_ms: 50,
                 step_beat_ms: 50,
                 step_speed: StepSpeedModel::TfsLog,
+                player_speed_model: PlayerSpeedModel::EraDefault,
                 path_cost: PathCostModel::Fixed,
                 attack_speed_ms: 0,
                 defense_gate_ms: 2000,
@@ -247,6 +298,15 @@ impl MechanicsProfile {
                 weakest_target_metric: WeakestTargetMetric::MaxHp,
                 distance_keep: DistanceKeep::PerType,
                 damage_formula: DamageFormula::Modern,
+                damage_probe: DamageProbeTuning {
+                    skill_mult: 5,
+                    skill_base: 50,
+                    random_max: 99,
+                },
+                armor_random: ArmorRandomTuning {
+                    min_armor_for_random: 2,
+                    divisor: 2,
+                },
                 conditions: ConditionTicks {
                     fire: TickSpec { dmg: 10, ticks: 8 },
                     energy: TickSpec { dmg: 25, ticks: 10 },
@@ -506,6 +566,12 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "tfs" | "tfsLog" => StepSpeedModel::TfsLog,
         _ => p.step_speed,
     };
+    p.player_speed_model = match str_or(&formulas, "playerSpeed", "").as_str() {
+        "772" => PlayerSpeedModel::Classic772,
+        "retail" | "1098" => PlayerSpeedModel::Retail1098,
+        "balanced" => PlayerSpeedModel::BalancedLog,
+        _ => p.player_speed_model,
+    };
     p.weakest_target_metric = match str_or(&formulas, "weakestTargetMetric", "").as_str() {
         "current" | "currentHp" => WeakestTargetMetric::CurrentHp,
         "max" | "maxHp" => WeakestTargetMetric::MaxHp,
@@ -571,6 +637,27 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         };
     }
 
+    if let Ok(Value::Table(dmg)) = formulas.get::<Value>("damageTuning") {
+        p.damage_probe = DamageProbeTuning {
+            skill_mult: num_or(lua, &dmg, "skillMult", p.damage_probe.skill_mult as i64).max(0) as i32,
+            skill_base: num_or(lua, &dmg, "skillBase", p.damage_probe.skill_base as i64).max(0) as i32,
+            random_max: num_or(lua, &dmg, "randomMax", p.damage_probe.random_max as i64)
+                .clamp(1, i32::MAX as i64) as i32,
+        };
+    }
+    if let Ok(Value::Table(ar)) = formulas.get::<Value>("armorTuning") {
+        p.armor_random = ArmorRandomTuning {
+            min_armor_for_random: num_or(
+                lua,
+                &ar,
+                "minArmorForRandom",
+                p.armor_random.min_armor_for_random as i64,
+            )
+            .max(0) as i32,
+            divisor: num_or(lua, &ar, "divisor", p.armor_random.divisor as i64).max(1) as i32,
+        };
+    }
+
     if let Ok(Value::Table(pvp)) = formulas.get::<Value>("pvpExpCap") {
         p.pvp_exp_cap_num = num_or(lua, &pvp, "num", p.pvp_exp_cap_num as i64).max(0) as u32;
         p.pvp_exp_cap_den = num_or(lua, &pvp, "den", p.pvp_exp_cap_den as i64).max(1) as u32;
@@ -608,10 +695,10 @@ mod tests {
         let p = MechanicsProfile::for_version(ProtocolVersion::V772);
         assert_eq!(p.beat_ms, 200);
         assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
-        assert_eq!(p.attack_speed_ms, 2000);
+        assert_eq!(p.attack_speed_ms, 0);
         assert_eq!(p.armor, ArmorReduction::Randomized);
         assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
-        assert_eq!(p.distance_keep, DistanceKeep::Fixed(4));
+        assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
         assert_eq!(p.level_exp, LevelExpModel::CipSoftPoly);
         assert_eq!(p.step_speed, StepSpeedModel::CipSoft);

@@ -175,6 +175,23 @@ impl Player {
         }
     }
 
+    /// Remove experience and apply level-down recalculation (`Player::removeExperience`-style outcome).
+    pub fn remove_experience(&mut self, amount: u64, step_speed_model: crate::formulas::StepSpeedModel) {
+        self.experience = self.experience.saturating_sub(amount);
+        while self.level > 1 && self.experience < total_experience_for_level(self.level as u32) {
+            self.level -= 1;
+            let (max_hp, max_mana, cap) = recalculate_vitals(self.vocation_id, self.level);
+            self.base.max_health = max_hp;
+            self.base.health = self.base.health.min(max_hp).max(1);
+            self.max_mana = max_mana;
+            self.mana = self.mana.min(max_mana);
+            self.capacity = cap;
+            let sp = base_walk_speed(step_speed_model, self.vocation_id, self.level);
+            self.base.speed = sp;
+            self.base.base_speed = sp;
+        }
+    }
+
     pub fn exp_to_next_level(&self) -> u64 {
         experience_to_next_level(self.level)
     }

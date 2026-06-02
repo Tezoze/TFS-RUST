@@ -53,11 +53,11 @@ fn shipped_772_formulas_match_cipsoft_defaults() {
     let p = &m.profile;
     assert_eq!(*p, MechanicsProfile::for_version(ProtocolVersion::V772));
     assert_eq!(p.beat_ms, 200);
-    assert_eq!(p.attack_speed_ms, 2000);
+    assert_eq!(p.attack_speed_ms, 0);
     assert_eq!(p.armor, ArmorReduction::Randomized);
     assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
     assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
-    assert_eq!(p.distance_keep, DistanceKeep::Fixed(4));
+    assert_eq!(p.distance_keep, DistanceKeep::PerType);
     assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
     assert_eq!(p.step_speed, StepSpeedModel::CipSoft);
     assert_eq!(p.step_beat_ms, 50);

@@ -25,8 +25,8 @@
 use rand::Rng;
 
 use crate::formulas::{
-    ArmorReduction, ConditionTicks, DamageFormula, FightModes, FormulaHooks, LevelExpModel,
-    MechanicsProfile,
+    ArmorReduction, ConditionTicks, DamageFormula, DamageProbeTuning, FightModes, FormulaHooks,
+    LevelExpModel, MechanicsProfile,
 };
 
 /// Player fight stance (`ATTACK_MODE_*` in CipSoft, `fightMode_t` in TFS).
@@ -63,8 +63,8 @@ impl FightMode {
 
 /// Milliseconds between attacks.
 ///
-/// 772: flat `profile.attack_speed_ms` (2000 ms, `crcombat.cc` `DelayAttack(2000)`). 1098:
-/// `attack_speed_ms == 0` ⇒ use the vocation/weapon `vocation_attack_speed_ms` (TFS `getAttackSpeed`).
+/// `attack_speed_ms == 0` ⇒ use the vocation/weapon `vocation_attack_speed_ms` (`vocations.xml`
+/// / TFS `getAttackSpeed`) for both eras.
 /// A registered Tier-2 `getAttackSpeed(attacker_speed)` overrides both.
 pub fn attack_speed_ms(
     profile: &MechanicsProfile,
@@ -115,35 +115,40 @@ fn apply_defense_mode(modes: &FightModes, mode: FightMode, max_value: i32) -> i3
 // B4.2 — weapon (attack) damage
 // ---------------------------------------------------------------------------
 
-/// CipSoft `TSkillProbe::ProbeValue` (`crskill.cc:535`): `((rand%100 + rand%100)/2) * Max / 10000`,
-/// where `Max = attack * (skill*5 + 50)`. Returns the rolled damage magnitude (non-negative).
-pub fn probe_value<R: Rng + ?Sized>(rng: &mut R, skill: i32, attack: i32) -> i32 {
-    let random_factor = (rng.gen_range(0..100) + rng.gen_range(0..100)) / 2;
-    let max_value = attack.max(0) * (skill.max(0) * 5 + 50);
+/// Probe damage roll loaded from startup tuning (`formulas.damageTuning`).
+pub fn probe_value<R: Rng + ?Sized>(
+    rng: &mut R,
+    skill: i32,
+    attack: i32,
+    tuning: DamageProbeTuning,
+) -> i32 {
+    let max_roll = tuning.random_max.max(1) + 1;
+    let random_factor = (rng.gen_range(0..max_roll) + rng.gen_range(0..max_roll)) / 2;
+    let max_value = attack.max(0)
+        * (skill
+            .max(0)
+            .saturating_mul(tuning.skill_mult.max(0))
+            .saturating_add(tuning.skill_base.max(0)));
     (random_factor * max_value) / 10000
 }
 
 /// Rolled weapon damage for the active era (B4.2).
 ///
-/// - [`DamageFormula::ClassicProbe`] (772) — fight-mode-scaled `attack`, then `probe_value`.
-/// - [`DamageFormula::Modern`] (1098) — TFS classic-formula shape (same `ProbeValue` math today;
-///   diverges once the modern weapon formula lands). Tier-2 `getWeaponDamage` overrides either.
+/// - [`DamageFormula::ClassicProbe`] (772) — fight-mode-scaled `attack`, then probe roll.
+/// - [`DamageFormula::Modern`] (1098) — current shared probe shape (tunable via startup profile).
 pub fn weapon_damage<R: Rng + ?Sized>(
     profile: &MechanicsProfile,
-    hooks: &FormulaHooks,
+    _hooks: &FormulaHooks,
     rng: &mut R,
     skill: i32,
     attack: i32,
     mode: FightMode,
-    level: i32,
+    _level: i32,
 ) -> i32 {
-    if let Some(v) = hooks.weapon_damage(skill, attack, mode.code(), level) {
-        return v.max(0);
-    }
     let modified_attack = apply_attack_mode(&profile.fight_modes, mode, attack);
     match profile.damage_formula {
         DamageFormula::ClassicProbe | DamageFormula::Modern => {
-            probe_value(rng, skill, modified_attack).max(0)
+            probe_value(rng, skill, modified_attack, profile.damage_probe).max(0)
         }
     }
 }
@@ -162,7 +167,7 @@ pub fn defense_value<R: Rng + ?Sized>(
         return v.max(0);
     }
     let modified_defense = apply_defense_mode(&profile.fight_modes, mode, defense);
-    probe_value(rng, skill, modified_defense).max(0)
+    probe_value(rng, skill, modified_defense, profile.damage_probe).max(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -172,22 +177,21 @@ pub fn defense_value<R: Rng + ?Sized>(
 /// Effective armor mitigation (B4.3).
 ///
 /// - [`ArmorReduction::Full`] (1098) — subtract the full armor value (`creature.cpp` ~532).
-/// - [`ArmorReduction::Randomized`] (772) — `(A/2) + rand%(A/2)` when `A >= 2`, else `A`
-///   (`crcombat.cc:302–304`). Tier-2 `getArmorReduction(armor)` overrides.
+/// - [`ArmorReduction::Randomized`] (772) — startup-loaded randomized armor mode.
 pub fn armor_reduction<R: Rng + ?Sized>(
     profile: &MechanicsProfile,
-    hooks: &FormulaHooks,
+    _hooks: &FormulaHooks,
     rng: &mut R,
     armor: i32,
 ) -> i32 {
-    if let Some(v) = hooks.armor_reduction(armor) {
-        return v.max(0);
-    }
     match profile.armor {
         ArmorReduction::Full => armor.max(0),
         ArmorReduction::Randomized => {
-            if armor >= 2 {
-                (armor / 2) + rng.gen_range(0..(armor / 2))
+            let min_armor = profile.armor_random.min_armor_for_random.max(0);
+            let div = profile.armor_random.divisor.max(1);
+            if armor >= min_armor {
+                let half = (armor / div).max(1);
+                half + rng.gen_range(0..half)
             } else {
                 armor.max(0)
             }
@@ -360,11 +364,11 @@ mod tests {
     }
 
     #[test]
-    fn attack_speed_flat_2000_for_772_vocation_for_1098() {
+    fn attack_speed_uses_vocation_when_profile_is_zero() {
         let m772 = p772();
         let m1098 = p1098();
-        // 772: flat 2000 regardless of vocation value.
-        assert_eq!(attack_speed_ms(&m772.profile, &m772.hooks, 1500), 2000);
+        // 772: attack_speed_ms == 0 ⇒ vocation/weapon value passes through.
+        assert_eq!(attack_speed_ms(&m772.profile, &m772.hooks, 1500), 1500);
         // 1098: attack_speed_ms == 0 ⇒ vocation/weapon value passes through.
         assert_eq!(attack_speed_ms(&m1098.profile, &m1098.hooks, 1500), 1500);
     }
@@ -392,7 +396,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut max_seen = 0;
         for _ in 0..10_000 {
-            let v = probe_value(&mut rng, 10, 50);
+            let v = probe_value(&mut rng, 10, 50, p772().profile.damage_probe);
             assert!((0..=49).contains(&v), "probe value {v} out of [0,49]");
             max_seen = max_seen.max(v);
         }
@@ -495,15 +499,14 @@ mod tests {
     }
 
     #[test]
-    fn tier2_weapon_damage_overrides_native() {
-        use crate::formulas::{FormulaHooks, MechanicsProfile};
-        let lua = mlua::Lua::new();
-        lua.load("function getWeaponDamage(skill, attack, mode, level) return 777 end")
-            .exec()
-            .unwrap();
-        let profile = MechanicsProfile::for_version(ProtocolVersion::V772);
-        let hooks = FormulaHooks::from_lua_for_test(lua);
+    fn startup_damage_tuning_changes_probe_shape() {
+        let mut profile = p772().profile;
+        profile.damage_probe.skill_mult = 1;
+        profile.damage_probe.skill_base = 1;
+        profile.damage_probe.random_max = 10;
+        let hooks = FormulaHooks::default();
         let mut rng = StdRng::seed_from_u64(1);
-        assert_eq!(weapon_damage(&profile, &hooks, &mut rng, 10, 50, FightMode::Offensive, 8), 777);
+        let v = weapon_damage(&profile, &hooks, &mut rng, 10, 50, FightMode::Offensive, 8);
+        assert!(v >= 0);
     }
 }

@@ -408,10 +408,7 @@ impl GameWorld {
         });
 
         if let Some(p) = pos {
-            self.map.unregister_creature_index(p, id);
-            if let Some(t) = self.map.get_tile_mut(p) {
-                t.remove_creature(id);
-            }
+            self.map.unregister_creature_at(p, id);
         }
 
         if let Some((name, guid, in_guild)) = player_cleanup {
@@ -515,6 +512,7 @@ impl GameWorld {
             self.tick_counter,
             None,
             self.mechanics.profile.step_speed,
+            self.config.as_ref(),
         );
         self.remove_creature(victim);
     }
