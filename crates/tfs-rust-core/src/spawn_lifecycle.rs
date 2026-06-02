@@ -477,10 +477,7 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(pos);
         }
-        self.map.register_creature_index(pos, cid);
-        if let Some(t) = self.map.get_tile_mut(pos) {
-            t.add_creature(cid);
-        }
+        self.map.register_creature_at(pos, cid);
         true
     }
 

@@ -215,3 +215,9 @@ becomes a `MechanicsProfile` field / `data/formulas/<v>.lua` value (R11) — nev
 - [x] B5.2 Lessons captured (`tasks/lessons.md` #30); CipSoft↔TFS deviations documented (exp polynomial shared; beat/attack/armor/fight-mode differ).
 
 Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core --all-targets && cargo test -p tfs-rust-core`; 1098 outcomes unchanged.
+
+## 772 formulas API follow-up
+- [x] Add concrete Tier-2 Lua hook templates in `data/formulas/772.lua` so shard owners can tune actual formulas directly.
+- [x] Make 772 attack cadence draw from vocation/weapon speed (`vocations.xml` path) instead of fixed `attackSpeedMs = 2000`.
+- [x] Update/adjust combat formula tests for the new 772 attack-speed behavior.
+- [x] Run `cargo test -p tfs-rust-core combat::math` and capture any follow-up lesson.

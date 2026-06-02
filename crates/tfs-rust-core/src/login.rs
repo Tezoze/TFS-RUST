@@ -227,11 +227,7 @@ pub async fn login_player(
     // GAME THREAD ONLY
     world.player_by_name.insert(key, cid);
     world.player_by_guid.insert(guid, cid);
-    world.map.register_creature_index(pos, cid);
-    // TFS `Tile::internalAddThing` / creature on tile — must match `queryAdd` creature checks (`tile.cpp`).
-    if let Some(t) = world.map.get_tile_mut(pos) {
-        t.add_creature(cid);
-    }
+    world.map.register_creature_at(pos, cid);
     world.monster_notify_creature_enter_viewport(cid, pos);
 
     let guild_opt = world.creatures.get(cid).and_then(|k| match k {

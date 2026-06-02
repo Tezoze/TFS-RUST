@@ -3,7 +3,7 @@
 
 use crate::ids::{CreatureId, ItemId};
 use crate::thing::LookTarget;
-use tfs_rust_common::{enums::ZoneType, Position};
+use tfs_rust_common::enums::ZoneType;
 
 /// TFS `tileflags_t` (`src/tile.h`) — runtime tile state bitfield.
 /// C++ ref: src/tile.h:23-52
@@ -51,7 +51,6 @@ pub mod flags {
 
 #[derive(Debug, Clone)]
 pub struct TileBody {
-    pub position: Position,
     pub ground: Option<u16>,
     /// Non-ground items below creatures on the wire (`Tile::getBeginDownItem`, `src/tile.cpp`).
     pub down_items: Vec<ItemId>,
@@ -60,6 +59,19 @@ pub struct TileBody {
     pub creatures: Vec<CreatureId>,
     pub flags: u32,
     pub zone: ZoneType,
+}
+
+impl TileBody {
+    pub fn new() -> Self {
+        Self {
+            ground: None,
+            down_items: Vec::new(),
+            top_items: Vec::new(),
+            creatures: Vec::new(),
+            flags: 0,
+            zone: ZoneType::Normal,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -76,11 +88,8 @@ pub enum Tile {
 }
 
 impl Tile {
-    pub fn position(&self) -> Position {
-        match self {
-            Tile::Normal(t) => t.position,
-            Tile::House(h) => h.inner.position,
-        }
+    pub fn empty_normal() -> Self {
+        Tile::Normal(TileBody::new())
     }
 
     pub fn body_mut(&mut self) -> &mut TileBody {
@@ -313,7 +322,6 @@ mod look_tests {
 
     fn tile_body(ground: Option<u16>, down: Vec<ItemId>, top: Vec<ItemId>, creatures: Vec<CreatureId>) -> TileBody {
         TileBody {
-            position: Position::new(100, 100, 7),
             ground,
             down_items: down,
             top_items: top,

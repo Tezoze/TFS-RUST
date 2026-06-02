@@ -18,6 +18,8 @@ mlua = { workspace = true }
 rand = "0.8"
 bitflags = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rustc-hash = "1"
+smallvec = { version = "1", features = ["union"] }
 
 [dev-dependencies]
 proptest = "1.4"

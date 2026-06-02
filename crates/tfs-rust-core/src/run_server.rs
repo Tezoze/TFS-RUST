@@ -225,19 +225,12 @@ pub async fn run() -> anyhow::Result<()> {
         mechanics,
     );
     world.startup_spawns();
-    let tile_stack_refs: usize = world
-        .map
-        .tiles
-        .values()
-        .map(|t| {
-            let b = t.body();
-            b.down_items.len() + b.top_items.len()
-        })
-        .sum();
     info!(
-        map_tiles = world.map.tiles.len(),
+        map_chunks = world.map.grid.chunk_count(),
+        map_tiles = world.map.grid.populated_tile_count(),
+        tile_stack_item_refs = world.map.grid.tile_stack_item_refs(),
+        map_chunk_slots_per_chunk = crate::map::CHUNK_AREA,
         items_slotmap = world.items.len(),
-        tile_stack_item_refs = tile_stack_refs,
         creatures_slotmap = world.creatures.len(),
         spawn_slots = world.spawns.slots.len(),
         "GameWorld ready — steady-state entity counts (RSS diagnostic; compare to `ps` after load)"

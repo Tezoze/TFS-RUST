@@ -37,10 +37,8 @@ fn unknown_house_id_is_not_restricted() {
 fn map_find_item_position_finds_down_item() {
     let mut items: SlotMap<ItemId, u8> = SlotMap::with_key();
     let iid = items.insert(0);
-    let mut tiles = std::collections::HashMap::new();
     let pos = Position::new(10, 20, 7);
     let body = tfs_rust_core::tile::TileBody {
-        position: pos,
         ground: Some(100),
         down_items: vec![iid],
         top_items: Vec::new(),
@@ -48,14 +46,13 @@ fn map_find_item_position_finds_down_item() {
         flags: 0,
         zone: ZoneType::Normal,
     };
-    tiles.insert(pos, tfs_rust_core::tile::Tile::Normal(body));
-    let m = Map {
+    let mut m = Map {
         width: 100,
         height: 100,
-        tiles,
-        qtrees: std::collections::HashMap::new(),
+        grid: tfs_rust_core::map::SparseGrid::new(),
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
     };
+    m.insert_tile(pos, tfs_rust_core::tile::Tile::Normal(body));
     assert_eq!(m.find_item_position(iid), Some(pos));
 }

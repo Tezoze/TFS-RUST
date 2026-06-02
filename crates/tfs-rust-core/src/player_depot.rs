@@ -377,10 +377,9 @@ mod tests {
     fn is_near_depot_box_detects_depot_tile_flag() {
         let mut world = minimal_world();
         let pos = Position::new(100, 100, 7);
-        world.map.tiles.insert(
+        world.map.insert_tile(
             pos,
             Tile::Normal(TileBody {
-                position: pos,
                 ground: Some(100),
                 down_items: Vec::new(),
                 top_items: Vec::new(),

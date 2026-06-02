@@ -522,17 +522,17 @@ impl GameWorld {
 
     /// C++ `Map::getSpectators` — spatial viewport box only (`map.cpp` ~386–474).
     /// Used for move/appear fan-out; per-creature `canSee` is checked in `Monster::onCreatureMove`.
-    fn collect_spatial_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
+    fn collect_spatial_spectators(&self, center: Position, multifloor: bool) -> Vec<CreatureId> {
         let mut out = Vec::new();
         for z in Self::spectator_z_range(center.z, multifloor) {
-            // Only query floors that already have a spatial index (creatures registered via
-            // `register_creature_index`). `qtree_mut` would `QTreeNode::build(0,0,width,height)` on
-            // first touch — ~seconds on Forgotten-sized maps when multifloor login scans z=0..=9.
-            let Some(q) = self.map.qtrees.get_mut(&z) else {
-                continue;
-            };
-            let query_center = Position::new(center.x, center.y, z);
-            out.extend(q.get_spectators(query_center, MAP_MAX_VIEWPORT));
+            self.map.grid.collect_spectators(
+                center.x,
+                center.y,
+                z,
+                MAP_MAX_VIEWPORT,
+                MAP_MAX_VIEWPORT,
+                &mut out,
+            );
         }
         out.sort_by_key(|id| id.data().as_ffi());
         out.dedup();
@@ -1567,10 +1567,7 @@ impl GameWorld {
         if old_pos == spawn {
             return;
         }
-        if let Some(t) = self.map.get_tile_mut(old_pos) {
-            t.remove_creature(cid);
-        }
-        self.map.unregister_creature_index(old_pos, cid);
+        self.map.unregister_creature_at(old_pos, cid);
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.base.position = spawn;
             m.base.walk_queue.clear();
@@ -1579,10 +1576,7 @@ impl GameWorld {
             m.is_idle = true;
             m.walking_to_spawn = false;
         }
-        if let Some(t) = self.map.get_tile_mut(spawn) {
-            t.add_creature(cid);
-        }
-        self.map.register_creature_index(spawn, cid);
+        self.map.register_creature_at(spawn, cid);
     }
 
     fn monster_can_walk_to(&self, cid: CreatureId, from: Position, dir: Direction) -> bool {
@@ -1756,10 +1750,7 @@ mod world_tests {
             MonsterAiConfig::default(),
         );
         let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_index(ppos, player);
-        if let Some(t) = world.map.get_tile_mut(ppos) {
-            t.add_creature(player);
-        }
+        world.map.register_creature_at(ppos, player);
         world.monster_on_creature_appear_self(monster);
 
         assert!(
@@ -1811,10 +1802,7 @@ mod world_tests {
             MonsterAiConfig::default(),
         );
         let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_index(ppos, player);
-        if let Some(t) = world.map.get_tile_mut(ppos) {
-            t.add_creature(player);
-        }
+        world.map.register_creature_at(ppos, player);
 
         world.monster_on_creature_appear_self(monster);
         assert_eq!(
@@ -1846,14 +1834,8 @@ mod world_tests {
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.base.position = ppos_moved;
         }
-        world.map.unregister_creature_index(ppos, player);
-        if let Some(t) = world.map.get_tile_mut(ppos) {
-            t.remove_creature(player);
-        }
-        world.map.register_creature_index(ppos_moved, player);
-        if let Some(t) = world.map.get_tile_mut(ppos_moved) {
-            t.add_creature(player);
-        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_moved, player);
         world.monster_dispatch_creature_move(player, ppos, ppos_moved);
 
         assert_eq!(
@@ -1903,22 +1885,13 @@ mod world_tests {
             MonsterAiConfig::default(),
         );
         let player = insert_player(&mut world, test_player("Hero", far));
-        world.map.register_creature_index(far, player);
-        if let Some(t) = world.map.get_tile_mut(far) {
-            t.add_creature(player);
-        }
+        world.map.register_creature_at(far, player);
 
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.base.position = near;
         }
-        world.map.unregister_creature_index(far, player);
-        if let Some(t) = world.map.get_tile_mut(far) {
-            t.remove_creature(player);
-        }
-        world.map.register_creature_index(near, player);
-        if let Some(t) = world.map.get_tile_mut(near) {
-            t.add_creature(player);
-        }
+        world.map.unregister_creature_at(far, player);
+        world.map.register_creature_at(near, player);
         world.monster_dispatch_creature_move(player, far, near);
 
         assert!(
@@ -2018,10 +1991,7 @@ mod world_tests {
             MonsterAiConfig::default(),
         );
         let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_index(ppos, player);
-        if let Some(t) = world.map.get_tile_mut(ppos) {
-            t.add_creature(player);
-        }
+        world.map.register_creature_at(ppos, player);
 
         world.monster_update_target_list(monster);
 
@@ -2052,10 +2022,7 @@ mod world_tests {
             MonsterAiConfig::default(),
         );
         let player = insert_player(&mut world, test_player("Hero", near));
-        world.map.register_creature_index(near, player);
-        if let Some(t) = world.map.get_tile_mut(near) {
-            t.add_creature(player);
-        }
+        world.map.register_creature_at(near, player);
         world.monster_on_creature_appear_self(monster);
         assert!(
             world
@@ -2068,14 +2035,8 @@ mod world_tests {
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.base.position = far;
         }
-        world.map.unregister_creature_index(near, player);
-        if let Some(t) = world.map.get_tile_mut(near) {
-            t.remove_creature(player);
-        }
-        world.map.register_creature_index(far, player);
-        if let Some(t) = world.map.get_tile_mut(far) {
-            t.add_creature(player);
-        }
+        world.map.unregister_creature_at(near, player);
+        world.map.register_creature_at(far, player);
 
         world.monster_update_target_list(monster);
 

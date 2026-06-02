@@ -1,8 +1,8 @@
-//! Game map: tiles, quadtree per floor, LOS helpers.
+//! Game map: sparse chunk grid, LOS helpers.
 // C++ reference: `map.h` / `map.cpp`.
 
+mod grid;
 mod los;
-pub mod qtree;
 
 use std::collections::HashMap;
 
@@ -16,83 +16,55 @@ use crate::item::Item;
 use crate::tile::HouseTile;
 use crate::tile::{flags, Tile, TileBody};
 
-use self::qtree::QTreeNode;
-
+pub use grid::{position_at, SparseGrid, CHUNK_AREA, CHUNK_SIZE};
 pub use los::walk_grid_line;
 
-/// Runtime map state (tiles + spatial indices per floor).
+/// Runtime map state (sparse chunk grid + metadata).
 #[derive(Debug)]
 pub struct Map {
     pub width: u16,
     pub height: u16,
-    /// Tiles that exist in the OTBM (sparse).
-    pub tiles: HashMap<Position, Tile>,
-    /// Spectator quadtree per floor `z`.
-    pub qtrees: HashMap<u8, QTreeNode>,
+    pub grid: SparseGrid,
     pub towns: HashMap<u32, tfs_rust_content::otbm::TownData>,
     pub waypoints: HashMap<String, Position>,
 }
 
 impl Map {
     /// Build runtime tiles from parsed OTBM (`IOMap::parseTileArea` + `Tile::internalAddThing` — `src/iomap.cpp`, `src/tile.cpp`).
-    /// 
+    ///
     /// DEVIATION FROM C++: Creates actual Item instances in the items SlotMap instead of
     /// just storing raw item types. This is required for the new item system.
     pub fn from_map_data(data: MapData, items_db: &ItemDatabase, items: &mut SlotMap<ItemId, Item>) -> Self {
-        let mut tiles: HashMap<Position, Tile> = HashMap::new();
+        let mut grid = SparseGrid::new();
         for (pos, td) in data.tiles {
-            tiles.insert(pos, tile_from_data(td, items_db, items));
+            let tile = tile_from_data(td, items_db, items);
+            grid.insert_tile(pos.x, pos.y, pos.z, tile);
         }
-        let mut qtrees = HashMap::new();
-        qtrees.insert(
-            0,
-            QTreeNode::build(
-                0,
-                0,
-                data.width.saturating_sub(1),
-                data.height.saturating_sub(1),
-            ),
-        );
-        // Additional floors: build lazily in later phases when underground layers are tracked.
         Self {
             width: data.width,
             height: data.height,
-            tiles,
-            qtrees,
+            grid,
             towns: data.towns,
             waypoints: data.waypoints,
         }
     }
 
+    pub fn insert_tile(&mut self, pos: Position, tile: Tile) {
+        self.grid.insert_tile(pos.x, pos.y, pos.z, tile);
+    }
+
     pub fn get_tile(&self, pos: Position) -> Option<&Tile> {
-        self.tiles.get(&pos)
+        self.grid.get_tile(pos.x, pos.y, pos.z)
     }
 
     pub fn get_tile_mut(&mut self, pos: Position) -> Option<&mut Tile> {
-        self.tiles.get_mut(&pos)
+        self.grid.get_tile_mut(pos.x, pos.y, pos.z)
     }
 
     /// Find a tile that holds `item_id` (down or top stack). Used for house / auto-close checks.
     // C++ ref: `Thing::getTile` / map item position queries (`game.cpp`).
     pub fn find_item_position(&self, item_id: ItemId) -> Option<Position> {
-        for tile in self.tiles.values() {
-            if tile.has_item(item_id) {
-                return Some(tile.position());
-            }
-        }
-        None
-    }
-
-    pub fn qtree_mut(&mut self, z: u8) -> &mut QTreeNode {
-        let w = self.width.saturating_sub(1);
-        let h = self.height.saturating_sub(1);
-        self.qtrees
-            .entry(z)
-            .or_insert_with(|| QTreeNode::build(0, 0, w, h))
-    }
-
-    pub fn qtree(&self, z: u8) -> Option<&QTreeNode> {
-        self.qtrees.get(&z)
+        self.grid.find_item_position(item_id)
     }
 
     /// True if tile blocks movement (no tile = blocked).
@@ -115,6 +87,32 @@ impl Map {
             None => true,
         }
     }
+
+    /// Update tile stack + chunk spatial index (`Map::moveCreature` creature lists — `map.cpp`).
+    pub fn register_creature_at(&mut self, pos: Position, id: CreatureId) {
+        if let Some(t) = self.get_tile_mut(pos) {
+            let body = t.body();
+            if !body.creatures.contains(&id) {
+                t.add_creature(id);
+            }
+        }
+        self.grid.register_creature(pos.x, pos.y, pos.z, id);
+    }
+
+    pub fn unregister_creature_at(&mut self, pos: Position, id: CreatureId) {
+        if let Some(t) = self.get_tile_mut(pos) {
+            t.remove_creature(id);
+        }
+        self.grid.unregister_creature(pos.x, pos.y, pos.z, id);
+    }
+
+    pub fn move_creature_index(&mut self, from: Position, to: Position, id: CreatureId) {
+        self.grid.move_creature(
+            from.x, from.y, from.z,
+            to.x, to.y, to.z,
+            id,
+        );
+    }
 }
 
 /// C++ `Tile::internalAddThing` for item ids (`src/tile.cpp`).
@@ -133,13 +131,11 @@ fn internal_add_item_id(
         return;
     }
 
-    // Create an actual Item instance for this tile item
     let item = Item::new_single(id);
     let item_id = items.insert(item);
 
     let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);
     if always_on_top {
-        // For top items, we need to sort by order - simplified for now
         body.top_items.push(item_id);
     } else {
         body.down_items.insert(0, item_id);
@@ -149,7 +145,6 @@ fn internal_add_item_id(
 /// Convert raw OTBM tile flags to TILESTATE flags.
 /// C++ ref: src/iomap.cpp:270-280 — OTBM zone flags use a different bit layout than runtime TILESTATE.
 fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
-    // C++ ref: src/iomap.h:59-64
     const OTBM_TILEFLAG_PROTECTIONZONE: u32 = 1 << 0;
     const OTBM_TILEFLAG_NOPVPZONE: u32 = 1 << 2;
     const OTBM_TILEFLAG_NOLOGOUT: u32 = 1 << 3;
@@ -158,7 +153,6 @@ fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
     let mut tileflags = 0u32;
     let mut zone = tfs_rust_common::ZoneType::Normal;
 
-    // C++ uses `else if` for zones — only one zone type per tile.
     if otbm_flags & OTBM_TILEFLAG_PROTECTIONZONE != 0 {
         tileflags |= flags::PROTECTIONZONE;
         zone = tfs_rust_common::ZoneType::Protection;
@@ -184,13 +178,11 @@ fn apply_item_tile_flags(
     item_type: &tfs_rust_content::otb::ItemType,
     items_db: &ItemDatabase,
 ) {
-    // Floorchange — C++ `ItemType::floorChange` bitmask → tile state (`tile.cpp` / `setTileFlags`).
     if body.flags & flags::FLOORCHANGE == 0 {
         let typed = u32::from(item_type.floor_change);
         if typed != 0 {
             body.flags |= typed;
         } else if let Some(fc) = item_type.xml_attributes.get("floorchange") {
-            // Legacy: single string in `xml_attributes` (last key wins; prefer typed `floor_change` from items.xml).
             let fc_flag = match fc.as_str() {
                 "down" => flags::FLOORCHANGE_DOWN,
                 "north" => flags::FLOORCHANGE_NORTH,
@@ -205,24 +197,18 @@ fn apply_item_tile_flags(
         }
     }
 
-    // CONST_PROP_BLOCKSOLID — `blockSolid && !moveable` (immovable) or `blockSolid` (any).
-    // C++ `hasProperty(CONST_PROP_BLOCKSOLID)` = `blockSolid`.
     if item_type.block_solid() {
         body.flags |= flags::BLOCKSOLID;
     }
 
-    // CONST_PROP_IMMOVABLEBLOCKSOLID — `blockSolid && !moveable`.
     if item_type.block_solid() && !item_type.moveable() {
         body.flags |= flags::IMMOVABLEBLOCKSOLID;
     }
 
-    // CONST_PROP_BLOCKPATH — `blockPathFind`.
     if item_type.block_path_find() {
         body.flags |= flags::BLOCKPATH;
     }
 
-    // C++ `Item::hasProperty` — `item.cpp` ~923–924; `Tile::setTileFlags` ~1495–1500.
-    // Non-field items with `blockPathFind` set both NOFIELDBLOCKPATH and (when immovable) IMMOVABLENOFIELDBLOCKPATH.
     if item_type.block_path_find() {
         body.flags |= flags::NOFIELDBLOCKPATH;
         if !item_type.moveable() {
@@ -230,12 +216,10 @@ fn apply_item_tile_flags(
         }
     }
 
-    // C++ `CONST_PROP_IMMOVABLEBLOCKPATH` — immovable path block without magic field.
     if item_type.block_path_find() && !item_type.moveable() {
         body.flags |= flags::IMMOVABLEBLOCKPATH;
     }
 
-    // C++ `Tile::setTileFlags` — depot locker on tile (`tile.cpp` ~1528).
     if items_db.is_depot(item_type.server_id) {
         body.flags |= flags::DEPOT;
     }
@@ -246,12 +230,9 @@ fn tile_from_data(
     items_db: &ItemDatabase,
     items: &mut SlotMap<ItemId, Item>,
 ) -> Tile {
-    // Convert OTBM flags → TILESTATE (different bit layouts!).
-    // C++ ref: src/iomap.cpp:270-280
     let (converted_flags, zone) = convert_otbm_flags(td.tile_flags);
 
     let mut body = TileBody {
-        position: td.position,
         ground: None,
         down_items: Vec::new(),
         top_items: Vec::new(),
@@ -269,7 +250,6 @@ fn tile_from_data(
             },
         };
 
-        // C++ `Tile::setTileFlags(item)` — apply tile-level flags from each item's properties.
         if let Some(item_type) = items_db.items.get(&id) {
             apply_item_tile_flags(&mut body, item_type, items_db);
         }
@@ -293,36 +273,5 @@ fn tile_from_data(
         })
     } else {
         Tile::Normal(body)
-    }
-}
-
-impl Map {
-    pub fn register_creature_index(&mut self, pos: Position, id: CreatureId) {
-        let w = self.width.saturating_sub(1);
-        let h = self.height.saturating_sub(1);
-        let q = self
-            .qtrees
-            .entry(pos.z)
-            .or_insert_with(|| QTreeNode::build(0, 0, w, h));
-        q.insert_creature(pos, id);
-    }
-
-    pub fn move_creature_index(&mut self, from: Position, to: Position, id: CreatureId) {
-        if let Some(q) = self.qtrees.get_mut(&from.z) {
-            q.remove_creature(from, id);
-        }
-        let w = self.width.saturating_sub(1);
-        let h = self.height.saturating_sub(1);
-        let q = self
-            .qtrees
-            .entry(to.z)
-            .or_insert_with(|| QTreeNode::build(0, 0, w, h));
-        q.insert_creature(to, id);
-    }
-
-    pub fn unregister_creature_index(&mut self, pos: Position, id: CreatureId) {
-        if let Some(q) = self.qtrees.get_mut(&pos.z) {
-            q.remove_creature(pos, id);
-        }
     }
 }

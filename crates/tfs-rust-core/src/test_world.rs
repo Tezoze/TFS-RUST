@@ -25,7 +25,7 @@ pub mod support {
     use crate::event_dispatcher::{EventDispatcher, NullEventDispatcher};
     use crate::game_world::GameWorld;
     use crate::ids::CreatureId;
-    use crate::map::Map;
+    use crate::map::{Map, SparseGrid};
     use crate::spawn::SpawnManager;
     use tfs_rust_content::monsters::MonsterDatabase;
     use crate::tile::{Tile, TileBody};
@@ -246,8 +246,7 @@ freePremium = false
         let mut map = Map {
             width: 256,
             height: 256,
-            tiles: HashMap::new(),
-            qtrees: HashMap::new(),
+            grid: SparseGrid::new(),
             towns: HashMap::new(),
             waypoints: HashMap::new(),
         };
@@ -290,10 +289,9 @@ freePremium = false
 
     /// Walkable ground tile for walk / pathfinding tests.
     pub fn ensure_walkable_tile(map: &mut Map, pos: Position, ground_type: u16) {
-        map.tiles.insert(
+        map.insert_tile(
             pos,
             Tile::Normal(TileBody {
-                position: pos,
                 ground: Some(ground_type),
                 down_items: Vec::new(),
                 top_items: Vec::new(),
@@ -349,10 +347,7 @@ freePremium = false
         let cid = world
             .creatures
             .insert(CreatureKind::Monster(Monster::with_config(base, pos, config)));
-        world.map.register_creature_index(pos, cid);
-        if let Some(t) = world.map.get_tile_mut(pos) {
-            t.add_creature(cid);
-        }
+        world.map.register_creature_at(pos, cid);
         cid
     }
 
@@ -392,10 +387,7 @@ freePremium = false
             base,
             npc_type_id: 0,
         }));
-        world.map.register_creature_index(pos, cid);
-        if let Some(t) = world.map.get_tile_mut(pos) {
-            t.add_creature(cid);
-        }
+        world.map.register_creature_at(pos, cid);
         world.add_creature_think_check(cid);
         cid
     }
@@ -442,10 +434,7 @@ freePremium = false
         let pos = player.base.position;
         let cid = insert_player(world, player);
         world.conn_to_creature.insert(conn_id, cid);
-        world.map.register_creature_index(pos, cid);
-        if let Some(t) = world.map.get_tile_mut(pos) {
-            t.add_creature(cid);
-        }
+        world.map.register_creature_at(pos, cid);
         cid
     }
 }
