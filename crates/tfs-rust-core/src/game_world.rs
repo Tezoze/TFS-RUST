@@ -118,6 +118,9 @@ pub struct GameWorld {
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
     pub monster_world_config: crate::config::MonsterWorldConfig,
+    /// Nesting depth for [`crate::monster_ai::GameWorld::monster_notify_creature_enter_viewport`]
+    /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
+    pub(crate) monster_viewport_notify_depth: u32,
 }
 
 /// C++ `ProtocolGame::canSee(int32_t x, int32_t y, int32_t z)` — `protocolgame.cpp` ~796–823.
@@ -212,21 +215,11 @@ impl GameWorld {
         }
     }
 
-    /// TVP 7.72: standalone `0x6A` includes `stackpos` only for OTClient viewers.
-    /// C++: `player->getOperatingSystem() >= CLIENTOS_OTCLIENT_LINUX` (`protocolgame.cpp` ~1600, ~1718).
-    pub(crate) fn conn_uses_772_otclient_stackpos(&self, conn: ConnId) -> bool {
-        if self.codec.caps().adler_checksum {
-            return false;
-        }
-        let viewer = match self.conn_to_creature.get(&conn) {
-            Some(&v) => v,
-            None => return false,
-        };
-        matches!(
-            self.creatures.get(viewer),
-            Some(CreatureKind::Player(p))
-                if p.operating_system >= tfs_rust_common::CLIENTOS_OTCLIENT_LINUX
-        )
+    /// 7.72 standalone `0x6A`: position → thing only (no `u8` stackpos). Real 7.72 / OTC 772
+    /// use stack priority in `Tile::addThing`; `GameTileAddThingWithStackpos` is 8.41+ in OTCv8.
+    /// `gameserver/` optional stackpos for OTClient is not used here.
+    pub(crate) fn conn_uses_772_otclient_stackpos(&self, _conn: ConnId) -> bool {
+        false
     }
 
     // C++-shaped constructor; mirrors `Game`/`GameWorld` wiring inputs.
@@ -288,6 +281,7 @@ impl GameWorld {
             last_creature_bucket_tick: None,
             spawn_slot_by_creature: HashMap::new(),
             monster_world_config,
+            monster_viewport_notify_depth: 0,
         }
     }
 

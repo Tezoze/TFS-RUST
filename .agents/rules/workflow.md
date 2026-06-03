@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-workflow
-description: Mandatory workflow, planning, task management, and verification rules for TFS.
+trigger: always_on
 ---
 
 # Workflow (Always Follow This Order)

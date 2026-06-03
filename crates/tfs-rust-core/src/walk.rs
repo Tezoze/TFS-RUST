@@ -349,7 +349,8 @@ fn get_walk_delay(
     let gs = if gs == 0 { 150 } else { gs };
     let step_duration =
         get_step_duration(kind, base, gs, mech).saturating_mul(base.last_step_cost as i64);
-    step_duration - elapsed.as_millis() as i64
+    let delay = step_duration - elapsed.as_millis() as i64;
+    delay.max(0)
 }
 
 fn get_event_step_ticks(
@@ -366,10 +367,7 @@ fn get_event_step_ticks(
     }
     let step_duration = get_step_duration(kind, base, ground_speed_next, mech);
     // TFS `getEventStepTicks(onlyDelay)` returns `1` when `getWalkDelay() <= 0` (`creature.cpp` ~1536–1546).
-    // When `walk_delay < 0` the creature is **overdue** — `on_walk` will step immediately; arming `ticks == 1`
-    // here would run `checkCreatureWalk` again in the same burst (log: `walk_delay:-15`, `ticks:1` ~15 ms after
-    // a 300 ms step). Reserve the 1 ms priming arm for the exact fresh boundary (`walk_delay == 0`).
-    if only_delay && step_duration > 0 && walk_delay == 0 {
+    if only_delay && step_duration > 0 {
         1
     } else {
         step_duration * base.last_step_cost as i64
@@ -1710,9 +1708,11 @@ impl GameWorld {
             } else {
                 // TFS: `getNextStep` false → `stopEventWalk`, `onWalkComplete` if queue empty (`src/creature.cpp` ~215–219).
                 self.stop_event_walk(cid);
-                if self.monster_should_keep_dance_walk_alive(cid) {
-                    // C++ still has a pending `eventWalk` task after a failed dance poll; Rust must re-arm
-                    // or the loop dies once the chase path queue is drained.
+                if self.monster_should_keep_chase_walk_alive(cid)
+                    || self.monster_should_keep_dance_walk_alive(cid)
+                {
+                    // C++ keeps polling `getNextStep` while chasing; re-arm when the queue is empty
+                    // but `followCreature` is still set (including `chase_fully_blocked` repaths).
                     self.schedule_walk_followup_deadline(cid);
                 } else {
                     stopped_without_reschedule = true;
@@ -2127,9 +2127,9 @@ mod step_speed_tests {
         );
     }
 
-    /// Overdue `addEventWalk(true)` must not return `ticks == 1` (debug log `walk_delay:-15`).
+    /// Overdue `addEventWalk(true)` (walk_delay <= 0) returns `1` ms to trigger step immediately.
     #[test]
-    fn event_step_ticks_overdue_only_delay_uses_full_step_duration() {
+    fn event_step_ticks_overdue_only_delay_returns_one_ms() {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
@@ -2139,7 +2139,7 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Player(p);
         let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech);
-        assert_eq!(ticks, 300);
+        assert_eq!(ticks, 1);
     }
 
     #[test]

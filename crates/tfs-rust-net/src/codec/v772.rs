@@ -9,9 +9,9 @@
 //!   `sendInventoryItem` (~L1857), `sendAddCreature` self branch / self-appear `0x0A` (~L1694),
 //!   `sendCreatureTurn` (~L1768), `sendCancelWalk` (~L1503), `RemoveTileThing` (~L2161).
 //!
-//! Standalone `0x6A` packets take an optional `stackpos` prefix when `otclient_stackpos` is true
-//! (`gameserver/src/protocolgame.cpp` `sendAddTileItem` ~1600, `sendAddCreature` ~1718). The stock
-//! 7.72 client omits it; OTClient (`operatingSystem >= CLIENTOS_OTCLIENT_LINUX`) requires it.
+//! Standalone `0x6A` is opcode + position + thing (no stackpos byte). Real 7.72 clients place by
+//! stack priority; OTCv8 `GameTileAddThingWithStackpos` is version >= 841 only. `otclient_stackpos`
+//! on the codec API is always false for 772 (TVP `gameserver/` optional byte is not 7.72 wire).
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 

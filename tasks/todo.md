@@ -221,3 +221,13 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] Make 772 attack cadence draw from vocation/weapon speed (`vocations.xml` path) instead of fixed `attackSpeedMs = 2000`.
 - [x] Update/adjust combat formula tests for the new 772 attack-speed behavior.
 - [x] Run `cargo test -p tfs-rust-core combat::math` and capture any follow-up lesson.
+
+## 772 monster distance-fighting follow-up
+- [x] Keep CipSoft-style distance-fighting branch behavior, but center range decisions on monster XML `targetDistance` (no hardcoded 4).
+- [x] When a ranged-distance monster cannot currently use a ranged attack, collapse chase path target range to melee (`max_target_dist = 1`) instead of kiting away.
+- [x] Add regression test to lock the non-attackable ranged chase clamp.
+
+## 772 floor-change invisible-monster — fixed
+- [x] Root cause: erroneous extra `u8` stackpos on 772 standalone `0x6A` (real 7.72 is position → thing only).
+- [x] Fix: `conn_uses_772_otclient_stackpos` always false for 772.
+- [x] Reverted workaround: `evict_known_creatures_in_viewport`, `purge_creature_wire_id_from_all_conns`.

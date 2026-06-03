@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-output-format
-description: Exact response format and style rules for all interactions in the TFS project.
+trigger: always_on
 ---
 
 # Output Format (Always Use This Structure)

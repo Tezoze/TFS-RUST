@@ -1,8 +1,6 @@
 ---
-inclusion: conditional
-name: tfs-wire-codec
-description: How to add wire functions, packets, and encoders behind the ProtocolCodec seam (772 / 1098).
-globs: ["crates/tfs-rust-net/**/*.rs", "crates/tfs-rust-common/src/protocol*.rs"]
+trigger: glob
+globs: crates/tfs-rust-net/**/*.rs, crates/tfs-rust-common/src/protocol*.rs
 ---
 
 # Wire Codec (772 / 1098)

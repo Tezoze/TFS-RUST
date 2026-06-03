@@ -1,8 +1,6 @@
 ---
-inclusion: conditional
-name: tfs-packets
-description: Network protocol encoding standards and zero-copy parsing patterns for Tibia protocol. Applies to the tfs-rust-net crate.
-globs: ["crates/tfs-rust-net/**/*.rs"]
+trigger: glob
+globs: crates/tfs-rust-net/**/*.rs
 ---
 
 # Network Protocol Encoding (Tibia Protocol)

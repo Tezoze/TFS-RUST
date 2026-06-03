@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-threading
-description: Game thread vs I/O thread boundaries and concurrency rules for safe async networking.
+trigger: always_on
 ---
 
 # Threading Model (Game Thread vs I/O Threads)

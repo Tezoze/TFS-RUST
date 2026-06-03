@@ -660,7 +660,7 @@ impl GameWorld {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+use std::collections::HashSet;
     use super::*;
     use crate::spawn::SpawnManager;
     use crate::test_world::support::{

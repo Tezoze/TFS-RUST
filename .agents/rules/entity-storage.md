@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-entity-storage
-description: SlotMap-based entity storage patterns and ID type usage for safe, generational references.
+trigger: always_on
 ---
 
 # Entity Storage (SlotMap and ID Types)

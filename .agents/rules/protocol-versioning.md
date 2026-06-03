@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-protocol-versioning
-description: Two-axis versioning (wire codec + mechanics profile). Where new code goes for 772 vs 1098.
+trigger: always_on
 ---
 
 # Protocol & Mechanics Versioning

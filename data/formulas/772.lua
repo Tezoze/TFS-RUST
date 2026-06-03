@@ -11,6 +11,7 @@ formulas = {
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x
+  distanceKeep = "perType",     -- keep band from each monster's XML targetDistance
   weakestTargetMetric = "currentHp",
   damageFormula = "classic",    -- ProbeValue
   damageTuning = {
@@ -45,7 +46,7 @@ formulas = {
 --
 -- Controls how walk speed scales with level. Set formulas.playerSpeed to one of:
 --
---   "772"      classic CipSoft linear formula (base = 220 + level, eff = 2*base + 80).
+--   "772"      classic 772 linear formula (base = 220 + level, eff = 2*base + 80).
 --              Gets very fast at high levels — breakpoints: 250ms@39, 200ms@114, 150ms@237.
 --
 --   "retail"   1098/TFS logarithmic formula (floor(857.36 * ln(base/2 + 261.29) - 4795.01)).

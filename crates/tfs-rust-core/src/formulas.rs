@@ -284,7 +284,7 @@ impl MechanicsProfile {
                 beat_ms: 50,
                 step_beat_ms: 50,
                 step_speed: StepSpeedModel::TfsLog,
-                player_speed_model: PlayerSpeedModel::EraDefault,
+                player_speed_model: PlayerSpeedModel::Retail1098,
                 path_cost: PathCostModel::Fixed,
                 attack_speed_ms: 0,
                 defense_gate_ms: 2000,

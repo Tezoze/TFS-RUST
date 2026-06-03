@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-code-hygiene
-description: Code hygiene — deduplication, naming, dead-code removal, and reuse of existing helpers.
+trigger: always_on
 ---
 
 # Code Hygiene (Mandatory)

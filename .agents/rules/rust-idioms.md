@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-rust-idioms
-description: Mandatory idiomatic Rust rules and safety standards for all Rust code in the TFS project.
+trigger: always_on
 ---
 
 # Rust Idioms (Mandatory)

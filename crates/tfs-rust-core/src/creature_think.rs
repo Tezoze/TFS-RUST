@@ -2,6 +2,7 @@
 //!
 //! - `Game::checkCreatures` — `game.cpp` (~3819).
 //! - `Creature::onThink` — `creature.cpp` (~123).
+//! - `Creature::onAttacking` / `Monster::doAttacking` — `creature.cpp` (~172), `monster.cpp` (~806).
 //! - `Monster::onThink` / `Npc::onThink` — `monster.cpp` (~732), `npc.cpp` (~606).
 
 use std::time::{Duration, Instant};
@@ -90,13 +91,16 @@ impl GameWorld {
             }
 
             match self.creatures.get(cid) {
-                Some(CreatureKind::Monster(_)) => self.monster_on_think(cid, interval_ms),
+                Some(CreatureKind::Monster(_)) => {
+                    self.monster_on_think(cid, interval_ms);
+                    // C++ `checkCreatures`: `onAttacking` after `onThink` (`game.cpp` ~3837–3840).
+                    if self.creature_alive_for_think(cid) {
+                        self.creature_on_attacking(cid, interval_ms);
+                    }
+                }
                 Some(CreatureKind::Npc(_)) => self.npc_on_think(cid, interval_ms),
                 _ => continue,
             }
-
-            // C++ re-check after onThink — Lua can remove the creature (`game.cpp` ~3837–3839).
-            let _still_alive = self.creatures.contains_key(cid);
         }
     }
 
@@ -134,26 +138,68 @@ impl GameWorld {
             }
         }
 
+        let follow_id = self.creatures.get(cid).and_then(|k| k.base().follow_target);
+        let skip_repath_at_goal = follow_id
+            .is_some_and(|fid| self.monster_should_skip_follow_repath(cid, fid));
+
+        let mut run_follow_repath = false;
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
-            if base.follow_target.is_some() {
+            if let Some(_follow_id) = base.follow_target {
                 base.walk_update_ticks = base.walk_update_ticks.saturating_add(interval_ms);
-                if base.force_update_follow_path
-                    || base.walk_update_ticks >= FOLLOW_PATH_UPDATE_INTERVAL_MS
-                {
+                let wants_repath = base.force_update_follow_path
+                    || base.walk_update_ticks >= FOLLOW_PATH_UPDATE_INTERVAL_MS;
+                if wants_repath {
                     base.walk_update_ticks = 0;
                     base.force_update_follow_path = false;
-                    base.is_updating_path = true;
+                    if skip_repath_at_goal {
+                        base.has_follow_path = true;
+                    } else {
+                        base.is_updating_path = true;
+                    }
                 }
             }
-
-            if base.is_updating_path {
+            run_follow_repath = base.is_updating_path;
+            if run_follow_repath {
                 base.is_updating_path = false;
-                self.go_to_follow_creature(cid);
             }
+        }
+        if run_follow_repath {
+            self.go_to_follow_creature(cid);
         }
 
         self.events.on_think(cid, interval_ms);
+    }
+
+    /// TFS `Creature::onAttacking` — `creature.cpp` (~172–189).
+    pub fn creature_on_attacking(&mut self, cid: CreatureId, interval_ms: u32) {
+        let (attack_id, is_summon) = match self.creatures.get(cid) {
+            Some(k) => (k.base().attack_target, k.base().is_summon()),
+            None => return,
+        };
+        let Some(attack_id) = attack_id else {
+            return;
+        };
+        if is_summon && attack_id == cid {
+            return;
+        }
+        if !self.creatures.contains_key(attack_id) {
+            return;
+        }
+
+        // TODO: `onAttacked` / target `onAttacked` callbacks (`creature.cpp` ~178–179).
+
+        let (my_pos, target_pos) = match self.creatures.get(cid).zip(self.creatures.get(attack_id)) {
+            Some((attacker, target)) => (attacker.position(), target.position()),
+            None => return,
+        };
+        if !self.map.is_sight_clear(my_pos, target_pos) {
+            return;
+        }
+
+        if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+            self.monster_do_attacking(cid, interval_ms);
+        }
     }
 
     /// TFS `Monster::onThink` — base think + native AI (D.4).

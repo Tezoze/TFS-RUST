@@ -1,8 +1,6 @@
 ---
-inclusion: conditional
-name: tfs-database
-description: SQLx patterns, transaction rules, and database schema compatibility for TFS 1.4.2 parity. Applies to the tfs-rust-db crate.
-globs: ["crates/tfs-rust-db/**/*.rs"]
+trigger: glob
+globs: crates/tfs-rust-db/**/*.rs
 ---
 
 # Database Operations (SQLx and MariaDB)

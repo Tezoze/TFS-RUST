@@ -1,7 +1,5 @@
 ---
-inclusion: auto
-name: tfs-cpp-references
-description: Mandatory C++ source tracing for all ported logic to ensure exact parity with TFS 1.4.2.
+trigger: always_on
 ---
 
 # C++ Source Tracing (Mandatory)

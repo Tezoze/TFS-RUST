@@ -1,8 +1,6 @@
 ---
-inclusion: conditional
-name: tfs-mechanics-profile
-description: How to add shared mechanics functions using MechanicsProfile and data/formulas (772 / 1098).
-globs: ["crates/tfs-rust-core/**/*.rs", "data/formulas/**"]
+trigger: glob
+globs: crates/tfs-rust-core/**/*.rs, data/formulas/**
 ---
 
 # Mechanics Profile (772 / 1098)

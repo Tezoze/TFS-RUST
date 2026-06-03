@@ -1,8 +1,6 @@
 ---
-inclusion: conditional
-name: tfs-lua-boundaries
-description: Lua integration patterns using trait dispatch, mlua+LuaJIT, and scoped mutation appliers. Applies to core and lua crates.
-globs: ["crates/tfs-rust-core/**/*.rs", "crates/tfs-rust-lua/**/*.rs"]
+trigger: glob
+globs: crates/tfs-rust-core/**/*.rs, crates/tfs-rust-lua/**/*.rs
 ---
 
 # Lua Integration (Trait Dispatch + mlua + LuaJIT)

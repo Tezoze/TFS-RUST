@@ -61,11 +61,12 @@ fn tile_environment_prefix_is_1098_only() {
     assert_eq!(&b772[1..6], &[100, 0, 200, 0, 7]);
 
     // Same single ground item (client id 0x0673, 2-byte item, no count for non-stackable) on both,
-    // but 1098 carries exactly one extra `0x00 0x00` environmental-effects field for that tile.
+    // but 1098 carries exactly one extra `0x00 0x00` environmental-effects field for that tile,
+    // plus one extra 0xFF MARK_UNMARKED byte in the item template.
     assert_eq!(
         b1098.len(),
-        b772.len() + 2,
-        "1098 map must be exactly 2 bytes longer (per-tile env prefix); 772 omits it"
+        b772.len() + 3,
+        "1098 map must be exactly 3 bytes longer (2-byte env prefix + 1-byte mark); 772 omits them"
     );
 }
 
