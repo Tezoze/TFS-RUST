@@ -54,6 +54,8 @@ pub mod protocol_hooks;
 mod run_server;
 pub mod scheduler;
 mod monster_ai;
+mod monster_events;
+mod monster_targets;
 mod monster_distance_step;
 mod spawn_lifecycle;
 pub mod spawn;

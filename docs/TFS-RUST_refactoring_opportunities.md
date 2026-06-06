@@ -5,9 +5,20 @@
 
 ---
 
-## 1. `monster_ai.rs` — 2,726 lines ⚠️ Most urgent
+## 1. ~~`monster_ai.rs` — 2,726 lines~~ ✅ Done (2026-06-06)
 
-Larger than `game_world.rs` and growing. Three coherent sub-domains can be extracted using the same `impl GameWorld` extension pattern.
+Split into three `impl GameWorld` extension modules (layout-only; no behavior change):
+
+| File | Lines | Contents |
+|---|---|---|
+| [`monster_targets.rs`](../crates/tfs-rust-core/src/monster_targets.rs) | ~576 | Friend/opponent lists, idle status, target search/select/follow |
+| [`monster_events.rs`](../crates/tfs-rust-core/src/monster_events.rs) | ~258 | Spectator fan-out, creature move/appear reactions |
+| [`monster_ai.rs`](../crates/tfs-rust-core/src/monster_ai.rs) | ~1,963 | Think loop, chase/follow pathing, spawn return, tests |
+
+Cross-module helpers are `pub(crate)` (Rust privacy is per-module, not per-`impl`).
+
+<details>
+<summary>Original extraction plan (completed)</summary>
 
 ### Extract → `monster_targets.rs` (~650–700 lines)
 
@@ -19,8 +30,6 @@ Friend/opponent tracking and target selection:
 - `monster_can_use_attack`, `monster_update_idle_status`, `monster_set_idle`, `monster_is_target`
 - `monster_schedule_chase_after_opponent_add`, `monster_try_acquire_chase_target`
 
-*(Original ~400-line estimate was low — live block is ~650–700 lines.)*
-
 ### Extract → `monster_events.rs` (~300 lines)
 
 Creature appear/move reactions:
@@ -30,11 +39,9 @@ Creature appear/move reactions:
 - `monster_notify_creature_enter_viewport`, `monster_dispatch_creature_move`
 - `monsters_witnessing_move`
 
-### What remains in `monster_ai.rs`
+</details>
 
-Think loop + chase/follow logic + spawn return + tests (~1,000 lines). Manageable.
-
-**Next split after `monster_ai`:** [`game_world.rs`](crates/tfs-rust-core/src/game_world.rs) (2,520 lines) — orchestration, tick/beat advance, broadcasts, creature lifecycle.
+**Next split:** [`game_world.rs`](crates/tfs-rust-core/src/game_world.rs) (2,520 lines) — orchestration, tick/beat advance, broadcasts, creature lifecycle.
 
 ---
 
@@ -125,8 +132,10 @@ No action needed now — add a `// TODO: split outgoing_extra.rs when combat pac
 | `game_world_inventory.rs` (966 lines) | Large but coherent |
 | `container_ops.rs` (757 lines) | Focused domain, correct shape |
 | `monster_distance_step.rs` (635 lines) | Pure functions, no `impl GameWorld`, exemplary shape |
+| `monster_targets.rs` (~576 lines) | Target list / search — split from `monster_ai` (M1, 2026-06-06) |
+| `monster_events.rs` (~258 lines) | Move/appear fan-out — split from `monster_ai` (M1, 2026-06-06) |
 
-The pattern that's already working in `monster_distance_step.rs` and `container_ops.rs` is exactly the target shape for `monster_targets.rs` and `monster_events.rs`.
+The pattern that's already working in `monster_distance_step.rs` and `container_ops.rs` is the target shape — now applied to `monster_targets.rs` and `monster_events.rs` (M1).
 
 ---
 

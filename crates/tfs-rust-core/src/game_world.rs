@@ -126,7 +126,7 @@ pub struct GameWorld {
     pub(crate) subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
     pub monster_world_config: crate::config::MonsterWorldConfig,
-    /// Nesting depth for [`crate::monster_ai::GameWorld::monster_notify_creature_enter_viewport`]
+    /// Nesting depth for [`crate::monster_events::GameWorld::monster_notify_creature_enter_viewport`]
     /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
     pub(crate) monster_viewport_notify_depth: u32,
 }
