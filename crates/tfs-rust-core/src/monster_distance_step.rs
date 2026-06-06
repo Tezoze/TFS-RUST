@@ -19,20 +19,21 @@ pub enum DistanceStepOutcome {
     NeedPathfinding,
 }
 
-fn distance_x(creature: Position, target: Position) -> i32 {
-    (creature.x as i32 - target.x as i32).unsigned_abs() as i32
+/// TFS `Position::getDistanceX/Y` — absolute axis delta (symmetric in argument order).
+pub(crate) fn distance_x(a: Position, b: Position) -> i32 {
+    (a.x as i32 - b.x as i32).unsigned_abs() as i32
 }
 
-fn distance_y(creature: Position, target: Position) -> i32 {
-    (creature.y as i32 - target.y as i32).unsigned_abs() as i32
+pub(crate) fn distance_y(a: Position, b: Position) -> i32 {
+    (a.y as i32 - b.y as i32).unsigned_abs() as i32
 }
 
-/// C++ `Position::getOffsetX/Y(creaturePos, targetPos)`.
-fn offset_x(creature: Position, target: Position) -> i32 {
+/// C++ `Position::getOffsetX/Y(creaturePos, targetPos)` — `creature − target`.
+pub(crate) fn offset_x(creature: Position, target: Position) -> i32 {
     creature.x as i32 - target.x as i32
 }
 
-fn offset_y(creature: Position, target: Position) -> i32 {
+pub(crate) fn offset_y(creature: Position, target: Position) -> i32 {
     creature.y as i32 - target.y as i32
 }
 

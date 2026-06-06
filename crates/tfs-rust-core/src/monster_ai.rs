@@ -18,7 +18,10 @@ use rand::Rng;
 use crate::creature::{CreatureKind, MonsterAiPhase};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
-use crate::monster_distance_step::{get_dance_step, get_distance_step, get_random_step, DistanceStepOutcome};
+use crate::monster_distance_step::{
+    distance_x, distance_y, get_dance_step, get_distance_step, get_random_step, offset_x, offset_y,
+    DistanceStepOutcome,
+};
 use crate::pathfinding::FindPathParams;
 use crate::walk::{creature_turn_with_broadcast, PATHFIND_WALK_FLAGS, tile_query_add_creature};
 
@@ -38,29 +41,12 @@ const CHASE_STEP_DIRECTIONS: [Direction; 8] = [
 ];
 
 
-/// TFS `Position::getDistanceX/Y` — absolute axis delta.
-fn distance_x(a: Position, b: Position) -> i32 {
-    (a.x as i32 - b.x as i32).unsigned_abs() as i32
-}
-
-fn distance_y(a: Position, b: Position) -> i32 {
-    (a.y as i32 - b.y as i32).unsigned_abs() as i32
-}
-
 pub(crate) fn chebyshev(a: Position, b: Position) -> i32 {
     distance_x(a, b).max(distance_y(a, b))
 }
 
 pub(crate) fn manhattan(a: Position, b: Position) -> i32 {
     distance_x(a, b) + distance_y(a, b)
-}
-
-fn offset_x(from: Position, to: Position) -> i32 {
-    to.x as i32 - from.x as i32
-}
-
-fn offset_y(from: Position, to: Position) -> i32 {
-    to.y as i32 - from.y as i32
 }
 
 /// TFS `Monster::isFleeing` gate — `monster.h` ~154.
@@ -99,10 +85,10 @@ pub fn is_within_walk_to_spawn_range(pos: Position, spawn: Position, radius: i32
 }
 
 /// TFS `Monster::updateLookDirection` — `monster.cpp` ~1967.
-/// C++ `getOffsetX(attackedCreaturePos, pos)` = target.x − monster.x.
+/// C++ `getOffsetX(attackedCreaturePos, pos)` = target.x − monster.x → `offset_x(target, from)`.
 pub fn compute_look_toward_target(from: Position, target: Position, current: Direction) -> Direction {
-    let ox = offset_x(from, target);
-    let oy = offset_y(from, target);
+    let ox = offset_x(target, from);
+    let oy = offset_y(target, from);
     let dx = ox.unsigned_abs() as i32;
     let dy = oy.unsigned_abs() as i32;
 

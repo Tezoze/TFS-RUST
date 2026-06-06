@@ -45,24 +45,11 @@ Creature appear/move reactions:
 
 ---
 
-## 2. Duplicate distance helpers — violates refactor rule 1
+## 2. ~~Duplicate distance helpers~~ ✅ Done (2026-06-06)
 
-`monster_ai.rs` and `monster_distance_step.rs` both privately define:
+`distance_x`, `distance_y`, `offset_x`, `offset_y` are `pub(crate)` in [`monster_distance_step.rs`](../crates/tfs-rust-core/src/monster_distance_step.rs). Duplicates removed from `monster_ai.rs`.
 
-```
-distance_x, distance_y, offset_x, offset_y
-```
-
-**Fix**: make the four functions `pub(crate)` in `monster_distance_step.rs`, delete the copies from `monster_ai.rs`.
-
-**Not zero risk:** the two files use **opposite sign conventions** for `offset_x` / `offset_y`:
-
-| File | `offset_x` |
-|------|------------|
-| `monster_ai.rs` | `to - from` (`offset_x(from, to)`) |
-| `monster_distance_step.rs` | `creature - target` (C++ `getOffsetX(creaturePos, targetPos)`) |
-
-Dedupe requires argument swap or negation at call sites — not a blind delete. `distance_x` / `distance_y` are equivalent (absolute delta).
+Look-direction uses argument swap: C++ `getOffsetX(attackedCreaturePos, pos)` → `offset_x(target, from)` (distance-step convention is `creature − target`).
 
 ---
 
