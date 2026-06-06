@@ -85,18 +85,6 @@ const SPEED_C: f64 = -4795.01;
 const PLAYER_MIN_SPEED: i32 = 10;
 const PLAYER_MAX_SPEED: i32 = 1500;
 
-fn direction_to_walk_byte(d: Direction) -> u8 {
-    match d {
-        Direction::East => 1,
-        Direction::NorthEast => 2,
-        Direction::North => 3,
-        Direction::NorthWest => 4,
-        Direction::West => 5,
-        Direction::SouthWest => 6,
-        Direction::South => 7,
-        Direction::SouthEast => 8,
-    }
-}
 
 /// TFS `Creature::getSpeed` — `baseSpeed + varSpeed` from conditions (`creature.h`); step uses `getStepSpeed` clamp.
 fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i32 {
@@ -1087,7 +1075,40 @@ impl GameWorld {
         }
     }
 
+    /// 772 `Creature::clearToDo` — stop pending walk execution and notify the client.
+    ///
+    /// Called before adding new walk entries on 772, where every `playerMove` / `playerAutoWalk`
+    /// clears pending ToDo entries and reschedules from scratch. TFS 1.4.2 keeps the existing
+    /// `eventWalk` timer instead — the 10.98 client predicts locally so stale timers are fine.
+    /// The 7.72 client doesn't predict, so stale timers cause visible stutter.
+    ///
+    /// C++ ref: `gameserver/src/creature.cpp` `clearToDo` (~1351–1366),
+    ///          `game.cpp` `playerMove` (~1997–1999).
+    fn clear_todo_772(&mut self, conn_id: ConnId, cid: CreatureId) {
+        if !matches!(self.codec, tfs_rust_net::codec::Codec::V772(_)) {
+            return;
+        }
+        let had_pending = self.creatures.get(cid).is_some_and(|k| {
+            let b = k.base();
+            !b.walk_queue.is_empty() || b.next_walk_check.is_some()
+        });
+        self.stop_event_walk(cid);
+        // C++ `playerMove`: `if (player->clearToDo()) { player->sendCancelWalk(); }`
+        if had_pending {
+            let dir_byte = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().direction as u8)
+                .unwrap_or(0);
+            self.enqueue_encoded(conn_id, self.codec.encode_cancel_walk(dir_byte));
+        }
+    }
+
     /// TFS `Game::playerMove` (`game.cpp` ~1880–1895).
+    ///
+    /// **772** (`gameserver/src/game.cpp` ~1982–2003): `clearToDo()` → `sendCancelWalk()` →
+    /// `addWalkToDo(dir)` → `startToDo()`. Every new move clears pending execution and
+    /// reschedules from scratch.
     pub fn player_move_request(
         &mut self,
         conn_id: ConnId,
@@ -1107,18 +1128,18 @@ impl GameWorld {
             self.enqueue_outgoing(
                 conn_id,
                 self.codec
-                    .encode_cancel_walk(direction_to_walk_byte(p.base.direction))
+                    .encode_cancel_walk(p.base.direction as u8)
                     .into_bytes(),
             );
             return;
         }
+
+        self.clear_todo_772(conn_id, cid);
+
         if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
             pl.last_activity = now;
-            // TFS `Creature::startAutoWalk(Direction)` (`creature.cpp` ~274–284): replace queue, then
-            // `addEventWalk(true)`. If `eventWalk != 0`, `addEventWalk` **returns without** stopping or
-            // rescheduling — the existing walk tick stays (`creature.cpp` ~307–309). Do **not** clear
-            // `next_walk_check` here; that was cancelling the pending tick and recomputing delays →
-            // direction-change desync vs OTClient + C++.
+            // TFS 1.4.2: `addEventWalk` returns if `eventWalk != 0` (`creature.cpp` ~307–309).
+            // On 772 `clear_todo_772` already stopped the timer, so `add_event_walk` proceeds.
             pl.base.walk_queue.clear();
             pl.base.walk_queue.push_back(direction);
         }
@@ -1127,6 +1148,10 @@ impl GameWorld {
     }
 
     /// TFS `Game::playerAutoWalk` (`game.cpp` ~2075–2084).
+    ///
+    /// **772** (`gameserver/src/game.cpp` ~2162–2173): `addWalkToDo(listDir)` (first call
+    /// triggers `clearToDo()` if `isExecuting`) → `startToDo()`. Same clear-and-restart
+    /// pattern as `playerMove`.
     pub fn player_auto_walk_path(
         &mut self,
         conn_id: ConnId,
@@ -1142,16 +1167,18 @@ impl GameWorld {
             self.enqueue_outgoing(
                 conn_id,
                 self.codec
-                    .encode_cancel_walk(direction_to_walk_byte(p.base.direction))
+                    .encode_cancel_walk(p.base.direction as u8)
                     .into_bytes(),
             );
             return;
         }
-        let first_only = path.len() == 1;
+
+        self.clear_todo_772(conn_id, cid);
+
+        let is_772 = matches!(self.codec, tfs_rust_net::codec::Codec::V772(_));
+        let first_only = is_772 || path.len() == 1;
         if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
             pl.last_activity = now;
-            // Same as `player_move_request`: do not clear `next_walk_check` — matches `startAutoWalk(listDir)`
-            // + `addEventWalk` when `eventWalk != 0` (`creature.cpp` ~287–297).
             pl.base.walk_queue.clear();
             for d in path {
                 pl.base.walk_queue.push_back(d);
@@ -1434,7 +1461,8 @@ impl GameWorld {
 
     /// TFS `Creature::startAutoWalk` + `addEventWalk` — all creature kinds (`creature.cpp` ~274–297).
     pub(crate) fn creature_start_auto_walk(&mut self, cid: CreatureId) {
-        let first_only = self
+        let is_772 = matches!(self.codec, tfs_rust_net::codec::Codec::V772(_));
+        let first_only = is_772 || self
             .creatures
             .get(cid)
             .is_some_and(|k| k.base().walk_queue.len() == 1);
@@ -1655,7 +1683,7 @@ impl GameWorld {
                             self.enqueue_outgoing(
                                 conn,
                                 self.codec
-                                    .encode_cancel_walk(direction_to_walk_byte(d))
+                                    .encode_cancel_walk(d as u8)
                                     .into_bytes(),
                             );
                         }
@@ -1739,7 +1767,7 @@ impl GameWorld {
             matches!(k, CreatureKind::Player(p) if p.base.cancel_next_walk)
         }) {
             let dir_byte = self.creatures.get(cid).and_then(|k| match k {
-                CreatureKind::Player(p) => Some(direction_to_walk_byte(p.base.direction)),
+                CreatureKind::Player(p) => Some(p.base.direction as u8),
                 _ => None,
             });
             let conn = self.conn_for_creature(cid);

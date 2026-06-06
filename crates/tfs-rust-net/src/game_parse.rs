@@ -43,7 +43,7 @@ pub fn parse_game_opcode(
         C::PING_BACK => Ok(GamePacket::PingBack),
         C::PING => Ok(GamePacket::Ping),
         C::EXTENDED_OPCODE => parse_extended_opcode(msg),
-        C::AUTO_WALK => parse_auto_walk(msg),
+        C::AUTO_WALK => parse_auto_walk(msg, version),
         C::MOVE_NORTH => Ok(GamePacket::Move(Direction::North)),
         C::MOVE_EAST => Ok(GamePacket::Move(Direction::East)),
         C::MOVE_SOUTH => Ok(GamePacket::Move(Direction::South)),
@@ -274,9 +274,14 @@ fn parse_extended_opcode(msg: &mut NetworkMessage) -> Result<GamePacket> {
     })
 }
 
-fn parse_auto_walk(msg: &mut NetworkMessage) -> Result<GamePacket> {
+fn parse_auto_walk(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result<GamePacket> {
     let n = msg.read_u8()? as usize;
-    if n == 0 || msg.unread_bytes() < n {
+    let len_invalid = match version.raw() {
+        772 => n == 0 || msg.unread_bytes() != n || n > 128,
+        1098 => n == 0 || msg.unread_bytes() != n,
+        other => unreachable!("unsupported protocol version {other}"),
+    };
+    if len_invalid {
         return Err(TfsRustError::Protocol("invalid auto-walk length".into()));
     }
     let mut raw_dirs = Vec::with_capacity(n);

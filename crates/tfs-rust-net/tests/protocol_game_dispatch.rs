@@ -60,3 +60,61 @@ fn accepts_772_rule_violation_opcode() {
         "0x9B should be a supported 772 opcode, got: {err}"
     );
 }
+
+#[test]
+fn parse_auto_walk_valid() {
+    // payload: opcode 0x64, length 3, directions: East(1), North(3), West(5)
+    let payload = [0x64, 3, 1, 3, 5];
+    for version in [ProtocolVersion::V772, ProtocolVersion::V1098] {
+        let cmd = game_command_from_payload(ConnId(1), &payload, version).expect("parse");
+        match cmd {
+            GameCommand::Game { packet, .. } => match packet {
+                GamePacket::AutoWalk { path } => {
+                    assert_eq!(
+                        path,
+                        vec![Direction::West, Direction::North, Direction::East]
+                    );
+                }
+                p => panic!("expected AutoWalk, got {:?}", p),
+            },
+            _ => panic!("expected Game command"),
+        }
+    }
+}
+
+#[test]
+fn parse_auto_walk_invalid_length() {
+    // payload: opcode 0x64, length 2, but has 3 direction bytes (extra trailing byte)
+    let payload = [0x64, 2, 1, 3, 5];
+    for version in [ProtocolVersion::V772, ProtocolVersion::V1098] {
+        assert!(game_command_from_payload(ConnId(1), &payload, version).is_err());
+    }
+
+    // payload: opcode 0x64, length 4, but only has 3 direction bytes (missing byte)
+    let payload = [0x64, 4, 1, 3, 5];
+    for version in [ProtocolVersion::V772, ProtocolVersion::V1098] {
+        assert!(game_command_from_payload(ConnId(1), &payload, version).is_err());
+    }
+}
+
+#[test]
+fn parse_auto_walk_max_dirs_772() {
+    let mut payload = vec![0x64, 129];
+    payload.extend(std::iter::repeat(1).take(129));
+
+    // 772 restricts to <= 128 directions.
+    assert!(game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V772).is_err());
+
+    // 1098 allows > 128 directions if payload matches.
+    let cmd = game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V1098).expect("parse");
+    match cmd {
+        GameCommand::Game { packet, .. } => match packet {
+            GamePacket::AutoWalk { path } => {
+                assert_eq!(path.len(), 129);
+            }
+            p => panic!("expected AutoWalk, got {:?}", p),
+        },
+        _ => panic!("expected Game command"),
+    }
+}
+
