@@ -242,3 +242,9 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `resolve_migrations_dir()` — runtime migrations path when repo mount differs from compile-time
 - [x] Staggered ~1000 ms subsystem counters (`subsystem_counters_772.rs` + `advance_beat_772`)
 - [ ] Deferred: multi-beat lag catch-up when beat alarms pile up
+
+## `walk.rs` layout split — done
+- [x] Extract `walk/walk_timing.rs` (~380 lines) — speed/timing pure functions
+- [x] Extract `walk/walk_tile.rs` (~462 lines) — `Tile::queryAdd`, destination resolution
+- [x] Anchor `walk/mod.rs` — direction utils, dispatch, `impl GameWorld`, tests; re-export `wire_step_speed` / `WalkSpeedRole`
+- [x] `cargo check -p tfs-rust-core`; `cargo test -p tfs-rust-core walk::` (14 tests)

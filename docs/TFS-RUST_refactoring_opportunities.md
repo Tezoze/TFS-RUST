@@ -11,26 +11,7 @@ File-layout refactors **do not change** game loop architecture or runtime behavi
 
 ## Open (ranked)
 
-### 1. `walk.rs` — ~2,581 lines (lower priority, plan ahead)
-
-Single coherent domain — no urgency — but the top ~950 lines are module-level free functions covering two distinct concerns worth splitting before combat/conditions add to the file.
-
-**Extract → `walk_timing.rs` (~400 lines)** — pure speed/timing:
-
-- `calculated_step_speed_tfs`, `get_step_duration`, `get_walk_delay`, `get_event_step_ticks`
-- `walk_timing_speed`, `tfs_retail_log_speed`, `balanced_softened_go`, `cipsoft_speed_from_profile`
-- `walk_timing_speed_kind`, `step_speed_for_walk`, `go_strength_for_walk`
-
-**Extract → `walk_tile.rs` (~440 lines)** — tile traversal checks:
-
-- `tile_query_add_monster`, `tile_query_add_npc`, `tile_query_add_player`
-- `resolve_player_move_destination`, `query_destination`
-
-**Remain in `walk.rs`:** direction utils, `impl GameWorld` block (~1,100 lines). Tests stay with `walk.rs`.
-
----
-
-### 2. `tfs-rust-content/items.rs` — ~1,336 lines
+### 1. `tfs-rust-content/items.rs` — ~1,336 lines
 
 OTB binary loading and XML attribute parsing are two distinct parsers sharing a file. Everything from `apply_xml_attribute` (~line 604) downward is pure XML attribute dispatch with no shared state with the OTB code above it.
 
@@ -39,13 +20,13 @@ Lower priority — content loading, not game logic — but touched whenever new 
 
 ---
 
-### 3. `player_inventory_query_add.rs` — ~1,140 lines
+### 2. `player_inventory_query_add.rs` — ~1,140 lines
 
 Coherent `queryAdd` / dress / slot-mask domain. Split only if inventory grows further (e.g. separate equip-check vs query-max-count arms). Lower urgency than remaining `game_world_*` item modules.
 
 ---
 
-### 4. `tfs-rust-net/outgoing_extra.rs` — ~1,048 lines (flag now, split later)
+### 3. `tfs-rust-net/outgoing_extra.rs` — ~1,048 lines (flag now, split later)
 
 Manageable collection of small stateless packet builders today; will bloat as combat, channels, and conditions land.
 
@@ -62,6 +43,16 @@ No action now — add a `// TODO: split outgoing_extra.rs when combat packets la
 ---
 
 ## Completed (2026-06-06)
+
+### `walk.rs` split
+
+Layout-only split of the walking module into a directory anchor + two pure-function child modules. External `crate::walk::*` import paths unchanged (`wire_step_speed`, `WalkSpeedRole`, `tile_query_add_creature`, etc.).
+
+| File | Lines | Contents |
+|---|---|---|
+| [`walk/mod.rs`](../crates/tfs-rust-core/src/walk/mod.rs) | ~1,789 | Flags, direction utils, drunk walk, teleport, `tile_query_add_creature` dispatch, `impl GameWorld`, tests |
+| [`walk/walk_timing.rs`](../crates/tfs-rust-core/src/walk/walk_timing.rs) | ~380 | Speed/timing: `get_step_duration`, `get_event_step_ticks`, `wire_step_speed`, CipSoft/TFS curves |
+| [`walk/walk_tile.rs`](../crates/tfs-rust-core/src/walk/walk_tile.rs) | ~462 | `Tile::queryAdd` arms, `queryDestination`, height floor-change resolution |
 
 ### `monster_ai.rs` split
 
@@ -111,3 +102,4 @@ Layout-only split of the residual monolith (alongside existing `game_world_inven
 | `container_ops.rs` (~757 lines) | Focused domain, correct shape |
 | `monster_distance_step.rs` (~635 lines) | Pure functions, no `impl GameWorld`, exemplary shape |
 | `monster_targets.rs`, `monster_events.rs` | Split from `monster_ai` (see Completed) |
+| `walk/walk_timing.rs`, `walk/walk_tile.rs` | Split from `walk/mod.rs` (see Completed) |
