@@ -122,6 +122,8 @@ pub struct GameWorld {
     pub(crate) last_creature_bucket_tick: Option<Instant>,
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
+    /// CipSoft `AdvanceGame` staggered ~1000 ms subsystem counters (772 loop only).
+    pub(crate) subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
     pub monster_world_config: crate::config::MonsterWorldConfig,
     /// Nesting depth for [`crate::monster_ai::GameWorld::monster_notify_creature_enter_viewport`]
@@ -284,6 +286,7 @@ impl GameWorld {
             check_creature_bucket_index: 0,
             last_creature_bucket_tick: None,
             spawn_slot_by_creature: HashMap::new(),
+            subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772::default(),
             monster_world_config,
             monster_viewport_notify_depth: 0,
         }
@@ -515,7 +518,7 @@ impl GameWorld {
         self.remove_creature(victim);
     }
 
-    /// One simulation tick (~50 ms target).
+    /// One simulation tick (~50 ms target) — 1098 loop only.
     pub fn on_tick(&mut self, now: std::time::Instant) {
         if self.walk_wake_tx.is_none() && !self.beat_driven_loop {
             self.process_walk_deadlines();
@@ -527,11 +530,48 @@ impl GameWorld {
         self.check_creatures(now);
 
         let _ = self.decay.tick(self.tick_counter);
+        self.run_other_subsystems(now, true);
+    }
+
+    /// Spawns, player pings, Lua GC — shared by 1098 `on_tick` and 772 other counter.
+    pub(crate) fn run_other_subsystems(&mut self, now: Instant, lua_gc_every_five_ticks: bool) {
         self.poll_spawn_respawns(now);
-        if self.tick_counter.is_multiple_of(5) {
+        if lua_gc_every_five_ticks {
+            if self.tick_counter.is_multiple_of(5) {
+                self.events.lua_gc_step();
+            }
+        } else {
             self.events.lua_gc_step();
         }
         self.tick_player_pings(now);
+    }
+
+    /// CipSoft `AdvanceGame` beat step — staggered subsystems + logical clock + ToDoQueue drain.
+    /// C++ ref: `tibia-game-master/src/main.cc` `AdvanceGame`, `crmain.cc` `MoveCreatures`.
+    pub fn advance_beat_772(&mut self, delay_ms: u64) {
+        let fired = self.subsystem_counters_772.accumulate(delay_ms);
+
+        if fired.creatures {
+            self.process_creatures_772();
+        }
+        if fired.cron {
+            tracing::trace!("772 cron subsystem tick — no cron engine yet");
+        }
+        if fired.skills {
+            let _ = self.decay.tick(self.tick_counter);
+        }
+        if fired.other {
+            let now = Instant::now();
+            self.run_other_subsystems(now, false);
+        }
+
+        self.process_walk_action_tasks(Instant::now());
+        self.tick_counter = self.tick_counter.saturating_add(delay_ms / 50);
+
+        self.server_ms = self.server_ms.saturating_add(delay_ms);
+        if delay_ms < 1000 {
+            self.drain_todo_queue();
+        }
     }
 
     /// Strip wire ids from `known` that this conn never received as a full `AddCreature` block.

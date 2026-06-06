@@ -104,6 +104,37 @@ impl GameWorld {
         }
     }
 
+    /// CipSoft `ProcessCreatures` — full monster/NPC sweep ~1 Hz (`main.cc` `AdvanceGame`).
+    pub fn process_creatures_772(&mut self) {
+        let interval_ms = EVENT_CREATURE_THINK_INTERVAL_MS;
+        let ids: Vec<CreatureId> = self
+            .creatures
+            .iter()
+            .filter(|(_, k)| {
+                matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+                    && k.base().think_check_bucket.is_some()
+            })
+            .map(|(id, _)| id)
+            .collect();
+
+        for cid in ids {
+            if !self.creature_alive_for_think(cid) {
+                continue;
+            }
+
+            match self.creatures.get(cid) {
+                Some(CreatureKind::Monster(_)) => {
+                    self.monster_on_think(cid, interval_ms);
+                    if self.creature_alive_for_think(cid) {
+                        self.creature_on_attacking(cid, interval_ms);
+                    }
+                }
+                Some(CreatureKind::Npc(_)) => self.npc_on_think(cid, interval_ms),
+                _ => continue,
+            }
+        }
+    }
+
     /// Whether `cid` should receive `onThink` this sweep (C++ `getHealth() > 0` gate).
     fn creature_alive_for_think(&self, cid: CreatureId) -> bool {
         self.creatures
@@ -369,5 +400,54 @@ mod tests {
 
         let start = Instant::now();
         step_ticks(&mut world, start, 25, 50);
+    }
+
+    #[test]
+    fn process_creatures_772_thinks_at_1hz() {
+        let (mut world, counter) = world_with_counter();
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let npc = insert_npc(&mut world, "Tom", pos, 100);
+        world.set_creature_think_check_bucket(npc, 0);
+
+        const BEAT_MS: u64 = 200;
+        for _ in 0..9 {
+            world.advance_beat_772(BEAT_MS);
+        }
+
+        assert_eq!(
+            counter.total_think_calls(),
+            1,
+            "772 creature counter fires once at 1750 ms (9×200 ms beats)"
+        );
+
+        for _ in 0..5 {
+            world.advance_beat_772(BEAT_MS);
+        }
+
+        assert_eq!(
+            counter.total_think_calls(),
+            2,
+            "second ProcessCreatures at ~2750 ms cumulative"
+        );
+    }
+
+    #[test]
+    fn tick_counter_advances_on_beat_for_decay() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+
+        assert_eq!(world.tick_counter, 0);
+        for _ in 0..5 {
+            world.advance_beat_772(200);
+        }
+        assert_eq!(
+            world.tick_counter, 20,
+            "each 200 ms beat adds 4 fifty-ms tick units for decay parity"
+        );
     }
 }

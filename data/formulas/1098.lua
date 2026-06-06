@@ -25,6 +25,7 @@ formulas = {
   },
   spawnNearPlayer = "block",
   expAttributionRounds = 60,
+  followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.80,

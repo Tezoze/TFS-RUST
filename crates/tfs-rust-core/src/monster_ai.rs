@@ -911,16 +911,14 @@ impl GameWorld {
     ///
     /// CipSoft does not gate this on a path flag: `IdleStimulus` enqueues fresh `ToDoGo` when the
     /// target moves (`crnonpl.cc` via `SearchFlightField`). TFS uses `hasFollowPath`; repath when
-    /// still chasing (see `PROTOCOL_VERSIONING.md` §12.1).
+    /// still chasing (see `PROTOCOL_VERSIONING.md` §12.1). Era split via
+    /// [`MechanicsProfile::follow_repath_without_path`].
     fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, has_path: bool) {
         if !self.creatures.get(monster_id).is_some_and(|k| k.base().follow_target.is_some()) {
             return;
         }
-        let is_772 = matches!(self.codec, tfs_rust_net::codec::Codec::V772(_));
-        if !has_path {
-            if !is_772 {
-                return;
-            }
+        if !has_path && !self.mechanics.profile.follow_repath_without_path {
+            return;
         }
         if self
             .creatures
@@ -1582,7 +1580,7 @@ impl GameWorld {
             .get(cid)
             .map(|k| {
                 (
-                    k.base().health > 0 && k.base().next_walk_check.is_none(),
+                    k.base().health > 0 && k.base().walk_timer_idle(self.beat_driven_loop),
                     k.base().follow_target.is_some(),
                 )
             })
@@ -2054,6 +2052,8 @@ mod world_tests {
     use std::time::{Duration, Instant};
 
     use tfs_rust_common::ConnId;
+    use std::collections::VecDeque;
+
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::Position;
 
@@ -2195,6 +2195,83 @@ mod world_tests {
             "repath should still step east toward player at {:?}, got {:?}",
             ppos_moved,
             queue_after
+        );
+    }
+
+    #[test]
+    fn monster_follow_repath_without_path_is_profile_gated() {
+        let mut world = minimal_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        let ppos_moved = Position::new(104, 100, 7);
+        let ppos_moved_again = Position::new(103, 100, 7);
+        for x in 100..=106 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        // Chase state without has_follow_path — keep-distance band / idle before pathfinding.
+        if let Some(k) = world.creatures.get_mut(monster) {
+            let base = k.base_mut();
+            base.follow_target = Some(player);
+            base.has_follow_path = false;
+            base.walk_queue = VecDeque::from([Direction::North]);
+        }
+        assert!(!world.mechanics.profile.follow_repath_without_path);
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_moved;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_moved, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_moved);
+
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().walk_queue,
+            VecDeque::from([Direction::North]),
+            "1098 profile should not repath when has_follow_path is false"
+        );
+
+        // CipSoft / 772 profile: repath even without has_follow_path.
+        world.mechanics.profile.follow_repath_without_path = true;
+        if let Some(k) = world.creatures.get_mut(monster) {
+            let base = k.base_mut();
+            base.walk_queue = VecDeque::from([Direction::North]);
+        }
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_moved_again;
+        }
+        world.map.unregister_creature_at(ppos_moved, player);
+        world.map.register_creature_at(ppos_moved_again, player);
+        world.monster_dispatch_creature_move(player, ppos_moved, ppos_moved_again);
+
+        let queue_cipsoft = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .clone();
+        assert_ne!(
+            queue_cipsoft,
+            VecDeque::from([Direction::North]),
+            "772 profile should repath when follow target moves without has_follow_path"
+        );
+        assert!(
+            queue_cipsoft.iter().all(|&d| d == Direction::East),
+            "repath should step east toward player at {:?}, got {:?}",
+            ppos_moved_again,
+            queue_cipsoft
         );
     }
 
@@ -2645,5 +2722,43 @@ mod world_tests {
         // 772 (current HP): A is weakest (current 20 < 100).
         world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
         assert_eq!(world.monster_weakest_opponent(&candidates), Some(a));
+    }
+
+    /// P7 — 772 beat loop: `monster_arm_event_walk` must not re-arm when `next_wakeup` is set.
+    #[test]
+    fn beat_driven_arm_event_walk_skips_when_wakeup_set() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+        world.server_ms = 0;
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 2148);
+        let cid = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            pos,
+            200,
+            MonsterAiConfig::default(),
+        );
+
+        world.monster_arm_event_walk(cid);
+        let wakeup = world
+            .creatures
+            .get(cid)
+            .unwrap()
+            .base()
+            .next_wakeup
+            .expect("first arm should schedule ToDoQueue wakeup");
+        assert_eq!(world.todo_queue.len(), 1);
+
+        world.monster_arm_event_walk(cid);
+
+        assert_eq!(
+            world.creatures.get(cid).unwrap().base().next_wakeup,
+            Some(wakeup),
+            "second arm must not reschedule walk"
+        );
+        assert_eq!(world.todo_queue.len(), 1, "no duplicate heap entry");
     }
 }

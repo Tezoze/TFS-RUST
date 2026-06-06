@@ -7,7 +7,7 @@
 
 formulas = {
   beatMs = 200,
-  stepBeatMs = 50,               -- TVP walk quantizer (`gameserver/src/creature.cpp`), not CipSoft Beat 200
+  stepBeatMs = 50,               -- TVP gameserver quantizer (wire reference); beat loop uses beatMs
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x
@@ -25,6 +25,7 @@ formulas = {
   },
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
   expAttributionRounds = 60,
+  followRepathWithoutPath = true,  -- CipSoft IdleStimulus repaths without hasFollowPath gate
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.60,

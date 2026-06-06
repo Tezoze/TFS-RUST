@@ -10,7 +10,7 @@ by `clientVersion` in `config.lua`.
 > | Section | Status |
 > |---------|--------|
 > | **§2 — Era 1098 loop** | **Implemented.** `run_game_loop_1098` for `clientVersion = 1098`. |
-> | **§3 — Era 772 loop** | **Implemented (P2 MVP).** `run_game_loop_772`: `ToDoQueue`, `server_ms`, `beat_ms` timer, beat-end flush. Hybrid 50 ms `on_tick` for subsystems; staggered counters still deferred. |
+> | **§3 — Era 772 loop** | **Implemented.** `run_game_loop_772`: `ToDoQueue`, `server_ms`, `beat_ms` timer, staggered ~1000 ms subsystem counters, beat-end flush. Multi-beat lag catch-up still deferred. |
 >
 > See [`CODEBASE_AUDIT.md`](CODEBASE_AUDIT.md) for the full gap analysis.
 
@@ -358,7 +358,7 @@ the CipSoft architecture. The key changes:
 
 ```rust
 // Pseudocode for 772 game loop
-let beat = Duration::from_millis(world.mechanics.profile.step_beat_ms as u64); // 200ms
+let beat = Duration::from_millis(world.mechanics.profile.beat_ms as u64); // 772 loop: 200 ms
 let mut server_ms: u64 = 0;
 
 loop {
@@ -500,4 +500,5 @@ match world.mechanics.profile.step_speed {
 | Input processing | `src/tasks.cpp:37-41` (Dispatcher drain) | `tibia-game-master/src/receiving.cc:1796-1812` (ReceiveData) |
 | I/O → game thread | `g_dispatcher.addTask()` | `CallGameThread()` → `SIGUSR1` (`communication.cc:650-662`) |
 | Beat config | N/A (Dispatcher is event-driven) | `tibia-game-master/src/config.cc:100` (`Beat = 200`) |
+| Idle / AI tick | `src/monster.cpp:759` (`onIdleStimulus` — think-driven) | `tibia-game-master/src/crnonpl.cc:2386` (`IdleStimulus` on ToDo drain) — see [`IDLE_STIMULUS.md`](IDLE_STIMULUS.md) |
 | ToDoQueue | N/A (per-creature timers) | `tibia-game-master/src/cr.hh:937` (`priority_queue<uint32, uint32>`) |

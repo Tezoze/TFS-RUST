@@ -14,6 +14,8 @@
 //! **Timing:** `get_walk_delay` uses `last_step_ground_speed` (**destination** tile of the completed step,
 //! OTCv8 / TFS `getWalkDelay`). When `walk_delay <= 0`, `get_event_step_ticks` uses the **current** tile for
 //! the *next* step. Wall `Instant::now()` samples (C++ `OTSYS_TIME()`).
+//! CipSoft 772: per-step waypoints include diagonal `×3` **before** Beat ceil (`cract.cc:1454–1462`); TFS 1098
+//! keeps cardinal duration × `last_step_cost` after ceil (`creature.cpp`).
 //! `next_walk_check` stores the **logical** deadline. Initial arms from a new move use `walk_sched_base`;
 //! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
 //! (`tasks/walk-audit.md` Issue 3).
@@ -85,6 +87,13 @@ const SPEED_C: f64 = -4795.01;
 const PLAYER_MIN_SPEED: i32 = 10;
 const PLAYER_MAX_SPEED: i32 = 1500;
 
+#[inline]
+fn is_diagonal(direction: Direction) -> bool {
+    matches!(
+        direction,
+        Direction::NorthEast | Direction::NorthWest | Direction::SouthEast | Direction::SouthWest
+    )
+}
 
 /// TFS `Creature::getSpeed` — `baseSpeed + varSpeed` from conditions (`creature.h`); step uses `getStepSpeed` clamp.
 fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i32 {
@@ -256,6 +265,55 @@ fn calculated_step_speed_tfs(step_speed: i32) -> u32 {
     cs.max(1) as u32
 }
 
+fn walk_quantizer_ms(mech: &crate::formulas::Mechanics) -> i64 {
+    match mech.profile.step_speed {
+        crate::formulas::StepSpeedModel::CipSoft => mech.profile.beat_ms.max(1) as i64,
+        crate::formulas::StepSpeedModel::TfsLog => mech.profile.step_beat_ms.max(1) as i64,
+    }
+}
+
+#[inline]
+fn ceil_to_walk_quantizer(raw_ms: i64, quantizer_ms: i64) -> i64 {
+    ((raw_ms + quantizer_ms - 1) / quantizer_ms) * quantizer_ms
+}
+
+/// CipSoft / TVP diagonal and floor multipliers on tile waypoints (`cract.cc:1454`, `creature.cpp`).
+fn waypoint_step_cost_for_direction(dir: Direction) -> u32 {
+    if is_diagonal(dir) {
+        3
+    } else {
+        1
+    }
+}
+
+/// Next queued step without popping — `walk_queue` is LIFO at the back (`creature.cpp` `listWalkDir`).
+fn peek_next_walk_direction(base: &crate::creature::CreatureBase) -> Option<Direction> {
+    base.walk_queue.back().copied()
+}
+
+/// CipSoft `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to Beat (`cract.cc:1461–1462`).
+/// `waypoint_cost` is 1 (cardinal), 3 (diagonal), or 2 (floor) applied to tile waypoints before ceil.
+fn cipsoft_step_duration_ms(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    ground_speed: u32,
+    waypoint_cost: u32,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
+    if base.health <= 0 {
+        return 0;
+    }
+    let go = step_speed_for_walk(kind, base, mech);
+    let gs = if ground_speed == 0 { 150 } else { ground_speed };
+    let waypoints = gs.saturating_mul(waypoint_cost.max(1));
+    if let Some(ms) = mech.hooks.step_duration(go, gs as i32, waypoint_cost > 1) {
+        return ms.max(1);
+    }
+    let eff = cipsoft_speed_from_profile(go, mech);
+    let delay = (waypoints as i64 * 1000) / i64::from(eff.max(1));
+    ceil_to_walk_quantizer(delay, walk_quantizer_ms(mech))
+}
+
 fn get_step_duration(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -269,30 +327,61 @@ fn get_step_duration(
     let gs = if ground_speed == 0 { 150 } else { ground_speed };
 
     // Tier-2 override (`getStepDuration(speed, ground)`) — returns the base per-tile duration; the
-    // engine still applies the diagonal / `last_step_cost` multiplier. Native fast path when unset.
+    // engine still applies the diagonal / `last_step_cost` multiplier on TFS. Native fast path when unset.
     if let Some(ms) = mech.hooks.step_duration(go, gs as i32, false) {
         return ms.max(1);
     }
 
-    let beat = mech.profile.step_beat_ms.max(1) as i64;
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::CipSoft => {
-            // `cract.cc:1461` — `Delay = (Waypoints * 1000) / GetSpeed()`, ceil to `Beat`.
-            let eff = cipsoft_speed_from_profile(go, mech);
-            let delay = (gs as i64 * 1000) / i64::from(eff.max(1));
-            ((delay + beat - 1) / beat) * beat
+            cipsoft_step_duration_ms(kind, base, ground_speed, 1, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => {
             let calculated_step_speed = calculated_step_speed_tfs(go);
             let duration = (1000.0 * gs as f64 / calculated_step_speed as f64).floor();
-            let beat_f = beat as f64;
+            let beat_f = walk_quantizer_ms(mech) as f64;
             ((duration / beat_f).ceil() * beat_f) as i64
         }
     }
 }
 
-/// Step duration for `next_action_until` — diagonal steps use `× last_step_cost` (3), matching
-/// TFS `Creature::getStepDuration` / `Player::nextAction` (`creature.cpp`, `player.cpp`).
+/// Duration of the step that just completed — era-specific cost application.
+fn completed_step_duration_ms(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    ground_speed: u32,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
+    match mech.profile.step_speed {
+        crate::formulas::StepSpeedModel::CipSoft => {
+            cipsoft_step_duration_ms(kind, base, ground_speed, base.last_step_cost.max(1), mech)
+        }
+        crate::formulas::StepSpeedModel::TfsLog => get_step_duration(kind, base, ground_speed, mech)
+            .saturating_mul(base.last_step_cost as i64),
+    }
+}
+
+/// Duration until the next queued step may fire — uses upcoming direction on CipSoft.
+fn upcoming_step_duration_ms(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    ground_speed: u32,
+    next_direction: Option<Direction>,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
+    match mech.profile.step_speed {
+        crate::formulas::StepSpeedModel::CipSoft => {
+            let cost = next_direction
+                .map(waypoint_step_cost_for_direction)
+                .unwrap_or(1);
+            cipsoft_step_duration_ms(kind, base, ground_speed, cost, mech)
+        }
+        crate::formulas::StepSpeedModel::TfsLog => get_step_duration(kind, base, ground_speed, mech)
+            .saturating_mul(base.last_step_cost as i64),
+    }
+}
+
+/// Step duration for `next_action_until` — era-specific diagonal handling.
 fn get_step_duration_ms_with_direction(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -300,14 +389,22 @@ fn get_step_duration_ms_with_direction(
     ground_speed: u32,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
-    let mut ms = get_step_duration(kind, base, ground_speed, mech);
-    if matches!(
-        direction,
-        Direction::NorthEast | Direction::NorthWest | Direction::SouthEast | Direction::SouthWest
-    ) {
-        ms *= 3;
+    match mech.profile.step_speed {
+        crate::formulas::StepSpeedModel::CipSoft => cipsoft_step_duration_ms(
+            kind,
+            base,
+            ground_speed,
+            waypoint_step_cost_for_direction(direction),
+            mech,
+        ),
+        crate::formulas::StepSpeedModel::TfsLog => {
+            let mut ms = get_step_duration(kind, base, ground_speed, mech);
+            if is_diagonal(direction) {
+                ms *= 3;
+            }
+            ms
+        }
     }
-    ms
 }
 
 /// TFS `Creature::onCreatureMove` — `lastStepCost` (`creature.cpp` ~489–499).
@@ -335,8 +432,7 @@ fn get_walk_delay(
     let elapsed = now.saturating_duration_since(last);
     let gs = base.last_step_ground_speed;
     let gs = if gs == 0 { 150 } else { gs };
-    let step_duration =
-        get_step_duration(kind, base, gs, mech).saturating_mul(base.last_step_cost as i64);
+    let step_duration = completed_step_duration_ms(kind, base, gs, mech);
     let delay = step_duration - elapsed.as_millis() as i64;
     delay.max(0)
 }
@@ -354,8 +450,7 @@ fn get_walk_delay_logical(
     let elapsed = server_ms.saturating_sub(last) as i64;
     let gs = base.last_step_ground_speed;
     let gs = if gs == 0 { 150 } else { gs };
-    let step_duration =
-        get_step_duration(kind, base, gs, mech).saturating_mul(base.last_step_cost as i64);
+    let step_duration = completed_step_duration_ms(kind, base, gs, mech);
     let delay = step_duration - elapsed;
     delay.max(0)
 }
@@ -365,6 +460,7 @@ fn get_event_step_ticks(
     base: &crate::creature::CreatureBase,
     only_delay: bool,
     ground_speed_next: u32,
+    next_direction: Option<Direction>,
     now: Instant,
     mech: &crate::formulas::Mechanics,
     server_ms: Option<u64>,
@@ -376,12 +472,13 @@ fn get_event_step_ticks(
     if walk_delay > 0 {
         return walk_delay;
     }
-    let step_duration = get_step_duration(kind, base, ground_speed_next, mech);
+    let step_duration =
+        upcoming_step_duration_ms(kind, base, ground_speed_next, next_direction, mech);
     // TFS `getEventStepTicks(onlyDelay)` returns `1` when `getWalkDelay() <= 0` (`creature.cpp` ~1536–1546).
     if only_delay && step_duration > 0 {
         1
     } else {
-        step_duration * base.last_step_cost as i64
+        step_duration
     }
 }
 
@@ -390,14 +487,6 @@ fn ground_speed_for_tile_body(body: &crate::tile::TileBody, items_db: &ItemDatab
         return 150;
     };
     items_db.ground_speed_for_item(gid)
-}
-
-#[inline]
-fn is_diagonal(direction: Direction) -> bool {
-    matches!(
-        direction,
-        Direction::NorthEast | Direction::NorthWest | Direction::SouthEast | Direction::SouthWest
-    )
 }
 
 /// TFS `Position::getDirectionTo` — cardinal/diagonal direction between two positions.
@@ -1016,15 +1105,6 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 }
 
 impl GameWorld {
-    /// CipSoft `AdvanceGame` beat step — advance logical clock and drain due creature actions.
-    /// C++ ref: `tibia-game-master/src/main.cc` `AdvanceGame`, `crmain.cc` `MoveCreatures`.
-    pub fn advance_beat_772(&mut self, delay_ms: u64) {
-        self.server_ms = self.server_ms.saturating_add(delay_ms);
-        if delay_ms < 1000 {
-            self.drain_todo_queue();
-        }
-    }
-
     /// Drain the global ToDoQueue for entries due at or before [`Self::server_ms`].
     pub fn drain_todo_queue(&mut self) {
         while let Some(entry) = self.todo_queue.peek() {
@@ -1510,13 +1590,7 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| {
-                if self.beat_driven_loop {
-                    k.base().next_wakeup.is_some()
-                } else {
-                    k.base().next_walk_check.is_some()
-                }
-            })
+            .is_some_and(|k| !k.base().walk_timer_idle(self.beat_driven_loop))
         {
             return;
         }
@@ -1535,6 +1609,7 @@ impl GameWorld {
                 k.base(),
                 false,
                 ground_speed,
+                peek_next_walk_direction(k.base()),
                 wall_now,
                 &self.mechanics,
                 server_ms_opt,
@@ -1605,13 +1680,7 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| {
-                if self.beat_driven_loop {
-                    k.base().next_wakeup.is_some()
-                } else {
-                    k.base().next_walk_check.is_some()
-                }
-            })
+            .is_some_and(|k| !k.base().walk_timer_idle(self.beat_driven_loop))
         {
             return;
         }
@@ -1634,6 +1703,7 @@ impl GameWorld {
                 k.base(),
                 first_step,
                 ground_speed,
+                peek_next_walk_direction(k.base()),
                 wall_now,
                 &self.mechanics,
                 server_ms_opt,
@@ -2214,8 +2284,8 @@ mod step_speed_tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        calculated_step_speed_tfs, get_event_step_ticks, get_step_duration, walk_timing_speed,
-        wire_step_speed, WalkSpeedRole,
+        calculated_step_speed_tfs, get_event_step_ticks, get_step_duration,
+        get_step_duration_ms_with_direction, walk_timing_speed, wire_step_speed, WalkSpeedRole,
     };
     use crate::creature::CreatureKind;
     use crate::formulas::{cipsoft_effective_speed, Mechanics};
@@ -2279,7 +2349,7 @@ mod step_speed_tests {
             wire_step_speed(WalkSpeedRole::MonsterOrNpc, &base, &mech),
             164
         );
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
     }
 
     /// 1098 wire payload is halved in codec; neutral struct holds full GoStrength before `/2`.
@@ -2301,12 +2371,22 @@ mod step_speed_tests {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
-        base.last_step = Some(Instant::now() - Duration::from_millis(315));
         base.last_step_ground_speed = 150;
         base.last_step_cost = 1;
-        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let mech = Mechanics::for_version(ProtocolVersion::V1098);
         let kind = CreatureKind::Player(p);
-        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech, None);
+        let step_ms = get_step_duration(&kind, &base, 150, &mech);
+        base.last_step = Some(Instant::now() - Duration::from_millis((step_ms + 10) as u64));
+        let ticks = get_event_step_ticks(
+            &kind,
+            &base,
+            true,
+            150,
+            None,
+            Instant::now(),
+            &mech,
+            None,
+        );
         assert_eq!(ticks, 1);
     }
 
@@ -2318,11 +2398,20 @@ mod step_speed_tests {
         base.last_step = None;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Player(p);
-        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech, None);
+        let ticks = get_event_step_ticks(
+            &kind,
+            &base,
+            true,
+            150,
+            None,
+            Instant::now(),
+            &mech,
+            None,
+        );
         assert_eq!(ticks, 1);
     }
 
-    /// 772 wolf GoStrength 42 → `GetSpeed` 164; TVP walk quantizer 50 ms → 950 ms on ground 150.
+    /// 772 wolf GoStrength 42 → `GetSpeed` 164; CipSoft Beat 200 ms quantizer → 1000 ms on ground 150.
     #[test]
     fn cipsoft_step_duration_matches_notify_go() {
         let p = test_player("Wolf", Position::new(100, 100, 7));
@@ -2331,7 +2420,36 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         assert_eq!(cipsoft_effective_speed(42), 164);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 200, 0);
+    }
+
+    /// CipSoft diagonal: `×3` waypoints before Beat ceil — 2800 ms, not TFS-style 1000×3.
+    #[test]
+    fn cipsoft_diagonal_step_duration_quantizes_waypoints_before_beat() {
+        use tfs_rust_common::enums::Direction;
+        let p = test_player("Wolf", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 42;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
+        let cardinal = get_step_duration_ms_with_direction(
+            &kind,
+            &base,
+            Direction::East,
+            150,
+            &mech,
+        );
+        let diagonal = get_step_duration_ms_with_direction(
+            &kind,
+            &base,
+            Direction::NorthEast,
+            150,
+            &mech,
+        );
+        assert_eq!(cardinal, 1000);
+        assert_eq!(diagonal, 2800);
+        assert_ne!(diagonal, cardinal * 3, "CipSoft ceils before ×3, not after");
     }
 
     /// 1098 — TFS log curve; durations quantize to 50 ms beat.

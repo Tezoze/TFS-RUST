@@ -186,7 +186,7 @@ becomes a `MechanicsProfile` field / `data/formulas/<v>.lua` value (R11) — nev
 - [x] B0.6 Tests: 1098 == defaults; missing-file fallback; 772 knobs; partial overlay; nested cond; Tier-2 used when registered.
 
 ### Phase B1 — Movement & scheduling
-- [x] B1.1 `walk.rs` step quantization reads `profile.beat_ms` (1098 50 / 772 200) — replaced hardcoded `50.0`.
+- [x] B1.1 `walk.rs` step quantization reads `profile.step_beat_ms` (50 ms both eras; TVP authority for 772) — not `beat_ms` (772 loop timer only).
 - [x] B1.2 Kept TFS speed/curve; profile only the quantizer. Test `beat_quantization_is_profile_driven`.
 - [x] B1.3 Tier-2 `getStepDuration` honored if registered (`tier2_step_duration_hook_overrides_native`).
 
@@ -240,5 +240,5 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `walk.rs` — ToDoQueue scheduling when `beat_driven_loop`; skip Tokio walk polling on 772
 - [x] `run_server.rs` — `walk_wake_tx = None` + loop branch on `StepSpeedModel::CipSoft`
 - [x] `resolve_migrations_dir()` — runtime migrations path when repo mount differs from compile-time
-- [ ] Deferred: staggered ~1000 ms subsystem counters (hybrid 50 ms `on_tick` remains)
+- [x] Staggered ~1000 ms subsystem counters (`subsystem_counters_772.rs` + `advance_beat_772`)
 - [ ] Deferred: multi-beat lag catch-up when beat alarms pile up

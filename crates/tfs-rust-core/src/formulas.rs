@@ -188,7 +188,7 @@ pub struct SpellCoeff {
 pub struct MechanicsProfile {
     /// Scheduler / combat beat (CipSoft 200, TFS 50) — not always walk quantization on 772.
     pub beat_ms: u32,
-    /// Per-tile walk delay quantization (`gameserver` `creature.cpp` uses 50 for 7.72).
+    /// Per-tile walk delay quantization — 50 ms both shipped eras (TVP `gameserver` for 772).
     pub step_beat_ms: u32,
     /// Per-tile walk duration curve (TFS log vs CipSoft linear speed).
     pub step_speed: StepSpeedModel,
@@ -229,6 +229,9 @@ pub struct MechanicsProfile {
     pub level_exp: LevelExpModel,
     /// CipSoft level-exp `Delta` multiplier (TFS uses the same polynomial with `Delta = 100`).
     pub level_exp_delta: i64,
+    /// When true, repath on follow-target move even if `has_follow_path` is false (CipSoft).
+    /// TFS 1098 requires an active follow path before repathing (`creature.cpp:619`).
+    pub follow_repath_without_path: bool,
 }
 
 impl MechanicsProfile {
@@ -279,6 +282,7 @@ impl MechanicsProfile {
                 },
                 level_exp: LevelExpModel::CipSoftPoly,
                 level_exp_delta: 100,
+                follow_repath_without_path: true,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -322,6 +326,7 @@ impl MechanicsProfile {
                 },
                 level_exp: LevelExpModel::Tfs,
                 level_exp_delta: 100,
+                follow_repath_without_path: false,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -496,6 +501,13 @@ fn str_or(table: &mlua::Table, key: &str, default: &str) -> String {
     }
 }
 
+fn bool_or(table: &mlua::Table, key: &str, default: bool) -> bool {
+    match table.get::<Value>(key) {
+        Ok(Value::Boolean(b)) => b,
+        _ => default,
+    }
+}
+
 /// Load `data/formulas/<clientVersion>.lua` into [`Mechanics`]. Missing file → built-in
 /// [`MechanicsProfile::for_version`] defaults with no Tier-2 hooks.
 ///
@@ -593,6 +605,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         _ => p.level_exp,
     };
     p.level_exp_delta = num_or(lua, &formulas, "levelExpDelta", p.level_exp_delta).max(1);
+    p.follow_repath_without_path =
+        bool_or(&formulas, "followRepathWithoutPath", p.follow_repath_without_path);
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {
@@ -682,6 +696,7 @@ mod tests {
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::Block);
         assert_eq!(p.level_exp, LevelExpModel::Tfs);
         assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
+        assert!(!p.follow_repath_without_path);
     }
 
     #[test]
@@ -706,6 +721,7 @@ mod tests {
         assert_eq!(p.conditions.fire, TickSpec { dmg: 10, ticks: 8 });
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });
         assert_eq!(p.fight_modes.defensive_def, 1.80);
+        assert!(p.follow_repath_without_path);
     }
 
     #[test]

@@ -60,6 +60,7 @@ pub mod spawn;
 pub mod spell;
 pub mod stability;
 pub mod tile;
+mod subsystem_counters_772;
 mod todo_queue;
 pub mod walk;
 pub mod walk_action;

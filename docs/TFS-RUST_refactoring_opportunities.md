@@ -5,11 +5,11 @@
 
 ---
 
-## 1. `monster_ai.rs` — 2,649 lines ⚠️ Most urgent
+## 1. `monster_ai.rs` — 2,726 lines ⚠️ Most urgent
 
 Larger than `game_world.rs` and growing. Three coherent sub-domains can be extracted using the same `impl GameWorld` extension pattern.
 
-### Extract → `monster_targets.rs` (~400 lines)
+### Extract → `monster_targets.rs` (~650–700 lines)
 
 Friend/opponent tracking and target selection:
 
@@ -18,6 +18,8 @@ Friend/opponent tracking and target selection:
 - `monster_search_target`, `monster_select_target`, `monster_set_follow_creature`
 - `monster_can_use_attack`, `monster_update_idle_status`, `monster_set_idle`, `monster_is_target`
 - `monster_schedule_chase_after_opponent_add`, `monster_try_acquire_chase_target`
+
+*(Original ~400-line estimate was low — live block is ~650–700 lines.)*
 
 ### Extract → `monster_events.rs` (~300 lines)
 
@@ -32,6 +34,8 @@ Creature appear/move reactions:
 
 Think loop + chase/follow logic + spawn return + tests (~1,000 lines). Manageable.
 
+**Next split after `monster_ai`:** [`game_world.rs`](crates/tfs-rust-core/src/game_world.rs) (2,520 lines) — orchestration, tick/beat advance, broadcasts, creature lifecycle.
+
 ---
 
 ## 2. Duplicate distance helpers — violates refactor rule 1
@@ -42,11 +46,20 @@ Think loop + chase/follow logic + spawn return + tests (~1,000 lines). Manageabl
 distance_x, distance_y, offset_x, offset_y
 ```
 
-**Fix**: make the four functions `pub(crate)` in `monster_distance_step.rs`, delete the copies from `monster_ai.rs`. Two-minute PR, zero risk.
+**Fix**: make the four functions `pub(crate)` in `monster_distance_step.rs`, delete the copies from `monster_ai.rs`.
+
+**Not zero risk:** the two files use **opposite sign conventions** for `offset_x` / `offset_y`:
+
+| File | `offset_x` |
+|------|------------|
+| `monster_ai.rs` | `to - from` (`offset_x(from, to)`) |
+| `monster_distance_step.rs` | `creature - target` (C++ `getOffsetX(creaturePos, targetPos)`) |
+
+Dedupe requires argument swap or negation at call sites — not a blind delete. `distance_x` / `distance_y` are equivalent (absolute delta).
 
 ---
 
-## 3. `walk.rs` — 2,257 lines (lower priority, plan ahead)
+## 3. `walk.rs` — 2,593 lines (lower priority, plan ahead)
 
 Single coherent domain — no urgency — but the top ~950 lines are module-level free functions covering two distinct concerns worth splitting before combat/conditions add to the file.
 
@@ -58,12 +71,14 @@ Pure speed/timing functions:
 - `walk_timing_speed`, `tfs_retail_log_speed`, `balanced_softened_go`, `cipsoft_speed_from_profile`
 - `walk_timing_speed_kind`, `step_speed_for_walk`, `go_strength_for_walk`
 
-### Extract → `walk_tile.rs` (~300 lines)
+### Extract → `walk_tile.rs` (~440 lines)
 
 Tile traversal checks:
 
 - `tile_query_add_monster`, `tile_query_add_npc`, `tile_query_add_player`
 - `resolve_player_move_destination`, `query_destination`
+
+*(Original ~300-line estimate was low — live block is ~440 lines.)*
 
 ### What remains in `walk.rs`
 
@@ -80,7 +95,13 @@ Lower priority — content loading code, not game logic — but it will be touch
 
 ---
 
-## 5. `tfs-rust-net/outgoing_extra.rs` — 1,048 lines (flag now, split later)
+## 5. `player_inventory_query_add.rs` — 1,140 lines
+
+Fourth-largest file in `tfs-rust-core`. Coherent `queryAdd` / dress / slot-mask domain — candidate for split only if inventory grows further (e.g. separate equip-check vs query-max-count arms). Lower urgency than `monster_ai` / `game_world`.
+
+---
+
+## 6. `tfs-rust-net/outgoing_extra.rs` — 1,048 lines (flag now, split later)
 
 Currently a manageable collection of small stateless packet builder functions. Will bloat fast as combat, channels, and conditions land.
 
@@ -106,3 +127,9 @@ No action needed now — add a `// TODO: split outgoing_extra.rs when combat pac
 | `monster_distance_step.rs` (635 lines) | Pure functions, no `impl GameWorld`, exemplary shape |
 
 The pattern that's already working in `monster_distance_step.rs` and `container_ops.rs` is exactly the target shape for `monster_targets.rs` and `monster_events.rs`.
+
+---
+
+## Refactoring vs game loop
+
+File-layout refactors (`monster_ai` split, distance helper dedupe, `walk.rs` split) **do not change** game loop architecture or runtime behavior.

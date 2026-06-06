@@ -144,4 +144,15 @@ impl CreatureBase {
             self.attack_target = None;
         }
     }
+
+    /// True when no walk deadline is armed — safe to call `addEventWalk` / `monster_arm_event_walk`.
+    ///
+    /// 1098: `next_walk_check` + Tokio timer. 772: `next_wakeup` + [`ToDoQueue`](crate::todo_queue::ToDoQueue).
+    pub fn walk_timer_idle(&self, beat_driven_loop: bool) -> bool {
+        if beat_driven_loop {
+            self.next_wakeup.is_none()
+        } else {
+            self.next_walk_check.is_none()
+        }
+    }
 }

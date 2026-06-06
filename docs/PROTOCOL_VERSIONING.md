@@ -897,6 +897,7 @@ form of a **Lua-loaded config** (§12.13), so every value below is a tunable, no
 | Damage formula | classic `ProbeValue` | modern level/skill formula |
 | Condition tick constants | fire 10/8, energy 25/10 | TFS `ConditionDamage` defaults |
 | Spawn-near-player | radius shrink | block spawn |
+| Follow repath without path | yes (CipSoft `IdleStimulus`) | no (TFS `hasFollowPath`) |
 
 > **Design tie-in:** keep mechanics shared and protocol-free (Rule R1, §10). Where behavior is
 > era-specific, inject the constant/strategy via a `MechanicsProfile` value the game thread reads —

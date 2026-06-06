@@ -541,9 +541,6 @@ pub async fn run_game_loop_1098(
 }
 
 /// CipSoft 772 beat-driven loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
-///
-/// MVP: beat timer drives walk ToDoQueue + consolidated flush; 50 ms `on_tick` keeps existing
-/// subsystem pipeline until staggered AdvanceGame counters land (see `GAME_LOOP_ARCHITECTURE.md` §3).
 pub async fn run_game_loop_772(
     mut world: GameWorld,
     mut cmd_rx: UnboundedReceiver<GameCommand>,
@@ -552,8 +549,6 @@ pub async fn run_game_loop_772(
     let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
     let mut beat_timer = interval(Duration::from_millis(beat_ms));
     beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
-    let mut tick_timer = interval(Duration::from_millis(50));
-    tick_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut pending: VecDeque<GameCommand> = VecDeque::new();
 
     loop {
@@ -598,10 +593,6 @@ pub async fn run_game_loop_772(
             _ = beat_timer.tick() => {
                 world.advance_beat_772(beat_ms);
                 flush_pending_outgoing(&mut world, &out_registry);
-            }
-            // MVP: keep TFS-style 50 ms subsystem tick until staggered CipSoft counters land.
-            _ = tick_timer.tick() => {
-                world.on_tick(Instant::now());
             }
         }
     }

@@ -13,7 +13,7 @@ The codebase is **architecturally sound** for an 1098-first port with 772 mechan
 |------|--------|
 | Threading model (I/O vs game thread) | **Correct** |
 | 1098 game loop (`run_game_loop`) | **Correct** — matches TFS reactive model |
-| 772 game loop (beat-driven / ToDoQueue) | **Implemented (P2 MVP)** — `run_game_loop_772`; hybrid 50 ms `on_tick` for subsystems remains |
+| 772 game loop (beat-driven / ToDoQueue) | **Implemented (P2 + P4)** — `run_game_loop_772`; staggered subsystem counters replace hybrid 50 ms `on_tick` |
 | 1098 mechanics / formulas | **Correct** — tests pass |
 | 772 mechanics / formulas | **Broken in working tree** — `772.lua` drift |
 | Walk timing code structure | **Correct** — profile-driven `step_speed` + `step_beat_ms` |
@@ -25,7 +25,7 @@ The codebase is **architecturally sound** for an 1098-first port with 772 mechan
 **Three takeaways:**
 
 1. **One active bug:** modified `data/formulas/772.lua` breaks formulas parity and walk timing.
-2. **772 loop (P2):** `run_game_loop_772` + `ToDoQueue` + beat-end flush ship for `clientVersion = 772`; staggered subsystem counters (§3.4) still deferred.
+2. **772 loop (P2 + P4):** `run_game_loop_772` + `ToDoQueue` + beat-end flush + staggered ~1000 ms subsystem counters ship for `clientVersion = 772`; multi-beat catch-up still deferred.
 3. **Docs may lag:** refresh `GAME_LOOP_ARCHITECTURE.md` §3 status when follow-ups land (staggered counters, multi-beat catch-up).
 
 ---
@@ -65,7 +65,7 @@ Uncommitted change in `data/formulas/772.lua`:
 | 772: `ToDoQueue` + logical `server_ms` | **`todo_queue.rs` + `GameWorld::server_ms`** |
 | 772: `walk_wake_tx = None` | **`None` for CipSoft** in `run_server.rs` |
 | 772: beat-end-only flush (`SendAll`) | **`FlushPolicy::BeatEndOnly`** on 772 loop |
-| 772: staggered ~1000 ms subsystem counters | **Not yet** — hybrid 50 ms `on_tick` still runs subsystems |
+| 772: staggered ~1000 ms subsystem counters | **Implemented (P4)** — `SubsystemCounters772` in `advance_beat_772`; no hybrid 50 ms `on_tick` |
 
 ### What is correct today
 
@@ -87,16 +87,13 @@ This loop runs for **`clientVersion = 1098`** only (`StepSpeedModel::TfsLog`).
 - Consolidated output flush once per beat (`FlushPolicy::BeatEndOnly`)
 - No per-creature Tokio walk timers on 772 (`walk_wake_tx = None`)
 
-**Still deferred (post-P2):**
+**Still deferred (post-P2/P4):**
 
-- Staggered subsystem counters (~1000 ms) — hybrid 50 ms `on_tick` remains
 - Multi-beat lag catch-up when alarms pile up
 
 ### Recommended doc fix
 
-Add a status banner to `GAME_LOOP_ARCHITECTURE.md`:
-
-> **§2 = implemented (both eras today). §3 = target architecture (772 loop not yet built).**
+Status banner in `GAME_LOOP_ARCHITECTURE.md` reflects shipped state (§2 + §3 implemented; multi-beat catch-up deferred).
 
 ---
 
@@ -130,7 +127,7 @@ match mech.profile.step_speed {
 | TVP `gameserver/src/creature.cpp` | `step_beat_ms` | **50 ms** (code default + intended shipped lua) |
 | CipSoft decompile (`cract.cc` NotifyGo) | global `Beat` | **200 ms** |
 
-The code intentionally follows **TVP gameserver** for walk quantization, not CipSoft decompile Beat. Stale internal docs (`tasks/lessons.md`, `tasks/todo.md`) still reference `beat_ms` for walk quantization — those should be updated to `step_beat_ms`.
+The code intentionally follows **TVP gameserver** for walk quantization, not CipSoft decompile Beat. Internal task docs updated (P6) to reference `step_beat_ms` for walk quant and `beat_ms` for the 772 loop timer only.
 
 ---
 
@@ -140,7 +137,8 @@ Per `.cursor/rules/TFS-protocol-versioning.mdc`, core mechanics should use `Mech
 
 | Location | Issue | Severity |
 |----------|-------|----------|
-| `monster_ai.rs:919` | `is_772 = matches!(self.codec, Codec::V772(_))` for follow repath | **Medium** — should be a profile flag (e.g. `follow_repath_without_path`) |
+| ~~`monster_ai.rs:919`~~ | ~~`is_772` codec check for follow repath~~ | **Done (P3)** — `MechanicsProfile::follow_repath_without_path` |
+| `monster_ai.rs:1577` | ~~`monster_arm_event_walk` checks `next_walk_check` only~~ | **Done (P7)** — `CreatureBase::walk_timer_idle` gates on `next_wakeup` when `beat_driven_loop` |
 | `walk.rs` | `clear_todo_772`, autowalk `first_only` gated on codec | **Borderline** — wire/client behavior, but lives in core walk scheduler |
 | `creature_think.rs` | Same TFS 1 s bucketed think for both eras | **Medium gap** vs CipSoft IdleStimulus / ToDo model |
 | `game_packet_needs_immediate_flush` | No era branch | **OK for now** — 1098 flush policy applies to both eras until 772 loop lands |
@@ -246,10 +244,18 @@ The planned 772 loop in `GAME_LOOP_ARCHITECTURE.md` §3 is the efficient Rust ma
 | **P0** | Resolve `772.lua` `stepBeatMs` drift | Active test failure + wrong live server walk timing |
 | **P1** | Add status banner to `GAME_LOOP_ARCHITECTURE.md` | Prevents reading target architecture as shipped |
 | **P2** | ~~Implement 772 loop (`run_game_loop_772`)~~ | **Done** — beat timer, ToDoQueue, beat-end flush, walk scheduling |
-| **P3** | Move `monster_ai` codec check to profile knob | Protocol versioning hygiene |
-| **P4** | Staggered 772 subsystem counters (~1000 ms) | Replace hybrid 50 ms `on_tick` on beat loop |
-| **P5** | Update refactoring doc corrections | Minor accuracy fixes |
-| **P6** | Update stale docs referencing `beat_ms` for walk quant | `tasks/lessons.md`, `tasks/todo.md` |
+| **P3** | ~~Move `monster_ai` codec check to profile knob~~ | **Done** — `follow_repath_without_path` on `MechanicsProfile` |
+| **P4** | ~~Staggered 772 subsystem counters (~1000 ms)~~ | **Done** — `SubsystemCounters772` + `advance_beat_772`; hybrid 50 ms `on_tick` removed from 772 loop |
+| **P5** | ~~Update refactoring doc corrections~~ | **Done** — line counts, offset sign caveat, `player_inventory_query_add`, `game_world` split note |
+| **P6** | ~~Update stale docs referencing `beat_ms` for walk quant~~ | **Done** — `tasks/lessons.md`, `tasks/todo.md` → `step_beat_ms` |
+| **P7** | ~~Fix `monster_arm_event_walk` for 772 beat loop~~ | **Done** — `CreatureBase::walk_timer_idle`; gates on `next_wakeup` when `beat_driven_loop` |
+| **P8** | IdleStimulus (772 drain-triggered AI) | See [`IDLE_STIMULUS.md`](IDLE_STIMULUS.md) — Phase A (Go/chase) does not require combat; Phase B (Attack) does |
+
+### P7 — `monster_arm_event_walk` / `next_wakeup` (772) — **Done**
+
+**Fix shipped:** [`CreatureBase::walk_timer_idle`](crates/tfs-rust-core/src/creature/base.rs) — returns true when no walk deadline is armed (`next_wakeup` on 772, `next_walk_check` on 1098). Used by [`monster_arm_event_walk`](crates/tfs-rust-core/src/monster_ai.rs) and [`add_event_walk`](crates/tfs-rust-core/src/walk.rs).
+
+**Verification:** `beat_driven_arm_event_walk_skips_when_wakeup_set` — second arm leaves `next_wakeup` and heap size unchanged.
 
 ---
 
@@ -257,6 +263,7 @@ The planned 772 loop in `GAME_LOOP_ARCHITECTURE.md` §3 is the efficient Rust ma
 
 | Path | Relevance |
 |------|-----------|
+| `crates/tfs-rust-core/src/subsystem_counters_772.rs` | CipSoft `AdvanceGame` staggered ~1000 ms counters (P4) |
 | `crates/tfs-rust-core/src/game_loop.rs` | `run_game_loop_1098` + `run_game_loop_772` + shared dispatch |
 | `crates/tfs-rust-core/src/todo_queue.rs` | Min-heap ToDoQueue for 772 walk scheduling |
 | `crates/tfs-rust-core/src/run_server.rs` | Era branch: `walk_wake_tx` + loop selection |
@@ -264,7 +271,7 @@ The planned 772 loop in `GAME_LOOP_ARCHITECTURE.md` §3 is the efficient Rust ma
 | `crates/tfs-rust-core/src/formulas.rs` | `beat_ms` / `step_beat_ms` definitions and loader |
 | `crates/tfs-rust-core/src/game_world.rs` | `on_tick` pipeline |
 | `crates/tfs-rust-core/src/creature_think.rs` | Think bucket timing (shared both eras) |
-| `crates/tfs-rust-core/src/monster_ai.rs` | Codec-gated 772 follow repath |
+| `crates/tfs-rust-core/src/monster_ai.rs` | Follow repath profile knob (P3); `monster_arm_event_walk` / `next_wakeup` gap (P7) |
 | `data/formulas/772.lua` | `stepBeatMs` drift (200 vs expected 50) |
 | `data/formulas/1098.lua` | Matches built-in defaults |
 | `docs/GAME_LOOP_ARCHITECTURE.md` | §2 current + §3 target (mixed if read as one) |
