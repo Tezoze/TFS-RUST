@@ -43,6 +43,7 @@ use tfs_rust_net::outgoing_extra::send_text_message_simple;
 use crate::combat::uniform_random;
 use crate::return_value::ReturnValue;
 use crate::creature::CreatureKind;
+use crate::creature_todo::trace_creature_todo;
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
 use crate::login_out::{creature_wire_id, map_tile_content};
@@ -127,7 +128,7 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
 /// `MESSAGE_STATUS_SMALL` (`src/const.h`).
 const MESSAGE_STATUS_SMALL: u8 = 21;
 
-fn ground_speed_for_tile_body(body: &crate::tile::TileBody, items_db: &ItemDatabase) -> u32 {
+pub(crate) fn ground_speed_for_tile_body(body: &crate::tile::TileBody, items_db: &ItemDatabase) -> u32 {
     let Some(gid) = body.ground else {
         return 150;
     };
@@ -317,11 +318,17 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 impl GameWorld {
     /// Drain the global ToDoQueue for entries due at or before [`Self::server_ms`].
     pub fn drain_todo_queue(&mut self) {
-        while let Some(entry) = self.todo_queue.peek() {
+        const MAX_DRAINS_PER_BEAT: usize = 4096;
+        let mut drained = 0usize;
+        while drained < MAX_DRAINS_PER_BEAT {
+            let Some(entry) = self.todo_queue.peek() else {
+                break;
+            };
             if entry.execution_time > self.server_ms {
                 break;
             }
             let entry = self.todo_queue.pop().expect("peek implied non-empty heap");
+            drained += 1;
             let still_valid = self
                 .creatures
                 .get(entry.creature_id)
@@ -350,17 +357,83 @@ impl GameWorld {
             return;
         }
         let now = Instant::now();
+        if self.creature_uses_todo_execute(cid) {
+            trace_creature_todo(self, cid, "process_creature_todo");
+            if self.creature_todo_queue_empty(cid) {
+                self.idle_stimulus(cid);
+            }
+            if !self.creature_todo_queue_empty(cid) {
+                self.run_monster_todo_execute(cid);
+            }
+            self.cleanup();
+            return;
+        }
         self.on_walk(cid, true, now, None);
         self.cleanup();
     }
 
     /// Schedule a creature wakeup in the logical ToDoQueue (`cract.cc:968` `ToDoStart`).
-    fn schedule_creature_wakeup(&mut self, cid: CreatureId, execution_time: u64) {
+    pub(crate) fn schedule_creature_wakeup(&mut self, cid: CreatureId, execution_time: u64) {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().next_walk_check = None;
             k.base_mut().next_wakeup = Some(execution_time);
         }
         self.todo_queue.insert(execution_time, cid);
+        trace_creature_todo(self, cid, "schedule_wakeup");
+    }
+
+    /// Compute walk delay for the next queued Go and arm the global heap (772 monster idle path).
+    /// Returns `true` when the step should run immediately (ticks <= 1).
+    pub(crate) fn todo_start_go_delay(&mut self, cid: CreatureId, first_step: bool) -> bool {
+        let wall_now = Instant::now();
+        let (pos, timing_speed) = {
+            let Some(k) = self.creatures.get(cid) else {
+                return false;
+            };
+            (
+                k.position(),
+                walk_timing_speed_kind(k, k.base(), &self.mechanics),
+            )
+        };
+        if timing_speed <= 0 {
+            return false;
+        }
+        if !self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().walk_timer_idle(self.beat_driven_loop))
+        {
+            return false;
+        }
+        let ground_speed = self
+            .map
+            .get_tile(pos)
+            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+            .unwrap_or(150);
+        let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
+        let ticks = {
+            let Some(k) = self.creatures.get(cid) else {
+                return false;
+            };
+            get_event_step_ticks(
+                k,
+                k.base(),
+                first_step,
+                ground_speed,
+                peek_next_walk_direction(k.base()),
+                wall_now,
+                &self.mechanics,
+                server_ms_opt,
+            )
+        };
+        if ticks <= 0 {
+            return false;
+        }
+        if ticks == 1 {
+            return true;
+        }
+        self.todo_start_from_action(cid, ticks.max(1) as u64);
+        false
     }
 
     /// TFS `scheduler.cpp`: `steady_timer` + `stopEvent`; wake game thread like `g_dispatcher.addTask`.
@@ -1022,7 +1095,7 @@ impl GameWorld {
     ///
     /// `fired_deadline`: logical `next_walk_check` that triggered this `on_walk` (scheduler path); used to
     /// chain the next deadline without cumulative timer jitter.
-    fn on_walk(
+    pub(crate) fn on_walk(
         &mut self,
         cid: CreatureId,
         reschedule_after: bool,
@@ -1081,6 +1154,13 @@ impl GameWorld {
                     Some(k) => k.position(),
                     None => return,
                 };
+                if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+                {
+                    self.monster_push_before_step(cid, old_pos.offset(dir), now);
+                }
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
@@ -1154,7 +1234,14 @@ impl GameWorld {
             } else {
                 // TFS: `getNextStep` false → `stopEventWalk`, `onWalkComplete` if queue empty (`src/creature.cpp` ~215–219).
                 self.stop_event_walk(cid);
-                if self.monster_should_keep_chase_walk_alive(cid)
+                if self.beat_driven_loop
+                    && self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+                {
+                    self.request_idle_stimulus(cid);
+                } else if self.monster_should_keep_chase_walk_alive(cid)
                     || self.monster_should_keep_dance_walk_alive(cid)
                 {
                     // C++ keeps polling `getNextStep` while chasing; re-arm when the queue is empty
@@ -1202,7 +1289,11 @@ impl GameWorld {
 
         if !stopped_without_reschedule && reschedule_after {
             if self.beat_driven_loop {
-                self.add_event_walk(cid, false, now);
+                if self.creature_uses_todo_execute(cid) {
+                    // Step chain owned by the per-creature action queue.
+                } else {
+                    self.add_event_walk(cid, false, now);
+                }
             } else if let Some(logical) = fired_deadline {
                 self.commit_next_walk_deadline(cid, None);
                 self.add_event_walk(cid, false, logical);
@@ -1389,6 +1480,17 @@ impl GameWorld {
         Ok(segments)
     }
 
+    /// One walk step for push / auxiliary callers (discards segment payloads).
+    pub(crate) fn try_creature_walk_step(
+        &mut self,
+        cid: CreatureId,
+        direction: Direction,
+        now: Instant,
+    ) -> bool {
+        self.internal_move_creature_step(cid, direction, now)
+            .is_ok()
+    }
+
     /// Move a creature between tiles on the map (unregister from old, register at new).
     /// C++ `Map::moveCreature` — position follows the tile (`newTile.addThing`) before
     /// `onCreatureMove` fan-out (`map.cpp` ~293–324).
@@ -1459,6 +1561,7 @@ impl GameWorld {
             target,
             &fpp,
             self.mechanics.profile.path_cost,
+            self.mechanics.profile.path_search,
             |pos| {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
                     return false;
@@ -1559,7 +1662,7 @@ mod step_speed_tests {
             wire_step_speed(WalkSpeedRole::MonsterOrNpc, &base, &mech),
             164
         );
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
     }
 
     /// 1098 wire payload is halved in codec; neutral struct holds full GoStrength before `/2`.
@@ -1621,7 +1724,7 @@ mod step_speed_tests {
         assert_eq!(ticks, 1);
     }
 
-    /// 772 wolf GoStrength 42 → `GetSpeed` 164; CipSoft Beat 200 ms quantizer → 1000 ms on ground 150.
+    /// 772 wolf GoStrength 42 → `GetSpeed` 164; TVP step quantizer 50 ms → 950 ms on ground 150.
     #[test]
     fn cipsoft_step_duration_matches_notify_go() {
         let p = test_player("Wolf", Position::new(100, 100, 7));
@@ -1630,11 +1733,11 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         assert_eq!(cipsoft_effective_speed(42), 164);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 200, 0);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 50, 0);
     }
 
-    /// CipSoft diagonal: `×3` waypoints before Beat ceil — 2800 ms, not TFS-style 1000×3.
+    /// CipSoft diagonal: `×3` waypoints before step quantizer ceil — 2750 ms, not TFS-style 950×3.
     #[test]
     fn cipsoft_diagonal_step_duration_quantizes_waypoints_before_beat() {
         use tfs_rust_common::enums::Direction;
@@ -1657,8 +1760,8 @@ mod step_speed_tests {
             150,
             &mech,
         );
-        assert_eq!(cardinal, 1000);
-        assert_eq!(diagonal, 2800);
+        assert_eq!(cardinal, 950);
+        assert_eq!(diagonal, 2750);
         assert_ne!(diagonal, cardinal * 3, "CipSoft ceils before ×3, not after");
     }
 

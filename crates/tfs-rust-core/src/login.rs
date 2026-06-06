@@ -105,6 +105,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         master: None,
         damage_map: Default::default(),
         think_check_bucket: None,
+        todo: Default::default(),
     };
 
     let account_id =

@@ -248,3 +248,12 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] Extract `walk/walk_tile.rs` (~462 lines) — `Tile::queryAdd`, destination resolution
 - [x] Anchor `walk/mod.rs` — direction utils, dispatch, `impl GameWorld`, tests; re-export `wire_step_speed` / `WalkSpeedRole`
 - [x] `cargo check -p tfs-rust-core`; `cargo test -p tfs-rust-core walk::` (14 tests)
+
+## P8 — IdleStimulus Phase A (772 drain-triggered Go/chase) — done
+- [x] `creature_todo.rs` — `CreatureAction::Go`, per-creature queue on `CreatureBase`
+- [x] `idle_stimulus.rs` — `idle_stimulus`, `monster_idle_stimulus`, `request_idle_stimulus`
+- [x] `walk/mod.rs` — 772 monster execute via action queue; idle on drain; player path unchanged
+- [x] `monster_ai.rs` / `creature_think.rs` — skip think chase/repath when `beat_driven_loop`
+- [x] `monster_events.rs` / `monster_targets.rs` — 772 repath defers to idle
+- [x] Unit tests: `idle_stimulus::tests` (4), existing beat_driven + creature_think green
+- [ ] Phase B deferred: `CreatureAction::Attack`, retire 772 `creature_on_attacking` from think

@@ -80,6 +80,8 @@ pub struct MonsterTypeFlags {
     pub static_attack_chance: u32,
     pub can_push_creatures: bool,
     pub can_push_items: bool,
+    /// `<flag pushable=…>` — default true (`monsters.h`); forced false when `can_push_creatures`.
+    pub pushable: bool,
     /// `<flag hostile=…>` — default true for wild monsters.
     pub is_hostile: bool,
     /// `<targetchange interval/speed=…>` — default 0 (`monsters.h`).
@@ -96,6 +98,7 @@ impl Default for MonsterTypeFlags {
             static_attack_chance: 95,
             can_push_creatures: false,
             can_push_items: false,
+            pushable: true,
             is_hostile: true,
             change_target_speed: 0,
             change_target_chance: 0,
@@ -512,6 +515,7 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
             match name {
                 "canpushitems" => flags.can_push_items = parse_bool_flag(value),
                 "canpushcreatures" => flags.can_push_creatures = parse_bool_flag(value),
+                "pushable" => flags.pushable = parse_bool_flag(value),
                 "staticattack" => {
                     let mut v: u32 = value.parse().unwrap_or(flags.static_attack_chance);
                     if v > 100 {
@@ -540,6 +544,7 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
     }
     if flags.can_push_creatures {
         // C++: canPushCreatures forces non-pushable (`monsters.cpp` ~997–1000).
+        flags.pushable = false;
     }
 }
 

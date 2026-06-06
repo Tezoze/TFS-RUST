@@ -106,25 +106,25 @@ pub fn compute_look_toward_target(from: Position, target: Position, current: Dir
         }
     } else if ox < 0 && oy < 0 {
         match current {
-            Direction::South => Direction::West,
+            Direction::South | Direction::North => Direction::West,
             Direction::East => Direction::North,
             other => other,
         }
     } else if ox < 0 && oy > 0 {
         match current {
-            Direction::North => Direction::West,
+            Direction::North | Direction::South => Direction::West,
             Direction::East => Direction::South,
             other => other,
         }
     } else if ox > 0 && oy < 0 {
         match current {
-            Direction::South => Direction::East,
+            Direction::South | Direction::North => Direction::East,
             Direction::West => Direction::North,
             other => other,
         }
     } else if ox > 0 && oy > 0 {
         match current {
-            Direction::North => Direction::East,
+            Direction::North | Direction::South => Direction::East,
             Direction::West => Direction::South,
             other => other,
         }
@@ -156,7 +156,7 @@ impl GameWorld {
     /// and the walk queue is idle (no deferred `force_update_follow_path` flag).
     ///
     /// Returns true when [`Self::monster_follow_repath_now`] was invoked.
-    fn monster_ensure_follow_band(&mut self, cid: CreatureId, reason: &str) -> bool {
+    pub(crate) fn monster_ensure_follow_band(&mut self, cid: CreatureId, _reason: &str) -> bool {
         let follow_id = match self.creatures.get(cid).and_then(|k| k.base().follow_target) {
             Some(id) => id,
             None => return false,
@@ -269,10 +269,9 @@ impl GameWorld {
     /// C++ `Monster::onCreatureAppear` self branch — `monster.cpp` ~159–166.
 
     /// TFS `Monster::doAttacking` — `monster.cpp` ~806.
-    ///
-    /// Stub: wired from [`GameWorld::creature_on_attacking`] each think tick; spell cast +
-    /// melee cadence (`attackSpells`, `canUseSpell`, `castSpell`) to be implemented.
-    pub fn monster_do_attacking(&mut self, _cid: CreatureId, _interval_ms: u32) {}
+    pub fn monster_do_attacking(&mut self, cid: CreatureId, _interval_ms: u32) {
+        self.monster_update_look_direction(cid);
+    }
 
     /// TFS `Monster::onThink` native body — `monster.cpp` ~732.
     pub fn monster_native_on_think(&mut self, cid: CreatureId, interval_ms: u32) {
@@ -313,7 +312,7 @@ impl GameWorld {
 
         self.monster_update_idle_status(cid);
 
-        let (is_idle, is_summon, has_opponents, follow, has_path, fleeing) = {
+        let (is_idle, is_summon, has_opponents, follow, _has_path, fleeing) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
@@ -328,31 +327,33 @@ impl GameWorld {
         };
 
         if !is_idle {
-            self.monster_arm_event_walk(cid);
+            if !self.beat_driven_loop {
+                self.monster_arm_event_walk(cid);
 
-            if is_summon {
-                self.monster_think_summon_stub(cid);
-            } else if has_opponents {
-                if follow.is_none() {
-                    let _ = self.monster_search_target(cid, TargetSearchType::Default);
-                } else {
-                    self.monster_ensure_follow_band(cid, "think");
-                }
-                if fleeing {
-                    let attack = self
-                        .creatures
-                        .get(cid)
-                        .and_then(|k| k.base().attack_target);
-                    if let Some(target_id) = attack {
-                        if !self.monster_can_use_attack(cid, pos, target_id) {
-                            let _ = self.monster_search_target(cid, TargetSearchType::AttackRange);
+                if is_summon {
+                    self.monster_think_summon_stub(cid);
+                } else if has_opponents {
+                    if follow.is_none() {
+                        let _ = self.monster_search_target(cid, TargetSearchType::Default);
+                    } else {
+                        self.monster_ensure_follow_band(cid, "think");
+                    }
+                    if fleeing {
+                        let attack = self
+                            .creatures
+                            .get(cid)
+                            .and_then(|k| k.base().attack_target);
+                        if let Some(target_id) = attack {
+                            if !self.monster_can_use_attack(cid, pos, target_id) {
+                                let _ = self.monster_search_target(cid, TargetSearchType::AttackRange);
+                            }
                         }
                     }
                 }
-            }
 
-            self.monster_on_think_target(cid, interval_ms);
-            self.monster_update_look_direction(cid);
+                self.monster_on_think_target(cid, interval_ms);
+                self.monster_update_look_direction(cid);
+            }
         }
 
         let phase = if fleeing {
@@ -377,6 +378,9 @@ impl GameWorld {
 
     /// TFS `Creature::goToFollowCreature` — `creature.cpp` ~1011.
     pub fn go_to_follow_creature(&mut self, cid: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().force_update_follow_path = false;
+        }
         let follow_id = match self.creatures.get(cid).and_then(|k| k.base().follow_target) {
             Some(id) => id,
             None => return,
@@ -673,6 +677,7 @@ impl GameWorld {
             target,
             fpp,
             self.mechanics.profile.path_cost,
+            self.mechanics.profile.path_search,
             |pos| ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos),
             |pos| {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
@@ -717,7 +722,7 @@ impl GameWorld {
     }
 
 
-    fn monster_think_summon_stub(&mut self, cid: CreatureId) {
+    pub(crate) fn monster_think_summon_stub(&mut self, cid: CreatureId) {
         let (master, attack) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (m.base.master, m.base.attack_target),
             _ => return,
@@ -740,7 +745,7 @@ impl GameWorld {
     }
 
     /// TFS `Monster::onThinkTarget` — `monster.cpp` ~923.
-    fn monster_on_think_target(&mut self, cid: CreatureId, interval_ms: u32) {
+    pub(crate) fn monster_on_think_target(&mut self, cid: CreatureId, interval_ms: u32) {
         let (
             change_speed,
             change_chance,
@@ -856,13 +861,19 @@ impl GameWorld {
 
     /// TFS `Monster::updateLookDirection` + `0x6B` broadcast.
     pub fn monster_update_look_direction(&mut self, cid: CreatureId) {
-        let (pos, attack, current) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => {
-                (m.base.position, m.base.attack_target, m.base.direction)
-            }
+        let (pos, target_id, current, is_idle) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.base.position,
+                m.base.attack_target,
+                m.base.direction,
+                m.base.walk_timer_idle(self.beat_driven_loop),
+            ),
             _ => return,
         };
-        let Some(target_id) = attack else {
+        if !is_idle {
+            return;
+        }
+        let Some(target_id) = target_id else {
             return;
         };
         let target_pos = match self.creatures.get(target_id) {
@@ -974,11 +985,11 @@ impl GameWorld {
                     .get(cid)
                     .is_some_and(|k| k.base().has_follow_path);
                 self.monster_on_follow_creature_complete(cid, target_id);
-                // Only reconcile after a real follow walk finished — not when the queue was already
-                // empty from `chase_fully_blocked` (avoids repath storm every walk tick).
-                if had_follow_path {
+                // 772: band reconcile runs from idle; 1098: reconcile after follow walk.
+                if had_follow_path && !self.beat_driven_loop {
                     self.monster_reconcile_follow_position(cid, target_id);
                 }
+                self.monster_update_look_direction(cid);
             }
         }
     }
@@ -1568,6 +1579,40 @@ mod world_tests {
             Direction::East
         );
      }
+
+    #[test]
+    fn update_look_direction_ignored_when_walking() {
+        let mut world = minimal_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 100);
+        ensure_walkable_tile(&mut world.map, ppos, 100);
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+
+        let conn = ConnId(7);
+        let player = insert_spectator_player(&mut world, conn, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.base.attack_target = Some(player);
+            m.base.direction = Direction::North;
+            m.base.next_walk_check = Some(Instant::now() + std::time::Duration::from_millis(500));
+        }
+
+        world.monster_update_look_direction(monster);
+
+        // Direction should remain North because walk is active (not idle)
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().direction,
+            Direction::North
+        );
+    }
 
     #[test]
     fn select_target_automatically_updates_look_direction() {

@@ -333,6 +333,9 @@ impl GameWorld {
             self.remove_creature_think_check(cid);
         } else {
             self.add_creature_think_check(cid);
+            if self.beat_driven_loop {
+                self.request_idle_stimulus(cid);
+            }
         }
     }
 
@@ -570,7 +573,11 @@ impl GameWorld {
             base.follow_target = Some(target_id);
             base.is_updating_path = true;
         }
-        self.monster_follow_repath_now(monster_id);
+        if self.beat_driven_loop {
+            self.request_idle_stimulus(monster_id);
+        } else {
+            self.monster_follow_repath_now(monster_id);
+        }
         true
     }
 }

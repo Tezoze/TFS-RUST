@@ -7,7 +7,8 @@
 use std::path::PathBuf;
 
 use tfs_rust_core::formulas::{
-    load_mechanics,     ArmorReduction, DistanceKeep, MechanicsProfile, PathCostModel, SpawnNearPlayer,
+    load_mechanics,     ArmorReduction, DistanceKeep, MechanicsProfile, PathCostModel,
+    PathSearchModel, SpawnNearPlayer,
     StepSpeedModel, WeakestTargetMetric,
 };
 use tfs_rust_common::ProtocolVersion;
@@ -51,11 +52,17 @@ fn shipped_772_formulas_match_cipsoft_defaults() {
     }
     let m = load_mechanics(&dir, ProtocolVersion::V772);
     let p = &m.profile;
-    assert_eq!(*p, MechanicsProfile::for_version(ProtocolVersion::V772));
+    let defaults = MechanicsProfile::for_version(ProtocolVersion::V772);
+    // Shipped lua overlays `playerSpeed`; other Tier-1 keys mirror built-in 772 defaults.
+    assert_eq!(p.beat_ms, defaults.beat_ms);
+    assert_eq!(p.path_cost, defaults.path_cost);
+    assert_eq!(p.path_search, defaults.path_search);
+    assert_eq!(p.follow_repath_without_path, defaults.follow_repath_without_path);
     assert_eq!(p.beat_ms, 200);
     assert_eq!(p.attack_speed_ms, 0);
     assert_eq!(p.armor, ArmorReduction::Randomized);
     assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
+    assert_eq!(p.path_search, PathSearchModel::Reverse);
     assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
     assert_eq!(p.distance_keep, DistanceKeep::PerType);
     assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);

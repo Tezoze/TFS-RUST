@@ -173,30 +173,32 @@ impl GameWorld {
         let skip_repath_at_goal = follow_id
             .is_some_and(|fid| self.monster_should_skip_follow_repath(cid, fid));
 
-        let mut run_follow_repath = false;
-        if let Some(k) = self.creatures.get_mut(cid) {
-            let base = k.base_mut();
-            if let Some(_follow_id) = base.follow_target {
-                base.walk_update_ticks = base.walk_update_ticks.saturating_add(interval_ms);
-                let wants_repath = base.force_update_follow_path
-                    || base.walk_update_ticks >= FOLLOW_PATH_UPDATE_INTERVAL_MS;
-                if wants_repath {
-                    base.walk_update_ticks = 0;
-                    base.force_update_follow_path = false;
-                    if skip_repath_at_goal {
-                        base.has_follow_path = true;
-                    } else {
-                        base.is_updating_path = true;
+        if !self.beat_driven_loop {
+            let mut run_follow_repath = false;
+            if let Some(k) = self.creatures.get_mut(cid) {
+                let base = k.base_mut();
+                if let Some(_follow_id) = base.follow_target {
+                    base.walk_update_ticks = base.walk_update_ticks.saturating_add(interval_ms);
+                    let wants_repath = base.force_update_follow_path
+                        || base.walk_update_ticks >= FOLLOW_PATH_UPDATE_INTERVAL_MS;
+                    if wants_repath {
+                        base.walk_update_ticks = 0;
+                        base.force_update_follow_path = false;
+                        if skip_repath_at_goal {
+                            base.has_follow_path = true;
+                        } else {
+                            base.is_updating_path = true;
+                        }
                     }
                 }
+                run_follow_repath = base.is_updating_path;
+                if run_follow_repath {
+                    base.is_updating_path = false;
+                }
             }
-            run_follow_repath = base.is_updating_path;
             if run_follow_repath {
-                base.is_updating_path = false;
+                self.go_to_follow_creature(cid);
             }
-        }
-        if run_follow_repath {
-            self.go_to_follow_creature(cid);
         }
 
         self.events.on_think(cid, interval_ms);

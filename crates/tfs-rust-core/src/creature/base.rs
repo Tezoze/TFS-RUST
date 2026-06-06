@@ -5,6 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use crate::condition::ActiveCondition;
+use crate::creature_todo::CreatureTodo;
 use crate::ids::CreatureId;
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
@@ -119,6 +120,8 @@ pub struct CreatureBase {
     pub damage_map: DamageMap,
     /// C++ `inCheckCreaturesVector` bucket (`game.cpp` `addCreatureCheck`); `None` = not scheduled.
     pub think_check_bucket: Option<u8>,
+    /// CipSoft per-creature ToDo action list (772 idle-driven AI).
+    pub todo: CreatureTodo,
 }
 
 impl CreatureBase {

@@ -24,6 +24,7 @@ pub struct MonsterAiConfig {
     pub static_attack_chance: u32,
     pub can_push_creatures: bool,
     pub can_push_items: bool,
+    pub pushable: bool,
     pub is_hostile: bool,
     /// C++ `MonsterType::changeTargetSpeed` — `monsters.h`.
     pub change_target_speed: u32,
@@ -40,6 +41,7 @@ impl Default for MonsterAiConfig {
             static_attack_chance: d.static_attack_chance,
             can_push_creatures: d.can_push_creatures,
             can_push_items: d.can_push_items,
+            pushable: d.pushable,
             is_hostile: d.is_hostile,
             change_target_speed: d.change_target_speed,
             change_target_chance: d.change_target_chance,
@@ -55,6 +57,7 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             static_attack_chance: f.static_attack_chance,
             can_push_creatures: f.can_push_creatures,
             can_push_items: f.can_push_items,
+            pushable: f.pushable,
             is_hostile: f.is_hostile,
             change_target_speed: f.change_target_speed,
             change_target_chance: f.change_target_chance,
@@ -75,6 +78,7 @@ pub struct Monster {
     pub static_attack_chance: u32,
     pub can_push_creatures: bool,
     pub can_push_items: bool,
+    pub pushable: bool,
     pub is_hostile: bool,
     pub is_idle: bool,
     pub walking_to_spawn: bool,
@@ -110,6 +114,7 @@ impl Monster {
             static_attack_chance: config.static_attack_chance,
             can_push_creatures: config.can_push_creatures,
             can_push_items: config.can_push_items,
+            pushable: config.pushable,
             is_hostile: config.is_hostile,
             is_idle: true,
             walking_to_spawn: false,
@@ -125,6 +130,11 @@ impl Monster {
 
     pub fn wants_lua_think(&self) -> bool {
         self.registered_events.contains("onThink")
+    }
+
+    /// TFS `Monster::isPushable` — `monster.h` (`pushable && baseSpeed != 0`).
+    pub fn is_pushable(&self) -> bool {
+        self.pushable && self.base.speed != 0
     }
 
     /// TFS `Monster::isFleeing` — `monster.h` ~154.

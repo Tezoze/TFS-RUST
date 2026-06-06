@@ -40,6 +40,15 @@ pub enum PathCostModel {
     TerrainWeighted,
 }
 
+/// A* expansion direction (`pathfinding.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathSearchModel {
+    /// TFS 1.4.2 — forward search origin → destination (`map.cpp` `getPathMatching`).
+    Forward,
+    /// CipSoft 7.72 — reverse search destination → origin (`cract.cc:7` `TShortway`).
+    Reverse,
+}
+
 /// Armor mitigation model (combat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArmorReduction {
@@ -196,6 +205,8 @@ pub struct MechanicsProfile {
     pub player_speed_model: PlayerSpeedModel,
     /// A* edge-cost model.
     pub path_cost: PathCostModel,
+    /// A* expansion direction — forward (TFS) vs reverse (CipSoft `TShortway`).
+    pub path_search: PathSearchModel,
     /// Flat attack interval in ms; `0` = use vocation/weapon `getAttackSpeed`.
     pub attack_speed_ms: u32,
     /// Defense re-roll gate in ms (CipSoft 2000).
@@ -245,6 +256,7 @@ impl MechanicsProfile {
                 step_speed: StepSpeedModel::CipSoft,
                 player_speed_model: PlayerSpeedModel::BalancedLog,
                 path_cost: PathCostModel::TerrainWeighted,
+                path_search: PathSearchModel::Reverse,
                 // Use vocation/weapon attack speed from `vocations.xml` like 1098.
                 attack_speed_ms: 0,
                 defense_gate_ms: 2000,
@@ -290,6 +302,7 @@ impl MechanicsProfile {
                 step_speed: StepSpeedModel::TfsLog,
                 player_speed_model: PlayerSpeedModel::Retail1098,
                 path_cost: PathCostModel::Fixed,
+                path_search: PathSearchModel::Forward,
                 attack_speed_ms: 0,
                 defense_gate_ms: 2000,
                 armor: ArmorReduction::Full,
@@ -573,6 +586,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "fixed" => PathCostModel::Fixed,
         _ => p.path_cost,
     };
+    p.path_search = match str_or(&formulas, "pathSearch", "").as_str() {
+        "reverse" | "cipsoft" | "shortway" => PathSearchModel::Reverse,
+        "forward" | "tfs" => PathSearchModel::Forward,
+        _ => p.path_search,
+    };
     p.step_speed = match str_or(&formulas, "stepSpeedModel", "").as_str() {
         "cipsoft" | "cip" => StepSpeedModel::CipSoft,
         "tfs" | "tfsLog" => StepSpeedModel::TfsLog,
@@ -689,6 +707,7 @@ mod tests {
         let p = MechanicsProfile::for_version(ProtocolVersion::V1098);
         assert_eq!(p.beat_ms, 50);
         assert_eq!(p.path_cost, PathCostModel::Fixed);
+        assert_eq!(p.path_search, PathSearchModel::Forward);
         assert_eq!(p.attack_speed_ms, 0);
         assert_eq!(p.armor, ArmorReduction::Full);
         assert_eq!(p.weakest_target_metric, WeakestTargetMetric::MaxHp);
@@ -710,6 +729,7 @@ mod tests {
         let p = MechanicsProfile::for_version(ProtocolVersion::V772);
         assert_eq!(p.beat_ms, 200);
         assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
+        assert_eq!(p.path_search, PathSearchModel::Reverse);
         assert_eq!(p.attack_speed_ms, 0);
         assert_eq!(p.armor, ArmorReduction::Randomized);
         assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);

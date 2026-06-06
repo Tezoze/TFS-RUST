@@ -190,9 +190,13 @@ impl GameWorld {
             base.walk_queue.clear();
             base.walk_update_ticks = 0;
             base.is_updating_path = false;
-            base.force_update_follow_path = false;
+            base.force_update_follow_path = true;
         }
-        self.monster_follow_repath_now(monster_id);
+        if self.beat_driven_loop {
+            self.request_idle_stimulus(monster_id);
+        } else {
+            self.monster_follow_repath_now(monster_id);
+        }
     }
     /// TFS `Monster::onFollowCreatureComplete` — `monster.cpp` ~599.
     pub(crate) fn monster_on_follow_creature_complete(&mut self, cid: CreatureId, target_id: CreatureId) {

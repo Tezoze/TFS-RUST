@@ -290,6 +290,7 @@ impl GameWorld {
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            todo: Default::default(),
         };
 
         let ai_config = MonsterAiConfig::from(mtype.flags);
@@ -372,6 +373,7 @@ impl GameWorld {
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            todo: Default::default(),
         };
 
         let cid = self

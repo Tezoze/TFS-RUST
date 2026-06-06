@@ -262,8 +262,12 @@ pub(crate) fn tile_query_add_monster(
                 let Some(other) = world.creatures.get(tile_c) else {
                     return ReturnValue::NotPossible;
                 };
-                let other_monster_pushable = matches!(other, CreatureKind::Monster(_));
-                let other_summon_with_player_master = other.is_summon()
+                let other_monster_pushable = match other {
+                    CreatureKind::Monster(m) => m.is_pushable(),
+                    _ => false,
+                };
+                let other_summon_with_player_master = matches!(other, CreatureKind::Monster(_))
+                    && other.is_summon()
                     && other
                         .base()
                         .master

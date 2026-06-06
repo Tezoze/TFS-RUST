@@ -178,6 +178,7 @@ mod tests {
                 master: None,
                 damage_map: Default::default(),
                 think_check_bucket: None,
+                todo: Default::default(),
             },
             account_id: 1,
             guid: 1,

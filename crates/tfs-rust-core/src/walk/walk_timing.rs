@@ -163,10 +163,8 @@ pub(crate) fn calculated_step_speed_tfs(step_speed: i32) -> u32 {
 }
 
 fn walk_quantizer_ms(mech: &crate::formulas::Mechanics) -> i64 {
-    match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => mech.profile.beat_ms.max(1) as i64,
-        crate::formulas::StepSpeedModel::TfsLog => mech.profile.step_beat_ms.max(1) as i64,
-    }
+    // TVP `gameserver` walk quantizer + OTClient animation grid — not main-loop `beat_ms` (200).
+    mech.profile.step_beat_ms.max(1) as i64
 }
 
 #[inline]
@@ -188,7 +186,8 @@ pub(crate) fn peek_next_walk_direction(base: &crate::creature::CreatureBase) -> 
     base.walk_queue.back().copied()
 }
 
-/// CipSoft `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to Beat (`cract.cc:1461–1462`).
+/// CipSoft `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to step quantizer (`cract.cc:1461–1462`).
+/// Quantizer is [`MechanicsProfile::step_beat_ms`] (TVP 50 ms), not main-loop [`beat_ms`].
 /// `waypoint_cost` is 1 (cardinal), 3 (diagonal), or 2 (floor) applied to tile waypoints before ceil.
 fn cipsoft_step_duration_ms(
     kind: &CreatureKind,

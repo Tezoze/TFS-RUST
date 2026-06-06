@@ -11,6 +11,7 @@ formulas = {
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x
+  pathSearch = "reverse",     -- CipSoft TShortway dest→origin; 1098 uses "forward"
   distanceKeep = "perType",     -- keep band from each monster's XML targetDistance
   weakestTargetMetric = "currentHp",
   damageFormula = "classic",    -- ProbeValue
@@ -40,7 +41,7 @@ formulas = {
 
   spell = { levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 },
-  playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
+  playerSpeed = "772",      -- "772" | "retail" | "balanced" (loaded once at startup)
 }
 
 -- Player speed model selector ------------------------------------------------------------

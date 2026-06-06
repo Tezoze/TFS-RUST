@@ -87,6 +87,7 @@ freePremium = false
                 master: None,
                 damage_map: Default::default(),
                 think_check_bucket: None,
+                todo: Default::default(),
             },
             account_id: 1,
             guid: 1,
@@ -347,6 +348,7 @@ freePremium = false
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            todo: Default::default(),
         };
         let cid = world
             .creatures
@@ -388,6 +390,7 @@ freePremium = false
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            todo: Default::default(),
         };
         let cid = world.creatures.insert(CreatureKind::Npc(Npc {
             base,
