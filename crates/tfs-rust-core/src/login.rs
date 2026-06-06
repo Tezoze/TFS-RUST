@@ -90,6 +90,8 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         last_step_cost: 1,
         last_step_ground_speed: 150,
         next_walk_check: None,
+        next_wakeup: None,
+        last_step_server_ms: None,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,

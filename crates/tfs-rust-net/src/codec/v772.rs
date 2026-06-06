@@ -215,16 +215,13 @@ impl Codec772 {
     pub fn encode_add_tile_item(
         &self,
         pos: Position,
-        stack_pos: u8,
+        _stack_pos: u8,
         args: ItemTemplateArgs,
-        otclient_stackpos: bool,
+        _otclient_stackpos: bool,
     ) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(0x6A);
         m.write_position(&pos);
-        if otclient_stackpos {
-            m.write_u8(stack_pos);
-        }
         self.write_item_template_args(&mut m, args);
         m
     }
@@ -286,16 +283,13 @@ impl Codec772 {
     pub fn encode_add_tile_creature(
         &self,
         pos: Position,
-        stack_pos: u8,
+        _stack_pos: u8,
         wire: &AddCreatureWire,
-        otclient_stackpos: bool,
+        _otclient_stackpos: bool,
     ) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(0x6A);
         m.write_position(&pos);
-        if otclient_stackpos {
-            m.write_u8(stack_pos);
-        }
         self.write_add_creature(&mut m, wire);
         m
     }

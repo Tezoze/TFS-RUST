@@ -8,7 +8,7 @@
 #   export DATABASE_URL='mysql://tfs@127.0.0.1:3306/TFS'
 #
 # Optional: TFS_DATA_DIR (default `data` at repo root), TFS_MAP_OTBM (default world/forgotten.otbm),
-# TFS_CONFIG (default config.lua), TFS_RSA_PEM, TFS_LOGIN_ADDR, TFS_GAME_ADDR
+# TFS_CONFIG (default config.lua), TFS_RSA_PEM, TFS_MIGRATIONS_DIR, TFS_LOGIN_ADDR, TFS_GAME_ADDR
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

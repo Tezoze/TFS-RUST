@@ -275,6 +275,8 @@ impl GameWorld {
             last_step_cost: 1,
             last_step_ground_speed: 150,
             next_walk_check: None,
+            next_wakeup: None,
+            last_step_server_ms: None,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
@@ -355,6 +357,8 @@ impl GameWorld {
             last_step_cost: 1,
             last_step_ground_speed: 150,
             next_walk_check: None,
+            next_wakeup: None,
+            last_step_server_ms: None,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
@@ -548,10 +552,9 @@ impl GameWorld {
         wire.known = known_flag;
         wire.remove_known = remove_known;
         wire.id = wire_id;
-        let otclient = self.conn_uses_772_otclient_stackpos(conn);
         let packet = self
             .codec
-            .encode_add_tile_creature(pos, stack_pos, &wire, otclient)
+            .encode_add_tile_creature(pos, stack_pos, &wire, false)
             .into_bytes();
         self.known_creatures_by_conn.insert(conn, known);
         if !known_flag {
@@ -667,6 +670,8 @@ use std::collections::HashSet;
         ensure_walkable_tile, insert_player, minimal_world, test_player,
     };
     use tfs_rust_common::ConnId;
+    use tfs_rust_common::ProtocolVersion;
+    use tfs_rust_net::Codec;
     use tfs_rust_content::monsters::{MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags};
     use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
     use std::collections::HashMap;
@@ -764,6 +769,38 @@ use std::collections::HashSet;
 
         let packets = world.pending_outgoing.get(&conn);
         assert!(packets.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0x6A)));
+    }
+
+    /// OTCv8 772 `parseTileAddThing`: position then `getThing()` — no stackpos byte (`GameTileAddThingWithStackpos` is 841+).
+    #[test]
+    fn respawn_appear_772_creature_marker_follows_position() {
+        let mut world = world_with_spawn();
+        world.codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
+        world.mechanics =
+            crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        world.startup_spawns();
+        let (monster_cid, _) = world.creatures.iter().next().unwrap();
+        let viewer = insert_player(
+            &mut world,
+            test_player("Spec", Position::new(100, 100, 7)),
+        );
+        let conn = ConnId(3);
+        world.conn_to_creature.insert(conn, viewer);
+        world.known_creatures_by_conn.insert(conn, HashSet::new());
+
+        world.remove_creature(monster_cid);
+        world.pending_outgoing.clear();
+
+        let later = Instant::now() + std::time::Duration::from_secs(6);
+        world.on_tick(later);
+
+        let appear = world
+            .pending_outgoing
+            .get(&conn)
+            .and_then(|packets| packets.iter().find(|b| !b.is_empty() && b[0] == 0x6A))
+            .expect("0x6A appear packet");
+        assert_eq!(appear[6], 0x61, "creature marker low byte must follow position");
+        assert_eq!(appear[7], 0x00, "unknown creature marker is 0x0061");
     }
 
     #[test]

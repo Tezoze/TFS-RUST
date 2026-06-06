@@ -60,6 +60,7 @@ pub mod spawn;
 pub mod spell;
 pub mod stability;
 pub mod tile;
+mod todo_queue;
 pub mod walk;
 pub mod walk_action;
 pub mod weapon;
@@ -83,7 +84,9 @@ pub use creature::{
     PlayerSkills, PlayerSocial,
 };
 pub use event_dispatcher::{EventDispatcher, NullEventDispatcher};
-pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
+pub use game_loop::{
+    graceful_shutdown, run_game_loop, run_game_loop_1098, run_game_loop_772, wait_for_shutdown_signal,
+};
 pub use game_world::GameWorld;
 pub use guild::{Guild, GuildRank, GuildRegistry, GuildWarTracker};
 pub use ids::{CreatureId, ItemId};

@@ -15,6 +15,51 @@ pub fn default_migrations_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations")
 }
 
+/// Resolve SQLx migrations at runtime — avoids stale `CARGO_MANIFEST_DIR` when the repo is
+/// moved or mounted at a different path than at last compile of `tfs-rust-db`.
+///
+/// Search order: `TFS_MIGRATIONS_DIR` → compile-time crate path (if present) →
+/// `crates/tfs-rust-db/migrations` under cwd → workspace-root sibling of cwd.
+pub fn resolve_migrations_dir() -> Result<PathBuf> {
+    if let Ok(p) = std::env::var("TFS_MIGRATIONS_DIR") {
+        let path = PathBuf::from(p);
+        if path.is_dir() {
+            return Ok(path);
+        }
+        return Err(TfsRustError::Database(format!(
+            "TFS_MIGRATIONS_DIR={} is not a directory",
+            path.display()
+        )));
+    }
+
+    let baked = default_migrations_dir();
+    if baked.is_dir() {
+        return Ok(baked);
+    }
+
+    let from_cwd = PathBuf::from("crates/tfs-rust-db/migrations");
+    if from_cwd.is_dir() {
+        return Ok(from_cwd);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let from_parent = cwd.join("../crates/tfs-rust-db/migrations");
+        if let Ok(canonical) = from_parent.canonicalize() {
+            if canonical.is_dir() {
+                return Ok(canonical);
+            }
+        }
+    }
+
+    Err(TfsRustError::Database(format!(
+        "SQLx migrations directory not found.\n\
+         Expected at {} (compile-time path — rebuild with `cargo clean -p tfs-rust-db` if the repo moved),\n\
+         or crates/tfs-rust-db/migrations relative to cwd,\n\
+         or set TFS_MIGRATIONS_DIR to the directory containing *.sql migration files.",
+        baked.display()
+    )))
+}
+
 async fn table_exists(pool: &DbPool, name: &str) -> Result<bool> {
     let found: Option<i32> = sqlx::query_scalar(
         r#"

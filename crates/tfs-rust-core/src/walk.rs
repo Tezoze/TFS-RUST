@@ -341,6 +341,25 @@ fn get_walk_delay(
     delay.max(0)
 }
 
+/// CipSoft walk delay using logical `ServerMilliseconds` (`cract.cc` / `MoveCreatures`).
+fn get_walk_delay_logical(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    server_ms: u64,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
+    let Some(last) = base.last_step_server_ms else {
+        return 0;
+    };
+    let elapsed = server_ms.saturating_sub(last) as i64;
+    let gs = base.last_step_ground_speed;
+    let gs = if gs == 0 { 150 } else { gs };
+    let step_duration =
+        get_step_duration(kind, base, gs, mech).saturating_mul(base.last_step_cost as i64);
+    let delay = step_duration - elapsed;
+    delay.max(0)
+}
+
 fn get_event_step_ticks(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -348,8 +367,12 @@ fn get_event_step_ticks(
     ground_speed_next: u32,
     now: Instant,
     mech: &crate::formulas::Mechanics,
+    server_ms: Option<u64>,
 ) -> i64 {
-    let walk_delay = get_walk_delay(kind, base, now, mech);
+    let walk_delay = match server_ms {
+        Some(sm) => get_walk_delay_logical(kind, base, sm, mech),
+        None => get_walk_delay(kind, base, now, mech),
+    };
     if walk_delay > 0 {
         return walk_delay;
     }
@@ -993,8 +1016,68 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 }
 
 impl GameWorld {
+    /// CipSoft `AdvanceGame` beat step — advance logical clock and drain due creature actions.
+    /// C++ ref: `tibia-game-master/src/main.cc` `AdvanceGame`, `crmain.cc` `MoveCreatures`.
+    pub fn advance_beat_772(&mut self, delay_ms: u64) {
+        self.server_ms = self.server_ms.saturating_add(delay_ms);
+        if delay_ms < 1000 {
+            self.drain_todo_queue();
+        }
+    }
+
+    /// Drain the global ToDoQueue for entries due at or before [`Self::server_ms`].
+    pub fn drain_todo_queue(&mut self) {
+        while let Some(entry) = self.todo_queue.peek() {
+            if entry.execution_time > self.server_ms {
+                break;
+            }
+            let entry = self.todo_queue.pop().expect("peek implied non-empty heap");
+            let still_valid = self
+                .creatures
+                .get(entry.creature_id)
+                .and_then(|k| k.base().next_wakeup)
+                == Some(entry.execution_time);
+            if still_valid {
+                self.process_creature_todo(entry.creature_id);
+            }
+        }
+    }
+
+    /// CipSoft `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).
+    pub fn process_creature_todo(&mut self, cid: CreatureId) {
+        let health_ok = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().health > 0);
+        if !health_ok {
+            return;
+        }
+        let had_wakeup = self
+            .creatures
+            .get_mut(cid)
+            .and_then(|k| k.base_mut().next_wakeup.take());
+        if had_wakeup.is_none() {
+            return;
+        }
+        let now = Instant::now();
+        self.on_walk(cid, true, now, None);
+        self.cleanup();
+    }
+
+    /// Schedule a creature wakeup in the logical ToDoQueue (`cract.cc:968` `ToDoStart`).
+    fn schedule_creature_wakeup(&mut self, cid: CreatureId, execution_time: u64) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().next_walk_check = None;
+            k.base_mut().next_wakeup = Some(execution_time);
+        }
+        self.todo_queue.insert(execution_time, cid);
+    }
+
     /// TFS `scheduler.cpp`: `steady_timer` + `stopEvent`; wake game thread like `g_dispatcher.addTask`.
     fn commit_next_walk_deadline(&mut self, cid: CreatureId, deadline: Option<Instant>) {
+        if self.beat_driven_loop {
+            return;
+        }
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().next_walk_check = deadline;
         }
@@ -1003,6 +1086,9 @@ impl GameWorld {
 
     /// Arm or cancel the Tokio one-shot for `next_walk_check` (no-op when `walk_wake_tx` is `None`).
     fn sync_walk_timer_arm(&mut self, cid: CreatureId) {
+        if self.beat_driven_loop {
+            return;
+        }
         let (deadline, tx_opt) = {
             let Some(k) = self.creatures.get_mut(cid) else {
                 return;
@@ -1090,7 +1176,9 @@ impl GameWorld {
         }
         let had_pending = self.creatures.get(cid).is_some_and(|k| {
             let b = k.base();
-            !b.walk_queue.is_empty() || b.next_walk_check.is_some()
+            !b.walk_queue.is_empty()
+                || b.next_walk_check.is_some()
+                || b.next_wakeup.is_some()
         });
         self.stop_event_walk(cid);
         // C++ `playerMove`: `if (player->clearToDo()) { player->sendCancelWalk(); }`
@@ -1422,7 +1510,13 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().next_walk_check.is_some())
+            .is_some_and(|k| {
+                if self.beat_driven_loop {
+                    k.base().next_wakeup.is_some()
+                } else {
+                    k.base().next_walk_check.is_some()
+                }
+            })
         {
             return;
         }
@@ -1431,21 +1525,34 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
+        let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
         let ticks = {
             let Some(k) = self.creatures.get(cid) else {
                 return;
             };
-            get_event_step_ticks(k, k.base(), false, ground_speed, wall_now, &self.mechanics)
+            get_event_step_ticks(
+                k,
+                k.base(),
+                false,
+                ground_speed,
+                wall_now,
+                &self.mechanics,
+                server_ms_opt,
+            )
         };
         if ticks <= 0 {
             return;
         }
         let delay_ms = ticks.max(1) as u64;
-        let anchor = Instant::now();
-        self.commit_next_walk_deadline(
-            cid,
-            Some(anchor + Duration::from_millis(delay_ms)),
-        );
+        if self.beat_driven_loop {
+            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
+        } else {
+            let anchor = Instant::now();
+            self.commit_next_walk_deadline(
+                cid,
+                Some(anchor + Duration::from_millis(delay_ms)),
+            );
+        }
     }
 
     /// Queue one step and arm the walk timer (monster/NPC AI and tests).
@@ -1498,12 +1605,19 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().next_walk_check.is_some())
+            .is_some_and(|k| {
+                if self.beat_driven_loop {
+                    k.base().next_wakeup.is_some()
+                } else {
+                    k.base().next_walk_check.is_some()
+                }
+            })
         {
             return;
         }
 
         let wall_now = Instant::now();
+        let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
 
         let ground_speed = self
             .map
@@ -1515,7 +1629,15 @@ impl GameWorld {
             let Some(k) = self.creatures.get(cid) else {
                 return;
             };
-            get_event_step_ticks(k, k.base(), first_step, ground_speed, wall_now, &self.mechanics)
+            get_event_step_ticks(
+                k,
+                k.base(),
+                first_step,
+                ground_speed,
+                wall_now,
+                &self.mechanics,
+                server_ms_opt,
+            )
         };
 
         if ticks <= 0 {
@@ -1523,12 +1645,11 @@ impl GameWorld {
         }
 
         if ticks == 1 {
-            // C++ ~316–321: synchronous `checkCreatureWalk`, then `scheduler.addEvent(ticks)` with the same `ticks`.
-            // `onWalk` does not call `addEventWalk` when `eventWalk == 0` (~228–232). For `first_step`, `ticks` is
-            // always `1` before `last_step` is updated — schedule the **follow-up** from post-step `getEventStepTicks`.
             self.check_creature_walk_from_add_event_walk(cid, wall_now);
             if first_step {
                 self.schedule_walk_followup_deadline(cid);
+            } else if self.beat_driven_loop {
+                self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
             } else {
                 let anchor = Instant::now();
                 self.commit_next_walk_deadline(
@@ -1540,7 +1661,14 @@ impl GameWorld {
         }
 
         let delay_ms = ticks.max(1) as u64;
-        if first_step {
+        if self.beat_driven_loop {
+            let execution_time = if first_step {
+                self.server_ms.saturating_add(delay_ms)
+            } else {
+                self.server_ms.saturating_add(delay_ms)
+            };
+            self.schedule_creature_wakeup(cid, execution_time);
+        } else if first_step {
             self.commit_next_walk_deadline(
                 cid,
                 Some(scheduling_base + Duration::from_millis(delay_ms)),
@@ -1560,6 +1688,7 @@ impl GameWorld {
                 h.abort();
             }
             k.base_mut().next_walk_check = None;
+            k.base_mut().next_wakeup = None;
         }
     }
 
@@ -1623,7 +1752,13 @@ impl GameWorld {
         let walk_delay = self
             .creatures
             .get(cid)
-            .map(|k| get_walk_delay(k, k.base(), now, &self.mechanics))
+            .map(|k| {
+                if self.beat_driven_loop {
+                    get_walk_delay_logical(k, k.base(), self.server_ms, &self.mechanics)
+                } else {
+                    get_walk_delay(k, k.base(), now, &self.mechanics)
+                }
+            })
             .unwrap_or(0);
 
         let mut stopped_without_reschedule = false;
@@ -1730,6 +1865,9 @@ impl GameWorld {
                             base.last_step = Some(Instant::now());
                             base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
                             base.last_step_ground_speed = gs_dest;
+                            if self.beat_driven_loop {
+                                base.last_step_server_ms = Some(self.server_ms);
+                            }
                         }
                     }
                 }
@@ -1783,7 +1921,9 @@ impl GameWorld {
         }
 
         if !stopped_without_reschedule && reschedule_after {
-            if let Some(logical) = fired_deadline {
+            if self.beat_driven_loop {
+                self.add_event_walk(cid, false, now);
+            } else if let Some(logical) = fired_deadline {
                 self.commit_next_walk_deadline(cid, None);
                 self.add_event_walk(cid, false, logical);
             }
@@ -2166,7 +2306,7 @@ mod step_speed_tests {
         base.last_step_cost = 1;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Player(p);
-        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech);
+        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech, None);
         assert_eq!(ticks, 1);
     }
 
@@ -2178,7 +2318,7 @@ mod step_speed_tests {
         base.last_step = None;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Player(p);
-        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech);
+        let ticks = get_event_step_ticks(&kind, &base, true, 150, Instant::now(), &mech, None);
         assert_eq!(ticks, 1);
     }
 
@@ -2281,5 +2421,43 @@ mod monster_walk_tests {
             packets.iter().any(|p| !p.is_empty() && p[0] == 0x6D),
             "spectator should receive 0x6D move packet"
         );
+    }
+
+    /// 772 beat loop: walk arms ToDoQueue + `next_wakeup`, not Tokio timers.
+    #[test]
+    fn beat_driven_walk_schedules_todo_queue_not_tokio() {
+        let mut world = support::minimal_world();
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+        world.server_ms = 0;
+        let pos = Position::new(100, 100, 7);
+        support::ensure_walkable_tile(&mut world.map, pos, 2148);
+        let cid = support::insert_monster(&mut world, "Rat", pos, 200);
+        world.creature_queue_walk_step(cid, Direction::North);
+        let entry = world.todo_queue.peek().expect("todo entry");
+        assert_eq!(
+            world.creatures.get(cid).unwrap().base().next_wakeup,
+            Some(entry.execution_time)
+        );
+        assert!(
+            world.creatures.get(cid).unwrap().base().walk_timer.is_none(),
+            "772 must not spawn Tokio walk timers"
+        );
+    }
+
+    /// Stale heap entries are skipped when `next_wakeup` was cleared.
+    #[test]
+    fn beat_driven_stale_todo_entry_is_skipped() {
+        let mut world = support::minimal_world();
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+        let pos = Position::new(100, 100, 7);
+        support::ensure_walkable_tile(&mut world.map, pos, 2148);
+        let cid = support::insert_monster(&mut world, "Rat", pos, 200);
+        world.todo_queue.insert(200, cid);
+        world.stop_event_walk(cid);
+        world.advance_beat_772(200);
+        assert!(world.todo_queue.is_empty());
+        assert_eq!(world.creatures.get(cid).unwrap().position(), pos);
     }
 }

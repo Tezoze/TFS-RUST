@@ -583,7 +583,7 @@ mod v772 {
         assert_eq!(b, vec![0x78, 5, 0x34, 0x12]);
     }
 
-    /// `sendAddTileItem` (`0x6A`): position + item (no stackpos for the real 7.72 client).
+    /// `sendAddTileItem` (`0x6A`): position + item (no stackpos on 7.72).
     #[test]
     fn add_tile_item_772_no_stackpos() {
         let pos = Position::new(0x0102, 0x0304, 5);
@@ -599,9 +599,9 @@ mod v772 {
         assert_eq!(b, vec![0x6A, 0x02, 0x01, 0x04, 0x03, 0x05, 0x34, 0x12, 3]);
     }
 
-    /// `sendAddTileItem` (`0x6A`): OTClient on 7.72 adds `stackpos` after position.
+    /// 772 ignores `otclient_stackpos` — OTCv8 772 does not read stackpos on `0x6A`.
     #[test]
-    fn add_tile_item_772_otclient_stackpos() {
+    fn add_tile_item_772_ignores_otclient_stackpos_flag() {
         let pos = Position::new(0x0102, 0x0304, 5);
         let args = ItemTemplateArgs {
             client_id: 0x1234,
@@ -611,10 +611,45 @@ mod v772 {
             is_animation: false,
             with_description: false,
         };
-        let b = codec().encode_add_tile_item(pos, 2, args, true).into_bytes();
+        let without = codec()
+            .encode_add_tile_item(pos, 2, args, false)
+            .into_bytes();
+        let with_flag = codec()
+            .encode_add_tile_item(pos, 2, args, true)
+            .into_bytes();
+        assert_eq!(without, with_flag);
+    }
+
+    /// `sendAddCreature` non-self (`0x6A`): position + creature marker immediately (no stackpos).
+    #[test]
+    fn add_tile_creature_772_no_stackpos() {
+        let pos = Position::new(0x0102, 0x0304, 5);
+        let wire = AddCreatureWire {
+            id: 0x11223344,
+            remove_known: 0,
+            known: false,
+            name: "Orc".to_string(),
+            health_percent: 100,
+            direction: 2,
+            outfit: OutfitWire {
+                look_type: 5,
+                ..Default::default()
+            },
+            step_speed: 200,
+            ..Default::default()
+        };
+        let b = codec()
+            .encode_add_tile_creature(pos, 1, &wire, false)
+            .into_bytes();
+        assert_eq!(b[0], 0x6A);
+        // opcode + position (5) → creature marker `0x0061`
+        assert_eq!(b[6], 0x61);
+        assert_eq!(b[7], 0x00);
         assert_eq!(
             b,
-            vec![0x6A, 0x02, 0x01, 0x04, 0x03, 0x05, 0x02, 0x34, 0x12, 3]
+            codec()
+                .encode_add_tile_creature(pos, 1, &wire, true)
+                .into_bytes()
         );
     }
 

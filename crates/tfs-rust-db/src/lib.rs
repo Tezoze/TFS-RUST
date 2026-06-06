@@ -20,7 +20,7 @@ pub use market::{
     HistoryInsert, MarketHistoryRecord, MarketOffer, MarketOfferRecord, MarketOfferType,
     MarketStore,
 };
-pub use migrations::{default_migrations_dir, run_migrations};
+pub use migrations::{default_migrations_dir, resolve_migrations_dir, run_migrations};
 pub use player::{
     GuildMembershipRow, LoadedPlayerData, PlayerItemPayload, PlayerRecord, PlayerSaveData,
     PlayerStore, VipEntry,

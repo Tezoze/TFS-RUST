@@ -9,8 +9,8 @@ by `clientVersion` in `config.lua`.
 >
 > | Section | Status |
 > |---------|--------|
-> | **§2 — Era 1098 loop** | **Implemented.** Both `clientVersion = 1098` and `772` run this loop today (`run_game_loop` in `game_loop.rs`). |
-> | **§3 — Era 772 loop** | **Target architecture only.** `ToDoQueue`, logical `server_ms`, 200 ms beat timer, and beat-end-only flush are not yet built. |
+> | **§2 — Era 1098 loop** | **Implemented.** `run_game_loop_1098` for `clientVersion = 1098`. |
+> | **§3 — Era 772 loop** | **Implemented (P2 MVP).** `run_game_loop_772`: `ToDoQueue`, `server_ms`, `beat_ms` timer, beat-end flush. Hybrid 50 ms `on_tick` for subsystems; staggered counters still deferred. |
 >
 > See [`CODEBASE_AUDIT.md`](CODEBASE_AUDIT.md) for the full gap analysis.
 

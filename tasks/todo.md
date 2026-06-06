@@ -228,6 +228,17 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] Add regression test to lock the non-attackable ranged chase clamp.
 
 ## 772 floor-change invisible-monster — fixed
-- [x] Root cause: erroneous extra `u8` stackpos on 772 standalone `0x6A` (real 7.72 is position → thing only).
-- [x] Fix: `conn_uses_772_otclient_stackpos` always false for 772.
+- [x] Root cause: erroneous extra `u8` stackpos on 772 standalone `0x6A` (OTCv8 772 omits stackpos; `GameTileAddThingWithStackpos` is 841+).
+- [x] Fix: `Codec772` never writes stackpos on `0x6A`; golden + integration tests.
 - [x] Reverted workaround: `evict_known_creatures_in_viewport`, `purge_creature_wire_id_from_all_conns`.
+
+## P2 — 772 beat-driven game loop (MVP) — done
+- [x] `todo_queue.rs` — `ToDoQueue` min-heap + unit tests; wired into `GameWorld`
+- [x] `CreatureBase::next_wakeup` / `last_step_server_ms` for logical-time walk scheduling
+- [x] `run_game_loop_772` — `beat_ms` timer, cmd drain, `advance_beat_772`, `FlushPolicy::BeatEndOnly`
+- [x] `run_game_loop_1098` extracted; shared `process_game_command` + immediate movement flush
+- [x] `walk.rs` — ToDoQueue scheduling when `beat_driven_loop`; skip Tokio walk polling on 772
+- [x] `run_server.rs` — `walk_wake_tx = None` + loop branch on `StepSpeedModel::CipSoft`
+- [x] `resolve_migrations_dir()` — runtime migrations path when repo mount differs from compile-time
+- [ ] Deferred: staggered ~1000 ms subsystem counters (hybrid 50 ms `on_tick` remains)
+- [ ] Deferred: multi-beat lag catch-up when beat alarms pile up

@@ -20,7 +20,8 @@ use crate::config::{
     NetConfig,
 };
 use crate::event_dispatcher::NullEventDispatcher;
-use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
+use crate::game_loop::{run_game_loop_1098, run_game_loop_772, wait_for_shutdown_signal};
+use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_event_dispatcher::LuaEventDispatcher;
@@ -125,7 +126,9 @@ pub async fn run() -> anyhow::Result<()> {
     let db = tfs_rust_db::DbPool::connect(&database_url, &pool_cfg.to_db_pool_options())
         .await
         .map_err(|e| anyhow::anyhow!("database connect: {e}"))?;
-    tfs_rust_db::run_migrations(&db, &tfs_rust_db::default_migrations_dir())
+    let migrations_dir = tfs_rust_db::resolve_migrations_dir()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    tfs_rust_db::run_migrations(&db, &migrations_dir)
         .await
         .map_err(|e| anyhow::anyhow!("database migrations: {e}"))?;
 
@@ -209,6 +212,12 @@ pub async fn run() -> anyhow::Result<()> {
     let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
     info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
+    let beat_driven = mechanics.profile.step_speed == StepSpeedModel::CipSoft;
+    let walk_wake_tx = if beat_driven {
+        None
+    } else {
+        Some(walk_wake_tx)
+    };
     let mut world = GameWorld::new(
         map,
         items,
@@ -220,7 +229,7 @@ pub async fn run() -> anyhow::Result<()> {
         monsters_db,
         groups,
         vocations,
-        Some(walk_wake_tx),
+        walk_wake_tx,
         codec,
         mechanics,
     );
@@ -340,8 +349,12 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             });
             let game_jh = tokio::task::spawn_local(async move {
-                if let Err(e) = run_game_loop(world, cmd_rx, walk_wake_rx, Some(out_for_loop)).await
-                {
+                let loop_result = if beat_driven {
+                    run_game_loop_772(world, cmd_rx, Some(out_for_loop)).await
+                } else {
+                    run_game_loop_1098(world, cmd_rx, walk_wake_rx, Some(out_for_loop)).await
+                };
+                if let Err(e) = loop_result {
                     tracing::error!(?e, "game loop exited with error");
                 } else {
                     tracing::info!("game loop finished");

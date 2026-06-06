@@ -28,6 +28,8 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             last_step_cost: 1,
             last_step_ground_speed: 150,
             next_walk_check: None,
+            next_wakeup: None,
+            last_step_server_ms: None,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,

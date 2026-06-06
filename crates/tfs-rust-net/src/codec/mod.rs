@@ -74,8 +74,8 @@ pub trait ProtocolCodec {
 
     fn encode_self_appear_login(&self, player_id: u32) -> NetworkMessage;
 
-    /// Standalone `0x6A` tile item. On 7.72, TVP adds a `stackpos` byte only for OTClient viewers
-    /// (`gameserver/src/protocolgame.cpp` `sendAddTileItem` ~1600); 10.98 always includes it (flag ignored).
+    /// Standalone `0x6A` tile item. 10.98 always includes `stackpos`; 7.72 omits it (OTCv8
+    /// `GameTileAddThingWithStackpos` is 8.41+ only — `otclient_stackpos` is ignored on 772).
     fn encode_add_tile_item(
         &self,
         pos: Position,
@@ -107,8 +107,8 @@ pub trait ProtocolCodec {
         args: ItemTemplateArgs,
     ) -> NetworkMessage;
 
-    /// Standalone `0x6A` tile creature. On 7.72, OTClient viewers get a leading `stackpos` byte
-    /// (`gameserver/src/protocolgame.cpp` `sendAddCreature` ~1718); 10.98 always includes it (flag ignored).
+    /// Standalone `0x6A` tile creature. 10.98 always includes `stackpos`; 7.72 omits it (OTCv8
+    /// `GameTileAddThingWithStackpos` is 8.41+ only — `otclient_stackpos` is ignored on 772).
     fn encode_add_tile_creature(
         &self,
         pos: Position,

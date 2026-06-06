@@ -13,7 +13,7 @@ The codebase is **architecturally sound** for an 1098-first port with 772 mechan
 |------|--------|
 | Threading model (I/O vs game thread) | **Correct** |
 | 1098 game loop (`run_game_loop`) | **Correct** — matches TFS reactive model |
-| 772 game loop (beat-driven / ToDoQueue) | **Not implemented** — documented as target only |
+| 772 game loop (beat-driven / ToDoQueue) | **Implemented (P2 MVP)** — `run_game_loop_772`; hybrid 50 ms `on_tick` for subsystems remains |
 | 1098 mechanics / formulas | **Correct** — tests pass |
 | 772 mechanics / formulas | **Broken in working tree** — `772.lua` drift |
 | Walk timing code structure | **Correct** — profile-driven `step_speed` + `step_beat_ms` |
@@ -25,8 +25,8 @@ The codebase is **architecturally sound** for an 1098-first port with 772 mechan
 **Three takeaways:**
 
 1. **One active bug:** modified `data/formulas/772.lua` breaks formulas parity and walk timing.
-2. **One planned gap:** the 772 beat-driven loop in `GAME_LOOP_ARCHITECTURE.md` §3 is not coded; both eras use the §2 loop today.
-3. **Docs overstate current state:** especially the opening line of `GAME_LOOP_ARCHITECTURE.md` (“One binary, two loop modes”).
+2. **772 loop (P2):** `run_game_loop_772` + `ToDoQueue` + beat-end flush ship for `clientVersion = 772`; staggered subsystem counters (§3.4) still deferred.
+3. **Docs may lag:** refresh `GAME_LOOP_ARCHITECTURE.md` §3 status when follow-ups land (staggered counters, multi-beat catch-up).
 
 ---
 
@@ -60,12 +60,12 @@ Uncommitted change in `data/formulas/772.lua`:
 
 | Claim (doc) | Code reality |
 |-------------|--------------|
-| `run_game_loop_1098` / `run_game_loop_772` | Only `run_game_loop()` exists (`game_loop.rs`) |
-| 772: 200 ms beat timer | Hardcoded **50 ms** tick (`game_loop.rs:190`) |
-| 772: `ToDoQueue` + logical `server_ms` | **Not present** in codebase |
-| 772: `walk_wake_tx = None` | Always `Some` in `run_server.rs:223` |
-| 772: beat-end-only flush (`SendAll`) | Movement still flushes immediately |
-| 772: staggered ~1000 ms subsystem counters | Both eras use TFS `check_creatures` every 100 ms bucket |
+| `run_game_loop_1098` / `run_game_loop_772` | **Both exist** — `run_server.rs` branches on `StepSpeedModel` |
+| 772: 200 ms beat timer | **`beat_ms` from profile** drives `run_game_loop_772` interval |
+| 772: `ToDoQueue` + logical `server_ms` | **`todo_queue.rs` + `GameWorld::server_ms`** |
+| 772: `walk_wake_tx = None` | **`None` for CipSoft** in `run_server.rs` |
+| 772: beat-end-only flush (`SendAll`) | **`FlushPolicy::BeatEndOnly`** on 772 loop |
+| 772: staggered ~1000 ms subsystem counters | **Not yet** — hybrid 50 ms `on_tick` still runs subsystems |
 
 ### What is correct today
 
@@ -76,19 +76,21 @@ Uncommitted change in `data/formulas/772.lua`:
 - Immediate movement flush via `game_packet_needs_immediate_flush`
 - 50 ms world tick with `GameWorld::on_tick`
 
-This loop runs for **both** client versions.
+This loop runs for **`clientVersion = 1098`** only (`StepSpeedModel::TfsLog`).
 
-### What is planned but not built
+### What is implemented (P2 MVP — §3 core)
 
-**Section 3 (772 beat-driven loop):**
+**Section 3 (772 beat-driven loop)** — shipped 2026-06-06:
 
-- 200 ms beat timer
+- 200 ms beat timer (`profile.beat_ms`)
 - Global `ToDoQueue` min-heap keyed on logical `server_ms`
-- Consolidated output flush once per beat
-- Staggered subsystem counters (~1000 ms)
-- No per-creature Tokio walk timers
+- Consolidated output flush once per beat (`FlushPolicy::BeatEndOnly`)
+- No per-creature Tokio walk timers on 772 (`walk_wake_tx = None`)
 
-The design is architecturally sound and would be **lower overhead** than forcing 772 through 1098 machinery — but it is not implemented.
+**Still deferred (post-P2):**
+
+- Staggered subsystem counters (~1000 ms) — hybrid 50 ms `on_tick` remains
+- Multi-beat lag catch-up when alarms pile up
 
 ### Recommended doc fix
 
@@ -104,7 +106,7 @@ Add a status banner to `GAME_LOOP_ARCHITECTURE.md`:
 
 | Field | 772 default | Used at runtime? | Purpose |
 |-------|-------------|------------------|---------|
-| `beat_ms` | 200 | **No** — loaded but never read | Reserved for future 772 main loop / combat beat |
+| `beat_ms` | 200 | **Yes** — `run_game_loop_772` beat interval | 772 main loop timer |
 | `step_beat_ms` | 50 | **Yes** — `walk.rs:277` | Walk step duration quantization |
 
 Walk timing branches correctly on `step_speed`:
@@ -243,9 +245,9 @@ The planned 772 loop in `GAME_LOOP_ARCHITECTURE.md` §3 is the efficient Rust ma
 |----------|------|-----|
 | **P0** | Resolve `772.lua` `stepBeatMs` drift | Active test failure + wrong live server walk timing |
 | **P1** | Add status banner to `GAME_LOOP_ARCHITECTURE.md` | Prevents reading target architecture as shipped |
-| **P2** | Implement 772 loop (`run_game_loop_772`) | Both eras currently run 1098 infrastructure |
+| **P2** | ~~Implement 772 loop (`run_game_loop_772`)~~ | **Done** — beat timer, ToDoQueue, beat-end flush, walk scheduling |
 | **P3** | Move `monster_ai` codec check to profile knob | Protocol versioning hygiene |
-| **P4** | Wire `beat_ms` when 772 loop lands | Field exists but unused at runtime |
+| **P4** | Staggered 772 subsystem counters (~1000 ms) | Replace hybrid 50 ms `on_tick` on beat loop |
 | **P5** | Update refactoring doc corrections | Minor accuracy fixes |
 | **P6** | Update stale docs referencing `beat_ms` for walk quant | `tasks/lessons.md`, `tasks/todo.md` |
 
@@ -255,8 +257,9 @@ The planned 772 loop in `GAME_LOOP_ARCHITECTURE.md` §3 is the efficient Rust ma
 
 | Path | Relevance |
 |------|-----------|
-| `crates/tfs-rust-core/src/game_loop.rs` | Single loop: cmd / walk_wake / 50 ms tick |
-| `crates/tfs-rust-core/src/run_server.rs` | `walk_wake_tx` wiring, loop entry (no era branch) |
+| `crates/tfs-rust-core/src/game_loop.rs` | `run_game_loop_1098` + `run_game_loop_772` + shared dispatch |
+| `crates/tfs-rust-core/src/todo_queue.rs` | Min-heap ToDoQueue for 772 walk scheduling |
+| `crates/tfs-rust-core/src/run_server.rs` | Era branch: `walk_wake_tx` + loop selection |
 | `crates/tfs-rust-core/src/walk.rs` | Step duration, wake timers, CipSoft/TFS speed models |
 | `crates/tfs-rust-core/src/formulas.rs` | `beat_ms` / `step_beat_ms` definitions and loader |
 | `crates/tfs-rust-core/src/game_world.rs` | `on_tick` pipeline |
