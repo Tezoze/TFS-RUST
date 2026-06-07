@@ -294,6 +294,14 @@ mod tests {
             "772 set_follow must enqueue Go or schedule wakeup via idle"
         );
 
+        if world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().todo.has_go())
+        {
+            world.execute_creature_todo_go(monster);
+        }
+
         world.monster_native_on_think(monster, EVENT_CREATURE_THINK_INTERVAL_MS);
         assert!(
             !world

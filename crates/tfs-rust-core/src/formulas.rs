@@ -243,6 +243,9 @@ pub struct MechanicsProfile {
     /// When true, repath on follow-target move even if `has_follow_path` is false (CipSoft).
     /// TFS 1098 requires an active follow path before repathing (`creature.cpp:619`).
     pub follow_repath_without_path: bool,
+    /// When true, pathfinder falls back to forward search if reverse search fails.
+    /// Default is false on 772, true on 1098.
+    pub path_forward_fallback: bool,
 }
 
 impl MechanicsProfile {
@@ -295,6 +298,7 @@ impl MechanicsProfile {
                 level_exp: LevelExpModel::CipSoftPoly,
                 level_exp_delta: 100,
                 follow_repath_without_path: true,
+                path_forward_fallback: false,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -340,6 +344,7 @@ impl MechanicsProfile {
                 level_exp: LevelExpModel::Tfs,
                 level_exp_delta: 100,
                 follow_repath_without_path: false,
+                path_forward_fallback: true,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -625,6 +630,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     p.level_exp_delta = num_or(lua, &formulas, "levelExpDelta", p.level_exp_delta).max(1);
     p.follow_repath_without_path =
         bool_or(&formulas, "followRepathWithoutPath", p.follow_repath_without_path);
+    p.path_forward_fallback =
+        bool_or(&formulas, "pathForwardFallback", p.path_forward_fallback);
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {
@@ -716,6 +723,7 @@ mod tests {
         assert_eq!(p.level_exp, LevelExpModel::Tfs);
         assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
         assert!(!p.follow_repath_without_path);
+        assert!(p.path_forward_fallback);
     }
 
     #[test]
@@ -742,6 +750,7 @@ mod tests {
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });
         assert_eq!(p.fight_modes.defensive_def, 1.80);
         assert!(p.follow_repath_without_path);
+        assert!(!p.path_forward_fallback);
     }
 
     #[test]

@@ -40,6 +40,7 @@ use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{send_map_description_packet, send_move_creature_player, send_move_creature_spectator, TileContent};
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
+use crate::chase_debug;
 use crate::combat::uniform_random;
 use crate::return_value::ReturnValue;
 use crate::creature::CreatureKind;
@@ -1240,7 +1241,13 @@ impl GameWorld {
                         .get(cid)
                         .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
                 {
-                    self.request_idle_stimulus(cid);
+                    if self.monster_should_keep_chase_walk_alive(cid)
+                        || self.monster_should_keep_dance_walk_alive(cid)
+                    {
+                        self.schedule_walk_followup_deadline(cid);
+                    } else {
+                        self.request_idle_stimulus(cid);
+                    }
                 } else if self.monster_should_keep_chase_walk_alive(cid)
                     || self.monster_should_keep_dance_walk_alive(cid)
                 {
@@ -1455,6 +1462,24 @@ impl GameWorld {
             }
         }
 
+        if self.beat_driven_loop
+            && chase_debug::chase_path_debug_enabled()
+            && self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+        {
+            if let Some(k) = self.creatures.get(cid) {
+                chase_debug::log_go_exec(
+                    self.tick_counter,
+                    cid,
+                    k.base().name.as_str(),
+                    old_pos,
+                    final_pos,
+                );
+            }
+        }
+
         // Step 3: post-queryDestination chain turn overrides everything.
         // C++ ref: src/game.cpp:882-891
         // C++ calls `internalCreatureTurn` here — which sets direction AND sends `0x6B`.
@@ -1562,6 +1587,7 @@ impl GameWorld {
             &fpp,
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
+            self.mechanics.profile.path_forward_fallback,
             |pos| {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
                     return false;

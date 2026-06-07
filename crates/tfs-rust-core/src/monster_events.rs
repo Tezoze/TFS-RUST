@@ -130,7 +130,7 @@ impl GameWorld {
         };
 
         if follow == Some(creature_id) {
-            self.monster_on_follow_creature_moved(monster_id, has_path);
+            self.monster_on_follow_creature_moved(monster_id, creature_id, new_pos, has_path);
             let target_visible = self
                 .creatures
                 .get(creature_id)
@@ -168,7 +168,13 @@ impl GameWorld {
     /// target moves (`crnonpl.cc` via `SearchFlightField`). TFS uses `hasFollowPath`; repath when
     /// still chasing (see `PROTOCOL_VERSIONING.md` §12.1). Era split via
     /// [`MechanicsProfile::follow_repath_without_path`].
-    fn monster_on_follow_creature_moved(&mut self, monster_id: CreatureId, has_path: bool) {
+    fn monster_on_follow_creature_moved(
+        &mut self,
+        monster_id: CreatureId,
+        creature_id: CreatureId,
+        new_pos: Position,
+        has_path: bool,
+    ) {
         if !self.creatures.get(monster_id).is_some_and(|k| k.base().follow_target.is_some()) {
             return;
         }
@@ -182,6 +188,37 @@ impl GameWorld {
         {
             return;
         }
+
+        // Hysteresis check: Only repath if target is no longer a valid goal from
+        // the end of our current walk queue, or if sight is blocked.
+        let should_repath = if self.beat_driven_loop {
+            let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
+                return;
+            };
+            if m.base.walk_queue.is_empty() {
+                true
+            } else {
+                let mut expected_pos = m.base.position;
+                for &dir in m.base.walk_queue.iter().rev() {
+                    expected_pos = expected_pos.offset(dir);
+                }
+                let target_distance = self.monster_effective_target_distance(m.target_distance);
+                let expected_dist = crate::monster_ai::chebyshev(expected_pos, new_pos);
+                let wrong_distance = if target_distance <= 1 {
+                    expected_dist > 1
+                } else {
+                    expected_dist != target_distance
+                };
+                wrong_distance || !self.map.is_sight_clear(expected_pos, new_pos)
+            }
+        } else {
+            true
+        };
+
+        if !should_repath {
+            return;
+        }
+
         // Do not skip repath when the follow *target moved*: `getPathTo` can return an empty
         // list while still inside the monster's keep-distance band, which left monsters frozen
         // after the player kited away from melee.

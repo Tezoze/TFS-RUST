@@ -27,6 +27,7 @@ formulas = {
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
   expAttributionRounds = 60,
   followRepathWithoutPath = true,  -- CipSoft IdleStimulus repaths without hasFollowPath gate
+  pathForwardFallback = false,     -- CipSoft NOWAY when reverse search fails
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.60,

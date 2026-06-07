@@ -15,14 +15,15 @@ use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
 use rand::Rng;
 
+use crate::chase_debug;
 use crate::creature::{CreatureKind, MonsterAiPhase};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
     distance_x, distance_y, get_dance_step, get_distance_step, get_random_step, offset_x, offset_y,
-    DistanceStepOutcome,
+    DistanceStepOutcome, search_flight_field,
 };
-use crate::pathfinding::FindPathParams;
+use crate::pathfinding::{FindPathParams, CIPSOFT_CHASE_PATH_MAX_STEPS, path_uses_cipsoft_shortway};
 use crate::walk::{creature_turn_with_broadcast, PATHFIND_WALK_FLAGS, tile_query_add_creature};
 
 /// C++ `Map::maxViewportX` (`map.h`).
@@ -212,7 +213,7 @@ impl GameWorld {
     }
 
     /// True when the monster is already in the desired follow/attack band (C++ empty `listWalkDir` at goal).
-    fn monster_at_follow_goal(
+    pub(crate) fn monster_at_follow_goal(
         &self,
         cid: CreatureId,
         follow_id: CreatureId,
@@ -399,6 +400,29 @@ impl GameWorld {
             _ => return,
         };
 
+        if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
+            if let Some(k) = self.creatures.get(cid) {
+                let pos = k.position();
+                let branch = if fleeing {
+                    "flee_repath"
+                } else if target_distance > 1 {
+                    "dist_chase_repath"
+                } else {
+                    "melee_chase_repath"
+                };
+                chase_debug::log_branch(
+                    self.tick_counter,
+                    cid,
+                    k.base().name.as_str(),
+                    branch,
+                    pos,
+                    target_pos,
+                    false,
+                    3,
+                );
+            }
+        }
+
         let fpp = self.monster_path_search_params(
             cid,
             follow_id,
@@ -419,7 +443,8 @@ impl GameWorld {
 
         // TFS `Creature::goToFollowCreature` — getDistanceStep when fleeing or maxTargetDist > 1
         // (`creature.cpp` ~1018–1034); not gated on `canUseAttack`.
-        let use_distance_step = !is_summon && (fleeing || target_distance > 1);
+        // Gated to 1098 only (!self.beat_driven_loop).
+        let use_distance_step = !self.beat_driven_loop && !is_summon && (fleeing || target_distance > 1);
 
         if use_distance_step {
             let sight = self.map.is_sight_clear(pos, target_pos);
@@ -468,6 +493,15 @@ impl GameWorld {
             }
             return;
         }
+        if fleeing {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().has_follow_path = false;
+            }
+            if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+                self.monster_on_follow_creature_complete(cid, follow_id);
+            }
+            return;
+        }
 
         let pos = match self.creatures.get(cid) {
             Some(k) => k.position(),
@@ -478,7 +512,7 @@ impl GameWorld {
             return;
         }
         if self.monster_try_any_closer_step(cid, pos, target_pos, follow_id)
-            || self.monster_try_greedy_chase_step(cid, pos, target_pos, follow_id, fleeing)
+            || (!self.beat_driven_loop && self.monster_try_greedy_chase_step(cid, pos, target_pos, follow_id, fleeing))
         {
             return;
         }
@@ -517,8 +551,13 @@ impl GameWorld {
             full_path_search: true,
             max_search_dist: 0,
         };
-        for (path_kind, try_fpp) in [("primary", fpp), ("relaxed", &relaxed)] {
-            let Some(steps) = self.get_creature_path_to_with_fpp(cid, target_pos, try_fpp) else {
+        let tries: &[&FindPathParams] = if self.beat_driven_loop {
+            &[fpp]
+        } else {
+            &[fpp, &relaxed]
+        };
+        for &try_fpp in tries {
+            let Some(mut steps) = self.get_creature_path_to_with_fpp(cid, target_pos, try_fpp) else {
                 continue;
             };
             if steps.is_empty() {
@@ -526,7 +565,39 @@ impl GameWorld {
                 if dist > 1.max(target_distance) {
                     continue;
                 }
-            } else {
+            } else if self.beat_driven_loop && steps.len() > CIPSOFT_CHASE_PATH_MAX_STEPS {
+                // CipSoft `ToDoGo(..., false, 3)` — only the next few hops are queued per repath.
+                let keep_from = steps.len().saturating_sub(CIPSOFT_CHASE_PATH_MAX_STEPS);
+                steps = steps.split_off(keep_from);
+            }
+            if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
+                if let Some(k) = self.creatures.get(cid) {
+                    let name = k.base().name.clone();
+                    let mut path_positions = Vec::with_capacity(steps.len());
+                    let mut cursor = pos;
+                    for &dir in &steps {
+                        cursor = cursor.offset(dir);
+                        path_positions.push(cursor);
+                    }
+                    let min_wp = self
+                        .map
+                        .get_tile(pos)
+                        .map(|t| self.tile_ground_speed(t.body()))
+                        .unwrap_or(150);
+                    chase_debug::log_shortway(
+                        self.tick_counter,
+                        cid,
+                        name.as_str(),
+                        pos,
+                        target_pos,
+                        10,
+                        min_wp,
+                        false,
+                        CIPSOFT_CHASE_PATH_MAX_STEPS as i32,
+                        true,
+                        &path_positions,
+                    );
+                }
             }
             if let Some(k) = self.creatures.get_mut(cid) {
                 let base = k.base_mut();
@@ -537,8 +608,29 @@ impl GameWorld {
                 base.has_follow_path = true;
             }
             // Let the active walk timer continue naturally rather than cancelling/restarting
-            self.creature_start_chase_auto_walk(cid);
+            self.monster_start_chase_walk(cid, true);
             return true;
+        }
+        if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
+            if let Some(k) = self.creatures.get(cid) {
+                let name = k.base().name.clone();
+                chase_debug::log_shortway(
+                    self.tick_counter,
+                    cid,
+                    name.as_str(),
+                    pos,
+                    target_pos,
+                    10,
+                    self.map
+                        .get_tile(pos)
+                        .map(|t| self.tile_ground_speed(t.body()))
+                        .unwrap_or(150),
+                    false,
+                    CIPSOFT_CHASE_PATH_MAX_STEPS as i32,
+                    false,
+                    &[],
+                );
+            }
         }
         false
     }
@@ -553,7 +645,12 @@ impl GameWorld {
     ) -> bool {
         let current = chebyshev(pos, target_pos);
         let mut best: Option<(Direction, i32)> = None;
-        for dir in CHASE_STEP_DIRECTIONS {
+        let dirs = if self.beat_driven_loop {
+            &[Direction::North, Direction::East, Direction::South, Direction::West][..]
+        } else {
+            &CHASE_STEP_DIRECTIONS[..]
+        };
+        for &dir in dirs {
             if !self.monster_can_walk_to(cid, pos, dir) {
                 continue;
             }
@@ -598,6 +695,14 @@ impl GameWorld {
         }
     }
 
+    fn monster_start_chase_walk(&mut self, cid: CreatureId, first_step: bool) {
+        if self.beat_driven_loop {
+            self.idle_enqueue_go_and_start(cid, first_step);
+        } else {
+            self.creature_start_chase_auto_walk(cid);
+        }
+    }
+
     fn monster_start_follow_step(&mut self, cid: CreatureId, dir: Direction) {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
@@ -606,7 +711,7 @@ impl GameWorld {
             base.has_follow_path = true;
         }
         // Let the active walk timer continue naturally rather than cancelling/restarting
-        self.creature_start_chase_auto_walk(cid);
+        self.monster_start_chase_walk(cid, true);
     }
 
     fn monster_path_search_params(
@@ -627,6 +732,8 @@ impl GameWorld {
             min_target_dist: 1,
             max_target_dist: target_distance,
             clear_sight: true,
+            // CipSoft `TShortway::Expand` always considers all 8 neighbors; diagonals are
+            // discouraged by 3× waypoint cost, not by removing them from the search graph.
             allow_diagonal: true,
             full_path_search: !has_follow_path,
             max_search_dist: 12,
@@ -671,6 +778,14 @@ impl GameWorld {
             cid: CreatureId,
         }
         let ctx = PathCtx { world: self, cid };
+        let cipsoft_shortway = path_uses_cipsoft_shortway(
+            self.mechanics.profile.path_cost,
+            self.mechanics.profile.path_search,
+        );
+        debug_assert!(
+            !self.beat_driven_loop || cipsoft_shortway,
+            "772 monster chase requires reverse TShortway + terrain costs (check MechanicsProfile / formulas lua)"
+        );
         get_path_matching(
             &self.map,
             start,
@@ -678,8 +793,12 @@ impl GameWorld {
             fpp,
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
+            self.mechanics.profile.path_forward_fallback,
             |pos| ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos),
             |pos| {
+                if cipsoft_shortway {
+                    return 0;
+                }
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
                     return 0;
                 };
@@ -852,7 +971,7 @@ impl GameWorld {
             .unwrap_or((false, false));
         if should_arm {
             if chasing {
-                self.creature_start_chase_auto_walk(cid);
+                self.monster_start_chase_walk(cid, true);
             } else {
                 self.creature_start_auto_walk(cid);
             }
@@ -1079,6 +1198,53 @@ impl GameWorld {
                 if let Some(target_id) = follow {
                     let target_pos = self.creatures.get(target_id).map(|k| k.position())?;
                     let dist = chebyshev(pos, target_pos);
+                    if self.beat_driven_loop {
+                        let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
+                        let mut rng = rand::thread_rng();
+                        if fleeing {
+                            return search_flight_field(pos, target_pos, can_walk, &mut rng);
+                        }
+                        if dist < target_distance {
+                            return search_flight_field(pos, target_pos, can_walk, &mut rng);
+                        } else if dist == target_distance {
+                            let choice = rng.gen_range(0..5);
+                            let dirs = [
+                                Some(Direction::West),
+                                Some(Direction::East),
+                                Some(Direction::North),
+                                Some(Direction::South),
+                                None,
+                            ];
+                            if let Some(dir) = dirs[choice] {
+                                let dest = pos.offset(dir);
+                                if chebyshev(dest, target_pos) == target_distance && can_walk(dir) {
+                                    if chase_debug::chase_path_debug_enabled() {
+                                        if let Some(k) = self.creatures.get(cid) {
+                                            let branch = if target_distance > 1 {
+                                                "dist_dance"
+                                            } else {
+                                                "melee_dance"
+                                            };
+                                            chase_debug::log_branch(
+                                                self.tick_counter,
+                                                cid,
+                                                k.base().name.as_str(),
+                                                branch,
+                                                pos,
+                                                dest,
+                                                true,
+                                                i32::MAX,
+                                            );
+                                        }
+                                    }
+                                    return Some(dir);
+                                }
+                            }
+                            return None; // stand still
+                        }
+                        return None;
+                    }
+
                     // C++ dance at attack distance (`monster.cpp` ~1249); melee uses 1 tile, not keep-distance 4.
                     let dance_range = if target_distance > 1
                         && self.monster_can_use_attack(cid, pos, target_id)
@@ -1255,6 +1421,8 @@ mod world_tests {
 
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::login_out::creature_wire_id;
+    use crate::formulas::MechanicsProfile;
+    use crate::pathfinding::path_uses_cipsoft_shortway;
     use crate::test_world::support::{
         ensure_walkable_tile, insert_monster_with_config, insert_player, insert_spectator_player,
         minimal_world, test_player,
@@ -1990,5 +2158,506 @@ mod world_tests {
             "second arm must not reschedule walk"
         );
         assert_eq!(world.todo_queue.len(), 1, "no duplicate heap entry");
+    }
+
+    #[test]
+    fn test_772_melee_dance_only_cardinal() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        
+        // Make surrounding tiles walkable
+        for dx in -1i32..=1i32 {
+            for dy in -1i32..=1i32 {
+                ensure_walkable_tile(&mut world.map, Position::new((100 + dx) as u16, (100 + dy) as u16, 7), 2148);
+            }
+        }
+        
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+        
+        // Sample several times to verify all chosen step directions are cardinal (or None)
+        let now = std::time::Instant::now();
+        for _ in 0..100 {
+            if let Some(dir) = world.monster_next_walk_step(monster, now) {
+                assert!(
+                    matches!(
+                        dir,
+                        Direction::North | Direction::East | Direction::South | Direction::West
+                    ),
+                    "772 melee dance step must be cardinal, got {:?}",
+                    dir
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_772_walk_queue_hysteresis() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        let ppos_moved = Position::new(104, 100, 7);
+        for x in 100..=106 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        world.monster_on_creature_appear_self(monster);
+        let queue_before = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .clone();
+        assert!(!queue_before.is_empty());
+
+        // Target moves 1 tile closer (105 -> 104)
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_moved;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_moved, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_moved);
+
+        let queue_after = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .clone();
+        
+        // Hysteresis: Walk queue should NOT clear/recompute because target is still within goal range
+        assert_eq!(
+            queue_before, queue_after,
+            "772 walk queue should be retained due to hysteresis when target moves slightly"
+        );
+    }
+
+    #[test]
+    fn test_772_path_prefers_cardinal_on_open_terrain() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+
+        let mpos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        for x in 90..=110 {
+            for y in 90..=110 {
+                ensure_walkable_tile(&mut world.map, Position::new(x, y, 7), 150);
+            }
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", mpos));
+        world.map.register_creature_at(mpos, player);
+
+        for dx in -5..=5 {
+            for dy in -5..=5 {
+                let target_pos = Position::new((100 + dx) as u16, (100 + dy) as u16, 7);
+                if target_pos == mpos {
+                    continue;
+                }
+
+                if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+                    p.base.position = target_pos;
+                }
+
+                let fpp = world.monster_path_search_params(
+                    monster,
+                    player,
+                    false,
+                    1,
+                    false,
+                    false,
+                );
+
+                if let Some(steps) = world.get_creature_path_to_with_fpp(monster, target_pos, &fpp) {
+                    for step in steps {
+                        assert!(
+                            matches!(
+                                step,
+                                Direction::North | Direction::East | Direction::South | Direction::West
+                            ),
+                            "3× diagonal cost should prefer cardinals on open uniform terrain; \
+                             path to ({}, {}) used {:?}",
+                            100 + dx,
+                            100 + dy,
+                            step,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_772_allow_diagonal_true_stays_cipsoft_path_stack() {
+        use tfs_rust_common::ProtocolVersion;
+
+        let profile = MechanicsProfile::for_version(ProtocolVersion::V772);
+        assert!(path_uses_cipsoft_shortway(profile.path_cost, profile.path_search));
+        assert!(!profile.path_forward_fallback);
+
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        world.mechanics.profile = profile;
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 105, 7);
+        for x in 95..=110u16 {
+            for y in 95..=110u16 {
+                ensure_walkable_tile(&mut world.map, Position::new(x, y, 7), 102);
+            }
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        let fpp = world.monster_path_search_params(monster, player, false, 1, false, false);
+        assert!(
+            fpp.allow_diagonal,
+            "772 allows diagonal neighbors in CipSoft expansion"
+        );
+
+        let path = world
+            .get_creature_path_to_with_fpp(monster, ppos, &fpp)
+            .expect("reverse TShortway path");
+        assert!(!path.is_empty());
+        for step in &path {
+            assert!(
+                matches!(
+                    step,
+                    Direction::North | Direction::East | Direction::South | Direction::West
+                ),
+                "allow_diagonal=true on 772 must still use terrain×3 (cardinals on open grass), not TFS 10/25 bias: {step:?} in {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_772_diagonal_detour_when_cardinals_blocked() {
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+
+        let mpos = Position::new(10, 10, 7);
+        let ppos = Position::new(12, 12, 7);
+        for x in 8..=14u16 {
+            for y in 8..=14u16 {
+                ensure_walkable_tile(&mut world.map, Position::new(x, y, 7), 150);
+            }
+        }
+        // Block all four cardinals around the monster — only diagonal exits remain.
+        for (x, y) in [(10, 9), (10, 11), (9, 10), (11, 10)] {
+            world.map.insert_tile(
+                Position::new(x, y, 7),
+                Tile::Normal(TileBody {
+                    ground: Some(150),
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
+                    zone: ZoneType::Normal,
+                }),
+            );
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        let fpp = world.monster_path_search_params(monster, player, false, 1, false, false);
+        let path = world
+            .get_creature_path_to_with_fpp(monster, ppos, &fpp)
+            .expect("CipSoft TShortway must diagonal out when cardinals are blocked");
+        assert!(
+            path.iter().any(|d| {
+                matches!(
+                    d,
+                    Direction::NorthEast
+                        | Direction::NorthWest
+                        | Direction::SouthEast
+                        | Direction::SouthWest
+                )
+            }),
+            "path must use a diagonal to leave the cardinal trap: {path:?}"
+        );
+    }
+
+    #[test]
+    fn test_772_dance_retry_cadence() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+        
+        // Do NOT make surrounding tiles walkable to guarantee blocked movement
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            // Stand still recently so walk_delay is 0
+            m.base.last_step_server_ms = None;
+        }
+        
+        // Run walk. Since all directions are blocked, it must stand still / getNextStep false.
+        let now = std::time::Instant::now();
+        world.on_walk(monster, false, now, None);
+        
+        let wakeup = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .next_wakeup;
+            
+        // The wakeup should be scheduled at server_ms + step_duration (approx 350 ms for speed 200, ground 150)
+        // rather than immediate retry (+1 ms).
+        assert!(wakeup.is_some());
+        let delay = wakeup.unwrap() - world.server_ms;
+        assert!(delay >= 300, "expected dance retry delay to be at least step duration, got {}", delay);
+    }
+
+    #[test]
+    fn test_772_repath_first_step_delay() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+        
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+        for x in 100..=105 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+        }
+        
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            
+            // Set last step to now so there is a positive walk delay
+            m.base.last_step_server_ms = Some(world.server_ms);
+            m.base.last_step_ground_speed = 150;
+            m.base.last_step_cost = 1;
+        }
+        
+        // Trigger repath
+        world.monster_follow_repath_now(monster);
+        
+        let wakeup = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .next_wakeup;
+            
+        // Wakeup should be scheduled for server_ms + walk_delay (approx 350 ms)
+        assert!(wakeup.is_some());
+        let delay = wakeup.unwrap() - world.server_ms;
+        assert!(delay >= 300, "expected repath delay to respect walk delay, got {}", delay);
+    }
+
+    #[test]
+    fn test_772_flee_steps_away() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7); // player to the east
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+        // Make the west tile walkable so monster can flee west
+        let west_pos = Position::new(99, 100, 7);
+        ensure_walkable_tile(&mut world.map, west_pos, 150);
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            // force fleeing state by setting high run_away_health or modifying HP
+            m.base.health = 10;
+            m.run_away_health = 20; // health <= run_away_health -> fleeing
+        }
+
+        let now = std::time::Instant::now();
+        let step = world.monster_next_walk_step(monster, now);
+        // Flee step must be West (away from player who is East)
+        assert_eq!(step, Some(Direction::West));
+    }
+
+    #[test]
+    fn test_772_hunter_band_dance_cardinal() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(104, 100, 7); // player is 4 tiles East
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+
+        // Make all cardinal directions from 100,100 walkable
+        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), 150); // West (dist becomes 5)
+        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), 150); // East (dist becomes 3)
+        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 7), 150); // North (dist becomes 4)
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), 150); // South (dist becomes 4)
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            // Set target distance to 4 (keep distance)
+            m.target_distance = 4;
+        }
+
+        // Run dance check multiple times. Since we are at distance 4, the only allowed step directions
+        // that maintain distance 4 are North, South, or None. West (dist=5) and East (dist=3) must not be chosen.
+        let now = std::time::Instant::now();
+        for _ in 0..50 {
+            if let Some(dir) = world.monster_next_walk_step(monster, now) {
+                assert!(
+                    matches!(dir, Direction::North | Direction::South),
+                    "only North or South maintain target distance 4 from East-aligned target, got {:?}",
+                    dir
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_772_blocked_flee_stops() {
+        let mut world = minimal_world();
+        world.beat_driven_loop = true;
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7); // player to the east
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+
+        // All neighbor tiles are blocked (non-walkable)
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.health = 10;
+            m.run_away_health = 20; // fleeing
+        }
+
+        // Run go_to_follow_creature. Since fleeing is true and pathing fails, it should clear follow path and stop,
+        // without attempting any closer steps.
+        world.go_to_follow_creature(monster);
+
+        let walk_queue_empty = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .is_empty();
+        assert!(walk_queue_empty, "blocked flee must not populate walk queue");
     }
 }

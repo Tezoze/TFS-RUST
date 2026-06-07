@@ -2,7 +2,8 @@
 //!
 //! - Forward: `map.cpp` `getPathMatching`, Dijkstra-style (g-only open key).
 //! - Reverse: CipSoft 7.72 `TShortway::Expand` — dest → origin, leave-tile waypoints,
-//!   Manhattan heuristic with `MinWaypoints`, branch-and-bound pruning.
+//!   fixed 8-neighbor expansion (no TFS `dirNeighbors` bias), Manhattan heuristic with
+//!   `MinWaypoints`, branch-and-bound pruning.
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -26,11 +27,18 @@ const CIPSOFT_PATH_VIEW_RADIUS: i32 = 10;
 const CIPSOFT_MAX_CLOSED_NODES: usize = 441;
 
 /// TFS `FindPathParams` (`creature.h`).
+///
+/// **`allow_diagonal` does not select the pathfinding era.** Search direction and edge costs
+/// come from [`MechanicsProfile::path_search`] / [`MechanicsProfile::path_cost`] passed to
+/// [`get_path_matching`]. On CipSoft reverse search, `allow_diagonal` only filters
+/// [`CIPSOFT_NEIGHBOR_OFFSETS`]; TFS 1098 [`neighbor_offsets`] / `dirNeighbors` run only when
+/// `path_search == Forward` (or explicit forward fallback after reverse failure).
 #[derive(Clone, Copy, Debug)]
 pub struct FindPathParams {
     pub min_target_dist: i32,
     pub max_target_dist: i32,
     pub clear_sight: bool,
+    /// Include diagonal neighbors in expansion. Does **not** switch to TFS forward A* or 10/25 costs.
     pub allow_diagonal: bool,
     /// C++ `FindPathParams::fullPathSearch` — symmetric vs directional search box.
     pub full_path_search: bool,
@@ -91,6 +99,18 @@ struct AStarNode {
     g: u32,
 }
 
+/// CipSoft `TShortway` profile — reverse dest→origin with terrain waypoint costs (diagonal ×3).
+///
+/// When true, `FindPathParams::allow_diagonal` only toggles the 8-neighbor CipSoft expansion;
+/// it never selects TFS forward `dirNeighbors` or fixed 10/25 edge costs.
+#[inline]
+pub fn path_uses_cipsoft_shortway(cost_model: PathCostModel, search: PathSearchModel) -> bool {
+    matches!(
+        (cost_model, search),
+        (PathCostModel::TerrainWeighted, PathSearchModel::Reverse)
+    )
+}
+
 /// TFS `Map::getPathMatching` / CipSoft `TShortway` — creature-aware via callbacks.
 ///
 /// `search` selects expansion direction (1098 forward / 772 reverse). Edge costs come from
@@ -103,6 +123,7 @@ pub fn get_path_matching<C, T, G>(
     fpp: &FindPathParams,
     cost_model: PathCostModel,
     search: PathSearchModel,
+    forward_fallback: bool,
     can_walk_to: C,
     tile_walk_cost: T,
     ground_cost: G,
@@ -145,8 +166,12 @@ where
                     return reverse;
                 }
             }
-            // CipSoft `TShortway` is dest→origin; when the origin is unreachable (tree/wall
-            // between monster and player), fall back to forward A* so the monster can detour.
+            if !forward_fallback {
+                return None;
+            }
+            // Forward fallback uses TFS `dirNeighbors` expansion — not CipSoft `TShortway`.
+            // Default 772 profile sets `path_forward_fallback = false` (NOWAY). Only reached when
+            // explicitly enabled (e.g. 1098 overlay); `allow_diagonal` on the FPP is unrelated.
             path_matching_forward(
                 map,
                 start,
@@ -357,11 +382,27 @@ where
         pos: target,
     });
 
-    while fpp.max_search_dist != 0 || closed.len() < closed_cap {
-        let Some(OpenNode { pos: current, .. }) = open.pop() else {
+    let mut expand_count = 0usize;
+    while fpp.max_search_dist != 0 || expand_count < closed_cap {
+        let Some(OpenNode {
+            pos: current,
+            g: popped_g,
+            ..
+        }) = open.pop()
+        else {
             break;
         };
-        if !closed.insert(current) {
+
+        let Some(&AStarNode { g: best_g, .. }) = nodes.get(&current) else {
+            continue;
+        };
+        if popped_g > best_g {
+            continue;
+        }
+
+        if use_cipsoft_astar {
+            expand_count += 1;
+        } else if !closed.insert(current) {
             continue;
         }
 
@@ -372,15 +413,29 @@ where
             return Some(trimmed);
         }
 
-        let base_g = nodes.get(&current).map(|n| n.g).unwrap_or(u32::MAX);
+        let base_g = best_g;
         if base_g == u32::MAX {
             continue;
         }
 
-        let parent = nodes.get(&current).and_then(|n| n.parent);
-        let (neighbor_list, dir_count) = neighbor_offsets(parent, current, fpp.allow_diagonal);
+        // CipSoft node-level branch-and-bound — skip all neighbors when even the cheapest
+        // cardinal step cannot improve on the best-known path to the origin (`cract.cc:136–138`).
+        if use_cipsoft_astar {
+            let current_wp = ground_cost(current).max(1);
+            let min_neighbor_g = base_g.saturating_add(current_wp);
+            if nodes
+                .get(&start)
+                .is_some_and(|origin| min_neighbor_g >= origin.g)
+            {
+                continue;
+            }
+        }
 
-        for &(ox, oy) in &neighbor_list[..dir_count] {
+        for &(ox, oy) in &CIPSOFT_NEIGHBOR_OFFSETS {
+            if !fpp.allow_diagonal && ox != 0 && oy != 0 {
+                continue;
+            }
+
             let Some(next) = offset_position(current, ox, oy) else {
                 continue;
             };
@@ -389,7 +444,7 @@ where
                 continue;
             }
 
-            if closed.contains(&next) {
+            if !use_cipsoft_astar && closed.contains(&next) {
                 continue;
             }
 
@@ -399,11 +454,16 @@ where
             }
 
             let step_cost = path_step_cost(cost_model, is_diagonal, || ground_cost(current));
+            let occupancy_cost = if use_cipsoft_astar {
+                0
+            } else {
+                tile_walk_cost(next)
+            };
             let new_g = base_g
                 .saturating_add(step_cost)
-                .saturating_add(tile_walk_cost(next));
+                .saturating_add(occupancy_cost);
 
-            // CipSoft branch-and-bound — `TShortway::Expand` (`cract.cc`).
+            // CipSoft per-edge branch-and-bound (`cract.cc:157` vs origin `Waylength`).
             if let Some(&AStarNode { g: origin_g, .. }) = nodes.get(&start) {
                 if new_g >= origin_g {
                     continue;
@@ -435,6 +495,9 @@ where
 
     None
 }
+
+/// CipSoft `ToDoGo(..., MaxSteps)` for monster chase — `crnonpl.cc` ~2729, `cract.cc` ~992.
+pub const CIPSOFT_CHASE_PATH_MAX_STEPS: usize = 3;
 
 /// TFS `FrozenPathingConditionCall::operator()` (`creature.cpp` ~1688–1720).
 fn evaluate_path_goal(
@@ -586,7 +649,19 @@ fn offset_position(from: Position, ox: i32, oy: i32) -> Option<Position> {
     })
 }
 
-/// C++ `dirNeighbors` / `allNeighbors` (`map.cpp` ~663–675).
+/// CipSoft `TShortway::Expand` — nested `OffsetX`/`OffsetY` order (`cract.cc:141-145`).
+const CIPSOFT_NEIGHBOR_OFFSETS: [(i32, i32); 8] = [
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+];
+
+/// TFS `dirNeighbors` / `allNeighbors` (`map.cpp` ~663–675).
 fn neighbor_offsets(
     parent: Option<Position>,
     current: Position,
@@ -614,7 +689,8 @@ fn neighbor_offsets(
     ];
 
     let Some(prev) = parent else {
-        return (&ALL_NEIGHBORS, ALL_NEIGHBORS.len());
+        let len = if allow_diagonal { ALL_NEIGHBORS.len() } else { 4 };
+        return (&ALL_NEIGHBORS, len);
     };
 
     let dx = prev.x as i32 - current.x as i32;
@@ -719,6 +795,23 @@ mod tests {
     }
 
     #[test]
+    fn cipsoft_neighbor_order_matches_expand_loop() {
+        assert_eq!(
+            CIPSOFT_NEIGHBOR_OFFSETS,
+            [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ]
+        );
+    }
+
+    #[test]
     fn neighbor_index_matches_cpp_direction_enum() {
         let current = Position::new(10, 10, 7);
         let parent = Position::new(9, 10, 7);
@@ -792,6 +885,7 @@ mod tests {
             &fpp,
             PathCostModel::TerrainWeighted,
             PathSearchModel::Reverse,
+            true,
             can_walk,
             no_extra,
             ground,
@@ -803,6 +897,72 @@ mod tests {
             pos = pos.offset(*dir);
         }
         assert_eq!(chebyshev_dist(pos, target), 1);
+    }
+
+    #[test]
+    fn path_uses_cipsoft_shortway_matches_772_profile() {
+        use tfs_rust_common::ProtocolVersion;
+
+        use crate::formulas::MechanicsProfile;
+
+        let p772 = MechanicsProfile::for_version(ProtocolVersion::V772);
+        assert!(super::path_uses_cipsoft_shortway(p772.path_cost, p772.path_search));
+
+        let p1098 = MechanicsProfile::for_version(ProtocolVersion::V1098);
+        assert!(!super::path_uses_cipsoft_shortway(p1098.path_cost, p1098.path_search));
+    }
+
+    #[test]
+    fn reverse_with_allow_diagonal_still_uses_cipsoft_expansion() {
+        let mut map = Map {
+            width: 15,
+            height: 15,
+            grid: crate::map::SparseGrid::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        for x in 0..15u16 {
+            for y in 0..15u16 {
+                ensure_walkable_tile(&mut map, Position::new(x, y, 7), 150);
+            }
+        }
+        let start = Position::new(7, 7, 7);
+        let target = Position::new(12, 12, 7);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let can_walk = |pos: Position| map.is_walkable(pos);
+        let no_extra = |_pos: Position| 0u32;
+        let ground = |_pos: Position| 150u32;
+
+        let path = get_path_matching(
+            &map,
+            start,
+            target,
+            &fpp,
+            PathCostModel::TerrainWeighted,
+            PathSearchModel::Reverse,
+            false,
+            can_walk,
+            no_extra,
+            ground,
+        )
+        .expect("path");
+        assert!(!path.is_empty());
+        for dir in &path {
+            assert!(
+                matches!(
+                    dir,
+                    Direction::North | Direction::East | Direction::South | Direction::West
+                ),
+                "3× waypoint cost must make cardinals win on uniform terrain, got {dir:?} in {path:?}"
+            );
+        }
     }
 
     #[test]
@@ -856,6 +1016,7 @@ mod tests {
             &fpp,
             PathCostModel::TerrainWeighted,
             PathSearchModel::Reverse,
+            true,
             can_walk,
             no_extra,
             ground,
@@ -923,6 +1084,7 @@ mod tests {
             &fpp,
             PathCostModel::TerrainWeighted,
             PathSearchModel::Forward,
+            true,
             can_walk,
             no_extra,
             ground,
@@ -935,6 +1097,7 @@ mod tests {
             &fpp,
             PathCostModel::TerrainWeighted,
             PathSearchModel::Reverse,
+            true,
             can_walk,
             no_extra,
             ground,
@@ -948,5 +1111,158 @@ mod tests {
             forward.iter().all(|d| matches!(d, Direction::East | Direction::West)),
             "forward should stay cardinal on the fast row: {forward:?}"
         );
+    }
+
+    #[test]
+    fn forward_pathfinder_obeys_allow_diagonal() {
+        let mut map = Map {
+            width: 7,
+            height: 7,
+            grid: crate::map::SparseGrid::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        for x in 0..7u16 {
+            for y in 0..7u16 {
+                ensure_walkable_tile(&mut map, Position::new(x, y, 7), 100);
+            }
+        }
+        // Block (1, 1), (2, 2) etc., forcing detours
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+        let block_pos = [
+            Position::new(1, 1, 7),
+            Position::new(2, 2, 7),
+            Position::new(3, 3, 7),
+        ];
+        for bp in block_pos {
+            map.insert_tile(
+                bp,
+                Tile::Normal(TileBody {
+                    ground: Some(100),
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
+                    zone: ZoneType::Normal,
+                }),
+            );
+        }
+
+        let start = Position::new(0, 0, 7);
+        let target = Position::new(4, 4, 7);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: false,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let can_walk = |pos: Position| map.is_walkable(pos);
+        let no_extra = |_pos: Position| 0u32;
+        let ground = |_pos: Position| 100u32;
+
+        let path = get_path_matching(
+            &map,
+            start,
+            target,
+            &fpp,
+            PathCostModel::Fixed,
+            PathSearchModel::Forward,
+            true,
+            can_walk,
+            no_extra,
+            ground,
+        )
+        .expect("should find a path without diagonals");
+
+        for &dir in &path {
+            assert!(
+                matches!(
+                    dir,
+                    Direction::North | Direction::East | Direction::South | Direction::West
+                ),
+                "Path contains diagonal direction {:?}! Full path: {:?}",
+                dir,
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn reverse_noway_without_fallback() {
+        let mut map = Map {
+            width: 7,
+            height: 3,
+            grid: crate::map::SparseGrid::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        for x in 0..7u16 {
+            for y in 9..=11u16 {
+                ensure_walkable_tile(&mut map, Position::new(x, y, 7), 100);
+            }
+        }
+        // Block entire column x=4, completely separating start (1, 10) from target (5, 10).
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+        for y in 9..=11u16 {
+            map.insert_tile(
+                Position::new(4, y, 7),
+                Tile::Normal(TileBody {
+                    ground: Some(100),
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
+                    zone: ZoneType::Normal,
+                }),
+            );
+        }
+
+        let start = Position::new(1, 10, 7);
+        let target = Position::new(5, 10, 7);
+        let fpp = FindPathParams {
+            min_target_dist: 2,
+            max_target_dist: 2,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let can_walk = |pos: Position| map.is_walkable(pos);
+        let no_extra = |_pos: Position| 0u32;
+        let ground = |_pos: Position| 100u32;
+
+        // With fallback disabled, it must fail because the destination is cut off for reverse search.
+        let path_no_fallback = get_path_matching(
+            &map,
+            start,
+            target,
+            &fpp,
+            PathCostModel::TerrainWeighted,
+            PathSearchModel::Reverse,
+            false, // no forward fallback
+            can_walk,
+            no_extra,
+            ground,
+        );
+        assert!(path_no_fallback.is_none(), "Must return None without forward fallback (CipSoft NOWAY)");
+
+        // With fallback enabled, it must succeed because forward search can reach (3, 10) which is distance 2 from target.
+        let path_with_fallback = get_path_matching(
+            &map,
+            start,
+            target,
+            &fpp,
+            PathCostModel::TerrainWeighted,
+            PathSearchModel::Reverse,
+            true, // forward fallback enabled
+            can_walk,
+            no_extra,
+            ground,
+        );
+        assert!(path_with_fallback.is_some(), "Must return Some with forward fallback");
     }
 }

@@ -26,6 +26,7 @@ formulas = {
   spawnNearPlayer = "block",
   expAttributionRounds = 60,
   followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
+  pathForwardFallback = true,      -- TFS falls back to forward search if reverse fails
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.80,

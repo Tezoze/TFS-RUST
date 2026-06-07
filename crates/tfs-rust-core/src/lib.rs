@@ -1,6 +1,7 @@
 //! Simulation core: map, entities, config, scheduler hooks.
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
+mod chase_debug;
 pub mod combat;
 pub mod condition;
 pub mod config;
@@ -119,7 +120,10 @@ pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;
 pub use matrix_area::MatrixArea;
 pub use party::{split_shared_experience, Party, PartyInviteState};
-pub use pathfinding::{get_path_matching, FindPathParams, CREATURE_ON_TILE_PATH_COST, MAP_NORMAL_WALK_COST};
+pub use pathfinding::{
+    get_path_matching, path_uses_cipsoft_shortway, FindPathParams, CREATURE_ON_TILE_PATH_COST,
+    MAP_NORMAL_WALK_COST,
+};
 pub use protocol_hooks::{NullProtocolHooks, ProtocolHooks, SharedProtocolHooks};
 pub use run_server::run;
 pub use scheduler::Scheduler;

@@ -2,12 +2,12 @@
 
 **Status:** Design / planning doc (no code written yet).
 **Goal:** Support multiple Tibia protocol versions (and their mechanics) from one codebase, switchable by config.
-**Anchors:** `7.72` (the `gameserver/` C++ reference, "The Violet Project") and `10.98` (current Rust target, OTClientv8).
+**Anchors:** `7.72` (the `reference/tvp-772/gameserver/` C++ reference, "The Violet Project") and `10.98` (current Rust target, OTClientv8).
 **Reference trees (each has a distinct role):**
-- `gameserver/src/` = **TVP**, a TFS fork ported to 7.72. → **Sole authority for 772 wire/packets**
-  (§2–§11): opcodes, byte layouts, login, transport. **Never** use `tibia-game-master` or repo-root
+- `reference/tvp-772/gameserver/src/` = **TVP**, a TFS fork ported to 7.72. → **Sole authority for 772 wire/packets**
+  (§2–§11): opcodes, byte layouts, login, transport. **Never** use `reference/cipsoft-772/tibia-game-master` or repo-root
   `src/` for 772 protocol work.
-- `tibia-game-master/src/` = the leaked CipSoft 7.72 **decompile**. → **772 behavioral source of truth**
+- `reference/cipsoft-772/tibia-game-master/src/` = the leaked CipSoft 7.72 **decompile**. → **772 behavioral source of truth**
   (§12 mechanics only — not wire). When TVP and the decompile disagree on a *game outcome*, the
   decompile wins; wire always follows `gameserver/src/`.
 - repo-root `src/` = TFS 1.4.2 / 10.98 = what the Rust port currently mirrors.

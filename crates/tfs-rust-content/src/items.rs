@@ -1333,4 +1333,27 @@ mod tests {
         let v = db.inventory_client_ids();
         assert_eq!(v, vec![5000, 7000]);
     }
+
+    /// OTB `ITEM_ATTR_SPEED` is the CipSoft `WAYPOINTS` bank attribute used by `TShortway::FillMap`.
+    #[test]
+    fn ground_tile_speeds_match_cipsoft_waypoint_expectations() {
+        use std::path::Path;
+
+        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
+        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+
+        // Canonical ids from `data/items/items.xml` (not name lookup — many grass variants).
+        let grass_wp = db.ground_speed_for_item(102);
+        let dirt_wp = db.ground_speed_for_item(103);
+        let sand_wp = db.ground_speed_for_item(104);
+
+        assert_eq!(grass_wp, 150, "grass (102) WAYPOINTS/speed");
+        assert_eq!(dirt_wp, 110, "dirt (103) WAYPOINTS/speed");
+        assert_eq!(sand_wp, 160, "sand (104) WAYPOINTS/speed");
+        assert!(
+            sand_wp > grass_wp && grass_wp > dirt_wp,
+            "relative ordering: dirt fastest, grass mid, sand slow (grass={grass_wp}, dirt={dirt_wp}, sand={sand_wp})"
+        );
+    }
 }

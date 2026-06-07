@@ -543,11 +543,111 @@ where
     None
 }
 
+/// CipSoft `SearchFlightField` — `info.cc` ~1030.
+///
+/// Sweeps directions away from pursuer:
+/// 1. Preferred axial direction.
+/// 2. Shuffled remaining 3 cardinal directions.
+/// 3. Shuffled 4 diagonal directions.
+pub fn search_flight_field<F>(
+    creature_pos: Position,
+    pursuer_pos: Position,
+    can_walk: F,
+    rng: &mut impl Rng,
+) -> Option<Direction>
+where
+    F: Fn(Direction) -> bool,
+{
+    let ox = creature_pos.x as i32 - pursuer_pos.x as i32;
+    let oy = creature_pos.y as i32 - pursuer_pos.y as i32;
+    let dx = ox.abs();
+    let dy = oy.abs();
+
+    let mut dirs: [Option<Direction>; 9] = [None; 9];
+
+    // 1. Prefer axial direction away from the pursuer.
+    if dx > dy {
+        dirs[0] = Some(if ox < 0 { Direction::West } else { Direction::East });
+    } else if dx < dy {
+        dirs[0] = Some(if oy < 0 { Direction::North } else { Direction::South });
+    }
+
+    // 2. Fallback to random axial direction away from the pursuer.
+    if ox >= 0 {
+        dirs[1] = Some(Direction::East);
+    }
+    if oy <= 0 {
+        dirs[2] = Some(Direction::North);
+    }
+    if ox <= 0 {
+        dirs[3] = Some(Direction::West);
+    }
+    if oy >= 0 {
+        dirs[4] = Some(Direction::South);
+    }
+    dirs[1..5].shuffle(rng);
+
+    // 3. Fallback to diagonal direction away from the pursuer.
+    if oy <= ox {
+        dirs[5] = Some(Direction::NorthEast);
+    }
+    if oy <= -ox {
+        dirs[6] = Some(Direction::NorthWest);
+    }
+    if oy >= ox {
+        dirs[7] = Some(Direction::SouthWest);
+    }
+    if oy >= -ox {
+        dirs[8] = Some(Direction::SouthEast);
+    }
+    dirs[5..9].shuffle(rng);
+
+    // Evaluate in order
+    for &opt_dir in &dirs {
+        if let Some(dir) = opt_dir {
+            if can_walk(dir) {
+                return Some(dir);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+
+    #[test]
+    fn flight_field_prefers_axial_then_cardinal_then_diagonal() {
+        let from = Position::new(100, 100, 7);
+        let pursuer = Position::new(98, 100, 7); // West of us, so ox = 2, oy = 0.
+        // dx = 2, dy = 0.
+        // Preferred axial: East.
+        // Fallback card: East (already preferred), North, South.
+        // Fallback diag: NorthEast, SouthEast.
+
+        let mut rng = StdRng::seed_from_u64(1);
+
+        // 1. All clear -> East.
+        let can_walk = |_d: Direction| true;
+        assert_eq!(
+            search_flight_field(from, pursuer, can_walk, &mut rng),
+            Some(Direction::East)
+        );
+
+        // 2. East blocked -> check remaining cardinals (North/South).
+        let can_walk = |d: Direction| !matches!(d, Direction::East);
+        let res = search_flight_field(from, pursuer, can_walk, &mut rng).unwrap();
+        assert!(matches!(res, Direction::North | Direction::South));
+
+        // 3. All cardinals blocked -> check diagonals (NorthEast/SouthEast).
+        let can_walk = |d: Direction| !matches!(d, Direction::East | Direction::North | Direction::South | Direction::West);
+        let res = search_flight_field(from, pursuer, can_walk, &mut rng).unwrap();
+        assert!(matches!(res, Direction::NorthEast | Direction::SouthEast));
+    }
+
 
     fn chebyshev(a: Position, b: Position) -> i32 {
         distance_x(a, b).max(distance_y(a, b))

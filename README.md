@@ -49,8 +49,9 @@ Login **7171**, game **7172** by default.
 | [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | What works today vs still open |
 | [docs/PROTOCOL_VERSIONING.md](docs/PROTOCOL_VERSIONING.md) | 7.72 vs 10.98 wire/mechanics plan (Track A/B) |
 | [docs/OTCLIENT_INFO.md](docs/OTCLIENT_INFO.md) | OTCv8 protocol quirks vs vanilla TFS |
+| [reference/README.md](reference/README.md) | Local 772 C++ reference tree layout |
 
-Legacy C++ reference trees (`gameserver/`, `tibia-game-master/`) are local-only (gitignored) for 7.72 porting — not required to run 10.98.
+Legacy C++ reference trees live under **`reference/`** (gitignored) for 7.72 porting — not required to run 10.98. See [reference/README.md](reference/README.md).
 
 ---
 
@@ -60,7 +61,8 @@ Legacy C++ reference trees (`gameserver/`, `tibia-game-master/`) are local-only 
 crates/tfs-rust-{common,content,db,net,lua,core}/   # Rust server
 rust-src/main.rs                                    # `tfs-rust` binary entry
 data/                                               # Lua scripts, XML, map assets
-src/                                                # TFS 1.4.2 C++ (reference, not built by Cargo)
+src/                                                # TFS 1.4.2 C++ (1098 reference, not built by Cargo)
+reference/                                          # Local 772 C++ trees (gitignored content; see reference/README.md)
 tools/packet-proxy/                                 # Optional packet capture helper
 ```
 
