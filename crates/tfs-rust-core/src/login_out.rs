@@ -389,7 +389,7 @@ fn build_initial_map_packet(
 /// Enqueue the initial login burst for a freshly placed player, selecting the version-specific
 /// sequence by the active wire codec. 1098 (`ProtocolGame::login` repo-root `src/protocolgame.cpp`)
 /// sends the OTCv8/10.98 preamble; 772 (`gameserver/src/protocolgame.cpp` `login` + `sendAddCreature`
-/// self branch) sends the lean CipSoft sequence. Mixing them desyncs the client (e.g. 1098's
+/// self branch) sends the lean 772 sequence. Mixing them desyncs the client (e.g. 1098's
 /// pending-state `0x0A` collides with 772's self-appear opcode → black screen).
 pub fn enqueue_initial_login_packets(
     world: &mut GameWorld,

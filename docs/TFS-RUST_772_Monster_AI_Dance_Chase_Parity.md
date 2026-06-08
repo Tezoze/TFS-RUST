@@ -1,6 +1,6 @@
 # TFS-RUST 7.72 Monster AI — Dance & Chase Parity Audit
 
-**Project**: CipSoft 7.72 monster movement feel (melee dance, chase repath, diagonal steps)  
+**Project**: 772 monster movement feel (melee dance, chase repath, diagonal steps)  
 **Date**: 2026-06-06  
 **Scope**: `monster_ai.rs`, `walk/mod.rs`, `idle_stimulus.rs`, `creature_todo.rs`, `pathfinding.rs`  
 **References**: CipSoft `crnonpl.cc` (~2731–2753 dance), `cract.cc` (`ToDoStart`, `NotifyGo`, `TShortway`)
@@ -40,7 +40,7 @@ Related: [`TFS-RUST_772_Pathfinding_Creature_AI_Analysis.md`](TFS-RUST_772_Pathf
 ```rust
 // game_world.rs — set once at startup, never toggled per-monster
 let beat_driven_loop =
-    mechanics.profile.step_speed == StepSpeedModel::CipSoft;
+    mechanics.profile.step_speed == StepSpeedModel::LinearGo;
 ```
 
 When `clientVersion = 772`, this is always `true`. Fallback to TFS is **architectural**, not a config mistake.
@@ -327,7 +327,7 @@ Impact: continuing chase segments and dance retries may get wrong delay (too fas
 ## Scheduling Model Comparison
 
 ```
-CipSoft 7.72:
+772:
   ToDo drain → Execute(Go) → step → drain empty → IdleStimulus
            → enqueue ToDoGo → ToDoStart(delay) → heap wakeup
 
@@ -442,17 +442,17 @@ Replace fall-through to TFS with explicit era dispatch — no shared fall-throug
 ```rust
 if self.beat_driven_loop {
     if fleeing {
-        return self.monster_cipsoft_flee_step(...);  // search_flight_field
+        return self.monster_beat_driven_flee_step(...);  // search_flight_field
     }
     if dist <= dance_range {
-        return self.monster_cipsoft_dance_step(...);  // rand()%5 or band hold
+        return self.monster_beat_driven_dance_step(...);  // rand()%5 or band hold
     }
     return None;
 }
 // 1098: existing get_dance_step / staticAttackChance path
 ```
 
-`monster_cipsoft_dance_step` handles both melee (`rand() % 5`) and keep-distance (cardinal lateral at band — not `get_dance_step`).
+`monster_beat_driven_dance_step` handles both melee (`rand() % 5`) and keep-distance (cardinal lateral at band — not `get_dance_step`).
 
 ### Layer 2 implementation sketch (chase path)
 
@@ -515,7 +515,7 @@ Full roadmap to observable **100%** (P1–P8): see [§Road to 100% Parity](#road
 
 ## Road to 100% Parity
 
-**Definition:** Observable behavior matches CipSoft 7.72 (`tibia-game-master/src/`) — chase feel, target picks, flee, spacing, step timing, combat outcomes — in idiomatic Rust via `MechanicsProfile` + `beat_driven_loop`. Not line-for-line decompile transcription.
+**Definition:** Observable behavior matches 772 (`tibia-game-master/src/`) — chase feel, target picks, flee, spacing, step timing, combat outcomes — in idiomatic Rust via `MechanicsProfile` + `beat_driven_loop`. Not line-for-line decompile transcription.
 
 **Target:** ~98% with automated tests + soak; remaining ~2% is ambiguous decompile corners and content-specific edge cases.
 
@@ -710,7 +710,7 @@ Now ── P1 ──► ~85% melee feel
 
 ### What we match from CipSoft
 
-CipSoft decompile (`crnonpl.cc` ~2716) hardcodes range 4 because most distance-fighting types in original data used that value. We replicate the **three-way branch**, parameterized by band:
+772 decompile (`crnonpl.cc` ~2716) hardcodes range 4 because most distance-fighting types in original data used that value. We replicate the **three-way branch**, parameterized by band:
 
 ```
 band = monster_effective_target_distance(m.target_distance)
@@ -745,7 +745,7 @@ pub(crate) fn monster_effective_target_distance(&self, per_type: i32) -> i32 {
 ### P6 deliverable (movement, pre-combat)
 
 - Flee / too-close: `search_flight_field` (already implemented, needs wiring).
-- At-band dance: cardinal lateral via `monster_cipsoft_dance_step` — same family as melee `rand() % 5`, gated on `dist == band` not `dist == 1`.
+- At-band dance: cardinal lateral via `monster_beat_driven_dance_step` — same family as melee `rand() % 5`, gated on `dist == band` not `dist == 1`.
 - Still reads `targetDistance` from type; tests use types with 4 and 7 (or similar) to prove it is not hardcoded.
 
 ---
@@ -768,7 +768,7 @@ Monster CipSoft vs TFS is **not** hard-tied to `clientVersion`. It is gated by:
 
 ```rust
 // game_world.rs — derived once at startup from MechanicsProfile
-beat_driven_loop = (mechanics.profile.step_speed == StepSpeedModel::CipSoft);
+beat_driven_loop = (mechanics.profile.step_speed == StepSpeedModel::LinearGo);
 ```
 
 Formulas load from `data/formulas/1098.lua` when `clientVersion = 1098` — **not** from `772.lua`. Copy relevant keys into `1098.lua`; do not point 1098 at the 772 file.

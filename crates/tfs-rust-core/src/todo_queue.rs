@@ -1,4 +1,4 @@
-//! CipSoft 7.72 global action scheduler — min-heap keyed by logical `ServerMilliseconds`.
+//! 772 global action scheduler — min-heap keyed by logical `ServerMilliseconds`.
 //!
 //! C++ reference: `tibia-game-master/src/cr.hh` (`ToDoQueue`),
 //! `crmain.cc:1106` `MoveCreatures`, `cract.cc:955` `ToDoStart`.

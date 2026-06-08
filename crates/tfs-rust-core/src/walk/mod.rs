@@ -14,7 +14,7 @@
 //! **Timing:** `get_walk_delay` uses `last_step_ground_speed` (**destination** tile of the completed step,
 //! OTCv8 / TFS `getWalkDelay`). When `walk_delay <= 0`, `get_event_step_ticks` uses the **current** tile for
 //! the *next* step. Wall `Instant::now()` samples (C++ `OTSYS_TIME()`).
-//! CipSoft 772: per-step waypoints include diagonal `×3` **before** Beat ceil (`cract.cc:1454–1462`); TFS 1098
+//! 772: per-step waypoints include diagonal `×3` **before** Beat ceil (`cract.cc:1454–1462`); TFS 1098
 //! keeps cardinal duration × `last_step_cost` after ceil (`creature.cpp`).
 //! `next_walk_check` stores the **logical** deadline. Initial arms from a new move use `walk_sched_base`;
 //! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
@@ -341,7 +341,7 @@ impl GameWorld {
         }
     }
 
-    /// CipSoft `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).
+    /// 772 `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).
     pub fn process_creature_todo(&mut self, cid: CreatureId) {
         let health_ok = self
             .creatures
@@ -1627,7 +1627,7 @@ mod step_speed_tests {
         get_step_duration_ms_with_direction, walk_timing_speed, wire_step_speed, WalkSpeedRole,
     };
     use crate::creature::CreatureKind;
-    use crate::formulas::{cipsoft_effective_speed, Mechanics};
+    use crate::formulas::{linear_go_effective_speed, Mechanics};
     use crate::Monster;
     use crate::test_world::support::test_player;
     use tfs_rust_common::{Position, ProtocolVersion};
@@ -1661,7 +1661,7 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         for (level, expected_go) in [(1, 220), (2, 222), (8, 228), (50, 270)] {
             let go = crate::creature::vocation::base_walk_speed(
-                crate::formulas::StepSpeedModel::CipSoft,
+                crate::formulas::StepSpeedModel::LinearGo,
                 1,
                 level,
             );
@@ -1752,20 +1752,20 @@ mod step_speed_tests {
 
     /// 772 wolf GoStrength 42 → `GetSpeed` 164; TVP step quantizer 50 ms → 950 ms on ground 150.
     #[test]
-    fn cipsoft_step_duration_matches_notify_go() {
+    fn linear_go_step_duration_matches_notify_go() {
         let p = test_player("Wolf", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 42;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
-        assert_eq!(cipsoft_effective_speed(42), 164);
+        assert_eq!(linear_go_effective_speed(42), 164);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
         assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
         assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 50, 0);
     }
 
-    /// CipSoft diagonal: `×3` waypoints before step quantizer ceil — 2750 ms, not TFS-style 950×3.
+    /// 772 diagonal: `×3` waypoints before step quantizer ceil — 2750 ms, not TFS-style 950×3.
     #[test]
-    fn cipsoft_diagonal_step_duration_quantizes_waypoints_before_beat() {
+    fn linear_go_diagonal_step_duration_quantizes_waypoints_before_beat() {
         use tfs_rust_common::enums::Direction;
         let p = test_player("Wolf", Position::new(100, 100, 7));
         let mut base = p.base.clone();
@@ -1883,8 +1883,7 @@ mod monster_walk_tests {
     /// 772 beat loop: walk arms ToDoQueue + `next_wakeup`, not Tokio timers.
     #[test]
     fn beat_driven_walk_schedules_todo_queue_not_tokio() {
-        let mut world = support::minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = support::beat_driven_world();
         world.walk_wake_tx = None;
         world.server_ms = 0;
         let pos = Position::new(100, 100, 7);
@@ -1905,8 +1904,7 @@ mod monster_walk_tests {
     /// Stale heap entries are skipped when `next_wakeup` was cleared.
     #[test]
     fn beat_driven_stale_todo_entry_is_skipped() {
-        let mut world = support::minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = support::beat_driven_world();
         world.walk_wake_tx = None;
         let pos = Position::new(100, 100, 7);
         support::ensure_walkable_tile(&mut world.map, pos, 2148);

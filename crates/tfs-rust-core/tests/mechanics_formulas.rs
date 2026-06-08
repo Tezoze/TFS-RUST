@@ -2,7 +2,7 @@
 //!
 //! These exercise the real files a server deploys (not synthetic Lua), confirming the Tier-1 loader
 //! overlay matches the built-in `MechanicsProfile::for_version` defaults end-to-end. If someone edits
-//! a formulas file in a way that drifts from the era's CipSoft / TFS constants, this fails loudly.
+//! a formulas file in a way that drifts from the era's 772 / TFS constants, this fails loudly.
 
 use std::path::PathBuf;
 
@@ -44,7 +44,7 @@ fn shipped_1098_formulas_match_era_defaults() {
 }
 
 #[test]
-fn shipped_772_formulas_match_cipsoft_defaults() {
+fn shipped_772_formulas_match_profile_defaults() {
     let dir = data_dir();
     if !dir.join("formulas").join("772.lua").is_file() {
         eprintln!("skipping: data/formulas/772.lua not present");
@@ -66,7 +66,7 @@ fn shipped_772_formulas_match_cipsoft_defaults() {
     assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
     assert_eq!(p.distance_keep, DistanceKeep::PerType);
     assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
-    assert_eq!(p.step_speed, StepSpeedModel::CipSoft);
+    assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
     assert_eq!(p.step_beat_ms, 50);
     assert_eq!(p.conditions.fire.dmg, 10);
     assert_eq!(p.conditions.fire.ticks, 8);

@@ -286,6 +286,57 @@ freePremium = false
         )
     }
 
+    /// 772 beat-driven profile (`LinearGo` + reverse terrain path) for idle/todo/monster tests.
+    pub fn beat_driven_world() -> GameWorld {
+        let _guard = test_runtime().enter();
+        let mut items_map = HashMap::new();
+        items_map.insert(1987u16, bag_item_type(1987));
+        items_map.insert(2148u16, pickup_item_type(2148));
+        let items_db = Arc::new(ItemDatabase {
+            items: items_map,
+            client_to_server: HashMap::new(),
+        });
+
+        let mut map = Map {
+            width: 256,
+            height: 256,
+            grid: SparseGrid::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        map.towns.insert(
+            1,
+            TownData {
+                id: 1,
+                name: "Thais".into(),
+                temple_position: Position::new(100, 100, 7),
+            },
+        );
+
+        GameWorld::new(
+            map,
+            SlotMap::default(),
+            Box::new(NullEventDispatcher),
+            Rc::new(test_config()),
+            DbPool::lazy_for_tests().expect("lazy db pool"),
+            SpawnManager::from_zones(Vec::new()),
+            items_db,
+            Arc::new(MonsterDatabase {
+                monsters: HashMap::new(),
+            }),
+            Arc::new(GroupDatabase {
+                groups: HashMap::new(),
+            }),
+            Arc::new(VocationDatabase {
+                vocations: HashMap::new(),
+            }),
+            None,
+            tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V772)
+                .expect("772 codec"),
+            crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772),
+        )
+    }
+
     pub fn insert_player(world: &mut GameWorld, player: Player) -> CreatureId {
         world.creatures.insert(CreatureKind::Player(player))
     }

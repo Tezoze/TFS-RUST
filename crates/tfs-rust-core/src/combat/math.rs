@@ -4,7 +4,7 @@
 //! overrides). The combat *execution* loop is still a skeleton (`combat/mod.rs`, design §12.7/§12.9);
 //! this module is the math it will call once wired, and is fully unit-testable today.
 //!
-//! **C++ reference — behavior/outcomes (CipSoft 7.72, clean-room R12):**
+//! **C++ reference — behavior/outcomes (772, clean-room R12):**
 //! - Weapon damage `((rand%100+rand%100)/2) * Max * / 10000`, `Max = attack*(skill*5+50)` —
 //!   `tibia-game-master/src/crskill.cc:535` `TSkillProbe::ProbeValue`, `crcombat.cc:219` `GetAttackDamage`.
 //! - Fight modes: offensive `+20%` atk / `−40%` def; defensive `−40%` atk / `+80%` def —
@@ -47,7 +47,7 @@ impl FightMode {
         }
     }
 
-    /// Integer code passed to Tier-2 hooks (mirrors CipSoft `ATTACK_MODE_*`: 1/2/3).
+    /// Integer code passed to Tier-2 hooks (mirrors 772 `ATTACK_MODE_*`: 1/2/3).
     fn code(self) -> i32 {
         match self {
             FightMode::Offensive => 1,
@@ -91,7 +91,7 @@ pub fn defense_gate_ms(profile: &MechanicsProfile) -> i32 {
 // ---------------------------------------------------------------------------
 
 /// Apply the fight-mode attack multiplier to a max attack value.
-/// CipSoft uses integer `±(v*2)/10` / `±(v*4)/10`; we model the fraction in `FightModes` and floor.
+/// 772 uses integer `±(v*2)/10` / `±(v*4)/10`; we model the fraction in `FightModes` and floor.
 fn apply_attack_mode(modes: &FightModes, mode: FightMode, max_value: i32) -> i32 {
     let f = match mode {
         FightMode::Offensive => modes.offensive_atk,
@@ -210,7 +210,7 @@ pub fn melee_damage_after_defense_and_armor(attack: i32, defense: i32, armor: i3
 // B4.7 — spell damage
 // ---------------------------------------------------------------------------
 
-/// CipSoft `ComputeDamage` (`magic.cc:784`): `damage * (level_mult*level + magic_mult*magicLevel) / 100`.
+/// 772 `ComputeDamage` (`magic.cc:784`): `damage * (level_mult*level + magic_mult*magicLevel) / 100`.
 /// `clamp_min_100` / `clamp_max_100` mirror the spell flag bits (`& 4` caps at 100%, `& 8` floors at 100%).
 /// Tier-2 `getSpellDamage(level, magicLevel, base)` overrides.
 pub fn spell_damage(
@@ -243,7 +243,7 @@ pub fn spell_damage(
 ///
 /// Both eras use the same polynomial `(((L-6)*L+17)*L-12)/6 * level_exp_delta`:
 /// - [`LevelExpModel::Tfs`] (1098) — TFS `Player::getExpForLevel` with `delta = 100` (`player.h:171`).
-/// - [`LevelExpModel::CipSoftPoly`] (772) — CipSoft `TSkillLevel::GetExpForLevel` (`crskill.cc:352`).
+/// - [`LevelExpModel::DeltaPoly`] (772) — 772 `TSkillLevel::GetExpForLevel` (`crskill.cc:352`).
 ///
 /// Tier-2 `getExperienceForLevel(level)` overrides.
 pub fn experience_for_level(profile: &MechanicsProfile, hooks: &FormulaHooks, level: i64) -> i64 {
@@ -253,8 +253,8 @@ pub fn experience_for_level(profile: &MechanicsProfile, hooks: &FormulaHooks, le
     match profile.level_exp {
         // TFS 1.4.2 `Player::getExpForLevel` (`player.h:171`) is the *same* polynomial as CipSoft
         // (`crskill.cc:352`) with `Delta = 100`: `(((L-6)*L+17)*L-12)/6 * delta`. The eras differ
-        // only in the `Delta` default (both 100 for the level curve; CipSoft varies it per skill).
-        LevelExpModel::Tfs | LevelExpModel::CipSoftPoly => {
+        // only in the `Delta` default (both 100 for the level curve; 772 varies it per skill).
+        LevelExpModel::Tfs | LevelExpModel::DeltaPoly => {
             let l = level;
             (((l - 6) * l + 17) * l - 12) / 6 * profile.level_exp_delta
         }
@@ -263,7 +263,7 @@ pub fn experience_for_level(profile: &MechanicsProfile, hooks: &FormulaHooks, le
 
 /// Triangular 20-slot proportional split of `total_exp` across `damage_shares` (B4.5).
 ///
-/// CipSoft distributes experience proportionally to damage dealt across the (up to 20-entry)
+/// 772 distributes experience proportionally to damage dealt across the (up to 20-entry)
 /// `CombatList` (`crcombat.cc:891–905`). Returns each sharer's exp in input order; integer
 /// floor per share (remainder is dropped, matching integer C++ division).
 pub fn distribute_experience(total_exp: u64, damage_shares: &[u64]) -> Vec<u64> {
@@ -278,7 +278,7 @@ pub fn distribute_experience(total_exp: u64, damage_shares: &[u64]) -> Vec<u64> 
 }
 
 /// PvP experience cap: when killing a player, exp is capped to `num/den` of the victim's value
-/// (CipSoft `11/10`, `crcombat.cc:900`). Returns the capped exp.
+/// (772 `11/10`, `crcombat.cc:900`). Returns the capped exp.
 pub fn pvp_exp_cap(profile: &MechanicsProfile, raw_exp: u64) -> u64 {
     if profile.pvp_exp_cap_den == 0 {
         return raw_exp;
@@ -291,7 +291,7 @@ pub fn pvp_exp_cap(profile: &MechanicsProfile, raw_exp: u64) -> u64 {
 ///
 /// Geometric curve shared by both eras: `skill_base * multiplier^(level - (min_level + 1))`. The
 /// base/multiplier are era data (TFS `vocations.xml` `skillBase`/`skillMultiplier`, `vocation.cpp:146`;
-/// CipSoft `Delta`/`FactorPercent`, `crskill.cc:483`). `min_level` is the first trainable level
+/// 772 `Delta`/`FactorPercent`, `crskill.cc:483`). `min_level` is the first trainable level
 /// (TFS `MINIMUM_SKILL_LEVEL` = 10). Tier-2 `getReqSkillTries(skill, level)` overrides the whole curve.
 pub fn req_skill_tries(
     hooks: &FormulaHooks,
@@ -374,9 +374,9 @@ mod tests {
     }
 
     #[test]
-    fn fight_mode_modifiers_match_cipsoft_integer_shape() {
+    fn fight_mode_modifiers_match_772_integer_shape() {
         let m = p772();
-        // Offensive +20% atk: 100 -> 120 (CipSoft `+ (v*2)/10`).
+        // Offensive +20% atk: 100 -> 120 (772 `+ (v*2)/10`).
         assert_eq!(apply_attack_mode(&m.profile.fight_modes, FightMode::Offensive, 100), 120);
         // Defensive -40% atk: 100 -> 60.
         assert_eq!(apply_attack_mode(&m.profile.fight_modes, FightMode::Defensive, 100), 60);
@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_value_matches_cipsoft_formula_bounds() {
+    fn probe_value_matches_classic_formula_bounds() {
         // ProbeValue is bounded by Max/100: max factor 99 -> (99 * Max)/10000.
         // skill=10, attack=50 -> Max = 50*(10*5+50) = 50*100 = 5000.
         // Max possible roll: (99 * 5000)/10000 = 49. Min: 0.
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(experience_for_level(&m1098.profile, &m1098.hooks, 1), 0);
         assert_eq!(experience_for_level(&m1098.profile, &m1098.hooks, 2), 100);
         assert_eq!(experience_for_level(&m1098.profile, &m1098.hooks, 8), 4200);
-        // CipSoft uses the same polynomial with Delta=100 → identical anchors.
+        // 772 uses the same polynomial with Delta=100 → identical anchors.
         assert_eq!(experience_for_level(&m772.profile, &m772.hooks, 1), 0);
         assert_eq!(experience_for_level(&m772.profile, &m772.hooks, 8), 4200);
     }

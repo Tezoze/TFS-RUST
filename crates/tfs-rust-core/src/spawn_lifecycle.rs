@@ -186,7 +186,7 @@ impl GameWorld {
                 .map(|s| self.spawn_find_player(s.position))
                 .unwrap_or(false);
             // B3.4 — spawn-near-player policy. TFS 1.4.2 (`Block`): a player on the spawn block tile
-            // stalls the respawn (`spawn.cpp` `findPlayer`). CipSoft 7.72 (`RadiusShrink`,
+            // stalls the respawn (`spawn.cpp` `findPlayer`). 772 (`RadiusShrink`,
             // `crnonpl.cc:1414`): never stall — still spawn, just further out; the placement search
             // (`find_spawn_position`) already avoids occupied tiles, so a player only pushes the
             // monster outward instead of suppressing the spawn.

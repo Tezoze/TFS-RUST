@@ -10,7 +10,7 @@ Usage:
   scripts/patch_tibia_client.py --restore /path/to/Tibia.exe.bak
 
 Default host/port/key from env or repo tibia.pem:
-  TIBIA_LOGIN_HOST=127.0.0.1  TIBIA_LOGIN_PORT=7171  TIBIA_RSA_PEM=reference/cipsoft-772/client/tibia.pem
+  TIBIA_LOGIN_HOST=127.0.0.1  TIBIA_LOGIN_PORT=7171  TIBIA_RSA_PEM=reference/classic-772/client/tibia.pem
 """
 
 from __future__ import annotations
@@ -23,9 +23,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RSA_PEM = ROOT / "reference" / "cipsoft-772" / "client" / "tibia.pem"
+def _default_rsa_pem() -> Path:
+    for name in ("classic-772", "cipsoft-772"):
+        path = ROOT / "reference" / name / "client" / "tibia.pem"
+        if path.is_file():
+            return path
+    return ROOT / "reference" / "classic-772" / "client" / "tibia.pem"
 
-# CipSoft 7.72 login host strings (OTLand / leaked client)
+
+DEFAULT_RSA_PEM = _default_rsa_pem()
+
+# Original 7.72 login host strings embedded in leaked client (do not rename bytes)
 DEFAULT_HOST_STRINGS = (
     b"tibia2.cipsoft.com",
     b"tibia1.cipsoft.com",

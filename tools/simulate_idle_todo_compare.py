@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Compare CipSoft 7.72 ToDo/IdleStimulus vs Rust Phase A idle-todo chase timing.
+"""Compare 772 ToDo/IdleStimulus vs Rust Phase A idle-todo chase timing.
 
 Pure state-machine simulation — no game server required.
 
-CipSoft: cract.cc Execute/ToDoStart/CalculateDelay, crnonpl.cc IdleStimulus.
+reference: cract.cc Execute/ToDoStart/CalculateDelay, crnonpl.cc IdleStimulus.
 Rust: idle_stimulus.rs, creature_todo.rs, walk/walk_timing.rs.
 """
 
@@ -17,12 +17,12 @@ BEAT_MS = 200
 GROUND = 150
 
 
-def cipsoft_effective_speed(go: int) -> int:
+def linear_go_effective_speed(go: int) -> int:
     return max(go * 2 + 80, 1)
 
 
 def step_delay_ms(ground: int, waypoint_cost: int, go: int) -> int:
-    eff = cipsoft_effective_speed(go)
+    eff = linear_go_effective_speed(go)
     waypoints = ground * max(waypoint_cost, 1)
     raw = (waypoints * 1000) // eff
     return ((raw + BEAT_MS - 1) // BEAT_MS) * BEAT_MS
@@ -37,7 +37,7 @@ class CipAction(Enum):
 
 
 @dataclass
-class CipSoftCreature:
+class ReferenceCreature:
     go: int
     path_steps: int
     server_ms: int = 0
@@ -48,7 +48,7 @@ class CipSoftCreature:
 
     def log_state(self, event: str) -> None:
         self.log.append(
-            f"CipSoft {event:22} server_ms={self.server_ms:5} "
+            f"reference {event:22} server_ms={self.server_ms:5} "
             f"todo={len(self.todo_list)} path={self.path_steps:2} wake={self.next_wakeup}"
         )
 
@@ -149,7 +149,7 @@ class RustCreature:
 
 
 def run_chase(go: int, steps: int = 8) -> tuple[list[str], list[str], list[int], list[int]]:
-    cip = CipSoftCreature(go=go, path_steps=steps)
+    cip = ReferenceCreature(go=go, path_steps=steps)
     rust = RustCreature(go=go, walk_queue_len=steps)
 
     # Arm chase: idle → first Go immediate (ticks==1) → schedule from completed step.
@@ -185,7 +185,7 @@ def run_chase(go: int, steps: int = 8) -> tuple[list[str], list[str], list[int],
 
 
 def print_speed_table(go: int, label: str) -> None:
-    eff = cipsoft_effective_speed(go)
+    eff = linear_go_effective_speed(go)
     card = step_delay_ms(GROUND, 1, go)
     diag = step_delay_ms(GROUND, 3, go)
     print(f"  {label}: go={go} GetSpeed={eff}  cardinal={card} ms  diagonal={diag} ms")
@@ -200,7 +200,7 @@ def main() -> None:
     for go, name in [(200, "go=200 (diagonal-heavy chase)"), (22, "go=22 (Dog XML)")]:
         cip_log, rust_log, cip_d, rust_d = run_chase(go=go)
         print(f"=== {name} — inter-step delays (logical ms) ===")
-        print(f"  {'Step':>4}  {'CipSoft':>8}  {'Rust':>8}  {'Match':>6}")
+        print(f"  {'Step':>4}  {'reference':>10}  {'Rust':>8}  {'Match':>6}")
         for i, (dc, dr) in enumerate(zip(cip_d, rust_d), start=2):
             match = "yes" if dc == dr else "NO"
             print(f"  {i:4}  {dc:8}  {dr:8}  {match:>6}")
@@ -241,7 +241,7 @@ def main() -> None:
     print("  • +1400 ms = go=22 cardinal step (150 wp / GetSpeed 124 → ceil to 1400)")
     print("  • Dog XML speed=22; mixed +1000/+1400 suggests chase path cost mix OR")
     print("    a different effective go at runtime — verify with trace + monster.speed in logs.")
-    print("  • heap_len 0|1 and idle-on-drain cycle match CipSoft semantics (Phase A OK).")
+    print("  • heap_len 0|1 and idle-on-drain cycle match 772 reference semantics (Phase A OK).")
 
 
 if __name__ == "__main__":

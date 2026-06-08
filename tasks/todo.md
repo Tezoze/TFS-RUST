@@ -171,7 +171,7 @@ C++ refs (772 wire — `gameserver/src/` ONLY):
 
 ## Track B — Mechanics (`MechanicsProfile` + `data/formulas/`)
 
-Source of truth: `tibia-game-master/src/` (CipSoft outcomes, R12) for 772 behavior; cite TFS structure
+Source of truth: `tibia-game-master/src/` (772 mechanics outcomes, R12) for 772 behavior; cite TFS structure
 (`gameserver/src/`, repo-root `src/`) for style. Behavior stays 1098 until B5. Every extracted constant
 becomes a `MechanicsProfile` field / `data/formulas/<v>.lua` value (R11) — never a bare Rust literal.
 
@@ -238,7 +238,7 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `run_game_loop_772` — `beat_ms` timer, cmd drain, `advance_beat_772`, `FlushPolicy::BeatEndOnly`
 - [x] `run_game_loop_1098` extracted; shared `process_game_command` + immediate movement flush
 - [x] `walk.rs` — ToDoQueue scheduling when `beat_driven_loop`; skip Tokio walk polling on 772
-- [x] `run_server.rs` — `walk_wake_tx = None` + loop branch on `StepSpeedModel::CipSoft`
+- [x] `run_server.rs` — `walk_wake_tx = None` + loop branch on `StepSpeedModel::LinearGo`
 - [x] `resolve_migrations_dir()` — runtime migrations path when repo mount differs from compile-time
 - [x] Staggered ~1000 ms subsystem counters (`subsystem_counters_772.rs` + `advance_beat_772`)
 - [ ] Deferred: multi-beat lag catch-up when beat alarms pile up

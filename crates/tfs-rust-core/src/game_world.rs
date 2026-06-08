@@ -101,11 +101,11 @@ pub struct GameWorld {
     pub next_statement_id: u32,
     /// When set, walk wake uses Tokio one-shot timers (`src/scheduler.cpp`); `None` falls back to polling in `process_walk_deadlines`.
     pub(crate) walk_wake_tx: Option<UnboundedSender<CreatureId>>,
-    /// CipSoft 772 global action scheduler (`crmain.cc` `MoveCreatures`).
+    /// 772 global action scheduler (`crmain.cc` `MoveCreatures`).
     pub(crate) todo_queue: crate::todo_queue::ToDoQueue,
     /// Logical game clock — advanced in `beat_ms` steps on the 772 loop (`crmain.cc` `ServerMilliseconds`).
     pub(crate) server_ms: u64,
-    /// True when `StepSpeedModel::CipSoft` — beat-driven loop + ToDoQueue walk scheduling.
+    /// True when `StepSpeedModel::LinearGo` — beat-driven loop + ToDoQueue walk scheduling.
     pub(crate) beat_driven_loop: bool,
     /// TFS `Game::ReleaseCreature` → `ToReleaseCreatures` (`src/game.cpp` ~4766–4768), drained in [`Self::cleanup`].
     pub(crate) creatures_pending_release: Vec<CreatureId>,
@@ -119,7 +119,7 @@ pub struct GameWorld {
     pub(crate) last_creature_bucket_tick: Option<Instant>,
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
-    /// CipSoft `AdvanceGame` staggered ~1000 ms subsystem counters (772 loop only).
+    /// 772 `AdvanceGame` staggered ~1000 ms subsystem counters (772 loop only).
     pub(crate) subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
     pub monster_world_config: crate::config::MonsterWorldConfig,
@@ -153,7 +153,7 @@ impl GameWorld {
         let monster_world_config = crate::config::MonsterWorldConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
         let beat_driven_loop =
-            mechanics.profile.step_speed == crate::formulas::StepSpeedModel::CipSoft;
+            mechanics.profile.step_speed == crate::formulas::StepSpeedModel::LinearGo;
         Self {
             creatures: SlotMap::with_key(),
             items,

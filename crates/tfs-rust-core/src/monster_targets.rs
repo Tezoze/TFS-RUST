@@ -22,7 +22,7 @@ pub enum TargetSearchType {
     Nearest,
     AttackRange,
     Random,
-    /// Lowest-health opponent (CipSoft `Strategy` weakest bucket / TFS `<targetstrategy>` health).
+    /// Lowest-health opponent (772 `Strategy` weakest bucket / TFS `<targetstrategy>` health).
     /// The HP metric (current vs max) is profile-driven (B3.1, `WeakestTargetMetric`).
     HealthLow,
 }
@@ -420,7 +420,7 @@ impl GameWorld {
         match search_type {
             TargetSearchType::HealthLow => {
                 // B3.1 — pick the weakest reachable opponent. Metric (current vs max HP) is
-                // profile-driven: CipSoft 7.72 compares **current** HP (`crnonpl.cc` Strategy),
+                // profile-driven: 772 compares **current** HP (`crnonpl.cc` Strategy),
                 // TFS compares **max** HP (`monsters.cpp` `<targetstrategy>`).
                 if let Some(best) = self.monster_weakest_opponent(&result_list) {
                     return self.monster_select_target(monster_id, best);

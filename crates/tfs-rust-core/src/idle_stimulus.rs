@@ -1,4 +1,4 @@
-//! CipSoft 772 drain-triggered idle AI — `IdleStimulus` on ToDo queue drain.
+//! 772 drain-triggered idle AI — `IdleStimulus` on ToDo queue drain.
 //!
 //! - `TCreature::IdleStimulus` — virtual dispatch after `Execute` drains the action list.
 //! - `TMonster::IdleStimulus` — `crnonpl.cc:2386`.
@@ -15,7 +15,7 @@ use crate::ids::CreatureId;
 use crate::monster_targets::TargetSearchType;
 
 impl GameWorld {
-    /// CipSoft `TCreature::IdleStimulus` — dispatch on creature kind.
+    /// 772 `TCreature::IdleStimulus` — dispatch on creature kind.
     pub(crate) fn idle_stimulus(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
@@ -66,7 +66,7 @@ impl GameWorld {
         self.idle_stimulus(cid);
     }
 
-    /// CipSoft `TMonster::IdleStimulus` — chase/repath/roam decisions (772 only).
+    /// 772 `TMonster::IdleStimulus` — chase/repath/roam decisions (772 only).
     pub(crate) fn monster_idle_stimulus(&mut self, cid: CreatureId) {
         if !self.creatures.contains_key(cid) {
             return;
@@ -242,11 +242,14 @@ mod tests {
     use crate::creature::CreatureKind;
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_monster, insert_player, minimal_world, test_player,
+        ensure_walkable_tile, insert_monster, insert_player, minimal_world,
+        test_player,
     };
 
-    fn beat_driven_world() -> crate::game_world::GameWorld {
+    fn beat_driven_test_world() -> crate::game_world::GameWorld {
         let mut world = minimal_world();
+        world.mechanics =
+            crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
         world.beat_driven_loop = true;
         world.walk_wake_tx = None;
         world.server_ms = 0;
@@ -256,7 +259,7 @@ mod tests {
     /// Phase A — idle enqueues Go on drain; think no longer arms walk on 772.
     #[test]
     fn idle_stimulus_enqueues_go_for_active_monster() {
-        let mut world = beat_driven_world();
+        let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
         ensure_walkable_tile(&mut world.map, mpos, 2148);
@@ -315,7 +318,7 @@ mod tests {
     /// Phase A — duplicate Go / heap entries suppressed when wakeup already armed.
     #[test]
     fn idle_go_enqueue_respects_wakeup_gate() {
-        let mut world = beat_driven_world();
+        let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 2148);
         let monster = insert_monster(&mut world, "Rat", pos, 200);
@@ -348,7 +351,7 @@ mod tests {
     /// Phase A — process_creature_todo runs idle when action queue empty on wakeup.
     #[test]
     fn process_creature_todo_runs_idle_on_empty_queue() {
-        let mut world = beat_driven_world();
+        let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(108, 100, 7);
         ensure_walkable_tile(&mut world.map, mpos, 2148);
@@ -384,7 +387,7 @@ mod tests {
     /// Phase A — segment drain clears `has_follow_path` so idle repaths on next wakeup.
     #[test]
     fn idle_repaths_after_segment_drain_clears_follow_path() {
-        let mut world = beat_driven_world();
+        let mut world = beat_driven_test_world();
         world.mechanics.profile.follow_repath_without_path = true;
 
         let mpos = Position::new(100, 100, 7);

@@ -10,7 +10,7 @@
 
 ## 1. What IdleStimulus Is
 
-In CipSoft 7.72, creature AI is **not** a periodic “think every N ms” loop. The real AI tick runs
+In 772, creature AI is **not** a periodic “think every N ms” loop. The real AI tick runs
 when a creature’s **ToDo action list drains**:
 
 ```
@@ -62,7 +62,7 @@ produces wrong chase cadence and redundant re-arming on 772 (see audit P7).
 ## 3. Target Architecture (772 Only)
 
 IdleStimulus is **profile-gated**, not codec-gated. Enable when
-`MechanicsProfile::beat_driven_loop` / `StepSpeedModel::CipSoft` — same flag as P2.
+`MechanicsProfile::beat_driven_loop` / `StepSpeedModel::LinearGo` — same flag as P2.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start / stop the full CipSoft 7.72 reference stack (QM + login + game).
+# Start / stop the full 772 reference stack (QM + login + game).
 #
 # Usage:
 #   scripts/tibia_game_online.sh start
@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib/reference_paths.sh"
 reference_paths_init "$ROOT"
 DEV="$ROOT/scripts/tibia_game_dev.sh"
-STATE_DIR="$CIPSOFT_STATE"
+STATE_DIR="$REF_772_STATE"
 PID_DIR="$STATE_DIR/pids"
 LOG_DIR="$STATE_DIR/logs"
 
@@ -111,10 +111,10 @@ wait_for_port() {
 
 game_data_dir() {
     local data
-    if data="$(default_cipsoft_game_data "$ROOT")"; then
+    if data="$(default_ref_772_game_data "$ROOT")"; then
         echo "$data"
     else
-        die "game data not found — extract reference/archives/tibia-game.tarball.tar.gz into reference/cipsoft-772/runtime/ or set TIBIA_GAME_DATA"
+        die "game data not found — extract reference/archives/tibia-game.tarball.tar.gz into reference/classic-772/runtime/ (or reference/cipsoft-772/runtime/) or set TIBIA_GAME_DATA"
     fi
 }
 
@@ -187,7 +187,7 @@ cmd_start() {
 
     cat <<EOF
 
-CipSoft stack is online (processes run in background — shell prompt is normal).
+772 reference stack is online (processes run in background — shell prompt is normal).
 
   query manager   127.0.0.1:$QM_PORT
   login server    127.0.0.1:$LOGIN_PORT

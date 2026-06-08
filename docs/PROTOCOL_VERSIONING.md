@@ -5,9 +5,9 @@
 **Anchors:** `7.72` (the `reference/tvp-772/gameserver/` C++ reference, "The Violet Project") and `10.98` (current Rust target, OTClientv8).
 **Reference trees (each has a distinct role):**
 - `reference/tvp-772/gameserver/src/` = **TVP**, a TFS fork ported to 7.72. → **Sole authority for 772 wire/packets**
-  (§2–§11): opcodes, byte layouts, login, transport. **Never** use `reference/cipsoft-772/tibia-game-master` or repo-root
+  (§2–§11): opcodes, byte layouts, login, transport. **Never** use `reference/classic-772/tibia-game-master` or repo-root
   `src/` for 772 protocol work.
-- `reference/cipsoft-772/tibia-game-master/src/` = the leaked CipSoft 7.72 **decompile**. → **772 behavioral source of truth**
+- `reference/classic-772/tibia-game-master/src/` = the leaked 772 **decompile**. → **772 behavioral source of truth**
   (§12 mechanics only — not wire). When TVP and the decompile disagree on a *game outcome*, the
   decompile wins; wire always follows `gameserver/src/`.
 - repo-root `src/` = TFS 1.4.2 / 10.98 = what the Rust port currently mirrors.
@@ -404,7 +404,7 @@ Env override (consistent with existing `TFS_*` overrides): `TFS_PROTOCOL_VERSION
 ## 6. Migration plan (phased, low-risk)
 
 There are **two parallel tracks**: **Track A (wire)** makes byte output version-selectable, and
-**Track B (mechanics)** makes 7.72 *behavior* selectable using the CipSoft decompile
+**Track B (mechanics)** makes 7.72 *behavior* selectable using the 772 decompile
 (`tibia-game-master/src/`) as the source of truth (§12). Track A is required to connect a 7.72
 client; Track B is required for the shard to *behave* like 7.72. They can proceed independently —
 A delivers a connectable-but-10.98-behaving 7.72 client; B can be validated on the existing 10.98
@@ -553,7 +553,7 @@ shared mechanics modules listed in §3.2, nor `item_blob.rs` (DB format, §3.4).
 | File | Change |
 |---|---|
 | `crates/tfs-rust-core/src/formulas.rs` (new) | `MechanicsProfile` + version-keyed Lua loader + Tier-2 hook registry (§12.13) |
-| `data/formulas/772.lua` (new) | 7.72 / CipSoft-faithful tunable constants + optional formula overrides |
+| `data/formulas/772.lua` (new) | 7.72 / 772-faithful tunable constants + optional formula overrides |
 | `data/formulas/1098.lua` (new) | 10.98 / TFS 1.4.2 tunable constants + optional formula overrides |
 | `crates/tfs-rust-lua/...` | bind `getWeaponDamage`/`getStepDuration`/… override hooks |
 | `crates/tfs-rust-core/src/{walk,combat/mod,condition,spell,monster_ai,spawn_lifecycle}.rs` | read constants/formulas from `MechanicsProfile`; remove balance literals (R11) |
@@ -694,7 +694,7 @@ module header.
 
 ---
 
-## 12. Game mechanics — CipSoft 7.72 is the behavioral source of truth
+## 12. Game mechanics — 772 is the behavioral source of truth
 
 Versioning is not only wire format. The **game mechanics themselves differ** between 7.72 and
 10.98, and the Rust port currently mirrors **TFS 1.4.2 (10.98) behavior**. For a faithful 7.72
@@ -708,7 +708,7 @@ original behavior.
 
 > **Three authorities, three questions:**
 > - *"What bytes on the wire (772)?"* → **`gameserver/src/` only** — never decompile, never repo-root `src/`.
-> - *"What should the game outcome be (772)?"* → **`tibia-game-master/src/`** (CipSoft decompile).
+> - *"What should the game outcome be (772)?"* → **`tibia-game-master/src/`** (772 decompile).
 > - *"What bytes / mechanics (1098)?"* → repo-root **`src/`** (TFS 1.4.2).
 > - *"How do we structure NPC scripting?"* → repo-root `src/` (TFS 1.4.2 Lua npcsystem — §12.6).
 >   TVP's `.ndb` engine is reference-only for conversion, not a Rust port target.
@@ -796,7 +796,7 @@ TFS simply *blocks* the spawn if a player is in view. Our port follows TFS.
 **Decision:** NPC logic is **TFS 1.4.2 Lua-only** for both 772 and 1098. One scripting model, no
 version fork, no native behaviour-tree engine in Rust.
 
-CipSoft 7.72 and TVP 7.72 use a condition→action tree (`TBehaviourDatabase`, `crnonpl.cc:973`) parsed
+772 and TVP 7.72 use a condition→action tree (`TBehaviourDatabase`, `crnonpl.cc:973`) parsed
 from `.npc`/`.ndb` scripts (`DEFAULT/ADDRESS/ADDRESSQUEUE/BUSY/VANISH`). TVP ports this as
 `NpcBehavior` (`npcbehavior.cpp`). **We do not port that engine.** Instead we keep the existing TFS
 pattern: `data/npc/scripts/*.lua` + npcsystem (`NpcEventsHandler` in `creature/npc.rs`), wired through
@@ -808,7 +808,7 @@ pattern: `data/npc/scripts/*.lua` + npcsystem (`NpcEventsHandler` in `creature/n
 | Trade / shop / keywords | `react` + `GiveTo`/`GetFrom` in `.ndb` | npcsystem modules + `onBuy`/`onSell` Lua callbacks |
 | 772 shard content | `gameserver/data/npc/behavior/*.ndb` | **manual conversion** → Lua scripts |
 
-**772 content path:** use TVP `.ndb` + CipSoft outcomes as the *behavioral reference* when writing
+**772 content path:** use TVP `.ndb` + 772 mechanics outcomes as the *behavioral reference* when writing
 Lua — same clean-room rule as §12 (replicate outcomes, not transcribe `.ndb` or `npcbehavior.cpp`).
 Conversion is **out-of-band content work** (edit `data/npc/scripts/`, XML spawn entries), not a Track B
 Rust phase. Wire-level 7.72 has no shop window (§2.8); commerce stays script-driven in both eras.
@@ -822,7 +822,7 @@ Rust phase. Wire-level 7.72 has no shop window (§2.8); commerce stays script-dr
 
 This is where 7.72 mechanics diverge **most** from the 10.98 model our port leans toward.
 
-| Mechanic | CipSoft 7.72 | TFS (classic flag) | Rust port |
+| Mechanic | 772 | TFS (classic flag) | Rust port |
 |---|---|---|---|
 | Attack cooldown | **fixed 2000 ms** (+200 lead-in) (`crcombat.cc:607,640`) | `getAttackSpeed()` (vocation/weapon ms) | combat skeleton (`combat/mod.rs:49`) |
 | Defense cooldown | **2000 ms** gate (`crcombat.cc:236`) | `earliestDefendTime = last+2000` (`creature.cpp:500`) | not implemented |
@@ -969,7 +969,7 @@ server owner overrides them in a script without recompiling.
 **TFS-style shape — one file per version (`data/formulas/772.lua`, `data/formulas/1098.lua`):**
 
 ```lua
--- data/formulas/772.lua (CipSoft-faithful defaults)
+-- data/formulas/772.lua (772-faithful defaults)
 formulas = {
   beatMs = 200,
   attackSpeedMs = 2000,

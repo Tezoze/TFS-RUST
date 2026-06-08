@@ -2,7 +2,7 @@
 //!
 //! - `Creature::getStepSpeed` / `getStepDuration` / `getWalkDelay` / `getEventStepTicks` — `creature.cpp` (~1485–1547).
 //! - `Player::getStepSpeed` clamp — `player.h` `PLAYER_MIN_SPEED` / `PLAYER_MAX_SPEED`.
-//! - CipSoft `NotifyGo` — `cract.cc:1454–1462`.
+//! - 772 `NotifyGo` — `cract.cc:1454–1462`.
 
 use std::time::Instant;
 
@@ -50,7 +50,7 @@ fn go_strength_for_walk(
             // TFS `Player::getStepSpeed` clamps linear speed (`src/player.h`).
             crate::formulas::StepSpeedModel::TfsLog => raw.clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED),
             // 772 wire + walk GoStrength (`baseSpeed`); effective `GetSpeed` is for server timers only.
-            crate::formulas::StepSpeedModel::CipSoft => raw.max(0),
+            crate::formulas::StepSpeedModel::LinearGo => raw.max(0),
         },
         WalkSpeedRole::MonsterOrNpc => raw,
     }
@@ -69,7 +69,7 @@ fn step_speed_for_walk(
     go_strength_for_walk(role, base, mech)
 }
 
-/// Speed for walk timers and protocol `step_speed` (GoStrength vs CipSoft `GetSpeed`).
+/// Speed for walk timers and protocol `step_speed` (GoStrength vs 772 `GetSpeed`).
 pub(crate) fn walk_timing_speed(
     role: WalkSpeedRole,
     base: &crate::creature::CreatureBase,
@@ -77,7 +77,7 @@ pub(crate) fn walk_timing_speed(
 ) -> i32 {
     let go = go_strength_for_walk(role, base, mech);
     match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => cipsoft_speed_from_profile(go, mech),
+        crate::formulas::StepSpeedModel::LinearGo => linear_go_speed_from_profile(go, mech),
         crate::formulas::StepSpeedModel::TfsLog => go,
     }
 }
@@ -102,14 +102,14 @@ fn balanced_softened_go(go: i32) -> i32 {
     (anchor as f64 + scale * (1.0 + x / divisor).ln()).floor() as i32
 }
 
-fn cipsoft_speed_from_profile(go: i32, mech: &crate::formulas::Mechanics) -> i32 {
+fn linear_go_speed_from_profile(go: i32, mech: &crate::formulas::Mechanics) -> i32 {
     use crate::formulas::PlayerSpeedModel;
     match mech.profile.player_speed_model {
         PlayerSpeedModel::EraDefault | PlayerSpeedModel::Classic772 => {
-            crate::formulas::cipsoft_effective_speed(go)
+            crate::formulas::linear_go_effective_speed(go)
         }
         PlayerSpeedModel::Retail1098 => tfs_retail_log_speed(go).max(1),
-        PlayerSpeedModel::BalancedLog => crate::formulas::cipsoft_effective_speed(balanced_softened_go(go)),
+        PlayerSpeedModel::BalancedLog => crate::formulas::linear_go_effective_speed(balanced_softened_go(go)),
     }
 }
 
@@ -139,10 +139,10 @@ pub(crate) fn wire_step_speed(
     mech: &crate::formulas::Mechanics,
 ) -> u16 {
     let wire = match (mech.profile.step_speed, role) {
-        (crate::formulas::StepSpeedModel::CipSoft, WalkSpeedRole::Player) => {
+        (crate::formulas::StepSpeedModel::LinearGo, WalkSpeedRole::Player) => {
             go_strength_for_walk(role, base, mech)
         }
-        (crate::formulas::StepSpeedModel::CipSoft, WalkSpeedRole::MonsterOrNpc) => {
+        (crate::formulas::StepSpeedModel::LinearGo, WalkSpeedRole::MonsterOrNpc) => {
             walk_timing_speed(role, base, mech)
         }
         (crate::formulas::StepSpeedModel::TfsLog, _) => go_strength_for_walk(role, base, mech),
@@ -172,7 +172,7 @@ fn ceil_to_walk_quantizer(raw_ms: i64, quantizer_ms: i64) -> i64 {
     ((raw_ms + quantizer_ms - 1) / quantizer_ms) * quantizer_ms
 }
 
-/// CipSoft / TVP diagonal and floor multipliers on tile waypoints (`cract.cc:1454`, `creature.cpp`).
+/// 772 / TVP diagonal and floor multipliers on tile waypoints (`cract.cc:1454`, `creature.cpp`).
 fn waypoint_step_cost_for_direction(dir: Direction) -> u32 {
     if is_diagonal(dir) {
         3
@@ -186,10 +186,10 @@ pub(crate) fn peek_next_walk_direction(base: &crate::creature::CreatureBase) -> 
     base.walk_queue.back().copied()
 }
 
-/// CipSoft `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to step quantizer (`cract.cc:1461–1462`).
+/// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to step quantizer (`cract.cc:1461–1462`).
 /// Quantizer is [`MechanicsProfile::step_beat_ms`] (TVP 50 ms), not main-loop [`beat_ms`].
 /// `waypoint_cost` is 1 (cardinal), 3 (diagonal), or 2 (floor) applied to tile waypoints before ceil.
-fn cipsoft_step_duration_ms(
+fn linear_go_step_duration_ms(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
     ground_speed: u32,
@@ -205,7 +205,7 @@ fn cipsoft_step_duration_ms(
     if let Some(ms) = mech.hooks.step_duration(go, gs as i32, waypoint_cost > 1) {
         return ms.max(1);
     }
-    let eff = cipsoft_speed_from_profile(go, mech);
+    let eff = linear_go_speed_from_profile(go, mech);
     let delay = (waypoints as i64 * 1000) / i64::from(eff.max(1));
     ceil_to_walk_quantizer(delay, walk_quantizer_ms(mech))
 }
@@ -229,8 +229,8 @@ pub(crate) fn get_step_duration(
     }
 
     match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => {
-            cipsoft_step_duration_ms(kind, base, ground_speed, 1, mech)
+        crate::formulas::StepSpeedModel::LinearGo => {
+            linear_go_step_duration_ms(kind, base, ground_speed, 1, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => {
             let calculated_step_speed = calculated_step_speed_tfs(go);
@@ -249,8 +249,8 @@ fn completed_step_duration_ms(
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
     match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => {
-            cipsoft_step_duration_ms(kind, base, ground_speed, base.last_step_cost.max(1), mech)
+        crate::formulas::StepSpeedModel::LinearGo => {
+            linear_go_step_duration_ms(kind, base, ground_speed, base.last_step_cost.max(1), mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => get_step_duration(kind, base, ground_speed, mech)
             .saturating_mul(base.last_step_cost as i64),
@@ -266,11 +266,11 @@ fn upcoming_step_duration_ms(
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
     match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => {
+        crate::formulas::StepSpeedModel::LinearGo => {
             let cost = next_direction
                 .map(waypoint_step_cost_for_direction)
                 .unwrap_or(1);
-            cipsoft_step_duration_ms(kind, base, ground_speed, cost, mech)
+            linear_go_step_duration_ms(kind, base, ground_speed, cost, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => get_step_duration(kind, base, ground_speed, mech)
             .saturating_mul(base.last_step_cost as i64),
@@ -286,7 +286,7 @@ pub(crate) fn get_step_duration_ms_with_direction(
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
     match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::CipSoft => cipsoft_step_duration_ms(
+        crate::formulas::StepSpeedModel::LinearGo => linear_go_step_duration_ms(
             kind,
             base,
             ground_speed,
@@ -333,7 +333,7 @@ pub(crate) fn get_walk_delay(
     delay.max(0)
 }
 
-/// CipSoft walk delay using logical `ServerMilliseconds` (`cract.cc` / `MoveCreatures`).
+/// 772 walk delay using logical `ServerMilliseconds` (`cract.cc` / `MoveCreatures`).
 pub(crate) fn get_walk_delay_logical(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,

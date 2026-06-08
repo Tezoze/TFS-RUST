@@ -1,6 +1,6 @@
 # TFS-RUST 7.72 Chase Path Parity — Gap Analysis
 
-**Date:** 2026-06-07  
+**Date:** 2026-06-07 (updated 2026-06-08 — P0 terrain waypoints resolved)  
 **Scope:** Live `chase_path.log` compare (CipSoft `tibia-game-master` vs TFS-RUST), static `TShortway` harness, chase debug instrumentation  
 **Related:** [`TFS-RUST_772_Monster_AI_Dance_Chase_Parity.md`](TFS-RUST_772_Monster_AI_Dance_Chase_Parity.md), [`TFS-RUST_772_Pathfinding_Creature_AI_Analysis.md`](TFS-RUST_772_Pathfinding_Creature_AI_Analysis.md), [`TIBIA_GAME_MASTER_DEV.md`](TIBIA_GAME_MASTER_DEV.md)
 
@@ -10,11 +10,11 @@
 
 Both servers log chase pathing correctly (`branch`, `shortway`, `go_exec`; CipSoft also logs `todo_go`). The **reverse `TShortway` algorithm matches on synthetic grids** (5/5 exact, 0 hard mismatches). Live step-by-step parity **does not match yet** because of:
 
-1. **Wrong terrain waypoint costs** on the real map (`min_wp` 150 vs CipSoft 100–120)
+1. ~~**Wrong terrain waypoint costs** on the real map (`min_wp` 150 vs CipSoft 100–120)~~ — **✅ resolved** (see P0 terrain below)
 2. **Noisy repath cadence** — 772 **todo execution is implemented**, but path refresh still fires far more often than CipSoft `ToDoGo(..., 3)` batching
 3. **No controlled replay** (logs were separate sessions, different areas)
 
-Fix **`min_wp` first**, then **tighten repath triggers** (see P1 below), then run a **controlled scenario** (same spawn, same player kite path, split log files).
+Next: **tighten repath triggers** (P1), then run a **controlled scenario** (same spawn, same player kite path, split log files) to verify waypoint parity in live logs.
 
 ---
 
@@ -39,11 +39,13 @@ Fix **`min_wp` first**, then **tighten repath triggers** (see P1 below), then ru
 
 ## Confirmed gaps — change paths on the real map
 
-### P0 — Terrain waypoint cost (`min_wp`)
+### P0 — Terrain waypoint cost (`min_wp`) ✅
 
-CipSoft `TShortway::FillMap` reads BANK tile **`WAYPOINTS`** (`cract.cc`). Rust pathfinding uses **`tile_ground_speed()`**, often defaulting to **150**.
+**Status:** Resolved 2026-06-08. Live log re-verify pending (needs controlled replay).
 
-**Observed in live logs:**
+CipSoft `TShortway::FillMap` reads BANK tile **`WAYPOINTS`** (`cract.cc`). Rust pathfinding uses **`tile_ground_speed()`** → OTB `ITEM_ATTR_SPEED`.
+
+**Was observed in live logs (2026-06-07, pre-fix):**
 
 | Source | `min_wp` distribution |
 |--------|------------------------|
@@ -52,7 +54,17 @@ CipSoft `TShortway::FillMap` reads BANK tile **`WAYPOINTS`** (`cract.cc`). Rust 
 
 `min_wp` seeds every expand/heuristic term. Wrong costs → different paths even when start/dest match.
 
-**Fix direction:** For 772 reverse pathfinding, supply CipSoft-faithful per-tile waypoints (BANK attribute / same numbers as decompile), not TFS ground-speed defaults.
+**Done:**
+
+| Piece | Location |
+|-------|----------|
+| OTB `ITEM_ATTR_SPEED` patched from `objects.srv` `Waypoints` (75/75 walkable BANK) | `data/items/items.otb`, `patch-otb-waypoints`, `audit_cipsoft_waypoints` |
+| `cipsoft_effective_waypoints` (0 → 150, not 1); leave-tile + diagonal ×3 | `pathfinding.rs` |
+| `scan_cipsoft_min_waypoints` — FillMap min over walkable ±10 | `pathfinding.rs`, chase debug in `monster_ai.rs` |
+| CipSoft viewport 10 / 441 cap (not TFS `maxSearchDist` 12 on 772) | `pathfinding.rs`, `monster_ai.rs` |
+| Unwalkable tiles excluded from cost scan (no 150 on blocked) | `monster_ai.rs` `ground_cost` closure |
+
+**Verify:** `cargo test -p tfs-rust-content --test audit_cipsoft_waypoints -- --nocapture` → 75/75 match.
 
 ---
 
@@ -88,7 +100,7 @@ Then compare with `scripts/compare_chase_live_logs.py` after normalizing monster
 | `CreatureAction::Go` + todo heap | ✅ | `creature_todo.rs`, `walk/mod.rs` `process_creature_todo` |
 | One step per `Go` → `on_walk` → chain next `Go` | ✅ | `idle_stimulus.rs` `execute_creature_todo_go`, `finish_creature_todo_execute` |
 | Chase start via todo, not `add_event_walk` | ✅ | `monster_ai.rs` `monster_start_chase_walk` → `idle_enqueue_go_and_start` |
-| Up to 3 dirs per repath | ✅ | `CIPSOFT_CHASE_PATH_MAX_STEPS = 3` in `pathfinding.rs` |
+| Up to 3 dirs per repath | ✅ | `CHASE_PATH_MAX_STEPS = 3` in `pathfinding.rs` |
 | 1098 still uses `creature_start_chase_auto_walk` | ✅ | gated on `!beat_driven_loop` |
 
 CipSoft reference: `ToDoGo` → queue ≤3 steps → `ToDoStart` delay → `Go` → `NotifyGo` (`cract.cc`, `crnonpl.cc`).
@@ -155,7 +167,7 @@ On **25 shared edges** `(monster, from→to)` present in both logs, **diag flag 
 - Higher Rust rate comes from **replanning almost every tile** while the player moves diagonally — each fresh A* often picks one SW intercept step.
 - **772 dance** uses `rand() % 5` cardinal only; **772 fallback** is 4-cardinal greedy, not 8-dir.
 
-**Fix direction:** Re-measure after P0 + repath-cadence fixes; diagonal rate should drop with CipSoft-style 3-step batching before replan.
+**Fix direction:** Re-measure after P1 repath-cadence fixes (P0 terrain ✅); diagonal rate should drop with CipSoft-style 3-step batching before replan.
 
 ---
 
@@ -179,13 +191,13 @@ CipSoft logged **33** `roam` branches; Rust sample had **none** (idle roam may n
 | Tie (same cost, expand-order diff) | 3 |
 | Hard mismatch | **0** |
 
-The **graph search** is close; live gaps are **costs + AI shell**, not the bare A* loop.
+The **graph search** is close; remaining live gaps are **AI shell (repath cadence)**, not the bare A* loop or terrain costs (P0 ✅).
 
 ---
 
 ### Expand-order ties on equal cost
 
-CipSoft linked-list open set vs Rust `BinaryHeap` can pick different paths when multiple routes have **equal cost** (e.g. diagonal kite vs cardinal strip). Only matters when costs tie after `min_wp` is fixed.
+CipSoft linked-list open set vs Rust `BinaryHeap` can pick different paths when multiple routes have **equal cost** (e.g. diagonal kite vs cardinal strip). Only matters when costs tie — `min_wp` / terrain costs are now aligned (P0 ✅).
 
 ---
 
@@ -206,13 +218,13 @@ These do not change gameplay but block 1:1 log diff:
 
 ## Priority roadmap
 
-| Priority | Gap | Fix direction |
-|----------|-----|---------------|
-| **P0** | `min_wp` / ground speed | CipSoft BANK `WAYPOINTS` for 772 reverse pathfinding |
+| Priority | Gap | Status / fix direction |
+|----------|-----|------------------------|
+| **P0** | `min_wp` / ground speed | **✅ Done** — patched `items.otb` + `pathfinding.rs` / `monster_ai.rs` (audit 75/75) |
 | **P0** | Controlled repro | Same tile, monster, player path; split log files |
 | **P1** | Repath cadence | Stop sync repath in `ensure_follow_band`; batch 3 steps before replan; revisit `followRepathWithoutPath` |
 | **P1** | Chase debug | Wire `todo_go`, log repath reason, normalize `melee_chase` branch name |
-| **P2** | Diagonal feel | Controlled test after P0/P1; gate diagonals or timing if still off |
+| **P2** | Diagonal feel | Controlled test after P1 (P0 terrain ✅); gate diagonals or timing if still off |
 | **P2** | Roam | Idle roam parity + debug branch |
 | **P3** | Expand-order ties | Accept or mirror CipSoft linked-list tie-break |
 | **P3** | Compare tooling | Name normalization, split-log workflow in docs |
@@ -239,7 +251,8 @@ Enable: see [Live monster pathing trace](TIBIA_GAME_MASTER_DEV.md#live-monster-p
 | Question | Answer |
 |----------|--------|
 | Did both log? | **Yes** |
-| Does live step-by-step match? | **No** — different runs, costs, scheduling |
+| Does live step-by-step match? | **No** — different runs, scheduling; costs fixed in code, not re-logged |
 | Does isolated pathfinder match? | **Yes** — 5/5 synthetic scenarios |
 | Is 772 todo execution missing? | **No** — `Go` + heap + step delay are in place |
-| Biggest live suspect | **`min_wp` 150 vs 100–120** + **noisy repath (not missing todo)** + **no controlled replay** |
+| Terrain waypoints (`min_wp`) | **✅** — OTB + reverse A* aligned to CipSoft `WAYPOINTS` |
+| Biggest remaining live suspect | **Noisy repath (not missing todo)** + **no controlled replay** |

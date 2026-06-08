@@ -270,6 +270,10 @@ fn parse_node(
 }
 
 /// C++ `Items::loadFromOtb` root/version check (`src/items.cpp`) — OTBI header + `VERSIONINFO` in root props.
+pub(crate) fn validate_items_otb_root_version_for_patch(data: &[u8], path: &Path) -> Result<()> {
+    validate_items_otb_root_version(data, path)
+}
+
 fn validate_items_otb_root_version(data: &[u8], path: &Path) -> Result<()> {
     const OTBI: &[u8] = b"OTBI";
     /// C++ `OTB::Loader` accepts four zero bytes as wildcard (`src/fileloader.cpp`).

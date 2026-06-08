@@ -543,7 +543,7 @@ where
     None
 }
 
-/// CipSoft `SearchFlightField` — `info.cc` ~1030.
+/// 772 `SearchFlightField` — `info.cc` ~1030.
 ///
 /// Sweeps directions away from pursuer:
 /// 1. Preferred axial direction.

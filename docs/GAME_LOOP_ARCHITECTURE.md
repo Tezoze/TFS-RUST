@@ -121,7 +121,7 @@ where each handler writes to the socket inline.
 
 Source: `tibia-game-master/src/main.cc:456-492`, `cract.cc`, `config.cc`.
 
-The CipSoft 7.72 server uses a fundamentally different architecture: a **signal-driven beat
+The 772 server uses a fundamentally different architecture: a **signal-driven beat
 loop** with a global **priority-queue scheduler** (`ToDoQueue`) and a **consolidated output
 flush** (`SendAll`).
 
@@ -437,7 +437,7 @@ The walk speed formula already implements beat-aligned quantization in `walk.rs`
 
 ```rust
 // walk.rs — CipSoft step speed model (already implemented)
-StepSpeedModel::CipSoft => {
+StepSpeedModel::LinearGo => {
     let delay = (gs as i64 * 1000) / i64::from(eff.max(1));
     ((delay + beat - 1) / beat) * beat   // ceil to Beat
 }
@@ -479,7 +479,7 @@ The loop mode is determined at startup from `MechanicsProfile`:
 ```rust
 match world.mechanics.profile.step_speed {
     StepSpeedModel::TfsLog => run_game_loop_1098(world, cmd_rx, walk_wake_rx, out_registry),
-    StepSpeedModel::CipSoft => run_game_loop_772(world, cmd_rx, out_registry),
+    StepSpeedModel::LinearGo => run_game_loop_772(world, cmd_rx, out_registry),
 }
 ```
 

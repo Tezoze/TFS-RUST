@@ -112,7 +112,7 @@ Walk timing branches correctly on `step_speed`:
 // walk.rs — get_step_duration
 let beat = mech.profile.step_beat_ms.max(1) as i64;
 match mech.profile.step_speed {
-    StepSpeedModel::CipSoft => {
+    StepSpeedModel::LinearGo => {
         let delay = (gs as i64 * 1000) / i64::from(eff.max(1));
         ((delay + beat - 1) / beat) * beat   // ceil to step_beat_ms
     }
@@ -125,9 +125,9 @@ match mech.profile.step_speed {
 | Source | Walk quantizer | Value |
 |--------|----------------|-------|
 | TVP `gameserver/src/creature.cpp` | `step_beat_ms` | **50 ms** (code default + intended shipped lua) |
-| CipSoft decompile (`cract.cc` NotifyGo) | global `Beat` | **200 ms** |
+| 772 decompile (`cract.cc` NotifyGo) | global `Beat` | **200 ms** |
 
-The code intentionally follows **TVP gameserver** for walk quantization, not CipSoft decompile Beat. Internal task docs updated (P6) to reference `step_beat_ms` for walk quant and `beat_ms` for the 772 loop timer only.
+The code intentionally follows **TVP gameserver** for walk quantization, not 772 decompile Beat. Internal task docs updated (P6) to reference `step_beat_ms` for walk quant and `beat_ms` for the 772 loop timer only.
 
 ---
 

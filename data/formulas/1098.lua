@@ -52,7 +52,7 @@ formulas = {
 --
 -- Set formulas.playerSpeed = "balanced" to apply the same diminishing-returns curve as 772 "balanced",
 -- useful if you want to share a speed feel across both eras.
--- Set formulas.playerSpeed = "772" to force classic CipSoft linear speed on a 1098 shard (unusual).
+-- Set formulas.playerSpeed = "772" to force classic linear go speed on a 1098 shard (unusual).
 
 -- Runtime note: playerSpeed / damageTuning / armorTuning are loaded once at startup into Rust
 -- `MechanicsProfile` and then run natively in the game loop (no per-step Lua callback overhead).

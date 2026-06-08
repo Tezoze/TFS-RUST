@@ -143,9 +143,11 @@ impl ItemDatabase {
         self.items.get(&id).map(|t| t.charges as i32).unwrap_or(0)
     }
 
-    /// TFS `ItemType::speed` for ground — `Creature::getStepDuration` (`creature.cpp` ~1513–1521).
-    /// Reads from OTB `ITEM_ATTR_SPEED` (`src/items.cpp` `loadFromOtb`), NOT `items.xml` `"speed"`
-    /// (which is equipment speed bonus = `abilities.speed`).
+    /// Per-tile terrain weight for ground BANK types — OTB `ITEM_ATTR_SPEED` (`src/items.cpp`).
+    ///
+    /// 1098: walk step duration (`Creature::getStepDuration`). 772: same field after optional
+    /// `objects.srv` overlay — 772 `Waypoints` (`cract.cc` pathfinding + `NotifyGo`).
+    /// NOT `items.xml` `"speed"` (equipment bonus = `abilities.speed`).
     #[inline]
     pub fn ground_speed_for_item(&self, server_id: u16) -> u32 {
         let raw = self
@@ -1334,9 +1336,9 @@ mod tests {
         assert_eq!(v, vec![5000, 7000]);
     }
 
-    /// OTB `ITEM_ATTR_SPEED` is the CipSoft `WAYPOINTS` bank attribute used by `TShortway::FillMap`.
+    /// OTB `ITEM_ATTR_SPEED` is the 772 `WAYPOINTS` bank attribute used by `TShortway::FillMap`.
     #[test]
-    fn ground_tile_speeds_match_cipsoft_waypoint_expectations() {
+    fn ground_tile_speeds_match_objects_srv_waypoint_expectations() {
         use std::path::Path;
 
         let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");

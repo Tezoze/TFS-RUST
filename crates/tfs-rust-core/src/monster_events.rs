@@ -164,7 +164,7 @@ impl GameWorld {
 
     /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
     ///
-    /// CipSoft does not gate this on a path flag: `IdleStimulus` enqueues fresh `ToDoGo` when the
+    /// 772 does not gate this on a path flag: `IdleStimulus` enqueues fresh `ToDoGo` when the
     /// target moves (`crnonpl.cc` via `SearchFlightField`). TFS uses `hasFollowPath`; repath when
     /// still chasing (see `PROTOCOL_VERSIONING.md` §12.1). Era split via
     /// [`MechanicsProfile::follow_repath_without_path`].

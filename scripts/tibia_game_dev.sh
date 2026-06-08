@@ -34,11 +34,11 @@ Commands:
 
 Environment:
   TFS_REFERENCE_DIR       Reference root (default: ./reference)
-  TIBIA_GAME_MASTER_DIR   Path to tibia-game-master (default: reference/cipsoft-772/tibia-game-master)
-  TIBIA_QUERYMANAGER_DIR  Path to tibia-querymanager (default: reference/cipsoft-772/tibia-querymanager)
-  TIBIA_LOGIN_DIR         Path to tibia-login (default: reference/cipsoft-772/tibia-login)
-  TIBIA_GAME_DATA         Path to CipSoft runtime data (default: reference/cipsoft-772/runtime)
-  TIBIA_RSA_PEM           RSA private key (default: reference/cipsoft-772/client/tibia.pem)
+  TIBIA_GAME_MASTER_DIR   Path to tibia-game-master (default: reference/classic-772/tibia-game-master)
+  TIBIA_QUERYMANAGER_DIR  Path to tibia-querymanager (default: reference/classic-772/tibia-querymanager)
+  TIBIA_LOGIN_DIR         Path to tibia-login (default: reference/classic-772/tibia-login)
+  TIBIA_GAME_DATA         Path to 772 reference runtime data (default: reference/classic-772/runtime)
+  TIBIA_RSA_PEM           RSA private key (default: reference/classic-772/client/tibia.pem)
   TIBIA_IMPORT_ACCOUNT    Account number for import-character (default: 111111)
   TIBIA772=1              Build with -DTIBIA772=1 (default: 1 — matches 772 parity work)
   DEBUG=1                 Debug build with assertions (default: 1)
@@ -79,8 +79,8 @@ require_login() {
 
 require_game_data() {
     if [[ -z "$GAME_DATA" ]]; then
-        if ! GAME_DATA="$(default_cipsoft_game_data "$ROOT")"; then
-            die "set TIBIA_GAME_DATA to the CipSoft runtime directory (default: reference/cipsoft-772/runtime)"
+        if ! GAME_DATA="$(default_ref_772_game_data "$ROOT")"; then
+            die "set TIBIA_GAME_DATA to the 772 reference runtime directory (default: reference/classic-772/runtime)"
         fi
     fi
     [[ -d "$GAME_DATA" ]] || die "TIBIA_GAME_DATA is not a directory: $GAME_DATA"
@@ -120,7 +120,7 @@ resolve_rsa_pem() {
 install_rsa_pem() {
     local src
     src="$(resolve_rsa_pem)"
-    [[ -f "$src" ]] || die "RSA key not found: $src (place tibia.pem in reference/cipsoft-772/client/ or set TIBIA_RSA_PEM)"
+    [[ -f "$src" ]] || die "RSA key not found: $src (place tibia.pem in reference/classic-772/client/ or set TIBIA_RSA_PEM)"
     require_game_data
     if [[ ! "$src" -ef "$GAME_DATA/tibia.pem" ]]; then
         cp -f "$src" "$GAME_DATA/tibia.pem"
@@ -350,10 +350,10 @@ cmd_check() {
     fi
     if [[ -n "$GAME_DATA" ]]; then
         [[ -d "$GAME_DATA" ]] && echo "ok: TIBIA_GAME_DATA=$GAME_DATA" || echo "warn: TIBIA_GAME_DATA set but missing: $GAME_DATA"
-    elif data="$(default_cipsoft_game_data "$ROOT" 2>/dev/null || true)" && [[ -n "$data" ]]; then
+    elif data="$(default_ref_772_game_data "$ROOT" 2>/dev/null || true)" && [[ -n "$data" ]]; then
         echo "ok: game data at $data (default)"
     else
-        echo "note: game data not found (extract tarball to reference/cipsoft-772/runtime/)"
+        echo "note: game data not found (extract tarball to reference/classic-772/runtime/)"
     fi
 }
 
@@ -484,7 +484,7 @@ cmd_show_rsa() {
     src="$(resolve_rsa_pem)"
     [[ -f "$src" ]] || die "RSA key not found: $src"
     echo "Server RSA key: $src"
-    echo "Priority: TIBIA_RSA_PEM -> reference/cipsoft-772/client/tibia.pem -> tibia-game-master/tibia.pem"
+    echo "Priority: TIBIA_RSA_PEM -> reference/classic-772/client/tibia.pem -> tibia-game-master/tibia.pem"
     echo "Use these values in OTClient init.lua or fusion32 tibia-ipchanger:"
     echo
     openssl rsa -in "$src" -modulus -noout

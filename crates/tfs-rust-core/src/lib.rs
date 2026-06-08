@@ -121,7 +121,7 @@ pub use map::Map;
 pub use matrix_area::MatrixArea;
 pub use party::{split_shared_experience, Party, PartyInviteState};
 pub use pathfinding::{
-    get_path_matching, path_uses_cipsoft_shortway, FindPathParams, CREATURE_ON_TILE_PATH_COST,
+    get_path_matching, uses_reverse_terrain_path, FindPathParams, CREATURE_ON_TILE_PATH_COST,
     MAP_NORMAL_WALK_COST,
 };
 pub use protocol_hooks::{NullProtocolHooks, ProtocolHooks, SharedProtocolHooks};

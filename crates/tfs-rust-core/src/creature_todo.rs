@@ -1,6 +1,6 @@
-//! Per-creature ToDo action queue for CipSoft 772 idle-driven AI.
+//! Per-creature ToDo action queue for 772 idle-driven AI.
 //!
-//! - CipSoft `TCreature::Execute` / `ToDoList` — `cract.cc:728`.
+//! - 772 `TCreature::Execute` / `ToDoList` — `cract.cc:728`.
 //! - Global wakeup heap: [`ToDoQueue`](crate::todo_queue::ToDoQueue) + `next_wakeup`.
 //!
 //! Phase A: `Go` only. Attack/Wait deferred to Phase B/C.
@@ -43,7 +43,7 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
     );
 }
 
-/// CipSoft ToDo action kinds — Rust enum instead of C++ `void*` task list.
+/// 772 ToDo action kinds — Rust enum instead of C++ `void*` task list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatureAction {
     /// `TDGo` — execute one walk step from `listWalkDir`.

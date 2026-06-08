@@ -212,7 +212,7 @@ pub async fn run() -> anyhow::Result<()> {
     let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
     info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
-    let beat_driven = mechanics.profile.step_speed == StepSpeedModel::CipSoft;
+    let beat_driven = mechanics.profile.step_speed == StepSpeedModel::LinearGo;
     let walk_wake_tx = if beat_driven {
         None
     } else {

@@ -90,9 +90,9 @@ pub struct CreatureBase {
     pub last_step_ground_speed: u32,
     /// TFS scheduler: next `Game::checkCreatureWalk` — `None` if `eventWalk == 0`.
     pub next_walk_check: Option<Instant>,
-    /// CipSoft `NextWakeup` — logical `ServerMilliseconds` deadline (`cract.cc:968`).
+    /// 772 `NextWakeup` — logical `ServerMilliseconds` deadline (`cract.cc:968`).
     pub next_wakeup: Option<u64>,
-    /// CipSoft step anchor in logical time (paired with `last_step`).
+    /// 772 step anchor in logical time (paired with `last_step`).
     pub last_step_server_ms: Option<u64>,
     /// When [`GameWorld`](crate::game_world::GameWorld) has `walk_wake_tx`, one-shot `tokio::time::sleep_until`
     /// tasks (`src/scheduler.cpp` Boost.Asio `steady_timer` + `stopEvent`).
@@ -120,7 +120,7 @@ pub struct CreatureBase {
     pub damage_map: DamageMap,
     /// C++ `inCheckCreaturesVector` bucket (`game.cpp` `addCreatureCheck`); `None` = not scheduled.
     pub think_check_bucket: Option<u8>,
-    /// CipSoft per-creature ToDo action list (772 idle-driven AI).
+    /// 772 per-creature ToDo action list (772 idle-driven AI).
     pub todo: CreatureTodo,
 }
 

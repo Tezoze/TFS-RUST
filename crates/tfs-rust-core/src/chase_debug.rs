@@ -1,4 +1,4 @@
-//! Monster chase / TShortway JSONL trace — mirror CipSoft `chase_path.log` for parity diffs.
+//! Monster chase / TShortway JSONL trace — mirror 772 `chase_path.log` for parity diffs.
 //!
 //! C++ reference: `cract.cc` `TShortway`, `ToDoGo`, `Go`; `crnonpl.cc` `TMonster::IdleStimulus`.
 //!

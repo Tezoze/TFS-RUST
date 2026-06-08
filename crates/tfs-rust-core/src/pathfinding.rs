@@ -1,7 +1,7 @@
-//! A* pathfinding — TFS `Map::getPathMatching` / CipSoft `TShortway` (`cract.cc:7`).
+//! A* pathfinding — TFS `Map::getPathMatching` / 772 `TShortway` (`cract.cc:7`).
 //!
 //! - Forward: `map.cpp` `getPathMatching`, Dijkstra-style (g-only open key).
-//! - Reverse: CipSoft 7.72 `TShortway::Expand` — dest → origin, leave-tile waypoints,
+//! - Reverse: 772 `TShortway::Expand` — dest → origin, leave-tile waypoints,
 //!   fixed 8-neighbor expansion (no TFS `dirNeighbors` bias), Manhattan heuristic with
 //!   `MinWaypoints`, branch-and-bound pruning.
 
@@ -21,17 +21,64 @@ const MAP_DIAGONAL_WALK_COST: u32 = 25;
 pub const CREATURE_ON_TILE_PATH_COST: u32 = MAP_NORMAL_WALK_COST * 3;
 /// TFS closed-node cap when `maxSearchDist == 0` (`map.cpp` ~680).
 const MAX_CLOSED_NODES: usize = 100;
-/// CipSoft monster path viewport half-extent — `VisibleX`/`VisibleY` (`cract.cc` `TShortway`).
-const CIPSOFT_PATH_VIEW_RADIUS: i32 = 10;
-/// CipSoft ~21×21 monster viewport tile budget (`cract.cc` `TShortway`).
-const CIPSOFT_MAX_CLOSED_NODES: usize = 441;
+/// 772 monster path viewport half-extent — `VisibleX`/`VisibleY` (`cract.cc` `TShortway`).
+pub const REVERSE_PATH_VIEW_RADIUS: i32 = 10;
+/// 772 ~21×21 monster viewport tile budget (`cract.cc` `TShortway`).
+const REVERSE_PATH_MAX_CLOSED_NODES: usize = 441;
+/// 772 default BANK `Waypoints` when unset — matches `ground_speed_for_item` / `NotifyGo` default.
+pub const DEFAULT_TERRAIN_WAYPOINTS: u32 = 150;
+
+/// Effective per-tile waypoint for `TShortway` — OTB `ITEM_ATTR_SPEED` / 772 `WAYPOINTS`.
+///
+/// `0` (missing OTB speed) maps to [`DEFAULT_TERRAIN_WAYPOINTS`], not `1`. C++ reference:
+/// `cract.cc` `TShortway::FillMap`, `NotifyGo` (`WAYPOINTS`).
+#[inline]
+pub fn effective_terrain_waypoints(raw: u32) -> u32 {
+    if raw == 0 {
+        DEFAULT_TERRAIN_WAYPOINTS
+    } else {
+        raw
+    }
+}
+
+/// 772 `TShortway::FillMap` — minimum walkable `WAYPOINTS` in the origin viewport (`cract.cc`).
+pub fn scan_min_terrain_waypoints<G>(
+    map: &Map,
+    origin: Position,
+    radius: i32,
+    ground_cost: G,
+) -> u32
+where
+    G: Fn(Position) -> u32,
+{
+    let mut min = u32::MAX;
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let Some(pos) = offset_position(origin, dx, dy) else {
+                continue;
+            };
+            if !map.is_walkable(pos) {
+                continue;
+            }
+            let wp = effective_terrain_waypoints(ground_cost(pos));
+            if wp > 0 {
+                min = min.min(wp);
+            }
+        }
+    }
+    if min == u32::MAX {
+        DEFAULT_TERRAIN_WAYPOINTS
+    } else {
+        min
+    }
+}
 
 /// TFS `FindPathParams` (`creature.h`).
 ///
 /// **`allow_diagonal` does not select the pathfinding era.** Search direction and edge costs
 /// come from [`MechanicsProfile::path_search`] / [`MechanicsProfile::path_cost`] passed to
-/// [`get_path_matching`]. On CipSoft reverse search, `allow_diagonal` only filters
-/// [`CIPSOFT_NEIGHBOR_OFFSETS`]; TFS 1098 [`neighbor_offsets`] / `dirNeighbors` run only when
+/// [`get_path_matching`]. On 772 reverse search, `allow_diagonal` only filters
+/// [`REVERSE_PATH_NEIGHBOR_OFFSETS`]; TFS 1098 [`neighbor_offsets`] / `dirNeighbors` run only when
 /// `path_search == Forward` (or explicit forward fallback after reverse failure).
 #[derive(Clone, Copy, Debug)]
 pub struct FindPathParams {
@@ -71,7 +118,7 @@ enum PathGoalMatch {
 
 #[derive(Eq, PartialEq)]
 struct OpenNode {
-    /// Priority key — accumulated cost for TFS forward; `g + h` for CipSoft reverse A*.
+    /// Priority key — accumulated cost for TFS forward; `g + h` for 772 reverse A*.
     f: u32,
     g: u32,
     pos: Position,
@@ -99,19 +146,19 @@ struct AStarNode {
     g: u32,
 }
 
-/// CipSoft `TShortway` profile — reverse dest→origin with terrain waypoint costs (diagonal ×3).
+/// 772 `TShortway` profile — reverse dest→origin with terrain waypoint costs (diagonal ×3).
 ///
-/// When true, `FindPathParams::allow_diagonal` only toggles the 8-neighbor CipSoft expansion;
+/// When true, `FindPathParams::allow_diagonal` only toggles the 8-neighbor 772 expansion;
 /// it never selects TFS forward `dirNeighbors` or fixed 10/25 edge costs.
 #[inline]
-pub fn path_uses_cipsoft_shortway(cost_model: PathCostModel, search: PathSearchModel) -> bool {
+pub fn uses_reverse_terrain_path(cost_model: PathCostModel, search: PathSearchModel) -> bool {
     matches!(
         (cost_model, search),
         (PathCostModel::TerrainWeighted, PathSearchModel::Reverse)
     )
 }
 
-/// TFS `Map::getPathMatching` / CipSoft `TShortway` — creature-aware via callbacks.
+/// TFS `Map::getPathMatching` / 772 `TShortway` — creature-aware via callbacks.
 ///
 /// `search` selects expansion direction (1098 forward / 772 reverse). Edge costs come from
 /// `cost_model` (B2): fixed 10/25 for TFS, terrain waypoints + diagonal ×3 for CipSoft.
@@ -169,7 +216,7 @@ where
             if !forward_fallback {
                 return None;
             }
-            // Forward fallback uses TFS `dirNeighbors` expansion — not CipSoft `TShortway`.
+            // Forward fallback uses TFS `dirNeighbors` expansion — not 772 `TShortway`.
             // Default 772 profile sets `path_forward_fallback = false` (NOWAY). Only reached when
             // explicitly enabled (e.g. 1098 overlay); `allow_diagonal` on the FPP is unrelated.
             path_matching_forward(
@@ -310,7 +357,7 @@ where
     Some(reconstruct_forward_dirs(&nodes, end_pos))
 }
 
-/// CipSoft reverse A* — destination (`target`) → origin (`start`) (`cract.cc:7` `TShortway`).
+/// 772 reverse A* — destination (`target`) → origin (`start`) (`cract.cc:7` `TShortway`).
 ///
 /// Expands from the follow destination back toward the monster with Manhattan heuristic:
 /// `H(n) = Waypoints(n) + MinWaypoints × (Manhattan(n, origin) − 1)` (`cract.cc`).
@@ -342,19 +389,17 @@ where
         return Some(Vec::new());
     }
 
-    let viewport_radius = if fpp.max_search_dist != 0 {
-        fpp.max_search_dist as i32
+    let use_reverse_terrain_astar = matches!(cost_model, PathCostModel::TerrainWeighted);
+    // 772 monster chase always uses VisibleX/Y = 10 and ~441 node cap — not TFS `maxSearchDist` 12.
+    let (viewport_radius, closed_cap) = if use_reverse_terrain_astar {
+        (REVERSE_PATH_VIEW_RADIUS, REVERSE_PATH_MAX_CLOSED_NODES)
+    } else if fpp.max_search_dist != 0 {
+        (fpp.max_search_dist as i32, usize::MAX)
     } else {
-        CIPSOFT_PATH_VIEW_RADIUS
+        (REVERSE_PATH_VIEW_RADIUS, REVERSE_PATH_MAX_CLOSED_NODES)
     };
-    let closed_cap = if fpp.max_search_dist != 0 {
-        usize::MAX
-    } else {
-        CIPSOFT_MAX_CLOSED_NODES
-    };
-    let use_cipsoft_astar = matches!(cost_model, PathCostModel::TerrainWeighted);
-    let min_wp = if use_cipsoft_astar {
-        scan_min_waypoints(start, viewport_radius, &ground_cost)
+    let min_wp = if use_reverse_terrain_astar {
+        scan_min_terrain_waypoints(map, start, viewport_radius, &ground_cost)
     } else {
         1
     };
@@ -371,8 +416,8 @@ where
             g: 0,
         },
     );
-    let seed_h = if use_cipsoft_astar {
-        cipsoft_shortway_heuristic(target, start, min_wp, &ground_cost)
+    let seed_h = if use_reverse_terrain_astar {
+        reverse_path_heuristic(target, start, min_wp, &ground_cost)
     } else {
         0
     };
@@ -400,7 +445,7 @@ where
             continue;
         }
 
-        if use_cipsoft_astar {
+        if use_reverse_terrain_astar {
             expand_count += 1;
         } else if !closed.insert(current) {
             continue;
@@ -418,10 +463,10 @@ where
             continue;
         }
 
-        // CipSoft node-level branch-and-bound — skip all neighbors when even the cheapest
+        // 772 node-level branch-and-bound — skip all neighbors when even the cheapest
         // cardinal step cannot improve on the best-known path to the origin (`cract.cc:136–138`).
-        if use_cipsoft_astar {
-            let current_wp = ground_cost(current).max(1);
+        if use_reverse_terrain_astar {
+            let current_wp = effective_terrain_waypoints(ground_cost(current));
             let min_neighbor_g = base_g.saturating_add(current_wp);
             if nodes
                 .get(&start)
@@ -431,7 +476,7 @@ where
             }
         }
 
-        for &(ox, oy) in &CIPSOFT_NEIGHBOR_OFFSETS {
+        for &(ox, oy) in &REVERSE_PATH_NEIGHBOR_OFFSETS {
             if !fpp.allow_diagonal && ox != 0 && oy != 0 {
                 continue;
             }
@@ -444,7 +489,7 @@ where
                 continue;
             }
 
-            if !use_cipsoft_astar && closed.contains(&next) {
+            if !use_reverse_terrain_astar && closed.contains(&next) {
                 continue;
             }
 
@@ -454,7 +499,7 @@ where
             }
 
             let step_cost = path_step_cost(cost_model, is_diagonal, || ground_cost(current));
-            let occupancy_cost = if use_cipsoft_astar {
+            let occupancy_cost = if use_reverse_terrain_astar {
                 0
             } else {
                 tile_walk_cost(next)
@@ -463,7 +508,7 @@ where
                 .saturating_add(step_cost)
                 .saturating_add(occupancy_cost);
 
-            // CipSoft per-edge branch-and-bound (`cract.cc:157` vs origin `Waylength`).
+            // 772 per-edge branch-and-bound (`cract.cc:157` vs origin `Waylength`).
             if let Some(&AStarNode { g: origin_g, .. }) = nodes.get(&start) {
                 if new_g >= origin_g {
                     continue;
@@ -472,8 +517,8 @@ where
 
             let prev_g = nodes.get(&next).map(|n| n.g).unwrap_or(u32::MAX);
             if new_g < prev_g {
-                let h = if use_cipsoft_astar {
-                    cipsoft_shortway_heuristic(next, start, min_wp, &ground_cost)
+                let h = if use_reverse_terrain_astar {
+                    reverse_path_heuristic(next, start, min_wp, &ground_cost)
                 } else {
                     0
                 };
@@ -496,8 +541,8 @@ where
     None
 }
 
-/// CipSoft `ToDoGo(..., MaxSteps)` for monster chase — `crnonpl.cc` ~2729, `cract.cc` ~992.
-pub const CIPSOFT_CHASE_PATH_MAX_STEPS: usize = 3;
+/// 772 `ToDoGo(..., MaxSteps)` for monster chase — `crnonpl.cc` ~2729, `cract.cc` ~992.
+pub const CHASE_PATH_MAX_STEPS: usize = 3;
 
 /// TFS `FrozenPathingConditionCall::operator()` (`creature.cpp` ~1688–1720).
 fn evaluate_path_goal(
@@ -571,7 +616,7 @@ fn path_in_search_box(start: Position, test: Position, target: Position, fpp: &F
 /// Per-step edge cost for the A* expansion (B2).
 ///
 /// - [`PathCostModel::Fixed`] — TFS 1.4.2 constants 10 / 25 (`map.cpp`), terrain ignored.
-/// - [`PathCostModel::TerrainWeighted`] — CipSoft 7.72 (`cract.cc:136–155` `TShortway::Expand`):
+/// - [`PathCostModel::TerrainWeighted`] — 772 (`cract.cc:136–155` `TShortway::Expand`):
 ///   cost = current tile waypoints; a diagonal step costs `×3` (cardinal `+wp`, diagonal `+wp*3`).
 fn path_step_cost(model: PathCostModel, is_diagonal: bool, ground_cost: impl FnOnce() -> u32) -> u32 {
     match model {
@@ -583,7 +628,7 @@ fn path_step_cost(model: PathCostModel, is_diagonal: bool, ground_cost: impl FnO
             }
         }
         PathCostModel::TerrainWeighted => {
-            let wp = ground_cost().max(1);
+            let wp = effective_terrain_waypoints(ground_cost());
             if is_diagonal {
                 wp.saturating_mul(3)
             } else {
@@ -603,35 +648,19 @@ fn manhattan_dist(a: Position, b: Position) -> i32 {
     (a.x as i32 - b.x as i32).unsigned_abs() as i32 + (a.y as i32 - b.y as i32).unsigned_abs() as i32
 }
 
-/// CipSoft `VisibleX`/`VisibleY` rectangle around the origin (`cract.cc` `TShortway`).
+/// 772 `VisibleX`/`VisibleY` rectangle around the origin (`cract.cc` `TShortway`).
 fn in_path_viewport(origin: Position, pos: Position, radius: i32) -> bool {
     let dx = (origin.x as i32 - pos.x as i32).unsigned_abs() as i32;
     let dy = (origin.y as i32 - pos.y as i32).unsigned_abs() as i32;
     dx <= radius && dy <= radius
 }
 
-/// Minimum tile waypoints in the origin viewport — CipSoft `MinWaypoints` (`cract.cc` `TShortway`).
-fn scan_min_waypoints<G>(origin: Position, radius: i32, ground_cost: G) -> u32
+/// 772 `TShortway` A* heuristic — `cract.cc:181-183` (`Waylength + Waypoints + MinWaypoints * (Distance - 1)`).
+fn reverse_path_heuristic<G>(pos: Position, origin: Position, min_wp: u32, ground_cost: G) -> u32
 where
     G: Fn(Position) -> u32,
 {
-    let mut min = u32::MAX;
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
-            if let Some(pos) = offset_position(origin, dx, dy) {
-                min = min.min(ground_cost(pos).max(1));
-            }
-        }
-    }
-    min.max(1)
-}
-
-/// CipSoft `TShortway` A* heuristic — `cract.cc`.
-fn cipsoft_shortway_heuristic<G>(pos: Position, origin: Position, min_wp: u32, ground_cost: G) -> u32
-where
-    G: Fn(Position) -> u32,
-{
-    let wp = ground_cost(pos).max(1);
+    let wp = effective_terrain_waypoints(ground_cost(pos));
     let md = manhattan_dist(pos, origin).saturating_sub(1).max(0) as u32;
     wp.saturating_add(min_wp.saturating_mul(md))
 }
@@ -649,8 +678,8 @@ fn offset_position(from: Position, ox: i32, oy: i32) -> Option<Position> {
     })
 }
 
-/// CipSoft `TShortway::Expand` — nested `OffsetX`/`OffsetY` order (`cract.cc:141-145`).
-const CIPSOFT_NEIGHBOR_OFFSETS: [(i32, i32); 8] = [
+/// 772 `TShortway::Expand` — nested `OffsetX`/`OffsetY` order (`cract.cc:141-145`).
+const REVERSE_PATH_NEIGHBOR_OFFSETS: [(i32, i32); 8] = [
     (-1, -1),
     (-1, 0),
     (-1, 1),
@@ -795,9 +824,9 @@ mod tests {
     }
 
     #[test]
-    fn cipsoft_neighbor_order_matches_expand_loop() {
+    fn reverse_path_neighbor_order_matches_expand_loop() {
         assert_eq!(
-            CIPSOFT_NEIGHBOR_OFFSETS,
+            REVERSE_PATH_NEIGHBOR_OFFSETS,
             [
                 (-1, -1),
                 (-1, 0),
@@ -844,7 +873,61 @@ mod tests {
     fn path_step_cost_terrain_weighted_uses_ground_and_diagonal_3x() {
         assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, false, || 100), 100);
         assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, true, || 100), 300);
-        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, false, || 0), 1);
+        assert_eq!(
+            path_step_cost(PathCostModel::TerrainWeighted, false, || 0),
+            DEFAULT_TERRAIN_WAYPOINTS
+        );
+    }
+
+    #[test]
+    fn effective_terrain_waypoints_defaults_missing_to_150() {
+        assert_eq!(effective_terrain_waypoints(0), 150);
+        assert_eq!(effective_terrain_waypoints(110), 110);
+    }
+
+    #[test]
+    fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut map = Map {
+            width: 5,
+            height: 5,
+            grid: crate::map::SparseGrid::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        let origin = Position::new(2, 2, 7);
+        for x in 0..5u16 {
+            for y in 0..5u16 {
+                ensure_walkable_tile(&mut map, Position::new(x, y, 7), 150);
+            }
+        }
+        map.insert_tile(
+            Position::new(2, 1, 7),
+            Tile::Normal(TileBody {
+                ground: Some(50),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
+                zone: ZoneType::Normal,
+            }),
+        );
+        let ground_from_map = |m: &Map, pos: Position| {
+            m.get_tile(pos)
+                .and_then(|t| t.body().ground.map(|g| g as u32))
+                .unwrap_or(150)
+        };
+        assert_eq!(
+            scan_min_terrain_waypoints(&map, origin, 2, |p| ground_from_map(&map, p)),
+            150
+        );
+        ensure_walkable_tile(&mut map, Position::new(2, 1, 7), 100);
+        assert_eq!(
+            scan_min_terrain_waypoints(&map, origin, 2, |p| ground_from_map(&map, p)),
+            100
+        );
     }
 
     fn uniform_walkable_map(width: u16, ground: u16) -> Map {
@@ -900,20 +983,20 @@ mod tests {
     }
 
     #[test]
-    fn path_uses_cipsoft_shortway_matches_772_profile() {
+    fn uses_reverse_terrain_path_matches_772_profile() {
         use tfs_rust_common::ProtocolVersion;
 
         use crate::formulas::MechanicsProfile;
 
         let p772 = MechanicsProfile::for_version(ProtocolVersion::V772);
-        assert!(super::path_uses_cipsoft_shortway(p772.path_cost, p772.path_search));
+        assert!(super::uses_reverse_terrain_path(p772.path_cost, p772.path_search));
 
         let p1098 = MechanicsProfile::for_version(ProtocolVersion::V1098);
-        assert!(!super::path_uses_cipsoft_shortway(p1098.path_cost, p1098.path_search));
+        assert!(!super::uses_reverse_terrain_path(p1098.path_cost, p1098.path_search));
     }
 
     #[test]
-    fn reverse_with_allow_diagonal_still_uses_cipsoft_expansion() {
+    fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         let mut map = Map {
             width: 15,
             height: 15,
@@ -1035,14 +1118,14 @@ mod tests {
     }
 
     #[test]
-    fn cipsoft_heuristic_prefers_toward_origin() {
+    fn reverse_path_heuristic_prefers_toward_origin() {
         let origin = Position::new(0, 0, 7);
         let min_wp = 50;
         let ground = |pos: Position| {
             if pos.y == 0 { 50 } else { 200 }
         };
-        let near = cipsoft_shortway_heuristic(Position::new(1, 0, 7), origin, min_wp, ground);
-        let far = cipsoft_shortway_heuristic(Position::new(5, 0, 7), origin, min_wp, ground);
+        let near = reverse_path_heuristic(Position::new(1, 0, 7), origin, min_wp, ground);
+        let far = reverse_path_heuristic(Position::new(5, 0, 7), origin, min_wp, ground);
         assert!(near < far, "heuristic must decrease toward origin");
     }
 

@@ -114,7 +114,7 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
 /// types without a profiled DoT spec (poison decays differently; haste/paralyze are speed, not DoT).
 /// This is the seam Phase G ticking will call once `ConditionDamage` ticks are implemented.
 ///
-/// C++ reference: CipSoft `TSkillBurning::Event` (10/8) / `TSkillEnergy::Event` (25/10)
+/// C++ reference: 772 `TSkillBurning::Event` (10/8) / `TSkillEnergy::Event` (25/10)
 /// (`tibia-game-master/src/crskill.cc:1064,1090`); TFS `ConditionDamage` (`condition.cpp:1330`).
 pub fn dot_tick_for_condition(
     profile: &crate::formulas::MechanicsProfile,

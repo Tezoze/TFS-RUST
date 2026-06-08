@@ -22,6 +22,7 @@ pub struct Content {
 
 /// Load server content. `map_otbm_relative` is under `data_dir` (e.g. `world/world.otbm`);
 /// default for this repo’s data pack: `world/forgotten.otbm`.
+///
 pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Result<Content> {
     info!("Starting concurrent content pipeline...");
 

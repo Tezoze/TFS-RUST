@@ -11,3 +11,7 @@ thiserror = { workspace = true }
 byteorder = { workspace = true }
 quick-xml = { workspace = true }
 roxmltree = "0.20"
+
+[[bin]]
+name = "patch-otb-waypoints"
+path = "src/bin/patch_otb_waypoints.rs"

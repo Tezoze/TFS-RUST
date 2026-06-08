@@ -106,7 +106,7 @@ pub fn matrix_tile_offsets(area: &MatrixArea) -> Vec<(i32, i32)> {
 /// Profile-driven spell damage (B4.7) — delegates to [`crate::combat::math::spell_damage`].
 ///
 /// `base` is the spell's pre-scaling damage; `clamp_max_100` / `clamp_min_100` come from the spell's
-/// flag bits (CipSoft `Flags & 4` / `& 8`, `magic.cc:786`). Returns the scaled damage for the active
+/// flag bits (772 `Flags & 4` / `& 8`, `magic.cc:786`). Returns the scaled damage for the active
 /// era (`2*level + 3*magicLevel` % multiplier by default; Tier-2 `getSpellDamage` overrides).
 #[allow(clippy::too_many_arguments)]
 pub fn spell_damage_scaled(

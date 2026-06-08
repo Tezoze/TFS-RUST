@@ -1,4 +1,4 @@
-//! CipSoft 772 `AdvanceGame` staggered subsystem counters.
+//! 772 `AdvanceGame` staggered subsystem counters.
 //!
 //! C++ reference: `tibia-game-master/src/main.cc` `AdvanceGame` (~312–449).
 
@@ -20,13 +20,13 @@ pub struct SubsystemCounters772 {
     other_time: u64,
 }
 
-/// CipSoft `CreatureTimeCounter` first-fire threshold.
+/// 772 `CreatureTimeCounter` first-fire threshold.
 const CREATURE_THRESHOLD: u64 = 1750;
-/// CipSoft `CronTimeCounter` first-fire threshold.
+/// 772 `CronTimeCounter` first-fire threshold.
 const CRON_THRESHOLD: u64 = 1500;
-/// CipSoft `SkillTimeCounter` first-fire threshold.
+/// 772 `SkillTimeCounter` first-fire threshold.
 const SKILL_THRESHOLD: u64 = 1250;
-/// CipSoft `OtherTimeCounter` first-fire threshold.
+/// 772 `OtherTimeCounter` first-fire threshold.
 const OTHER_THRESHOLD: u64 = 1000;
 /// All counters subtract this on fire (CipSoft ~1000 ms period).
 const RESET_MS: u64 = 1000;
@@ -67,7 +67,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn counters_fire_at_cipsoft_thresholds() {
+    fn counters_fire_at_beat_driven_thresholds() {
         let mut counters = SubsystemCounters772::default();
 
         // 1000 ms — only `other` (threshold 1000).

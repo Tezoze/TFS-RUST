@@ -11,7 +11,7 @@ Mechanics are **shared code**, **era-tuned data**. Full spec: `docs/PROTOCOL_VER
 
 1. **One function** in `tfs-rust-core` — TFS-shaped API (e.g. `ConditionDamage` ticks, not CipSoft timer-skill classes).
 2. **Read profile** — `MechanicsProfile` field or Tier-2 Lua hook; **never** bare balance literals in Rust.
-3. **Defaults per era** — `data/formulas/1098.lua` (TFS 1.4.2) vs `data/formulas/772.lua` (CipSoft outcomes).
+3. **Defaults per era** — `data/formulas/1098.lua` (TFS 1.4.2) vs `data/formulas/772.lua` (772 mechanics outcomes).
 4. **772 behavior cite** — `tibia-game-master/src/` for numbers/outcomes; repo-root `src/` for TFS structure cite.
 5. **No `client_version` checks** — profile loaded at startup from `clientVersion` config.
 

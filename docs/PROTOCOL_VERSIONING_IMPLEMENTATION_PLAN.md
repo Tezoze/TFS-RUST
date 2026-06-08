@@ -17,7 +17,7 @@ phase-by-phase, file-by-file tasks with C++ references, tests, and verification 
   R12 behavior from decompile, code from ourselves.
 - **Reference trees by era** (design §12, `tfs-cpp-references`):
   - **772 wire** → `gameserver/src/` ONLY (never `tibia-game-master`, never repo-root `src/`).
-  - **772 mechanics/outcomes** → `tibia-game-master/src/` (CipSoft decompile; clean-room outcomes only).
+  - **772 mechanics/outcomes** → `tibia-game-master/src/` (772 decompile; clean-room outcomes only).
   - **1098 wire + mechanics** → repo-root `src/` (TFS 1.4.2).
 - Every ported function carries a C++ ref comment (file + function). 772 mechanics cite both TFS
   structure and CipSoft behavior where they diverge.
@@ -305,7 +305,7 @@ client smoke test pending — needs a real 7.72 client, see A6.2).
 
 ## Track B — Mechanics (`MechanicsProfile` + `data/formulas/`)
 
-Source of truth: **`tibia-game-master/src/`** (CipSoft outcomes, clean-room R12) for behavior; cite
+Source of truth: **`tibia-game-master/src/`** (772 mechanics outcomes, clean-room R12) for behavior; cite
 TFS structure (`gameserver/src/`, repo-root `src/`) for style. Behavior stays 1098 until B5. Each
 extracted constant becomes a `MechanicsProfile` field / `data/formulas/<version>.lua` value (R11) —
 never a bare Rust literal.

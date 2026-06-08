@@ -1,6 +1,6 @@
 # Diagnostic Findings: 772 Monster AI Follow Freeze & Walk Delay Lock
 
-We investigated the monster AI targeting, pathing, and walk scheduling logic under `clientVersion = 772` and `1098` compared to the `gameserver/src/` C++ codebase (TVP 7.72) and CipSoft 7.72 decompile (`tibia-game-master/src/`) references. 
+We investigated the monster AI targeting, pathing, and walk scheduling logic under `clientVersion = 772` and `1098` compared to the `gameserver/src/` C++ codebase (TVP 7.72) and 772 decompile (`tibia-game-master/src/`) references. 
 
 We identified two high-probability bugs causing monsters to freeze upon reaching their follow target and fail to chase when the target walks away, plus one unrelated test failure.
 
@@ -30,7 +30,7 @@ We identified two high-probability bugs causing monsters to freeze upon reaching
 ### Legacy Parity Check
 In the `gameserver/src/` C++ codebase, follow repathing is gated by `hasFollowPath` in `onCreatureMove`. If `hasFollowPath` is `false`, it does not repath inside the move event (it waits for the next think loop to perform a full search). More importantly, the C++ codebase never sets `hasFollowPath = true` inside the movement callback.
 
-For CipSoft 7.72 (`tibia-game-master/src/crnonpl.cc`), there is no path flag gating on target move events. So monsters should repath, but since they have no path, `has_follow_path` must remain `false` to perform a full search.
+For 772 (`tibia-game-master/src/crnonpl.cc`), there is no path flag gating on target move events. So monsters should repath, but since they have no path, `has_follow_path` must remain `false` to perform a full search.
 
 ---
 

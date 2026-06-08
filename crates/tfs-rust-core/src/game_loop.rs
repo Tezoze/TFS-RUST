@@ -1,7 +1,7 @@
 //! Tokio-driven game loop: command drain + `GameWorld::tick`.
 //!
 //! - **1098:** TFS Dispatcher + per-creature walk timers — [`run_game_loop_1098`].
-//! - **772:** CipSoft beat-driven loop + ToDoQueue — [`run_game_loop_772`].
+//! - **772:** 772 beat-driven loop + ToDoQueue — [`run_game_loop_772`].
 //!
 // C++ reference: `Game::gameLoop`, `ServiceManager::threadFunc` (1098);
 // `tibia-game-master/src/main.cc` `LaunchGame` / `AdvanceGame` (772).
@@ -31,7 +31,7 @@ use tfs_rust_net::OutRegistry;
 pub enum FlushPolicy {
     /// TFS 1098 — movement / turn / ping flush inline from the dispatcher.
     ImmediateOnMovement,
-    /// CipSoft 772 — buffer until beat-end `SendAll`.
+    /// 772 — buffer until beat-end `SendAll`.
     BeatEndOnly,
 }
 
@@ -540,7 +540,7 @@ pub async fn run_game_loop_1098(
     Ok(())
 }
 
-/// CipSoft 772 beat-driven loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
+/// 772 beat-driven loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
 pub async fn run_game_loop_772(
     mut world: GameWorld,
     mut cmd_rx: UnboundedReceiver<GameCommand>,
@@ -684,13 +684,13 @@ mod timed_action_gate_tests {
     }
 
     #[test]
-    fn beat_driven_loop_flag_follows_cipsoft_profile() {
+    fn beat_driven_loop_flag_follows_linear_go_profile() {
         use crate::formulas::StepSpeedModel;
         let mut world = crate::test_world::support::minimal_world();
         assert!(!world.beat_driven_loop);
-        world.mechanics.profile.step_speed = StepSpeedModel::CipSoft;
+        world.mechanics.profile.step_speed = StepSpeedModel::LinearGo;
         world.beat_driven_loop =
-            world.mechanics.profile.step_speed == StepSpeedModel::CipSoft;
+            world.mechanics.profile.step_speed == StepSpeedModel::LinearGo;
         assert!(world.beat_driven_loop);
     }
 }

@@ -1,7 +1,7 @@
 //! Game loop tick orchestration — 1098 `on_tick` and 772 beat advance.
 //!
 //! - `Game::checkCreatures` / subsystem polling — `game.cpp`.
-//! - CipSoft `AdvanceGame` — `tibia-game-master/src/main.cc`.
+//! - 772 `AdvanceGame` — `tibia-game-master/src/main.cc`.
 
 use std::time::Instant;
 
@@ -36,7 +36,7 @@ impl GameWorld {
         self.tick_player_pings(now);
     }
 
-    /// CipSoft `AdvanceGame` beat step — staggered subsystems + logical clock + ToDoQueue drain.
+    /// 772 `AdvanceGame` beat step — staggered subsystems + logical clock + ToDoQueue drain.
     /// C++ ref: `tibia-game-master/src/main.cc` `AdvanceGame`, `crmain.cc` `MoveCreatures`.
     pub fn advance_beat_772(&mut self, delay_ms: u64) {
         let fired = self.subsystem_counters_772.accumulate(delay_ms);

@@ -23,7 +23,10 @@ use crate::monster_distance_step::{
     distance_x, distance_y, get_dance_step, get_distance_step, get_random_step, offset_x, offset_y,
     DistanceStepOutcome, search_flight_field,
 };
-use crate::pathfinding::{FindPathParams, CIPSOFT_CHASE_PATH_MAX_STEPS, path_uses_cipsoft_shortway};
+use crate::pathfinding::{
+    scan_min_terrain_waypoints, FindPathParams, CHASE_PATH_MAX_STEPS,
+    REVERSE_PATH_VIEW_RADIUS, uses_reverse_terrain_path,
+};
 use crate::walk::{creature_turn_with_broadcast, PATHFIND_WALK_FLAGS, tile_query_add_creature};
 
 /// C++ `Map::maxViewportX` (`map.h`).
@@ -265,7 +268,7 @@ impl GameWorld {
     }
 
     /// B3.1 — lowest-health opponent from `candidates`, using the profile's [`WeakestTargetMetric`]
-    /// (current HP for CipSoft 7.72, max HP for TFS). Ties keep the first candidate.
+    /// (current HP for 772, max HP for TFS). Ties keep the first candidate.
 
     /// C++ `Monster::onCreatureAppear` self branch — `monster.cpp` ~159–166.
 
@@ -565,9 +568,9 @@ impl GameWorld {
                 if dist > 1.max(target_distance) {
                     continue;
                 }
-            } else if self.beat_driven_loop && steps.len() > CIPSOFT_CHASE_PATH_MAX_STEPS {
-                // CipSoft `ToDoGo(..., false, 3)` — only the next few hops are queued per repath.
-                let keep_from = steps.len().saturating_sub(CIPSOFT_CHASE_PATH_MAX_STEPS);
+            } else if self.beat_driven_loop && steps.len() > CHASE_PATH_MAX_STEPS {
+                // 772 `ToDoGo(..., false, 3)` — only the next few hops are queued per repath.
+                let keep_from = steps.len().saturating_sub(CHASE_PATH_MAX_STEPS);
                 steps = steps.split_off(keep_from);
             }
             if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
@@ -579,11 +582,18 @@ impl GameWorld {
                         cursor = cursor.offset(dir);
                         path_positions.push(cursor);
                     }
-                    let min_wp = self
-                        .map
-                        .get_tile(pos)
-                        .map(|t| self.tile_ground_speed(t.body()))
-                        .unwrap_or(150);
+                    let min_wp = scan_min_terrain_waypoints(
+                        &self.map,
+                        pos,
+                        REVERSE_PATH_VIEW_RADIUS,
+                        |p| {
+                            self.map
+                                .get_tile(p)
+                                .filter(|_| self.map.is_walkable(p))
+                                .map(|t| self.tile_ground_speed(t.body()))
+                                .unwrap_or(0)
+                        },
+                    );
                     chase_debug::log_shortway(
                         self.tick_counter,
                         cid,
@@ -593,7 +603,7 @@ impl GameWorld {
                         10,
                         min_wp,
                         false,
-                        CIPSOFT_CHASE_PATH_MAX_STEPS as i32,
+                        CHASE_PATH_MAX_STEPS as i32,
                         true,
                         &path_positions,
                     );
@@ -621,12 +631,20 @@ impl GameWorld {
                     pos,
                     target_pos,
                     10,
-                    self.map
-                        .get_tile(pos)
-                        .map(|t| self.tile_ground_speed(t.body()))
-                        .unwrap_or(150),
+                    scan_min_terrain_waypoints(
+                        &self.map,
+                        pos,
+                        REVERSE_PATH_VIEW_RADIUS,
+                        |p| {
+                            self.map
+                                .get_tile(p)
+                                .filter(|_| self.map.is_walkable(p))
+                                .map(|t| self.tile_ground_speed(t.body()))
+                                .unwrap_or(0)
+                        },
+                    ),
                     false,
-                    CIPSOFT_CHASE_PATH_MAX_STEPS as i32,
+                    CHASE_PATH_MAX_STEPS as i32,
                     false,
                     &[],
                 );
@@ -732,11 +750,12 @@ impl GameWorld {
             min_target_dist: 1,
             max_target_dist: target_distance,
             clear_sight: true,
-            // CipSoft `TShortway::Expand` always considers all 8 neighbors; diagonals are
+            // 772 `TShortway::Expand` always considers all 8 neighbors; diagonals are
             // discouraged by 3× waypoint cost, not by removing them from the search graph.
             allow_diagonal: true,
             full_path_search: !has_follow_path,
-            max_search_dist: 12,
+            // 772: `TShortway` uses VisibleX/Y=10 internally — not TFS `maxSearchDist=12` (`creature.cpp`).
+            max_search_dist: if self.beat_driven_loop { 0 } else { 12 },
         };
 
         if is_summon {
@@ -778,12 +797,12 @@ impl GameWorld {
             cid: CreatureId,
         }
         let ctx = PathCtx { world: self, cid };
-        let cipsoft_shortway = path_uses_cipsoft_shortway(
+        let uses_reverse_terrain = uses_reverse_terrain_path(
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
         );
         debug_assert!(
-            !self.beat_driven_loop || cipsoft_shortway,
+            !self.beat_driven_loop || uses_reverse_terrain,
             "772 monster chase requires reverse TShortway + terrain costs (check MechanicsProfile / formulas lua)"
         );
         get_path_matching(
@@ -796,7 +815,7 @@ impl GameWorld {
             self.mechanics.profile.path_forward_fallback,
             |pos| ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos),
             |pos| {
-                if cipsoft_shortway {
+                if uses_reverse_terrain {
                     return 0;
                 }
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
@@ -810,13 +829,15 @@ impl GameWorld {
                 }
                 cost
             },
-            // CipSoft terrain weight: ground "waypoints" (= TFS ground speed; higher = slower tile).
+            // 772 `WAYPOINTS` — OTB `ITEM_ATTR_SPEED` on the tile ground item (`TShortway::FillMap`).
             |pos| {
-                ctx.world
-                    .map
-                    .get_tile(pos)
-                    .map(|t| ctx.world.tile_ground_speed(t.body()))
-                    .unwrap_or(150)
+                let Some(tile) = ctx.world.map.get_tile(pos) else {
+                    return 0;
+                };
+                if !ctx.world.map.is_walkable(pos) {
+                    return 0;
+                }
+                ctx.world.tile_ground_speed(tile.body())
             },
         )
     }
@@ -1422,10 +1443,10 @@ mod world_tests {
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::login_out::creature_wire_id;
     use crate::formulas::MechanicsProfile;
-    use crate::pathfinding::path_uses_cipsoft_shortway;
+    use crate::pathfinding::uses_reverse_terrain_path;
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_monster_with_config, insert_player, insert_spectator_player,
-        minimal_world, test_player,
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        insert_spectator_player, minimal_world, test_player,
     };
 
     #[test]
@@ -1606,7 +1627,7 @@ mod world_tests {
             "1098 profile should not repath when has_follow_path is false"
         );
 
-        // CipSoft / 772 profile: repath even without has_follow_path.
+        // 772 / 772 profile: repath even without has_follow_path.
         world.mechanics.profile.follow_repath_without_path = true;
         if let Some(k) = world.creatures.get_mut(monster) {
             let base = k.base_mut();
@@ -1619,7 +1640,7 @@ mod world_tests {
         world.map.register_creature_at(ppos_moved_again, player);
         world.monster_dispatch_creature_move(player, ppos_moved, ppos_moved_again);
 
-        let queue_cipsoft = world
+        let queue_beat_driven = world
             .creatures
             .get(monster)
             .unwrap()
@@ -1627,15 +1648,15 @@ mod world_tests {
             .walk_queue
             .clone();
         assert_ne!(
-            queue_cipsoft,
+            queue_beat_driven,
             VecDeque::from([Direction::North]),
             "772 profile should repath when follow target moves without has_follow_path"
         );
         assert!(
-            queue_cipsoft.iter().all(|&d| d == Direction::East),
+            queue_beat_driven.iter().all(|&d| d == Direction::East),
             "repath should step east toward player at {:?}, got {:?}",
             ppos_moved_again,
-            queue_cipsoft
+            queue_beat_driven
         );
     }
 
@@ -2125,8 +2146,7 @@ mod world_tests {
     /// P7 — 772 beat loop: `monster_arm_event_walk` must not re-arm when `next_wakeup` is set.
     #[test]
     fn beat_driven_arm_event_walk_skips_when_wakeup_set() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
         world.walk_wake_tx = None;
         world.server_ms = 0;
 
@@ -2162,8 +2182,7 @@ mod world_tests {
 
     #[test]
     fn test_772_melee_dance_only_cardinal() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
         
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
@@ -2211,8 +2230,7 @@ mod world_tests {
 
     #[test]
     fn test_772_walk_queue_hysteresis() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
         world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
@@ -2266,8 +2284,7 @@ mod world_tests {
 
     #[test]
     fn test_772_path_prefers_cardinal_on_open_terrain() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
 
         let mpos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, mpos, 150);
@@ -2327,16 +2344,15 @@ mod world_tests {
     }
 
     #[test]
-    fn test_772_allow_diagonal_true_stays_cipsoft_path_stack() {
+    fn test_772_allow_diagonal_true_stays_reverse_path_stack() {
         use tfs_rust_common::ProtocolVersion;
 
         let profile = MechanicsProfile::for_version(ProtocolVersion::V772);
-        assert!(path_uses_cipsoft_shortway(profile.path_cost, profile.path_search));
+        assert!(uses_reverse_terrain_path(profile.path_cost, profile.path_search));
         assert!(!profile.path_forward_fallback);
 
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
-        world.mechanics.profile = profile;
+        let mut world = beat_driven_world();
+        assert_eq!(world.mechanics.profile.path_forward_fallback, profile.path_forward_fallback);
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 105, 7);
@@ -2359,7 +2375,7 @@ mod world_tests {
         let fpp = world.monster_path_search_params(monster, player, false, 1, false, false);
         assert!(
             fpp.allow_diagonal,
-            "772 allows diagonal neighbors in CipSoft expansion"
+            "772 allows diagonal neighbors in 772 expansion"
         );
 
         let path = world
@@ -2382,8 +2398,7 @@ mod world_tests {
         use crate::tile::{flags as tilestate, Tile, TileBody};
         use tfs_rust_common::enums::ZoneType;
 
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
 
         let mpos = Position::new(10, 10, 7);
         let ppos = Position::new(12, 12, 7);
@@ -2420,7 +2435,7 @@ mod world_tests {
         let fpp = world.monster_path_search_params(monster, player, false, 1, false, false);
         let path = world
             .get_creature_path_to_with_fpp(monster, ppos, &fpp)
-            .expect("CipSoft TShortway must diagonal out when cardinals are blocked");
+            .expect("reverse TShortway must diagonal out when cardinals are blocked");
         assert!(
             path.iter().any(|d| {
                 matches!(
@@ -2437,8 +2452,7 @@ mod world_tests {
 
     #[test]
     fn test_772_dance_retry_cadence() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
         
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
@@ -2484,8 +2498,7 @@ mod world_tests {
 
     #[test]
     fn test_772_repath_first_step_delay() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
         
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
@@ -2534,8 +2547,7 @@ mod world_tests {
 
     #[test]
     fn test_772_flee_steps_away() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7); // player to the east
@@ -2572,8 +2584,7 @@ mod world_tests {
 
     #[test]
     fn test_772_hunter_band_dance_cardinal() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(104, 100, 7); // player is 4 tiles East
@@ -2620,8 +2631,7 @@ mod world_tests {
 
     #[test]
     fn test_772_blocked_flee_stops() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7); // player to the east

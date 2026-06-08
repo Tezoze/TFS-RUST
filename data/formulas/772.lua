@@ -1,4 +1,4 @@
--- data/formulas/772.lua — CipSoft-faithful 7.72 mechanics defaults.
+-- data/formulas/772.lua — 772 mechanics defaults.
 --
 -- Tier-1 constants (loaded once into MechanicsProfile). Any key omitted falls back to the built-in
 -- MechanicsProfile::for_version(772) default. Edit a value to retune the shard without recompiling
@@ -11,7 +11,7 @@ formulas = {
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x
-  pathSearch = "reverse",     -- CipSoft TShortway dest→origin; 1098 uses "forward"
+  pathSearch = "reverse",     -- reverse TShortway dest→origin; 1098 uses "forward"
   distanceKeep = "perType",     -- keep band from each monster's XML targetDistance
   weakestTargetMetric = "currentHp",
   damageFormula = "classic",    -- ProbeValue
@@ -26,8 +26,8 @@ formulas = {
   },
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
   expAttributionRounds = 60,
-  followRepathWithoutPath = true,  -- CipSoft IdleStimulus repaths without hasFollowPath gate
-  pathForwardFallback = false,     -- CipSoft NOWAY when reverse search fails
+  followRepathWithoutPath = true,  -- IdleStimulus repaths without hasFollowPath gate
+  pathForwardFallback = false,     -- NOWAY when reverse search fails
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.60,

@@ -1,6 +1,6 @@
 # TFS-RUST 7.72 Pathfinding & Creature AI Analysis
 
-**Project**: High-fidelity port of CipSoft 7.72 creature behavior (pathfinding + action system)  
+**Project**: High-fidelity port of 772 creature behavior (pathfinding + action system)  
 **Date**: 2026-06-06  
 **Focus**: `pathfinding.rs` + `creature_todo.rs` + comparison to original `cract.cc` `TShortway`
 
@@ -26,7 +26,7 @@ The pathfinding algorithm itself is ~95%+ accurate. The remaining gaps are prima
 | Reverse search direction (target → creature) | Excellent | Matches `TShortway::Calculate` |
 | Special CipSoft heuristic (`wp + min_wp * (manhattan - 1)`) | Excellent | `cipsoft_shortway_heuristic` is faithful |
 | Branch-and-bound pruning       | Excellent | `if new_g >= origin_g` matches original |
-| Viewport limiting + closed caps | Excellent | `CIPSOFT_PATH_VIEW_RADIUS` / `CIPSOFT_MAX_CLOSED_NODES` |
+| Viewport limiting + closed caps | Excellent | `REVERSE_PATH_VIEW_RADIUS` / `CIPSOFT_MAX_CLOSED_NODES` |
 | Terrain-weighted costs + diagonal ×3 | Excellent | `PathCostModel::TerrainWeighted` |
 | Goal band / attack range trimming | Very Good | `evaluate_path_goal` + `trim_path_to_goal_band` (improvement over original) |
 | Fallback to forward search     | Good      | Robustness addition when origin unreachable |
@@ -82,14 +82,14 @@ A deep-dive cross-reference of the codebase against the original CipSoft `cract.
 
 ## Diagonal Movement Bias Analysis
 
-Monsters in the Rust port take diagonal steps significantly more often than in original CipSoft 7.72. The root cause is that the Rust port routes 7.72 monsters through TFS 1098's movement helpers, whereas CipSoft 7.72 monster movement was simpler and almost entirely cardinal.
+Monsters in the Rust port take diagonal steps significantly more often than in original 772. The root cause is that the Rust port routes 7.72 monsters through TFS 1098's movement helpers, whereas 772 monster movement was simpler and almost entirely cardinal.
 
 ### The Four Sources of Diagonal Bias
 
 | Source | Frequency | Diagonal Contribution / Visual Impact | Description |
 |:---|:---|:---|:---|
 | **1. Melee "Dance" at Target** | Every tick when adjacent to target | **Very High** | TFS's `get_dance_step` allows lateral/diagonal fallback steps. CipSoft ([crnonpl.cc:2731-2753](file:///mnt/storage2/TFS_RUST/tibia-game-master/src/crnonpl.cc#L2731-L2753)) uses a simple cardinal-only `rand() % 5` selection. |
-| **2. Distance Step Chase Fallback** | Every chase step when `dx == dy` | **High** | TFS's `get_distance_step` (called for summons or distance chases) explicitly prioritizes diagonals when `dx == dy`. CipSoft 7.72 did not use distance steps; it used `SearchFlightField` for fleeing and went straight to A* for standard chases. |
+| **2. Distance Step Chase Fallback** | Every chase step when `dx == dy` | **High** | TFS's `get_distance_step` (called for summons or distance chases) explicitly prioritizes diagonals when `dx == dy`. 772 did not use distance steps; it used `SearchFlightField` for fleeing and went straight to A* for standard chases. |
 | **3. Brute-Force Fallback Step** | When A* pathfinding fails | **Medium** | Rust's `monster_try_any_closer_step` scans all 8 directions. CipSoft had no such fallback; if pathfinding failed, the monster threw `NOWAY` and simply stopped. |
 | **4. A\* Pathfinding Expansion** | Every A* path calculation | **Low** | While A* allows diagonals, the 3× cost multiplier (`wp * 3`) makes them rare. The visual bias comes almost entirely from outside A* (Sources 1–3). |
 

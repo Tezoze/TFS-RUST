@@ -372,7 +372,7 @@ def compare_scenario(scenario: Scenario, repo_root: Path, build_rust: bool) -> d
         "name": scenario.name,
         "start": scenario.start,
         "target": scenario.target,
-        "cipsoft": {
+        "reference": {
             "ok": cip_tiles is not None,
             "tiles": cip_tiles,
             "dirs": cip_dirs,
@@ -393,20 +393,20 @@ def compare_scenario(scenario: Scenario, repo_root: Path, build_rust: bool) -> d
 def print_report(results: List[dict]) -> int:
     failures = 0
     print("=" * 72)
-    print("CipSoft TShortway vs TFS-RUST chase path compare")
+    print("772 reverse TShortway vs TFS-RUST chase path compare")
     print("=" * 72)
     for r in results:
         print(f"\n--- {r['name']} ---")
         print(f"  start={r['start']} target={r['target']}")
-        cip = r["cipsoft"]
+        ref = r["reference"]
         rust = r["rust"]
         m = r["match"]
 
-        if not cip["ok"]:
-            print("  CipSoft: NOWAY")
+        if not ref["ok"]:
+            print("  reference: NOWAY")
         else:
-            print(f"  CipSoft: dirs={' '.join(cip['dirs']) or '(empty)'}  diagonals={cip['diagonals']}")
-            print(f"           tiles={cip['tiles']}  origin_waylength={cip['total_waylength']}")
+            print(f"  reference: dirs={' '.join(ref['dirs']) or '(empty)'}  diagonals={ref['diagonals']}")
+            print(f"           tiles={ref['tiles']}  origin_waylength={ref['total_waylength']}")
 
         if not rust.get("ok"):
             print(f"  Rust:    NOWAY ({rust.get('error', '')})")

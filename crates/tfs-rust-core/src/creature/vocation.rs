@@ -49,7 +49,7 @@ pub fn base_walk_speed(model: StepSpeedModel, vocation_id: i32, level: i32) -> i
     let voc_base = vocation_base_speed(vocation_id);
     let l = level.max(1);
     match model {
-        StepSpeedModel::CipSoft => voc_base + if l > 1 { l } else { 0 },
+        StepSpeedModel::LinearGo => voc_base + if l > 1 { l } else { 0 },
         StepSpeedModel::TfsLog => (voc_base + 2 * (l - 1)).clamp(10, 1500),
     }
 }
@@ -62,9 +62,9 @@ mod tests {
     #[test]
     fn base_walk_speed_matches_gameserver_player_update() {
         // voc 220, level 8 → base 228, GetSpeed 536
-        assert_eq!(base_walk_speed(StepSpeedModel::CipSoft, 1, 8), 228);
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, 1, 8), 228);
         assert_eq!(
-            crate::formulas::cipsoft_effective_speed(base_walk_speed(StepSpeedModel::CipSoft, 1, 8)),
+            crate::formulas::linear_go_effective_speed(base_walk_speed(StepSpeedModel::LinearGo, 1, 8)),
             536
         );
         // TFS 1098: 220 + 2*7 = 234

@@ -9,7 +9,7 @@
 //! - **Tier 1** — scalars/tables loaded once into [`MechanicsProfile`] (Copy, zero per-call cost).
 //! - **Tier 2** — optional Lua override functions in [`FormulaHooks`]; native fast path when absent.
 //!
-//! **C++ reference (behavior / outcomes — CipSoft 7.72, clean-room R12):**
+//! **C++ reference (behavior / outcomes — 772, clean-room R12):**
 //! - Beat 200 ms — `tibia-game-master/src/config.cc` `Beat = 200`.
 //! - Speed `GoStrength*2 + 80` — `crmain.cc:445` `TCreature::GetSpeed`.
 //! - Step delay `ceil((wp*1000/speed)/Beat)*Beat` — `cract.cc:1462` `TCreature::NotifyGo`.
@@ -36,7 +36,7 @@ use tfs_rust_common::ProtocolVersion;
 pub enum PathCostModel {
     /// TFS 1.4.2 — `MAP_NORMALWALKCOST = 10`, `MAP_DIAGONALWALKCOST = 25` (`map.cpp`).
     Fixed,
-    /// CipSoft 7.72 — terrain-speed-weighted waypoints, diagonal costs 3× the tile (`cract.cc` `TShortway`).
+    /// 772 — terrain-speed-weighted waypoints, diagonal costs 3× the tile (`cract.cc` `TShortway`).
     TerrainWeighted,
 }
 
@@ -45,7 +45,7 @@ pub enum PathCostModel {
 pub enum PathSearchModel {
     /// TFS 1.4.2 — forward search origin → destination (`map.cpp` `getPathMatching`).
     Forward,
-    /// CipSoft 7.72 — reverse search destination → origin (`cract.cc:7` `TShortway`).
+    /// 772 — reverse search destination → origin (`cract.cc:7` `TShortway`).
     Reverse,
 }
 
@@ -54,14 +54,14 @@ pub enum PathSearchModel {
 pub enum ArmorReduction {
     /// TFS classic — subtract full armor value (`creature.cpp` ~532).
     Full,
-    /// CipSoft — `(Armor/2) + rand()%(Armor/2)` when `Armor >= 2` (`crcombat.cc:303`).
+    /// 772 — `(Armor/2) + rand()%(Armor/2)` when `Armor >= 2` (`crcombat.cc:303`).
     Randomized,
 }
 
 /// Monster "weakest target" comparison metric (`monster_ai.rs` target strategy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeakestTargetMetric {
-    /// CipSoft — current HP (`crnonpl.cc` `Strategy`).
+    /// 772 — current HP (`crnonpl.cc` `Strategy`).
     CurrentHp,
     /// TFS — max HP (`monsters.cpp` `<targetstrategy>`).
     MaxHp,
@@ -79,7 +79,7 @@ pub enum DistanceKeep {
 /// Weapon-damage formula selector (combat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageFormula {
-    /// CipSoft `ProbeValue` — `((rand%100+rand%100)/2) * max * / 10000` (`crskill.cc:535`).
+    /// 772 `ProbeValue` — `((rand%100+rand%100)/2) * max * / 10000` (`crskill.cc:535`).
     ClassicProbe,
     /// TFS modern level/skill weapon formula (`weapons.cpp`).
     Modern,
@@ -90,8 +90,8 @@ pub enum DamageFormula {
 pub enum StepSpeedModel {
     /// TFS — per-tile duration from `floor(A*log((stepSpeed/2)+B)+C)` (`creature.cpp` `getStepDuration`).
     TfsLog,
-    /// CipSoft / TVP — `GetSpeed = 2*GoStrength+80`, delay `(ground*1000)/speed` (`crmain.cc:445`, `cract.cc:1462`).
-    CipSoft,
+    /// 772 linear — `GetSpeed = 2*GoStrength+80`, delay `(ground*1000)/speed` (`crmain.cc:445`, `cract.cc:1462`).
+    LinearGo,
 }
 
 /// Startup-selected player speed scaling policy (loaded once from `formulas.playerSpeed`).
@@ -99,7 +99,7 @@ pub enum StepSpeedModel {
 pub enum PlayerSpeedModel {
     /// Keep era-native behavior (`StepSpeedModel` default for the active protocol version).
     EraDefault,
-    /// Classic CipSoft 7.72 linear (`GetSpeed = 2*go + 80`).
+    /// Classic 772 linear (`GetSpeed = 2*go + 80`).
     Classic772,
     /// TFS 10.x logarithmic speed curve (`A*ln((go/2)+B)+C`).
     Retail1098,
@@ -127,9 +127,9 @@ pub struct ArmorRandomTuning {
     pub divisor: i32,
 }
 
-/// CipSoft `TCreature::GetSpeed` — `gameserver/src/creature.h` `getSpeed()`.
+/// Linear go strength speed — `gameserver/src/creature.h` `getSpeed()` (`2*go + 80`).
 #[inline]
-pub fn cipsoft_effective_speed(go_strength: i32) -> i32 {
+pub fn linear_go_effective_speed(go_strength: i32) -> i32 {
     go_strength.saturating_mul(2).saturating_add(80).max(1)
 }
 
@@ -138,7 +138,7 @@ pub fn cipsoft_effective_speed(go_strength: i32) -> i32 {
 pub enum SpawnNearPlayer {
     /// TFS — block the spawn while a player occupies the block tile (`spawn.cpp`).
     Block,
-    /// CipSoft — shrink the spawn radius, still spawn further out (`crnonpl.cc:1414`).
+    /// 772 — shrink the spawn radius, still spawn further out (`crnonpl.cc:1414`).
     RadiusShrink,
 }
 
@@ -146,22 +146,22 @@ pub enum SpawnNearPlayer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LevelExpModel {
     /// TFS `Player::getExpForLevel` (`player.h:171`) — `(((L-6)*L+17)*L-12)/6 * 100`. Identical
-    /// polynomial to CipSoft with `Delta = 100`.
+    /// polynomial to 772 with `Delta = 100`.
     Tfs,
-    /// CipSoft `(((L-6)*L+17)*L-12)/6 * delta` (`crskill.cc:352`) — same shape, era `Delta`.
-    CipSoftPoly,
+    /// 772 `(((L-6)*L+17)*L-12)/6 * delta` (`crskill.cc:352`) — same shape, era `Delta`.
+    DeltaPoly,
 }
 
 /// Attack/defense fight-mode multipliers (offensive / balanced / defensive).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FightModes {
-    /// Attack multiplier when in offensive mode (CipSoft `1.20`, TFS `1.20`).
+    /// Attack multiplier when in offensive mode (772 `1.20`, TFS `1.20`).
     pub offensive_atk: f64,
-    /// Attack multiplier when in defensive mode (CipSoft `0.60`, TFS `0.80`).
+    /// Attack multiplier when in defensive mode (772 `0.60`, TFS `0.80`).
     pub defensive_atk: f64,
-    /// Defense multiplier when in offensive mode (CipSoft `0.60`, TFS `0.80`).
+    /// Defense multiplier when in offensive mode (772 `0.60`, TFS `0.80`).
     pub offensive_def: f64,
-    /// Defense multiplier when in defensive mode (CipSoft `1.80`, TFS `1.20`).
+    /// Defense multiplier when in defensive mode (772 `1.80`, TFS `1.20`).
     pub defensive_def: f64,
 }
 
@@ -177,9 +177,9 @@ pub struct TickSpec {
 /// DoT condition constants by element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConditionTicks {
-    /// CipSoft fire = `{10, 8}` (`crskill.cc:1064`).
+    /// 772 fire = `{10, 8}` (`crskill.cc:1064`).
     pub fire: TickSpec,
-    /// CipSoft energy = `{25, 10}` (`crskill.cc:1090`).
+    /// 772 energy = `{25, 10}` (`crskill.cc:1090`).
     pub energy: TickSpec,
     /// Poison initial damage decays by `FactorPercent` per tick — start damage anchor (`crskill.cc:969`).
     pub poison_start: i32,
@@ -199,13 +199,13 @@ pub struct MechanicsProfile {
     pub beat_ms: u32,
     /// Per-tile walk delay quantization — 50 ms both shipped eras (TVP `gameserver` for 772).
     pub step_beat_ms: u32,
-    /// Per-tile walk duration curve (TFS log vs CipSoft linear speed).
+    /// Per-tile walk duration curve (TFS log vs 772 linear speed).
     pub step_speed: StepSpeedModel,
     /// Player speed scaling model loaded once from formulas.
     pub player_speed_model: PlayerSpeedModel,
     /// A* edge-cost model.
     pub path_cost: PathCostModel,
-    /// A* expansion direction — forward (TFS) vs reverse (CipSoft `TShortway`).
+    /// A* expansion direction — forward (TFS) vs reverse (772 `TShortway`).
     pub path_search: PathSearchModel,
     /// Flat attack interval in ms; `0` = use vocation/weapon `getAttackSpeed`.
     pub attack_speed_ms: u32,
@@ -231,14 +231,14 @@ pub struct MechanicsProfile {
     pub spawn_near_player: SpawnNearPlayer,
     /// Exp attribution window in combat rounds (CipSoft 60).
     pub exp_attribution_rounds: u32,
-    /// PvP exp cap fraction numerator/denominator (CipSoft `11/10`).
+    /// PvP exp cap fraction numerator/denominator (772 `11/10`).
     pub pvp_exp_cap_num: u32,
     pub pvp_exp_cap_den: u32,
     /// Spell damage coefficients.
     pub spell_coeff: SpellCoeff,
     /// Per-level experience curve.
     pub level_exp: LevelExpModel,
-    /// CipSoft level-exp `Delta` multiplier (TFS uses the same polynomial with `Delta = 100`).
+    /// 772 level-exp `Delta` multiplier (TFS uses the same polynomial with `Delta = 100`).
     pub level_exp_delta: i64,
     /// When true, repath on follow-target move even if `has_follow_path` is false (CipSoft).
     /// TFS 1098 requires an active follow path before repathing (`creature.cpp:619`).
@@ -256,7 +256,7 @@ impl MechanicsProfile {
                 beat_ms: 200,
                 // TVP `gameserver/src/creature.cpp` — `50 * ((50 + 1000*wp/speed - 1) / 50)`.
                 step_beat_ms: 50,
-                step_speed: StepSpeedModel::CipSoft,
+                step_speed: StepSpeedModel::LinearGo,
                 player_speed_model: PlayerSpeedModel::BalancedLog,
                 path_cost: PathCostModel::TerrainWeighted,
                 path_search: PathSearchModel::Reverse,
@@ -295,7 +295,7 @@ impl MechanicsProfile {
                     level_mult: 2,
                     magic_mult: 3,
                 },
-                level_exp: LevelExpModel::CipSoftPoly,
+                level_exp: LevelExpModel::DeltaPoly,
                 level_exp_delta: 100,
                 follow_repath_without_path: true,
                 path_forward_fallback: false,
@@ -597,7 +597,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         _ => p.path_search,
     };
     p.step_speed = match str_or(&formulas, "stepSpeedModel", "").as_str() {
-        "cipsoft" | "cip" => StepSpeedModel::CipSoft,
+        "linearGo" | "linear_go" => StepSpeedModel::LinearGo,
+        "cipsoft" | "cip" => StepSpeedModel::LinearGo, // deprecated shard alias
         "tfs" | "tfsLog" => StepSpeedModel::TfsLog,
         _ => p.step_speed,
     };
@@ -623,7 +624,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         _ => p.damage_formula,
     };
     p.level_exp = match str_or(&formulas, "levelExp", "").as_str() {
-        "cipsoft" | "poly" => LevelExpModel::CipSoftPoly,
+        "delta" | "poly" => LevelExpModel::DeltaPoly,
+        "cipsoft" => LevelExpModel::DeltaPoly, // deprecated shard alias
         "tfs" => LevelExpModel::Tfs,
         _ => p.level_exp,
     };
@@ -727,13 +729,13 @@ mod tests {
     }
 
     #[test]
-    fn cipsoft_effective_speed_matches_gameserver() {
-        assert_eq!(cipsoft_effective_speed(42), 164);
-        assert_eq!(cipsoft_effective_speed(0), 80);
+    fn linear_go_effective_speed_matches_gameserver() {
+        assert_eq!(linear_go_effective_speed(42), 164);
+        assert_eq!(linear_go_effective_speed(0), 80);
     }
 
     #[test]
-    fn defaults_772_match_cipsoft() {
+    fn defaults_772_match_linear_go_profile() {
         let p = MechanicsProfile::for_version(ProtocolVersion::V772);
         assert_eq!(p.beat_ms, 200);
         assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
@@ -743,8 +745,8 @@ mod tests {
         assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
-        assert_eq!(p.level_exp, LevelExpModel::CipSoftPoly);
-        assert_eq!(p.step_speed, StepSpeedModel::CipSoft);
+        assert_eq!(p.level_exp, LevelExpModel::DeltaPoly);
+        assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
         assert_eq!(p.step_beat_ms, 50);
         assert_eq!(p.conditions.fire, TickSpec { dmg: 10, ticks: 8 });
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });

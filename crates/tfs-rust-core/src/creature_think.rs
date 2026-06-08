@@ -104,7 +104,7 @@ impl GameWorld {
         }
     }
 
-    /// CipSoft `ProcessCreatures` — full monster/NPC sweep ~1 Hz (`main.cc` `AdvanceGame`).
+    /// 772 `ProcessCreatures` — full monster/NPC sweep ~1 Hz (`main.cc` `AdvanceGame`).
     pub fn process_creatures_772(&mut self) {
         let interval_ms = EVENT_CREATURE_THINK_INTERVAL_MS;
         let ids: Vec<CreatureId> = self
@@ -258,7 +258,7 @@ mod tests {
 
     
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
+        beat_driven_world, ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
     };
 
     use super::*;
@@ -406,9 +406,13 @@ mod tests {
 
     #[test]
     fn process_creatures_772_thinks_at_1hz() {
-        let (mut world, counter) = world_with_counter();
-        world.beat_driven_loop = true;
-        world.walk_wake_tx = None;
+        let (mut world, counter) = {
+            let counter = std::sync::Arc::new(CountingEventDispatcher::default());
+            let mut world = beat_driven_world();
+            world.events = Box::new(CountingEventDispatcherProxy(counter.clone()));
+            world.walk_wake_tx = None;
+            (world, counter)
+        };
 
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
@@ -439,8 +443,7 @@ mod tests {
 
     #[test]
     fn tick_counter_advances_on_beat_for_decay() {
-        let mut world = minimal_world();
-        world.beat_driven_loop = true;
+        let mut world = beat_driven_world();
         world.walk_wake_tx = None;
 
         assert_eq!(world.tick_counter, 0);

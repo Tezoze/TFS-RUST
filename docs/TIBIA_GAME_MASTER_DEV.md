@@ -1,16 +1,16 @@
 # tibia-game-master — local compile & debug
 
-The CipSoft 7.72 decompile lives at `reference/cipsoft-772/tibia-game-master/` (gitignored). Use it as the **772 mechanics reference** when validating TFS-RUST parity — not for wire/packets. TVP wire reference: `reference/tvp-772/gameserver/`. See [reference/README.md](../reference/README.md).
+The 772 decompile lives at `reference/classic-772/tibia-game-master/` (gitignored). Use it as the **772 mechanics reference** when validating TFS-RUST parity — not for wire/packets. TVP wire reference: `reference/tvp-772/gameserver/`. See [reference/README.md](../reference/README.md).
 
 ## What you need
 
 | Piece | Purpose | Status in this repo |
 |-------|---------|---------------------|
-| `reference/cipsoft-772/tibia-game-master/` | Game server source | Present (gitignored) |
+| `reference/classic-772/tibia-game-master/` | Game server source | Present (gitignored) |
 | OpenSSL `libcrypto` | RSA (`apt install libssl-dev` / `pacman -S openssl`) | System package |
 | **Game data tarball** | `.tibia`, `map/`, `dat/`, `usr/`, scripts | `reference/archives/tibia-game.tarball.tar.gz` |
-| `reference/cipsoft-772/tibia-querymanager/` | Hard runtime dependency (DB) | Cloned alongside game source |
-| `reference/cipsoft-772/tibia-login/` | Character list / login (port 7171) | Cloned alongside game source |
+| `reference/classic-772/tibia-querymanager/` | Hard runtime dependency (DB) | Cloned alongside game source |
+| `reference/classic-772/tibia-login/` | Character list / login (port 7171) | Cloned alongside game source |
 
 ## Build (verified)
 
@@ -27,7 +27,7 @@ This builds `tibia-game-master/build/game` with:
 Manual equivalent:
 
 ```bash
-cd reference/cipsoft-772/tibia-game-master
+cd reference/classic-772/tibia-game-master
 make -B DEBUG=1 -j$(nproc) \
   CFLAGS="-m64 -fno-strict-aliasing -pedantic -Wall -Wextra \
     -Wno-deprecated-declarations -Wno-unused-parameter -Wno-format-truncation \
@@ -45,8 +45,8 @@ The game server **will not start** without:
 ### 1. Clone supporting services (once)
 
 ```bash
-git clone https://github.com/fusion32/tibia-querymanager.git reference/cipsoft-772/tibia-querymanager
-git clone https://github.com/fusion32/tibia-login.git reference/cipsoft-772/tibia-login
+git clone https://github.com/fusion32/tibia-querymanager.git reference/classic-772/tibia-querymanager
+git clone https://github.com/fusion32/tibia-login.git reference/classic-772/tibia-login
 scripts/tibia_game_dev.sh build
 ```
 
@@ -58,16 +58,16 @@ Optional sample accounts: copy `tibia-querymanager/sqlite/z-999-initial-data.sql
 
 ### 2. Prepare game data
 
-Extract into `reference/cipsoft-772/runtime/` (or repo root for legacy layout):
+Extract into `reference/classic-772/runtime/` (or repo root for legacy layout):
 
 ```bash
-mkdir -p reference/cipsoft-772/runtime
-tar -xzf reference/archives/tibia-game.tarball.tar.gz -C reference/cipsoft-772/runtime --no-same-owner
+mkdir -p reference/classic-772/runtime
+tar -xzf reference/archives/tibia-game.tarball.tar.gz -C reference/classic-772/runtime --no-same-owner
 
 scripts/tibia_game_dev.sh setup
 ```
 
-`setup` auto-detects game data at `reference/cipsoft-772/runtime/`, patches `.tibia` paths, installs the query-manager test-account patch, and copies the debug `game` binary + `tibia.pem`.
+`setup` auto-detects game data at `reference/classic-772/runtime/`, patches `.tibia` paths, installs the query-manager test-account patch, and copies the debug `game` binary + `tibia.pem`.
 
 **First-run cleanup** (from upstream README):
 
@@ -77,7 +77,7 @@ scripts/tibia_game_dev.sh setup
 
 ### 3. Start services
 
-**One command** (background, logs under `reference/cipsoft-772/state/.tibia-cipsoft/`):
+**One command** (background, logs under `reference/classic-772/state/.tibia-cipsoft/`):
 
 ```bash
 scripts/tibia_game_online.sh start
@@ -146,7 +146,7 @@ scripts/tibia_game_dev.sh import-character Crowoo
 
 Use `--account N` to attach the character to a different query-manager account.
 
-RSA key: **`reference/cipsoft-772/client/tibia.pem`**. Login and game read `tibia.pem` from their working directory; `setup` copies it into runtime. The login server gets a copy at `reference/cipsoft-772/tibia-login/tibia.pem` on start.
+RSA key: **`reference/classic-772/client/tibia.pem`**. Login and game read `tibia.pem` from their working directory; `setup` copies it into runtime. The login server gets a copy at `reference/classic-772/tibia-login/tibia.pem` on start.
 
 ```bash
 scripts/tibia_game_online.sh show-rsa   # print modulus for your active key
@@ -169,13 +169,13 @@ wine ~/Downloads/Tibia772/Tibia-local.exe
 
 (`fish` does not run `scripts/foo.py` unless you `cd` to the repo or use `python3 /full/path/...`.)
 
-Patches login hosts → `127.0.0.1`, RSA from `reference/cipsoft-772/client/tibia.pem`, keeps port 7171. Original backed up as `Tibia.exe.bak` when patching in place.
+Patches login hosts → `127.0.0.1`, RSA from `reference/classic-772/client/tibia.pem`, keeps port 7171. Original backed up as `Tibia.exe.bak` when patching in place.
 
 Memory-based ipchanger (only if Tibia is already running in the **same** `WINEPREFIX`):
 
 ```bash
 scripts/build_ipchanger.sh
-cd reference/cipsoft-772/tibia-ipchanger-master && wine build/ipchanger.exe local
+cd reference/classic-772/tibia-ipchanger-master && wine build/ipchanger.exe local
 ```
 
 ### 4. gdb
