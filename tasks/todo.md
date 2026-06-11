@@ -256,7 +256,9 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `monster_ai.rs` / `creature_think.rs` — skip think chase/repath when `beat_driven_loop`
 - [x] `monster_events.rs` / `monster_targets.rs` — 772 repath defers to idle
 - [x] Unit tests: `idle_stimulus::tests` (4), existing beat_driven + creature_think green
-- [ ] Phase B deferred: `CreatureAction::Attack`, retire 772 `creature_on_attacking` from think
+- [x] Phase B B1–B2: `CreatureAction::Wait` + `MONSTER_IDLE_WAIT_MS` pacing (roam/dist_dance/dist_flee fail/master wait band); `monster_idle_roam_step`; X6 roam leak removed from `monster_next_walk_step`
+- [x] E1-lite: `CreatureAction::Attack` stub from idle tail; `process_creatures_772` skips `creature_on_attacking` for monsters on `beat_driven_loop`
+- [ ] Phase E2 deferred: melee damage on Attack execute; `ToDoWait(100)` after failed attack
 
 ## Monster AI Phase A0 — 772 chase hub cleanup (X7, X8, X11, M11) — done
 - [x] `monster_idle_chase_repath` — 772-only TShortway entry; no TFS `getDistanceStep` / greedy fallbacks
@@ -265,5 +267,8 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `monster_path_search_params` — 772 `full_path_search` from cheb band, not TFS `canUseAttack`
 - [x] `go_to_follow_creature` — 1098-only hub; 772 delegates to idle repath helper
 - [x] Tests: `test_772_chase_noway_*`, `test_772_at_follow_goal_*`, `test_772_full_path_search_*`, `test_772_idle_no_greedy_step_on_path_fail`
-- [ ] A1 deferred: idle branch dispatch order (flee → master → melee/dist → roam)
-- [ ] A2 deferred: melee-adjacent 1-step dispatch at cheb ≤ 2
+- [x] A1: idle branch dispatch order (flee → master → melee/dist → roam) — `MonsterIdleWalkBranch` classifier + executor
+- [x] A2: melee-adjacent 1-step dispatch at cheb==2 (`monster_idle_chase_step_budget`, X5 gated on 772)
+- [x] A3: dist_chase step budget `cheb - target_distance` (per-type band); truncate stops at keep band
+- [x] A4: remove 772 flee/dance duplicate from `monster_next_walk_step` (X4); idle-only dist/melee flee+dance
+- [x] A5: master follow Manhattan 2–3 hold band; `ToDoGo(max:3)` beyond wait band

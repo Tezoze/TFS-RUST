@@ -1,9 +1,8 @@
 //! Per-creature ToDo action queue for 772 idle-driven AI.
 //!
 //! - 772 `TCreature::Execute` / `ToDoList` — `cract.cc:728`.
+//! - `ToDoWait` — `cract.cc:1008`; idle pacing — `crnonpl.cc:2693–2807,2852`.
 //! - Global wakeup heap: [`ToDoQueue`](crate::todo_queue::ToDoQueue) + `next_wakeup`.
-//!
-//! Phase A: `Go` only. Attack/Wait deferred to Phase B/C.
 
 use std::collections::VecDeque;
 
@@ -12,6 +11,9 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::pathfinding::CHASE_PATH_MAX_STEPS;
+
+/// C++ `ToDoWait(1000)` after roam, dist_dance, dist_flee fail, master dist 2–3 (`crnonpl.cc`).
+pub const MONSTER_IDLE_WAIT_MS: u64 = 1000;
 
 /// Snapshot per-creature + global ToDo state — enable with
 /// `RUST_LOG=tfs_rust_core::creature_todo=debug,tfs_rust_core::idle_stimulus=debug`.
@@ -50,6 +52,10 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
 pub enum CreatureAction {
     /// `TDGo` — execute one walk step from `listWalkDir`.
     Go,
+    /// `TDWait` — logical delay before the next action (`cract.cc:1008`).
+    Wait { delay_ms: u64 },
+    /// `TDAttack` — melee/ranged strike (`cract.cc:1325`); execute stub until Phase E2.
+    Attack,
 }
 
 /// Per-creature action queue paired with the global wakeup heap.
@@ -67,6 +73,16 @@ impl CreatureTodo {
 
     pub fn has_go(&self) -> bool {
         self.queue.iter().any(|a| matches!(a, CreatureAction::Go))
+    }
+
+    pub fn has_wait(&self) -> bool {
+        self.queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Wait { .. }))
+    }
+
+    pub fn has_attack(&self) -> bool {
+        self.queue.iter().any(|a| matches!(a, CreatureAction::Attack))
     }
 }
 
@@ -95,6 +111,43 @@ impl GameWorld {
         true
     }
 
+    /// Push `Wait` onto the action queue.
+    pub(crate) fn enqueue_creature_wait(&mut self, cid: CreatureId, delay_ms: u64) -> bool {
+        let Some(k) = self.creatures.get_mut(cid) else {
+            return false;
+        };
+        k.base_mut()
+            .todo
+            .queue
+            .push_back(CreatureAction::Wait { delay_ms });
+        tracing::debug!(
+            creature = k.base().name.as_str(),
+            ?cid,
+            delay_ms,
+            action_queue_len = k.base().todo.queue.len(),
+            "idle_todo: enqueue_wait"
+        );
+        true
+    }
+
+    /// Push `Attack` if not already queued.
+    pub(crate) fn enqueue_creature_attack(&mut self, cid: CreatureId) -> bool {
+        let Some(k) = self.creatures.get_mut(cid) else {
+            return false;
+        };
+        if k.base().todo.has_attack() {
+            return false;
+        }
+        k.base_mut().todo.queue.push_back(CreatureAction::Attack);
+        tracing::debug!(
+            creature = k.base().name.as_str(),
+            ?cid,
+            action_queue_len = k.base().todo.queue.len(),
+            "idle_todo: enqueue_attack"
+        );
+        true
+    }
+
     /// Schedule the next action wakeup after `delay_ms` logical time.
     pub(crate) fn todo_start_from_action(&mut self, cid: CreatureId, delay_ms: u64) {
         if delay_ms == 0 {
@@ -104,15 +157,33 @@ impl GameWorld {
         }
     }
 
-    /// Enqueue Go and schedule its wakeup when idle decides movement is needed.
-    pub(crate) fn idle_enqueue_go_and_start(
+    /// Enqueue Wait and arm an immediate execute wakeup (`cract.cc` `ToDoStart`).
+    pub(crate) fn idle_enqueue_wait_and_start(&mut self, cid: CreatureId, delay_ms: u64) {
+        if !self.enqueue_creature_wait(cid, delay_ms) {
+            return;
+        }
+        trace_creature_todo(self, cid, "idle_enqueue_wait");
+        self.schedule_immediate_todo_wakeup(cid);
+    }
+
+    /// Enqueue Go (and optional trailing Wait), then schedule the Go wakeup.
+    pub(crate) fn idle_enqueue_paced_go(
         &mut self,
         cid: CreatureId,
         first_step: bool,
         todo_via: Option<&str>,
+        wait_after_ms: Option<u64>,
     ) {
-        if !self.enqueue_creature_go(cid) {
+        if !self.enqueue_creature_go(cid)
+            && !self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().todo.has_go())
+        {
             return;
+        }
+        if let Some(ms) = wait_after_ms {
+            self.enqueue_creature_wait(cid, ms);
         }
         if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
             if let Some(k) = self.creatures.get(cid) {
@@ -148,9 +219,20 @@ impl GameWorld {
                 }
             }
         }
+        trace_creature_todo(self, cid, "idle_enqueue_go");
         if self.todo_start_go_delay(cid, first_step) {
             self.schedule_immediate_todo_wakeup(cid);
         }
+    }
+
+    /// Enqueue Go and schedule its wakeup when idle decides movement is needed.
+    pub(crate) fn idle_enqueue_go_and_start(
+        &mut self,
+        cid: CreatureId,
+        first_step: bool,
+        todo_via: Option<&str>,
+    ) {
+        self.idle_enqueue_paced_go(cid, first_step, todo_via, None);
     }
 
     /// Arm the next todo step on the heap without synchronous re-entry (avoids stack overflow).
@@ -164,5 +246,68 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tfs_rust_common::Position;
+
+    use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+    use crate::test_world::support::{ensure_walkable_tile, insert_monster, minimal_world};
+
+    fn beat_driven_test_world() -> crate::game_world::GameWorld {
+        let mut world = minimal_world();
+        world.mechanics =
+            crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
+        world.beat_driven_loop = true;
+        world.walk_wake_tx = None;
+        world.server_ms = 500;
+        world
+    }
+
+    #[test]
+    fn wait_action_queues_go_then_wait() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 2148);
+        let monster = insert_monster(&mut world, "Rat", pos, 200);
+
+        world.idle_enqueue_paced_go(monster, true, Some("roam"), Some(MONSTER_IDLE_WAIT_MS));
+
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2);
+        assert!(matches!(todo.queue[0], CreatureAction::Go));
+        assert!(matches!(
+            todo.queue[1],
+            CreatureAction::Wait {
+                delay_ms: MONSTER_IDLE_WAIT_MS
+            }
+        ));
+    }
+
+    #[test]
+    fn wait_execute_schedules_wakeup_at_delay() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 2148);
+        let monster = insert_monster(&mut world, "Rat", pos, 200);
+
+        world.idle_enqueue_wait_and_start(monster, MONSTER_IDLE_WAIT_MS);
+        world.run_monster_todo_execute(monster);
+
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .todo
+                .is_empty()
+        );
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().next_wakeup,
+            Some(500 + MONSTER_IDLE_WAIT_MS)
+        );
     }
 }

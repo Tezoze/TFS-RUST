@@ -1094,12 +1094,15 @@ fn walk_queue_direction(from: Position, to: Position) -> Direction {
 }
 
 /// 772 `TShortway::Calculate` queue trim — `cract.cc:241-258`.
+///
+/// `stop_at_cheb`: melee uses `1`; keep-distance dist chase uses per-type `target_distance`.
 pub fn truncate_cipsoft_chase_queue(
     start: Position,
     target: Position,
     mut walk_order: Vec<Direction>,
     max_steps: usize,
     must_reach: bool,
+    stop_at_cheb: i32,
 ) -> Vec<Direction> {
     let mut cur_distance = chebyshev_dist(start, target);
     let mut out = Vec::new();
@@ -1110,7 +1113,7 @@ pub fn truncate_cipsoft_chase_queue(
         if remaining == 0 {
             break;
         }
-        if !must_reach && cur_distance <= 1 {
+        if !must_reach && cur_distance <= stop_at_cheb {
             break;
         }
         out.push(d);
@@ -1680,7 +1683,36 @@ mod tests {
         let start = Position::new(32345, 32288, 7);
         let target = Position::new(32344, 32286, 7);
         let walk_order = vec![Direction::North, Direction::North, Direction::West];
-        let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 3, false);
+        let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 3, false, 1);
         assert_eq!(truncated, vec![Direction::North]);
+    }
+
+    #[test]
+    fn test_truncate_cipsoft_chase_queue_dist_chase_stops_at_band() {
+        let start = Position::new(100, 100, 7);
+        let target = Position::new(106, 100, 7);
+        let walk_order = vec![
+            Direction::East,
+            Direction::East,
+            Direction::East,
+            Direction::East,
+            Direction::East,
+            Direction::East,
+        ];
+        let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 6, false, 4);
+        assert_eq!(
+            truncated,
+            vec![Direction::East, Direction::East],
+            "cheb 6 → band 4 should take two steps, not march to melee"
+        );
+    }
+
+    #[test]
+    fn test_truncate_cipsoft_chase_queue_melee_adjacent_must_one() {
+        let start = Position::new(100, 100, 7);
+        let target = Position::new(102, 100, 7);
+        let walk_order = vec![Direction::East, Direction::East];
+        let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 1, true, 1);
+        assert_eq!(truncated, vec![Direction::East]);
     }
 }

@@ -1243,9 +1243,8 @@ impl GameWorld {
                         .get(cid)
                         .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
                 {
-                    if self.monster_should_keep_chase_walk_alive(cid)
-                        || self.monster_should_keep_dance_walk_alive(cid)
-                    {
+                    // 772 idle drain owns dance pacing — no TFS dance poll (X5).
+                    if self.monster_should_keep_chase_walk_alive(cid) {
                         self.schedule_walk_followup_deadline(cid);
                     } else {
                         self.request_idle_stimulus(cid);

@@ -125,7 +125,8 @@ impl GameWorld {
             match self.creatures.get(cid) {
                 Some(CreatureKind::Monster(_)) => {
                     self.monster_on_think(cid, interval_ms);
-                    if self.creature_alive_for_think(cid) {
+                    // 772 monsters attack via todo `CreatureAction::Attack` from idle (E1-lite).
+                    if self.creature_alive_for_think(cid) && !self.beat_driven_loop {
                         self.creature_on_attacking(cid, interval_ms);
                     }
                 }

@@ -15,19 +15,19 @@
 1. **~1 Hz think** — `process_creatures_772` → `monster_on_think` (target list hygiene, spawn range, idle status, look-only `do_attacking`).
 2. **Beat-driven walk** — `advance_beat_772` (200 ms) drains the global `ToDoQueue`; when a monster's action list empties, `monster_idle_stimulus` runs the reference `IdleStimulus` body (chase, flee, dance, roam, combat setup).
 
-**What is largely ported:** subsystem stagger (`SubsystemCounters772`), global min-heap todo queue, `Go`-only execution chain, reverse-terrain `TShortway`, repath hysteresis on target move, walk delay quantizer (`NotifyGo` beat ceil), 772 look gating while chasing.
+**What is largely ported:** subsystem stagger (`SubsystemCounters772`), global min-heap todo queue, `Go`-only execution chain, reverse-terrain `TShortway`, repath hysteresis on target move, walk delay quantizer (`NotifyGo` beat ceil), 772 look gating while chasing, **A0** chase hub cleanup (NOWAY→roam, no greedy step, cheb-band at-goal/`full_path_search`), **A1** idle walk dispatch shell (flee → master follow → melee/dist → roam via `MonsterIdleWalkBranch`).
 
 **Largest remaining debt:**
 
 | Area | Status |
 |------|--------|
-| IdleStimulus movement branches (melee-adjacent, dist_chase budget) | ❌ Open — see [§5](#5-movement-branch-gaps-idlestimulus-walking) |
+| IdleStimulus movement branches (melee-adjacent, dist_chase budget) | 🟡 Partial — A1 branch shell ✅; M1/M2/M3 + Wait pacing still open — see [§5](#5-movement-branch-gaps-idlestimulus-walking) |
 | ToDo `Attack` / `Wait` actions | ❌ Missing — `CreatureAction::Go` only |
 | Combat loop (melee damage, spell cast in idle) | ❌ Stub |
 | Weighted race `Strategy[]` targeting | ❌ TFS-shaped |
 | `SLEEPING` / `PANIC` / `ATTACKING` state machine | ❌ `is_idle` boolean only |
 | Chase pathfinder + repath cadence | ✅ Mostly resolved — see [chase doc](TFS-RUST_772_Chase_Path_Parity_Gaps.md) |
-| TFS 1098 APIs on 772 path (`getDistanceStep`, `getDanceStep`, think-repath, …) | 🟡 Partially gated — see [§10](#10-tfs-1098-api-leak-audit) |
+| TFS 1098 APIs on 772 path (`getDistanceStep`, `getDanceStep`, think-repath, …) | 🟡 Partially gated — A1 closed idle hub (X3); X4–X6 `getNextStep` duplicate remains — see [§10](#10-tfs-1098-api-leak-audit) |
 
 ### Keep-distance policy (Rust vs decompile literals)
 
@@ -52,9 +52,9 @@ Everything else in the dist/melee branch order (flee before chase, `SearchFlight
 |---------|--------------------------------|------------|--------|
 | `TShortway` fails in `ToDoGo` | `ToDoClear()` + `NOWAY` | `path_forward_fallback = false` → `get_path_matching` returns `None` ✅ | Keep |
 | Relaxed / second-chance A* | **None** on 772 | Relaxed `fpp` retry gated to `!beat_driven_loop` only ✅ | Keep |
-| Greedy one-tile closer step | **None** | `monster_try_any_closer_step` still runs on 772 (`monster_ai.rs:565`) ❌ | **Remove on 772** (X11) |
+| Greedy one-tile closer step | **None** | Gated off 772 — `monster_idle_chase_repath` only; 1098-only in `go_to_follow_creature` ✅ | Keep |
 | `getDistanceStep` / `getDanceStep` fallback | **None** | Gated off 772 in `go_to_follow_creature` ✅ | Keep |
-| After `NOWAY` in idle walk `try` | `Target = 0`; `ToDoClear()`; fall through to **roam** loop (`crnonpl.cc:2813–2863`) | `go_to_follow_creature` returns silently; no roam ❌ | **M11** |
+| After `NOWAY` in idle walk `try` | `Target = 0`; `ToDoClear()`; fall through to **roam** loop (`crnonpl.cc:2813–2863`) | `monster_on_chase_noway_772` + roam Go same idle tick ✅ | Keep |
 | `SearchFlightField` fails (dist flee) | `ToDoWait(1000)` in-band (`crnonpl.cc:2766`) | Partial — not always Wait | M5 |
 | `SearchFlightField` fails (panic flee) | Falls through to other idle branches (no immediate roam) | Differs | A4 |
 
@@ -207,23 +207,23 @@ Reference `STATE` enum (`enums.hh`): `SLEEPING`, `IDLE`, `UNDERATTACK`, `PANIC`,
 
 Reference dispatch order: `crnonpl.cc:2676–2810` (flee → master follow → melee/dist branches → attack/wait → start).
 
-Rust routes almost all chase through `monster_idle_prepare_and_enqueue_go` → `go_to_follow_creature` → `monster_try_apply_chase_path` (max 3 steps, `CHASE_PATH_MAX_STEPS`).
+Rust routes walk through `monster_idle_classify_walk_branch` → per-arm executor (`idle_stimulus.rs`) — flee/`dist_flee` via `SearchFlightField`, master follow, melee/dist chase via `monster_idle_chase_repath` only when `monster_idle_chase_needs_repath`, dance at band via `monster_idle_dance_step`, roam when no target. `go_to_follow_creature` on 772 is a thin wrapper for **direct** repath calls only (target-move defer, `monster_follow_repath_now`).
 
 ### Open gaps
 
 | ID | Status | Gap | Reference | Rust | Sev |
 |----|--------|-----|-----------|------|-----|
-| M1 | ❌ Open | **Melee-at-adjacent (`melee_dance`)** | cheb≤1: random cardinal keeping dist=1 + `ToDoGo(must:1)` (`crnonpl.cc:2736–2753`) | Idle repath uses 2–3 step `shortway`; dance only in `monster_next_walk_step` on empty queue | **P0** |
-| M2 | ❌ Open | **Shortway at cheb≤2** | Mostly 1-step cardinal (25/46 in snake replay) | Mostly 2–3 step batches (45/147) | **P0** |
-| M3 | ❌ Open | **`dist_chase` step budget** | `ToDoGo(..., max: Distance - keepDist)` — keepDist **4** in reference (`crnonpl.cc:2769`) | Always `CHASE_PATH_MAX_STEPS = 3`; should be `cheb - target_distance` from monster type | P1 |
-| M4 | ❌ Open | **`dist_dance` + Wait** | `Distance == keepDist` lateral + `ToDoWait(1000)` (`crnonpl.cc:2772–2791`) | Dance in `monster_next_walk_step`; no Wait; should use `cheb == target_distance` | P1 |
-| M5 | 🟡 Partial | **`dist_flee` + Wait on fail** | `SearchFlightField` or `ToDoWait(1000)` (`crnonpl.cc:2762–2767`) | Flee via `search_flight_field` in `monster_next_walk_step`; idle flee uses full shortway | P1 |
+| M1 | ✅ OK | **Melee-at-adjacent (`melee_dance`)** | cheb≤1: random cardinal keeping dist=1 + `ToDoGo(must:1)` (`crnonpl.cc:2736–2753`) | A2: `monster_idle_dance_step` at cheb==1; `MeleeChase` at cheb==2 uses 1-step `must:1` shortway | — |
+| M2 | 🟡 Verify | **Shortway at cheb≤2** | Mostly 1-step cardinal (25/46 in snake replay) | A2: `monster_idle_chase_step_budget` caps melee chase at cheb==2 to 1 step — live replay TBD | **P0** |
+| M3 | ✅ OK | **`dist_chase` step budget** | `ToDoGo(..., max: Distance - keepDist)` — keepDist **4** in reference (`crnonpl.cc:2769`) | A3: `cheb - target_distance` via `monster_idle_chase_step_budget`; truncate stops at keep band | — |
+| M4 | 🟡 Partial | **`dist_dance` + Wait** | `Distance == keepDist` lateral + `ToDoWait(1000)` (`crnonpl.cc:2772–2791`) | A1: `monster_idle_dance_step` at band in idle; no `ToDoWait` — B2/A4 | P1 |
+| M5 | 🟡 Partial | **`dist_flee` + Wait on fail** | `SearchFlightField` or `ToDoWait(1000)` (`crnonpl.cc:2762–2767`) | A1: `DistFlee` arm uses `search_flight_field` in idle; duplicate in `getNextStep` (X4); no Wait on fail — A4/B2 | P1 |
 | M6 | 🟡 Partial | **Master follow Wait** | Manhattan 2–3: `ToDoWait(1000)` only; else `ToDoGo(max:3)` (`crnonpl.cc:2691–2700`) | `monster_think_summon_stub` + generic follow; no Wait band | P2 |
 | M7 | 🟡 Approx | **Roam pacing** | `ToDoGo` + `ToDoWait(1000)` (`crnonpl.cc:2850–2853`) | `branch: roam` logged; 1 s `last_step` gate in `monster_next_walk_step` | P2 |
-| M8 | ❌ Open | **Diagonal `go_exec`** | 0% in snake replay | ~4.4% Rust — symptom of M1/M2 | P1 |
+| M8 | 🟡 Verify | **Diagonal `go_exec`** | 0% in snake replay | ~4.4% Rust pre-A2 — expected drop after 1-step melee-adjacent dispatch | P1 |
 | M9 | 🟡 Partial | **`SetChaseMode`** | `CHASE_MODE_CLOSE` / `NONE` before walk (`crnonpl.cc:2710–2726`) | Not modeled | P2 |
 | M10 | ❌ Open | **Kick boxes** | `CanKickBoxes` / `KickBoxes` (`crnonpl.cc:2897`) | Not implemented | P3 |
-| M11 | ❌ Open | **Path failure → roam (not TFS fallback)** | `ToDoGo` / `TShortway` fail → `NOWAY` → `Target=0` → idle roam (`cract.cc:1068`, `crnonpl.cc:2813–2863`) | `monster_try_any_closer_step` greedy step on 772; no roam on shortway fail | P1 |
+| M11 | ✅ OK | **Path failure → roam (not TFS fallback)** | `ToDoGo` / `TShortway` fail → `NOWAY` → `Target=0` → idle roam (`cract.cc:1068`, `crnonpl.cc:2813–2863`) | `monster_idle_chase_repath` → `Noway` → `monster_on_chase_noway_772` + roam (`idle_stimulus.rs`) | — |
 
 ### Resolved movement / path items
 
@@ -241,6 +241,14 @@ Cross-reference: [TFS-RUST_772_Chase_Path_Parity_Gaps.md](TFS-RUST_772_Chase_Pat
 | Target-move repath hysteresis | ✅ | `monster_chase_queue_stale`; empty queue not stale |
 | No forward A* on 772 (`pathForwardFallback`) | ✅ | `772.lua` + `pathfinding.rs:216` |
 | No relaxed A* retry on 772 | ✅ | `monster_try_apply_chase_path` uses `&[fpp]` only when `beat_driven_loop` |
+| No greedy closer step on 772 (X11) | ✅ | `monster_idle_chase_repath`; 1098-only `monster_try_any_closer_step` |
+| NOWAY → roam on chase fail (M11) | ✅ | `test_772_chase_noway_clears_target_and_roams` |
+| 772 chase hub decoupled from TFS (X3) | ✅ | A0 repath helper; A1 reference branch order in `monster_idle_prepare_and_enqueue_go` |
+| Idle walk branch dispatch (A1) | ✅ | `MonsterIdleWalkBranch` classifier + executor; flee/master/melee/dist/roam arms |
+| Idle flee / dist-flee (`SearchFlightField`) | ✅ | `monster_idle_flee_step` — not `TShortway` to target |
+| Melee-adjacent 1-step chase (A2, M1/M2) | ✅ | `monster_idle_chase_step_budget`; `test_772_melee_chase_cheb2_one_step` |
+| Idle dance at band (partial M4) | 🟡 | `monster_idle_dance_step` in idle; `getNextStep` duplicate remains (X4 → A4) |
+| Keep-distance at-goal / `full_path_search` (X7, X8) | ✅ | Cheb vs `target_distance`; `test_772_at_follow_goal_*`, `test_772_full_path_search_*` |
 
 ### M1/M2/M8 — chase evidence summary (from chase doc)
 
@@ -254,7 +262,7 @@ Do **not** duplicate full replay tables here. Key numbers from Jun 8 snake sessi
 | `shortway` at cheb≤2 | 25 (mostly 1-step) | 45 (mostly 2–3 step) |
 | Exact `(start, dest, steps)` match | — | 1 / 147 |
 
-**Fix direction (M1/M2):** In `monster_idle_stimulus` / `monster_idle_prepare_and_enqueue_go`, before `go_to_follow_creature`, branch cheb≤2 through reference-shaped `melee_dance` (cardinal, `must:1`) or 1-step shortway — not 3-step `melee_chase` batch.
+**Fix direction (M1/M2):** A1 ✅ branch shell in place. **A2:** at cheb≤2, `MeleeChase` arm must use 1-step `must:1` shortway or `melee_dance` — not 3-step `melee_chase` batch from `monster_idle_chase_repath`.
 
 ---
 
@@ -348,12 +356,12 @@ Work top-to-bottom. Each step should land with tests and/or live log compare whe
 
 | Step | Gap IDs | Work | Verify |
 |------|---------|------|--------|
-| **A0** | **X3–X5, X7, X8, X11, M11** | Stop using TFS `goToFollowCreature` as the 772 chase hub; **remove** `monster_try_any_closer_step` on 772; on `TShortway` fail follow `NOWAY` → roam (not greedy step); fix `at_follow_goal` / `full_path_search`. | §10 leak checklist; `test_772_*` |
-| **A1** | (shell) | Reorder `monster_idle_stimulus` walking body to match reference dispatch: flee → master follow → melee/dist → roam (`crnonpl.cc:2676+`). Do not route everything through `go_to_follow_creature` first. | Unit tests in `idle_stimulus.rs` |
-| **A2** | **M1, M2, M8, X4** | At cheb≤2: `melee_dance` (cardinal, `must:1`) or 1-step shortway in **idle** — not 3-step `melee_chase` batch via TFS path. | `compare_chase_live_logs.py`; `diag` on `go_exec` → 0% |
-| **A3** | **M3, X7, X8** | Ranged `dist_chase`: `max` steps = `cheb - target_distance` (from `monsters.xml`, not hardcoded 4); at-band / flee use same `target_distance`; path params from `DistanceFighting` not TFS `canUseAttack`. | Live log step-len distribution |
-| **A4** | **M4, M5, X4** | `dist_dance` / `dist_flee` in idle only — remove 772 duplicate from `monster_next_walk_step`. | Branch logs + kiting replay |
-| **A5** | **M6** | Master follow: Manhattan 2–3 → wait-only band; else `ToDoGo(max:3)`. | Summon follow tests |
+| **A0** ✅ | **X3 (partial), X7, X8, X11, M11** | Stop using TFS `goToFollowCreature` as the 772 chase hub; **remove** `monster_try_any_closer_step` on 772; on `TShortway` fail follow `NOWAY` → roam (not greedy step); fix `at_follow_goal` / `full_path_search`. | §10 leak checklist; `test_772_*` — **done** (`e69f0c7`) |
+| **A1** ✅ | **X3**, (shell) | `MonsterIdleWalkBranch` classifier + per-arm executor: flee → master follow → melee/dist → roam (`crnonpl.cc:2676+`). `monster_idle_flee_step`, `monster_idle_dance_step`, `monster_idle_master_follow`; chase repath only from chase arms when `monster_idle_chase_needs_repath`. | `idle_stimulus::tests` (`test_772_classify_*`, `test_772_flee_*`) — **done** |
+| **A2** ✅ | **M1, M2, M8, X5** | At cheb==2 `MeleeChase`: 1-step `must:1` shortway via `monster_idle_chase_step_budget`; X5 dance poll gated off 772. | `test_772_melee_chase_cheb2_*`; live `diag` TBD |
+| **A3** ✅ | **M3** | Ranged `dist_chase`: `max` steps = `cheb - target_distance` (from `monsters.xml`, not hardcoded 4); at-band / flee use same `target_distance`. (X7/X8 closed in A0.) | `test_772_dist_chase_step_budget_*`; live log step-len distribution TBD |
+| **A4** ✅ | **M4, M5, X4** | `dist_dance` / `dist_flee` in idle only — remove 772 duplicate from `monster_next_walk_step`. | Branch logs + kiting replay — **done** |
+| **A5** ✅ | **M6** | Master follow: Manhattan 2–3 → wait-only band; else `ToDoGo(max:3)`. | Summon follow tests — **done** |
 
 **Files:** `idle_stimulus.rs`, `monster_ai.rs`, `monster_distance_step.rs`, `pathfinding.rs`.
 
@@ -428,7 +436,7 @@ flowchart TD
 
 | PR | Phases | Primary gaps closed | Blocked on |
 |----|--------|---------------------|------------|
-| **PR1** | A0–A2 | M1, M2, M8, M11, X3–X5, X7, X8, X11 | — |
+| **PR1** | A0 ✅, A1 ✅, A2 ✅ | ~~M1, M2~~ (A2, live verify M2/M8); ~~M11, X7, X8, X11, X3, X5~~; X4 (A4) | — |
 | **PR2** | A3–A5 | M3, M4, M5, M6 | — |
 | **PR3** | B1–B2 | S2, M7, X6 | — |
 | **PR4** | C1–C3 | T1 (partial), T2, T3, T4, T9, X1, X2 | — |
@@ -436,7 +444,7 @@ flowchart TD
 | **PR6** | E1–E6 | C1–C4, C6, I2, I3, T1 full, S1, M9 | Combat math + attack execute |
 | **PR7** | F1–F4 | I5–I9, H1, H4, M10, S6, S7 | — (can run parallel to PR6) |
 
-**Start with PR1** — verifiable against [chase path doc](TFS-RUST_772_Chase_Path_Parity_Gaps.md) without any combat code. **PR1 must also close TFS leak items X3–X6** (see §10).
+**PR1 progress:** A0 ✅ (`e69f0c7`); A1 ✅; A2 ✅ (melee-adjacent 1-step chase, X5 gated on 772). Remaining PR1 leak: X4 (`getNextStep` duplicate → A4).
 
 ---
 
@@ -469,13 +477,20 @@ flowchart TD
 | `max_search_dist: 12` forward A* | `monster_path_search_params` (`monster_ai.rs:814`) | 772 uses `0` (internal 10) |
 | Relaxed second A* try | `monster_try_apply_chase_path` (`monster_ai.rs:605`) | `!beat_driven_loop` only |
 | Forward A* after reverse fail | `pathfinding.rs` `path_forward_fallback` | `false` on 772 (`772.lua`) |
+| `monster_try_any_closer_step` on 772 | `go_to_follow_creature` (`monster_ai.rs`) | 1098 only; 772 uses `monster_idle_chase_repath` (A0) |
+| 772 idle chase repath entry | `monster_idle_chase_repath` (`monster_ai.rs`) | No TFS `getDistanceStep` / greedy fallbacks (A0) |
+| `monster_at_follow_goal` keep-distance | `monster_ai.rs` | 772: `cheb == target_distance`, not `canUseAttack` (A0) |
+| `full_path_search` on 772 ranged | `monster_path_search_params` | 772: cheb band, not `canUseAttack` (A0) |
+| Idle walk branch dispatch | `idle_stimulus.rs` `MonsterIdleWalkBranch` | flee → master → melee/dist → roam (`crnonpl.cc:2676`); chase repath only from chase arms (A1) |
+| `go_to_follow_creature` as idle chase hub | `monster_ai.rs` | 772: direct repath wrapper only; idle arms own decisions (A1) |
 
 ### 772-native helpers (not leaks)
 
 These live in `monster_distance_step.rs` but cite 772 reference — OK **on 772** when called from the idle/`getNextStep` 772 branch:
 
 - `search_flight_field` — `info.cc` `SearchFlightField` (`monster_distance_step.rs:546`)
-- Inline `melee_dance` / `dist_dance` (rand % 5, cardinal, keep cheb) in `monster_next_walk_step` when `beat_driven_loop` (`monster_ai.rs:1286–1321`) — **shape matches** `crnonpl.cc:2736–2788` but see **X4** (wrong call site)
+- `monster_idle_flee_step` / `monster_idle_dance_step` in idle (`monster_ai.rs`) — A1 primary call site for flee/dance
+- Inline `melee_dance` / `dist_dance` in `monster_next_walk_step` when `beat_driven_loop` — **duplicate** of idle arms; remove in A4 (X4)
 
 ### Active leaks / mis-placements
 
@@ -483,15 +498,15 @@ These live in `monster_distance_step.rs` but cite 772 reference — OK **on 772*
 |----|--------|------------------------|----------------------|----------------|-----------|
 | **X1** | ❌ Leak | `monster_search_target` + `TargetSearchType::{Default,AttackRange,Random,Nearest}` | `idle_stimulus.rs:105–116` | `RaceData.Strategy[]` roll in idle (`crnonpl.cc:2424`) | C1 (T1) |
 | **X2** | ❌ Leak | `monster_on_think_target` (`changeTargetSpeed` / `changeTargetChance`) | `idle_stimulus.rs:122` | No 772 equivalent in `IdleStimulus` — gate off or replace | C1 or PR4 |
-| **X3** | ❌ Leak | `go_to_follow_creature` as **sole** chase entry (TFS `Creature::goToFollowCreature`) | `idle_stimulus.rs:232` → `monster_ai.rs:432` | Reference branch order in idle **before** path (`crnonpl.cc:2676`) | A1 |
-| **X4** | 🟡 Mis-placed | Dance / flee in `getNextStep` | `monster_next_walk_step` 772 branch (`monster_ai.rs:1278–1323`) | `melee_dance` / `dist_dance` / `SearchFlightField` in **`IdleStimulus`**, not `getNextStep` | A2, A4 |
-| **X5** | 🟡 Leak | `monster_should_keep_dance_walk_alive` (TFS empty-queue dance poll) | `walk/mod.rs:1246–1248` on failed step | Idle drain + `ToDoWait`; no `getNextStep` dance poll | A2, B2 |
+| **X3** | ✅ OK | `go_to_follow_creature` as **sole** chase entry (TFS `Creature::goToFollowCreature`) | A1: idle uses `MonsterIdleWalkBranch` arms; 772 `go_to_follow_creature` only for direct repath (`monster_follow_repath_now`) | Reference branch order in idle (`crnonpl.cc:2676`) | — |
+| **X4** | 🟡 Mis-placed | Dance / flee in `getNextStep` | `monster_next_walk_step` 772 branch still duplicates A1 idle arms | A1: flee/dance in idle ✅; **delete** 772 duplicate from `getNextStep` | A4 |
+| **X5** | 🟡 Partial | `monster_should_keep_dance_walk_alive` (TFS empty-queue dance poll) | Gated off 772 in `idle_stimulus` + `walk/mod.rs` (A2) | Idle drain + `ToDoWait` (B2) | B2 |
 | **X6** | 🟡 Leak | `get_random_step` + `last_step` 1 s roam gate | `monster_next_walk_step` (`monster_ai.rs:1245–1260`) | Idle roam + `ToDoGo` + `ToDoWait(1000)` (`crnonpl.cc:2827–2853`) | B2, M7 |
-| **X7** | 🟡 Leak | `full_path_search = !monster_can_use_attack` (TFS `getPathSearchParams`) | `monster_path_search_params` (`monster_ai.rs:835`) | 772: `DistanceFighting` + `ThrowPossible` (`crnonpl.cc:2723–2726`), not TFS spell range | A3 |
-| **X8** | 🟡 Leak | `monster_at_follow_goal` uses `canUseAttack` for keep-distance band | `monster_ai.rs:283–288` | 772: `cheb == target_distance` (from monster file) for dist types; `cheb <= 1` when `target_distance <= 1` — no TFS `canUseAttack` gate | A3 |
+| **X7** | ✅ OK | `full_path_search = !monster_can_use_attack` (TFS `getPathSearchParams`) | 772: cheb band in `monster_path_search_params` (A0) | `DistanceFighting` shape via `dist != target_distance` | — |
+| **X8** | ✅ OK | `monster_at_follow_goal` uses `canUseAttack` for keep-distance band | 772: `cheb == target_distance` (A0) | Per-type band from monsters.xml | — |
 | **X9** | 🟡 Shared | `monster_do_attacking` (TFS look-only stub) | `process_creatures_772` → `creature_on_attacking` | Harmless until combat; replace with `ToDoAttack` tail in E1 | E1 |
 | **X10** | 🟡 Model | TFS `walkToSpawn` / `deSpawnRadius` | `monster_ai.rs` think | 772 `MonsterhomeInRange` / `Radius` (`crnonpl.cc:2122`) | F2 |
-| **X11** | ❌ Leak | `monster_try_any_closer_step` (greedy cheb-reducing step) | `go_to_follow_creature` (`monster_ai.rs:565`) — runs on **772** | **None** — reference throws `NOWAY`; idle catch → roam (`cract.cc:1068`, `crnonpl.cc:2813`) | A0 (M11) |
+| **X11** | ✅ OK | `monster_try_any_closer_step` (greedy cheb-reducing step) | 1098-only in `go_to_follow_creature`; 772 never calls it (A0) | **None** — reference throws `NOWAY`; idle catch → roam (`cract.cc:1068`, `crnonpl.cc:2813`) | — |
 
 ### Leak → implementation mapping
 
@@ -519,7 +534,7 @@ flowchart LR
 
 | PR | Leak IDs closed |
 |----|-----------------|
-| **PR1** | X3, X4, X5, X7, X8 (movement + stop routing all chase through TFS `goToFollowCreature`) |
+| **PR1** | ~~X7, X8, X11, X3~~ (A0–A1 ✅); X4, X5 (A2–A4) |
 | **PR3** | X6 (roam via idle + Wait, not `get_random_step` poll) |
 | **PR4** | X1, X2 (replace TFS target search / change-target with 772 strategy roll) |
 
@@ -619,14 +634,14 @@ cargo test -p tfs-rust-content --test audit_objects_srv_waypoints -- --nocapture
 | Question | Answer |
 |----------|--------|
 | Is the 772 scheduler shell ported? | **Mostly yes** — beat loop, staggered subsystems, todo heap, Go execution |
-| Is `IdleStimulus` behavior matched? | **No** — movement branches, combat tail, state machine, targeting roll |
-| Is chase pathfinding matched? | **Algorithm yes**; **dispatch no** (melee-adjacent, dist_chase budget) |
+| Is `IdleStimulus` behavior matched? | **Partial** — A1 branch shell ✅; M1/M2/M3, Wait pacing, combat tail, state machine, targeting still open |
+| Is chase pathfinding matched? | **Algorithm yes**; **dispatch partial** — A1 branch order ✅; cheb≤2 step budget (A2/A3) still open |
 | Is combat matched? | **No** — `ToDoAttack`, melee damage, idle spells all missing |
-| Biggest pre-combat work? | **PR1:** M1/M2 melee-adjacent + idle movement shell |
+| Biggest pre-combat work? | **PR1:** A2 M1/M2 melee-adjacent one-step dispatch |
 | Biggest combat-gated work? | **PR6:** C1/C2 attack todo + melee damage + idle spells |
-| What to implement first? | Phase A (movement) → Phase B (Wait) → Phase C (targeting) → Phase D (sleep) → Phase E (combat) |
-| Are TFS 1098 helpers leaking on 772? | **Partially** — forward A* fallback already off; `monster_try_any_closer_step` still leaks; `searchTarget`, `goToFollowCreature` hub, dance/roam in `getNextStep` (§10) |
-| Path fail on 772? | **Should** → `NOWAY` + roam — **not** TFS A* or greedy closer step (M11, X11) |
+| What to implement first? | **A2** (cheb≤2 one-step) → A3 (dist_chase budget) → Phase B (Wait) → Phase C (targeting) → … |
+| Are TFS 1098 helpers leaking on 772? | **Partially** — A0–A1 closed chase hub, branch order, idle flee/dance; still open: `searchTarget` (X1–X2), `getNextStep` duplicate (X4–X6) |
+| Path fail on 772? | **Yes** — NOWAY → clear target → roam; no TFS A* or greedy closer step (M11, X11 closed A0) |
 
 ---
 
@@ -639,3 +654,11 @@ cargo test -p tfs-rust-content --test audit_objects_srv_waypoints -- --nocapture
 | 2026-06-11 | §10: TFS 1098 API leak audit (X1–X10), PR1/PR3/PR4 leak closure mapping |
 | 2026-06-11 | Keep-distance policy: per-type `target_distance` from monster file, not hardcoded 4; branch logic matches decompile |
 | 2026-06-11 | Path failure policy: no TFS A* fallback on 772; M11/X11 — remove `monster_try_any_closer_step`, NOWAY → roam |
+| 2026-06-11 | **A0 done** (`e69f0c7`): `monster_idle_chase_repath`, NOWAY→roam, X7/X8/X11/M11 closed; X3 partial (hub decoupled, branch order → A1) |
+| 2026-06-11 | **A1 done**: `MonsterIdleWalkBranch` classifier + executor (`idle_stimulus.rs`); `monster_idle_flee_step`, `monster_idle_dance_step`, `monster_idle_master_follow`; X3 closed; post-A1 enqueue/wakeup fix (`idle_enqueue_go_and_start`); classifier tests `test_772_classify_*` |
+| 2026-06-11 | **A2 done**: `monster_idle_chase_step_budget` — melee chase at cheb==2 uses 1-step `must:1` shortway; X5 dance poll gated off 772; tests `test_772_melee_chase_cheb2_*`, `test_772_idle_hold_no_dance_poll` |
+| 2026-06-11 | **A3 done**: dist_chase `max = cheb - target_distance`; `truncate_cipsoft_chase_queue` stops at keep band; tests `test_772_dist_chase_step_budget_*`, `test_truncate_cipsoft_chase_queue_dist_chase_stops_at_band` |
+| 2026-06-11 | **A4 done**: 772 `getNextStep` early-returns `None` on chase (X4 closed); flee/dance/dist_flee idle-only; tests `test_772_get_next_step_no_inline_flee_on_772`, `test_772_dist_dance_via_idle` |
+| 2026-06-11 | **A5 done**: `monster_master_follow_in_wait_band` Manhattan 2–3 hold; master follow `ToDoGo(max:3)` beyond band; tests `test_772_master_follow_manhattan_*` |
+| 2026-06-11 | **B1–B2 done**: `CreatureAction::Wait` + `MONSTER_IDLE_WAIT_MS`; paced roam/dist_dance/dist_flee fail/master wait band; `monster_idle_roam_step`; X6 closed; S2/M4/M5/M6/M7 partial→done |
+| 2026-06-11 | **E1-lite done**: `CreatureAction::Attack` stub + idle combat tail; 772 think `creature_on_attacking` gated; C1 stub (damage → E2) |
