@@ -20,6 +20,8 @@ pub const ITEM_TYPE_DEPOT: u8 = 1;
 pub const ITEM_TYPE_MAILBOX: u8 = 2;
 pub const ITEM_TYPE_TRASHHOLDER: u8 = 3;
 pub const ITEM_TYPE_CONTAINER: u8 = 4;
+/// C++ `ItemTypes_t::ITEM_TYPE_MAGICFIELD` — `src/items.h`.
+pub const ITEM_TYPE_MAGICFIELD: u8 = 6;
 
 #[derive(Clone)]
 pub struct ItemDatabase {
@@ -620,7 +622,8 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
                 "depot" => item.type_tag = ITEM_TYPE_DEPOT,
                 "mailbox" => item.type_tag = ITEM_TYPE_MAILBOX,
                 "trashholder" => item.type_tag = ITEM_TYPE_TRASHHOLDER,
-                "magicfield" | "key" | "teleport" | "door" | "bed" | "rune" => {}
+                "magicfield" => item.type_tag = ITEM_TYPE_MAGICFIELD,
+                "key" | "teleport" | "door" | "bed" | "rune" => {}
                 _ => {
                     warn!(
                         target: "tfs_rust_content::items",
@@ -643,6 +646,8 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
                 item.rotate_to = v;
             }
         }
+        // C++ `ITEM_PARSE_FIELD` — `it.type = ITEM_TYPE_MAGICFIELD` (`src/items.cpp` ~1160–1162).
+        "field" => item.type_tag = ITEM_TYPE_MAGICFIELD,
         // C++ `ITEM_PARSE_FLOORCHANGE` — `it.floorChange |=` bitmask (`src/items.cpp` ~670–678).
         "floorchange" => {
             let tok = value.trim().to_ascii_lowercase();
@@ -1204,6 +1209,7 @@ mod tests {
         assert_eq!(it.xml_attributes.get("field"), Some(&"fire".to_string()));
         assert_eq!(it.xml_attributes.get("field.ticks"), Some(&"4000".to_string()));
         assert_eq!(it.xml_attributes.get("field.count"), Some(&"3".to_string()));
+        assert!(it.is_magic_field());
     }
 
     #[test]

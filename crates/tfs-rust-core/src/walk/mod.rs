@@ -1188,7 +1188,9 @@ impl GameWorld {
                         // C++ sets `forceUpdateFollowPath` only — repath runs from `onThink` / follow refresh,
                         // not synchronously from `onWalk` (avoids repath→step→fail infinite recursion).
                         if let Some(k) = self.creatures.get_mut(cid) {
-                            k.base_mut().force_update_follow_path = true;
+                            if k.base().follow_target.is_some() {
+                                k.base_mut().force_update_follow_path = true;
+                            }
                         }
                     }
                     Ok(segments) => {

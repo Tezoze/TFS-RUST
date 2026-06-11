@@ -12,8 +12,6 @@ pub mod vocation;
 pub use base::{CreatureBase, DamageMap, Outfit, WalkTimer};
 pub use light::LightInfo;
 pub use kind::CreatureKind;
-
-pub(crate) use kind::creature_id_eq_slice;
 pub use monster::{Monster, MonsterAiConfig, MonsterAiPhase};
 pub use npc::{Npc, NpcEventsHandler, NullNpcHandler};
 pub use player::{

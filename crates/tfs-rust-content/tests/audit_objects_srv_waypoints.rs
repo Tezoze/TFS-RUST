@@ -103,9 +103,6 @@ fn lookup_otb<'a>(
     by_server: &'a HashMap<u16, tfs_rust_content::otb::ItemType>,
     by_client: &HashMap<u16, u16>,
 ) -> Option<&'a tfs_rust_content::otb::ItemType> {
-    if let Some(it) = by_server.get(&type_id) {
-        return Some(it);
-    }
     by_client
         .get(&type_id)
         .and_then(|sid| by_server.get(sid))

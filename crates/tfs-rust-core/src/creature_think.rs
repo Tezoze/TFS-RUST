@@ -197,7 +197,7 @@ impl GameWorld {
                 }
             }
             if run_follow_repath {
-                self.go_to_follow_creature(cid);
+                self.go_to_follow_creature(cid, Some("think_repath"));
             }
         }
 

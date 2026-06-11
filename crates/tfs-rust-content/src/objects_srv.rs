@@ -116,9 +116,6 @@ pub fn resolve_server_id_for_patch(type_id: u16, items: &HashMap<u16, ItemType>)
 }
 
 fn resolve_server_id(type_id: u16, items: &HashMap<u16, ItemType>) -> Option<u16> {
-    if items.contains_key(&type_id) {
-        return Some(type_id);
-    }
     items
         .values()
         .find(|it| it.client_id == type_id)

@@ -7,11 +7,13 @@
 
 use std::time::Instant;
 
+use crate::chase_debug;
 use crate::creature::CreatureKind;
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
 use crate::creature_todo::{trace_creature_todo, CreatureAction};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::monster_ai::MonsterIdleChaseRepathOutcome;
 use crate::monster_targets::TargetSearchType;
 
 impl GameWorld {
@@ -102,9 +104,9 @@ impl GameWorld {
         } else if has_opponents {
             if follow.is_none() {
                 let _ = self.monster_search_target(cid, TargetSearchType::Default);
-            } else {
-                let _ = self.monster_ensure_follow_band(cid, "idle");
             }
+            // 772 chase repath: segment drain + target-move queue hysteresis only — not TFS
+            // `monster_ensure_follow_band` (1098 think / walk-complete guard).
             if fleeing {
                 let attack = self
                     .creatures
@@ -119,7 +121,24 @@ impl GameWorld {
         }
 
         self.monster_on_think_target(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
-        self.monster_update_look_direction(cid);
+        // 1098: `onThink` drives `updateLookDirection` once per tick.
+        // 772: avoid force-facing while an active chase batch is running; let walk direction
+        // carry facing, and only snap toward target when not chasing.
+        if !self.beat_driven_loop {
+            self.monster_update_look_direction(cid);
+        } else if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| {
+                let base = k.base();
+                base.attack_target.is_some()
+                    && base.walk_queue.is_empty()
+                    && base.todo.is_empty()
+                    && base.follow_target.is_none()
+            })
+        {
+            self.monster_update_look_direction(cid);
+        }
 
         if !self
             .creatures
@@ -132,40 +151,142 @@ impl GameWorld {
         self.monster_idle_prepare_and_enqueue_go(cid);
     }
 
+    /// When idle should run [`GameWorld::monster_idle_chase_repath`] for an active chase (772 only).
+    pub(crate) fn monster_idle_chase_needs_repath(
+        &mut self,
+        cid: CreatureId,
+    ) -> (bool, Option<&'static str>) {
+        let Some(k) = self.creatures.get(cid) else {
+            return (false, None);
+        };
+        let base = k.base();
+        if base.force_update_follow_path {
+            if let Some(follow_id) = base.follow_target {
+                let pos = k.position();
+                if let Some(target_pos) = self.creatures.get(follow_id).map(|t| t.position()) {
+                    let (fleeing, target_distance) = match self.creatures.get(cid) {
+                        Some(CreatureKind::Monster(m)) => (
+                            m.is_fleeing(),
+                            self.monster_effective_target_distance(m.target_distance),
+                        ),
+                        _ => return (true, Some("force_update")),
+                    };
+                    if self.monster_at_follow_goal(
+                        cid,
+                        follow_id,
+                        pos,
+                        target_pos,
+                        fleeing,
+                        target_distance,
+                    ) {
+                        if let Some(k) = self.creatures.get_mut(cid) {
+                            k.base_mut().force_update_follow_path = false;
+                        }
+                        return (false, None);
+                    }
+                }
+            }
+            return (true, Some("force_update"));
+        }
+        if !base.walk_queue.is_empty() {
+            return (false, None);
+        }
+        if !base.has_follow_path {
+            return (true, Some("idle_drain"));
+        }
+        let Some(follow_id) = base.follow_target else {
+            return (false, None);
+        };
+        let pos = k.position();
+        let Some(target_pos) = self.creatures.get(follow_id).map(|t| t.position()) else {
+            return (false, None);
+        };
+        let (fleeing, target_distance) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.is_fleeing(),
+                self.monster_effective_target_distance(m.target_distance),
+            ),
+            _ => return (false, None),
+        };
+        if self.monster_at_follow_goal(cid, follow_id, pos, target_pos, fleeing, target_distance) {
+            return (false, None);
+        }
+        (true, Some("off_band"))
+    }
+
     /// Fill walk queue from follow/repath or roam intent, then enqueue `Go` + heap arm.
     fn monster_idle_prepare_and_enqueue_go(&mut self, cid: CreatureId) {
-        let chasing = self
-            .creatures
-            .get(cid)
-            .and_then(|k| k.base().follow_target)
-            .is_some();
+        let (chasing, pos, name) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.base.follow_target.is_some(),
+                m.base.position,
+                m.base.name.clone(),
+            ),
+            _ => return,
+        };
 
+        let mut todo_via: Option<&str> = None;
         if chasing {
-            let needs_repath = self.creatures.get(cid).is_some_and(|k| {
-                let base = k.base();
-                if base.force_update_follow_path {
-                    return true;
-                }
-                if !base.walk_queue.is_empty() {
-                    return false;
-                }
-                // 772: repath whenever a chase segment drains (`follow_repath_without_path`).
-                !base.has_follow_path || self.mechanics.profile.follow_repath_without_path
-            });
+            let (needs_repath, repath_reason) = self.monster_idle_chase_needs_repath(cid);
             if needs_repath {
-                self.go_to_follow_creature(cid);
+                match self.monster_idle_chase_repath(cid, repath_reason) {
+                    MonsterIdleChaseRepathOutcome::PathQueued => {
+                        todo_via = repath_reason;
+                    }
+                    MonsterIdleChaseRepathOutcome::AtGoal => {}
+                    MonsterIdleChaseRepathOutcome::Noway => {
+                        self.monster_on_chase_noway_772(cid);
+                        if chase_debug::chase_path_debug_enabled() {
+                            chase_debug::log_branch(
+                                self.tick_counter,
+                                cid,
+                                name.as_str(),
+                                "roam",
+                                pos,
+                                pos,
+                                false,
+                                1,
+                                None,
+                            );
+                        }
+                        todo_via = Some("roam");
+                    }
+                }
             }
+        }
+
+        let roaming = self.creatures.get(cid).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m) if !m.is_idle && m.base.follow_target.is_none()
+            )
+        });
+        if roaming && todo_via.is_none() {
+            if chase_debug::chase_path_debug_enabled() {
+                chase_debug::log_branch(
+                    self.tick_counter,
+                    cid,
+                    name.as_str(),
+                    "roam",
+                    pos,
+                    pos,
+                    false,
+                    1,
+                    None,
+                );
+            }
+            todo_via = Some("roam");
         }
 
         let should_enqueue = self.creatures.get(cid).is_some_and(|k| {
             !k.base().walk_queue.is_empty()
                 || self.monster_should_keep_dance_walk_alive(cid)
-                || (!chasing && matches!(k, CreatureKind::Monster(m) if !m.is_idle))
+                || roaming
         });
 
         if should_enqueue {
             trace_creature_todo(self, cid, "idle_enqueue_go");
-            self.idle_enqueue_go_and_start(cid, true);
+            self.idle_enqueue_go_and_start(cid, true, todo_via);
         }
     }
 
@@ -422,6 +543,71 @@ mod tests {
         );
     }
 
+    /// 772 active monster without follow enqueues roam Go from idle (TFS `getRandomStep` arm).
+    #[test]
+    fn idle_stimulus_enqueues_roam_for_active_monster_without_follow() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        for dx in -1..=1_i32 {
+            for dy in -1..=1_i32 {
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
+                    2148,
+                );
+            }
+        }
+
+        let monster = insert_monster(&mut world, "Wolf", pos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().todo.has_go() || k.base().next_wakeup.is_some()),
+            "772 idle must enqueue roam Go for active monster without follow"
+        );
+    }
+
+    /// Blocked dance / stand-still at melee goal must not force a chase repath on next idle.
+    #[test]
+    fn force_update_at_follow_goal_skips_idle_repath() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = true;
+            m.base.force_update_follow_path = true;
+            m.base.walk_queue.clear();
+        }
+
+        let (needs, reason) = world.monster_idle_chase_needs_repath(monster);
+        assert!(!needs, "at-goal force_update must not schedule repath");
+        assert!(reason.is_none());
+        assert!(
+            !world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().force_update_follow_path),
+            "stale force_update must be cleared at follow goal"
+        );
+    }
+
     /// 1098 regression — think still arms walk when not beat-driven.
     #[test]
     fn think_arm_still_runs_on_1098() {
@@ -454,5 +640,55 @@ mod tests {
             k.base().next_walk_check.is_some() || !k.base().walk_queue.is_empty()
         });
         assert!(armed, "1098 think must still arm monster walk");
+    }
+
+    /// A0 — TShortway NOWAY clears chase target and enqueues roam Go same idle tick.
+    #[test]
+    fn test_772_chase_noway_clears_target_and_roams() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().follow_target.is_none()),
+            "NOWAY must clear follow target"
+        );
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .walk_queue
+                .is_empty(),
+            "NOWAY must not populate walk queue via greedy step"
+        );
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().todo.has_go() || k.base().next_wakeup.is_some()),
+            "NOWAY must enqueue roam Go on same idle tick"
+        );
     }
 }

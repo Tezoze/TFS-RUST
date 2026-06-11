@@ -559,6 +559,12 @@ impl ItemType {
     pub fn is_fluid_container(&self) -> bool {
         self.group == Self::GROUP_FLUID
     }
+
+    /// C++ `ItemType::isMagicField()` — `type == ITEM_TYPE_MAGICFIELD` (`src/items.h`).
+    #[inline]
+    pub fn is_magic_field(&self) -> bool {
+        self.type_tag == 6 // `ItemTypes_t::ITEM_TYPE_MAGICFIELD` — `src/items.h`
+    }
 }
 
 fn expect_raw(data: &[u8], index: &mut usize, expected: u8, path: &Path) -> Result<()> {

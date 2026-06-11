@@ -4,7 +4,6 @@
 use crate::creature::monster::Monster;
 use crate::creature::npc::Npc;
 use crate::creature::player::Player;
-use crate::ids::CreatureId;
 use tfs_rust_common::Position;
 
 #[derive(Debug)]
@@ -46,8 +45,4 @@ impl CreatureKind {
     pub fn is_summon(&self) -> bool {
         self.base().is_summon()
     }
-}
-
-pub(crate) fn creature_id_eq_slice(ids: &[CreatureId], needle: CreatureId) -> Option<usize> {
-    ids.iter().position(|&id| id == needle)
 }

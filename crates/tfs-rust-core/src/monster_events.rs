@@ -158,20 +158,19 @@ impl GameWorld {
             && follow.is_none()
         {
             self.monster_ensure_opponent_listed(monster_id, creature_id);
-            let selected = self.monster_select_target(monster_id, creature_id);
+            self.monster_select_target(monster_id, creature_id);
         }
     }
 
     /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
     ///
-    /// 772 does not gate this on a path flag: `IdleStimulus` enqueues fresh `ToDoGo` when the
-    /// target moves (`crnonpl.cc` via `SearchFlightField`). TFS uses `hasFollowPath`; repath when
-    /// still chasing (see `PROTOCOL_VERSIONING.md` §12.1). Era split via
-    /// [`MechanicsProfile::follow_repath_without_path`].
+    /// 772: repath only when an in-flight `walk_queue` is stale (endpoint band / LOS). Empty queue
+    /// defers to idle segment drain — not every target tile. TFS 1098 repaths synchronously when
+    /// [`MechanicsProfile::follow_repath_without_path`] allows (`creature.cpp` ~619–637).
     fn monster_on_follow_creature_moved(
         &mut self,
         monster_id: CreatureId,
-        creature_id: CreatureId,
+        _creature_id: CreatureId,
         new_pos: Position,
         has_path: bool,
     ) {
@@ -189,28 +188,8 @@ impl GameWorld {
             return;
         }
 
-        // Hysteresis check: Only repath if target is no longer a valid goal from
-        // the end of our current walk queue, or if sight is blocked.
         let should_repath = if self.beat_driven_loop {
-            let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
-                return;
-            };
-            if m.base.walk_queue.is_empty() {
-                true
-            } else {
-                let mut expected_pos = m.base.position;
-                for &dir in m.base.walk_queue.iter().rev() {
-                    expected_pos = expected_pos.offset(dir);
-                }
-                let target_distance = self.monster_effective_target_distance(m.target_distance);
-                let expected_dist = crate::monster_ai::chebyshev(expected_pos, new_pos);
-                let wrong_distance = if target_distance <= 1 {
-                    expected_dist > 1
-                } else {
-                    expected_dist != target_distance
-                };
-                wrong_distance || !self.map.is_sight_clear(expected_pos, new_pos)
-            }
+            self.monster_chase_queue_stale(monster_id, new_pos)
         } else {
             true
         };
@@ -232,7 +211,7 @@ impl GameWorld {
         if self.beat_driven_loop {
             self.request_idle_stimulus(monster_id);
         } else {
-            self.monster_follow_repath_now(monster_id);
+            self.monster_follow_repath_now(monster_id, Some("target_move"));
         }
     }
     /// TFS `Monster::onFollowCreatureComplete` — `monster.cpp` ~599.
@@ -285,13 +264,6 @@ impl GameWorld {
         new_pos: Position,
     ) {
         let monsters = self.monsters_witnessing_move(old_pos, new_pos);
-        let witness_count = monsters.len();
-        let moved_is_player = self
-            .creatures
-            .get(moved)
-            .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
-        if moved_is_player {
-        }
         for monster_id in monsters {
             self.monster_on_creature_move(monster_id, moved, old_pos, new_pos);
         }

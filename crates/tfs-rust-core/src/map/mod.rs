@@ -16,7 +16,7 @@ use crate::item::Item;
 use crate::tile::HouseTile;
 use crate::tile::{flags, Tile, TileBody};
 
-pub use grid::{position_at, SparseGrid, CHUNK_AREA, CHUNK_SIZE};
+pub use grid::{SparseGrid, CHUNK_AREA, CHUNK_SIZE};
 pub use los::walk_grid_line;
 
 /// Runtime map state (sparse chunk grid + metadata).
@@ -104,14 +104,6 @@ impl Map {
             t.remove_creature(id);
         }
         self.grid.unregister_creature(pos.x, pos.y, pos.z, id);
-    }
-
-    pub fn move_creature_index(&mut self, from: Position, to: Position, id: CreatureId) {
-        self.grid.move_creature(
-            from.x, from.y, from.z,
-            to.x, to.y, to.z,
-            id,
-        );
     }
 }
 
@@ -209,7 +201,8 @@ fn apply_item_tile_flags(
         body.flags |= flags::BLOCKPATH;
     }
 
-    if item_type.block_path_find() {
+    // C++ `CONST_PROP_NOFIELDBLOCKPATH` / `IMMOVABLENOFIELDBLOCKPATH` — `!isMagicField() && blockPathFind` (`src/item.cpp`).
+    if item_type.block_path_find() && !item_type.is_magic_field() {
         body.flags |= flags::NOFIELDBLOCKPATH;
         if !item_type.moveable() {
             body.flags |= flags::IMMOVABLENOFIELDBLOCKPATH;
@@ -222,6 +215,19 @@ fn apply_item_tile_flags(
 
     if items_db.is_depot(item_type.server_id) {
         body.flags |= flags::DEPOT;
+    }
+}
+
+/// Raw OTBM item stream id before `remap_create_item_stream_id` (`src/item.cpp` `CreateItem(PropStream&)`).
+fn otbm_item_stream_id(thing: &TileThing) -> Option<u16> {
+    match thing {
+        TileThing::EmbeddedItemId(id) => Some(*id),
+        TileThing::ItemNodeProps(raw) => {
+            if raw.len() < 2 {
+                return None;
+            }
+            Some(u16::from_le_bytes([raw[0], raw[1]]))
+        }
     }
 }
 
@@ -242,28 +248,16 @@ fn tile_from_data(
     };
 
     for thing in td.things {
-        let id = match &thing {
-            TileThing::EmbeddedItemId(id) => *id,
-            TileThing::ItemNodeProps(raw) => match otbm::item_id_from_otbm_item_props(raw) {
-                Some(id) => id,
-                None => continue,
-            },
+        let Some(stream_id) = otbm_item_stream_id(&thing) else {
+            continue;
         };
+        let id = otbm::remap_create_item_stream_id(stream_id);
 
         if let Some(item_type) = items_db.items.get(&id) {
             apply_item_tile_flags(&mut body, item_type, items_db);
         }
 
-        match thing {
-            TileThing::EmbeddedItemId(id) => {
-                internal_add_item_id(id, items_db, &mut body, items);
-            }
-            TileThing::ItemNodeProps(raw) => {
-                if let Some(id) = otbm::item_id_from_otbm_item_props(&raw) {
-                    internal_add_item_id(id, items_db, &mut body, items);
-                }
-            }
-        }
+        internal_add_item_id(stream_id, items_db, &mut body, items);
     }
 
     if let Some(hid) = td.house_id {

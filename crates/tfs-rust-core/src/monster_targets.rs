@@ -152,11 +152,6 @@ impl GameWorld {
             self.monster_add_friend(monster_id, creature_id);
         }
         if self.monster_is_opponent(monster_id, creature_id) {
-            let had_follow = self
-                .creatures
-                .get(monster_id)
-                .and_then(|k| k.base().follow_target)
-                .is_some();
             self.monster_add_opponent(monster_id, creature_id, push_front);
         }
         self.monster_update_idle_status(monster_id);
@@ -221,7 +216,7 @@ impl GameWorld {
                 return;
             }
         }
-        let ok = self.monster_search_target(monster_id, TargetSearchType::Default);
+        self.monster_search_target(monster_id, TargetSearchType::Default);
     }
 
     pub(crate) fn monster_is_friend(&self, monster_id: CreatureId, creature_id: CreatureId) -> bool {
@@ -576,7 +571,7 @@ impl GameWorld {
         if self.beat_driven_loop {
             self.request_idle_stimulus(monster_id);
         } else {
-            self.monster_follow_repath_now(monster_id);
+            self.monster_follow_repath_now(monster_id, Some("set_follow"));
         }
         true
     }

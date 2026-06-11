@@ -421,19 +421,19 @@ def print_report(results: List[dict]) -> int:
             print("  Result:  MATCH")
         elif m.get("tie_break"):
             print(
-                f"  Result:  TIE (same step cost {cip.get('step_cost')}, "
+                f"  Result:  TIE (same step cost {ref.get('step_cost')}, "
                 "expand-order differs — BinaryHeap vs linked list)"
             )
-        elif cip["ok"] != rust.get("ok"):
+        elif ref["ok"] != rust.get("ok"):
             print("  Result:  MISMATCH (one side NOWAY)")
             failures += 1
         else:
             print("  Result:  MISMATCH (path differs)")
-            if cip["dirs"] != rust.get("dirs"):
-                print(f"           dirs: cip={cip['dirs']} rust={rust.get('dirs')}")
-            if cip.get("step_cost") != rust.get("total_cost"):
+            if ref["dirs"] != rust.get("dirs"):
+                print(f"           dirs: cip={ref['dirs']} rust={rust.get('dirs')}")
+            if ref.get("step_cost") != rust.get("total_cost"):
                 print(
-                    f"           cost: cip={cip.get('step_cost')} rust={rust.get('total_cost')}"
+                    f"           cost: cip={ref.get('step_cost')} rust={rust.get('total_cost')}"
                 )
             failures += 1
 

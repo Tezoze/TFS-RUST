@@ -208,7 +208,7 @@ export TIBIA_CHASE_PATH_DEBUG=1
 scripts/tibia_game_online.sh restart
 ```
 
-Log: `{LOGPATH}/chase_path.log` (usually `log/chase_path.log` under game data).
+Log: `{LOGPATH}/chase_path.log` from `.tibia` — with `reference/cipsoft-772/runtime/` layout this is **`reference/cipsoft-772/runtime/log/chase_path.log`** (not repo-root `log/` unless legacy).
 
 ### Enable TFS-RUST
 
@@ -222,7 +222,7 @@ cargo run -p tfs-rust-server   # or your usual server entrypoint
 
 | `evt` | When |
 |-------|------|
-| `branch` | `IdleStimulus` chose a chase/dance/roam arm (`melee_chase`, `melee_dance`, `dist_chase`, …) |
+| `branch` | `IdleStimulus` arm (`roam`, `melee_dance`, `dist_chase`, …) — **melee chase is `todo_go` + `shortway`, not `branch`** |
 | `todo_go` | `ToDoGo` entered / single-step / `NOWAY` |
 | `shortway` | `TShortway::Calculate` result + queued world steps |
 | `go_exec` | Monster actually moved one tile (`Go` / Rust walk step) |
@@ -236,10 +236,9 @@ Example line:
 ### Compare logs after a repro
 
 ```bash
-python scripts/compare_chase_live_logs.py \
-  --cip /mnt/storage2/TFS_RUST/log/chase_path.log \
-  --rust ./log/chase_path.log \
-  --monster Rat
+python3 scripts/compare_chase_live_logs.py \
+  --ref reference/cipsoft-772/runtime/log/chase_path.log \
+  --rust log/chase_path_rust.log
 ```
 
 Rebuild CipSoft after pulling chase debug: `scripts/tibia_game_dev.sh setup`.

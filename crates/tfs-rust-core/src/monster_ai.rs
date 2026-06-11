@@ -49,6 +49,19 @@ pub(crate) fn chebyshev(a: Position, b: Position) -> i32 {
     distance_x(a, b).max(distance_y(a, b))
 }
 
+/// Result of 772 idle chase repath (`TShortway` via `monster_idle_chase_repath`).
+///
+/// C++ reference: `ToDoGo` / `TShortway::Calculate` — `cract.cc:1067`; NOWAY → roam — `crnonpl.cc:2813`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MonsterIdleChaseRepathOutcome {
+    /// Already in melee / keep-distance band — no walk queue needed.
+    AtGoal,
+    /// `TShortway` succeeded — `walk_queue` populated.
+    PathQueued,
+    /// `TShortway` failed on non-flee chase — caller clears target and roams.
+    Noway,
+}
+
 pub(crate) fn manhattan(a: Position, b: Position) -> i32 {
     distance_x(a, b) + distance_y(a, b)
 }
@@ -156,10 +169,41 @@ impl GameWorld {
         self.monster_ensure_follow_band(cid, "walk_complete");
     }
 
-    /// Central guard: `has_follow_path` vs actual follow band. Repaths immediately when off-band
-    /// and the walk queue is idle (no deferred `force_update_follow_path` flag).
+    /// True when a **non-empty** `walk_queue` no longer reaches the follow band or sight is blocked.
     ///
-    /// Returns true when [`Self::monster_follow_repath_now`] was invoked.
+    /// Empty queue is not stale here — 772 batch replan runs from idle segment drain / `off_band`,
+    /// not from every target tile (`crnonpl.cc` `ToDoGo` after drain).
+    pub(crate) fn monster_chase_queue_stale(
+        &self,
+        monster_id: CreatureId,
+        target_pos: Position,
+    ) -> bool {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
+            return true;
+        };
+        if m.base.walk_queue.is_empty() {
+            return false;
+        }
+        let mut expected_pos = m.base.position;
+        for &dir in m.base.walk_queue.iter().rev() {
+            expected_pos = expected_pos.offset(dir);
+        }
+        let target_distance = self.monster_effective_target_distance(m.target_distance);
+        let expected_dist = chebyshev(expected_pos, target_pos);
+        let wrong_distance = if target_distance <= 1 {
+            expected_dist > 1
+        } else {
+            expected_dist != target_distance
+        };
+        wrong_distance || !self.map.is_sight_clear(expected_pos, target_pos)
+    }
+
+    /// Central guard: `has_follow_path` vs actual follow band.
+    ///
+    /// 772: defers repath via `force_update_follow_path` (same idle tick); keeps in-flight batches
+    /// when [`Self::monster_chase_queue_stale`] is false. 1098: sync [`Self::monster_follow_repath_now`].
+    ///
+    /// Returns true when a repath was scheduled or invoked.
     pub(crate) fn monster_ensure_follow_band(&mut self, cid: CreatureId, _reason: &str) -> bool {
         let follow_id = match self.creatures.get(cid).and_then(|k| k.base().follow_target) {
             Some(id) => id,
@@ -197,6 +241,23 @@ impl GameWorld {
             }
             return false;
         }
+
+        if self.beat_driven_loop {
+            let stale = self.monster_chase_queue_stale(cid, target_pos);
+            if !queue_empty && !stale {
+                return false;
+            }
+            if let Some(k) = self.creatures.get_mut(cid) {
+                let base = k.base_mut();
+                if stale && !queue_empty {
+                    base.walk_queue.clear();
+                }
+                base.has_follow_path = false;
+                base.force_update_follow_path = true;
+            }
+            return true;
+        }
+
         if !queue_empty {
             // C++ `onCreatureMove` clears `listWalkDir` when the target leaves the band — abort a
             // stale in-flight A* queue that no longer matches the keep-distance goal.
@@ -211,7 +272,7 @@ impl GameWorld {
                 k.base_mut().has_follow_path = false;
             }
         }
-        self.monster_follow_repath_now(cid);
+        self.monster_follow_repath_now(cid, Some("ensure_band"));
         true
     }
 
@@ -231,6 +292,10 @@ impl GameWorld {
         let dist = chebyshev(pos, target_pos);
         if target_distance <= 1 {
             return dist <= 1;
+        }
+        if self.beat_driven_loop {
+            // 772 keep-distance — per-type band from monsters.xml (`crnonpl.cc` dist branches).
+            return dist == target_distance;
         }
         if self.monster_can_use_attack(cid, pos, follow_id) {
             // TFS `getDistanceStep` — `AtTargetDistance` when `distance == targetDistance`.
@@ -380,8 +445,115 @@ impl GameWorld {
         }
     }
 
-    /// TFS `Creature::goToFollowCreature` — `creature.cpp` ~1011.
-    pub fn go_to_follow_creature(&mut self, cid: CreatureId) {
+    /// 772 idle chase repath — `TShortway` only, no TFS fallbacks (`cract.cc:1067`, `crnonpl.cc:2676`).
+    ///
+    /// Called from [`crate::idle_stimulus::GameWorld::monster_idle_prepare_and_enqueue_go`], not from
+    /// think-time repath. On path failure (non-flee) returns [`MonsterIdleChaseRepathOutcome::Noway`].
+    pub(crate) fn monster_idle_chase_repath(
+        &mut self,
+        cid: CreatureId,
+        repath_reason: Option<&str>,
+    ) -> MonsterIdleChaseRepathOutcome {
+        debug_assert!(self.beat_driven_loop, "772-only entry point");
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().force_update_follow_path = false;
+        }
+        let follow_id = match self.creatures.get(cid).and_then(|k| k.base().follow_target) {
+            Some(id) => id,
+            None => return MonsterIdleChaseRepathOutcome::AtGoal,
+        };
+        let target_pos = match self.creatures.get(follow_id) {
+            Some(k) => k.position(),
+            None => return MonsterIdleChaseRepathOutcome::AtGoal,
+        };
+        let (target_distance, fleeing, is_summon, has_follow_path) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                self.monster_effective_target_distance(m.target_distance),
+                m.is_fleeing(),
+                m.base.is_summon(),
+                m.base.has_follow_path,
+            ),
+            _ => return MonsterIdleChaseRepathOutcome::AtGoal,
+        };
+
+        let fpp = self.monster_path_search_params(
+            cid,
+            follow_id,
+            fleeing,
+            target_distance,
+            is_summon,
+            has_follow_path,
+        );
+
+        let pos = match self.creatures.get(cid) {
+            Some(k) => k.position(),
+            None => return MonsterIdleChaseRepathOutcome::AtGoal,
+        };
+        if self.monster_at_follow_goal(cid, follow_id, pos, target_pos, fleeing, target_distance) {
+            self.monster_mark_at_follow_goal(cid, follow_id);
+            return MonsterIdleChaseRepathOutcome::AtGoal;
+        }
+
+        if chase_debug::chase_path_debug_enabled() {
+            if let Some(k) = self.creatures.get(cid) {
+                let branch = if fleeing {
+                    "flee"
+                } else if target_distance > 1 {
+                    "dist_chase"
+                } else {
+                    "melee_chase"
+                };
+                chase_debug::log_branch(
+                    self.tick_counter,
+                    cid,
+                    k.base().name.as_str(),
+                    branch,
+                    pos,
+                    target_pos,
+                    false,
+                    CHASE_PATH_MAX_STEPS as i32,
+                    repath_reason,
+                );
+            }
+        }
+
+        if self.monster_try_apply_chase_path(cid, target_pos, fleeing, target_distance, &fpp) {
+            if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+                self.monster_on_follow_creature_complete(cid, follow_id);
+            }
+            return MonsterIdleChaseRepathOutcome::PathQueued;
+        }
+
+        if fleeing {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().has_follow_path = false;
+            }
+            if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+                self.monster_on_follow_creature_complete(cid, follow_id);
+            }
+            return MonsterIdleChaseRepathOutcome::AtGoal;
+        }
+
+        MonsterIdleChaseRepathOutcome::Noway
+    }
+
+    /// 772 NOWAY handler — clear chase target and fall through to roam (`crnonpl.cc:2813`).
+    pub(crate) fn monster_on_chase_noway_772(&mut self, cid: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.clear_targets();
+            base.has_follow_path = false;
+            base.walk_queue.clear();
+            base.force_update_follow_path = false;
+        }
+    }
+
+    /// TFS `Creature::goToFollowCreature` — `creature.cpp` ~1011 (1098 only).
+    pub fn go_to_follow_creature(&mut self, cid: CreatureId, repath_reason: Option<&str>) {
+        if self.beat_driven_loop {
+            let _ = self.monster_idle_chase_repath(cid, repath_reason);
+            return;
+        }
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().force_update_follow_path = false;
         }
@@ -402,29 +574,6 @@ impl GameWorld {
             ),
             _ => return,
         };
-
-        if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
-            if let Some(k) = self.creatures.get(cid) {
-                let pos = k.position();
-                let branch = if fleeing {
-                    "flee_repath"
-                } else if target_distance > 1 {
-                    "dist_chase_repath"
-                } else {
-                    "melee_chase_repath"
-                };
-                chase_debug::log_branch(
-                    self.tick_counter,
-                    cid,
-                    k.base().name.as_str(),
-                    branch,
-                    pos,
-                    target_pos,
-                    false,
-                    3,
-                );
-            }
-        }
 
         let fpp = self.monster_path_search_params(
             cid,
@@ -515,7 +664,7 @@ impl GameWorld {
             return;
         }
         if self.monster_try_any_closer_step(cid, pos, target_pos, follow_id)
-            || (!self.beat_driven_loop && self.monster_try_greedy_chase_step(cid, pos, target_pos, follow_id, fleeing))
+            || self.monster_try_greedy_chase_step(cid, pos, target_pos, follow_id, fleeing)
         {
             return;
         }
@@ -568,10 +717,18 @@ impl GameWorld {
                 if dist > 1.max(target_distance) {
                     continue;
                 }
-            } else if self.beat_driven_loop && steps.len() > CHASE_PATH_MAX_STEPS {
-                // 772 `ToDoGo(..., false, 3)` — only the next few hops are queued per repath.
-                let keep_from = steps.len().saturating_sub(CHASE_PATH_MAX_STEPS);
-                steps = steps.split_off(keep_from);
+            } else if self.beat_driven_loop {
+                // 772 `ToDoGo(..., false, 3)` — only the next few hops are queued per repath,
+                // stopping early if distance to target becomes <= 1.
+                steps.reverse();
+                steps = crate::pathfinding::truncate_cipsoft_chase_queue(
+                    pos,
+                    target_pos,
+                    steps,
+                    CHASE_PATH_MAX_STEPS,
+                    false,
+                );
+                steps.reverse();
             }
             if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
                 if let Some(k) = self.creatures.get(cid) {
@@ -715,7 +872,7 @@ impl GameWorld {
 
     fn monster_start_chase_walk(&mut self, cid: CreatureId, first_step: bool) {
         if self.beat_driven_loop {
-            self.idle_enqueue_go_and_start(cid, first_step);
+            self.idle_enqueue_go_and_start(cid, first_step, None);
         } else {
             self.creature_start_chase_auto_walk(cid);
         }
@@ -746,6 +903,7 @@ impl GameWorld {
             .get(cid)
             .map(|k| k.position())
             .unwrap_or(Position::new(0, 0, 7));
+        let target_pos = self.creatures.get(follow_id).map(|k| k.position());
         let mut fpp = FindPathParams {
             min_target_dist: 1,
             max_target_dist: target_distance,
@@ -765,6 +923,9 @@ impl GameWorld {
                 fpp.full_path_search = true;
             } else if target_distance <= 1 {
                 fpp.full_path_search = true;
+            } else if self.beat_driven_loop {
+                fpp.full_path_search = target_pos
+                    .is_some_and(|tp| chebyshev(pos, tp) != target_distance);
             } else {
                 fpp.full_path_search = !self.monster_can_use_attack(cid, pos, follow_id);
             }
@@ -774,6 +935,10 @@ impl GameWorld {
             fpp.full_path_search = false;
         } else if target_distance <= 1 {
             fpp.full_path_search = true;
+        } else if self.beat_driven_loop {
+            // 772 `DistanceFighting` — cheb band, not TFS `canUseAttack` (`crnonpl.cc:2723`).
+            fpp.full_path_search = target_pos
+                .is_some_and(|tp| chebyshev(pos, tp) != target_distance);
         } else {
             // TFS `Monster::getPathSearchParams` — `maxTargetDist` stays at targetDistance;
             // only `fullPathSearch` toggles on `canUseAttack` (`monster.cpp` ~2111–2115).
@@ -847,13 +1012,13 @@ impl GameWorld {
     /// (`creature.cpp` ~619–637) and avoids waiting for `onThink` (1 s bucket).
     /// Walk execution stays in `creature_start_chase_auto_walk` / scheduler — do not call
     /// `check_creature_walk` here (would deepen the `onWalk` stack and risk recursion on blocked tiles).
-    pub(crate) fn monster_follow_repath_now(&mut self, cid: CreatureId) {
+    pub(crate) fn monster_follow_repath_now(&mut self, cid: CreatureId, repath_reason: Option<&str>) {
         if !self.creatures.get(cid).is_some_and(|k| {
             matches!(k, CreatureKind::Monster(_)) && k.base().follow_target.is_some()
         }) {
             return;
         }
-        self.go_to_follow_creature(cid);
+        self.go_to_follow_creature(cid, repath_reason);
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.force_update_follow_path = false;
@@ -1125,11 +1290,11 @@ impl GameWorld {
                     .get(cid)
                     .is_some_and(|k| k.base().has_follow_path);
                 self.monster_on_follow_creature_complete(cid, target_id);
-                // 772: band reconcile runs from idle; 1098: reconcile after follow walk.
+                // 772: band reconcile + look runs from idle; 1098: reconcile after follow walk.
                 if had_follow_path && !self.beat_driven_loop {
                     self.monster_reconcile_follow_position(cid, target_id);
+                    self.monster_update_look_direction(cid);
                 }
-                self.monster_update_look_direction(cid);
             }
         }
     }
@@ -1255,6 +1420,7 @@ impl GameWorld {
                                                 dest,
                                                 true,
                                                 i32::MAX,
+                                                None,
                                             );
                                         }
                                     }
@@ -1441,6 +1607,7 @@ mod world_tests {
     use tfs_rust_common::Position;
 
     use crate::creature::{CreatureKind, MonsterAiConfig};
+    use crate::monster_ai::MonsterIdleChaseRepathOutcome;
     use crate::login_out::creature_wire_id;
     use crate::formulas::MechanicsProfile;
     use crate::pathfinding::uses_reverse_terrain_path;
@@ -1717,7 +1884,7 @@ mod world_tests {
             m.is_idle = false;
         }
         let _ = world.monster_search_target(monster, super::TargetSearchType::Default);
-        world.go_to_follow_creature(monster);
+        world.go_to_follow_creature(monster, None);
         world.process_walk_deadlines();
 
         let new_pos = world.creatures.get(monster).unwrap().position();
@@ -2036,7 +2203,7 @@ mod world_tests {
             m.base.has_follow_path = true;
         }
 
-        world.go_to_follow_creature(monster);
+        world.go_to_follow_creature(monster, None);
 
         let stepped_away = world.creatures.get(monster).is_some_and(|k| {
             k.base().walk_queue.iter().any(|&d| d == Direction::West)
@@ -2279,6 +2446,145 @@ mod world_tests {
         assert_eq!(
             queue_before, queue_after,
             "772 walk queue should be retained due to hysteresis when target moves slightly"
+        );
+    }
+
+    #[test]
+    fn test_772_ensure_follow_band_keeps_queue_when_not_stale() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        let ppos_moved = Position::new(104, 100, 7);
+        for x in 100..=106 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        world.monster_on_creature_appear_self(monster);
+        let queue_before = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .clone();
+        assert!(!queue_before.is_empty());
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_moved;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_moved, player);
+
+        let repathed = world.monster_ensure_follow_band(monster, "idle");
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            !repathed,
+            "772 ensure_follow_band must not schedule repath when queue still valid"
+        );
+        assert_eq!(base.walk_queue, queue_before);
+        assert!(!base.force_update_follow_path);
+    }
+
+    #[test]
+    fn test_772_target_move_empty_queue_defers_to_idle() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        let ppos_moved = Position::new(104, 100, 7);
+        for x in 100..=106 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.base.follow_target = Some(player);
+            m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_moved;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_moved, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_moved);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            !base.force_update_follow_path,
+            "772 empty queue must not force_update on every target tile"
+        );
+        assert!(base.walk_queue.is_empty());
+
+        let (needs, reason) = world.monster_idle_chase_needs_repath(monster);
+        assert!(needs, "idle should still repath via idle_drain or off_band");
+        assert!(matches!(reason, Some("idle_drain") | Some("off_band")));
+    }
+
+    #[test]
+    fn test_772_ensure_follow_band_defers_repath_via_force_update() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(108, 100, 7);
+        for x in 100..=109 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = true;
+            m.base.walk_queue = VecDeque::from([Direction::North]);
+        }
+
+        let scheduled = world.monster_ensure_follow_band(monster, "idle");
+        assert!(scheduled, "stale queue must schedule repath on 772");
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(base.force_update_follow_path);
+        assert!(base.walk_queue.is_empty());
+        assert!(!base.has_follow_path);
+
+        world.monster_idle_stimulus(monster);
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| !k.base().walk_queue.is_empty() || k.base().todo.has_go()),
+            "idle must repath after ensure_follow_band deferred force_update"
         );
     }
 
@@ -2530,7 +2836,7 @@ mod world_tests {
         }
         
         // Trigger repath
-        world.monster_follow_repath_now(monster);
+        world.monster_follow_repath_now(monster, None);
         
         let wakeup = world
             .creatures
@@ -2659,7 +2965,7 @@ mod world_tests {
 
         // Run go_to_follow_creature. Since fleeing is true and pathing fails, it should clear follow path and stop,
         // without attempting any closer steps.
-        world.go_to_follow_creature(monster);
+        world.go_to_follow_creature(monster, None);
 
         let walk_queue_empty = world
             .creatures
@@ -2669,5 +2975,100 @@ mod world_tests {
             .walk_queue
             .is_empty();
         assert!(walk_queue_empty, "blocked flee must not populate walk queue");
+    }
+
+    #[test]
+    fn test_772_at_follow_goal_keep_distance_without_spell_range() {
+        let mut world = beat_driven_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(104, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+
+        let config = MonsterAiConfig {
+            target_distance: 4,
+            is_hostile: true,
+            ..Default::default()
+        };
+        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        assert!(
+            !world.monster_can_use_attack(monster, mpos, player),
+            "test assumes no in-range attack spells for Rat at dist 4"
+        );
+        assert!(
+            world.monster_at_follow_goal(monster, player, mpos, ppos, false, 4),
+            "772 keep-distance at cheb==target_distance is at goal without canUseAttack"
+        );
+    }
+
+    #[test]
+    fn test_772_full_path_search_off_band() {
+        let mut world = beat_driven_world();
+        let mpos = Position::new(100, 100, 7);
+        let at_band = Position::new(104, 100, 7);
+        let off_band = Position::new(106, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, at_band, 150);
+        ensure_walkable_tile(&mut world.map, off_band, 150);
+
+        let config = MonsterAiConfig {
+            target_distance: 4,
+            ..Default::default()
+        };
+        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
+        let player_at = insert_player(&mut world, test_player("HeroAt", at_band));
+        let player_off = insert_player(&mut world, test_player("HeroOff", off_band));
+
+        let fpp_at = world.monster_path_search_params(monster, player_at, false, 4, false, false);
+        assert!(
+            !fpp_at.full_path_search,
+            "at keep band cheb==4 must use directional search box"
+        );
+
+        let fpp_off = world.monster_path_search_params(monster, player_off, false, 4, false, false);
+        assert!(
+            fpp_off.full_path_search,
+            "off keep band cheb>4 must use full search box"
+        );
+    }
+
+    #[test]
+    fn test_772_idle_no_greedy_step_on_path_fail() {
+        let mut world = beat_driven_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        let outcome = world.monster_idle_chase_repath(monster, Some("idle_drain"));
+        assert_eq!(outcome, MonsterIdleChaseRepathOutcome::Noway);
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .walk_queue
+                .is_empty(),
+            "772 path fail must not fall back to greedy closer step"
+        );
     }
 }

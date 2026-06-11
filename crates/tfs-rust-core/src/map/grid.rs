@@ -15,7 +15,7 @@ pub const CHUNK_AREA: usize = (CHUNK_SIZE as usize) * (CHUNK_SIZE as usize);
 
 /// Packed `(floor, chunk_x, chunk_y)` — `FxHashMap` key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChunkKey(u32);
+pub(crate) struct ChunkKey(u32);
 
 impl ChunkKey {
     #[inline]
@@ -35,11 +35,6 @@ impl ChunkKey {
 }
 
 #[inline]
-pub fn position_at(x: u16, y: u16, z: u8) -> Position {
-    Position::new(x, y, z)
-}
-
-#[inline]
 fn tile_index(x: u16, y: u16) -> usize {
     let lx = (x % CHUNK_SIZE) as usize;
     let ly = (y % CHUNK_SIZE) as usize;
@@ -55,7 +50,7 @@ fn position_from_chunk_slot(origin_x: u16, origin_y: u16, z: u8, idx: usize) -> 
 
 /// One 64×64 region on a single floor.
 #[derive(Debug)]
-pub struct Chunk {
+pub(crate) struct Chunk {
     pub tile_count: u16,
     pub creatures: SmallVec<[CreatureId; 4]>,
     pub tiles: Box<[Option<Box<Tile>>; CHUNK_AREA]>,
@@ -148,11 +143,6 @@ impl SparseGrid {
         if chunk.creatures.is_empty() && chunk.tile_count == 0 {
             self.chunks.remove(&key);
         }
-    }
-
-    pub fn move_creature(&mut self, from_x: u16, from_y: u16, from_z: u8, to_x: u16, to_y: u16, to_z: u8, id: CreatureId) {
-        self.unregister_creature(from_x, from_y, from_z, id);
-        self.register_creature(to_x, to_y, to_z, id);
     }
 
     /// Spatial **superset** for spectator fan-out — chunk overlap only; callers filter with `canSee`.

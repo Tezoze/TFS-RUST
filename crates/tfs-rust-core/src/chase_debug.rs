@@ -11,7 +11,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use slotmap::Key;
-use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
 
 use crate::ids::CreatureId;
@@ -85,18 +84,21 @@ pub fn log_branch(
     dest: Position,
     must_reach: bool,
     max_steps: i32,
+    reason: Option<&str>,
 ) {
     if !chase_path_debug_enabled() {
         return;
     }
     let cheb = chebyshev(from, dest);
+    let reason_json = reason
+        .map(|r| format!(",\"reason\":\"{r}\""))
+        .unwrap_or_default();
     let line = format!(
-        "{},\"branch\":\"{branch}\",{},{},\"must\":{},\"max\":{},\"cheb\":{cheb}}}",
+        "{},\"branch\":\"{branch}\",{},{},\"must\":{},\"max\":{max_steps},\"cheb\":{cheb}{reason_json}}}",
         header(tick, cid, name, "branch"),
         pos_json("from", from),
         pos_json("dest", dest),
         u8::from(must_reach),
-        max_steps
     );
     write_line(&line);
 }

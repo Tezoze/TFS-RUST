@@ -26,7 +26,7 @@ formulas = {
   },
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
   expAttributionRounds = 60,
-  followRepathWithoutPath = true,  -- IdleStimulus repaths without hasFollowPath gate
+  followRepathWithoutPath = true,  -- target-move repath without hasFollowPath gate (not idle drain)
   pathForwardFallback = false,     -- NOWAY when reverse search fails
 
   fightModes = {

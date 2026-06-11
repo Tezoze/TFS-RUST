@@ -357,11 +357,297 @@ where
     Some(reconstruct_forward_dirs(&nodes, end_pos))
 }
 
+/// One cell in the 772 `TShortway` viewport grid (`cract.cc` `TShortwayPoint`).
+struct TShortwayCell {
+    waypoints: i32,
+    waylength: u32,
+    heuristic: u32,
+    parent: Option<Position>,
+    /// Incoming edge to this cell was diagonal — used for equal-cost cardinal tie-break.
+    parent_diagonal: bool,
+    expand_next: Option<Position>,
+}
+
+const TSHORTWAY_UNVISITED: u32 = u32::MAX;
+
+/// Prefer cardinal when two relaxations reach the same `waylength` (`cract.cc` strict `<` keeps
+/// first-seen; linked-list expand order can still tie — cardinals match live 772 chase traces).
+fn tshortway_should_relax(
+    prev_waylength: u32,
+    new_waylength: u32,
+    prev_parent_diagonal: bool,
+    new_edge_diagonal: bool,
+) -> bool {
+    if new_waylength < prev_waylength {
+        return true;
+    }
+    if new_waylength > prev_waylength {
+        return false;
+    }
+    !new_edge_diagonal && prev_parent_diagonal
+}
+
+/// 772 `TShortway` search state — linked-list open set (`cract.cc`, `compare_chase_pathfinding.py`).
+struct TShortwaySearch {
+    origin: Position,
+    min_waypoints: u32,
+    cells: HashMap<Position, TShortwayCell>,
+    expand_head: Option<Position>,
+}
+
+impl TShortwaySearch {
+    fn clear_path_state(&mut self) {
+        for cell in self.cells.values_mut() {
+            cell.waylength = TSHORTWAY_UNVISITED;
+            cell.heuristic = TSHORTWAY_UNVISITED;
+            cell.parent = None;
+            cell.parent_diagonal = false;
+            cell.expand_next = None;
+        }
+        self.expand_head = None;
+    }
+
+    fn remove_from_expand_list(&mut self, pos: Position) {
+        if self.expand_head == Some(pos) {
+            self.expand_head = self.cells.get(&pos).and_then(|c| c.expand_next);
+            return;
+        }
+        let mut cur = self.expand_head;
+        while let Some(cur_pos) = cur {
+            let next = self.cells.get(&cur_pos).and_then(|c| c.expand_next);
+            if next == Some(pos) {
+                let removed_next = self.cells.get(&pos).and_then(|c| c.expand_next);
+                if let Some(cell) = self.cells.get_mut(&cur_pos) {
+                    cell.expand_next = removed_next;
+                }
+                return;
+            }
+            cur = next;
+        }
+    }
+
+    fn insert_expand_list(&mut self, pos: Position) {
+        let new_h = self
+            .cells
+            .get(&pos)
+            .map(|c| c.heuristic)
+            .unwrap_or(TSHORTWAY_UNVISITED);
+        let mut prev: Option<Position> = None;
+        let mut cur = self.expand_head;
+        while let Some(cur_pos) = cur {
+            let cur_h = self
+                .cells
+                .get(&cur_pos)
+                .map(|c| c.heuristic)
+                .unwrap_or(TSHORTWAY_UNVISITED);
+            if cur_h < new_h {
+                prev = Some(cur_pos);
+                cur = self.cells.get(&cur_pos).and_then(|c| c.expand_next);
+            } else {
+                break;
+            }
+        }
+        let next = cur;
+        if let Some(cell) = self.cells.get_mut(&pos) {
+            cell.expand_next = next;
+        }
+        if let Some(prev_pos) = prev {
+            if let Some(prev_cell) = self.cells.get_mut(&prev_pos) {
+                prev_cell.expand_next = Some(pos);
+            }
+        } else {
+            self.expand_head = Some(pos);
+        }
+    }
+
+    fn expand(&mut self, pos: Position, allow_diagonal: bool) {
+        let (node_wp, node_wl, node_next) = {
+            let Some(cell) = self.cells.get(&pos) else {
+                return;
+            };
+            (cell.waypoints, cell.waylength, cell.expand_next)
+        };
+        self.expand_head = node_next;
+        if let Some(cell) = self.cells.get_mut(&pos) {
+            cell.expand_next = None;
+        }
+        if node_wp <= 0 {
+            return;
+        }
+        let min_neighbor_wl = node_wl.saturating_add(node_wp as u32);
+        let origin_wl = self
+            .cells
+            .get(&self.origin)
+            .map(|c| c.waylength)
+            .unwrap_or(TSHORTWAY_UNVISITED);
+        if min_neighbor_wl >= origin_wl {
+            return;
+        }
+
+        for &(ox, oy) in &REVERSE_PATH_NEIGHBOR_OFFSETS {
+            if !allow_diagonal && ox != 0 && oy != 0 {
+                continue;
+            }
+            let Some(neighbor_pos) = offset_position(pos, ox, oy) else {
+                continue;
+            };
+            let is_diagonal = ox != 0 && oy != 0;
+            let mut neighbor_wl = min_neighbor_wl;
+            if is_diagonal {
+                neighbor_wl = neighbor_wl.saturating_add((node_wp as u32).saturating_mul(2));
+            }
+            if neighbor_wl >= origin_wl {
+                continue;
+            }
+
+            let (neighbor_wp, prev_wl, prev_parent_diag, prev_heuristic) = self
+                .cells
+                .get(&neighbor_pos)
+                .map(|c| (c.waypoints, c.waylength, c.parent_diagonal, c.heuristic))
+                .unwrap_or((-1, TSHORTWAY_UNVISITED, false, TSHORTWAY_UNVISITED));
+
+            if neighbor_wp <= 0 {
+                continue;
+            }
+            if !tshortway_should_relax(prev_wl, neighbor_wl, prev_parent_diag, is_diagonal) {
+                continue;
+            }
+
+            let distance = manhattan_dist(neighbor_pos, self.origin) as u32;
+            let heuristic = neighbor_wl
+                .saturating_add(neighbor_wp as u32)
+                .saturating_add(
+                    self.min_waypoints
+                        .saturating_mul(distance.saturating_sub(1)),
+                );
+
+            if prev_heuristic != TSHORTWAY_UNVISITED {
+                self.remove_from_expand_list(neighbor_pos);
+            }
+
+            if let Some(cell) = self.cells.get_mut(&neighbor_pos) {
+                cell.waylength = neighbor_wl;
+                cell.heuristic = heuristic;
+                cell.parent = Some(pos);
+                cell.parent_diagonal = is_diagonal;
+            }
+            if neighbor_pos != self.origin {
+                self.insert_expand_list(neighbor_pos);
+            }
+        }
+    }
+}
+
+/// 772 `TShortway::Calculate` — linked-list expand sorted by heuristic (`cract.cc`, `scripts/compare_chase_pathfinding.py`).
+fn path_matching_tshortway<C, G>(
+    map: &Map,
+    start: Position,
+    target: Position,
+    fpp: &FindPathParams,
+    can_walk_to: C,
+    ground_cost: G,
+) -> Option<Vec<Direction>>
+where
+    C: Fn(Position) -> bool,
+    G: Fn(Position) -> u32,
+{
+    let radius = REVERSE_PATH_VIEW_RADIUS;
+    if !in_path_viewport(start, target, radius) {
+        return None;
+    }
+
+    let mut min_waypoints = u32::MAX;
+    let mut cells: HashMap<Position, TShortwayCell> = HashMap::new();
+
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let Some(pos) = offset_position(start, dx, dy) else {
+                continue;
+            };
+            // Destination may hold the follow target — include seed tile without occupancy check.
+            let walkable_for_fill = map.is_walkable(pos) && (pos == target || can_walk_to(pos));
+            let waypoints = if walkable_for_fill {
+                let wp = effective_terrain_waypoints(ground_cost(pos)) as i32;
+                if wp > 0 {
+                    min_waypoints = min_waypoints.min(wp as u32);
+                }
+                wp
+            } else {
+                -1
+            };
+            cells.insert(
+                pos,
+                TShortwayCell {
+                    waypoints,
+                    waylength: TSHORTWAY_UNVISITED,
+                    heuristic: TSHORTWAY_UNVISITED,
+                    parent: None,
+                    parent_diagonal: false,
+                    expand_next: None,
+                },
+            );
+        }
+    }
+
+    if min_waypoints == u32::MAX {
+        min_waypoints = DEFAULT_TERRAIN_WAYPOINTS;
+    }
+
+    let mut search = TShortwaySearch {
+        origin: start,
+        min_waypoints,
+        cells,
+        expand_head: None,
+    };
+
+    search.clear_path_state();
+    if let Some(seed) = search.cells.get_mut(&target) {
+        seed.waylength = 0;
+        seed.heuristic = 0;
+    }
+    search.expand_head = Some(target);
+
+    let mut expand_count = 0usize;
+    while expand_count < REVERSE_PATH_MAX_CLOSED_NODES {
+        let Some(current) = search.expand_head else {
+            break;
+        };
+        search.expand(current, fpp.allow_diagonal);
+        expand_count += 1;
+    }
+
+    let origin_wl = search
+        .cells
+        .get(&start)
+        .map(|c| c.waylength)
+        .unwrap_or(TSHORTWAY_UNVISITED);
+    if origin_wl == TSHORTWAY_UNVISITED {
+        return None;
+    }
+
+    let mut nodes: HashMap<Position, AStarNode> = HashMap::new();
+    for (pos, cell) in &search.cells {
+        if cell.waylength != TSHORTWAY_UNVISITED {
+            nodes.insert(
+                *pos,
+                AStarNode {
+                    parent: cell.parent,
+                    g: cell.waylength,
+                },
+            );
+        }
+    }
+
+    let dirs = reconstruct_reverse_dirs(&nodes, start);
+    let mut trimmed = trim_path_to_goal_band(dirs, start, target, fpp, map);
+    trimmed.reverse();
+    Some(trimmed)
+}
+
 /// 772 reverse A* — destination (`target`) → origin (`start`) (`cract.cc:7` `TShortway`).
 ///
-/// Expands from the follow destination back toward the monster with Manhattan heuristic:
-/// `H(n) = Waypoints(n) + MinWaypoints × (Manhattan(n, origin) − 1)` (`cract.cc`).
-/// Walk directions run origin → destination (parent chain toward the seed).
+/// Terrain-weighted chase uses [`path_matching_tshortway`] (linked-list expand). Non-terrain
+/// reverse keeps the BinaryHeap implementation for TFS fallback paths.
 #[allow(clippy::too_many_arguments)]
 fn path_matching_reverse<C, T, G>(
     map: &Map,
@@ -390,6 +676,9 @@ where
     }
 
     let use_reverse_terrain_astar = matches!(cost_model, PathCostModel::TerrainWeighted);
+    if use_reverse_terrain_astar {
+        return path_matching_tshortway(map, start, target, fpp, can_walk_to, ground_cost);
+    }
     // 772 monster chase always uses VisibleX/Y = 10 and ~441 node cap — not TFS `maxSearchDist` 12.
     let (viewport_radius, closed_cap) = if use_reverse_terrain_astar {
         (REVERSE_PATH_VIEW_RADIUS, REVERSE_PATH_MAX_CLOSED_NODES)
@@ -804,12 +1093,49 @@ fn walk_queue_direction(from: Position, to: Position) -> Direction {
     }
 }
 
+/// 772 `TShortway::Calculate` queue trim — `cract.cc:241-258`.
+pub fn truncate_cipsoft_chase_queue(
+    start: Position,
+    target: Position,
+    mut walk_order: Vec<Direction>,
+    max_steps: usize,
+    must_reach: bool,
+) -> Vec<Direction> {
+    let mut cur_distance = chebyshev_dist(start, target);
+    let mut out = Vec::new();
+    let mut pos = start;
+    let mut remaining = max_steps;
+
+    for d in walk_order.drain(..) {
+        if remaining == 0 {
+            break;
+        }
+        if !must_reach && cur_distance <= 1 {
+            break;
+        }
+        out.push(d);
+        pos = pos.offset(d);
+        cur_distance = chebyshev_dist(pos, target);
+        remaining -= 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
     use crate::test_world::support::ensure_walkable_tile;
+
+    #[test]
+    fn tshortway_should_relax_prefers_cardinal_on_equal_cost() {
+        assert!(tshortway_should_relax(100, 90, false, false));
+        assert!(!tshortway_should_relax(90, 100, false, false));
+        assert!(tshortway_should_relax(100, 100, true, false));
+        assert!(!tshortway_should_relax(100, 100, false, true));
+        assert!(!tshortway_should_relax(100, 100, true, true));
+    }
 
     #[test]
     fn walk_queue_direction_matches_cpp_parent_delta_table() {
@@ -1347,5 +1673,14 @@ mod tests {
             ground,
         );
         assert!(path_with_fallback.is_some(), "Must return Some with forward fallback");
+    }
+
+    #[test]
+    fn test_truncate_cipsoft_chase_queue() {
+        let start = Position::new(32345, 32288, 7);
+        let target = Position::new(32344, 32286, 7);
+        let walk_order = vec![Direction::North, Direction::North, Direction::West];
+        let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 3, false);
+        assert_eq!(truncated, vec![Direction::North]);
     }
 }
