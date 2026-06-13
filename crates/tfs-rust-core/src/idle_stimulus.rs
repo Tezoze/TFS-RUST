@@ -10,7 +10,7 @@ use std::time::Instant;
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
-use crate::creature::CreatureKind;
+use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState, monster_weapon_attack_distance};
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
 use crate::creature_todo::{
     trace_creature_todo, CreatureAction, MONSTER_IDLE_WAIT_MS,
@@ -62,6 +62,8 @@ pub(crate) enum TodoExecuteKind {
     Go,
     Wait,
     Attack,
+    /// Attack cadence not ready — re-queued and wakeup scheduled (`cract.cc:909`).
+    AttackDeferred,
 }
 
 impl GameWorld {
@@ -147,6 +149,10 @@ impl GameWorld {
             return;
         }
 
+        if self.beat_driven_loop {
+            self.monster_idle_reset_combat_state(cid);
+        }
+
         if is_summon {
             self.monster_think_summon_stub(cid);
         } else if has_opponents {
@@ -210,7 +216,107 @@ impl GameWorld {
         }
     }
 
-    /// 772 melee tail uses cheb band; TFS `canUseAttack` is spell-range only (`monster.cpp` ~876).
+    /// C++ `TMonster::IdleStimulus` — `crnonpl.cc:2387` (reset unless PANIC/UNDERATTACK).
+    fn monster_idle_reset_combat_state(&mut self, cid: CreatureId) {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) else {
+            return;
+        };
+        if !matches!(m.state, MonsterState::Panic | MonsterState::UnderAttack) {
+            m.state = MonsterState::Idle;
+        }
+    }
+
+    /// C++ walking prelude — `crnonpl.cc:2705` (`SKILL_FIST > 0 && State != PANIC`).
+    fn monster_idle_maybe_enter_attacking(&mut self, cid: CreatureId) {
+        let should_attack = {
+            let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+                return;
+            };
+            if m.is_fleeing() {
+                return;
+            }
+            let Some(follow_id) = m.base.follow_target else {
+                return;
+            };
+            if m.base.master == Some(follow_id) {
+                return;
+            }
+            if m.state == MonsterState::Panic {
+                return;
+            }
+            m.melee_skill > 0
+        };
+        if should_attack {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.state = MonsterState::Attacking;
+            }
+        }
+    }
+
+    /// C++ ATTACKING walk prelude — `crnonpl.cc:2709-2726` (`SetChaseMode` reset then CLOSE for melee).
+    fn monster_idle_prepare_combat_chase(&mut self, cid: CreatureId) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let snapshot = self.creatures.get(cid).and_then(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return None;
+            };
+            Some((
+                m.state,
+                m.base.follow_target,
+                m.base.position,
+                m.target_distance,
+            ))
+        });
+        let Some((state, follow_id, pos, raw_target_distance)) = snapshot else {
+            return;
+        };
+        let new_mode = if !matches!(state, MonsterState::Attacking | MonsterState::Panic) {
+            MonsterChaseMode::None
+        } else if let Some(follow_id) = follow_id {
+            let target_distance = self.monster_effective_target_distance(raw_target_distance);
+            let uses_dist_branch =
+                target_distance > 1 && self.monster_can_use_attack(cid, pos, follow_id);
+            if uses_dist_branch {
+                MonsterChaseMode::None
+            } else {
+                MonsterChaseMode::Close
+            }
+        } else {
+            MonsterChaseMode::None
+        };
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.chase_mode = new_mode;
+        }
+    }
+
+    /// C++ `TCreature::ToDoAttack` action list — `cract.cc:1325-1334`.
+    pub(crate) fn monster_enqueue_todo_attack_actions(&mut self, cid: CreatureId) -> bool {
+        let weapon_distance = self
+            .creatures
+            .get(cid)
+            .map(|k| match k {
+                CreatureKind::Monster(m) => monster_weapon_attack_distance(
+                    m.melee_skill,
+                    m.spells.iter().any(|s| s.range > 1),
+                ),
+                _ => 1,
+            })
+            .unwrap_or(1);
+        let _ = self.monster_combat_enqueue_close_chase_go(cid);
+        if weapon_distance != 1 {
+            self.enqueue_creature_wait(cid, 100);
+        }
+        if self.enqueue_creature_attack(cid) {
+            self.schedule_immediate_todo_wakeup(cid);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 772 melee tail uses cheb band for strike; enqueue uses `ToDoAttack` walk path (`cract.cc:1325`).
     fn monster_idle_can_enqueue_attack(
         &self,
         cid: CreatureId,
@@ -227,12 +333,13 @@ impl GameWorld {
         let target_distance = self.monster_effective_target_distance(m.target_distance);
         let dist = chebyshev(pos, target_pos);
         if target_distance <= 1 {
-            return dist <= 1;
+            // Melee `ToDoAttack` closes via `CanToDoAttack` — not limited to cheb==1 at enqueue.
+            return dist <= 8;
         }
         self.monster_can_use_attack(cid, pos, attack_id)
     }
 
-    /// C++ idle combat tail — `Rotate` + `ToDoAttack` (`crnonpl.cc:2795`); stub until E2/E5.
+    /// C++ idle combat tail — `Rotate` + `ToDoAttack` (`crnonpl.cc:2795`).
     fn monster_idle_maybe_enqueue_attack(&mut self, cid: CreatureId) -> bool {
         let (attack_id, pos) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => {
@@ -259,9 +366,15 @@ impl GameWorld {
         if !self.monster_idle_can_enqueue_attack(cid, pos, attack_id, target_pos) {
             return false;
         }
-        if self.enqueue_creature_attack(cid) {
+        if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| !k.base().attack_ready_at(self.server_ms, 0))
+        {
+            return false;
+        }
+        if self.monster_enqueue_todo_attack_actions(cid) {
             trace_creature_todo(self, cid, "idle_enqueue_attack");
-            self.schedule_immediate_todo_wakeup(cid);
             return true;
         }
         false
@@ -426,10 +539,11 @@ impl GameWorld {
                 MonsterIdleWalkBranch::DistDance
             }
         } else if dist > 1 {
-            // Decompile skips idle `melee_chase` when ATTACKING (`crnonpl.cc:2731`) — combat
-            // `CHASE_MODE_CLOSE` on `ToDoAttack` owns the walk. Not wired in Rust yet; keep idle
-            // chase so fist monsters still close distance.
-            MonsterIdleWalkBranch::MeleeChase
+            if self.monster_idle_is_attacking_posture(cid, target_distance) {
+                MonsterIdleWalkBranch::Hold
+            } else {
+                MonsterIdleWalkBranch::MeleeChase
+            }
         } else if dist == 1 {
             MonsterIdleWalkBranch::MeleeDance
         } else {
@@ -635,6 +749,10 @@ impl GameWorld {
     ///
     /// C++ walking section — `crnonpl.cc:2676`.
     fn monster_idle_prepare_and_enqueue_go(&mut self, cid: CreatureId) {
+        if self.beat_driven_loop {
+            self.monster_idle_maybe_enter_attacking(cid);
+            self.monster_idle_prepare_combat_chase(cid);
+        }
         let branch = self.monster_idle_classify_walk_branch(cid);
         let mut outcome = self.monster_idle_execute_walk_branch(cid, branch);
 
@@ -697,10 +815,21 @@ impl GameWorld {
                 TodoExecuteKind::Wait
             }
             CreatureAction::Attack => {
-                trace_creature_todo(self, cid, "execute_attack");
-                self.monster_do_attacking(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
-                trace_creature_todo(self, cid, "execute_attack_done");
-                TodoExecuteKind::Attack
+                let delay = self.todo_attack_delay_ms(cid);
+                if delay > 0 {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().todo.queue.push_front(CreatureAction::Attack);
+                    }
+                    trace_creature_todo(self, cid, "execute_attack_deferred");
+                    self.todo_start_from_action(cid, delay);
+                    trace_creature_todo(self, cid, "execute_attack_deferred_done");
+                    TodoExecuteKind::AttackDeferred
+                } else {
+                    trace_creature_todo(self, cid, "execute_attack");
+                    self.monster_do_attacking(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
+                    trace_creature_todo(self, cid, "execute_attack_done");
+                    TodoExecuteKind::Attack
+                }
             }
         };
 
@@ -757,7 +886,7 @@ impl GameWorld {
             Some(TodoExecuteKind::Go) | Some(TodoExecuteKind::Attack) => {
                 self.finish_creature_todo_execute(cid);
             }
-            Some(TodoExecuteKind::Wait) => {}
+            Some(TodoExecuteKind::Wait) | Some(TodoExecuteKind::AttackDeferred) => {}
             None => {}
         }
     }
@@ -765,13 +894,14 @@ impl GameWorld {
 
 #[cfg(test)]
 mod tests {
-    use tfs_rust_common::enums::Direction;
+    use tfs_rust_common::enums::{ConditionType, Direction};
     use tfs_rust_common::Position;
 
-    use crate::creature::CreatureKind;
-    use crate::creature::MonsterAiConfig;
+use crate::creature::{CreatureKind, MonsterAiConfig, MonsterChaseMode, MonsterState, MonsterSpell, SpellImpact, SpellShape};
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
-    use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
+    use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+    use crate::game_world::GameWorld;
+    use crate::ids::CreatureId;
     use crate::idle_stimulus::MonsterIdleWalkBranch;
     use crate::test_world::support::{
         ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
@@ -1274,6 +1404,9 @@ mod tests {
     }
 
     /// P0-4 — melee chase at cheb==2 uses reference `must:false, max:3`; trim stops at cheb≤1.
+    ///
+    /// Uses default spawn (`melee_skill==0`, state not `Attacking`) so classify stays `MeleeChase`;
+    /// fist monsters in `Attacking` skip idle chase — see `test_e3_attacking_skips_idle_melee_chase`.
     #[test]
     fn test_772_melee_chase_cheb2_must_false_max_three() {
         use crate::monster_ai::{monster_idle_chase_step_budget, MonsterIdleChaseRepathOutcome};
@@ -2287,6 +2420,427 @@ mod tests {
                 .get(monster)
                 .is_some_and(|k| k.base().todo.has_attack()),
             "772 ~1 Hz think must not enqueue Attack — idle todo path owns combat tail"
+        );
+    }
+
+    fn e1_melee_target_setup(
+        world: &mut GameWorld,
+        melee_skill: i32,
+    ) -> (CreatureId, CreatureId) {
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        let player = insert_player(world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.melee_skill = melee_skill;
+            m.is_hostile = true;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
+        }
+        (monster, player)
+    }
+
+    #[test]
+    fn test_e1_melee_monster_enters_attacking_on_idle() {
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+
+        world.monster_idle_stimulus(monster);
+
+        assert_eq!(
+            world
+                .creatures
+                .get(monster)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) => Some(m.state),
+                    _ => None,
+                }),
+            Some(MonsterState::Attacking),
+            "hostile melee with target must enter Attacking on idle drain"
+        );
+    }
+
+    #[test]
+    fn test_e1_idle_reset_reasserts_attacking_each_tick() {
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+
+        for tick in 0..2 {
+            if tick > 0 {
+                if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+                    m.base.todo.queue.clear();
+                    m.base.walk_queue.clear();
+                    m.base.next_wakeup = None;
+                }
+            }
+            world.monster_idle_stimulus(monster);
+            assert_eq!(
+                world
+                    .creatures
+                    .get(monster)
+                    .and_then(|k| match k {
+                        CreatureKind::Monster(m) => Some(m.state),
+                        _ => None,
+                    }),
+                Some(MonsterState::Attacking),
+                "reset→Idle then walk must re-set Attacking when walk section runs"
+            );
+        }
+    }
+
+    #[test]
+    fn test_e1_under_attack_promoted_to_attacking_in_walk_section() {
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::UnderAttack;
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        assert_eq!(
+            world
+                .creatures
+                .get(monster)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) => Some(m.state),
+                    _ => None,
+                }),
+            Some(MonsterState::Attacking),
+            "top reset preserves UnderAttack; walk prelude promotes to Attacking — crnonpl.cc:2705"
+        );
+    }
+
+    #[test]
+    fn test_e1_no_attacking_without_melee_skill() {
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e1_melee_target_setup(&mut world, 0);
+
+        world.monster_idle_stimulus(monster);
+
+        assert_eq!(
+            world
+                .creatures
+                .get(monster)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) => Some(m.state),
+                    _ => None,
+                }),
+            Some(MonsterState::Idle),
+            "melee_skill==0 must not enter Attacking"
+        );
+    }
+
+    #[test]
+    fn test_e1_panic_blocks_attacking_set() {
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Panic;
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        assert_eq!(
+            world
+                .creatures
+                .get(monster)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) => Some(m.state),
+                    _ => None,
+                }),
+            Some(MonsterState::Panic),
+            "PANIC must block Attacking transition"
+        );
+    }
+
+    fn e3_melee_target_at_cheb2(world: &mut GameWorld, melee_skill: i32) -> (CreatureId, CreatureId) {
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        for x in 100..=102u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+        }
+        let player = insert_player(world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.melee_skill = melee_skill;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
+            m.base.todo.queue.clear();
+        }
+        (monster, player)
+    }
+
+    #[test]
+    fn test_e3_attacking_skips_idle_melee_chase() {
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e3_melee_target_at_cheb2(&mut world, 15);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+        }
+
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::Hold,
+            "ATTACKING at cheb==2 must not use idle MeleeChase"
+        );
+    }
+
+    #[test]
+    fn test_e3_attack_path_enqueues_close_chase_at_cheb2() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let (monster, _player) = e3_melee_target_at_cheb2(&mut world, 15);
+
+        world.monster_idle_stimulus(monster);
+
+        let m = match world.creatures.get(monster) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(
+            m.chase_mode,
+            MonsterChaseMode::Close,
+            "melee ATTACKING must set CHASE_MODE_CLOSE"
+        );
+        assert!(
+            !m.base.walk_queue.is_empty(),
+            "attack-path CanToDoAttack must populate walk_queue at cheb==2"
+        );
+        let todo = &m.base.todo;
+        assert!(todo.has_go(), "attack tail must enqueue Go before Attack");
+        assert!(todo.has_attack(), "attack tail must enqueue Attack");
+        assert!(
+            !todo.queue.iter().any(|a| matches!(a, CreatureAction::Wait { delay_ms: 100 })),
+            "fist ToDoAttack skips Wait(100) when GetDistance()==1 (cract.cc:1327)"
+        );
+        let go_idx = todo
+            .queue
+            .iter()
+            .position(|a| matches!(a, CreatureAction::Go))
+            .expect("Go in queue");
+        let attack_idx = todo
+            .queue
+            .iter()
+            .position(|a| matches!(a, CreatureAction::Attack))
+            .expect("Attack in queue");
+        assert!(
+            go_idx < attack_idx,
+            "ToDoAttack order: Go before Attack (cract.cc:1325-1334)"
+        );
+    }
+
+    fn e2_adjacent_combat_setup(
+        world: &mut GameWorld,
+        melee_skill: i32,
+        melee_attack: i32,
+    ) -> (CreatureId, CreatureId) {
+        let (monster, player) = e1_melee_target_setup(world, melee_skill);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.melee_attack = melee_attack;
+        }
+        (monster, player)
+    }
+
+    fn e2_run_attack_todo(world: &mut GameWorld, monster: CreatureId) {
+        world.enqueue_creature_attack(monster);
+        world.schedule_immediate_todo_wakeup(monster);
+        world.run_monster_todo_execute(monster);
+    }
+
+    fn e2_drain_until_idle(world: &mut GameWorld, monster: CreatureId) {
+        for _ in 0..30 {
+            let wakeup = world
+                .creatures
+                .get(monster)
+                .and_then(|k| k.base().next_wakeup);
+            let Some(wu) = wakeup else {
+                break;
+            };
+            world.server_ms = wu;
+            while world
+                .todo_queue
+                .peek()
+                .is_some_and(|e| e.execution_time <= world.server_ms)
+            {
+                world.drain_todo_queue();
+            }
+        }
+    }
+
+    #[test]
+    fn test_e2_melee_damage_and_damage_map() {
+        use crate::max_melee_damage_monster;
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let (monster, player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+        let hp_before = world.creatures.get(player).unwrap().base().health;
+
+        e2_run_attack_todo(&mut world, monster);
+
+        let hp_after = world.creatures.get(player).unwrap().base().health;
+        assert!(hp_after < hp_before, "adjacent melee must reduce target HP");
+        let dealt = (hp_before - hp_after) as u64;
+        assert!(
+            dealt <= max_melee_damage_monster(15, 7) as u64,
+            "damage must not exceed max roll"
+        );
+        assert_eq!(
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .damage_map
+                .get(&monster)
+                .copied(),
+            Some(dealt),
+            "damage_map must attribute dealt HP to attacker"
+        );
+    }
+
+    #[test]
+    fn test_e2_attack_cadence_2000ms() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 5000;
+        let (monster, player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+
+        e2_run_attack_todo(&mut world, monster);
+        let hp_after_first = world.creatures.get(player).unwrap().base().health;
+        let earliest = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .earliest_attack_ms;
+        assert_eq!(earliest, 5000 + 2000, "CloseAttack must DelayAttack(2000)");
+
+        world.server_ms = earliest - 1;
+        e2_run_attack_todo(&mut world, monster);
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().health,
+            hp_after_first,
+            "attack must not land before cadence elapses"
+        );
+
+        world.server_ms = earliest;
+        e2_drain_until_idle(&mut world, monster);
+        assert!(
+            world.creatures.get(player).unwrap().base().health < hp_after_first,
+            "second hit must land after 2000 ms cadence"
+        );
+    }
+
+    #[test]
+    fn test_e2_melee_adjacent_enqueues_attack_without_wait() {
+        use crate::creature::monster_weapon_attack_distance;
+
+        let mut world = beat_driven_test_world();
+        let (monster, _player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+        let (melee_skill, has_ranged) = world
+            .creatures
+            .get(monster)
+            .map(|k| match k {
+                CreatureKind::Monster(m) => (m.melee_skill, m.spells.iter().any(|s| s.range > 1)),
+                _ => (0, false),
+            })
+            .unwrap();
+        assert_eq!(monster_weapon_attack_distance(melee_skill, has_ranged), 1);
+
+        assert!(world.enqueue_creature_attack(monster));
+
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 1);
+        assert!(matches!(todo.queue[0], CreatureAction::Attack));
+    }
+
+    #[test]
+    fn test_e2_wait_100_before_attack_when_weapon_range_not_close() {
+        use crate::creature::monster_weapon_attack_distance;
+
+        assert_eq!(monster_weapon_attack_distance(0, true), 3);
+        assert_eq!(monster_weapon_attack_distance(15, true), 1);
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        let spell = MonsterSpell {
+            delay: 4,
+            range: 5,
+            min_cycle: 6,
+            shape: SpellShape::Victim,
+            impact: SpellImpact::Condition {
+                condition: ConditionType::Poison,
+                cycle: 20,
+                min_cycle: 6,
+            },
+            shoot_effect: None,
+            area_effect: None,
+        };
+        let mut cfg = MonsterAiConfig::default();
+        cfg.melee_skill = 0;
+        cfg.spells = vec![spell];
+        let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
+
+        if monster_weapon_attack_distance(0, true) != 1 {
+            world.enqueue_creature_wait(monster, 100);
+        }
+        world.enqueue_creature_attack(monster);
+
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2);
+        assert!(matches!(todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert!(matches!(todo.queue[1], CreatureAction::Attack));
+    }
+
+    #[test]
+    fn test_e2_attack_deferred_until_cadence() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 2000;
+        let (monster, player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+
+        e2_run_attack_todo(&mut world, monster);
+        let hp_after_first = world.creatures.get(player).unwrap().base().health;
+        assert!(
+            hp_after_first < 100,
+            "first attack must deal damage"
+        );
+
+        world.enqueue_creature_attack(monster);
+        world.schedule_immediate_todo_wakeup(monster);
+        world.run_monster_todo_execute(monster);
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().health,
+            hp_after_first,
+            "immediate re-attack must defer without damage"
+        );
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .next_wakeup
+                .is_some(),
+            "deferred attack must schedule a wakeup"
         );
     }
 }

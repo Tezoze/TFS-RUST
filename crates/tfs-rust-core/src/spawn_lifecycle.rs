@@ -290,6 +290,8 @@ impl GameWorld {
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
             todo: Default::default(),
         };
 
@@ -373,6 +375,8 @@ impl GameWorld {
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
             todo: Default::default(),
         };
 

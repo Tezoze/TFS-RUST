@@ -11,12 +11,16 @@
 
 pub use crate::monster_targets::TargetSearchType;
 
-use tfs_rust_common::enums::Direction;
+use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 use tfs_rust_common::Position;
 use rand::Rng;
 
 use crate::chase_debug;
-use crate::creature::{CreatureKind, MonsterAiPhase};
+use crate::combat::{self, armor_reduction, melee_damage_after_defense_and_armor, weapon_damage, CombatDamage, CombatParams, FightMode};
+use crate::creature::{
+    melee_defense_snapshot, melee_poison_on_hit, roll_target_defense,
+};
+use crate::creature::{CreatureKind, MonsterAiPhase, MonsterChaseMode, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
@@ -361,9 +365,143 @@ impl GameWorld {
 
     /// C++ `Monster::onCreatureAppear` self branch — `monster.cpp` ~159–166.
 
-    /// TFS `Monster::doAttacking` — `monster.cpp` ~806.
+    /// C++ `TCombat::Attack` / `CloseAttack` — `crcombat.cc:530`, `:647`; idle `ToDoAttack` — `cract.cc:1325`.
     pub fn monster_do_attacking(&mut self, cid: CreatureId, _interval_ms: u32) {
         self.monster_update_look_direction(cid);
+
+        if !self.beat_driven_loop {
+            return;
+        }
+
+        let server_ms = self.server_ms;
+        let profile = self.mechanics.profile;
+        let hooks = &self.mechanics.hooks;
+
+        let (target_id, monster_pos, melee_skill, melee_attack, poison_cycles) = {
+            let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+                return;
+            };
+            if m.is_fleeing() {
+                return;
+            }
+            let Some(target_id) = m.base.attack_target else {
+                return;
+            };
+            if m.melee_skill <= 0 {
+                return;
+            }
+            (
+                target_id,
+                m.base.position,
+                m.melee_skill,
+                m.melee_attack,
+                m.poison_cycles,
+            )
+        };
+
+        let target_alive = self
+            .creatures
+            .get(target_id)
+            .is_some_and(|k| k.base().health > 0);
+        if !target_alive {
+            return;
+        }
+
+        let target_pos = self.creatures.get(target_id).unwrap().position();
+        if chebyshev(monster_pos, target_pos) > 1 {
+            return;
+        }
+        if !self.map.is_sight_clear(monster_pos, target_pos) {
+            return;
+        }
+        if self.monster_tile_in_protection_zone(monster_pos)
+            || self.monster_tile_in_protection_zone(target_pos)
+        {
+            return;
+        }
+
+        let defense_snap = melee_defense_snapshot(self.creatures.get(target_id).unwrap());
+
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().delay_attack_ms(server_ms, 200);
+        }
+
+        let mut rng = rand::thread_rng();
+        let attack_roll = weapon_damage(
+            &profile,
+            hooks,
+            &mut rng,
+            melee_skill,
+            melee_attack,
+            FightMode::Balanced,
+            0,
+        );
+
+        let defense_roll = {
+            let Some(kind) = self.creatures.get_mut(target_id) else {
+                return;
+            };
+            roll_target_defense(
+                kind.base_mut(),
+                server_ms,
+                &profile,
+                hooks,
+                &mut rng,
+                defense_snap,
+            )
+        };
+
+        let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+        let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
+
+        let hp_before = self.creatures.get(target_id).unwrap().base().health;
+        let damage = CombatDamage {
+            primary: (CombatType::Physical, -dmg),
+            secondary: (CombatType::Physical, 0),
+        };
+        let _ = combat::execute(
+            &mut self.creatures,
+            Some(cid),
+            target_id,
+            &damage,
+            &CombatParams::default(),
+        );
+        let hp_after = self
+            .creatures
+            .get(target_id)
+            .map(|k| k.base().health)
+            .unwrap_or(hp_before);
+        let damage_done = (hp_before - hp_after).max(0);
+
+        if let Some(cond) =
+            melee_poison_on_hit(&mut rng, poison_cycles, attack_roll, defense_roll, damage_done)
+        {
+            let params = CombatParams {
+                primary_type: CombatType::Physical,
+                dispel: None,
+                apply_condition: Some(cond),
+            };
+            let _ = combat::execute(
+                &mut self.creatures,
+                Some(cid),
+                target_id,
+                &CombatDamage {
+                    primary: (CombatType::Physical, 0),
+                    secondary: (CombatType::Physical, 0),
+                },
+                &params,
+            );
+        }
+
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().delay_attack_ms(server_ms, 2000);
+        }
+    }
+
+    fn monster_tile_in_protection_zone(&self, pos: Position) -> bool {
+        self.map
+            .get_tile(pos)
+            .is_some_and(|t| t.body().zone == ZoneType::Protection)
     }
 
     /// TFS `Monster::onThink` native body — `monster.cpp` ~732.
@@ -651,10 +789,10 @@ impl GameWorld {
         m.is_hostile
     }
 
-    /// 772 `ATTACKING` posture proxy — fist melee on the idle branch (`crnonpl.cc:2705–2706`).
+    /// 772 `ATTACKING`/`PANIC` posture — idle melee-chase skip + stick-fight wait gate.
     ///
-    /// Used for stick-fight wait gating (P0-3), not idle `melee_chase` skip: decompile delegates
-    /// dist>1 walk to combat `CHASE_MODE_CLOSE` (`crnonpl.cc:2731`), which is not ported yet.
+    /// Decompile skips idle `ToDoGo` melee chase when `ATTACKING`/`PANIC` (`crnonpl.cc:2731`);
+    /// dist>1 close walk comes from `ToDoAttack` → `CanToDoAttack` (`crcombat.cc:496`).
     /// `melee_dance` rand(0,4) still runs at cheb==1 (`crnonpl.cc:2739–2753`).
     pub(crate) fn monster_idle_is_attacking_posture(
         &self,
@@ -670,7 +808,73 @@ impl GameWorld {
         if m.is_fleeing() {
             return false;
         }
-        self.monster_has_melee_attack_spell(cid)
+        matches!(m.state, MonsterState::Attacking | MonsterState::Panic)
+    }
+
+    /// C++ `TCombat::CanToDoAttack` close branch — `crcombat.cc:441`, `:496-498`.
+    ///
+    /// When `CHASE_MODE_CLOSE` and cheb>1, queues `ToDoGo(false, 3)` ahead of `TDAttack`.
+    pub(crate) fn monster_combat_enqueue_close_chase_go(&mut self, cid: CreatureId) -> bool {
+        if !self.beat_driven_loop {
+            return false;
+        }
+        let (chase_mode, attack_id, pos, fleeing) = {
+            let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+                return false;
+            };
+            (
+                m.chase_mode,
+                m.base.attack_target,
+                m.base.position,
+                m.is_fleeing(),
+            )
+        };
+        if chase_mode != MonsterChaseMode::Close || fleeing {
+            return false;
+        }
+        let Some(attack_id) = attack_id else {
+            return false;
+        };
+        if !self
+            .creatures
+            .get(attack_id)
+            .is_some_and(|k| k.base().health > 0)
+        {
+            return false;
+        }
+        let target_pos = self.creatures.get(attack_id).unwrap().position();
+        let cheb = chebyshev(pos, target_pos);
+        if cheb <= 1 || !self.map.is_sight_clear(pos, target_pos) {
+            return false;
+        }
+        let (max_steps, must_reach) = monster_idle_chase_step_budget(true, false, cheb, 1);
+        let outcome = self.monster_idle_chase_repath(
+            cid,
+            Some("attack_close_chase"),
+            max_steps,
+            must_reach,
+        );
+        if outcome != MonsterIdleChaseRepathOutcome::PathQueued {
+            return false;
+        }
+        if !self.enqueue_creature_go(cid) {
+            return false;
+        }
+        if chase_debug::chase_path_debug_enabled() {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                chase_debug::log_todo_go(
+                    self.tick_counter,
+                    cid,
+                    m.base.name.as_str(),
+                    "attack_close_chase",
+                    pos,
+                    target_pos,
+                    false,
+                    CHASE_PATH_MAX_STEPS as i32,
+                );
+            }
+        }
+        true
     }
 
     /// 772 idle melee/dist dance — `crnonpl.cc:2736`, `2772` (rand(0,4) cardinal sidestep).

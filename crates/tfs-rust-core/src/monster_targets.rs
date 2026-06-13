@@ -11,7 +11,7 @@ use tfs_rust_content::monsters::MonsterSpellNode;
 
 use crate::creature::{monster_has_melee_strike, runtime_spell_in_attack_range};
 
-use crate::creature::CreatureKind;
+use crate::creature::{CreatureKind, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_ai::{chebyshev, manhattan, MAP_MAX_VIEWPORT};
@@ -322,7 +322,13 @@ impl GameWorld {
             }
             let was_idle = m.is_idle;
             m.is_idle = idle;
-            if !idle && was_idle {
+            // Temporary bridge until Phase D gates on `state == Sleeping` instead of `is_idle`.
+            if self.beat_driven_loop {
+                if idle {
+                    m.state = MonsterState::Sleeping;
+                } else if was_idle && m.state == MonsterState::Sleeping {
+                    m.state = MonsterState::Idle;
+                }
             }
             if idle {
                 m.base.damage_map.clear();

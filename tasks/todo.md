@@ -258,7 +258,22 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] Unit tests: `idle_stimulus::tests` (4), existing beat_driven + creature_think green
 - [x] Phase B B1–B2: `CreatureAction::Wait` + `MONSTER_IDLE_WAIT_MS` pacing (roam/dist_dance/dist_flee fail/master wait band); `monster_idle_roam_step`; X6 roam leak removed from `monster_next_walk_step`
 - [x] E1-lite: `CreatureAction::Attack` stub from idle tail; `process_creatures_772` skips `creature_on_attacking` for monsters on `beat_driven_loop`
-- [ ] Phase E2 deferred: melee damage on Attack execute; `ToDoWait(100)` after failed attack
+
+## Monster combat E2 — melee execute + attack cadence — done
+- [x] `CreatureBase`: `earliest_attack_ms`, `earliest_defend_ms`, `delay_attack_ms`, `attack_ready_at`
+- [x] `monster_combat.rs`: `MeleeDefenseSnapshot`, `roll_target_defense`, `melee_poison_on_hit`, `monster_weapon_attack_distance`
+- [x] `monster_do_attacking`: CloseAttack roll/apply + `DelayAttack(2000)` (`crcombat.cc:530`, `:647`)
+- [x] `todo_attack_delay_ms` + `AttackDeferred`; idle cadence gate + `Wait(100)` when `GetDistance()!=1`
+- [x] Tests: `test_e2_melee_damage_and_damage_map`, `test_e2_attack_cadence_2000ms`, `test_e2_attack_deferred_until_cadence`, wait/melee enqueue
+
+## Monster combat E3 — ATTACKING walk gating — done
+- [x] `MonsterChaseMode` + `chase_mode` on `Monster` (`crcombat.cc:338`)
+- [x] `monster_idle_prepare_combat_chase` — ATTACKING/PANIC sets `Close` for melee (`crnonpl.cc:2709-2726`)
+- [x] Skip idle `MeleeChase` when `Attacking`/`Panic`; close walk via `monster_combat_enqueue_close_chase_go` (`CanToDoAttack`, `crcombat.cc:496`)
+- [x] `monster_enqueue_todo_attack_actions` — Go → Wait(100) if weapon range≠1 → Attack (`cract.cc:1325`)
+- [x] `monster_idle_can_enqueue_attack` — melee enqueue to dist≤8 (walk path closes gap)
+- [x] `monster_combat_creature_move_stimulus` — target-move restep (`crmain.cc:888`)
+- [x] Tests: `test_e3_attacking_skips_idle_melee_chase`, `test_e3_attack_path_enqueues_close_chase_at_cheb2`
 
 ## Monster AI Phase A0 — 772 chase hub cleanup (X7, X8, X11, M11) — done
 - [x] `monster_idle_chase_repath` — 772-only TShortway entry; no TFS `getDistanceStep` / greedy fallbacks
@@ -278,3 +293,10 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] Extend `MonsterAiConfig` + `Monster`; `from_monster_type`; wire `spawn_monster`
 - [x] Runtime lookups: `monster_has_melee_attack_spell`, `monster_can_use_attack` use on-monster data
 - [x] Tests: `test_e0_rat/cobra/spawn/unknown_spell/runtime_spell_range`
+
+## Monster combat E1 — combat state machine — done
+- [x] `MonsterState` enum + `state` field on `Monster` (772-only transitions)
+- [x] `monster_idle_reset_combat_state` (`crnonpl.cc:2387`) + `monster_idle_maybe_enter_attacking` (`crnonpl.cc:2705`)
+- [x] `monster_idle_is_attacking_posture` reads `state == Attacking|Panic`
+- [x] `monster_set_idle` bridge: `Sleeping` ↔ `Idle` on 772
+- [x] Tests: `test_e1_melee_monster_enters_attacking_on_idle`, reset/under_attack_promoted/no_melee/panic

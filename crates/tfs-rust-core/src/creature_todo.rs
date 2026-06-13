@@ -157,6 +157,20 @@ impl GameWorld {
         }
     }
 
+    /// C++ `TDAttack` branch in `ToDoStart` — `cract.cc:909-918`.
+    pub(crate) fn todo_attack_delay_ms(&self, cid: CreatureId) -> u64 {
+        let earliest_spell_ms = 0u64;
+        self.creatures
+            .get(cid)
+            .map(|k| {
+                let base = k.base();
+                base.earliest_attack_ms
+                    .max(earliest_spell_ms)
+                    .saturating_sub(self.server_ms)
+            })
+            .unwrap_or(0)
+    }
+
     /// Enqueue Wait and arm an immediate execute wakeup (`cract.cc` `ToDoStart`).
     pub(crate) fn idle_enqueue_wait_and_start(&mut self, cid: CreatureId, delay_ms: u64) {
         if !self.enqueue_creature_wait(cid, delay_ms) {

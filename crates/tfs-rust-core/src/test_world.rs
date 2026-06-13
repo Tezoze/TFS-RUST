@@ -87,6 +87,8 @@ freePremium = false
                 master: None,
                 damage_map: Default::default(),
                 think_check_bucket: None,
+                earliest_attack_ms: 0,
+                earliest_defend_ms: 0,
                 todo: Default::default(),
             },
             account_id: 1,
@@ -399,6 +401,8 @@ freePremium = false
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
             todo: Default::default(),
         };
         let cid = world
@@ -441,6 +445,8 @@ freePremium = false
             master: None,
             damage_map: Default::default(),
             think_check_bucket: None,
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
             todo: Default::default(),
         };
         let cid = world.creatures.insert(CreatureKind::Npc(Npc {

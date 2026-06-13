@@ -17,6 +17,34 @@ pub enum MonsterAiPhase {
     ReturnToSpawn,
 }
 
+/// 772 reference `STATE` — `enums.hh`; 1098 ignores this field (`beat_driven_loop` gates all use).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MonsterState {
+    /// Spawn default — `crnonpl.cc:1516` `TNonplayer` constructor.
+    #[default]
+    Sleeping,
+    /// Awake non-combat — `crnonpl.cc:2388`.
+    Idle,
+    /// Hit while not in combat posture — E5 sets; `crnonpl.cc:2278`.
+    UnderAttack,
+    /// Melee posture — `crnonpl.cc:2706`.
+    Attacking,
+    /// Flee posture after damage — E5 sets; `crnonpl.cc:2282`.
+    Panic,
+}
+
+/// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (`beat_driven_loop` gates use).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MonsterChaseMode {
+    /// `CHASE_MODE_NONE` — idle dist arms or pre-melee reset (`crnonpl.cc:2711`).
+    #[default]
+    None,
+    /// `CHASE_MODE_CLOSE` — `CanToDoAttack` close walk (`crcombat.cc:496`).
+    Close,
+    /// `CHASE_MODE_RANGE` — E4 wires keep-distance combat walk (`crcombat.cc:500`).
+    Range,
+}
+
 /// AI flags and combat data copied from [`MonsterType`] at spawn.
 #[derive(Debug, Clone)]
 pub struct MonsterAiConfig {
@@ -119,6 +147,10 @@ pub struct Monster {
     pub pushable: bool,
     pub is_hostile: bool,
     pub is_idle: bool,
+    /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
+    pub state: MonsterState,
+    /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
+    pub chase_mode: MonsterChaseMode,
     pub walking_to_spawn: bool,
     pub change_target_speed: u32,
     pub change_target_chance: i32,
@@ -161,6 +193,8 @@ impl Monster {
             pushable: config.pushable,
             is_hostile: config.is_hostile,
             is_idle: true,
+            state: MonsterState::Sleeping,
+            chase_mode: MonsterChaseMode::None,
             walking_to_spawn: false,
             change_target_speed: config.change_target_speed,
             change_target_chance: config.change_target_chance,

@@ -1,7 +1,15 @@
 //! Runtime monster combat data converted from content XML spell nodes.
 //!
-//! C++ reference: `cr.hh` `TSpellData`; `crnonpl.cc:2521-2667` CASTING shape/impact switches.
+//! C++ reference: `cr.hh` `TSpellData`; `crnonpl.cc:2521-2667` CASTING shape/impact switches;
+//! `crcombat.cc:647` `CloseAttack`, `:660` poison-on-hit.
 
+use rand::Rng;
+
+use crate::combat::math::{defense_gate_ms, defense_value, FightMode};
+use crate::condition::{ActiveCondition, ConditionData};
+use crate::creature::base::CreatureBase;
+use crate::creature::CreatureKind;
+use crate::formulas::{FormulaHooks, MechanicsProfile};
 use tfs_rust_common::enums::{CombatType, ConditionType, ShootEffect};
 use tfs_rust_content::monsters::{MonsterSpellNode, MonsterType};
 use tracing::debug;
@@ -145,6 +153,100 @@ pub fn runtime_spell_in_attack_range(spell: &MonsterSpell, distance: u32) -> boo
 /// Whether the monster has a melee strike at adjacency (`SKILL_FIST > 0`, `crnonpl.cc:2705`).
 pub fn monster_has_melee_strike(melee_skill: i32, distance: u32) -> bool {
     melee_skill > 0 && distance <= 1
+}
+
+/// C++ `TCombat::GetDistance` — `crcombat.cc:309` (1 close/fist, 2 throw, 3 missile/wand).
+pub fn monster_weapon_attack_distance(melee_skill: i32, has_ranged_spell: bool) -> i32 {
+    if melee_skill > 0 {
+        1
+    } else if has_ranged_spell {
+        3
+    } else {
+        1
+    }
+}
+
+/// Target defense/armor inputs for melee (`GetDefendValue` / `GetArmorStrength`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MeleeDefenseSnapshot {
+    pub defense_skill: i32,
+    pub defense_value: i32,
+    pub armor: i32,
+}
+
+/// Read-only melee defense snapshot — call before mutating `creatures`.
+pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
+    match kind {
+        CreatureKind::Monster(m) => MeleeDefenseSnapshot {
+            defense_skill: 0,
+            defense_value: m.defense,
+            armor: m.armor,
+        },
+        CreatureKind::Player(p) => MeleeDefenseSnapshot {
+            defense_skill: p.skills.shielding,
+            defense_value: 0,
+            armor: 0,
+        },
+        CreatureKind::Npc(_) => MeleeDefenseSnapshot {
+            defense_skill: 0,
+            defense_value: 0,
+            armor: 0,
+        },
+    }
+}
+
+/// C++ `TCombat::GetDefendDamage` — `crcombat.cc:236` (gate + probe roll).
+pub fn roll_target_defense<R: Rng + ?Sized>(
+    target_base: &mut CreatureBase,
+    server_ms: u64,
+    profile: &MechanicsProfile,
+    hooks: &FormulaHooks,
+    rng: &mut R,
+    snap: MeleeDefenseSnapshot,
+) -> i32 {
+    if server_ms < target_base.earliest_defend_ms {
+        return 0;
+    }
+    target_base.earliest_defend_ms = server_ms.saturating_add(defense_gate_ms(profile) as u64);
+    defense_value(
+        profile,
+        hooks,
+        rng,
+        snap.defense_skill,
+        snap.defense_value,
+        FightMode::Balanced,
+    )
+}
+
+/// Poison-on-hit condition after `CloseAttack` — `crcombat.cc:660`.
+pub fn melee_poison_on_hit<R: Rng + ?Sized>(
+    rng: &mut R,
+    poison_cycles: i32,
+    attack_roll: i32,
+    defense_roll: i32,
+    damage_done: i32,
+) -> Option<ActiveCondition> {
+    if poison_cycles <= 0 {
+        return None;
+    }
+    let proc = damage_done > 0
+        || (attack_roll > defense_roll && rng.gen_range(0..5) == 0);
+    if !proc {
+        return None;
+    }
+    let half = poison_cycles / 2;
+    let poison_dmg = crate::combat::uniform_random(rng, half, poison_cycles);
+    if poison_dmg <= 0 {
+        return None;
+    }
+    Some(ActiveCondition {
+        id: 0,
+        sub_id: 0,
+        ctype: ConditionType::Poison,
+        data: ConditionData::Damage {
+            total_rank: poison_dmg,
+        },
+    })
 }
 
 fn parse_spell_impact(name: &str, node: &MonsterSpellNode) -> Option<SpellImpact> {

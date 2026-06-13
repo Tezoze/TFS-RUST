@@ -120,6 +120,10 @@ pub struct CreatureBase {
     pub damage_map: DamageMap,
     /// C++ `inCheckCreaturesVector` bucket (`game.cpp` `addCreatureCheck`); `None` = not scheduled.
     pub think_check_bucket: Option<u8>,
+    /// C++ `TCombat::EarliestAttackTime` — `crcombat.cc:523` `DelayAttack`.
+    pub earliest_attack_ms: u64,
+    /// C++ `TCombat::EarliestDefendTime` — `crcombat.cc:236` `GetDefendDamage` gate.
+    pub earliest_defend_ms: u64,
     /// 772 per-creature ToDo action list (772 idle-driven AI).
     pub todo: CreatureTodo,
 }
@@ -157,5 +161,17 @@ impl CreatureBase {
         } else {
             self.next_walk_check.is_none()
         }
+    }
+
+    /// C++ `TCombat::DelayAttack` — `crcombat.cc:523`.
+    pub fn delay_attack_ms(&mut self, server_ms: u64, ms: u64) {
+        self.earliest_attack_ms = self
+            .earliest_attack_ms
+            .max(server_ms.saturating_add(ms));
+    }
+
+    /// Whether an attack todo may execute or be enqueued (`cract.cc:909` `TDAttack`).
+    pub fn attack_ready_at(&self, server_ms: u64, earliest_spell_ms: u64) -> bool {
+        server_ms >= self.earliest_attack_ms.max(earliest_spell_ms)
     }
 }

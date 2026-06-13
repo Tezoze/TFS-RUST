@@ -2,15 +2,16 @@
 //!
 //! - `Monster::onCreatureMove` — `monster.cpp` (~212).
 //! - `Monster::onCreatureAppear` — `monster.cpp` (~159–166).
+//! - `TCreature::CreatureMoveStimulus` — `crmain.cc:888` (close-chase restep while `TDAttack` pending).
 //! - `Map::getSpectators` move fan-out — `map.cpp` (~264–323, ~386–474).
 
 use tfs_rust_common::Position;
 use slotmap::Key;
 
-use crate::creature::CreatureKind;
+use crate::creature::{CreatureKind, MonsterChaseMode};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
-use crate::monster_ai::MAP_MAX_VIEWPORT;
+use crate::monster_ai::{chebyshev, MAP_MAX_VIEWPORT};
 
 impl GameWorld {
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
@@ -131,6 +132,7 @@ impl GameWorld {
 
         if follow == Some(creature_id) {
             self.monster_on_follow_creature_moved(monster_id, creature_id, new_pos, has_path);
+            self.monster_combat_creature_move_stimulus(monster_id, creature_id);
             let target_visible = self
                 .creatures
                 .get(creature_id)
@@ -214,6 +216,75 @@ impl GameWorld {
             self.monster_follow_repath_now(monster_id, Some("target_move"));
         }
     }
+
+    /// C++ `TCreature::CreatureMoveStimulus` — `crmain.cc:888-920`.
+    ///
+    /// While close-chasing with a pending attack todo, target kiting away clears the queue and
+    /// re-arms `ToDoAttack` (Wait 200 ms then CanToDoAttack walk + strike).
+    fn monster_combat_creature_move_stimulus(
+        &mut self,
+        monster_id: CreatureId,
+        target_id: CreatureId,
+    ) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let snapshot = self.creatures.get(monster_id).and_then(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return None;
+            };
+            let attack_id = m.base.attack_target?;
+            if attack_id != target_id {
+                return None;
+            }
+            let target_pos = self.creatures.get(target_id)?.position();
+            Some((
+                m.chase_mode,
+                m.base.position,
+                target_pos,
+                m.base.earliest_attack_ms,
+                m.base.todo.has_attack(),
+                m.base.todo.has_go(),
+                m.base.todo.locked,
+            ))
+        });
+        let Some((
+            chase_mode,
+            pos,
+            target_pos,
+            earliest_attack_ms,
+            has_attack,
+            has_go,
+            todo_locked,
+        )) = snapshot
+        else {
+            return;
+        };
+        if chase_mode != MonsterChaseMode::Close {
+            return;
+        }
+        if earliest_attack_ms <= self.server_ms.saturating_add(200) {
+            return;
+        }
+        if !has_attack || has_go || todo_locked {
+            return;
+        }
+        if chebyshev(pos, target_pos) <= 1 {
+            return;
+        }
+        if let Some(k) = self.creatures.get_mut(monster_id) {
+            let base = k.base_mut();
+            base.todo.queue.clear();
+            base.walk_queue.clear();
+            base.has_follow_path = false;
+        }
+        if !self.enqueue_creature_wait(monster_id, 200) {
+            return;
+        }
+        let _ = self.monster_enqueue_todo_attack_actions(monster_id);
+        self.schedule_immediate_todo_wakeup(monster_id);
+    }
+
     /// TFS `Monster::onFollowCreatureComplete` — `monster.cpp` ~599.
     pub(crate) fn monster_on_follow_creature_complete(&mut self, cid: CreatureId, target_id: CreatureId) {
         let (has_path, is_summon) = match self.creatures.get(cid) {
