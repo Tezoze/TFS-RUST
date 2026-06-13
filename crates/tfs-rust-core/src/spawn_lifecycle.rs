@@ -293,7 +293,7 @@ impl GameWorld {
             todo: Default::default(),
         };
 
-        let ai_config = MonsterAiConfig::from(mtype.flags);
+        let ai_config = MonsterAiConfig::from_monster_type(mtype);
         let cid = self.creatures.insert(CreatureKind::Monster(Monster::with_config(
             base,
             spawn_pos,
@@ -674,13 +674,17 @@ use std::collections::HashSet;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::ProtocolVersion;
     use tfs_rust_net::Codec;
-    use tfs_rust_content::monsters::{MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags};
+    use tfs_rust_content::monsters::{MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterSpellNode, MonsterType, MonsterTypeFlags};
     use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
 
     fn rat_type() -> MonsterType {
+        let mut melee_attrs = HashMap::new();
+        melee_attrs.insert("name".into(), "melee".into());
+        melee_attrs.insert("skill".into(), "15".into());
+        melee_attrs.insert("attack".into(), "7".into());
         MonsterType {
             name: "Rat".into(),
             filename: "rat.xml".into(),
@@ -693,10 +697,14 @@ use std::collections::HashSet;
             outfit: MonsterOutfit::default(),
             flags: MonsterTypeFlags::default(),
             loot: Vec::new(),
-            attack_spells: Vec::new(),
+            attack_spells: vec![MonsterSpellNode {
+                element: "attack".into(),
+                attributes: melee_attrs,
+                attribute_children: Vec::new(),
+            }],
             defenses: MonsterDefenses {
-                armor: None,
-                defense: None,
+                armor: Some(1),
+                defense: Some(3),
                 spells: Vec::new(),
             },
         }
@@ -721,6 +729,23 @@ use std::collections::HashSet;
         world.spawns = SpawnManager::from_zones(vec![zone]);
         ensure_walkable_tile(&mut world.map, Position::new(101, 101, 7), 100);
         world
+    }
+
+    #[test]
+    fn test_e0_spawn_monster_carries_combat() {
+        let mut world = world_with_spawn();
+        world.startup_spawns();
+        assert_eq!(world.creatures.len(), 1);
+        let (_, kind) = world.creatures.iter().next().unwrap();
+        let crate::creature::CreatureKind::Monster(m) = kind else {
+            panic!("expected monster");
+        };
+        assert_eq!(m.melee_skill, 15);
+        assert_eq!(m.melee_attack, 7);
+        assert_eq!(m.defense, 3);
+        assert_eq!(m.armor, 1);
+        assert_eq!(m.poison_cycles, 0);
+        assert!(m.spells.is_empty());
     }
 
     #[test]

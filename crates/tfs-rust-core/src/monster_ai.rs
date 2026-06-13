@@ -49,20 +49,18 @@ pub(crate) fn chebyshev(a: Position, b: Position) -> i32 {
     distance_x(a, b).max(distance_y(a, b))
 }
 
-/// 772 idle `ToDoGo` batch size — `crnonpl.cc:2731` (melee adjacent), `crnonpl.cc:2769` (dist chase),
-/// `cract.cc:241-258` (trim).
+/// 772 idle `ToDoGo` batch size — `crnonpl.cc:2732–2733` (melee `must:false, max:3`),
+/// `crnonpl.cc:2769` (dist chase), `cract.cc:260–261` (trim stops at cheb≤1).
 ///
-/// Melee chase at cheb==2 queues one `must:1` hop; dist chase uses `cheb - target_distance`
-/// (per-type band from `monsters.xml`, not a hardcoded keep distance); farther melee / master use `max:3`.
+/// Melee chase uses `max:3, must:false`; dist chase uses `cheb - target_distance`
+/// (per-type band from `monsters.xml`, not a hardcoded keep distance).
 pub(crate) fn monster_idle_chase_step_budget(
-    is_melee_chase: bool,
+    _is_melee_chase: bool,
     is_dist_chase: bool,
     cheb_to_target: i32,
     target_distance: i32,
 ) -> (usize, bool) {
-    if is_melee_chase && cheb_to_target == 2 {
-        (1, true)
-    } else if is_dist_chase {
+    if is_dist_chase {
         let steps = (cheb_to_target - target_distance).max(1);
         (steps as usize, false)
     } else {
@@ -422,7 +420,10 @@ impl GameWorld {
         };
 
         if !is_idle {
-            if !self.beat_driven_loop {
+            if self.beat_driven_loop {
+                // 772 `ProcessCreatures` ~1 Hz — not per idle drain (P0-2 / X2).
+                self.monster_on_think_target(cid, interval_ms);
+            } else {
                 self.monster_arm_event_walk(cid);
 
                 if is_summon {
@@ -633,7 +634,49 @@ impl GameWorld {
         true
     }
 
-    /// 772 idle melee/dist dance — `crnonpl.cc:2736`, `2772` (cardinal `must:1` sidestep).
+    /// Whether the monster type has a melee strike (`SKILL_FIST` / melee attack spell).
+    ///
+    /// C++ reference: `crnonpl.cc:2705–2706` — fist skill sets `ATTACKING` posture.
+    pub(crate) fn monster_has_melee_attack_spell(&self, cid: CreatureId) -> bool {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if self.monster_effective_target_distance(m.target_distance) > 1 {
+            return false;
+        }
+        if m.melee_skill > 0 {
+            return true;
+        }
+        // Stub spawns without combat config (unit tests): hostile melee types only.
+        m.is_hostile
+    }
+
+    /// 772 `ATTACKING` posture proxy — fist melee on the idle branch (`crnonpl.cc:2705–2706`).
+    ///
+    /// Used for stick-fight wait gating (P0-3), not idle `melee_chase` skip: decompile delegates
+    /// dist>1 walk to combat `CHASE_MODE_CLOSE` (`crnonpl.cc:2731`), which is not ported yet.
+    /// `melee_dance` rand(0,4) still runs at cheb==1 (`crnonpl.cc:2739–2753`).
+    pub(crate) fn monster_idle_is_attacking_posture(
+        &self,
+        cid: CreatureId,
+        target_distance: i32,
+    ) -> bool {
+        if !self.beat_driven_loop || target_distance > 1 {
+            return false;
+        }
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if m.is_fleeing() {
+            return false;
+        }
+        self.monster_has_melee_attack_spell(cid)
+    }
+
+    /// 772 idle melee/dist dance — `crnonpl.cc:2736`, `2772` (rand(0,4) cardinal sidestep).
+    ///
+    /// 1098 `getDanceStep` / `staticAttackChance` must not be used on this path — see
+    /// `monster_next_walk_step` 772 early return (X4).
     ///
     /// Returns true when a single lateral step was queued.
     pub(crate) fn monster_idle_dance_step(&mut self, cid: CreatureId) -> bool {
@@ -1846,6 +1889,29 @@ mod world_tests {
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         insert_spectator_player, minimal_world, test_player,
     };
+    use crate::{CreatureId, GameWorld};
+
+    /// Fist monsters skip idle `MeleeChase` while ATTACKING; seed a queue for hysteresis tests.
+    fn seed_idle_chase_queue_for_test(world: &mut GameWorld, monster: CreatureId) {
+        if world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| !k.base().walk_queue.is_empty())
+        {
+            return;
+        }
+        let outcome = world.monster_idle_chase_repath(
+            monster,
+            Some("test_seed"),
+            CHASE_PATH_MAX_STEPS,
+            false,
+        );
+        assert_eq!(
+            outcome,
+            MonsterIdleChaseRepathOutcome::PathQueued,
+            "hysteresis fixture needs a non-empty chase queue"
+        );
+    }
 
     #[test]
     fn monster_acquires_target_and_steps_toward_player() {
@@ -2648,6 +2714,8 @@ mod world_tests {
         world.map.register_creature_at(ppos, player);
 
         world.monster_on_creature_appear_self(monster);
+        seed_idle_chase_queue_for_test(&mut world, monster);
+
         let queue_before = world
             .creatures
             .get(monster)
@@ -2672,7 +2740,7 @@ mod world_tests {
             .base()
             .walk_queue
             .clone();
-        
+
         // Hysteresis: Walk queue should NOT clear/recompute because target is still within goal range
         assert_eq!(
             queue_before, queue_after,
@@ -2702,6 +2770,8 @@ mod world_tests {
         world.map.register_creature_at(ppos, player);
 
         world.monster_on_creature_appear_self(monster);
+        seed_idle_chase_queue_for_test(&mut world, monster);
+
         let queue_before = world
             .creatures
             .get(monster)
@@ -2785,10 +2855,13 @@ mod world_tests {
 
         let monster = insert_monster_with_config(
             &mut world,
-            "Rat",
+            "FixtureIdleChase772",
             mpos,
             200,
-            MonsterAiConfig::default(),
+            MonsterAiConfig {
+                is_hostile: false,
+                ..MonsterAiConfig::default()
+            },
         );
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -2797,7 +2870,6 @@ mod world_tests {
             m.is_idle = false;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
-            m.base.attack_target = Some(player);
             m.base.has_follow_path = true;
             m.base.walk_queue = VecDeque::from([Direction::North]);
         }
@@ -2987,50 +3059,61 @@ mod world_tests {
         );
     }
 
+    /// P0-1 — empty `walk_queue` during chase must idle-repath, not arm step-duration poll.
     #[test]
-    fn test_772_dance_retry_cadence() {
+    fn test_772_empty_queue_triggers_idle_repath() {
         let mut world = beat_driven_world();
-        
+
         let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 150);
-        ensure_walkable_tile(&mut world.map, ppos, 150);
-        
-        // Do NOT make surrounding tiles walkable to guarantee blocked movement
+        let ppos = Position::new(105, 100, 7);
+        for x in 100..=105u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+        }
+
         let monster = insert_monster_with_config(
             &mut world,
-            "Rat",
+            "FixtureIdleChase772",
             mpos,
             200,
-            MonsterAiConfig::default(),
+            MonsterAiConfig {
+                is_hostile: false,
+                ..MonsterAiConfig::default()
+            },
         );
         let player = insert_player(&mut world, test_player("Hero", ppos));
-        
+        world.map.register_creature_at(ppos, player);
+
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
-            m.base.attack_target = Some(player);
-            // Stand still recently so walk_delay is 0
+            m.base.walk_queue.clear();
+            m.base.force_update_follow_path = true;
             m.base.last_step_server_ms = None;
         }
-        
-        // Run walk. Since all directions are blocked, it must stand still / getNextStep false.
+
         let now = std::time::Instant::now();
         world.on_walk(monster, false, now, None);
-        
-        let wakeup = world
-            .creatures
-            .get(monster)
-            .unwrap()
-            .base()
-            .next_wakeup;
-            
-        // The wakeup should be scheduled at server_ms + step_duration (approx 350 ms for speed 200, ground 150)
-        // rather than immediate retry (+1 ms).
-        assert!(wakeup.is_some());
-        let delay = wakeup.unwrap() - world.server_ms;
-        assert!(delay >= 300, "expected dance retry delay to be at least step duration, got {}", delay);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        let repathed = !base.walk_queue.is_empty();
+        let immediate_wakeup = base
+            .next_wakeup
+            .is_some_and(|w| w <= world.server_ms.saturating_add(1));
+        assert!(
+            repathed || immediate_wakeup,
+            "empty chase queue must idle-repath immediately, not poll step delay; \
+             walk_queue_len={} next_wakeup={:?}",
+            base.walk_queue.len(),
+            base.next_wakeup
+        );
+        if let Some(w) = base.next_wakeup {
+            let delay = w.saturating_sub(world.server_ms);
+            assert!(
+                delay <= 1 || repathed,
+                "expected immediate wakeup (<=1 beat), got delay={delay}ms"
+            );
+        }
     }
 
     #[test]
@@ -3238,7 +3321,7 @@ mod world_tests {
 
         assert_eq!(
             monster_idle_chase_step_budget(true, false, 2, 1),
-            (1, true)
+            (CHASE_PATH_MAX_STEPS, false)
         );
         assert_eq!(
             monster_idle_chase_step_budget(true, false, 3, 1),

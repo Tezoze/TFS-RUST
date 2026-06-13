@@ -9,6 +9,8 @@ use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterSpellNode;
 
+use crate::creature::{monster_has_melee_strike, runtime_spell_in_attack_range};
+
 use crate::creature::CreatureKind;
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
@@ -27,6 +29,14 @@ pub enum TargetSearchType {
     HealthLow,
 }
 
+pub(crate) fn monster_spell_is_melee(spell: &MonsterSpellNode) -> bool {
+    spell.element.eq_ignore_ascii_case("melee")
+        || spell
+            .attributes
+            .get("name")
+            .is_some_and(|n| n.eq_ignore_ascii_case("melee"))
+}
+
 fn spell_in_attack_range(spell: &MonsterSpellNode, distance: u32) -> bool {
     let range = spell
         .attributes
@@ -34,7 +44,7 @@ fn spell_in_attack_range(spell: &MonsterSpellNode, distance: u32) -> bool {
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(0);
     if range == 0 {
-        spell.element.eq_ignore_ascii_case("melee") && distance <= 1
+        monster_spell_is_melee(spell) && distance <= 1
     } else {
         distance <= range
     }
@@ -372,17 +382,31 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
+        if !self.map.is_sight_clear(pos, target_pos) {
+            return false;
+        }
         let dist = chebyshev(pos, target_pos) as u32;
-        let db_name = m.base.name.to_lowercase();
-        let spells = self
-            .monsters_db
-            .monsters
-            .get(&db_name)
-            .map(|t| t.attack_spells.as_slice())
-            .unwrap_or(&[]);
-        for spell in spells {
-            if spell_in_attack_range(spell, dist) && self.map.is_sight_clear(pos, target_pos) {
+        if monster_has_melee_strike(m.melee_skill, dist) {
+            return true;
+        }
+        for spell in &m.spells {
+            if runtime_spell_in_attack_range(spell, dist) {
                 return true;
+            }
+        }
+        // Stub spawns without combat config: fall back to content db for legacy tests.
+        if m.melee_skill == 0 && m.spells.is_empty() {
+            let db_name = m.base.name.to_lowercase();
+            let spells = self
+                .monsters_db
+                .monsters
+                .get(&db_name)
+                .map(|t| t.attack_spells.as_slice())
+                .unwrap_or(&[]);
+            for spell in spells {
+                if spell_in_attack_range(spell, dist) {
+                    return true;
+                }
             }
         }
         false

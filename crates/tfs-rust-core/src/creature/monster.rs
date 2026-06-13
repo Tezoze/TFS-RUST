@@ -4,9 +4,10 @@
 use std::collections::HashSet;
 
 use crate::creature::base::CreatureBase;
+use crate::creature::monster_combat::{combat_from_monster_type, MonsterSpell};
 use crate::ids::CreatureId;
 use tfs_rust_common::Position;
-use tfs_rust_content::monsters::MonsterTypeFlags;
+use tfs_rust_content::monsters::{MonsterType, MonsterTypeFlags};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MonsterAiPhase {
@@ -16,8 +17,8 @@ pub enum MonsterAiPhase {
     ReturnToSpawn,
 }
 
-/// AI flags copied from [`MonsterTypeFlags`] at spawn (`monsters.h` defaults).
-#[derive(Debug, Clone, Copy)]
+/// AI flags and combat data copied from [`MonsterType`] at spawn.
+#[derive(Debug, Clone)]
 pub struct MonsterAiConfig {
     pub target_distance: i32,
     pub run_away_health: i32,
@@ -30,6 +31,16 @@ pub struct MonsterAiConfig {
     pub change_target_speed: u32,
     /// C++ `MonsterType::changeTargetChance` — `monsters.h`.
     pub change_target_chance: i32,
+    /// TVP-772 `<attack name="melee" skill= attack=>` — feeds `probe_value` / `max_melee_damage_monster`.
+    pub melee_skill: i32,
+    pub melee_attack: i32,
+    /// Melee poison tail cycles — `crcombat.cc:660`, `<attack poisoncycles=`.
+    pub poison_cycles: i32,
+    /// `<defenses armor= defense=>` — `crcombat.cc:285`, `GetDefendDamage`.
+    pub armor: i32,
+    pub defense: i32,
+    /// Non-melee attacks from `<attacks>` — idle CASTING (E4).
+    pub spells: Vec<MonsterSpell>,
 }
 
 impl Default for MonsterAiConfig {
@@ -45,6 +56,12 @@ impl Default for MonsterAiConfig {
             is_hostile: d.is_hostile,
             change_target_speed: d.change_target_speed,
             change_target_chance: d.change_target_chance,
+            melee_skill: 0,
+            melee_attack: 0,
+            poison_cycles: 0,
+            armor: 0,
+            defense: 0,
+            spells: Vec::new(),
         }
     }
 }
@@ -61,7 +78,28 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             is_hostile: f.is_hostile,
             change_target_speed: f.change_target_speed,
             change_target_chance: f.change_target_chance,
+            melee_skill: 0,
+            melee_attack: 0,
+            poison_cycles: 0,
+            armor: 0,
+            defense: 0,
+            spells: Vec::new(),
         }
+    }
+}
+
+impl MonsterAiConfig {
+    /// Full spawn config: movement flags + combat snapshot from parsed monster type.
+    pub fn from_monster_type(mtype: &MonsterType) -> Self {
+        let mut cfg = Self::from(mtype.flags);
+        let combat = combat_from_monster_type(mtype);
+        cfg.melee_skill = combat.melee_skill;
+        cfg.melee_attack = combat.melee_attack;
+        cfg.poison_cycles = combat.poison_cycles;
+        cfg.armor = combat.armor;
+        cfg.defense = combat.defense;
+        cfg.spells = combat.spells;
+        cfg
     }
 }
 
@@ -84,6 +122,12 @@ pub struct Monster {
     pub walking_to_spawn: bool,
     pub change_target_speed: u32,
     pub change_target_chance: i32,
+    pub melee_skill: i32,
+    pub melee_attack: i32,
+    pub poison_cycles: i32,
+    pub armor: i32,
+    pub defense: i32,
+    pub spells: Vec<MonsterSpell>,
     /// C++ `Monster::targetChangeTicks` — `monster.cpp` `onThinkTarget`.
     pub target_change_ticks: u32,
     /// C++ `Monster::targetChangeCooldown`.
@@ -120,6 +164,12 @@ impl Monster {
             walking_to_spawn: false,
             change_target_speed: config.change_target_speed,
             change_target_chance: config.change_target_chance,
+            melee_skill: config.melee_skill,
+            melee_attack: config.melee_attack,
+            poison_cycles: config.poison_cycles,
+            armor: config.armor,
+            defense: config.defense,
+            spells: config.spells,
             target_change_ticks: 0,
             target_change_cooldown: 0,
             challenge_focus_duration: 0,

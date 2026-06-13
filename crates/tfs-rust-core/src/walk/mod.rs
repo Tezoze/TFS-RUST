@@ -1243,10 +1243,17 @@ impl GameWorld {
                         .get(cid)
                         .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
                 {
-                    // 772 idle drain owns dance pacing — no TFS dance poll (X5).
-                    if self.monster_should_keep_chase_walk_alive(cid) {
-                        self.schedule_walk_followup_deadline(cid);
-                    } else {
+                    // 772 idle drain owns chase repath — no TFS walk-timer poll (X5).
+                    // When inside todo execute, `finish_creature_todo_execute` calls `idle_stimulus`;
+                    // do not arm `schedule_walk_followup_deadline` (blocks `walk_timer_idle` gate).
+                    let in_todo_execute = self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| k.base().todo.locked);
+                    if !in_todo_execute
+                        && (self.monster_should_keep_chase_walk_alive(cid)
+                            || self.monster_should_keep_dance_walk_alive(cid))
+                    {
                         self.request_idle_stimulus(cid);
                     }
                 } else if self.monster_should_keep_chase_walk_alive(cid)

@@ -168,7 +168,9 @@ impl GameWorld {
             }
         }
 
-        self.monster_on_think_target(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
+        if !self.beat_driven_loop {
+            self.monster_on_think_target(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
+        }
         // 1098: `onThink` drives `updateLookDirection` once per tick.
         // 772: avoid force-facing while an active chase batch is running; let walk direction
         // carry facing, and only snap toward target when not chasing.
@@ -198,11 +200,13 @@ impl GameWorld {
 
         self.monster_idle_prepare_and_enqueue_go(cid);
 
+        let attack_enqueued = if self.creature_todo_queue_empty(cid) {
+            self.monster_idle_maybe_enqueue_attack(cid)
+        } else {
+            false
+        };
         if self.creature_todo_queue_empty(cid) {
-            self.monster_idle_maybe_enqueue_attack(cid);
-        }
-        if self.creature_todo_queue_empty(cid) {
-            self.monster_idle_maybe_enqueue_at_goal_wait(cid);
+            self.monster_idle_maybe_enqueue_at_goal_wait(cid, attack_enqueued);
         }
     }
 
@@ -229,49 +233,87 @@ impl GameWorld {
     }
 
     /// C++ idle combat tail — `Rotate` + `ToDoAttack` (`crnonpl.cc:2795`); stub until E2/E5.
-    fn monster_idle_maybe_enqueue_attack(&mut self, cid: CreatureId) {
+    fn monster_idle_maybe_enqueue_attack(&mut self, cid: CreatureId) -> bool {
         let (attack_id, pos) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => {
                 if m.is_fleeing() {
-                    return;
+                    return false;
                 }
                 let Some(attack_id) = m.base.attack_target else {
-                    return;
+                    return false;
                 };
                 (attack_id, m.base.position)
             }
-            _ => return,
+            _ => return false,
         };
         if !self.creatures.contains_key(attack_id) {
-            return;
+            return false;
         }
         let target_pos = match self.creatures.get(attack_id) {
             Some(k) => k.position(),
-            None => return,
+            None => return false,
         };
         if !self.map.is_sight_clear(pos, target_pos) {
-            return;
+            return false;
         }
         if !self.monster_idle_can_enqueue_attack(cid, pos, attack_id, target_pos) {
-            return;
+            return false;
         }
         if self.enqueue_creature_attack(cid) {
             trace_creature_todo(self, cid, "idle_enqueue_attack");
             self.schedule_immediate_todo_wakeup(cid);
+            return true;
         }
+        false
     }
 
-    /// `ToDoWait(1000)` when at-goal dance/attack could not arm (`crnonpl.cc:2791`).
-    fn monster_idle_maybe_enqueue_at_goal_wait(&mut self, cid: CreatureId) {
+    /// `ToDoWait(1000)` when at-goal dance could not arm (`crnonpl.cc:2791` dist band).
+    /// Melee `ATTACKING` tail gets `ToDoAttack` only — no trailing wait (`crnonpl.cc:2795–2807`).
+    fn monster_idle_maybe_enqueue_at_goal_wait(
+        &mut self,
+        cid: CreatureId,
+        attack_enqueued: bool,
+    ) {
         if !self.beat_driven_loop {
             return;
         }
         let branch = self.monster_idle_classify_walk_branch(cid);
-        if !matches!(
-            branch,
-            MonsterIdleWalkBranch::MeleeDance | MonsterIdleWalkBranch::DistDance
-        ) {
-            return;
+        match branch {
+            MonsterIdleWalkBranch::DistDance => {}
+            MonsterIdleWalkBranch::MeleeDance => {
+                if attack_enqueued {
+                    return;
+                }
+                if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| k.base().todo.has_attack())
+                {
+                    return;
+                }
+                let hostile_melee_at_band = match self.creatures.get(cid) {
+                    Some(CreatureKind::Monster(m)) => match m.base.follow_target {
+                        None => false,
+                        Some(follow_id) => {
+                            let target_distance =
+                                self.monster_effective_target_distance(m.target_distance);
+                            if target_distance > 1 {
+                                false
+                            } else if let Some(t) = self.creatures.get(follow_id) {
+                                chebyshev(m.base.position, t.position()) == 1
+                                    && self.monster_idle_is_attacking_posture(cid, target_distance)
+                            } else {
+                                false
+                            }
+                        }
+                    },
+                    _ => false,
+                };
+                if hostile_melee_at_band {
+                    return;
+                }
+            }
+            _ => return,
         }
         self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
     }
@@ -384,6 +426,9 @@ impl GameWorld {
                 MonsterIdleWalkBranch::DistDance
             }
         } else if dist > 1 {
+            // Decompile skips idle `melee_chase` when ATTACKING (`crnonpl.cc:2731`) — combat
+            // `CHASE_MODE_CLOSE` on `ToDoAttack` owns the walk. Not wired in Rust yet; keep idle
+            // chase so fist monsters still close distance.
             MonsterIdleWalkBranch::MeleeChase
         } else if dist == 1 {
             MonsterIdleWalkBranch::MeleeDance
@@ -726,7 +771,7 @@ mod tests {
     use crate::creature::CreatureKind;
     use crate::creature::MonsterAiConfig;
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
-    use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+    use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
     use crate::idle_stimulus::MonsterIdleWalkBranch;
     use crate::test_world::support::{
         ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
@@ -1077,7 +1122,16 @@ mod tests {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
         }
 
-        let melee_monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let melee_monster = insert_monster_with_config(
+            &mut world,
+            "FixtureIdleChase772",
+            mpos,
+            200,
+            MonsterAiConfig {
+                is_hostile: false,
+                ..MonsterAiConfig::default()
+            },
+        );
         let melee_player = insert_player(&mut world, test_player("Hero1", ppos_melee));
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(melee_monster) {
             m.is_idle = false;
@@ -1140,7 +1194,30 @@ mod tests {
         }
         assert_eq!(
             world.monster_idle_classify_walk_branch(monster),
-            MonsterIdleWalkBranch::MeleeDance
+            MonsterIdleWalkBranch::MeleeDance,
+            "follow without attack_target may still rand(0,4) dance"
+        );
+    }
+
+    #[test]
+    fn test_772_attacking_posture_keeps_melee_dance_at_adjacent() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::MeleeDance,
+            "ATTACKING melee still rand(0,4) dances at cheb==1"
         );
     }
 
@@ -1196,10 +1273,11 @@ mod tests {
         );
     }
 
-    /// A2 — melee chase at cheb==2 queues one `must:1` shortway step, not a 3-hop batch.
+    /// P0-4 — melee chase at cheb==2 uses reference `must:false, max:3`; trim stops at cheb≤1.
     #[test]
-    fn test_772_melee_chase_cheb2_one_step() {
+    fn test_772_melee_chase_cheb2_must_false_max_three() {
         use crate::monster_ai::{monster_idle_chase_step_budget, MonsterIdleChaseRepathOutcome};
+        use crate::pathfinding::CHASE_PATH_MAX_STEPS;
 
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
@@ -1225,7 +1303,7 @@ mod tests {
             MonsterIdleWalkBranch::MeleeChase
         );
         let (max_steps, must_reach) = monster_idle_chase_step_budget(true, false, 2, 1);
-        assert_eq!((max_steps, must_reach), (1, true));
+        assert_eq!((max_steps, must_reach), (CHASE_PATH_MAX_STEPS, false));
 
         let outcome = world.monster_idle_chase_repath(
             monster,
@@ -1237,7 +1315,7 @@ mod tests {
         assert_eq!(
             world.creatures.get(monster).unwrap().base().walk_queue.len(),
             1,
-            "melee chase at cheb==2 must queue exactly one step"
+            "melee chase at cheb==2 must queue one step (trim at cheb≤1), not must:true NOWAY"
         );
     }
 
@@ -1413,7 +1491,8 @@ mod tests {
 
         assert_eq!(
             world.monster_idle_classify_walk_branch(monster),
-            MonsterIdleWalkBranch::MeleeDance
+            MonsterIdleWalkBranch::MeleeDance,
+            "ATTACKING melee still attempts rand(0,4) dance at cheb==1"
         );
 
         world.monster_idle_stimulus(monster);
@@ -1423,7 +1502,14 @@ mod tests {
                 .creatures
                 .get(monster)
                 .is_some_and(|k| k.base().todo.has_go()),
-            "772 idle Hold after blocked dance must not poll via monster_should_keep_dance_walk_alive"
+            "blocked dance tiles must not enqueue spurious Go"
+        );
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().todo.has_attack()),
+            "stick-fight must enqueue Attack when dance cannot move"
         );
         assert!(
             world
@@ -1453,7 +1539,16 @@ mod tests {
         }
         ensure_walkable_tile(&mut world.map, ppos, 150);
 
-        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let monster = insert_monster_with_config(
+            &mut world,
+            "FixtureIdleChase772",
+            mpos,
+            200,
+            MonsterAiConfig {
+                is_hostile: false,
+                ..MonsterAiConfig::default()
+            },
+        );
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
 
@@ -1461,10 +1556,15 @@ mod tests {
             m.is_idle = false;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
-            m.base.attack_target = Some(player);
             m.base.has_follow_path = false;
             m.base.walk_queue.clear();
         }
+
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::MeleeChase,
+            "non-fist fixture must use idle melee chase"
+        );
 
         world.monster_idle_stimulus(monster);
 
@@ -1952,10 +2052,27 @@ mod tests {
             MonsterIdleWalkBranch::DistDance
         );
 
-        world.monster_idle_stimulus(monster);
+        let mut got_go = false;
+        for _ in 0..50 {
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+                m.base.walk_queue.clear();
+                m.base.todo.queue.clear();
+                m.base.has_follow_path = false;
+                m.base.next_wakeup = None;
+            }
+            world.monster_idle_stimulus(monster);
+            if world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().todo.has_go())
+            {
+                got_go = true;
+                break;
+            }
+        }
 
         let todo = &world.creatures.get(monster).unwrap().base().todo;
-        assert!(todo.has_go(), "dist_dance must enqueue Go");
+        assert!(got_go, "dist_dance must enqueue Go");
         assert!(todo.has_wait(), "dist_dance must enqueue Wait after Go");
     }
 
@@ -2032,6 +2149,113 @@ mod tests {
                 .get(monster)
                 .is_some_and(|k| k.base().todo.has_attack()),
             "hostile melee at cheb==1 must enqueue Attack without spell-range canUseAttack"
+        );
+    }
+
+    /// P0-2 — change-target ticks advance on `ProcessCreatures` only, not each idle drain.
+    #[test]
+    fn test_772_change_target_only_on_process_creatures() {
+        use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        for x in 100..=105u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+        }
+
+        let config = MonsterAiConfig {
+            change_target_speed: 4_000,
+            change_target_chance: 100,
+            ..Default::default()
+        };
+        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.target_change_ticks = 0;
+            m.target_change_cooldown = 0;
+        }
+
+        for _ in 0..5 {
+            world.monster_idle_stimulus(monster);
+        }
+        let ticks_after_idle = match world.creatures.get(monster) {
+            Some(CreatureKind::Monster(m)) => m.target_change_ticks,
+            _ => 0,
+        };
+        assert_eq!(
+            ticks_after_idle, 0,
+            "idle drain must not advance change-target ticks on 772"
+        );
+
+        world.add_creature_think_check(monster);
+        world.process_creatures_772();
+        let ticks_after_think = match world.creatures.get(monster) {
+            Some(CreatureKind::Monster(m)) => m.target_change_ticks,
+            _ => 0,
+        };
+        assert_eq!(
+            ticks_after_think, EVENT_CREATURE_THINK_INTERVAL_MS,
+            "ProcessCreatures must advance change-target once per ~1 Hz think"
+        );
+    }
+
+    /// P0-3 — melee stick-fight enqueues Attack without trailing 1 s Wait.
+    #[test]
+    fn test_772_melee_stick_fight_no_wait_after_attack() {
+        use tfs_rust_common::enums::ZoneType;
+
+        use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        for (x, y) in [(99, 100), (100, 99), (100, 101)] {
+            world.map.insert_tile(
+                Position::new(x, y, 7),
+                Tile::Normal(TileBody {
+                    ground: Some(2148),
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
+                    zone: ZoneType::Normal,
+                }),
+            );
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        assert!(todo.has_attack(), "melee stick-fight must enqueue Attack");
+        assert!(
+            !todo.queue.iter().any(|a| {
+                matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)
+            }),
+            "melee stick-fight must not enqueue trailing 1 s Wait after Attack"
         );
     }
 

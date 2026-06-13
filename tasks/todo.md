@@ -272,3 +272,9 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] A3: dist_chase step budget `cheb - target_distance` (per-type band); truncate stops at keep band
 - [x] A4: remove 772 flee/dance duplicate from `monster_next_walk_step` (X4); idle-only dist/melee flee+dance
 - [x] A5: master follow Manhattan 2–3 hold band; `ToDoGo(max:3)` beyond wait band
+
+## Monster combat E0 — runtime combat data on `Monster` — done
+- [x] `creature/monster_combat.rs`: `MonsterSpell`, `SpellShape`, `SpellImpact`, `combat_from_monster_type`
+- [x] Extend `MonsterAiConfig` + `Monster`; `from_monster_type`; wire `spawn_monster`
+- [x] Runtime lookups: `monster_has_melee_attack_spell`, `monster_can_use_attack` use on-monster data
+- [x] Tests: `test_e0_rat/cobra/spawn/unknown_spell/runtime_spell_range`
