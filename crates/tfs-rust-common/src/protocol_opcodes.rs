@@ -265,6 +265,9 @@ pub mod client {
 pub mod server {
     pub const MAP_DESCRIPTION: u8 = 0x64;
     pub const MAGIC_EFFECT: u8 = 0x83;
+    /// 7.72 only — `ProtocolGame::sendAnimatedText` (`gameserver/src/protocolgame.cpp` ~1255).
+    /// Server→client opcode; unrelated to client→server [`client::USE_WITH_CREATURE`] (`0x84`).
+    pub const ANIMATED_TEXT: u8 = 0x84;
     pub const CREATURE_HEALTH: u8 = 0x8C;
     pub const SEND_PING: u8 = 0x1D;
     pub const SEND_PING_BACK: u8 = 0x1E;

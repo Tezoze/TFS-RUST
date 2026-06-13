@@ -2,13 +2,17 @@
 //!
 //! C++ reference: repo-root `src/protocolgame.cpp`, `src/networkmessage.cpp`.
 
+use tfs_rust_common::protocol_opcodes::server;
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 
 use crate::creature_encode::{write_add_creature, write_outfit, AddCreatureWire, OutfitWire};
 use crate::item_encode::{item_template_wire_len, write_item_live, write_item_template};
 use crate::NetworkMessage;
 
-use super::wire::{ItemTemplateArgs, PlayerSkillsWire, PlayerStatsWire};
+use super::wire::{
+    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, ItemTemplateArgs,
+    MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+};
 
 /// Zero-sized 10.98 codec (stateless; caps from `ProtocolVersion::V1098`).
 #[derive(Debug, Clone, Copy, Default)]
@@ -373,6 +377,44 @@ impl Codec1098 {
         } else {
             m.write_u8(0);
         }
+        m
+    }
+
+    /// 10.98 has no `sendAnimatedText` server packet — skip (empty message).
+    pub fn encode_animated_text(&self, _w: &AnimatedTextWire) -> NetworkMessage {
+        NetworkMessage::new()
+    }
+
+    /// 10.98 `ProtocolGame::sendMagicEffect` — opcode [`server::MAGIC_EFFECT`].
+    pub fn encode_magic_effect(&self, w: &MagicEffectWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::MAGIC_EFFECT);
+        m.write_position(&w.pos);
+        m.write_u8(w.effect_id);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendCreatureHealth` — opcode [`server::CREATURE_HEALTH`].
+    pub fn encode_creature_health(&self, w: &CreatureHealthWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATURE_HEALTH);
+        m.write_u32(w.creature_id);
+        m.write_u8(w.health_percent);
+        m
+    }
+
+    /// 10.98 `Game::combatChangeHealth` damage `sendTextMessage` branch (`src/const.h` `MESSAGE_DAMAGE_RECEIVED`).
+    pub fn encode_combat_damage_text_message(&self, w: &CombatDamageNotifyWire) -> NetworkMessage {
+        const MESSAGE_DAMAGE_RECEIVED: u8 = 24;
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::TEXT_MESSAGE);
+        m.write_u8(MESSAGE_DAMAGE_RECEIVED);
+        m.write_position(&w.pos);
+        m.write_u32(w.damage);
+        m.write_u8(w.damage_color);
+        m.write_u32(0);
+        m.write_u8(0);
+        m.write_string(&w.text);
         m
     }
 }

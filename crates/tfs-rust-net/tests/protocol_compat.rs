@@ -4,7 +4,8 @@
 
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::codec::{
-    AddCreatureWire, Codec, Codec1098, ContainerOpenWire, ItemTemplateArgs, OutfitWire,
+    AddCreatureWire, AnimatedTextWire, Codec, Codec1098, CombatDamageNotifyWire,
+    ContainerOpenWire, CreatureHealthWire, ItemTemplateArgs, MagicEffectWire, OutfitWire,
     PlayerSkillsWire, PlayerStatsWire,
 };
 use tfs_rust_net::creature_encode::write_add_creature;
@@ -35,6 +36,60 @@ fn magic_effect_encoding() {
     let pos = Position::new(0x0102, 0x0304, 5);
     let m = send_magic_effect(pos, 7);
     assert_eq!(m.as_bytes(), &[0x83, 0x02, 0x01, 0x04, 0x03, 0x05, 0x07]);
+    let via_codec = codec()
+        .encode_magic_effect(&MagicEffectWire {
+            pos,
+            effect_id: 7,
+        })
+        .into_bytes();
+    assert_eq!(via_codec, m.as_bytes());
+}
+
+#[test]
+fn animated_text_1098_has_no_equivalent() {
+    assert!(
+        codec()
+            .encode_animated_text(&AnimatedTextWire {
+                pos: Position::new(1, 2, 3),
+                color: 180,
+                text: "9".to_string(),
+            })
+            .into_bytes()
+            .is_empty()
+    );
+}
+
+#[test]
+fn combat_damage_text_message_1098_layout() {
+    let pos = Position::new(0x0102, 0x0304, 5);
+    let b = codec()
+        .encode_combat_damage_text_message(&CombatDamageNotifyWire {
+            pos,
+            damage: 5,
+            damage_color: 180,
+            text: "You lose 5 hitpoints.".to_string(),
+        })
+        .into_bytes();
+    assert_eq!(
+        b,
+        vec![
+            0xB4, 24, 0x02, 0x01, 0x04, 0x03, 0x05, 5, 0, 0, 0, 180, 0, 0, 0, 0, 0, 0x15, 0x00,
+            b'Y', b'o', b'u', b' ', b'l', b'o', b's', b'e', b' ', b'5', b' ', b'h', b'i', b't',
+            b'p', b'o', b'i', b'n', b't', b's', b'.'
+        ]
+    );
+}
+
+#[test]
+fn creature_health_codec_matches_outgoing() {
+    let m = send_creature_health(0x11223344, 73);
+    let via_codec = codec()
+        .encode_creature_health(&CreatureHealthWire {
+            creature_id: 0x11223344,
+            health_percent: 73,
+        })
+        .into_bytes();
+    assert_eq!(via_codec, m.as_bytes());
 }
 
 #[test]
@@ -792,5 +847,42 @@ mod v772 {
             .encode_remove_tile_creature_by_id(42)
             .into_bytes()
             .is_empty());
+    }
+
+    /// `sendAnimatedText` (`0x84`): position + color + string.
+    #[test]
+    fn animated_text_772_layout() {
+        let pos = Position::new(0x0102, 0x0304, 5);
+        let b = codec()
+            .encode_animated_text(&AnimatedTextWire {
+                pos,
+                color: 180,
+                text: "42".to_string(),
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![0x84, 0x02, 0x01, 0x04, 0x03, 0x05, 180, 0x02, 0x00, b'4', b'2']
+        );
+    }
+
+    /// 772 combat damage uses simple `sendTextMessage` (`MESSAGE_EVENT_DEFAULT` = `0x14`).
+    #[test]
+    fn combat_damage_text_message_772_layout() {
+        let b = codec()
+            .encode_combat_damage_text_message(&CombatDamageNotifyWire {
+                pos: Position::new(1, 2, 3),
+                damage: 5,
+                damage_color: 180,
+                text: "You lose 5 hitpoints.".to_string(),
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xB4, 0x14, 0x15, 0x00, b'Y', b'o', b'u', b' ', b'l', b'o', b's', b'e', b' ',
+                b'5', b' ', b'h', b'i', b't', b'p', b'o', b'i', b'n', b't', b's', b'.'
+            ]
+        );
     }
 }

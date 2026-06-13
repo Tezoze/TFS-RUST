@@ -13,12 +13,16 @@
 //! stack priority; OTCv8 `GameTileAddThingWithStackpos` is version >= 841 only. `otclient_stackpos`
 //! on the codec API is always false for 772 (TVP `gameserver/` optional byte is not 7.72 wire).
 
+use tfs_rust_common::protocol_opcodes::server;
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 
 use crate::creature_encode::{AddCreatureWire, OutfitWire};
 use crate::NetworkMessage;
 
-use super::wire::{ItemTemplateArgs, PlayerSkillsWire, PlayerStatsWire};
+use super::wire::{
+    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, ItemTemplateArgs,
+    MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+};
 
 /// Zero-sized 7.72 codec (stateless; caps from `ProtocolVersion::V772`).
 #[derive(Debug, Clone, Copy, Default)]
@@ -375,6 +379,44 @@ impl Codec772 {
         for args in c.items.iter().take(n as usize) {
             self.write_item_template_args(&mut m, *args);
         }
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendAnimatedText` — opcode [`server::ANIMATED_TEXT`] (~1255).
+    pub fn encode_animated_text(&self, w: &AnimatedTextWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::ANIMATED_TEXT);
+        m.write_position(&w.pos);
+        m.write_u8(w.color);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendMagicEffect` — opcode [`server::MAGIC_EFFECT`].
+    pub fn encode_magic_effect(&self, w: &MagicEffectWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::MAGIC_EFFECT);
+        m.write_position(&w.pos);
+        m.write_u8(w.effect_id);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendCreatureHealth` — opcode [`server::CREATURE_HEALTH`].
+    pub fn encode_creature_health(&self, w: &CreatureHealthWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATURE_HEALTH);
+        m.write_u32(w.creature_id);
+        m.write_u8(w.health_percent);
+        m
+    }
+
+    /// 7.72 `Game::combatChangeHealth` — `sendTextMessage` simple branch (`gameserver/src/const.h` `MESSAGE_EVENT_DEFAULT`).
+    pub fn encode_combat_damage_text_message(&self, w: &CombatDamageNotifyWire) -> NetworkMessage {
+        const MESSAGE_EVENT_DEFAULT: u8 = 0x14;
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::TEXT_MESSAGE);
+        m.write_u8(MESSAGE_EVENT_DEFAULT);
+        m.write_string(&w.text);
         m
     }
 }

@@ -11,7 +11,7 @@ use slotmap::Key;
 use crate::creature::{CreatureKind, MonsterChaseMode};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
-use crate::monster_ai::{chebyshev, MAP_MAX_VIEWPORT};
+use crate::monster_ai::{chebyshev, MonsterEnqueueAttackResult, MAP_MAX_VIEWPORT};
 
 impl GameWorld {
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
@@ -162,6 +162,15 @@ impl GameWorld {
             self.monster_ensure_opponent_listed(monster_id, creature_id);
             self.monster_select_target(monster_id, creature_id);
         }
+
+        if self.beat_driven_loop
+            && creature_id != monster_id
+            && follow.is_some()
+            && follow != Some(creature_id)
+            && self.monster_chase_stalled_without_wakeup(monster_id)
+        {
+            self.request_idle_stimulus(monster_id);
+        }
     }
 
     /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
@@ -191,7 +200,8 @@ impl GameWorld {
         }
 
         let should_repath = if self.beat_driven_loop {
-            self.monster_chase_queue_stale(monster_id, new_pos)
+            self.monster_chase_needs_attacking_close_repath(monster_id, new_pos)
+                || self.monster_chase_queue_stale(monster_id, new_pos)
         } else {
             true
         };
@@ -220,7 +230,8 @@ impl GameWorld {
     /// C++ `TCreature::CreatureMoveStimulus` — `crmain.cc:888-920`.
     ///
     /// While close-chasing with a pending attack todo, target kiting away clears the queue and
-    /// re-arms `ToDoAttack` (Wait 200 ms then CanToDoAttack walk + strike).
+    /// re-arms `ToDoAttack` (Wait 200 ms then CanToDoAttack walk + strike). Walk re-steps on
+    /// every target move; strike cadence gates only `TDAttack`, not the close `ToDoGo`.
     fn monster_combat_creature_move_stimulus(
         &mut self,
         monster_id: CreatureId,
@@ -229,6 +240,7 @@ impl GameWorld {
         if !self.beat_driven_loop {
             return;
         }
+        self.monster_idle_prepare_combat_chase(monster_id);
         let snapshot = self.creatures.get(monster_id).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -242,28 +254,16 @@ impl GameWorld {
                 m.chase_mode,
                 m.base.position,
                 target_pos,
-                m.base.earliest_attack_ms,
                 m.base.todo.has_attack(),
                 m.base.todo.has_go(),
                 m.base.todo.locked,
             ))
         });
-        let Some((
-            chase_mode,
-            pos,
-            target_pos,
-            earliest_attack_ms,
-            has_attack,
-            has_go,
-            todo_locked,
-        )) = snapshot
+        let Some((chase_mode, pos, target_pos, has_attack, has_go, todo_locked)) = snapshot
         else {
             return;
         };
         if chase_mode != MonsterChaseMode::Close {
-            return;
-        }
-        if earliest_attack_ms <= self.server_ms.saturating_add(200) {
             return;
         }
         if !has_attack || has_go || todo_locked {
@@ -281,8 +281,17 @@ impl GameWorld {
         if !self.enqueue_creature_wait(monster_id, 200) {
             return;
         }
-        let _ = self.monster_enqueue_todo_attack_actions(monster_id);
-        self.schedule_immediate_todo_wakeup(monster_id);
+        match self.monster_enqueue_todo_attack_actions(monster_id) {
+            MonsterEnqueueAttackResult::Enqueued => {
+                self.schedule_immediate_todo_wakeup(monster_id);
+            }
+            MonsterEnqueueAttackResult::Noway => {
+                self.idle_stimulus(monster_id);
+            }
+            MonsterEnqueueAttackResult::Failed => {
+                self.idle_enqueue_wait_and_start(monster_id, 200);
+            }
+        }
     }
 
     /// TFS `Monster::onFollowCreatureComplete` — `monster.cpp` ~599.

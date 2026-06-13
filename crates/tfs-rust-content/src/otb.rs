@@ -563,7 +563,31 @@ impl ItemType {
     /// C++ `ItemType::isMagicField()` — `type == ITEM_TYPE_MAGICFIELD` (`src/items.h`).
     #[inline]
     pub fn is_magic_field(&self) -> bool {
-        self.type_tag == 6 // `ItemTypes_t::ITEM_TYPE_MAGICFIELD` — `src/items.h`
+        self.type_tag == 6 // `ItemTypes_t::ITEM_TYPE_MAGICFIELD`
+    }
+
+    /// C++ `ItemType::isTeleport()` — `type == ITEM_TYPE_TELEPORT` (`src/items.h`).
+    #[inline]
+    pub fn is_teleport(&self) -> bool {
+        self.type_tag == 7 // `ItemTypes_t::ITEM_TYPE_TELEPORT`
+    }
+
+    /// C++ `ItemType::isMailbox()` — `type == ITEM_TYPE_MAILBOX` (`src/items.h`).
+    #[inline]
+    pub fn is_mailbox(&self) -> bool {
+        self.type_tag == 2 // `ItemTypes_t::ITEM_TYPE_MAILBOX`
+    }
+
+    /// C++ `ItemType::isTrashHolder()` — `type == ITEM_TYPE_TRASHHOLDER` (`src/items.h`).
+    #[inline]
+    pub fn is_trashholder(&self) -> bool {
+        self.type_tag == 3 // `ItemTypes_t::ITEM_TYPE_TRASHHOLDER`
+    }
+
+    /// C++ `ItemType::isBed()` — `type == ITEM_TYPE_BED` (`src/items.h`).
+    #[inline]
+    pub fn is_bed(&self) -> bool {
+        self.type_tag == 8 // `ItemTypes_t::ITEM_TYPE_BED`
     }
 }
 

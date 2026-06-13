@@ -216,6 +216,31 @@ fn apply_item_tile_flags(
     if items_db.is_depot(item_type.server_id) {
         body.flags |= flags::DEPOT;
     }
+
+    if item_type.is_teleport() {
+        body.flags |= flags::TELEPORT;
+    }
+
+    if item_type.is_magic_field() {
+        body.flags |= flags::MAGICFIELD;
+    }
+
+    if item_type.is_mailbox() {
+        body.flags |= flags::MAILBOX;
+    }
+
+    if item_type.is_trashholder() {
+        body.flags |= flags::TRASHHOLDER;
+    }
+
+    if item_type.is_bed() {
+        body.flags |= flags::BED;
+    }
+
+    // C++ `CONST_PROP_SUPPORTHANGABLE` — `it.isHorizontal || it.isVertical` (`src/item.cpp`).
+    if item_type.is_vertical() || item_type.is_horizontal() {
+        body.flags |= flags::SUPPORTS_HANGABLE;
+    }
 }
 
 /// Raw OTBM item stream id before `remap_create_item_stream_id` (`src/item.cpp` `CreateItem(PropStream&)`).
@@ -267,5 +292,119 @@ fn tile_from_data(
         })
     } else {
         Tile::Normal(body)
+    }
+}
+
+#[cfg(test)]
+mod tile_flag_tests {
+    use std::collections::HashMap;
+
+    use slotmap::SlotMap;
+    use tfs_rust_common::Position;
+    use tfs_rust_content::items::{ItemDatabase, ITEM_TYPE_TELEPORT};
+    use tfs_rust_content::otb::ItemType;
+    use tfs_rust_content::otbm::{MapData, TileData, TileThing};
+
+    use crate::ids::ItemId;
+    use crate::tile::flags;
+
+    fn ground_item_type(id: u16) -> ItemType {
+        ItemType {
+            id,
+            server_id: id,
+            group: ItemType::GROUP_GROUND,
+            ..ItemType::default()
+        }
+    }
+
+    fn item_db(entries: Vec<(u16, ItemType)>) -> ItemDatabase {
+        ItemDatabase {
+            items: entries.into_iter().collect(),
+            client_to_server: HashMap::new(),
+        }
+    }
+
+    fn map_from_single_tile(pos: Position, things: Vec<TileThing>, db: &ItemDatabase) -> super::Map {
+        let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
+        let mut tiles = HashMap::new();
+        tiles.insert(
+            pos,
+            TileData {
+                position: pos,
+                house_id: None,
+                tile_flags: 0,
+                things,
+            },
+        );
+        let data = MapData {
+            width: 256,
+            height: 256,
+            spawn_file: None,
+            house_file: None,
+            spawn_zones: Vec::new(),
+            tiles,
+            houses: HashMap::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        super::Map::from_map_data(data, db, &mut items)
+    }
+
+    #[test]
+    fn teleport_item_sets_tile_teleport_flag() {
+        const GROUND: u16 = 100;
+        const TELEPORT: u16 = 1387;
+        let pos = Position::new(100, 100, 7);
+        let db = item_db(vec![
+            (GROUND, ground_item_type(GROUND)),
+            (
+                TELEPORT,
+                ItemType {
+                    id: TELEPORT,
+                    server_id: TELEPORT,
+                    type_tag: ITEM_TYPE_TELEPORT,
+                    ..ItemType::default()
+                },
+            ),
+        ]);
+        let map = map_from_single_tile(
+            pos,
+            vec![
+                TileThing::EmbeddedItemId(GROUND),
+                TileThing::EmbeddedItemId(TELEPORT),
+            ],
+            &db,
+        );
+        let tile = map.get_tile(pos).expect("tile");
+        assert_ne!(tile.body().flags & flags::TELEPORT, 0);
+    }
+
+    #[test]
+    fn floorchange_item_sets_tile_floorchange_flag() {
+        const GROUND: u16 = 100;
+        const STAIR: u16 = 459;
+        let pos = Position::new(100, 100, 7);
+        let db = item_db(vec![
+            (GROUND, ground_item_type(GROUND)),
+            (
+                STAIR,
+                ItemType {
+                    id: STAIR,
+                    server_id: STAIR,
+                    floor_change: 1 << 0,
+                    ..ItemType::default()
+                },
+            ),
+        ]);
+        let map = map_from_single_tile(
+            pos,
+            vec![
+                TileThing::EmbeddedItemId(GROUND),
+                TileThing::EmbeddedItemId(STAIR),
+            ],
+            &db,
+        );
+        let tile = map.get_tile(pos).expect("tile");
+        assert_ne!(tile.body().flags & flags::FLOORCHANGE_DOWN, 0);
     }
 }

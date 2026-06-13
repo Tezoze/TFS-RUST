@@ -20,8 +20,18 @@ pub const ITEM_TYPE_DEPOT: u8 = 1;
 pub const ITEM_TYPE_MAILBOX: u8 = 2;
 pub const ITEM_TYPE_TRASHHOLDER: u8 = 3;
 pub const ITEM_TYPE_CONTAINER: u8 = 4;
+/// C++ `ItemTypes_t::ITEM_TYPE_DOOR` — `src/items.h`.
+pub const ITEM_TYPE_DOOR: u8 = 5;
 /// C++ `ItemTypes_t::ITEM_TYPE_MAGICFIELD` — `src/items.h`.
 pub const ITEM_TYPE_MAGICFIELD: u8 = 6;
+/// C++ `ItemTypes_t::ITEM_TYPE_TELEPORT` — `src/items.h`.
+pub const ITEM_TYPE_TELEPORT: u8 = 7;
+/// C++ `ItemTypes_t::ITEM_TYPE_BED` — `src/items.h`.
+pub const ITEM_TYPE_BED: u8 = 8;
+/// C++ `ItemTypes_t::ITEM_TYPE_KEY` — `src/items.h`.
+pub const ITEM_TYPE_KEY: u8 = 9;
+/// C++ `ItemTypes_t::ITEM_TYPE_RUNE` — `src/items.h`.
+pub const ITEM_TYPE_RUNE: u8 = 10;
 
 #[derive(Clone)]
 pub struct ItemDatabase {
@@ -623,7 +633,11 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
                 "mailbox" => item.type_tag = ITEM_TYPE_MAILBOX,
                 "trashholder" => item.type_tag = ITEM_TYPE_TRASHHOLDER,
                 "magicfield" => item.type_tag = ITEM_TYPE_MAGICFIELD,
-                "key" | "teleport" | "door" | "bed" | "rune" => {}
+                "door" => item.type_tag = ITEM_TYPE_DOOR,
+                "teleport" => item.type_tag = ITEM_TYPE_TELEPORT,
+                "bed" => item.type_tag = ITEM_TYPE_BED,
+                "key" => item.type_tag = ITEM_TYPE_KEY,
+                "rune" => item.type_tag = ITEM_TYPE_RUNE,
                 _ => {
                     warn!(
                         target: "tfs_rust_content::items",
@@ -1089,6 +1103,13 @@ mod tests {
         apply_xml_attribute(&mut item, "floorchange", "down", 1);
         apply_xml_attribute(&mut item, "floorchange", "north", 1);
         assert_eq!(item.floor_change, (1 << 0) | (1 << 1));
+    }
+
+    #[test]
+    fn type_teleport_sets_item_type_tag() {
+        let mut item = ItemType::default();
+        apply_xml_attribute(&mut item, "type", "teleport", 1387);
+        assert_eq!(item.type_tag, ITEM_TYPE_TELEPORT);
     }
 
     #[test]

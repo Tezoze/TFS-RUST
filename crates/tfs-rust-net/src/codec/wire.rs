@@ -3,6 +3,8 @@
 //! C++ reference: 10.98 `src/protocolgame.cpp`; 7.72 `gameserver/src/protocolgame.cpp` (Phase A5).
 // PROTOCOL: neutral wire shape — encoders narrow per `ProtocolCodec` impl.
 
+use tfs_rust_common::Position;
+
 pub use crate::creature_encode::{AddCreatureWire, OutfitWire};
 pub use crate::map_description::ItemStack;
 
@@ -74,6 +76,39 @@ pub struct ContainerOpenWire {
     /// 10.98 only — index of the first item in `items`.
     pub first_index: u16,
     pub items: Vec<ItemTemplateArgs>,
+}
+
+/// `ProtocolGame::sendAnimatedText` — 7.72 only (`gameserver/src/protocolgame.cpp` ~1255).
+#[derive(Debug, Clone)]
+pub struct AnimatedTextWire {
+    pub pos: Position,
+    pub color: u8,
+    pub text: String,
+}
+
+/// `ProtocolGame::sendMagicEffect` — `src/protocolgame.cpp` / `gameserver/src/protocolgame.cpp`.
+#[derive(Debug, Clone, Copy)]
+pub struct MagicEffectWire {
+    pub pos: Position,
+    pub effect_id: u8,
+}
+
+/// `ProtocolGame::sendCreatureHealth`.
+#[derive(Debug, Clone, Copy)]
+pub struct CreatureHealthWire {
+    pub creature_id: u32,
+    pub health_percent: u8,
+}
+
+/// `Game::combatChangeHealth` player damage caption — layout differs by era.
+/// 772: simple `sendTextMessage` (`gameserver/src/game.cpp` ~3918).
+/// 1098: damage branch with position + color block (`src/game.cpp` ~4340).
+#[derive(Debug, Clone)]
+pub struct CombatDamageNotifyWire {
+    pub pos: Position,
+    pub damage: u32,
+    pub damage_color: u8,
+    pub text: String,
 }
 
 #[deprecated(note = "use PlayerStatsWire")]

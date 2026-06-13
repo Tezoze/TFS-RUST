@@ -19,7 +19,7 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::monster_ai::{
     chebyshev, manhattan, monster_idle_chase_step_budget, monster_master_follow_in_wait_band,
-    MonsterIdleChaseRepathOutcome,
+    MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult, MonsterIdleChaseRepathOutcome,
 };
 use crate::monster_targets::TargetSearchType;
 
@@ -206,11 +206,8 @@ impl GameWorld {
 
         self.monster_idle_prepare_and_enqueue_go(cid);
 
-        let attack_enqueued = if self.creature_todo_queue_empty(cid) {
-            self.monster_idle_maybe_enqueue_attack(cid)
-        } else {
-            false
-        };
+        // C++ idle tail appends `ToDoAttack` even when walk already queued `ToDoGo` (`crnonpl.cc:2795`).
+        let attack_enqueued = self.monster_idle_maybe_enqueue_attack(cid);
         if self.creature_todo_queue_empty(cid) {
             self.monster_idle_maybe_enqueue_at_goal_wait(cid, attack_enqueued);
         }
@@ -254,7 +251,7 @@ impl GameWorld {
     }
 
     /// C++ ATTACKING walk prelude — `crnonpl.cc:2709-2726` (`SetChaseMode` reset then CLOSE for melee).
-    fn monster_idle_prepare_combat_chase(&mut self, cid: CreatureId) {
+    pub(crate) fn monster_idle_prepare_combat_chase(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
         }
@@ -292,27 +289,47 @@ impl GameWorld {
     }
 
     /// C++ `TCreature::ToDoAttack` action list — `cract.cc:1325-1334`.
-    pub(crate) fn monster_enqueue_todo_attack_actions(&mut self, cid: CreatureId) -> bool {
-        let weapon_distance = self
+    pub(crate) fn monster_enqueue_todo_attack_actions(
+        &mut self,
+        cid: CreatureId,
+    ) -> MonsterEnqueueAttackResult {
+        let (weapon_distance, needs_close_step) = self
             .creatures
             .get(cid)
             .map(|k| match k {
-                CreatureKind::Monster(m) => monster_weapon_attack_distance(
-                    m.melee_skill,
-                    m.spells.iter().any(|s| s.range > 1),
-                ),
-                _ => 1,
+                CreatureKind::Monster(m) => {
+                    let weapon_distance = monster_weapon_attack_distance(
+                        m.melee_skill,
+                        m.spells.iter().any(|s| s.range > 1),
+                    );
+                    let needs_close_step = m.base.attack_target.is_some_and(|aid| {
+                        self.creatures.get(aid).is_some_and(|t| {
+                            weapon_distance == 1 && chebyshev(m.base.position, t.position()) > 1
+                        })
+                    });
+                    (weapon_distance, needs_close_step)
+                }
+                _ => (1, false),
             })
-            .unwrap_or(1);
-        let _ = self.monster_combat_enqueue_close_chase_go(cid);
+            .unwrap_or((1, false));
+        let close_chase = self.monster_combat_enqueue_close_chase_go(cid);
+        if close_chase == MonsterCombatCloseChaseEnqueue::Noway {
+            return MonsterEnqueueAttackResult::Noway;
+        }
+        if needs_close_step
+            && close_chase != MonsterCombatCloseChaseEnqueue::Queued
+            && !self.monster_close_chase_go_already_armed(cid)
+        {
+            return MonsterEnqueueAttackResult::Failed;
+        }
         if weapon_distance != 1 {
             self.enqueue_creature_wait(cid, 100);
         }
         if self.enqueue_creature_attack(cid) {
             self.schedule_immediate_todo_wakeup(cid);
-            true
+            MonsterEnqueueAttackResult::Enqueued
         } else {
-            false
+            MonsterEnqueueAttackResult::Failed
         }
     }
 
@@ -332,6 +349,10 @@ impl GameWorld {
         };
         let target_distance = self.monster_effective_target_distance(m.target_distance);
         let dist = chebyshev(pos, target_pos);
+        // `CanToDoAttack` close walk while approaching — not gated on strike range (`crcombat.cc:496`).
+        if m.melee_skill > 0 && m.chase_mode == MonsterChaseMode::Close && dist <= 8 {
+            return true;
+        }
         if target_distance <= 1 {
             // Melee `ToDoAttack` closes via `CanToDoAttack` — not limited to cheb==1 at enqueue.
             return dist <= 8;
@@ -366,18 +387,24 @@ impl GameWorld {
         if !self.monster_idle_can_enqueue_attack(cid, pos, attack_id, target_pos) {
             return false;
         }
-        if self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| !k.base().attack_ready_at(self.server_ms, 0))
-        {
-            return false;
+        // C++ always appends `ToDoAttack` at the idle tail (`crnonpl.cc:2795`); cadence is enforced
+        // by `TDAttack` on execute (`cract.cc:909`), not by skipping enqueue here.
+        match self.monster_enqueue_todo_attack_actions(cid) {
+            MonsterEnqueueAttackResult::Enqueued => {
+                trace_creature_todo(self, cid, "idle_enqueue_attack");
+                true
+            }
+            MonsterEnqueueAttackResult::Noway => {
+                self.monster_idle_prepare_and_enqueue_go(cid);
+                false
+            }
+            MonsterEnqueueAttackResult::Failed => {
+                // Blocked close-chase: retry on short cadence instead of dead queue until
+                // target/blocker moves (`crmain.cc:919` `ToDoWait(200)`).
+                self.idle_enqueue_wait_and_start(cid, 200);
+                false
+            }
         }
-        if self.monster_enqueue_todo_attack_actions(cid) {
-            trace_creature_todo(self, cid, "idle_enqueue_attack");
-            return true;
-        }
-        false
     }
 
     /// `ToDoWait(1000)` when at-goal dance could not arm (`crnonpl.cc:2791` dist band).
@@ -539,7 +566,7 @@ impl GameWorld {
                 MonsterIdleWalkBranch::DistDance
             }
         } else if dist > 1 {
-            if self.monster_idle_is_attacking_posture(cid, target_distance) {
+            if self.monster_idle_skip_idle_melee_chase(cid) {
                 MonsterIdleWalkBranch::Hold
             } else {
                 MonsterIdleWalkBranch::MeleeChase
@@ -825,10 +852,59 @@ impl GameWorld {
                     trace_creature_todo(self, cid, "execute_attack_deferred_done");
                     TodoExecuteKind::AttackDeferred
                 } else {
-                    trace_creature_todo(self, cid, "execute_attack");
-                    self.monster_do_attacking(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
-                    trace_creature_todo(self, cid, "execute_attack_done");
-                    TodoExecuteKind::Attack
+                    let needs_close_step = self
+                        .creatures
+                        .get(cid)
+                        .and_then(|k| {
+                            let CreatureKind::Monster(m) = k else {
+                                return None;
+                            };
+                            let aid = m.base.attack_target?;
+                            let cheb = chebyshev(
+                                m.base.position,
+                                self.creatures.get(aid)?.position(),
+                            );
+                            let weapon_dist = monster_weapon_attack_distance(
+                                m.melee_skill,
+                                m.spells.iter().any(|s| s.range > 1),
+                            );
+                            Some(weapon_dist == 1 && cheb > 1)
+                        })
+                        .unwrap_or(false);
+                    if needs_close_step {
+                        if let Some(k) = self.creatures.get_mut(cid) {
+                            k.base_mut().todo.queue.push_front(CreatureAction::Attack);
+                        }
+                        match self.monster_combat_enqueue_close_chase_go(cid) {
+                            MonsterCombatCloseChaseEnqueue::Queued => {
+                                if self
+                                    .creatures
+                                    .get(cid)
+                                    .is_some_and(|k| k.base().todo.has_go())
+                                {
+                                    if self.todo_start_go_delay(cid, false) {
+                                        self.schedule_immediate_todo_wakeup(cid);
+                                    }
+                                }
+                            }
+                            MonsterCombatCloseChaseEnqueue::Noway => {
+                                if let Some(k) = self.creatures.get_mut(cid) {
+                                    k.base_mut().todo.queue.pop_front();
+                                }
+                                self.idle_stimulus(cid);
+                            }
+                            MonsterCombatCloseChaseEnqueue::Skipped => {
+                                self.request_idle_stimulus(cid);
+                            }
+                        }
+                        trace_creature_todo(self, cid, "execute_attack_out_of_range");
+                        TodoExecuteKind::AttackDeferred
+                    } else {
+                        trace_creature_todo(self, cid, "execute_attack");
+                        self.monster_do_attacking(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
+                        trace_creature_todo(self, cid, "execute_attack_done");
+                        TodoExecuteKind::Attack
+                    }
                 }
             }
         };
@@ -860,8 +936,21 @@ impl GameWorld {
             .is_some_and(|k| !k.base().walk_queue.is_empty());
 
         if walk_queue_has_more {
-            // Re-arm `Go` — popped on execute; reference drains one step per `Execute` call.
-            let _ = self.enqueue_creature_go(cid);
+            let force_repath = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().force_update_follow_path);
+            if force_repath {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    let base = k.base_mut();
+                    base.walk_queue.clear();
+                    base.has_follow_path = false;
+                }
+                self.request_idle_stimulus(cid);
+                return;
+            }
+            // Re-arm `Go` before pending `Attack` — one step per execute (`cract.cc:728`).
+            let _ = self.enqueue_creature_go_at(cid, true);
             if self.todo_start_go_delay(cid, false) {
                 self.schedule_immediate_todo_wakeup(cid);
             }
@@ -897,7 +986,8 @@ mod tests {
     use tfs_rust_common::enums::{ConditionType, Direction};
     use tfs_rust_common::Position;
 
-use crate::creature::{CreatureKind, MonsterAiConfig, MonsterChaseMode, MonsterState, MonsterSpell, SpellImpact, SpellShape};
+    use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult};
+    use crate::creature::{CreatureKind, MonsterAiConfig, MonsterChaseMode, MonsterState, MonsterSpell, SpellImpact, SpellShape};
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
     use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
     use crate::game_world::GameWorld;
@@ -2841,6 +2931,302 @@ use crate::creature::{CreatureKind, MonsterAiConfig, MonsterChaseMode, MonsterSt
                 .next_wakeup
                 .is_some(),
             "deferred attack must schedule a wakeup"
+        );
+    }
+
+    /// Regression: adjacent melee must not freeze after first hit while target stands still.
+    ///
+    /// C++ always enqueues `ToDoAttack` at the idle tail; `TDAttack` arms the cadence wakeup.
+    #[test]
+    fn test_e2_melee_adjacent_does_not_freeze_after_first_strike() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 5000;
+        let (monster, player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+
+        e2_run_attack_todo(&mut world, monster);
+        let hp_after_first = world.creatures.get(player).unwrap().base().health;
+        assert!(
+            hp_after_first < 100,
+            "first attack must deal damage"
+        );
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            base.todo.has_attack() || base.next_wakeup.is_some(),
+            "adjacent melee on cooldown must keep Attack or cadence wakeup armed (not freeze)"
+        );
+
+        let earliest = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .earliest_attack_ms;
+        e2_drain_until_idle(&mut world, monster);
+        assert!(
+            world.creatures.get(player).unwrap().base().health < hp_after_first,
+            "second hit must land after cadence without target moving"
+        );
+        assert_eq!(
+            earliest,
+            5000 + 2000,
+            "cadence must remain DelayAttack(2000) after idle re-enqueue"
+        );
+    }
+
+    /// ATTACKING + empty queue: target kiting one tile away must re-arm close chase immediately.
+    #[test]
+    fn test_chase_freeze_attacking_repaths_on_target_kite() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 5000;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        let ppos_kited = Position::new(102, 100, 7);
+        for x in 100..=102u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.melee_skill = 15;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.base.walk_queue.clear();
+            m.base.todo.queue.clear();
+            m.base.next_wakeup = None;
+            m.base.has_follow_path = false;
+            m.base.earliest_attack_ms = world.server_ms + 2000;
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_kited;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_kited, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_kited);
+
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().follow_target,
+            Some(player),
+            "kite must not drop follow during close chase"
+        );
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            base.todo.has_go() || !base.walk_queue.is_empty(),
+            "empty-queue ATTACKING must re-arm close chase when target kites (not wait 2s cadence)"
+        );
+    }
+
+    /// Attack-path `TShortway` fail must NOWAY-clear target and not enqueue undeliverable Attack.
+    #[test]
+    fn test_chase_freeze_attack_path_noway_clears_target() {
+        use crate::map::Map;
+        use crate::test_world::support::{beat_driven_world, insert_monster_with_config};
+        use crate::tile::{Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        fn sight_open_unwalkable(map: &mut Map, pos: Position) {
+            map.insert_tile(
+                pos,
+                Tile::Normal(TileBody {
+                    ground: None,
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                }),
+            );
+        }
+
+        let mut world = beat_driven_world();
+        let mpos = Position::new(100, 100, 7);
+        let mid = Position::new(101, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        sight_open_unwalkable(&mut world.map, mid);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.melee_skill = 15;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+        }
+
+        assert_eq!(
+            world.monster_combat_enqueue_close_chase_go(monster),
+            MonsterCombatCloseChaseEnqueue::Noway,
+            "attack-path close chase must NOWAY when TShortway fails"
+        );
+        let base = world.creatures.get(monster).unwrap().base();
+        assert_eq!(base.follow_target, None, "NOWAY must clear chase target");
+        assert_eq!(base.attack_target, None);
+        assert!(
+            !base.todo.has_attack(),
+            "NOWAY must not leave undeliverable Attack"
+        );
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.chase_mode = MonsterChaseMode::Close;
+            m.base.todo.queue.clear();
+        }
+        assert!(
+            matches!(
+                world.monster_enqueue_todo_attack_actions(monster),
+                MonsterEnqueueAttackResult::Noway | MonsterEnqueueAttackResult::Failed,
+            ),
+            "blocked chase must not enqueue Attack"
+        );
+        assert!(
+            !world.creatures.get(monster).unwrap().base().todo.has_attack(),
+            "blocked chase must not leave Attack on the todo queue"
+        );
+    }
+
+    /// Blocked mid-batch step must idle-repath instead of re-arming stale walk_queue dirs.
+    #[test]
+    fn test_chase_freeze_force_update_clears_stale_walk_batch() {
+        use std::collections::VecDeque;
+        use tfs_rust_common::enums::Direction;
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        for x in 100..=102u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.melee_skill = 15;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.walk_queue = VecDeque::from([Direction::East, Direction::East]);
+            m.base.force_update_follow_path = true;
+            m.base.todo.queue.clear();
+        }
+
+        world.finish_creature_todo_execute(monster);
+
+        assert!(
+            world.creatures.get(monster).is_some_and(|k| {
+                let base = k.base();
+                base.walk_queue.is_empty() || base.todo.has_go()
+            }),
+            "force_update after blocked step must clear stale batch or idle-repath"
+        );
+    }
+
+    #[test]
+    fn test_e3_attack_enqueue_succeeds_when_close_go_already_queued() {
+        use std::collections::VecDeque;
+        use tfs_rust_common::enums::Direction;
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        for x in 100..=102u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.melee_skill = 15;
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.walk_queue = VecDeque::from([Direction::East]);
+            m.base.todo.queue.push_back(CreatureAction::Go);
+        }
+
+        assert_eq!(
+            world.monster_enqueue_todo_attack_actions(monster),
+            MonsterEnqueueAttackResult::Enqueued,
+            "mid-batch close Go must not fail attack enqueue"
+        );
+        assert!(
+            world.creatures.get(monster).unwrap().base().todo.has_attack(),
+            "Attack must append when close Go already queued"
+        );
+    }
+
+    #[test]
+    fn test_chase_blocked_follower_rewakes_when_blocker_moves() {
+        let mut world = beat_driven_test_world();
+        let bpos = Position::new(100, 100, 7);
+        let apos = Position::new(101, 100, 7);
+        let ppos = Position::new(103, 100, 7);
+        let apos_moved = Position::new(101, 101, 7);
+        for pos in [bpos, apos, apos_moved, ppos] {
+            ensure_walkable_tile(&mut world.map, pos, 2148);
+        }
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), 2148);
+        ensure_walkable_tile(&mut world.map, Position::new(102, 100, 7), 2148);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let blocker = insert_monster(&mut world, "Rat", apos, 200);
+        let follower = insert_monster(&mut world, "Rat", bpos, 200);
+        for id in [blocker, follower] {
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(id) {
+                m.is_idle = false;
+                m.is_hostile = true;
+                m.melee_skill = 15;
+                m.opponent_ids.push(player);
+                m.base.follow_target = Some(player);
+                m.base.attack_target = Some(player);
+                m.state = MonsterState::Attacking;
+                m.chase_mode = MonsterChaseMode::Close;
+            }
+        }
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(follower) {
+            m.base.todo.queue.clear();
+            m.base.walk_queue.clear();
+            m.base.next_wakeup = None;
+            m.base.has_follow_path = false;
+        }
+
+        world.map.register_creature_at(apos, blocker);
+        world.map.unregister_creature_at(apos, blocker);
+        world.map.register_creature_at(apos_moved, blocker);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(blocker) {
+            m.base.position = apos_moved;
+        }
+        world.monster_dispatch_creature_move(blocker, apos, apos_moved);
+
+        let base = world.creatures.get(follower).unwrap().base();
+        assert!(
+            base.todo.has_go()
+                || base.next_wakeup.is_some()
+                || !base.walk_queue.is_empty(),
+            "stalled follower must re-arm chase when a blocking monster moves"
         );
     }
 }

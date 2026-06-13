@@ -9,7 +9,8 @@ pub mod wire;
 pub use v1098::Codec1098;
 pub use v772::Codec772;
 pub use wire::{
-    AddCreatureWire, ContainerOpenWire, ItemStack, ItemTemplateArgs, ItemWire, OutfitWire,
+    AddCreatureWire, AnimatedTextWire, CombatDamageNotifyWire, ContainerOpenWire,
+    CreatureHealthWire, ItemStack, ItemTemplateArgs, ItemWire, MagicEffectWire, OutfitWire,
     PlayerSkillsWire, PlayerStatsWire,
 };
 
@@ -141,6 +142,16 @@ pub trait ProtocolCodec {
     fn encode_cancel_walk(&self, direction: u8) -> NetworkMessage;
 
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage;
+
+    /// 7.72 `sendAnimatedText`; 10.98 has no equivalent (returns empty message).
+    fn encode_animated_text(&self, w: &wire::AnimatedTextWire) -> NetworkMessage;
+
+    fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage;
+
+    fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage;
+
+    /// Player damage caption — simple text (772) vs damage block (1098).
+    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
 }
 
 impl ProtocolCodec for Codec1098 {
@@ -326,6 +337,22 @@ impl ProtocolCodec for Codec1098 {
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {
         Codec1098::encode_container_open(self, c)
     }
+
+    fn encode_animated_text(&self, w: &wire::AnimatedTextWire) -> NetworkMessage {
+        Codec1098::encode_animated_text(self, w)
+    }
+
+    fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage {
+        Codec1098::encode_magic_effect(self, w)
+    }
+
+    fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {
+        Codec1098::encode_creature_health(self, w)
+    }
+
+    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
+        Codec1098::encode_combat_damage_text_message(self, w)
+    }
 }
 
 impl ProtocolCodec for Codec772 {
@@ -510,6 +537,22 @@ impl ProtocolCodec for Codec772 {
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {
         Codec772::encode_container_open(self, c)
     }
+
+    fn encode_animated_text(&self, w: &wire::AnimatedTextWire) -> NetworkMessage {
+        Codec772::encode_animated_text(self, w)
+    }
+
+    fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage {
+        Codec772::encode_magic_effect(self, w)
+    }
+
+    fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {
+        Codec772::encode_creature_health(self, w)
+    }
+
+    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
+        Codec772::encode_combat_damage_text_message(self, w)
+    }
 }
 
 /// Zero-cost dispatcher for the active wire codec (A5: `V1098` + `V772`).
@@ -641,6 +684,14 @@ impl Codec {
         encode_cancel_walk(direction: u8) -> NetworkMessage;
 
         encode_container_open(c: &ContainerOpenWire) -> NetworkMessage;
+
+        encode_animated_text(w: &wire::AnimatedTextWire) -> NetworkMessage;
+
+        encode_magic_effect(w: &wire::MagicEffectWire) -> NetworkMessage;
+
+        encode_creature_health(w: &wire::CreatureHealthWire) -> NetworkMessage;
+
+        encode_combat_damage_text_message(w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
     }
 }
 
@@ -825,5 +876,21 @@ impl ProtocolCodec for Codec {
 
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {
         Codec::encode_container_open(self, c)
+    }
+
+    fn encode_animated_text(&self, w: &wire::AnimatedTextWire) -> NetworkMessage {
+        Codec::encode_animated_text(self, w)
+    }
+
+    fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage {
+        Codec::encode_magic_effect(self, w)
+    }
+
+    fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {
+        Codec::encode_creature_health(self, w)
+    }
+
+    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
+        Codec::encode_combat_damage_text_message(self, w)
     }
 }

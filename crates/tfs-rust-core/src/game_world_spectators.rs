@@ -159,9 +159,97 @@ impl GameWorld {
     /// Broadcast a magic effect to all spectators at a position.
     // C++ ref: src/game.cpp:4816 Game::addMagicEffect
     pub fn broadcast_magic_effect(&mut self, pos: Position, effect_id: u8) {
-        use tfs_rust_net::outgoing::send_magic_effect;
-        let pkt = send_magic_effect(pos, effect_id).into_bytes();
+        use tfs_rust_net::codec::wire::MagicEffectWire;
+        let pkt = self
+            .codec
+            .encode_magic_effect(&MagicEffectWire { pos, effect_id })
+            .into_bytes();
         self.broadcast_to_spectators(pos, pkt);
+    }
+
+    /// C++ `Game::combatChangeHealth` — stats + damage message + health bar fan-out.
+    pub(crate) fn notify_player_combat_damage(
+        &mut self,
+        attacker_id: Option<CreatureId>,
+        target_id: CreatureId,
+        damage_done: i32,
+    ) {
+        if damage_done <= 0 {
+            return;
+        }
+        let (pos, wire_id, hp_pct) = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get(target_id) else {
+                return;
+            };
+            let max_hp = p.base.max_health.max(1);
+            let pct = ((p.base.health.max(0) as u64 * 100) / max_hp as u64).min(100) as u8;
+            (
+                p.base.position,
+                crate::login_out::creature_wire_id(target_id, self.creatures.get(target_id).unwrap()),
+                pct,
+            )
+        };
+
+        self.send_player_stats(target_id);
+
+        let attacker_desc = attacker_id
+            .and_then(|aid| self.creatures.get(aid))
+            .map(|k| k.base().name.clone());
+
+        const TEXTCOLOR_RED: u8 = 180;
+        const CONST_ME_DRAWBLOOD: u8 = 1;
+
+        self.broadcast_magic_effect(pos, CONST_ME_DRAWBLOOD);
+
+        use tfs_rust_net::codec::wire::{AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire};
+
+        let animated = self.codec.encode_animated_text(&AnimatedTextWire {
+            pos,
+            color: TEXTCOLOR_RED,
+            text: damage_done.to_string(),
+        });
+        if !animated.as_bytes().is_empty() {
+            self.broadcast_to_spectators(pos, animated.into_bytes());
+        }
+
+        if let Some(conn) = self.conn_for_creature(target_id) {
+            let dmg = damage_done as u32;
+            let text = if self.beat_driven_loop {
+                let damage_string = if dmg == 1 {
+                    "1 hitpoint".to_string()
+                } else {
+                    format!("{dmg} hitpoints")
+                };
+                if let Some(attacker) = attacker_desc {
+                    format!("You lose {damage_string} due to an attack by {attacker}.")
+                } else {
+                    format!("You lose {damage_string}.")
+                }
+            } else if dmg == 1 {
+                "You lose 1 hitpoint.".to_string()
+            } else {
+                format!("You lose {dmg} hitpoints.")
+            };
+            self.enqueue_encoded(
+                conn,
+                self.codec.encode_combat_damage_text_message(&CombatDamageNotifyWire {
+                    pos,
+                    damage: dmg,
+                    damage_color: TEXTCOLOR_RED,
+                    text,
+                }),
+            );
+        }
+
+        self.broadcast_to_spectators(
+            pos,
+            self.codec
+                .encode_creature_health(&CreatureHealthWire {
+                    creature_id: wire_id,
+                    health_percent: hp_pct,
+                })
+                .into_bytes(),
+        );
     }
 
     /// Strip wire ids from `known` that this conn never received as a full `AddCreature` block.

@@ -95,16 +95,29 @@ impl GameWorld {
 
     /// Push `Go` if not already queued — avoids duplicate action storms.
     pub(crate) fn enqueue_creature_go(&mut self, cid: CreatureId) -> bool {
+        self.enqueue_creature_go_at(cid, false)
+    }
+
+    /// Push `Go` at queue front or back when not already queued.
+    ///
+    /// Mid-batch chase re-arms must use `front=true` so steps drain before `Attack`
+    /// (`ToDoGo` then `TDAttack` — `cract.cc:1325`).
+    pub(crate) fn enqueue_creature_go_at(&mut self, cid: CreatureId, front: bool) -> bool {
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
         if k.base().todo.has_go() {
             return false;
         }
-        k.base_mut().todo.queue.push_back(CreatureAction::Go);
+        if front {
+            k.base_mut().todo.queue.push_front(CreatureAction::Go);
+        } else {
+            k.base_mut().todo.queue.push_back(CreatureAction::Go);
+        }
         tracing::debug!(
             creature = k.base().name.as_str(),
             ?cid,
+            front,
             action_queue_len = k.base().todo.queue.len(),
             "idle_todo: enqueue_go"
         );
