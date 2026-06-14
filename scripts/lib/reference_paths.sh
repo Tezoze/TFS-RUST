@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared defaults for local C++ reference trees under reference/ (gitignored content).
+# Shared defaults for local C++ reference trees under reference/ (local .git/info/exclude).
 # Source from repo scripts: . "$(dirname "$0")/lib/reference_paths.sh" ROOT
 
 reference_paths_init() {

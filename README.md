@@ -51,7 +51,7 @@ Login **7171**, game **7172** by default.
 | [docs/OTCLIENT_INFO.md](docs/OTCLIENT_INFO.md) | OTCv8 protocol quirks vs vanilla TFS |
 | [reference/README.md](reference/README.md) | Local 772 C++ reference tree layout |
 
-Legacy C++ reference trees live under **`reference/`** (gitignored) for 7.72 porting — not required to run 10.98. See [reference/README.md](reference/README.md).
+Legacy C++ reference trees live under **`reference/`** (local-only via `.git/info/exclude`) for 7.72 porting — not required to run 10.98. See [reference/README.md](reference/README.md).
 
 ---
 
@@ -62,7 +62,7 @@ crates/tfs-rust-{common,content,db,net,lua,core}/   # Rust server
 rust-src/main.rs                                    # `tfs-rust` binary entry
 data/                                               # Lua scripts, XML, map assets
 src/                                                # TFS 1.4.2 C++ (1098 reference, not built by Cargo)
-reference/                                          # Local 772 C++ trees (gitignored content; see reference/README.md)
+reference/                                          # Local 772 C++ trees (local exclude; see reference/README.md)
 tools/packet-proxy/                                 # Optional packet capture helper
 ```
 

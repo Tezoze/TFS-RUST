@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Register local 772 C++ reference trees with code-review-graph.
 #
-# CRG discovers files via `git ls-files`, so gitignored reference trees are
-# invisible to the main TFS_RUST graph. Each reference checkout gets a nested
+# CRG discovers files via `git ls-files`, so local reference trees (excluded via
+# .git/info/exclude) are invisible to the main TFS_RUST graph. Each reference
 # local-only git repo (never pushed) plus a CRG registration.
 #
 # C++ reference: code-review-graph uses git ls-files — see reference/README.md

@@ -7,7 +7,7 @@
 
 ## How to use this brief
 
-- **Reference paths.** Decompile = `reference/cipsoft-772/tibia-game-master/src/` (referred to below by bare filename, e.g. `crcombat.cc:530`). Gitignored but agent-readable via root `.cursorignore`. Main CRG graph skips gitignored paths — run `scripts/register_reference_graph.sh`, then use `cross_repo_search_tool`; otherwise `Read`/`Grep` explicit paths or open files in the editor.
+- **Reference paths.** Decompile = `reference/cipsoft-772/tibia-game-master/src/` (referred to below by bare filename, e.g. `crcombat.cc:530`). Excluded locally via `.git/info/exclude` (agent-readable without `.cursorignore`). Main CRG graph skips untracked reference — run `scripts/register_reference_graph.sh`, then use `cross_repo_search_tool`; otherwise `Read`/`Grep` explicit paths or open files in the editor.
 - **Parity rule.** Match *observable outcomes* (damage rolls, cadence, target picks, walk shape), not C++ structure. Write idiomatic Rust (enums + `match`, `?`, `SlotMap` ids, no `unsafe`). Era literals come from `MechanicsProfile` / `data/formulas/772.lua` — never hardcode, never add `*_772` public names. Put the C++ `file:function` ref in a doc comment on every ported fn.
 - **Don't re-implement** the formulas/apply layer in §3 — they exist and are unit-tested. Wire them.
 

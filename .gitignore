@@ -182,11 +182,7 @@ pip-log.txt
 #############
 # Local 10.98 data tree (reference / side-by-side — not part of the Rust server repo)
 data1098/
-# Local C++ reference trees — see reference/README.md
-reference/classic-772/
-reference/cipsoft-772/
-reference/tvp-772/
-reference/archives/
+# Local C++ reference trees — excluded per-clone via .git/info/exclude (see reference/README.md)
 # Legacy root paths (pre reference/ reorg)
 gameserver/
 tibia-game-master/
@@ -197,12 +193,8 @@ tibia-ipchanger-master/build/
 .tibia-cipsoft/
 # Local RSA private key (772 client)
 /tibia.pem
-/reference/classic-772/client/tibia.pem
-/reference/cipsoft-772/client/tibia.pem
 /Tibia772-local.exe
 /Tibia*.exe.bak
-/reference/classic-772/client/Tibia772*.exe
-/reference/cipsoft-772/client/Tibia772*.exe
 
 #############
 ## Tarball extract noise (772 leaked game data — never commit)
