@@ -424,20 +424,28 @@ fn spell_child_attr(node: &MonsterSpellNode, key: &str) -> Option<String> {
 }
 
 fn parse_shoot_effect_name(name: &str) -> Option<u8> {
-    if name.eq_ignore_ascii_case("poison") {
+    if name.eq_ignore_ascii_case("poison") || name.eq_ignore_ascii_case("poisonarrow") {
         Some(ShootEffect::PoisonArrow as u8)
     } else if name.eq_ignore_ascii_case("fire") {
         Some(ShootEffect::Fire as u8)
     } else if name.eq_ignore_ascii_case("energy") {
         Some(ShootEffect::Energy as u8)
     } else if name.eq_ignore_ascii_case("death") {
-        Some(ShootEffect::Unknown as u8)
+        Some(ShootEffect::Death as u8)
     } else if name.eq_ignore_ascii_case("spear") {
         Some(ShootEffect::Spear as u8)
     } else if name.eq_ignore_ascii_case("bolt") {
         Some(ShootEffect::Bolt as u8)
     } else if name.eq_ignore_ascii_case("arrow") {
         Some(ShootEffect::Arrow as u8)
+    } else if name.eq_ignore_ascii_case("burstarrow") {
+        Some(ShootEffect::BurstArrow as u8)
+    } else if name.eq_ignore_ascii_case("throwingstar") {
+        Some(ShootEffect::ThrowingStar as u8)
+    } else if name.eq_ignore_ascii_case("snowball") {
+        Some(ShootEffect::Snowball as u8)
+    } else if name.eq_ignore_ascii_case("powerbolt") {
+        Some(ShootEffect::PowerBolt as u8)
     } else {
         debug!(shooteffect = name, "unknown monster shooteffect");
         None
@@ -708,6 +716,13 @@ mod tests {
             .expect("marid energycondition");
         assert_eq!(energy_cond.shape, SpellShape::Origin);
         assert_eq!(energy_cond.radius, 3);
+
+        let lifedrain = cfg
+            .spells
+            .iter()
+            .find(|s| matches!(s.impact, SpellImpact::Damage { element: CombatType::LifeDrain, .. }))
+            .expect("marid lifedrain");
+        assert_eq!(lifedrain.shoot_effect, Some(ShootEffect::Death as u8));
     }
 
     #[test]

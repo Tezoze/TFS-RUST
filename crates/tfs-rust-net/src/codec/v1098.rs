@@ -10,7 +10,7 @@ use crate::item_encode::{item_template_wire_len, write_item_live, write_item_tem
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, ItemTemplateArgs,
+    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, DistanceShootWire, ItemTemplateArgs,
     MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
@@ -391,6 +391,16 @@ impl Codec1098 {
         m.write_u8(server::MAGIC_EFFECT);
         m.write_position(&w.pos);
         m.write_u8(w.effect_id);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendDistanceShoot` — opcode [`server::DISTANCE_SHOOT`] (~2544).
+    pub fn encode_distance_shoot(&self, w: &DistanceShootWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::DISTANCE_SHOOT);
+        m.write_position(&w.from);
+        m.write_position(&w.to);
+        m.write_u8(w.shoot_type);
         m
     }
 

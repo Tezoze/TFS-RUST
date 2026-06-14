@@ -169,7 +169,15 @@ impl GameWorld {
 
     /// C++ `Game::addDistanceEffect` — projectile from caster to target tile.
     pub fn broadcast_distance_shoot(&mut self, from: Position, to: Position, shoot_type: u8) {
-        let pkt = tfs_rust_net::outgoing_extra::send_distance_shoot(from, to, shoot_type).into_bytes();
+        use tfs_rust_net::codec::wire::DistanceShootWire;
+        let pkt = self
+            .codec
+            .encode_distance_shoot(&DistanceShootWire {
+                from,
+                to,
+                shoot_type,
+            })
+            .into_bytes();
         self.broadcast_to_spectators(from, pkt);
     }
 

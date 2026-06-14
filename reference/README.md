@@ -47,22 +47,19 @@ See [docs/PROTOCOL_VERSIONING.md](../docs/PROTOCOL_VERSIONING.md).
 
 ## Cursor agents & code-review-graph
 
-Reference checkouts are **excluded locally** (`.git/info/exclude`, not shared `.gitignore`) so they are never committed but remain visible to Cursor agents. After cloning reference trees here, agents can `Read` / `Grep` / `@`-mention paths under `reference/` without any `.cursorignore` negation.
+Two layers (both required for agent tools):
 
-**One-time setup on each clone** (append to `.git/info/exclude`):
+| Layer | File | Purpose |
+|-------|------|---------|
+| Git (local) | `.git/info/exclude` | Never commit reference checkouts |
+| Cursor (tracked) | `.cursorignore` | Re-include `reference/` for **Grep**, **Read**, `@`-mention |
+
+Cursor still honors git’s local exclude list, so `.cursorignore` negation patterns (`!reference/...`) are required even though reference is **not** in shared `.gitignore`.
+
+**One-time setup on each clone:**
 
 ```bash
-cat >> .git/info/exclude <<'EOF'
-# Local C++ reference trees — see reference/README.md
-reference/classic-772/
-reference/cipsoft-772/
-reference/tvp-772/
-reference/archives/
-/reference/classic-772/client/tibia.pem
-/reference/cipsoft-772/client/tibia.pem
-/reference/classic-772/client/Tibia772*.exe
-/reference/cipsoft-772/client/Tibia772*.exe
-EOF
+scripts/setup_reference_local.sh
 ```
 
 **code-review-graph** uses `git ls-files` on the main repo, so local reference checkouts are **not** in the default graph. To index C++ reference locally:

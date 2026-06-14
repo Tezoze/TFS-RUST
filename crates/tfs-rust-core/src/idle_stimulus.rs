@@ -156,16 +156,19 @@ impl GameWorld {
             params,
         );
         if applied {
+            let hp_after = self
+                .creatures
+                .get(target)
+                .map(|k| k.base().health)
+                .unwrap_or(hp_before);
             if let Some(attacker_id) = attacker {
-                let hp_after = self
-                    .creatures
-                    .get(target)
-                    .map(|k| k.base().health)
-                    .unwrap_or(hp_before);
                 let dealt = hp_before.saturating_sub(hp_after);
                 if dealt > 0 {
                     self.monster_damage_stimulus(target, attacker_id, dealt);
                 }
+            }
+            if hp_after <= 0 && self.creatures.contains_key(target) {
+                self.apply_creature_death(target);
             }
         }
         applied
@@ -181,13 +184,14 @@ impl GameWorld {
         if !self.beat_driven_loop || damage <= 0 || attacker_id == victim_id {
             return;
         }
-        let (state, has_target) = {
+        let snapshot = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(victim_id) else {
                 return;
             };
             let has_target = m.base.attack_target.is_some() || m.base.follow_target.is_some();
-            let sleeping = m.state == MonsterState::Sleeping;
-            let new_state = if sleeping {
+            let old_state = m.state;
+            let was_sleeping = old_state == MonsterState::Sleeping;
+            let new_state = if was_sleeping {
                 if has_target {
                     MonsterState::UnderAttack
                 } else {
@@ -195,16 +199,19 @@ impl GameWorld {
                 }
             } else if !has_target {
                 MonsterState::Panic
-            } else if m.state == MonsterState::Idle {
+            } else if old_state == MonsterState::Idle {
                 MonsterState::UnderAttack
             } else {
-                m.state
+                old_state
             };
-            (new_state, has_target)
+            (old_state, new_state, has_target, was_sleeping, m.base.name.clone())
         };
+        let (old_state, new_state, has_target, was_sleeping, name) = snapshot;
+        let state_changed = new_state != old_state;
+
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(victim_id) {
-            m.state = state;
-            if state == MonsterState::Panic || state == MonsterState::UnderAttack {
+            m.state = new_state;
+            if new_state == MonsterState::Panic || new_state == MonsterState::UnderAttack {
                 m.is_idle = false;
             }
             if !has_target {
@@ -214,9 +221,35 @@ impl GameWorld {
                 }
             }
         }
-        self.creature_todo_yield(victim_id);
+
+        if state_changed && chase_debug::chase_path_debug_enabled() {
+            chase_debug::log_damage_stimulus(
+                self.chase_trace_tick(),
+                victim_id,
+                name.as_str(),
+                Self::monster_state_trace_str(old_state),
+                Self::monster_state_trace_str(new_state),
+                attacker_id.data().as_ffi(),
+                damage,
+                has_target,
+            );
+        }
+
+        if state_changed || was_sleeping {
+            self.creature_todo_yield(victim_id);
+        }
         if !has_target {
             self.monster_try_acquire_chase_target(victim_id, Some(attacker_id));
+        }
+    }
+
+    fn monster_state_trace_str(state: MonsterState) -> &'static str {
+        match state {
+            MonsterState::Sleeping => "sleeping",
+            MonsterState::Idle => "idle",
+            MonsterState::UnderAttack => "under_attack",
+            MonsterState::Attacking => "attacking",
+            MonsterState::Panic => "panic",
         }
     }
 
@@ -1893,9 +1926,10 @@ impl GameWorld {
 
 #[cfg(test)]
 mod tests {
-    use tfs_rust_common::enums::{ConditionType, Direction};
+    use tfs_rust_common::enums::{CombatType, ConditionType, Direction};
     use tfs_rust_common::Position;
 
+    use crate::combat::{CombatDamage, CombatParams};
     use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult};
     use crate::creature::{CreatureKind, MonsterAiConfig, MonsterChaseMode, MonsterState, MonsterSpell, SpellImpact, SpellShape};
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
@@ -3571,6 +3605,161 @@ mod tests {
                 }),
             Some(MonsterState::Panic),
             "PANIC must block Attacking transition"
+        );
+    }
+
+    fn e5_apply_player_hit(
+        world: &mut GameWorld,
+        monster: CreatureId,
+        player: CreatureId,
+        damage: i32,
+    ) {
+        let applied = world.combat_execute_with_stimulus(
+            Some(player),
+            monster,
+            &CombatDamage {
+                primary: (CombatType::Physical, -damage),
+                secondary: (CombatType::Physical, 0),
+            },
+            &CombatParams::default(),
+        );
+        assert!(applied, "combat_execute_with_stimulus must apply HP loss");
+    }
+
+    #[test]
+    fn test_e5_idle_with_target_hit_becomes_under_attack() {
+        let mut world = beat_driven_test_world();
+        let (monster, player) = e1_melee_target_setup(&mut world, 15);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Idle;
+            m.base.todo.queue.clear();
+            m.base.next_wakeup = None;
+        }
+
+        e5_apply_player_hit(&mut world, monster, player, 5);
+
+        let m = match world.creatures.get(monster) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(
+            m.state,
+            MonsterState::UnderAttack,
+            "idle rat with target must flip to UnderAttack on hit"
+        );
+        assert!(
+            m.base.todo.queue.iter().any(|a| matches!(a, CreatureAction::Wait { delay_ms: 0 })),
+            "DamageStimulus must ToDoYield (Wait(0)) — cract.cc:1001"
+        );
+        assert!(
+            m.base.next_wakeup.is_some(),
+            "yield must schedule immediate todo wakeup"
+        );
+    }
+
+    #[test]
+    fn test_e5_sleeping_no_target_hit_becomes_panic_and_yields() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Sleeping;
+            m.is_idle = true;
+            m.base.clear_targets();
+            m.opponent_ids.clear();
+            m.base.todo.queue.clear();
+            m.base.next_wakeup = None;
+        }
+
+        e5_apply_player_hit(&mut world, monster, player, 3);
+
+        let m = match world.creatures.get(monster) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(m.state, MonsterState::Panic, "sleeping rat without target → PANIC");
+        assert!(!m.is_idle, "PANIC must wake monster from idle posture");
+        assert!(
+            m.opponent_ids.contains(&player),
+            "attacker must be recorded in opponent_ids"
+        );
+        assert!(
+            m.base.todo.queue.iter().any(|a| matches!(a, CreatureAction::Wait { delay_ms: 0 })),
+            "sleeping hit must ToDoYield"
+        );
+    }
+
+    #[test]
+    fn test_e5_panic_flees_without_low_health() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Sleeping;
+            m.is_idle = true;
+            m.run_away_health = 0;
+            m.base.health = 200;
+            m.base.clear_targets();
+            m.opponent_ids.clear();
+        }
+
+        e5_apply_player_hit(&mut world, monster, player, 1);
+
+        assert!(
+            world.creatures.get(monster).is_some_and(|k| match k {
+                CreatureKind::Monster(m) => m.state == MonsterState::Panic && m.is_fleeing(),
+                _ => false,
+            }),
+            "PANIC must gate flee without run_away_health threshold — crnonpl.cc:2678"
+        );
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::Flee
+        );
+    }
+
+    #[test]
+    fn test_e5_rehit_attacking_no_redundant_yield() {
+        let mut world = beat_driven_test_world();
+        let (monster, player) = e1_melee_target_setup(&mut world, 15);
+
+        world.monster_idle_stimulus(monster);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            assert_eq!(m.state, MonsterState::Attacking);
+            m.base.todo.queue.clear();
+            m.base.next_wakeup = None;
+        }
+
+        e5_apply_player_hit(&mut world, monster, player, 2);
+        e5_apply_player_hit(&mut world, monster, player, 2);
+
+        let m = match world.creatures.get(monster) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(
+            m.state,
+            MonsterState::Attacking,
+            "re-hit while Attacking must keep Attacking"
+        );
+        assert!(
+            m.base.todo.queue.is_empty(),
+            "re-hit with unchanged state must not storm ToDoYield"
+        );
+        assert!(
+            m.base.next_wakeup.is_none(),
+            "no redundant yield wakeup when state unchanged"
         );
     }
 

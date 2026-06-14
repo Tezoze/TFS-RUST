@@ -22,7 +22,7 @@ Lockstep A/B: `TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic
 | **E2** | Melee execute + `earliest_attack_ms` cadence | `melee_hit`, `attack_enqueue` | **Yes** |
 | **E3** | ATTACKING walk gating, `attack_close_chase` | `combat_state.chase_mode`, `todo_go.arm=attack_close_chase`, skip idle `melee_chase` | **Partial** (via branch absence + arm tag) |
 | **E4** | Spells / ranged | `spell_cast` (plumbed) | **Not yet** |
-| **E5** | DamageStimulus / PANIC flee | — | **Not yet** |
+| **E5** | DamageStimulus / PANIC flee | `damage_stimulus` | **Not yet** |
 | **E6** | Death / exp / loot | — | **Not yet** |
 
 ---
@@ -39,6 +39,7 @@ Lockstep A/B: `TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic
 | `attack_enqueue` | `wait_ms`, `needs_close_step`, `close_chase` | `cract.cc` `ToDoAttack` | `idle_stimulus.rs` |
 | `melee_hit` | `attack`, `defense`, `armor`, `damage`, `hp_before`, `hp_after`, `earliest_attack_ms` | `crcombat.cc` `CloseAttack` | `monster_ai.rs` `monster_do_attacking` |
 | `spell_cast` | `spell`, `target_id`, `shape`, `range` | `crnonpl.cc` CASTING block | `idle_stimulus.rs` `monster_idle_apply_spell_impact` |
+| `damage_stimulus` | `old_state`, `new_state`, `attacker_id`, `damage`, `had_target` | `crnonpl.cc` `DamageStimulus` | `idle_stimulus.rs` `monster_damage_stimulus` |
 | `rng_trace` | `call_index`, `value` | — | Rust sim only (`TFS_SIM_RNG_TRACE=1`) |
 | `parked` | scheduler dead-end | — | Rust only |
 

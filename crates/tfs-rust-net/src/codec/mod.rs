@@ -10,8 +10,8 @@ pub use v1098::Codec1098;
 pub use v772::Codec772;
 pub use wire::{
     AddCreatureWire, AnimatedTextWire, CombatDamageNotifyWire, ContainerOpenWire,
-    CreatureHealthWire, ItemStack, ItemTemplateArgs, ItemWire, MagicEffectWire, OutfitWire,
-    PlayerSkillsWire, PlayerStatsWire,
+    CreatureHealthWire, DistanceShootWire, ItemStack, ItemTemplateArgs, ItemWire, MagicEffectWire,
+    OutfitWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
@@ -147,6 +147,8 @@ pub trait ProtocolCodec {
     fn encode_animated_text(&self, w: &wire::AnimatedTextWire) -> NetworkMessage;
 
     fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage;
+
+    fn encode_distance_shoot(&self, w: &wire::DistanceShootWire) -> NetworkMessage;
 
     fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage;
 
@@ -344,6 +346,10 @@ impl ProtocolCodec for Codec1098 {
 
     fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage {
         Codec1098::encode_magic_effect(self, w)
+    }
+
+    fn encode_distance_shoot(&self, w: &wire::DistanceShootWire) -> NetworkMessage {
+        Codec1098::encode_distance_shoot(self, w)
     }
 
     fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {
@@ -546,6 +552,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_magic_effect(self, w)
     }
 
+    fn encode_distance_shoot(&self, w: &wire::DistanceShootWire) -> NetworkMessage {
+        Codec772::encode_distance_shoot(self, w)
+    }
+
     fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {
         Codec772::encode_creature_health(self, w)
     }
@@ -688,6 +698,8 @@ impl Codec {
         encode_animated_text(w: &wire::AnimatedTextWire) -> NetworkMessage;
 
         encode_magic_effect(w: &wire::MagicEffectWire) -> NetworkMessage;
+
+        encode_distance_shoot(w: &wire::DistanceShootWire) -> NetworkMessage;
 
         encode_creature_health(w: &wire::CreatureHealthWire) -> NetworkMessage;
 
@@ -884,6 +896,10 @@ impl ProtocolCodec for Codec {
 
     fn encode_magic_effect(&self, w: &wire::MagicEffectWire) -> NetworkMessage {
         Codec::encode_magic_effect(self, w)
+    }
+
+    fn encode_distance_shoot(&self, w: &wire::DistanceShootWire) -> NetworkMessage {
+        Codec::encode_distance_shoot(self, w)
     }
 
     fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {

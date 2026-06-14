@@ -54,6 +54,8 @@ pub struct MonsterOutfit {
     pub look_addons: i32,
     pub look_type_ex: i32,
     pub look_mount: i32,
+    /// TVP `<look corpse="…">` — race corpse item id (`crmain.cc:204`).
+    pub corpse_id: u16,
 }
 
 impl Default for MonsterOutfit {
@@ -67,6 +69,7 @@ impl Default for MonsterOutfit {
             look_addons: 0,
             look_type_ex: 0,
             look_mount: 0,
+            corpse_id: 0,
         }
     }
 }
@@ -472,6 +475,10 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
             outfit.look_addons = child.attribute("addons").and_then(|a| a.parse().ok()).unwrap_or(0);
             outfit.look_type_ex = child.attribute("typeex").and_then(|a| a.parse().ok()).unwrap_or(0);
             outfit.look_mount = child.attribute("mount").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.corpse_id = child
+                .attribute("corpse")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
         } else if tag.eq_ignore_ascii_case("loot") {
             loot = parse_loot_section(child, items, file_str)?;
         } else if tag.eq_ignore_ascii_case("attacks") {

@@ -186,7 +186,15 @@ pub enum ShootEffect {
     Energy = 5,
     PoisonArrow = 6,
     BurstArrow = 7,
-    Unknown = 8,
+    /// C++ `CONST_ANI_THROWINGSTAR` — `const.h` `ShootType_t`.
+    ThrowingStar = 8,
+    ThrowingKnife = 9,
+    SmallStone = 10,
+    Death = 11,
+    LargeRock = 12,
+    Snowball = 13,
+    PowerBolt = 14,
+    Poison = 15,
 }
 
 // --- `Display` for logging (`tasks/Idioms-audit.md` §9) ---
@@ -401,7 +409,14 @@ impl fmt::Display for ShootEffect {
             Self::Energy => "energy",
             Self::PoisonArrow => "poison-arrow",
             Self::BurstArrow => "burst-arrow",
-            Self::Unknown => "unknown",
+            Self::ThrowingStar => "throwing-star",
+            Self::ThrowingKnife => "throwing-knife",
+            Self::SmallStone => "small-stone",
+            Self::Death => "death",
+            Self::LargeRock => "large-rock",
+            Self::Snowball => "snowball",
+            Self::PowerBolt => "power-bolt",
+            Self::Poison => "poison",
         })
     }
 }
@@ -556,7 +571,14 @@ impl TryFrom<u8> for ShootEffect {
             5 => Self::Energy,
             6 => Self::PoisonArrow,
             7 => Self::BurstArrow,
-            8 => Self::Unknown,
+            8 => Self::ThrowingStar,
+            9 => Self::ThrowingKnife,
+            10 => Self::SmallStone,
+            11 => Self::Death,
+            12 => Self::LargeRock,
+            13 => Self::Snowball,
+            14 => Self::PowerBolt,
+            15 => Self::Poison,
             _ => return Err(()),
         })
     }

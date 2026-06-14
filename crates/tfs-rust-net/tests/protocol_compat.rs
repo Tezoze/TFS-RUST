@@ -5,8 +5,8 @@
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::codec::{
     AddCreatureWire, AnimatedTextWire, Codec, Codec1098, CombatDamageNotifyWire,
-    ContainerOpenWire, CreatureHealthWire, ItemTemplateArgs, MagicEffectWire, OutfitWire,
-    PlayerSkillsWire, PlayerStatsWire,
+    ContainerOpenWire, CreatureHealthWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire,
+    OutfitWire, PlayerSkillsWire, PlayerStatsWire,
 };
 use tfs_rust_net::creature_encode::write_add_creature;
 use tfs_rust_net::map_description::send_map_description_stub;
@@ -78,6 +78,30 @@ fn combat_damage_text_message_1098_layout() {
             b'p', b'o', b'i', b'n', b't', b's', b'.'
         ]
     );
+}
+
+#[test]
+fn distance_shoot_encoding() {
+    use tfs_rust_net::codec::wire::DistanceShootWire;
+    use tfs_rust_net::outgoing_extra::send_distance_shoot;
+
+    let from = Position::new(0x0102, 0x0304, 5);
+    let to = Position::new(0x0506, 0x0708, 5);
+    let m = send_distance_shoot(from, to, 6);
+    assert_eq!(
+        m.as_bytes(),
+        &[
+            0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 6
+        ]
+    );
+    let via_codec = codec()
+        .encode_distance_shoot(&DistanceShootWire {
+            from,
+            to,
+            shoot_type: 6,
+        })
+        .into_bytes();
+    assert_eq!(via_codec, m.as_bytes());
 }
 
 #[test]
@@ -863,6 +887,26 @@ mod v772 {
         assert_eq!(
             b,
             vec![0x84, 0x02, 0x01, 0x04, 0x03, 0x05, 180, 0x02, 0x00, b'4', b'2']
+        );
+    }
+
+    /// `sendDistanceShoot` (`0x85`): from + to + shoot type.
+    #[test]
+    fn distance_shoot_772_layout() {
+        let from = Position::new(0x0102, 0x0304, 5);
+        let to = Position::new(0x0506, 0x0708, 5);
+        let b = codec()
+            .encode_distance_shoot(&DistanceShootWire {
+                from,
+                to,
+                shoot_type: 11,
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 11
+            ]
         );
     }
 

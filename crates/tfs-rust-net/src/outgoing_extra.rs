@@ -244,13 +244,14 @@ pub fn send_cancel_walk(direction: u8) -> NetworkMessage {
     Codec1098.encode_cancel_walk(direction)
 }
 
+#[deprecated(note = "use Codec::encode_distance_shoot")]
 pub fn send_distance_shoot(from: Position, to: Position, shoot_type: u8) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x85);
-    m.write_position(&from);
-    m.write_position(&to);
-    m.write_u8(shoot_type);
-    m
+    use crate::codec::wire::DistanceShootWire;
+    Codec1098.encode_distance_shoot(&DistanceShootWire {
+        from,
+        to,
+        shoot_type,
+    })
 }
 
 pub fn send_fyi_box(message: &str) -> NetworkMessage {

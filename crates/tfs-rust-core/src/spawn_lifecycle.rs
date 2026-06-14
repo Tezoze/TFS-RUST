@@ -240,7 +240,7 @@ impl GameWorld {
         extended_pos: bool,
     ) -> Option<CreatureId> {
         let mtype = match self.monsters_db.monsters.get(&name.to_lowercase()) {
-            Some(t) => t,
+            Some(t) => t.clone(),
             None => {
                 warn!(monster = %name, "spawn: unknown monster type");
                 return None;
@@ -296,7 +296,7 @@ impl GameWorld {
             todo: Default::default(),
         };
 
-        let ai_config = MonsterAiConfig::from_monster_type(mtype);
+        let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self.creatures.insert(CreatureKind::Monster(Monster::with_config(
             base,
             spawn_pos,
@@ -321,6 +321,21 @@ impl GameWorld {
         self.spawns.on_creature_spawned(slot_index, cid);
         self.spawn_slot_by_creature.insert(cid, slot_index);
         self.monster_on_creature_appear_self(cid);
+
+        if self.beat_driven_loop {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.experience = mtype.experience;
+                m.corpse_id = mtype.outfit.corpse_id;
+            }
+            let is_summon = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().master.is_some());
+            if !is_summon {
+                self.roll_monster_spawn_loot(cid, &mtype);
+                self.recompute_monster_combat_from_equipment(cid);
+            }
+        }
 
         if !startup {
             let pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);

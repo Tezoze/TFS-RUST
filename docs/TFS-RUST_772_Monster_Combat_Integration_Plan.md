@@ -25,8 +25,8 @@
 | Melee damage + attack cadence | **E2 done** | sim: `melee_hit`, `attack_enqueue` |
 | ATTACKING walk gating | **E3 done** | sim: `chase_mode=close`, `todo_go.arm=attack_close_chase` |
 | Spell casting + ranged | **E4 done** | sim: poison cast at range, `DistanceAttack` |
-| DamageStimulus → PANIC/UNDERATTACK | **Missing** | E5 |
-| Death / exp / loot-on-spawn model | **Missing the 772 model** (generic corpse + placeholder exp only) | E6 |
+| DamageStimulus → PANIC/UNDERATTACK | **E5 done** | sim: `damage_stimulus` |
+| Death / exp / loot-on-spawn model | **E6 done** | sim: spawn loot + race corpse |
 
 Bottom line: the pathfinder and walk cadence are correct. The work is **combat**, and it must hook into the existing `IdleStimulus` tail and the `CreatureAction::Attack` todo path that already exist.
 
@@ -62,7 +62,7 @@ Live metric (Jun 8 snake replay): `shortway/go_exec` 0.46 vs 0.47 reference.
 **Two residual divergences — both close themselves once combat lands; do not "fix" them in movement code:**
 
 1. `MeleeChase` still runs where the decompile is `ATTACKING` (`crnonpl.cc:2731` skips idle melee chase when `ATTACKING`/`PANIC`; the walk then comes from the attack tail under `CHASE_MODE_CLOSE`). Self-noted at [idle_stimulus.rs](../crates/tfs-rust-core/src/idle_stimulus.rs) ~428-432. → **Phase E3**.
-2. `is_fleeing` is health-only ([monster.rs](../crates/tfs-rust-core/src/creature/monster.rs):141); decompile gates flee through `PANIC`. → **Phase E5**.
+2. `is_fleeing` is health-only ([monster.rs](../crates/tfs-rust-core/src/creature/monster.rs):141); decompile gates flee through `PANIC`. → **Phase E5 done** (`MonsterState::Panic` in `is_fleeing`).
 
 ---
 
@@ -77,12 +77,12 @@ Live metric (Jun 8 snake replay): `shortway/go_exec` 0.46 vs 0.47 reference.
 | `Attack`/`CloseAttack` (damage) | `crcombat.cc:530` / `:647` | — | **missing** |
 | `DelayAttack` cadence | `crcombat.cc:523`; `Attack` does `DelayAttack(200)` then `DelayAttack(2000)` `:607,:640` | — | **missing** |
 | Spell cast loop | `crnonpl.cc:2521-2667` | — | **missing** (`attack_spells` parsed only) |
-| `DamageStimulus` → PANIC/UNDERATTACK | `crnonpl.cc:2295`; dispatched from `TCreature::Damage` `crmain.cc:~600` | — | **missing** |
+| `DamageStimulus` → PANIC/UNDERATTACK | `crnonpl.cc:2295`; dispatched from `TCreature::Damage` `crmain.cc:~600` | `monster_damage_stimulus` ([idle_stimulus.rs](../crates/tfs-rust-core/src/idle_stimulus.rs):175) | **done** |
 | Move-stimulus attack step (CHASE_MODE_CLOSE) | `crmain.cc:888` `TCreature::CreatureMoveStimulus` | `monster_events.rs` | partial |
-| **Loot rolled on spawn** (bag in `INVENTORY_BAG`; equip non-weapons via `CreateAtCreature`) | `TMonster::TMonster` `crnonpl.cc:2050-2103` | spawn path (E0 site) | **missing** — runtime `Monster` has no inventory |
-| **Equipment grants stats** (armor/weapon from equipped loot, race base fallback) | `CheckCombatValues`/`GetWeapon`/`GetArmorStrength` `crcombat.cc:128,36,286` | `combat/math.rs` consumes `armor`/`melee_attack` | **missing** — stats use race base only |
-| **Drop-all on death** (move body items → race corpse) | `~TCreature` `crmain.cc:204-290` (`LoseInventory==ALL`, default `:175`) | `death.rs` | **missing** — drops generic corpse `3058` |
-| **Race exp on death** (`ExperiencePoints`, 20-slot proportional) | `~TMonster` `crnonpl.cc:2117` → `DistributeExperiencePoints` `crcombat.cc:908` | `death.rs` | **wrong** — uses `max_health*4` placeholder |
+| **Loot rolled on spawn** (bag in `INVENTORY_BAG`; equip non-weapons via `CreateAtCreature`) | `TMonster::TMonster` `crnonpl.cc:2050-2103` | [monster_inventory.rs](../crates/tfs-rust-core/src/creature/monster_inventory.rs) | **done** |
+| **Equipment grants stats** (armor/weapon from equipped loot, race base fallback) | `CheckCombatValues`/`GetWeapon`/`GetArmorStrength` `crcombat.cc:128,36,286` | `effective_monster_combat_stats` | **done** |
+| **Drop-all on death** (move body items → race corpse) | `~TCreature` `crmain.cc:204-290` (`LoseInventory==ALL`, default `:175`) | `drop_monster_corpse_772` / `apply_creature_death` | **done** (772); 1098 keeps generic `3058` |
+| **Race exp on death** (`ExperiencePoints`, 20-slot proportional) | `~TMonster` `crnonpl.cc:2117` → `DistributeExperiencePoints` `crcombat.cc:908` | `death.rs` | **done** |
 
 ---
 
@@ -99,7 +99,7 @@ Live metric (Jun 8 snake replay): `shortway/go_exec` 0.46 vs 0.47 reference.
 | Condition DoT (fire/energy ticks) | `condition_tick` + `add_condition_merge` | [combat/math.rs](../crates/tfs-rust-core/src/combat/math.rs):335, `condition.rs` |
 | Apply HP / mana / dispel / condition (writes `damage_map`) | `combat::execute` / `apply_health_delta` | [combat/mod.rs](../crates/tfs-rust-core/src/combat/mod.rs):55 |
 | Exp split (`crcombat.cc:891`, 20-slot proportional) + PvP cap | `distribute_experience` / `pvp_exp_cap` | [combat/math.rs](../crates/tfs-rust-core/src/combat/math.rs):269,282 |
-| Death scaffold (events, decay, corpse insert) | `handle_creature_death` (⚠ rework for E6 — see below) | [death.rs](../crates/tfs-rust-core/src/death.rs):36 |
+| Death scaffold (events, decay, corpse insert) | `handle_creature_death` + `apply_creature_death` | [death.rs](../crates/tfs-rust-core/src/death.rs):36 |
 | Loot table parse (TFS shape: `chance`/100000, `countmax`, `child_loot`) | `LootBlock` / `load_loot_item` | [monsters.rs](../crates/tfs-rust-content/src/monsters.rs):18,265 |
 | Item containers (bag holds `ItemId`s) | `Location::Container { container_id, slot }` | [item.rs](../crates/tfs-rust-core/src/item.rs):17 |
 
@@ -207,7 +207,7 @@ flowchart LR
 
 ---
 
-### E4 — Spell casting loop + ranged
+### E4 — Spell casting loop + ranged - DONE
 
 **Read first:** `crnonpl.cc:2538-2680` (whole CASTING block, gated by `RaceData[Race].Spells>0`): per-spell `rand()%Delay==0` `:2544`; fleeing `random(1,3)!=1` skip `:2548`; `Impact` switch `:2553` (`IMPACT_DAMAGE/FIELD/HEALING/SPEED/DRUNKEN/STRENGTH/OUTFIT/SUMMON`, damage via `ComputeDamage`); `Shape` switch `:2627` (`ACTOR/VICTIM/ORIGIN/DESTINATION/ANGLE`, each rotates+effect+range). Ranged melee path: `Attack` `Range` 2/3 → `DistanceAttack`/`WandAttack` `crcombat.cc:609-637`.
 
@@ -224,7 +224,7 @@ flowchart LR
 
 ---
 
-### E5 — DamageStimulus + run-away (closes divergence §1.2)
+### E5 — DamageStimulus + run-away (closes divergence §1.2) DONE
 
 **Read first:** `crnonpl.cc:2295` `TMonster::DamageStimulus` (guard `AttackerID!=0 && Damage!=0`; `SLEEPING` → `Target==0?PANIC:UNDERATTACK` + `ToDoYield`; else `Target==0`→PANIC, `IDLE`→UNDERATTACK); dispatch site inside `TCreature::Damage` (`crmain.cc:~600`); `ToDoYield` `cract.cc:1001`.
 
@@ -239,9 +239,9 @@ flowchart LR
 
 ---
 
-### E6 — Loot-on-spawn model + death drop + equipment stats + exp
+### E6 — Loot-on-spawn model + death drop + equipment stats + exp DONE
 
-> **Scope note:** larger than the original "verify + wire". The 772 loot model is **not** implemented — the runtime `Monster` carries no inventory, death drops a generic corpse (`Item 3058`) with placeholder exp (`max_health*4`). This phase ports the decompile's roll-on-spawn → carry/equip → drop-all-on-death flow.
+> **772 model wired:** spawn loot roll → bag/equip inventory on `Monster`, equipment-derived combat stats, race corpse + drop-all on death, race `experience` via `distribute_experience`. Gated on `beat_driven_loop`; 1098 keeps generic corpse `3058`.
 
 **Read first:**
 - `TMonster::TMonster` `crnonpl.cc:2050-2103` — loot is rolled **at spawn**, not at death. Only when `Master==0` (summons carry nothing). Creates a bag in `INVENTORY_BAG`; per race item: skip on `random(0,999) > Probability`, `Amount = random(1, Maximum)`, cumulative stacks vs `Repeat` separate items. **WEAPON/SHIELD/BOW/THROW/WAND/WEAROUT/EXPIRE/EXPIRESTOP → into the bag**; everything else → `CreateAtCreature` (equipped to its body slot). Empty bag is deleted.
@@ -293,4 +293,6 @@ cargo clippy -p tfs-rust-core
 |------|--------|
 | 2026-06-13 | Movement-parity verification + combat integration brief (E0-E6) with decompile line refs |
 | 2026-06-14 | **E4 done** — idle CASTING loop (shapes/impacts), XML parse extensions, `DistanceAttack`, cobra poison E2E tests |
+| 2026-06-14 | **E5 done** — `monster_damage_stimulus`, storm-guarded `ToDoYield`, PANIC flee via `is_fleeing`, `damage_stimulus` sim event, E5 unit tests |
+| 2026-06-14 | **E6 done** — `monster_inventory.rs` spawn loot roll, bag/equip routing, equipment stats, race corpse drop, race XP + death hook; `MonsterOutfit.corpse_id` parse; `test_e6_*` |
 | 2026-06-14 | Re-verified E4/E5/E6 vs current decompile pull. Noted ~15–20 line ref drift. **Rewrote E6** to the 772 loot-on-spawn model (roll at spawn → bag/equip → equipment grants stats → drop-all into race corpse on death; race `ExperiencePoints` not `max_health*4`). Added §2/§3 rows for loot, equipment stats, drop-all, race exp. |

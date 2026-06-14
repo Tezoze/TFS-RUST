@@ -220,6 +220,28 @@ pub fn log_attack_enqueue(
     write_line(&line);
 }
 
+/// E5 — `TMonster::DamageStimulus` state transition (`crnonpl.cc:2278`).
+pub fn log_damage_stimulus(
+    tick: u64,
+    cid: CreatureId,
+    name: &str,
+    old_state: &str,
+    new_state: &str,
+    attacker_id: u64,
+    damage: i32,
+    had_target: bool,
+) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{},\"old_state\":\"{old_state}\",\"new_state\":\"{new_state}\",\"attacker_id\":{attacker_id},\"damage\":{damage},\"had_target\":{}}}",
+        header(tick, cid, name, "damage_stimulus"),
+        u8::from(had_target),
+    );
+    write_line(&line);
+}
+
 /// E4 prep — monster spell impact (`crnonpl.cc:2521` CASTING block).
 pub fn log_spell_cast(
     tick: u64,

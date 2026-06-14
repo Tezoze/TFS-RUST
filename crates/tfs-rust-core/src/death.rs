@@ -1,13 +1,14 @@
 //! Death: loot, XP from damage map, events, corpse decay placeholder.
 // C++ reference: `Creature::dropCorpse`, `Game::playerDeath`, `combat.cpp`.
 
+use crate::combat::distribute_experience;
 use crate::creature::CreatureKind;
 use crate::decay::DecayManager;
 use crate::event_dispatcher::EventDispatcher;
-use crate::ids::{CreatureId, ItemId};
-use crate::item::Item;
 use crate::formulas::StepSpeedModel;
 use crate::config::ConfigManager;
+use crate::ids::{CreatureId, ItemId};
+use crate::item::Item;
 use crate::party::split_shared_experience;
 use slotmap::SlotMap;
 
@@ -32,7 +33,10 @@ fn death_loss_fraction(config: &ConfigManager, level: i32, experience: u64) -> f
 }
 /// Apply death for a creature: distribute XP, fire events, schedule corpse decay item.
 /// Caller must remove `victim` from the world after this returns.
-// C++ reference: `Creature::onDeath` chain.
+///
+/// When `schedule_generic_corpse` is false (772 race corpse already placed on tile), skip the
+/// generic item 3058 insert.
+// C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:891-908`.
 pub fn handle_creature_death(
     creatures: &mut SlotMap<CreatureId, CreatureKind>,
     items: &mut SlotMap<ItemId, Item>,
@@ -43,6 +47,7 @@ pub fn handle_creature_death(
     party_size_for_xp: Option<usize>,
     step_speed_model: StepSpeedModel,
     config: &ConfigManager,
+    schedule_generic_corpse: bool,
 ) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return;
@@ -64,33 +69,36 @@ pub fn handle_creature_death(
     }
 
     let exp_reward: u64 = match creatures.get(victim) {
-        Some(CreatureKind::Monster(m)) => (m.base.max_health.max(1) as u64).saturating_mul(4),
+        Some(CreatureKind::Monster(m)) => m.experience as u64,
         Some(CreatureKind::Player(p)) => (p.level.max(1) as u64).saturating_mul(100),
         _ => 0,
     };
 
-    let total_damage: u64 = damage_map.values().sum();
+    let mut killer_entries: Vec<(CreatureId, u64)> =
+        damage_map.iter().map(|(&id, &dmg)| (id, dmg)).collect();
+    killer_entries.sort_by_key(|(id, _)| *id);
 
-    for (&killer_id, &dmg) in &damage_map {
-        if total_damage == 0 {
-            break;
-        }
-        let share = exp_reward.saturating_mul(dmg) / total_damage;
+    let shares: Vec<u64> = killer_entries.iter().map(|(_, dmg)| *dmg).collect();
+    let grants = distribute_experience(exp_reward, &shares);
+
+    for ((killer_id, _), share) in killer_entries.iter().zip(grants) {
         let share = if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
             split_shared_experience(share, n)
         } else {
             share
         };
-        if let Some(CreatureKind::Player(k)) = creatures.get_mut(killer_id) {
+        if let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id) {
             let rate_exp = config.experience_rate_for_level(k.level).unwrap_or(1.0).max(0.0);
             let share = ((share as f64) * rate_exp).floor() as u64;
             k.add_experience(share, step_speed_model);
         }
-        events.on_kill(killer_id, victim);
+        events.on_kill(*killer_id, victim);
     }
 
     events.on_death(victim);
 
-    let corpse_id = items.insert(Item::new(3058, 1));
-    decay.schedule(corpse_id, tick.saturating_add(600), None);
+    if schedule_generic_corpse {
+        let corpse_id = items.insert(Item::new(3058, 1));
+        decay.schedule(corpse_id, tick.saturating_add(600), None);
+    }
 }

@@ -300,3 +300,18 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `monster_idle_is_attacking_posture` reads `state == Attacking|Panic`
 - [x] `monster_set_idle` bridge: `Sleeping` ↔ `Idle` on 772
 - [x] Tests: `test_e1_melee_monster_enters_attacking_on_idle`, reset/under_attack_promoted/no_melee/panic
+
+## Monster combat E5 — DamageStimulus / PANIC flee — done
+- [x] `combat_execute_with_stimulus` → `monster_damage_stimulus` on HP loss (`crnonpl.cc:2278`)
+- [x] PANIC/UNDERATTACK state rules + storm-guarded `creature_todo_yield` (`cract.cc:1001`)
+- [x] `is_fleeing()` includes `MonsterState::Panic` (`crnonpl.cc:2678`)
+- [x] `chase_debug::log_damage_stimulus` sim event
+- [x] Tests: `test_e5_idle_with_target_hit_becomes_under_attack`, sleeping→panic+yield, panic flee, rehit storm guard
+
+## Monster combat E6 — loot-on-spawn / death drop / equipment stats / race exp — done
+- [x] `MonsterOutfit.corpse_id` parse from `<look corpse=>` ([monsters.rs](../crates/tfs-rust-content/src/monsters.rs))
+- [x] `monster_inventory.rs`: spawn loot roll, bag/equip routing, `effective_monster_combat_stats`, `drop_monster_corpse_772`
+- [x] `spawn_monster`: copy `experience`/`corpse_id`, roll loot + recompute stats (772, no master)
+- [x] `combat_execute_with_stimulus`: HP≤0 → `apply_creature_death`
+- [x] `death.rs`: race `experience` + `distribute_experience`; generic corpse only on 1098
+- [x] Tests: `test_e6_rat_experience_on_death`, corpse loot, armor/weapon stats, summon no-loot

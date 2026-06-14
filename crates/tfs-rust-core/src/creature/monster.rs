@@ -5,6 +5,7 @@ use std::collections::HashSet;
 
 use crate::creature::base::CreatureBase;
 use crate::creature::monster_combat::{combat_from_monster_type, MonsterSpell};
+use crate::creature::monster_inventory::MonsterInventory;
 use crate::ids::CreatureId;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::{MonsterType, MonsterTypeFlags};
@@ -191,6 +192,12 @@ pub struct Monster {
     pub defense: i32,
     pub immunity_poison: bool,
     pub spells: Vec<MonsterSpell>,
+    /// Race XP grant on death — `MonsterType.experience` / `crcombat.cc:908`.
+    pub experience: u32,
+    /// `<look corpse=…>` item id for death drop — `crmain.cc:204`.
+    pub corpse_id: u16,
+    /// Spawn-rolled bag + equip — `crnonpl.cc:2050`.
+    pub inventory: MonsterInventory,
     /// C++ `Monster::targetChangeTicks` — `monster.cpp` `onThinkTarget`.
     pub target_change_ticks: u32,
     /// C++ `Monster::targetChangeCooldown`.
@@ -242,6 +249,9 @@ impl Monster {
             defense: config.defense,
             immunity_poison: config.immunity_poison,
             spells: config.spells,
+            experience: 0,
+            corpse_id: 0,
+            inventory: MonsterInventory::default(),
             target_change_ticks: 0,
             target_change_cooldown: 0,
             challenge_focus_duration: 0,

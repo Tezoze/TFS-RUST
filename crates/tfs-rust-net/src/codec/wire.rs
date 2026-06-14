@@ -93,6 +93,14 @@ pub struct MagicEffectWire {
     pub effect_id: u8,
 }
 
+/// `ProtocolGame::sendDistanceShoot` — `src/protocolgame.cpp` / `gameserver/src/protocolgame.cpp` ~1535.
+#[derive(Debug, Clone, Copy)]
+pub struct DistanceShootWire {
+    pub from: Position,
+    pub to: Position,
+    pub shoot_type: u8,
+}
+
 /// `ProtocolGame::sendCreatureHealth`.
 #[derive(Debug, Clone, Copy)]
 pub struct CreatureHealthWire {
