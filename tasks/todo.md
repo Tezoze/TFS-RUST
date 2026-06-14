@@ -330,3 +330,10 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] P1.3 `sim_melee_defense=5`, fist skill defense probe, signed `sim_rand_mod`
 - [x] P1.4 PANIC→ATTACKING on first melee hit; panic lockstep PASS
 - [x] P1.5 Battery 3/6 (kill + stand + panic); §22 + trajectory §22 + lesson 53
+
+## Phase 2 — Cyclops quad lockstep (4/6) — partial
+- [x] P2.1 Trace cyclops appear→chase; extend `harness_defer_appear_idle` through kite window; §23.1
+- [x] P2.2 Cadence verify: 0 branch@0, 4× todo_go@2000, 20/20; battery 3/6 PASS
+- [x] P2.3 Cyclops geometry path tests + `compare_chase_pathfinding.py` scenarios
+- [x] P2.4 TShortway expand (`cract.cc:158-202`), remove goal-band trim, walk_queue LIFO push, `monster_tshortway_fill_walkable`
+- [ ] P2.5 Lockstep PASS — **blocked:** NW diagonal + far-N north paths vs live C++ ref (2/4 shortway); go_exec order east/far-N swap

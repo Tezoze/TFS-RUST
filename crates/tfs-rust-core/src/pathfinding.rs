@@ -495,10 +495,19 @@ impl TShortwaySearch {
                 .map(|c| (c.waypoints, c.waylength, c.heuristic))
                 .unwrap_or((-1, TSHORTWAY_UNVISITED, TSHORTWAY_UNVISITED));
 
-            if neighbor_wp <= 0 {
+            // `cract.cc:158-202` — relax any neighbor with a shorter waylength; only enqueue
+            // expand when `Waypoints != -1` and not the origin cell.
+            if !tshortway_should_relax(prev_wl, neighbor_wl) {
                 continue;
             }
-            if !tshortway_should_relax(prev_wl, neighbor_wl) {
+
+            if let Some(cell) = self.cells.get_mut(&neighbor_pos) {
+                cell.waylength = neighbor_wl;
+                cell.parent = Some(pos);
+                cell.parent_diagonal = is_diagonal;
+            }
+
+            if neighbor_wp <= 0 || neighbor_pos == self.origin {
                 continue;
             }
 
@@ -515,14 +524,9 @@ impl TShortwaySearch {
             }
 
             if let Some(cell) = self.cells.get_mut(&neighbor_pos) {
-                cell.waylength = neighbor_wl;
                 cell.heuristic = heuristic;
-                cell.parent = Some(pos);
-                cell.parent_diagonal = is_diagonal;
             }
-            if neighbor_pos != self.origin {
-                self.insert_expand_list(neighbor_pos);
-            }
+            self.insert_expand_list(neighbor_pos);
         }
     }
 }
@@ -628,9 +632,8 @@ where
     }
 
     let dirs = reconstruct_reverse_dirs(&nodes, start);
-    let mut trimmed = trim_path_to_goal_band(dirs, start, target, fpp, map);
-    trimmed.reverse();
-    Some(trimmed)
+    // C++ `TShortway::Calculate` walks the predecessor chain directly — no goal-band trim.
+    Some(dirs)
 }
 
 /// 772 reverse A* — destination (`target`) → origin (`start`) (`cract.cc:7` `TShortway`).
@@ -731,8 +734,7 @@ where
 
         if current == start {
             let dirs = reconstruct_reverse_dirs(&nodes, start);
-            let mut trimmed = trim_path_to_goal_band(dirs, start, target, fpp, map);
-            trimmed.reverse();
+            let trimmed = trim_path_to_goal_band(dirs, start, target, fpp, map);
             return Some(trimmed);
         }
 
@@ -1701,5 +1703,289 @@ mod tests {
         let walk_order = vec![Direction::East, Direction::East];
         let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 1, true, 1);
         assert_eq!(truncated, vec![Direction::East]);
+    }
+
+    /// `kite_cyclops_quad_chase` geometry — east/south cyclops match C++ ref on uniform wp=150.
+    #[test]
+    fn cyclops_quad_east_and_south_shortway_on_uniform_terrain() {
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let cases = [
+            (
+                "east",
+                Position::new(32361, 32290, 7),
+                vec![
+                    Position::new(32361, 32291, 7),
+                    Position::new(32361, 32292, 7),
+                    Position::new(32361, 32293, 7),
+                ],
+            ),
+            (
+                "south",
+                Position::new(32360, 32291, 7),
+                vec![Position::new(32360, 32292, 7), Position::new(32360, 32293, 7)],
+            ),
+        ];
+        for (label, start, want_tiles) in cases {
+            let target = Position::new(32360, 32294, 7);
+            let map = cyclops_quad_uniform_map(start, target);
+            let can_walk = |pos: Position| map.is_walkable(pos);
+            let ground = |_pos: Position| 150u32;
+            let dirs = get_path_matching(
+                &map,
+                start,
+                target,
+                &fpp,
+                PathCostModel::TerrainWeighted,
+                PathSearchModel::Reverse,
+                true,
+                can_walk,
+                |_| 0u32,
+                ground,
+            )
+            .expect(label);
+            let trimmed = truncate_cipsoft_chase_queue(
+                start,
+                target,
+                dirs,
+                CHASE_PATH_MAX_STEPS,
+                false,
+                1,
+            );
+            let mut pos = start;
+            let got_tiles: Vec<Position> = trimmed
+                .iter()
+                .map(|&d| {
+                    pos = pos.offset(d);
+                    pos
+                })
+                .collect();
+            assert_eq!(got_tiles, want_tiles, "{label} shortway tiles");
+        }
+    }
+
+    #[test]
+    fn fill_marks_non_walkable_tiles_with_negative_waypoints() {
+        let start = Position::new(32359, 32288, 7);
+        let blocked = Position::new(32359, 32289, 7);
+        let target = Position::new(32360, 32294, 7);
+        let map = cyclops_quad_uniform_map(start, target);
+        let can_walk = |pos: Position| pos != blocked;
+        let radius = REVERSE_PATH_VIEW_RADIUS;
+        let mut wp_at_blocked = 0i32;
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let Some(pos) = offset_position(start, dx, dy) else {
+                    continue;
+                };
+                let walkable_for_fill =
+                    map.is_walkable(pos) && (pos == target || can_walk(pos));
+                let waypoints = if walkable_for_fill {
+                    effective_terrain_waypoints(150) as i32
+                } else {
+                    -1
+                };
+                if pos == blocked {
+                    wp_at_blocked = waypoints;
+                }
+            }
+        }
+        assert_eq!(wp_at_blocked, -1, "blocked tile must have Waypoints=-1 in fill");
+    }
+
+    #[test]
+    fn get_path_matching_blocked_far_n_matches_path_compare_pipeline() {
+        let start = Position::new(32359, 32288, 7);
+        let target = Position::new(32360, 32294, 7);
+        let blocked = Position::new(32359, 32289, 7);
+        let map = cyclops_quad_uniform_map_excluding(start, target, &[blocked]);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let raw = get_path_matching(
+            &map,
+            start,
+            target,
+            &fpp,
+            PathCostModel::TerrainWeighted,
+            PathSearchModel::Reverse,
+            false,
+            |pos| map.is_walkable(pos),
+            |_| 0u32,
+            |_| 150u32,
+        )
+        .expect("raw path");
+        let dirs = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            raw,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        assert_eq!(
+            dirs,
+            vec![Direction::East, Direction::South, Direction::South],
+            "after truncate"
+        );
+    }
+
+    #[test]
+    fn tshortway_blocked_missing_tile_routes_east_first() {
+        let start = Position::new(32359, 32288, 7);
+        let target = Position::new(32360, 32294, 7);
+        let blocked = Position::new(32359, 32289, 7);
+        let map = cyclops_quad_uniform_map_excluding(start, target, &[blocked]);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let dirs = path_matching_tshortway(
+            &map,
+            start,
+            target,
+            &fpp,
+            |pos| map.is_walkable(pos),
+            |_| 150,
+        )
+        .expect("path");
+        let exec = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            dirs,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        assert_eq!(
+            exec,
+            vec![Direction::East, Direction::South, Direction::South],
+            "missing blocked tile: got {exec:?}"
+        );
+    }
+
+    #[test]
+    fn tshortway_skips_blocked_sibling_tile_in_fill() {
+        let start = Position::new(32359, 32288, 7);
+        let target = Position::new(32360, 32294, 7);
+        let blocked = Position::new(32359, 32289, 7);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+
+        // Occupied sibling tile present on map (creature blocking) — `can_walk_to` rejects it.
+        let map_with_tile = cyclops_quad_uniform_map(start, target);
+        let can_walk = |pos: Position| pos != blocked;
+        let walk_order = path_matching_tshortway(
+            &map_with_tile,
+            start,
+            target,
+            &fpp,
+            can_walk,
+            |_| 150,
+        )
+        .expect("path with occupied tile");
+        let mut pos = start;
+        for &dir in &walk_order {
+            pos = pos.offset(dir);
+            assert_ne!(
+                pos, blocked,
+                "predecessor chain must not visit blocked tile (walk_order={walk_order:?})"
+            );
+        }
+        let dirs = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            walk_order,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        let mut pos = start;
+        for &dir in &dirs {
+            pos = pos.offset(dir);
+            assert_ne!(
+                pos, blocked,
+                "occupied tile on map: blocked sibling must not appear in path (dirs={dirs:?})"
+            );
+        }
+
+        // Missing tile (path_compare style) — same outcome.
+        let map_without_tile = cyclops_quad_uniform_map_excluding(start, target, &[blocked]);
+        let mut walk_order = path_matching_tshortway(
+            &map_without_tile,
+            start,
+            target,
+            &fpp,
+            |pos| map_without_tile.is_walkable(pos),
+            |_| 150,
+        )
+        .expect("path without tile");
+        let dirs = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            walk_order,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        assert_eq!(
+            dirs,
+            vec![Direction::East, Direction::South, Direction::South],
+            "missing blocked tile must route east first"
+        );
+    }
+
+    fn cyclops_quad_uniform_map(start: Position, target: Position) -> Map {
+        cyclops_quad_uniform_map_excluding(start, target, &[])
+    }
+
+    fn cyclops_quad_uniform_map_excluding(
+        start: Position,
+        target: Position,
+        exclude: &[Position],
+    ) -> Map {
+        let mut map = Map {
+            width: 256,
+            height: 256,
+            grid: crate::map::SparseGrid::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        let pad = REVERSE_PATH_VIEW_RADIUS as u16 + 2;
+        let min_x = start.x.min(target.x).saturating_sub(pad);
+        let max_x = start.x.max(target.x).saturating_add(pad);
+        let min_y = start.y.min(target.y).saturating_sub(pad);
+        let max_y = start.y.max(target.y).saturating_add(pad);
+        for x in min_x..=max_x {
+            for y in min_y..=max_y {
+                let pos = Position::new(x, y, 7);
+                if exclude.contains(&pos) {
+                    continue;
+                }
+                ensure_walkable_tile(&mut map, pos, 150);
+            }
+        }
+        map
     }
 }

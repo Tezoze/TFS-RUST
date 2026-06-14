@@ -34,6 +34,7 @@ use crate::pathfinding::{
     scan_min_terrain_waypoints, FindPathParams, CHASE_PATH_MAX_STEPS,
     REVERSE_PATH_VIEW_RADIUS, uses_reverse_terrain_path,
 };
+use crate::tile::flags as tilestate;
 use crate::walk::{creature_turn_with_broadcast, PATHFIND_WALK_FLAGS, tile_query_add_creature};
 
 /// C++ `Map::maxViewportX` (`map.h`).
@@ -1621,7 +1622,7 @@ impl GameWorld {
                 }
             } else if self.beat_driven_loop {
                 // 772 `ToDoGo` trim — `cract.cc:241-258`; melee adjacent uses `must:1` max 1.
-                steps.reverse();
+                // `get_creature_path_to_with_fpp` returns C++ predecessor-chain order (first hop first).
                 let stop_at_cheb = if fleeing || target_distance <= 1 {
                     1
                 } else {
@@ -1635,7 +1636,7 @@ impl GameWorld {
                     must_reach,
                     stop_at_cheb,
                 );
-                // `truncate_cipsoft_chase_queue` already returns C++ walk-back order (first step first).
+                // `truncate_cipsoft_chase_queue` returns execution order (first step first).
             }
             if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
                 if let Some(k) = self.creatures.get(cid) {
@@ -1679,8 +1680,9 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 let base = k.base_mut();
                 base.walk_queue.clear();
-                for d in steps {
-                    base.walk_queue.push_back(d);
+                // `listWalkDir` — `getNextStep` pops from the back (`creature.cpp`).
+                for d in steps.iter().rev() {
+                    base.walk_queue.push_back(*d);
                 }
                 base.has_follow_path = true;
             }
@@ -1884,6 +1886,14 @@ impl GameWorld {
             !self.beat_driven_loop || uses_reverse_terrain,
             "772 monster chase requires reverse TShortway + terrain costs (check MechanicsProfile / formulas lua)"
         );
+        let fill_walkable = |pos: Position| {
+            if uses_reverse_terrain && self.beat_driven_loop {
+                ctx.world
+                    .monster_tshortway_fill_walkable(ctx.cid, pos, target)
+            } else {
+                ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos)
+            }
+        };
         get_path_matching(
             &self.map,
             start,
@@ -1892,7 +1902,7 @@ impl GameWorld {
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
             self.mechanics.profile.path_forward_fallback,
-            |pos| ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos),
+            fill_walkable,
             |pos| {
                 if uses_reverse_terrain {
                     return 0;
@@ -2374,6 +2384,78 @@ impl GameWorld {
             m.walking_to_spawn = false;
         }
         self.map.register_creature_at(spawn, cid);
+    }
+
+    /// 772 `TShortway::FillMap` walkability — `TMonster::MovePossible(Execute=false)` (`crnonpl.cc:2141`).
+    ///
+    /// Chase fill may plan through pushable creatures when `can_push_creatures`; unpushable
+    /// monsters always block. Destination (follow target tile) stays walkable for reverse seed.
+    pub(crate) fn monster_tshortway_fill_walkable(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        target: Position,
+    ) -> bool {
+        let (spawn, cfg, can_push_creatures, is_summon) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.spawn_position,
+                self.monster_world_config,
+                m.can_push_creatures,
+                m.base.is_summon(),
+            ),
+            _ => return false,
+        };
+        if pos == target {
+            return true;
+        }
+        if !is_in_spawn_range(pos, spawn, cfg.despawn_radius, cfg.despawn_z_range) {
+            return false;
+        }
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        if !self.map.is_walkable(pos) {
+            return false;
+        }
+        let body = tile.body();
+        for &tile_c in &body.creatures {
+            if tile_c == cid {
+                continue;
+            }
+            let Some(other) = self.creatures.get(tile_c) else {
+                return false;
+            };
+            match other {
+                CreatureKind::Monster(m) => {
+                    if can_push_creatures && !is_summon && m.is_pushable() {
+                        continue;
+                    }
+                    return false;
+                }
+                CreatureKind::Player(p) if p.ghost_mode => continue,
+                CreatureKind::Player(_) | CreatureKind::Npc(_) => return false,
+            }
+        }
+        if (body.flags & (tilestate::PROTECTIONZONE | tilestate::FLOORCHANGE | tilestate::TELEPORT))
+            != 0
+        {
+            return false;
+        }
+        if (body.flags & tilestate::IMMOVABLEBLOCKSOLID) != 0 {
+            return false;
+        }
+        if (body.flags & tilestate::IMMOVABLENOFIELDBLOCKPATH) != 0 {
+            return false;
+        }
+        if (body.flags & tilestate::BLOCKSOLID) != 0
+            || (body.flags & tilestate::NOFIELDBLOCKPATH) != 0
+        {
+            return false;
+        }
+        if (body.flags & tilestate::MAGICFIELD) != 0 {
+            return false;
+        }
+        true
     }
 
     /// Spawn leash + pathfinding tile check — shared by A* and step selection (`monster.cpp` `canWalkTo`).
@@ -3981,6 +4063,88 @@ mod world_tests {
                 .walk_queue
                 .is_empty(),
             "772 path fail must not fall back to greedy closer step"
+        );
+    }
+
+    /// `kite_cyclops_quad_chase` — far-N plans last; first hop must not enter NW sibling tile.
+    #[test]
+    fn cyclops_quad_far_n_path_avoids_nw_sibling_when_last() {
+        use crate::creature::MonsterState;
+        use crate::pathfinding::REVERSE_PATH_VIEW_RADIUS;
+        use crate::sim_harness::{
+            beat_driven_world_with_synthetic_ground_data, default_sim_map_config,
+            insert_monster_from_type, insert_player, lay_synthetic_arena,
+        };
+
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_with_synthetic_ground_data(&cfg.data_dir, Some(150))
+        else {
+            return;
+        };
+        let fill_radius = 16u16 + REVERSE_PATH_VIEW_RADIUS as u16;
+        lay_synthetic_arena(&mut world.map, 32360, 32290, fill_radius, 7, 150);
+        let spawns = [
+            Position::new(32359, 32288, 7),
+            Position::new(32361, 32290, 7),
+            Position::new(32360, 32291, 7),
+            Position::new(32359, 32289, 7),
+        ];
+        let player_pos = Position::new(32360, 32294, 7);
+        let player = insert_player(&mut world, test_player("Hero", player_pos));
+        world.map.register_creature_at(player_pos, player);
+        let mtype = world.monsters_db.monsters.get("cyclops").cloned();
+        let Some(mtype) = mtype else {
+            return;
+        };
+        let mut ids = Vec::new();
+        for (i, &pos) in spawns.iter().enumerate() {
+            let mid = insert_monster_from_type(
+                &mut world,
+                &mtype,
+                &format!("Cyclops {}", i + 1),
+                pos,
+                mtype.speed as i32,
+                MonsterAiConfig::from_monster_type(&mtype),
+                MonsterState::Attacking,
+            );
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
+                m.harness_spawn_order = (i as u16).saturating_add(1);
+                m.is_idle = false;
+                m.opponent_ids.push(player);
+                m.base.follow_target = Some(player);
+                m.base.attack_target = Some(player);
+            }
+            ids.push(mid);
+        }
+        let far_n = ids[0];
+        let nw_pos = spawns[3];
+        let tile = world.map.get_tile(nw_pos).expect("nw tile");
+        assert!(
+            tile.body().creatures.contains(&ids[3]),
+            "NW cyclops must occupy map tile before path query"
+        );
+        let walkable = world.monster_tshortway_fill_walkable(far_n, nw_pos, player_pos);
+        assert!(!walkable, "fill walkable must reject NW sibling tile (got {walkable})");
+        let fpp = world.monster_path_search_params(far_n, player, false, 1, false, false);
+        let mut steps = world
+            .get_creature_path_to_with_fpp(far_n, player_pos, &fpp)
+            .expect("far-N chase path");
+        steps = crate::pathfinding::truncate_cipsoft_chase_queue(
+            spawns[0],
+            player_pos,
+            steps,
+            crate::pathfinding::CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        assert!(!steps.is_empty(), "path must not be empty");
+        let first = spawns[0].offset(steps[0]);
+        assert_ne!(
+            first, nw_pos,
+            "far-N first hop must not enter NW sibling tile (C++ `MovePossible` blocks unpushable)"
         );
     }
 }

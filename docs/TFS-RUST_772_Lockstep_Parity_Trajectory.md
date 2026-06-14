@@ -327,7 +327,7 @@ Update this table at each phase closeout.
 |-------|------|-------|-------|---------|------|-------|------|------|
 | §21 | 1/6 | FAIL | FAIL | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
 | §22 | 3/6 | **PASS** | **PASS** | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
-| §23 | 4/6 | | | | | | | |
+| §23 | 3/6 | **PASS** | **PASS** | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
 | §24 | 5/6 | | | | | | | |
 | §25 | 6/6 | | | | | | | |
 
@@ -339,3 +339,4 @@ Update this table at each phase closeout.
 |------|--------|
 | 2026-06-14 | Initial trajectory doc — post §21 baseline (1/6), phases 0–5 scoped |
 | 2026-06-14 | §22 milestone: stand + panic lockstep PASS (3/6) |
+| 2026-06-14 | §23 Phase 2 partial: cyclops cadence 20/20; path pipeline fixes; shortway 2/4 — lockstep still 3/6 |

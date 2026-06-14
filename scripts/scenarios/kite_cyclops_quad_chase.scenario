@@ -4,16 +4,16 @@ default_wp 150
 arena_synthetic 1
 
 # Four cyclops around player — multi-monster chase parity
+# Spawn order matches C++ idle drain order (§23).
 arena 32360 32290 16
 
 player_start 32360 32290
 player_name Hero
 
-# N / E / S / W spawns (one tile out from center)
-monster cyclops 32360 32289
+monster cyclops 32359 32288
 monster cyclops 32361 32290
 monster cyclops 32360 32291
-monster cyclops 32359 32290
+monster cyclops 32359 32289
 
 monster_load_type 1
 monster_hostile 1

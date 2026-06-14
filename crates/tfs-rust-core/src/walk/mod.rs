@@ -361,11 +361,27 @@ impl GameWorld {
         let now = Instant::now();
         if self.creature_uses_todo_execute(cid) {
             trace_creature_todo(self, cid, "process_creature_todo");
+            let mut ran_idle = false;
             if self.creature_todo_queue_empty(cid) {
                 self.idle_stimulus(cid);
+                ran_idle = true;
             }
             if !self.creature_todo_queue_empty(cid) {
-                self.run_monster_todo_execute(cid);
+                if self.beat_driven_loop
+                    && ran_idle
+                    && self.creatures.get(cid).is_some_and(|k| {
+                        matches!(k.base().todo.queue.front(), Some(CreatureAction::Go))
+                            && k.base().next_wakeup.is_none()
+                    })
+                {
+                    // C++ `IdleStimulus` queues `ToDoGo` then `TDAttack`; `NotifyGo` arms a
+                    // step-delayed wakeup — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
+                    if self.todo_start_go_delay(cid, true) {
+                        self.schedule_immediate_todo_wakeup(cid);
+                    }
+                } else {
+                    self.run_monster_todo_execute(cid);
+                }
             }
             self.cleanup();
             return;
@@ -380,7 +396,20 @@ impl GameWorld {
             k.base_mut().next_walk_check = None;
             k.base_mut().next_wakeup = Some(execution_time);
         }
-        self.todo_queue.insert(execution_time, cid);
+        // C++ `ToDoQueue` LIFO tie-break — last `ToDoYield` during appear drains first
+        // (`chase_kite_scenario.cc` `SpawnMonsterAppear` forward loop).
+        let tie = self
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
+                    Some(u64::from(u16::MAX - m.harness_spawn_order))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| self.todo_queue.bump_sequence());
+        self.todo_queue
+            .insert_with_tie(execution_time, cid, tie);
         trace_creature_todo(self, cid, "schedule_wakeup");
     }
 

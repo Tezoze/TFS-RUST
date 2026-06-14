@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
+use tfs_rust_core::pathfinding::REVERSE_PATH_VIEW_RADIUS;
 use tfs_rust_core::sim_harness::{
     beat_driven_world_from_map, beat_driven_world_with_synthetic_ground_data,
     default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
@@ -274,11 +275,15 @@ fn build_world(
             &map_cfg.data_dir,
             Some(scenario.default_wp),
         )?;
+        // C++ `LaySyntheticArena` — `arena_radius + kFillMapViewRadius` (`chase_kite_scenario.cc`).
+        let fill_radius = scenario
+            .arena_radius
+            .saturating_add(REVERSE_PATH_VIEW_RADIUS as u16);
         let min_wp = lay_synthetic_arena(
             &mut w.map,
             scenario.arena_center.0,
             scenario.arena_center.1,
-            scenario.arena_radius,
+            fill_radius,
             scenario.z,
             scenario.default_wp,
         );
@@ -386,6 +391,9 @@ fn spawn_entities(
         };
 
         monster_ids.push(monster_id);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+            m.harness_spawn_order = (idx as u16).saturating_add(1);
+        }
         if scenario.monster_state_explicit
             && scenario.monster_initial_state == MonsterState::Sleeping
         {

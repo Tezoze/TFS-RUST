@@ -345,6 +345,32 @@ def builtin_scenarios() -> List[Scenario]:
             target=(14, 14),
             default_wp=150,
         ),
+        Scenario(
+            name="cyclops_quad_east",
+            start=(32361, 32290),
+            target=(32360, 32294),
+            default_wp=150,
+        ),
+        Scenario(
+            name="cyclops_quad_south",
+            start=(32360, 32291),
+            target=(32360, 32294),
+            default_wp=150,
+        ),
+        Scenario(
+            name="cyclops_quad_far_n_blocked_south",
+            start=(32359, 32288),
+            target=(32360, 32294),
+            default_wp=150,
+            blocked={(32359, 32289)},
+        ),
+        Scenario(
+            name="cyclops_quad_nw_blocked_north",
+            start=(32359, 32289),
+            target=(32360, 32294),
+            default_wp=150,
+            blocked={(32359, 32288)},
+        ),
     ]
 
 

@@ -130,6 +130,11 @@ impl GameWorld {
         if self.batch_appear_defer_idle {
             return;
         }
+        if self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)
+        }) {
+            return;
+        }
         // C++ `ToDoYield` — schedule `ToDoWait(0)` + `ToDoStart`; `IdleStimulus` runs when
         // the todo list drains on wakeup, not inline from appear/move stimuli (`cract.cc:1001`).
         trace_creature_todo(self, cid, "request_idle_stimulus");
@@ -841,6 +846,8 @@ impl GameWorld {
         }
         if self.beat_driven_loop {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                // Appear/damage defer window ends when the first deferred idle actually runs.
+                m.harness_defer_appear_idle = false;
                 // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
                 m.last_combat_trace = None;
             }
@@ -1199,7 +1206,13 @@ impl GameWorld {
                 _ => (1, false),
             })
             .unwrap_or((1, false));
-        let close_chase = self.monster_combat_enqueue_close_chase_go(cid);
+        let skip_idle_melee_chase = self.monster_idle_skip_idle_melee_chase(cid);
+        let already_has_close_go = self.monster_close_chase_go_already_armed(cid);
+        let close_chase = if already_has_close_go {
+            MonsterCombatCloseChaseEnqueue::Skipped
+        } else {
+            self.monster_combat_enqueue_close_chase_go(cid)
+        };
         if close_chase == MonsterCombatCloseChaseEnqueue::Retry {
             return MonsterEnqueueAttackResult::Retry;
         }
@@ -1208,18 +1221,23 @@ impl GameWorld {
         }
         if needs_close_step
             && close_chase != MonsterCombatCloseChaseEnqueue::Queued
-            && !self.monster_close_chase_go_already_armed(cid)
+            && !already_has_close_go
+            && !skip_idle_melee_chase
         {
             return MonsterEnqueueAttackResult::Failed;
         }
         if weapon_distance != 1 {
             self.enqueue_creature_wait(cid, 100);
         }
-        let close_label = match close_chase {
-            MonsterCombatCloseChaseEnqueue::Queued => "queued",
-            MonsterCombatCloseChaseEnqueue::Skipped => "skipped",
-            MonsterCombatCloseChaseEnqueue::Retry => "retry",
-            MonsterCombatCloseChaseEnqueue::Noway => "noway",
+        let close_label = if already_has_close_go || (skip_idle_melee_chase && close_chase == MonsterCombatCloseChaseEnqueue::Queued) {
+            "idle_tail"
+        } else {
+            match close_chase {
+                MonsterCombatCloseChaseEnqueue::Queued => "queued",
+                MonsterCombatCloseChaseEnqueue::Skipped => "skipped",
+                MonsterCombatCloseChaseEnqueue::Retry => "retry",
+                MonsterCombatCloseChaseEnqueue::Noway => "noway",
+            }
         };
         if self.enqueue_creature_attack(cid) {
             if chase_debug::chase_path_debug_enabled() {
@@ -1230,12 +1248,17 @@ impl GameWorld {
                         cid,
                         m.base.name.as_str(),
                         wait_ms,
-                        needs_close_step,
+                        needs_close_step && !already_has_close_go && !skip_idle_melee_chase,
                         close_label,
                     );
                 }
             }
-            self.schedule_immediate_todo_wakeup(cid);
+            let needs_wakeup = self.creatures.get(cid).is_some_and(|k| {
+                k.base().next_wakeup.is_none() && !k.base().todo.has_go()
+            });
+            if needs_wakeup {
+                self.schedule_immediate_todo_wakeup(cid);
+            }
             MonsterEnqueueAttackResult::Enqueued
         } else {
             MonsterEnqueueAttackResult::Failed
@@ -1939,17 +1962,9 @@ impl GameWorld {
                 self.finish_creature_todo_execute(cid);
             }
             Some(TodoExecuteKind::Wait) => {
-                let defer_appear_idle = self
-                    .creatures
-                    .get_mut(cid)
-                    .and_then(|k| match k {
-                        CreatureKind::Monster(m) if m.harness_defer_appear_idle => {
-                            m.harness_defer_appear_idle = false;
-                            Some(())
-                        }
-                        _ => None,
-                    })
-                    .is_some();
+                let defer_appear_idle = self.creatures.get(cid).is_some_and(|k| {
+                    matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)
+                });
                 if defer_appear_idle {
                     // C++ `SpawnMonsterAppear` — `ToDoYield` queues yield; first `IdleStimulus`
                     // runs on the first `advance_ms 2000` drain, not the appear-step drain.

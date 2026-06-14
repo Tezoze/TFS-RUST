@@ -175,6 +175,8 @@ pub struct Monster {
     pub harness_preserve_sleep: bool,
     /// Chase harness — skip inline `IdleStimulus` on appear `ToDoWait(0)`; arm first idle at next drain window.
     pub harness_defer_appear_idle: bool,
+    /// Sim harness spawn index — `ToDoQueue` tie-break for multi-monster idle @ same ms.
+    pub harness_spawn_order: u16,
     /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
     pub state: MonsterState,
     /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
@@ -237,6 +239,7 @@ impl Monster {
             is_idle: true,
             harness_preserve_sleep: false,
             harness_defer_appear_idle: false,
+            harness_spawn_order: 0,
             state: MonsterState::Sleeping,
             chase_mode: MonsterChaseMode::None,
             last_combat_trace: None,

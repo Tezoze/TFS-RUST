@@ -40,12 +40,23 @@ pub struct ToDoQueue {
 
 impl ToDoQueue {
     pub fn insert(&mut self, execution_time: u64, creature_id: CreatureId) {
-        let sequence = self.next_sequence;
+        let tie = self.next_sequence;
         self.next_sequence = self.next_sequence.wrapping_add(1);
+        self.insert_with_tie(execution_time, creature_id, tie);
+    }
+
+    pub fn bump_sequence(&mut self) -> u64 {
+        let tie = self.next_sequence;
+        self.next_sequence = self.next_sequence.wrapping_add(1);
+        tie
+    }
+
+    /// Insert with explicit tie-break — harness multi-monster spawn order (`cr.hh` `ToDoQueue`).
+    pub fn insert_with_tie(&mut self, execution_time: u64, creature_id: CreatureId, tie: u64) {
         self.heap.push(std::cmp::Reverse(ToDoEntry {
             execution_time,
             creature_id,
-            sequence,
+            sequence: tie,
         }));
     }
 

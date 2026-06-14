@@ -1067,6 +1067,148 @@ mod harness_tests {
         );
     }
 
+    /// Quad cyclops — move-stimulus idle must not fire during appear-defer window.
+    #[test]
+    fn batch_appear_quad_blocks_move_stimulus_idle_until_deferred_wakeup() {
+        use crate::creature::MonsterState;
+        use crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS;
+        use crate::test_world::support::{ensure_walkable_tile, test_player};
+
+        let mut world = beat_driven_world();
+        let center = Position::new(32360, 32290, 7);
+        let spawns = [
+            Position::new(32360, 32289, 7),
+            Position::new(32361, 32290, 7),
+            Position::new(32360, 32291, 7),
+            Position::new(32359, 32290, 7),
+        ];
+        for pos in [center].into_iter().chain(spawns) {
+            ensure_walkable_tile(&mut world.map, pos, 150);
+        }
+        let player = insert_player(&mut world, test_player("Hero", center));
+        world.map.register_creature_at(center, player);
+        let mut monster_ids = Vec::new();
+        for (i, &mpos) in spawns.iter().enumerate() {
+            let mid = insert_monster(&mut world, "Cyclops", mpos, 55);
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
+                m.is_hostile = true;
+                m.state = MonsterState::Sleeping;
+                m.is_idle = true;
+                m.base.name = format!("Cyclops {}", i + 1);
+            }
+            monster_ids.push(mid);
+        }
+        kite_monsters_appear_batch(&mut world, &monster_ids);
+        set_sim_harness_wall_ms(&mut world, Some(0));
+        run_sim_tick(&mut world);
+        for &mid in &monster_ids {
+            assert!(
+                world
+                    .creatures
+                    .get(mid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)),
+                "defer flag must stay set after appear-step drain"
+            );
+            assert_eq!(
+                world.creatures.get(mid).and_then(|k| k.base().next_wakeup),
+                Some(HARNESS_APPEAR_IDLE_DEFER_MS),
+                "deferred wakeup must be scheduled at 2000ms"
+            );
+        }
+        let kited = Position::new(32362, 32290, 7);
+        teleport_player(&mut world, player, kited).expect("kite teleport");
+        set_sim_harness_wall_ms(&mut world, Some(0));
+        run_sim_tick(&mut world);
+        for &mid in &monster_ids {
+            assert!(
+                world
+                    .creatures
+                    .get(mid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)),
+                "kite move must not clear defer before first idle"
+            );
+            assert!(
+                world.creature_todo_queue_empty(mid),
+                "kite move must not enqueue chase todos during defer window"
+            );
+        }
+        set_sim_harness_wall_ms(&mut world, Some(HARNESS_APPEAR_IDLE_DEFER_MS));
+        move_creatures_explicit(&mut world, HARNESS_APPEAR_IDLE_DEFER_MS);
+        run_sim_tick(&mut world);
+        assert!(
+            monster_ids.iter().any(|&mid| {
+                world
+                    .creatures
+                    .get(mid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.harness_defer_appear_idle))
+            }),
+            "at least one monster must clear defer after 2000ms idle"
+        );
+    }
+
+    /// Cyclops quad — sibling tiles must block `TShortway` fill (`crnonpl.cc:2216` Unpushable).
+    #[test]
+    fn cyclops_quad_sibling_tiles_block_chase_fill_walkable() {
+        use crate::creature::{MonsterAiConfig, MonsterState};
+        use crate::pathfinding::REVERSE_PATH_VIEW_RADIUS;
+
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_with_synthetic_ground_data(&cfg.data_dir, Some(150))
+        else {
+            return;
+        };
+        let fill_radius = 16u16 + REVERSE_PATH_VIEW_RADIUS as u16;
+        lay_synthetic_arena(&mut world.map, 32360, 32290, fill_radius, 7, 150);
+        let spawns = [
+            Position::new(32359, 32288, 7),
+            Position::new(32361, 32290, 7),
+            Position::new(32360, 32291, 7),
+            Position::new(32359, 32289, 7),
+        ];
+        let player = insert_player(
+            &mut world,
+            crate::test_world::support::test_player("Hero", Position::new(32360, 32294, 7)),
+        );
+        world
+            .map
+            .register_creature_at(Position::new(32360, 32294, 7), player);
+        let mtype = world.monsters_db.monsters.get("cyclops").cloned();
+        let Some(mtype) = mtype else {
+            return;
+        };
+        let mut ids = Vec::new();
+        for (i, &pos) in spawns.iter().enumerate() {
+            let mid = insert_monster_from_type(
+                &mut world,
+                &mtype,
+                &format!("Cyclops {}", i + 1),
+                pos,
+                mtype.speed as i32,
+                MonsterAiConfig::from_monster_type(&mtype),
+                MonsterState::Sleeping,
+            );
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
+                m.harness_spawn_order = (i as u16).saturating_add(1);
+            }
+            ids.push(mid);
+        }
+        kite_monsters_appear_batch(&mut world, &ids);
+        let c1 = ids[0];
+        let c4_pos = spawns[3];
+        assert!(
+            !world.monster_tshortway_fill_walkable(c1, c4_pos, Position::new(32360, 32294, 7)),
+            "far-N cyclops must not plan through NW sibling tile"
+        );
+        let tile = world.map.get_tile(c4_pos).expect("sibling tile");
+        assert!(
+            tile.body().creatures.contains(&ids[3]),
+            "NW cyclops must be registered on map tile"
+        );
+    }
+
     /// OTBM kite lab — rat/player/dance tiles must be walkable on forgotten.otbm.
     #[test]
     fn kite_lab_tiles_walkable_on_otbm_when_data_present() {

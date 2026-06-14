@@ -1376,6 +1376,52 @@ Root cause of §21 tick shift: inline `request_idle_stimulus` during appear targ
 
 ---
 
+## 23. Phase 2 — Cyclops quad lockstep (4/6) — partial
+
+**Date:** 2026-06-14  
+**Scenario:** `kite_cyclops_quad_chase.scenario` (`TFS_SIM_SEED=772`, `--synthetic`, `--max-tick 4000`)
+
+### 23.1 Appear → first chase timeline (P2.1)
+
+| Monster | Spawn | Drain order | ref / rust `todo_go` |
+|---------|-------|-------------|----------------------|
+| NW | `(32359,32289)` | 1st | tick=2000 `enter` |
+| South | `(32360,32291)` | 2nd | tick=2000 |
+| East | `(32361,32290)` | 3rd | tick=2000 |
+| Far-N | `(32359,32288)` | 4th | tick=2000 |
+
+**Cadence fix:** `harness_defer_appear_idle` through kite teleports @ms=0 — block `request_idle_stimulus` until deferred idle runs.
+
+### 23.2 Shipped fixes (P2.1–P2.4)
+
+| Area | Change | C++ ref |
+|------|--------|---------|
+| Appear defer window | Block move-stimulus idle during defer; 4-monster test | `chase_kite_scenario.cc` |
+| Todo drain order | Wakeup tie `u16::MAX - harness_spawn_order` | reverse appear `ToDoYield` |
+| TShortway expand | Relax `Waypoints==-1` neighbors; skip expand-list | `cract.cc:158-202` |
+| Chase trim | Drop `trim_path_to_goal_band` from TShortway | `cract.cc:241-258` |
+| Fill walkability | `monster_tshortway_fill_walkable` | `crnonpl.cc:2141` |
+| Walk queue | Reverse steps before `push_back` (LIFO `getNextStep`) | `creature.cpp` |
+
+### 23.3 Metrics
+
+| Metric | ref | rust |
+|--------|-----|------|
+| Events | 20 | 20 |
+| `branch` @0 | 0 | 0 |
+| `todo_go` | 4/4 | 4/4 |
+| `shortway` | — | **2/4** |
+| `go_exec` | — | **1/4** |
+| Lockstep | FAIL | FAIL |
+
+NW: ref diagonal `(32358,32290)…`, rust south `(32359,32290)…`. Far-N: ref north, rust east. East/South match.
+
+### 23.4 Battery
+
+Stand / panic / kill **PASS**; cyclops **FAIL**.
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -1394,3 +1440,4 @@ Root cause of §21 tick shift: inline `request_idle_stimulus` during appear targ
 | 2026-06-14 | §20 closeout: panic→melee_dance (not flee), compare ID normalization, C++ overlay +26 tiles, glibc loot/resync, dist-chase move stimulus; cyclops min_wp=150 + 20/20 counts; kill creature_death 1/1; lockstep still 0/6 |
 | 2026-06-14 | §21 closeout: DANCE_DIR_ORDER N/S fix, ToDoWait(0), chase step reverse removed, kill armor+stimulus order, harness_preserve_sleep; kill lockstep PASS (1/6); stand/panic content 100% on chase arms; cyclops tick=0 dance regression documented |
 | 2026-06-14 | §22 closeout: batch appear defer + human Defend=5 + panic melee promotion; stand/panic lockstep PASS (3/6) |
+| 2026-06-14 | §23 Phase 2 partial: cyclops cadence 20/20; TShortway/walk_queue fixes; shortway 2/4 — lockstep 3/6 |
