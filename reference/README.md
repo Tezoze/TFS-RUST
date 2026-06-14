@@ -44,3 +44,15 @@ export TIBIA_RSA_PEM=$TFS_REFERENCE_DIR/classic-772/client/tibia.pem
 | `src/` | 1098 | Default Rust parity target |
 
 See [docs/PROTOCOL_VERSIONING.md](../docs/PROTOCOL_VERSIONING.md).
+
+## Cursor agents & code-review-graph
+
+These trees are **gitignored** (not committed) but **re-included for agents** via root `.cursorignore` (`!reference/...`). After cloning reference checkouts here, agents can `Read` / `Grep` / `@`-mention paths under `reference/`.
+
+**code-review-graph** uses `git ls-files` on the main repo, so gitignored reference is **not** in the default graph. To index C++ reference locally:
+
+```bash
+scripts/register_reference_graph.sh
+```
+
+That creates a nested local-only git repo inside each reference checkout (never pushed) and registers it with CRG. Agents then use `cross_repo_search_tool` for 772 C++ lookups (`ref-772-mechanics`, `ref-772-wire`).
