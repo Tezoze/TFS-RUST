@@ -1,0 +1,32 @@
+name kite_rat_melee
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Shared synthetic arena — uniform grass wp=150 on both stacks
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+monster rat 32361 32290
+monster_hostile 1
+monster_melee_skill 15
+monster_melee_attack 7
+monster_armor 1
+monster_defense 3
+
+# --- script (executed top-to-bottom) ---
+advance_ms 0
+monster_appear
+
+advance_ms 2000
+player_pos 32362 32290
+sim_tick
+
+advance_ms 2000
+player_pos 32363 32290
+sim_tick
+
+advance_ms 2000
+player_pos 32363 32292
+sim_tick

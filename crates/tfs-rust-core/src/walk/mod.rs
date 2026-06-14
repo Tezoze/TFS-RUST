@@ -44,7 +44,7 @@ use crate::chase_debug;
 use crate::combat::uniform_random;
 use crate::return_value::ReturnValue;
 use crate::creature::CreatureKind;
-use crate::creature_todo::trace_creature_todo;
+use crate::creature_todo::{trace_creature_todo, CreatureAction};
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
 use crate::login_out::{creature_wire_id, map_tile_content};
@@ -339,6 +339,7 @@ impl GameWorld {
                 self.process_creature_todo(entry.creature_id);
             }
         }
+        self.rescue_stalled_chase_monsters_772();
     }
 
     /// 772 `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).
@@ -1185,9 +1186,26 @@ impl GameWorld {
                         }
                         // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
                         // popped in `getNextStep` (`src/creature.cpp` ~205–213).
-                        // C++ sets `forceUpdateFollowPath` only — repath runs from `onThink` / follow refresh,
-                        // not synchronously from `onWalk` (avoids repath→step→fail infinite recursion).
-                        if let Some(k) = self.creatures.get_mut(cid) {
+                        // 772: `ToDoClear` + `ToDoYield` on blocked step (`cract.cc:393-414`, `:845-852`).
+                        if self.beat_driven_loop
+                            && self
+                                .creatures
+                                .get(cid)
+                                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+                        {
+                            if let Some(k) = self.creatures.get_mut(cid) {
+                                let base = k.base_mut();
+                                if base.follow_target.is_some() || base.attack_target.is_some() {
+                                    base.walk_queue.clear();
+                                    base.has_follow_path = false;
+                                    base.force_update_follow_path = true;
+                                    base.todo.queue.retain(|action| {
+                                        !matches!(action, CreatureAction::Go)
+                                    });
+                                }
+                            }
+                            self.request_idle_stimulus(cid);
+                        } else if let Some(k) = self.creatures.get_mut(cid) {
                             if k.base().follow_target.is_some() {
                                 k.base_mut().force_update_follow_path = true;
                             }
@@ -1479,7 +1497,7 @@ impl GameWorld {
         {
             if let Some(k) = self.creatures.get(cid) {
                 chase_debug::log_go_exec(
-                    self.tick_counter,
+                    self.chase_trace_tick(),
                     cid,
                     k.base().name.as_str(),
                     old_pos,

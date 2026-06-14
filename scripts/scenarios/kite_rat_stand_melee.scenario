@@ -1,0 +1,32 @@
+name kite_rat_stand_melee
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Rat adjacent to standing player — exercises E2 melee + E3 ATTACKING tail (no kite)
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+monster rat 32361 32290
+monster_hostile 1
+monster_melee_skill 15
+monster_melee_attack 7
+monster_armor 1
+monster_defense 3
+
+advance_ms 0
+monster_appear
+
+# Hold position at melee range; drain combat todos between ticks
+advance_ms 0
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick

@@ -1,0 +1,27 @@
+name kite_rat_dist4
+z 7
+default_wp 150
+
+arena 32360 32290 6
+
+player_start 32366 32290
+player_name Hero4
+monster rat 32360 32290
+monster_hostile 0
+monster_target_distance 4
+
+# --- script ---
+advance_ms 0
+monster_appear
+
+advance_ms 0
+player_pos 32367 32290
+sim_tick
+
+advance_ms 0
+player_pos 32367 32291
+sim_tick
+
+advance_ms 0
+player_pos 32366 32291
+sim_tick

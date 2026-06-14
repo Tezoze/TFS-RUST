@@ -1,0 +1,55 @@
+name kite_cyclops_quad_chase
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Four cyclops around player — multi-monster chase parity
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+
+# N / E / S / W spawns (one tile out from center)
+monster cyclops 32360 32289
+monster cyclops 32361 32290
+monster cyclops 32360 32291
+monster cyclops 32359 32290
+
+monster_hostile 1
+monster_melee_skill 50
+monster_melee_attack 30
+monster_armor 17
+monster_defense 24
+monster_speed 55
+monster_target_distance 1
+monster_talks 5
+
+# --- script ---
+advance_ms 0
+monster_appear
+
+advance_ms 0
+player_pos 32362 32290
+sim_tick
+
+advance_ms 0
+player_pos 32364 32290
+sim_tick
+
+advance_ms 0
+player_pos 32364 32292
+sim_tick
+
+advance_ms 0
+player_pos 32362 32294
+sim_tick
+
+advance_ms 0
+player_pos 32360 32294
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick

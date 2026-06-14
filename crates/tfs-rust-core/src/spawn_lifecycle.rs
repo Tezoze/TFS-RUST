@@ -292,6 +292,7 @@ impl GameWorld {
             think_check_bucket: None,
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
+            last_defend_ms: 0,
             todo: Default::default(),
         };
 
@@ -377,6 +378,7 @@ impl GameWorld {
             think_check_bucket: None,
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
+            last_defend_ms: 0,
             todo: Default::default(),
         };
 
@@ -710,6 +712,7 @@ use std::collections::HashSet;
                 armor: Some(1),
                 defense: Some(3),
                 spells: Vec::new(),
+                immunity_poison: false,
             },
         }
     }

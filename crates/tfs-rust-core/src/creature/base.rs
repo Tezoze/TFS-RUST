@@ -124,6 +124,8 @@ pub struct CreatureBase {
     pub earliest_attack_ms: u64,
     /// C++ `TCombat::EarliestDefendTime` — `crcombat.cc:236` `GetDefendDamage` gate.
     pub earliest_defend_ms: u64,
+    /// C++ `TCombat::LastDefendTime` — paired with `EarliestDefendTime` (`crcombat.cc:241-242`).
+    pub last_defend_ms: u64,
     /// 772 per-creature ToDo action list (772 idle-driven AI).
     pub todo: CreatureTodo,
 }

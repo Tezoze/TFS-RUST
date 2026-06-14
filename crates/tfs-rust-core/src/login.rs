@@ -107,6 +107,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         think_check_bucket: None,
         earliest_attack_ms: 0,
         earliest_defend_ms: 0,
+        last_defend_ms: 0,
         todo: Default::default(),
     };
 

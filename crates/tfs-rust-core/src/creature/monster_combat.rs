@@ -76,6 +76,7 @@ pub struct MonsterCombatSnapshot {
     pub poison_cycles: i32,
     pub armor: i32,
     pub defense: i32,
+    pub immunity_poison: bool,
     pub spells: Vec<MonsterSpell>,
 }
 
@@ -120,6 +121,7 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
     let mut snap = MonsterCombatSnapshot {
         armor: mtype.defenses.armor.unwrap_or(0),
         defense: mtype.defenses.defense.unwrap_or(0),
+        immunity_poison: mtype.defenses.immunity_poison,
         ..MonsterCombatSnapshot::default()
     };
 
@@ -172,25 +174,52 @@ pub struct MeleeDefenseSnapshot {
     pub defense_skill: i32,
     pub defense_value: i32,
     pub armor: i32,
+    /// C++ `GetDefendDamage` fight-mode branch — `crcombat.cc:243-255`.
+    pub defend_mode: FightMode,
+}
+
+/// Effective defend fight mode — `crcombat.cc:243-255` (`Following || AttackDest == 0` → DEFENSIVE).
+pub fn defend_fight_mode_for_target(kind: &CreatureKind) -> FightMode {
+    let base = kind.base();
+    if base.attack_target.is_none() {
+        return FightMode::Defensive;
+    }
+    // Player fight-mode packet not wired yet; monsters default to BALANCED (`crcombat.cc:13`).
+    match kind {
+        CreatureKind::Player(_) => FightMode::Balanced,
+        _ => FightMode::Balanced,
+    }
+}
+
+/// Whether periodic poison may apply — `crmain.cc:548-551` `RaceData[Race].NoPoison`.
+pub fn creature_immune_poison(kind: &CreatureKind) -> bool {
+    match kind {
+        CreatureKind::Monster(m) => m.immunity_poison,
+        _ => false,
+    }
 }
 
 /// Read-only melee defense snapshot — call before mutating `creatures`.
 pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
+    let defend_mode = defend_fight_mode_for_target(kind);
     match kind {
         CreatureKind::Monster(m) => MeleeDefenseSnapshot {
             defense_skill: 0,
             defense_value: m.defense,
             armor: m.armor,
+            defend_mode,
         },
         CreatureKind::Player(p) => MeleeDefenseSnapshot {
             defense_skill: p.skills.shielding,
             defense_value: 0,
             armor: 0,
+            defend_mode,
         },
         CreatureKind::Npc(_) => MeleeDefenseSnapshot {
             defense_skill: 0,
             defense_value: 0,
             armor: 0,
+            defend_mode,
         },
     }
 }
@@ -207,14 +236,16 @@ pub fn roll_target_defense<R: Rng + ?Sized>(
     if server_ms < target_base.earliest_defend_ms {
         return 0;
     }
-    target_base.earliest_defend_ms = server_ms.saturating_add(defense_gate_ms(profile) as u64);
+    let gate_ms = defense_gate_ms(profile) as u64;
+    target_base.earliest_defend_ms = target_base.last_defend_ms.saturating_add(gate_ms);
+    target_base.last_defend_ms = server_ms;
     defense_value(
         profile,
         hooks,
         rng,
         snap.defense_skill,
         snap.defense_value,
-        FightMode::Balanced,
+        snap.defend_mode,
     )
 }
 
@@ -230,12 +261,16 @@ pub fn melee_poison_on_hit<R: Rng + ?Sized>(
         return None;
     }
     let proc = damage_done > 0
-        || (attack_roll > defense_roll && rng.gen_range(0..5) == 0);
+        || (attack_roll > defense_roll && crate::sim_glibc_rand::parity_rand_mod(5) == 0);
     if !proc {
         return None;
     }
     let half = poison_cycles / 2;
-    let poison_dmg = crate::combat::uniform_random(rng, half, poison_cycles);
+    let poison_dmg = if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+        crate::sim_glibc_rand::sim_random(half, poison_cycles)
+    } else {
+        crate::combat::uniform_random(rng, half, poison_cycles)
+    };
     if poison_dmg <= 0 {
         return None;
     }
@@ -430,5 +465,135 @@ mod tests {
         assert!(monster_has_melee_strike(15, 1));
         assert!(!monster_has_melee_strike(15, 2));
         assert!(!monster_has_melee_strike(0, 1));
+    }
+
+    fn test_creature_base() -> crate::creature::base::CreatureBase {
+        use std::collections::VecDeque;
+        use tfs_rust_common::enums::{Direction, SkullType};
+        use tfs_rust_common::Position;
+
+        crate::creature::base::CreatureBase {
+            name: "Test".into(),
+            position: Position::new(100, 100, 7),
+            direction: Direction::South,
+            health: 100,
+            max_health: 100,
+            outfit: Default::default(),
+            speed: 200,
+            base_speed: 200,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: VecDeque::new(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_walk_check: None,
+            next_wakeup: None,
+            last_step_server_ms: None,
+            walk_timer: Default::default(),
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            has_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+            think_check_bucket: None,
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
+            last_defend_ms: 0,
+            todo: Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_defense_gate_allows_pair_then_blocks() {
+        use crate::formulas::{FormulaHooks, Mechanics};
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        use tfs_rust_common::ProtocolVersion;
+
+        let mechanics = Mechanics::for_version(ProtocolVersion::V772);
+        let hooks = FormulaHooks::default();
+        let mut base = test_creature_base();
+        let snap = MeleeDefenseSnapshot {
+            defense_skill: 0,
+            defense_value: 10,
+            armor: 0,
+            defend_mode: FightMode::Balanced,
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+
+        let _ = roll_target_defense(
+            &mut base,
+            1000,
+            &mechanics.profile,
+            &hooks,
+            &mut rng,
+            snap,
+        );
+        assert_eq!(base.last_defend_ms, 1000);
+        assert_eq!(base.earliest_defend_ms, 2000);
+
+        let _ = roll_target_defense(
+            &mut base,
+            2100,
+            &mechanics.profile,
+            &hooks,
+            &mut rng,
+            snap,
+        );
+        assert_eq!(base.last_defend_ms, 2100);
+        assert_eq!(base.earliest_defend_ms, 3000);
+
+        let blocked = roll_target_defense(
+            &mut base,
+            2200,
+            &mechanics.profile,
+            &hooks,
+            &mut rng,
+            snap,
+        );
+        assert_eq!(blocked, 0, "defense must gate until LastDefendTime + 2000 ms");
+    }
+
+    #[test]
+    fn test_defend_fight_mode_non_attacker_is_defensive() {
+        use crate::creature::{CreatureKind, Monster};
+        use tfs_rust_common::Position;
+
+        let base = test_creature_base();
+        let m = Monster::with_config(base, Position::new(100, 100, 7), MonsterAiConfig::default());
+        let snap = melee_defense_snapshot(&CreatureKind::Monster(m));
+        assert_eq!(snap.defend_mode, FightMode::Defensive);
+    }
+
+    #[test]
+    fn test_cobra_poison_immunity_from_xml() {
+        let mtype = load_monster_type("cobra");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        assert!(cfg.immunity_poison, "cobra.xml immunity poison=1");
+        let rat = MonsterAiConfig::from_monster_type(&load_monster_type("rat"));
+        assert!(!rat.immunity_poison);
+    }
+
+    #[test]
+    fn test_creature_immune_poison_respects_spawn_flag() {
+        use crate::creature::{CreatureKind, Monster};
+        use tfs_rust_common::Position;
+
+        let mut cfg = MonsterAiConfig::default();
+        cfg.immunity_poison = true;
+        let m = Monster::with_config(
+            test_creature_base(),
+            Position::new(100, 100, 7),
+            cfg,
+        );
+        assert!(creature_immune_poison(&CreatureKind::Monster(m)));
     }
 }

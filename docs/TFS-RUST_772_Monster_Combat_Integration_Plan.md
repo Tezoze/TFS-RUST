@@ -7,7 +7,7 @@
 
 ## How to use this brief
 
-- **Reference paths.** Decompile = `reference/cipsoft-772/tibia-game-master/src/` (referred to below by bare filename, e.g. `crcombat.cc:530`). These files are in `.cursorignore`; open them directly (the graph/Grep tool will not see them — use the editor or `grep` in a terminal with the reference dir as cwd).
+- **Reference paths.** Decompile = `reference/cipsoft-772/tibia-game-master/src/` (referred to below by bare filename, e.g. `crcombat.cc:530`). Gitignored but agent-readable via root `.cursorignore`. Main CRG graph skips gitignored paths — run `scripts/register_reference_graph.sh`, then use `cross_repo_search_tool`; otherwise `Read`/`Grep` explicit paths or open files in the editor.
 - **Parity rule.** Match *observable outcomes* (damage rolls, cadence, target picks, walk shape), not C++ structure. Write idiomatic Rust (enums + `match`, `?`, `SlotMap` ids, no `unsafe`). Era literals come from `MechanicsProfile` / `data/formulas/772.lua` — never hardcode, never add `*_772` public names. Put the C++ `file:function` ref in a doc comment on every ported fn.
 - **Don't re-implement** the formulas/apply layer in §3 — they exist and are unit-tested. Wire them.
 
@@ -19,11 +19,12 @@
 |------|--------|--------|
 | Scheduler (beat loop, todo heap, Go/Wait drain) | At parity | none |
 | Movement / pathing (chase / flee / dance / roam / keep-distance) | **At parity** (verified §1) | none — combat slots into existing idle tail |
-| Monster combat data on runtime struct | **Missing** | E0 |
-| Combat state machine (ATTACKING/PANIC/UNDERATTACK) | **Missing** (`is_idle` bool only) | E1, E5 |
-| Melee damage + attack cadence | **Missing** (`monster_do_attacking` faces only) | E2, E3 |
+| Monster combat data on runtime struct | **E0 done** | none |
+| Combat state machine (ATTACKING/PANIC/UNDERATTACK) | **E1 done** | sim: `combat_state` event |
+| Melee damage + attack cadence | **E2 done** | sim: `melee_hit`, `attack_enqueue` |
+| ATTACKING walk gating | **E3 done** | sim: `chase_mode=close`, `todo_go.arm=attack_close_chase` |
 | Spell casting + ranged | **Missing** (`attack_spells` parsed, never cast) | E4 |
-| Combat math / apply / exp / death | Built, mostly unwired | reuse (§3) |
+| Combat math / apply / exp / death | Built, mostly unwired | E5–E6 |
 
 Bottom line: the pathfinder and walk cadence are correct. The work is **combat**, and it must hook into the existing `IdleStimulus` tail and the `CreatureAction::Attack` todo path that already exist.
 
@@ -250,7 +251,7 @@ cargo clippy -p tfs-rust-core
 ```
 
 - **New tests per phase** as listed in each "Done when".
-- **Live combat compare:** add a `combat_debug` log (attacker, target, roll, applied, cadence) and diff vs reference under `TFS_CHASE_PATH_DEBUG=1` + reference combat log. Check: ~2000 ms melee cadence, ATTACKING walk replaces idle `melee_chase`, spell delay gating.
+- **Live combat compare:** `scripts/run_kite_scenario.py` + `scripts/summarize_chase_gaps.py` under `TFS_CHASE_PATH_DEBUG=1` / `TIBIA_CHASE_PATH_DEBUG=1`. See [`TFS-RUST_772_Sim_Coverage_Matrix.md`](TFS-RUST_772_Sim_Coverage_Matrix.md). Check: ~2000 ms melee cadence, ATTACKING walk replaces idle `melee_chase`, `combat_state`/`melee_hit` counts.
 - **Data:** must run unchanged on `data/monster/monsters/*` — validate rat (melee), cobra (melee + poison + ranged).
 
 ## 6. Suggested PR slicing

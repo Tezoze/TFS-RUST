@@ -215,33 +215,48 @@ impl GameWorld {
         if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
             if let Some(k) = self.creatures.get(cid) {
                 let from = k.position();
-                if let Some(follow_id) = k.base().follow_target {
+                let is_dance = todo_via == Some("idle_dance");
+                let (dest, must_reach, max_steps) = if is_dance {
+                    let dest = k
+                        .base()
+                        .walk_queue
+                        .front()
+                        .map(|dir| from.offset(*dir))
+                        .unwrap_or(from);
+                    (dest, true, i32::MAX)
+                } else if let Some(follow_id) = k.base().follow_target {
                     let dest = self
                         .creatures
                         .get(follow_id)
                         .map(|t| t.position())
                         .unwrap_or(from);
-                    let via = todo_via.unwrap_or("idle_enqueue");
-                    chase_debug::log_todo_go(
-                        self.tick_counter,
+                    (dest, false, CHASE_PATH_MAX_STEPS as i32)
+                } else {
+                    (from, false, CHASE_PATH_MAX_STEPS as i32)
+                };
+                let arm = todo_via.filter(|v| *v != "roam");
+                if is_dance || k.base().follow_target.is_some() {
+                    chase_debug::log_todo_go_aligned(
+                        self.chase_trace_tick(),
                         cid,
                         k.base().name.as_str(),
-                        via,
                         from,
                         dest,
-                        false,
-                        CHASE_PATH_MAX_STEPS as i32,
+                        must_reach,
+                        max_steps,
+                        arm,
                     );
                 } else if todo_via == Some("roam") {
                     chase_debug::log_todo_go(
-                        self.tick_counter,
+                        self.chase_trace_tick(),
                         cid,
                         k.base().name.as_str(),
-                        "roam",
+                        "enter",
                         from,
                         from,
                         false,
                         1,
+                        Some("roam"),
                     );
                 }
             }
@@ -265,6 +280,25 @@ impl GameWorld {
     /// Arm the next todo step on the heap without synchronous re-entry (avoids stack overflow).
     pub(crate) fn schedule_immediate_todo_wakeup(&mut self, cid: CreatureId) {
         self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
+    }
+
+    /// C++ `TCreature::ToDoYield` — `cract.cc:1001` (`ToDoWait(0)` + `ToDoStart` when not `LockToDo`).
+    pub(crate) fn creature_todo_yield(&mut self, cid: CreatureId) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let locked = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().todo.locked);
+        if locked {
+            return;
+        }
+        if !self.enqueue_creature_wait(cid, 0) {
+            return;
+        }
+        trace_creature_todo(self, cid, "todo_yield");
+        self.schedule_immediate_todo_wakeup(cid);
     }
 
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {

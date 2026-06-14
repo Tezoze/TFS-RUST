@@ -13,12 +13,14 @@ pub use crate::monster_targets::TargetSearchType;
 
 use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 use tfs_rust_common::Position;
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use slotmap::Key;
 
 use crate::chase_debug;
 use crate::combat::{self, armor_reduction, melee_damage_after_defense_and_armor, weapon_damage, CombatDamage, CombatParams, FightMode};
 use crate::creature::{
-    melee_defense_snapshot, melee_poison_on_hit, roll_target_defense,
+    creature_immune_poison, melee_defense_snapshot, melee_poison_on_hit, roll_target_defense,
 };
 use crate::creature::{CreatureKind, MonsterAiPhase, MonsterChaseMode, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
@@ -90,6 +92,9 @@ pub(crate) enum MonsterIdleChaseRepathOutcome {
 pub(crate) enum MonsterCombatCloseChaseEnqueue {
     Queued,
     Skipped,
+    /// Transient path failure — yield and retry next beat; target retained (`cract.cc:845-852`).
+    Retry,
+    /// Idle walk-branch path failure — target cleared (`crnonpl.cc:2813`).
     Noway,
 }
 
@@ -98,6 +103,9 @@ pub(crate) enum MonsterCombatCloseChaseEnqueue {
 pub(crate) enum MonsterEnqueueAttackResult {
     Enqueued,
     Failed,
+    /// Close-chase path blocked — yield and retry; target retained.
+    Retry,
+    /// Idle walk-branch NOWAY — target cleared, roam fallback.
     Noway,
 }
 
@@ -397,9 +405,6 @@ impl GameWorld {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
-            if m.is_fleeing() {
-                return;
-            }
             let Some(target_id) = m.base.attack_target else {
                 return;
             };
@@ -425,25 +430,23 @@ impl GameWorld {
 
         let target_pos = self.creatures.get(target_id).unwrap().position();
         let cheb = chebyshev(monster_pos, target_pos);
-        if cheb > 1 {
-            return;
-        }
-        if !self.map.is_sight_clear(monster_pos, target_pos) {
-            return;
-        }
-        if self.monster_tile_in_protection_zone(monster_pos)
-            || self.monster_tile_in_protection_zone(target_pos)
-        {
+        let in_pz = self.monster_tile_in_protection_zone(monster_pos)
+            || self.monster_tile_in_protection_zone(target_pos);
+        if cheb > 1 || in_pz {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().delay_attack_ms(server_ms, 200);
+            }
             return;
         }
 
         let defense_snap = melee_defense_snapshot(self.creatures.get(target_id).unwrap());
+        let target_immune_poison = creature_immune_poison(self.creatures.get(target_id).unwrap());
 
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 200);
         }
 
-        let mut rng = rand::thread_rng();
+        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
         let attack_roll = weapon_damage(
             &profile,
             hooks,
@@ -456,6 +459,7 @@ impl GameWorld {
 
         let defense_roll = {
             let Some(kind) = self.creatures.get_mut(target_id) else {
+                self.ai_rng = rng;
                 return;
             };
             roll_target_defense(
@@ -476,8 +480,7 @@ impl GameWorld {
             primary: (CombatType::Physical, -dmg),
             secondary: (CombatType::Physical, 0),
         };
-        let _ = combat::execute(
-            &mut self.creatures,
+        let _ = self.combat_execute_with_stimulus(
             Some(cid),
             target_id,
             &damage,
@@ -491,28 +494,49 @@ impl GameWorld {
         let damage_done = (hp_before - hp_after).max(0);
         self.notify_player_combat_damage(Some(cid), target_id, damage_done);
 
-        if let Some(cond) =
-            melee_poison_on_hit(&mut rng, poison_cycles, attack_roll, defense_roll, damage_done)
-        {
-            let params = CombatParams {
-                primary_type: CombatType::Physical,
-                dispel: None,
-                apply_condition: Some(cond),
-            };
-            let _ = combat::execute(
-                &mut self.creatures,
-                Some(cid),
-                target_id,
-                &CombatDamage {
-                    primary: (CombatType::Physical, 0),
-                    secondary: (CombatType::Physical, 0),
-                },
-                &params,
-            );
+        if !target_immune_poison {
+            if let Some(cond) =
+                melee_poison_on_hit(&mut rng, poison_cycles, attack_roll, defense_roll, damage_done)
+            {
+                let params = CombatParams {
+                    primary_type: CombatType::Physical,
+                    dispel: None,
+                    apply_condition: Some(cond),
+                };
+                let _ = self.combat_execute_with_stimulus(
+                    Some(cid),
+                    target_id,
+                    &CombatDamage {
+                        primary: (CombatType::Physical, 0),
+                        secondary: (CombatType::Physical, 0),
+                    },
+                    &params,
+                );
+            }
         }
+        self.ai_rng = rng;
 
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 2000);
+        }
+
+        if chase_debug::chase_path_debug_enabled() {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                let earliest = m.base.earliest_attack_ms;
+                chase_debug::log_melee_hit(
+                    self.chase_trace_tick(),
+                    cid,
+                    m.base.name.as_str(),
+                    target_id.data().as_ffi(),
+                    attack_roll,
+                    defense_roll,
+                    armor_roll,
+                    dmg,
+                    hp_before,
+                    hp_after,
+                    earliest,
+                );
+            }
         }
     }
 
@@ -579,6 +603,9 @@ impl GameWorld {
             if self.beat_driven_loop {
                 // 772 `ProcessCreatures` ~1 Hz — not per idle drain (P0-2 / X2).
                 self.monster_on_think_target(cid, interval_ms);
+                if self.monster_combat_scheduler_needs_refresh(cid) {
+                    self.monster_combat_reschedule_if_stalled(cid);
+                }
             } else {
                 self.monster_arm_event_walk(cid);
 
@@ -726,23 +753,52 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-        let mut rng = rand::thread_rng();
-        let Some(dir) = get_random_step(can_walk, &mut rng) else {
-            return false;
-        };
-        if let Some(k) = self.creatures.get_mut(cid) {
-            let base = k.base_mut();
-            base.walk_queue.clear();
-            base.walk_queue.push_back(dir);
-            base.has_follow_path = false;
-            base.force_update_follow_path = false;
+        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
+        const ROAM_DIRS: [Direction; 4] = [
+            Direction::West,
+            Direction::East,
+            Direction::North,
+            Direction::South,
+        ];
+        for _ in 0..10 {
+            let dir = ROAM_DIRS[rng.gen_range(0..4)];
+            if !self.monster_can_walk_to(cid, pos, dir) {
+                continue;
+            }
+            let dest = pos.offset(dir);
+            if let Some(k) = self.creatures.get_mut(cid) {
+                let base = k.base_mut();
+                base.walk_queue.clear();
+                base.walk_queue.push_back(dir);
+                base.has_follow_path = false;
+                base.force_update_follow_path = false;
+            }
+            if chase_debug::chase_path_debug_enabled() {
+                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                    chase_debug::log_branch(
+                        self.chase_trace_tick(),
+                        cid,
+                        m.base.name.as_str(),
+                        "roam",
+                        pos,
+                        dest,
+                        true,
+                        i32::MAX,
+                        None,
+                    );
+                }
+            }
+            self.ai_rng = rng;
+            return true;
         }
-        true
+        self.ai_rng = rng;
+        false
     }
 
     /// 772 idle flee / dist-flee — `SearchFlightField` (`crnonpl.cc:2680`, `2762`).
     ///
+    /// `SearchFlightField` returns one adjacent tile (`info.cc:1030`); decompile follows with
+    /// `ToDoGo(must:true, INT_MAX)` which is a single `TDGo` for that distance.
     /// Returns true when a single step was queued (no `TShortway`).
     pub(crate) fn monster_idle_flee_step(&mut self, cid: CreatureId) -> bool {
         let (pos, follow_id) = match self.creatures.get(cid) {
@@ -758,11 +814,17 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-        let mut rng = rand::thread_rng();
-        let Some(dir) = search_flight_field(pos, target_pos, can_walk, &mut rng) else {
+        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
+        let Some(dir) = search_flight_field(
+            pos,
+            target_pos,
+            |dir| self.monster_can_walk_to(cid, pos, dir),
+            &mut rng,
+        ) else {
+            self.ai_rng = rng;
             return false;
         };
+        self.ai_rng = rng;
         let dest = pos.offset(dir);
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
@@ -775,7 +837,7 @@ impl GameWorld {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 let branch = if m.is_fleeing() { "flee" } else { "dist_flee" };
                 chase_debug::log_branch(
-                    self.tick_counter,
+                    self.chase_trace_tick(),
                     cid,
                     m.base.name.as_str(),
                     branch,
@@ -893,6 +955,12 @@ impl GameWorld {
         let Some(attack_id) = attack_id else {
             return MonsterCombatCloseChaseEnqueue::Skipped;
         };
+        debug_assert!(
+            self.creatures.get(cid).is_none_or(|k| {
+                k.base().follow_target == Some(attack_id)
+            }),
+            "close-chase repath requires follow_target == attack_target"
+        );
         if !self
             .creatures
             .get(attack_id)
@@ -902,7 +970,8 @@ impl GameWorld {
         }
         let target_pos = self.creatures.get(attack_id).unwrap().position();
         let cheb = chebyshev(pos, target_pos);
-        if cheb <= 1 || !self.map.is_sight_clear(pos, target_pos) {
+        // C++ `CanToDoAttack` close `ToDoGo` at cheb>1 — LOS gates strike only (`crcombat.cc:496`).
+        if cheb <= 1 {
             return MonsterCombatCloseChaseEnqueue::Skipped;
         }
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -916,8 +985,7 @@ impl GameWorld {
             must_reach,
         );
         if outcome == MonsterIdleChaseRepathOutcome::Noway {
-            self.monster_on_chase_noway_772(cid);
-            return MonsterCombatCloseChaseEnqueue::Noway;
+            return MonsterCombatCloseChaseEnqueue::Retry;
         }
         if outcome != MonsterIdleChaseRepathOutcome::PathQueued {
             return MonsterCombatCloseChaseEnqueue::Skipped;
@@ -930,15 +998,15 @@ impl GameWorld {
         }
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                chase_debug::log_todo_go(
-                    self.tick_counter,
+                chase_debug::log_todo_go_aligned(
+                    self.chase_trace_tick(),
                     cid,
                     m.base.name.as_str(),
-                    "attack_close_chase",
                     pos,
                     target_pos,
                     false,
                     CHASE_PATH_MAX_STEPS as i32,
+                    Some("attack_close_chase"),
                 );
             }
         }
@@ -961,14 +1029,18 @@ impl GameWorld {
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return false;
         };
-        if m.is_idle || m.is_fleeing() || m.base.follow_target.is_none() {
+        if m.is_idle || m.is_fleeing() {
             return false;
         }
         let base = &m.base;
-        if !base.todo.is_empty() || !base.walk_queue.is_empty() || base.next_wakeup.is_some() {
+        let chase_target = base.follow_target.or(base.attack_target);
+        if chase_target.is_none() {
             return false;
         }
-        let Some(follow_id) = base.follow_target else {
+        if !base.todo.is_empty() || base.next_wakeup.is_some() {
+            return false;
+        }
+        let Some(follow_id) = chase_target else {
             return false;
         };
         let Some(target_pos) = self.creatures.get(follow_id).map(|k| k.position()) else {
@@ -986,6 +1058,94 @@ impl GameWorld {
             return false;
         }
         chebyshev(base.position, target_pos) > 1
+    }
+
+    /// Combat monster lost its self-refresh cadence — dead todo queue or parked on target.
+    pub(crate) fn monster_combat_scheduler_needs_refresh(&self, cid: CreatureId) -> bool {
+        if !self.beat_driven_loop {
+            return false;
+        }
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if m.is_idle || m.is_fleeing() {
+            return false;
+        }
+        let base = &m.base;
+        if base.next_wakeup.is_some() {
+            return false;
+        }
+        if !base.todo.is_empty() {
+            return true;
+        }
+        let has_combat_target = base.follow_target.is_some() || base.attack_target.is_some();
+        if !has_combat_target {
+            return false;
+        }
+        let Some(target_id) = base.follow_target.or(base.attack_target) else {
+            return false;
+        };
+        let Some(target_pos) = self.creatures.get(target_id).map(|k| k.position()) else {
+            return false;
+        };
+        let target_distance = self.monster_effective_target_distance(m.target_distance);
+        if !self.monster_at_follow_goal(
+            cid,
+            target_id,
+            base.position,
+            target_pos,
+            false,
+            target_distance,
+        ) {
+            return true;
+        }
+        // At melee band with live target — reference idle tail keeps re-arming attack/dance.
+        target_distance <= 1 && m.melee_skill > 0 && has_combat_target
+    }
+
+    /// Re-arm todo drain or idle when [`Self::monster_combat_scheduler_needs_refresh`] is set.
+    pub(crate) fn monster_combat_reschedule_if_stalled(&mut self, cid: CreatureId) {
+        if !self.monster_combat_scheduler_needs_refresh(cid) {
+            return;
+        }
+        if !self.creature_todo_queue_empty(cid) {
+            self.schedule_immediate_todo_wakeup(cid);
+            return;
+        }
+        // Stalled mid-batch: walk_queue has steps but no armed Go (`cract.cc:728`).
+        if self.creatures.get(cid).is_some_and(|k| {
+            let base = k.base();
+            !base.walk_queue.is_empty() && !base.todo.has_go()
+        }) {
+            let _ = self.enqueue_creature_go_at(cid, true);
+            if self.todo_start_go_delay(cid, false) {
+                self.schedule_immediate_todo_wakeup(cid);
+            }
+            return;
+        }
+        self.request_idle_stimulus(cid);
+    }
+
+    /// Per-beat safety net — rescue chase monsters stranded without a heap wakeup.
+    pub(crate) fn rescue_stalled_chase_monsters_772(&mut self) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let ids: Vec<CreatureId> = self
+            .creatures
+            .iter()
+            .filter(|(_, k)| {
+                matches!(k, CreatureKind::Monster(m) if !m.is_idle && !m.is_fleeing())
+            })
+            .map(|(id, _)| id)
+            .collect();
+        for cid in ids {
+            if self.monster_chase_stalled_without_wakeup(cid)
+                || self.monster_combat_scheduler_needs_refresh(cid)
+            {
+                self.monster_combat_reschedule_if_stalled(cid);
+            }
+        }
     }
 
     /// 772 idle melee/dist dance — `crnonpl.cc:2736`, `2772` (rand(0,4) cardinal sidestep).
@@ -1019,21 +1179,12 @@ impl GameWorld {
         if chebyshev(pos, target_pos) != band {
             return false;
         }
-        let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-        let mut rng = rand::thread_rng();
-        let choice = rng.gen_range(0..5);
-        let dirs = [
-            Some(Direction::West),
-            Some(Direction::East),
-            Some(Direction::North),
-            Some(Direction::South),
-            None,
-        ];
-        let Some(dir) = dirs[choice] else {
+        let choice = self.sim_dance_choice();
+        let Some(dir) = crate::sim_glibc_rand::DANCE_DIR_ORDER[choice as usize] else {
             return false;
         };
         let dest = pos.offset(dir);
-        if chebyshev(dest, target_pos) != band || !can_walk(dir) {
+        if chebyshev(dest, target_pos) != band || !self.monster_can_walk_to(cid, pos, dir) {
             return false;
         }
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -1051,7 +1202,7 @@ impl GameWorld {
                     "melee_dance"
                 };
                 chase_debug::log_branch(
-                    self.tick_counter,
+                    self.chase_trace_tick(),
                     cid,
                     m.base.name.as_str(),
                     branch,
@@ -1093,7 +1244,7 @@ impl GameWorld {
             if chase_debug::chase_path_debug_enabled() {
                 if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                     chase_debug::log_branch(
-                        self.tick_counter,
+                        self.chase_trace_tick(),
                         cid,
                         m.base.name.as_str(),
                         "master_follow_wait",
@@ -1110,7 +1261,7 @@ impl GameWorld {
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 chase_debug::log_branch(
-                    self.tick_counter,
+                    self.chase_trace_tick(),
                     cid,
                     m.base.name.as_str(),
                     "master_follow",
@@ -1376,7 +1527,7 @@ impl GameWorld {
                         },
                     );
                     chase_debug::log_shortway(
-                        self.tick_counter,
+                        self.chase_trace_tick(),
                         cid,
                         name.as_str(),
                         pos,
@@ -1411,7 +1562,7 @@ impl GameWorld {
             if let Some(k) = self.creatures.get(cid) {
                 let name = k.base().name.clone();
                 chase_debug::log_shortway(
-                    self.tick_counter,
+                    self.chase_trace_tick(),
                     cid,
                     name.as_str(),
                     pos,
@@ -1485,9 +1636,9 @@ impl GameWorld {
         fleeing: bool,
     ) -> bool {
         let sight = self.map.is_sight_clear(pos, target_pos);
-        let mut rng = rand::thread_rng();
+        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
         let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-        match get_distance_step(pos, target_pos, 1, fleeing, sight, can_walk, &mut rng) {
+        let stepped = match get_distance_step(pos, target_pos, 1, fleeing, sight, can_walk, &mut rng) {
             DistanceStepOutcome::Step(dir) => {
                 self.monster_start_follow_step(cid, dir);
                 if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
@@ -1496,7 +1647,9 @@ impl GameWorld {
                 true
             }
             _ => false,
-        }
+        };
+        self.ai_rng = rng;
+        stepped
     }
 
     fn monster_start_chase_walk(&mut self, cid: CreatureId, first_step: bool) {

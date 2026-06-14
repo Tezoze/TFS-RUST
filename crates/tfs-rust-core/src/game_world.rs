@@ -12,6 +12,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use tokio::sync::mpsc::UnboundedSender;
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
@@ -126,6 +128,10 @@ pub struct GameWorld {
     /// Nesting depth for [`crate::monster_events::GameWorld::monster_notify_creature_enter_viewport`]
     /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
     pub(crate) monster_viewport_notify_depth: u32,
+    /// AI/combat RNG — re-seeded from `TFS_SIM_SEED` in harness runs (`crnonpl.cc` dance/attack rolls).
+    pub(crate) ai_rng: StdRng,
+    /// Headless sim only — cap `move_creatures` / `run_sim_tick` time advance (`chase_kite_scenario.cc`).
+    pub(crate) sim_harness_wall_ms: Option<u64>,
 }
 
 impl GameWorld {
@@ -199,8 +205,47 @@ impl GameWorld {
             subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772::default(),
             monster_world_config,
             monster_viewport_notify_depth: 0,
+            ai_rng: StdRng::from_entropy(),
+            sim_harness_wall_ms: None,
         }
     }
+
+    /// Millisecond clock for chase JSONL — matches C++ `ServerMilliseconds` in `chase_path_debug.cc`.
+    #[inline]
+    pub(crate) fn chase_trace_tick(&self) -> u64 {
+        self.server_ms
+    }
+
+    /// Re-seed [`Self::ai_rng`] when `TFS_SIM_SEED` is set (headless parity harness).
+    pub fn init_sim_rng_from_env(&mut self) {
+        if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
+            if let Ok(seed) = seed_str.parse::<u64>() {
+                self.ai_rng = StdRng::seed_from_u64(seed);
+                // C++ `srand(TFS_SIM_SEED)` — dance rolls use glibc `rand()` for parity.
+                unsafe { libc::srand(seed as u32) };
+                crate::sim_glibc_rand::enable_sim_glibc_rng();
+            }
+        }
+    }
+
+    /// Dance / harness rolls — glibc `rand()` when `TFS_SIM_SEED` is set, else [`Self::ai_rng`].
+    pub(crate) fn sim_dance_choice(&mut self) -> u32 {
+        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+            crate::sim_glibc_rand::sim_rand_mod(5)
+        } else {
+            use rand::Rng;
+            self.ai_rng.gen_range(0..5)
+        }
+    }
+
+    /// Scoped access to [`Self::ai_rng`] without conflicting with other `&mut self` borrows.
+    pub(crate) fn with_ai_rng<R>(&mut self, f: impl FnOnce(&mut StdRng, &mut Self) -> R) -> R {
+        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
+        let out = f(&mut rng, self);
+        self.ai_rng = rng;
+        out
+    }
+
     pub(crate) fn tile_ground_speed(&self, body: &crate::tile::TileBody) -> u32 {
         match body.ground {
             Some(gid) => self.items_db.ground_speed_for_item(gid),

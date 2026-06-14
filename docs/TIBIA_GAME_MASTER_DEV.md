@@ -245,6 +245,78 @@ Rebuild CipSoft after pulling chase debug: `scripts/tibia_game_dev.sh setup`.
 
 Gap analysis from live log compare: [`TFS-RUST_772_Chase_Path_Parity_Gaps.md`](TFS-RUST_772_Chase_Path_Parity_Gaps.md).
 
+### Headless kite scenario harness (Rust + C++)
+
+Shared line-based scripts under `scripts/scenarios/*.scenario` drive identical player-kite steps in both stacks. With `TFS_CHASE_PATH_DEBUG=1` / `TIBIA_CHASE_PATH_DEBUG=1`, each stack emits a **full monster AI trace** as JSONL:
+
+| Event | Meaning (772 idle stimulus path) |
+|-------|----------------------------------|
+| `branch` | IdleStimulus arm: `melee_chase`, `melee_dance`, `dist_chase`, `dist_flee`, `dist_dance`, `flee`, `master_follow`, `roam` |
+| `todo_go` | `ToDoGo` enqueue: `enter`, `single`, `noway` |
+| `shortway` | `TShortway` path result (steps, ok, visible, min_wp) |
+| `go_exec` | Actual tile step executed (`diag`=1 for diagonal) |
+| `parked` | Rust-only: monster bound to target but scheduler dead-end |
+
+```bash
+# Full parity (build C++ first: scripts/tibia_game_dev.sh build)
+python3 scripts/run_kite_scenario.py scripts/scenarios/kite_rat_melee.scenario
+
+# Rust only (fast iteration) — loads OTBM from data/
+TFS_CHASE_PATH_DEBUG=1 cargo run -p tfs-rust-core --bin chase_kite_sim -- \
+  scripts/scenarios/kite_rat_melee.scenario --log log/chase_path_rust.log
+
+# Synthetic flat arena (Rust only; C++ needs .sec tiles at scenario coords)
+python3 scripts/run_kite_scenario.py scripts/scenarios/kite_rat_melee.scenario --skip-cpp --synthetic
+```
+
+C++ executor (after `InitAll`, no network loop):
+
+```bash
+cd reference/cipsoft-772/runtime
+TIBIA_CHASE_PATH_DEBUG=1 build/game chase-scenario /path/to/kite_rat_melee.scenario
+```
+
+**Scenario verbs:** `advance_ms`, `monster_appear`, `player_pos`, `sim_tick` (see `scripts/scenarios/kite_rat_melee.scenario`).
+
+**Map sources (same Tibia coords, different loaders):**
+
+| Stack | Terrain | Default path |
+|-------|---------|--------------|
+| Rust | OTBM + `objects.srv` waypoint overlay | `data/world/forgotten.otbm` |
+| C++ | `.sec` sector files | `reference/cipsoft-772/runtime/map/*.sec` |
+
+Scenario `arena` / `player_start` / `monster` coords must be walkable on **both** maps (e.g. `32360,32290` Thais lab). Rust validates OTBM walkability at startup; C++ validates `.sec` containers.
+
+**Logs:** Rust → `log/chase_path_rust.log` (`TFS_CHASE_PATH_LOG`); C++ → `{runtime}/log/chase_ai.jsonl` (`TIBIA_CHASE_PATH_LOG`; orchestrator copies to `log/chase_path_cip.log`). C++ no longer writes JSON into `chase_path.log` (that file is the Tibia text log header).
+
+**Compare full AI trace:**
+
+```bash
+python3 scripts/compare_chase_live_logs.py \
+  --ref log/chase_path_cip.log \
+  --rust log/chase_path_rust.log \
+  --monster rat
+```
+
+Compares `branch`, `todo_go`, `shortway`, and `go_exec` sequences pairwise. Use `--json` for machine-readable gap report.
+
+**Gap scorecard:** [`TFS-RUST_772_Sim_Coverage_Matrix.md`](TFS-RUST_772_Sim_Coverage_Matrix.md) — movement + combat E0–E3 event map.
+
+```bash
+python3 scripts/summarize_chase_gaps.py \
+  --ref log/chase_path_cip.log \
+  --rust log/chase_path_rust.log \
+  --monster rat
+```
+
+Combat-focused scenario (adjacent rat, no kite):
+
+```bash
+python3 scripts/run_kite_scenario.py scripts/scenarios/kite_rat_stand_melee.scenario
+```
+
+**Prerequisites for C++ executor:** query manager running (`scripts/tibia_game_dev.sh run-qm`), runtime data at `reference/cipsoft-772/runtime/`, cwd = runtime when invoking `build/game chase-scenario`.
+
 ## Pathfinding-only debugging (no full server)
 
 For **TShortway chase path parity**, the Python harness reimplements CipSoft logic and compares against Rust:

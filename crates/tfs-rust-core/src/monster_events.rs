@@ -11,6 +11,7 @@ use slotmap::Key;
 use crate::creature::{CreatureKind, MonsterChaseMode};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
+use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
 use crate::monster_ai::{chebyshev, MonsterEnqueueAttackResult, MAP_MAX_VIEWPORT};
 
 impl GameWorld {
@@ -100,9 +101,14 @@ impl GameWorld {
         }
 
         if creature_id == monster_id {
+            self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
             self.monster_update_target_list(monster_id);
             self.monster_update_idle_status(monster_id);
             return;
+        }
+
+        if self.beat_driven_loop {
+            self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
         }
 
         let monster_pos = match self.creatures.get(monster_id) {
@@ -188,7 +194,11 @@ impl GameWorld {
         if !self.creatures.get(monster_id).is_some_and(|k| k.base().follow_target.is_some()) {
             return;
         }
-        if !has_path && !self.mechanics.profile.follow_repath_without_path {
+        // 772 idle drain owns repath even without an in-flight path (P0-1 / freeze fix).
+        if !has_path
+            && !self.mechanics.profile.follow_repath_without_path
+            && !self.beat_driven_loop
+        {
             return;
         }
         if self
@@ -285,11 +295,14 @@ impl GameWorld {
             MonsterEnqueueAttackResult::Enqueued => {
                 self.schedule_immediate_todo_wakeup(monster_id);
             }
+            MonsterEnqueueAttackResult::Retry => {
+                self.idle_enqueue_wait_and_start(monster_id, MONSTER_IDLE_WAIT_MS);
+            }
             MonsterEnqueueAttackResult::Noway => {
                 self.idle_stimulus(monster_id);
             }
             MonsterEnqueueAttackResult::Failed => {
-                self.idle_enqueue_wait_and_start(monster_id, 200);
+                self.monster_combat_handle_close_chase_blocked(monster_id);
             }
         }
     }

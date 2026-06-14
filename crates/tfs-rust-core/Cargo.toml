@@ -16,6 +16,7 @@ slotmap = { workspace = true }
 dashmap = { workspace = true }
 mlua = { workspace = true }
 rand = "0.8"
+libc = "0.2"
 bitflags = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rustc-hash = "1"
@@ -27,3 +28,7 @@ proptest = "1.4"
 [[bin]]
 name = "path_compare"
 path = "src/bin/path_compare.rs"
+
+[[bin]]
+name = "chase_kite_sim"
+path = "src/bin/chase_kite_sim.rs"

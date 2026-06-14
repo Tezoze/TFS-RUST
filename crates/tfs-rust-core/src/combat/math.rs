@@ -122,8 +122,12 @@ pub fn probe_value<R: Rng + ?Sized>(
     attack: i32,
     tuning: DamageProbeTuning,
 ) -> i32 {
-    let max_roll = tuning.random_max.max(1) + 1;
-    let random_factor = (rng.gen_range(0..max_roll) + rng.gen_range(0..max_roll)) / 2;
+    let random_factor = if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+        crate::sim_glibc_rand::sim_probe_random_factor()
+    } else {
+        let max_roll = tuning.random_max.max(1) + 1;
+        (rng.gen_range(0..max_roll) + rng.gen_range(0..max_roll)) / 2
+    };
     let max_value = attack.max(0)
         * (skill
             .max(0)
@@ -191,7 +195,11 @@ pub fn armor_reduction<R: Rng + ?Sized>(
             let div = profile.armor_random.divisor.max(1);
             if armor >= min_armor {
                 let half = (armor / div).max(1);
-                half + rng.gen_range(0..half)
+                if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                    half + crate::sim_glibc_rand::sim_rand_mod(half as u32) as i32
+                } else {
+                    half + rng.gen_range(0..half)
+                }
             } else {
                 armor.max(0)
             }

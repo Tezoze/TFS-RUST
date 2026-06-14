@@ -1,0 +1,7 @@
+# Kite lab shortway probes — Thais outskirts coords from kite_rat_melee.scenario
+name kite_lab_rat_to_player_e
+start 32361 32290
+target 32363 32290
+visible 10
+max_steps 3
+default_wp 150

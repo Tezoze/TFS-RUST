@@ -59,8 +59,7 @@ impl GameWorld {
         self.tick_counter = self.tick_counter.saturating_add(delay_ms / 50);
 
         self.server_ms = self.server_ms.saturating_add(delay_ms);
-        if delay_ms < 1000 {
-            self.drain_todo_queue();
-        }
+        // C++ `MoveCreatures` always drains — no lag-catchup skip (`crmain.cc:1106`).
+        self.drain_todo_queue();
     }
 }

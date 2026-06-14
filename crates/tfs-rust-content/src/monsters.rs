@@ -39,6 +39,8 @@ pub struct MonsterDefenses {
     pub armor: Option<i32>,
     pub defense: Option<i32>,
     pub spells: Vec<MonsterSpellNode>,
+    /// `<immunity poison="1"/>` — `crmain.cc:548` `RaceData[Race].NoPoison`.
+    pub immunity_poison: bool,
 }
 
 /// Monster `<look>` block — C++ `MonsterType` look fields (`monsters.cpp` `loadMonster`).
@@ -454,6 +456,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         armor: None,
         defense: None,
         spells: Vec::new(),
+        immunity_poison: false,
     };
 
     for child in monster.children().filter(|n| n.is_element()) {
@@ -480,6 +483,17 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
             defenses.defense = child.attribute("defense").and_then(|a| a.parse().ok());
             for d in child.children().filter(|n| n.is_element()) {
                 defenses.spells.push(parse_spell_node(d));
+            }
+        } else if tag.eq_ignore_ascii_case("immunities") {
+            for imm in child.children().filter(|n| n.is_element()) {
+                if imm.tag_name().name().eq_ignore_ascii_case("immunity") {
+                    if imm.attribute("poison")
+                        .or_else(|| imm.attribute("earth"))
+                        .is_some_and(|v| parse_bool_flag(v))
+                    {
+                        defenses.immunity_poison = true;
+                    }
+                }
             }
         } else if tag.eq_ignore_ascii_case("targetchange") {
             parse_target_change(child, &mut flags, file_str);

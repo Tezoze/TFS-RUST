@@ -372,19 +372,8 @@ const TSHORTWAY_UNVISITED: u32 = u32::MAX;
 
 /// Prefer cardinal when two relaxations reach the same `waylength` (`cract.cc` strict `<` keeps
 /// first-seen; linked-list expand order can still tie — cardinals match live 772 chase traces).
-fn tshortway_should_relax(
-    prev_waylength: u32,
-    new_waylength: u32,
-    prev_parent_diagonal: bool,
-    new_edge_diagonal: bool,
-) -> bool {
-    if new_waylength < prev_waylength {
-        return true;
-    }
-    if new_waylength > prev_waylength {
-        return false;
-    }
-    !new_edge_diagonal && prev_parent_diagonal
+fn tshortway_should_relax(prev_waylength: u32, new_waylength: u32) -> bool {
+    new_waylength < prev_waylength
 }
 
 /// 772 `TShortway` search state — linked-list open set (`cract.cc`, `compare_chase_pathfinding.py`).
@@ -500,16 +489,16 @@ impl TShortwaySearch {
                 continue;
             }
 
-            let (neighbor_wp, prev_wl, prev_parent_diag, prev_heuristic) = self
+            let (neighbor_wp, prev_wl, prev_heuristic) = self
                 .cells
                 .get(&neighbor_pos)
-                .map(|c| (c.waypoints, c.waylength, c.parent_diagonal, c.heuristic))
-                .unwrap_or((-1, TSHORTWAY_UNVISITED, false, TSHORTWAY_UNVISITED));
+                .map(|c| (c.waypoints, c.waylength, c.heuristic))
+                .unwrap_or((-1, TSHORTWAY_UNVISITED, TSHORTWAY_UNVISITED));
 
             if neighbor_wp <= 0 {
                 continue;
             }
-            if !tshortway_should_relax(prev_wl, neighbor_wl, prev_parent_diag, is_diagonal) {
+            if !tshortway_should_relax(prev_wl, neighbor_wl) {
                 continue;
             }
 
@@ -1132,12 +1121,10 @@ mod tests {
     use crate::test_world::support::ensure_walkable_tile;
 
     #[test]
-    fn tshortway_should_relax_prefers_cardinal_on_equal_cost() {
-        assert!(tshortway_should_relax(100, 90, false, false));
-        assert!(!tshortway_should_relax(90, 100, false, false));
-        assert!(tshortway_should_relax(100, 100, true, false));
-        assert!(!tshortway_should_relax(100, 100, false, true));
-        assert!(!tshortway_should_relax(100, 100, true, true));
+    fn tshortway_should_relax_matches_cpp_strict_less() {
+        assert!(tshortway_should_relax(100, 90));
+        assert!(!tshortway_should_relax(90, 100));
+        assert!(!tshortway_should_relax(100, 100));
     }
 
     #[test]

@@ -13,6 +13,8 @@ use crate::ids::CreatureId;
 pub struct ToDoEntry {
     pub execution_time: u64,
     pub creature_id: CreatureId,
+    /// Insertion order — decompile heap tie-break is FIFO among equal keys (`cr.hh` `ToDoQueue`).
+    pub sequence: u64,
 }
 
 impl PartialOrd for ToDoEntry {
@@ -25,7 +27,7 @@ impl Ord for ToDoEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         self.execution_time
             .cmp(&other.execution_time)
-            .then_with(|| self.creature_id.cmp(&other.creature_id))
+            .then_with(|| self.sequence.cmp(&other.sequence))
     }
 }
 
@@ -33,13 +35,17 @@ impl Ord for ToDoEntry {
 #[derive(Debug, Default)]
 pub struct ToDoQueue {
     heap: BinaryHeap<std::cmp::Reverse<ToDoEntry>>,
+    next_sequence: u64,
 }
 
 impl ToDoQueue {
     pub fn insert(&mut self, execution_time: u64, creature_id: CreatureId) {
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.wrapping_add(1);
         self.heap.push(std::cmp::Reverse(ToDoEntry {
             execution_time,
             creature_id,
+            sequence,
         }));
     }
 
@@ -88,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn tie_breaks_on_creature_id() {
+    fn tie_breaks_on_insertion_order() {
         let a = cid(1);
         let b = cid(2);
         let mut q = ToDoQueue::default();
@@ -98,6 +104,7 @@ mod tests {
         let second = q.pop().unwrap();
         assert_eq!(first.execution_time, 200);
         assert_eq!(second.execution_time, 200);
-        assert!(first.creature_id < second.creature_id);
+        assert_eq!(first.creature_id, b);
+        assert_eq!(second.creature_id, a);
     }
 }

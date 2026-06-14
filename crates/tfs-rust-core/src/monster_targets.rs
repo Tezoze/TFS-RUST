@@ -321,14 +321,16 @@ impl GameWorld {
                 return;
             }
             let was_idle = m.is_idle;
-            m.is_idle = idle;
-            // Temporary bridge until Phase D gates on `state == Sleeping` instead of `is_idle`.
             if self.beat_driven_loop {
                 if idle {
                     m.state = MonsterState::Sleeping;
-                } else if was_idle && m.state == MonsterState::Sleeping {
+                    m.is_idle = true;
+                } else if was_idle || m.state == MonsterState::Sleeping {
                     m.state = MonsterState::Idle;
+                    m.is_idle = false;
                 }
+            } else {
+                m.is_idle = idle;
             }
             if idle {
                 m.base.damage_map.clear();

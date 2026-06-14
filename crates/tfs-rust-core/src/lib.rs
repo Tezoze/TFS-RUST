@@ -2,6 +2,8 @@
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
 mod chase_debug;
+pub mod sim_harness;
+mod sim_glibc_rand;
 pub mod combat;
 pub mod condition;
 pub mod config;
