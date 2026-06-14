@@ -218,8 +218,9 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
             defend_mode,
         },
         CreatureKind::Player(p) => MeleeDefenseSnapshot {
-            defense_skill: p.skills.shielding,
-            defense_value: 0,
+            // C++ `GetDefendValue` without shield — `WEAPON_NONE` → `SKILL_FIST` (`crcombat.cc:191-217`).
+            defense_skill: p.skills.fist,
+            defense_value: p.sim_melee_defense,
             armor: 0,
             defend_mode,
         },

@@ -179,6 +179,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         inbox_root: None,
         last_depot_id: -1,
         persist: Some(persist),
+        sim_melee_defense: 0,
     }
 }
 

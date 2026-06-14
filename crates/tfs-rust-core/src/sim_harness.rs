@@ -1,6 +1,10 @@
 //! Headless simulation harness — shared world builders for unit tests and `chase_kite_sim`.
 //!
-//! C++ reference: `tibia-game-master` test patterns; `GameWorld` tick — `game.cpp`, `crmain.cc`.
+//! C++ reference: `chase_kite_scenario.cc` `SpawnMonsterAppear`, `MoveCreatures`, `DrainTodoQueue`;
+//! `tibia-game-master` test patterns; `GameWorld` tick — `game.cpp`, `crmain.cc`.
+
+/// First productive `IdleStimulus` after harness appear — C++ defers until first `advance_ms 2000` drain.
+pub const HARNESS_APPEAR_IDLE_DEFER_MS: u64 = 2000;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -64,12 +68,13 @@ pub fn test_player(name: &str, pos: Position) -> Player {
     test_player_base(name, pos)
 }
 
-/// 772 human hero for chase parity sim — matches C++ `TKiteSimPlayer` + human race HP.
-/// C++ reference: `chase_kite_scenario.cc` `TKiteSimPlayer`; human `.mon` race data.
+/// 772 human hero for chase parity sim — matches C++ `TKiteSimPlayer` + `human.mon` race data.
+/// C++ reference: `chase_kite_scenario.cc` `TKiteSimPlayer`; `runtime/mon/human.mon` `Defend=5`.
 pub fn sim_hero_player(name: &str, pos: Position) -> Player {
     let mut p = test_player_base(name, pos);
     p.base.health = 150;
     p.base.max_health = 150;
+    p.sim_melee_defense = 5;
     p
 }
 
@@ -171,6 +176,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             inbox: Vec::new(),
             last_depot_id: -1,
         }),
+        sim_melee_defense: 0,
     }
 }
 
@@ -880,7 +886,7 @@ pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[Creature
     world.batch_appear_defer_idle = true;
     for &monster_id in monster_ids {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-            if m.state != MonsterState::Sleeping {
+            if !m.harness_preserve_sleep {
                 m.is_idle = false;
             }
         }
@@ -889,6 +895,9 @@ pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[Creature
     }
     world.batch_appear_defer_idle = false;
     for &monster_id in monster_ids {
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+            m.harness_defer_appear_idle = true;
+        }
         world.creature_todo_yield(monster_id);
     }
 }

@@ -131,3 +131,5 @@
 51. **Chase apply — do not reverse after truncate**: `truncate_cipsoft_chase_queue` returns steps in execution order; an extra `steps.reverse()` after truncate inverted multi-step paths. *(`monster_ai.rs`, §21 sim, June 2026)*
 
 52. **Batch appear defer — tick=0 dance regression**: `kite_monsters_appear_batch` + deferred idle caused cyclops `melee_dance`×2 at tick=0 and 0 `shortway` events. Revert to per-monster appear; batch infrastructure kept for future safe yield pass. *(`chase_kite_sim.rs`, `game_world.rs`, June 2026)*
+
+53. **Phase 1 appear defer + hero `Defend`**: Stand/panic tick shift was inline idle during appear target acquire — fix with `kite_monsters_appear_batch` + `harness_defer_appear_idle` + `HARNESS_APPEAR_IDLE_DEFER_MS=2000` before first idle. Melee damage parity required `sim_melee_defense=5` from `human.mon` (not 2) and `skills.fist` in defense probe (`GetDefendValue` / `WEAPON_NONE` → `SKILL_FIST`). PANIC→ATTACKING on first melee hit closes `combat_state[1]` vs ref. *(`sim_harness.rs`, `monster_combat.rs`, `monster_ai.rs`, §22 sim, June 2026)*

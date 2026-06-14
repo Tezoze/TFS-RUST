@@ -413,6 +413,7 @@ impl GameWorld {
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
         let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
+        let only_delay = first_step && !self.beat_driven_loop;
         let ticks = {
             let Some(k) = self.creatures.get(cid) else {
                 return false;
@@ -420,7 +421,7 @@ impl GameWorld {
             get_event_step_ticks(
                 k,
                 k.base(),
-                first_step,
+                only_delay,
                 ground_speed,
                 peek_next_walk_direction(k.base()),
                 wall_now,

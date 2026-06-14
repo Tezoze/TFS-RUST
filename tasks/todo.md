@@ -323,3 +323,10 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] Scenarios: `kite_cobra_poison`, `kite_rat_panic`, `kite_rat_kill` + `monster_load_type` on legacy three
 - [x] `scripts/run_sim_battery.py`; `summarize_chase_gaps.py` E4–E6 events
 - [x] Full A/B battery §19 — logs under `log/summary_*.txt`; lockstep 0/6 (E5/E6 events fire on kill)
+
+## Phase 1 — Stand + panic lockstep (3/6) — done
+- [x] P1.1 Trace appear→first branch; document §22.1
+- [x] P1.2 `kite_monsters_appear_batch` + `harness_defer_appear_idle` + 2000 ms idle defer
+- [x] P1.3 `sim_melee_defense=5`, fist skill defense probe, signed `sim_rand_mod`
+- [x] P1.4 PANIC→ATTACKING on first melee hit; panic lockstep PASS
+- [x] P1.5 Battery 3/6 (kill + stand + panic); §22 + trajectory §22 + lesson 53

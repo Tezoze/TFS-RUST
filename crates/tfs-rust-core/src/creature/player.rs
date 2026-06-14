@@ -146,6 +146,8 @@ pub struct Player {
     pub last_depot_id: i32,
     /// Present for characters that logged in via DB; required for `IOLoginData::savePlayer`.
     pub persist: Option<PlayerPersistBaseline>,
+    /// Chase harness — `human.mon` `Defend=5` (`crcombat.cc` `GetDefendValue`).
+    pub sim_melee_defense: i32,
 }
 
 impl Player {

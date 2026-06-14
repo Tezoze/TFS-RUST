@@ -232,6 +232,7 @@ mod tests {
             inbox_root: None,
             last_depot_id: -1,
             persist: None,
+            sim_melee_defense: 0,
         }
     }
 

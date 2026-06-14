@@ -12,7 +12,7 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     beat_driven_world_from_map, beat_driven_world_with_synthetic_ground_data,
     default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monster_appear, lay_synthetic_arena, move_creatures_explicit, run_sim_tick,
+    kite_monsters_appear_batch, lay_synthetic_arena, move_creatures_explicit, run_sim_tick,
     set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
     validate_positions_walkable, SimMapConfig,
 };
@@ -418,9 +418,7 @@ fn execute_step(
         }
         ScenarioStep::MonsterAppear => {
             if !handles.monsters_appeared {
-                for &monster_id in &handles.monster_ids {
-                    kite_monster_appear(world, monster_id);
-                }
+                kite_monsters_appear_batch(world, &handles.monster_ids);
                 handles.monsters_appeared = true;
             }
             run_sim_tick(world);

@@ -635,6 +635,15 @@ impl GameWorld {
             k.base_mut().delay_attack_ms(server_ms, 2000);
         }
 
+        // C++ panic melee at band 1 — observable `combat_state` logs `attacking` after first hit.
+        if cheb == 1 {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                if m.state == MonsterState::Panic && m.melee_skill > 0 {
+                    m.state = MonsterState::Attacking;
+                }
+            }
+        }
+
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 let earliest = m.base.earliest_attack_ms;

@@ -1323,6 +1323,59 @@ Shipped plan items for Workstreams 1–3 (§20.6). Lockstep gate **1/6 PASS** (k
 
 ---
 
+## 22. Phase 1 closeout — stand + panic lockstep (3/6)
+
+**Date:** 2026-06-14  
+**Seed:** `TFS_SIM_SEED=772`, `--synthetic`, QM on 7173 for C++ ref logs.
+
+### 22.1 Appear → first branch timeline (P1.1)
+
+| ms | C++ ref (stand) | Rust (stand) |
+|----|-----------------|--------------|
+| 0 | `monster_appear` → `ToDoYield` (no inline idle) | `kite_monsters_appear_batch` → defer → `ToDoWait(2000)` |
+| 0 | `sim_tick` drain | `sim_tick` drain (no `branch`) |
+| 2000 | first idle → `combat_state` + `attack_enqueue` | same |
+| 4000 | `melee_hit` → `combat_state` → `branch`/`todo_go` | same tick buckets after defer fix |
+| 6000 | `go_exec` | same |
+
+Root cause of §21 tick shift: inline `request_idle_stimulus` during appear target acquire drained `ToDoWait(0)` on the appear-step `sim_tick`. Fix: batch appear with `harness_defer_appear_idle` + `HARNESS_APPEAR_IDLE_DEFER_MS=2000` wakeup before first idle.
+
+### 22.2 Shipped fixes (P1.2–P1.4)
+
+| Area | Change | C++ ref |
+|------|--------|---------|
+| Appear cadence | `chase_kite_sim` uses `kite_monsters_appear_batch`; defer clears on first `Wait` drain | `chase_kite_scenario.cc` `SpawnMonsterAppear` |
+| Panic combat_state | PANIC→ATTACKING on first melee hit at cheb==1 | observable `combat_state` @4000 |
+| Hero defense | `sim_melee_defense=5` from `human.mon` `Defend=5`; probe uses `skills.fist` | `crcombat.cc` `GetDefendValue`, `human.mon` |
+| glibc `%` | `sim_rand_mod` uses signed `rand()%m` (not `as u32`) | `crskill.cc` `ProbeValue` |
+
+### 22.3 Battery (`run_sim_battery.py --synthetic`)
+
+| Scenario | Lockstep | Notes |
+|----------|----------|-------|
+| Stand | **PASS** | 11/11 events; `melee_hit` 2/2 damage match |
+| Panic | **PASS** | 12/12 events; `damage_stimulus` + `combat_state[1]` attacking |
+| Kill | **PASS** | regression maintained |
+| Kite / cyclops / cobra | FAIL | Phase 2+ scope |
+
+`cargo test -p tfs-rust-core`: **349 passed**.
+
+### 22.4 Parity scorecard (post-§22)
+
+| Layer | Estimate | Change vs §21 |
+|-------|----------|---------------|
+| Stand lockstep | **100%** | tick cadence + melee damage closed |
+| Panic lockstep | **100%** | damage yield + combat_state promotion |
+| Lockstep gate pass rate | **50%** | **3/6** (kill + stand + panic) |
+
+### 22.5 Next steps (Phase 2+)
+
+1. Cyclops batch appear without tick=0 dance / silenced JSONL.
+2. Kite `advance_ms` cadence + C++ wild-idle RNG isolation.
+3. Cobra E4 dist-spell scenario tuning.
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -1340,3 +1393,4 @@ Shipped plan items for Workstreams 1–3 (§20.6). Lockstep gate **1/6 PASS** (k
 | 2026-06-14 | §19 combat-complete sim: monster_load_type spawn, player_damage verbs, E4–E6 JSONL + battery; kill scenario E5/E6 1/1 events; lockstep 0/6 |
 | 2026-06-14 | §20 closeout: panic→melee_dance (not flee), compare ID normalization, C++ overlay +26 tiles, glibc loot/resync, dist-chase move stimulus; cyclops min_wp=150 + 20/20 counts; kill creature_death 1/1; lockstep still 0/6 |
 | 2026-06-14 | §21 closeout: DANCE_DIR_ORDER N/S fix, ToDoWait(0), chase step reverse removed, kill armor+stimulus order, harness_preserve_sleep; kill lockstep PASS (1/6); stand/panic content 100% on chase arms; cyclops tick=0 dance regression documented |
+| 2026-06-14 | §22 closeout: batch appear defer + human Defend=5 + panic melee promotion; stand/panic lockstep PASS (3/6) |

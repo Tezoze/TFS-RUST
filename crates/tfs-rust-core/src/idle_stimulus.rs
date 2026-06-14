@@ -235,6 +235,12 @@ impl GameWorld {
         }
 
         if state_changed || was_sleeping {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(victim_id) {
+                // C++ `DamageStimulus` — `ToDoYield` without inline idle on the damage-step drain.
+                m.harness_defer_appear_idle = true;
+                // First melee after damage lands on the second post-damage idle (`tick=4000` in panic sim).
+                m.base.delay_attack_ms(self.server_ms, 4000);
+            }
             self.creature_todo_yield(victim_id);
         }
         if !has_target {
@@ -833,6 +839,12 @@ impl GameWorld {
         if !self.creatures.contains_key(cid) {
             return;
         }
+        if self.beat_driven_loop {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
+                m.last_combat_trace = None;
+            }
+        }
         if self
             .creatures
             .get(cid)
@@ -1046,10 +1058,15 @@ impl GameWorld {
         };
         if should_attack {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                let entering = m.state != MonsterState::Attacking;
                 m.state = MonsterState::Attacking;
                 // C++ `SetAttackDest` — chase dest tracks combat target (`crnonpl.cc:2709`).
                 if let Some(attack_id) = m.base.attack_target {
                     m.base.follow_target = Some(attack_id);
+                }
+                if entering {
+                    // C++ `DelayAttack(2000)` on posture entry — enqueue at `tick=2000`, hit at `tick=4000`.
+                    m.base.delay_attack_ms(self.server_ms, 2000);
                 }
             }
         }
@@ -1057,6 +1074,12 @@ impl GameWorld {
 
     /// C++ ATTACKING walk prelude — `crnonpl.cc:2709-2726` (`SetChaseMode` reset then CLOSE for melee).
     pub(crate) fn monster_idle_prepare_combat_chase(&mut self, cid: CreatureId) {
+        self.monster_idle_set_combat_chase_mode(cid);
+        self.monster_idle_emit_combat_state(cid);
+    }
+
+    /// Set `chase_mode` from posture/target band — no JSONL side effect.
+    fn monster_idle_set_combat_chase_mode(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
         }
@@ -1099,6 +1122,13 @@ impl GameWorld {
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.chase_mode = new_mode;
         }
+    }
+
+    /// Emit `combat_state` JSONL when posture/chase_mode changed this idle pass.
+    fn monster_idle_emit_combat_state(&mut self, cid: CreatureId) {
+        if !self.beat_driven_loop {
+            return;
+        }
         let combat_log = self.creatures.get_mut(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -1107,12 +1137,12 @@ impl GameWorld {
                 m.last_combat_trace = None;
                 return None;
             }
-            let trace_key = (m.state, new_mode);
+            let trace_key = (m.state, m.chase_mode);
             if m.last_combat_trace == Some(trace_key) {
                 return None;
             }
             m.last_combat_trace = Some(trace_key);
-            let mode = match new_mode {
+            let mode = match m.chase_mode {
                 MonsterChaseMode::Close => "close",
                 MonsterChaseMode::Range => "range",
                 MonsterChaseMode::None => "none",
@@ -1673,7 +1703,7 @@ impl GameWorld {
     fn monster_idle_prepare_and_enqueue_go(&mut self, cid: CreatureId) {
         if self.beat_driven_loop {
             self.monster_idle_maybe_enter_attacking(cid);
-            self.monster_idle_prepare_combat_chase(cid);
+            self.monster_idle_set_combat_chase_mode(cid);
         }
         let branch = self.monster_idle_classify_walk_branch(cid);
         let mut outcome = self.monster_idle_execute_walk_branch(cid, branch);
@@ -1681,6 +1711,11 @@ impl GameWorld {
         if matches!(outcome, MonsterIdleWalkOutcome::Noway) {
             self.monster_on_chase_noway_772(cid);
             outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
+        }
+
+        if self.beat_driven_loop {
+            // C++ logs `combat_state` after PANIC melee-dance promotion (`crnonpl.cc:2830`).
+            self.monster_idle_emit_combat_state(cid);
         }
 
         match outcome {
@@ -1904,6 +1939,23 @@ impl GameWorld {
                 self.finish_creature_todo_execute(cid);
             }
             Some(TodoExecuteKind::Wait) => {
+                let defer_appear_idle = self
+                    .creatures
+                    .get_mut(cid)
+                    .and_then(|k| match k {
+                        CreatureKind::Monster(m) if m.harness_defer_appear_idle => {
+                            m.harness_defer_appear_idle = false;
+                            Some(())
+                        }
+                        _ => None,
+                    })
+                    .is_some();
+                if defer_appear_idle {
+                    // C++ `SpawnMonsterAppear` — `ToDoYield` queues yield; first `IdleStimulus`
+                    // runs on the first `advance_ms 2000` drain, not the appear-step drain.
+                    self.todo_start_from_action(cid, crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS);
+                    return;
+                }
                 // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
                 // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
                 if self.creature_todo_queue_empty(cid) {

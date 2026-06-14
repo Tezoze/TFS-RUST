@@ -173,6 +173,8 @@ pub struct Monster {
     pub is_idle: bool,
     /// E6 harness — keep `Sleeping` posture until `player_damage` when scenario sets `monster_state sleeping`.
     pub harness_preserve_sleep: bool,
+    /// Chase harness — skip inline `IdleStimulus` on appear `ToDoWait(0)`; arm first idle at next drain window.
+    pub harness_defer_appear_idle: bool,
     /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
     pub state: MonsterState,
     /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
@@ -234,6 +236,7 @@ impl Monster {
             is_hostile: config.is_hostile,
             is_idle: true,
             harness_preserve_sleep: false,
+            harness_defer_appear_idle: false,
             state: MonsterState::Sleeping,
             chase_mode: MonsterChaseMode::None,
             last_combat_trace: None,

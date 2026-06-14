@@ -59,13 +59,14 @@ pub fn sim_random(min: i32, max: i32) -> i32 {
     min + (draw_rand() % range)
 }
 
-/// `rand() % modulus` when sim glibc mode is active.
+/// `rand() % modulus` when sim glibc mode is active — signed trunc toward zero (`crskill.cc`).
 pub fn sim_rand_mod(modulus: u32) -> u32 {
     debug_assert!(modulus > 0);
     if !sim_glibc_rng_enabled() {
         return 0;
     }
-    (draw_rand() as u32) % modulus
+    let m = modulus as i32;
+    (draw_rand() % m) as u32
 }
 
 /// Inclusive random — production uses `thread_rng`, sim uses glibc `random()`.
