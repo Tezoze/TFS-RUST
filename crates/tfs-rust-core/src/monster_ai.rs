@@ -21,6 +21,7 @@ use crate::chase_debug;
 use crate::combat::{self, armor_reduction, melee_damage_after_defense_and_armor, weapon_damage, CombatDamage, CombatParams, FightMode};
 use crate::creature::{
     creature_immune_poison, melee_defense_snapshot, melee_poison_on_hit, roll_target_defense,
+    monster_weapon_attack_distance,
 };
 use crate::creature::{CreatureKind, MonsterAiPhase, MonsterChaseMode, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
@@ -389,7 +390,7 @@ impl GameWorld {
 
     /// C++ `Monster::onCreatureAppear` self branch — `monster.cpp` ~159–166.
 
-    /// C++ `TCombat::Attack` / `CloseAttack` — `crcombat.cc:530`, `:647`; idle `ToDoAttack` — `cract.cc:1325`.
+    /// C++ `TCombat::Attack` / `CloseAttack` / `DistanceAttack` — `crcombat.cc:530`, `:609`, `:647`.
     pub fn monster_do_attacking(&mut self, cid: CreatureId, _interval_ms: u32) {
         self.monster_update_look_direction(cid);
 
@@ -401,22 +402,37 @@ impl GameWorld {
         let profile = self.mechanics.profile;
         let hooks = &self.mechanics.hooks;
 
-        let (target_id, monster_pos, melee_skill, melee_attack, poison_cycles) = {
+        let (target_id, monster_pos, melee_skill, melee_attack, poison_cycles, has_ranged_spell, shoot_effect) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
             let Some(target_id) = m.base.attack_target else {
                 return;
             };
-            if m.melee_skill <= 0 {
+            let has_ranged_spell = m.spells.iter().any(|s| s.range > 1);
+            let weapon_dist = monster_weapon_attack_distance(m.melee_skill, has_ranged_spell);
+            if m.melee_skill <= 0 && weapon_dist <= 1 {
                 return;
             }
+            let shoot = m
+                .spells
+                .iter()
+                .find_map(|s| s.shoot_effect)
+                .or(if weapon_dist >= 3 {
+                    Some(tfs_rust_common::enums::ShootEffect::Arrow as u8)
+                } else if weapon_dist >= 2 {
+                    Some(tfs_rust_common::enums::ShootEffect::Spear as u8)
+                } else {
+                    None
+                });
             (
                 target_id,
                 m.base.position,
                 m.melee_skill,
                 m.melee_attack,
                 m.poison_cycles,
+                has_ranged_spell,
+                shoot,
             )
         };
 
@@ -432,7 +448,91 @@ impl GameWorld {
         let cheb = chebyshev(monster_pos, target_pos);
         let in_pz = self.monster_tile_in_protection_zone(monster_pos)
             || self.monster_tile_in_protection_zone(target_pos);
-        if cheb > 1 || in_pz {
+        let weapon_dist =
+            monster_weapon_attack_distance(melee_skill, has_ranged_spell) as u32;
+
+        // C++ `DistanceAttack` / `WandAttack` — `crcombat.cc:609-637`.
+        if weapon_dist >= 2 && cheb >= 2 && cheb <= weapon_dist as i32 && !in_pz {
+            let dx = (target_pos.x as i32 - monster_pos.x as i32).unsigned_abs();
+            let dy = (target_pos.y as i32 - monster_pos.y as i32).unsigned_abs();
+            if dx > 7 || dy > 5 {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().delay_attack_ms(server_ms, 200);
+                }
+                return;
+            }
+            if !self.map.is_sight_clear(monster_pos, target_pos) {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().delay_attack_ms(server_ms, 200);
+                }
+                return;
+            }
+
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().delay_attack_ms(server_ms, 200);
+            }
+
+            let defense_snap = melee_defense_snapshot(self.creatures.get(target_id).unwrap());
+            let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
+            let attack_roll = weapon_damage(
+                &profile,
+                hooks,
+                &mut rng,
+                melee_skill,
+                melee_attack,
+                FightMode::Balanced,
+                0,
+            );
+            let defense_roll = {
+                let Some(kind) = self.creatures.get_mut(target_id) else {
+                    self.ai_rng = rng;
+                    return;
+                };
+                roll_target_defense(
+                    kind.base_mut(),
+                    server_ms,
+                    &profile,
+                    hooks,
+                    &mut rng,
+                    defense_snap,
+                )
+            };
+            let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+            let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
+
+            if let Some(shoot) = shoot_effect {
+                self.broadcast_distance_shoot(monster_pos, target_pos, shoot);
+            }
+
+            let hp_before = self.creatures.get(target_id).unwrap().base().health;
+            let _ = self.combat_execute_with_stimulus(
+                Some(cid),
+                target_id,
+                &CombatDamage {
+                    primary: (CombatType::Physical, -dmg),
+                    secondary: (CombatType::Physical, 0),
+                },
+                &CombatParams::default(),
+            );
+            let hp_after = self
+                .creatures
+                .get(target_id)
+                .map(|k| k.base().health)
+                .unwrap_or(hp_before);
+            self.notify_player_combat_damage(
+                Some(cid),
+                target_id,
+                (hp_before - hp_after).max(0),
+            );
+            self.ai_rng = rng;
+
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().delay_attack_ms(server_ms, 2000);
+            }
+            return;
+        }
+
+        if cheb > 1 || in_pz || melee_skill <= 0 {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }

@@ -8,16 +8,19 @@
 use std::time::Instant;
 
 use rand::Rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, ConditionType, ZoneType};
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
+use crate::combat::math::spell_damage;
 use crate::combat::{CombatDamage, CombatParams};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
-    CreatureKind, MonsterChaseMode, MonsterSpell, MonsterState, SpellImpact, SpellShape,
-    monster_weapon_attack_distance,
+    CreatureBase, CreatureKind, MonsterChaseMode, MonsterSpell, MonsterState, SpellImpact,
+    SpellShape, monster_weapon_attack_distance,
 };
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
 use crate::creature_todo::{
@@ -435,6 +438,7 @@ impl GameWorld {
         }
 
         if let Some(target_id) = best_id {
+            self.monster_add_opponent(cid, *target_id, true);
             let _ = self.monster_select_target(cid, *target_id);
         }
 
@@ -473,22 +477,69 @@ impl GameWorld {
         false
     }
 
-    /// C++ CASTING block — `crnonpl.cc:2521-2667` (Victim shape + condition/damage impacts).
+    /// Resolve cast target — C++ single `Target` field (`follow_target` / `attack_target`).
+    fn monster_cast_target_id(base: &CreatureBase) -> Option<CreatureId> {
+        base.follow_target.or(base.attack_target)
+    }
+
+    /// Tile set for a spell shape — `crnonpl.cc:2627`.
+    fn monster_idle_spell_tiles(
+        shape: SpellShape,
+        caster_pos: Position,
+        target_pos: Position,
+        radius: i32,
+    ) -> Vec<Position> {
+        match shape {
+            SpellShape::Actor => vec![caster_pos],
+            SpellShape::Victim | SpellShape::Destination => vec![target_pos],
+            SpellShape::Origin => {
+                let mut tiles = vec![caster_pos];
+                let r = radius.max(0) as u32;
+                for dx in -(r as i32)..=(r as i32) {
+                    for dy in -(r as i32)..=(r as i32) {
+                        if dx.unsigned_abs().max(dy.unsigned_abs()) <= r {
+                            let x = (caster_pos.x as i32 + dx).clamp(0, u16::MAX as i32) as u16;
+                            let y = (caster_pos.y as i32 + dy).clamp(0, u16::MAX as i32) as u16;
+                            let p = Position::new(x, y, caster_pos.z);
+                            if p != caster_pos {
+                                tiles.push(p);
+                            }
+                        }
+                    }
+                }
+                tiles
+            }
+            SpellShape::Angle => {
+                let mut tiles = Vec::new();
+                let dx = (target_pos.x as i32 - caster_pos.x as i32).signum();
+                let dy = (target_pos.y as i32 - caster_pos.y as i32).signum();
+                let steps = radius.max(1) as u32;
+                for i in 0..=steps {
+                    let x = (caster_pos.x as i32 + dx * i as i32).clamp(0, u16::MAX as i32) as u16;
+                    let y = (caster_pos.y as i32 + dy * i as i32).clamp(0, u16::MAX as i32) as u16;
+                    tiles.push(Position::new(x, y, caster_pos.z));
+                }
+                tiles
+            }
+        }
+    }
+
+    /// C++ CASTING block — `crnonpl.cc:2521-2667`.
     fn monster_idle_try_casting(&mut self, cid: CreatureId) {
-        let (spells, attack_target, pos) = match self.creatures.get(cid) {
+        let (spells, cast_target, pos) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => {
                 if m.spells.is_empty() {
                     return;
                 }
                 (
                     m.spells.clone(),
-                    m.base.attack_target,
+                    Self::monster_cast_target_id(&m.base),
                     m.base.position,
                 )
             }
             _ => return,
         };
-        let Some(target_id) = attack_target else {
+        let Some(target_id) = cast_target else {
             return;
         };
         let target_pos = match self.creatures.get(target_id) {
@@ -499,6 +550,8 @@ impl GameWorld {
             .creatures
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_fleeing()));
+
+        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
         for spell in &spells {
             if spell.delay <= 0 || crate::sim_glibc_rand::parity_rand_mod(spell.delay as u32) != 0 {
                 continue;
@@ -506,19 +559,60 @@ impl GameWorld {
             if fleeing && crate::sim_glibc_rand::parity_random(1, 3) != 1 {
                 continue;
             }
-            if spell.shape != SpellShape::Victim {
-                continue;
-            }
+
             let dist = chebyshev(pos, target_pos);
-            if dist > spell.range {
+            if spell.range > 0 && dist > spell.range {
                 continue;
             }
-            if !self.map.is_sight_clear(pos, target_pos) {
-                continue;
+
+            let tiles = Self::monster_idle_spell_tiles(spell.shape, pos, target_pos, spell.radius);
+            let mut cast_any = false;
+
+            match spell.shape {
+                SpellShape::Victim | SpellShape::Destination => {
+                    if !self.map.is_sight_clear(pos, target_pos) {
+                        continue;
+                    }
+                    self.monster_update_look_direction(cid);
+                    if let Some(shoot) = spell.shoot_effect {
+                        self.broadcast_distance_shoot(pos, target_pos, shoot);
+                    }
+                    self.monster_idle_apply_spell_impact(cid, target_id, spell, &mut rng);
+                    cast_any = true;
+                }
+                SpellShape::Actor => {
+                    self.monster_idle_apply_spell_impact(cid, cid, spell, &mut rng);
+                    cast_any = true;
+                }
+                SpellShape::Origin | SpellShape::Angle => {
+                    for tile in tiles {
+                        if !self.map.is_sight_clear(pos, tile) {
+                            continue;
+                        }
+                        let victims: Vec<CreatureId> = self
+                            .map
+                            .get_tile(tile)
+                            .map(|t| t.body().creatures.clone())
+                            .unwrap_or_default();
+                        for victim_id in victims {
+                            if victim_id == cid {
+                                continue;
+                            }
+                            if let Some(shoot) = spell.shoot_effect {
+                                self.broadcast_distance_shoot(pos, tile, shoot);
+                            }
+                            self.monster_idle_apply_spell_impact(cid, victim_id, spell, &mut rng);
+                            cast_any = true;
+                        }
+                    }
+                }
             }
-            let mut rng = rand::thread_rng();
-            self.monster_idle_apply_spell_impact(cid, target_id, spell, &mut rng);
+
+            if cast_any {
+                break;
+            }
         }
+        self.ai_rng = rng;
     }
 
     fn monster_idle_apply_spell_impact(
@@ -537,6 +631,7 @@ impl GameWorld {
                     SpellImpact::Speed { .. } => "speed".into(),
                     SpellImpact::Field => "field".into(),
                     SpellImpact::Summon { race, .. } => format!("summon:{race}"),
+                    SpellImpact::Drunk { .. } => "drunk".into(),
                 };
                 let shape = match spell.shape {
                     SpellShape::Victim => "victim",
@@ -556,6 +651,9 @@ impl GameWorld {
                 );
             }
         }
+        let profile = self.mechanics.profile;
+        let hooks = &self.mechanics.hooks;
+
         match &spell.impact {
             SpellImpact::Condition {
                 condition,
@@ -564,7 +662,11 @@ impl GameWorld {
             } => {
                 let min_c = (*min_cycle).max(1);
                 let max_c = (*cycle).max(min_c);
-                let strength = rng.gen_range(min_c..=max_c);
+                let strength = if self.beat_driven_loop {
+                    crate::sim_glibc_rand::parity_random(min_c, max_c)
+                } else {
+                    rng.gen_range(min_c..=max_c)
+                };
                 let cond = ActiveCondition {
                     id: 0,
                     sub_id: 0,
@@ -595,8 +697,24 @@ impl GameWorld {
             } => {
                 let min_dmg = (*base).saturating_sub(*variation);
                 let max_dmg = (*base).saturating_add(*variation);
-                let dmg = crate::combat::uniform_random(rng, min_dmg, max_dmg).max(0);
-                let params = CombatParams::default();
+                let scaled = spell_damage(
+                    &profile,
+                    hooks,
+                    0,
+                    0,
+                    max_dmg,
+                    false,
+                    false,
+                );
+                let dmg = if scaled > 0 {
+                    scaled
+                } else {
+                    crate::combat::uniform_random(rng, min_dmg, max_dmg).max(0)
+                };
+                let params = CombatParams {
+                    primary_type: *element,
+                    ..CombatParams::default()
+                };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
@@ -607,7 +725,74 @@ impl GameWorld {
                     &params,
                 );
             }
-            _ => {}
+            SpellImpact::Healing { base, variation } => {
+                let min_heal = (*base).saturating_sub(*variation);
+                let max_heal = (*base).saturating_add(*variation);
+                let heal = crate::combat::uniform_random(rng, min_heal, max_heal).max(0);
+                let _ = self.combat_execute_with_stimulus(
+                    Some(caster_id),
+                    target_id,
+                    &CombatDamage {
+                        primary: (CombatType::Healing, heal),
+                        secondary: (CombatType::Physical, 0),
+                    },
+                    &CombatParams::default(),
+                );
+            }
+            SpellImpact::Speed {
+                percent,
+                variation,
+                duration: _,
+            } => {
+                let min_delta = (*percent).saturating_sub(*variation);
+                let max_delta = (*percent).saturating_add(*variation);
+                let flat_delta = crate::combat::uniform_random(rng, min_delta, max_delta);
+                let cond = ActiveCondition {
+                    id: 0,
+                    sub_id: 0,
+                    ctype: ConditionType::Haste,
+                    data: ConditionData::Speed { flat_delta },
+                };
+                let params = CombatParams {
+                    primary_type: CombatType::Physical,
+                    dispel: None,
+                    apply_condition: Some(cond),
+                };
+                let _ = self.combat_execute_with_stimulus(
+                    Some(caster_id),
+                    target_id,
+                    &CombatDamage {
+                        primary: (CombatType::Physical, 0),
+                        secondary: (CombatType::Physical, 0),
+                    },
+                    &params,
+                );
+            }
+            SpellImpact::Drunk { drunkness } => {
+                if let Some(kind) = self.creatures.get_mut(target_id) {
+                    kind.base_mut().drunkenness =
+                        (*drunkness).max(0) as u32;
+                }
+            }
+            SpellImpact::Field => {
+                tracing::debug!(
+                    caster = ?caster_id,
+                    target = ?target_id,
+                    "monster spell field impact not yet placed on map"
+                );
+            }
+            SpellImpact::Summon { race, max } => {
+                let master_gated = self.creatures.get(caster_id).is_some_and(|k| {
+                    matches!(k, CreatureKind::Monster(m) if m.base.master.is_none())
+                });
+                if master_gated {
+                    tracing::debug!(
+                        race = %race,
+                        max = max,
+                        "monster summon spell stub"
+                    );
+                }
+            }
         }
     }
 
@@ -655,10 +840,10 @@ impl GameWorld {
             self.monster_idle_772_lose_existing_target(cid);
             self.monster_idle_reset_combat_state(cid);
             self.monster_idle_try_talk(cid);
-            self.monster_idle_try_casting(cid);
             if self.monster_idle_772_acquire_target(cid) {
                 return;
             }
+            self.monster_idle_try_casting(cid);
         }
 
         if is_summon {
@@ -3611,6 +3796,7 @@ mod tests {
         let spell = MonsterSpell {
             delay: 4,
             range: 5,
+            radius: 0,
             min_cycle: 6,
             shape: SpellShape::Victim,
             impact: SpellImpact::Condition {
@@ -3635,6 +3821,171 @@ mod tests {
         assert_eq!(todo.queue.len(), 2);
         assert!(matches!(todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
         assert!(matches!(todo.queue[1], CreatureAction::Attack));
+    }
+
+    fn e4_cobra_config() -> MonsterAiConfig {
+        use std::path::Path;
+        use tfs_rust_content::items::ItemDatabase;
+        use tfs_rust_content::monsters::MonsterDatabase;
+
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let items = ItemDatabase {
+            items: Default::default(),
+            client_to_server: Default::default(),
+        };
+        let db = MonsterDatabase::load_dir(
+            &Path::new(manifest).join("../../data/monster"),
+            &items,
+        )
+        .expect("load monsters");
+        let mtype = db
+            .monsters
+            .get("cobra")
+            .cloned()
+            .expect("cobra type");
+        MonsterAiConfig::from_monster_type(&mtype)
+    }
+
+    #[test]
+    fn test_e4_cobra_poison_at_range() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(103, 100, 7);
+        for x in 100..=103u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        let cfg = e4_cobra_config();
+        let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.state = MonsterState::Idle;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        let mut poisoned = false;
+        for attempt in 0..64 {
+            if attempt > 0 {
+                // Delay gate: rand() % 4 == 0 — retry until cast fires.
+            }
+            world.monster_idle_stimulus(monster);
+            poisoned = world
+                .creatures
+                .get(player)
+                .is_some_and(|k| {
+                    k.base()
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Poison)
+                });
+            if poisoned {
+                break;
+            }
+        }
+        assert!(
+            poisoned,
+            "cobra must apply poison condition to player at Chebyshev distance 3 within spell range 5"
+        );
+    }
+
+    #[test]
+    fn test_e4_casting_runs_after_target_acquire() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(103, 100, 7);
+        for x in 100..=103u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        let mut cfg = e4_cobra_config();
+        cfg.spells[0].delay = 1;
+        let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.state = MonsterState::Idle;
+            m.strategy_nearest = 100;
+            m.strategy_health = 0;
+            m.strategy_damage = 0;
+        }
+
+        assert!(
+            world.creatures.get(monster).unwrap().base().follow_target.is_none(),
+            "precondition: no target before idle"
+        );
+
+        world.monster_idle_stimulus(monster);
+
+        assert!(
+            world.creatures.get(monster).unwrap().base().follow_target.is_some(),
+            "acquire must pick target same idle cycle"
+        );
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .is_some_and(|k| {
+                    k.base()
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Poison)
+                }),
+            "cast must run after acquire on the same idle cycle when delay=1"
+        );
+    }
+
+    #[test]
+    fn test_e4_spell_delay_gate() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(103, 100, 7);
+        for x in 100..=103u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        let mut cfg = e4_cobra_config();
+        let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.state = MonsterState::Idle;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        let mut casts = 0u32;
+        for _ in 0..40 {
+            if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+                p.base.active_conditions.clear();
+            }
+            world.monster_idle_stimulus(monster);
+            let poisoned = world.creatures.get(player).is_some_and(|k| {
+                k.base()
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::Poison)
+            });
+            if poisoned {
+                casts += 1;
+            }
+        }
+        assert!(
+            casts >= 4 && casts <= 16,
+            "delay=4 gate should yield roughly 1-in-4 cast attempts over 40 idles, got {casts}"
+        );
     }
 
     #[test]

@@ -51,6 +51,10 @@ pub enum SpellImpact {
         race: String,
         max: i32,
     },
+    /// C++ `IMPACT_DRUNKEN` — sets target `drunkenness` (`crnonpl.cc:2553`).
+    Drunk {
+        drunkness: i32,
+    },
 }
 
 /// Runtime spell entry for idle CASTING (E4) and target-range checks.
@@ -61,6 +65,8 @@ pub struct MonsterSpell {
     /// Cast gate: `rand() % Delay == 0` — `crnonpl.cc:2527`.
     pub delay: i32,
     pub range: i32,
+    /// Area radius for `Origin` / `Angle` shapes — XML `radius`.
+    pub radius: i32,
     pub min_cycle: i32,
     pub shape: SpellShape,
     pub impact: SpellImpact,
@@ -94,8 +100,9 @@ impl MonsterSpell {
 
         let delay = parse_attr_i32(node, "delay", 0);
         let range = parse_attr_i32(node, "range", 0);
+        let radius = parse_attr_i32(node, "radius", 0);
         let min_cycle = parse_attr_i32(node, "mincycle", 0);
-        let shape = default_shape_for_name(name, range);
+        let shape = default_shape_for_node(name, node);
         let impact = parse_spell_impact(name, node)?;
         let shoot_effect = spell_child_attr(node, "shooteffect")
             .as_deref()
@@ -107,6 +114,7 @@ impl MonsterSpell {
         Some(Self {
             delay,
             range,
+            radius,
             min_cycle,
             shape,
             impact,
@@ -306,13 +314,94 @@ fn parse_spell_impact(name: &str, node: &MonsterSpellNode) -> Option<SpellImpact
             min_cycle: parse_attr_i32(node, "mincycle", 0),
         });
     }
+    if name.eq_ignore_ascii_case("fire") {
+        let (base, variation) = parse_min_max_damage(node);
+        return Some(SpellImpact::Damage {
+            element: CombatType::Fire,
+            base,
+            variation,
+        });
+    }
+    if name.eq_ignore_ascii_case("energy") {
+        let (base, variation) = parse_min_max_damage(node);
+        return Some(SpellImpact::Damage {
+            element: CombatType::Energy,
+            base,
+            variation,
+        });
+    }
+    if name.eq_ignore_ascii_case("lifedrain") {
+        let (base, variation) = parse_min_max_damage(node);
+        return Some(SpellImpact::Damage {
+            element: CombatType::LifeDrain,
+            base,
+            variation,
+        });
+    }
+    if name.eq_ignore_ascii_case("physical") {
+        let (base, variation) = parse_min_max_damage(node);
+        return Some(SpellImpact::Damage {
+            element: CombatType::Physical,
+            base,
+            variation,
+        });
+    }
+    if name.eq_ignore_ascii_case("healing") {
+        let (base, variation) = parse_min_max_healing(node);
+        return Some(SpellImpact::Healing { base, variation });
+    }
+    if name.eq_ignore_ascii_case("speed") {
+        return Some(SpellImpact::Speed {
+            percent: parse_attr_i32(node, "speed", 0),
+            variation: parse_attr_i32(node, "speedvariation", 0),
+            duration: parse_attr_i32(node, "duration", 0),
+        });
+    }
+    if name.eq_ignore_ascii_case("drunk") {
+        return Some(SpellImpact::Drunk {
+            drunkness: parse_attr_i32(node, "drunkness", 0),
+        });
+    }
 
     debug!(spell_name = name, "skipping unknown monster attack spell");
     None
 }
 
-/// Ranged condition spells at a target default to `SHAPE_VICTIM` — `crnonpl.cc:2609`.
-fn default_shape_for_name(name: &str, range: i32) -> SpellShape {
+/// TVP `<attack min= max=>` — store midpoint + half-span for uniform roll at cast time.
+fn parse_min_max_damage(node: &MonsterSpellNode) -> (i32, i32) {
+    let min = parse_attr_i32(node, "min", 0);
+    let max = parse_attr_i32(node, "max", 0);
+    let min_dmg = min.abs().min(max.abs());
+    let max_dmg = min.abs().max(max.abs());
+    let base = (min_dmg + max_dmg) / 2;
+    let variation = (max_dmg - min_dmg) / 2;
+    (base, variation)
+}
+
+fn parse_min_max_healing(node: &MonsterSpellNode) -> (i32, i32) {
+    let min = parse_attr_i32(node, "min", 0);
+    let max = parse_attr_i32(node, "max", 0);
+    let min_heal = min.min(max);
+    let max_heal = min.max(max);
+    let base = (min_heal + max_heal) / 2;
+    let variation = (max_heal - min_heal) / 2;
+    (base.max(0), variation.max(0))
+}
+
+/// Shape from XML attrs — `crnonpl.cc:2609`.
+fn default_shape_for_node(name: &str, node: &MonsterSpellNode) -> SpellShape {
+    let radius = parse_attr_i32(node, "radius", 0);
+    let range = parse_attr_i32(node, "range", 0);
+    let target = node
+        .attributes
+        .get("target")
+        .and_then(|s| s.parse::<i32>().ok());
+    if radius > 0 && target == Some(0) {
+        return SpellShape::Origin;
+    }
+    if target == Some(1) || range > 1 {
+        return SpellShape::Victim;
+    }
     if name.ends_with("condition") && range > 1 {
         SpellShape::Victim
     } else {
@@ -341,6 +430,14 @@ fn parse_shoot_effect_name(name: &str) -> Option<u8> {
         Some(ShootEffect::Fire as u8)
     } else if name.eq_ignore_ascii_case("energy") {
         Some(ShootEffect::Energy as u8)
+    } else if name.eq_ignore_ascii_case("death") {
+        Some(ShootEffect::Unknown as u8)
+    } else if name.eq_ignore_ascii_case("spear") {
+        Some(ShootEffect::Spear as u8)
+    } else if name.eq_ignore_ascii_case("bolt") {
+        Some(ShootEffect::Bolt as u8)
+    } else if name.eq_ignore_ascii_case("arrow") {
+        Some(ShootEffect::Arrow as u8)
     } else {
         debug!(shooteffect = name, "unknown monster shooteffect");
         None
@@ -450,6 +547,7 @@ mod tests {
         let spell = MonsterSpell {
             delay: 4,
             range: 5,
+            radius: 0,
             min_cycle: 6,
             shape: SpellShape::Victim,
             impact: SpellImpact::Condition {
@@ -571,6 +669,78 @@ mod tests {
         let m = Monster::with_config(base, Position::new(100, 100, 7), MonsterAiConfig::default());
         let snap = melee_defense_snapshot(&CreatureKind::Monster(m));
         assert_eq!(snap.defend_mode, FightMode::Defensive);
+    }
+
+    #[test]
+    fn test_e4_marid_fire_energy_parse() {
+        let mtype = load_monster_type("marid");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        let fire = cfg
+            .spells
+            .iter()
+            .find(|s| matches!(s.impact, SpellImpact::Damage { element: CombatType::Fire, .. }))
+            .expect("marid fire spell");
+        assert_eq!(fire.delay, 2);
+        assert_eq!(fire.range, 7);
+        assert_eq!(fire.shape, SpellShape::Victim);
+        assert!(matches!(
+            fire.impact,
+            SpellImpact::Damage {
+                element: CombatType::Fire,
+                base: 75,
+                variation: 35,
+            }
+        ));
+        assert_eq!(fire.shoot_effect, Some(ShootEffect::Fire as u8));
+
+        let energy_cond = cfg
+            .spells
+            .iter()
+            .find(|s| {
+                matches!(
+                    s.impact,
+                    SpellImpact::Condition {
+                        condition: ConditionType::Energy,
+                        ..
+                    }
+                )
+            })
+            .expect("marid energycondition");
+        assert_eq!(energy_cond.shape, SpellShape::Origin);
+        assert_eq!(energy_cond.radius, 3);
+    }
+
+    #[test]
+    fn test_e4_drunk_and_speed_parse() {
+        let node = spell_node(
+            "drunk",
+            &[("delay", "5"), ("range", "7"), ("duration", "60000"), ("drunkness", "120")],
+            &[("shooteffect", "energy")],
+        );
+        let spell = MonsterSpell::try_from_node(&node).expect("drunk spell");
+        assert_eq!(spell.shape, SpellShape::Victim);
+        assert!(matches!(spell.impact, SpellImpact::Drunk { drunkness: 120 }));
+
+        let speed_node = spell_node(
+            "speed",
+            &[
+                ("delay", "8"),
+                ("duration", "15000"),
+                ("speed", "-75"),
+                ("speedvariation", "25"),
+                ("range", "7"),
+            ],
+            &[],
+        );
+        let speed = MonsterSpell::try_from_node(&speed_node).expect("speed spell");
+        assert!(matches!(
+            speed.impact,
+            SpellImpact::Speed {
+                percent: -75,
+                variation: 25,
+                duration: 15000,
+            }
+        ));
     }
 
     #[test]

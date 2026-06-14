@@ -167,6 +167,12 @@ impl GameWorld {
         self.broadcast_to_spectators(pos, pkt);
     }
 
+    /// C++ `Game::addDistanceEffect` — projectile from caster to target tile.
+    pub fn broadcast_distance_shoot(&mut self, from: Position, to: Position, shoot_type: u8) {
+        let pkt = tfs_rust_net::outgoing_extra::send_distance_shoot(from, to, shoot_type).into_bytes();
+        self.broadcast_to_spectators(from, pkt);
+    }
+
     /// C++ `Game::combatChangeHealth` — stats + damage message + health bar fan-out.
     pub(crate) fn notify_player_combat_damage(
         &mut self,
