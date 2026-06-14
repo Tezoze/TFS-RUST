@@ -94,12 +94,12 @@ pub fn sim_probe_random_factor() -> i32 {
     (sim_rand_mod(100) as i32 + sim_rand_mod(100) as i32) / 2
 }
 
-/// C++ dance sidestep order — `crnonpl.cc:2736` (`rand()%5` → W,E,S,N,hold).
+/// C++ dance sidestep order — `crnonpl.cc:2814-2819` (`rand()%5` → W,E,N,S,hold).
 pub const DANCE_DIR_ORDER: [Option<Direction>; 5] = [
     Some(Direction::West),
     Some(Direction::East),
-    Some(Direction::South),
     Some(Direction::North),
+    Some(Direction::South),
     None,
 ];
 
@@ -135,6 +135,21 @@ impl RngCore for SimGlibcRng {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dance_dir_order_n_s_matches_cpp_dest_y() {
+        use tfs_rust_common::Position;
+        let pos = Position::new(32361, 32290, 7);
+        // C++ `crnonpl.cc:2817-2818` — case 2 `DestY-=1` (North), case 3 `DestY+=1` (South).
+        assert_eq!(
+            pos.offset(DANCE_DIR_ORDER[2].unwrap()),
+            Position::new(32361, 32289, 7)
+        );
+        assert_eq!(
+            pos.offset(DANCE_DIR_ORDER[3].unwrap()),
+            Position::new(32361, 32291, 7)
+        );
+    }
 
     #[test]
     fn glibc_rand_matches_linux_seed_772() {

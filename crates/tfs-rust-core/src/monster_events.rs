@@ -8,7 +8,7 @@
 use tfs_rust_common::Position;
 use slotmap::Key;
 
-use crate::creature::{CreatureKind, MonsterChaseMode};
+use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
@@ -17,7 +17,18 @@ use crate::monster_ai::{chebyshev, MonsterEnqueueAttackResult, MAP_MAX_VIEWPORT}
 impl GameWorld {
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
         self.monster_update_target_list(cid);
-        self.monster_update_idle_status(cid);
+        let keep_sleeping = self.creatures.get(cid).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m)
+                    if m.harness_preserve_sleep
+                        && m.state == MonsterState::Sleeping
+                        && m.is_idle
+            )
+        });
+        if !keep_sleeping {
+            self.monster_update_idle_status(cid);
+        }
         self.monster_try_acquire_chase_target(cid, None);
     }
     /// TFS `Map::getSpectators` multifloor Z span — `map.cpp` ~444–462.
@@ -187,7 +198,7 @@ impl GameWorld {
     fn monster_on_follow_creature_moved(
         &mut self,
         monster_id: CreatureId,
-        _creature_id: CreatureId,
+        creature_id: CreatureId,
         new_pos: Position,
         has_path: bool,
     ) {
@@ -210,14 +221,36 @@ impl GameWorld {
         }
 
         let should_repath = if self.beat_driven_loop {
+            let dist_follow_move = self.creatures.get(monster_id).is_some_and(|k| {
+                let CreatureKind::Monster(m) = k else {
+                    return false;
+                };
+                let target_distance = self.monster_effective_target_distance(m.target_distance);
+                target_distance > 1
+                    && m.base.follow_target == Some(creature_id)
+                    && self.monster_can_use_attack(monster_id, m.base.position, creature_id)
+            });
             self.monster_chase_needs_attacking_close_repath(monster_id, new_pos)
                 || self.monster_chase_queue_stale(monster_id, new_pos)
+                || dist_follow_move
         } else {
             true
         };
 
         if !should_repath {
             return;
+        }
+
+        // C++ `CreatureMoveStimulus` close-chase clears in-flight attack todo before repath
+        // (`crmain.cc:946-951` `ToDoClear` + re-queue) — only when a stale queue blocks yield.
+        if self.beat_driven_loop {
+            if let Some(k) = self.creatures.get_mut(monster_id) {
+                let base = k.base_mut();
+                if !base.todo.queue.is_empty() {
+                    base.todo.queue.clear();
+                    base.todo.locked = false;
+                }
+            }
         }
 
         // Do not skip repath when the follow *target moved*: `getPathTo` can return an empty

@@ -1,7 +1,8 @@
 //! Monster chase / combat JSONL trace — mirror 772 `chase_ai.jsonl` for parity diffs.
 //!
 //! Movement: `cract.cc` `TShortway`, `ToDoGo`, `Go`; `crnonpl.cc` `TMonster::IdleStimulus`.
-//! Combat (E0–E3): `crcombat.cc` `Attack`/`CloseAttack`; `cract.cc` `ToDoAttack`.
+//! Combat (E0–E6): `crcombat.cc` `Attack`/`CloseAttack`; `cract.cc` `ToDoAttack`;
+//! `crnonpl.cc` CASTING / `DamageStimulus`; `crmain.cc` death drop.
 //!
 //! Enable: env `TFS_CHASE_PATH_DEBUG=1` (optional `TFS_CHASE_PATH_LOG=/path/to/chase_ai.jsonl`).
 
@@ -294,6 +295,49 @@ pub fn log_melee_hit(
     let line = format!(
         "{},\"target_id\":{target_id},\"attack\":{attack},\"defense\":{defense},\"armor\":{armor},\"damage\":{damage},\"hp_before\":{hp_before},\"hp_after\":{hp_after},\"earliest_attack_ms\":{earliest_attack_ms}}}",
         header(tick, cid, name, "melee_hit"),
+    );
+    write_line(&line);
+}
+
+/// E6 — monster death trace for harness compare (`~TMonster` / `DistributeExperiencePoints`).
+pub fn log_creature_death(
+    tick: u64,
+    cid: CreatureId,
+    name: &str,
+    killer_id: u64,
+    experience: u32,
+    corpse_id: u16,
+) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{},\"killer_id\":{killer_id},\"experience\":{experience},\"corpse_id\":{corpse_id}}}",
+        header(tick, cid, name, "creature_death"),
+    );
+    write_line(&line);
+}
+
+/// E4 — ranged / distance attack outcome (`crcombat.cc:609` `DistanceAttack`).
+pub fn log_ranged_hit(
+    tick: u64,
+    cid: CreatureId,
+    name: &str,
+    target_id: u64,
+    attack: i32,
+    defense: i32,
+    armor: i32,
+    damage: i32,
+    hp_before: i32,
+    hp_after: i32,
+    earliest_attack_ms: u64,
+) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{},\"target_id\":{target_id},\"attack\":{attack},\"defense\":{defense},\"armor\":{armor},\"damage\":{damage},\"hp_before\":{hp_before},\"hp_after\":{hp_after},\"earliest_attack_ms\":{earliest_attack_ms}}}",
+        header(tick, cid, name, "ranged_hit"),
     );
     write_line(&line);
 }

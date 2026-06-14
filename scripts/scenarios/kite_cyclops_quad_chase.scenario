@@ -15,6 +15,7 @@ monster cyclops 32361 32290
 monster cyclops 32360 32291
 monster cyclops 32359 32290
 
+monster_load_type 1
 monster_hostile 1
 monster_melee_skill 50
 monster_melee_attack 30

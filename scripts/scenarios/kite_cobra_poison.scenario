@@ -1,0 +1,34 @@
+name kite_cobra_poison
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Cobra at cheb=5 — exercises E4 spell_cast (poisoncondition range=5)
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+monster cobra 32365 32290
+monster_load_type 1
+monster_hostile 1
+
+advance_ms 0
+monster_appear
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick

@@ -58,6 +58,66 @@ fn roll_loot_count<R: Rng + ?Sized>(rng: &mut R, countmax: i32) -> u16 {
     rng.gen_range(1..=max) as u16
 }
 
+fn roll_loot_count_glibc(countmax: i32) -> u16 {
+    let max = countmax.max(1);
+    crate::sim_glibc_rand::parity_random(1, max) as u16
+}
+
+fn loot_block_passes_glibc(chance: i32) -> bool {
+    if chance <= 0 {
+        return false;
+    }
+    if chance >= MAX_LOOTCHANCE {
+        return true;
+    }
+    // C++ `TMonster` ctor — `random(0, 999) > Probability` skip (`crnonpl.cc:2056`).
+    let cip_prob = (chance * 1000) / MAX_LOOTCHANCE;
+    crate::sim_glibc_rand::parity_random(0, 999) <= cip_prob
+}
+
+fn roll_loot_block_glibc(
+    world: &mut GameWorld,
+    block: &LootBlock,
+    registry: &mut crate::container::ContainerRegistry,
+    owner: CreatureId,
+) -> Option<ItemId> {
+    if !loot_block_passes_glibc(block.chance) {
+        return None;
+    }
+    let server_id = block.id as u16;
+    let _item_type = world.items_db.items.get(&server_id)?;
+    let count = roll_loot_count_glibc(block.countmax);
+
+    let mut item = Item::new(server_id, count);
+    if block.sub_type != 0 {
+        item.set_duration(block.sub_type);
+    }
+    if block.action_id != 0 {
+        item.set_action_id(block.action_id as u16);
+    }
+    if !block.text.is_empty() {
+        item.set_text(block.text.clone());
+    }
+
+    let item_id = world.items.insert(item);
+
+    if !block.child_loot.is_empty() && world.items_db.is_container(server_id) {
+        let cap = world.container_capacity(server_id);
+        let mut container = Container::new(item_id, cap);
+        for child in &block.child_loot {
+            if let Some(child_id) = roll_loot_block_glibc(world, child, registry, owner) {
+                let _ = container.add_item(child_id);
+                if let Some(ch) = registry.get_mut(child_id) {
+                    ch.parent_container = Some(item_id);
+                }
+            }
+        }
+        registry.register(container);
+    }
+
+    Some(item_id)
+}
+
 fn roll_loot_block<R: Rng + ?Sized>(
     world: &mut GameWorld,
     rng: &mut R,
@@ -184,15 +244,15 @@ impl GameWorld {
 
         let mut rolled: Vec<(LootDestination, ItemId)> = Vec::new();
 
-        self.with_ai_rng(|rng, world| {
-            let mut registry = std::mem::take(&mut world.container_registry);
+        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+            let mut registry = std::mem::take(&mut self.container_registry);
             for block in &mtype.loot {
                 let Some(item_id) =
-                    roll_loot_block(world, rng, block, &mut registry, monster_id)
+                    roll_loot_block_glibc(self, block, &mut registry, monster_id)
                 else {
                     continue;
                 };
-                let dest = world
+                let dest = self
                     .items_db
                     .items
                     .get(&(block.id as u16))
@@ -200,8 +260,27 @@ impl GameWorld {
                     .unwrap_or(LootDestination::Bag);
                 rolled.push((dest, item_id));
             }
-            world.container_registry = registry;
-        });
+            self.container_registry = registry;
+        } else {
+            self.with_ai_rng(|rng, world| {
+                let mut registry = std::mem::take(&mut world.container_registry);
+                for block in &mtype.loot {
+                    let Some(item_id) =
+                        roll_loot_block(world, rng, block, &mut registry, monster_id)
+                    else {
+                        continue;
+                    };
+                    let dest = world
+                        .items_db
+                        .items
+                        .get(&(block.id as u16))
+                        .map(loot_destination)
+                        .unwrap_or(LootDestination::Bag);
+                    rolled.push((dest, item_id));
+                }
+                world.container_registry = registry;
+            });
+        }
 
         let mut bag_items: Vec<ItemId> = Vec::new();
         let mut equip_placements: Vec<(u8, ItemId)> = Vec::new();

@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use slotmap::Key;
 use tfs_rust_common::enums::{ConditionType, ZoneType};
 use tfs_rust_common::ConnId;
 
@@ -170,6 +171,26 @@ impl GameWorld {
 
         if let Some((pos, corpse_id, inventory)) = corpse_snapshot {
             self.drop_monster_corpse_772(pos, corpse_id, &inventory);
+        }
+
+        if crate::chase_debug::chase_path_debug_enabled() {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(victim) {
+                let killer_id = m
+                    .base
+                    .damage_map
+                    .iter()
+                    .max_by_key(|(_, dmg)| *dmg)
+                    .map(|(id, _)| id.data().as_ffi())
+                    .unwrap_or(0);
+                crate::chase_debug::log_creature_death(
+                    self.chase_trace_tick(),
+                    victim,
+                    &m.base.name,
+                    killer_id,
+                    m.experience,
+                    m.corpse_id,
+                );
+            }
         }
 
         crate::death::handle_creature_death(

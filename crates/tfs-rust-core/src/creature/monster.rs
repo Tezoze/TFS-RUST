@@ -171,6 +171,8 @@ pub struct Monster {
     pub pushable: bool,
     pub is_hostile: bool,
     pub is_idle: bool,
+    /// E6 harness — keep `Sleeping` posture until `player_damage` when scenario sets `monster_state sleeping`.
+    pub harness_preserve_sleep: bool,
     /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
     pub state: MonsterState,
     /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
@@ -231,6 +233,7 @@ impl Monster {
             pushable: config.pushable,
             is_hostile: config.is_hostile,
             is_idle: true,
+            harness_preserve_sleep: false,
             state: MonsterState::Sleeping,
             chase_mode: MonsterChaseMode::None,
             last_combat_trace: None,
@@ -269,13 +272,10 @@ impl Monster {
         self.pushable && self.base.speed != 0
     }
 
-    /// TFS `Monster::isFleeing` + 772 `PANIC` posture — `monster.h` ~154; `crnonpl.cc:2678`.
+    /// 772 `TMonster::IsFleeing` — `crnonpl.cc:3136` (HP threshold only; PANIC is separate).
     pub fn is_fleeing(&self) -> bool {
         if self.base.is_summon() || self.challenge_focus_duration > 0 {
             return false;
-        }
-        if self.state == MonsterState::Panic {
-            return true;
         }
         self.run_away_health > 0 && self.base.health <= self.run_away_health
     }

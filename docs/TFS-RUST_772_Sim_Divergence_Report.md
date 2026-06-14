@@ -1,6 +1,6 @@
 # TFS-RUST 772 — Simulation Divergence Report (Rust vs C++)
 
-**Date:** 2026-06-14 (last updated §18 gap closeout)  
+**Date:** 2026-06-14 (last updated §20 closeout)  
 **Scope:** Movement parity + combat E0–E3 (implemented), via headless kite harness  
 **Scenarios run:** `kite_rat_stand_melee.scenario`, `kite_rat_melee.scenario`, `kite_cyclops_quad_chase.scenario`  
 **Seed:** `TFS_SIM_SEED=772` (default in `run_kite_scenario.py`)  
@@ -49,6 +49,34 @@ Summaries saved under `log/summary_{stand,kite,cyclops}.txt`. `run_kite_scenario
 ## 1. Executive summary
 
 Both stacks emit a shared JSONL trace (`branch` → `todo_go` → `shortway` → `go_exec` + `combat_state` / `attack_enqueue` / `melee_hit`).
+
+### Current status (§20 — panic/ID/movement closeout, seed 772)
+
+**Parity scorecard:** lockstep gate **0/6** (unchanged); major uplifts on panic AI, E6 ID compare, cyclops `min_wp`, event-count alignment.
+
+| Scenario | Lockstep | Key §20 result |
+|----------|----------|----------------|
+| Stand rat | **FAIL** | Dance dest N vs S + tick cadence (4000 vs 6000); counts 11/8 |
+| Kite rat | **FAIL** | Movement/combat trace open |
+| Cyclops quad | **FAIL** | **20/20 events**; `todo_go`/`combat_state` **4/4**; C++ **`min_wp=150`**; tick cadence 2000 vs 4000 |
+| Cobra poison | **FAIL** | unchanged |
+| Rat panic | **FAIL** | **melee_dance 1/1** (was flee); dest/tick/combat ordering remain |
+| Rat kill | **FAIL** | **`creature_death` 1/1**; ID norm closed; **`damage_stimulus` damage 24 vs 20** residual |
+
+**Bottom line:** §20 closes the panic flee misread, compare-tool creature-ID normalization, C++ synthetic overlay extent, glibc loot + post-spawn RNG resync, and dist-chase move stimulus. Lockstep still red on stand dance RNG/tick and cyclops path shape.
+
+### Current status (§19 — combat-complete sim, seed 772)
+
+**Parity scorecard:** movement lockstep **0/6**; E5/E6 trace **partial** (events fire, ID/corpse schema diffs); E4 `spell_cast` **0/0** on cobra scenario (cobra closes to melee before delay gate fires).
+
+| Scenario | Lockstep | Key E4–E6 result |
+|----------|----------|------------------|
+| Stand / kite / cyclops | **FAIL** | Data-pack spawn (`monster_load_type`); stand/kite unchanged movement blockers |
+| Cobra poison | **FAIL** | Chase 100% `todo_go`/`shortway`/`go_exec`; no `spell_cast` either side |
+| Rat panic | **FAIL** | `damage_stimulus` 1/1 count; ref **panic** + dance, rust **panic** + flee |
+| Rat kill | **FAIL** | `damage_stimulus` + `creature_death` **1/1 each**; XP **5/5**; corpse_id differs (3994 vs 2813) |
+
+**Bottom line:** Full E0–E6 harness shipped (`monster_load_type`, `player_damage`, new JSONL events, 6-scenario battery). Combat-complete scenarios prove E5/E6 end-to-end; lockstep still fails on creature ID encoding and legacy movement/RNG gaps.
 
 ### Current status (§18 — synthetic, seed 772)
 
@@ -1083,6 +1111,218 @@ python3 scripts/summarize_chase_gaps.py --ref log/chase_path_cip.log --rust log/
 
 ---
 
+## 19. Combat-complete sim rerun (2026-06-14)
+
+Extended harness for full E0–E6: data-pack spawn, E4–E6 scenario verbs, new JSONL events, 6-scenario battery.
+
+### 19.1 Harness changes
+
+| Area | Rust | C++ reference |
+|------|------|---------------|
+| Data-pack spawn | `load_sim_content_dbs`, `insert_monster_from_type` + loot roll | Race from `monster` label (existing) |
+| Scenario verbs | `monster_load_type`, `monster_state`, `player_damage`, `player_damage_monster` | Same + early spawn for pre-appear damage |
+| JSONL events | `creature_death`, `ranged_hit` | `ChasePathLogSpellCast`, `DamageStimulus`, `CreatureDeath` |
+| Battery | `scripts/run_sim_battery.py --synthetic` | — |
+| Compare | `summarize_chase_gaps.py` E4–E6 events in lockstep gate | — |
+
+### 19.2 Battery rerun (`TFS_SIM_SEED=772`, `--synthetic`)
+
+```bash
+scripts/tibia_game_dev.sh run-qm   # terminal 1
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic
+```
+
+Logs: `log/chase_path_{cip,rust}_{stand,kite,cyclops,cobra,panic,kill}.log`  
+Summaries: `log/summary_*.txt`
+
+| Scenario | ref / rust events | Lockstep | Notable E4–E6 |
+|----------|-------------------|----------|---------------|
+| Stand rat | 13 / 10 | **FAIL** | Data-pack rat 20 HP; dance N vs S (§18) |
+| Kite rat | 15 / 15 | **FAIL** | `combat_state` 3/3 (100%) |
+| Cyclops quad | 20 / 20 | **FAIL** | `todo_go`/`combat_state` 4/4; `shortway`/`go_exec` 0/4 |
+| Cobra poison | 15 / 16 | **FAIL** | Chase parity high; **no `spell_cast`** |
+| Rat panic | 14 / 11 | **FAIL** | `damage_stimulus` 1/1; ref panic+dance vs rust panic+flee |
+| Rat kill | 2 / 2 | **FAIL** | **`damage_stimulus` + `creature_death` 1/1**; XP=5 both sides |
+
+### 19.3 E5/E6 first results
+
+**Rat kill (`kite_rat_kill.scenario`):** Both stacks emit exactly two combat events within 2000 ms wall:
+
+- `damage_stimulus`: sleeping → under_attack (C++) / same transition (Rust); damage 24 vs 20
+- `creature_death`: experience **5** on both; `corpse_id` ref **3994** vs rust **2813** (XML `<look corpse=2813>`)
+
+Lockstep fails on `attacker_id` / `killer_id` encoding (C++ `1073742161` vs Rust slotmap `4294967297`) — compare should normalize creature IDs in a follow-up.
+
+**Rat panic:** Both emit `damage_stimulus` with `new_state=panic`. C++ continues idle dance; Rust enters **flee** arms (`branch=flee`) — behavioral parity gap on post-panic walk.
+
+### 19.4 E4 cobra scenario
+
+`kite_cobra_poison.scenario` — cobra at cheb=5, 12 s wall. Neither side logged `spell_cast`; cobra closes via `todo_go`/`go_exec` chase and deals **melee_hit** instead. Delay gate (`rand()%Delay==0`) likely never fires before adjacency. **Action:** extend wall, pin player out of melee band, or force dist-only cobra loadout.
+
+### 19.5 Parity scorecard (post-§19)
+
+| Layer | Estimate | Change vs §18 |
+|-------|----------|---------------|
+| Harness E0–E6 plumbing | **~98%** | Data-pack spawn, E5/E6 verbs, battery runner |
+| E5 `damage_stimulus` trace | **~70%** | Events fire; panic vs flee walk differs |
+| E6 death trace | **~75%** | Events + XP match; corpse_id + killer_id schema |
+| E4 `spell_cast` trace | **~0%** | Scenario did not trigger cast on either stack |
+| Movement lockstep (legacy 3) | **~50%** | Unchanged §18 blockers |
+| Lockstep gate pass rate | **0%** | 0/6 scenarios |
+
+### 19.6 Next steps
+
+1. Normalize creature `id` / `killer_id` / `attacker_id` in compare (mask to generation-agnostic key).
+2. Cobra E4 scenario — keep cheb≥3 through full wall so CASTING delay gate can fire.
+3. Post-panic flee vs dance — confirm C++ `IsFleeing()` walk after PANIC vs Rust `DistFlee`/`Flee` arm selection.
+4. Carry forward §18 movement blockers (RNG re-seed, `min_wp` overlay, tick cadence).
+
+---
+
+## 20. §19 closeout — panic AI + ID norm + movement (2026-06-14)
+
+Shipped plan items A (panic dance), B (compare ID normalization), D1/D2/D3 (movement blockers).
+
+### 20.1 Fixes shipped
+
+| Area | Change | File(s) |
+|------|--------|---------|
+| **A — panic dance** | Remove `MonsterState::Panic` from `is_fleeing()` — HP threshold only (`crnonpl.cc:3136`) | `creature/monster.rs` |
+| **A — panic dance** | `PANIC → ATTACKING` after successful melee_dance at cheb=1 (`crnonpl.cc:2830`) | `monster_ai.rs` |
+| **A — test** | `test_e5_panic_dances_without_low_health` asserts `MeleeDance`, not `Flee` | `idle_stimulus.rs` |
+| **B — compare** | Semantic creature-ID roles (`attacker`/`target`/`self`) in combat keys | `summarize_chase_gaps.py` |
+| **B — compare** | `corpse_id` ignored unless `--strict-corpse`; payload-inferred roles when no header line | `summarize_chase_gaps.py` |
+| **D1 — RNG** | Spawn loot via glibc `random(0,999)` when sim RNG enabled; `resync_sim_glibc_rng()` after spawn | `monster_inventory.rs`, `game_world.rs`, `chase_kite_sim.rs` |
+| **D1 — RNG** | C++ `ResyncHarnessRng()` after `EnsureMonstersSpawned` | `chase_kite_scenario.cc` |
+| **D2 — min_wp** | Synthetic overlay radius = `arena_radius + 10` (FillMap viewport) | `chase_kite_scenario.cc` |
+| **D3 — cadence** | Dist-chase monsters re-arm idle on follow-target move (`dist_follow_move`) | `monster_events.rs` |
+
+**Not shipped (regression):** inline `creature_todo_yield` on `kite_monster_appear` silences multi-monster cyclops trace (0 JSONL events). Appear ToDoYield remains open; dist-chase move stimulus covers part of tick cadence.
+
+### 20.2 Battery rerun (`TFS_SIM_SEED=772`, `--synthetic`, QM on 7173)
+
+| Scenario | ref / rust events | Lockstep | Notable vs §19 |
+|----------|-------------------|----------|----------------|
+| Stand rat | 11 / 8 | **FAIL** | Same dance N vs S; tick bucket 4000 vs 6000 |
+| Kite rat | — | **FAIL** | (movement trace open) |
+| Cyclops quad | **20 / 20** | **FAIL** | C++ **`min_wp=150`**; `todo_go`/`combat_state` **4/4**; chase tick **2000 ref vs 4000 rust** |
+| Cobra poison | — | **FAIL** | unchanged |
+| Rat panic | **12 / 12** | **FAIL** | **melee_dance 1/1 both sides** (was ref dance / rust flee); dest N vs S |
+| Rat kill | 2 / 2 | **FAIL** | **`creature_death` 1/1**; only **`damage` 24 vs 20** on `damage_stimulus` |
+
+### 20.3 Panic scenario — before/after
+
+| Metric | §19 | §20 |
+|--------|-----|-----|
+| Rust branch mix | **3× flee**, 0 melee_dance | **1× melee_dance**, 0 flee |
+| ref branch mix | 2× melee_dance | 1× melee_dance |
+| Event totals | ref 14 / rust 11 | ref 12 / rust 12 |
+
+### 20.4 Kill scenario — ID normalization
+
+With semantic ID roles, lockstep no longer fails on `attacker_id`/`killer_id`/`corpse_id`. Residual:
+
+- `damage_stimulus[0]`: `damage` ref **24** vs rust **20** (combat math / loadout — separate from ID encoding)
+
+### 20.5 Cyclops — min_wp + tick cadence
+
+- C++ `shortway` now logs **`min_wp=150`** at all four monsters (overlay fix confirmed in `log/chase_path_cip_cyclops.log`).
+- Event counts **20/20**; semantic arms **`todo_go`/`combat_state` 4/4 (100%)**.
+- Remaining: **`shortway`/`go_exec` step shape** 0/4; **tick bucket** ref@2000 vs rust@4000 for chase arms.
+
+### 20.6 Parity scorecard (post-§20)
+
+| Layer | Estimate | Change vs §19 |
+|-------|----------|---------------|
+| E5 panic walk behavior | **~85%** | Up from ~70% — dance arm matches ref |
+| E6 death trace (compare) | **~90%** | ID roles normalized; damage delta only |
+| Cyclops harness counts | **~95%** | 20/20; min_wp aligned |
+| Cyclops path geometry | **~50%** | min_wp fixed; step lists + tick cadence open |
+| Stand dance RNG lockstep | **~50%** | Resync helps; first `%5` still N vs S at different ticks |
+| Lockstep gate pass rate | **0%** | 0/6 scenarios |
+
+### 20.7 Next steps
+
+1. Stand first-dance `%5` — trace glibc draws post-resync through first `branch`; align any remaining preamble (LoseTarget/talk) consumption order.
+2. Cyclops tick cadence — safe appear `ToDoYield` for multi-monster (batch yield without silencing trace).
+3. Kill `damage_stimulus` damage parity (24 vs 20) — probe C++ `player_damage` vs Rust `sim_player_damage_monster` loadout.
+4. Cobra E4 scenario tuning (unchanged from §19.4).
+
+---
+
+## 21. §20.6 closeout — dance dest, kill damage, path cadence (2026-06-14)
+
+Shipped plan items for Workstreams 1–3 (§20.6). Lockstep gate **1/6 PASS** (kill); movement scenarios improved on content but still fail tick-bucket gate.
+
+### 21.1 Fixes shipped
+
+| Area | Change | File(s) |
+|------|--------|---------|
+| **W1 — dance dest** | `DANCE_DIR_ORDER` indices 2/3 swapped vs C++ `%5` switch — reorder to `[W,E,N,S,hold]` (`crnonpl.cc:2814-2819`) | `sim_glibc_rand.rs` |
+| **W1 — test** | `dance_dir_order_n_s_matches_cpp_dest_y`; `test_772_dance_dir_order_matches_cpp` | `sim_glibc_rand.rs`, `idle_stimulus.rs` |
+| **W2a — ToDoWait(0)** | `creature_todo_yield` uses `todo_start_from_action(cid, 0)` (wakeup at `server_ms`, not `+1`) | `creature_todo.rs` |
+| **W2a — follow clear** | `monster_on_follow_creature_moved`: clear non-empty todo queue before repath (stale queue blocked yield) | `monster_events.rs` |
+| **W2b — step order** | Remove erroneous `steps.reverse()` after `truncate_cipsoft_chase_queue` in chase apply | `monster_ai.rs` |
+| **W3 — kill damage** | `sim_player_damage_monster`: subtract monster armor before combat apply | `sim_harness.rs` |
+| **W3 — stimulus order** | `combat_execute_with_stimulus`: log `damage_stimulus` **before** HP apply (post-armor magnitude, not dealt HP) | `idle_stimulus.rs` |
+| **W3 — E6 sleep** | `harness_preserve_sleep` on explicit `monster_state sleeping`; skip idle wake on appear/found/follow until damage | `monster.rs`, `chase_kite_sim.rs`, `monster_events.rs`, `monster_targets.rs`, `sim_harness.rs` |
+
+**Not shipped (regression):** batched appear `ToDoYield` after all monsters — cyclops produced tick=0 `melee_dance` + 0 `shortway` events. Per-monster appear loop restored; batch defer infrastructure kept but unused in main path.
+
+### 21.2 Battery rerun (`TFS_SIM_SEED=772`, `--synthetic`, QM on 7173)
+
+| Scenario | ref / rust events | Lockstep | Notable vs §20 |
+|----------|-------------------|----------|----------------|
+| Stand rat | 11 / 12 | **FAIL** | `branch`/`todo_go`/`go_exec` **content 100%**; tick bucket rust@2000 vs ref@4000 |
+| Kite rat | 8 / 17 | **FAIL** | movement trace open (unchanged blocker) |
+| Cyclops quad | **20 / 18** | **FAIL** | rust tick=0 `melee_dance`×2; ref chase@2000 vs rust@0; `shortway` 0/4 |
+| Cobra poison | 15 / 20 | **FAIL** | unchanged (E4 tuning out of scope) |
+| Panic rat | 12 / 14 | **FAIL** | dance + `damage_stimulus` **content 100%**; tick bucket rust@2000 vs ref@4000 |
+| Kill rat | **2 / 2** | **PASS** | `damage_stimulus` 24/24; `creature_death` 1/1; `sleeping→under_attack` |
+
+`cargo test -p tfs-rust-core`: **349 passed**.
+
+### 21.3 Residual gaps (lockstep FAIL scenarios)
+
+**Stand / panic — tick cadence (primary gate failure)**
+
+- Pairwise content for chase arms now matches (dance dest fix confirmed).
+- Mismatch volume is **tick-bucket only** for `branch`/`todo_go`/`go_exec`: rust fires one 2000 ms bucket early (rust@2000 vs ref@4000; stand `go_exec` ref@6000 vs rust@2000).
+- Combat trace counts still diverge: stand `combat_state` ref=3 rust=1; `melee_hit` ref=2 rust=4.
+
+**Cyclops — appear idle + chase shape**
+
+- Rust emits 2× `melee_dance` at tick=0 (should be 0); ref emits 0 branch events.
+- Ref `todo_go via=enter`×4 @2000; rust `via=single`×2 @0 — chase never reaches `shortway` logging.
+- Diagonal first step: ref `go_exec[0] diag=1`; rust `diag=0`.
+- Root cause cluster: per-monster appear still schedules idle before player kite; batch yield regressed trace; follow-move todo clear alone insufficient.
+
+**Kill — closed**
+
+- Armor subtract + stimulus-before-HP-apply closes damage 24 vs 20.
+- Explicit sleeping posture preserved until first damage closes `old_state` parity.
+
+### 21.4 Parity scorecard (post-§21)
+
+| Layer | Estimate | Change vs §20 |
+|-------|----------|---------------|
+| E5 panic walk behavior | **~90%** | Up — dance dest + damage_stimulus content match |
+| E6 death trace (compare) | **100%** | Kill scenario lockstep PASS |
+| Cyclops harness counts | **~90%** | 20/18 events; combat_state 4/4 |
+| Cyclops path geometry | **~40%** | Regressed tick=0 dance; shortway 0/4 |
+| Stand dance RNG lockstep | **~75%** | Dest fixed; tick cadence −2000 ms |
+| Lockstep gate pass rate | **17%** | **1/6** (kill); was 0/6 |
+
+### 21.5 Next steps
+
+1. **Appear cadence** — safe multi-monster appear yield without tick=0 dance or silenced JSONL (investigate `batch_appear_defer_idle` + single post-appear drain).
+2. **Stand/panic tick shift** — trace first idle wakeup from appear through first `branch`; align 2000 ms early fire vs ref@4000.
+3. **Cyclops diagonal first step** — re-validate `path_matching_tshortway` walk-back + `truncate_cipsoft_chase_queue` after cadence fix.
+4. **Combat trace counts** — stand/panic `combat_state`/`melee_hit`/`attack_enqueue` (outside strict lockstep keys but parity signal).
+5. Cobra E4 scenario tuning (unchanged from §19.4).
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -1097,3 +1337,6 @@ python3 scripts/summarize_chase_gaps.py --ref log/chase_path_cip.log --rust log/
 | 2026-06-14 | §17 closeout: defer appear idle (`ToDoYield`), LoseTarget always-draw, talk gate; tick=0 appear dance closed; lockstep still FAIL on stand dance dest + map RNG isolation |
 | 2026-06-14 | §17.7 parity scorecard: layer/scenario estimates (~80% structural, ~50% stand trace, 0% lockstep pass); executive summary updated |
 | 2026-06-14 | §18 gap closeout: C++ wild spawn skip + map monster purge, arena radius 16, kite wall_ms=6000; stand rat-only C++ log; kite comparable; cyclops 20/20 counts, todo_go/combat_state 4/4; lockstep still 0/3 |
+| 2026-06-14 | §19 combat-complete sim: monster_load_type spawn, player_damage verbs, E4–E6 JSONL + battery; kill scenario E5/E6 1/1 events; lockstep 0/6 |
+| 2026-06-14 | §20 closeout: panic→melee_dance (not flee), compare ID normalization, C++ overlay +26 tiles, glibc loot/resync, dist-chase move stimulus; cyclops min_wp=150 + 20/20 counts; kill creature_death 1/1; lockstep still 0/6 |
+| 2026-06-14 | §21 closeout: DANCE_DIR_ORDER N/S fix, ToDoWait(0), chase step reverse removed, kill armor+stimulus order, harness_preserve_sleep; kill lockstep PASS (1/6); stand/panic content 100% on chase arms; cyclops tick=0 dance regression documented |

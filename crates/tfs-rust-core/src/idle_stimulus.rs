@@ -127,6 +127,9 @@ impl GameWorld {
         if !self.creature_todo_queue_empty(cid) {
             return;
         }
+        if self.batch_appear_defer_idle {
+            return;
+        }
         // C++ `ToDoYield` — schedule `ToDoWait(0)` + `ToDoStart`; `IdleStimulus` runs when
         // the todo list drains on wakeup, not inline from appear/move stimuli (`cract.cc:1001`).
         trace_creature_todo(self, cid, "request_idle_stimulus");
@@ -143,11 +146,13 @@ impl GameWorld {
         damage: &CombatDamage,
         params: &CombatParams,
     ) -> bool {
-        let hp_before = self
-            .creatures
-            .get(target)
-            .map(|k| k.base().health)
-            .unwrap_or(0);
+        let stimulus_damage = (-(damage.primary.1 + damage.secondary.1)).max(0);
+        if let Some(attacker_id) = attacker {
+            if stimulus_damage > 0 {
+                // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
+                self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
+            }
+        }
         let applied = crate::combat::execute(
             &mut self.creatures,
             attacker,
@@ -160,13 +165,7 @@ impl GameWorld {
                 .creatures
                 .get(target)
                 .map(|k| k.base().health)
-                .unwrap_or(hp_before);
-            if let Some(attacker_id) = attacker {
-                let dealt = hp_before.saturating_sub(hp_after);
-                if dealt > 0 {
-                    self.monster_damage_stimulus(target, attacker_id, dealt);
-                }
-            }
+                .unwrap_or(0);
             if hp_after <= 0 && self.creatures.contains_key(target) {
                 self.apply_creature_death(target);
             }
@@ -3696,7 +3695,7 @@ mod tests {
     }
 
     #[test]
-    fn test_e5_panic_flees_without_low_health() {
+    fn test_e5_panic_dances_without_low_health() {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
@@ -3718,14 +3717,35 @@ mod tests {
 
         assert!(
             world.creatures.get(monster).is_some_and(|k| match k {
-                CreatureKind::Monster(m) => m.state == MonsterState::Panic && m.is_fleeing(),
+                CreatureKind::Monster(m) => {
+                    m.state == MonsterState::Panic && !m.is_fleeing()
+                }
                 _ => false,
             }),
-            "PANIC must gate flee without run_away_health threshold — crnonpl.cc:2678"
+            "PANIC must not gate IsFleeing — crnonpl.cc:3136"
         );
         assert_eq!(
             world.monster_idle_classify_walk_branch(monster),
-            MonsterIdleWalkBranch::Flee
+            MonsterIdleWalkBranch::MeleeDance
+        );
+    }
+
+    /// C++ `%5` case 2/3 map to North/South dest tiles — `crnonpl.cc:2817-2818`.
+    #[test]
+    fn test_772_dance_dir_order_matches_cpp() {
+        use tfs_rust_common::Position;
+        use crate::sim_glibc_rand::DANCE_DIR_ORDER;
+
+        let pos = Position::new(32361, 32290, 7);
+        assert_eq!(
+            pos.offset(DANCE_DIR_ORDER[2].unwrap()),
+            Position::new(32361, 32289, 7),
+            "case 2 must step north (DestY-=1)"
+        );
+        assert_eq!(
+            pos.offset(DANCE_DIR_ORDER[3].unwrap()),
+            Position::new(32361, 32291, 7),
+            "case 3 must step south (DestY+=1)"
         );
     }
 

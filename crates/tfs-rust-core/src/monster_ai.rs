@@ -519,6 +519,21 @@ impl GameWorld {
                 .get(target_id)
                 .map(|k| k.base().health)
                 .unwrap_or(hp_before);
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                crate::chase_debug::log_ranged_hit(
+                    self.chase_trace_tick(),
+                    cid,
+                    &m.base.name,
+                    target_id.data().as_ffi(),
+                    attack_roll,
+                    defense_roll,
+                    armor_roll,
+                    dmg,
+                    hp_before,
+                    hp_after,
+                    self.creatures.get(cid).map(|k| k.base().earliest_attack_ms).unwrap_or(0),
+                );
+            }
             self.notify_player_combat_damage(
                 Some(cid),
                 target_id,
@@ -1294,6 +1309,14 @@ impl GameWorld {
             base.has_follow_path = true;
             base.force_update_follow_path = false;
         }
+        // C++ `crnonpl.cc:2830` — successful melee dance promotes PANIC → ATTACKING.
+        if band == 1 {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                if m.state == MonsterState::Panic {
+                    m.state = MonsterState::Attacking;
+                }
+            }
+        }
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 let branch = if target_distance > 1 {
@@ -1603,7 +1626,7 @@ impl GameWorld {
                     must_reach,
                     stop_at_cheb,
                 );
-                steps.reverse();
+                // `truncate_cipsoft_chase_queue` already returns C++ walk-back order (first step first).
             }
             if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
                 if let Some(k) = self.creatures.get(cid) {

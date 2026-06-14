@@ -132,6 +132,8 @@ pub struct GameWorld {
     pub(crate) ai_rng: StdRng,
     /// Headless sim only — cap `move_creatures` / `run_sim_tick` time advance (`chase_kite_scenario.cc`).
     pub(crate) sim_harness_wall_ms: Option<u64>,
+    /// Harness batch appear — defer `request_idle_stimulus` until explicit `creature_todo_yield` pass.
+    pub(crate) batch_appear_defer_idle: bool,
 }
 
 impl GameWorld {
@@ -207,6 +209,7 @@ impl GameWorld {
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
             sim_harness_wall_ms: None,
+            batch_appear_defer_idle: false,
         }
     }
 
@@ -214,6 +217,18 @@ impl GameWorld {
     #[inline]
     pub(crate) fn chase_trace_tick(&self) -> u64 {
         self.server_ms
+    }
+
+    /// Re-seed glibc `rand()` after spawn loot — chase harness idle/combat parity.
+    pub fn resync_sim_glibc_rng(&mut self) {
+        if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
+            if let Ok(seed) = seed_str.parse::<u64>() {
+                if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                    unsafe { libc::srand(seed as u32) };
+                    crate::sim_glibc_rand::reset_sim_rng_call_count();
+                }
+            }
+        }
     }
 
     /// Re-seed [`Self::ai_rng`] when `TFS_SIM_SEED` is set (headless parity harness).

@@ -21,10 +21,13 @@ use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::DbPool;
 
 use crate::config::ConfigManager;
+use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::{
-    CreatureBase, CreatureKind, Monster, MonsterAiConfig, Npc, Outfit, Player, PlayerEconomy,
-    PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+    CreatureBase, CreatureKind, Monster, MonsterAiConfig, MonsterState, Npc, Outfit, Player,
+    PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
+use tfs_rust_common::enums::CombatType;
+use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -343,8 +346,89 @@ pub fn beat_driven_world() -> GameWorld {
 
 /// Synthetic chase arena — uniform walkable tiles with pinned waypoint cost.
 pub fn beat_driven_world_with_synthetic_ground(waypoint: Option<u16>) -> GameWorld {
+    beat_driven_world_with_synthetic_ground_data(Path::new("/nonexistent"), waypoint)
+        .unwrap_or_else(|_| panic!("synthetic world without data dir failed"))
+}
+
+/// Load item + monster databases from the data pack for chase sim spawn parity.
+/// C++ reference: `Monsters::loadMonster` — `monsters.cpp`.
+pub fn load_sim_content_dbs(
+    data_dir: &Path,
+    synthetic_ground_wp: Option<u16>,
+) -> Result<(Arc<ItemDatabase>, Arc<MonsterDatabase>), String> {
+    let mut items_db = load_items_db_for_772(data_dir)?;
+    if let Some(wp) = synthetic_ground_wp {
+        register_synthetic_ground(&mut items_db.items, wp);
+    }
+    let items_db = Arc::new(items_db);
+    let monsters_dir = data_dir.join("monster");
+    let monsters_db = Arc::new(
+        MonsterDatabase::load_dir(&monsters_dir, items_db.as_ref()).map_err(|e| e.to_string())?,
+    );
+    Ok((items_db, monsters_db))
+}
+
+fn monster_outfit_to_sim(o: &MonsterOutfit) -> Outfit {
+    Outfit {
+        look_type: o.look_type,
+        look_head: o.look_head,
+        look_body: o.look_body,
+        look_legs: o.look_legs,
+        look_feet: o.look_feet,
+        look_addons: o.look_addons,
+    }
+}
+
+fn init_beat_driven_world(
+    map: Map,
+    items: SlotMap<crate::ids::ItemId, crate::item::Item>,
+    items_db: Arc<ItemDatabase>,
+    monsters_db: Arc<MonsterDatabase>,
+    mechanics: crate::formulas::Mechanics,
+) -> GameWorld {
+    let mut world = GameWorld::new(
+        map,
+        items,
+        Box::new(NullEventDispatcher),
+        Rc::new(test_config()),
+        DbPool::lazy_for_tests().expect("lazy db pool"),
+        SpawnManager::from_zones(Vec::new()),
+        items_db,
+        monsters_db,
+        Arc::new(GroupDatabase {
+            groups: HashMap::new(),
+        }),
+        Arc::new(VocationDatabase {
+            vocations: HashMap::new(),
+        }),
+        None,
+        tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V772)
+            .expect("772 codec"),
+        mechanics,
+    );
+    world.beat_driven_loop = true;
+    world.walk_wake_tx = None;
+    world.server_ms = 0;
+    world.init_sim_rng_from_env();
+    world
+}
+
+/// Synthetic beat-driven world with data-pack items + monsters (E0/E6 loot roll).
+pub fn beat_driven_world_with_synthetic_ground_data(
+    data_dir: &Path,
+    waypoint: Option<u16>,
+) -> Result<GameWorld, String> {
     let _guard = test_runtime().enter();
-    let items_db = Arc::new(beat_driven_items_db(waypoint));
+    let (items_db, monsters_db) = if data_dir.is_dir() {
+        load_sim_content_dbs(data_dir, waypoint)?
+    } else {
+        (
+            Arc::new(beat_driven_items_db(waypoint)),
+            Arc::new(MonsterDatabase {
+                monsters: HashMap::new(),
+            }),
+        )
+    };
 
     let mut map = Map {
         width: 256,
@@ -362,33 +446,19 @@ pub fn beat_driven_world_with_synthetic_ground(waypoint: Option<u16>) -> GameWor
         },
     );
 
-    let mut world = GameWorld::new(
+    let mechanics = if data_dir.is_dir() {
+        crate::formulas::load_mechanics(data_dir, ProtocolVersion::V772)
+    } else {
+        crate::formulas::Mechanics::for_version(ProtocolVersion::V772)
+    };
+
+    Ok(init_beat_driven_world(
         map,
         SlotMap::default(),
-        Box::new(NullEventDispatcher),
-        Rc::new(test_config()),
-        DbPool::lazy_for_tests().expect("lazy db pool"),
-        SpawnManager::from_zones(Vec::new()),
         items_db,
-        Arc::new(MonsterDatabase {
-            monsters: HashMap::new(),
-        }),
-        Arc::new(GroupDatabase {
-            groups: HashMap::new(),
-        }),
-        Arc::new(VocationDatabase {
-            vocations: HashMap::new(),
-        }),
-        None,
-        tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V772)
-            .expect("772 codec"),
-        crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772),
-    );
-    world.beat_driven_loop = true;
-    world.walk_wake_tx = None;
-    world.server_ms = 0;
-    world.init_sim_rng_from_env();
-    world
+        monsters_db,
+        mechanics,
+    ))
 }
 
 /// Lay synthetic arena and return the pinned `min_wp` for pathfinding parity checks.
@@ -473,33 +543,12 @@ pub fn beat_driven_world_from_map(data_dir: &Path, map_rel: &str) -> Result<Game
     let mut items = SlotMap::default();
     let map = Map::from_map_data(map_data, items_db.as_ref(), &mut items);
     let mechanics = crate::formulas::load_mechanics(data_dir, ProtocolVersion::V772);
-
-    let mut world = GameWorld::new(
-        map,
-        items,
-        Box::new(NullEventDispatcher),
-        Rc::new(test_config()),
-        DbPool::lazy_for_tests().map_err(|e| e.to_string())?,
-        SpawnManager::from_zones(Vec::new()),
-        items_db,
-        Arc::new(MonsterDatabase {
-            monsters: HashMap::new(),
-        }),
-        Arc::new(GroupDatabase {
-            groups: HashMap::new(),
-        }),
-        Arc::new(VocationDatabase {
-            vocations: HashMap::new(),
-        }),
-        None,
-        tfs_rust_net::Codec::from_version(ProtocolVersion::V772)
-            .map_err(|e| e.to_string())?,
-        mechanics,
+    let monsters_dir = data_dir.join("monster");
+    let monsters_db = Arc::new(
+        MonsterDatabase::load_dir(&monsters_dir, items_db.as_ref()).map_err(|e| e.to_string())?,
     );
-    world.beat_driven_loop = true;
-    world.walk_wake_tx = None;
-    world.server_ms = 0;
-    world.init_sim_rng_from_env();
+
+    let world = init_beat_driven_world(map, items, items_db, monsters_db, mechanics);
     Ok(world)
 }
 
@@ -647,6 +696,102 @@ pub fn insert_monster_with_config(
     cid
 }
 
+/// Spawn from parsed monster type — E0 combat snapshot + E6 loot roll at spawn.
+/// C++ reference: `TMonster::TMonster` — `crnonpl.cc:2050`.
+pub fn insert_monster_from_type(
+    world: &mut GameWorld,
+    mtype: &MonsterType,
+    display_name: &str,
+    pos: Position,
+    speed: i32,
+    config: MonsterAiConfig,
+    initial_state: MonsterState,
+) -> CreatureId {
+    let base = CreatureBase {
+        name: display_name.into(),
+        position: pos,
+        direction: Direction::North,
+        health: mtype.health_now as i32,
+        max_health: mtype.health_max as i32,
+        outfit: monster_outfit_to_sim(&mtype.outfit),
+        speed,
+        base_speed: speed,
+        skull: SkullType::None,
+        drunkenness: 0,
+        active_conditions: Vec::new(),
+        walk_queue: Default::default(),
+        last_step: None,
+        last_step_cost: 1,
+        last_step_ground_speed: 150,
+        next_walk_check: None,
+        next_wakeup: None,
+        last_step_server_ms: None,
+        walk_timer: Default::default(),
+        cancel_next_walk: false,
+        force_update_follow_path: false,
+        walk_update_ticks: 0,
+        is_updating_path: false,
+        has_follow_path: false,
+        movement_blocked: false,
+        stairhop_blocked_until: None,
+        follow_target: None,
+        attack_target: None,
+        master: None,
+        damage_map: Default::default(),
+        think_check_bucket: None,
+        earliest_attack_ms: 0,
+        earliest_defend_ms: 0,
+        last_defend_ms: 0,
+        todo: Default::default(),
+    };
+    let cid = world
+        .creatures
+        .insert(CreatureKind::Monster(Monster::with_config(base, pos, config)));
+    if world.beat_driven_loop {
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
+            m.experience = mtype.experience;
+            m.corpse_id = mtype.outfit.corpse_id;
+            m.state = initial_state;
+            m.is_idle = true;
+        }
+        world.roll_monster_spawn_loot(cid, mtype);
+        world.recompute_monster_combat_from_equipment(cid);
+    }
+    world.map.register_creature_at(pos, cid);
+    cid
+}
+
+/// Harness-only player strike — fires E5 `damage_stimulus` on monsters.
+/// C++ reference: `TCreature::Damage` → `TMonster::DamageStimulus` — `crmain.cc:486`, `crnonpl.cc:2304`.
+pub fn sim_player_damage_monster(
+    world: &mut GameWorld,
+    player_id: CreatureId,
+    monster_id: CreatureId,
+    amount: i32,
+) -> bool {
+    if amount <= 0 {
+        return false;
+    }
+    let armor = match world.creatures.get(monster_id) {
+        Some(CreatureKind::Monster(m)) => m.armor,
+        _ => return false,
+    };
+    // C++ physical branch subtracts armor before `DamageStimulus` — `crmain.cc:623-631`.
+    let damage = amount.saturating_sub(armor);
+    if damage <= 0 {
+        return false;
+    }
+    world.combat_execute_with_stimulus(
+        Some(player_id),
+        monster_id,
+        &CombatDamage {
+            primary: (CombatType::Physical, -damage),
+            secondary: (CombatType::Physical, 0),
+        },
+        &CombatParams::default(),
+    )
+}
+
 pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
     let base = CreatureBase {
         name: name.into(),
@@ -730,10 +875,30 @@ pub fn teleport_player(
     Ok(())
 }
 
+/// Wake monsters, acquire targets, then batch `ToDoYield` — `chase_kite_scenario.cc` `SpawnMonsterAppear`.
+pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[CreatureId]) {
+    world.batch_appear_defer_idle = true;
+    for &monster_id in monster_ids {
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+            if m.state != MonsterState::Sleeping {
+                m.is_idle = false;
+            }
+        }
+        world.monster_on_creature_appear_self(monster_id);
+        world.add_creature_think_check(monster_id);
+    }
+    world.batch_appear_defer_idle = false;
+    for &monster_id in monster_ids {
+        world.creature_todo_yield(monster_id);
+    }
+}
+
 /// Wake monster and run appear/target acquisition — `monster_appear` scenario step.
 pub fn kite_monster_appear(world: &mut GameWorld, monster_id: CreatureId) {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-        m.is_idle = false;
+        if !m.harness_preserve_sleep {
+            m.is_idle = false;
+        }
     }
     world.monster_on_creature_appear_self(monster_id);
     world.add_creature_think_check(monster_id);
@@ -859,6 +1024,38 @@ mod harness_tests {
         run_sim_tick(&mut world);
         assert!(world.server_ms <= 6_000);
         let _ = cid;
+    }
+
+    #[test]
+    fn batch_appear_defers_idle_then_yields_once() {
+        use crate::creature::MonsterState;
+        use crate::test_world::support::{ensure_walkable_tile, test_player};
+
+        let mut world = beat_driven_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_hostile = true;
+            m.state = MonsterState::Sleeping;
+            m.is_idle = true;
+        }
+        world.batch_appear_defer_idle = true;
+        world.monster_on_creature_appear_self(monster);
+        assert!(
+            world.creature_todo_queue_empty(monster),
+            "deferred appear must not ToDoYield during target acquire"
+        );
+        world.batch_appear_defer_idle = false;
+        world.creature_todo_yield(monster);
+        assert!(
+            !world.creature_todo_queue_empty(monster),
+            "batch yield must enqueue Wait(0)"
+        );
     }
 
     /// OTBM kite lab — rat/player/dance tiles must be walkable on forgotten.otbm.

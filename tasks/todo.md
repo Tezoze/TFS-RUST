@@ -304,9 +304,9 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 ## Monster combat E5 — DamageStimulus / PANIC flee — done
 - [x] `combat_execute_with_stimulus` → `monster_damage_stimulus` on HP loss (`crnonpl.cc:2278`)
 - [x] PANIC/UNDERATTACK state rules + storm-guarded `creature_todo_yield` (`cract.cc:1001`)
-- [x] `is_fleeing()` includes `MonsterState::Panic` (`crnonpl.cc:2678`)
+- [x] ~~`is_fleeing()` includes `MonsterState::Panic`~~ **Corrected §20:** PANIC ≠ flee; `IsFleeing()` is HP-threshold only (`crnonpl.cc:3136`); panic → melee_dance + PANIC→ATTACKING after dance
 - [x] `chase_debug::log_damage_stimulus` sim event
-- [x] Tests: `test_e5_idle_with_target_hit_becomes_under_attack`, sleeping→panic+yield, panic flee, rehit storm guard
+- [x] Tests: `test_e5_idle_with_target_hit_becomes_under_attack`, sleeping→panic+yield, `test_e5_panic_dances_without_low_health`, rehit storm guard
 
 ## Monster combat E6 — loot-on-spawn / death drop / equipment stats / race exp — done
 - [x] `MonsterOutfit.corpse_id` parse from `<look corpse=>` ([monsters.rs](../crates/tfs-rust-content/src/monsters.rs))
@@ -315,3 +315,11 @@ Gate each phase: `cargo check -p tfs-rust-core && cargo clippy -p tfs-rust-core 
 - [x] `combat_execute_with_stimulus`: HP≤0 → `apply_creature_death`
 - [x] `death.rs`: race `experience` + `distribute_experience`; generic corpse only on 1098
 - [x] Tests: `test_e6_rat_experience_on_death`, corpse loot, armor/weapon stats, summon no-loot
+
+## Combat-complete sim harness (E0–E6 battery) — done
+- [x] `monster_load_type` data-pack spawn + loot roll in `chase_kite_sim` / `sim_harness.rs`
+- [x] Scenario verbs: `monster_state`, `player_damage`, `player_damage_monster`
+- [x] JSONL: `creature_death`, `ranged_hit`; C++ `spell_cast`/`damage_stimulus`/`creature_death` hooks
+- [x] Scenarios: `kite_cobra_poison`, `kite_rat_panic`, `kite_rat_kill` + `monster_load_type` on legacy three
+- [x] `scripts/run_sim_battery.py`; `summarize_chase_gaps.py` E4–E6 events
+- [x] Full A/B battery §19 — logs under `log/summary_*.txt`; lockstep 0/6 (E5/E6 events fire on kill)

@@ -1,0 +1,27 @@
+name kite_rat_panic
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Sleeping rat hit before targeting — E5 damage_stimulus → PANIC
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+monster rat 32361 32290
+monster_load_type 1
+monster_state sleeping
+monster_hostile 1
+
+advance_ms 0
+player_damage 5
+monster_appear
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick

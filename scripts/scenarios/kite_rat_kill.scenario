@@ -1,0 +1,23 @@
+name kite_rat_kill
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Rat from data pack (20 HP) — E6 creature_death + race XP/corpse
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+monster rat 32361 32290
+monster_load_type 1
+monster_state sleeping
+monster_hostile 1
+
+advance_ms 0
+monster_appear
+
+advance_ms 0
+player_damage 25
+
+advance_ms 2000
+sim_tick

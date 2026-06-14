@@ -8,12 +8,13 @@ use std::fs;
 use std::path::PathBuf;
 
 use tfs_rust_common::Position;
-use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig};
+use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
-    beat_driven_world_from_map, beat_driven_world_with_synthetic_ground, default_sim_map_config,
-    insert_monster_with_config, insert_player, kite_monster_appear, lay_synthetic_arena,
-    move_creatures_explicit, run_sim_tick, set_sim_harness_wall_ms, sim_hero_player,
-    teleport_player, validate_positions_walkable, SimMapConfig,
+    beat_driven_world_from_map, beat_driven_world_with_synthetic_ground_data,
+    default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
+    kite_monster_appear, lay_synthetic_arena, move_creatures_explicit, run_sim_tick,
+    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
+    validate_positions_walkable, SimMapConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -33,6 +34,7 @@ struct KiteScenario {
     player_name: String,
     monsters: Vec<MonsterSpawn>,
     monster_speed: i32,
+    monster_speed_from_scenario: bool,
     monster_hostile: bool,
     monster_melee_skill: i32,
     monster_melee_attack: i32,
@@ -40,6 +42,9 @@ struct KiteScenario {
     monster_defense: i32,
     monster_target_distance: i32,
     monster_talks: u8,
+    monster_load_type: bool,
+    monster_initial_state: MonsterState,
+    monster_state_explicit: bool,
     arena_synthetic: bool,
     steps: Vec<ScenarioStep>,
 }
@@ -50,8 +55,20 @@ enum ScenarioStep {
     MonsterAppear,
     PlayerPos(u16, u16),
     SimTick,
+    PlayerDamage(i32),
+    PlayerDamageMonster(usize, i32),
 }
 
+fn parse_monster_state(raw: &str) -> Result<MonsterState, String> {
+    match raw.to_ascii_lowercase().as_str() {
+        "sleeping" => Ok(MonsterState::Sleeping),
+        "idle" => Ok(MonsterState::Idle),
+        "under_attack" | "underattack" => Ok(MonsterState::UnderAttack),
+        "attacking" => Ok(MonsterState::Attacking),
+        "panic" => Ok(MonsterState::Panic),
+        other => Err(format!("unknown monster_state: {other}")),
+    }
+}
 
 fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
     let mut s = KiteScenario {
@@ -63,6 +80,7 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
         player_name: "Hero".into(),
         monsters: Vec::new(),
         monster_speed: 200,
+        monster_speed_from_scenario: false,
         monster_hostile: true,
         monster_melee_skill: 0,
         monster_melee_attack: 7,
@@ -70,6 +88,8 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
         monster_defense: 3,
         monster_target_distance: 1,
         monster_talks: 0,
+        monster_load_type: true,
+        monster_initial_state: MonsterState::Sleeping,
         arena_synthetic: false,
         ..Default::default()
     };
@@ -135,9 +155,17 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
             }
             "monster_speed" if parts.len() >= 2 => {
                 s.monster_speed = parts[1].parse().map_err(|_| "bad monster_speed")?;
+                s.monster_speed_from_scenario = true;
             }
             "monster_talks" if parts.len() >= 2 => {
                 s.monster_talks = parts[1].parse().map_err(|_| "bad monster_talks")?;
+            }
+            "monster_load_type" if parts.len() >= 2 => {
+                s.monster_load_type = parts[1] != "0";
+            }
+            "monster_state" if parts.len() >= 2 => {
+                s.monster_initial_state = parse_monster_state(parts[1])?;
+                s.monster_state_explicit = true;
             }
             "advance_ms" if parts.len() >= 2 => {
                 let ms: u64 = parts[1].parse().map_err(|_| "bad advance_ms")?;
@@ -150,6 +178,15 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
                 s.steps.push(ScenarioStep::PlayerPos(x, y));
             }
             "sim_tick" => s.steps.push(ScenarioStep::SimTick),
+            "player_damage" if parts.len() >= 2 => {
+                let amount: i32 = parts[1].parse().map_err(|_| "bad player_damage")?;
+                s.steps.push(ScenarioStep::PlayerDamage(amount));
+            }
+            "player_damage_monster" if parts.len() >= 3 => {
+                let idx: usize = parts[1].parse().map_err(|_| "bad player_damage_monster idx")?;
+                let amount: i32 = parts[2].parse().map_err(|_| "bad player_damage_monster amount")?;
+                s.steps.push(ScenarioStep::PlayerDamageMonster(idx, amount));
+            }
             other => return Err(format!("unknown scenario verb: {other}")),
         }
     }
@@ -228,9 +265,15 @@ fn scenario_walk_positions(scenario: &KiteScenario) -> Vec<Position> {
     out
 }
 
-fn build_world(scenario: &KiteScenario, map_cfg: &SimMapConfig) -> Result<tfs_rust_core::game_world::GameWorld, String> {
+fn build_world(
+    scenario: &KiteScenario,
+    map_cfg: &SimMapConfig,
+) -> Result<tfs_rust_core::game_world::GameWorld, String> {
     let world = if map_cfg.synthetic_arena {
-        let mut w = beat_driven_world_with_synthetic_ground(Some(scenario.default_wp));
+        let mut w = beat_driven_world_with_synthetic_ground_data(
+            &map_cfg.data_dir,
+            Some(scenario.default_wp),
+        )?;
         let min_wp = lay_synthetic_arena(
             &mut w.map,
             scenario.arena_center.0,
@@ -254,16 +297,7 @@ fn build_world(scenario: &KiteScenario, map_cfg: &SimMapConfig) -> Result<tfs_ru
     Ok(world)
 }
 
-fn spawn_entities(
-    world: &mut tfs_rust_core::game_world::GameWorld,
-    scenario: &KiteScenario,
-) -> SimHandles {
-    let z = scenario.z;
-    let player_pos = Position::new(scenario.player_start.0, scenario.player_start.1, z);
-
-    let player_id = insert_player(world, sim_hero_player(&scenario.player_name, player_pos));
-    world.map.register_creature_at(player_pos, player_id);
-
+fn scenario_monster_config(scenario: &KiteScenario) -> MonsterAiConfig {
     let mut config = MonsterAiConfig::default();
     config.is_hostile = scenario.monster_hostile;
     config.target_distance = scenario.monster_target_distance;
@@ -272,6 +306,20 @@ fn spawn_entities(
     config.armor = scenario.monster_armor;
     config.defense = scenario.monster_defense;
     config.talks = scenario.monster_talks;
+    config
+}
+
+fn spawn_entities(
+    world: &mut tfs_rust_core::game_world::GameWorld,
+    scenario: &KiteScenario,
+) -> Result<SimHandles, String> {
+    let z = scenario.z;
+    let player_pos = Position::new(scenario.player_start.0, scenario.player_start.1, z);
+
+    let player_id = insert_player(world, sim_hero_player(&scenario.player_name, player_pos));
+    world.map.register_creature_at(player_pos, player_id);
+
+    let config = scenario_monster_config(scenario);
 
     let mut monster_ids = Vec::with_capacity(scenario.monsters.len());
     for (idx, spawn) in scenario.monsters.iter().enumerate() {
@@ -281,24 +329,79 @@ fn spawn_entities(
         } else {
             format!("{} {}", capitalize_monster(&spawn.label), idx + 1)
         };
-        let monster_id = insert_monster_with_config(
-            world,
-            &monster_name,
-            monster_pos,
-            scenario.monster_speed,
-            config.clone(),
-        );
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-            m.is_idle = true;
-        }
+
+        let type_key = spawn.label.to_ascii_lowercase();
+        let mtype_owned = scenario
+            .monster_load_type
+            .then(|| world.monsters_db.monsters.get(&type_key).cloned())
+            .flatten();
+
+        let speed = if scenario.monster_speed_from_scenario {
+            scenario.monster_speed
+        } else {
+            mtype_owned
+                .as_ref()
+                .map(|t| t.speed as i32)
+                .unwrap_or(scenario.monster_speed)
+        };
+
+        let monster_id = if let Some(ref mtype) = mtype_owned {
+            let mut typed_config = MonsterAiConfig::from_monster_type(mtype);
+            typed_config.is_hostile = config.is_hostile;
+            if scenario.monster_melee_skill != 0 {
+                typed_config.melee_skill = config.melee_skill;
+            }
+            typed_config.melee_attack = config.melee_attack;
+            typed_config.armor = config.armor;
+            typed_config.defense = config.defense;
+            typed_config.target_distance = config.target_distance;
+            typed_config.talks = config.talks;
+            insert_monster_from_type(
+                world,
+                mtype,
+                &monster_name,
+                monster_pos,
+                speed,
+                typed_config,
+                scenario.monster_initial_state,
+            )
+        } else {
+            if scenario.monster_load_type {
+                return Err(format!(
+                    "monster_load_type: unknown type '{type_key}' in monsters db"
+                ));
+            }
+            let monster_id = insert_monster_with_config(
+                world,
+                &monster_name,
+                monster_pos,
+                speed,
+                config.clone(),
+            );
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+                m.state = scenario.monster_initial_state;
+                m.is_idle = true;
+            }
+            monster_id
+        };
+
         monster_ids.push(monster_id);
+        if scenario.monster_state_explicit
+            && scenario.monster_initial_state == MonsterState::Sleeping
+        {
+            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+                m.harness_preserve_sleep = true;
+            }
+        }
     }
 
-    SimHandles {
+    world.resync_sim_glibc_rng();
+
+    Ok(SimHandles {
         player_id,
         monster_ids,
         monsters_appeared: false,
-    }
+    })
 }
 
 fn execute_step(
@@ -328,13 +431,32 @@ fn execute_step(
             run_sim_tick(world);
         }
         ScenarioStep::SimTick => run_sim_tick(world),
+        ScenarioStep::PlayerDamage(amount) => {
+            for &monster_id in &handles.monster_ids {
+                if world.creatures.contains_key(monster_id) {
+                    sim_player_damage_monster(world, handles.player_id, monster_id, *amount);
+                }
+            }
+            run_sim_tick(world);
+        }
+        ScenarioStep::PlayerDamageMonster(idx, amount) => {
+            let monster_id = handles
+                .monster_ids
+                .get(*idx)
+                .copied()
+                .ok_or_else(|| format!("player_damage_monster: invalid index {idx}"))?;
+            if world.creatures.contains_key(monster_id) {
+                sim_player_damage_monster(world, handles.player_id, monster_id, *amount);
+            }
+            run_sim_tick(world);
+        }
     }
     Ok(())
 }
 
 fn run_scenario(scenario: &KiteScenario, map_cfg: &SimMapConfig) -> Result<(), String> {
     let mut world = build_world(scenario, map_cfg)?;
-    let mut handles = spawn_entities(&mut world, scenario);
+    let mut handles = spawn_entities(&mut world, scenario)?;
     let mut clock = SimClock::new();
     clock.apply_wall(&mut world);
     for step in &scenario.steps {
@@ -407,11 +529,12 @@ fn run_main() -> Result<(), String> {
     }
     let wall_budget = scenario_advance_budget(&scenario.steps);
     eprintln!(
-        "chase_kite_sim: scenario '{}' ({} steps, {} monsters) wall_ms={} map={}/{} synthetic={}",
+        "chase_kite_sim: scenario '{}' ({} steps, {} monsters) wall_ms={} load_type={} map={}/{} synthetic={}",
         scenario.name,
         scenario.steps.len(),
         scenario.monsters.len(),
         wall_budget,
+        scenario.monster_load_type,
         map_cfg.data_dir.display(),
         map_cfg.map_rel,
         map_cfg.synthetic_arena
@@ -437,6 +560,7 @@ mod tests {
         assert_eq!(s.arena_center, (32360, 32290));
         assert_eq!(s.monsters.len(), 1);
         assert_eq!(s.monsters[0].label, "rat");
+        assert!(s.monster_load_type);
         assert!(s.steps.iter().any(|st| matches!(st, ScenarioStep::MonsterAppear)));
         assert!(s.steps.iter().filter(|st| matches!(st, ScenarioStep::SimTick)).count() >= 2);
     }
@@ -455,5 +579,19 @@ mod tests {
         assert_eq!(s.monster_melee_skill, 50);
         assert_eq!(s.monster_melee_attack, 30);
         assert_eq!(s.monster_talks, 5);
+    }
+
+    #[test]
+    fn parses_player_damage_and_monster_state() {
+        let input = r#"
+name test
+monster rat 1 2
+monster_state sleeping
+player_damage 5
+monster_appear
+"#;
+        let s = parse_scenario(input).expect("parse");
+        assert_eq!(s.monster_initial_state, MonsterState::Sleeping);
+        assert!(matches!(s.steps[0], ScenarioStep::PlayerDamage(5)));
     }
 }

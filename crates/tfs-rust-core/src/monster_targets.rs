@@ -164,7 +164,18 @@ impl GameWorld {
         if self.monster_is_opponent(monster_id, creature_id) {
             self.monster_add_opponent(monster_id, creature_id, push_front);
         }
-        self.monster_update_idle_status(monster_id);
+        let preserve_sleep = self.creatures.get(monster_id).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m)
+                    if m.harness_preserve_sleep
+                        && m.state == MonsterState::Sleeping
+                        && m.is_idle
+            )
+        });
+        if !preserve_sleep {
+            self.monster_update_idle_status(monster_id);
+        }
         // Already-active monsters (not via `set_idle` wake) still need chase scheduling.
         if push_front {
             self.monster_schedule_chase_after_opponent_add(monster_id, Some(creature_id));
@@ -601,7 +612,18 @@ impl GameWorld {
             base.is_updating_path = true;
         }
         if self.beat_driven_loop {
-            self.request_idle_stimulus(monster_id);
+            let arm_idle = !self.creatures.get(monster_id).is_some_and(|k| {
+                matches!(
+                    k,
+                    CreatureKind::Monster(m)
+                        if m.harness_preserve_sleep
+                            && m.state == MonsterState::Sleeping
+                            && m.is_idle
+                )
+            });
+            if arm_idle {
+                self.request_idle_stimulus(monster_id);
+            }
         } else {
             self.monster_follow_repath_now(monster_id, Some("set_follow"));
         }

@@ -298,7 +298,8 @@ impl GameWorld {
             return;
         }
         trace_creature_todo(self, cid, "todo_yield");
-        self.schedule_immediate_todo_wakeup(cid);
+        // C++ `ToDoWait(0)` — wakeup at `ServerMilliseconds`, not +1 (`cract.cc:1008`).
+        self.todo_start_from_action(cid, 0);
     }
 
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {
