@@ -3,19 +3,30 @@
 #
 # CRG discovers files via `git ls-files`, so local reference trees (excluded via
 # .git/info/exclude) are invisible to the main TFS_RUST graph. Each reference
-# local-only git repo (never pushed) plus a CRG registration.
+# checkout gets a nested local-only git repo (src/ only) plus CRG registration.
 #
-# C++ reference: code-review-graph uses git ls-files — see reference/README.md
+# Called automatically by scripts/setup_reference_local.sh when code-review-graph
+# is installed. Safe to re-run (idempotent).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! command -v code-review-graph >/dev/null 2>&1; then
+  echo "skip: code-review-graph not installed" >&2
+  exit 0
+fi
+
+is_registered() {
+  local alias="$1"
+  code-review-graph repos 2>/dev/null | grep -qF "($alias)"
+}
 
 register_tree() {
   local path="$1"
   local alias="$2"
 
-  if [[ ! -d "$path" ]]; then
-    echo "skip: $path (not present)"
+  if [[ ! -d "$path/src" ]]; then
+    echo "skip: $path (no src/)"
     return 0
   fi
 
@@ -23,14 +34,33 @@ register_tree() {
 
   if [[ ! -d .git ]]; then
     git init -q
-    git add -A
+    cat >.gitignore <<'EOF'
+build/
+.code-review-graph/
+EOF
+    git add src/ .gitignore
     git commit -qm "Local CRG index only — never push"
-    echo "initialized local git in $path"
+    echo "initialized local git in $path (src/ only)"
+  else
+  # Keep nested index scoped to src/ — drop build artifacts if present.
+    cat >.gitignore <<'EOF'
+build/
+.code-review-graph/
+EOF
+    git add .gitignore src/ 2>/dev/null || true
+    if ! git diff --cached --quiet 2>/dev/null; then
+      git commit -qm "src update for CRG" 2>/dev/null || true
+    fi
   fi
 
-  code-review-graph register . --alias "$alias"
-  code-review-graph build
-  echo "registered and built: $alias ($path)"
+  if is_registered "$alias"; then
+    echo "ok: $alias already registered — updating graph"
+    code-review-graph update --base HEAD 2>/dev/null || code-review-graph build
+  else
+    code-review-graph register . --alias "$alias"
+    code-review-graph build
+    echo "registered and built: $alias ($path)"
+  fi
 
   popd >/dev/null
 }
@@ -40,5 +70,5 @@ register_tree "$ROOT/reference/classic-772/tibia-game-master" ref-772-mechanics-
 register_tree "$ROOT/reference/tvp-772/gameserver" ref-772-wire
 
 echo
-echo "Done. Agents: use cross_repo_search_tool for 772 C++ reference lookups."
-echo "Main-repo graph tools still cover Rust/crates only."
+echo "Done. Agents: use cross_repo_search_tool for 772 C++ discovery (ref-772-mechanics, ref-772-wire)."
+echo "Shell text search fallback: scripts/ref_grep.sh PATTERN"

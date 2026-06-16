@@ -2,6 +2,10 @@
 //!
 //! C++ reference: `tibia-game-master/src/cract.cc` `TShortway::FillMap`, `NotifyGo` (`WAYPOINTS`).
 //! TFS stores the same per-tile terrain weight in OTB as `ITEM_ATTR_SPEED` (`src/items.cpp`).
+//!
+//! **`data/items/items.otb` is patched offline** (`patch-otb-waypoints`) so `ITEM_ATTR_SPEED`
+//! mirrors walkable `objects.srv` `Waypoints`. Runtime overlay via [`overlay_otb_speeds_from_objects_srv`]
+//! is optional when reference `objects.srv` is available.
 
 use crate::otb::ItemType;
 use std::collections::HashMap;
@@ -116,6 +120,11 @@ pub fn resolve_server_id_for_patch(type_id: u16, items: &HashMap<u16, ItemType>)
 }
 
 fn resolve_server_id(type_id: u16, items: &HashMap<u16, ItemType>) -> Option<u16> {
+    // 772 `objects.srv` `TypeID` is the OTB `server_id` for game item types (e.g. grass 102, 397).
+    if items.contains_key(&type_id) {
+        return Some(type_id);
+    }
+    // Fallback: sprite / client id when TypeID is not a server row.
     items
         .values()
         .find(|it| it.client_id == type_id)
@@ -148,12 +157,17 @@ fn parse_flags(block: &str) -> (bool, bool) {
     (bank, unpass)
 }
 
-fn parse_waypoints(block: &str) -> Option<i32> {
-    block
-        .lines()
-        .find_map(|l| l.split("Waypoints=").nth(1))
-        .and_then(|s| s.split(',').next())
-        .and_then(|s| s.trim().parse().ok())
+/// Parse `Waypoints=N` from one `objects.srv` type block (`Attributes = {Waypoints=150}`).
+pub fn parse_waypoints(block: &str) -> Option<i32> {
+    block.lines().find_map(|l| {
+        let rest = l.split("Waypoints=").nth(1)?;
+        let digits: String = rest
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse().ok()
+    })
 }
 
 /// Load overlay from `path` and merge into `items`. Logs summary.
@@ -181,6 +195,25 @@ mod tests {
     fn repo_objects_srv() -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         reference_772_objects_srv_under(root)
+    }
+
+    #[test]
+    fn parse_waypoints_from_attributes_brace() {
+        let block = "TypeID      = 102\nFlags       = {Bank,Unmove}\nAttributes  = {Waypoints=150}";
+        assert_eq!(parse_waypoints(block), Some(150));
+    }
+
+    #[test]
+    fn resolve_typeid_prefers_server_id_over_client_id_collision() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let otb = root.join("data/items/items.otb");
+        if !otb.is_file() {
+            return;
+        }
+        let items = crate::otb::OtbLoader::load_from_file(&otb).expect("otb");
+        // TypeID 397 is server 397 in objects.srv; client_id 397 may also exist on another row.
+        let sid = resolve_server_id_for_patch(397, &items).expect("397");
+        assert_eq!(sid, 397, "objects.srv TypeID must map to OTB server_id first");
     }
 
     #[test]

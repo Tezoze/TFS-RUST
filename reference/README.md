@@ -51,10 +51,11 @@ Two layers (both required for agent tools):
 
 | Layer | File | Purpose |
 |-------|------|---------|
-| Git (local) | `.git/info/exclude` | Never commit reference checkouts |
-| Cursor (tracked) | `.cursorignore` | Re-include `reference/` for **Grep**, **Read**, `@`-mention |
+| Git (local) | `.git/info/exclude` | Never commit reference checkouts (`reference/foo/**`) |
+| Cursor (tracked) | `.cursorignore` | Re-include **C++ src only** (`tibia-game-master/src/`, `gameserver/src/`) |
+| Cursor (tracked) | `.cursorindexingignore` | Skip runtime/archives/log from index upload |
 
-Cursor still honors git’s local exclude list, so `.cursorignore` negation patterns (`!reference/...`) are required even though reference is **not** in shared `.gitignore`.
+Cursor honors git’s local exclude list. `.cursorignore` un-ignores **only C++ source subtrees** (~200 files), not `runtime/` or `archives/` (~190k game-data files). `.cursorindexingignore` keeps index upload small.
 
 **One-time setup on each clone:**
 
@@ -62,10 +63,8 @@ Cursor still honors git’s local exclude list, so `.cursorignore` negation patt
 scripts/setup_reference_local.sh
 ```
 
-**code-review-graph** uses `git ls-files` on the main repo, so local reference checkouts are **not** in the default graph. To index C++ reference locally:
+This configures git exclude, validates `.cursorignore`, and **auto-registers** 772 C++ trees with code-review-graph when `code-review-graph` is installed (`ref-772-mechanics`, `ref-772-wire`). Nested local-only git repos index `src/` only (never pushed).
 
-```bash
-scripts/register_reference_graph.sh
-```
+**Agent discovery (772 C++):** `cross_repo_search_tool` first — not built-in Grep/Glob. Shell text fallback: `scripts/ref_grep.sh PATTERN` (not `rtk grep`; RTK `-l` is max line length).
 
-That creates a nested local-only git repo inside each reference checkout (never pushed) and registers it with CRG. Agents then use `cross_repo_search_tool` for 772 C++ lookups (`ref-772-mechanics`, `ref-772-wire`).
+Re-register manually if needed: `scripts/register_reference_graph.sh`

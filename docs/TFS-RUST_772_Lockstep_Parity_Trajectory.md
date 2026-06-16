@@ -19,13 +19,13 @@
 
 | Metric | Today (§21) | Target |
 |--------|-------------|--------|
-| Lockstep gate | **1 / 6 PASS** (17%) | **6 / 6 PASS** (100%) |
+| Lockstep gate | **4 / 6 PASS** (67%) | **6 / 6 PASS** (100%) |
 | Stand dance content | 100% pairwise on chase arms | + tick bucket alignment |
 | Panic E5 trace | 100% on dance + `damage_stimulus` | + tick bucket alignment |
 | Cyclops quad | `combat_state` 4/4; `shortway` 0/4 | chase @ ref tick + path shape |
 | Kill E6 | **PASS** | maintain |
 
-**Bottom line:** observable *semantics* are largely correct on stand/panic/kill. The remaining work is **when** (tick cadence / appear drain), **where** (path walk-back on cyclops), and **harness gaps** (kite time advancement, cobra E4 tuning). This is engineering backlog, not a fundamental parity ceiling.
+**Bottom line:** stand/panic/kill/cyclops lockstep **PASS** (4/6). P2.5g **closed** — `WakeupTiePolicy` go-step drain order. Phase 3 kite + Phase 4 cobra remain open.
 
 ---
 
@@ -73,7 +73,7 @@ Battery: `TFS_SIM_SEED=772`, `--synthetic`, QM on `127.0.0.1:7173`.
 | **kill** | **PASS** | 2 / 2 | — |
 | stand | FAIL | 11 / 12 | tick bucket: rust@2000 vs ref@4000 on chase arms |
 | panic | FAIL | 12 / 14 | same tick shift; combat counts (`melee_hit` ref=2 rust=4) |
-| cyclops | FAIL | 20 / 18 | tick=0 `melee_dance`×2; `shortway` 0/4; diagonal first step |
+| cyclops | FAIL | 20 / 20 | `shortway` **4/4**; `go_exec` **3/4** — NW diagonal step not executed @4000 |
 | kite | FAIL | 8 / 17 | C++ **0 events** — `advance_ms 0` never advances time |
 | cobra | FAIL | 15 / 20 | E4 spell-cast timing / scenario tuning |
 
@@ -90,7 +90,7 @@ Phases are ordered by **lockstep ROI** (scenarios flipped per unit effort). Each
 ```
 Phase 0 ──► 1/6   kill PASS                    [DONE §21]
 Phase 1 ──► 3/6   + stand, panic               [DONE §22]
-Phase 2 ──► 4/6   + cyclops                    [appear yield + path shape]
+Phase 2 ──► 4/6   + cyclops                    [shortway + go_exec DONE §25.4; battery P2.5f]
 Phase 3 ──► 5/6   + kite                       [scenario time model]
 Phase 4 ──► 6/6   + cobra                      [E4 spell delay]
 Phase 5 ──► hold  expand battery + live replay [ongoing]
@@ -151,49 +151,71 @@ python3 scripts/summarize_chase_gaps.py --ref log/chase_path_cip.log \
 
 ---
 
-## 5. Phase 2 — Cyclops quad (4/6)
+## 5. Phase 2 — Cyclops quad (4/6) — partial
 
-**Target:** `cyclops` lockstep PASS.
+**Target:** `cyclops` lockstep PASS. **Battery today:** 3/6 (kill + stand + panic PASS).
 
-### 5.1 Problem statement
+### 5.1 Closed (P2.1–P2.4, P2.5a–d)
 
-| Symptom | ref | rust |
-|---------|-----|------|
-| `branch` at tick=0 | 0 | 2 (`melee_dance`) |
-| `todo_go` @2000 | 4× `enter` | 0 |
-| `shortway` | 4 @2000 | 0 |
-| `go_exec[0]` diagonal | diag=1 | diag=0 |
+| Symptom | ref | rust | Status |
+|---------|-----|------|--------|
+| `branch` @ tick=0 | 0 | 0 | **PASS** |
+| Events | 20 | 20 | **PASS** |
+| `todo_go` @2000 | 4× `enter` | 4× `enter` | **PASS** |
+| `combat_state` / `attack_enqueue` | 4/4 | 4/4 | **PASS** |
+| All four `shortway` @2000 | NW diag + far-N north | same | **PASS** (4/4) |
+| Fill-map priority tiles | `(32359,32290)` etc. | match | **PASS** |
 
-§20 had better cyclops counts (20/20, chase ref@2000 vs rust@4000). §21 batch-appear experiment regressed to tick=0 dance.
+Shipped: `harness_defer_appear_idle` through kite window, signed TShortway heuristic, grass TypeID 102 synthetic, `monster_tshortway_fill_walkable`, walk_queue LIFO push, `Waypoints==-1` relax (`cract.cc:158-202`), **`overlay_synthetic_ground_in_arena`** (OTBM items preserved), `scripts/compare_fill_walkable.py`.
 
-### 5.2 Work items
+### 5.2 Closed — P2.5 root cause
 
-| ID | Task | Files / refs | Done when |
-|----|------|--------------|-----------|
-| P2.1 | **Safe multi-monster appear yield** — appear all → single batched yield → one drain; no tick=0 dance, no 0-event trace | `chase_kite_sim.rs`, `sim_harness.rs`, `game_world.rs` (`batch_appear_defer_idle`), `creature_todo.rs` | 0 branch @ tick=0; JSONL non-empty |
-| P2.2 | Chase fires @ tick=2000 on all 4 monsters | same + `monster_events.rs` | `todo_go via=enter`×4 @2000 |
-| P2.3 | **Diagonal first step** — `path_matching_tshortway` walk-back + `truncate_cipsoft_chase_queue` | `pathfinding.rs`, `monster_ai.rs`; C++ `cract.cc` TShortway | `go_exec[0] diag` matches ref |
-| P2.4 | `shortway` step lists 4/4 pairwise | pathfinding + chase debug | `shortway` mismatch_counts = 0 |
+| Finding | Detail |
+|---------|--------|
+| Not expand math | Python `cract.cc` port matched Rust pre-fix; live C++ differed on walkability |
+| Not creature gates alone | C++ stack probe: **fir tree 3682** (`Unpass`) on `(32359,32290)` under grass |
+| Fix | OTBM + grass overlay — same as C++ `LaySyntheticArena` semantics |
 
-### 5.3 Design constraint
+### 5.3 Closed — P2.5e (`go_exec` execution)
 
-Reuse `batch_appear_defer_idle` infrastructure from §21, but **do not** restore the regression path:
+| Metric | ref | rust |
+|--------|-----|------|
+| `shortway` pairwise | — | **4/4** |
+| `go_exec` pairwise | — | **4/4** |
+| Diagonal `go_exec` (NW) | 1/4 @4000 | **1/4** @4000 |
 
-- Per-monster inline `creature_todo_yield` in appear → 0 JSONL (4 monsters).
-- Batch yield without defer → tick=0 idle dance.
+**Fix:** `earliest_walk_server_ms` + `todo_start_go_delay` mirrors `CalculateDelay(TDGo)` / `ToDoStart` / `NotifyGo` (`cract.cc`). First `Go` arms @`server_ms+1` @2000; batch drain @4000 executes diagonal step.
 
-Required pattern (C++ parity): set all targets → yield all → **one** `DrainTodoQueue` / `run_sim_tick` after first `advance_ms 2000`.
+### 5.4 Fresh oracle (June 2026)
 
-### 5.4 Verification
+Re-run after freeing port 7172 (`stop tfs-rust`; QM on 7173):
 
 ```bash
 TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic \
   scripts/scenarios/kite_cyclops_quad_chase.scenario
-python3 scripts/summarize_chase_gaps.py --ref log/chase_path_cip.log \
-  --rust log/chase_path_rust.log --monster cyclops --max-tick 4000 --lockstep
 ```
 
-**Exit criteria:** cyclops lockstep PASS; restore 20/20 event alignment; divergence report §23.
+**Result:** C++ paths **identical** to prior oracle — authoritative. Post-P2.5e Rust **shortway** + **go_exec** match on NW diagonal @4000.
+
+### 5.5 Next steps (P2.5g → Phase 2 exit)
+
+| ID | Task | Done when |
+|----|------|-----------|
+| P2.5f | Battery rerun + divergence §25 closeout | **done** — 3/6; cyclops `go_exec` 4/4 counts, 2/4 pairwise |
+| P2.5g | Multi-monster `go_exec` drain order @same tick | **done** — cyclops lockstep PASS; battery **4/6** |
+
+### 5.6 Verification
+
+```bash
+# QM on 7173; game port 7172 free (not tfs-rust)
+TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic \
+  scripts/scenarios/kite_cyclops_quad_chase.scenario
+python3 scripts/summarize_chase_gaps.py \
+  --ref log/chase_path_cip_cyclops.log \
+  --rust log/chase_path_rust_cyclops.log --lockstep
+```
+
+**Exit criteria (Phase 2):** cyclops lockstep PASS (`shortway` + `go_exec` 4/4 pairwise); battery **4/6**. **Done** — §26 P2.5g closeout.
 
 ---
 
@@ -328,8 +350,10 @@ Update this table at each phase closeout.
 | §21 | 1/6 | FAIL | FAIL | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
 | §22 | 3/6 | **PASS** | **PASS** | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
 | §23 | 3/6 | **PASS** | **PASS** | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
-| §24 | 5/6 | | | | | | | |
-| §25 | 6/6 | | | | | | | |
+| §24 | 3/6 | **PASS** | **PASS** | FAIL (2/4 path) | FAIL | FAIL | **PASS** | 2026-06-14 |
+| §25 | 3/6 | **PASS** | **PASS** | FAIL (4/4 sw, 3/4 go) | FAIL | FAIL | **PASS** | 2026-06-15 |
+| §26 | **4/6** | **PASS** | **PASS** | **PASS** | FAIL | FAIL | **PASS** | 2026-06-16 |
+| Target | 6/6 | | | | | | | |
 
 ---
 
@@ -340,3 +364,7 @@ Update this table at each phase closeout.
 | 2026-06-14 | Initial trajectory doc — post §21 baseline (1/6), phases 0–5 scoped |
 | 2026-06-14 | §22 milestone: stand + panic lockstep PASS (3/6) |
 | 2026-06-14 | §23 Phase 2 partial: cyclops cadence 20/20; path pipeline fixes; shortway 2/4 — lockstep still 3/6 |
+| 2026-06-14 | §24 fresh C++ oracle refresh; FillMap/fill_walkable dump scoped as P2.5 next step |
+| 2026-06-15 | §25.4 P2.5e closeout: `EarliestWalkTime`/`ToDoStart`; go_exec 4/4; P2.5f battery A/B scoped |
+| 2026-06-15 | §25.7 P2.5f battery rerun: 3/6; cyclops go_exec order swap @4000; P2.5g scoped |
+| 2026-06-16 | §26 P2.5g closeout: `WakeupTiePolicy` appear LIFO + go-step tie; cyclops **4/4** go_exec; battery **4/6**; Phase 2 done |

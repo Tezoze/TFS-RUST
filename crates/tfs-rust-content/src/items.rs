@@ -174,6 +174,40 @@ impl ItemDatabase {
         }
     }
 
+    /// 772 `WAYPOINTS` for `TShortway::FillMap` — raw OTB speed; `0` is invalid (`cract.cc:95-98`).
+    #[inline]
+    pub fn waypoints_raw_for_item(&self, server_id: u16) -> Option<u16> {
+        self.items.get(&server_id).map(|t| t.waypoints_raw_772())
+    }
+
+    #[inline]
+    pub fn is_terrain_bank_772(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_terrain_bank_772())
+    }
+
+    #[inline]
+    pub fn is_unpass_772(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_unpass_772())
+    }
+
+    #[inline]
+    pub fn is_unmove_772(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_unmove_772())
+    }
+
+    #[inline]
+    pub fn is_avoid_hazard_772(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_avoid_hazard_772())
+    }
+
     /// Resolve `name="..."` loot references; errors if unknown or ambiguous (see `monsters.cpp` `loadLootItem`).
     pub fn item_id_by_exact_name(&self, name: &str, file: &str) -> Result<u16> {
         let lower = name.to_ascii_lowercase();

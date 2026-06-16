@@ -30,6 +30,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             next_walk_check: None,
             next_wakeup: None,
             last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,

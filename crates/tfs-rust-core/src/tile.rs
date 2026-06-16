@@ -72,6 +72,38 @@ impl TileBody {
             zone: ZoneType::Normal,
         }
     }
+
+    /// 772 map-container object chain — `GetFirstObject` / `getNextObject` (`map.cc:2356`, `cract.cc:89-103`, `crnonpl.cc:2185+`).
+    ///
+    /// `CONTENT` head is the ground BANK (when present), then items bottom→top (`down_items` stored
+    /// with index 0 = top of down stack), then always-on-top items, then creatures. 772 uses
+    /// creature-container objects in the chain; Rust approximates creatures at the tail.
+    pub fn map_object_chain(&self) -> Vec<MapStackEntry> {
+        let mut out = Vec::new();
+        if let Some(g) = self.ground {
+            out.push(MapStackEntry::Ground(g));
+        }
+        if !self.down_items.is_empty() {
+            for &id in self.down_items.iter().rev() {
+                out.push(MapStackEntry::Item(id));
+            }
+        }
+        for &id in &self.top_items {
+            out.push(MapStackEntry::Item(id));
+        }
+        for &cid in &self.creatures {
+            out.push(MapStackEntry::Creature(cid));
+        }
+        out
+    }
+}
+
+/// One step in the 772 tile object linked list (`map.cc` `GetFirstObject` walk).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapStackEntry {
+    Ground(u16),
+    Item(crate::ids::ItemId),
+    Creature(CreatureId),
 }
 
 #[derive(Debug, Clone)]
@@ -329,6 +361,30 @@ mod look_tests {
             flags: 0,
             zone: ZoneType::Normal,
         }
+    }
+
+    #[test]
+    fn map_object_chain_ground_then_down_bottom_to_top() {
+        let mut items: slotmap::SlotMap<crate::ids::ItemId, ()> = slotmap::SlotMap::with_key();
+        let bottom = items.insert(());
+        let top = items.insert(());
+        let body = TileBody {
+            ground: Some(102),
+            down_items: vec![top, bottom],
+            top_items: vec![],
+            creatures: vec![],
+            flags: 0,
+            zone: ZoneType::Normal,
+        };
+        let chain = body.map_object_chain();
+        assert_eq!(
+            chain,
+            vec![
+                MapStackEntry::Ground(102),
+                MapStackEntry::Item(bottom),
+                MapStackEntry::Item(top),
+            ]
+        );
     }
 
     #[test]

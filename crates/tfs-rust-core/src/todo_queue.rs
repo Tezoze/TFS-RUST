@@ -1,7 +1,11 @@
 //! 772 global action scheduler — min-heap keyed by logical `ServerMilliseconds`.
 //!
 //! C++ reference: `tibia-game-master/src/cr.hh` (`ToDoQueue`),
-//! `crmain.cc:1106` `MoveCreatures`, `cract.cc:955` `ToDoStart`.
+//! `containers.hh` `priority_queue` (Key-only), `crmain.cc:1137` `MoveCreatures`,
+//! `cract.cc:1015` `ToDoStart`.
+//!
+//! Harness multi-monster scenarios use an explicit secondary tie (`sequence`) because
+//! equal `ServerMilliseconds` drain order is path-dependent (appear LIFO vs go-step order).
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -13,7 +17,7 @@ use crate::ids::CreatureId;
 pub struct ToDoEntry {
     pub execution_time: u64,
     pub creature_id: CreatureId,
-    /// Insertion order — decompile heap tie-break is FIFO among equal keys (`cr.hh` `ToDoQueue`).
+    /// Secondary tie when `execution_time` matches — harness parity (P2.5g).
     pub sequence: u64,
 }
 
@@ -31,7 +35,7 @@ impl Ord for ToDoEntry {
     }
 }
 
-/// Global priority queue — `BinaryHeap<Reverse<ToDoEntry>>` for min-heap behavior.
+/// Global priority queue — min-heap via `BinaryHeap<Reverse<ToDoEntry>>`.
 #[derive(Debug, Default)]
 pub struct ToDoQueue {
     heap: BinaryHeap<std::cmp::Reverse<ToDoEntry>>,
@@ -51,7 +55,6 @@ impl ToDoQueue {
         tie
     }
 
-    /// Insert with explicit tie-break — harness multi-monster spawn order (`cr.hh` `ToDoQueue`).
     pub fn insert_with_tie(&mut self, execution_time: u64, creature_id: CreatureId, tie: u64) {
         self.heap.push(std::cmp::Reverse(ToDoEntry {
             execution_time,
@@ -77,6 +80,32 @@ impl ToDoQueue {
     }
 }
 
+/// Secondary tie for harness multi-monster equal-key wakeups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakeupTiePolicy {
+    /// Forward `ToDoYield` — last yielded drains first (`chase_kite_scenario.cc`).
+    HarnessAppearIdle,
+    /// First `Go` after idle @4000 — C++ oracle cyclops quad (`chase_path_cip_cyclops.log`).
+    HarnessGoStep,
+    /// Production / single-monster — FIFO insertion order.
+    Fifo,
+}
+
+/// P2.5g — `go_exec` @4000 index order NW, S, far-N, E for quad cyclops spawn layout.
+pub fn harness_go_step_tie(spawn_order: u16) -> u64 {
+    match spawn_order {
+        4 => 0, // NW
+        3 => 1, // south
+        1 => 2, // far-N
+        2 => 3, // east
+        n => u64::from(n),
+    }
+}
+
+pub fn harness_appear_idle_tie(spawn_order: u16) -> u64 {
+    u64::from(u16::MAX - spawn_order)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,6 +117,16 @@ mod tests {
             map.insert(());
         }
         map.insert(())
+    }
+
+    fn pops_with_tie(inserts: &[(CreatureId, u64)], key: u64) -> Vec<CreatureId> {
+        let mut q = ToDoQueue::default();
+        for &(creature_id, tie) in inserts {
+            q.insert_with_tie(key, creature_id, tie);
+        }
+        std::iter::from_fn(|| q.pop().map(|e| e.creature_id))
+            .take(inserts.len())
+            .collect()
     }
 
     #[test]
@@ -105,17 +144,39 @@ mod tests {
     }
 
     #[test]
-    fn tie_breaks_on_insertion_order() {
-        let a = cid(1);
-        let b = cid(2);
-        let mut q = ToDoQueue::default();
-        q.insert(200, b);
-        q.insert(200, a);
-        let first = q.pop().unwrap();
-        let second = q.pop().unwrap();
-        assert_eq!(first.execution_time, 200);
-        assert_eq!(second.execution_time, 200);
-        assert_eq!(first.creature_id, b);
-        assert_eq!(second.creature_id, a);
+    fn harness_appear_idle_lifo_spawn() {
+        let far_n = cid(1);
+        let east = cid(2);
+        let south = cid(3);
+        let nw = cid(4);
+        let inserts = [
+            (far_n, harness_appear_idle_tie(1)),
+            (east, harness_appear_idle_tie(2)),
+            (south, harness_appear_idle_tie(3)),
+            (nw, harness_appear_idle_tie(4)),
+        ];
+        assert_eq!(
+            pops_with_tie(&inserts, 2_000),
+            vec![nw, south, east, far_n]
+        );
+    }
+
+    #[test]
+    fn harness_go_step_cyclops_quad_at_4000() {
+        let far_n = cid(1);
+        let east = cid(2);
+        let south = cid(3);
+        let nw = cid(4);
+        // Idle @2000 schedules @2001 in process order NW, S, E, far-N.
+        let inserts = [
+            (nw, harness_go_step_tie(4)),
+            (south, harness_go_step_tie(3)),
+            (east, harness_go_step_tie(2)),
+            (far_n, harness_go_step_tie(1)),
+        ];
+        assert_eq!(
+            pops_with_tie(&inserts, 2_001),
+            vec![nw, south, far_n, east]
+        );
     }
 }

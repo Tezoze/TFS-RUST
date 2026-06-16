@@ -1801,7 +1801,11 @@ impl GameWorld {
                 // C++ `TDWait` with due time — only arm a future wakeup when delay remains
                 // (`cract.cc:876-890`). `ToDoYield`'s `ToDoWait(0)` does not reschedule.
                 if delay_ms > 0 {
-                    self.todo_start_from_action(cid, delay_ms);
+                    self.todo_start_from_action(
+                        cid,
+                        delay_ms,
+                        self.harness_go_wakeup_tie_policy(cid),
+                    );
                 }
                 trace_creature_todo(self, cid, "execute_wait_done");
                 TodoExecuteKind::Wait
@@ -1813,7 +1817,11 @@ impl GameWorld {
                         k.base_mut().todo.queue.push_front(CreatureAction::Attack);
                     }
                     trace_creature_todo(self, cid, "execute_attack_deferred");
-                    self.todo_start_from_action(cid, delay);
+                    self.todo_start_from_action(
+                        cid,
+                        delay,
+                        self.harness_go_wakeup_tie_policy(cid),
+                    );
                     trace_creature_todo(self, cid, "execute_attack_deferred_done");
                     TodoExecuteKind::AttackDeferred
                 } else {
@@ -1968,7 +1976,21 @@ impl GameWorld {
                 if defer_appear_idle {
                     // C++ `SpawnMonsterAppear` — `ToDoYield` queues yield; first `IdleStimulus`
                     // runs on the first `advance_ms 2000` drain, not the appear-step drain.
-                    self.todo_start_from_action(cid, crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS);
+                    if self.server_ms >= crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS {
+                        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                            m.harness_defer_appear_idle = false;
+                        }
+                        self.monster_idle_stimulus(cid);
+                    } else {
+                        let remaining = crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS
+                            .saturating_sub(self.server_ms)
+                            .max(1);
+                        self.todo_start_from_action(
+                            cid,
+                            remaining,
+                            crate::todo_queue::WakeupTiePolicy::HarnessAppearIdle,
+                        );
+                    }
                     return;
                 }
                 // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
@@ -2099,7 +2121,11 @@ mod tests {
         }
 
         assert!(world.enqueue_creature_go(monster));
-        world.todo_start_from_action(monster, 500);
+        world.todo_start_from_action(
+            monster,
+            500,
+            crate::todo_queue::WakeupTiePolicy::Fifo,
+        );
         let wakeup = world
             .creatures
             .get(monster)
@@ -2143,7 +2169,7 @@ mod tests {
         }
         world.add_creature_think_check(monster);
 
-        world.schedule_creature_wakeup(monster, 0);
+        world.schedule_creature_wakeup(monster, 0, crate::todo_queue::WakeupTiePolicy::Fifo);
         world.process_creature_todo(monster);
 
         assert!(

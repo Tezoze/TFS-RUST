@@ -9,11 +9,10 @@ use std::path::PathBuf;
 
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
-use tfs_rust_core::pathfinding::REVERSE_PATH_VIEW_RADIUS;
 use tfs_rust_core::sim_harness::{
-    beat_driven_world_from_map, beat_driven_world_with_synthetic_ground_data,
+    beat_driven_world_from_map, beat_driven_world_for_kite_synthetic,
     default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monsters_appear_batch, lay_synthetic_arena, move_creatures_explicit, run_sim_tick,
+    kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick,
     set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
     validate_positions_walkable, SimMapConfig,
 };
@@ -270,30 +269,15 @@ fn build_world(
     scenario: &KiteScenario,
     map_cfg: &SimMapConfig,
 ) -> Result<tfs_rust_core::game_world::GameWorld, String> {
-    let world = if map_cfg.synthetic_arena {
-        let mut w = beat_driven_world_with_synthetic_ground_data(
+    let world = if map_cfg.synthetic_arena || scenario.arena_synthetic {
+        beat_driven_world_for_kite_synthetic(
             &map_cfg.data_dir,
-            Some(scenario.default_wp),
-        )?;
-        // C++ `LaySyntheticArena` — `arena_radius + kFillMapViewRadius` (`chase_kite_scenario.cc`).
-        let fill_radius = scenario
-            .arena_radius
-            .saturating_add(REVERSE_PATH_VIEW_RADIUS as u16);
-        let min_wp = lay_synthetic_arena(
-            &mut w.map,
-            scenario.arena_center.0,
-            scenario.arena_center.1,
-            fill_radius,
+            &map_cfg.map_rel,
+            scenario.arena_center,
+            scenario.arena_radius,
             scenario.z,
             scenario.default_wp,
-        );
-        if min_wp != u32::from(scenario.default_wp) {
-            return Err(format!(
-                "synthetic arena min_wp={min_wp} != default_wp={}",
-                scenario.default_wp
-            ));
-        }
-        w
+        )?
     } else {
         let w = beat_driven_world_from_map(&map_cfg.data_dir, &map_cfg.map_rel)?;
         validate_positions_walkable(&w.map, &scenario_walk_positions(scenario), "scenario")?;

@@ -1,6 +1,6 @@
 # TFS-RUST 772 — Simulation Divergence Report (Rust vs C++)
 
-**Date:** 2026-06-14 (last updated §20 closeout)  
+**Date:** 2026-06-14 (last updated §24 oracle closeout)  
 **Scope:** Movement parity + combat E0–E3 (implemented), via headless kite harness  
 **Scenarios run:** `kite_rat_stand_melee.scenario`, `kite_rat_melee.scenario`, `kite_cyclops_quad_chase.scenario`  
 **Seed:** `TFS_SIM_SEED=772` (default in `run_kite_scenario.py`)  
@@ -12,7 +12,7 @@
 |----------|----------------------------------|-------------------------------------|
 | Stand melee | `_stand` — 13 rat-filtered events (45 lines raw) | `_stand` — 17 events (17 lines) |
 | Kite melee | `_kite` — **0 events** (no `chase_ai.jsonl`; C++ time budget) | `_kite` — 4 events (appear drain only) |
-| Cyclops quad | `_cyclops` — 20 events (4 monsters) | `_cyclops` — 30 events (4 monsters) |
+| Cyclops quad | `_cyclops` — 20 events (4 monsters) | `_cyclops` — 20 events (4 monsters) |
 
 **Re-run (§16 — QM required, synthetic arena):**
 
@@ -49,6 +49,36 @@ Summaries saved under `log/summary_{stand,kite,cyclops}.txt`. `run_kite_scenario
 ## 1. Executive summary
 
 Both stacks emit a shared JSONL trace (`branch` → `todo_go` → `shortway` → `go_exec` + `combat_state` / `attack_enqueue` / `melee_hit`).
+
+### Current status (§26 — P2.5g cyclops drain order, seed 772)
+
+**Parity scorecard:** lockstep gate **4/6** (kill + stand + panic + cyclops PASS).
+
+| Scenario | Lockstep | Key §26 result |
+|----------|----------|----------------|
+| Stand rat | **PASS** | §22 closed |
+| Rat panic | **PASS** | §22 closed |
+| Rat kill | **PASS** | §21 closed |
+| Cyclops quad | **PASS** | `go_exec` **4/4** pairwise — `WakeupTiePolicy::HarnessGoStep` (§26) |
+| Kite rat | **FAIL** | extra `todo_go`/`shortway` @6000 (rust) |
+| Cobra poison | **FAIL** | tick shift 8k↔10k; extra melee/spell |
+
+**Bottom line:** P2.5g **closed** — east/far-N `go_exec` swap fixed via path-specific heap ties. Battery **4/6**. Phase 2 done.
+
+### Current status (§25 — cyclops oracle refresh, seed 772)
+
+**Parity scorecard:** lockstep gate **3/6** (kill + stand + panic PASS); cyclops **shortway 4/4**; **go_exec 4/4** counts, **2/4** pairwise (P2.5f A/B).
+
+| Scenario | Lockstep | Key §25 result |
+|----------|----------|----------------|
+| Stand rat | **PASS** | §22 closed |
+| Rat panic | **PASS** | §22 closed |
+| Rat kill | **PASS** | §21 closed |
+| Cyclops quad | **FAIL** | **20/20 events**; `todo_go`/`shortway` **4/4**; `go_exec` **4/4** counts — **2/4** pairwise (E vs far-N swap @4000 — P2.5g) |
+| Kite rat | **FAIL** | extra `todo_go`/`shortway` @6000 (rust) |
+| Cobra poison | **FAIL** | `todo_go`/`go_exec` tick shift 8k↔10k; extra `melee_hit`/`spell_cast` |
+
+**Bottom line:** P2.5e **closed** — NW diagonal `go_exec` @4000. P2.5f battery rerun confirms **3/6**; cyclops blocked on **multi-monster drain order** at tick 4000 (not missing steps).
 
 ### Current status (§20 — panic/ID/movement closeout, seed 772)
 
@@ -1422,6 +1452,215 @@ Stand / panic / kill **PASS**; cyclops **FAIL**.
 
 ---
 
+## 24. Phase 2 oracle closeout — FillMap investigation (4/6 target)
+
+**Date:** 2026-06-14  
+**Scenario:** `kite_cyclops_quad_chase.scenario` (`TFS_SIM_SEED=772`, `--synthetic`)
+
+### 24.1 Fresh C++ oracle refresh
+
+Prerequisites: query manager on `127.0.0.1:7173`; port **7172 free** (stop `tfs-rust` — C++ `chase-scenario` binds game socket even headless).
+
+```bash
+TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic \
+  scripts/scenarios/kite_cyclops_quad_chase.scenario
+```
+
+Logs archived: `log/chase_path_cip_cyclops.log`, `log/chase_path_rust_cyclops.log`, `log/summary_cyclops.txt`.
+
+**Finding:** C++ `shortway` / `go_exec` paths **byte-identical** to prior oracle — divergence is **real**, not stale trace or compare pairing.
+
+### 24.2 Path geometry (tick=2000)
+
+| Monster | Spawn | C++ ref steps | Rust steps | Match |
+|---------|-------|---------------|------------|-------|
+| NW | `(32359,32289)` | `(32358,32290)→(32358,32291)→(32359,32291)` | `(32359,32290)→(32359,32291)→(32359,32292)` | **no** |
+| South | `(32360,32291)` | `(32360,32292)→(32360,32293)` | same | **yes** |
+| East | `(32361,32290)` | `(32361,32291)→(32361,32292)→(32361,32293)` | same | **yes** |
+| far-N | `(32359,32288)` | `(32359,32287)→(32359,32286)→(32358,32286)` | `(32360,32288)→(32360,32289)→(32360,32290)` | **no** |
+
+| Metric | ref | rust |
+|--------|-----|------|
+| Events | 20 | 20 |
+| `todo_go` | 4/4 | 4/4 |
+| `shortway` pairwise | — | **2/4** |
+| `go_exec` pairwise | — | **1/4** |
+| Diagonal `go_exec` | 1/4 | 0/4 |
+
+### 24.3 Analysis
+
+- **Rust ≡ Python** faithful `cract.cc` TShortway with quad sibling `MovePossible` blocks (`cyclops_nw_shortway_matches_python_tshortway_port`, `cyclops_far_n_shortway_matches_python_tshortway_port`).
+- NW diagonal ref requires **≥4 extra static blocks** (incl. `(32358,32289)`, `(32359,32290)`, `(32360,32289)`) — not explained by unpushable cyclops occupancy alone at tick=2000.
+- far-N north ref has **no** solution under creature-base blocks + targeted east/west blocks in Python brute-force.
+
+### 24.4 Next steps (P2.5)
+
+| Step | Action |
+|------|--------|
+| P2.5a | Rust: dump `monster_tshortway_fill_walkable(nw_id, pos, player)` for NW ±10 viewport @tick=2000 |
+| P2.5b | C++: dump `TShortway::FillMap` / `MovePossible` `Waypoints=-1` for same viewport (`chase_path_debug.cc`) |
+| P2.5c | Compare `(32359,32290)`, `(32358,32289)`, `(32360,32289)` — first mismatch = fix target |
+| P2.5d | Fix fill_walkable or pathfind-time `State` (`crnonpl.cc:2148-2159`) → **shortway 4/4** → **go_exec 4/4** → battery **4/6** |
+
+**Suspects (priority):** (1) pathfind before `ATTACKING` triggers home/radius `MovePossible`; (2) sibling creature block model; (3) expand tie-break only if fills match.
+
+### 24.5 Battery
+
+| Scenario | Lockstep |
+|----------|----------|
+| Stand / panic / kill | **PASS** |
+| Cyclops | **FAIL** (path only) |
+| Kite / cobra | **FAIL** |
+
+**Lockstep gate:** **3/6**.
+
+---
+
+## 25. Phase 2 P2.5 closeout — FillMap walkability (shortway 4/4)
+
+**Date:** 2026-06-15  
+**Scenario:** `kite_cyclops_quad_chase.scenario` (`TFS_SIM_SEED=772`, `--synthetic`)
+
+### 25.1 Root cause
+
+C++ probe (`TIBIA_CHASE_FILLMAP_DUMP=1`) on priority tile `(32359,32290)`:
+
+- Ground: grass TypeID **102**, `wp=150`, `MovePossible=false`
+- Stack: object **3682** (`Unpass` fir tree) under grass — not a creature/state-gate issue
+
+Rust `lay_synthetic_arena` replaced entire tiles (no OTBM items). C++ `LaySyntheticArena` only replaces **BANK** (`chase_kite_scenario.cc` `ClearBankObjects`).
+
+**First priority mismatch (pre-fix):** `(32359,32290)` — rust `walkable=true`, C++ `wp=-1`.
+
+### 25.2 Fix shipped
+
+| Area | Change |
+|------|--------|
+| Harness | `overlay_synthetic_ground_in_arena`, `beat_driven_world_for_kite_synthetic` — load `forgotten.otbm` + grass overlay |
+| `chase_kite_sim` | synthetic path uses OTBM + overlay (matches C++) |
+| `monster_tshortway_fill_walkable` | self-tile block, `!KickCreatures`, non-attacking creature gate |
+| Tooling | `dump_tshortway_fill_walkable_viewport`, `scripts/compare_fill_walkable.py`, C++ `ChasePathLogFillMap` (local ref) |
+| Tests | `cyclops_quad_nw_and_far_n_shortway_match_live_ref` unignored — **PASS** |
+
+### 25.3 Lockstep after P2.5d
+
+| Metric | ref | rust |
+|--------|-----|------|
+| Events | 20 | 19–20 |
+| `todo_go` | 4/4 | 4/4 |
+| `shortway` pairwise | — | **4/4** |
+| `go_exec` pairwise | — | **3/4** |
+| Diagonal `go_exec` | 1/4 (NW) | 0/4 |
+
+| Monster | C++ ref shortway @2000 | Rust @2000 | Match |
+|---------|------------------------|------------|-------|
+| NW | `(32358,32290)→(32358,32291)→(32359,32291)` | same | **yes** |
+| South | `(32360,32292)→(32360,32293)` | same | **yes** |
+| East | `(32361,32291)→…` | same | **yes** |
+| far-N | `(32359,32287)→(32359,32286)→(32358,32286)` | same | **yes** |
+
+Fill-map priority tiles `(32359,32290)`, `(32358,32289)`, `(32360,32289)`: **match** (12 non-priority viewport diffs remain — map edge / OTBM variance).
+
+### 25.4 Closed — P2.5e (`go_exec` @4000)
+
+**Root cause:** Rust `todo_start_go_delay` used `get_event_step_ticks` (full upcoming step duration) before the first `Go`, scheduling `next_wakeup@4001`. C++ `ToDoStart` arms `max(1, CalculateDelay(TDGo))` — when `EarliestWalkTime=0`, delay is **1 ms** (`NextWakeup=2001`); batch drain @4000 executes the diagonal step.
+
+| Area | Change |
+|------|--------|
+| `CreatureBase` | `earliest_walk_server_ms` — C++ `EarliestWalkTime` (`cr.hh:631`) |
+| `todo_start_go_delay` | 772 beat path: `CalculateDelay(TDGo)` + `ToDoStart` floor 1 ms |
+| `on_walk` | `NotifyGo` — set `earliest_walk_server_ms` after each step |
+| `drain_todo_queue` | Strict `due_limit = server_ms` (matches `Execute` `NextWakeup > ServerMilliseconds`) |
+| `idle_stimulus` | Appear defer: schedule **remaining** ms to 2000; run idle when `server_ms >= 2000` |
+| `setup_cyclops_quad_chase_to_tick_2000` | `run_sim_tick` after `advance_ms 2000` (matches scenario) |
+| Test | `cyclops_quad_nw_go_exec_at_tick_4000` |
+
+**Rust trace (`TFS_SIM_SEED=772`):** NW `todo_go` @2000; diagonal `go_exec` @4000 (`diag=1`).
+
+### 25.5 Lockstep after P2.5e
+
+| Metric | ref (prior) | rust |
+|--------|-------------|------|
+| `shortway` pairwise | — | **4/4** |
+| `go_exec` pairwise | — | **4/4** |
+| Diagonal `go_exec` (NW) | 1/4 | **1/4** @4000 |
+
+### 25.6 Verification
+
+```bash
+# Fill-map parity (priority tiles)
+TFS_FILLMAP_DUMP=1 rtk cargo test -p tfs-rust-core cyclops_quad_nw_fill_walkable_dump -- --nocapture
+python3 scripts/compare_fill_walkable.py \
+  --rust log/fill_walkable_rust_nw.json \
+  --ref log/chase_ai_fillmap.jsonl --monster-nw
+
+# Path + lockstep
+rtk cargo test -p tfs-rust-core cyclops_quad
+TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic \
+  scripts/scenarios/kite_cyclops_quad_chase.scenario
+python3 scripts/summarize_chase_gaps.py \
+  --ref log/chase_path_cip_cyclops.log \
+  --rust log/chase_path_rust_cyclops.log --lockstep
+
+# Full battery (target 4/6 after P2.5e)
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic
+```
+
+### 25.7 Battery (P2.5f — 2026-06-15)
+
+`TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic` → exit **2**; log `log/battery_p25f_run.log`.
+
+| Scenario | Lockstep | Notes |
+|----------|----------|-------|
+| stand | **PASS** | unchanged |
+| panic | **PASS** | unchanged |
+| kill | **PASS** | unchanged |
+| cyclops | **FAIL** | `go_exec` 4/4 counts; **2/4** pairwise — see §25.8 |
+| kite | **FAIL** | rust extra `todo_go`/`shortway` @6000 |
+| cobra | **FAIL** | tick shift 8k↔10k; extra melee/spell |
+
+**Lockstep gate:** **3/6**.
+
+### 25.8 Open — P2.5g (multi-monster `go_exec` order @4000)
+
+P2.5e fixed the missing NW diagonal step. P2.5f C++ A/B shows all four cyclops `go_exec` @4000 on both stacks; lockstep fails on **index-aligned order** of the 3rd and 4th steps:
+
+| Index | C++ ref | Rust |
+|-------|---------|------|
+| 0 | NW `(32359,32289)→(32358,32290)` diag=1 | same |
+| 1 | S `(32360,32291)→(32360,32292)` | same |
+| 2 | far-N `(32359,32288)→(32359,32287)` | E `(32361,32290)→(32361,32291)` |
+| 3 | E `(32361,32290)→(32361,32291)` | far-N `(32359,32288)→(32359,32287)` |
+
+**Hypothesis:** C++ `Game::checkCreatures` / per-creature `Execute` iteration order when multiple monsters share `NextWakeup=4000` differs from Rust sim harness drain order. **Next:** trace C++ creature list walk vs Rust `drain_todo_queue` / scheduler ordering.
+
+### 26. Closed — P2.5g (multi-monster `go_exec` order @4000)
+
+**Date:** 2026-06-16
+
+**Root cause:** Global `u16::MAX - harness_spawn_order` tie on every `schedule_creature_wakeup` matched appear-idle LIFO @2000 but forced east-before-far-N @4000 when the scenario clock jumps 2000→4000 and all four `@2001` wakeups drain together.
+
+| Area | Change |
+|------|--------|
+| `todo_queue.rs` | `WakeupTiePolicy`, `harness_appear_idle_tie`, `harness_go_step_tie` |
+| `walk/mod.rs` | `schedule_creature_wakeup(..., tie_policy)`; `harness_go_wakeup_tie_policy` |
+| `creature_todo.rs` | appear `todo_yield` → `HarnessAppearIdle`; go paths → `HarnessGoStep` |
+| `idle_stimulus.rs` | appear defer → `HarnessAppearIdle` |
+| Test | `harness_go_step_cyclops_quad_at_4000`, `cyclops_quad_go_exec_order_at_tick_4000` |
+
+**Before / after `go_exec` @4000 (index-aligned):**
+
+| Index | C++ ref | Rust before | Rust after |
+|-------|---------|-------------|------------|
+| 0 | NW diagonal | match | match |
+| 1 | south | match | match |
+| 2 | far-N | **east** | match |
+| 3 | east | **far-N** | match |
+
+**Lockstep:** cyclops **PASS** (`go_exec` 4/4). Battery **4/6** (stand, panic, kill, cyclops).
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -1441,3 +1680,8 @@ Stand / panic / kill **PASS**; cyclops **FAIL**.
 | 2026-06-14 | §21 closeout: DANCE_DIR_ORDER N/S fix, ToDoWait(0), chase step reverse removed, kill armor+stimulus order, harness_preserve_sleep; kill lockstep PASS (1/6); stand/panic content 100% on chase arms; cyclops tick=0 dance regression documented |
 | 2026-06-14 | §22 closeout: batch appear defer + human Defend=5 + panic melee promotion; stand/panic lockstep PASS (3/6) |
 | 2026-06-14 | §23 Phase 2 partial: cyclops cadence 20/20; TShortway/walk_queue fixes; shortway 2/4 — lockstep 3/6 |
+| 2026-06-14 | §24 oracle refresh: C++ paths confirmed not stale; P2.5 FillMap/fill_walkable dump scoped; trajectory §5 updated |
+| 2026-06-15 | §25 P2.5 closeout: OTBM-under-grass root cause; overlay fix; shortway 4/4; go_exec 3/4 (P2.5e scheduling open) |
+| 2026-06-15 | §25.4 P2.5e closeout: `EarliestWalkTime` + `ToDoStart` min-1ms; NW `go_exec` @4000; appear-defer remaining-ms fix |
+| 2026-06-15 | §25.7 P2.5f battery rerun: **3/6**; cyclops `go_exec` 4/4 counts but 2/4 pairwise (E/far-N order @4000); §25.8 P2.5g scoped |
+| 2026-06-16 | §26 P2.5g closeout: `WakeupTiePolicy`; cyclops lockstep PASS; battery **4/6**; Phase 2 done |

@@ -22,7 +22,6 @@ fn objects_srv_path(root: &Path) -> PathBuf {
     root.join("reference/classic-772/runtime/dat/objects.srv")
 }
 const ITEMS_OTB: &str = "data/items/items.otb";
-const RUST_DEFAULT_WP: u32 = 150;
 
 #[derive(Debug, Clone)]
 struct ObjectsSrvGround {
@@ -81,12 +80,7 @@ fn parse_objects_srv(path: &Path) -> Vec<ObjectsSrvGround> {
             .unwrap_or_default();
         let bank = flags.iter().any(|f| *f == "Bank");
         let unpass = flags.iter().any(|f| *f == "Unpass");
-        let waypoints = block
-            .lines()
-            .find_map(|l| l.split("Waypoints=").nth(1))
-            .and_then(|s| s.split(',').next())
-            .and_then(|s| s.trim().parse::<i32>().ok())
-            .unwrap_or(-1);
+        let waypoints = tfs_rust_content::objects_srv::parse_waypoints(&block).unwrap_or(-1);
         out.push(ObjectsSrvGround {
             type_id,
             name,
@@ -101,19 +95,9 @@ fn parse_objects_srv(path: &Path) -> Vec<ObjectsSrvGround> {
 fn lookup_otb<'a>(
     type_id: u16,
     by_server: &'a HashMap<u16, tfs_rust_content::otb::ItemType>,
-    by_client: &HashMap<u16, u16>,
 ) -> Option<&'a tfs_rust_content::otb::ItemType> {
-    by_client
-        .get(&type_id)
-        .and_then(|sid| by_server.get(sid))
-}
-
-fn rust_effective_wp(otb_speed: u16) -> u32 {
-    if otb_speed == 0 {
-        RUST_DEFAULT_WP
-    } else {
-        u32::from(otb_speed)
-    }
+    let server_id = tfs_rust_content::objects_srv::resolve_server_id_for_patch(type_id, by_server)?;
+    by_server.get(&server_id)
 }
 
 #[test]
@@ -127,10 +111,6 @@ fn audit_objects_srv_waypoints_vs_otb() {
 
     let srv_grounds = parse_objects_srv(&objects);
     let by_server = tfs_rust_content::otb::OtbLoader::load_from_file(&otb_path).expect("otb");
-    let by_client: HashMap<u16, u16> = by_server
-        .values()
-        .map(|it| (it.client_id, it.server_id))
-        .collect();
 
     let mut status_counts: HashMap<Status, u32> = HashMap::new();
     let mut problems: Vec<String> = Vec::new();
@@ -144,25 +124,19 @@ fn audit_objects_srv_waypoints_vs_otb() {
             *status_counts.entry(Status::Blocked).or_default() += 1;
             continue;
         }
-        let otb = lookup_otb(g.type_id, &by_server, &by_client);
+        let otb = lookup_otb(g.type_id, &by_server);
         let status = match otb {
             None => Status::MissingOtb,
-            Some(it) if rust_effective_wp(it.speed) == g.waypoints as u32 => Status::Match,
+            Some(it) if it.speed == g.waypoints as u16 => Status::Match,
             Some(it) if it.speed == 0 => Status::MissingOtbSpeed,
             Some(_) => Status::Mismatch,
         };
         if status == Status::Match {
             matches += 1;
         } else if problems.len() < 30 {
-            let (srv, spd, eff) = otb.map(|it| {
-                (
-                    it.server_id,
-                    it.speed,
-                    rust_effective_wp(it.speed),
-                )
-            }).unwrap_or((0, 0, RUST_DEFAULT_WP));
+            let (srv, spd) = otb.map(|it| (it.server_id, it.speed)).unwrap_or((0, 0));
             problems.push(format!(
-                "  TypeID {:5} {:20} cip={:3} otb_srv={srv:5} otb_spd={spd:3} rust={eff:3} [{status:?}]",
+                "  TypeID {:5} {:20} srv_wp={:3} otb_srv={srv:5} otb_spd={spd:3} [{status:?}]",
                 g.type_id, format!("{:?}", g.name), g.waypoints
             ));
         }
@@ -190,8 +164,9 @@ fn audit_objects_srv_waypoints_vs_otb() {
             println!("  {cnt}: {n}");
         }
     }
-    println!("\nExact matches: {matches}");
-    println!("Rust default when OTB speed missing: {RUST_DEFAULT_WP}");
+    println!("\nExact OTB speed matches (patched items.otb): {matches}");
+    println!("Walkable BANK types (Bank, !Unpass, Waypoints>0): {}", matches + status_counts.get(&Status::Mismatch).copied().unwrap_or(0) + status_counts.get(&Status::MissingOtb).copied().unwrap_or(0) + status_counts.get(&Status::MissingOtbSpeed).copied().unwrap_or(0));
+    println!("Re-patch if needed: cargo run -p tfs-rust-content --bin patch-otb-waypoints");
     println!("\nSample problems:");
     for line in &problems {
         println!("{line}");

@@ -321,11 +321,12 @@ impl GameWorld {
     pub fn drain_todo_queue(&mut self) {
         const MAX_DRAINS_PER_BEAT: usize = 4096;
         let mut drained = 0usize;
+        let due_limit = self.server_ms;
         while drained < MAX_DRAINS_PER_BEAT {
             let Some(entry) = self.todo_queue.peek() else {
                 break;
             };
-            if entry.execution_time > self.server_ms {
+            if entry.execution_time > due_limit {
                 break;
             }
             let entry = self.todo_queue.pop().expect("peek implied non-empty heap");
@@ -374,11 +375,9 @@ impl GameWorld {
                             && k.base().next_wakeup.is_none()
                     })
                 {
-                    // C++ `IdleStimulus` queues `ToDoGo` then `TDAttack`; `NotifyGo` arms a
-                    // step-delayed wakeup — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
-                    if self.todo_start_go_delay(cid, true) {
-                        self.schedule_immediate_todo_wakeup(cid);
-                    }
+                    // C++ `IdleStimulus` queues `ToDoGo` then `TDAttack`; `ToDoStart` arms
+                    // `NextWakeup` — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
+                    let _ = self.todo_start_go_delay(cid, true);
                 } else {
                     self.run_monster_todo_execute(cid);
                 }
@@ -391,31 +390,95 @@ impl GameWorld {
     }
 
     /// Schedule a creature wakeup in the logical ToDoQueue (`cract.cc:968` `ToDoStart`).
-    pub(crate) fn schedule_creature_wakeup(&mut self, cid: CreatureId, execution_time: u64) {
+    pub(crate) fn schedule_creature_wakeup(
+        &mut self,
+        cid: CreatureId,
+        execution_time: u64,
+        tie_policy: crate::todo_queue::WakeupTiePolicy,
+    ) {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().next_walk_check = None;
             k.base_mut().next_wakeup = Some(execution_time);
         }
-        // C++ `ToDoQueue` LIFO tie-break — last `ToDoYield` during appear drains first
-        // (`chase_kite_scenario.cc` `SpawnMonsterAppear` forward loop).
-        let tie = self
-            .creatures
-            .get(cid)
-            .and_then(|k| match k {
-                CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
-                    Some(u64::from(u16::MAX - m.harness_spawn_order))
-                }
-                _ => None,
-            })
-            .unwrap_or_else(|| self.todo_queue.bump_sequence());
+        use crate::creature::CreatureKind;
+        use crate::todo_queue::{harness_appear_idle_tie, harness_go_step_tie, WakeupTiePolicy};
+        let tie = match tie_policy {
+            WakeupTiePolicy::HarnessAppearIdle => self
+                .creatures
+                .get(cid)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
+                        Some(harness_appear_idle_tie(m.harness_spawn_order))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| self.todo_queue.bump_sequence()),
+            WakeupTiePolicy::HarnessGoStep => self
+                .creatures
+                .get(cid)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
+                        Some(harness_go_step_tie(m.harness_spawn_order))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| self.todo_queue.bump_sequence()),
+            WakeupTiePolicy::Fifo => self.todo_queue.bump_sequence(),
+        };
         self.todo_queue
             .insert_with_tie(execution_time, cid, tie);
         trace_creature_todo(self, cid, "schedule_wakeup");
     }
 
+    /// Harness monsters use go-step tie; production paths use FIFO.
+    pub(crate) fn harness_go_wakeup_tie_policy(
+        &self,
+        cid: CreatureId,
+    ) -> crate::todo_queue::WakeupTiePolicy {
+        use crate::creature::CreatureKind;
+        use crate::todo_queue::WakeupTiePolicy;
+        if self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.harness_spawn_order > 0)
+        }) {
+            WakeupTiePolicy::HarnessGoStep
+        } else {
+            WakeupTiePolicy::Fifo
+        }
+    }
+
     /// Compute walk delay for the next queued Go and arm the global heap (772 monster idle path).
-    /// Returns `true` when the step should run immediately (ticks <= 1).
+    /// Returns `true` when the step should run immediately (1098 `getEventStepTicks` <= 1).
+    ///
+    /// 772 beat path mirrors `CalculateDelay` (`TDGo`) + `ToDoStart` (`cract.cc:912–917`, `1004–1017`).
     pub(crate) fn todo_start_go_delay(&mut self, cid: CreatureId, first_step: bool) -> bool {
+        if self.beat_driven_loop {
+            if !self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().walk_timer_idle(self.beat_driven_loop))
+            {
+                return false;
+            }
+            let server_ms = self.server_ms;
+            let earliest = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().earliest_walk_server_ms)
+                .unwrap_or(0);
+            let calc_delay = if earliest > server_ms {
+                earliest - server_ms
+            } else {
+                0
+            };
+            let delay = calc_delay.max(1);
+            self.todo_start_from_action(
+                cid,
+                delay,
+                self.harness_go_wakeup_tie_policy(cid),
+            );
+            return false;
+        }
+
         let wall_now = Instant::now();
         let (pos, timing_speed) = {
             let Some(k) = self.creatures.get(cid) else {
@@ -441,7 +504,6 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
-        let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
         let only_delay = first_step && !self.beat_driven_loop;
         let ticks = {
             let Some(k) = self.creatures.get(cid) else {
@@ -455,7 +517,7 @@ impl GameWorld {
                 peek_next_walk_direction(k.base()),
                 wall_now,
                 &self.mechanics,
-                server_ms_opt,
+                None,
             )
         };
         if ticks <= 0 {
@@ -464,7 +526,11 @@ impl GameWorld {
         if ticks == 1 {
             return true;
         }
-        self.todo_start_from_action(cid, ticks.max(1) as u64);
+        self.todo_start_from_action(
+            cid,
+            ticks.max(1) as u64,
+            crate::todo_queue::WakeupTiePolicy::Fifo,
+        );
         false
     }
 
@@ -935,7 +1001,11 @@ impl GameWorld {
         }
         let delay_ms = ticks.max(1) as u64;
         if self.beat_driven_loop {
-            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
+            self.schedule_creature_wakeup(
+                cid,
+                self.server_ms.saturating_add(delay_ms),
+                self.harness_go_wakeup_tie_policy(cid),
+            );
         } else {
             let anchor = Instant::now();
             self.commit_next_walk_deadline(
@@ -1034,7 +1104,11 @@ impl GameWorld {
             if first_step {
                 self.schedule_walk_followup_deadline(cid);
             } else if self.beat_driven_loop {
-                self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
+                self.schedule_creature_wakeup(
+                    cid,
+                    self.server_ms.saturating_add(1),
+                    self.harness_go_wakeup_tie_policy(cid),
+                );
             } else {
                 let anchor = Instant::now();
                 self.commit_next_walk_deadline(
@@ -1052,7 +1126,11 @@ impl GameWorld {
             } else {
                 self.server_ms.saturating_add(delay_ms)
             };
-            self.schedule_creature_wakeup(cid, execution_time);
+            self.schedule_creature_wakeup(
+                cid,
+                execution_time,
+                self.harness_go_wakeup_tie_policy(cid),
+            );
         } else if first_step {
             self.commit_next_walk_deadline(
                 cid,
@@ -1271,6 +1349,17 @@ impl GameWorld {
                             .get_tile(new_pos)
                             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
                             .unwrap_or(150);
+                        let notify_go_ms = self.beat_driven_loop.then(|| {
+                            self.creatures.get(cid).map(|k| {
+                                get_step_duration_ms_with_direction(
+                                    k,
+                                    k.base(),
+                                    dir,
+                                    gs_dest,
+                                    &self.mechanics,
+                                )
+                            })
+                        }).flatten();
                         if let Some(k) = self.creatures.get_mut(cid) {
                             let base = k.base_mut();
                             base.last_step = Some(Instant::now());
@@ -1278,6 +1367,12 @@ impl GameWorld {
                             base.last_step_ground_speed = gs_dest;
                             if self.beat_driven_loop {
                                 base.last_step_server_ms = Some(self.server_ms);
+                                if let Some(step_ms) = notify_go_ms {
+                                    // C++ `NotifyGo` — `EarliestWalkTime` (`cract.cc:1515–1525`).
+                                    base.earliest_walk_server_ms = self
+                                        .server_ms
+                                        .saturating_add(step_ms.max(1) as u64);
+                                }
                             }
                         }
                     }

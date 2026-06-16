@@ -94,6 +94,8 @@ pub struct CreatureBase {
     pub next_wakeup: Option<u64>,
     /// 772 step anchor in logical time (paired with `last_step`).
     pub last_step_server_ms: Option<u64>,
+    /// 772 `EarliestWalkTime` — earliest logical ms the next `TDGo` may run (`cr.hh:631`, `cract.cc:912–916`).
+    pub earliest_walk_server_ms: u64,
     /// When [`GameWorld`](crate::game_world::GameWorld) has `walk_wake_tx`, one-shot `tokio::time::sleep_until`
     /// tasks (`src/scheduler.cpp` Boost.Asio `steady_timer` + `stopEvent`).
     pub walk_timer: WalkTimer,

@@ -99,6 +99,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             next_walk_check: None,
             next_wakeup: None,
             last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
@@ -467,6 +468,18 @@ pub fn beat_driven_world_with_synthetic_ground_data(
     ))
 }
 
+/// C++ `SyntheticGroundType` — `chase_kite_scenario.cc:113-121` (grass TypeID 102 = wp 150).
+pub fn synthetic_ground_type_for_waypoints(default_wp: u16) -> u16 {
+    match default_wp {
+        110 => 103,
+        120 => 107,
+        130 => 110,
+        140 => 106,
+        160 => 104,
+        _ => 102,
+    }
+}
+
 /// Lay synthetic arena and return the pinned `min_wp` for pathfinding parity checks.
 pub fn lay_synthetic_arena(
     map: &mut Map,
@@ -476,15 +489,10 @@ pub fn lay_synthetic_arena(
     z: u8,
     waypoint: u16,
 ) -> u32 {
-    lay_arena_tiles(map, cx, cy, radius, z, waypoint);
-    let origin = Position::new(cx, cy, z);
-    scan_min_terrain_waypoints(map, origin, REVERSE_PATH_VIEW_RADIUS, |p| {
-        map.get_tile(p)
-            .filter(|_| map.is_walkable(p))
-            .and_then(|t| t.body().ground)
-            .map(|gid| u32::from(gid))
-            .unwrap_or(0)
-    })
+    let ground_type = synthetic_ground_type_for_waypoints(waypoint);
+    lay_arena_tiles(map, cx, cy, radius, z, ground_type);
+    // Uniform synthetic grass — pinned to scenario `default_wp` (`chase_kite_scenario.cc`).
+    u32::from(waypoint)
 }
 
 /// Map source for `chase_kite_sim` — OTBM terrain (Rust) aligned with C++ `.sec` coords.
@@ -647,6 +655,81 @@ pub fn lay_arena_tiles(map: &mut Map, cx: u16, cy: u16, radius: u16, z: u8, grou
     }
 }
 
+/// Replace BANK ground only — keeps OTBM items (`chase_kite_scenario.cc` `ClearBankObjects` + `AppendObject`).
+pub fn overlay_synthetic_ground_in_arena(
+    map: &mut Map,
+    cx: u16,
+    cy: u16,
+    radius: u16,
+    z: u8,
+    waypoint: u16,
+) -> u32 {
+    let ground_type = synthetic_ground_type_for_waypoints(waypoint);
+    let r = radius as i32;
+    let cx = cx as i32;
+    let cy = cy as i32;
+    for dx in -r..=r {
+        for dy in -r..=r {
+            let x = (cx + dx) as u16;
+            let y = (cy + dy) as u16;
+            let pos = Position::new(x, y, z);
+            if let Some(tile) = map.get_tile_mut(pos) {
+                if let Tile::Normal(body) = tile {
+                    body.ground = Some(ground_type);
+                }
+            } else {
+                ensure_walkable_tile(map, pos, ground_type);
+            }
+        }
+    }
+    u32::from(waypoint)
+}
+
+/// C++ `LaySyntheticArena` when `arena_synthetic` — OTBM base + grass overlay, else flat arena.
+pub fn beat_driven_world_for_kite_synthetic(
+    data_dir: &Path,
+    map_rel: &str,
+    arena_center: (u16, u16),
+    arena_radius: u16,
+    z: u8,
+    default_wp: u16,
+) -> Result<GameWorld, String> {
+    let fill_radius = arena_radius.saturating_add(REVERSE_PATH_VIEW_RADIUS as u16);
+    if data_dir.is_dir() {
+        let mut world = beat_driven_world_from_map(data_dir, map_rel)?;
+        let min_wp = overlay_synthetic_ground_in_arena(
+            &mut world.map,
+            arena_center.0,
+            arena_center.1,
+            fill_radius,
+            z,
+            default_wp,
+        );
+        if min_wp != u32::from(default_wp) {
+            return Err(format!(
+                "synthetic overlay min_wp={min_wp} != default_wp={default_wp}"
+            ));
+        }
+        Ok(world)
+    } else {
+        let mut world = beat_driven_world_with_synthetic_ground_data(data_dir, Some(default_wp))?;
+        let min_wp = lay_synthetic_arena(
+            &mut world.map,
+            arena_center.0,
+            arena_center.1,
+            fill_radius,
+            z,
+            default_wp,
+        );
+        if min_wp != u32::from(default_wp) {
+            return Err(format!(
+                "synthetic arena min_wp={min_wp} != default_wp={default_wp}"
+            ));
+        }
+        Ok(world)
+    }
+}
+
 pub fn insert_monster(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
     insert_monster_with_config(world, name, pos, speed, MonsterAiConfig::default())
 }
@@ -677,6 +760,7 @@ pub fn insert_monster_with_config(
         next_walk_check: None,
         next_wakeup: None,
         last_step_server_ms: None,
+        earliest_walk_server_ms: 0,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
@@ -732,6 +816,7 @@ pub fn insert_monster_from_type(
         next_walk_check: None,
         next_wakeup: None,
         last_step_server_ms: None,
+        earliest_walk_server_ms: 0,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
@@ -818,6 +903,7 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         next_walk_check: None,
         next_wakeup: None,
         last_step_server_ms: None,
+        earliest_walk_server_ms: 0,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
@@ -918,6 +1004,134 @@ pub fn reset_chase_path_log() {
     crate::chase_debug::chase_path_reset_log();
 }
 
+/// Cyclops quad spawn layout — `kite_cyclops_quad_chase.scenario` (spawn order = idle drain order).
+pub const CYCLOPS_QUAD_SPAWNS: [(u16, u16); 4] = [
+    (32359, 32288), // far-N
+    (32361, 32290), // east
+    (32360, 32291), // south
+    (32359, 32289), // NW
+];
+
+/// Build cyclops quad chase world through first idle @2000 ms — mirrors `kite_cyclops_quad_chase.scenario`.
+///
+/// Caller must prepare the arena via [`beat_driven_world_for_kite_synthetic`] (OTBM + grass overlay)
+/// or an equivalent map. Returns `(nw_creature_id, player_id, player_pos_at_tick_2000)`.
+pub fn setup_cyclops_quad_chase_to_tick_2000(
+    world: &mut GameWorld,
+) -> Result<(CreatureId, CreatureId, Position), String> {
+    let z = 7u8;
+    let player_start = Position::new(32360, 32290, z);
+    let player_id = insert_player(world, sim_hero_player("Hero", player_start));
+    world.map.register_creature_at(player_start, player_id);
+
+    let mtype = world
+        .monsters_db
+        .monsters
+        .get("cyclops")
+        .cloned()
+        .ok_or_else(|| "cyclops monster type not loaded".to_string())?;
+
+    let mut config = MonsterAiConfig::from_monster_type(&mtype);
+    config.is_hostile = true;
+    config.melee_skill = 50;
+    config.melee_attack = 30;
+    config.armor = 17;
+    config.defense = 24;
+    config.target_distance = 1;
+    config.talks = 5;
+
+    let mut monster_ids = Vec::with_capacity(4);
+    for (i, &(x, y)) in CYCLOPS_QUAD_SPAWNS.iter().enumerate() {
+        let pos = Position::new(x, y, z);
+        let mid = insert_monster_from_type(
+            world,
+            &mtype,
+            &format!("Cyclops {}", i + 1),
+            pos,
+            mtype.speed as i32,
+            config.clone(),
+            MonsterState::Sleeping,
+        );
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
+            m.harness_spawn_order = (i as u16).saturating_add(1);
+        }
+        monster_ids.push(mid);
+    }
+
+    kite_monsters_appear_batch(world, &monster_ids);
+
+    let kite_path = [
+        Position::new(32362, 32290, z),
+        Position::new(32364, 32290, z),
+        Position::new(32364, 32292, z),
+        Position::new(32362, 32294, z),
+        Position::new(32360, 32294, z),
+    ];
+    set_sim_harness_wall_ms(world, Some(0));
+    for &dest in &kite_path {
+        teleport_player(world, player_id, dest)?;
+        run_sim_tick(world);
+    }
+
+    set_sim_harness_wall_ms(world, Some(HARNESS_APPEAR_IDLE_DEFER_MS));
+    move_creatures_explicit(world, HARNESS_APPEAR_IDLE_DEFER_MS);
+    run_sim_tick(world);
+    // Caller may run further drains — first chase idle @2000 runs during `run_sim_tick` above.
+
+    let nw_id = monster_ids[3];
+    let player_pos = Position::new(32360, 32294, z);
+    Ok((nw_id, player_id, player_pos))
+}
+
+/// Write Rust FillMap dump JSON when `TFS_FILLMAP_DUMP=1` — P2.5a artifact for `compare_fill_walkable.py`.
+pub fn write_fill_walkable_dump_json(
+    world: &GameWorld,
+    cid: CreatureId,
+    target: Position,
+    path: &Path,
+) -> std::io::Result<()> {
+    use crate::monster_ai::TShortwayFillTile;
+    use std::io::Write;
+
+    let (state, tiles) =
+        world.dump_tshortway_fill_walkable_viewport(cid, target, REVERSE_PATH_VIEW_RADIUS);
+    let origin = world.creatures.get(cid).map(|k| k.position()).unwrap_or(target);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut out = std::fs::File::create(path)?;
+    writeln!(out, "{{")?;
+    writeln!(out, "  \"src\": \"rust\",")?;
+    writeln!(out, "  \"tick\": {},", world.server_ms)?;
+    writeln!(
+        out,
+        "  \"monster_state\": \"{}\",",
+        format!("{state:?}").to_ascii_lowercase()
+    )?;
+    writeln!(
+        out,
+        "  \"start\": {{\"x\":{},\"y\":{},\"z\":{}}},",
+        origin.x, origin.y, origin.z
+    )?;
+    writeln!(out, "  \"visible\": {},", REVERSE_PATH_VIEW_RADIUS)?;
+    writeln!(out, "  \"tiles\": [")?;
+    for (i, TShortwayFillTile { pos, walkable, wp }) in tiles.iter().enumerate() {
+        let comma = if i + 1 < tiles.len() { "," } else { "" };
+        writeln!(
+            out,
+            "    {{\"x\":{},\"y\":{},\"z\":{},\"wp\":{},\"walkable\":{}}}{comma}",
+            pos.x,
+            pos.y,
+            pos.z,
+            wp,
+            walkable
+        )?;
+    }
+    writeln!(out, "  ]")?;
+    writeln!(out, "}}")?;
+    Ok(())
+}
+
 /// C++ `MoveCreatures` — `crmain.cc:1106` (harness clock + due todo drain).
 ///
 /// When [`GameWorld::sim_harness_wall_ms`] is set, `delay_ms` is clamped so `server_ms` never
@@ -1002,6 +1216,7 @@ mod harness_tests {
         assert_eq!(min_wp, 150);
         let pos = Position::new(100, 100, 7);
         assert!(world.map.is_walkable(pos));
+        assert_eq!(world.map.get_tile(pos).unwrap().body().ground, Some(102));
         assert_eq!(world.tile_ground_speed(world.map.get_tile(pos).unwrap().body()), 150);
     }
 
@@ -1029,7 +1244,7 @@ mod harness_tests {
         let pos = Position::new(100, 100, 7);
         let cid = insert_monster(&mut world, "Rat", pos, 200);
         world.sim_harness_wall_ms = Some(6_000);
-        world.schedule_creature_wakeup(cid, 20_000);
+        world.schedule_creature_wakeup(cid, 20_000, crate::todo_queue::WakeupTiePolicy::Fifo);
         run_sim_tick(&mut world);
         assert!(world.server_ms <= 6_000);
         let _ = cid;
@@ -1156,12 +1371,16 @@ mod harness_tests {
         if !cfg.data_dir.is_dir() {
             return;
         }
-        let Ok(mut world) = beat_driven_world_with_synthetic_ground_data(&cfg.data_dir, Some(150))
-        else {
+        let Ok(mut world) = beat_driven_world_for_kite_synthetic(
+            &cfg.data_dir,
+            &cfg.map_rel,
+            (32360, 32290),
+            16,
+            7,
+            150,
+        ) else {
             return;
         };
-        let fill_radius = 16u16 + REVERSE_PATH_VIEW_RADIUS as u16;
-        lay_synthetic_arena(&mut world.map, 32360, 32290, fill_radius, 7, 150);
         let spawns = [
             Position::new(32359, 32288, 7),
             Position::new(32361, 32290, 7),
@@ -1207,6 +1426,175 @@ mod harness_tests {
             tile.body().creatures.contains(&ids[3]),
             "NW cyclops must be registered on map tile"
         );
+    }
+
+    /// P2.5e — NW cyclops first diagonal `go_exec` fires @tick=4000 (ToDoStart @2001, batch drain @4000).
+    #[test]
+    fn cyclops_quad_nw_go_exec_at_tick_4000() {
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_for_kite_synthetic(
+            &cfg.data_dir,
+            &cfg.map_rel,
+            (32360, 32290),
+            16,
+            7,
+            150,
+        ) else {
+            return;
+        };
+        let Ok((nw_id, _, _)) = setup_cyclops_quad_chase_to_tick_2000(&mut world) else {
+            return;
+        };
+        assert_eq!(world.server_ms, HARNESS_APPEAR_IDLE_DEFER_MS);
+
+        let nw_base = world.creatures.get(nw_id).unwrap().base();
+        assert!(
+            nw_base.todo.has_go() || !nw_base.walk_queue.is_empty(),
+            "idle@2000 must enqueue chase (wakeup={:?})",
+            nw_base.next_wakeup
+        );
+
+        set_sim_harness_wall_ms(&mut world, Some(4_000));
+        move_creatures_explicit(&mut world, 2_000);
+        run_sim_tick(&mut world);
+
+        let nw_pos = world.creatures.get(nw_id).map(|k| k.position());
+        assert_eq!(
+            nw_pos,
+            Some(Position::new(32358, 32290, 7)),
+            "NW cyclops must execute first diagonal go_exec @4000 (todo armed @2001)"
+        );
+        assert_eq!(world.server_ms, 4_000);
+    }
+
+    /// P2.5g — all four cyclops `go_exec` positions @4000 match C++ oracle drain order.
+    #[test]
+    fn cyclops_quad_go_exec_order_at_tick_4000() {
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_for_kite_synthetic(
+            &cfg.data_dir,
+            &cfg.map_rel,
+            (32360, 32290),
+            16,
+            7,
+            150,
+        ) else {
+            return;
+        };
+        let Ok((_, _, _)) = setup_cyclops_quad_chase_to_tick_2000(&mut world) else {
+            return;
+        };
+
+        set_sim_harness_wall_ms(&mut world, Some(4_000));
+        move_creatures_explicit(&mut world, 2_000);
+        run_sim_tick(&mut world);
+
+        let expected_after_go: [(u16, u16, u8); 4] = [
+            (32359, 32287, 7), // far-N (spawn 1)
+            (32361, 32291, 7), // east (spawn 2)
+            (32360, 32292, 7), // south (spawn 3)
+            (32358, 32290, 7), // NW (spawn 4)
+        ];
+        let mut by_spawn_order: Vec<(u16, Position)> = world
+            .creatures
+            .iter()
+            .filter_map(|(id, k)| {
+                let CreatureKind::Monster(m) = k else {
+                    return None;
+                };
+                if m.harness_spawn_order == 0 {
+                    return None;
+                }
+                Some((m.harness_spawn_order, world.creatures.get(id)?.position()))
+            })
+            .collect();
+        by_spawn_order.sort_by_key(|(order, _)| *order);
+        let positions: Vec<Position> = by_spawn_order.into_iter().map(|(_, p)| p).collect();
+        assert_eq!(
+            positions,
+            expected_after_go
+                .map(|(x, y, z)| Position::new(x, y, z))
+                .to_vec(),
+            "quad cyclops positions after go_exec @4000"
+        );
+        assert_eq!(world.server_ms, 4_000);
+    }
+
+    /// P2.5 — NW cyclops FillMap dump @ tick=2000 matches scenario posture for parity diff.
+    #[test]
+    fn cyclops_quad_nw_fill_walkable_dump_at_tick_2000() {
+        use crate::creature::MonsterState;
+        use crate::monster_ai::TShortwayFillTile;
+        use std::path::PathBuf;
+
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_for_kite_synthetic(
+            &cfg.data_dir,
+            &cfg.map_rel,
+            (32360, 32290),
+            16,
+            7,
+            150,
+        ) else {
+            return;
+        };
+        let Ok((nw_id, _player_id, player_pos)) =
+            setup_cyclops_quad_chase_to_tick_2000(&mut world)
+        else {
+            return;
+        };
+        assert_eq!(world.server_ms, HARNESS_APPEAR_IDLE_DEFER_MS);
+        // Deferred appear arms `next_wakeup@2000` — clear so idle can run (FillMap moment).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(nw_id) {
+            m.base.next_wakeup = None;
+        }
+        world.monster_idle_stimulus(nw_id);
+        let (state, tiles) = world.dump_tshortway_fill_walkable_viewport(
+            nw_id,
+            player_pos,
+            REVERSE_PATH_VIEW_RADIUS,
+        );
+        assert_eq!(
+            state,
+            MonsterState::Attacking,
+            "NW cyclops must be ATTACKING before FillMap at tick=2000"
+        );
+
+        let priority = [
+            Position::new(32359, 32290, 7),
+            Position::new(32358, 32289, 7),
+            Position::new(32360, 32289, 7),
+        ];
+        for pos in priority {
+            let Some(TShortwayFillTile { walkable, wp, .. }) =
+                tiles.iter().find(|t| t.pos == pos)
+            else {
+                panic!("priority tile {pos:?} missing from viewport dump");
+            };
+            eprintln!("fill_walkable {pos:?} walkable={walkable} wp={wp}");
+        }
+
+        if std::env::var("TFS_FILLMAP_DUMP")
+            .is_ok_and(|v| !v.is_empty() && v != "0")
+        {
+            let out = std::env::var("TFS_FILLMAP_DUMP_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../log/fill_walkable_rust_nw.json")
+                });
+            write_fill_walkable_dump_json(&world, nw_id, player_pos, &out)
+                .expect("write fill_walkable dump");
+            eprintln!("wrote {}", out.display());
+        }
     }
 
     /// OTBM kite lab — rat/player/dance tiles must be walkable on forgotten.otbm.

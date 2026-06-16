@@ -158,6 +158,9 @@ pub fn uses_reverse_terrain_path(cost_model: PathCostModel, search: PathSearchMo
     )
 }
 
+/// 772 `TShortway::FillMap` initial `MinWaypoints` before viewport scan (`cract.cc:81`).
+const FILLMAP_MIN_WAYPOINTS_SEED: u32 = 1000;
+
 /// TFS `Map::getPathMatching` / 772 `TShortway` — creature-aware via callbacks.
 ///
 /// `search` selects expansion direction (1098 forward / 772 reverse). Edge costs come from
@@ -180,6 +183,49 @@ where
     T: Fn(Position) -> u32,
     G: Fn(Position) -> u32,
 {
+    use std::rc::Rc;
+    let ground = Rc::new(ground_cost);
+    let ground_for_cost = Rc::clone(&ground);
+    let ground_for_fill = ground;
+    get_path_matching_with_fill(
+        map,
+        start,
+        target,
+        fpp,
+        cost_model,
+        search,
+        forward_fallback,
+        can_walk_to,
+        tile_walk_cost,
+        move |pos| ground_for_cost(pos),
+        move |pos| {
+            let raw = ground_for_fill(pos);
+            if raw == 0 { -1 } else { raw as i32 }
+        },
+    )
+}
+
+/// Like [`get_path_matching`] but supplies 772 `TShortway::FillMap` terrain weights (`cract.cc:89-103`).
+#[allow(clippy::too_many_arguments)]
+pub fn get_path_matching_with_fill<C, T, G, F>(
+    map: &Map,
+    start: Position,
+    target: Position,
+    fpp: &FindPathParams,
+    cost_model: PathCostModel,
+    search: PathSearchModel,
+    forward_fallback: bool,
+    can_walk_to: C,
+    tile_walk_cost: T,
+    ground_cost: G,
+    fill_waypoints: F,
+) -> Option<Vec<Direction>>
+where
+    C: Fn(Position) -> bool,
+    T: Fn(Position) -> u32,
+    G: Fn(Position) -> u32,
+    F: Fn(Position) -> i32,
+{
     match search {
         PathSearchModel::Forward => path_matching_forward(
             map,
@@ -201,6 +247,7 @@ where
                 &can_walk_to,
                 &tile_walk_cost,
                 &ground_cost,
+                &fill_waypoints,
             );
             if let Some(ref dirs) = reverse {
                 if !dirs.is_empty() {
@@ -360,15 +407,18 @@ where
 /// One cell in the 772 `TShortway` viewport grid (`cract.cc` `TShortwayPoint`).
 struct TShortwayCell {
     waypoints: i32,
-    waylength: u32,
-    heuristic: u32,
+    /// Signed path cost — `cract.cc` `TShortwayPoint::Waylength` (`INT_MAX` = unvisited).
+    waylength: i32,
+    /// Signed expand key — `cract.cc` `TShortwayPoint::Heuristic` (`INT_MAX` = not queued).
+    heuristic: i32,
     parent: Option<Position>,
     /// Incoming edge to this cell was diagonal — used for equal-cost cardinal tie-break.
     parent_diagonal: bool,
     expand_next: Option<Position>,
 }
 
-const TSHORTWAY_UNVISITED: u32 = u32::MAX;
+const TSHORTWAY_UNVISITED_WL: i32 = i32::MAX;
+const TSHORTWAY_UNVISITED_H: i32 = i32::MAX;
 
 /// Prefer cardinal when two relaxations reach the same `waylength` (`cract.cc` strict `<` keeps
 /// first-seen; linked-list expand order can still tie — cardinals match live 772 chase traces).
@@ -385,13 +435,21 @@ struct TShortwaySearch {
 }
 
 impl TShortwaySearch {
-    fn clear_path_state(&mut self) {
-        for cell in self.cells.values_mut() {
-            cell.waylength = TSHORTWAY_UNVISITED;
-            cell.heuristic = TSHORTWAY_UNVISITED;
-            cell.parent = None;
-            cell.parent_diagonal = false;
-            cell.expand_next = None;
+    /// Reset path-search fields on inner `±Visible` cells only (`cract.cc` `TShortway::ClearMap`).
+    fn clear_path_state(&mut self, inner_radius: i32) {
+        for dy in -inner_radius..=inner_radius {
+            for dx in -inner_radius..=inner_radius {
+                let Some(pos) = offset_position(self.origin, dx, dy) else {
+                    continue;
+                };
+                if let Some(cell) = self.cells.get_mut(&pos) {
+                    cell.waylength = TSHORTWAY_UNVISITED_WL;
+                    cell.heuristic = TSHORTWAY_UNVISITED_H;
+                    cell.parent = None;
+                    cell.parent_diagonal = false;
+                    cell.expand_next = None;
+                }
+            }
         }
         self.expand_head = None;
     }
@@ -420,7 +478,7 @@ impl TShortwaySearch {
             .cells
             .get(&pos)
             .map(|c| c.heuristic)
-            .unwrap_or(TSHORTWAY_UNVISITED);
+            .unwrap_or(TSHORTWAY_UNVISITED_H);
         let mut prev: Option<Position> = None;
         let mut cur = self.expand_head;
         while let Some(cur_pos) = cur {
@@ -428,7 +486,7 @@ impl TShortwaySearch {
                 .cells
                 .get(&cur_pos)
                 .map(|c| c.heuristic)
-                .unwrap_or(TSHORTWAY_UNVISITED);
+                .unwrap_or(TSHORTWAY_UNVISITED_H);
             if cur_h < new_h {
                 prev = Some(cur_pos);
                 cur = self.cells.get(&cur_pos).and_then(|c| c.expand_next);
@@ -454,22 +512,24 @@ impl TShortwaySearch {
             let Some(cell) = self.cells.get(&pos) else {
                 return;
             };
-            (cell.waypoints, cell.waylength, cell.expand_next)
+            (
+                cell.waypoints,
+                cell.waylength,
+                cell.expand_next,
+            )
         };
         self.expand_head = node_next;
         if let Some(cell) = self.cells.get_mut(&pos) {
             cell.expand_next = None;
         }
-        if node_wp <= 0 {
-            return;
-        }
-        let min_neighbor_wl = node_wl.saturating_add(node_wp as u32);
-        let origin_wl = self
+        // `cract.cc:137-140` — no `Waypoints<=0` early out; dest seed may hold `Waypoints=-1`.
+        let min_neighbor_wl = node_wl + node_wp;
+        let origin_wl_i = self
             .cells
             .get(&self.origin)
             .map(|c| c.waylength)
-            .unwrap_or(TSHORTWAY_UNVISITED);
-        if min_neighbor_wl >= origin_wl {
+            .unwrap_or(TSHORTWAY_UNVISITED_WL);
+        if min_neighbor_wl >= origin_wl_i {
             return;
         }
 
@@ -483,9 +543,9 @@ impl TShortwaySearch {
             let is_diagonal = ox != 0 && oy != 0;
             let mut neighbor_wl = min_neighbor_wl;
             if is_diagonal {
-                neighbor_wl = neighbor_wl.saturating_add((node_wp as u32).saturating_mul(2));
+                neighbor_wl += node_wp * 2;
             }
-            if neighbor_wl >= origin_wl {
+            if neighbor_wl >= origin_wl_i {
                 continue;
             }
 
@@ -493,11 +553,11 @@ impl TShortwaySearch {
                 .cells
                 .get(&neighbor_pos)
                 .map(|c| (c.waypoints, c.waylength, c.heuristic))
-                .unwrap_or((-1, TSHORTWAY_UNVISITED, TSHORTWAY_UNVISITED));
+                .unwrap_or((-1, TSHORTWAY_UNVISITED_WL, TSHORTWAY_UNVISITED_H));
 
             // `cract.cc:158-202` — relax any neighbor with a shorter waylength; only enqueue
             // expand when `Waypoints != -1` and not the origin cell.
-            if !tshortway_should_relax(prev_wl, neighbor_wl) {
+            if neighbor_wl >= prev_wl {
                 continue;
             }
 
@@ -511,15 +571,13 @@ impl TShortwaySearch {
                 continue;
             }
 
-            let distance = manhattan_dist(neighbor_pos, self.origin) as u32;
+            // `cract.cc:181-184` — signed sum; negative `Waylength` is valid during reverse expand.
+            let distance = manhattan_dist(neighbor_pos, self.origin) as i32;
             let heuristic = neighbor_wl
-                .saturating_add(neighbor_wp as u32)
-                .saturating_add(
-                    self.min_waypoints
-                        .saturating_mul(distance.saturating_sub(1)),
-                );
+                + neighbor_wp
+                + (self.min_waypoints as i32) * (distance - 1);
 
-            if prev_heuristic != TSHORTWAY_UNVISITED {
+            if prev_heuristic != TSHORTWAY_UNVISITED_H {
                 self.remove_from_expand_list(neighbor_pos);
             }
 
@@ -532,48 +590,39 @@ impl TShortwaySearch {
 }
 
 /// 772 `TShortway::Calculate` — linked-list expand sorted by heuristic (`cract.cc`, `scripts/compare_chase_pathfinding.py`).
-fn path_matching_tshortway<C, G>(
-    map: &Map,
+fn path_matching_tshortway<C, F>(
+    _map: &Map,
     start: Position,
     target: Position,
     fpp: &FindPathParams,
     can_walk_to: C,
-    ground_cost: G,
+    fill_waypoints: F,
 ) -> Option<Vec<Direction>>
 where
     C: Fn(Position) -> bool,
-    G: Fn(Position) -> u32,
+    F: Fn(Position) -> i32,
 {
     let radius = REVERSE_PATH_VIEW_RADIUS;
     if !in_path_viewport(start, target, radius) {
         return None;
     }
 
-    let mut min_waypoints = u32::MAX;
+    // `cract.cc:79-114` — matrix spans `±(Visible+1)`; only inner `±Visible` gets terrain fill.
+    let outer_radius = radius.saturating_add(1);
+    let mut min_waypoints = FILLMAP_MIN_WAYPOINTS_SEED;
     let mut cells: HashMap<Position, TShortwayCell> = HashMap::new();
 
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
+    for dy in -outer_radius..=outer_radius {
+        for dx in -outer_radius..=outer_radius {
             let Some(pos) = offset_position(start, dx, dy) else {
                 continue;
-            };
-            // Destination may hold the follow target — include seed tile without occupancy check.
-            let walkable_for_fill = map.is_walkable(pos) && (pos == target || can_walk_to(pos));
-            let waypoints = if walkable_for_fill {
-                let wp = effective_terrain_waypoints(ground_cost(pos)) as i32;
-                if wp > 0 {
-                    min_waypoints = min_waypoints.min(wp as u32);
-                }
-                wp
-            } else {
-                -1
             };
             cells.insert(
                 pos,
                 TShortwayCell {
-                    waypoints,
-                    waylength: TSHORTWAY_UNVISITED,
-                    heuristic: TSHORTWAY_UNVISITED,
+                    waypoints: -1,
+                    waylength: TSHORTWAY_UNVISITED_WL,
+                    heuristic: TSHORTWAY_UNVISITED_H,
                     parent: None,
                     parent_diagonal: false,
                     expand_next: None,
@@ -582,7 +631,26 @@ where
         }
     }
 
-    if min_waypoints == u32::MAX {
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let Some(pos) = offset_position(start, dx, dy) else {
+                continue;
+            };
+            // `TShortway::FillMap` — stack-head BANK `WAYPOINTS` then `MovePossible(Execute=false)` (`cract.cc:89-103`).
+            let mut waypoints = fill_waypoints(pos);
+            if waypoints > 0 && !can_walk_to(pos) {
+                waypoints = -1;
+            }
+            if waypoints > 0 {
+                min_waypoints = min_waypoints.min(waypoints as u32);
+            }
+            if let Some(cell) = cells.get_mut(&pos) {
+                cell.waypoints = waypoints;
+            }
+        }
+    }
+
+    if min_waypoints == FILLMAP_MIN_WAYPOINTS_SEED {
         min_waypoints = DEFAULT_TERRAIN_WAYPOINTS;
     }
 
@@ -593,18 +661,20 @@ where
         expand_head: None,
     };
 
-    search.clear_path_state();
+    search.clear_path_state(radius);
     if let Some(seed) = search.cells.get_mut(&target) {
         seed.waylength = 0;
         seed.heuristic = 0;
     }
     search.expand_head = Some(target);
 
+    // C++ runs until expand list is empty; cap is a safety guard only.
     let mut expand_count = 0usize;
-    while expand_count < REVERSE_PATH_MAX_CLOSED_NODES {
-        let Some(current) = search.expand_head else {
+    while search.expand_head.is_some() {
+        if expand_count >= REVERSE_PATH_MAX_CLOSED_NODES.saturating_mul(2) {
             break;
-        };
+        }
+        let current = search.expand_head.unwrap();
         search.expand(current, fpp.allow_diagonal);
         expand_count += 1;
     }
@@ -613,19 +683,19 @@ where
         .cells
         .get(&start)
         .map(|c| c.waylength)
-        .unwrap_or(TSHORTWAY_UNVISITED);
-    if origin_wl == TSHORTWAY_UNVISITED {
+        .unwrap_or(TSHORTWAY_UNVISITED_WL);
+    if origin_wl == TSHORTWAY_UNVISITED_WL {
         return None;
     }
 
     let mut nodes: HashMap<Position, AStarNode> = HashMap::new();
     for (pos, cell) in &search.cells {
-        if cell.waylength != TSHORTWAY_UNVISITED {
+        if cell.waylength != TSHORTWAY_UNVISITED_WL {
             nodes.insert(
                 *pos,
                 AStarNode {
                     parent: cell.parent,
-                    g: cell.waylength,
+                    g: cell.waylength.max(0) as u32,
                 },
             );
         }
@@ -641,7 +711,7 @@ where
 /// Terrain-weighted chase uses [`path_matching_tshortway`] (linked-list expand). Non-terrain
 /// reverse keeps the BinaryHeap implementation for TFS fallback paths.
 #[allow(clippy::too_many_arguments)]
-fn path_matching_reverse<C, T, G>(
+fn path_matching_reverse<C, T, G, F>(
     map: &Map,
     start: Position,
     target: Position,
@@ -650,11 +720,13 @@ fn path_matching_reverse<C, T, G>(
     can_walk_to: C,
     tile_walk_cost: T,
     ground_cost: G,
+    fill_waypoints: F,
 ) -> Option<Vec<Direction>>
 where
     C: Fn(Position) -> bool,
     T: Fn(Position) -> u32,
     G: Fn(Position) -> u32,
+    F: Fn(Position) -> i32,
 {
     if start.z != target.z {
         return None;
@@ -669,7 +741,7 @@ where
 
     let use_reverse_terrain_astar = matches!(cost_model, PathCostModel::TerrainWeighted);
     if use_reverse_terrain_astar {
-        return path_matching_tshortway(map, start, target, fpp, can_walk_to, ground_cost);
+        return path_matching_tshortway(map, start, target, fpp, can_walk_to, fill_waypoints);
     }
     // 772 monster chase always uses VisibleX/Y = 10 and ~441 node cap — not TFS `maxSearchDist` 12.
     let (viewport_radius, closed_cap) = if use_reverse_terrain_astar {
@@ -1983,9 +2055,155 @@ mod tests {
                 if exclude.contains(&pos) {
                     continue;
                 }
-                ensure_walkable_tile(&mut map, pos, 150);
+                ensure_walkable_tile(&mut map, pos, 102);
             }
         }
         map
+    }
+
+    /// Live `kite_cyclops_quad_chase` NW shortway — faithful `cract.cc` port (Python oracle).
+    ///
+    /// Live C++ JSONL diagonal path is not reproducible under standard FillMap; see `tasks/lessons.md` §59.
+    #[test]
+    fn cyclops_nw_shortway_matches_python_tshortway_port() {
+        let nw = Position::new(32359, 32289, 7);
+        let player = Position::new(32360, 32294, 7);
+        let creature_tiles = [
+            Position::new(32359, 32288, 7),
+            Position::new(32361, 32290, 7),
+            Position::new(32360, 32291, 7),
+            player,
+        ];
+        let map = cyclops_quad_uniform_map(nw, player);
+        let can_walk = |pos: Position| !creature_tiles.contains(&pos);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let dirs = path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150)
+            .expect("path");
+        let trimmed = truncate_cipsoft_chase_queue(
+            nw,
+            player,
+            dirs,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        let mut pos = nw;
+        let got: Vec<Position> = trimmed
+            .iter()
+            .map(|&d| {
+                pos = pos.offset(d);
+                pos
+            })
+            .collect();
+        let want = [
+            Position::new(32359, 32290, 7),
+            Position::new(32359, 32291, 7),
+            Position::new(32359, 32292, 7),
+        ];
+        assert_eq!(got, want, "NW shortway matches Python/cract.cc TShortway port");
+    }
+
+    /// Live `kite_cyclops_quad_chase` far-N shortway — faithful `cract.cc` port (Python oracle).
+    ///
+    /// Live C++ JSONL north path is not reachable under quad sibling occupancy; see `tasks/lessons.md` §59–60.
+    #[test]
+    fn cyclops_far_n_shortway_matches_python_tshortway_port() {
+        let far_n = Position::new(32359, 32288, 7);
+        let player = Position::new(32360, 32294, 7);
+        let creature_tiles = [
+            Position::new(32359, 32289, 7),
+            Position::new(32361, 32290, 7),
+            Position::new(32360, 32291, 7),
+            player,
+        ];
+        let map = cyclops_quad_uniform_map(far_n, player);
+        let can_walk = |pos: Position| !creature_tiles.contains(&pos);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let dirs = path_matching_tshortway(&map, far_n, player, &fpp, can_walk, |_| 150)
+            .expect("path");
+        let trimmed = truncate_cipsoft_chase_queue(
+            far_n,
+            player,
+            dirs,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        let mut pos = far_n;
+        let got: Vec<Position> = trimmed
+            .iter()
+            .map(|&d| {
+                pos = pos.offset(d);
+                pos
+            })
+            .collect();
+        let want = [
+            Position::new(32360, 32288, 7),
+            Position::new(32360, 32289, 7),
+            Position::new(32360, 32290, 7),
+        ];
+        assert_eq!(got, want, "far-N shortway matches Python/cract.cc TShortway port");
+    }
+
+    /// Live C++ JSONL oracle — ignored until fresh ref log (port 7172 vs `tfs-rust`). See `tasks/lessons.md` §59.
+    #[test]
+    #[ignore = "live C++ ref diagonal NW path not reproducible from cract.cc; refresh chase_path_cip_cyclops.log"]
+    fn cyclops_nw_shortway_live_ref_with_blocked_dest_and_siblings() {
+        let nw = Position::new(32359, 32289, 7);
+        let player = Position::new(32360, 32294, 7);
+        let creature_tiles = [
+            Position::new(32359, 32288, 7),
+            Position::new(32361, 32290, 7),
+            Position::new(32360, 32291, 7),
+            player,
+        ];
+        let map = cyclops_quad_uniform_map(nw, player);
+        let can_walk = |pos: Position| !creature_tiles.contains(&pos);
+        let fpp = FindPathParams {
+            min_target_dist: 1,
+            max_target_dist: 1,
+            clear_sight: false,
+            allow_diagonal: true,
+            full_path_search: true,
+            max_search_dist: 0,
+        };
+        let dirs = path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150)
+            .expect("path");
+        let trimmed = truncate_cipsoft_chase_queue(
+            nw,
+            player,
+            dirs,
+            CHASE_PATH_MAX_STEPS,
+            false,
+            1,
+        );
+        let mut pos = nw;
+        let got: Vec<Position> = trimmed
+            .iter()
+            .map(|&d| {
+                pos = pos.offset(d);
+                pos
+            })
+            .collect();
+        let want = [
+            Position::new(32358, 32290, 7),
+            Position::new(32358, 32291, 7),
+            Position::new(32359, 32291, 7),
+        ];
+        assert_eq!(got, want, "NW live-ref shortway tiles");
     }
 }

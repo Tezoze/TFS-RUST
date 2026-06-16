@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # One-time per-clone setup: keep reference/ out of git but visible to Cursor agents.
 #
-# - .git/info/exclude  → git never commits reference checkouts (local only)
-# - .cursorignore      → tracked negation patterns so Grep/Read/indexing work
-#
-# C++ graph search: scripts/register_reference_graph.sh
+# - .git/info/exclude       → git never commits reference checkouts (local only)
+# - .cursorignore           → tracked hierarchical negation patterns (src/ only)
+# - register_reference_graph.sh → code-review-graph for 772 C++ (when installed)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,8 +15,23 @@ if [[ ! -d "$ROOT/.git" ]]; then
   exit 1
 fi
 
+# Migrate legacy `reference/foo/` exclude lines to `reference/foo/**` so Cursor
+# negations in .cursorignore can re-include nested paths.
+migrate_exclude_patterns() {
+  local tmp
+  tmp="$(mktemp)"
+  sed \
+    -e 's|^reference/classic-772/$|reference/classic-772/**|' \
+    -e 's|^reference/cipsoft-772/$|reference/cipsoft-772/**|' \
+    -e 's|^reference/tvp-772/$|reference/tvp-772/**|' \
+    -e 's|^reference/archives/$|reference/archives/**|' \
+    "$EXCLUDE" >"$tmp"
+  mv "$tmp" "$EXCLUDE"
+}
+
 if grep -qF "$MARKER" "$EXCLUDE" 2>/dev/null; then
-  echo "ok: .git/info/exclude already has reference patterns"
+  migrate_exclude_patterns
+  echo "ok: .git/info/exclude already has reference patterns (migrated to /** if needed)"
 else
   cat >>"$EXCLUDE" <<'EOF'
 
@@ -25,10 +39,10 @@ else
 ## TFS / OT — local-only (not in shared .gitignore)
 #############
 # Local C++ reference trees — see reference/README.md
-reference/classic-772/
-reference/cipsoft-772/
-reference/tvp-772/
-reference/archives/
+reference/classic-772/**
+reference/cipsoft-772/**
+reference/tvp-772/**
+reference/archives/**
 /reference/classic-772/client/tibia.pem
 /reference/cipsoft-772/client/tibia.pem
 /reference/classic-772/client/Tibia772*.exe
@@ -42,11 +56,11 @@ if [[ ! -f "$ROOT/.cursorignore" ]]; then
   exit 1
 fi
 
-if ! grep -qF '!reference/cipsoft-772/' "$ROOT/.cursorignore"; then
-  echo "error: .cursorignore missing reference negation patterns — pull latest main" >&2
+if ! grep -qF 'tibia-game-master/src/' "$ROOT/.cursorignore"; then
+  echo "error: .cursorignore missing source-tree negations — pull latest main" >&2
   exit 1
 fi
-echo "ok: .cursorignore re-includes reference/ for Cursor tools"
+echo "ok: .cursorignore re-includes reference C++ src/ for Cursor tools"
 
 if command -v rg >/dev/null 2>&1; then
   if rg -l 'TShortway' "$ROOT/reference/cipsoft-772/tibia-game-master/src" >/dev/null 2>&1; then
@@ -56,6 +70,12 @@ if command -v rg >/dev/null 2>&1; then
   fi
 fi
 
-echo
-echo "Optional: register C++ trees with code-review-graph:"
-echo "  scripts/register_reference_graph.sh"
+if [[ -x "$ROOT/scripts/ref_grep.sh" ]]; then
+  if "$ROOT/scripts/ref_grep.sh" TShortway --files-with-matches >/dev/null 2>&1; then
+    echo "ok: scripts/ref_grep.sh can search reference src/"
+  else
+    echo "note: scripts/ref_grep.sh found no matches (reference src may be absent)"
+  fi
+fi
+
+bash "$ROOT/scripts/register_reference_graph.sh"

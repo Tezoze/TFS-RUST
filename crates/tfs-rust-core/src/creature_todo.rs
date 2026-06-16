@@ -162,11 +162,20 @@ impl GameWorld {
     }
 
     /// Schedule the next action wakeup after `delay_ms` logical time.
-    pub(crate) fn todo_start_from_action(&mut self, cid: CreatureId, delay_ms: u64) {
+    pub(crate) fn todo_start_from_action(
+        &mut self,
+        cid: CreatureId,
+        delay_ms: u64,
+        tie_policy: crate::todo_queue::WakeupTiePolicy,
+    ) {
         if delay_ms == 0 {
-            self.schedule_creature_wakeup(cid, self.server_ms);
+            self.schedule_creature_wakeup(cid, self.server_ms, tie_policy);
         } else {
-            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
+            self.schedule_creature_wakeup(
+                cid,
+                self.server_ms.saturating_add(delay_ms),
+                tie_policy,
+            );
         }
     }
 
@@ -262,7 +271,9 @@ impl GameWorld {
             }
         }
         trace_creature_todo(self, cid, "idle_enqueue_go");
-        if self.todo_start_go_delay(cid, first_step) {
+        if self.beat_driven_loop {
+            let _ = self.todo_start_go_delay(cid, first_step);
+        } else if self.todo_start_go_delay(cid, first_step) {
             self.schedule_immediate_todo_wakeup(cid);
         }
     }
@@ -279,7 +290,11 @@ impl GameWorld {
 
     /// Arm the next todo step on the heap without synchronous re-entry (avoids stack overflow).
     pub(crate) fn schedule_immediate_todo_wakeup(&mut self, cid: CreatureId) {
-        self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
+        self.schedule_creature_wakeup(
+            cid,
+            self.server_ms.saturating_add(1),
+            self.harness_go_wakeup_tie_policy(cid),
+        );
     }
 
     /// C++ `TCreature::ToDoYield` — `cract.cc:1001` (`ToDoWait(0)` + `ToDoStart` when not `LockToDo`).
@@ -299,7 +314,11 @@ impl GameWorld {
         }
         trace_creature_todo(self, cid, "todo_yield");
         // C++ `ToDoWait(0)` — wakeup at `ServerMilliseconds`, not +1 (`cract.cc:1008`).
-        self.todo_start_from_action(cid, 0);
+        self.todo_start_from_action(
+            cid,
+            0,
+            crate::todo_queue::WakeupTiePolicy::HarnessAppearIdle,
+        );
     }
 
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {
