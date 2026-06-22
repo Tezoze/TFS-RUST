@@ -1083,6 +1083,77 @@ pub fn setup_cyclops_quad_chase_to_tick_2000(
     Ok((nw_id, player_id, player_pos))
 }
 
+/// Rat melee kite layout — `kite_rat_melee.scenario` (player + single rat).
+pub fn setup_kite_rat_melee_spawn(
+    world: &mut GameWorld,
+) -> Result<(CreatureId, CreatureId), String> {
+    let z = 7u8;
+    let player_start = Position::new(32360, 32290, z);
+    let rat_pos = Position::new(32361, 32290, z);
+    let player_id = insert_player(world, sim_hero_player("Hero", player_start));
+    world.map.register_creature_at(player_start, player_id);
+
+    let mtype = world
+        .monsters_db
+        .monsters
+        .get("rat")
+        .cloned()
+        .ok_or_else(|| "rat monster type not loaded".to_string())?;
+
+    let mut config = MonsterAiConfig::from_monster_type(&mtype);
+    config.is_hostile = true;
+    config.melee_skill = 15;
+    config.melee_attack = 7;
+    config.armor = 1;
+    config.defense = 3;
+    config.target_distance = 1;
+
+    let monster_id = insert_monster_from_type(
+        world,
+        &mtype,
+        "Rat",
+        rat_pos,
+        mtype.speed as i32,
+        config,
+        MonsterState::Sleeping,
+    );
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+        m.harness_spawn_order = 1;
+    }
+    Ok((player_id, monster_id))
+}
+
+/// Replay `kite_rat_melee.scenario` through `wall_ms` (0 | 2000 | 4000 | 6000).
+pub fn setup_kite_rat_melee_to_tick(
+    world: &mut GameWorld,
+    player_id: CreatureId,
+    monster_id: CreatureId,
+    wall_ms: u64,
+) -> Result<(), String> {
+    let z = 7u8;
+    kite_monsters_appear_batch(world, &[monster_id]);
+    set_sim_harness_wall_ms(world, Some(0));
+    run_sim_tick(world);
+
+    let kite_steps: &[(u64, u16, u16)] = &[
+        (2_000, 32362, 32290),
+        (4_000, 32363, 32290),
+        (6_000, 32363, 32292),
+    ];
+    let mut clock = 0u64;
+    for &(wall, x, y) in kite_steps {
+        if wall > wall_ms {
+            break;
+        }
+        clock = wall;
+        set_sim_harness_wall_ms(world, Some(wall));
+        run_sim_tick(world);
+        teleport_player(world, player_id, Position::new(x, y, z))?;
+        run_sim_tick(world);
+    }
+    Ok(())
+}
+
 /// Write Rust FillMap dump JSON when `TFS_FILLMAP_DUMP=1` — P2.5a artifact for `compare_fill_walkable.py`.
 pub fn write_fill_walkable_dump_json(
     world: &GameWorld,
@@ -1166,6 +1237,11 @@ fn move_creatures_impl(world: &mut GameWorld, delay_ms: u64, respect_wall: bool)
 /// Max ms this drain round may advance — `None` means uncapped (production paths).
 pub fn set_sim_harness_wall_ms(world: &mut GameWorld, wall_ms: Option<u64>) {
     world.sim_harness_wall_ms = wall_ms;
+}
+
+/// Last scenario `advance_ms` — lower bound for `TDGo` delay at a harness wall tick.
+pub fn set_sim_harness_segment_ms(world: &mut GameWorld, segment_ms: Option<u64>) {
+    world.sim_harness_segment_ms = segment_ms;
 }
 
 fn harness_at_wall(world: &GameWorld) -> bool {
@@ -1595,6 +1671,47 @@ mod harness_tests {
                 .expect("write fill_walkable dump");
             eprintln!("wrote {}", out.display());
         }
+    }
+
+    /// P3 — final north kite @6000 must not idle-repath on empty `walk_queue` (C++ `CreatureMoveStimulus`).
+    #[test]
+    fn kite_rat_melee_no_idle_repath_on_final_kite_at_6000() {
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_for_kite_synthetic(
+            &cfg.data_dir,
+            &cfg.map_rel,
+            (32360, 32290),
+            16,
+            7,
+            150,
+        ) else {
+            return;
+        };
+        let Ok((player_id, monster_id)) = setup_kite_rat_melee_spawn(&mut world) else {
+            return;
+        };
+        setup_kite_rat_melee_to_tick(&mut world, player_id, monster_id, 4_000)
+            .expect("kite to tick 4000");
+
+        set_sim_harness_wall_ms(&mut world, Some(6_000));
+        teleport_player(
+            &mut world,
+            player_id,
+            Position::new(32363, 32292, 7),
+        )
+        .expect("final north kite");
+        run_sim_tick(&mut world);
+        assert_eq!(world.server_ms, 6_000);
+        assert!(
+            !world
+                .creatures
+                .get(monster_id)
+                .is_some_and(|k| k.base().todo.has_go() && k.base().force_update_follow_path),
+            "final kite @6000 must not idle-repath after deferred player move"
+        );
     }
 
     /// OTBM kite lab — rat/player/dance tiles must be walkable on forgotten.otbm.

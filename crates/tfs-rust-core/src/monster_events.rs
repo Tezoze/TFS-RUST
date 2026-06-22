@@ -192,9 +192,9 @@ impl GameWorld {
 
     /// TFS `Creature::onCreatureMove` follow-target branch — `creature.cpp` ~619–637.
     ///
-    /// 772: repath only when an in-flight `walk_queue` is stale (endpoint band / LOS). Empty queue
-    /// defers to idle segment drain — not every target tile. TFS 1098 repaths synchronously when
-    /// [`MechanicsProfile::follow_repath_without_path`] allows (`creature.cpp` ~619–637).
+    /// 772: dist-chase (`target_distance > 1`) may re-arm idle on follow-target move (`dist_follow_move`).
+    /// Close-chase target moves defer to idle segment drain and `CreatureMoveStimulus` (`crmain.cc:919-961`)
+    /// — not `monster_chase_queue_stale` / empty-queue idle repath on every kite tile (lesson 37).
     fn monster_on_follow_creature_moved(
         &mut self,
         monster_id: CreatureId,
@@ -221,7 +221,7 @@ impl GameWorld {
         }
 
         let should_repath = if self.beat_driven_loop {
-            let dist_follow_move = self.creatures.get(monster_id).is_some_and(|k| {
+            self.creatures.get(monster_id).is_some_and(|k| {
                 let CreatureKind::Monster(m) = k else {
                     return false;
                 };
@@ -229,10 +229,7 @@ impl GameWorld {
                 target_distance > 1
                     && m.base.follow_target == Some(creature_id)
                     && self.monster_can_use_attack(monster_id, m.base.position, creature_id)
-            });
-            self.monster_chase_needs_attacking_close_repath(monster_id, new_pos)
-                || self.monster_chase_queue_stale(monster_id, new_pos)
-                || dist_follow_move
+            })
         } else {
             true
         };
@@ -309,7 +306,13 @@ impl GameWorld {
         if chase_mode != MonsterChaseMode::Close {
             return;
         }
-        if !has_attack || has_go || todo_locked {
+        if !has_attack || has_go || !todo_locked {
+            return;
+        }
+        // C++ `CreatureMoveStimulus` — only when strike is >200ms away (`crmain.cc:924`).
+        if self.creatures.get(monster_id).is_some_and(|k| {
+            k.base().earliest_attack_ms <= self.server_ms.saturating_add(200)
+        }) {
             return;
         }
         if chebyshev(pos, target_pos) <= 1 {

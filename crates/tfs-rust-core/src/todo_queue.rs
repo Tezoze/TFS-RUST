@@ -78,6 +78,17 @@ impl ToDoQueue {
     pub fn len(&self) -> usize {
         self.heap.len()
     }
+
+    /// Drop pending wakeups for `creature_id` — reschedule after idle_dance go (`kite @6000`).
+    pub fn remove_creature(&mut self, creature_id: CreatureId) {
+        let kept: Vec<_> = self
+            .heap
+            .iter()
+            .filter(|r| r.0.creature_id != creature_id)
+            .cloned()
+            .collect();
+        self.heap = kept.into_iter().collect();
+    }
 }
 
 /// Secondary tie for harness multi-monster equal-key wakeups.

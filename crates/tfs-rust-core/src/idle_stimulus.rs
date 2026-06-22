@@ -1257,7 +1257,12 @@ impl GameWorld {
                 k.base().next_wakeup.is_none() && !k.base().todo.has_go()
             });
             if needs_wakeup {
-                self.schedule_immediate_todo_wakeup(cid);
+                let delay_ms = self.todo_attack_delay_ms(cid);
+                self.todo_start_from_action(
+                    cid,
+                    delay_ms,
+                    self.harness_go_wakeup_tie_policy(cid),
+                );
             }
             MonsterEnqueueAttackResult::Enqueued
         } else {
@@ -1848,6 +1853,14 @@ impl GameWorld {
                         if let Some(k) = self.creatures.get_mut(cid) {
                             k.base_mut().todo.queue.push_front(CreatureAction::Attack);
                         }
+                        if self
+                            .creatures
+                            .get(cid)
+                            .is_some_and(|k| k.base().todo.has_go())
+                        {
+                            trace_creature_todo(self, cid, "execute_attack_wait_for_go");
+                            TodoExecuteKind::AttackDeferred
+                        } else {
                         match self.monster_combat_enqueue_close_chase_go(cid) {
                             MonsterCombatCloseChaseEnqueue::Queued => {
                                 if self
@@ -1885,6 +1898,7 @@ impl GameWorld {
                         }
                         trace_creature_todo(self, cid, "execute_attack_out_of_range");
                         TodoExecuteKind::AttackDeferred
+                        }
                     } else {
                         trace_creature_todo(self, cid, "execute_attack");
                         self.monster_do_attacking(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
@@ -1956,6 +1970,34 @@ impl GameWorld {
         }
 
         if !self.creature_todo_queue_empty(cid) {
+            // C++ `ToDoGo` completes before chained `TDAttack` when target kited away (`crmain.cc:950`).
+            let defer_attack_after_go = self.creatures.get(cid).is_some_and(|k| {
+                let CreatureKind::Monster(m) = k else {
+                    return false;
+                };
+                if !m.base.todo.has_attack() || m.base.todo.has_go() {
+                    return false;
+                }
+                if !self.monster_idle_skip_idle_melee_chase(cid) {
+                    return false;
+                }
+                m.base.attack_target.is_some_and(|aid| {
+                    self.creatures.get(aid).is_some_and(|t| {
+                        chebyshev(k.position(), t.position()) > 1
+                    })
+                })
+            });
+            if defer_attack_after_go {
+                if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                    m.base.next_wakeup = None;
+                }
+                let mut delay_ms = self.todo_attack_delay_ms(cid);
+                if delay_ms == 0 {
+                    delay_ms = 200;
+                }
+                self.todo_start_from_action(cid, delay_ms, self.harness_go_wakeup_tie_policy(cid));
+                return;
+            }
             self.run_monster_todo_execute(cid);
             return;
         }
@@ -4363,8 +4405,10 @@ mod tests {
         );
     }
 
+    /// Empty `walk_queue` + no `TDAttack` — follow-move must not idle-repath (`crmain.cc:919-961`;
+    /// lesson 37: empty queue defers to idle segment drain).
     #[test]
-    fn test_chase_freeze_attacking_repaths_on_target_kite() {
+    fn test_chase_empty_queue_attacking_does_not_idle_repath_on_target_kite() {
         let mut world = beat_driven_test_world();
         world.server_ms = 5000;
         let mpos = Position::new(100, 100, 7);
@@ -4390,47 +4434,77 @@ mod tests {
             m.base.todo.queue.clear();
             m.base.next_wakeup = None;
             m.base.has_follow_path = false;
+            m.base.force_update_follow_path = false;
             m.base.earliest_attack_ms = world.server_ms + 2000;
         }
 
-        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
-            p.base.position = ppos_kited;
-        }
-        world.map.unregister_creature_at(ppos, player);
-        world.map.register_creature_at(ppos_kited, player);
         world.monster_dispatch_creature_move(player, ppos, ppos_kited);
 
-        assert!(
-            world
-                .creatures
-                .get(monster)
-                .unwrap()
-                .base()
-                .next_wakeup
-                .is_some(),
-            "target move must defer idle via ToDoYield (next_wakeup unset)"
-        );
-
-        let wu = world
-            .creatures
-            .get(monster)
-            .unwrap()
-            .base()
-            .next_wakeup
-            .expect("yield wakeup");
-        world.server_ms = wu;
-        world.drain_todo_queue();
-
-        assert_eq!(
-            world.creatures.get(monster).unwrap().base().follow_target,
-            Some(player),
-            "kite must not drop follow during close chase"
-        );
         let base = world.creatures.get(monster).unwrap().base();
-        let pos_after = world.creatures.get(monster).unwrap().position();
+        assert_eq!(base.next_wakeup, None, "empty queue must not schedule idle repath on kite");
+        assert!(base.walk_queue.is_empty());
+        assert!(base.todo.is_empty());
+        assert!(!base.force_update_follow_path);
+        assert_eq!(
+            world.creatures.get(monster).unwrap().position(),
+            mpos,
+            "no idle repath — position unchanged until idle drain"
+        );
+        assert_eq!(
+            base.follow_target,
+            Some(player),
+            "kite must not drop follow"
+        );
+    }
+
+    /// `TDAttack` armed close-chase — `CreatureMoveStimulus` re-queues Wait+Attack (`crmain.cc:946-961`).
+    #[test]
+    fn test_chase_combat_move_stimulus_rearms_attack_on_target_kite() {
+        use crate::creature_todo::CreatureAction;
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 5000;
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        let ppos_kited = Position::new(102, 100, 7);
+        for x in 100..=102u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.melee_skill = 15;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.base.walk_queue.clear();
+            m.base.todo.queue.push_back(CreatureAction::Attack);
+            m.base.todo.locked = false;
+            m.base.next_wakeup = None;
+            m.base.earliest_attack_ms = world.server_ms;
+        }
+
+        world.monster_dispatch_creature_move(player, ppos, ppos_kited);
+
+        let base = world.creatures.get(monster).unwrap().base();
         assert!(
-            base.todo.has_go() || !base.walk_queue.is_empty() || pos_after != mpos,
-            "empty-queue ATTACKING must re-arm close chase when target kites (not wait 2s cadence)"
+            base.todo.has_attack(),
+            "combat move stimulus must re-arm TDAttack after target kites away"
+        );
+        assert!(
+            !base.todo.is_empty(),
+            "combat re-arm must enqueue Wait+Attack actions"
+        );
+        assert_eq!(
+            base.follow_target,
+            Some(player),
+            "combat re-arm must keep follow"
         );
     }
 

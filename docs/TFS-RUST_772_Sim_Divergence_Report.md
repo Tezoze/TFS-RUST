@@ -1661,6 +1661,39 @@ P2.5e fixed the missing NW diagonal step. P2.5f C++ A/B shows all four cyclops `
 
 ---
 
+## 27. Phase 3 closeout — kite rat melee (June 2026)
+
+**Battery:** `TFS_SIM_SEED=772`, `--synthetic` — **5/6 PASS** (kite added; cobra still FAIL).
+
+| Scenario | Lockstep | ref / rust events |
+|----------|----------|-------------------|
+| kite | **PASS** | 8 / 8 |
+
+### Root causes fixed
+
+1. **`CreatureMoveStimulus` `LockToDo` inverted** — Rust returned early when `todo.locked`; C++ requires `LockToDo` **and** `ActToDo == TDAttack` (`crmain.cc:928-931`). Follow-move on harness `player_pos` was re-arming `attack_close_chase` at the wrong tick.
+2. **Harness segment order** — `advance_ms` + `player_pos` pairs must **drain to wall with the old player tile**, then teleport, then `sim_tick` for move stimulus (`chase_kite_scenario.cc`). Teleport-before-drain made idle commit with the post-kite player position.
+3. **`TDGo` pacing at harness walls** — first `ToDoGo` after idle uses `max(beat_ms, segment_ms)` when arming at `server_ms == harness_wall` (`sim_harness_segment_ms`); defers dance `go_exec` from 4001 → 6000.
+4. **`TDAttack` vs armed `TDGo`** — attack execute skips `CanToDoAttack` close walk when `todo.has_go()`; `defer_attack_after_go` reschedules chained strike when target kited away after dance step.
+
+### Files
+
+| Area | Files |
+|------|-------|
+| Harness | `chase_kite_sim.rs`, `sim_harness.rs` |
+| Move stimulus | `monster_events.rs` |
+| Walk / todo | `walk/mod.rs`, `idle_stimulus.rs`, `game_world.rs` |
+
+### Verification
+
+```bash
+TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --synthetic scripts/scenarios/kite_rat_melee.scenario
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic
+cargo test -p tfs-rust-core kite_rat cyclops_quad
+```
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -1685,3 +1718,4 @@ P2.5e fixed the missing NW diagonal step. P2.5f C++ A/B shows all four cyclops `
 | 2026-06-15 | §25.4 P2.5e closeout: `EarliestWalkTime` + `ToDoStart` min-1ms; NW `go_exec` @4000; appear-defer remaining-ms fix |
 | 2026-06-15 | §25.7 P2.5f battery rerun: **3/6**; cyclops `go_exec` 4/4 counts but 2/4 pairwise (E/far-N order @4000); §25.8 P2.5g scoped |
 | 2026-06-16 | §26 P2.5g closeout: `WakeupTiePolicy`; cyclops lockstep PASS; battery **4/6**; Phase 2 done |
+| 2026-06-16 | §27 Phase 3 closeout: kite harness drain-before-teleport + `CreatureMoveStimulus` `LockToDo`; battery **5/6** |

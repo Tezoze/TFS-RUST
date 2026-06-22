@@ -228,6 +228,12 @@ impl SimClock {
         set_sim_harness_wall_ms(world, Some(self.wall_ms));
         move_creatures_explicit(world, ms);
     }
+
+    /// Bump wall without draining — paired with immediate `player_pos` (`chase_kite_scenario.cc`).
+    fn bump_wall_only(&mut self, world: &mut tfs_rust_core::game_world::GameWorld, ms: u64) {
+        self.wall_ms = self.wall_ms.saturating_add(ms);
+        set_sim_harness_wall_ms(world, Some(self.wall_ms));
+    }
 }
 
 fn scenario_advance_budget(steps: &[ScenarioStep]) -> u64 {
@@ -396,17 +402,36 @@ fn spawn_entities(
     })
 }
 
+fn step_followed_by_player_pos(steps: &[ScenarioStep], idx: usize) -> bool {
+    matches!(steps.get(idx + 1), Some(ScenarioStep::PlayerPos(_, _)))
+}
+
+/// `advance_ms` + `player_pos` pair — drain to wall with the old tile, then teleport (`chase_kite_scenario.cc`).
+fn player_pos_drains_before_teleport(steps: &[ScenarioStep], idx: usize) -> bool {
+    let Some(ScenarioStep::AdvanceMs(_)) = steps.get(idx.wrapping_sub(1)) else {
+        return false;
+    };
+    step_followed_by_player_pos(steps, idx - 1)
+}
+
 fn execute_step(
     world: &mut tfs_rust_core::game_world::GameWorld,
     handles: &mut SimHandles,
     clock: &mut SimClock,
     scenario: &KiteScenario,
     step: &ScenarioStep,
+    defer_advance_drain: bool,
+    player_pos_idx: Option<usize>,
 ) -> Result<(), String> {
     clock.apply_wall(world);
     match step {
+        ScenarioStep::AdvanceMs(ms) if defer_advance_drain => {
+            clock.bump_wall_only(world, *ms);
+            tfs_rust_core::sim_harness::set_sim_harness_segment_ms(world, Some(*ms));
+        }
         ScenarioStep::AdvanceMs(ms) => {
             clock.advance(world, *ms);
+            tfs_rust_core::sim_harness::set_sim_harness_segment_ms(world, Some(*ms));
         }
         ScenarioStep::MonsterAppear => {
             if !handles.monsters_appeared {
@@ -417,8 +442,15 @@ fn execute_step(
         }
         ScenarioStep::PlayerPos(x, y) => {
             let pos = Position::new(*x, *y, scenario.z);
+            let drain_first = player_pos_idx
+                .is_some_and(|idx| player_pos_drains_before_teleport(&scenario.steps, idx));
+            if drain_first {
+                run_sim_tick(world);
+            }
             teleport_player(world, handles.player_id, pos)?;
-            run_sim_tick(world);
+            if !drain_first {
+                run_sim_tick(world);
+            }
         }
         ScenarioStep::SimTick => run_sim_tick(world),
         ScenarioStep::PlayerDamage(amount) => {
@@ -449,8 +481,17 @@ fn run_scenario(scenario: &KiteScenario, map_cfg: &SimMapConfig) -> Result<(), S
     let mut handles = spawn_entities(&mut world, scenario)?;
     let mut clock = SimClock::new();
     clock.apply_wall(&mut world);
-    for step in &scenario.steps {
-        execute_step(&mut world, &mut handles, &mut clock, scenario, step)?;
+    for (idx, step) in scenario.steps.iter().enumerate() {
+        let player_pos_idx = matches!(step, ScenarioStep::PlayerPos(_, _)).then_some(idx);
+        execute_step(
+            &mut world,
+            &mut handles,
+            &mut clock,
+            scenario,
+            step,
+            step_followed_by_player_pos(&scenario.steps, idx),
+            player_pos_idx,
+        )?;
     }
     Ok(())
 }

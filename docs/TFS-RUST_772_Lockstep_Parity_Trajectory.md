@@ -17,15 +17,15 @@
 
 ## 0. Executive summary
 
-| Metric | Today (§21) | Target |
+| Metric | Today (§27) | Target |
 |--------|-------------|--------|
-| Lockstep gate | **4 / 6 PASS** (67%) | **6 / 6 PASS** (100%) |
+| Lockstep gate | **5 / 6 PASS** (83%) | **6 / 6 PASS** (100%) |
 | Stand dance content | 100% pairwise on chase arms | + tick bucket alignment |
 | Panic E5 trace | 100% on dance + `damage_stimulus` | + tick bucket alignment |
 | Cyclops quad | `combat_state` 4/4; `shortway` 0/4 | chase @ ref tick + path shape |
 | Kill E6 | **PASS** | maintain |
 
-**Bottom line:** stand/panic/kill/cyclops lockstep **PASS** (4/6). P2.5g **closed** — `WakeupTiePolicy` go-step drain order. Phase 3 kite + Phase 4 cobra remain open.
+**Bottom line:** stand/panic/kill/cyclops/kite lockstep **PASS** (5/6). Phase 3 **closed** (§27). Phase 4 cobra remains open.
 
 ---
 
@@ -71,11 +71,11 @@ Battery: `TFS_SIM_SEED=772`, `--synthetic`, QM on `127.0.0.1:7173`.
 | Scenario | Lockstep | ref / rust events | Primary blocker |
 |----------|----------|-------------------|-----------------|
 | **kill** | **PASS** | 2 / 2 | — |
-| stand | FAIL | 11 / 12 | tick bucket: rust@2000 vs ref@4000 on chase arms |
-| panic | FAIL | 12 / 14 | same tick shift; combat counts (`melee_hit` ref=2 rust=4) |
-| cyclops | FAIL | 20 / 20 | `shortway` **4/4**; `go_exec` **3/4** — NW diagonal step not executed @4000 |
-| kite | FAIL | 8 / 17 | C++ **0 events** — `advance_ms 0` never advances time |
-| cobra | FAIL | 15 / 20 | E4 spell-cast timing / scenario tuning |
+| stand | **PASS** | — | — |
+| panic | **PASS** | — | — |
+| cyclops | **PASS** | — | — |
+| **kite** | **PASS** | 8 / 8 | — |
+| cobra | FAIL | — | E4 spell-cast timing / scenario tuning |
 
 **Recently closed (§21):** `DANCE_DIR_ORDER` N/S fix, `ToDoWait(0)`, chase step reverse removal, kill armor + stimulus order, `harness_preserve_sleep`.
 
@@ -219,25 +219,19 @@ python3 scripts/summarize_chase_gaps.py \
 
 ---
 
-## 6. Phase 3 — Kite rat (5/6)
+## 6. Phase 3 — Kite rat (5/6) — **DONE**
 
-**Target:** `kite` lockstep PASS.
+**Target:** `kite` lockstep PASS. **Status:** **PASS** (§27, battery 5/6).
 
-### 6.1 Problem statement
+### 6.1 Closed
 
-C++ produces **zero** JSONL events: every scenario step uses `advance_ms 0`, so `ServerMilliseconds` never advances and scheduled todos never drain. Rust still logs tick=0 appear events.
+| ID | Task | Status |
+|----|------|--------|
+| P3.1 | `advance_ms 2000` between kite steps (`wall_ms=6000`) | done |
+| P3.2 | Harness drain-before-teleport + `CreatureMoveStimulus` `LockToDo` gate | done |
+| P3.3 | Lockstep compare through `wall_ms=6000` | **PASS** |
 
-This is primarily a **harness/scenario** gap, not core AI impossibility.
-
-### 6.2 Work items
-
-| ID | Task | Files | Done when |
-|----|------|-------|-----------|
-| P3.1 | Add non-zero `advance_ms` between kite steps (or explicit wall budget) | `scripts/scenarios/kite_rat_melee.scenario` | C++ JSONL non-empty |
-| P3.2 | Align kite movement trace after time model fixed | movement + idle path | comparable event counts |
-| P3.3 | Lockstep compare through `wall_ms=6000` | battery | kite PASS |
-
-**Exit criteria:** kite lockstep PASS; document C++ time-advance requirement in scenario header comment.
+**Exit criteria met:** kite lockstep PASS; scenario time model documented in §27.
 
 ---
 

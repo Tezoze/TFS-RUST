@@ -17,6 +17,7 @@ monster_armor 1
 monster_defense 3
 
 # --- script (executed top-to-bottom) ---
+# Harness: drain each advance_ms window before player_pos teleport (see §27).
 advance_ms 0
 monster_appear
 

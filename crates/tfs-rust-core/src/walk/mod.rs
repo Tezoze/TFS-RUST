@@ -446,6 +446,28 @@ impl GameWorld {
         }
     }
 
+    /// C++ `TDGo` / `CalculateDelay` when `EarliestWalkTime` is unset — one beat from `server_ms` (`cract.cc:912`).
+    fn todo_go_beat_delay_ms(&self, cid: CreatureId) -> u64 {
+        let Some(k) = self.creatures.get(cid) else {
+            return 1;
+        };
+        let pos = k.position();
+        let ground_speed = self
+            .map
+            .get_tile(pos)
+            .map(|t| {
+                crate::walk::ground_speed_for_tile_body(t.body(), self.items_db.as_ref())
+            })
+            .unwrap_or(150);
+        let ms = crate::walk::walk_timing::get_step_duration(
+            k,
+            k.base(),
+            ground_speed,
+            &self.mechanics,
+        );
+        ms.max(1) as u64
+    }
+
     /// Compute walk delay for the next queued Go and arm the global heap (772 monster idle path).
     /// Returns `true` when the step should run immediately (1098 `getEventStepTicks` <= 1).
     ///
@@ -468,7 +490,15 @@ impl GameWorld {
             let calc_delay = if earliest > server_ms {
                 earliest - server_ms
             } else {
-                0
+                let mut delay = self.todo_go_beat_delay_ms(cid);
+                if let (Some(wall), Some(segment)) =
+                    (self.sim_harness_wall_ms, self.sim_harness_segment_ms)
+                {
+                    if self.server_ms == wall {
+                        delay = delay.max(segment);
+                    }
+                }
+                delay
             };
             let delay = calc_delay.max(1);
             self.todo_start_from_action(

@@ -53,5 +53,11 @@
   - [x] P2.5d OTBM+synthetic overlay (`overlay_synthetic_ground_in_arena` / `beat_driven_world_for_kite_synthetic`); `monster_tshortway_fill_walkable` state/KickCreatures/self-tile gates; `cyclops_quad_nw_and_far_n_shortway_match_live_ref` unignored
   - [x] P2.5e NW `go_exec` @4000 — `earliest_walk_server_ms` + `ToDoStart` min-1ms; appear-defer remaining-ms; `cyclops_quad_nw_go_exec_at_tick_4000`
   - [x] P2.5f Full battery C++ A/B rerun — **3/6** (stand/panic/kill PASS); cyclops **FAIL** — `go_exec` 4/4 counts but **2/4** pairwise (E vs far-N drain order swap @4000); kite/cobra unchanged FAIL
+
+## Phase 3 — Kite rat (5/6) — DONE
+
+- [x] P3.1 `advance_ms 2000` in `kite_rat_melee.scenario` (`wall_ms=6000`)
+- [x] P3.2 `CreatureMoveStimulus` `LockToDo` gate; harness drain-before-teleport; `TDGo` segment pacing; attack defers when `todo.has_go()`
+- [x] P3.3 Kite lockstep PASS + battery **5/6** (cobra still open)
   - [x] P2.5g Multi-monster `go_exec` drain order — `WakeupTiePolicy` (`HarnessAppearIdle` LIFO vs `HarnessGoStep`); cyclops lockstep **4/4**; battery **4/6**
   - Docs: divergence §26, trajectory Phase 2 closeout
