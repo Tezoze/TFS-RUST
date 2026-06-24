@@ -1694,6 +1694,328 @@ cargo test -p tfs-rust-core kite_rat cyclops_quad
 
 ---
 
+## 28. Extended battery baseline — hunter dist-chase/flee + dragon low-HP flee (2026-06-23)
+
+**Battery:** `TFS_SIM_SEED=772`, `--synthetic --extended`, QM on 7173. First run of extended scenarios.
+
+### 28.1 Base battery reconfirmed (5/6 — no regression)
+
+| Scenario | Lockstep |
+|----------|---------|
+| stand | **PASS** |
+| kite | **PASS** |
+| cyclops | **PASS** |
+| cobra | FAIL |
+| panic | **PASS** |
+| kill | **PASS** |
+
+§27 milestone intact. Investigation note: an earlier run of the extended battery without `--synthetic` showed 1/6 across the board — this is expected; without `--synthetic` the C++ runtime does not lay the synthetic arena tiles and the arena context diverges. The canonical gate is always `--synthetic`.
+
+### 28.2 Extended battery results (0/3)
+
+| Scenario | File | Lockstep | ref events | rust events | Δ |
+|----------|------|----------|------------|-------------|---|
+| hunter_chase | `kite_hunter_dist_chase` | **FAIL** | 6 | 14 | +8 |
+| hunter_dist_flee | `kite_hunter_dist_flee` | **FAIL** | 11 | 14 | +3 |
+| dragon_lowhp_flee | `kite_dragon_lowhp_flee` | **FAIL** | 9 | 6 | −3 |
+
+### 28.3 hunter_chase — detail
+
+Scenario: hunter starts at Chebyshev=7 from player; player kites east 2 tiles each segment.
+
+**Event counts:**
+
+| evt | ref | rust | Δ |
+|-----|-----|------|---|
+| branch | 1 | 2 | +1 |
+| todo_go | 1 | 2 | +1 |
+| shortway | 1 | 1 | 0 |
+| go_exec | 2 | 3 | +1 |
+| combat_state | 0 | 2 | +2 |
+| attack_enqueue | 1 | 2 | +1 |
+| melee_hit | 0 | 1 | +1 |
+| spell_cast | 0 | 1 | +1 |
+
+**Pairwise (paired prefix):** branch 1/1 ✓  todo_go 1/1 ✓  shortway 1/1 ✓  go_exec 2/2 ✓ — content matches, counts diverge.
+
+**First divergence:**
+- `go_exec` at tick=2000: ref=0, rust=1 — Rust fires a dist_chase step the ref does not execute yet.
+- `branch` at tick=4750: ref=0, rust=1 (`dist_flee`) — Rust fires a spurious flee arm the ref never reaches.
+- `go_exec` at tick=4000: ref=`(32367,32290)→(32366,32290)`, rust=`(32366,32290)→(32365,32290)` — position offset by one tile (consequence of the t=2000 early step).
+
+**Root causes:**
+- **R1 (HIGH)** — dist_chase first step fires one beat too early at t=2000; C++ ref does not execute a `go_exec` until t=4000 on this scenario. Same early-idle pattern as pre-§22 base scenarios. The hunter's dist_chase arm has an appear/idle cadence mismatch vs C++ `TDoIdleChase`.
+- **R2 (MEDIUM)** — `combat_state` inflation (rust=2, ref=0): Rust enters attacking state while ref considers the hunter still out of attack range. Likely a consequence of the position offset (hunter is one tile closer).
+- **R3 (LOW)** — spurious `dist_flee` at t=4750: cascades from position offset — hunter has advanced one extra tile and now reads player as too close, triggering flee.
+
+### 28.4 hunter_dist_flee — detail
+
+Scenario: hunter starts at Chebyshev=6; player charges in to trigger `dist_flee` (cheb < 4).
+
+**Event counts:**
+
+| evt | ref | rust | Δ |
+|-----|-----|------|---|
+| branch | 2 | 2 | 0 |
+| todo_go | 2 | 2 | 0 |
+| shortway | 1 | 1 | 0 |
+| go_exec | 2 | 3 | +1 |
+| combat_state | 0 | 2 | +2 |
+| melee_hit | 1 | 1 | 0 |
+| spell_cast | 1 | 1 | 0 |
+
+**Pairwise:** branch 2/2 ✓  shortway 1/1 ✓  go_exec 2/2 ✓  attack_enqueue 2/2 ✓ — but todo_go 0/2 ✗, melee_hit 0/1 ✗, spell_cast 0/1 ✗.
+
+**First divergence:**
+- `todo_go enter` at tick=2000: ref=`(…, 0, 2)` vs rust=`(…, 0, 3)` — step count off by one (ref computes 2-step waypoint path, Rust computes 3 steps for the same enter).
+- `go_exec` at tick=2000: ref=0, rust=1 — same early-step pattern as hunter_chase.
+- `go_exec` at tick=4000: ref=`(32366,32290)→(32365,32290)`, rust=`(32365,32290)→(32364,32290)` — cascaded position offset.
+- `spell_cast[0]`: ref=`('damage', 'target', 'victim', 7)` vs rust=`('damage:Physical', 'target', 'victim', 7)` — log schema normalization gap.
+
+**Root causes:**
+- **R1 (HIGH)** — same early dist-chase go_exec at t=2000 as hunter_chase.
+- **R4 (MEDIUM)** — `todo_go enter` step count: ref=2, rust=3. The waypoint path computation for `dist_flee` enter produces one extra step in Rust. Likely `TShortway` / `effective_terrain_waypoints` computing a longer waypoint list for flee exit.
+- **R5 (LOW)** — `spell_cast` type tag: `'damage'` (ref) vs `'damage:Physical'` (rust). Normalization in compare script or Rust sim log needs to strip the subtype suffix for lockstep equality.
+- **R2 (MEDIUM)** — `combat_state` inflation same as hunter_chase (ref=0, rust=2).
+- `melee_hit` damage: ref=3 (atk=4) vs rust=8 (atk=10) — pre-existing monster stat loading delta; see S5/damage taxonomy.
+
+### 28.5 dragon_lowhp_flee — detail
+
+Scenario: dragon adjacent to player; `player_damage 725` → dragon at 300 HP → low-HP flee.
+
+**Event counts:**
+
+| evt | ref | rust | Δ |
+|-----|-----|------|---|
+| branch | 2 | 1 | −1 |
+| todo_go | 2 | 1 | −1 |
+| go_exec | 1 | 0 | −1 |
+| spell_cast | 0 | 1 | +1 |
+| damage_stimulus | 1 | 0 | −1 |
+
+Combat events (`combat_state`, `attack_enqueue`, `melee_hit`) all 1/1 ✓.
+
+**First divergence:**
+- `branch[0]` at tick=2000: ref=`('melee_dance', (32361,32291,7), 1, INF)`, rust=`('flee', (32362,32290,7), 1, INF)` — Rust goes straight to flee; C++ ref fires one `melee_dance` step first.
+- `todo_go[0]` at tick=2000: ref=`('single', (32361,32291,7), 1, INF)` (dance step), rust=`('single', (32360,32290,7), 0, 3)` (flee step).
+- `flee` destination at tick=4000: ref=`(32362,32291)`, rust=`(32362,32290)` — diverges by one tile because the starting position differs (Rust never moved during melee_dance).
+
+**Root causes:**
+- **R6 (HIGH)** — Dragon low-HP flee triggers `dist_flee` / `flee` arm directly in Rust without first going through `melee_dance`. C++ ref evaluates idle with dragon still in melee range at tick=2000: combat conditions cause it to pick `melee_dance` (dance step to (32361,32291)) before the `runonhealth` flee condition wins in the next idle cycle at tick=4000. Rust's `low_hp_flee` or idle strategy priority is not guarding the first idle tick with a melee_dance check. Likely `run_on_health_threshold` vs `melee_distance` guard order in `idle_stimulus.rs`.
+- **R7 (LOW)** — `spell_cast` fired in Rust (ref=0, rust=1): probably dragon fires a fire-wave spell on the combat tick that ref suppresses because the dragon is mid-flee-logic.
+- **R8 (LOW)** — `damage_stimulus` in ref (ref=1, rust=0): ref records the player_damage event; Rust's damage stimulus is either not wired for the `player_damage` harness command or fires at a different tick.
+
+### 28.6 Recommended fix order (extended scenarios)
+
+| ID | Issue | Affects | Priority |
+|----|-------|---------|----------|
+| X1 | dist_chase first go_exec fires 1 beat too early | hunter_chase, hunter_dist_flee | HIGH |
+| X2 | `todo_go enter` step count off by 1 (flee path) | hunter_dist_flee | MEDIUM |
+| X3 | Dragon melee_dance guard missing before runonhealth flee | dragon_lowhp_flee | HIGH |
+| X4 | `combat_state` inflation in dist_chase scenarios | hunter_chase, hunter_dist_flee | MEDIUM |
+| X5 | spell_cast type tag normalization (`damage` vs `damage:Physical`) | hunter_dist_flee | LOW |
+| X6 | dragon spell_cast + damage_stimulus harness wiring | dragon_lowhp_flee | LOW |
+
+Fix X1 first — resolves the cascading position offset that causes X4 and the spurious `dist_flee` arm in hunter_chase.
+
+## 29. X1 follow-up rerun — dist_chase first-step cadence fixed (2026-06-23)
+
+**Change shipped:** `crates/tfs-rust-core/src/walk/mod.rs` (`process_creature_todo`) now avoids executing a freshly idle-enqueued `Go` on the same drain tick when `next_wakeup > server_ms`; execution waits for the scheduled wakeup (772 `ToDoStart` cadence).
+
+**Verification:**
+
+```bash
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic --extended
+```
+
+### 29.1 Battery status
+
+| Scenario | Lockstep |
+|----------|---------|
+| stand | **PASS** |
+| kite | **PASS** |
+| cyclops | **PASS** |
+| cobra | FAIL |
+| panic | **PASS** |
+| kill | **PASS** |
+| hunter_chase | FAIL |
+| hunter_dist_flee | FAIL |
+| dragon_lowhp_flee | FAIL |
+
+Extended remains **0/3**, but X1 cadence behavior is corrected.
+
+### 29.2 Extended metrics after X1
+
+| Scenario | Lockstep | ref events | rust events | Δ |
+|----------|----------|------------|-------------|---|
+| hunter_chase | **FAIL** | 6 | 13 | +7 |
+| hunter_dist_flee | **FAIL** | 11 | 14 | +3 |
+| dragon_lowhp_flee | **FAIL** | 9 | 6 | −3 |
+
+### 29.3 What closed vs what remains
+
+**Closed (X1):**
+- Hunter dist-chase first `go_exec` is no longer at tick=2000; first execute now lands at tick=4000 in both hunter scenarios (matches reference cadence).
+
+**Still open (next):**
+- **X2** `todo_go enter` step count in `hunter_dist_flee` (ref 2 vs rust 3).
+- **X3** dragon missing initial `melee_dance` before low-HP flee.
+- **X4** hunter `combat_state` inflation remains (ref 0 vs rust 2).
+- **X5** `spell_cast` type normalization (`damage` vs `damage:Physical`).
+- **X6** dragon `damage_stimulus` / spell wiring mismatch.
+
+---
+
+## 30. X2 follow-up — hunter `todo_go` contract aligned (2026-06-24)
+
+**Change shipped:** `crates/tfs-rust-core/src/creature_todo.rs` now derives 772 `todo_go` trace metadata from the active idle arm instead of logging all follow-target movement with the generic chase budget.
+
+- `dist_chase` logs `max = cheb - target_distance` via `monster_idle_chase_step_budget(...)`.
+- `idle_flee` logs the single-step `SearchFlightField` contract (`must=true`, `max=INT_MAX`) on the queued adjacent destination.
+- Added focused regression tests for both contracts in `creature_todo.rs`.
+
+**Verification:**
+
+- `rtk cargo test -p tfs-rust-core creature_todo:: -- --nocapture`
+- `python3 scripts/run_sim_battery.py --synthetic --extended` *(C++ rerun still blocked locally by query manager on `127.0.0.1:7173`, but Rust regenerated summaries/logs against the existing oracle files.)*
+
+### 30.1 hunter_dist_flee after X2
+
+The first `todo_go` mismatch is closed:
+
+- ref @tick=2000: `via="enter"`, `must=0`, `max=2`
+- rust @tick=2000: `via="enter"`, `must=0`, `max=2` ✓
+
+Generated Rust trace (`log/chase_path_rust_hunter_dist_flee.log`):
+
+```json
+{"src":"rust","evt":"todo_go","tick":2000,"name":"Hunter","via":"enter","must":0,"max":2}
+```
+
+`log/summary_hunter_dist_flee.txt` now reports:
+
+- `todo_go` pairwise: **2/2 = 100.0%**
+- `shortway` pairwise: **1/1 = 100.0%**
+- remaining first divergence: `go_exec` count (`ref=2`, `rust=3`)
+
+### 30.2 What remains after X2
+
+**Closed:**
+- **X1** first dist-chase `go_exec` cadence (`tick=4000`).
+- **X2** `hunter_dist_flee` `todo_go enter` contract (`max=2` now matches reference).
+
+**Still open:**
+- **X3** dragon missing initial `melee_dance` before low-HP flee.
+- **X4** hunter `combat_state` inflation / early dist-flee follow-on remains.
+- **X5** `spell_cast` type normalization (`damage` vs `damage:Physical`).
+- **X6** dragon `damage_stimulus` / spell wiring mismatch.
+
+## 31. X3–X6 attempt — base gate regression and recovery (2026-06-24)
+
+**Scope:** attempted follow-up fixes for the remaining extended-scenario items after X2:
+
+- **X3** dragon missing initial `melee_dance` before low-HP flee.
+- **X4** hunter `combat_state` inflation / early dist-flee follow-on.
+- **X5** `spell_cast` type normalization (`damage` vs `damage:Physical`).
+- **X6** dragon `damage_stimulus` / spell wiring mismatch.
+
+### 31.1 Important regression found
+
+A broad first pass at X3 changed melee-dance selection to retry blocked/invalid directions. This made the dragon low-HP scenario closer, but it also changed ordinary melee dance timing for rat scenarios. The base battery temporarily dropped from the established **5/6** gate to **2/6**:
+
+```text
+scenario    run   lockstep max_tick
+stand         2       FAIL     6000
+kite          2       FAIL     6000
+cyclops       0       PASS     4000
+cobra         2       FAIL    12000
+panic         2       FAIL     6000
+kill          0       PASS     2000
+hunter_chase    2       FAIL     6000
+hunter_dist_flee    2       FAIL     6000
+dragon_lowhp_flee    2       FAIL     4000
+```
+
+Root cause: global dance retry caused extra `melee_dance` / `todo_go` / `go_exec` events in passing rat scenarios, notably extra Rust `branch` at `tick=2000` and shifted `go_exec` content at `tick=4000/6000`.
+
+**Decision:** revert the broad dance retry. X3 must be fixed narrowly for dragon/low-HP ordering without changing global 772 melee dance semantics.
+
+### 31.2 Base gate recovered
+
+After reverting the broad dance retry, a fresh base battery recovered the prior gate:
+
+```text
+scenario    run   lockstep max_tick
+stand         0       PASS     6000
+kite          0       PASS     6000
+cyclops       0       PASS     4000
+cobra         2       FAIL    12000
+panic         0       PASS     6000
+kill          0       PASS     2000
+```
+
+**Status:** base battery remains **5/6 PASS**. Cobra remains the known base failure.
+
+### 31.3 Changes retained from the safe part of X3–X6
+
+The following narrower changes were retained because they do not break the base gate:
+
+| Item | Status | Notes |
+|------|--------|-------|
+| X4 — hunter `combat_state` inflation | **Closed/Improved** | Extended hunter summaries now report `combat_state ref=0 rust=0`. |
+| X5 — spell label normalization | **Closed** | Rust logs damage spells as `spell="damage"`; `summarize_chase_gaps.py` also normalizes older `damage:*` labels. |
+| X6 — dragon spell noise | **Closed/Improved** | Dragon low-HP no longer emits Rust-only `spell_cast`; `spell_cast ref=0 rust=0`. |
+| X6 — dragon `damage_stimulus` count | **Closed/Improved** | Dragon now has `damage_stimulus ref=1 rust=1`, but damage magnitude still differs. |
+| X3 — dragon initial `melee_dance` | **Still open** | The broad fix was reverted to protect base 5/6. |
+
+### 31.4 Extended status after recovery
+
+After base recovery, the extended battery still fails all three scenarios, but with reduced noise:
+
+| Scenario | Current useful closure | Remaining mismatch |
+|----------|------------------------|--------------------|
+| `hunter_chase` | `branch`/`todo_go`/`shortway`/paired `go_exec` all match; `combat_state` 0/0 | Rust extra `melee_hit` + `spell_cast`; `go_exec` tick shift `4750` vs `6000`. |
+| `hunter_dist_flee` | First `branch`/`todo_go`/`shortway`/paired `go_exec` match; `combat_state` 0/0; `spell_cast` 1/1 = 100% | Ref has later `dist_flee` at `tick=6000`; Rust does not. Melee damage still differs (`3` vs `8`). |
+| `dragon_lowhp_flee` | `spell_cast` 0/0; `damage_stimulus` count 1/1; combat-state/attack counts match | Still missing initial ref `melee_dance`; first Rust walk arm is `flee`. Damage stimulus magnitude differs (`712` vs `700`), and melee damage differs (`66` vs `38` in fresh rerun). |
+
+Representative current dragon summary:
+
+```text
+branch          ref=2 rust=1
+todo_go         ref=2 rust=1
+go_exec         ref=1 rust=0
+combat_state    ref=1 rust=1
+attack_enqueue  ref=1 rust=1
+melee_hit       ref=1 rust=1
+spell_cast      ref=0 rust=0
+damage_stimulus ref=1 rust=1
+```
+
+### 31.5 Verification
+
+Commands run:
+
+```bash
+rtk env TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic
+rtk env TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic --extended
+rtk cargo check -p tfs-rust-core
+```
+
+Results:
+
+- Base battery: **5/6 PASS** (`stand`, `kite`, `cyclops`, `panic`, `kill`; `cobra` FAIL).
+- Extended battery: **0/3 PASS**, but X4/X5/X6 noise reduced as above.
+- `cargo check -p tfs-rust-core`: **0 errors**, existing warnings only.
+
+### 31.6 Next recommended fix order
+
+1. **Protect base 5/6 as a hard gate** before every extended change.
+2. Fix X3 with a targeted dragon/low-HP idle-priority rule, not a global dance RNG retry.
+3. Fix hunter residual timing: distance attack / spell should not create extra Rust attack effects in `hunter_chase`, while `hunter_dist_flee` still needs the reference later `dist_flee` at `tick=6000`.
+4. Address remaining damage stat/loading deltas separately (`hunter` melee `3` vs `8`; dragon hit/stimulus magnitude).
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -1719,3 +2041,7 @@ cargo test -p tfs-rust-core kite_rat cyclops_quad
 | 2026-06-15 | §25.7 P2.5f battery rerun: **3/6**; cyclops `go_exec` 4/4 counts but 2/4 pairwise (E/far-N order @4000); §25.8 P2.5g scoped |
 | 2026-06-16 | §26 P2.5g closeout: `WakeupTiePolicy`; cyclops lockstep PASS; battery **4/6**; Phase 2 done |
 | 2026-06-16 | §27 Phase 3 closeout: kite harness drain-before-teleport + `CreatureMoveStimulus` `LockToDo`; battery **5/6** |
+| 2026-06-23 | §28 extended battery baseline: 5/6 base confirmed (no regression); extended 0/3 (hunter_chase, hunter_dist_flee, dragon_lowhp_flee); X1–X6 root causes scoped |
+| 2026-06-23 | §29 X1 follow-up: `process_creature_todo` wakeup gating shipped; hunter first `go_exec` cadence aligned to tick=4000; extended battery rerun recorded |
+| 2026-06-24 | §30 X2 follow-up: `todo_go` contract logging aligned to the active 772 idle arm; `hunter_dist_flee` `todo_go` pairwise now 2/2 |
+| 2026-06-24 | §31 X3–X6 attempt: broad dance retry regressed base 5/6 to 2/6; reverted to recover 5/6. Retained X4 combat-state, X5 spell-label normalization, X6 spell/damage-stimulus count improvements; X3 remains open. |

@@ -21,8 +21,10 @@ impl GameWorld {
             return;
         };
         let flags = crate::player_flags::flags_for_group(&self.groups, p.group_id);
-        let cannot =
-            crate::player_flags::has_player_flag(flags, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM);
+        let cannot = crate::player_flags::has_player_flag(
+            flags,
+            crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM,
+        );
         let infinite = crate::player_flags::has_player_flag(
             flags,
             crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY,
@@ -94,7 +96,8 @@ impl GameWorld {
             return None;
         };
         let cannot = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM);
-        let infinite = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY);
+        let infinite =
+            self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY);
         Some(p.get_capacity_u32_with_flags(cannot, infinite))
     }
 
@@ -103,16 +106,15 @@ impl GameWorld {
             return None;
         };
         let cannot = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CANNOT_PICKUP_ITEM);
-        let infinite = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY);
+        let infinite =
+            self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY);
         Some(p.get_free_capacity_u32_with_flags(cannot, infinite))
     }
 
     /// Ensure all worn containers are registered before inventory scans.
     pub(crate) fn hydrate_player_equipment_containers(&mut self, cid: CreatureId) {
         let roots: Vec<ItemId> = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => {
-                p.equipment_slots.iter().flatten().copied().collect()
-            }
+            Some(CreatureKind::Player(p)) => p.equipment_slots.iter().flatten().copied().collect(),
             _ => return,
         };
         let mut registry = std::mem::take(&mut self.container_registry);

@@ -475,7 +475,11 @@ mod tests {
         }
     }
 
-    fn spell_node(name: &str, attrs: &[(&str, &str)], children: &[(&str, &str)]) -> MonsterSpellNode {
+    fn spell_node(
+        name: &str,
+        attrs: &[(&str, &str)],
+        children: &[(&str, &str)],
+    ) -> MonsterSpellNode {
         MonsterSpellNode {
             element: "attack".into(),
             attributes: attrs
@@ -493,11 +497,8 @@ mod tests {
     fn load_monster_type(index_name: &str) -> MonsterType {
         let manifest = env!("CARGO_MANIFEST_DIR");
         let items = empty_items();
-        let db = MonsterDatabase::load_dir(
-            &Path::new(manifest).join("../../data/monster"),
-            &items,
-        )
-        .expect("load monsters");
+        let db = MonsterDatabase::load_dir(&Path::new(manifest).join("../../data/monster"), &items)
+            .expect("load monsters");
         db.monsters
             .get(&index_name.to_lowercase())
             .cloned()
@@ -637,37 +638,20 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(7);
 
-        let _ = roll_target_defense(
-            &mut base,
-            1000,
-            &mechanics.profile,
-            &hooks,
-            &mut rng,
-            snap,
-        );
+        let _ = roll_target_defense(&mut base, 1000, &mechanics.profile, &hooks, &mut rng, snap);
         assert_eq!(base.last_defend_ms, 1000);
         assert_eq!(base.earliest_defend_ms, 2000);
 
-        let _ = roll_target_defense(
-            &mut base,
-            2100,
-            &mechanics.profile,
-            &hooks,
-            &mut rng,
-            snap,
-        );
+        let _ = roll_target_defense(&mut base, 2100, &mechanics.profile, &hooks, &mut rng, snap);
         assert_eq!(base.last_defend_ms, 2100);
         assert_eq!(base.earliest_defend_ms, 3000);
 
-        let blocked = roll_target_defense(
-            &mut base,
-            2200,
-            &mechanics.profile,
-            &hooks,
-            &mut rng,
-            snap,
+        let blocked =
+            roll_target_defense(&mut base, 2200, &mechanics.profile, &hooks, &mut rng, snap);
+        assert_eq!(
+            blocked, 0,
+            "defense must gate until LastDefendTime + 2000 ms"
         );
-        assert_eq!(blocked, 0, "defense must gate until LastDefendTime + 2000 ms");
     }
 
     #[test]
@@ -688,7 +672,15 @@ mod tests {
         let fire = cfg
             .spells
             .iter()
-            .find(|s| matches!(s.impact, SpellImpact::Damage { element: CombatType::Fire, .. }))
+            .find(|s| {
+                matches!(
+                    s.impact,
+                    SpellImpact::Damage {
+                        element: CombatType::Fire,
+                        ..
+                    }
+                )
+            })
             .expect("marid fire spell");
         assert_eq!(fire.delay, 2);
         assert_eq!(fire.range, 7);
@@ -722,7 +714,15 @@ mod tests {
         let lifedrain = cfg
             .spells
             .iter()
-            .find(|s| matches!(s.impact, SpellImpact::Damage { element: CombatType::LifeDrain, .. }))
+            .find(|s| {
+                matches!(
+                    s.impact,
+                    SpellImpact::Damage {
+                        element: CombatType::LifeDrain,
+                        ..
+                    }
+                )
+            })
             .expect("marid lifedrain");
         assert_eq!(lifedrain.shoot_effect, Some(ShootEffect::Death as u8));
     }
@@ -731,12 +731,20 @@ mod tests {
     fn test_e4_drunk_and_speed_parse() {
         let node = spell_node(
             "drunk",
-            &[("delay", "5"), ("range", "7"), ("duration", "60000"), ("drunkness", "120")],
+            &[
+                ("delay", "5"),
+                ("range", "7"),
+                ("duration", "60000"),
+                ("drunkness", "120"),
+            ],
             &[("shooteffect", "energy")],
         );
         let spell = MonsterSpell::try_from_node(&node).expect("drunk spell");
         assert_eq!(spell.shape, SpellShape::Victim);
-        assert!(matches!(spell.impact, SpellImpact::Drunk { drunkness: 120 }));
+        assert!(matches!(
+            spell.impact,
+            SpellImpact::Drunk { drunkness: 120 }
+        ));
 
         let speed_node = spell_node(
             "speed",
@@ -776,11 +784,7 @@ mod tests {
 
         let mut cfg = MonsterAiConfig::default();
         cfg.immunity_poison = true;
-        let m = Monster::with_config(
-            test_creature_base(),
-            Position::new(100, 100, 7),
-            cfg,
-        );
+        let m = Monster::with_config(test_creature_base(), Position::new(100, 100, 7), cfg);
         assert!(creature_immune_poison(&CreatureKind::Monster(m)));
     }
 }

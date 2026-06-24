@@ -292,7 +292,9 @@ impl GameWorld {
 
         // Check tile flags first
         let body = tile.body();
-        if body.flags & (crate::tile::flags::BLOCK_PROJECTILE | crate::tile::flags::BLOCK_SOLID) != 0 {
+        if body.flags & (crate::tile::flags::BLOCK_PROJECTILE | crate::tile::flags::BLOCK_SOLID)
+            != 0
+        {
             return false;
         }
 

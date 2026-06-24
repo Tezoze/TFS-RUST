@@ -12,15 +12,17 @@ mod player;
 pub mod vocation;
 
 pub use base::{CreatureBase, DamageMap, Outfit, WalkTimer};
-pub use light::LightInfo;
 pub use kind::CreatureKind;
+pub use light::LightInfo;
 pub use monster::{Monster, MonsterAiConfig, MonsterAiPhase, MonsterChaseMode, MonsterState};
-pub use monster_inventory::{effective_monster_combat_stats, MonsterInventory, DEFAULT_MONSTER_BAG_TYPE};
 pub use monster_combat::{
     combat_from_monster_type, creature_immune_poison, defend_fight_mode_for_target,
     melee_defense_snapshot, melee_poison_on_hit, monster_has_melee_strike,
     monster_weapon_attack_distance, roll_target_defense, runtime_spell_in_attack_range,
     MeleeDefenseSnapshot, MonsterCombatSnapshot, MonsterSpell, SpellImpact, SpellShape,
+};
+pub use monster_inventory::{
+    effective_monster_combat_stats, MonsterInventory, DEFAULT_MONSTER_BAG_TYPE,
 };
 pub use npc::{Npc, NpcEventsHandler, NullNpcHandler};
 pub use player::{

@@ -40,12 +40,7 @@ impl GameWorld {
     }
 
     /// TFS `Player::getItemTypeCount` — `player.cpp` ~2974–2996.
-    pub fn player_get_item_type_count(
-        &self,
-        cid: CreatureId,
-        item_id: u16,
-        sub_type: i32,
-    ) -> u32 {
+    pub fn player_get_item_type_count(&self, cid: CreatureId, item_id: u16, sub_type: i32) -> u32 {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return 0;
         };
@@ -62,7 +57,8 @@ impl GameWorld {
                 .is_some_and(|i| self.items_db.is_container(i.item_type))
             {
                 for child in ContainerIterator::new(&self.container_registry, slot_item) {
-                    count = count.saturating_add(self.item_count_for_type(child, item_id, sub_type));
+                    count =
+                        count.saturating_add(self.item_count_for_type(child, item_id, sub_type));
                 }
             }
         }

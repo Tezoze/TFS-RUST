@@ -64,7 +64,11 @@ mod tests {
         // voc 220, level 8 → base 228, GetSpeed 536
         assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, 1, 8), 228);
         assert_eq!(
-            crate::formulas::linear_go_effective_speed(base_walk_speed(StepSpeedModel::LinearGo, 1, 8)),
+            crate::formulas::linear_go_effective_speed(base_walk_speed(
+                StepSpeedModel::LinearGo,
+                1,
+                8
+            )),
             536
         );
         // TFS 1098: 220 + 2*7 = 234

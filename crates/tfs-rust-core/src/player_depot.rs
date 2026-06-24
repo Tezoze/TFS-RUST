@@ -57,8 +57,12 @@ impl GameWorld {
         };
         for cx in -1i32..=1 {
             for cy in -1i32..=1 {
-                let x = i32::from(pos.x).saturating_add(cx).clamp(0, u16::MAX as i32) as u16;
-                let y = i32::from(pos.y).saturating_add(cy).clamp(0, u16::MAX as i32) as u16;
+                let x = i32::from(pos.x)
+                    .saturating_add(cx)
+                    .clamp(0, u16::MAX as i32) as u16;
+                let y = i32::from(pos.y)
+                    .saturating_add(cy)
+                    .clamp(0, u16::MAX as i32) as u16;
                 let check = Position::new(x, y, pos.z);
                 if let Some(tile) = self.map.get_tile(check) {
                     if tile.body().flags & tilestate::DEPOT != 0 {
@@ -167,13 +171,10 @@ impl GameWorld {
 
     /// C++ `Player::getDepotLocker` — `player.cpp` ~826.
     pub fn player_get_depot_locker(&mut self, cid: CreatureId, depot_id: u32) -> Option<ItemId> {
-        let existing = self
-            .creatures
-            .get(cid)
-            .and_then(|k| match k {
-                CreatureKind::Player(p) => p.depot_lockers.get(&depot_id).copied(),
-                _ => None,
-            });
+        let existing = self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => p.depot_lockers.get(&depot_id).copied(),
+            _ => None,
+        });
         if let Some(locker_id) = existing {
             self.sync_depot_locker_contents(cid, locker_id);
             return Some(locker_id);
@@ -403,7 +404,10 @@ mod tests {
         assert!(world.player_owns_depot_root(cid, chest));
         let cont = world.container_registry.get(chest).expect("registered");
         assert_eq!(cont.container_type, ContainerType::Depot);
-        assert_eq!(world.items.get(chest).map(|i| i.item_type), Some(ITEM_DEPOT));
+        assert_eq!(
+            world.items.get(chest).map(|i| i.item_type),
+            Some(ITEM_DEPOT)
+        );
     }
 
     #[test]
@@ -413,13 +417,10 @@ mod tests {
         let cid = insert_player(&mut world, test_player("depot", pos));
         world.player_set_last_depot_id(cid, 5);
         assert_eq!(
-            world
-                .creatures
-                .get(cid)
-                .and_then(|k| match k {
-                    CreatureKind::Player(p) => Some(p.last_depot_id),
-                    _ => None,
-                }),
+            world.creatures.get(cid).and_then(|k| match k {
+                CreatureKind::Player(p) => Some(p.last_depot_id),
+                _ => None,
+            }),
             Some(5)
         );
     }

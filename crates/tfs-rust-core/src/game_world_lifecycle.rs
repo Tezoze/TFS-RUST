@@ -88,7 +88,13 @@ impl GameWorld {
     /// TFS `ProtocolGame::logout` (`protocolgame.cpp:336-372`).
     /// Handles player logout with validation, effects, and cleanup.
     // C++ ref: src/protocolgame.cpp:336-372
-    pub fn player_logout(&mut self, conn_id: ConnId, cid: CreatureId, display_effect: bool, forced: bool) {
+    pub fn player_logout(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        display_effect: bool,
+        forced: bool,
+    ) {
         // Verify player exists
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
             return;
@@ -149,7 +155,10 @@ impl GameWorld {
         // Remove creature from world (C++: g_game.removeCreature(player))
         self.remove_creature(cid);
 
-        tracing::info!(guid = self.player_guid(cid).unwrap_or(0), "player logged out");
+        tracing::info!(
+            guid = self.player_guid(cid).unwrap_or(0),
+            "player logged out"
+        );
     }
 
     /// Run death XP / events / corpse scheduling, then remove the creature (and summons).

@@ -8,14 +8,14 @@ use tfs_rust_net::outgoing_extra::{send_inventory_slot_empty, send_text_message_
 
 use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
-use crate::player_inventory_notifications::NotificationParent;
-use crate::player_inventory_util::{InventoryItemRef, ItemCylinder};
-use crate::item_look::{item_get_description_cpp, look_distance_tfs};
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{slot_type_for_item_type, InventorySlot};
 use crate::item::Item;
+use crate::item_look::{item_get_description_cpp, look_distance_tfs};
+use crate::player_inventory_notifications::NotificationParent;
+use crate::player_inventory_util::{InventoryItemRef, ItemCylinder};
 use crate::return_value::ReturnValue;
 use crate::thing::LookTarget;
 use slotmap::Key;
@@ -233,9 +233,7 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
-        Ok(self
-            .player_get_inbox(cid, true)
-            .map(|i| i.data().as_ffi()))
+        Ok(self.player_get_inbox(cid, true).map(|i| i.data().as_ffi()))
     }
 
     /// Lua `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
@@ -258,15 +256,11 @@ impl GameWorld {
             CylinderFlags { bits: flags_bits }
         };
         let acting = self
-            .resolve_creature_u64(
-                match from {
-                    Cylinder::Inventory { player_id, .. } => player_id.data().as_ffi(),
-                    _ => 0,
-                },
-            )
-            .or_else(|| {
-                dest_player_creature(&dest).and_then(|u| self.resolve_creature_u64(u))
-            });
+            .resolve_creature_u64(match from {
+                Cylinder::Inventory { player_id, .. } => player_id.data().as_ffi(),
+                _ => 0,
+            })
+            .or_else(|| dest_player_creature(&dest).and_then(|u| self.resolve_creature_u64(u)));
         let to = match dest {
             LuaMoveDestination::Container { item_id: cid_u64 } => {
                 let cid = self
@@ -301,11 +295,7 @@ impl GameWorld {
     }
 
     /// Lua `item:remove` — `luascript.cpp` `luaItemRemove`.
-    pub fn lua_script_item_remove(
-        &mut self,
-        item_u64: u64,
-        count: i32,
-    ) -> Result<bool, String> {
+    pub fn lua_script_item_remove(&mut self, item_u64: u64, count: i32) -> Result<bool, String> {
         let item_id = self
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
@@ -313,23 +303,21 @@ impl GameWorld {
             .resolve_item_parent_cylinder(item_id)
             .ok_or_else(|| "item has no parent".to_string())?;
         let item_count = i32::from(self.items.get(item_id).map(|i| i.count).unwrap_or(1));
-        let remove_count = if count < 0 { item_count } else { count.min(item_count) };
+        let remove_count = if count < 0 {
+            item_count
+        } else {
+            count.min(item_count)
+        };
         if remove_count <= 0 {
             return Ok(true);
         }
         let rv = match parent {
-            Cylinder::Tile { pos } => self.internal_remove_item_from_tile(
-                pos,
-                item_id,
-                remove_count as u16,
-            ),
+            Cylinder::Tile { pos } => {
+                self.internal_remove_item_from_tile(pos, item_id, remove_count as u16)
+            }
             Cylinder::Inventory { player_id, slot } => {
-                let taken = self.remove_from_inventory_slot(
-                    player_id,
-                    slot,
-                    item_id,
-                    remove_count as u32,
-                );
+                let taken =
+                    self.remove_from_inventory_slot(player_id, slot, item_id, remove_count as u32);
                 if taken > 0 {
                     Ok(())
                 } else {
@@ -369,9 +357,7 @@ impl GameWorld {
         };
         let new_item = Item::new(item_type, stack_count);
         let iid = self.items.insert(new_item);
-        let flags = CylinderFlags {
-            bits: flags_bits,
-        };
+        let flags = CylinderFlags { bits: flags_bits };
         let rv = self.container_query_add(
             container_id,
             index,
@@ -440,15 +426,15 @@ impl GameWorld {
                 && self
                     .internal_add_item_to_inventory_slot(cid, target_slot, iid)
                     .is_ok()
-                {
-                    self.notify_player_inventory_slot_add(
-                        cid,
-                        target_slot,
-                        iid,
-                        NotificationParent::None,
-                    );
-                    return Ok(Some(iid.data().as_ffi()));
-                }
+            {
+                self.notify_player_inventory_slot_add(
+                    cid,
+                    target_slot,
+                    iid,
+                    NotificationParent::None,
+                );
+                return Ok(Some(iid.data().as_ffi()));
+            }
         }
 
         if self.query_add_item_to_inventory(cid, iid) == ReturnValue::NoError {
@@ -491,7 +477,11 @@ impl GameWorld {
         Ok(None)
     }
 
-    pub fn lua_script_set_action_id(&mut self, item_u64: u64, action_id: u16) -> Result<(), String> {
+    pub fn lua_script_set_action_id(
+        &mut self,
+        item_u64: u64,
+        action_id: u16,
+    ) -> Result<(), String> {
         let iid = self
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
@@ -503,7 +493,11 @@ impl GameWorld {
         }
     }
 
-    pub fn lua_script_set_unique_id(&mut self, item_u64: u64, unique_id: u16) -> Result<(), String> {
+    pub fn lua_script_set_unique_id(
+        &mut self,
+        item_u64: u64,
+        unique_id: u16,
+    ) -> Result<(), String> {
         let iid = self
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
@@ -520,7 +514,9 @@ impl GameWorld {
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
         if let Some(item) = self.items.get_mut(iid) {
-            item.attributes.get_or_insert_with(|| Box::new(crate::item_attributes::ItemAttributes::new())).set_store_item(if store { 1 } else { 0 });
+            item.attributes
+                .get_or_insert_with(|| Box::new(crate::item_attributes::ItemAttributes::new()))
+                .set_store_item(if store { 1 } else { 0 });
             Ok(())
         } else {
             Err("item not found".into())
@@ -634,8 +630,7 @@ impl GameWorld {
                     .container_remove_thing(parent_container, entry.item_id, count)
                     .is_ok()
                 {
-                    if let Some(slot) =
-                        self.equipment_slot_holding_container(cid, parent_container)
+                    if let Some(slot) = self.equipment_slot_holding_container(cid, parent_container)
                     {
                         if let Some(root_id) = self.get_player_inventory_item(cid, slot) {
                             self.notify_player_container_tree_changed(
@@ -662,7 +657,11 @@ impl GameWorld {
         item_id: ItemId,
         count: u32,
     ) -> u32 {
-        let item_count = self.items.get(item_id).map(|i| u32::from(i.count.max(1))).unwrap_or(0);
+        let item_count = self
+            .items
+            .get(item_id)
+            .map(|i| u32::from(i.count.max(1)))
+            .unwrap_or(0);
         let stackable = self
             .items
             .get(item_id)
@@ -677,12 +676,8 @@ impl GameWorld {
             count
         } else {
             let removed = item_count.min(count);
-            let _ = self.unequip_item_from_inventory_slot(
-                cid,
-                slot,
-                item_id,
-                NotificationParent::None,
-            );
+            let _ =
+                self.unequip_item_from_inventory_slot(cid, slot, item_id, NotificationParent::None);
             self.items.remove(item_id);
             removed
         }
@@ -760,7 +755,11 @@ impl GameWorld {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
-        let bp_type = self.items.get(backpack_id).map(|i| i.item_type).unwrap_or(0);
+        let bp_type = self
+            .items
+            .get(backpack_id)
+            .map(|i| i.item_type)
+            .unwrap_or(0);
         if !self.items_db.is_container(bp_type) {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
@@ -900,17 +899,19 @@ impl GameWorld {
     }
 
     /// `Game::playerLookAt` — `game.cpp` ~3156–3187.
-    pub fn player_look_at(&mut self, conn_id: ConnId, cid: CreatureId, pos: Position, stack_pos: u8) {
+    pub fn player_look_at(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        pos: Position,
+        stack_pos: u8,
+    ) {
         let Some(target) = self.internal_get_thing_look(cid, pos, stack_pos) else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
 
-        let player_pos = self
-            .creatures
-            .get(cid)
-            .map(|k| k.position())
-            .unwrap_or(pos);
+        let player_pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(pos);
         // C++ `thing->getPosition()` for map targets; inventory/container use player tile.
         let thing_pos = if pos.x == 0xFFFF { player_pos } else { pos };
         // C++ `player->canSee(thingPos)` — `ProtocolGame::canSee` (`protocolgame.cpp` ~796).
@@ -940,10 +941,7 @@ impl GameWorld {
                     self.send_cancel_message(conn_id, ReturnValue::NotPossible);
                     return;
                 };
-                let container_capacity = self
-                    .container_registry
-                    .get(item_id)
-                    .map(|c| c.capacity);
+                let container_capacity = self.container_registry.get(item_id).map(|c| c.capacity);
                 if let Some(it) = self.items_db.items.get(&item.item_type) {
                     format!(
                         "You see {}",

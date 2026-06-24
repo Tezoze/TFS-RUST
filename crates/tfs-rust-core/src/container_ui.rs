@@ -11,8 +11,8 @@ use tfs_rust_common::Position;
 use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
 use tfs_rust_net::outgoing_extra::{send_close_container, send_remove_container_item_empty};
 
-use crate::creature::PlayerWalkAction;
 use crate::creature::CreatureKind;
+use crate::creature::PlayerWalkAction;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::item_look::look_distance_tfs;
@@ -52,7 +52,9 @@ impl GameWorld {
         container_item_id: ItemId,
         first_index: u16,
     ) {
-        let Some(bytes) = self.build_container_open_packet(viewer, client_cid, container_item_id, first_index) else {
+        let Some(bytes) =
+            self.build_container_open_packet(viewer, client_cid, container_item_id, first_index)
+        else {
             return;
         };
         self.enqueue_outgoing(conn_id, bytes);
@@ -68,7 +70,9 @@ impl GameWorld {
             .open_by
             .iter()
             .filter_map(|&pl| {
-                let client_cid = self.container_registry.get_cid_for_container(pl, container_item_id)?;
+                let client_cid = self
+                    .container_registry
+                    .get_cid_for_container(pl, container_item_id)?;
                 let fi = self
                     .container_registry
                     .get_container_first_index(pl, client_cid)
@@ -161,7 +165,12 @@ impl GameWorld {
             return;
         }
         let ccnt = ch.client_count().max(1);
-        let cstack = self.items_db.items.get(&ch_sid).map(|t| t.stackable()).unwrap_or(false);
+        let cstack = self
+            .items_db
+            .items
+            .get(&ch_sid)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
         let csplash = self.items_db.is_splash_or_fluid_for_server(ch_sid);
         let canim = self.items_db.is_animation_for_server(ch_sid);
         let args = ItemTemplateArgs {
@@ -193,7 +202,9 @@ impl GameWorld {
             return;
         };
         for client_cid in to_close {
-            let _ = self.container_registry.close_container_for_player(viewer, client_cid);
+            let _ = self
+                .container_registry
+                .close_container_for_player(viewer, client_cid);
             self.send_close_container_packet(conn, client_cid);
         }
     }
@@ -209,10 +220,9 @@ impl GameWorld {
             .into_iter()
             .filter(|(_, root_id)| {
                 *root_id == container_item_id
-                    || self
-                        .container_registry
-                        .get(*root_id)
-                        .is_some_and(|c| c.is_holding_item(&self.container_registry, container_item_id))
+                    || self.container_registry.get(*root_id).is_some_and(|c| {
+                        c.is_holding_item(&self.container_registry, container_item_id)
+                    })
             })
             .map(|(ccid, _)| ccid)
             .collect();
@@ -220,7 +230,9 @@ impl GameWorld {
             return;
         };
         for client_cid in to_close {
-            let _ = self.container_registry.close_container_for_player(viewer, client_cid);
+            let _ = self
+                .container_registry
+                .close_container_for_player(viewer, client_cid);
             self.send_close_container_packet(conn, client_cid);
         }
     }
@@ -252,7 +264,9 @@ impl GameWorld {
             .creatures
             .iter()
             .filter_map(|(cid, k)| {
-                if matches!(k, CreatureKind::Player(_)) && self.player_holds_container_tree(cid, top) {
+                if matches!(k, CreatureKind::Player(_))
+                    && self.player_holds_container_tree(cid, top)
+                {
                     Some((cid, top))
                 } else {
                     None
@@ -327,7 +341,12 @@ impl GameWorld {
                 continue;
             }
             let ccnt = ch.client_count().max(1);
-            let cstack = self.items_db.items.get(&ch_sid).map(|t| t.stackable()).unwrap_or(false);
+            let cstack = self
+                .items_db
+                .items
+                .get(&ch_sid)
+                .map(|t| t.stackable())
+                .unwrap_or(false);
             let csplash = self.items_db.is_splash_or_fluid_for_server(ch_sid);
             let canim = self.items_db.is_animation_for_server(ch_sid);
             children.push(ChildItemWire {
@@ -389,7 +408,10 @@ impl GameWorld {
                 };
                 let viewers: Vec<CreatureId> = cont.open_by.clone();
                 for pl in viewers {
-                    let Some(client_cid) = self.container_registry.get_cid_for_container(pl, container_item_id) else {
+                    let Some(client_cid) = self
+                        .container_registry
+                        .get_cid_for_container(pl, container_item_id)
+                    else {
                         continue;
                     };
                     let Some(conn) = self.conn_id_for_creature(pl) else {
@@ -439,10 +461,11 @@ impl GameWorld {
     ) -> Option<ItemId> {
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        body
-            .down_items
+        body.down_items
             .iter()
-            .chain(body.top_items.iter()).find(|&&item_id| self.validate_item_sprite(item_id, sprite_id)).copied()
+            .chain(body.top_items.iter())
+            .find(|&&item_id| self.validate_item_sprite(item_id, sprite_id))
+            .copied()
     }
 
     /// Match client sprite id to `ItemId` when multiple items could match (validates `sprite_id`).
@@ -467,7 +490,9 @@ impl GameWorld {
         if pos.y & 0x40 != 0 {
             let client_cid = (pos.y & 0x0F) as u8;
             let slot = pos.z as usize;
-            let container_id = self.container_registry.get_container_by_cid(cid, client_cid)?;
+            let container_id = self
+                .container_registry
+                .get_container_by_cid(cid, client_cid)?;
             let co = self.container_registry.get(container_id)?;
             return co.items.get(slot).copied();
         }
@@ -490,15 +515,14 @@ impl GameWorld {
             self.defer_player_walk_action(cid, PlayerWalkAction::UseItem(payload.clone()), now);
             return;
         }
-        let item_id = if let Some(id) =
-            self.resolve_item_at_position(cid, payload.pos, payload.stack_pos)
-        {
-            Some(id)
-        } else if is_map_tile {
-            self.find_tile_item_by_client_sprite(payload.pos, payload.sprite_id)
-        } else {
-            None
-        };
+        let item_id =
+            if let Some(id) = self.resolve_item_at_position(cid, payload.pos, payload.stack_pos) {
+                Some(id)
+            } else if is_map_tile {
+                self.find_tile_item_by_client_sprite(payload.pos, payload.sprite_id)
+            } else {
+                None
+            };
         let Some(item_id) = item_id else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
@@ -520,8 +544,8 @@ impl GameWorld {
                 return;
             }
         }
-        let preferred_cid = (payload.index < crate::container::MAX_CONTAINER_WINDOWS)
-            .then_some(payload.index);
+        let preferred_cid =
+            (payload.index < crate::container::MAX_CONTAINER_WINDOWS).then_some(payload.index);
         let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
         if is_map_tile && crate::floor_change_use::is_teleport_floor_use_item(item_type) {
             let dest = crate::floor_change_use::resolve_teleport_use_destination(
@@ -610,17 +634,22 @@ impl GameWorld {
                 return;
             };
             self.player_set_last_depot_id(cid, depot_id);
-            if let Some(open_cid) = self.container_registry.get_cid_for_container(cid, locker_id) {
-                let _ = self.container_registry.close_container_for_player(cid, open_cid);
+            if let Some(open_cid) = self
+                .container_registry
+                .get_cid_for_container(cid, locker_id)
+            {
+                let _ = self
+                    .container_registry
+                    .close_container_for_player(cid, open_cid);
                 self.send_close_container_packet(conn_id, open_cid);
                 return;
             }
             let mut reg = std::mem::take(&mut self.container_registry);
             self.ensure_container_registered_simple(&mut reg, locker_id, cid);
             self.container_registry = reg;
-            let Some(client_cid) = self
-                .container_registry
-                .add_container(cid, locker_id, preferred_cid, 0)
+            let Some(client_cid) =
+                self.container_registry
+                    .add_container(cid, locker_id, preferred_cid, 0)
             else {
                 self.send_cancel_message(conn_id, ReturnValue::NotPossible);
                 return;
@@ -639,7 +668,9 @@ impl GameWorld {
         }
 
         if let Some(open_cid) = self.container_registry.get_cid_for_container(cid, item_id) {
-            let _ = self.container_registry.close_container_for_player(cid, open_cid);
+            let _ = self
+                .container_registry
+                .close_container_for_player(cid, open_cid);
             self.send_close_container_packet(conn_id, open_cid);
             return;
         }
@@ -660,16 +691,25 @@ impl GameWorld {
 
     /// `Game::playerCloseContainer` (`game.cpp`).
     pub fn player_close_container(&mut self, conn_id: ConnId, cid: CreatureId, client_cid: u8) {
-        if self.container_registry.get_container_by_cid(cid, client_cid).is_none() {
+        if self
+            .container_registry
+            .get_container_by_cid(cid, client_cid)
+            .is_none()
+        {
             return;
         }
-        let _ = self.container_registry.close_container_for_player(cid, client_cid);
+        let _ = self
+            .container_registry
+            .close_container_for_player(cid, client_cid);
         self.send_close_container_packet(conn_id, client_cid);
     }
 
     /// `Game::playerMoveUpContainer` / up arrow — show parent bag in same window (`game.cpp`).
     pub fn player_up_container(&mut self, conn_id: ConnId, cid: CreatureId, client_cid: u8) {
-        let Some(current_id) = self.container_registry.get_container_by_cid(cid, client_cid) else {
+        let Some(current_id) = self
+            .container_registry
+            .get_container_by_cid(cid, client_cid)
+        else {
             return;
         };
         let Some(parent_id) = self
@@ -695,7 +735,10 @@ impl GameWorld {
 
     /// `Game::playerUpdateContainer` — full refresh (`game.cpp`).
     pub fn player_update_container(&mut self, conn_id: ConnId, cid: CreatureId, client_cid: u8) {
-        let Some(root) = self.container_registry.get_container_by_cid(cid, client_cid) else {
+        let Some(root) = self
+            .container_registry
+            .get_container_by_cid(cid, client_cid)
+        else {
             return;
         };
         let fi = self
@@ -713,7 +756,10 @@ impl GameWorld {
         client_cid: u8,
         first_index: u16,
     ) {
-        let Some(root) = self.container_registry.get_container_by_cid(cid, client_cid) else {
+        let Some(root) = self
+            .container_registry
+            .get_container_by_cid(cid, client_cid)
+        else {
             return;
         };
         let _ = self
@@ -732,7 +778,10 @@ impl GameWorld {
         };
         let mut queue: VecDeque<ItemId> = VecDeque::new();
         for r in equipment_roots {
-            if self.items_db.is_container(self.items.get(r).map(|i| i.item_type).unwrap_or(0)) {
+            if self
+                .items_db
+                .is_container(self.items.get(r).map(|i| i.item_type).unwrap_or(0))
+            {
                 queue.push_back(r);
             }
         }
@@ -745,24 +794,35 @@ impl GameWorld {
             }
             if let Some(c) = self.container_registry.get(slot_item) {
                 for &ch in &c.items {
-                    if self.items_db.is_container(self.items.get(ch).map(|i| i.item_type).unwrap_or(0)) {
+                    if self
+                        .items_db
+                        .is_container(self.items.get(ch).map(|i| i.item_type).unwrap_or(0))
+                    {
                         queue.push_back(ch);
                     }
                 }
             }
-            if !item.attributes.as_deref().is_some_and(|a| a.has_auto_open()) {
+            if !item
+                .attributes
+                .as_deref()
+                .is_some_and(|a| a.has_auto_open())
+            {
                 continue;
             }
-            let saved_cid = item.attributes.as_deref().map(|a| a.get_auto_open()).unwrap_or(0);
+            let saved_cid = item
+                .attributes
+                .as_deref()
+                .map(|a| a.get_auto_open())
+                .unwrap_or(0);
             if saved_cid >= crate::container::MAX_CONTAINER_WINDOWS {
                 continue;
             }
             let mut reg = std::mem::take(&mut self.container_registry);
             self.ensure_container_registered_simple(&mut reg, slot_item, cid);
             self.container_registry = reg;
-            let Some(ccid) = self
-                .container_registry
-                .add_container(cid, slot_item, Some(saved_cid), 0)
+            let Some(ccid) =
+                self.container_registry
+                    .add_container(cid, slot_item, Some(saved_cid), 0)
             else {
                 continue;
             };

@@ -61,3 +61,15 @@
 - [x] P3.3 Kite lockstep PASS + battery **5/6** (cobra still open)
   - [x] P2.5g Multi-monster `go_exec` drain order — `WakeupTiePolicy` (`HarnessAppearIdle` LIFO vs `HarnessGoStep`); cyclops lockstep **4/4**; battery **4/6**
   - Docs: divergence §26, trajectory Phase 2 closeout
+
+## Extended battery — hunter + dragon flee (non-gating) — done
+- [x] Harness: preserve XML combat stats on `monster_load_type` unless scenario line overrides (`chase_kite_sim.rs`)
+- [x] `kite_hunter_dist_chase.scenario` — dist_chase + spell_cast while player kites east
+- [x] `kite_hunter_dist_flee.scenario` — dist_flee when player closes inside cheb &lt; 4
+- [x] `kite_dragon_lowhp_flee.scenario` — `player_damage 725` → HP 300 → `flee` branch (`runonhealth`)
+- [x] `run_sim_battery.py --extended` (9 scenarios); C++ races verified: `runtime/mon/hunter.mon`, `dragon.mon`
+- [ ] Lockstep PASS on extended scenarios (follow-on parity work)
+
+## Extended battery follow-on (X1)
+- [x] X1 — prevent synchronous `Go` execute on the same idle-drain tick when `IdleStimulus` already armed a future `next_wakeup`; keep first dist_chase `go_exec` deferred to the next beat (`walk/mod.rs` `process_creature_todo`).
+- [x] X2 — align 772 `todo_go` trace contract with the actual chase/flee branch budget: dist-chase logs `max = cheb - target_distance`, while flee logs single-step `must=true, max=INT_MAX` (`creature_todo.rs`).

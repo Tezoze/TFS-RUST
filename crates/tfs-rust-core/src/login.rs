@@ -9,12 +9,12 @@ use tfs_rust_common::Position;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
 use crate::creature::vocation::base_walk_speed;
-use crate::formulas::StepSpeedModel;
 use crate::creature::CreatureKind;
 use crate::creature::{
     CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
     PlayerSkills, PlayerSocial,
 };
+use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_scope::fire_on_login;
@@ -97,8 +97,8 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         cancel_next_walk: false,
         force_update_follow_path: false,
         walk_update_ticks: 0,
-            is_updating_path: false,
-            has_follow_path: false,
+        is_updating_path: false,
+        has_follow_path: false,
         movement_blocked: false,
         stairhop_blocked_until: None,
         follow_target: None,
@@ -205,10 +205,7 @@ pub async fn login_player(
 
     let key = loaded.player.name.clone();
     let guid = u32::try_from(loaded.player.id).map_err(|_| {
-        TfsRustError::Database(format!(
-            "player id out of u32 range: {}",
-            loaded.player.id
-        ))
+        TfsRustError::Database(format!("player id out of u32 range: {}", loaded.player.id))
     })?;
     let pos = {
         let p = &loaded.player;

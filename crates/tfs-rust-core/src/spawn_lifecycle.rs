@@ -5,12 +5,12 @@
 use std::time::Instant;
 
 use rand::seq::SliceRandom;
-use tracing::{info, warn};
 use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterOutfit;
 use tfs_rust_net::creature_known::check_creature_known;
+use tracing::{info, warn};
 
 use crate::creature::CreatureBase;
 use crate::creature::CreatureKind;
@@ -298,11 +298,11 @@ impl GameWorld {
         };
 
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
-        let cid = self.creatures.insert(CreatureKind::Monster(Monster::with_config(
-            base,
-            spawn_pos,
-            ai_config,
-        )));
+        let cid = self
+            .creatures
+            .insert(CreatureKind::Monster(Monster::with_config(
+                base, spawn_pos, ai_config,
+            )));
 
         let placed =
             self.find_and_place_creature(cid, center, extended_pos, !startup, spawn_radius);
@@ -315,7 +315,8 @@ impl GameWorld {
             );
             self.creatures.remove(cid);
             // Avoid tight respawn loops on blocked tiles — C++ `checkSpawn` only advances timer on success.
-            self.spawns.stall_respawn(slot_index, std::time::Instant::now());
+            self.spawns
+                .stall_respawn(slot_index, std::time::Instant::now());
             return None;
         }
 
@@ -339,7 +340,11 @@ impl GameWorld {
         }
 
         if !startup {
-            let pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);
+            let pos = self
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or(center);
             self.broadcast_creature_appear(cid, pos);
             self.broadcast_magic_effect(pos, 4);
         }
@@ -399,12 +404,10 @@ impl GameWorld {
             todo: Default::default(),
         };
 
-        let cid = self
-            .creatures
-            .insert(CreatureKind::Npc(Npc {
-                base,
-                npc_type_id: 0,
-            }));
+        let cid = self.creatures.insert(CreatureKind::Npc(Npc {
+            base,
+            npc_type_id: 0,
+        }));
 
         let placed =
             self.find_and_place_creature(cid, center, extended_pos, !startup, spawn_radius);
@@ -424,7 +427,11 @@ impl GameWorld {
         self.add_creature_think_check(cid);
 
         if !startup {
-            let pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);
+            let pos = self
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or(center);
             self.broadcast_creature_appear(cid, pos);
             self.broadcast_magic_effect(pos, 4);
         }
@@ -449,11 +456,7 @@ impl GameWorld {
             .unwrap_or(false);
 
         let search_radius = spawn_radius.clamp(-1, 30);
-        let search_radius = if search_radius < 0 {
-            1
-        } else {
-            search_radius
-        };
+        let search_radius = if search_radius < 0 { 1 } else { search_radius };
 
         let mut found_pos = self.try_creature_tile(cid, center, place_in_pz, forced);
 
@@ -521,16 +524,9 @@ impl GameWorld {
         if place_in_pz && tile.body().zone != ZoneType::Protection {
             return None;
         }
-        let flags = if forced {
-            FLAG_IGNOREBLOCKITEM
-        } else {
-            0
-        };
+        let flags = if forced { FLAG_IGNOREBLOCKITEM } else { 0 };
         let ret = tile_query_add_creature(self, tile, cid, flags);
-        if forced
-            || ret == ReturnValue::NoError
-            || ret == ReturnValue::PlayerIsNotInvited
-        {
+        if forced || ret == ReturnValue::NoError || ret == ReturnValue::PlayerIsNotInvited {
             Some(pos)
         } else {
             None
@@ -562,7 +558,11 @@ impl GameWorld {
             .map(|t| client_creature_stack_pos(t.body(), cid))
             .unwrap_or(-1);
         if !(0..10).contains(&stack_raw) {
-            tracing::warn!(?cid, stack_raw, "creature appear stackpos out of range; skipping 0x6A");
+            tracing::warn!(
+                ?cid,
+                stack_raw,
+                "creature appear stackpos out of range; skipping 0x6A"
+            );
             return false;
         }
         let stack_pos = stack_raw as u8;
@@ -571,8 +571,7 @@ impl GameWorld {
             .remove(&conn)
             .unwrap_or_default();
         let mut can_see = |id: u32| self.can_see_creature_for_known_set(viewer, id);
-        let (known_flag, remove_known) =
-            check_creature_known(wire_id, &mut known, &mut can_see);
+        let (known_flag, remove_known) = check_creature_known(wire_id, &mut known, &mut can_see);
         let mut wire = build_add_creature_wire(self, cid, viewer);
         wire.known = known_flag;
         wire.remove_known = remove_known;
@@ -669,7 +668,11 @@ impl GameWorld {
     }
 
     /// Spawn-slot cleanup + disappear broadcast hook for [`GameWorld::remove_creature`].
-    pub(crate) fn on_creature_removed_for_spawn(&mut self, cid: CreatureId, now: std::time::Instant) {
+    pub(crate) fn on_creature_removed_for_spawn(
+        &mut self,
+        cid: CreatureId,
+        now: std::time::Instant,
+    ) {
         if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
             let stack_raw = self
                 .map
@@ -688,20 +691,23 @@ impl GameWorld {
 
 #[cfg(test)]
 mod tests {
-use std::collections::HashSet;
     use super::*;
     use crate::spawn::SpawnManager;
     use crate::test_world::support::{
         ensure_walkable_tile, insert_player, minimal_world, test_player,
     };
-    use tfs_rust_common::ConnId;
-    use tfs_rust_common::ProtocolVersion;
-    use tfs_rust_net::Codec;
-    use tfs_rust_content::monsters::{MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterSpellNode, MonsterType, MonsterTypeFlags};
-    use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
     use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::sync::Arc;
     use std::time::Instant;
+    use tfs_rust_common::ConnId;
+    use tfs_rust_common::ProtocolVersion;
+    use tfs_rust_content::monsters::{
+        MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterSpellNode, MonsterType,
+        MonsterTypeFlags,
+    };
+    use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
+    use tfs_rust_net::Codec;
 
     fn rat_type() -> MonsterType {
         let mut melee_attrs = HashMap::new();
@@ -796,7 +802,11 @@ use std::collections::HashSet;
             startup: false,
         };
         world.process_spawn_request(forced);
-        assert_eq!(world.creatures.len(), 1, "must not spawn duplicate while slot.current is set");
+        assert_eq!(
+            world.creatures.len(),
+            1,
+            "must not spawn duplicate while slot.current is set"
+        );
     }
 
     #[test]
@@ -804,10 +814,7 @@ use std::collections::HashSet;
         let mut world = world_with_spawn();
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(
-            &mut world,
-            test_player("Spec", Position::new(100, 100, 7)),
-        );
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(100, 100, 7)));
         let conn = ConnId(1);
         world.conn_to_creature.insert(conn, viewer);
         world.known_creatures_by_conn.insert(conn, HashSet::new());
@@ -827,14 +834,10 @@ use std::collections::HashSet;
     fn respawn_appear_772_creature_marker_follows_position() {
         let mut world = world_with_spawn();
         world.codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
-        world.mechanics =
-            crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(
-            &mut world,
-            test_player("Spec", Position::new(100, 100, 7)),
-        );
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(100, 100, 7)));
         let conn = ConnId(3);
         world.conn_to_creature.insert(conn, viewer);
         world.known_creatures_by_conn.insert(conn, HashSet::new());
@@ -850,7 +853,10 @@ use std::collections::HashSet;
             .get(&conn)
             .and_then(|packets| packets.iter().find(|b| !b.is_empty() && b[0] == 0x6A))
             .expect("0x6A appear packet");
-        assert_eq!(appear[6], 0x61, "creature marker low byte must follow position");
+        assert_eq!(
+            appear[6], 0x61,
+            "creature marker low byte must follow position"
+        );
         assert_eq!(appear[7], 0x00, "unknown creature marker is 0x0061");
     }
 
@@ -859,10 +865,7 @@ use std::collections::HashSet;
         let mut world = world_with_spawn();
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(
-            &mut world,
-            test_player("Spec", Position::new(100, 100, 7)),
-        );
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(100, 100, 7)));
         let conn = ConnId(2);
         world.conn_to_creature.insert(conn, viewer);
         world.known_creatures_by_conn.insert(conn, HashSet::new());

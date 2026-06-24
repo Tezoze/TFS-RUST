@@ -1,0 +1,21 @@
+# Re-include only C++ source subtrees agents need for 772 parity.
+# Do NOT un-ignore runtime/, archives/, client/, or build/ — ~190k game data files.
+#
+# Hierarchical un-ignore required for gitignored parents:
+# https://cursor.com/docs/reference/ignore-file#negation-pattern-limitations
+
+!reference/
+!reference/cipsoft-772/
+!reference/cipsoft-772/tibia-game-master/
+!reference/cipsoft-772/tibia-game-master/src/
+!reference/cipsoft-772/tibia-game-master/src/**
+
+!reference/classic-772/
+!reference/classic-772/tibia-game-master/
+!reference/classic-772/tibia-game-master/src/
+!reference/classic-772/tibia-game-master/src/**
+
+!reference/tvp-772/
+!reference/tvp-772/gameserver/
+!reference/tvp-772/gameserver/src/
+!reference/tvp-772/gameserver/src/**

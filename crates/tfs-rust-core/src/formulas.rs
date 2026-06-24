@@ -396,7 +396,10 @@ impl std::fmt::Debug for FormulaHooks {
             .field("get_attack_speed", &self.get_attack_speed.is_some())
             .field("get_step_duration", &self.get_step_duration.is_some())
             .field("get_creature_speed", &self.get_creature_speed.is_some())
-            .field("get_experience_for_level", &self.get_experience_for_level.is_some())
+            .field(
+                "get_experience_for_level",
+                &self.get_experience_for_level.is_some(),
+            )
             .field("get_req_skill_tries", &self.get_req_skill_tries.is_some())
             .field("get_spell_damage", &self.get_spell_damage.is_some())
             .field("get_condition_tick", &self.get_condition_tick.is_some())
@@ -533,7 +536,9 @@ fn bool_or(table: &mlua::Table, key: &str, default: bool) -> bool {
 /// functions (`getWeaponDamage`, …). All values default to the era profile when absent, so a
 /// partial script only overrides what it sets — never a magic number buried in Rust (R11).
 pub fn load_mechanics(data_dir: &Path, version: ProtocolVersion) -> Mechanics {
-    let path = data_dir.join("formulas").join(format!("{}.lua", version.raw()));
+    let path = data_dir
+        .join("formulas")
+        .join(format!("{}.lua", version.raw()));
     if !path.is_file() {
         tracing::info!(
             file = %path.display(),
@@ -576,10 +581,17 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     p.beat_ms = num_or(lua, &formulas, "beatMs", p.beat_ms as i64).max(1) as u32;
     p.step_beat_ms =
         num_or(lua, &formulas, "stepBeatMs", p.step_beat_ms.max(1) as i64).max(1) as u32;
-    p.attack_speed_ms = num_or(lua, &formulas, "attackSpeedMs", p.attack_speed_ms as i64).max(0) as u32;
-    p.defense_gate_ms = num_or(lua, &formulas, "defenseGateMs", p.defense_gate_ms as i64).max(0) as u32;
-    p.exp_attribution_rounds =
-        num_or(lua, &formulas, "expAttributionRounds", p.exp_attribution_rounds as i64).max(1) as u32;
+    p.attack_speed_ms =
+        num_or(lua, &formulas, "attackSpeedMs", p.attack_speed_ms as i64).max(0) as u32;
+    p.defense_gate_ms =
+        num_or(lua, &formulas, "defenseGateMs", p.defense_gate_ms as i64).max(0) as u32;
+    p.exp_attribution_rounds = num_or(
+        lua,
+        &formulas,
+        "expAttributionRounds",
+        p.exp_attribution_rounds as i64,
+    )
+    .max(1) as u32;
 
     p.armor = match str_or(&formulas, "armor", "").as_str() {
         "randomized" => ArmorReduction::Randomized,
@@ -630,10 +642,12 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         _ => p.level_exp,
     };
     p.level_exp_delta = num_or(lua, &formulas, "levelExpDelta", p.level_exp_delta).max(1);
-    p.follow_repath_without_path =
-        bool_or(&formulas, "followRepathWithoutPath", p.follow_repath_without_path);
-    p.path_forward_fallback =
-        bool_or(&formulas, "pathForwardFallback", p.path_forward_fallback);
+    p.follow_repath_without_path = bool_or(
+        &formulas,
+        "followRepathWithoutPath",
+        p.follow_repath_without_path,
+    );
+    p.path_forward_fallback = bool_or(&formulas, "pathForwardFallback", p.path_forward_fallback);
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {
@@ -680,8 +694,10 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
 
     if let Ok(Value::Table(dmg)) = formulas.get::<Value>("damageTuning") {
         p.damage_probe = DamageProbeTuning {
-            skill_mult: num_or(lua, &dmg, "skillMult", p.damage_probe.skill_mult as i64).max(0) as i32,
-            skill_base: num_or(lua, &dmg, "skillBase", p.damage_probe.skill_base as i64).max(0) as i32,
+            skill_mult: num_or(lua, &dmg, "skillMult", p.damage_probe.skill_mult as i64).max(0)
+                as i32,
+            skill_base: num_or(lua, &dmg, "skillBase", p.damage_probe.skill_base as i64).max(0)
+                as i32,
             random_max: num_or(lua, &dmg, "randomMax", p.damage_probe.random_max as i64)
                 .clamp(1, i32::MAX as i64) as i32,
         };
@@ -759,7 +775,10 @@ mod tests {
     fn missing_file_falls_back_to_defaults() {
         let dir = std::env::temp_dir().join("tfs_formulas_missing_test");
         let m = load_mechanics(&dir, ProtocolVersion::V1098);
-        assert_eq!(m.profile, MechanicsProfile::for_version(ProtocolVersion::V1098));
+        assert_eq!(
+            m.profile,
+            MechanicsProfile::for_version(ProtocolVersion::V1098)
+        );
         assert!(m.hooks.weapon_damage(10, 50, 0, 8).is_none());
     }
 

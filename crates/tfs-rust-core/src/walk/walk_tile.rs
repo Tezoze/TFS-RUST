@@ -40,7 +40,12 @@ fn tile_has_height_n(
 
     if let Some(gid) = body.ground {
         let has_height = items_db.items.get(&gid).is_some_and(|t| t.has_height());
-        tracing::debug!("tile_has_height_n: ground item {} has_height: {} at {:?}", gid, has_height, pos);
+        tracing::debug!(
+            "tile_has_height_n: ground item {} has_height: {} at {:?}",
+            gid,
+            has_height,
+            pos
+        );
         if has_height {
             height += 1;
             if height == n {
@@ -50,8 +55,17 @@ fn tile_has_height_n(
     }
     for &item_id in &body.down_items {
         if let Some(item) = items.get(item_id) {
-            let has_height = items_db.items.get(&item.item_type).is_some_and(|t| t.has_height());
-            tracing::debug!("tile_has_height_n: down item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, pos);
+            let has_height = items_db
+                .items
+                .get(&item.item_type)
+                .is_some_and(|t| t.has_height());
+            tracing::debug!(
+                "tile_has_height_n: down item {:?} (type {}) has_height: {} at {:?}",
+                item_id,
+                item.item_type,
+                has_height,
+                pos
+            );
             if has_height {
                 height += 1;
                 if height == n {
@@ -62,8 +76,17 @@ fn tile_has_height_n(
     }
     for &item_id in &body.top_items {
         if let Some(item) = items.get(item_id) {
-            let has_height = items_db.items.get(&item.item_type).is_some_and(|t| t.has_height());
-            tracing::debug!("tile_has_height_n: top item {:?} (type {}) has_height: {} at {:?}", item_id, item.item_type, has_height, pos);
+            let has_height = items_db
+                .items
+                .get(&item.item_type)
+                .is_some_and(|t| t.has_height());
+            tracing::debug!(
+                "tile_has_height_n: top item {:?} (type {}) has_height: {} at {:?}",
+                item_id,
+                item.item_type,
+                has_height,
+                pos
+            );
             if has_height {
                 height += 1;
                 if height == n {
@@ -72,7 +95,12 @@ fn tile_has_height_n(
             }
         }
     }
-    tracing::debug!("tile_has_height_n: total height {} at {:?}, needed {}", height, pos, n);
+    tracing::debug!(
+        "tile_has_height_n: total height {} at {:?}, needed {}",
+        height,
+        pos,
+        n
+    );
     false
 }
 
@@ -103,10 +131,18 @@ pub(crate) fn resolve_player_move_destination(
             let has_h3 = tile_has_height_n(current_pos, cur_tile.body(), items_db, items, 3);
             if has_h3 {
                 let z_above = current_pos.z.wrapping_sub(1);
-                let tmp = map.get_tile(Position { x: current_pos.x, y: current_pos.y, z: z_above });
+                let tmp = map.get_tile(Position {
+                    x: current_pos.x,
+                    y: current_pos.y,
+                    z: z_above,
+                });
                 let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
                 if open {
-                    let tmp2 = map.get_tile(Position { x: dest_pos.x, y: dest_pos.y, z: z_above });
+                    let tmp2 = map.get_tile(Position {
+                        x: dest_pos.x,
+                        y: dest_pos.y,
+                        z: z_above,
+                    });
                     if let Some(tt) = tmp2 {
                         let tb = tt.body();
                         if tb.ground.is_some() && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0 {
@@ -127,10 +163,18 @@ pub(crate) fn resolve_player_move_destination(
         let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
         if open {
             let z_below = dest_pos.z.wrapping_add(1);
-            if let Some(tt) = map.get_tile(Position { x: dest_pos.x, y: dest_pos.y, z: z_below }) {
+            if let Some(tt) = map.get_tile(Position {
+                x: dest_pos.x,
+                y: dest_pos.y,
+                z: z_below,
+            }) {
                 let tb = tt.body();
                 if tile_has_height_n(
-                    Position { x: dest_pos.x, y: dest_pos.y, z: z_below },
+                    Position {
+                        x: dest_pos.x,
+                        y: dest_pos.y,
+                        z: z_below,
+                    },
                     tb,
                     items_db,
                     items,
@@ -162,36 +206,99 @@ pub(crate) fn query_destination(
         let dz = tile_pos.z.wrapping_add(1);
 
         // Check south-alt first
-        if let Some(south_down) = map.get_tile(Position { x: dx, y: dy.wrapping_sub(1), z: dz }) {
+        if let Some(south_down) = map.get_tile(Position {
+            x: dx,
+            y: dy.wrapping_sub(1),
+            z: dz,
+        }) {
             if south_down.body().flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0 {
                 dy = dy.wrapping_sub(2);
-                let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
-                return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+                let dest = map.get_tile(Position {
+                    x: dx,
+                    y: dy,
+                    z: dz,
+                });
+                return dest.map(|_| {
+                    (
+                        Position {
+                            x: dx,
+                            y: dy,
+                            z: dz,
+                        },
+                        FLAG_NOLIMIT,
+                    )
+                });
             }
         }
 
         // Check east-alt
-        if let Some(east_down) = map.get_tile(Position { x: dx.wrapping_sub(1), y: dy, z: dz }) {
+        if let Some(east_down) = map.get_tile(Position {
+            x: dx.wrapping_sub(1),
+            y: dy,
+            z: dz,
+        }) {
             if east_down.body().flags & tilestate::FLOORCHANGE_EAST_ALT != 0 {
                 dx = dx.wrapping_sub(2);
-                let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
-                return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+                let dest = map.get_tile(Position {
+                    x: dx,
+                    y: dy,
+                    z: dz,
+                });
+                return dest.map(|_| {
+                    (
+                        Position {
+                            x: dx,
+                            y: dy,
+                            z: dz,
+                        },
+                        FLAG_NOLIMIT,
+                    )
+                });
             }
         }
 
         // Normal directional check on the tile below
-        if let Some(down_tile) = map.get_tile(Position { x: dx, y: dy, z: dz }) {
+        if let Some(down_tile) = map.get_tile(Position {
+            x: dx,
+            y: dy,
+            z: dz,
+        }) {
             let df = down_tile.body().flags;
-            if df & tilestate::FLOORCHANGE_NORTH != 0 { dy = dy.wrapping_add(1); }
-            if df & tilestate::FLOORCHANGE_SOUTH != 0 { dy = dy.wrapping_sub(1); }
-            if df & tilestate::FLOORCHANGE_SOUTH_ALT != 0 { dy = dy.wrapping_sub(2); }
-            if df & tilestate::FLOORCHANGE_EAST != 0 { dx = dx.wrapping_sub(1); }
-            if df & tilestate::FLOORCHANGE_EAST_ALT != 0 { dx = dx.wrapping_sub(2); }
-            if df & tilestate::FLOORCHANGE_WEST != 0 { dx = dx.wrapping_add(1); }
+            if df & tilestate::FLOORCHANGE_NORTH != 0 {
+                dy = dy.wrapping_add(1);
+            }
+            if df & tilestate::FLOORCHANGE_SOUTH != 0 {
+                dy = dy.wrapping_sub(1);
+            }
+            if df & tilestate::FLOORCHANGE_SOUTH_ALT != 0 {
+                dy = dy.wrapping_sub(2);
+            }
+            if df & tilestate::FLOORCHANGE_EAST != 0 {
+                dx = dx.wrapping_sub(1);
+            }
+            if df & tilestate::FLOORCHANGE_EAST_ALT != 0 {
+                dx = dx.wrapping_sub(2);
+            }
+            if df & tilestate::FLOORCHANGE_WEST != 0 {
+                dx = dx.wrapping_add(1);
+            }
         }
 
-        let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
-        return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+        let dest = map.get_tile(Position {
+            x: dx,
+            y: dy,
+            z: dz,
+        });
+        return dest.map(|_| {
+            (
+                Position {
+                    x: dx,
+                    y: dy,
+                    z: dz,
+                },
+                FLAG_NOLIMIT,
+            )
+        });
     }
 
     // C++ ref: src/tile.cpp:785-814 — upward floor change (any non-DOWN floorchange flag)
@@ -200,15 +307,40 @@ pub(crate) fn query_destination(
         let mut dy = tile_pos.y;
         let dz = tile_pos.z.wrapping_sub(1);
 
-        if tile_flags & tilestate::FLOORCHANGE_NORTH != 0 { dy = dy.wrapping_sub(1); }
-        if tile_flags & tilestate::FLOORCHANGE_SOUTH != 0 { dy = dy.wrapping_add(1); }
-        if tile_flags & tilestate::FLOORCHANGE_EAST != 0 { dx = dx.wrapping_add(1); }
-        if tile_flags & tilestate::FLOORCHANGE_WEST != 0 { dx = dx.wrapping_sub(1); }
-        if tile_flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0 { dy = dy.wrapping_add(2); }
-        if tile_flags & tilestate::FLOORCHANGE_EAST_ALT != 0 { dx = dx.wrapping_add(2); }
+        if tile_flags & tilestate::FLOORCHANGE_NORTH != 0 {
+            dy = dy.wrapping_sub(1);
+        }
+        if tile_flags & tilestate::FLOORCHANGE_SOUTH != 0 {
+            dy = dy.wrapping_add(1);
+        }
+        if tile_flags & tilestate::FLOORCHANGE_EAST != 0 {
+            dx = dx.wrapping_add(1);
+        }
+        if tile_flags & tilestate::FLOORCHANGE_WEST != 0 {
+            dx = dx.wrapping_sub(1);
+        }
+        if tile_flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0 {
+            dy = dy.wrapping_add(2);
+        }
+        if tile_flags & tilestate::FLOORCHANGE_EAST_ALT != 0 {
+            dx = dx.wrapping_add(2);
+        }
 
-        let dest = map.get_tile(Position { x: dx, y: dy, z: dz });
-        return dest.map(|_| (Position { x: dx, y: dy, z: dz }, FLAG_NOLIMIT));
+        let dest = map.get_tile(Position {
+            x: dx,
+            y: dy,
+            z: dz,
+        });
+        return dest.map(|_| {
+            (
+                Position {
+                    x: dx,
+                    y: dy,
+                    z: dz,
+                },
+                FLAG_NOLIMIT,
+            )
+        });
     }
 
     None
@@ -237,13 +369,17 @@ pub(crate) fn tile_query_add_monster(
         return ReturnValue::NotPossible;
     }
 
-    if (body.flags & (tilestate::PROTECTIONZONE | tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0 {
+    if (body.flags & (tilestate::PROTECTIONZONE | tilestate::FLOORCHANGE | tilestate::TELEPORT))
+        != 0
+    {
         return ReturnValue::NotPossible;
     }
 
     // `canpushcreatures` / `canpushitems` from monster type at spawn.
     let (can_push_creatures, can_push_items, is_summon) = match world.creatures.get(mover) {
-        Some(CreatureKind::Monster(m)) => (m.can_push_creatures, m.can_push_items, m.base.is_summon()),
+        Some(CreatureKind::Monster(m)) => {
+            (m.can_push_creatures, m.can_push_items, m.base.is_summon())
+        }
         _ => (false, false, false),
     };
 
@@ -253,9 +389,10 @@ pub(crate) fn tile_query_add_monster(
                 if tile_c == mover {
                     continue;
                 }
-                let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
-                    matches!(k, CreatureKind::Player(p) if p.ghost_mode)
-                });
+                let other_ghost = world
+                    .creatures
+                    .get(tile_c)
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.ghost_mode));
                 if other_ghost {
                     continue;
                 }
@@ -282,9 +419,10 @@ pub(crate) fn tile_query_add_monster(
                 if tile_c == mover {
                     continue;
                 }
-                let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
-                    matches!(k, CreatureKind::Player(p) if p.ghost_mode)
-                });
+                let other_ghost = world
+                    .creatures
+                    .get(tile_c)
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.ghost_mode));
                 if !other_ghost {
                     return ReturnValue::NotEnoughRoom;
                 }
@@ -302,9 +440,10 @@ pub(crate) fn tile_query_add_monster(
 
     if ((body.flags & tilestate::BLOCKSOLID) != 0
         || ((flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0))
-        && !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0) {
-            return ReturnValue::NotPossible;
-        }
+        && !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0)
+    {
+        return ReturnValue::NotPossible;
+    }
 
     // Full field immunity deferred until Monster combat fields land; block damaging fields without ignore flag.
     if (body.flags & tilestate::MAGICFIELD) != 0 && (flags & FLAG_IGNOREFIELDDAMAGE) == 0 {
@@ -350,9 +489,10 @@ pub(crate) fn tile_query_add_npc(
             if tile_c == mover {
                 continue;
             }
-            let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
-                matches!(k, CreatureKind::Player(p) if p.ghost_mode)
-            });
+            let other_ghost = world
+                .creatures
+                .get(tile_c)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.ghost_mode));
             if !other_ghost {
                 return ReturnValue::NotEnoughRoom;
             }
@@ -423,9 +563,10 @@ pub(crate) fn tile_query_add_player(
             if tile_c == mover {
                 continue;
             }
-            let other_ghost = world.creatures.get(tile_c).is_some_and(|k| {
-                matches!(k, CreatureKind::Player(p) if p.ghost_mode)
-            });
+            let other_ghost = world
+                .creatures
+                .get(tile_c)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.ghost_mode));
             if !other_ghost {
                 return ReturnValue::NotPossible;
             }

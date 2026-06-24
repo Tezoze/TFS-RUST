@@ -34,7 +34,11 @@ impl Map {
     ///
     /// DEVIATION FROM C++: Creates actual Item instances in the items SlotMap instead of
     /// just storing raw item types. This is required for the new item system.
-    pub fn from_map_data(data: MapData, items_db: &ItemDatabase, items: &mut SlotMap<ItemId, Item>) -> Self {
+    pub fn from_map_data(
+        data: MapData,
+        items_db: &ItemDatabase,
+        items: &mut SlotMap<ItemId, Item>,
+    ) -> Self {
         let mut grid = SparseGrid::new();
         for (pos, td) in data.tiles {
             let tile = tile_from_data(td, items_db, items);
@@ -324,7 +328,11 @@ mod tile_flag_tests {
         }
     }
 
-    fn map_from_single_tile(pos: Position, things: Vec<TileThing>, db: &ItemDatabase) -> super::Map {
+    fn map_from_single_tile(
+        pos: Position,
+        things: Vec<TileThing>,
+        db: &ItemDatabase,
+    ) -> super::Map {
         let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
         let mut tiles = HashMap::new();
         tiles.insert(

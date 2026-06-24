@@ -159,7 +159,11 @@ impl Player {
         self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
     }
 
-    pub fn add_experience(&mut self, amount: u64, step_speed_model: crate::formulas::StepSpeedModel) {
+    pub fn add_experience(
+        &mut self,
+        amount: u64,
+        step_speed_model: crate::formulas::StepSpeedModel,
+    ) {
         self.experience = self.experience.saturating_add(amount);
         while self.level < 2000
             && self.experience >= total_experience_for_level((self.level + 1) as u32)
@@ -178,7 +182,11 @@ impl Player {
     }
 
     /// Remove experience and apply level-down recalculation (`Player::removeExperience`-style outcome).
-    pub fn remove_experience(&mut self, amount: u64, step_speed_model: crate::formulas::StepSpeedModel) {
+    pub fn remove_experience(
+        &mut self,
+        amount: u64,
+        step_speed_model: crate::formulas::StepSpeedModel,
+    ) {
         self.experience = self.experience.saturating_sub(amount);
         while self.level > 1 && self.experience < total_experience_for_level(self.level as u32) {
             self.level -= 1;
@@ -236,8 +244,7 @@ impl Player {
     /// TFS `Player::isItemAbilityEnabled` — `player.h`.
     #[inline]
     pub fn is_item_ability_enabled(&self, slot: u8) -> bool {
-        crate::inventory::slot_to_array_index(slot)
-            .is_some_and(|idx| self.inventory_abilities[idx])
+        crate::inventory::slot_to_array_index(slot).is_some_and(|idx| self.inventory_abilities[idx])
     }
 
     /// TFS `Player::setItemAbility` — `player.h`.

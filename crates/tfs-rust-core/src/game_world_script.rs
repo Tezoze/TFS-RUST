@@ -8,29 +8,38 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 
 impl tfs_rust_common::ScriptContext for GameWorld {
-    fn get_creature(&self, id: tfs_rust_common::ScriptCreatureId) -> Option<tfs_rust_common::ScriptCreatureData> {
-        self.creatures.iter().find_map(|(cid, k)| {
-            if cid.data().as_ffi() != id {
-                return None;
-            }
-            Some(match k {
-            CreatureKind::Player(p) => Some(tfs_rust_common::ScriptCreatureData {
-                name: p.base.name.clone(),
-                guid: p.guid,
-            }),
-            CreatureKind::Monster(m) => Some(tfs_rust_common::ScriptCreatureData {
-                name: m.base.name.clone(),
-                guid: 0, // Monsters don't have GUIDs
-            }),
-            CreatureKind::Npc(n) => Some(tfs_rust_common::ScriptCreatureData {
-                name: n.base.name.clone(),
-                guid: 0, // NPCs don't have GUIDs
-            }),
+    fn get_creature(
+        &self,
+        id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<tfs_rust_common::ScriptCreatureData> {
+        self.creatures
+            .iter()
+            .find_map(|(cid, k)| {
+                if cid.data().as_ffi() != id {
+                    return None;
+                }
+                Some(match k {
+                    CreatureKind::Player(p) => Some(tfs_rust_common::ScriptCreatureData {
+                        name: p.base.name.clone(),
+                        guid: p.guid,
+                    }),
+                    CreatureKind::Monster(m) => Some(tfs_rust_common::ScriptCreatureData {
+                        name: m.base.name.clone(),
+                        guid: 0, // Monsters don't have GUIDs
+                    }),
+                    CreatureKind::Npc(n) => Some(tfs_rust_common::ScriptCreatureData {
+                        name: n.base.name.clone(),
+                        guid: 0, // NPCs don't have GUIDs
+                    }),
+                })
             })
-        }).flatten()
+            .flatten()
     }
 
-    fn get_item(&self, id: tfs_rust_common::ScriptItemId) -> Option<tfs_rust_common::ScriptItemRef> {
+    fn get_item(
+        &self,
+        id: tfs_rust_common::ScriptItemId,
+    ) -> Option<tfs_rust_common::ScriptItemRef> {
         self.items
             .iter()
             .find(|(item_id, _)| item_id.data().as_ffi() == id)
@@ -64,7 +73,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.player_capacity_u32(_cid)
     }
 
-    fn get_player_free_capacity(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u32> {
+    fn get_player_free_capacity(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<u32> {
         let _cid = self
             .creatures
             .iter()
@@ -87,7 +99,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         Some(self.player_get_item_type_count(cid, item_id, sub_type))
     }
 
-    fn get_item_data(&self, id: tfs_rust_common::ScriptItemId) -> Option<tfs_rust_common::ScriptItemData> {
+    fn get_item_data(
+        &self,
+        id: tfs_rust_common::ScriptItemId,
+    ) -> Option<tfs_rust_common::ScriptItemData> {
         let iid = self
             .items
             .iter()
@@ -148,7 +163,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .map(GameWorld::item_to_script_id)
     }
 
-    fn get_container_items(&self, container_id: tfs_rust_common::ScriptItemId) -> Vec<tfs_rust_common::ScriptItemId> {
+    fn get_container_items(
+        &self,
+        container_id: tfs_rust_common::ScriptItemId,
+    ) -> Vec<tfs_rust_common::ScriptItemId> {
         let Some(root) = self.resolve_item_u64(container_id) else {
             return Vec::new();
         };
@@ -163,7 +181,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         container_id: tfs_rust_common::ScriptItemId,
         item_id: tfs_rust_common::ScriptItemId,
     ) -> bool {
-        let (Some(root), Some(item)) = (self.resolve_item_u64(container_id), self.resolve_item_u64(item_id)) else {
+        let (Some(root), Some(item)) = (
+            self.resolve_item_u64(container_id),
+            self.resolve_item_u64(item_id),
+        ) else {
             return false;
         };
         self.script_container_has_item(root, item)
@@ -210,12 +231,18 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.script_player_container_index(cid, client_cid)
     }
 
-    fn get_item_parent(&self, item_id: tfs_rust_common::ScriptItemId) -> Option<tfs_rust_common::ScriptCylinder> {
+    fn get_item_parent(
+        &self,
+        item_id: tfs_rust_common::ScriptItemId,
+    ) -> Option<tfs_rust_common::ScriptCylinder> {
         let iid = self.resolve_item_u64(item_id)?;
         self.script_item_parent(iid)
     }
 
-    fn get_item_top_parent(&self, item_id: tfs_rust_common::ScriptItemId) -> Option<tfs_rust_common::ScriptCylinder> {
+    fn get_item_top_parent(
+        &self,
+        item_id: tfs_rust_common::ScriptItemId,
+    ) -> Option<tfs_rust_common::ScriptCylinder> {
         let iid = self.resolve_item_u64(item_id)?;
         self.script_item_top_parent(iid)
     }

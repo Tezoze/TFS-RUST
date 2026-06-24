@@ -5,7 +5,7 @@
 
 use rand::Rng;
 
-use tfs_rust_content::monsters::{LootBlock, MAX_LOOTCHANCE, MonsterType};
+use tfs_rust_content::monsters::{LootBlock, MonsterType, MAX_LOOTCHANCE};
 use tfs_rust_content::otb::ItemType;
 
 use crate::container::Container;
@@ -247,8 +247,7 @@ impl GameWorld {
         if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
             let mut registry = std::mem::take(&mut self.container_registry);
             for block in &mtype.loot {
-                let Some(item_id) =
-                    roll_loot_block_glibc(self, block, &mut registry, monster_id)
+                let Some(item_id) = roll_loot_block_glibc(self, block, &mut registry, monster_id)
                 else {
                     continue;
                 };
@@ -347,12 +346,7 @@ impl GameWorld {
             let CreatureKind::Monster(m) = k else {
                 return None;
             };
-            Some((
-                m.melee_skill,
-                m.melee_attack,
-                m.armor,
-                m.inventory.clone(),
-            ))
+            Some((m.melee_skill, m.melee_attack, m.armor, m.inventory.clone()))
         });
         let Some((base_skill, base_attack, base_armor, inventory)) = snapshot else {
             return;
@@ -425,14 +419,19 @@ impl GameWorld {
             self.broadcast_magic_effect(pos, CONST_ME_DRAWBLOOD);
         }
 
-        let (deadline, replace_with) = item_decay_schedule(&self.items_db, corpse_type, self.tick_counter);
+        let (deadline, replace_with) =
+            item_decay_schedule(&self.items_db, corpse_type, self.tick_counter);
         self.decay.schedule(corpse_id, deadline, replace_with);
 
         if self
             .internal_add_item_to_tile(pos, corpse_id, CylinderFlags::NO_LIMIT)
             .is_err()
         {
-            tracing::warn!(?pos, corpse_type, "monster corpse could not be placed on tile");
+            tracing::warn!(
+                ?pos,
+                corpse_type,
+                "monster corpse could not be placed on tile"
+            );
         }
     }
 }
@@ -482,7 +481,9 @@ mod tests {
     use crate::inventory::{SLOTP_ARMOR, WEAPON_SWORD};
     use crate::item::Item;
     use crate::sim_harness::{bag_item_type, insert_monster, pickup_item_type};
-    use crate::test_world::support::{ensure_walkable_tile, insert_player, minimal_world, test_player};
+    use crate::test_world::support::{
+        ensure_walkable_tile, insert_player, minimal_world, test_player,
+    };
 
     fn armor_item_type(server_id: u16, armor: i32) -> ItemType {
         let mut it = pickup_item_type(server_id);
@@ -548,7 +549,8 @@ mod tests {
             items,
             client_to_server: HashMap::new(),
         };
-        let (_, attack, _) = effective_monster_combat_stats(15, 7, 1, &inv, &world_items, &items_db);
+        let (_, attack, _) =
+            effective_monster_combat_stats(15, 7, 1, &inv, &world_items, &items_db);
         assert_eq!(attack, 25);
     }
 

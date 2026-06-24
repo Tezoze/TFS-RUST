@@ -10,11 +10,11 @@ use std::path::PathBuf;
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
-    beat_driven_world_from_map, beat_driven_world_for_kite_synthetic,
-    default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick,
-    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
-    validate_positions_walkable, SimMapConfig,
+    beat_driven_world_for_kite_synthetic, beat_driven_world_from_map, default_sim_map_config,
+    insert_monster_from_type, insert_monster_with_config, insert_player,
+    kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick, set_sim_harness_wall_ms,
+    sim_hero_player, sim_player_damage_monster, teleport_player, validate_positions_walkable,
+    SimMapConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -37,11 +37,17 @@ struct KiteScenario {
     monster_speed_from_scenario: bool,
     monster_hostile: bool,
     monster_melee_skill: i32,
+    monster_melee_skill_from_scenario: bool,
     monster_melee_attack: i32,
+    monster_melee_attack_from_scenario: bool,
     monster_armor: i32,
+    monster_armor_from_scenario: bool,
     monster_defense: i32,
+    monster_defense_from_scenario: bool,
     monster_target_distance: i32,
+    monster_target_distance_from_scenario: bool,
     monster_talks: u8,
+    monster_talks_from_scenario: bool,
     monster_load_type: bool,
     monster_initial_state: MonsterState,
     monster_state_explicit: bool,
@@ -140,18 +146,24 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
             }
             "monster_melee_skill" if parts.len() >= 2 => {
                 s.monster_melee_skill = parts[1].parse().map_err(|_| "bad monster_melee_skill")?;
+                s.monster_melee_skill_from_scenario = true;
             }
             "monster_melee_attack" if parts.len() >= 2 => {
-                s.monster_melee_attack = parts[1].parse().map_err(|_| "bad monster_melee_attack")?;
+                s.monster_melee_attack =
+                    parts[1].parse().map_err(|_| "bad monster_melee_attack")?;
+                s.monster_melee_attack_from_scenario = true;
             }
             "monster_armor" if parts.len() >= 2 => {
                 s.monster_armor = parts[1].parse().map_err(|_| "bad monster_armor")?;
+                s.monster_armor_from_scenario = true;
             }
             "monster_defense" if parts.len() >= 2 => {
                 s.monster_defense = parts[1].parse().map_err(|_| "bad monster_defense")?;
+                s.monster_defense_from_scenario = true;
             }
             "monster_target_distance" if parts.len() >= 2 => {
                 s.monster_target_distance = parts[1].parse().map_err(|_| "bad target_distance")?;
+                s.monster_target_distance_from_scenario = true;
             }
             "monster_speed" if parts.len() >= 2 => {
                 s.monster_speed = parts[1].parse().map_err(|_| "bad monster_speed")?;
@@ -159,6 +171,7 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
             }
             "monster_talks" if parts.len() >= 2 => {
                 s.monster_talks = parts[1].parse().map_err(|_| "bad monster_talks")?;
+                s.monster_talks_from_scenario = true;
             }
             "monster_load_type" if parts.len() >= 2 => {
                 s.monster_load_type = parts[1] != "0";
@@ -183,8 +196,12 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
                 s.steps.push(ScenarioStep::PlayerDamage(amount));
             }
             "player_damage_monster" if parts.len() >= 3 => {
-                let idx: usize = parts[1].parse().map_err(|_| "bad player_damage_monster idx")?;
-                let amount: i32 = parts[2].parse().map_err(|_| "bad player_damage_monster amount")?;
+                let idx: usize = parts[1]
+                    .parse()
+                    .map_err(|_| "bad player_damage_monster idx")?;
+                let amount: i32 = parts[2]
+                    .parse()
+                    .map_err(|_| "bad player_damage_monster amount")?;
                 s.steps.push(ScenarioStep::PlayerDamageMonster(idx, amount));
             }
             other => return Err(format!("unknown scenario verb: {other}")),
@@ -195,7 +212,9 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
         return Err("missing scenario name".into());
     }
     if s.monsters.is_empty() {
-        return Err("scenario has no monster spawn(s) — add one or more `monster <label> x y` lines".into());
+        return Err(
+            "scenario has no monster spawn(s) — add one or more `monster <label> x y` lines".into(),
+        );
     }
     if s.steps.is_empty() {
         return Err("scenario has no script steps".into());
@@ -343,14 +362,24 @@ fn spawn_entities(
         let monster_id = if let Some(ref mtype) = mtype_owned {
             let mut typed_config = MonsterAiConfig::from_monster_type(mtype);
             typed_config.is_hostile = config.is_hostile;
-            if scenario.monster_melee_skill != 0 {
+            if scenario.monster_melee_skill_from_scenario {
                 typed_config.melee_skill = config.melee_skill;
             }
-            typed_config.melee_attack = config.melee_attack;
-            typed_config.armor = config.armor;
-            typed_config.defense = config.defense;
-            typed_config.target_distance = config.target_distance;
-            typed_config.talks = config.talks;
+            if scenario.monster_melee_attack_from_scenario {
+                typed_config.melee_attack = config.melee_attack;
+            }
+            if scenario.monster_armor_from_scenario {
+                typed_config.armor = config.armor;
+            }
+            if scenario.monster_defense_from_scenario {
+                typed_config.defense = config.defense;
+            }
+            if scenario.monster_target_distance_from_scenario {
+                typed_config.target_distance = config.target_distance;
+            }
+            if scenario.monster_talks_from_scenario {
+                typed_config.talks = config.talks;
+            }
             insert_monster_from_type(
                 world,
                 mtype,
@@ -592,8 +621,17 @@ mod tests {
         assert_eq!(s.monsters.len(), 1);
         assert_eq!(s.monsters[0].label, "rat");
         assert!(s.monster_load_type);
-        assert!(s.steps.iter().any(|st| matches!(st, ScenarioStep::MonsterAppear)));
-        assert!(s.steps.iter().filter(|st| matches!(st, ScenarioStep::SimTick)).count() >= 2);
+        assert!(s
+            .steps
+            .iter()
+            .any(|st| matches!(st, ScenarioStep::MonsterAppear)));
+        assert!(
+            s.steps
+                .iter()
+                .filter(|st| matches!(st, ScenarioStep::SimTick))
+                .count()
+                >= 2
+        );
     }
 
     #[test]
@@ -608,8 +646,11 @@ mod tests {
         assert_eq!(s.monsters.len(), 4);
         assert!(s.monsters.iter().all(|m| m.label == "cyclops"));
         assert_eq!(s.monster_melee_skill, 50);
+        assert!(s.monster_melee_skill_from_scenario);
         assert_eq!(s.monster_melee_attack, 30);
+        assert!(s.monster_melee_attack_from_scenario);
         assert_eq!(s.monster_talks, 5);
+        assert!(s.monster_talks_from_scenario);
     }
 
     #[test]
@@ -624,5 +665,35 @@ monster_appear
         let s = parse_scenario(input).expect("parse");
         assert_eq!(s.monster_initial_state, MonsterState::Sleeping);
         assert!(matches!(s.steps[0], ScenarioStep::PlayerDamage(5)));
+    }
+
+    #[test]
+    fn parses_hunter_dist_chase_scenario() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/scenarios/kite_hunter_dist_chase.scenario"
+        );
+        let input = fs::read_to_string(path).expect("read scenario");
+        let s = parse_scenario(&input).expect("parse");
+        assert_eq!(s.name, "kite_hunter_dist_chase");
+        assert_eq!(s.monsters[0].label, "hunter");
+        assert!(!s.monster_target_distance_from_scenario);
+        assert!(s.arena_synthetic);
+    }
+
+    #[test]
+    fn parses_dragon_lowhp_flee_scenario() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/scenarios/kite_dragon_lowhp_flee.scenario"
+        );
+        let input = fs::read_to_string(path).expect("read scenario");
+        let s = parse_scenario(&input).expect("parse");
+        assert_eq!(s.name, "kite_dragon_lowhp_flee");
+        assert_eq!(s.monsters[0].label, "dragon");
+        assert!(s
+            .steps
+            .iter()
+            .any(|st| matches!(st, ScenarioStep::PlayerDamage(725))));
     }
 }

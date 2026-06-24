@@ -1,0 +1,25 @@
+name kite_dragon_lowhp_flee
+z 7
+default_wp 150
+arena_synthetic 1
+
+# Dragon runonhealth=300 — player_damage 725 → 300 HP → flee branch
+arena 32360 32290 16
+
+player_start 32360 32290
+player_name Hero
+monster dragon 32361 32290
+monster_load_type 1
+monster_hostile 1
+
+# --- script ---
+advance_ms 0
+monster_appear
+
+advance_ms 2000
+sim_tick
+
+player_damage 725
+
+advance_ms 2000
+sim_tick

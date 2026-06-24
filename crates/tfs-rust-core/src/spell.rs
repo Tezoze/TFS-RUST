@@ -135,12 +135,12 @@ mod tests {
     use std::collections::VecDeque;
     use std::time::{Duration, Instant};
 
-    use crate::creature::{CreatureBase, Outfit};
     use crate::creature::Player;
     use crate::creature::PlayerEconomy;
     use crate::creature::PlayerInventory;
     use crate::creature::PlayerSkills;
     use crate::creature::PlayerSocial;
+    use crate::creature::{CreatureBase, Outfit};
     use tfs_rust_common::enums::{Direction, SkullType};
     use tfs_rust_common::Position;
 
@@ -204,7 +204,10 @@ mod tests {
                 fishing: 10,
                 maglevel: 10,
             },
-            economy: PlayerEconomy { balance: 0, soul: 100 },
+            economy: PlayerEconomy {
+                balance: 0,
+                soul: 100,
+            },
             social: PlayerSocial::default(),
             town_id: 1,
             premium_ends_at: 0,

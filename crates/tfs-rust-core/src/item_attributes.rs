@@ -109,8 +109,7 @@ pub enum DecayState {
 
 /// A single custom attribute value (CustomAttribute in C++)
 // C++ ref: `src/item.h:217-347`
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum CustomAttrValue {
     #[default]
     None,
@@ -119,7 +118,6 @@ pub enum CustomAttrValue {
     Float(f64),
     Boolean(bool),
 }
-
 
 /// Custom attribute map type
 pub type CustomAttributeMap = HashMap<String, CustomAttrValue>;
@@ -229,11 +227,19 @@ impl ItemAttributes {
     // === Getters ===
 
     pub fn get_action_id(&self) -> u16 {
-        if self.has_action_id() { self.action_id } else { 0 }
+        if self.has_action_id() {
+            self.action_id
+        } else {
+            0
+        }
     }
 
     pub fn get_unique_id(&self) -> u16 {
-        if self.has_unique_id() { self.unique_id } else { 0 }
+        if self.has_unique_id() {
+            self.unique_id
+        } else {
+            0
+        }
     }
 
     pub fn get_description(&self) -> &str {
@@ -249,23 +255,43 @@ impl ItemAttributes {
     }
 
     pub fn get_date(&self) -> i64 {
-        if self.has_date() { self.date } else { 0 }
+        if self.has_date() {
+            self.date
+        } else {
+            0
+        }
     }
 
     pub fn get_charges(&self) -> u16 {
-        if self.has_charges() { self.charges } else { 0 }
+        if self.has_charges() {
+            self.charges
+        } else {
+            0
+        }
     }
 
     pub fn get_fluid_type(&self) -> u16 {
-        if self.has_fluid_type() { self.fluid_type } else { 0 }
+        if self.has_fluid_type() {
+            self.fluid_type
+        } else {
+            0
+        }
     }
 
     pub fn get_owner(&self) -> u32 {
-        if self.has_owner() { self.owner } else { 0 }
+        if self.has_owner() {
+            self.owner
+        } else {
+            0
+        }
     }
 
     pub fn get_corpse_owner(&self) -> u32 {
-        if self.has_corpse_owner() { self.corpse_owner } else { 0 }
+        if self.has_corpse_owner() {
+            self.corpse_owner
+        } else {
+            0
+        }
     }
 
     pub fn get_duration(&self) -> i32 {
@@ -278,12 +304,20 @@ impl ItemAttributes {
             let remaining = self.duration_timestamp.saturating_sub(now);
             remaining.max(0) as i32
         } else {
-            if self.has_duration() { self.duration } else { 0 }
+            if self.has_duration() {
+                self.duration
+            } else {
+                0
+            }
         }
     }
 
     pub fn get_duration_raw(&self) -> i32 {
-        if self.has_duration() { self.duration } else { 0 }
+        if self.has_duration() {
+            self.duration
+        } else {
+            0
+        }
     }
 
     pub fn get_duration_timestamp(&self) -> i64 {
@@ -485,7 +519,8 @@ impl ItemAttributes {
     }
 
     pub fn set_duration_timestamp(&mut self, value: i64) {
-        self.attribute_bits.insert(ItemAttrFlags::DURATION_TIMESTAMP);
+        self.attribute_bits
+            .insert(ItemAttrFlags::DURATION_TIMESTAMP);
         self.duration_timestamp = value;
     }
 
@@ -493,7 +528,8 @@ impl ItemAttributes {
         self.attribute_bits.insert(ItemAttrFlags::DECAY_STATE);
         self.decay_state = state as u8;
         if state == DecayState::False {
-            self.attribute_bits.remove(ItemAttrFlags::DURATION_TIMESTAMP);
+            self.attribute_bits
+                .remove(ItemAttrFlags::DURATION_TIMESTAMP);
         }
     }
 
@@ -663,7 +699,6 @@ impl ItemAttributes {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,7 +748,10 @@ mod tests {
         let mut attrs = ItemAttributes::new();
 
         assert!(!attrs.has_custom_attributes());
-        attrs.set_custom_attribute("test_key", CustomAttrValue::String("test_value".to_string()));
+        attrs.set_custom_attribute(
+            "test_key",
+            CustomAttrValue::String("test_value".to_string()),
+        );
         assert!(attrs.has_custom_attributes());
 
         let val = attrs.get_custom_attribute("test_key");

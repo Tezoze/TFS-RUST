@@ -315,11 +315,18 @@ impl Container {
     }
 
     /// Update/replace an item at a specific index
-    pub fn update_item(&mut self, index: usize, new_item_id: ItemId) -> Result<ItemId, ContainerError> {
+    pub fn update_item(
+        &mut self,
+        index: usize,
+        new_item_id: ItemId,
+    ) -> Result<ItemId, ContainerError> {
         if index >= self.items.len() {
             return Err(ContainerError::InvalidSlot);
         }
-        let slot = self.items.get_mut(index).ok_or(ContainerError::InvalidSlot)?;
+        let slot = self
+            .items
+            .get_mut(index)
+            .ok_or(ContainerError::InvalidSlot)?;
         let old_item_id = std::mem::replace(slot, new_item_id);
         Ok(old_item_id)
     }
@@ -550,11 +557,7 @@ impl ContainerRegistry {
         if let Some(c) = self.containers.get_mut(&container_id) {
             c.remove_viewer(player);
         }
-        if self
-            .player_open
-            .get(&player)
-            .is_some_and(|m| m.is_empty())
-        {
+        if self.player_open.get(&player).is_some_and(|m| m.is_empty()) {
             self.player_open.remove(&player);
         }
         true

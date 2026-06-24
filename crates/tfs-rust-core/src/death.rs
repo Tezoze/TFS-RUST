@@ -2,11 +2,11 @@
 // C++ reference: `Creature::dropCorpse`, `Game::playerDeath`, `combat.cpp`.
 
 use crate::combat::distribute_experience;
+use crate::config::ConfigManager;
 use crate::creature::CreatureKind;
 use crate::decay::DecayManager;
 use crate::event_dispatcher::EventDispatcher;
 use crate::formulas::StepSpeedModel;
-use crate::config::ConfigManager;
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::party::split_shared_experience;
@@ -16,8 +16,9 @@ fn default_death_loss_fraction(level: i32, experience: u64) -> f64 {
     // C++ ref: `Player::getLostPercent` (`src/player.cpp` ~4057+), without promotion/blessing reduction.
     if level >= 25 && experience > 0 {
         let tmp_level = level as f64;
-        let loss_percent = ((tmp_level + 50.0) * 50.0 * (tmp_level * tmp_level - 5.0 * tmp_level + 8.0))
-            / experience as f64;
+        let loss_percent =
+            ((tmp_level + 50.0) * 50.0 * (tmp_level * tmp_level - 5.0 * tmp_level + 8.0))
+                / experience as f64;
         loss_percent / 100.0
     } else {
         0.10
@@ -88,7 +89,10 @@ pub fn handle_creature_death(
             share
         };
         if let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id) {
-            let rate_exp = config.experience_rate_for_level(k.level).unwrap_or(1.0).max(0.0);
+            let rate_exp = config
+                .experience_rate_for_level(k.level)
+                .unwrap_or(1.0)
+                .max(0.0);
             let share = ((share as f64) * rate_exp).floor() as u64;
             k.add_experience(share, step_speed_model);
         }

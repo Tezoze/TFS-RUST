@@ -113,7 +113,9 @@ enum PathGoalMatch {
     /// TFS `bestMatchDist == 0` — stop searching.
     Exact,
     /// TFS partial endpoint — keep searching for an exact match.
-    Partial { dist: i32 },
+    Partial {
+        dist: i32,
+    },
 }
 
 #[derive(Eq, PartialEq)]
@@ -200,7 +202,11 @@ where
         move |pos| ground_for_cost(pos),
         move |pos| {
             let raw = ground_for_fill(pos);
-            if raw == 0 { -1 } else { raw as i32 }
+            if raw == 0 {
+                -1
+            } else {
+                raw as i32
+            }
         },
     )
 }
@@ -314,14 +320,12 @@ where
     let mut best_match_dist = 0i32;
     let mut found_end: Option<Position> = None;
 
-    nodes.insert(
-        start,
-        AStarNode {
-            parent: None,
-            g: 0,
-        },
-    );
-    open.push(OpenNode { f: 0, g: 0, pos: start });
+    nodes.insert(start, AStarNode { parent: None, g: 0 });
+    open.push(OpenNode {
+        f: 0,
+        g: 0,
+        pos: start,
+    });
 
     while fpp.max_search_dist != 0 || closed.len() < MAX_CLOSED_NODES {
         let Some(OpenNode { pos: current, .. }) = open.pop() else {
@@ -512,11 +516,7 @@ impl TShortwaySearch {
             let Some(cell) = self.cells.get(&pos) else {
                 return;
             };
-            (
-                cell.waypoints,
-                cell.waylength,
-                cell.expand_next,
-            )
+            (cell.waypoints, cell.waylength, cell.expand_next)
         };
         self.expand_head = node_next;
         if let Some(cell) = self.cells.get_mut(&pos) {
@@ -573,9 +573,8 @@ impl TShortwaySearch {
 
             // `cract.cc:181-184` — signed sum; negative `Waylength` is valid during reverse expand.
             let distance = manhattan_dist(neighbor_pos, self.origin) as i32;
-            let heuristic = neighbor_wl
-                + neighbor_wp
-                + (self.min_waypoints as i32) * (distance - 1);
+            let heuristic =
+                neighbor_wl + neighbor_wp + (self.min_waypoints as i32) * (distance - 1);
 
             if prev_heuristic != TSHORTWAY_UNVISITED_H {
                 self.remove_from_expand_list(neighbor_pos);
@@ -762,13 +761,7 @@ where
     let mut closed: HashSet<Position> = HashSet::new();
 
     // Destination may hold the follow target — seed without occupancy check (`TShortway` dest tile).
-    nodes.insert(
-        target,
-        AStarNode {
-            parent: None,
-            g: 0,
-        },
-    );
+    nodes.insert(target, AStarNode { parent: None, g: 0 });
     let seed_h = if use_reverse_terrain_astar {
         reverse_path_heuristic(target, start, min_wp, &ground_cost)
     } else {
@@ -935,7 +928,12 @@ fn evaluate_path_goal(
 }
 
 /// TFS `FrozenPathingConditionCall::isInRange` (`creature.cpp` ~1641–1685).
-fn path_in_search_box(start: Position, test: Position, target: Position, fpp: &FindPathParams) -> bool {
+fn path_in_search_box(
+    start: Position,
+    test: Position,
+    target: Position,
+    fpp: &FindPathParams,
+) -> bool {
     if fpp.full_path_search {
         let dx = (test.x as i32 - target.x as i32).abs();
         let dy = (test.y as i32 - target.y as i32).abs();
@@ -945,20 +943,36 @@ fn path_in_search_box(start: Position, test: Position, target: Position, fpp: &F
     let offset_x = start.x as i32 - target.x as i32;
     let offset_y = start.y as i32 - target.y as i32;
 
-    let dx_max = if offset_x >= 0 { fpp.max_target_dist } else { 0 };
+    let dx_max = if offset_x >= 0 {
+        fpp.max_target_dist
+    } else {
+        0
+    };
     if (test.x as i32) > (target.x as i32) + dx_max {
         return false;
     }
-    let dx_min = if offset_x <= 0 { fpp.max_target_dist } else { 0 };
+    let dx_min = if offset_x <= 0 {
+        fpp.max_target_dist
+    } else {
+        0
+    };
     if (test.x as i32) < (target.x as i32) - dx_min {
         return false;
     }
 
-    let dy_max = if offset_y >= 0 { fpp.max_target_dist } else { 0 };
+    let dy_max = if offset_y >= 0 {
+        fpp.max_target_dist
+    } else {
+        0
+    };
     if (test.y as i32) > (target.y as i32) + dy_max {
         return false;
     }
-    let dy_min = if offset_y <= 0 { fpp.max_target_dist } else { 0 };
+    let dy_min = if offset_y <= 0 {
+        fpp.max_target_dist
+    } else {
+        0
+    };
     if (test.y as i32) < (target.y as i32) - dy_min {
         return false;
     }
@@ -970,7 +984,11 @@ fn path_in_search_box(start: Position, test: Position, target: Position, fpp: &F
 /// - [`PathCostModel::Fixed`] — TFS 1.4.2 constants 10 / 25 (`map.cpp`), terrain ignored.
 /// - [`PathCostModel::TerrainWeighted`] — 772 (`cract.cc:136–155` `TShortway::Expand`):
 ///   cost = current tile waypoints; a diagonal step costs `×3` (cardinal `+wp`, diagonal `+wp*3`).
-fn path_step_cost(model: PathCostModel, is_diagonal: bool, ground_cost: impl FnOnce() -> u32) -> u32 {
+fn path_step_cost(
+    model: PathCostModel,
+    is_diagonal: bool,
+    ground_cost: impl FnOnce() -> u32,
+) -> u32 {
     match model {
         PathCostModel::Fixed => {
             if is_diagonal {
@@ -997,7 +1015,8 @@ fn chebyshev_dist(a: Position, b: Position) -> i32 {
 }
 
 fn manhattan_dist(a: Position, b: Position) -> i32 {
-    (a.x as i32 - b.x as i32).unsigned_abs() as i32 + (a.y as i32 - b.y as i32).unsigned_abs() as i32
+    (a.x as i32 - b.x as i32).unsigned_abs() as i32
+        + (a.y as i32 - b.y as i32).unsigned_abs() as i32
 }
 
 /// 772 `VisibleX`/`VisibleY` rectangle around the origin (`cract.cc` `TShortway`).
@@ -1070,18 +1089,34 @@ fn neighbor_offsets(
     ];
 
     let Some(prev) = parent else {
-        let len = if allow_diagonal { ALL_NEIGHBORS.len() } else { 4 };
+        let len = if allow_diagonal {
+            ALL_NEIGHBORS.len()
+        } else {
+            4
+        };
         return (&ALL_NEIGHBORS, len);
     };
 
     let dx = prev.x as i32 - current.x as i32;
     let dy = prev.y as i32 - current.y as i32;
     let idx = if dy == 0 {
-        if dx == -1 { 3 } else { 1 }
+        if dx == -1 {
+            3
+        } else {
+            1
+        }
     } else if !allow_diagonal || dx == 0 {
-        if dy == -1 { 0 } else { 2 }
+        if dy == -1 {
+            0
+        } else {
+            2
+        }
     } else if dy == -1 {
-        if dx == -1 { 6 } else { 7 }
+        if dx == -1 {
+            6
+        } else {
+            7
+        }
     } else if dx == -1 {
         4
     } else {
@@ -1129,7 +1164,10 @@ fn trim_path_to_goal_band(
 }
 
 /// Reverse walk-queue: origin → destination along parent chain toward the seed.
-fn reconstruct_reverse_dirs(nodes: &HashMap<Position, AStarNode>, origin: Position) -> Vec<Direction> {
+fn reconstruct_reverse_dirs(
+    nodes: &HashMap<Position, AStarNode>,
+    origin: Position,
+) -> Vec<Direction> {
     let mut dir_list = Vec::new();
     let mut cur = origin;
     while let Some(next) = nodes.get(&cur).and_then(|n| n.parent) {
@@ -1249,20 +1287,38 @@ mod tests {
         assert_eq!(fpp.min_target_dist, 0);
         assert_eq!(fpp.max_target_dist, 1);
         assert!(fpp.clear_sight);
-        assert_eq!(chebyshev_dist(Position::new(11, 10, 7), Position::new(10, 10, 7)), 1);
-        assert_eq!(chebyshev_dist(Position::new(12, 10, 7), Position::new(10, 10, 7)), 2);
+        assert_eq!(
+            chebyshev_dist(Position::new(11, 10, 7), Position::new(10, 10, 7)),
+            1
+        );
+        assert_eq!(
+            chebyshev_dist(Position::new(12, 10, 7), Position::new(10, 10, 7)),
+            2
+        );
     }
 
     #[test]
     fn path_step_cost_fixed_is_tfs_10_25() {
-        assert_eq!(path_step_cost(PathCostModel::Fixed, false, || 9999), MAP_NORMAL_WALK_COST);
-        assert_eq!(path_step_cost(PathCostModel::Fixed, true, || 9999), MAP_DIAGONAL_WALK_COST);
+        assert_eq!(
+            path_step_cost(PathCostModel::Fixed, false, || 9999),
+            MAP_NORMAL_WALK_COST
+        );
+        assert_eq!(
+            path_step_cost(PathCostModel::Fixed, true, || 9999),
+            MAP_DIAGONAL_WALK_COST
+        );
     }
 
     #[test]
     fn path_step_cost_terrain_weighted_uses_ground_and_diagonal_3x() {
-        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, false, || 100), 100);
-        assert_eq!(path_step_cost(PathCostModel::TerrainWeighted, true, || 100), 300);
+        assert_eq!(
+            path_step_cost(PathCostModel::TerrainWeighted, false, || 100),
+            100
+        );
+        assert_eq!(
+            path_step_cost(PathCostModel::TerrainWeighted, true, || 100),
+            300
+        );
         assert_eq!(
             path_step_cost(PathCostModel::TerrainWeighted, false, || 0),
             DEFAULT_TERRAIN_WAYPOINTS
@@ -1379,10 +1435,16 @@ mod tests {
         use crate::formulas::MechanicsProfile;
 
         let p772 = MechanicsProfile::for_version(ProtocolVersion::V772);
-        assert!(super::uses_reverse_terrain_path(p772.path_cost, p772.path_search));
+        assert!(super::uses_reverse_terrain_path(
+            p772.path_cost,
+            p772.path_search
+        ));
 
         let p1098 = MechanicsProfile::for_version(ProtocolVersion::V1098);
-        assert!(!super::uses_reverse_terrain_path(p1098.path_cost, p1098.path_search));
+        assert!(!super::uses_reverse_terrain_path(
+            p1098.path_cost,
+            p1098.path_search
+        ));
     }
 
     #[test]
@@ -1512,7 +1574,11 @@ mod tests {
         let origin = Position::new(0, 0, 7);
         let min_wp = 50;
         let ground = |pos: Position| {
-            if pos.y == 0 { 50 } else { 200 }
+            if pos.y == 0 {
+                50
+            } else {
+                200
+            }
         };
         let near = reverse_path_heuristic(Position::new(1, 0, 7), origin, min_wp, ground);
         let far = reverse_path_heuristic(Position::new(5, 0, 7), origin, min_wp, ground);
@@ -1547,7 +1613,11 @@ mod tests {
         let can_walk = |pos: Position| map.is_walkable(pos);
         let no_extra = |_pos: Position| 0u32;
         let ground = |pos: Position| {
-            if pos.y == 1 { 50 } else { 200 }
+            if pos.y == 1 {
+                50
+            } else {
+                200
+            }
         };
 
         let forward = get_path_matching(
@@ -1581,7 +1651,9 @@ mod tests {
         assert!(!reverse.is_empty());
         // Forward stays on the fast row; reverse (dest→origin) weights leaving tiles differently.
         assert!(
-            forward.iter().all(|d| matches!(d, Direction::East | Direction::West)),
+            forward
+                .iter()
+                .all(|d| matches!(d, Direction::East | Direction::West)),
             "forward should stay cardinal on the fast row: {forward:?}"
         );
     }
@@ -1721,7 +1793,10 @@ mod tests {
             no_extra,
             ground,
         );
-        assert!(path_no_fallback.is_none(), "Must return None without forward fallback (CipSoft NOWAY)");
+        assert!(
+            path_no_fallback.is_none(),
+            "Must return None without forward fallback (CipSoft NOWAY)"
+        );
 
         // With fallback enabled, it must succeed because forward search can reach (3, 10) which is distance 2 from target.
         let path_with_fallback = get_path_matching(
@@ -1736,7 +1811,10 @@ mod tests {
             no_extra,
             ground,
         );
-        assert!(path_with_fallback.is_some(), "Must return Some with forward fallback");
+        assert!(
+            path_with_fallback.is_some(),
+            "Must return Some with forward fallback"
+        );
     }
 
     #[test]
@@ -1801,7 +1879,10 @@ mod tests {
             (
                 "south",
                 Position::new(32360, 32291, 7),
-                vec![Position::new(32360, 32292, 7), Position::new(32360, 32293, 7)],
+                vec![
+                    Position::new(32360, 32292, 7),
+                    Position::new(32360, 32293, 7),
+                ],
             ),
         ];
         for (label, start, want_tiles) in cases {
@@ -1822,14 +1903,8 @@ mod tests {
                 ground,
             )
             .expect(label);
-            let trimmed = truncate_cipsoft_chase_queue(
-                start,
-                target,
-                dirs,
-                CHASE_PATH_MAX_STEPS,
-                false,
-                1,
-            );
+            let trimmed =
+                truncate_cipsoft_chase_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false, 1);
             let mut pos = start;
             let got_tiles: Vec<Position> = trimmed
                 .iter()
@@ -1856,8 +1931,7 @@ mod tests {
                 let Some(pos) = offset_position(start, dx, dy) else {
                     continue;
                 };
-                let walkable_for_fill =
-                    map.is_walkable(pos) && (pos == target || can_walk(pos));
+                let walkable_for_fill = map.is_walkable(pos) && (pos == target || can_walk(pos));
                 let waypoints = if walkable_for_fill {
                     effective_terrain_waypoints(150) as i32
                 } else {
@@ -1868,7 +1942,10 @@ mod tests {
                 }
             }
         }
-        assert_eq!(wp_at_blocked, -1, "blocked tile must have Waypoints=-1 in fill");
+        assert_eq!(
+            wp_at_blocked, -1,
+            "blocked tile must have Waypoints=-1 in fill"
+        );
     }
 
     #[test]
@@ -1898,14 +1975,7 @@ mod tests {
             |_| 150u32,
         )
         .expect("raw path");
-        let dirs = truncate_cipsoft_chase_queue(
-            start,
-            target,
-            raw,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let dirs = truncate_cipsoft_chase_queue(start, target, raw, CHASE_PATH_MAX_STEPS, false, 1);
         assert_eq!(
             dirs,
             vec![Direction::East, Direction::South, Direction::South],
@@ -1936,14 +2006,8 @@ mod tests {
             |_| 150,
         )
         .expect("path");
-        let exec = truncate_cipsoft_chase_queue(
-            start,
-            target,
-            dirs,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let exec =
+            truncate_cipsoft_chase_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false, 1);
         assert_eq!(
             exec,
             vec![Direction::East, Direction::South, Direction::South],
@@ -1968,15 +2032,9 @@ mod tests {
         // Occupied sibling tile present on map (creature blocking) — `can_walk_to` rejects it.
         let map_with_tile = cyclops_quad_uniform_map(start, target);
         let can_walk = |pos: Position| pos != blocked;
-        let walk_order = path_matching_tshortway(
-            &map_with_tile,
-            start,
-            target,
-            &fpp,
-            can_walk,
-            |_| 150,
-        )
-        .expect("path with occupied tile");
+        let walk_order =
+            path_matching_tshortway(&map_with_tile, start, target, &fpp, can_walk, |_| 150)
+                .expect("path with occupied tile");
         let mut pos = start;
         for &dir in &walk_order {
             pos = pos.offset(dir);
@@ -1985,14 +2043,8 @@ mod tests {
                 "predecessor chain must not visit blocked tile (walk_order={walk_order:?})"
             );
         }
-        let dirs = truncate_cipsoft_chase_queue(
-            start,
-            target,
-            walk_order,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let dirs =
+            truncate_cipsoft_chase_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false, 1);
         let mut pos = start;
         for &dir in &dirs {
             pos = pos.offset(dir);
@@ -2013,14 +2065,8 @@ mod tests {
             |_| 150,
         )
         .expect("path without tile");
-        let dirs = truncate_cipsoft_chase_queue(
-            start,
-            target,
-            walk_order,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let dirs =
+            truncate_cipsoft_chase_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false, 1);
         assert_eq!(
             dirs,
             vec![Direction::East, Direction::South, Direction::South],
@@ -2084,16 +2130,10 @@ mod tests {
             full_path_search: true,
             max_search_dist: 0,
         };
-        let dirs = path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150)
-            .expect("path");
-        let trimmed = truncate_cipsoft_chase_queue(
-            nw,
-            player,
-            dirs,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let dirs =
+            path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150).expect("path");
+        let trimmed =
+            truncate_cipsoft_chase_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
         let mut pos = nw;
         let got: Vec<Position> = trimmed
             .iter()
@@ -2107,7 +2147,10 @@ mod tests {
             Position::new(32359, 32291, 7),
             Position::new(32359, 32292, 7),
         ];
-        assert_eq!(got, want, "NW shortway matches Python/cract.cc TShortway port");
+        assert_eq!(
+            got, want,
+            "NW shortway matches Python/cract.cc TShortway port"
+        );
     }
 
     /// Live `kite_cyclops_quad_chase` far-N shortway — faithful `cract.cc` port (Python oracle).
@@ -2133,16 +2176,10 @@ mod tests {
             full_path_search: true,
             max_search_dist: 0,
         };
-        let dirs = path_matching_tshortway(&map, far_n, player, &fpp, can_walk, |_| 150)
-            .expect("path");
-        let trimmed = truncate_cipsoft_chase_queue(
-            far_n,
-            player,
-            dirs,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let dirs =
+            path_matching_tshortway(&map, far_n, player, &fpp, can_walk, |_| 150).expect("path");
+        let trimmed =
+            truncate_cipsoft_chase_queue(far_n, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
         let mut pos = far_n;
         let got: Vec<Position> = trimmed
             .iter()
@@ -2156,7 +2193,10 @@ mod tests {
             Position::new(32360, 32289, 7),
             Position::new(32360, 32290, 7),
         ];
-        assert_eq!(got, want, "far-N shortway matches Python/cract.cc TShortway port");
+        assert_eq!(
+            got, want,
+            "far-N shortway matches Python/cract.cc TShortway port"
+        );
     }
 
     /// Live C++ JSONL oracle — ignored until fresh ref log (port 7172 vs `tfs-rust`). See `tasks/lessons.md` §59.
@@ -2181,16 +2221,10 @@ mod tests {
             full_path_search: true,
             max_search_dist: 0,
         };
-        let dirs = path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150)
-            .expect("path");
-        let trimmed = truncate_cipsoft_chase_queue(
-            nw,
-            player,
-            dirs,
-            CHASE_PATH_MAX_STEPS,
-            false,
-            1,
-        );
+        let dirs =
+            path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150).expect("path");
+        let trimmed =
+            truncate_cipsoft_chase_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
         let mut pos = nw;
         let got: Vec<Position> = trimmed
             .iter()

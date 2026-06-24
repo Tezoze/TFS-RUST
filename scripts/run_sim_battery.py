@@ -24,13 +24,23 @@ BATTERY = [
     ("kill", "kite_rat_kill.scenario", "rat", 2000),
 ]
 
+EXTENDED_BATTERY = [
+    ("hunter_chase", "kite_hunter_dist_chase.scenario", "hunter", 6000),
+    ("hunter_dist_flee", "kite_hunter_dist_flee.scenario", "hunter", 6000),
+    ("dragon_lowhp_flee", "kite_dragon_lowhp_flee.scenario", "dragon", 4000),
+]
 
-def run_battery(*, synthetic: bool, skip_cpp: bool) -> int:
+
+def run_battery(*, synthetic: bool, skip_cpp: bool, extended: bool) -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "TFS_SIM_SEED": os.environ.get("TFS_SIM_SEED", "772")}
     results: list[tuple[str, int, int, int]] = []
 
-    for slug, scenario_file, monster, max_tick in BATTERY:
+    battery = list(BATTERY)
+    if extended:
+        battery.extend(EXTENDED_BATTERY)
+
+    for slug, scenario_file, monster, max_tick in battery:
         scenario = SCENARIOS / scenario_file
         if not scenario.is_file():
             print(f"error: missing scenario {scenario}", file=sys.stderr)
@@ -93,8 +103,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run full chase sim battery")
     parser.add_argument("--synthetic", action="store_true")
     parser.add_argument("--skip-cpp", action="store_true")
+    parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Also run hunter/dist-flee and dragon low-HP flee scenarios (non-gating)",
+    )
     args = parser.parse_args()
-    return run_battery(synthetic=args.synthetic, skip_cpp=args.skip_cpp)
+    return run_battery(
+        synthetic=args.synthetic,
+        skip_cpp=args.skip_cpp,
+        extended=args.extended,
+    )
 
 
 if __name__ == "__main__":

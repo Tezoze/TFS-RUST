@@ -3,8 +3,8 @@
 
 use tfs_rust_common::Position;
 
-use crate::creature::LightInfo;
 use crate::creature::CreatureKind;
+use crate::creature::LightInfo;
 use crate::cylinder::CylinderLink;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -314,13 +314,7 @@ impl GameWorld {
             .equipment_slot_holding_container(cid, container_root)
             .unwrap_or(0);
         if is_add {
-            self.player_post_add_notification(
-                cid,
-                item_id,
-                slot,
-                CylinderLink::TopParent,
-                parent,
-            );
+            self.player_post_add_notification(cid, item_id, slot, CylinderLink::TopParent, parent);
         } else {
             self.player_post_remove_notification(
                 cid,
@@ -341,7 +335,10 @@ mod tests {
     #[test]
     fn light_info_max_picks_brighter() {
         let a = LightInfo { level: 3, color: 1 };
-        let b = LightInfo { level: 7, color: 215 };
+        let b = LightInfo {
+            level: 7,
+            color: 215,
+        };
         assert_eq!(LightInfo::max_of(a, b), b);
     }
 
@@ -364,12 +361,12 @@ mod tests {
     }
 
     fn test_player_stub() -> Player {
+        use crate::creature::{Outfit, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial};
+        use crate::CreatureBase;
         use std::collections::HashMap;
         use std::time::Instant;
         use tfs_rust_common::enums::{Direction, SkullType};
         use tfs_rust_common::Position;
-        use crate::CreatureBase;
-        use crate::creature::{Outfit, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial};
 
         Player {
             base: CreatureBase {
@@ -430,7 +427,10 @@ mod tests {
                 fishing: 10,
                 maglevel: 0,
             },
-            economy: PlayerEconomy { balance: 0, soul: 0 },
+            economy: PlayerEconomy {
+                balance: 0,
+                soul: 0,
+            },
             social: PlayerSocial::default(),
             town_id: 0,
             premium_ends_at: 0,

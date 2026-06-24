@@ -345,9 +345,18 @@ impl NetConfig {
     pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
         let ip = get_string_or(cfg, "ip", "127.0.0.1")?;
         let bind_only_global_address = get_bool_or(cfg, "bindOnlyGlobalAddress", false)?;
-        let login_port = checked_port(get_i64_or(cfg, "loginProtocolPort", 7171)?, "loginProtocolPort")?;
-        let game_port = checked_port(get_i64_or(cfg, "gameProtocolPort", 7172)?, "gameProtocolPort")?;
-        let status_port = checked_port(get_i64_or(cfg, "statusProtocolPort", 7171)?, "statusProtocolPort")?;
+        let login_port = checked_port(
+            get_i64_or(cfg, "loginProtocolPort", 7171)?,
+            "loginProtocolPort",
+        )?;
+        let game_port = checked_port(
+            get_i64_or(cfg, "gameProtocolPort", 7172)?,
+            "gameProtocolPort",
+        )?;
+        let status_port = checked_port(
+            get_i64_or(cfg, "statusProtocolPort", 7171)?,
+            "statusProtocolPort",
+        )?;
 
         Ok(Self {
             ip,
@@ -462,9 +471,7 @@ pub fn password_hash_config_from(cfg: &ConfigManager) -> Result<tfs_rust_db::Pas
     let legacy_sha1_enabled = get_bool_or(cfg, "legacySha1Enabled", true)?;
     let bcrypt_cost = get_i64_or(cfg, "passwordHashCost", 12)?;
     if bcrypt_cost < 0 {
-        return Err(TfsRustError::Config(
-            "passwordHashCost must be >= 0".into(),
-        ));
+        return Err(TfsRustError::Config("passwordHashCost must be >= 0".into()));
     }
     tfs_rust_db::PasswordHashConfig::new(legacy_sha1_enabled, bcrypt_cost as u32)
 }
@@ -478,9 +485,9 @@ pub fn protocol_version_from_config(cfg: &ConfigManager) -> Result<ProtocolVersi
 /// `TFS_PROTOCOL_VERSION` env overrides `config.lua` `clientVersion`.
 pub fn resolve_protocol_version(cfg: &ConfigManager) -> Result<ProtocolVersion> {
     if let Ok(env) = std::env::var("TFS_PROTOCOL_VERSION") {
-        let raw: i64 = env.parse().map_err(|_| {
-            TfsRustError::Config(format!("TFS_PROTOCOL_VERSION invalid: {env:?}"))
-        })?;
+        let raw: i64 = env
+            .parse()
+            .map_err(|_| TfsRustError::Config(format!("TFS_PROTOCOL_VERSION invalid: {env:?}")))?;
         return protocol_version_from_i64(raw).map_err(TfsRustError::Config);
     }
     protocol_version_from_config(cfg)
@@ -492,7 +499,9 @@ mod tests {
 
     fn config_from_lua(lua_source: &str) -> ConfigManager {
         let lua = Lua::new();
-        lua.load(lua_source).exec().expect("config chunk should load");
+        lua.load(lua_source)
+            .exec()
+            .expect("config chunk should load");
         ConfigManager { lua }
     }
 

@@ -66,7 +66,11 @@ impl GameWorld {
                 _ => return Err(rv),
             }
         }
-        if let Cylinder::Container { item_id: cid, index } = to_work {
+        if let Cylinder::Container {
+            item_id: cid,
+            index,
+        } = to_work
+        {
             let m_pre = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
             let m_pre = m_pre.min(count);
             let ret = self.container_query_add(
@@ -83,20 +87,30 @@ impl GameWorld {
         }
 
         let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
-        let is_stackable = self.items_db.items.get(&item.item_type).map(|t| t.stackable()).unwrap_or(false);
+        let is_stackable = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
         let item_count = item.count;
         let item_type = item.item_type;
 
-        let m = if is_stackable { count.min(item_count) } else { item_count };
+        let m = if is_stackable {
+            count.min(item_count)
+        } else {
+            item_count
+        };
 
         if to_merge_item == Some(item_id) {
             return Ok(item_id);
         }
 
         let max_query_count: u32 = match to_work {
-            Cylinder::Container { item_id: cid, index } => {
-                self.container_query_max_count(cid, index, item_id, u32::from(m), flags)?
-            }
+            Cylinder::Container {
+                item_id: cid,
+                index,
+            } => self.container_query_max_count(cid, index, item_id, u32::from(m), flags)?,
             Cylinder::Inventory {
                 player_id: to_pid,
                 slot: to_slot,
@@ -132,7 +146,9 @@ impl GameWorld {
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count -= m;
                     }
-                    let src_stack_pos = self.map.get_tile(from_pos)
+                    let src_stack_pos = self
+                        .map
+                        .get_tile(from_pos)
                         .and_then(|t| t.get_item_stack_pos(item_id))
                         .unwrap_or(0);
                     self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
@@ -144,10 +160,15 @@ impl GameWorld {
                     Ok(new_id)
                 } else {
                     // Full move
-                    let stack_pos = self.map.get_tile(from_pos)
+                    let stack_pos = self
+                        .map
+                        .get_tile(from_pos)
                         .and_then(|t| t.get_item_stack_pos(item_id))
                         .unwrap_or(0);
-                    let tile = self.map.get_tile_mut(from_pos).ok_or(ReturnValue::NotPossible)?;
+                    let tile = self
+                        .map
+                        .get_tile_mut(from_pos)
+                        .ok_or(ReturnValue::NotPossible)?;
                     if tile.remove_item_by_id(item_id).is_none() {
                         return Err(ReturnValue::NotPossible);
                     }
@@ -199,7 +220,10 @@ impl GameWorld {
                     .get_tile(from_pos)
                     .and_then(|t| t.get_item_stack_pos(item_id))
                     .unwrap_or(0);
-                let tile = self.map.get_tile_mut(from_pos).ok_or(ReturnValue::NotPossible)?;
+                let tile = self
+                    .map
+                    .get_tile_mut(from_pos)
+                    .ok_or(ReturnValue::NotPossible)?;
                 if tile.remove_item_by_id(item_id).is_none() {
                     return Err(ReturnValue::NotPossible);
                 }
@@ -220,8 +244,7 @@ impl GameWorld {
             }
             (Cylinder::Container { .. }, Cylinder::Tile { pos: to_pos }) => {
                 let Cylinder::Container {
-                    item_id: from_cid,
-                    ..
+                    item_id: from_cid, ..
                 } = from_cylinder
                 else {
                     return Err(ReturnValue::NotPossible);
@@ -259,8 +282,7 @@ impl GameWorld {
             }
             (Cylinder::Container { .. }, Cylinder::Container { .. }) => {
                 let Cylinder::Container {
-                    item_id: from_cid,
-                    ..
+                    item_id: from_cid, ..
                 } = from_cylinder
                 else {
                     return Err(ReturnValue::NotPossible);
@@ -348,10 +370,7 @@ impl GameWorld {
                     item_id: from_container,
                     ..
                 },
-                Cylinder::Inventory {
-                    player_id,
-                    slot,
-                },
+                Cylinder::Inventory { player_id, slot },
             ) => {
                 let cid = *player_id;
                 let slot = *slot;
@@ -424,10 +443,7 @@ impl GameWorld {
                 Ok(item_id)
             }
             (
-                Cylinder::Inventory {
-                    player_id,
-                    slot,
-                },
+                Cylinder::Inventory { player_id, slot },
                 Cylinder::Container {
                     item_id: to_container,
                     index: to_idx,
@@ -517,11 +533,7 @@ impl GameWorld {
                     if merge_id == item_id {
                         return Ok(item_id);
                     }
-                    self.ensure_stack_merge_room(
-                        merge_id,
-                        m_move,
-                        ReturnValue::NotEnoughCapacity,
-                    )?;
+                    self.ensure_stack_merge_room(merge_id, m_move, ReturnValue::NotEnoughCapacity)?;
                     if is_stackable && m_move < item_count {
                         // Partial: source stack stays on tile; only counts change.
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
@@ -546,7 +558,10 @@ impl GameWorld {
                         .get_tile(from_pos)
                         .and_then(|t| t.get_item_stack_pos(item_id))
                         .unwrap_or(0);
-                    let tile = self.map.get_tile_mut(from_pos).ok_or(ReturnValue::NotPossible)?;
+                    let tile = self
+                        .map
+                        .get_tile_mut(from_pos)
+                        .ok_or(ReturnValue::NotPossible)?;
                     if tile.remove_item_by_id(item_id).is_none() {
                         return Err(ReturnValue::NotPossible);
                     }
@@ -591,10 +606,15 @@ impl GameWorld {
                     if dest_id == item_id {
                         return Ok(item_id);
                     }
-                    let stack_pos = self.map.get_tile(from_pos)
+                    let stack_pos = self
+                        .map
+                        .get_tile(from_pos)
                         .and_then(|t| t.get_item_stack_pos(item_id))
                         .unwrap_or(0);
-                    let tile = self.map.get_tile_mut(from_pos).ok_or(ReturnValue::NotPossible)?;
+                    let tile = self
+                        .map
+                        .get_tile_mut(from_pos)
+                        .ok_or(ReturnValue::NotPossible)?;
                     if tile.remove_item_by_id(item_id).is_none() {
                         return Err(ReturnValue::NotPossible);
                     }
@@ -614,10 +634,15 @@ impl GameWorld {
                     )?;
                     return Ok(item_id);
                 }
-                let stack_pos = self.map.get_tile(from_pos)
+                let stack_pos = self
+                    .map
+                    .get_tile(from_pos)
                     .and_then(|t| t.get_item_stack_pos(item_id))
                     .unwrap_or(0);
-                let tile = self.map.get_tile_mut(from_pos).ok_or(ReturnValue::NotPossible)?;
+                let tile = self
+                    .map
+                    .get_tile_mut(from_pos)
+                    .ok_or(ReturnValue::NotPossible)?;
                 if tile.remove_item_by_id(item_id).is_none() {
                     return Err(ReturnValue::NotPossible);
                 }

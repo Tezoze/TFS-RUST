@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 
-use crate::creature::PlayerWalkAction;
 use crate::creature::CreatureKind;
+use crate::creature::PlayerWalkAction;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 
@@ -33,9 +33,10 @@ impl GameWorld {
 
     /// TFS `Player::onWalkComplete` — schedule stored `walkTask` (`player.cpp` ~3390–3395).
     pub(crate) fn on_player_walk_complete(&mut self, cid: CreatureId, now: Instant) {
-        let should_schedule = self.creatures.get(cid).is_some_and(|k| {
-            matches!(k, CreatureKind::Player(p) if p.walk_action.is_some())
-        });
+        let should_schedule = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.walk_action.is_some()));
         if should_schedule {
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.walk_action_due = Some(now + WALK_ACTION_DELAY);
@@ -64,7 +65,12 @@ impl GameWorld {
     }
 
     /// Reschedule a deferred walk-action when `nextAction` is still active (`game.cpp` ~908–913).
-    pub(crate) fn defer_player_walk_action(&mut self, cid: CreatureId, action: PlayerWalkAction, now: Instant) {
+    pub(crate) fn defer_player_walk_action(
+        &mut self,
+        cid: CreatureId,
+        action: PlayerWalkAction,
+        now: Instant,
+    ) {
         let due = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.next_action_until.filter(|t| *t > now),
             _ => None,

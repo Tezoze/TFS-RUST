@@ -5,9 +5,9 @@ pub mod support {
 
     use std::collections::HashMap;
 
-    use crate::ids::CreatureId;
     use crate::event_dispatcher::EventDispatcher;
     use crate::game_world::GameWorld;
+    use crate::ids::CreatureId;
 
     /// Test helper — counts `EventDispatcher::on_think` calls per creature.
     #[derive(Debug, Default)]
@@ -18,11 +18,7 @@ pub mod support {
 
     impl CountingEventDispatcher {
         pub fn total_think_calls(&self) -> u32 {
-            self.think_calls
-                .lock()
-                .expect("lock")
-                .values()
-                .sum()
+            self.think_calls.lock().expect("lock").values().sum()
         }
 
         pub fn intervals(&self) -> Vec<u32> {

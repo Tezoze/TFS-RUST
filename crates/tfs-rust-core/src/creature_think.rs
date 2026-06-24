@@ -138,9 +138,7 @@ impl GameWorld {
 
     /// Whether `cid` should receive `onThink` this sweep (C++ `getHealth() > 0` gate).
     fn creature_alive_for_think(&self, cid: CreatureId) -> bool {
-        self.creatures
-            .get(cid)
-            .is_some_and(|k| k.base().health > 0)
+        self.creatures.get(cid).is_some_and(|k| k.base().health > 0)
     }
 
     /// TFS `Creature::onThink` — shared base logic for all creature kinds (D.2 subset).
@@ -171,8 +169,8 @@ impl GameWorld {
         }
 
         let follow_id = self.creatures.get(cid).and_then(|k| k.base().follow_target);
-        let skip_repath_at_goal = follow_id
-            .is_some_and(|fid| self.monster_should_skip_follow_repath(cid, fid));
+        let skip_repath_at_goal =
+            follow_id.is_some_and(|fid| self.monster_should_skip_follow_repath(cid, fid));
 
         if !self.beat_driven_loop {
             let mut run_follow_repath = false;
@@ -223,7 +221,8 @@ impl GameWorld {
 
         // TODO: `onAttacked` / target `onAttacked` callbacks (`creature.cpp` ~178–179).
 
-        let (my_pos, target_pos) = match self.creatures.get(cid).zip(self.creatures.get(attack_id)) {
+        let (my_pos, target_pos) = match self.creatures.get(cid).zip(self.creatures.get(attack_id))
+        {
             Some((attacker, target)) => (attacker.position(), target.position()),
             None => return,
         };
@@ -231,7 +230,11 @@ impl GameWorld {
             return;
         }
 
-        if self.creatures.get(cid).is_some_and(|k| matches!(k, CreatureKind::Monster(_))) {
+        if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+        {
             self.monster_do_attacking(cid, interval_ms);
         }
     }
@@ -257,14 +260,18 @@ mod tests {
 
     use tfs_rust_common::Position;
 
-    
     use crate::test_world::support::{
         beat_driven_world, ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
     };
 
     use super::*;
 
-    fn step_ticks(world: &mut crate::game_world::GameWorld, start: Instant, count: u32, step_ms: u64) -> Instant {
+    fn step_ticks(
+        world: &mut crate::game_world::GameWorld,
+        start: Instant,
+        count: u32,
+        step_ms: u64,
+    ) -> Instant {
         let mut now = start;
         for _ in 0..count {
             world.on_tick(now);
@@ -273,7 +280,10 @@ mod tests {
         now
     }
 
-    fn world_with_counter() -> (crate::game_world::GameWorld, std::sync::Arc<CountingEventDispatcher>) {
+    fn world_with_counter() -> (
+        crate::game_world::GameWorld,
+        std::sync::Arc<CountingEventDispatcher>,
+    ) {
         let counter = std::sync::Arc::new(CountingEventDispatcher::default());
         let mut world = minimal_world();
         world.events = Box::new(CountingEventDispatcherProxy(counter.clone()));
@@ -365,7 +375,10 @@ mod tests {
         step_ticks(&mut world, start, 25, 50);
 
         assert!(
-            counter.intervals().iter().all(|&ms| ms == EVENT_CREATURE_THINK_INTERVAL_MS),
+            counter
+                .intervals()
+                .iter()
+                .all(|&ms| ms == EVENT_CREATURE_THINK_INTERVAL_MS),
             "onThink interval must be fixed 1000 ms for C++ parity"
         );
     }

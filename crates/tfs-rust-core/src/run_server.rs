@@ -20,8 +20,8 @@ use crate::config::{
     NetConfig,
 };
 use crate::event_dispatcher::NullEventDispatcher;
-use crate::game_loop::{run_game_loop_1098, run_game_loop_772, wait_for_shutdown_signal};
 use crate::formulas::StepSpeedModel;
+use crate::game_loop::{run_game_loop_1098, run_game_loop_772, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_event_dispatcher::LuaEventDispatcher;
@@ -83,8 +83,8 @@ pub async fn run() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("config password hash settings: {e}"))?;
     let protocol_version = resolve_protocol_version(config.as_ref())
         .map_err(|e| anyhow::anyhow!("config protocol version: {e}"))?;
-    let codec = Codec::from_version(protocol_version)
-        .map_err(|e| anyhow::anyhow!("wire codec: {e}"))?;
+    let codec =
+        Codec::from_version(protocol_version).map_err(|e| anyhow::anyhow!("wire codec: {e}"))?;
     let protocol_caps = protocol_version.caps();
     info!(
         version = %protocol_version,
@@ -95,7 +95,9 @@ pub async fn run() -> anyhow::Result<()> {
     // C++ ref: src/configmanager.cpp:178-184 (MySQL defaults and keys)
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) => {
-            info!("database: using DATABASE_URL from environment (overrides config.lua mysql* keys)");
+            info!(
+                "database: using DATABASE_URL from environment (overrides config.lua mysql* keys)"
+            );
             url
         }
         Err(_) => {
@@ -126,15 +128,16 @@ pub async fn run() -> anyhow::Result<()> {
     let db = tfs_rust_db::DbPool::connect(&database_url, &pool_cfg.to_db_pool_options())
         .await
         .map_err(|e| anyhow::anyhow!("database connect: {e}"))?;
-    let migrations_dir = tfs_rust_db::resolve_migrations_dir()
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let migrations_dir =
+        tfs_rust_db::resolve_migrations_dir().map_err(|e| anyhow::anyhow!("{e}"))?;
     tfs_rust_db::run_migrations(&db, &migrations_dir)
         .await
         .map_err(|e| anyhow::anyhow!("database migrations: {e}"))?;
 
     let data_dir = std::env::var("TFS_DATA_DIR").unwrap_or_else(|_| "data".to_string());
     let data_path = PathBuf::from(&data_dir);
-    let map_rel = std::env::var("TFS_MAP_OTBM").unwrap_or_else(|_| "world/forgotten.otbm".to_string());
+    let map_rel =
+        std::env::var("TFS_MAP_OTBM").unwrap_or_else(|_| "world/forgotten.otbm".to_string());
     let map_file = data_path.join(&map_rel);
     if !map_file.is_file() {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -156,7 +159,7 @@ pub async fn run() -> anyhow::Result<()> {
     let items_db = std::sync::Arc::new(content.items);
     let monsters_db = std::sync::Arc::new(content.monsters);
     let groups = std::sync::Arc::new(content.groups);
-    
+
     // Create items SlotMap first - needed for map loading to create Item instances
     let mut items = slotmap::SlotMap::with_key();
     let map = Map::from_map_data(content.map, items_db.as_ref(), &mut items);
@@ -172,12 +175,10 @@ pub async fn run() -> anyhow::Result<()> {
             let mut loader = ScriptLoader::new(&mut lua_runtime);
             match loader.load_creaturescripts(&data_path) {
                 Ok(creature_events) => {
-                    let player_events = loader
-                        .load_player_events(&data_path)
-                        .unwrap_or_else(|e| {
-                            tracing::warn!("Lua player events loading failed: {}", e);
-                            HashMap::new()
-                        });
+                    let player_events = loader.load_player_events(&data_path).unwrap_or_else(|e| {
+                        tracing::warn!("Lua player events loading failed: {}", e);
+                        HashMap::new()
+                    });
                     tracing::info!(
                         "Lua creaturescripts loaded: login={} logout={} inventory_update={} move_events={}",
                         creature_events
@@ -199,7 +200,10 @@ pub async fn run() -> anyhow::Result<()> {
                     ))
                 }
                 Err(e) => {
-                    tracing::warn!("Lua creaturescript loading failed, using NullEventDispatcher: {}", e);
+                    tracing::warn!(
+                        "Lua creaturescript loading failed, using NullEventDispatcher: {}",
+                        e
+                    );
                     Box::new(NullEventDispatcher)
                 }
             }
@@ -288,8 +292,7 @@ pub async fn run() -> anyhow::Result<()> {
     let adv_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
     info!(advertise = %format!("{adv_ip}:{game_port}"), "character list game address");
 
-    let server_name =
-        std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| "Australis".to_string());
+    let server_name = std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| "Australis".to_string());
     let public_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
     let motd = std::env::var("TFS_MOTD").unwrap_or_default();
     let motd_num: u32 = std::env::var("TFS_MOTD_NUM")
@@ -336,10 +339,7 @@ pub async fn run() -> anyhow::Result<()> {
             tokio::spawn(async move {
                 match wait_for_shutdown_signal().await {
                     Ok(()) => {
-                        if shutdown_cmd_tx
-                            .send(GameCommand::Shutdown)
-                            .is_err()
-                        {
+                        if shutdown_cmd_tx.send(GameCommand::Shutdown).is_err() {
                             tracing::warn!("could not send Shutdown — game command channel closed");
                         } else {
                             tracing::info!("shutdown signal: flushing online players, then exit");

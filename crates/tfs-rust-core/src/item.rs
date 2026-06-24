@@ -50,81 +50,127 @@ impl Item {
     // === Convenience accessors for common attributes ===
 
     pub fn action_id(&self) -> u16 {
-        self.attributes.as_deref().map(|a| a.get_action_id()).unwrap_or(0)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_action_id())
+            .unwrap_or(0)
     }
 
     pub fn set_action_id(&mut self, value: u16) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_action_id(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_action_id(value);
     }
 
     pub fn unique_id(&self) -> u16 {
-        self.attributes.as_deref().map(|a| a.get_unique_id()).unwrap_or(0)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_unique_id())
+            .unwrap_or(0)
     }
 
     pub fn set_unique_id(&mut self, value: u16) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_unique_id(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_unique_id(value);
     }
 
     pub fn text(&self) -> &str {
-        self.attributes.as_deref().map(|a| a.get_text()).unwrap_or("")
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_text())
+            .unwrap_or("")
     }
 
     pub fn set_text(&mut self, value: impl Into<String>) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_text(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_text(value);
     }
 
     pub fn description(&self) -> &str {
-        self.attributes.as_deref().map(|a| a.get_description()).unwrap_or("")
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_description())
+            .unwrap_or("")
     }
 
     pub fn set_description(&mut self, value: impl Into<String>) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_description(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_description(value);
     }
 
     pub fn charges(&self) -> u16 {
-        self.attributes.as_deref().map(|a| a.get_charges()).unwrap_or(0)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_charges())
+            .unwrap_or(0)
     }
 
     pub fn set_charges(&mut self, value: u16) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_charges(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_charges(value);
     }
 
     pub fn duration(&self) -> i32 {
-        self.attributes.as_deref().map(|a| a.get_duration()).unwrap_or(0)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_duration())
+            .unwrap_or(0)
     }
 
     pub fn set_duration(&mut self, value: i32) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_duration(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_duration(value);
     }
 
     pub fn decaying(&self) -> DecayState {
-        self.attributes.as_deref().map(|a| a.get_decaying()).unwrap_or(DecayState::False)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_decaying())
+            .unwrap_or(DecayState::False)
     }
 
     pub fn set_decaying(&mut self, state: DecayState) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_decaying(state);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_decaying(state);
     }
 
     pub fn fluid_type(&self) -> u16 {
-        self.attributes.as_deref().map(|a| a.get_fluid_type()).unwrap_or(0)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_fluid_type())
+            .unwrap_or(0)
     }
 
     pub fn set_fluid_type(&mut self, value: u16) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_fluid_type(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_fluid_type(value);
     }
 
     pub fn depot_id(&self) -> u16 {
-        self.attributes.as_deref().map(|a| a.get_depot_id()).unwrap_or(0)
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_depot_id())
+            .unwrap_or(0)
     }
 
     pub fn set_depot_id(&mut self, value: u16) {
-        self.attributes.get_or_insert_with(|| Box::new(ItemAttributes::new())).set_depot_id(value);
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_depot_id(value);
     }
 
     /// Check if this item has a specific attribute set
     pub fn has_attribute(&self, flag: crate::item_attributes::ItemAttrFlags) -> bool {
         self.attributes.as_deref().is_some_and(|a| {
-            crate::item_attributes::ItemAttrFlags::from_bits_truncate(a.attribute_bits()).contains(flag)
+            crate::item_attributes::ItemAttrFlags::from_bits_truncate(a.attribute_bits())
+                .contains(flag)
         })
     }
 
@@ -135,7 +181,11 @@ impl Item {
     }
 
     pub fn total_weight_oz(&self, type_weight: u32, stackable: bool) -> u32 {
-        let w = self.attributes.as_deref().map(|a| a.base_weight_oz(type_weight)).unwrap_or(type_weight);
+        let w = self
+            .attributes
+            .as_deref()
+            .map(|a| a.base_weight_oz(type_weight))
+            .unwrap_or(type_weight);
         if stackable {
             w.saturating_mul(self.count.max(1) as u32)
         } else {
@@ -175,7 +225,9 @@ impl Item {
 
     #[inline]
     pub fn is_store_item(&self) -> bool {
-        self.attributes.as_deref().is_some_and(|a| a.is_store_item())
+        self.attributes
+            .as_deref()
+            .is_some_and(|a| a.is_store_item())
     }
 
     /// TFS `Item::getSubType` — `item.cpp` ~341–352.

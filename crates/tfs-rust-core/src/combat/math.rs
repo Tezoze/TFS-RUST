@@ -233,7 +233,8 @@ pub fn spell_damage(
     if let Some(v) = hooks.spell_damage(level, magic_level, base) {
         return v;
     }
-    let mut mult = profile.spell_coeff.level_mult * level + profile.spell_coeff.magic_mult * magic_level;
+    let mut mult =
+        profile.spell_coeff.level_mult * level + profile.spell_coeff.magic_mult * magic_level;
     if clamp_max_100 && mult > 100 {
         mult = 100;
     }
@@ -291,7 +292,8 @@ pub fn pvp_exp_cap(profile: &MechanicsProfile, raw_exp: u64) -> u64 {
     if profile.pvp_exp_cap_den == 0 {
         return raw_exp;
     }
-    let cap = (raw_exp as u128 * profile.pvp_exp_cap_num as u128 / profile.pvp_exp_cap_den as u128) as u64;
+    let cap = (raw_exp as u128 * profile.pvp_exp_cap_num as u128 / profile.pvp_exp_cap_den as u128)
+        as u64;
     raw_exp.min(cap)
 }
 
@@ -385,15 +387,30 @@ mod tests {
     fn fight_mode_modifiers_match_772_integer_shape() {
         let m = p772();
         // Offensive +20% atk: 100 -> 120 (772 `+ (v*2)/10`).
-        assert_eq!(apply_attack_mode(&m.profile.fight_modes, FightMode::Offensive, 100), 120);
+        assert_eq!(
+            apply_attack_mode(&m.profile.fight_modes, FightMode::Offensive, 100),
+            120
+        );
         // Defensive -40% atk: 100 -> 60.
-        assert_eq!(apply_attack_mode(&m.profile.fight_modes, FightMode::Defensive, 100), 60);
+        assert_eq!(
+            apply_attack_mode(&m.profile.fight_modes, FightMode::Defensive, 100),
+            60
+        );
         // Offensive -40% def: 100 -> 60.
-        assert_eq!(apply_defense_mode(&m.profile.fight_modes, FightMode::Offensive, 100), 60);
+        assert_eq!(
+            apply_defense_mode(&m.profile.fight_modes, FightMode::Offensive, 100),
+            60
+        );
         // Defensive +80% def: 100 -> 180.
-        assert_eq!(apply_defense_mode(&m.profile.fight_modes, FightMode::Defensive, 100), 180);
+        assert_eq!(
+            apply_defense_mode(&m.profile.fight_modes, FightMode::Defensive, 100),
+            180
+        );
         // Balanced is neutral.
-        assert_eq!(apply_attack_mode(&m.profile.fight_modes, FightMode::Balanced, 100), 100);
+        assert_eq!(
+            apply_attack_mode(&m.profile.fight_modes, FightMode::Balanced, 100),
+            100
+        );
     }
 
     #[test]
@@ -408,7 +425,10 @@ mod tests {
             assert!((0..=49).contains(&v), "probe value {v} out of [0,49]");
             max_seen = max_seen.max(v);
         }
-        assert!(max_seen >= 40, "expected high rolls to approach the cap, saw {max_seen}");
+        assert!(
+            max_seen >= 40,
+            "expected high rolls to approach the cap, saw {max_seen}"
+        );
     }
 
     #[test]
@@ -425,11 +445,17 @@ mod tests {
         let m772 = p772();
         let mut rng = StdRng::seed_from_u64(7);
         // 1098 full: armor returned verbatim.
-        assert_eq!(armor_reduction(&m1098.profile, &m1098.hooks, &mut rng, 30), 30);
+        assert_eq!(
+            armor_reduction(&m1098.profile, &m1098.hooks, &mut rng, 30),
+            30
+        );
         // 772 randomized: in [A/2, A-1] for A>=2 → [15, 29] for A=30.
         for _ in 0..1000 {
             let r = armor_reduction(&m772.profile, &m772.hooks, &mut rng, 30);
-            assert!((15..=29).contains(&r), "randomized armor {r} out of [15,29]");
+            assert!(
+                (15..=29).contains(&r),
+                "randomized armor {r} out of [15,29]"
+            );
         }
         // A=1 returns 1 in both.
         assert_eq!(armor_reduction(&m772.profile, &m772.hooks, &mut rng, 1), 1);
@@ -439,11 +465,20 @@ mod tests {
     fn spell_damage_multiplier_and_clamps() {
         let m = p772();
         // 2*level + 3*magicLevel: level=50, ml=30 -> 100+90 = 190%. base 100 -> 190.
-        assert_eq!(spell_damage(&m.profile, &m.hooks, 50, 30, 100, false, false), 190);
+        assert_eq!(
+            spell_damage(&m.profile, &m.hooks, 50, 30, 100, false, false),
+            190
+        );
         // clamp_max_100 (flag & 4): capped to 100%.
-        assert_eq!(spell_damage(&m.profile, &m.hooks, 50, 30, 100, true, false), 100);
+        assert_eq!(
+            spell_damage(&m.profile, &m.hooks, 50, 30, 100, true, false),
+            100
+        );
         // clamp_min_100 (flag & 8): low multiplier floored to 100%. level=1, ml=1 -> 5% -> 100%.
-        assert_eq!(spell_damage(&m.profile, &m.hooks, 1, 1, 100, false, true), 100);
+        assert_eq!(
+            spell_damage(&m.profile, &m.hooks, 1, 1, 100, false, true),
+            100
+        );
     }
 
     #[test]
@@ -502,8 +537,14 @@ mod tests {
     #[test]
     fn condition_ticks_from_profile() {
         let m772 = p772();
-        assert_eq!(condition_tick(&m772.profile, &m772.hooks, DotElement::Fire, 0), (10, 8));
-        assert_eq!(condition_tick(&m772.profile, &m772.hooks, DotElement::Energy, 0), (25, 10));
+        assert_eq!(
+            condition_tick(&m772.profile, &m772.hooks, DotElement::Fire, 0),
+            (10, 8)
+        );
+        assert_eq!(
+            condition_tick(&m772.profile, &m772.hooks, DotElement::Energy, 0),
+            (25, 10)
+        );
     }
 
     #[test]

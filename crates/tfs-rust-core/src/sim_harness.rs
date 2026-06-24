@@ -24,24 +24,24 @@ use tfs_rust_content::vocations::VocationDatabase;
 use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::DbPool;
 
-use crate::config::ConfigManager;
 use crate::combat::{CombatDamage, CombatParams};
+use crate::config::ConfigManager;
 use crate::creature::{
     CreatureBase, CreatureKind, Monster, MonsterAiConfig, MonsterState, Npc, Outfit, Player,
     PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
-use tfs_rust_common::enums::CombatType;
-use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::map::{Map, SparseGrid};
 use crate::pathfinding::{scan_min_terrain_waypoints, REVERSE_PATH_VIEW_RADIUS};
 use crate::spawn::SpawnManager;
-use tfs_rust_content::monsters::MonsterDatabase;
 use crate::tile::{Tile, TileBody};
-use tfs_rust_common::ConnId;
+use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::enums::ZoneType;
+use tfs_rust_common::ConnId;
+use tfs_rust_content::monsters::MonsterDatabase;
+use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
 
 pub fn test_config() -> ConfigManager {
     let path = std::env::temp_dir().join(format!(
@@ -510,10 +510,10 @@ pub fn default_sim_map_config() -> SimMapConfig {
     let data_dir = std::env::var("TFS_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| repo_root.join("data"));
-    let map_rel = std::env::var("TFS_MAP_OTBM")
-        .unwrap_or_else(|_| "world/forgotten.otbm".to_string());
-    let synthetic_arena = std::env::var("TFS_KITE_SYNTHETIC_ARENA")
-        .is_ok_and(|v| !v.is_empty() && v != "0");
+    let map_rel =
+        std::env::var("TFS_MAP_OTBM").unwrap_or_else(|_| "world/forgotten.otbm".to_string());
+    let synthetic_arena =
+        std::env::var("TFS_KITE_SYNTHETIC_ARENA").is_ok_and(|v| !v.is_empty() && v != "0");
     SimMapConfig {
         data_dir,
         map_rel,
@@ -781,7 +781,9 @@ pub fn insert_monster_with_config(
     };
     let cid = world
         .creatures
-        .insert(CreatureKind::Monster(Monster::with_config(base, pos, config)));
+        .insert(CreatureKind::Monster(Monster::with_config(
+            base, pos, config,
+        )));
     world.map.register_creature_at(pos, cid);
     cid
 }
@@ -837,7 +839,9 @@ pub fn insert_monster_from_type(
     };
     let cid = world
         .creatures
-        .insert(CreatureKind::Monster(Monster::with_config(base, pos, config)));
+        .insert(CreatureKind::Monster(Monster::with_config(
+            base, pos, config,
+        )));
     if world.beat_driven_loop {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
             m.experience = mtype.experience;
@@ -1166,7 +1170,11 @@ pub fn write_fill_walkable_dump_json(
 
     let (state, tiles) =
         world.dump_tshortway_fill_walkable_viewport(cid, target, REVERSE_PATH_VIEW_RADIUS);
-    let origin = world.creatures.get(cid).map(|k| k.position()).unwrap_or(target);
+    let origin = world
+        .creatures
+        .get(cid)
+        .map(|k| k.position())
+        .unwrap_or(target);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -1191,11 +1199,7 @@ pub fn write_fill_walkable_dump_json(
         writeln!(
             out,
             "    {{\"x\":{},\"y\":{},\"z\":{},\"wp\":{},\"walkable\":{}}}{comma}",
-            pos.x,
-            pos.y,
-            pos.z,
-            wp,
-            walkable
+            pos.x, pos.y, pos.z, wp, walkable
         )?;
     }
     writeln!(out, "  ]")?;
@@ -1293,7 +1297,10 @@ mod harness_tests {
         let pos = Position::new(100, 100, 7);
         assert!(world.map.is_walkable(pos));
         assert_eq!(world.map.get_tile(pos).unwrap().body().ground, Some(102));
-        assert_eq!(world.tile_ground_speed(world.map.get_tile(pos).unwrap().body()), 150);
+        assert_eq!(
+            world.tile_ground_speed(world.map.get_tile(pos).unwrap().body()),
+            150
+        );
     }
 
     #[test]
@@ -1394,10 +1401,9 @@ mod harness_tests {
         run_sim_tick(&mut world);
         for &mid in &monster_ids {
             assert!(
-                world
-                    .creatures
-                    .get(mid)
-                    .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)),
+                world.creatures.get(mid).is_some_and(
+                    |k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)
+                ),
                 "defer flag must stay set after appear-step drain"
             );
             assert_eq!(
@@ -1412,10 +1418,9 @@ mod harness_tests {
         run_sim_tick(&mut world);
         for &mid in &monster_ids {
             assert!(
-                world
-                    .creatures
-                    .get(mid)
-                    .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)),
+                world.creatures.get(mid).is_some_and(
+                    |k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)
+                ),
                 "kite move must not clear defer before first idle"
             );
             assert!(
@@ -1428,10 +1433,9 @@ mod harness_tests {
         run_sim_tick(&mut world);
         assert!(
             monster_ids.iter().any(|&mid| {
-                world
-                    .creatures
-                    .get(mid)
-                    .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.harness_defer_appear_idle))
+                world.creatures.get(mid).is_some_and(
+                    |k| matches!(k, CreatureKind::Monster(m) if !m.harness_defer_appear_idle),
+                )
             }),
             "at least one monster must clear defer after 2000ms idle"
         );
@@ -1623,8 +1627,7 @@ mod harness_tests {
         ) else {
             return;
         };
-        let Ok((nw_id, _player_id, player_pos)) =
-            setup_cyclops_quad_chase_to_tick_2000(&mut world)
+        let Ok((nw_id, _player_id, player_pos)) = setup_cyclops_quad_chase_to_tick_2000(&mut world)
         else {
             return;
         };
@@ -1651,21 +1654,19 @@ mod harness_tests {
             Position::new(32360, 32289, 7),
         ];
         for pos in priority {
-            let Some(TShortwayFillTile { walkable, wp, .. }) =
-                tiles.iter().find(|t| t.pos == pos)
+            let Some(TShortwayFillTile { walkable, wp, .. }) = tiles.iter().find(|t| t.pos == pos)
             else {
                 panic!("priority tile {pos:?} missing from viewport dump");
             };
             eprintln!("fill_walkable {pos:?} walkable={walkable} wp={wp}");
         }
 
-        if std::env::var("TFS_FILLMAP_DUMP")
-            .is_ok_and(|v| !v.is_empty() && v != "0")
-        {
+        if std::env::var("TFS_FILLMAP_DUMP").is_ok_and(|v| !v.is_empty() && v != "0") {
             let out = std::env::var("TFS_FILLMAP_DUMP_PATH")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| {
-                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../log/fill_walkable_rust_nw.json")
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../log/fill_walkable_rust_nw.json")
                 });
             write_fill_walkable_dump_json(&world, nw_id, player_pos, &out)
                 .expect("write fill_walkable dump");
@@ -1697,12 +1698,8 @@ mod harness_tests {
             .expect("kite to tick 4000");
 
         set_sim_harness_wall_ms(&mut world, Some(6_000));
-        teleport_player(
-            &mut world,
-            player_id,
-            Position::new(32363, 32292, 7),
-        )
-        .expect("final north kite");
+        teleport_player(&mut world, player_id, Position::new(32363, 32292, 7))
+            .expect("final north kite");
         run_sim_tick(&mut world);
         assert_eq!(world.server_ms, 6_000);
         assert!(

@@ -21,16 +21,14 @@ fn direction_to_u8(d: Direction) -> u8 {
         Direction::East => 1,
         Direction::South => 2,
         Direction::West => 3,
-        Direction::SouthWest | Direction::NorthWest | Direction::NorthEast | Direction::SouthEast => 2,
+        Direction::SouthWest
+        | Direction::NorthWest
+        | Direction::NorthEast
+        | Direction::SouthEast => 2,
     }
 }
 
-fn item_to_record(
-    world: &GameWorld,
-    pid: i32,
-    sid: i32,
-    item_id: ItemId,
-) -> Result<ItemRecord> {
+fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Result<ItemRecord> {
     let Some(item) = world.items.get(item_id) else {
         return Err(TfsRustError::Protocol(format!(
             "build_player_save_data: item {item_id:?} missing from SlotMap",
@@ -127,7 +125,8 @@ impl GameWorld {
         row.soul = player.economy.soul.max(0) as u32;
         row.town_id = player.town_id;
         row.stamina = player.stamina_minutes;
-        row.offlinetraining_time = (player.offline_training_ms / 1000).min(u32::from(u16::MAX)) as u16;
+        row.offlinetraining_time =
+            (player.offline_training_ms / 1000).min(u32::from(u16::MAX)) as u16;
         row.balance = player.economy.balance;
         row.direction = direction_to_u8(player.base.direction);
         row.skull = player.base.skull as u8 as i8;
@@ -147,10 +146,7 @@ impl GameWorld {
         row.lastlogout = now;
         if baseline.player_row.lastlogin > 0 {
             let delta = (now.saturating_sub(baseline.player_row.lastlogin)) as i64;
-            row.onlinetime = baseline
-                .player_row
-                .onlinetime
-                .saturating_add(delta);
+            row.onlinetime = baseline.player_row.onlinetime.saturating_add(delta);
         }
 
         let mut roots: Vec<(i32, ItemId)> = Vec::new();

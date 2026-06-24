@@ -5,7 +5,9 @@ use tfs_rust_common::{PropStream, PropWriteStream, Result as TfsResult};
 use tfs_rust_content::items::ItemDatabase;
 
 use crate::item::Item;
-use crate::item_attributes::{AttrType, CustomAttrValue, DecayState, ItemAttrFlags, ItemAttributes};
+use crate::item_attributes::{
+    AttrType, CustomAttrValue, DecayState, ItemAttrFlags, ItemAttributes,
+};
 
 /// Result of parsing a persisted item attribute blob.
 pub struct ParsedItemBlob {
@@ -225,9 +227,8 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
     let mut w = PropWriteStream::new();
     let it = items_db.items.get(&item.item_type);
 
-    let stackable_or_fluid = it.is_some_and(|t| {
-        t.stackable() || t.is_fluid_container() || t.is_splash()
-    });
+    let stackable_or_fluid =
+        it.is_some_and(|t| t.stackable() || t.is_fluid_container() || t.is_splash());
     if stackable_or_fluid {
         w.write_u8(AttrType::Count as u8);
         w.write_u8(item.client_count());
@@ -396,7 +397,13 @@ mod write_roundtrip_tests {
         let item = Item::new_single(99);
         let blob = write_item_blob(&item, &db);
         let parsed = parse_item_blob(&blob, false).expect("parse");
-        assert_eq!(parsed.attrs.attribute_bits(), item.attributes.as_deref().map(|a| a.attribute_bits()).unwrap_or(0));
+        assert_eq!(
+            parsed.attrs.attribute_bits(),
+            item.attributes
+                .as_deref()
+                .map(|a| a.attribute_bits())
+                .unwrap_or(0)
+        );
     }
 
     #[test]

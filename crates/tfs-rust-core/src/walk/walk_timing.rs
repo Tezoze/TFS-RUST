@@ -48,7 +48,9 @@ fn go_strength_for_walk(
     match role {
         WalkSpeedRole::Player => match mech.profile.step_speed {
             // TFS `Player::getStepSpeed` clamps linear speed (`src/player.h`).
-            crate::formulas::StepSpeedModel::TfsLog => raw.clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED),
+            crate::formulas::StepSpeedModel::TfsLog => {
+                raw.clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED)
+            }
             // 772 wire + walk GoStrength (`baseSpeed`); effective `GetSpeed` is for server timers only.
             crate::formulas::StepSpeedModel::LinearGo => raw.max(0),
         },
@@ -109,7 +111,9 @@ fn linear_go_speed_from_profile(go: i32, mech: &crate::formulas::Mechanics) -> i
             crate::formulas::linear_go_effective_speed(go)
         }
         PlayerSpeedModel::Retail1098 => tfs_retail_log_speed(go).max(1),
-        PlayerSpeedModel::BalancedLog => crate::formulas::linear_go_effective_speed(balanced_softened_go(go)),
+        PlayerSpeedModel::BalancedLog => {
+            crate::formulas::linear_go_effective_speed(balanced_softened_go(go))
+        }
     }
 }
 
@@ -252,8 +256,10 @@ fn completed_step_duration_ms(
         crate::formulas::StepSpeedModel::LinearGo => {
             linear_go_step_duration_ms(kind, base, ground_speed, base.last_step_cost.max(1), mech)
         }
-        crate::formulas::StepSpeedModel::TfsLog => get_step_duration(kind, base, ground_speed, mech)
-            .saturating_mul(base.last_step_cost as i64),
+        crate::formulas::StepSpeedModel::TfsLog => {
+            get_step_duration(kind, base, ground_speed, mech)
+                .saturating_mul(base.last_step_cost as i64)
+        }
     }
 }
 
@@ -272,8 +278,10 @@ fn upcoming_step_duration_ms(
                 .unwrap_or(1);
             linear_go_step_duration_ms(kind, base, ground_speed, cost, mech)
         }
-        crate::formulas::StepSpeedModel::TfsLog => get_step_duration(kind, base, ground_speed, mech)
-            .saturating_mul(base.last_step_cost as i64),
+        crate::formulas::StepSpeedModel::TfsLog => {
+            get_step_duration(kind, base, ground_speed, mech)
+                .saturating_mul(base.last_step_cost as i64)
+        }
     }
 }
 
@@ -304,7 +312,10 @@ pub(crate) fn get_step_duration_ms_with_direction(
 }
 
 /// TFS `Creature::onCreatureMove` — `lastStepCost` (`creature.cpp` ~489–499).
-pub(crate) fn last_step_cost_for_move(old_pos: tfs_rust_common::Position, new_pos: tfs_rust_common::Position) -> u32 {
+pub(crate) fn last_step_cost_for_move(
+    old_pos: tfs_rust_common::Position,
+    new_pos: tfs_rust_common::Position,
+) -> u32 {
     if old_pos.z != new_pos.z {
         2
     } else if (old_pos.x as i32 - new_pos.x as i32).abs() >= 1

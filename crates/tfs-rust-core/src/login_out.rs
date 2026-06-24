@@ -5,24 +5,24 @@ use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use slotmap::Key;
-use tracing::warn;
 use tfs_rust_common::enums::{ConditionType, SkullType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
+use tracing::warn;
 
 use crate::creature::CreatureKind;
 use crate::creature::LightInfo;
 use crate::game_world::GameWorld;
-use crate::walk::{wire_step_speed, WalkSpeedRole};
 use crate::ids::CreatureId;
+use crate::walk::{wire_step_speed, WalkSpeedRole};
 use crate::{Monster, Npc, Outfit, Player};
 
+use tfs_rust_net::codec::{ItemTemplateArgs, PlayerSkillsWire};
 use tfs_rust_net::creature_encode::{AddCreatureWire, OutfitWire};
 use tfs_rust_net::map_description::{
     send_map_description_packet, send_map_description_stub, ItemStack, TileContent,
 };
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
-use tfs_rust_net::codec::{ItemTemplateArgs, PlayerSkillsWire};
 use tfs_rust_net::outgoing_extra::{
     send_enter_world, send_fight_modes, send_icons, send_icons_772, send_inventory_slot_empty,
     send_otc_features_raw, send_pending_state_entered, send_unjustified_stats_stub, send_vip_entry,
@@ -64,7 +64,6 @@ fn health_percent(cur: i32, max_hp: i32) -> u8 {
     }
     ((cur.max(0) as u64 * 100) / max_hp as u64).min(100) as u8
 }
-
 
 /// Non-player creatures: use slot key index (low 32 bits of `KeyData::as_ffi`) as protocol id until a global id allocator exists.
 fn non_player_wire_id(cid: CreatureId) -> u32 {
@@ -215,8 +214,13 @@ pub(crate) fn map_tile_content(
     };
     let viewer_access = world.player_is_access_player(self_cid);
     let self_light = world.player_creature_light(self_cid);
-    let self_wire =
-        player_to_add_creature_wire(self_player, true, self_light, viewer_access, &world.mechanics);
+    let self_wire = player_to_add_creature_wire(
+        self_player,
+        true,
+        self_light,
+        viewer_access,
+        &world.mechanics,
+    );
     let self_guid = self_player.guid;
 
     let px = player_pos.x as i32;
@@ -274,21 +278,30 @@ pub(crate) fn map_tile_content(
                     if p.ghost_mode && ocid != self_cid {
                         continue;
                     }
-                    if p.base.active_conditions.iter().any(|c| c.ctype == ConditionType::Invisible)
+                    if p.base
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Invisible)
                         && ocid != self_cid
                     {
                         continue;
                     }
                 }
                 if let CreatureKind::Monster(m) = k {
-                    if m.base.active_conditions.iter().any(|c| c.ctype == ConditionType::Invisible)
+                    if m.base
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Invisible)
                         && ocid != self_cid
                     {
                         continue;
                     }
                 }
                 if let CreatureKind::Npc(n) = k {
-                    if n.base.active_conditions.iter().any(|c| c.ctype == ConditionType::Invisible)
+                    if n.base
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Invisible)
                         && ocid != self_cid
                     {
                         continue;
@@ -521,7 +534,9 @@ fn enqueue_initial_login_packets_772(
     let pl = world.player_creature_light(creature_id);
     world.enqueue_encoded(
         conn_id,
-        world.codec.encode_creature_light(pid, pl.level, pl.color, false),
+        world
+            .codec
+            .encode_creature_light(pid, pl.level, pl.color, false),
     );
 
     // VIP entries, then status icons (`0xA2` + `u8` in 772 — `sendIcons(uint16_t)` truncates to a byte).
@@ -530,8 +545,15 @@ fn enqueue_initial_login_packets_772(
         let status = if online { 1 } else { 0 };
         world.enqueue_outgoing(
             conn_id,
-            send_vip_entry(e.player_id, &e.name, &e.description, e.icon, e.notify, status)
-                .into_bytes(),
+            send_vip_entry(
+                e.player_id,
+                &e.name,
+                &e.description,
+                e.icon,
+                e.notify,
+                status,
+            )
+            .into_bytes(),
         );
     }
     world.enqueue_outgoing(conn_id, send_icons_772(0).into_bytes());
@@ -604,10 +626,7 @@ fn enqueue_initial_login_packets_1098(
     let additional_skill_levels = [0u16; 6];
     let additional_skill_bases = [0u16; 6];
 
-    let free_premium = world
-        .config
-        .get_bool("freePremium")
-        .unwrap_or(false);
+    let free_premium = world.config.get_bool("freePremium").unwrap_or(false);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -711,7 +730,9 @@ fn enqueue_initial_login_packets_1098(
     let pl = world.player_creature_light(creature_id);
     world.enqueue_encoded(
         conn_id,
-        world.codec.encode_creature_light(pid, pl.level, pl.color, false),
+        world
+            .codec
+            .encode_creature_light(pid, pl.level, pl.color, false),
     );
     for e in &vip_list {
         let online = world.player_by_guid.contains_key(&e.player_id);

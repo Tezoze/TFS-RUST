@@ -15,8 +15,7 @@ static SIM_RNG_CALLS: AtomicU64 = AtomicU64::new(0);
 /// One-time enable from [`crate::game_world::GameWorld::init_sim_rng_from_env`].
 pub fn enable_sim_glibc_rng() {
     SIM_GLIBC_RNG.store(true, Ordering::Relaxed);
-    let trace = std::env::var("TFS_SIM_RNG_TRACE")
-        .is_ok_and(|v| !v.is_empty() && v != "0");
+    let trace = std::env::var("TFS_SIM_RNG_TRACE").is_ok_and(|v| !v.is_empty() && v != "0");
     SIM_RNG_TRACE.store(trace, Ordering::Relaxed);
     SIM_RNG_CALLS.store(0, Ordering::Relaxed);
 }

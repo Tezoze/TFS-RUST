@@ -47,7 +47,12 @@ impl GameWorld {
 
     /// Resolve a client-encoded position to a `Thing` (item or creature on a tile).
     // C++ ref: src/game.cpp:213 Game::internalGetThing (STACKPOS_MOVE path)
-    pub fn internal_get_thing_move(&self, cid: CreatureId, pos: Position, _stack_pos: u8) -> Option<Thing> {
+    pub fn internal_get_thing_move(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        _stack_pos: u8,
+    ) -> Option<Thing> {
         if pos.x != 0xFFFF {
             let tile = self.map.get_tile(pos)?;
             // STACKPOS_MOVE: prefer top moveable down item, else top visible creature
@@ -70,7 +75,9 @@ impl GameWorld {
         if pos.y & 0x40 != 0 {
             let client_cid = (pos.y & 0x0F) as u8;
             let slot = pos.z as usize;
-            let container_id = self.container_registry.get_container_by_cid(cid, client_cid)?;
+            let container_id = self
+                .container_registry
+                .get_container_by_cid(cid, client_cid)?;
             let c = self.container_registry.get(container_id)?;
             let iid = c.get_item(slot)?;
             return Some(Thing::Item(iid));
@@ -85,7 +92,12 @@ impl GameWorld {
 
     /// C++ `Game::internalGetThing` with `STACKPOS_LOOK` — `game.cpp` ~223–224.
     /// Client `stack_pos` is ignored for map tiles (uses `getTopVisibleThing`).
-    pub fn internal_get_thing_look(&self, cid: CreatureId, pos: Position, _stack_pos: u8) -> Option<LookTarget> {
+    pub fn internal_get_thing_look(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        _stack_pos: u8,
+    ) -> Option<LookTarget> {
         if pos.x != 0xFFFF {
             let tile = self.map.get_tile(pos)?;
             return self.top_visible_look_target_on_tile(tile, cid);
@@ -93,7 +105,9 @@ impl GameWorld {
         if pos.y & 0x40 != 0 {
             let client_cid = (pos.y & 0x0F) as u8;
             let slot = pos.z as usize;
-            let container_id = self.container_registry.get_container_by_cid(cid, client_cid)?;
+            let container_id = self
+                .container_registry
+                .get_container_by_cid(cid, client_cid)?;
             let c = self.container_registry.get(container_id)?;
             let iid = c.get_item(slot)?;
             return Some(LookTarget::Item(iid));
@@ -167,7 +181,11 @@ impl GameWorld {
     }
 
     /// Validate that an item exists in the specified cylinder.
-    pub(crate) fn validate_item_in_cylinder(&self, cylinder: &Cylinder, item_id: ItemId) -> Result<(), ReturnValue> {
+    pub(crate) fn validate_item_in_cylinder(
+        &self,
+        cylinder: &Cylinder,
+        item_id: ItemId,
+    ) -> Result<(), ReturnValue> {
         match cylinder {
             Cylinder::Tile { pos } => {
                 let tile = self.map.get_tile(*pos).ok_or(ReturnValue::NotPossible)?;
@@ -211,7 +229,12 @@ impl GameWorld {
             let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
             item_type = item.item_type;
             item_count = item.count;
-            is_stackable = self.items_db.items.get(&item.item_type).map(|t| t.stackable()).unwrap_or(false);
+            is_stackable = self
+                .items_db
+                .items
+                .get(&item.item_type)
+                .map(|t| t.stackable())
+                .unwrap_or(false);
         }
 
         // Try stackable merge
@@ -235,7 +258,9 @@ impl GameWorld {
                         target.count += can_add;
                     }
                     // Get stack pos for update packet
-                    let stack_pos = self.map.get_tile(pos)
+                    let stack_pos = self
+                        .map
+                        .get_tile(pos)
                         .and_then(|t| t.get_item_stack_pos(target_id))
                         .unwrap_or(0);
                     self.broadcast_tile_item_update(pos, target_id, stack_pos);
@@ -274,7 +299,12 @@ impl GameWorld {
         count: u16,
     ) -> Result<(), ReturnValue> {
         let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
-        let is_stackable = self.items_db.items.get(&item.item_type).map(|t| t.stackable()).unwrap_or(false);
+        let is_stackable = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
         let item_count = item.count;
 
         if is_stackable && count < item_count {
@@ -282,13 +312,17 @@ impl GameWorld {
             if let Some(item) = self.items.get_mut(item_id) {
                 item.count -= count;
             }
-            let stack_pos = self.map.get_tile(pos)
+            let stack_pos = self
+                .map
+                .get_tile(pos)
                 .and_then(|t| t.get_item_stack_pos(item_id))
                 .unwrap_or(0);
             self.broadcast_tile_item_update(pos, item_id, stack_pos);
         } else {
             // Full removal
-            let stack_pos = self.map.get_tile(pos)
+            let stack_pos = self
+                .map
+                .get_tile(pos)
                 .and_then(|t| t.get_item_stack_pos(item_id))
                 .unwrap_or(0);
             let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;

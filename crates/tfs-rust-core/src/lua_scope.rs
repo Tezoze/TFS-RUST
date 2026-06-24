@@ -6,8 +6,8 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_lua::{
-    self, LuaMutation, with_lua_context, with_lua_mutation_scope,
-    set_mutation_bool_result, set_mutation_item_result,
+    self, set_mutation_bool_result, set_mutation_item_result, with_lua_context,
+    with_lua_mutation_scope, LuaMutation,
 };
 
 fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), String> {
@@ -31,10 +31,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             can_drop_on_map,
             slot,
         } => {
-            let result = unsafe {
-                &mut *world
-            }
-            .lua_script_player_add_item_full(
+            let result = unsafe { &mut *world }.lua_script_player_add_item_full(
                 creature_id,
                 item_type,
                 count,
@@ -53,19 +50,23 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             count,
             sub_type,
             ignore_equipped,
-        } => unsafe {
-            &mut *world
-        }
-        .lua_script_remove_item(creature_id, item_type, count, sub_type, ignore_equipped),
+        } => unsafe { &mut *world }.lua_script_remove_item(
+            creature_id,
+            item_type,
+            count,
+            sub_type,
+            ignore_equipped,
+        ),
         LuaMutation::PlayerGetDepotChest {
             creature_id,
             depot_id,
             auto_create,
         } => {
-            let result = unsafe {
-                &mut *world
-            }
-            .lua_script_get_depot_chest(creature_id, depot_id, auto_create)?;
+            let result = unsafe { &mut *world }.lua_script_get_depot_chest(
+                creature_id,
+                depot_id,
+                auto_create,
+            )?;
             if let Some(id) = result {
                 set_mutation_item_result(id);
             }
@@ -99,27 +100,27 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             index,
             flags,
         } => {
-            let result = unsafe {
-                &mut *world
-            }
-            .lua_script_container_add_item(container_id, item_type, count, index, flags)?;
+            let result = unsafe { &mut *world }.lua_script_container_add_item(
+                container_id,
+                item_type,
+                count,
+                index,
+                flags,
+            )?;
             if let Some(id) = result {
                 set_mutation_item_result(id);
             }
             Ok(())
         }
-        LuaMutation::ItemSetActionId {
-            item_id,
-            action_id,
-        } => unsafe { &mut *world }.lua_script_set_action_id(item_id, action_id),
-        LuaMutation::ItemSetUniqueId {
-            item_id,
-            unique_id,
-        } => unsafe { &mut *world }.lua_script_set_unique_id(item_id, unique_id),
-        LuaMutation::ItemSetStoreItem { item_id, store } => unsafe {
-            &mut *world
+        LuaMutation::ItemSetActionId { item_id, action_id } => {
+            unsafe { &mut *world }.lua_script_set_action_id(item_id, action_id)
         }
-        .lua_script_set_store_item(item_id, store),
+        LuaMutation::ItemSetUniqueId { item_id, unique_id } => {
+            unsafe { &mut *world }.lua_script_set_unique_id(item_id, unique_id)
+        }
+        LuaMutation::ItemSetStoreItem { item_id, store } => {
+            unsafe { &mut *world }.lua_script_set_store_item(item_id, store)
+        }
     }
 }
 

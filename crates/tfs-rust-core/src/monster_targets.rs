@@ -86,7 +86,11 @@ impl GameWorld {
             self.monster_on_creature_found(cid, other, false);
         }
     }
-    pub(crate) fn monster_remove_creature_from_lists(&mut self, monster_id: CreatureId, creature_id: CreatureId) {
+    pub(crate) fn monster_remove_creature_from_lists(
+        &mut self,
+        monster_id: CreatureId,
+        creature_id: CreatureId,
+    ) {
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
             m.opponent_ids.retain(|&id| id != creature_id);
             m.friend_ids.retain(|&id| id != creature_id);
@@ -114,7 +118,12 @@ impl GameWorld {
         }
     }
 
-    pub(crate) fn monster_creature_visible_to(&self, viewer: CreatureId, viewer_pos: Position, other: CreatureId) -> bool {
+    pub(crate) fn monster_creature_visible_to(
+        &self,
+        viewer: CreatureId,
+        viewer_pos: Position,
+        other: CreatureId,
+    ) -> bool {
         let Some(other_kind) = self.creatures.get(other) else {
             return false;
         };
@@ -134,7 +143,12 @@ impl GameWorld {
     }
 
     /// TFS `Monster::onCreatureFound` — `monster.cpp` ~414.
-    pub(crate) fn monster_on_creature_found(&mut self, monster_id: CreatureId, creature_id: CreatureId, push_front: bool) {
+    pub(crate) fn monster_on_creature_found(
+        &mut self,
+        monster_id: CreatureId,
+        creature_id: CreatureId,
+        push_front: bool,
+    ) {
         if creature_id == monster_id {
             return;
         }
@@ -225,7 +239,8 @@ impl GameWorld {
         preferred: Option<CreatureId>,
     ) {
         if self.creatures.get(monster_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(m) if m.base.is_summon()) || k.base().follow_target.is_some()
+            matches!(k, CreatureKind::Monster(m) if m.base.is_summon())
+                || k.base().follow_target.is_some()
         }) {
             return;
         }
@@ -240,7 +255,11 @@ impl GameWorld {
         self.monster_search_target(monster_id, TargetSearchType::Default);
     }
 
-    pub(crate) fn monster_is_friend(&self, monster_id: CreatureId, creature_id: CreatureId) -> bool {
+    pub(crate) fn monster_is_friend(
+        &self,
+        monster_id: CreatureId,
+        creature_id: CreatureId,
+    ) -> bool {
         let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
             return false;
         };
@@ -250,7 +269,11 @@ impl GameWorld {
         matches!(self.creatures.get(creature_id), Some(CreatureKind::Monster(other)) if !other.base.is_summon())
     }
 
-    pub(crate) fn monster_is_opponent(&self, monster_id: CreatureId, creature_id: CreatureId) -> bool {
+    pub(crate) fn monster_is_opponent(
+        &self,
+        monster_id: CreatureId,
+        creature_id: CreatureId,
+    ) -> bool {
         let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
             return false;
         };
@@ -285,17 +308,26 @@ impl GameWorld {
     }
 
     /// Ensure `opponent_id` is in the monster target list before `selectTarget` / move-acquire paths.
-    pub(crate) fn monster_ensure_opponent_listed(&mut self, monster_id: CreatureId, opponent_id: CreatureId) {
-        let already = self.creatures.get(monster_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&opponent_id))
-        });
+    pub(crate) fn monster_ensure_opponent_listed(
+        &mut self,
+        monster_id: CreatureId,
+        opponent_id: CreatureId,
+    ) {
+        let already = self.creatures.get(monster_id).is_some_and(
+            |k| matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&opponent_id)),
+        );
         if !already {
             self.monster_add_opponent(monster_id, opponent_id, true);
             self.monster_update_idle_status(monster_id);
         }
     }
 
-    pub(crate) fn monster_add_opponent(&mut self, monster_id: CreatureId, opponent_id: CreatureId, push_front: bool) {
+    pub(crate) fn monster_add_opponent(
+        &mut self,
+        monster_id: CreatureId,
+        opponent_id: CreatureId,
+        push_front: bool,
+    ) {
         let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) else {
             return;
         };
@@ -312,9 +344,7 @@ impl GameWorld {
     /// TFS `Monster::updateIdleStatus` / `setIdle` — `monster.cpp` ~700–711.
     pub fn monster_update_idle_status(&mut self, cid: CreatureId) {
         let idle = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => {
-                !m.base.is_summon() && m.opponent_ids.is_empty()
-            }
+            Some(CreatureKind::Monster(m)) => !m.base.is_summon() && m.opponent_ids.is_empty(),
             _ => return,
         };
         self.monster_set_idle(cid, idle);
@@ -390,7 +420,12 @@ impl GameWorld {
     }
 
     /// TFS `Monster::canUseAttack` — `monster.cpp` ~876.
-    pub fn monster_can_use_attack(&self, monster_id: CreatureId, pos: Position, target_id: CreatureId) -> bool {
+    pub fn monster_can_use_attack(
+        &self,
+        monster_id: CreatureId,
+        pos: Position,
+        target_id: CreatureId,
+    ) -> bool {
         let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
             return false;
         };
@@ -432,12 +467,20 @@ impl GameWorld {
     }
 
     /// TFS `Monster::searchTarget` — `monster.cpp` ~517.
-    pub fn monster_search_target(&mut self, monster_id: CreatureId, search_type: TargetSearchType) -> bool {
+    pub fn monster_search_target(
+        &mut self,
+        monster_id: CreatureId,
+        search_type: TargetSearchType,
+    ) -> bool {
         let (pos, opponents, follow) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
                 return false;
             };
-            (m.base.position, m.opponent_ids.clone(), m.base.follow_target)
+            (
+                m.base.position,
+                m.opponent_ids.clone(),
+                m.base.follow_target,
+            )
         };
 
         let mut result_list: Vec<CreatureId> = Vec::new();
@@ -507,7 +550,9 @@ impl GameWorld {
                     return self.monster_select_target(monster_id, oid);
                 }
             }
-            TargetSearchType::Default | TargetSearchType::Random | TargetSearchType::AttackRange => {
+            TargetSearchType::Default
+            | TargetSearchType::Random
+            | TargetSearchType::AttackRange => {
                 if !result_list.is_empty() {
                     let idx = if result_list.len() == 1 {
                         0
@@ -531,14 +576,17 @@ impl GameWorld {
     }
 
     /// TFS `Monster::selectTarget` — `monster.cpp` ~662.
-    pub(crate) fn monster_select_target(&mut self, monster_id: CreatureId, target_id: CreatureId) -> bool {
+    pub(crate) fn monster_select_target(
+        &mut self,
+        monster_id: CreatureId,
+        target_id: CreatureId,
+    ) -> bool {
         if !self.monster_is_target(monster_id, target_id) {
             return false;
         }
-        let in_list = self
-            .creatures
-            .get(monster_id)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&target_id)));
+        let in_list = self.creatures.get(monster_id).is_some_and(
+            |k| matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&target_id)),
+        );
         if !in_list {
             return false;
         }
@@ -558,7 +606,11 @@ impl GameWorld {
         ret
     }
     /// TFS `Creature::setFollowCreature` — `creature.cpp` ~1058.
-    pub(crate) fn monster_set_follow_creature(&mut self, monster_id: CreatureId, target: Option<CreatureId>) -> bool {
+    pub(crate) fn monster_set_follow_creature(
+        &mut self,
+        monster_id: CreatureId,
+        target: Option<CreatureId>,
+    ) -> bool {
         let Some(target_id) = target else {
             if let Some(k) = self.creatures.get_mut(monster_id) {
                 let base = k.base_mut();

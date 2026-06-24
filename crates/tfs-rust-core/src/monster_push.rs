@@ -40,12 +40,7 @@ impl GameWorld {
     }
 
     /// TFS `Monster::pushCreatures(Tile*)` — shuffle-push pushable monsters; kill on failure.
-    fn monster_push_creatures_on_tile(
-        &mut self,
-        dest: Position,
-        mover: CreatureId,
-        now: Instant,
-    ) {
+    fn monster_push_creatures_on_tile(&mut self, dest: Position, mover: CreatureId, now: Instant) {
         let blockers: Vec<CreatureId> = self
             .map
             .get_tile(dest)
@@ -69,9 +64,7 @@ impl GameWorld {
             if !m.is_pushable() {
                 continue;
             }
-            if last_pushed != Some(blocker)
-                && self.monster_push_creature(blocker, now)
-            {
+            if last_pushed != Some(blocker) && self.monster_push_creature(blocker, now) {
                 last_pushed = Some(blocker);
                 continue;
             }

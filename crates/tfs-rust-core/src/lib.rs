@@ -2,57 +2,43 @@
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
 mod chase_debug;
-pub mod sim_harness;
-mod sim_glibc_rand;
 pub mod combat;
 pub mod condition;
 pub mod config;
+pub mod container;
+mod container_ops;
+mod container_ui;
 pub mod creature;
 mod creature_think;
 mod creature_todo;
-mod idle_stimulus;
+pub mod cylinder;
 mod death;
 mod decay;
 pub mod event_dispatcher;
+mod floor_change_use;
 pub mod formulas;
 pub mod game_loop;
 pub mod game_world;
+mod game_world_inventory;
+mod game_world_item_cylinder;
+mod game_world_item_move;
+mod game_world_lifecycle;
+mod game_world_player;
+mod game_world_player_throw;
+mod game_world_save;
+mod game_world_script;
+mod game_world_spectators;
+mod game_world_tick;
 pub mod guild;
 pub mod house;
+mod idle_stimulus;
 pub mod ids;
+pub mod inventory;
 pub mod item;
 pub mod item_attributes;
 mod item_blob;
 mod item_constants;
 mod item_look;
-pub mod inventory;
-mod player_flags;
-mod player_inventory_load;
-mod player_inventory_notifications;
-mod player_inventory_query_add;
-mod player_inventory_util;
-mod player_lua_context;
-mod player_depot;
-mod floor_change_use;
-#[cfg(test)]
-mod test_world;
-mod player_ping;
-mod game_world_inventory;
-mod game_world_save;
-mod game_world_tick;
-mod game_world_lifecycle;
-mod game_world_spectators;
-mod game_world_item_cylinder;
-mod game_world_item_move;
-mod game_world_player_throw;
-mod game_world_player;
-mod game_world_script;
-mod container_ui;
-pub mod container;
-mod container_ops;
-pub mod cylinder;
-pub mod thing;
-pub mod return_value;
 pub mod login;
 mod login_out;
 pub mod lua_command;
@@ -60,23 +46,37 @@ pub mod lua_event_dispatcher;
 pub mod lua_scope;
 pub mod map;
 pub mod matrix_area;
+mod monster_ai;
+mod monster_distance_step;
+mod monster_events;
+mod monster_push;
+mod monster_targets;
 pub mod output_queue;
 pub mod party;
 pub mod pathfinding;
+mod player_depot;
+mod player_flags;
+mod player_inventory_load;
+mod player_inventory_notifications;
+mod player_inventory_query_add;
+mod player_inventory_util;
+mod player_lua_context;
+mod player_ping;
 pub mod protocol_hooks;
+pub mod return_value;
 mod run_server;
 pub mod scheduler;
-mod monster_push;
-mod monster_ai;
-mod monster_events;
-mod monster_targets;
-mod monster_distance_step;
-mod spawn_lifecycle;
+mod sim_glibc_rand;
+pub mod sim_harness;
 pub mod spawn;
+mod spawn_lifecycle;
 pub mod spell;
 pub mod stability;
-pub mod tile;
 mod subsystem_counters_772;
+#[cfg(test)]
+mod test_world;
+pub mod thing;
+pub mod tile;
 mod todo_queue;
 pub mod walk;
 pub mod walk_action;
@@ -90,33 +90,33 @@ pub use combat::{
 };
 pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
 pub use config::ConfigManager;
+pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
+pub use creature::{
+    CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc,
+    NpcEventsHandler, NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory,
+    PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+};
+pub use cylinder::{
+    Cylinder, CylinderFlags, CylinderLink, CylinderType, VirtualCylinder, INDEX_ADD_WHEREVER,
+    INDEX_MOVE_UP, INDEX_WHEREEVER,
+};
+pub use event_dispatcher::{EventDispatcher, NullEventDispatcher};
 pub use formulas::{
     load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DistanceKeep, FightModes,
     FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, PathCostModel, PathSearchModel,
-    SpawnNearPlayer,
-    SpellCoeff, TickSpec, WeakestTargetMetric,
+    SpawnNearPlayer, SpellCoeff, TickSpec, WeakestTargetMetric,
 };
-pub use creature::{
-    CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc, NpcEventsHandler,
-    NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
-    PlayerSkills, PlayerSocial,
-};
-pub use event_dispatcher::{EventDispatcher, NullEventDispatcher};
 pub use game_loop::{
-    graceful_shutdown, run_game_loop, run_game_loop_1098, run_game_loop_772, wait_for_shutdown_signal,
+    graceful_shutdown, run_game_loop, run_game_loop_1098, run_game_loop_772,
+    wait_for_shutdown_signal,
 };
 pub use game_world::GameWorld;
 pub use guild::{Guild, GuildRank, GuildRegistry, GuildWarTracker};
 pub use ids::{CreatureId, ItemId};
-pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
-pub use cylinder::{
-    Cylinder, CylinderFlags, CylinderLink, CylinderType, VirtualCylinder, INDEX_ADD_WHEREVER, INDEX_MOVE_UP,
-    INDEX_WHEREEVER,
-};
 pub use item::{Item, ItemPosition};
-pub use item_attributes::{AttrType, CustomAttrValue, CustomAttributeMap, DecayState, ItemAttrFlags, ItemAttributes};
-pub use return_value::ReturnValue;
-pub use thing::{LookTarget, Thing};
+pub use item_attributes::{
+    AttrType, CustomAttrValue, CustomAttributeMap, DecayState, ItemAttrFlags, ItemAttributes,
+};
 pub use lua_command::LuaCommand;
 pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;
@@ -127,16 +127,17 @@ pub use pathfinding::{
     MAP_NORMAL_WALK_COST,
 };
 pub use protocol_hooks::{NullProtocolHooks, ProtocolHooks, SharedProtocolHooks};
+pub use return_value::ReturnValue;
 pub use run_server::run;
 pub use scheduler::Scheduler;
 pub use spell::{
     can_cast_instant, matrix_tile_offsets, register_cast_cooldowns, SpellDefinition,
     SpellFailReason,
 };
+pub use thing::{LookTarget, Thing};
 pub use tile::Tile;
 pub use weapon::{
     max_melee_damage_monster, max_weapon_damage_distance_core, max_weapon_damage_melee,
     roll_distance_player_damage, roll_melee_player_damage, roll_wand_damage,
 };
 pub use wildcard::WildcardTree;
-

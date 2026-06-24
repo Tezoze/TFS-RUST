@@ -140,7 +140,10 @@ impl GameWorld {
                     if let Some(cont) = registry.get_mut(parent_id) {
                         let _ = cont.add_item(item_id);
                     }
-                    if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                    if self
+                        .items_db
+                        .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                    {
                         self.ensure_container_registered(
                             &mut registry,
                             item_id,
@@ -200,13 +203,10 @@ impl GameWorld {
 
         let mut registry = std::mem::take(&mut self.container_registry);
 
-        let store_root = self
-            .creatures
-            .get(cid)
-            .and_then(|k| match k {
-                CreatureKind::Player(p) => p.equipment_slots[10],
-                _ => None,
-            });
+        let store_root = self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => p.equipment_slots[10],
+            _ => None,
+        });
 
         for rec in sorted.iter().copied() {
             let Some(&item_id) = sid_map.get(&rec.sid) else {
@@ -218,7 +218,10 @@ impl GameWorld {
                     if item_id == root {
                         continue;
                     }
-                    if self.items_db.is_container(self.items.get(root).map(|i| i.item_type).unwrap_or(0)) {
+                    if self
+                        .items_db
+                        .is_container(self.items.get(root).map(|i| i.item_type).unwrap_or(0))
+                    {
                         self.ensure_container_registered(
                             &mut registry,
                             root,
@@ -229,7 +232,10 @@ impl GameWorld {
                         if let Some(cont) = registry.get_mut(root) {
                             let _ = cont.add_item(item_id);
                         }
-                        if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                        if self
+                            .items_db
+                            .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                        {
                             self.ensure_container_registered(
                                 &mut registry,
                                 item_id,
@@ -256,7 +262,10 @@ impl GameWorld {
                     if let Some(cont) = registry.get_mut(parent_id) {
                         let _ = cont.add_item(item_id);
                     }
-                    if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                    if self
+                        .items_db
+                        .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                    {
                         self.ensure_container_registered(
                             &mut registry,
                             item_id,
@@ -325,7 +334,10 @@ impl GameWorld {
                 if let Some(cont) = registry.get_mut(chest_id) {
                     let _ = cont.add_item(item_id);
                 }
-                if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                if self
+                    .items_db
+                    .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                {
                     self.ensure_container_registered(
                         &mut registry,
                         item_id,
@@ -350,7 +362,10 @@ impl GameWorld {
                     if let Some(cont) = registry.get_mut(parent_id) {
                         let _ = cont.add_item(item_id);
                     }
-                    if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                    if self
+                        .items_db
+                        .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                    {
                         self.ensure_container_registered(
                             &mut registry,
                             item_id,
@@ -414,7 +429,10 @@ impl GameWorld {
                 if let Some(cont) = registry.get_mut(inbox_root) {
                     let _ = cont.add_item(item_id);
                 }
-                if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                if self
+                    .items_db
+                    .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                {
                     self.ensure_container_registered(
                         &mut registry,
                         item_id,
@@ -439,7 +457,10 @@ impl GameWorld {
                     if let Some(cont) = registry.get_mut(parent_id) {
                         let _ = cont.add_item(item_id);
                     }
-                    if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                    if self
+                        .items_db
+                        .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                    {
                         self.ensure_container_registered(
                             &mut registry,
                             item_id,
@@ -540,7 +561,10 @@ mod tests {
                 _ => None,
             })
             .expect("inbox root");
-        let cont = world.container_registry.get(inbox_id).expect("inbox container");
+        let cont = world
+            .container_registry
+            .get(inbox_id)
+            .expect("inbox container");
         assert_eq!(cont.container_type, ContainerType::Inbox);
         assert_eq!(cont.items.len(), 2);
     }

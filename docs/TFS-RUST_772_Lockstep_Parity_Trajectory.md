@@ -1,9 +1,9 @@
 # TFS-RUST 772 — Lockstep Parity Trajectory
 
-**Date:** 2026-06-14  
-**Status:** active plan — post §21 closeout (`4874932`)  
+**Date:** 2026-06-24  
+**Status:** active plan — post §30 X2 follow-up  
 **Audience:** implementing engineer  
-**Goal:** reach **6/6 lockstep PASS** on the synthetic sim battery, then hold the gate as scenarios expand.
+**Goal:** reach **6/6 lockstep PASS** on the synthetic sim battery, then extend the gate to the hunter/dragon scenarios.
 
 **Related docs**
 
@@ -17,15 +17,16 @@
 
 ## 0. Executive summary
 
-| Metric | Today (§27) | Target |
+| Metric | Today (§30) | Target |
 |--------|-------------|--------|
-| Lockstep gate | **5 / 6 PASS** (83%) | **6 / 6 PASS** (100%) |
-| Stand dance content | 100% pairwise on chase arms | + tick bucket alignment |
-| Panic E5 trace | 100% on dance + `damage_stimulus` | + tick bucket alignment |
-| Cyclops quad | `combat_state` 4/4; `shortway` 0/4 | chase @ ref tick + path shape |
-| Kill E6 | **PASS** | maintain |
+| Base lockstep gate | **5 / 6 PASS** (83%) | **6 / 6 PASS** (100%) |
+| Extended lockstep gate | **0 / 3 PASS** (0%) | **3 / 3 PASS** (100%) |
+| Hunter dist_chase first go_exec cadence | **fixed** (X1 closed) | match ref @t=4000 |
+| Hunter `todo_go` enter contract | **fixed** (X2 closed) | ref `max` matches Rust |
+| Dragon melee_dance → flee sequence | Rust skips melee_dance (X3) | melee_dance then flee |
+| Cobra E4 spell delay | FAIL (Phase 4 open) | spell_cast timing aligned |
 
-**Bottom line:** stand/panic/kill/cyclops/kite lockstep **PASS** (5/6). Phase 3 **closed** (§27). Phase 4 cobra remains open.
+**Bottom line:** stand/panic/kill/cyclops/kite lockstep **PASS** (5/6). Phase 3 **closed** (§27). Phase 4 (cobra) and Phase 5 (extended: hunter + dragon) are open. No regression since §27 — the earlier 1/6 result was a stale C++ PID file + missing `--synthetic` flag.
 
 ---
 
@@ -64,20 +65,28 @@ Do **not** relax the gate (e.g. ignore tick buckets) to inflate pass rate. Fix c
 
 ---
 
-## 2. Current baseline (§21)
+## 2. Current baseline (§28)
 
 Battery: `TFS_SIM_SEED=772`, `--synthetic`, QM on `127.0.0.1:7173`.
 
+**Base battery:**
+
 | Scenario | Lockstep | ref / rust events | Primary blocker |
-|----------|----------|-------------------|-----------------|
+|----------|----------|-------------------|----------------|
 | **kill** | **PASS** | 2 / 2 | — |
-| stand | **PASS** | — | — |
-| panic | **PASS** | — | — |
-| cyclops | **PASS** | — | — |
+| **stand** | **PASS** | — | — |
+| **panic** | **PASS** | — | — |
+| **cyclops** | **PASS** | — | — |
 | **kite** | **PASS** | 8 / 8 | — |
 | cobra | FAIL | — | E4 spell-cast timing / scenario tuning |
 
-**Recently closed (§21):** `DANCE_DIR_ORDER` N/S fix, `ToDoWait(0)`, chase step reverse removal, kill armor + stimulus order, `harness_preserve_sleep`.
+**Extended battery (first run — §28):**
+
+| Scenario | Lockstep | ref events | rust events | Primary blocker |
+|----------|----------|------------|-------------|----------------|
+| hunter_chase | FAIL | 6 | 14 | X4: combat_state inflation / early dist-flee follow-on |
+| hunter_dist_flee | FAIL | 11 | 14 | X4 + X5: combat_state inflation + spell tag normalization (X2 closed) |
+| dragon_lowhp_flee | FAIL | 9 | 6 | X3: melee_dance arm skipped before flee |
 
 **Known regression to avoid:** batched appear `ToDoYield` without per-monster idle defer → cyclops tick=0 dance or silenced JSONL.
 
@@ -88,12 +97,12 @@ Battery: `TFS_SIM_SEED=772`, `--synthetic`, QM on `127.0.0.1:7173`.
 Phases are ordered by **lockstep ROI** (scenarios flipped per unit effort). Each phase ends with a battery rerun and a new divergence-report section.
 
 ```
-Phase 0 ──► 1/6   kill PASS                    [DONE §21]
-Phase 1 ──► 3/6   + stand, panic               [DONE §22]
-Phase 2 ──► 4/6   + cyclops                    [shortway + go_exec DONE §25.4; battery P2.5f]
-Phase 3 ──► 5/6   + kite                       [scenario time model]
-Phase 4 ──► 6/6   + cobra                      [E4 spell delay]
-Phase 5 ──► hold  expand battery + live replay [ongoing]
+Phase 0 ──► 1/6   kill PASS                      [DONE §21]
+Phase 1 ──► 3/6   + stand, panic                 [DONE §22]
+Phase 2 ──► 4/6   + cyclops                      [DONE §26]
+Phase 3 ──► 5/6   + kite                         [DONE §27]
+Phase 4 ──► 6/6   + cobra                        [E4 spell delay — open]
+Phase 5 ──► 6/6 + extend  hunter/dragon baseline [0/3 §28 — open]
 ```
 
 | Phase | Gate | Est. effort | Depends on |
@@ -103,7 +112,7 @@ Phase 5 ──► hold  expand battery + live replay [ongoing]
 | 2 | 4/6 | Medium–high | Phase 1 cadence patterns |
 | 3 | 5/6 | Low | Harness only |
 | 4 | 6/6 | Medium | E4 combat path stable |
-| 5 | 6/6 + | Ongoing | All phases |
+| 5 | 6/6 base + 3/3 ext | Medium | X1 dist_chase cadence; X3 dragon idle priority |
 
 ---
 
@@ -237,7 +246,51 @@ python3 scripts/summarize_chase_gaps.py \
 
 ## 7. Phase 4 — Cobra poison (6/6)
 
-**Target:** `cobra` lockstep PASS — completes battery.
+**Target:** `cobra` lockstep PASS — completes base battery.
+
+---
+
+## 7b. Phase 5 — Extended battery: hunter dist-chase/flee + dragon low-HP flee (§28 baseline)
+
+**Target:** all 3 extended scenarios lockstep PASS (`--synthetic --extended`).
+
+### 7b.1 Problem statements
+
+**X1 — dist_chase go_exec 1 beat early (HIGH — hunter_chase, hunter_dist_flee) — CLOSED (2026-06-23 rerun)**
+
+Fixed in `walk/mod.rs` (`process_creature_todo`) by preventing same-drain `Go` execute when `IdleStimulus` already armed `next_wakeup > server_ms`. First hunter `go_exec` now starts at t=4000 (not 2000), matching reference cadence. Remaining hunter drift is tracked under X2/X4/X5.
+
+**X2 — todo_go enter step count off by 1 (MEDIUM — hunter_dist_flee) — CLOSED (2026-06-24)**
+
+Closed in `creature_todo.rs`: the queued Rust path was already correct (`shortway.max=2`), but the 772 `todo_go` event was logging the generic follow-target chase budget (`CHASE_PATH_MAX_STEPS`) instead of the actual idle-arm contract. Dist-chase now logs `monster_idle_chase_step_budget(...)`; `idle_flee` logs the single-step `SearchFlightField` contract (`must=true`, `max=INT_MAX`).
+
+**X3 — Dragon melee_dance arm skipped before runonhealth flee (HIGH — dragon_lowhp_flee)**
+
+Ref at tick=2000: dragon still at melee range → idle picks `melee_dance` → moves to (32361,32291). Then at tick=4000 (next idle cycle, HP still low) → picks `flee`. Rust skips straight to `flee` at tick=2000. Root: `run_on_health_threshold` condition wins before the melee-range `melee_dance` guard in `idle_stimulus.rs`. C++ evaluates melee_dance eligibility before checking runonhealth flee.
+
+### 7b.2 Work items
+
+| ID | Task | Files | Done when |
+|----|------|-------|-----------|
+| X1 ✅ | Align dist_chase `TDoIdleChase` first idle wakeup cadence — defer first go_exec to post-appear drain window (same as §22 P1.2 fix, but for dist_chase arm) | `walk/mod.rs` | hunter_chase + hunter_dist_flee first `go_exec` @t=4000 (matched in §29 rerun) |
+| X2 ✅ | Align `todo_go` trace contract to the active 772 idle arm: dist-chase logs `monster_idle_chase_step_budget`, flee logs `SearchFlightField` single-step contract | `creature_todo.rs` | `hunter_dist_flee` `todo_go` pairwise 2/2; first event now `max=2` |
+| X3 | Guard `run_on_health_threshold` flee branch: skip if monster is at melee distance and melee_dance is eligible — match C++ idle priority order | `idle_stimulus.rs` | dragon `branch[0]` = `melee_dance` @t=2000 |
+| X4 | Recheck `combat_state` gate after X1/X2 | `monster_ai.rs` | hunter `combat_state` ref=0 rust=0 |
+| X5 | Normalize `spell_cast` type tag in Rust sim log: strip `:Physical` suffix | `sim_harness.rs` or compare script | `spell_cast[0]` type matches ref |
+| X6 | Wire `player_damage` harness command to `damage_stimulus` JSONL event; suppress spurious dragon spell during flee | `sim_harness.rs`, `idle_stimulus.rs` | dragon `damage_stimulus` ref=rust; `spell_cast` ref=0 rust=0 |
+
+### 7b.3 Verification
+
+```bash
+# After each fix:
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic --extended
+# Inspect per-scenario summaries:
+cat log/summary_hunter_chase.txt log/summary_hunter_dist_flee.txt log/summary_dragon_lowhp_flee.txt
+```
+
+**Status after X2 follow-up (§30):** X1 and X2 closed; X3–X6 remain.
+
+**Exit criteria:** all three extended scenarios lockstep PASS; divergence report §30; trajectory §12 updated.
 
 ### 7.1 Problem statement
 
@@ -255,9 +308,9 @@ Cobra closes to melee before E4 spell delay fires. Rust logs extra `melee_dance`
 
 ---
 
-## 8. Phase 5 — Hold and expand
+## 8. Phase 6 — Hold and expand
 
-After 6/6:
+After 6/6 base + 3/3 extended:
 
 | Track | Action |
 |-------|--------|
@@ -339,6 +392,8 @@ Record results in `docs/TFS-RUST_772_Sim_Divergence_Report.md` (next §22+).
 
 Update this table at each phase closeout.
 
+**Base battery:**
+
 | Phase | Gate | Stand | Panic | Cyclops | Kite | Cobra | Kill | Date |
 |-------|------|-------|-------|---------|------|-------|------|------|
 | §21 | 1/6 | FAIL | FAIL | FAIL | FAIL | FAIL | **PASS** | 2026-06-14 |
@@ -347,7 +402,16 @@ Update this table at each phase closeout.
 | §24 | 3/6 | **PASS** | **PASS** | FAIL (2/4 path) | FAIL | FAIL | **PASS** | 2026-06-14 |
 | §25 | 3/6 | **PASS** | **PASS** | FAIL (4/4 sw, 3/4 go) | FAIL | FAIL | **PASS** | 2026-06-15 |
 | §26 | **4/6** | **PASS** | **PASS** | **PASS** | FAIL | FAIL | **PASS** | 2026-06-16 |
+| §27 | **5/6** | **PASS** | **PASS** | **PASS** | **PASS** | FAIL | **PASS** | 2026-06-16 |
+| §28 | **5/6** | **PASS** | **PASS** | **PASS** | **PASS** | FAIL | **PASS** | 2026-06-23 |
 | Target | 6/6 | | | | | | | |
+
+**Extended battery (`--extended`, first run §28):**
+
+| Phase | Gate | Hunter Chase | Hunter Dist-Flee | Dragon Low-HP | Date |
+|-------|------|-------------|-----------------|---------------|------|
+| §28 | 0/3 | FAIL | FAIL | FAIL | 2026-06-23 |
+| Target | 3/3 | | | | |
 
 ---
 
@@ -362,3 +426,6 @@ Update this table at each phase closeout.
 | 2026-06-15 | §25.4 P2.5e closeout: `EarliestWalkTime`/`ToDoStart`; go_exec 4/4; P2.5f battery A/B scoped |
 | 2026-06-15 | §25.7 P2.5f battery rerun: 3/6; cyclops go_exec order swap @4000; P2.5g scoped |
 | 2026-06-16 | §26 P2.5g closeout: `WakeupTiePolicy` appear LIFO + go-step tie; cyclops **4/4** go_exec; battery **4/6**; Phase 2 done |
+| 2026-06-16 | §27 Phase 3 closeout: kite harness drain-before-teleport + `CreatureMoveStimulus` `LockToDo`; battery **5/6** |
+| 2026-06-23 | §28 extended battery baseline (`--synthetic --extended`): base 5/6 confirmed (no regression); extended 0/3 first run; X1–X6 root causes scoped; Phase 5 opened |
+| 2026-06-24 | §30 X2 follow-up: `todo_go` trace contract aligned to actual 772 idle arm; X1/X2 closed, X3–X6 remain |

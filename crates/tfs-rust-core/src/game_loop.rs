@@ -45,7 +45,11 @@ async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
         match world.build_player_save_data(cid) {
             Ok(d) => datas.push(d),
             Err(e) => {
-                warn!(?e, ?cid, "build_player_save_data failed during shutdown flush");
+                warn!(
+                    ?e,
+                    ?cid,
+                    "build_player_save_data failed during shutdown flush"
+                );
             }
         }
     }
@@ -107,7 +111,10 @@ fn flush_pending_outgoing(world: &mut GameWorld, out_registry: &Option<OutRegist
             }
         }
     } else {
-        trace!(batches = flushed.len(), "flushed outgoing (no registry — packets dropped)");
+        trace!(
+            batches = flushed.len(),
+            "flushed outgoing (no registry — packets dropped)"
+        );
     }
 }
 
@@ -148,7 +155,9 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
         | GamePacket::DebugAssert { .. }
         | GamePacket::QuestLog
         | GamePacket::QuestLine { .. } => false,
-        GamePacket::VipAdd { .. } | GamePacket::VipRemove { .. } | GamePacket::VipEdit { .. } => false,
+        GamePacket::VipAdd { .. } | GamePacket::VipRemove { .. } | GamePacket::VipEdit { .. } => {
+            false
+        }
         _ => true,
     }
 }
@@ -189,14 +198,7 @@ async fn handle_player_login(
     otclient_v8: u16,
     out_registry: &Option<OutRegistry>,
 ) {
-    match crate::login::login_player(
-        world,
-        &name,
-        operating_system,
-        otclient_v8,
-    )
-    .await
-    {
+    match crate::login::login_player(world, &name, operating_system, otclient_v8).await {
         Ok(cid) => {
             world.conn_to_creature.insert(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
@@ -288,7 +290,9 @@ fn handle_game_packet(
             }
         }
         GamePacket::ExtendedOpcode { opcode, buffer } => {
-            world.protocol_hooks.extended_opcode(conn_id, opcode, buffer);
+            world
+                .protocol_hooks
+                .extended_opcode(conn_id, opcode, buffer);
         }
         GamePacket::Move(dir) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
@@ -380,7 +384,10 @@ fn handle_game_packet(
                 world.player_update_container(conn_id, creature_id, client_cid);
             }
         }
-        GamePacket::SeekInContainer { cid: client_cid, index } => {
+        GamePacket::SeekInContainer {
+            cid: client_cid,
+            index,
+        } => {
             if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_seek_in_container(conn_id, creature_id, client_cid, index);
             }
@@ -401,7 +408,11 @@ fn handle_game_packet(
                 display_effect: true,
             });
         }
-        _ => trace!(conn_id = conn_id.0, ?packet, "game packet — simulation Phase 9+"),
+        _ => trace!(
+            conn_id = conn_id.0,
+            ?packet,
+            "game packet — simulation Phase 9+"
+        ),
     }
     if !world.beat_driven_loop {
         world.process_walk_deadlines();
@@ -626,22 +637,26 @@ mod timed_action_gate_tests {
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::game_packet::GamePacket;
 
-    use super::{
-        game_packet_requires_timed_action, needs_immediate_flush, FlushPolicy,
-    };
+    use super::{game_packet_requires_timed_action, needs_immediate_flush, FlushPolicy};
 
     #[test]
     fn walk_ping_and_extended_are_never_gated() {
-        assert!(!game_packet_requires_timed_action(&GamePacket::Move(Direction::North)));
+        assert!(!game_packet_requires_timed_action(&GamePacket::Move(
+            Direction::North
+        )));
         assert!(!game_packet_requires_timed_action(&GamePacket::AutoWalk {
             path: Vec::new()
         }));
-        assert!(!game_packet_requires_timed_action(&GamePacket::StopAutoWalk));
+        assert!(!game_packet_requires_timed_action(
+            &GamePacket::StopAutoWalk
+        ));
         assert!(!game_packet_requires_timed_action(&GamePacket::Ping));
-        assert!(!game_packet_requires_timed_action(&GamePacket::ExtendedOpcode {
-            opcode: 1,
-            buffer: String::new(),
-        }));
+        assert!(!game_packet_requires_timed_action(
+            &GamePacket::ExtendedOpcode {
+                opcode: 1,
+                buffer: String::new(),
+            }
+        ));
         assert!(!game_packet_requires_timed_action(&GamePacket::Say(
             tfs_rust_common::game_packet::SayPayload {
                 speak_class: 1,
@@ -689,8 +704,7 @@ mod timed_action_gate_tests {
         let mut world = crate::test_world::support::minimal_world();
         assert!(!world.beat_driven_loop);
         world.mechanics.profile.step_speed = StepSpeedModel::LinearGo;
-        world.beat_driven_loop =
-            world.mechanics.profile.step_speed == StepSpeedModel::LinearGo;
+        world.beat_driven_loop = world.mechanics.profile.step_speed == StepSpeedModel::LinearGo;
         assert!(world.beat_driven_loop);
     }
 }

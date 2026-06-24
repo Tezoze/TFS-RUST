@@ -6,8 +6,8 @@
 
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
-use tfs_rust_common::ScriptContext;
 use tfs_rust_common::Position;
+use tfs_rust_common::ScriptContext;
 
 /// Script and engine events. Default bodies are no-ops until `tfs-rust-lua` implements dispatch.
 pub trait EventDispatcher {

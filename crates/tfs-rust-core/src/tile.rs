@@ -41,8 +41,13 @@ pub mod flags {
     pub const SUPPORTS_HANGABLE: u32 = 1 << 23;
 
     // ── Composite masks ──
-    pub const FLOORCHANGE: u32 = FLOORCHANGE_DOWN | FLOORCHANGE_NORTH | FLOORCHANGE_SOUTH
-        | FLOORCHANGE_EAST | FLOORCHANGE_WEST | FLOORCHANGE_SOUTH_ALT | FLOORCHANGE_EAST_ALT;
+    pub const FLOORCHANGE: u32 = FLOORCHANGE_DOWN
+        | FLOORCHANGE_NORTH
+        | FLOORCHANGE_SOUTH
+        | FLOORCHANGE_EAST
+        | FLOORCHANGE_WEST
+        | FLOORCHANGE_SOUTH_ALT
+        | FLOORCHANGE_EAST_ALT;
 
     // Legacy aliases used by map/LOS code.
     pub const BLOCK_SOLID: u32 = BLOCKSOLID;
@@ -295,7 +300,11 @@ impl Tile {
     }
 
     /// C++ `Tile::getTopVisibleThing` — `tile.cpp` ~322–347.
-    pub fn top_visible_look_target<F, G>(&self, can_see_creature: F, item_is_opaque: G) -> Option<LookTarget>
+    pub fn top_visible_look_target<F, G>(
+        &self,
+        can_see_creature: F,
+        item_is_opaque: G,
+    ) -> Option<LookTarget>
     where
         F: Fn(CreatureId) -> bool,
         G: Fn(ItemId) -> bool,
@@ -352,7 +361,12 @@ mod look_tests {
     use super::*;
     use slotmap::SlotMap;
 
-    fn tile_body(ground: Option<u16>, down: Vec<ItemId>, top: Vec<ItemId>, creatures: Vec<CreatureId>) -> TileBody {
+    fn tile_body(
+        ground: Option<u16>,
+        down: Vec<ItemId>,
+        top: Vec<ItemId>,
+        creatures: Vec<CreatureId>,
+    ) -> TileBody {
         TileBody {
             ground,
             down_items: down,

@@ -10,7 +10,9 @@ use crate::chase_debug;
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::monster_ai::{chebyshev, monster_idle_chase_step_budget};
 use crate::pathfinding::CHASE_PATH_MAX_STEPS;
+use tfs_rust_common::Position;
 
 /// C++ `ToDoWait(1000)` after roam, dist_dance, dist_flee fail, master dist 2–3 (`crnonpl.cc`).
 pub const MONSTER_IDLE_WAIT_MS: u64 = 1000;
@@ -82,7 +84,9 @@ impl CreatureTodo {
     }
 
     pub fn has_attack(&self) -> bool {
-        self.queue.iter().any(|a| matches!(a, CreatureAction::Attack))
+        self.queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Attack))
     }
 }
 
@@ -171,11 +175,7 @@ impl GameWorld {
         if delay_ms == 0 {
             self.schedule_creature_wakeup(cid, self.server_ms, tie_policy);
         } else {
-            self.schedule_creature_wakeup(
-                cid,
-                self.server_ms.saturating_add(delay_ms),
-                tie_policy,
-            );
+            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms), tie_policy);
         }
     }
 
@@ -202,6 +202,55 @@ impl GameWorld {
         self.schedule_immediate_todo_wakeup(cid);
     }
 
+    fn idle_todo_go_trace_contract(
+        &self,
+        cid: CreatureId,
+        todo_via: Option<&str>,
+    ) -> Option<(Position, Position, bool, i32)> {
+        let k = self.creatures.get(cid)?;
+        let from = k.position();
+        let follow_id = k.base().follow_target;
+        let walk_step_dest = k.base().walk_queue.front().map(|dir| from.offset(*dir));
+        let is_dance = todo_via == Some("idle_dance");
+        let is_flee = todo_via == Some("idle_flee");
+
+        let (dest, must_reach, max_steps) = if is_dance {
+            (walk_step_dest.unwrap_or(from), true, i32::MAX)
+        } else if is_flee {
+            // 772 `SearchFlightField` follow-up `ToDoGo(must:true, INT_MAX)` (`crnonpl.cc:2680,2762`).
+            (walk_step_dest.unwrap_or(from), true, i32::MAX)
+        } else if let Some(follow_id) = follow_id {
+            let dest = self
+                .creatures
+                .get(follow_id)
+                .map(|t| t.position())
+                .unwrap_or(from);
+            let max_steps = match self.creatures.get(cid) {
+                Some(CreatureKind::Monster(m)) => {
+                    let target_distance = self.monster_effective_target_distance(m.target_distance);
+                    let cheb = chebyshev(from, dest);
+                    let uses_dist_branch =
+                        target_distance > 1 && self.monster_can_use_attack(cid, from, follow_id);
+                    let is_dist_chase = uses_dist_branch && cheb > target_distance;
+                    let is_melee_chase = !uses_dist_branch && cheb > 1;
+                    let (budget, _) = monster_idle_chase_step_budget(
+                        is_melee_chase,
+                        is_dist_chase,
+                        cheb,
+                        target_distance,
+                    );
+                    budget as i32
+                }
+                _ => CHASE_PATH_MAX_STEPS as i32,
+            };
+            (dest, false, max_steps)
+        } else {
+            (from, false, CHASE_PATH_MAX_STEPS as i32)
+        };
+
+        Some((from, dest, must_reach, max_steps))
+    }
+
     /// Enqueue Go (and optional trailing Wait), then schedule the Go wakeup.
     pub(crate) fn idle_enqueue_paced_go(
         &mut self,
@@ -223,50 +272,38 @@ impl GameWorld {
         }
         if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
             if let Some(k) = self.creatures.get(cid) {
-                let from = k.position();
+                let follow_id = k.base().follow_target;
                 let is_dance = todo_via == Some("idle_dance");
-                let (dest, must_reach, max_steps) = if is_dance {
-                    let dest = k
-                        .base()
-                        .walk_queue
-                        .front()
-                        .map(|dir| from.offset(*dir))
-                        .unwrap_or(from);
-                    (dest, true, i32::MAX)
-                } else if let Some(follow_id) = k.base().follow_target {
-                    let dest = self
-                        .creatures
-                        .get(follow_id)
-                        .map(|t| t.position())
-                        .unwrap_or(from);
-                    (dest, false, CHASE_PATH_MAX_STEPS as i32)
-                } else {
-                    (from, false, CHASE_PATH_MAX_STEPS as i32)
-                };
-                let arm = todo_via.filter(|v| *v != "roam");
-                if is_dance || k.base().follow_target.is_some() {
-                    chase_debug::log_todo_go_aligned(
-                        self.chase_trace_tick(),
-                        cid,
-                        k.base().name.as_str(),
-                        from,
-                        dest,
-                        must_reach,
-                        max_steps,
-                        arm,
-                    );
-                } else if todo_via == Some("roam") {
-                    chase_debug::log_todo_go(
-                        self.chase_trace_tick(),
-                        cid,
-                        k.base().name.as_str(),
-                        "enter",
-                        from,
-                        from,
-                        false,
-                        1,
-                        Some("roam"),
-                    );
+                let is_flee = todo_via == Some("idle_flee");
+
+                if let Some((from, dest, must_reach, max_steps)) =
+                    self.idle_todo_go_trace_contract(cid, todo_via)
+                {
+                    let arm = todo_via.filter(|v| *v != "roam");
+                    if is_dance || is_flee || follow_id.is_some() {
+                        chase_debug::log_todo_go_aligned(
+                            self.chase_trace_tick(),
+                            cid,
+                            k.base().name.as_str(),
+                            from,
+                            dest,
+                            must_reach,
+                            max_steps,
+                            arm,
+                        );
+                    } else if todo_via == Some("roam") {
+                        chase_debug::log_todo_go(
+                            self.chase_trace_tick(),
+                            cid,
+                            k.base().name.as_str(),
+                            "enter",
+                            from,
+                            from,
+                            false,
+                            1,
+                            Some("roam"),
+                        );
+                    }
                 }
             }
         }
@@ -334,8 +371,11 @@ impl GameWorld {
 mod tests {
     use tfs_rust_common::Position;
 
+    use crate::creature::CreatureKind;
     use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
-    use crate::test_world::support::{ensure_walkable_tile, insert_monster, minimal_world};
+    use crate::test_world::support::{
+        ensure_walkable_tile, insert_monster, insert_player, minimal_world, test_player,
+    };
 
     fn beat_driven_test_world() -> crate::game_world::GameWorld {
         let mut world = minimal_world();
@@ -377,18 +417,64 @@ mod tests {
         world.idle_enqueue_wait_and_start(monster, MONSTER_IDLE_WAIT_MS);
         world.run_monster_todo_execute(monster);
 
-        assert!(
-            world
-                .creatures
-                .get(monster)
-                .unwrap()
-                .base()
-                .todo
-                .is_empty()
-        );
+        assert!(world.creatures.get(monster).unwrap().base().todo.is_empty());
         assert_eq!(
             world.creatures.get(monster).unwrap().base().next_wakeup,
             Some(500 + MONSTER_IDLE_WAIT_MS)
+        );
+    }
+
+    #[test]
+    fn idle_todo_go_trace_contract_uses_dist_chase_step_budget() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(106, 100, 7);
+        for x in 100..=106u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+        }
+
+        let monster = insert_monster(&mut world, "Hunter", mpos, 200);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.target_distance = 4;
+            m.is_hostile = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        let (_, dest, must_reach, max_steps) = world
+            .idle_todo_go_trace_contract(monster, Some("idle_drain"))
+            .expect("trace contract");
+        assert_eq!(dest, ppos);
+        assert!(!must_reach);
+        assert_eq!(max_steps, 2, "dist chase at cheb=6 band=4 must log max=2");
+    }
+
+    #[test]
+    fn idle_todo_go_trace_contract_uses_single_step_flee_contract() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), 150);
+
+        let monster = insert_monster(&mut world, "Hunter", mpos, 200);
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut()
+                .walk_queue
+                .push_back(tfs_rust_common::enums::Direction::East);
+        }
+
+        let (_, dest, must_reach, max_steps) = world
+            .idle_todo_go_trace_contract(monster, Some("idle_flee"))
+            .expect("trace contract");
+        assert_eq!(dest, Position::new(101, 100, 7));
+        assert!(must_reach);
+        assert_eq!(
+            max_steps,
+            i32::MAX,
+            "flee trace must mirror ToDoGo(must=true,max=INT_MAX)"
         );
     }
 }

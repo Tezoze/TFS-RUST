@@ -1,0 +1,14 @@
+# Exclude from Cursor codebase index upload (files stay Grep/Read accessible).
+# See .cursorignore for which reference paths agents can access.
+
+# 772 reference bulk — game data, binaries, build artifacts
+reference/**/runtime/**
+reference/archives/**
+reference/**/client/**
+reference/**/build/**
+reference/**/state/**
+reference/**/.git/**
+
+# Local run output (large, not source)
+log/**
+data1098/**

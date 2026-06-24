@@ -9,8 +9,8 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use slotmap::Key;
 use tfs_rust_lua::{
-    CreatureEventType, CallbackRef, LuaRuntime, MoveEventKind, MoveEventsRegistry,
-    PlayerEventType, with_lua_context,
+    with_lua_context, CallbackRef, CreatureEventType, LuaRuntime, MoveEventKind,
+    MoveEventsRegistry, PlayerEventType,
 };
 
 /// Lua-based event dispatcher.
@@ -168,17 +168,8 @@ impl EventDispatcher for LuaEventDispatcher {
         );
     }
 
-    fn on_player_inventory_update(
-        &self,
-        player: CreatureId,
-        item: ItemId,
-        slot: u8,
-        equip: bool,
-    ) {
-        let Some(callbacks) = self
-            .player_events
-            .get(&PlayerEventType::InventoryUpdate)
-        else {
+    fn on_player_inventory_update(&self, player: CreatureId, item: ItemId, slot: u8, equip: bool) {
+        let Some(callbacks) = self.player_events.get(&PlayerEventType::InventoryUpdate) else {
             return;
         };
         for callback in callbacks {
@@ -213,7 +204,11 @@ impl EventDispatcher for LuaEventDispatcher {
                             tracing::warn!("Lua onLogin returned false for {:?}", creature);
                         }
                         Err(e) => {
-                            tracing::error!("Lua onLogin callback failed for {:?}: {}", creature, e);
+                            tracing::error!(
+                                "Lua onLogin callback failed for {:?}: {}",
+                                creature,
+                                e
+                            );
                         }
                     }
                 }
@@ -234,7 +229,11 @@ impl EventDispatcher for LuaEventDispatcher {
                             tracing::warn!("Lua onLogout returned false for {:?}", creature);
                         }
                         Err(e) => {
-                            tracing::error!("Lua onLogout callback failed for {:?}: {}", creature, e);
+                            tracing::error!(
+                                "Lua onLogout callback failed for {:?}: {}",
+                                creature,
+                                e
+                            );
                         }
                     }
                 }

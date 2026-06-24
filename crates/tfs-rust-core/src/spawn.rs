@@ -88,9 +88,7 @@ impl SpawnManager {
                         *position,
                         (*spawntime_ms).max(0) as u64,
                         *direction,
-                        SpawnEntryKind::Monster {
-                            name: name.clone(),
-                        },
+                        SpawnEntryKind::Monster { name: name.clone() },
                         true,
                     ),
                     SpawnEntry::Monsters {
@@ -115,9 +113,7 @@ impl SpawnManager {
                         *position,
                         (*spawntime_ms).max(0) as u64,
                         *direction,
-                        SpawnEntryKind::Npc {
-                            name: name.clone(),
-                        },
+                        SpawnEntryKind::Npc { name: name.clone() },
                         false,
                     ),
                 };

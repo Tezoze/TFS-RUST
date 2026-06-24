@@ -120,10 +120,16 @@ def creature_death_key(
     return key
 
 
+def normalize_spell_label(raw: str) -> str:
+    if raw.startswith("damage:"):
+        return "damage"
+    return raw
+
+
 def spell_cast_key(evt: Dict[str, Any], id_to_name: Dict[int, str]) -> Tuple[Any, ...]:
     self_id = int(evt.get("id", 0))
     return (
-        str(evt.get("spell", "")),
+        normalize_spell_label(str(evt.get("spell", ""))),
         normalize_creature_role(int(evt.get("target_id", 0)), id_to_name, self_id),
         str(evt.get("shape", "")),
         int(evt.get("range", 0)),
@@ -167,9 +173,7 @@ def pairwise_match_rate_cross(
     n = min(len(ref), len(rust))
     if n == 0:
         return 0, 0, 0.0
-    matches = sum(
-        1 for i in range(n) if ref_key_fn(ref[i]) == rust_key_fn(rust[i])
-    )
+    matches = sum(1 for i in range(n) if ref_key_fn(ref[i]) == rust_key_fn(rust[i]))
     return matches, n, 100.0 * matches / n
 
 
@@ -224,9 +228,7 @@ def first_divergence(
     n = min(len(ref_e), len(rust_e))
     for i in range(n):
         if key_fn(ref_e[i]) != key_fn(rust_e[i]):
-            return (
-                f"{label}[{i}]: ref={key_fn(ref_e[i])}  rust={key_fn(rust_e[i])}"
-            )
+            return f"{label}[{i}]: ref={key_fn(ref_e[i])}  rust={key_fn(rust_e[i])}"
     if len(ref_e) != len(rust_e):
         return f"{label} count: ref={len(ref_e)} rust={len(rust_e)}"
     return None
@@ -403,7 +405,7 @@ def print_report(report: Dict[str, Any]) -> None:
 
     print("Event totals")
     print(f"  {'evt':<10} {'ref':>6} {'rust':>6} {'delta':>7}")
-    print(f"  {'-'*10} {'-'*6} {'-'*6} {'-'*7}")
+    print(f"  {'-' * 10} {'-' * 6} {'-' * 6} {'-' * 7}")
     for evt, row in report["count_delta"].items():
         sign = "+" if row["delta"] >= 0 else ""
         print(f"  {evt:<10} {row['ref']:>6} {row['rust']:>6} {sign}{row['delta']:>6}")
@@ -434,11 +436,11 @@ def print_report(report: Dict[str, Any]) -> None:
     print("\nDiagonal go_exec")
     print(
         f"  ref:  {diag['ref']['diag']}/{diag['ref']['total']} "
-        f"({100*diag['ref']['diag']/max(diag['ref']['total'],1):.1f}%)"
+        f"({100 * diag['ref']['diag'] / max(diag['ref']['total'], 1):.1f}%)"
     )
     print(
         f"  rust: {diag['rust']['diag']}/{diag['rust']['total']} "
-        f"({100*diag['rust']['diag']/max(diag['rust']['total'],1):.1f}%)"
+        f"({100 * diag['rust']['diag'] / max(diag['rust']['total'], 1):.1f}%)"
     )
 
     print("\nCombat trace (E0–E6)")
@@ -480,7 +482,9 @@ def print_report(report: Dict[str, Any]) -> None:
             print(f"    - {line}")
 
 
-def compare_melee_hit(ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]) -> List[str]:
+def compare_melee_hit(
+    ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]
+) -> List[str]:
     diffs: List[str] = []
     ref_m = [e for e in ref if e.get("evt") == "melee_hit"]
     rust_m = [e for e in rust if e.get("evt") == "melee_hit"]
@@ -497,7 +501,9 @@ def compare_melee_hit(ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]) -> 
     return diffs
 
 
-def compare_ranged_hit(ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]) -> List[str]:
+def compare_ranged_hit(
+    ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]
+) -> List[str]:
     diffs: List[str] = []
     ref_m = [e for e in ref if e.get("evt") == "ranged_hit"]
     rust_m = [e for e in rust if e.get("evt") == "ranged_hit"]
@@ -506,7 +512,9 @@ def compare_ranged_hit(ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]) ->
     n = min(len(ref_m), len(rust_m))
     for i in range(n):
         if ranged_hit_key(ref_m[i]) != ranged_hit_key(rust_m[i]):
-            diffs.append(f"ranged_hit[{i}] ref={ranged_hit_key(ref_m[i])} rust={ranged_hit_key(rust_m[i])}")
+            diffs.append(
+                f"ranged_hit[{i}] ref={ranged_hit_key(ref_m[i])} rust={ranged_hit_key(rust_m[i])}"
+            )
     return diffs
 
 
@@ -565,14 +573,20 @@ def compare_creature_death(
         diffs.append(f"creature_death count: ref={len(ref_s)} rust={len(rust_s)}")
     n = min(len(ref_s), len(rust_s))
     for i in range(n):
-        ref_k = creature_death_key(ref_s[i], ref_id_to_name, strict_corpse=strict_corpse)
-        rust_k = creature_death_key(rust_s[i], rust_id_to_name, strict_corpse=strict_corpse)
+        ref_k = creature_death_key(
+            ref_s[i], ref_id_to_name, strict_corpse=strict_corpse
+        )
+        rust_k = creature_death_key(
+            rust_s[i], rust_id_to_name, strict_corpse=strict_corpse
+        )
         if ref_k != rust_k:
             diffs.append(f"creature_death[{i}] ref={ref_k} rust={rust_k}")
     return diffs
 
 
-def compare_combat_state(ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]) -> List[str]:
+def compare_combat_state(
+    ref: List[Dict[str, Any]], rust: List[Dict[str, Any]]
+) -> List[str]:
     diffs: List[str] = []
     ref_s = [e for e in ref if e.get("evt") == "combat_state"]
     rust_s = [e for e in rust if e.get("evt") == "combat_state"]
@@ -651,9 +665,7 @@ def main() -> int:
         print_report(report)
 
     # Non-zero if any pairwise mismatch exists in the paired prefix or counts differ.
-    has_gap = any(
-        report["mismatch_counts"][k] > 0 for k in report["mismatch_counts"]
-    )
+    has_gap = any(report["mismatch_counts"][k] > 0 for k in report["mismatch_counts"])
     if args.lockstep and has_gap:
         return 2
     return 1 if has_gap else 0

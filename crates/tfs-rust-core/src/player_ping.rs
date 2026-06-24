@@ -15,12 +15,7 @@ const PING_INTERVAL: Duration = Duration::from_secs(5);
 
 impl GameWorld {
     /// Client `0x1E` — `Game::playerReceivePing` → `Player::receivePing` + reply.
-    pub(crate) fn player_receive_ping(
-        &mut self,
-        conn_id: ConnId,
-        cid: CreatureId,
-        now: Instant,
-    ) {
+    pub(crate) fn player_receive_ping(&mut self, conn_id: ConnId, cid: CreatureId, now: Instant) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.last_pong_at = now;
         }

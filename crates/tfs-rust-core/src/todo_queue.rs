@@ -166,10 +166,7 @@ mod tests {
             (south, harness_appear_idle_tie(3)),
             (nw, harness_appear_idle_tie(4)),
         ];
-        assert_eq!(
-            pops_with_tie(&inserts, 2_000),
-            vec![nw, south, east, far_n]
-        );
+        assert_eq!(pops_with_tie(&inserts, 2_000), vec![nw, south, east, far_n]);
     }
 
     #[test]
@@ -185,9 +182,6 @@ mod tests {
             (east, harness_go_step_tie(2)),
             (far_n, harness_go_step_tie(1)),
         ];
-        assert_eq!(
-            pops_with_tie(&inserts, 2_001),
-            vec![nw, south, far_n, east]
-        );
+        assert_eq!(pops_with_tie(&inserts, 2_001), vec![nw, south, far_n, east]);
     }
 }

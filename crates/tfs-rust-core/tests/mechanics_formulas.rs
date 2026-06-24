@@ -6,12 +6,11 @@
 
 use std::path::PathBuf;
 
-use tfs_rust_core::formulas::{
-    load_mechanics,     ArmorReduction, DistanceKeep, MechanicsProfile, PathCostModel,
-    PathSearchModel, SpawnNearPlayer,
-    StepSpeedModel, WeakestTargetMetric,
-};
 use tfs_rust_common::ProtocolVersion;
+use tfs_rust_core::formulas::{
+    load_mechanics, ArmorReduction, DistanceKeep, MechanicsProfile, PathCostModel, PathSearchModel,
+    SpawnNearPlayer, StepSpeedModel, WeakestTargetMetric,
+};
 
 /// Workspace `data/` dir (two levels up from this crate's manifest).
 fn data_dir() -> PathBuf {
@@ -57,7 +56,10 @@ fn shipped_772_formulas_match_profile_defaults() {
     assert_eq!(p.beat_ms, defaults.beat_ms);
     assert_eq!(p.path_cost, defaults.path_cost);
     assert_eq!(p.path_search, defaults.path_search);
-    assert_eq!(p.follow_repath_without_path, defaults.follow_repath_without_path);
+    assert_eq!(
+        p.follow_repath_without_path,
+        defaults.follow_repath_without_path
+    );
     assert_eq!(p.beat_ms, 200);
     assert_eq!(p.attack_speed_ms, 0);
     assert_eq!(p.armor, ArmorReduction::Randomized);

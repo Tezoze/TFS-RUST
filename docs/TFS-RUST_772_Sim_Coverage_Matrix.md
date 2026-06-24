@@ -20,7 +20,8 @@ Enable: `TFS_CHASE_PATH_DEBUG=1` / `TIBIA_CHASE_PATH_DEBUG=1`
 | **E1** | `MonsterState` (Attacking/Panic/…) | `combat_state` | **Yes** |
 | **E2** | Melee execute + `earliest_attack_ms` cadence | `melee_hit`, `attack_enqueue` | **Yes** |
 | **E3** | ATTACKING walk gating, `attack_close_chase` | `combat_state.chase_mode`, `todo_go.arm` | **Partial** |
-| **E4** | Spells / ranged | `spell_cast`, `ranged_hit` | **Partial** (plumbed; cobra scenario 0 casts) |
+| **E3+** | Dist chase / dist flee / HP flee arms | `branch` (`dist_chase`, `dist_flee`, `flee`) | **Extended** (`--extended` battery) |
+| **E4** | Spells / ranged | `spell_cast`, `ranged_hit` | **Partial** (hunter `spell_cast` in extended) |
 | **E5** | DamageStimulus / PANIC flee | `damage_stimulus` | **Yes** (`kite_rat_panic`, `kite_rat_kill`) |
 | **E6** | Death / exp / loot | `creature_death` | **Yes** (`kite_rat_kill`) |
 
@@ -67,9 +68,14 @@ Enable: `TFS_CHASE_PATH_DEBUG=1` / `TIBIA_CHASE_PATH_DEBUG=1`
 | `kite_cobra_poison.scenario` | **E4** spell cast at range (synthetic) |
 | `kite_rat_panic.scenario` | **E5** sleeping rat + `player_damage` → PANIC |
 | `kite_rat_kill.scenario` | **E6** `creature_death` + race XP |
+| `kite_hunter_dist_chase.scenario` | **E3/E4** hunter `dist_chase` + `spell_cast` while player kites |
+| `kite_hunter_dist_flee.scenario` | **E3** hunter `dist_flee` when player closes inside cheb &lt; 4 |
+| `kite_dragon_lowhp_flee.scenario` | **E3/E5** dragon `flee` at `runonhealth=300` (not PANIC) |
 
 ```bash
 TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic
+# Extended (hunter + dragon flee — non-gating until lockstep PASS):
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic --extended
 python3 scripts/summarize_chase_gaps.py \
   --ref log/chase_path_cip_kill.log --rust log/chase_path_rust_kill.log \
   --monster rat --max-tick 2000 --lockstep
@@ -84,6 +90,7 @@ python3 scripts/summarize_chase_gaps.py \
 3. **E4 delay gate** — cobra closes to melee before `spell_cast` fires on either stack.
 4. **Post-panic walk** — C++ dance vs Rust flee after `damage_stimulus` panic (panic scenario).
 5. **Legacy movement** — §18 RNG/path/tick blockers unchanged on stand/kite/cyclops.
+6. **Extended battery** — hunter/dragon scenarios expected FAIL until parity tuned; use `--extended` flag (not part of 6/6 gate).
 
 **Resolved (§19):** E5/E6 events in compare gate; data-pack spawn; kite time budget; 6-scenario battery.
 
@@ -97,3 +104,4 @@ python3 scripts/summarize_chase_gaps.py \
 | 2026-06-14 | §15 lockstep: synthetic arena, glibc RNG, `--lockstep` gate, updated limitations |
 | 2026-06-14 | §16 A/B: stand/kite/cyclops quad rerun; kite C++ needs time budget; cyclops `combat_state` 4/4 |
 | 2026-06-14 | §19: E0–E6 coverage, new scenarios, `creature_death`/`ranged_hit`, battery runner |
+| 2026-06-23 | Extended battery: hunter dist-chase/dist-flee + dragon low-HP flee; `--extended` flag; harness XML stat preservation |

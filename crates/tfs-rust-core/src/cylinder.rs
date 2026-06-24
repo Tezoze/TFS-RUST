@@ -150,7 +150,9 @@ impl Cylinder {
             Cylinder::Container { item_id, index } => {
                 format!("container {:?} @{}", item_id, index)
             }
-            Cylinder::Inventory { player_id, slot } => format!("player {:?} slot {}", player_id, slot),
+            Cylinder::Inventory { player_id, slot } => {
+                format!("player {:?} slot {}", player_id, slot)
+            }
         }
     }
 }
@@ -180,7 +182,13 @@ impl VirtualCylinder {
         Self
     }
 
-    pub fn query_add(&self, _index: i32, _thing: Thing, _count: u32, _flags: CylinderFlags) -> ReturnValue {
+    pub fn query_add(
+        &self,
+        _index: i32,
+        _thing: Thing,
+        _count: u32,
+        _flags: CylinderFlags,
+    ) -> ReturnValue {
         ReturnValue::NotPossible
     }
 
@@ -195,7 +203,11 @@ mod tests {
 
     #[test]
     fn test_cylinder_types() {
-        let pos = Position { x: 100, y: 100, z: 7 };
+        let pos = Position {
+            x: 100,
+            y: 100,
+            z: 7,
+        };
         let tile_cyl: Cylinder = pos.into();
         assert!(tile_cyl.is_tile());
         assert!(!tile_cyl.is_container());
@@ -233,7 +245,10 @@ mod tests {
     #[test]
     fn test_virtual_cylinder() {
         let virt = VirtualCylinder::instance();
-        assert_eq!(virt.query_add(0, Thing::Item(ItemId::default()), 1, CylinderFlags::NONE), ReturnValue::NotPossible);
+        assert_eq!(
+            virt.query_add(0, Thing::Item(ItemId::default()), 1, CylinderFlags::NONE),
+            ReturnValue::NotPossible
+        );
     }
 
     #[test]

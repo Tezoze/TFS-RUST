@@ -9,7 +9,8 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{
     InventorySlot, SLOTP_AMMO, SLOTP_ARMOR, SLOTP_BACKPACK, SLOTP_FEET, SLOTP_HEAD, SLOTP_LEFT,
-    SLOTP_LEGS, SLOTP_NECKLACE, SLOTP_RING, SLOTP_RIGHT, SLOTP_TWO_HAND, WEAPON_NONE, WEAPON_SHIELD,
+    SLOTP_LEGS, SLOTP_NECKLACE, SLOTP_RIGHT, SLOTP_RING, SLOTP_TWO_HAND, WEAPON_NONE,
+    WEAPON_SHIELD,
 };
 use crate::return_value::ReturnValue;
 use tfs_rust_content::otb::ItemType;
@@ -157,7 +158,12 @@ pub(crate) fn evaluate_player_inventory_slot_query(
                         ret = ReturnValue::NoError;
                     }
                 } else if let Some(left_item) = left {
-                    ret = hand_slot_conflict_ret(moving_item_id, moving_count, weapon_type, left_item);
+                    ret = hand_slot_conflict_ret(
+                        moving_item_id,
+                        moving_count,
+                        weapon_type,
+                        left_item,
+                    );
                 } else {
                     ret = ReturnValue::NoError;
                 }
@@ -184,7 +190,12 @@ pub(crate) fn evaluate_player_inventory_slot_query(
                         ret = ReturnValue::NoError;
                     }
                 } else if let Some(right_item) = right {
-                    ret = hand_slot_conflict_ret(moving_item_id, moving_count, weapon_type, right_item);
+                    ret = hand_slot_conflict_ret(
+                        moving_item_id,
+                        moving_count,
+                        weapon_type,
+                        right_item,
+                    );
                 } else {
                     ret = ReturnValue::NoError;
                 }
@@ -262,13 +273,7 @@ impl GameWorld {
         let right = self.occupied_slot(cid, InventorySlot::Right as u8);
 
         let ret = evaluate_player_inventory_slot_query(
-            index,
-            classic,
-            it,
-            item_id,
-            item_count,
-            left,
-            right,
+            index, classic, it, item_id, item_count, left, right,
         );
 
         if ret != ReturnValue::NoError && ret != ReturnValue::NotEnoughRoom {
@@ -280,8 +285,7 @@ impl GameWorld {
         }
 
         if index != InventorySlot::Wherever as u8 {
-            let probe =
-                crate::lua_scope::fire_on_player_equip_check(self, cid, item_id, index);
+            let probe = crate::lua_scope::fire_on_player_equip_check(self, cid, item_id, index);
             if probe != ReturnValue::NoError {
                 return probe;
             }
@@ -350,8 +354,16 @@ impl GameWorld {
         let tw = it.map(|t| t.weight).unwrap_or(0);
         let stackable = it.map(|t| t.stackable()).unwrap_or(false);
         if stackable {
-            let tw = self.items_db.items.get(&item.item_type).map_or(0, |it| it.weight);
-            let unit = item.attributes.as_deref().map(|a| a.base_weight_oz(tw)).unwrap_or(tw);
+            let tw = self
+                .items_db
+                .items
+                .get(&item.item_type)
+                .map_or(0, |it| it.weight);
+            let unit = item
+                .attributes
+                .as_deref()
+                .map(|a| a.base_weight_oz(tw))
+                .unwrap_or(tw);
             unit.saturating_mul(count.max(1))
         } else {
             item.total_weight_oz(tw, false)
@@ -388,7 +400,11 @@ impl GameWorld {
     }
 
     /// C++ `Player::getThingIndex` — `player.cpp` ~2954–2961 (equipment slots 1–10 only).
-    pub(crate) fn inventory_thing_index(&self, player_id: CreatureId, item_id: ItemId) -> Option<u8> {
+    pub(crate) fn inventory_thing_index(
+        &self,
+        player_id: CreatureId,
+        item_id: ItemId,
+    ) -> Option<u8> {
         (PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST)
             .find(|&slot| self.get_player_inventory_item(player_id, slot) == Some(item_id))
     }
@@ -474,8 +490,13 @@ impl GameWorld {
         let max_query_count = if index == INDEX_WHEREEVER {
             let mut n = 0u32;
             for slot_index in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
-                if let Some(inventory_item) = self.get_player_inventory_item(player_id, slot_index) {
-                    let inv_type = self.items.get(inventory_item).map(|i| i.item_type).unwrap_or(0);
+                if let Some(inventory_item) = self.get_player_inventory_item(player_id, slot_index)
+                {
+                    let inv_type = self
+                        .items
+                        .get(inventory_item)
+                        .map(|i| i.item_type)
+                        .unwrap_or(0);
                     if self.items_db.is_container(inv_type) {
                         if let Ok(q) = self.container_query_max_count(
                             inventory_item,
@@ -487,7 +508,8 @@ impl GameWorld {
                             n = n.saturating_add(q);
                         }
                         let nested_containers: Vec<ItemId> =
-                            ContainerIterator::new(&self.container_registry, inventory_item).collect();
+                            ContainerIterator::new(&self.container_registry, inventory_item)
+                                .collect();
                         for nested in nested_containers {
                             let nested_type =
                                 self.items.get(nested).map(|i| i.item_type).unwrap_or(0);
@@ -505,29 +527,22 @@ impl GameWorld {
                         }
                     } else if stackable
                         && self.items_stack_mergeable(item_id, inventory_item)
-                        && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
+                        && self
+                            .items
+                            .get(inventory_item)
+                            .is_some_and(|i| i.count < 100)
                     {
                         let remainder = 100u32.saturating_sub(
                             self.items.get(inventory_item).map(|i| i.count).unwrap_or(0) as u32,
                         );
-                        if self.player_query_add(
-                            player_id,
-                            slot_index,
-                            item_id,
-                            remainder,
-                            flags,
-                        ) == ReturnValue::NoError
+                        if self.player_query_add(player_id, slot_index, item_id, remainder, flags)
+                            == ReturnValue::NoError
                         {
                             n = n.saturating_add(remainder);
                         }
                     }
-                } else if self.player_query_add(
-                    player_id,
-                    slot_index,
-                    item_id,
-                    item_count,
-                    flags,
-                ) == ReturnValue::NoError
+                } else if self.player_query_add(player_id, slot_index, item_id, item_count, flags)
+                    == ReturnValue::NoError
                 {
                     if stackable {
                         n = n.saturating_add(100);
@@ -545,7 +560,9 @@ impl GameWorld {
                     && self.items_stack_mergeable(item_id, dest_id)
                     && self.items.get(dest_id).is_some_and(|d| d.count < 100)
                 {
-                    max = 100u32.saturating_sub(self.items.get(dest_id).map(|d| d.count).unwrap_or(0) as u32);
+                    max = 100u32.saturating_sub(
+                        self.items.get(dest_id).map(|d| d.count).unwrap_or(0) as u32,
+                    );
                 }
             } else if self.player_query_add(player_id, slot, item_id, count, flags)
                 == ReturnValue::NoError
@@ -645,13 +662,25 @@ impl GameWorld {
                 continue;
             }
 
-            let inv_type = self.items.get(inventory_item).map(|i| i.item_type).unwrap_or(0);
+            let inv_type = self
+                .items
+                .get(inventory_item)
+                .map(|i| i.item_type)
+                .unwrap_or(0);
             if self.items_db.is_container(inv_type) {
                 if auto_stack && stackable {
-                    if self.player_query_add(player_id, slot_index, item_id, item_count, CylinderFlags::NONE)
-                        == ReturnValue::NoError
+                    if self.player_query_add(
+                        player_id,
+                        slot_index,
+                        item_id,
+                        item_count,
+                        CylinderFlags::NONE,
+                    ) == ReturnValue::NoError
                         && self.items_stack_mergeable(item_id, inventory_item)
-                        && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
+                        && self
+                            .items
+                            .get(inventory_item)
+                            .is_some_and(|i| i.count < 100)
                     {
                         return Ok(PlayerDestResolution::StayHere {
                             slot: slot_index,
@@ -662,17 +691,26 @@ impl GameWorld {
                 } else {
                     containers.push(inventory_item);
                 }
-            } else if auto_stack && stackable
-                && self.player_query_add(player_id, slot_index, item_id, item_count, CylinderFlags::NONE)
-                    == ReturnValue::NoError
-                    && self.items_stack_mergeable(item_id, inventory_item)
-                    && self.items.get(inventory_item).is_some_and(|i| i.count < 100)
-                {
-                    return Ok(PlayerDestResolution::StayHere {
-                        slot: slot_index,
-                        dest_stack_item: Some(inventory_item),
-                    });
-                }
+            } else if auto_stack
+                && stackable
+                && self.player_query_add(
+                    player_id,
+                    slot_index,
+                    item_id,
+                    item_count,
+                    CylinderFlags::NONE,
+                ) == ReturnValue::NoError
+                && self.items_stack_mergeable(item_id, inventory_item)
+                && self
+                    .items
+                    .get(inventory_item)
+                    .is_some_and(|i| i.count < 100)
+            {
+                return Ok(PlayerDestResolution::StayHere {
+                    slot: slot_index,
+                    dest_stack_item: Some(inventory_item),
+                });
+            }
         }
 
         let mut i = 0usize;
@@ -709,7 +747,11 @@ impl GameWorld {
                     n -= 1;
                 }
                 for &list_item in &cont_items {
-                    let child_type = self.items.get(list_item).map(|it| it.item_type).unwrap_or(0);
+                    let child_type = self
+                        .items
+                        .get(list_item)
+                        .map(|it| it.item_type)
+                        .unwrap_or(0);
                     if self.items_db.is_container(child_type) {
                         containers.push(list_item);
                     }
@@ -780,13 +822,15 @@ impl GameWorld {
             .unwrap_or(1);
 
         let can_add_to_source = match from_cylinder {
-            Cylinder::Inventory {
-                player_id,
-                slot,
-            } => self.player_query_add(*player_id, *slot, exchange_id, exchange_count, CylinderFlags::NONE),
+            Cylinder::Inventory { player_id, slot } => self.player_query_add(
+                *player_id,
+                *slot,
+                exchange_id,
+                exchange_count,
+                CylinderFlags::NONE,
+            ),
             Cylinder::Container {
-                item_id: from_cid,
-                ..
+                item_id: from_cid, ..
             } => {
                 let idx = self
                     .get_thing_index_in_container(*from_cid, moving_item_id)
@@ -800,7 +844,9 @@ impl GameWorld {
                     acting_player,
                 )
             }
-            Cylinder::Tile { pos } => self.query_add_item_to_tile(*pos, exchange_id, CylinderFlags::NONE),
+            Cylinder::Tile { pos } => {
+                self.query_add_item_to_tile(*pos, exchange_id, CylinderFlags::NONE)
+            }
         };
         if can_add_to_source != ReturnValue::NoError {
             return Err(can_add_to_source);
@@ -834,16 +880,14 @@ impl GameWorld {
             return Err(ReturnValue::NotEnoughRoom);
         }
 
-        if self.player_query_remove(to_pid, exchange_id, exchange_count, flags) != ReturnValue::NoError
+        if self.player_query_remove(to_pid, exchange_id, exchange_count, flags)
+            != ReturnValue::NoError
         {
             return Err(ReturnValue::NotPossible);
         }
 
         match from_cylinder {
-            Cylinder::Inventory {
-                player_id,
-                slot,
-            } => {
+            Cylinder::Inventory { player_id, slot } => {
                 self.internal_remove_item_from_inventory_slot(to_pid, to_slot, exchange_id)?;
                 self.broadcast_player_inventory_slot(to_pid, to_slot, None);
                 self.internal_add_item_to_inventory_slot(*player_id, *slot, exchange_id)?;

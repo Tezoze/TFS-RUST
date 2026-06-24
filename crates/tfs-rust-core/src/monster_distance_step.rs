@@ -3,8 +3,8 @@
 //! Offset convention matches C++ `Position::getOffsetX/Y(creaturePos, targetPos)`:
 //! `creature.x - target.x`, `creature.y - target.y`.
 
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
 
@@ -41,11 +41,7 @@ fn boolean_random(rng: &mut impl Rng) -> bool {
     rng.gen_bool(0.5)
 }
 
-fn pick_random_dir(
-    rng: &mut impl Rng,
-    a: Direction,
-    b: Direction,
-) -> Direction {
+fn pick_random_dir(rng: &mut impl Rng, a: Direction, b: Direction) -> Direction {
     if boolean_random(rng) {
         a
     } else {
@@ -140,41 +136,61 @@ where
     };
 
     if !keep_distance || offset_y >= 0 {
-        let tmp_dist = distance_x.max((creature_pos.y as i32 - 1 - target_pos.y as i32).unsigned_abs() as i32);
+        let tmp_dist =
+            distance_x.max((creature_pos.y as i32 - 1 - target_pos.y as i32).unsigned_abs() as i32);
         if tmp_dist == center_to_dist {
             try_dir(
                 Direction::North,
-                Position::new(creature_pos.x, creature_pos.y.saturating_sub(1), creature_pos.z),
+                Position::new(
+                    creature_pos.x,
+                    creature_pos.y.saturating_sub(1),
+                    creature_pos.z,
+                ),
             );
         }
     }
 
     if !keep_distance || offset_y <= 0 {
-        let tmp_dist = distance_x.max((creature_pos.y as i32 + 1 - target_pos.y as i32).unsigned_abs() as i32);
+        let tmp_dist =
+            distance_x.max((creature_pos.y as i32 + 1 - target_pos.y as i32).unsigned_abs() as i32);
         if tmp_dist == center_to_dist {
             try_dir(
                 Direction::South,
-                Position::new(creature_pos.x, creature_pos.y.saturating_add(1), creature_pos.z),
+                Position::new(
+                    creature_pos.x,
+                    creature_pos.y.saturating_add(1),
+                    creature_pos.z,
+                ),
             );
         }
     }
 
     if !keep_distance || offset_x <= 0 {
-        let tmp_dist = ((creature_pos.x as i32 + 1 - target_pos.x as i32).unsigned_abs() as i32).max(distance_y);
+        let tmp_dist = ((creature_pos.x as i32 + 1 - target_pos.x as i32).unsigned_abs() as i32)
+            .max(distance_y);
         if tmp_dist == center_to_dist {
             try_dir(
                 Direction::East,
-                Position::new(creature_pos.x.saturating_add(1), creature_pos.y, creature_pos.z),
+                Position::new(
+                    creature_pos.x.saturating_add(1),
+                    creature_pos.y,
+                    creature_pos.z,
+                ),
             );
         }
     }
 
     if !keep_distance || offset_x >= 0 {
-        let tmp_dist = ((creature_pos.x as i32 - 1 - target_pos.x as i32).unsigned_abs() as i32).max(distance_y);
+        let tmp_dist = ((creature_pos.x as i32 - 1 - target_pos.x as i32).unsigned_abs() as i32)
+            .max(distance_y);
         if tmp_dist == center_to_dist {
             try_dir(
                 Direction::West,
-                Position::new(creature_pos.x.saturating_sub(1), creature_pos.y, creature_pos.z),
+                Position::new(
+                    creature_pos.x.saturating_sub(1),
+                    creature_pos.y,
+                    creature_pos.z,
+                ),
             );
         }
     }
@@ -382,7 +398,11 @@ where
             let se = can_walk(Direction::SouthEast);
             if sw || se {
                 if sw && se {
-                    return Some(pick_random_dir(rng, Direction::SouthWest, Direction::SouthEast));
+                    return Some(pick_random_dir(
+                        rng,
+                        Direction::SouthWest,
+                        Direction::SouthEast,
+                    ));
                 }
                 if w {
                     return Some(Direction::West);
@@ -423,7 +443,11 @@ where
             let ne = can_walk(Direction::NorthEast);
             if nw || ne {
                 if nw && ne {
-                    return Some(pick_random_dir(rng, Direction::NorthWest, Direction::NorthEast));
+                    return Some(pick_random_dir(
+                        rng,
+                        Direction::NorthWest,
+                        Direction::NorthEast,
+                    ));
                 }
                 if w {
                     return Some(Direction::West);
@@ -472,7 +496,8 @@ where
                 return Some(Direction::South);
             }
             if flee {
-                if let Some(dir) = try_walk_pair(can_walk, Direction::North, Direction::South, rng) {
+                if let Some(dir) = try_walk_pair(can_walk, Direction::North, Direction::South, rng)
+                {
                     return Some(dir);
                 }
             }
@@ -480,7 +505,11 @@ where
             let ne = can_walk(Direction::NorthEast);
             if se || ne {
                 if se && ne {
-                    return Some(pick_random_dir(rng, Direction::SouthEast, Direction::NorthEast));
+                    return Some(pick_random_dir(
+                        rng,
+                        Direction::SouthEast,
+                        Direction::NorthEast,
+                    ));
                 }
                 if s {
                     return Some(Direction::South);
@@ -513,7 +542,8 @@ where
                 return Some(Direction::South);
             }
             if flee {
-                if let Some(dir) = try_walk_pair(can_walk, Direction::North, Direction::South, rng) {
+                if let Some(dir) = try_walk_pair(can_walk, Direction::North, Direction::South, rng)
+                {
                     return Some(dir);
                 }
             }
@@ -521,7 +551,11 @@ where
             let sw = can_walk(Direction::SouthWest);
             if nw || sw {
                 if nw && sw {
-                    return Some(pick_random_dir(rng, Direction::NorthWest, Direction::SouthWest));
+                    return Some(pick_random_dir(
+                        rng,
+                        Direction::NorthWest,
+                        Direction::SouthWest,
+                    ));
                 }
                 if n {
                     return Some(Direction::North);
@@ -567,9 +601,17 @@ where
 
     // 1. Prefer axial direction away from the pursuer.
     if dx > dy {
-        dirs[0] = Some(if ox < 0 { Direction::West } else { Direction::East });
+        dirs[0] = Some(if ox < 0 {
+            Direction::West
+        } else {
+            Direction::East
+        });
     } else if dx < dy {
-        dirs[0] = Some(if oy < 0 { Direction::North } else { Direction::South });
+        dirs[0] = Some(if oy < 0 {
+            Direction::North
+        } else {
+            Direction::South
+        });
     }
 
     // 2. Fallback to random axial direction away from the pursuer.
@@ -616,17 +658,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn flight_field_prefers_axial_then_cardinal_then_diagonal() {
         let from = Position::new(100, 100, 7);
         let pursuer = Position::new(98, 100, 7); // West of us, so ox = 2, oy = 0.
-        // dx = 2, dy = 0.
-        // Preferred axial: East.
-        // Fallback card: East (already preferred), North, South.
-        // Fallback diag: NorthEast, SouthEast.
+                                                 // dx = 2, dy = 0.
+                                                 // Preferred axial: East.
+                                                 // Fallback card: East (already preferred), North, South.
+                                                 // Fallback diag: NorthEast, SouthEast.
 
         let mut rng = StdRng::seed_from_u64(1);
 
@@ -643,11 +685,15 @@ mod tests {
         assert!(matches!(res, Direction::North | Direction::South));
 
         // 3. All cardinals blocked -> check diagonals (NorthEast/SouthEast).
-        let can_walk = |d: Direction| !matches!(d, Direction::East | Direction::North | Direction::South | Direction::West);
+        let can_walk = |d: Direction| {
+            !matches!(
+                d,
+                Direction::East | Direction::North | Direction::South | Direction::West
+            )
+        };
         let res = search_flight_field(from, pursuer, can_walk, &mut rng).unwrap();
         assert!(matches!(res, Direction::NorthEast | Direction::SouthEast));
     }
-
 
     fn chebyshev(a: Position, b: Position) -> i32 {
         distance_x(a, b).max(distance_y(a, b))
@@ -722,15 +768,11 @@ mod tests {
         let can_attack = |_from: Position| true;
         let mut rng = StdRng::seed_from_u64(99);
         let dir = get_dance_step(
-            creature,
-            target,
-            true,
-            true,
-            can_walk,
-            can_attack,
-            false,
-            &mut rng,
+            creature, target, true, true, can_walk, can_attack, false, &mut rng,
         );
-        assert!(matches!(dir, Some(Direction::North) | Some(Direction::South)));
+        assert!(matches!(
+            dir,
+            Some(Direction::North) | Some(Direction::South)
+        ));
     }
 }

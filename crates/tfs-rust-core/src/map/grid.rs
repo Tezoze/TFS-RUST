@@ -82,7 +82,10 @@ impl SparseGrid {
     }
 
     pub fn populated_tile_count(&self) -> usize {
-        self.chunks.values().map(|c| usize::from(c.tile_count)).sum()
+        self.chunks
+            .values()
+            .map(|c| usize::from(c.tile_count))
+            .sum()
     }
 
     pub fn tile_stack_item_refs(&self) -> usize {
@@ -104,10 +107,7 @@ impl SparseGrid {
 
     pub fn get_tile_mut(&mut self, x: u16, y: u16, z: u8) -> Option<&mut Tile> {
         let key = ChunkKey::from_pos(x, y, z);
-        self.chunks
-            .get_mut(&key)?
-            .tiles[tile_index(x, y)]
-            .as_deref_mut()
+        self.chunks.get_mut(&key)?.tiles[tile_index(x, y)].as_deref_mut()
     }
 
     pub fn insert_tile(&mut self, x: u16, y: u16, z: u8, tile: Tile) {
@@ -168,11 +168,7 @@ impl SparseGrid {
 
         for chunk_y in ck_y0..=ck_y1 {
             for chunk_x in ck_x0..=ck_x1 {
-                let key = ChunkKey::from_pos(
-                    chunk_x * CHUNK_SIZE,
-                    chunk_y * CHUNK_SIZE,
-                    z,
-                );
+                let key = ChunkKey::from_pos(chunk_x * CHUNK_SIZE, chunk_y * CHUNK_SIZE, z);
                 if let Some(chunk) = self.chunks.get(&key) {
                     out.extend_from_slice(&chunk.creatures);
                 }

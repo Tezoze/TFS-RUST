@@ -169,7 +169,13 @@ mod tests {
             Some((25, 10))
         );
         // Non-DoT conditions have no profiled tick.
-        assert_eq!(dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Haste, 0), None);
-        assert_eq!(dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Pz, 0), None);
+        assert_eq!(
+            dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Haste, 0),
+            None
+        );
+        assert_eq!(
+            dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Pz, 0),
+            None
+        );
     }
 }

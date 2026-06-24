@@ -48,7 +48,12 @@ pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
 
 /// C++ `Creature::canSee(myPos, pos, viewRangeX, viewRangeY)` — `creature.cpp` ~45–66.
 /// Monster target list / follow use `Map::maxViewportX` / `maxViewportY` (11), not client viewport.
-pub fn creature_can_see(viewer_pos: Position, target: Position, view_range_x: i32, view_range_y: i32) -> bool {
+pub fn creature_can_see(
+    viewer_pos: Position,
+    target: Position,
+    view_range_x: i32,
+    view_range_y: i32,
+) -> bool {
     let my_z = i32::from(viewer_pos.z);
     let tz = i32::from(target.z);
 
@@ -129,7 +134,8 @@ impl GameWorld {
         for (conn, viewer) in viewers {
             if self.can_see_position(viewer, pos) {
                 let sid = self.alloc_statement_id();
-                let packet = send_creature_say(sid, &name, level, speak_type, pos, text).into_bytes();
+                let packet =
+                    send_creature_say(sid, &name, level, speak_type, pos, text).into_bytes();
                 self.enqueue_outgoing(conn, packet);
             }
         }
@@ -199,7 +205,10 @@ impl GameWorld {
             let pct = ((p.base.health.max(0) as u64 * 100) / max_hp as u64).min(100) as u8;
             (
                 p.base.position,
-                crate::login_out::creature_wire_id(target_id, self.creatures.get(target_id).unwrap()),
+                crate::login_out::creature_wire_id(
+                    target_id,
+                    self.creatures.get(target_id).unwrap(),
+                ),
                 pct,
             )
         };
@@ -215,7 +224,9 @@ impl GameWorld {
 
         self.broadcast_magic_effect(pos, CONST_ME_DRAWBLOOD);
 
-        use tfs_rust_net::codec::wire::{AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire};
+        use tfs_rust_net::codec::wire::{
+            AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire,
+        };
 
         let animated = self.codec.encode_animated_text(&AnimatedTextWire {
             pos,
@@ -246,12 +257,13 @@ impl GameWorld {
             };
             self.enqueue_encoded(
                 conn,
-                self.codec.encode_combat_damage_text_message(&CombatDamageNotifyWire {
-                    pos,
-                    damage: dmg,
-                    damage_color: TEXTCOLOR_RED,
-                    text,
-                }),
+                self.codec
+                    .encode_combat_damage_text_message(&CombatDamageNotifyWire {
+                        pos,
+                        damage: dmg,
+                        damage_color: TEXTCOLOR_RED,
+                        text,
+                    }),
             );
         }
 
@@ -277,8 +289,7 @@ impl GameWorld {
 
     /// Persist post-packet known set and record all ids as fully sent to this conn.
     pub fn commit_known_creatures_after_send(&mut self, conn_id: ConnId, known: &HashSet<u32>) {
-        self.known_creatures_by_conn
-            .insert(conn_id, known.clone());
+        self.known_creatures_by_conn.insert(conn_id, known.clone());
         self.creature_fully_sent_by_conn
             .insert(conn_id, known.clone());
     }
@@ -293,7 +304,11 @@ impl GameWorld {
 
     /// Whether `viewer` may treat `target_protocol_id` as “seen” for `knownCreatureSet` eviction.
     /// C++: `ProtocolGame::canSee` / `Player::canSeeCreature` (`protocolgame.cpp` ~778+).
-    pub fn can_see_creature_for_known_set(&self, viewer: CreatureId, target_protocol_id: u32) -> bool {
+    pub fn can_see_creature_for_known_set(
+        &self,
+        viewer: CreatureId,
+        target_protocol_id: u32,
+    ) -> bool {
         if self.player_guid(viewer) == Some(target_protocol_id) {
             return true;
         }
@@ -362,7 +377,10 @@ impl GameWorld {
         use tfs_rust_net::outgoing_extra::send_text_message_simple;
         const MESSAGE_STATUS_SMALL: u8 = 0x15;
         let msg = rv.description();
-        self.enqueue_outgoing(conn_id, send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes());
+        self.enqueue_outgoing(
+            conn_id,
+            send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+        );
     }
 
     // === B.6: Tile item change broadcasts ===
@@ -370,20 +388,27 @@ impl GameWorld {
     //          sendRemoveTileThing (~2633)
 
     /// Broadcast `sendAddTileItem` (0x6A) to all spectators.
-    pub(crate) fn broadcast_tile_item_add(&mut self, pos: Position, item_id: ItemId, stack_pos: u8) {
-        let (client_id, count, stackable, is_splash_or_fluid, is_animation) = match self.items.get(item_id) {
-            Some(item) => {
-                let it = self.items_db.items.get(&item.item_type);
-                (
-                    it.map(|t| t.client_id).unwrap_or(0),
-                    item.client_count(),
-                    it.map(|t| t.stackable()).unwrap_or(false),
-                    it.map(|t| t.is_splash() || t.is_fluid_container()).unwrap_or(false),
-                    it.map(|t| t.is_animation()).unwrap_or(false),
-                )
-            }
-            None => return,
-        };
+    pub(crate) fn broadcast_tile_item_add(
+        &mut self,
+        pos: Position,
+        item_id: ItemId,
+        stack_pos: u8,
+    ) {
+        let (client_id, count, stackable, is_splash_or_fluid, is_animation) =
+            match self.items.get(item_id) {
+                Some(item) => {
+                    let it = self.items_db.items.get(&item.item_type);
+                    (
+                        it.map(|t| t.client_id).unwrap_or(0),
+                        item.client_count(),
+                        it.map(|t| t.stackable()).unwrap_or(false),
+                        it.map(|t| t.is_splash() || t.is_fluid_container())
+                            .unwrap_or(false),
+                        it.map(|t| t.is_animation()).unwrap_or(false),
+                    )
+                }
+                None => return,
+            };
         let args = ItemTemplateArgs {
             client_id,
             count,
@@ -402,20 +427,27 @@ impl GameWorld {
     }
 
     /// Broadcast `sendUpdateTileItem` (0x6B) to all spectators.
-    pub(crate) fn broadcast_tile_item_update(&mut self, pos: Position, item_id: ItemId, stack_pos: u8) {
-        let (client_id, count, stackable, is_splash_or_fluid, is_animation) = match self.items.get(item_id) {
-            Some(item) => {
-                let it = self.items_db.items.get(&item.item_type);
-                (
-                    it.map(|t| t.client_id).unwrap_or(0),
-                    item.client_count(),
-                    it.map(|t| t.stackable()).unwrap_or(false),
-                    it.map(|t| t.is_splash() || t.is_fluid_container()).unwrap_or(false),
-                    it.map(|t| t.is_animation()).unwrap_or(false),
-                )
-            }
-            None => return,
-        };
+    pub(crate) fn broadcast_tile_item_update(
+        &mut self,
+        pos: Position,
+        item_id: ItemId,
+        stack_pos: u8,
+    ) {
+        let (client_id, count, stackable, is_splash_or_fluid, is_animation) =
+            match self.items.get(item_id) {
+                Some(item) => {
+                    let it = self.items_db.items.get(&item.item_type);
+                    (
+                        it.map(|t| t.client_id).unwrap_or(0),
+                        item.client_count(),
+                        it.map(|t| t.stackable()).unwrap_or(false),
+                        it.map(|t| t.is_splash() || t.is_fluid_container())
+                            .unwrap_or(false),
+                        it.map(|t| t.is_animation()).unwrap_or(false),
+                    )
+                }
+                None => return,
+            };
         let args = ItemTemplateArgs {
             client_id,
             count,
@@ -433,7 +465,10 @@ impl GameWorld {
 
     /// Broadcast `sendRemoveTileThing` (0x6C) to all spectators.
     pub(crate) fn broadcast_tile_item_remove(&mut self, pos: Position, stack_pos: u8) {
-        let pkt = self.codec.encode_remove_tile_thing(pos, stack_pos).into_bytes();
+        let pkt = self
+            .codec
+            .encode_remove_tile_thing(pos, stack_pos)
+            .into_bytes();
         self.broadcast_to_spectators(pos, pkt);
     }
 }

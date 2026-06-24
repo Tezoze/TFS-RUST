@@ -169,9 +169,7 @@ impl CreatureBase {
 
     /// C++ `TCombat::DelayAttack` — `crcombat.cc:523`.
     pub fn delay_attack_ms(&mut self, server_ms: u64, ms: u64) {
-        self.earliest_attack_ms = self
-            .earliest_attack_ms
-            .max(server_ms.saturating_add(ms));
+        self.earliest_attack_ms = self.earliest_attack_ms.max(server_ms.saturating_add(ms));
     }
 
     /// Whether an attack todo may execute or be enqueued (`cract.cc:909` `TDAttack`).

@@ -5,13 +5,13 @@
 //! - `TCreature::CreatureMoveStimulus` — `crmain.cc:888` (close-chase restep while `TDAttack` pending).
 //! - `Map::getSpectators` move fan-out — `map.cpp` (~264–323, ~386–474).
 
-use tfs_rust_common::Position;
 use slotmap::Key;
+use tfs_rust_common::Position;
 
 use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
+use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
-use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
 use crate::monster_ai::{chebyshev, MonsterEnqueueAttackResult, MAP_MAX_VIEWPORT};
 
 impl GameWorld {
@@ -70,7 +70,11 @@ impl GameWorld {
     }
 
     /// Creatures within `Creature::canSee` of `center` (monster `updateTargetList` / spawn scan).
-    pub(crate) fn collect_creature_spectators(&mut self, center: Position, multifloor: bool) -> Vec<CreatureId> {
+    pub(crate) fn collect_creature_spectators(
+        &mut self,
+        center: Position,
+        multifloor: bool,
+    ) -> Vec<CreatureId> {
         let range = i32::from(MAP_MAX_VIEWPORT);
         self.collect_spatial_spectators(center, multifloor)
             .into_iter()
@@ -83,7 +87,11 @@ impl GameWorld {
             .collect()
     }
     /// Monsters that should receive `Monster::onCreatureMove` for a move (`map.cpp` ~264–323).
-    fn monsters_witnessing_move(&mut self, old_pos: Position, new_pos: Position) -> Vec<CreatureId> {
+    fn monsters_witnessing_move(
+        &mut self,
+        old_pos: Position,
+        new_pos: Position,
+    ) -> Vec<CreatureId> {
         let mut ids: Vec<CreatureId> = self
             .collect_spatial_spectators(old_pos, true)
             .into_iter()
@@ -202,13 +210,15 @@ impl GameWorld {
         new_pos: Position,
         has_path: bool,
     ) {
-        if !self.creatures.get(monster_id).is_some_and(|k| k.base().follow_target.is_some()) {
+        if !self
+            .creatures
+            .get(monster_id)
+            .is_some_and(|k| k.base().follow_target.is_some())
+        {
             return;
         }
         // 772 idle drain owns repath even without an in-flight path (P0-1 / freeze fix).
-        if !has_path
-            && !self.mechanics.profile.follow_repath_without_path
-            && !self.beat_driven_loop
+        if !has_path && !self.mechanics.profile.follow_repath_without_path && !self.beat_driven_loop
         {
             return;
         }
@@ -299,8 +309,7 @@ impl GameWorld {
                 m.base.todo.locked,
             ))
         });
-        let Some((chase_mode, pos, target_pos, has_attack, has_go, todo_locked)) = snapshot
-        else {
+        let Some((chase_mode, pos, target_pos, has_attack, has_go, todo_locked)) = snapshot else {
             return;
         };
         if chase_mode != MonsterChaseMode::Close {
@@ -310,9 +319,11 @@ impl GameWorld {
             return;
         }
         // C++ `CreatureMoveStimulus` — only when strike is >200ms away (`crmain.cc:924`).
-        if self.creatures.get(monster_id).is_some_and(|k| {
-            k.base().earliest_attack_ms <= self.server_ms.saturating_add(200)
-        }) {
+        if self
+            .creatures
+            .get(monster_id)
+            .is_some_and(|k| k.base().earliest_attack_ms <= self.server_ms.saturating_add(200))
+        {
             return;
         }
         if chebyshev(pos, target_pos) <= 1 {
@@ -344,7 +355,11 @@ impl GameWorld {
     }
 
     /// TFS `Monster::onFollowCreatureComplete` — `monster.cpp` ~599.
-    pub(crate) fn monster_on_follow_creature_complete(&mut self, cid: CreatureId, target_id: CreatureId) {
+    pub(crate) fn monster_on_follow_creature_complete(
+        &mut self,
+        cid: CreatureId,
+        target_id: CreatureId,
+    ) {
         let (has_path, is_summon) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (m.base.has_follow_path, m.base.is_summon()),
             _ => return,
@@ -364,7 +379,11 @@ impl GameWorld {
         }
     }
     /// TFS `Monster::onCreatureEnter` via `onCreatureAppear` spectator fan-out — `monster.cpp` ~435.
-    pub fn monster_notify_creature_enter_viewport(&mut self, creature_id: CreatureId, pos: Position) {
+    pub fn monster_notify_creature_enter_viewport(
+        &mut self,
+        creature_id: CreatureId,
+        pos: Position,
+    ) {
         let monsters: Vec<CreatureId> = self
             .collect_spatial_spectators(pos, true)
             .into_iter()
@@ -381,8 +400,7 @@ impl GameWorld {
             // C++ `Monster::onCreatureAppear` → `onCreatureEnter` for each spatial spectator (`monster.cpp` ~167).
             self.monster_on_creature_found(monster_id, creature_id, true);
         }
-        self.monster_viewport_notify_depth =
-            self.monster_viewport_notify_depth.saturating_sub(1);
+        self.monster_viewport_notify_depth = self.monster_viewport_notify_depth.saturating_sub(1);
     }
 
     /// Notify monsters near a creature move (`Map::moveCreature` spectator fan-out).

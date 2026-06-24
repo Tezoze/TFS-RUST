@@ -2,8 +2,8 @@
 //!
 //! C++ reference: `luascript.cpp` item/container/player read accessors; `Item::getParent` / `getTopParent` — `item.cpp`.
 
-use tfs_rust_common::{ScriptContainerData, ScriptCylinder, ScriptItemId};
 use slotmap::Key;
+use tfs_rust_common::{ScriptContainerData, ScriptCylinder, ScriptItemId};
 
 use crate::container::ContainerIterator;
 use crate::creature::CreatureKind;
@@ -112,7 +112,12 @@ impl GameWorld {
             corpse_owner: self
                 .items
                 .get(container_id)
-                .map(|i| i.attributes.as_deref().map(|a| a.get_corpse_owner()).unwrap_or(0))
+                .map(|i| {
+                    i.attributes
+                        .as_deref()
+                        .map(|a| a.get_corpse_owner())
+                        .unwrap_or(0)
+                })
                 .unwrap_or(0),
         })
     }
@@ -144,7 +149,8 @@ impl GameWorld {
     ) -> u32 {
         let mut count = 0u32;
         for child in ContainerIterator::new(&self.container_registry, container_id) {
-            count = count.saturating_add(self.item_count_for_type_script(child, item_type, sub_type));
+            count =
+                count.saturating_add(self.item_count_for_type_script(child, item_type, sub_type));
         }
         count
     }
@@ -162,12 +168,9 @@ impl GameWorld {
         item.count_by_type(it, sub_type)
     }
 
-    pub fn script_player_container_id(
-        &self,
-        cid: CreatureId,
-        container_id: ItemId,
-    ) -> Option<u8> {
-        self.container_registry.get_cid_for_container(cid, container_id)
+    pub fn script_player_container_id(&self, cid: CreatureId, container_id: ItemId) -> Option<u8> {
+        self.container_registry
+            .get_cid_for_container(cid, container_id)
     }
 
     pub fn script_player_container_by_cid(
@@ -175,15 +178,13 @@ impl GameWorld {
         cid: CreatureId,
         client_cid: u8,
     ) -> Option<ItemId> {
-        self.container_registry.get_container_by_cid(cid, client_cid)
+        self.container_registry
+            .get_container_by_cid(cid, client_cid)
     }
 
-    pub fn script_player_container_index(
-        &self,
-        cid: CreatureId,
-        client_cid: u8,
-    ) -> Option<u16> {
-        self.container_registry.get_container_first_index(cid, client_cid)
+    pub fn script_player_container_index(&self, cid: CreatureId, client_cid: u8) -> Option<u16> {
+        self.container_registry
+            .get_container_first_index(cid, client_cid)
     }
 
     /// Resolve parent [`Cylinder`] for Lua `item:moveTo` / `item:remove`.

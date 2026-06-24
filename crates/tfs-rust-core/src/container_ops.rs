@@ -2,12 +2,14 @@
 // C++ ref: `src/container.cpp` `Container::queryAdd`, `queryDestination`, `addThing`, `removeThing`, etc.
 
 use crate::container::{ContainerIterator, ContainerType};
-use crate::player_inventory_query_add::PlayerDestResolution;
 use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
-use crate::cylinder::{Cylinder, CylinderFlags, INDEX_ADD_WHEREVER, INDEX_MOVE_UP, INDEX_WHEREEVER};
+use crate::cylinder::{
+    Cylinder, CylinderFlags, INDEX_ADD_WHEREVER, INDEX_MOVE_UP, INDEX_WHEREEVER,
+};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
+use crate::player_inventory_query_add::PlayerDestResolution;
 use crate::return_value::ReturnValue;
 use crate::tile::Tile;
 /// Result of `Container::queryDestination` (`container.cpp` ~369–428).
@@ -24,7 +26,11 @@ pub(crate) enum ContainerDestResolution {
 impl GameWorld {
     /// Walk `parent_container` to the topmost item in the chain (`Thing::getTopParent` — `thing.cpp`).
     pub(crate) fn top_container_item_id(&self, mut id: ItemId) -> ItemId {
-        while let Some(p) = self.container_registry.get(id).and_then(|c| c.parent_container) {
+        while let Some(p) = self
+            .container_registry
+            .get(id)
+            .and_then(|c| c.parent_container)
+        {
             id = p;
         }
         id
@@ -164,8 +170,7 @@ impl GameWorld {
 
         if cont.container_type == ContainerType::Depot && !flags.contains(CylinderFlags::NO_LIMIT) {
             if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
-                let add_count =
-                    self.depot_add_count_for_item(container_item_id, item_id, _count);
+                let add_count = self.depot_add_count_for_item(container_item_id, item_id, _count);
                 let holder_count = self
                     .container_registry
                     .get(holder_id)
@@ -186,7 +191,9 @@ impl GameWorld {
             return ReturnValue::ItemCannotBeMovedThere;
         }
 
-        let cylinder = cont.parent_container.and_then(|pid| self.container_registry.get(pid));
+        let cylinder = cont
+            .parent_container
+            .and_then(|pid| self.container_registry.get(pid));
         if self
             .items
             .get(container_item_id)
@@ -211,7 +218,10 @@ impl GameWorld {
                         return ReturnValue::ContainerNotEnoughRoom;
                     }
                 }
-                cyl = self.container_registry.get(pid).and_then(|c| c.parent_container);
+                cyl = self
+                    .container_registry
+                    .get(pid)
+                    .and_then(|c| c.parent_container);
             }
             if index == INDEX_WHEREEVER && cont.size() >= cont.capacity as usize {
                 return ReturnValue::ContainerNotEnoughRoom;
@@ -222,7 +232,10 @@ impl GameWorld {
                 if pid == item_id {
                     return ReturnValue::ThisIsImpossible;
                 }
-                cyl = self.container_registry.get(pid).and_then(|c| c.parent_container);
+                cyl = self
+                    .container_registry
+                    .get(pid)
+                    .and_then(|c| c.parent_container);
             }
         }
 
@@ -231,7 +244,11 @@ impl GameWorld {
                 return rv;
             }
             let mut root = container_item_id;
-            while let Some(p) = self.container_registry.get(root).and_then(|c| c.parent_container) {
+            while let Some(p) = self
+                .container_registry
+                .get(root)
+                .and_then(|c| c.parent_container)
+            {
                 root = p;
             }
             if self.player_holds_container_tree(actor, root) {
@@ -264,7 +281,8 @@ impl GameWorld {
         if count == 0 || (it.map(|t| t.stackable()).unwrap_or(false) && count > item.count as u32) {
             return ReturnValue::NotPossible;
         }
-        if !it.map(|t| t.moveable()).unwrap_or(false) && !flags.contains(CylinderFlags::IGNORE_NOT_MOVEABLE)
+        if !it.map(|t| t.moveable()).unwrap_or(false)
+            && !flags.contains(CylinderFlags::IGNORE_NOT_MOVEABLE)
         {
             return ReturnValue::NotMoveable;
         }
@@ -300,7 +318,10 @@ impl GameWorld {
                     let slot_index = slot_index as i32;
                     if container_item != item_id
                         && self.items_stack_mergeable(item_id, container_item)
-                        && self.items.get(container_item).is_some_and(|ci| ci.count < 100)
+                        && self
+                            .items
+                            .get(container_item)
+                            .is_some_and(|ci| ci.count < 100)
                         && self.container_query_add(
                             container_item_id,
                             slot_index,
@@ -309,21 +330,30 @@ impl GameWorld {
                             flags,
                             None,
                         ) == ReturnValue::NoError
-                        {
-                            let room = 100u32
-                                .saturating_sub(self.items.get(container_item).map(|i| i.count).unwrap_or(0) as u32);
-                            n = n.saturating_add(room);
-                        }
+                    {
+                        let room = 100u32.saturating_sub(
+                            self.items.get(container_item).map(|i| i.count).unwrap_or(0) as u32,
+                        );
+                        n = n.saturating_add(room);
+                    }
                 }
             } else if index >= 0 {
                 let idx = index as usize;
                 if let Some(dest_id) = container_items.get(idx).copied() {
                     if self.items_stack_mergeable(item_id, dest_id)
                         && self.items.get(dest_id).is_some_and(|d| d.count < 100)
-                        && self.container_query_add(container_item_id, index, item_id, count, flags, None)
-                            == ReturnValue::NoError
+                        && self.container_query_add(
+                            container_item_id,
+                            index,
+                            item_id,
+                            count,
+                            flags,
+                            None,
+                        ) == ReturnValue::NoError
                     {
-                        n = 100u32.saturating_sub(self.items.get(dest_id).map(|i| i.count).unwrap_or(0) as u32);
+                        n = 100u32.saturating_sub(
+                            self.items.get(dest_id).map(|i| i.count).unwrap_or(0) as u32,
+                        );
                     }
                 }
             }
@@ -542,8 +572,7 @@ impl GameWorld {
                 .container_registry
                 .get_mut(container_item_id)
                 .ok_or(ReturnValue::NotPossible)?;
-            cont
-                .remove_specific_item(item_id)
+            cont.remove_specific_item(item_id)
                 .map_err(|_| ReturnValue::NotPossible)?;
         }
         if let Some(ch) = self.container_registry.get_mut(item_id) {
@@ -582,9 +611,7 @@ impl GameWorld {
             self.refresh_container_chain(container_item_id);
             self.notify_container_content_changed(
                 container_item_id,
-                ContainerContentChange::Update {
-                    slot: idx as u16,
-                },
+                ContainerContentChange::Update { slot: idx as u16 },
             );
             return Ok(());
         } else {
@@ -593,7 +620,8 @@ impl GameWorld {
                     .container_registry
                     .get_mut(container_item_id)
                     .ok_or(ReturnValue::NotPossible)?;
-                cont.remove_item(idx).map_err(|_| ReturnValue::NotPossible)?;
+                cont.remove_item(idx)
+                    .map_err(|_| ReturnValue::NotPossible)?;
             }
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = None;
@@ -633,9 +661,18 @@ impl GameWorld {
             }
             cont.items.insert(0, item_id);
         }
-        if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+        if self
+            .items_db
+            .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+        {
             let mut reg = std::mem::take(&mut self.container_registry);
-            self.ensure_container_registered(&mut reg, item_id, CreatureId::default(), ContainerType::Normal, None);
+            self.ensure_container_registered(
+                &mut reg,
+                item_id,
+                CreatureId::default(),
+                ContainerType::Normal,
+                None,
+            );
             self.container_registry = reg;
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = Some(container_item_id);
@@ -677,9 +714,18 @@ impl GameWorld {
             }
             cont.items.insert(index, item_id);
         }
-        if self.items_db.is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+        if self
+            .items_db
+            .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+        {
             let mut reg = std::mem::take(&mut self.container_registry);
-            self.ensure_container_registered(&mut reg, item_id, CreatureId::default(), ContainerType::Normal, None);
+            self.ensure_container_registered(
+                &mut reg,
+                item_id,
+                CreatureId::default(),
+                ContainerType::Normal,
+                None,
+            );
             self.container_registry = reg;
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = Some(container_item_id);
@@ -688,9 +734,7 @@ impl GameWorld {
         self.refresh_container_chain(container_item_id);
         self.notify_container_content_changed(
             container_item_id,
-            ContainerContentChange::Add {
-                slot: index as u16,
-            },
+            ContainerContentChange::Add { slot: index as u16 },
         );
         Ok(())
     }
@@ -744,14 +788,7 @@ mod depot_query_tests {
         }
 
         let coin = world.items.insert(Item::new_single(2148));
-        let ret = world.container_query_add(
-            chest,
-            -1,
-            coin,
-            1,
-            CylinderFlags::NONE,
-            Some(cid),
-        );
+        let ret = world.container_query_add(chest, -1, coin, 1, CylinderFlags::NONE, Some(cid));
         assert_eq!(ret, ReturnValue::DepotIsFull);
     }
 }
