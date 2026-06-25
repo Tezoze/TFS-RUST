@@ -229,8 +229,12 @@ impl GameWorld {
                 Some(CreatureKind::Monster(m)) => {
                     let target_distance = self.monster_effective_target_distance(m.target_distance);
                     let cheb = chebyshev(from, dest);
-                    let uses_dist_branch =
-                        target_distance > 1 && self.monster_can_use_attack(cid, from, follow_id);
+                    let uses_dist_branch = self.monster_idle_uses_dist_branch(
+                        cid,
+                        from,
+                        follow_id,
+                        target_distance,
+                    );
                     let is_dist_chase = uses_dist_branch && cheb > target_distance;
                     let is_melee_chase = !uses_dist_branch && cheb > 1;
                     let (budget, _) = monster_idle_chase_step_budget(
@@ -374,16 +378,14 @@ mod tests {
     use crate::creature::CreatureKind;
     use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_monster, insert_player, minimal_world, test_player,
+        dist_idle_monster_config, beat_driven_test_world, ensure_walkable_tile,
+        insert_monster, insert_monster_with_config, insert_player, minimal_world, test_player,
+        TEST_SYNTHETIC_GROUND_WP,
     };
 
-    fn beat_driven_test_world() -> crate::game_world::GameWorld {
-        let mut world = minimal_world();
-        world.mechanics =
-            crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
-        world.beat_driven_loop = true;
-        world.walk_wake_tx = None;
-        world.server_ms = 500;
+    fn beat_driven_test_world_at(ms: u64) -> crate::game_world::GameWorld {
+        let mut world = beat_driven_test_world();
+        world.server_ms = ms;
         world
     }
 
@@ -391,7 +393,7 @@ mod tests {
     fn wait_action_queues_go_then_wait() {
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 2148);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let monster = insert_monster(&mut world, "Rat", pos, 200);
 
         world.idle_enqueue_paced_go(monster, true, Some("roam"), Some(MONSTER_IDLE_WAIT_MS));
@@ -409,9 +411,9 @@ mod tests {
 
     #[test]
     fn wait_execute_schedules_wakeup_at_delay() {
-        let mut world = beat_driven_test_world();
+        let mut world = beat_driven_test_world_at(500);
         let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 2148);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let monster = insert_monster(&mut world, "Rat", pos, 200);
 
         world.idle_enqueue_wait_and_start(monster, MONSTER_IDLE_WAIT_MS);
@@ -433,13 +435,17 @@ mod tests {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
         }
 
-        let monster = insert_monster(&mut world, "Hunter", mpos, 200);
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Hunter",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
         }

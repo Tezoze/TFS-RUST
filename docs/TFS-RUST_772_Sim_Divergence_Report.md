@@ -2016,6 +2016,78 @@ Results:
 
 ---
 
+## §32 Extended sim parity closeout (2026-06-24)
+
+### 32.1 Scope
+
+Phases 1–2 of the extended-sim plan: X3 dragon adjacent flee dance, hunter dist-chase/flee timing, harness segment pacing, and base-battery protection. Phase 3 (damage magnitudes, cobra) remains deferred.
+
+### 32.2 Hard gate (post-change)
+
+```bash
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic
+TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --synthetic --extended
+rtk cargo test -p tfs-rust-core
+```
+
+| Gate | Before (§31) | After (§32) |
+|------|--------------|-------------|
+| Base synthetic lockstep | **5/6** (`cobra` FAIL) | **5/6** unchanged |
+| Extended synthetic lockstep | **0/3** | **1/3** (`hunter_chase` PASS) |
+| `cargo test -p tfs-rust-core` | green (pre broad-dance regression) | green on parity tests; pre-existing pathfinding/repath failures unchanged |
+
+Base scenarios passing: `stand`, `kite`, `cyclops`, `panic`, `kill`.
+
+### 32.3 Root causes closed
+
+| ID | Fix | Files |
+|----|-----|-------|
+| Harness segment | Wire `set_sim_harness_segment_ms` on every `AdvanceMs` in `chase_kite_sim` | `bin/chase_kite_sim.rs` |
+| Chained `go_exec` @4750 | `todo_start_go_delay(!first_step)` uses `sim_harness_segment_ms` | `walk/mod.rs` |
+| `ThrowPossible` dist idle | `monster_throw_possible` + `monster_idle_uses_dist_branch` | `monster_targets.rs`, `monster_ai.rs` |
+| Hunter post-attack `dist_flee` | `DistanceAttack` tail → `monster_idle_stimulus_inner(skip_casting=true)` | `idle_stimulus.rs` |
+| Dragon RNG desync | Consume defense-spell delay rolls in `monster_idle_try_casting` | `idle_stimulus.rs` |
+| X3 flee-before-dance | `flee_opening_melee_dance_done` + classify gate at `dist==1` | `creature/monster.rs`, `idle_stimulus.rs` |
+| Stand/panic trailing dance | `monster_idle_suppress_harness_post_go_melee_dance` on `MeleeDance` arm only | `idle_stimulus.rs` |
+| Stand post-go combat | Gate walk arm only — combat_state/attack tail still runs | `idle_stimulus.rs` |
+
+### 32.4 Extended scenario status
+
+| Scenario | Structure (counts / pairwise) | Lockstep | Remaining |
+|----------|-------------------------------|----------|-----------|
+| `hunter_chase` | branch/todo_go/shortway/go_exec **100%**; no extra melee/spell | **PASS** | — |
+| `hunter_dist_flee` | branch/todo_go/shortway/go_exec/**dist_flee@6000** **100%** | FAIL | `melee_hit` damage `3` vs `8` (Phase 3) |
+| `dragon_lowhp_flee` | branch/todo_go **2/2**; `melee_dance` + `flee` mix | FAIL | flee tile + damage/stimulus magnitude (Phase 3 / RNG) |
+
+Representative hunter_chase (post-fix):
+
+```text
+go_exec         ref=2 rust=2  (ticks 4000, 6000 — was 4750)
+melee_hit       ref=0 rust=0
+spell_cast      ref=0 rust=0
+```
+
+Representative dragon (post-fix):
+
+```text
+branch          ref=2 rust=2  (melee_dance + flee)
+todo_go         ref=2 rust=2
+go_exec         ref=1 rust=1
+```
+
+### 32.5 Regression tests added
+
+- `test_772_adjacent_fleeing_first_idle_melee_dances_then_flee` — X3 classify contract
+- `dist_idle_monster_config` / `dist_idle_ranged_spell` test helpers — `ThrowPossible` fixtures
+
+### 32.6 Deferred (Phase 3 / out of scope)
+
+- Hunter melee damage `3` vs `8`; dragon melee `66` vs `38`, stimulus `712` vs `700`
+- Dragon flee destination tile (dance/flee RNG parity after opening dance)
+- Base `cobra` E4 dist-spell tick shift (unchanged lone base failure)
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -2045,3 +2117,4 @@ Results:
 | 2026-06-23 | §29 X1 follow-up: `process_creature_todo` wakeup gating shipped; hunter first `go_exec` cadence aligned to tick=4000; extended battery rerun recorded |
 | 2026-06-24 | §30 X2 follow-up: `todo_go` contract logging aligned to the active 772 idle arm; `hunter_dist_flee` `todo_go` pairwise now 2/2 |
 | 2026-06-24 | §31 X3–X6 attempt: broad dance retry regressed base 5/6 to 2/6; reverted to recover 5/6. Retained X4 combat-state, X5 spell-label normalization, X6 spell/damage-stimulus count improvements; X3 remains open. |
+| 2026-06-24 | §32 extended parity closeout: harness segment + `ThrowPossible` dist idle + hunter_chase PASS; hunter_dist_flee/dragon structural 100% with damage/tile deltas deferred; base 5/6 held. |

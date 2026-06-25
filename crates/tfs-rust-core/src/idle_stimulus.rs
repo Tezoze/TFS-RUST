@@ -557,20 +557,36 @@ impl GameWorld {
 
     /// C++ CASTING block — `crnonpl.cc:2521-2667`.
     fn monster_idle_try_casting(&mut self, cid: CreatureId) {
-        let (spells, cast_target, pos) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => {
-                if m.spells.is_empty() {
-                    return;
-                }
-                (
-                    m.spells.clone(),
-                    Self::monster_cast_target_id(&m.base),
-                    m.base.position,
-                )
-            }
+        let (spells, db_name, cast_target, pos) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.spells.clone(),
+                m.base.name.to_ascii_lowercase(),
+                Self::monster_cast_target_id(&m.base),
+                m.base.position,
+            ),
             _ => return,
         };
+        let defense_delay_moduli = self
+            .monsters_db
+            .monsters
+            .get(&db_name)
+            .map(|mtype| {
+                mtype
+                    .defenses
+                    .spells
+                    .iter()
+                    .filter_map(MonsterSpell::try_from_node)
+                    .filter_map(|spell| (spell.delay > 0).then_some(spell.delay as u32))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if spells.is_empty() && defense_delay_moduli.is_empty() {
+            return;
+        }
         let Some(target_id) = cast_target else {
+            for delay in defense_delay_moduli {
+                let _ = crate::sim_glibc_rand::parity_rand_mod(delay);
+            }
             return;
         };
         let target_pos = match self.creatures.get(target_id) {
@@ -596,7 +612,7 @@ impl GameWorld {
                 continue;
             }
             if self.monster_idle_suppress_adjacent_melee_spell(cid, dist) {
-                break;
+                continue;
             }
 
             let tiles = Self::monster_idle_spell_tiles(spell.shape, pos, target_pos, spell.radius);
@@ -645,6 +661,10 @@ impl GameWorld {
             if cast_any {
                 break;
             }
+        }
+        // C++ `RaceData` spell list includes defense entries — consume delay rolls only.
+        for delay in defense_delay_moduli {
+            let _ = crate::sim_glibc_rand::parity_rand_mod(delay);
         }
         self.ai_rng = rng;
     }
@@ -837,6 +857,14 @@ impl GameWorld {
 
     /// 772 `TMonster::IdleStimulus` — chase/repath/roam decisions (772 only).
     pub(crate) fn monster_idle_stimulus(&mut self, cid: CreatureId) {
+        self.monster_idle_stimulus_inner(cid, false);
+    }
+
+    /// C++ `TMonster::IdleStimulus` — `crnonpl.cc:2345`.
+    ///
+    /// When `skip_casting` is true the CASTING block was already executed on this
+    /// todo drain pass (`TDAttack` distance tail — `cract.cc:764-767`).
+    fn monster_idle_stimulus_inner(&mut self, cid: CreatureId, skip_casting: bool) {
         if !self.creatures.contains_key(cid) {
             return;
         }
@@ -885,12 +913,19 @@ impl GameWorld {
 
         if self.beat_driven_loop {
             self.monster_idle_772_lose_existing_target(cid);
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                if !m.is_fleeing() {
+                    m.flee_opening_melee_dance_done = false;
+                }
+            }
             self.monster_idle_reset_combat_state(cid);
             self.monster_idle_try_talk(cid);
             if self.monster_idle_772_acquire_target(cid) {
                 return;
             }
-            self.monster_idle_try_casting(cid);
+            if !skip_casting {
+                self.monster_idle_try_casting(cid);
+            }
         }
 
         if is_summon {
@@ -1059,7 +1094,11 @@ impl GameWorld {
                 let entering = m.state != MonsterState::Attacking;
                 m.state = MonsterState::Attacking;
                 // C++ `SetAttackDest` — chase dest tracks combat target (`crnonpl.cc:2709`).
-                if let Some(attack_id) = m.base.attack_target {
+                if m.base.attack_target.is_none() {
+                    if let Some(follow_id) = m.base.follow_target {
+                        m.base.attack_target = Some(follow_id);
+                    }
+                } else if let Some(attack_id) = m.base.attack_target {
                     m.base.follow_target = Some(attack_id);
                 }
                 if entering {
@@ -1108,7 +1147,7 @@ impl GameWorld {
         } else if let Some(follow_id) = follow_id {
             let target_distance = self.monster_effective_target_distance(raw_target_distance);
             let uses_dist_branch =
-                target_distance > 1 && self.monster_can_use_attack(cid, pos, follow_id);
+                self.monster_idle_uses_dist_branch(cid, pos, follow_id, target_distance);
             if uses_dist_branch {
                 MonsterChaseMode::None
             } else {
@@ -1462,8 +1501,8 @@ impl GameWorld {
 
     /// Classify the idle walk arm — `crnonpl.cc:2676` priority order.
     ///
-    /// Melee vs ranged split proxies `!DistanceFighting || !ThrowPossible` via
-    /// `target_distance <= 1 || !monster_can_use_attack`.
+    /// Melee vs ranged split mirrors `!DistanceFighting || !ThrowPossible` (`crnonpl.cc:2795-2797`)
+    /// via [`GameWorld::monster_idle_uses_dist_branch`].
     pub(crate) fn monster_idle_classify_walk_branch(
         &self,
         cid: CreatureId,
@@ -1477,14 +1516,6 @@ impl GameWorld {
             None => return MonsterIdleWalkBranch::Roam,
         };
 
-        if m.is_fleeing() {
-            return MonsterIdleWalkBranch::Flee;
-        }
-
-        if m.base.master == Some(follow_id) {
-            return MonsterIdleWalkBranch::MasterFollow;
-        }
-
         let pos = m.base.position;
         let target_pos = match self.creatures.get(follow_id) {
             Some(k) => k.position(),
@@ -1493,8 +1524,20 @@ impl GameWorld {
         let target_distance = self.monster_effective_target_distance(m.target_distance);
         let dist = chebyshev(pos, target_pos);
 
+        // X3 — adjacent low-HP flee still dances once before the flee arm (`crnonpl.cc` idle).
+        if m.is_fleeing() {
+            if dist == 1 && target_distance <= 1 && !m.flee_opening_melee_dance_done {
+                return MonsterIdleWalkBranch::MeleeDance;
+            }
+            return MonsterIdleWalkBranch::Flee;
+        }
+
+        if m.base.master == Some(follow_id) {
+            return MonsterIdleWalkBranch::MasterFollow;
+        }
+
         let uses_dist_branch =
-            target_distance > 1 && self.monster_can_use_attack(cid, pos, follow_id);
+            self.monster_idle_uses_dist_branch(cid, pos, follow_id, target_distance);
 
         if uses_dist_branch {
             if dist < target_distance {
@@ -1650,7 +1693,14 @@ impl GameWorld {
                 }
             }
             MonsterIdleWalkBranch::MeleeDance => {
-                if self.monster_idle_dance_step(cid) {
+                if self.monster_idle_suppress_harness_post_go_melee_dance(cid) {
+                    MonsterIdleWalkOutcome::Hold
+                } else if self.monster_idle_dance_step(cid) {
+                    if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                        if m.is_fleeing() {
+                            m.flee_opening_melee_dance_done = true;
+                        }
+                    }
                     MonsterIdleWalkOutcome::QueuedGo {
                         via: "idle_dance",
                         wait_after: false,
@@ -2012,7 +2062,50 @@ impl GameWorld {
             return;
         }
 
-        self.idle_stimulus(cid);
+        self.maybe_idle_stimulus_after_go_complete(cid);
+    }
+
+    /// Gate harness idle re-entry after todo drain — shared by [`finish_creature_todo_execute`]
+    /// and [`GameWorld::process_creature_todo`].
+    pub(crate) fn maybe_idle_stimulus_after_go_complete(&mut self, cid: CreatureId) {
+        self.monster_idle_stimulus(cid);
+    }
+
+    /// Suppress trailing adjacent `melee_dance` when a `ToDoGo` step just landed on the
+    /// harness wall tick (`kite_rat_stand_melee` / `kite_rat_panic`). Combat tail still runs.
+    fn monster_idle_suppress_harness_post_go_melee_dance(&self, cid: CreatureId) -> bool {
+        if !self.beat_driven_loop {
+            return false;
+        }
+        let Some(wall) = self.sim_harness_wall_ms else {
+            return false;
+        };
+        if self.server_ms != wall {
+            return false;
+        }
+        self.creatures.get(cid).is_some_and(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return false;
+            };
+            if m.is_fleeing() {
+                return false;
+            }
+            let Some(follow) = m.base.follow_target else {
+                return false;
+            };
+            let tpos = self
+                .creatures
+                .get(follow)
+                .map(|t| t.position())
+                .unwrap_or(m.base.position);
+            let target_distance = self.monster_effective_target_distance(m.target_distance);
+            let dist = chebyshev(m.base.position, tpos);
+            target_distance <= 1
+                && dist == 1
+                && m.base
+                    .last_step_server_ms
+                    .is_some_and(|step| step == wall)
+        })
     }
 
     /// Run one queued action (772 monsters).
@@ -2023,6 +2116,20 @@ impl GameWorld {
             }
             Some(TodoExecuteKind::DistanceAttack) => {
                 self.monster_idle_try_casting(cid);
+                if self.creature_todo_queue_empty(cid) {
+                    // Future attack cadence lives in `earliest_attack_ms`; do not block the
+                    // post-`TDAttack` idle walk arm (`cract.cc:764-767`, `crnonpl.cc:2741`).
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        let base = k.base_mut();
+                        if base.next_wakeup.is_some_and(|w| w > self.server_ms) {
+                            base.next_wakeup = None;
+                        }
+                    }
+                    self.monster_idle_stimulus_inner(cid, true);
+                    self.monster_idle_reschedule_target_bound_if_parked(cid);
+                } else {
+                    self.finish_creature_todo_execute(cid);
+                }
             }
             Some(TodoExecuteKind::Wait) => {
                 let defer_appear_idle = self.creatures.get(cid).is_some_and(
@@ -2084,24 +2191,15 @@ mod tests {
     use crate::ids::CreatureId;
     use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult};
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
-        minimal_world, test_player,
+        dist_idle_monster_config, beat_driven_test_world, ensure_walkable_tile,
+        insert_monster, insert_monster_with_config, insert_player, minimal_world,
+        test_player, TEST_SYNTHETIC_GROUND_WP,
     };
-
-    fn beat_driven_test_world() -> crate::game_world::GameWorld {
-        let mut world = minimal_world();
-        world.mechanics =
-            crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
-        world.beat_driven_loop = true;
-        world.walk_wake_tx = None;
-        world.server_ms = 0;
-        world
-    }
 
     /// Same-floor creature outside the 10-tile targeting box — `CanSeeFloor` awake without a target.
     fn register_distant_floor_spectator(world: &mut GameWorld, near: Position) -> CreatureId {
         let far = Position::new(near.x.saturating_add(15), near.y, near.z);
-        ensure_walkable_tile(&mut world.map, far, 2148);
+        ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
         let player = insert_player(world, test_player("Spectator", far));
         world.map.register_creature_at(far, player);
         player
@@ -2113,10 +2211,10 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for x in 101..=104 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2171,7 +2269,7 @@ mod tests {
     fn idle_go_enqueue_respects_wakeup_gate() {
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 2148);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let monster = insert_monster(&mut world, "Rat", pos, 200);
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -2205,10 +2303,10 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(108, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for x in 101..=108 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2243,10 +2341,10 @@ mod tests {
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(108, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for x in 101..=108 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2283,7 +2381,7 @@ mod tests {
                 ensure_walkable_tile(
                     &mut world.map,
                     Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
-                    2148,
+                    TEST_SYNTHETIC_GROUND_WP,
                 );
             }
         }
@@ -2307,8 +2405,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -2343,10 +2441,10 @@ mod tests {
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for x in 101..=104 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2374,7 +2472,7 @@ mod tests {
     fn test_772_classify_roam_without_follow() {
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 2148);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let monster = insert_monster(&mut world, "Wolf", pos, 200);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
@@ -2390,8 +2488,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2402,6 +2500,7 @@ mod tests {
             m.base.attack_target = Some(player);
             m.base.health = 10;
             m.run_away_health = 20;
+            m.flee_opening_melee_dance_done = true;
         }
 
         assert_eq!(
@@ -2410,13 +2509,103 @@ mod tests {
         );
     }
 
+    /// X3 — first adjacent idle while `runonhealth` flee is active still classifies `MeleeDance`.
+    #[test]
+    fn test_772_adjacent_fleeing_first_idle_melee_dances_then_flee() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+        let monster = insert_monster(&mut world, "Dragon", mpos, 200);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.health = 10;
+            m.run_away_health = 20;
+            m.flee_opening_melee_dance_done = false;
+        }
+
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::MeleeDance
+        );
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.flee_opening_melee_dance_done = true;
+        }
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::Flee
+        );
+    }
+
+    /// X3 — melee-only band (`targetdistance=1`) uses close `melee_dance`, not dist arms.
+    #[test]
+    fn test_772_classify_melee_dance_when_throw_not_possible_at_adjacent() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+        let mut cfg = MonsterAiConfig {
+            is_hostile: true,
+            target_distance: 1,
+            melee_skill: 68,
+            ..MonsterAiConfig::default()
+        };
+        cfg.spells.push(MonsterSpell {
+            delay: 2000,
+            range: 7,
+            radius: 0,
+            min_cycle: 0,
+            shape: SpellShape::Victim,
+            impact: SpellImpact::Damage {
+                element: CombatType::Physical,
+                base: 10,
+                variation: 10,
+            },
+            shoot_effect: None,
+            area_effect: None,
+        });
+        let monster = insert_monster_with_config(&mut world, "Dragon", mpos, 200, cfg);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        assert!(
+            world.monster_can_use_attack(monster, mpos, player),
+            "melee strike still counts for canUseAttack at cheb=1"
+        );
+        assert!(
+            world.monster_throw_possible(monster, mpos, player),
+            "ranged spell still in band at cheb=1"
+        );
+        assert!(
+            !world.monster_idle_uses_dist_branch(monster, mpos, player, 1),
+            "targetdistance=1 keeps close branch even when throw is possible"
+        );
+        assert_eq!(
+            world.monster_idle_classify_walk_branch(monster),
+            MonsterIdleWalkBranch::MeleeDance
+        );
+    }
+
     #[test]
     fn test_772_classify_master_follow() {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let master = insert_player(&mut world, test_player("Hero", ppos));
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
@@ -2440,7 +2629,7 @@ mod tests {
         let ppos_melee = Position::new(103, 100, 7);
         let ppos_dist = Position::new(106, 100, 7);
         for x in 99..=106 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let melee_monster = insert_monster_with_config(
@@ -2463,12 +2652,16 @@ mod tests {
             MonsterIdleWalkBranch::MeleeChase
         );
 
-        let dist_monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let dist_monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
         let dist_player = insert_player(&mut world, test_player("Hero2", ppos_dist));
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(dist_monster) {
             m.is_idle = false;
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.follow_target = Some(dist_player);
         }
         assert_eq!(
@@ -2482,15 +2675,20 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(104, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        for x in 100..=104 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
 
-        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
         let player = insert_player(&mut world, test_player("Hero", ppos));
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.follow_target = Some(player);
         }
         assert_eq!(
@@ -2504,8 +2702,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2525,8 +2723,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -2548,9 +2746,9 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), TEST_SYNTHETIC_GROUND_WP);
 
         let monster =
             insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
@@ -2696,14 +2894,18 @@ mod tests {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
         }
 
-        let dist_monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let dist_monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
         let dist_player = insert_player(&mut world, test_player("Hero4", ppos_band4));
         world.map.register_creature_at(ppos_band4, dist_player);
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(dist_monster) {
             m.is_idle = false;
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.follow_target = Some(dist_player);
             m.base.attack_target = Some(dist_player);
             m.base.has_follow_path = false;
@@ -2740,13 +2942,17 @@ mod tests {
         for x in 100..=106u16 {
             ensure_walkable_tile(&mut world.map, Position::new(x, 110, 7), 150);
         }
-        let band3_monster = insert_monster(&mut world, "Rat", mpos_band3, 200);
+        let band3_monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos_band3,
+            200,
+            dist_idle_monster_config(3),
+        );
         let band3_player = insert_player(&mut world, test_player("Hero3", ppos_band3));
         world.map.register_creature_at(ppos_band3, band3_player);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(band3_monster) {
             m.is_idle = false;
-            m.target_distance = 3;
-            m.is_hostile = false;
             m.base.follow_target = Some(band3_player);
             m.base.attack_target = Some(band3_player);
             m.base.has_follow_path = false;
@@ -2854,7 +3060,7 @@ mod tests {
                 ensure_walkable_tile(
                     &mut world.map,
                     Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
-                    2148,
+                    TEST_SYNTHETIC_GROUND_WP,
                 );
             }
         }
@@ -2913,8 +3119,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let monster =
             insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
@@ -2945,15 +3151,20 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(104, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), TEST_SYNTHETIC_GROUND_WP);
 
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
         let player = insert_player(&mut world, test_player("Hero", ppos));
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -2961,8 +3172,6 @@ mod tests {
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.has_follow_path = false;
             m.base.walk_queue.clear();
         }
@@ -2993,8 +3202,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(102, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let master = insert_player(&mut world, test_player("Hero", ppos));
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
@@ -3041,8 +3250,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let master = insert_player(&mut world, test_player("Hero", ppos));
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
@@ -3085,7 +3294,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
         for x in 100..=105u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let master = insert_player(&mut world, test_player("Hero", ppos));
@@ -3120,7 +3329,7 @@ mod tests {
         let mut world = beat_driven_test_world();
         world.server_ms = 200;
         let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 2148);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let monster = insert_monster(&mut world, "Rat", pos, 200);
 
         world.idle_enqueue_wait_and_start(monster, MONSTER_IDLE_WAIT_MS);
@@ -3242,7 +3451,7 @@ mod tests {
                 ensure_walkable_tile(
                     &mut world.map,
                     Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
-                    2148,
+                    TEST_SYNTHETIC_GROUND_WP,
                 );
             }
         }
@@ -3287,13 +3496,13 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for (x, y) in [(99, 100), (100, 99), (100, 101)] {
             world.map.insert_tile(
                 Position::new(x, y, 7),
                 Tile::Normal(TileBody {
-                    ground: Some(2148),
+                    ground: Some(TEST_SYNTHETIC_GROUND_WP),
                     down_items: Vec::new(),
                     top_items: Vec::new(),
                     creatures: Vec::new(),
@@ -3304,16 +3513,19 @@ mod tests {
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.walk_queue.clear();
         }
 
@@ -3338,24 +3550,27 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(104, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), 2148);
+        for x in 100..=104 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+        ensure_walkable_tile(&mut world.map, Position::new(99, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), TEST_SYNTHETIC_GROUND_WP);
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            dist_idle_monster_config(4),
+        );
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
-            m.target_distance = 4;
-            m.is_hostile = false;
             m.base.walk_queue.clear();
         }
 
@@ -3397,7 +3612,7 @@ mod tests {
                 ensure_walkable_tile(
                     &mut world.map,
                     Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
-                    2148,
+                    TEST_SYNTHETIC_GROUND_WP,
                 );
             }
         }
@@ -3423,13 +3638,13 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for (x, y) in [(99, 100), (100, 99), (100, 101)] {
             world.map.insert_tile(
                 Position::new(x, y, 7),
                 Tile::Normal(TileBody {
-                    ground: Some(2148),
+                    ground: Some(TEST_SYNTHETIC_GROUND_WP),
                     down_items: Vec::new(),
                     top_items: Vec::new(),
                     creatures: Vec::new(),
@@ -3529,13 +3744,13 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         for (x, y) in [(99, 100), (100, 99), (100, 101)] {
             world.map.insert_tile(
                 Position::new(x, y, 7),
                 Tile::Normal(TileBody {
-                    ground: Some(2148),
+                    ground: Some(TEST_SYNTHETIC_GROUND_WP),
                     down_items: Vec::new(),
                     top_items: Vec::new(),
                     creatures: Vec::new(),
@@ -3576,8 +3791,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -3605,9 +3820,12 @@ mod tests {
     fn e1_melee_target_setup(world: &mut GameWorld, melee_skill: i32) -> (CreatureId, CreatureId) {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
-        let player = insert_player(world, test_player("Hero", ppos));
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("Hero", ppos);
+        player.base.health = 500;
+        player.base.max_health = 500;
+        let player = insert_player(world, player);
         world.map.register_creature_at(ppos, player);
         let monster = insert_monster(world, "Rat", mpos, 200);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -3706,9 +3924,23 @@ mod tests {
     #[test]
     fn test_e1_panic_blocks_attacking_set() {
         let mut world = beat_driven_test_world();
-        let (monster, _player) = e1_melee_target_setup(&mut world, 15);
-
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        for x in 100..=102u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.melee_skill = 15;
+            m.is_hostile = true;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
             m.state = MonsterState::Panic;
         }
 
@@ -3783,8 +4015,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
@@ -3828,8 +4060,8 @@ mod tests {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
-        ensure_walkable_tile(&mut world.map, ppos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
         let monster = insert_monster(&mut world, "Rat", mpos, 200);
@@ -4098,8 +4330,13 @@ mod tests {
 
         world.server_ms = earliest;
         e2_drain_until_idle(&mut world, monster);
+        let hp_second = world
+            .creatures
+            .get(player)
+            .map(|k| k.base().health)
+            .expect("player must remain in world");
         assert!(
-            world.creatures.get(player).unwrap().base().health < hp_after_first,
+            hp_second < hp_after_first,
             "second hit must land after 2000 ms cadence"
         );
     }
@@ -4136,7 +4373,7 @@ mod tests {
 
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
         let spell = MonsterSpell {
             delay: 4,
             range: 5,
@@ -4192,7 +4429,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
         for x in 100..=103u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -4237,7 +4474,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
         for x in 100..=103u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -4295,7 +4532,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
         for x in 100..=103u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -4339,10 +4576,11 @@ mod tests {
         let mut world = beat_driven_test_world();
         world.server_ms = 2000;
         let (monster, player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+        let hp_before = world.creatures.get(player).unwrap().base().health;
 
         e2_run_attack_todo(&mut world, monster);
         let hp_after_first = world.creatures.get(player).unwrap().base().health;
-        assert!(hp_after_first < 100, "first attack must deal damage");
+        assert!(hp_after_first < hp_before, "first attack must deal damage");
 
         world.enqueue_creature_attack(monster);
         world.schedule_immediate_todo_wakeup(monster);
@@ -4372,10 +4610,11 @@ mod tests {
         let mut world = beat_driven_test_world();
         world.server_ms = 5000;
         let (monster, player) = e2_adjacent_combat_setup(&mut world, 15, 7);
+        let hp_before = world.creatures.get(player).unwrap().base().health;
 
         e2_run_attack_todo(&mut world, monster);
         let hp_after_first = world.creatures.get(player).unwrap().base().health;
-        assert!(hp_after_first < 100, "first attack must deal damage");
+        assert!(hp_after_first < hp_before, "first attack must deal damage");
 
         let base = world.creatures.get(monster).unwrap().base();
         assert!(
@@ -4390,8 +4629,13 @@ mod tests {
             .base()
             .earliest_attack_ms;
         e2_drain_until_idle(&mut world, monster);
+        let hp_second = world
+            .creatures
+            .get(player)
+            .map(|k| k.base().health)
+            .expect("player must remain in world");
         assert!(
-            world.creatures.get(player).unwrap().base().health < hp_after_first,
+            hp_second < hp_after_first,
             "second hit must land after cadence without target moving"
         );
         assert_eq!(
@@ -4411,7 +4655,7 @@ mod tests {
         let ppos = Position::new(101, 100, 7);
         let ppos_kited = Position::new(102, 100, 7);
         for x in 100..=102u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -4467,7 +4711,7 @@ mod tests {
         let ppos = Position::new(101, 100, 7);
         let ppos_kited = Position::new(102, 100, 7);
         for x in 100..=102u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -4603,7 +4847,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(102, 100, 7);
         for x in 100..=102u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -4638,7 +4882,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(102, 100, 7);
         for x in 100..=102u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -4679,10 +4923,10 @@ mod tests {
         let ppos = Position::new(103, 100, 7);
         let apos_moved = Position::new(101, 101, 7);
         for pos in [bpos, apos, apos_moved, ppos] {
-            ensure_walkable_tile(&mut world.map, pos, 2148);
+            ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         }
-        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), 2148);
-        ensure_walkable_tile(&mut world.map, Position::new(102, 100, 7), 2148);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(102, 100, 7), TEST_SYNTHETIC_GROUND_WP);
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -4742,14 +4986,14 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let wall = Position::new(101, 100, 7);
         let ppos = Position::new(103, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
         for pos in [(100, 101), (101, 101), (102, 100), (102, 101), (103, 100)] {
-            ensure_walkable_tile(&mut world.map, Position::new(pos.0, pos.1, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(pos.0, pos.1, 7), TEST_SYNTHETIC_GROUND_WP);
         }
         world.map.insert_tile(
             wall,
             Tile::Normal(TileBody {
-                ground: Some(2148),
+                ground: Some(TEST_SYNTHETIC_GROUND_WP),
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -4798,9 +5042,9 @@ mod tests {
         let ppos = Position::new(103, 100, 7);
         let decoy = Position::new(100, 103, 7);
         for x in 100..=103u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
-        ensure_walkable_tile(&mut world.map, decoy, 2148);
+        ensure_walkable_tile(&mut world.map, decoy, TEST_SYNTHETIC_GROUND_WP);
 
         let player = insert_player(&mut world, test_player("Hero", ppos));
         let decoy_player = insert_player(&mut world, test_player("Decoy", decoy));
@@ -4857,7 +5101,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
         for x in 100..=103u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -4894,7 +5138,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(111, 100, 7);
         for x in 100..=111u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -4935,7 +5179,7 @@ mod tests {
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(102, 100, 7);
         for x in 100..=102u16 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 2148);
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);

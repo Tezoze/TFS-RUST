@@ -466,6 +466,52 @@ impl GameWorld {
         false
     }
 
+    /// C++ `ThrowPossible` — ranged-only gate for 772 distance-fighting idle (`crnonpl.cc:2795-2797`).
+    ///
+    /// Melee at cheb=1 does **not** count; when this returns false the close branch runs
+    /// (`melee_dance` at dist==1) even if [`Self::monster_can_use_attack`] is true.
+    pub fn monster_throw_possible(
+        &self,
+        monster_id: CreatureId,
+        pos: Position,
+        target_id: CreatureId,
+    ) -> bool {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
+            return false;
+        };
+        if !m.is_hostile {
+            return false;
+        }
+        let target_pos = match self.creatures.get(target_id) {
+            Some(k) => k.position(),
+            None => return false,
+        };
+        if !self.map.is_sight_clear(pos, target_pos) {
+            return false;
+        }
+        let dist = chebyshev(pos, target_pos) as u32;
+        for spell in &m.spells {
+            if runtime_spell_in_attack_range(spell, dist) {
+                return true;
+            }
+        }
+        if m.spells.is_empty() {
+            let db_name = m.base.name.to_lowercase();
+            let spells = self
+                .monsters_db
+                .monsters
+                .get(&db_name)
+                .map(|t| t.attack_spells.as_slice())
+                .unwrap_or(&[]);
+            for spell in spells {
+                if spell_in_attack_range(spell, dist) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// TFS `Monster::searchTarget` — `monster.cpp` ~517.
     pub fn monster_search_target(
         &mut self,

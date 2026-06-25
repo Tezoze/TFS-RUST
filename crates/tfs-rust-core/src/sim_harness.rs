@@ -357,6 +357,17 @@ pub fn beat_driven_world_with_synthetic_ground(waypoint: Option<u16>) -> GameWor
         .unwrap_or_else(|_| panic!("synthetic world without data dir failed"))
 }
 
+/// Pinned waypoint for unit-test arenas — matches kite sim synthetic grass (`chase_kite_scenario.cc`).
+pub const TEST_SYNTHETIC_GROUND_WP: u16 = 150;
+
+/// 772 beat-driven world with synthetic terrain registered for `TShortway::FillMap`.
+pub fn beat_driven_test_world() -> GameWorld {
+    let mut world = beat_driven_world_with_synthetic_ground(Some(TEST_SYNTHETIC_GROUND_WP));
+    world.walk_wake_tx = None;
+    world.server_ms = 0;
+    world
+}
+
 /// Load item + monster databases from the data pack for chase sim spawn parity.
 /// C++ reference: `Monsters::loadMonster` — `monsters.cpp`.
 pub fn load_sim_content_dbs(

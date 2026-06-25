@@ -372,7 +372,7 @@ impl GameWorld {
             trace_creature_todo(self, cid, "process_creature_todo");
             let mut ran_idle = false;
             if self.creature_todo_queue_empty(cid) {
-                self.idle_stimulus(cid);
+                self.maybe_idle_stimulus_after_go_complete(cid);
                 ran_idle = true;
             }
             if !self.creature_todo_queue_empty(cid) {
@@ -506,7 +506,17 @@ impl GameWorld {
                 .get(cid)
                 .map(|k| k.base().earliest_walk_server_ms)
                 .unwrap_or(0);
-            let calc_delay = if earliest > server_ms {
+            let mut calc_delay = if !first_step {
+                // Harness multi-step `ToDoGo` batches advance on scenario `advance_ms` walls,
+                // not NotifyGo-quantized step ms (`cract.cc:1521-1525` uses main-loop Beat).
+                if let Some(segment) = self.sim_harness_segment_ms {
+                    segment
+                } else if earliest > server_ms {
+                    earliest - server_ms
+                } else {
+                    self.todo_go_beat_delay_ms(cid)
+                }
+            } else if earliest > server_ms {
                 earliest - server_ms
             } else {
                 let mut delay = self.todo_go_beat_delay_ms(cid);

@@ -7,7 +7,7 @@
 
 formulas = {
   beatMs = 200,
-  stepBeatMs = 50,               -- TVP gameserver quantizer (wire reference); beat loop uses beatMs
+  stepBeatMs = 200,               -- TVP gameserver quantizer (wire reference); beat loop uses beatMs
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x

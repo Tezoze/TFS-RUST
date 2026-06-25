@@ -1421,8 +1421,17 @@ mod tests {
         )
         .expect("reverse path");
         assert!(!path.is_empty());
+        let steps = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            path,
+            usize::MAX,
+            false,
+            fpp.max_target_dist,
+        );
+        assert!(!steps.is_empty());
         let mut pos = start;
-        for dir in path.iter().rev() {
+        for dir in &steps {
             pos = pos.offset(*dir);
         }
         assert_eq!(chebyshev_dist(pos, target), 1);
@@ -1559,8 +1568,17 @@ mod tests {
         .expect("reverse A* must detour around obstacle");
         assert!(!path.is_empty());
 
+        let steps = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            path,
+            usize::MAX,
+            false,
+            fpp.max_target_dist,
+        );
+        assert!(!steps.is_empty());
         let mut pos = start;
-        for dir in path.iter().rev() {
+        for dir in &steps {
             let next = pos.offset(*dir);
             assert!(map.is_walkable(next), "path must not enter blocked tiles");
             assert_ne!(next, Position::new(3, 10, 7));

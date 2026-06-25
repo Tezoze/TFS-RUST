@@ -12,9 +12,9 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     beat_driven_world_for_kite_synthetic, beat_driven_world_from_map, default_sim_map_config,
     insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick, set_sim_harness_wall_ms,
-    sim_hero_player, sim_player_damage_monster, teleport_player, validate_positions_walkable,
-    SimMapConfig,
+    kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick, set_sim_harness_segment_ms,
+    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
+    validate_positions_walkable, SimMapConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -456,11 +456,11 @@ fn execute_step(
     match step {
         ScenarioStep::AdvanceMs(ms) if defer_advance_drain => {
             clock.bump_wall_only(world, *ms);
-            tfs_rust_core::sim_harness::set_sim_harness_segment_ms(world, Some(*ms));
+            set_sim_harness_segment_ms(world, Some(*ms));
         }
         ScenarioStep::AdvanceMs(ms) => {
             clock.advance(world, *ms);
-            tfs_rust_core::sim_harness::set_sim_harness_segment_ms(world, Some(*ms));
+            set_sim_harness_segment_ms(world, Some(*ms));
         }
         ScenarioStep::MonsterAppear => {
             if !handles.monsters_appeared {
