@@ -1,8 +1,8 @@
 # TFS-RUST 772 — Real Map Kite Simulation Plan
 
-**Date:** 2026-06-24  
-**Status:** Plan  
-**Related:** [`TFS-RUST_772_Sim_Divergence_Report.md`](TFS-RUST_772_Sim_Divergence_Report.md)
+**Date:** 2026-06-25 (updated)  
+**Status:** Plan — v0 pilot ready to author  
+**Related:** [`TFS-RUST_772_RealMap_Scenario_Proposal.md`](TFS-RUST_772_RealMap_Scenario_Proposal.md), [`TFS-RUST_772_Sim_Divergence_Report.md`](TFS-RUST_772_Sim_Divergence_Report.md)
 
 ## 1. Goal
 
@@ -38,6 +38,47 @@ The divergence report shows the existing harness is mature enough to extend:
 
 Important historical lesson from §28: running without `--synthetic` previously dropped base lockstep because real map context diverged from synthetic. That is expected; real-map scenarios must become a **separate battery**, not replace the synthetic lockstep gate.
 
+### 2.1 Resolved: C++ sector path in headless mode
+
+| Question | Answer |
+|----------|--------|
+| Working directory | `reference/cipsoft-772/runtime/` when invoking `build/game chase-scenario` |
+| Sector files | `runtime/map/*.sec` (`MAPPATH` in runtime config; `scripts/tibia_game_dev.sh` sets path) |
+| Pristine backup | `runtime/origmap/*.sec` (`ORIGMAPPATH`) |
+| Filename format | `%04d-%04d-%02d.sec` → `(SectorX, SectorY, Z)` per `map.cc` `LoadMap` |
+| Sector size | 32×32 tiles (`TSector` in `map.hh`) |
+
+Rust OTBM default: `data/world/forgotten.otbm` (converted from the same sector set).
+Scenario `(x, y, z)` must exist and be walkable on **both** loaders.
+
+### 2.2 Sim lockstep vs live feel (2026-06)
+
+Synthetic battery lockstep is nearly there (quad cyclops FillMap + `go_exec` closed in §25),
+but **live** kiting (e.g. six cyclops on real terrain) can still feel wrong. Causes:
+
+| Layer | Synthetic sim | Live |
+|-------|---------------|------|
+| Terrain | Flat overlay or ignored underlay | Walls, trees, chokepoints |
+| Player | `player_pos` teleports | Client walk beats + input latency |
+| Monsters | Fixed spawn list + order | Pull range, extra spawns, drain contention |
+| Scheduling | `sim_tick` + pinned `TFS_SIM_SEED` | FIFO todo drain under real load |
+| Stimuli | Harness-scripted | Damage / appear / idle interleaving |
+
+Real-map sim addresses **terrain + conversion**. It does not replace live debug:
+
+```bash
+# Live / headless chase trace (same compare tool)
+TFS_CHASE_PATH_DEBUG=1          # Rust
+TIBIA_CHASE_PATH_DEBUG=1        # C++ chase-scenario or live QM
+python3 scripts/compare_chase_live_logs.py \
+  --ref log/chase_path_cip.log --rust log/chase_path_rust.log --monster cyclops
+```
+
+**772 AI hygiene (orthogonal):** gate 1098-only monster paths on `beat_driven_loop`
+(`MechanicsProfile::step_speed == LinearGo`), not `clientVersion == 772` — e.g.
+`monster_on_think_target`, damage-time `searchTarget`, forced look on target select.
+Fixes live 772 feel; real-map scenarios still required for pathfinder / OTBM parity.
+
 ## 3. Non-goals for the first implementation
 
 Do not start by building a fully autonomous kiting bot. The first useful version should be deterministic and replayable.
@@ -52,7 +93,78 @@ Out of scope for v1:
 
 Instead, v1 should replay a fixed player route across identical coordinates and compare monster AI traces.
 
-## 4. Proposed architecture
+### 3.1 Pilot status (2026-06-26)
+
+The first real-map pilot uses **`player_walk`** (adjacent legal steps) on OTBM / `.sec`
+terrain — not `player_pos` teleports:
+
+- `scripts/scenarios/kite_cyclops_six_real.scenario` — six cyclops, gravel bowl
+  `(32451, 32065, 7)`, no `arena_synthetic`
+- `scripts/run_kite_scenario.py --real-map` — never sets `TFS_KITE_SYNTHETIC_ARENA`
+- `scripts/run_realmap_sim_battery.py` — separate battery from synthetic gate
+
+Rust-only dry run:
+
+```bash
+TFS_SIM_SEED=772 cargo run -p tfs-rust-core --bin chase_kite_sim -- \
+  scripts/scenarios/kite_cyclops_six_real.scenario
+```
+
+Full lockstep:
+
+```bash
+TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --real-map \
+  scripts/scenarios/kite_cyclops_six_real.scenario
+```
+
+Full lockstep baseline: [`TFS-RUST_772_RealMap_Parity_Trajectory.md`](TFS-RUST_772_RealMap_Parity_Trajectory.md).
+
+## 4. Coordinate authoring
+
+### 4.1 World coordinates from `.sec` files
+
+`.sec` files are text terrain maps. They do **not** list creature spawns.
+
+```
+Filename 1011-1009-07.sec  →  SectorX=1011, SectorY=1009, Z=7
+Line     15-20: Content={4602}  →  local (15, 20) inside 32×32 sector
+
+world_x = sector_x * 32 + local_x   →  1011*32+15 = 32367
+world_y = sector_y * 32 + local_y   →  1009*32+20 = 32300
+world_z = sector_z                  →  7
+```
+
+Reverse: `sector_x = x/32`, `local_x = x%32` (same for y).
+
+Synthetic baseline **32360, 32290, 7** → sector **`1011-1009-07.sec`**.
+
+C++ reference: `LoadSector` in `map.cc` (`MapCon[OffsetX][OffsetY]`).
+
+### 4.2 Spawn zones from `spawns.xml`
+
+For hunter / rat / dragon areas, read `data/world/spawns.xml`:
+
+```xml
+<spawn centerx="32345" centery="32280" centerz="7" radius="5">
+  <monster name="Hunter" x="2" y="-1" z="7" />
+</spawn>
+```
+
+World monster tile: `(centerx + x, centery + y, centerz)`.
+
+`scripts/spread_spawn_offsets_for_rme.py` assigns unique offsets inside each spawn
+block for RME (one creature per tile). Useful when picking editor-visible tiles;
+772 BFS placement still searches from zone center.
+
+### 4.3 Scenario validation window
+
+| Input | Rule |
+|-------|------|
+| `arena cx cy radius` | Every tile in Chebyshev disk must be walkable on OTBM (Rust `validate_arena_walkable`) |
+| `player_start`, each `monster`, each `player_pos` | Must be walkable (`validate_positions_walkable`) |
+| Monster order | Matches C++ idle drain / `harness_spawn_order` — document in scenario comment |
+
+## 5. Proposed architecture
 
 Add a second scenario mode: **real-map route scenarios**.
 
@@ -71,9 +183,9 @@ flowchart TD
 
 The route scenario should remain a shared text file consumed by both stacks. The core change is to stop teleporting the player blindly through an empty synthetic field and instead drive the sim player through a real-map route with validation and optional movement semantics.
 
-## 5. Scenario DSL additions
+## 6. Scenario DSL additions
 
-### 5.1 Map mode
+### 6.1 Map mode
 
 Add explicit map mode metadata so scenarios declare intent:
 
@@ -95,7 +207,7 @@ Rules:
 - `map_area min_x min_y max_x max_y z` identifies the validation/window region around the test.
 - Keep `arena` available for synthetic scenarios only.
 
-### 5.2 Route verbs
+### 6.2 Route verbs
 
 Current `player_pos x y` teleports the player. That was useful for synthetic parity but it hides terrain constraints. Add route-specific verbs:
 
@@ -123,7 +235,7 @@ Semantics:
 
 Keep `player_pos` for old synthetic scenarios, but prefer `player_walk` for real-map scripts.
 
-### 5.3 Initial login/placement verbs
+### 6.3 Initial login/placement verbs
 
 Add a clearer setup stage:
 
@@ -141,7 +253,7 @@ For v1 these can map to existing behavior:
 
 If `login_player` is omitted, default to existing `player_start` behavior. The purpose is clarity and a future bridge to live login.
 
-### 5.4 Route annotations
+### 6.4 Route annotations
 
 Optional but useful for debugging:
 
@@ -155,11 +267,11 @@ monster_filter cyclops
 
 These should feed the runner/summarizer instead of hardcoding max ticks in `run_sim_battery.py`.
 
-## 6. Map validation layer
+## 7. Map validation layer
 
 Before running either stack, add a validation command that checks the selected real area.
 
-### 6.1 Rust validation
+### 7.1 Rust validation
 
 Extend `chase_kite_sim.rs` / `sim_harness.rs` with:
 
@@ -170,7 +282,7 @@ Extend `chase_kite_sim.rs` / `sim_harness.rs` with:
 
 Rust already has `validate_positions_walkable(...)`; extend this instead of creating a parallel one-off validator.
 
-### 6.2 C++ validation
+### 7.2 C++ validation
 
 Mirror validation in `chase_kite_scenario.cc`:
 
@@ -179,7 +291,7 @@ Mirror validation in `chase_kite_scenario.cc`:
 - Log equivalent terrain/waypoint metadata if possible.
 - Fail fast if any scripted tile differs structurally from Rust expectations.
 
-### 6.3 Cross-map tile audit
+### 7.3 Cross-map tile audit
 
 Add a small comparison utility:
 
@@ -199,11 +311,11 @@ Output should include, per route tile:
 
 If C++ metadata extraction is hard at first, start with Rust-only validation plus C++ fail-fast during scenario execution, then add richer C++ audit after the first real-map scenario runs.
 
-## 7. Player movement model
+## 8. Player movement model
 
 There are two viable levels of fidelity.
 
-### 7.1 V1: scripted step replay
+### 8.1 V1: scripted step replay
 
 Use explicit `player_walk` steps authored by a developer:
 
@@ -230,7 +342,7 @@ Cons:
 
 This should be the first implementation.
 
-### 7.2 V2: deterministic route planner
+### 8.2 V2: deterministic route planner
 
 Add a pre-run route planner that computes player steps through the real area and writes a frozen `.scenario`:
 
@@ -254,7 +366,7 @@ Planner requirements:
 
 Do **not** compare live adaptive player AI between stacks yet; compare monster AI under a fixed player route.
 
-### 7.3 V3: closed-loop kiting bot
+### 8.3 V3: closed-loop kiting bot
 
 Only after V1/V2 are stable, add a deterministic bot:
 
@@ -266,7 +378,7 @@ Only after V1/V2 are stable, add a deterministic bot:
 
 This is useful later, but it adds another AI whose parity must be trusted. Keep it out of the first real-map harness.
 
-## 8. Runner changes
+## 9. Runner changes
 
 Update `scripts/run_kite_scenario.py`:
 
@@ -296,7 +408,7 @@ TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --real-map
 
 Keep synthetic as the canonical regression gate and real-map as an additional parity suite until enough scenarios are stable.
 
-## 9. Rust implementation touchpoints
+## 10. Rust implementation touchpoints
 
 Primary files:
 
@@ -310,7 +422,7 @@ Primary files:
 
 Important: do not remove existing `player_pos` semantics. Synthetic scenarios in the divergence report depend on them.
 
-## 10. C++ implementation touchpoints
+## 11. C++ implementation touchpoints
 
 Primary area is the existing `chase_kite_scenario.cc` in the C++ reference harness.
 
@@ -325,7 +437,7 @@ Mirror every DSL addition:
 
 C++ remains the oracle for 772 behavior. If route validation disagrees, treat the `.sec` behavior as authoritative and investigate OTBM conversion/overlay before changing AI code.
 
-## 11. Example real-map scenario
+## 12. Example real-map scenario
 
 Coordinates below are illustrative; pick a real validated area before committing a scenario.
 
@@ -383,7 +495,7 @@ Authoring checklist:
 4. Ensure the route exercises at least one real terrain decision.
 5. Keep the first scenario short: 6–12 seconds max tick.
 
-## 12. Comparison strategy
+## 13. Comparison strategy
 
 Real-map lockstep should start with layered assertions instead of one all-or-nothing gate.
 
@@ -409,24 +521,36 @@ Recommended summary sections:
 
 Do not expect the first real-map scenario to pass lockstep. The first milestone is comparable traces with clean setup and route parity.
 
-## 13. Phased delivery plan
+## 14. Phased delivery plan
 
-### Phase R0 — Pick and audit the first real area
+### Phase R0 — v0 pilot (existing DSL)
 
 Deliverables:
 
-- Identify one small 772 area where OTBM and `.sec` coordinates are known to align.
-- Prefer a simple corridor/obstacle near existing tested coordinates if possible.
-- Create a draft route with 5–15 `player_walk` steps.
-- Add an audit note listing:
-  - player start
-  - monster spawn
-  - route tiles
-  - expected terrain feature being tested
+- Confirm OTBM ↔ `runtime/map/` alignment at pilot coords (32360, 32290, 7 lab area).
+- Author `scripts/scenarios/kite_cyclops_six_real.scenario`:
+  - No `arena_synthetic 1`; larger `arena` for six cyclops + kite path.
+  - Clone `player_pos` script from `kite_cyclops_quad_chase.scenario`.
+  - Monster spawn order documented in file header.
+- Run without `--synthetic`; Rust-only first, then full C++ compare.
+- Optional: live repro at same coords with chase debug + `compare_chase_live_logs.py`.
 
 Done when:
 
-- A human can point to the real map area and explain why it is a good pathing test.
+- Both stacks execute without synthetic overlay.
+- First divergence (if any) is classified: conversion vs AI vs harness.
+
+### Phase R0b — Pick a terrain-stress area
+
+Deliverables:
+
+- Identify a second area with real geometry (corridor, chokepoint, or spawn from `spawns.xml`).
+- Audit tiles via `.sec` lookup + OTBM walkability (§4).
+- Draft route with 5–15 steps (`player_pos` for v0; `player_walk` after R1).
+
+Done when:
+
+- A human can point to the map area and explain which terrain decision it tests.
 
 ### Phase R1 — DSL and validation
 
@@ -480,6 +604,7 @@ Add 3–5 scenarios:
 
 | Scenario | Purpose |
 |---|---|
+| `kite_cyclops_six_real` | Six-monster kite on real tiles; matches live repro scale. |
 | `realmap_rat_corner_dance` | Adjacent melee dance near blocking terrain. |
 | `realmap_cyclops_corridor_chase` | Large melee monster around corridor/obstacle. |
 | `realmap_hunter_distance_kite` | Dist-chase/flee in real terrain. |
@@ -504,7 +629,7 @@ Done when:
 
 - Developers can generate candidate routes, but committed tests remain deterministic and reviewable.
 
-## 14. Risks and mitigations
+## 15. Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
@@ -514,17 +639,21 @@ Done when:
 | Route too complex too early | Hard-to-debug failures | Start with one monster, short route, 6–12s max tick. |
 | Dynamic kiting bot creates another parity problem | Noisy results | Use frozen route replay for v1. |
 | Existing synthetic gate regresses | Loss of known baseline | Keep synthetic scenarios and `--synthetic` behavior unchanged. |
+| Live feel still wrong after sim pass | Wrong layer diagnosed | Run same coords live + sim; compare JSONL; don't relax synthetic gate |
+| 1098 AI paths on 772 | Wrong idle/chase behavior live | Gate on `beat_driven_loop`, not version literal (see §2.2) |
 
-## 15. Validation commands
+## 16. Validation commands
 
 Use RTK for heavy commands where available.
 
-Initial Rust-only iteration:
+Initial Rust-only iteration (v0 pilot):
 
 ```bash
-rtk cargo test -p tfs-rust-core chase_kite_sim sim_harness
-TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --skip-cpp scripts/scenarios/realmap_cyclops_corridor_kite.scenario
+TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --skip-cpp \
+  scripts/scenarios/kite_cyclops_six_real.scenario
 ```
+
+After DSL lands:
 
 Full C++ compare requires the query manager:
 
@@ -545,15 +674,20 @@ After adding a real-map battery:
 TFS_SIM_SEED=772 python3 scripts/run_sim_battery.py --real-map
 ```
 
-## 16. Recommended first implementation slice
+## 17. Recommended first implementation slice
 
-Implement the smallest useful slice:
+**Track A — v0 pilot (no parser changes):**
 
-1. Add `mode real_map`, `map_area`, `player_walk`, `wait_ms`, `max_tick`, `monster_filter` parsing to Rust and C++.
-2. Keep `player_walk` internally close to existing `player_pos` movement, but enforce adjacency and walkability.
-3. Teach `run_kite_scenario.py` to infer real-map mode and avoid synthetic env/flags.
-4. Add one hand-authored scenario in a validated real area.
-5. Run Rust-only, then full Rust-vs-C++ compare.
-6. Document the first divergence in the existing divergence report or a new real-map follow-up section.
+1. Author `kite_cyclops_six_real.scenario` without `arena_synthetic 1`.
+2. Run `TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py scripts/scenarios/kite_cyclops_six_real.scenario` (no `--synthetic`).
+3. Compare traces; document first divergence in divergence report §real-map.
+4. If live still diverges at same coords, capture `TFS_CHASE_PATH_DEBUG` logs and diff.
 
-This gives real terrain coverage without destabilizing the already-useful synthetic parity harness.
+**Track B — DSL hardening (after pilot):**
+
+1. Add `mode real_map`, `map_area`, `player_walk`, `wait_ms`, `max_tick`, `monster_filter` to Rust and C++.
+2. Teach `run_kite_scenario.py` to infer real-map mode and skip synthetic env/flags.
+3. Add `scripts/audit_realmap_route.py` for OTBM vs `.sec` tile audit.
+4. Add `--real-map` battery slice; keep synthetic as canonical gate.
+
+Track A gives terrain coverage immediately; Track B makes routes stricter and authoring safer.

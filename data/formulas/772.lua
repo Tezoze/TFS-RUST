@@ -25,6 +25,7 @@ formulas = {
     divisor = 2,
   },
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
+  spawnPlacement = "classic772", -- SearchSpawnField BFS (monster.db homes)
   expAttributionRounds = 60,
   followRepathWithoutPath = true,  -- target-move repath without hasFollowPath gate (not idle drain)
   pathForwardFallback = false,     -- NOWAY when reverse search fails

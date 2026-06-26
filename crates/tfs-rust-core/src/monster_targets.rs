@@ -227,17 +227,25 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(monster_id) {
                 k.base_mut().think_check_bucket = Some(bucket);
             }
+        } else if self.beat_driven_loop {
+            self.request_idle_stimulus(monster_id);
         } else {
             self.monster_try_acquire_chase_target(monster_id, preferred);
         }
     }
 
-    /// Acquire `follow_target` immediately when a player/opponent enters range — do not wait for `onThink`.
+    /// Acquire `follow_target` immediately when a player/opponent enters range — 1098 `onThink` path.
+    ///
+    /// 772 defers to [`crate::idle_stimulus`] `Strategy[]` (`crnonpl.cc:2468`).
     pub(crate) fn monster_try_acquire_chase_target(
         &mut self,
         monster_id: CreatureId,
         preferred: Option<CreatureId>,
     ) {
+        if self.beat_driven_loop {
+            self.request_idle_stimulus(monster_id);
+            return;
+        }
         if self.creatures.get(monster_id).is_some_and(|k| {
             matches!(k, CreatureKind::Monster(m) if m.base.is_summon())
                 || k.base().follow_target.is_some()
@@ -646,7 +654,9 @@ impl GameWorld {
         }
 
         let ret = self.monster_set_follow_creature(monster_id, Some(target_id));
-        if ret {
+        // 1098: `selectTarget` snaps look each pick (`monster.cpp` ~662).
+        // 772: facing follows walk / idle band rules — not on every `SetAttackDest`.
+        if ret && !self.beat_driven_loop {
             self.monster_update_look_direction(monster_id);
         }
         ret

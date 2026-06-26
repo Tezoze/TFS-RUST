@@ -29,7 +29,13 @@ impl GameWorld {
         if !keep_sleeping {
             self.monster_update_idle_status(cid);
         }
-        self.monster_try_acquire_chase_target(cid, None);
+        // 772: `TMonster::IdleStimulus` `Strategy[]` acquires targets (`crnonpl.cc:2468`).
+        // TFS `searchTarget` on appear is 1098-only (`monster.cpp` ~159).
+        if self.beat_driven_loop {
+            self.request_idle_stimulus(cid);
+        } else {
+            self.monster_try_acquire_chase_target(cid, None);
+        }
     }
     /// TFS `Map::getSpectators` multifloor Z span — `map.cpp` ~444–462.
     fn spectator_z_range(center_z: u8, multifloor: bool) -> std::ops::RangeInclusive<u8> {

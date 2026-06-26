@@ -10,11 +10,12 @@ use std::path::PathBuf;
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
-    beat_driven_world_for_kite_synthetic, beat_driven_world_from_map, default_sim_map_config,
-    insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick, set_sim_harness_segment_ms,
-    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
-    validate_positions_walkable, SimMapConfig,
+    audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic, beat_driven_world_from_map,
+    default_sim_map_config,     insert_monster_from_type, insert_monster_with_config, insert_player,
+    clear_harness_appear_idle_defer, harness_place_creature_login, kite_monsters_appear_batch, log_harness_player_step, move_creatures_explicit, run_sim_tick,
+    set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster,
+    teleport_player, validate_positions_walkable, walk_player_adjacent, write_audit_route_json,
+    SimMapConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -60,6 +61,7 @@ enum ScenarioStep {
     AdvanceMs(u64),
     MonsterAppear,
     PlayerPos(u16, u16),
+    PlayerWalk(u16, u16, u64),
     SimTick,
     PlayerDamage(i32),
     PlayerDamageMonster(usize, i32),
@@ -190,6 +192,12 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
                 let y: u16 = parts[2].parse().map_err(|_| "bad player_pos y")?;
                 s.steps.push(ScenarioStep::PlayerPos(x, y));
             }
+            "player_walk" if parts.len() >= 4 => {
+                let x: u16 = parts[1].parse().map_err(|_| "bad player_walk x")?;
+                let y: u16 = parts[2].parse().map_err(|_| "bad player_walk y")?;
+                let ms: u64 = parts[3].parse().map_err(|_| "bad player_walk ms")?;
+                s.steps.push(ScenarioStep::PlayerWalk(x, y, ms));
+            }
             "sim_tick" => s.steps.push(ScenarioStep::SimTick),
             "player_damage" if parts.len() >= 2 => {
                 let amount: i32 = parts[1].parse().map_err(|_| "bad player_damage")?;
@@ -226,6 +234,7 @@ struct SimHandles {
     player_id: tfs_rust_core::ids::CreatureId,
     monster_ids: Vec<tfs_rust_core::ids::CreatureId>,
     monsters_appeared: bool,
+    player_walk_step: u32,
 }
 
 /// Cumulative `advance_ms` budget — caps drain fast-forward in `run_sim_tick`.
@@ -258,9 +267,10 @@ impl SimClock {
 fn scenario_advance_budget(steps: &[ScenarioStep]) -> u64 {
     steps
         .iter()
-        .filter_map(|step| match step {
-            ScenarioStep::AdvanceMs(ms) => Some(*ms),
-            _ => None,
+        .map(|step| match step {
+            ScenarioStep::AdvanceMs(ms) => *ms,
+            ScenarioStep::PlayerWalk(_, _, ms) => *ms,
+            _ => 0,
         })
         .sum()
 }
@@ -283,8 +293,11 @@ fn scenario_walk_positions(scenario: &KiteScenario) -> Vec<Position> {
         out.push(Position::new(spawn.pos.0, spawn.pos.1, scenario.z));
     }
     for step in &scenario.steps {
-        if let ScenarioStep::PlayerPos(x, y) = step {
-            out.push(Position::new(*x, *y, scenario.z));
+        match step {
+            ScenarioStep::PlayerPos(x, y) | ScenarioStep::PlayerWalk(x, y, _) => {
+                out.push(Position::new(*x, *y, scenario.z));
+            }
+            _ => {}
         }
     }
     out
@@ -413,6 +426,13 @@ fn spawn_entities(
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
             m.harness_spawn_order = (idx as u16).saturating_add(1);
         }
+        if harness_place_creature_login(world, monster_id, monster_pos).is_none()
+        {
+            return Err(format!(
+                "harness spawn: cannot place monster at [{},{},{}]",
+                monster_pos.x, monster_pos.y, monster_pos.z
+            ));
+        }
         if scenario.monster_state_explicit
             && scenario.monster_initial_state == MonsterState::Sleeping
         {
@@ -428,6 +448,7 @@ fn spawn_entities(
         player_id,
         monster_ids,
         monsters_appeared: false,
+        player_walk_step: 0,
     })
 }
 
@@ -481,6 +502,17 @@ fn execute_step(
                 run_sim_tick(world);
             }
         }
+        ScenarioStep::PlayerWalk(x, y, ms) => {
+            let pos = Position::new(*x, *y, scenario.z);
+            clock.advance(world, *ms);
+            set_sim_harness_segment_ms(world, Some(*ms));
+            walk_player_adjacent(world, handles.player_id, pos)?;
+            clear_harness_appear_idle_defer(world, &handles.monster_ids);
+            let step = handles.player_walk_step;
+            handles.player_walk_step = handles.player_walk_step.saturating_add(1);
+            log_harness_player_step(world.chase_trace_tick(), step, pos);
+            run_sim_tick(world);
+        }
         ScenarioStep::SimTick => run_sim_tick(world),
         ScenarioStep::PlayerDamage(amount) => {
             for &monster_id in &handles.monster_ids {
@@ -525,6 +557,76 @@ fn run_scenario(scenario: &KiteScenario, map_cfg: &SimMapConfig) -> Result<(), S
     Ok(())
 }
 
+fn scenario_route_positions(scenario: &KiteScenario) -> Vec<Position> {
+    let z = scenario.z;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let mut push = |x: u16, y: u16| {
+        let key = (x, y, z);
+        if seen.insert(key) {
+            out.push(Position::new(x, y, z));
+        }
+    };
+    push(scenario.player_start.0, scenario.player_start.1);
+    for m in &scenario.monsters {
+        push(m.pos.0, m.pos.1);
+    }
+    for step in &scenario.steps {
+        if let ScenarioStep::PlayerWalk(x, y, _) = step {
+            push(*x, *y);
+        }
+    }
+    out
+}
+
+fn run_audit_route(raw: &[String]) -> Result<(), String> {
+    if raw.is_empty() {
+        return Err(
+            "usage: chase_kite_sim --audit-route <scenario> [--data-dir DIR] [--map REL]".into(),
+        );
+    }
+    let scenario_path = PathBuf::from(&raw[0]);
+    let mut map_cfg = default_sim_map_config();
+    let mut i = 1;
+    while i < raw.len() {
+        match raw[i].as_str() {
+            "--data-dir" => {
+                let path = raw
+                    .get(i + 1)
+                    .ok_or_else(|| "--data-dir requires a path".to_string())?;
+                map_cfg.data_dir = PathBuf::from(path);
+                i += 2;
+            }
+            "--map" => {
+                let rel = raw
+                    .get(i + 1)
+                    .ok_or_else(|| "--map requires a relative path".to_string())?;
+                map_cfg.map_rel = rel.clone();
+                i += 2;
+            }
+            other => return Err(format!("unexpected argument: {other}")),
+        }
+    }
+
+    let input = fs::read_to_string(&scenario_path)
+        .map_err(|e| format!("read {}: {e}", scenario_path.display()))?;
+    let scenario = parse_scenario(&input)?;
+    let positions = scenario_route_positions(&scenario);
+    eprintln!(
+        "chase_kite_sim: audit-route '{}' ({} tiles) map={}/{}",
+        scenario.name,
+        positions.len(),
+        map_cfg.data_dir.display(),
+        map_cfg.map_rel
+    );
+
+    let world = beat_driven_world_from_map(&map_cfg.data_dir, &map_cfg.map_rel)?;
+    let audits = audit_otbm_route_tiles(&world.map, world.items_db.as_ref(), &positions);
+    let mut stdout = std::io::stdout().lock();
+    write_audit_route_json(&audits, &mut stdout).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() {
     if let Err(e) = run_main() {
         eprintln!("chase_kite_sim: {e}");
@@ -536,9 +638,12 @@ fn run_main() -> Result<(), String> {
     let raw: Vec<String> = env::args().skip(1).collect();
     if raw.is_empty() {
         return Err(
-            "usage: chase_kite_sim <scenario> [--log PATH] [--data-dir DIR] [--map REL] [--synthetic]"
+            "usage: chase_kite_sim <scenario> [--log PATH] [--data-dir DIR] [--map REL] [--synthetic]\n       chase_kite_sim --audit-route <scenario> [--data-dir DIR] [--map REL]"
                 .into(),
         );
+    }
+    if raw[0] == "--audit-route" {
+        return run_audit_route(&raw[1..]);
     }
     let scenario_path = PathBuf::from(&raw[0]);
     let mut log_path = None;
@@ -668,6 +773,31 @@ monster_appear
     }
 
     #[test]
+    fn parses_player_walk_verb() {
+        let input = r#"
+name test_walk
+monster rat 1 2
+player_walk 3 2 400
+sim_tick
+"#;
+        let s = parse_scenario(input).expect("parse");
+        assert!(matches!(s.steps[0], ScenarioStep::PlayerWalk(3, 2, 400)));
+    }
+
+    #[test]
+    fn scenario_advance_budget_includes_player_walk_ms() {
+        let input = r#"
+name budget
+monster rat 1 2
+advance_ms 100
+player_walk 3 2 400
+sim_tick
+"#;
+        let s = parse_scenario(input).expect("parse");
+        assert_eq!(scenario_advance_budget(&s.steps), 500);
+    }
+
+    #[test]
     fn parses_hunter_dist_chase_scenario() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -679,6 +809,28 @@ monster_appear
         assert_eq!(s.monsters[0].label, "hunter");
         assert!(!s.monster_target_distance_from_scenario);
         assert!(s.arena_synthetic);
+    }
+
+    #[test]
+    fn parses_kite_cyclops_one_real_scenario() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/scenarios/kite_cyclops_one_real.scenario"
+        );
+        let input = fs::read_to_string(path).expect("read scenario");
+        let s = parse_scenario(&input).expect("parse");
+        assert_eq!(s.name, "kite_cyclops_one_real");
+        assert_eq!(s.monsters.len(), 1);
+        assert_eq!(s.monsters[0].label, "cyclops");
+        assert_eq!(s.monsters[0].pos, (32453, 32065));
+        assert!(!s.arena_synthetic);
+        assert_eq!(
+            s.steps
+                .iter()
+                .filter(|st| matches!(st, ScenarioStep::PlayerWalk(_, _, _)))
+                .count(),
+            5
+        );
     }
 
     #[test]
@@ -695,5 +847,34 @@ monster_appear
             .steps
             .iter()
             .any(|st| matches!(st, ScenarioStep::PlayerDamage(725))));
+    }
+
+    /// P2 — OTBM route audit for real-map cyclops control scenario.
+    #[test]
+    fn audit_route_kite_cyclops_one_real() {
+        use tfs_rust_core::sim_harness::{audit_otbm_route_tiles, default_sim_map_config};
+
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/scenarios/kite_cyclops_one_real.scenario"
+        );
+        let input = fs::read_to_string(path).expect("read scenario");
+        let s = parse_scenario(&input).expect("parse");
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
+            return;
+        };
+        let positions = scenario_route_positions(&s);
+        let audits = audit_otbm_route_tiles(&world.map, world.items_db.as_ref(), &positions);
+        let start = audits
+            .iter()
+            .find(|t| t.x == 32451 && t.y == 32065 && t.z == 7)
+            .expect("player_start tile");
+        assert!(start.exists, "player_start must exist on OTBM");
+        assert!(start.walkable, "player_start must be walkable");
+        assert_eq!(start.wp, 150, "player_start gravel wp");
     }
 }

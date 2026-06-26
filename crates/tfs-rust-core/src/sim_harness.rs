@@ -600,6 +600,77 @@ pub fn validate_positions_walkable(
     }
 }
 
+/// One OTBM tile from [`audit_otbm_route_tiles`] — P2 real-map route audit (`audit_realmap_route.py`).
+///
+/// C++ mirror: `.sec` `Content` first id + `objects.srv` flags vs OTBM ground stack (`map.cc`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OtbmRouteTileAudit {
+    pub x: u16,
+    pub y: u16,
+    pub z: u8,
+    pub exists: bool,
+    pub ground_id: Option<u16>,
+    /// Raw OTB `ITEM_ATTR_SPEED` / 772 Waypoints; `-1` when tile or ground missing.
+    pub wp: i32,
+    pub walkable: bool,
+}
+
+/// Inspect OTBM ground id, terrain wp, and walkability for scripted route coordinates.
+///
+/// C++ reference: `TShortway::FillMap` ground check — `cract.cc`; `Map::isWalkable` — `map.cc`.
+pub fn audit_otbm_route_tiles(
+    map: &Map,
+    items_db: &ItemDatabase,
+    positions: &[Position],
+) -> Vec<OtbmRouteTileAudit> {
+    positions
+        .iter()
+        .map(|pos| {
+            let tile = map.get_tile(*pos);
+            let exists = tile.is_some();
+            let ground_id = tile.and_then(|t| t.body().ground);
+            let wp = ground_id
+                .and_then(|gid| items_db.waypoints_raw_for_item(gid))
+                .map(i32::from)
+                .unwrap_or(-1);
+            OtbmRouteTileAudit {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                exists,
+                ground_id,
+                wp,
+                walkable: map.is_walkable(*pos),
+            }
+        })
+        .collect()
+}
+
+/// JSON lines for `chase_kite_sim --audit-route` stdout (`scripts/audit_realmap_route.py`).
+pub fn write_audit_route_json(
+    audits: &[OtbmRouteTileAudit],
+    out: &mut impl std::io::Write,
+) -> std::io::Result<()> {
+    writeln!(out, "{{")?;
+    writeln!(out, "  \"src\": \"rust\",")?;
+    writeln!(out, "  \"tiles\": [")?;
+    for (i, t) in audits.iter().enumerate() {
+        let comma = if i + 1 < audits.len() { "," } else { "" };
+        let gid = t
+            .ground_id
+            .map(|g| g.to_string())
+            .unwrap_or_else(|| "null".to_string());
+        writeln!(
+            out,
+            "    {{\"x\":{},\"y\":{},\"z\":{},\"exists\":{},\"ground_id\":{},\"wp\":{},\"walkable\":{}}}{comma}",
+            t.x, t.y, t.z, t.exists, gid, t.wp, t.walkable
+        )?;
+    }
+    writeln!(out, "  ]")?;
+    writeln!(out, "}}")?;
+    Ok(())
+}
+
 /// Ensure every tile in the scenario arena exists and is walkable on the loaded map.
 pub fn validate_arena_walkable(
     map: &Map,
@@ -959,6 +1030,92 @@ pub fn insert_spectator_player(
     cid
 }
 
+/// Chebyshev-1 step direction for harness `player_walk` (real-map kite routes).
+///
+/// C++ reference: `chase_kite_scenario.cc` `MoveKitePlayer` via `Move()`.
+fn direction_to_adjacent(from: Position, to: Position) -> Result<Direction, String> {
+    if from.z != to.z {
+        return Err(format!(
+            "player_walk: floor mismatch [{},{},{}] -> [{},{},{}]",
+            from.x, from.y, from.z, to.x, to.y, to.z
+        ));
+    }
+    let dx = to.x as i32 - from.x as i32;
+    let dy = to.y as i32 - from.y as i32;
+    let cheb = dx.abs().max(dy.abs());
+    if cheb != 1 {
+        return Err(format!(
+            "player_walk: destination [{},{},{}] not adjacent to [{},{},{}]",
+            to.x, to.y, to.z, from.x, from.y, from.z
+        ));
+    }
+    let dir = match (dx, dy) {
+        (0, -1) => Direction::North,
+        (1, 0) => Direction::East,
+        (0, 1) => Direction::South,
+        (-1, 0) => Direction::West,
+        (1, -1) => Direction::NorthEast,
+        (-1, -1) => Direction::NorthWest,
+        (1, 1) => Direction::SouthEast,
+        (-1, 1) => Direction::SouthWest,
+        _ => {
+            return Err(format!(
+                "player_walk: invalid adjacent delta ({dx},{dy}) to [{},{},{}]",
+                to.x, to.y, to.z
+            ));
+        }
+    };
+    Ok(dir)
+}
+
+/// One legal harness step to an adjacent walkable tile — `MoveKitePlayer` / `Move()`, not teleport.
+pub fn walk_player_adjacent(
+    world: &mut GameWorld,
+    player_id: CreatureId,
+    dest: Position,
+) -> Result<(), String> {
+    let old_pos = world
+        .creatures
+        .get(player_id)
+        .map(|k| k.position())
+        .ok_or_else(|| "player not found".to_string())?;
+    if old_pos == dest {
+        return Ok(());
+    }
+    if !world.map.is_walkable(dest) {
+        return Err(format!(
+            "player_walk: destination [{},{},{}] not walkable on map",
+            dest.x, dest.y, dest.z
+        ));
+    }
+    let dir = direction_to_adjacent(old_pos, dest)?;
+    if !world.try_creature_walk_step(player_id, dir, Instant::now()) {
+        return Err(format!(
+            "player_walk: move blocked to [{},{},{}]",
+            dest.x, dest.y, dest.z
+        ));
+    }
+    Ok(())
+}
+
+/// C++ `TCreature::SetOnMap` — relocate harness creature via `SearchLoginField(dist=1)`.
+pub fn harness_place_creature_login(
+    world: &mut GameWorld,
+    cid: CreatureId,
+    requested: Position,
+) -> Option<Position> {
+    world.harness_place_creature_login(cid, requested)
+}
+
+/// Clear harness appear-idle defer on scenario monsters — real-map `player_walk` parity.
+pub fn clear_harness_appear_idle_defer(world: &mut GameWorld, monster_ids: &[CreatureId]) {
+    for &monster_id in monster_ids {
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+            m.harness_defer_appear_idle = false;
+        }
+    }
+}
+
 /// Teleport player and fan out `CreatureMoveStimulus` — `operate.cc` `NotifyAllCreatures`.
 pub fn teleport_player(
     world: &mut GameWorld,
@@ -1017,6 +1174,11 @@ pub fn kite_monster_appear(world: &mut GameWorld, monster_id: CreatureId) {
 /// Truncate chase JSONL at scenario start — C++ `ChasePathResetLog`.
 pub fn reset_chase_path_log() {
     crate::chase_debug::chase_path_reset_log();
+}
+
+/// Harness `player_walk` JSONL — C++ `ChasePathLogHarnessPlayerStep`.
+pub fn log_harness_player_step(tick: u64, step: u32, pos: tfs_rust_common::Position) {
+    crate::chase_debug::log_harness_player_step(tick, step, pos);
 }
 
 /// Cyclops quad spawn layout — `kite_cyclops_quad_chase.scenario` (spawn order = idle drain order).
@@ -1096,6 +1258,140 @@ pub fn setup_cyclops_quad_chase_to_tick_2000(
     let nw_id = monster_ids[3];
     let player_pos = Position::new(32360, 32294, z);
     Ok((nw_id, player_id, player_pos))
+}
+
+/// U-loop waypoints from `kite_cyclops_one_real.scenario` — wall ms after each `player_walk`.
+const CYCLOPS_BOWL_ONE_REAL_WALKS: [(u64, u16, u16); 5] = [
+    (200, 32450, 32065),
+    (400, 32450, 32066),
+    (600, 32451, 32066),
+    (800, 32452, 32066),
+    (1000, 32451, 32065),
+];
+
+/// Real-map cyclops bowl — through first `shortway` @200 ms (`kite_cyclops_one_real` step 1).
+///
+/// Loads OTBM terrain (no synthetic overlay). Returns `(cyclops_id, player_id, player_pos)`.
+pub fn setup_cyclops_bowl_real_first_shortway(
+    world: &mut GameWorld,
+) -> Result<(CreatureId, CreatureId, Position), String> {
+    let z = 7u8;
+    let player_start = Position::new(32451, 32065, z);
+    let cyclops_pos = Position::new(32453, 32065, z);
+
+    let player_id = insert_player(world, sim_hero_player("Hero", player_start));
+    world.map.register_creature_at(player_start, player_id);
+
+    let mtype = world
+        .monsters_db
+        .monsters
+        .get("cyclops")
+        .cloned()
+        .ok_or_else(|| "cyclops monster type not loaded".to_string())?;
+
+    let mut config = MonsterAiConfig::from_monster_type(&mtype);
+    config.is_hostile = true;
+    config.melee_skill = 50;
+    config.melee_attack = 30;
+    config.armor = 17;
+    config.defense = 24;
+    config.target_distance = 1;
+    config.talks = 5;
+
+    let cyclops_id = insert_monster_from_type(
+        world,
+        &mtype,
+        "Cyclops",
+        cyclops_pos,
+        55,
+        config,
+        MonsterState::Sleeping,
+    );
+    if harness_place_creature_login(world, cyclops_id, cyclops_pos).is_none() {
+        return Err("harness spawn: cannot place cyclops on map".into());
+    }
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops_id) {
+        m.harness_spawn_order = 1;
+    }
+
+    kite_monsters_appear_batch(world, &[cyclops_id]);
+    set_sim_harness_wall_ms(world, Some(0));
+    run_sim_tick(world);
+
+    set_sim_harness_wall_ms(world, Some(200));
+    move_creatures_explicit(world, 200);
+    clear_harness_appear_idle_defer(world, &[cyclops_id]);
+    walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
+    run_sim_tick(world);
+
+    Ok((cyclops_id, player_id, player_start))
+}
+
+/// Real-map cyclops bowl — `kite_cyclops_one_real.scenario` through tick 2000 ms.
+///
+/// Loads OTBM terrain (no synthetic overlay). Returns `(cyclops_id, player_id, player_pos)`.
+pub fn setup_cyclops_bowl_real_to_tick_2000(
+    world: &mut GameWorld,
+) -> Result<(CreatureId, CreatureId, Position), String> {
+    let z = 7u8;
+    let player_start = Position::new(32451, 32065, z);
+    let cyclops_pos = Position::new(32453, 32065, z);
+
+    let player_id = insert_player(world, sim_hero_player("Hero", player_start));
+    world.map.register_creature_at(player_start, player_id);
+
+    let mtype = world
+        .monsters_db
+        .monsters
+        .get("cyclops")
+        .cloned()
+        .ok_or_else(|| "cyclops monster type not loaded".to_string())?;
+
+    let mut config = MonsterAiConfig::from_monster_type(&mtype);
+    config.is_hostile = true;
+    config.melee_skill = 50;
+    config.melee_attack = 30;
+    config.armor = 17;
+    config.defense = 24;
+    config.target_distance = 1;
+    config.talks = 5;
+
+    let cyclops_id = insert_monster_from_type(
+        world,
+        &mtype,
+        "Cyclops",
+        cyclops_pos,
+        55,
+        config,
+        MonsterState::Sleeping,
+    );
+    if harness_place_creature_login(world, cyclops_id, cyclops_pos).is_none() {
+        return Err("harness spawn: cannot place cyclops on map".into());
+    }
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops_id) {
+        m.harness_spawn_order = 1;
+    }
+
+    kite_monsters_appear_batch(world, &[cyclops_id]);
+    set_sim_harness_wall_ms(world, Some(0));
+    run_sim_tick(world);
+
+    let mut wall = 0u64;
+    for &(target_wall, x, y) in &CYCLOPS_BOWL_ONE_REAL_WALKS {
+        let delta = target_wall.saturating_sub(wall);
+        set_sim_harness_wall_ms(world, Some(target_wall));
+        move_creatures_explicit(world, delta);
+        clear_harness_appear_idle_defer(world, &[cyclops_id]);
+        walk_player_adjacent(world, player_id, Position::new(x, y, z))?;
+        run_sim_tick(world);
+        wall = target_wall;
+    }
+
+    set_sim_harness_wall_ms(world, Some(2000));
+    move_creatures_explicit(world, 1000);
+    run_sim_tick(world);
+
+    Ok((cyclops_id, player_id, player_start))
 }
 
 /// Rat melee kite layout — `kite_rat_melee.scenario` (player + single rat).
@@ -1685,6 +1981,66 @@ mod harness_tests {
         }
     }
 
+    /// P1 — real-map cyclops bowl FillMap dump @ tick=2000 for parity diff vs C++ `.sec`.
+    #[test]
+    fn cyclops_bowl_real_fill_walkable_dump_at_tick_2000() {
+        use crate::creature::MonsterState;
+        use crate::monster_ai::TShortwayFillTile;
+        use std::path::PathBuf;
+
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
+            return;
+        };
+        let Ok((cyclops_id, _player_id, player_pos)) =
+            setup_cyclops_bowl_real_first_shortway(&mut world)
+        else {
+            return;
+        };
+        assert_eq!(world.server_ms, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops_id) {
+            m.base.next_wakeup = None;
+        }
+        world.monster_idle_stimulus(cyclops_id);
+        let (state, tiles) = world.dump_tshortway_fill_walkable_viewport(
+            cyclops_id,
+            player_pos,
+            REVERSE_PATH_VIEW_RADIUS,
+        );
+        assert_eq!(
+            state,
+            MonsterState::Attacking,
+            "cyclops bowl must be ATTACKING before FillMap at tick=2000"
+        );
+
+        let priority = [
+            Position::new(32451, 32065, 7),
+            Position::new(32458, 32065, 7),
+        ];
+        for pos in priority {
+            let Some(TShortwayFillTile { walkable, wp, .. }) = tiles.iter().find(|t| t.pos == pos)
+            else {
+                panic!("priority tile {pos:?} missing from viewport dump");
+            };
+            eprintln!("fill_walkable {pos:?} walkable={walkable} wp={wp}");
+        }
+
+        if std::env::var("TFS_FILLMAP_DUMP").is_ok_and(|v| !v.is_empty() && v != "0") {
+            let out = std::env::var("TFS_FILLMAP_DUMP_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../log/fill_walkable_rust_cyclops_bowl.json")
+                });
+            write_fill_walkable_dump_json(&world, cyclops_id, player_pos, &out)
+                .expect("write fill_walkable dump");
+            eprintln!("wrote {}", out.display());
+        }
+    }
+
     /// P3 — final north kite @6000 must not idle-repath on empty `walk_queue` (C++ `CreatureMoveStimulus`).
     #[test]
     fn kite_rat_melee_no_idle_repath_on_final_kite_at_6000() {
@@ -1724,6 +2080,105 @@ mod harness_tests {
 
     /// OTBM kite lab — rat/player/dance tiles must be walkable on forgotten.otbm.
     #[test]
+    fn harness_place_cyclops_bowl_relocates_east_of_scripted_spawn() {
+        use crate::creature::{MonsterAiConfig, MonsterState};
+
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
+            return;
+        };
+        let requested = Position::new(32453, 32065, 7);
+        let expected = Position::new(32454, 32065, 7);
+        let mtype = match world.monsters_db.monsters.get("cyclops").cloned() {
+            Some(t) => t,
+            None => return,
+        };
+        let config = MonsterAiConfig::from_monster_type(&mtype);
+        let cid = insert_monster_from_type(
+            &mut world,
+            &mtype,
+            "Cyclops",
+            requested,
+            55,
+            config,
+            MonsterState::Sleeping,
+        );
+        let placed = harness_place_creature_login(&mut world, cid, requested);
+        assert_eq!(placed, Some(expected));
+        assert_eq!(world.creatures.get(cid).unwrap().position(), expected);
+    }
+
+    /// P3 — real-map `player_walk` clears appear defer; first chase must not wait until 3000 ms.
+    #[test]
+    fn cyclops_bowl_real_first_chase_on_player_walk_at_200() {
+        use crate::creature::{MonsterAiConfig, MonsterState};
+
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
+            return;
+        };
+        let z = 7u8;
+        let player_start = Position::new(32451, 32065, z);
+        let cyclops_pos = Position::new(32453, 32065, z);
+        let player_id = insert_player(&mut world, sim_hero_player("Hero", player_start));
+        world.map.register_creature_at(player_start, player_id);
+
+        let mtype = match world.monsters_db.monsters.get("cyclops").cloned() {
+            Some(t) => t,
+            None => return,
+        };
+        let mut config = MonsterAiConfig::from_monster_type(&mtype);
+        config.is_hostile = true;
+        config.target_distance = 1;
+        let cyclops_id = insert_monster_from_type(
+            &mut world,
+            &mtype,
+            "Cyclops",
+            cyclops_pos,
+            55,
+            config,
+            MonsterState::Sleeping,
+        );
+        assert!(harness_place_creature_login(&mut world, cyclops_id, cyclops_pos).is_some());
+
+        kite_monsters_appear_batch(&mut world, &[cyclops_id]);
+        set_sim_harness_wall_ms(&mut world, Some(0));
+        run_sim_tick(&mut world);
+
+        set_sim_harness_wall_ms(&mut world, Some(200));
+        move_creatures_explicit(&mut world, 200);
+        clear_harness_appear_idle_defer(&mut world, &[cyclops_id]);
+        walk_player_adjacent(&mut world, player_id, Position::new(32450, 32065, z))
+            .expect("first player_walk");
+        run_sim_tick(&mut world);
+
+        assert_eq!(world.server_ms, 200);
+        assert!(
+            world
+                .creatures
+                .get(cyclops_id)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.harness_defer_appear_idle)),
+            "player_walk must clear harness appear defer"
+        );
+        assert!(
+            world.creatures.get(cyclops_id).is_some_and(|k| {
+                matches!(
+                    k,
+                    CreatureKind::Monster(m)
+                        if m.state == MonsterState::Attacking || m.base.todo.has_go()
+                )
+            }),
+            "cyclops must begin chase pathing on first player_walk @200"
+        );
+    }
+
+    #[test]
     fn kite_lab_tiles_walkable_on_otbm_when_data_present() {
         let cfg = default_sim_map_config();
         let Ok(world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
@@ -1743,6 +2198,55 @@ mod harness_tests {
                 pos.y,
                 pos.z
             );
+        }
+    }
+
+    #[test]
+    fn walk_player_adjacent_rejects_non_adjacent_destination() {
+        let mut world = beat_driven_world_with_synthetic_ground(Some(150));
+        let start = Position::new(100, 100, 7);
+        let far = Position::new(102, 100, 7);
+        lay_synthetic_arena(&mut world.map, 100, 100, 3, 7, 150);
+        let player = insert_player(&mut world, sim_hero_player("Hero", start));
+        world.map.register_creature_at(start, player);
+        let err = walk_player_adjacent(&mut world, player, far).unwrap_err();
+        assert!(err.contains("not adjacent"));
+    }
+
+    #[test]
+    fn walk_player_adjacent_rejects_unwalkable_destination() {
+        let mut world = beat_driven_world_with_synthetic_ground(Some(150));
+        let start = Position::new(100, 100, 7);
+        lay_synthetic_arena(&mut world.map, 100, 100, 1, 7, 150);
+        let player = insert_player(&mut world, sim_hero_player("Hero", start));
+        world.map.register_creature_at(start, player);
+        let blocked = Position::new(200, 200, 7);
+        let err = walk_player_adjacent(&mut world, player, blocked).unwrap_err();
+        assert!(err.contains("not walkable"));
+    }
+
+    #[test]
+    fn walk_player_adjacent_steps_cardinal_directions() {
+        let mut world = beat_driven_world_with_synthetic_ground(Some(150));
+        let start = Position::new(100, 100, 7);
+        lay_synthetic_arena(&mut world.map, 100, 100, 3, 7, 150);
+        let player = insert_player(&mut world, sim_hero_player("Hero", start));
+        world.map.register_creature_at(start, player);
+
+        for dest in [
+            Position::new(101, 100, 7),
+            Position::new(101, 101, 7),
+            Position::new(100, 101, 7),
+            Position::new(99, 101, 7),
+            Position::new(99, 100, 7),
+            Position::new(99, 99, 7),
+            Position::new(100, 99, 7),
+            Position::new(101, 99, 7),
+            start,
+        ] {
+            walk_player_adjacent(&mut world, player, dest)
+                .unwrap_or_else(|e| panic!("walk to {dest:?}: {e}"));
+            assert_eq!(world.creatures.get(player).unwrap().position(), dest);
         }
     }
 }

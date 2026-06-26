@@ -1,6 +1,7 @@
 //! Spawn placement, respawn consumption, and creature appear/disappear broadcasts.
 // C++ reference: `game.cpp` `internalPlaceCreature` / `placeCreature` / `removeCreature`,
 // `spawn.cpp` `Spawn::spawnMonster`, `protocolgame.cpp` `sendAddCreature`.
+// 772 placement: `spawn_placement.rs` (`info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes`).
 
 use std::time::Instant;
 
@@ -304,8 +305,15 @@ impl GameWorld {
                 base, spawn_pos, ai_config,
             )));
 
-        let placed =
-            self.find_and_place_creature(cid, center, extended_pos, !startup, spawn_radius);
+        let placed = self.place_spawn_creature(
+            cid,
+            slot_index,
+            center,
+            spawn_radius,
+            startup,
+            !startup,
+            extended_pos,
+        );
         if !placed {
             warn!(
                 monster = %name,
@@ -409,8 +417,15 @@ impl GameWorld {
             npc_type_id: 0,
         }));
 
-        let placed =
-            self.find_and_place_creature(cid, center, extended_pos, !startup, spawn_radius);
+        let placed = self.place_spawn_creature(
+            cid,
+            slot_index,
+            center,
+            spawn_radius,
+            startup,
+            !startup,
+            extended_pos,
+        );
         if !placed {
             warn!(
                 npc = %name,
@@ -441,7 +456,7 @@ impl GameWorld {
 
     /// C++ `Map::placeCreature` tile search (`map.cpp` ~183); TVP uses `searchSpawnField` /
     /// `searchFreeField` within spawn radius (`gameserver/src/game.cpp`, `spawn.cpp`).
-    fn find_and_place_creature(
+    pub(crate) fn find_and_place_creature_tfs(
         &mut self,
         cid: CreatureId,
         center: Position,
@@ -746,18 +761,35 @@ mod tests {
         monsters.insert("rat".into(), rat_type());
         world.monsters_db = Arc::new(MonsterDatabase { monsters });
 
+        let home = Position::new(100, 100, 7);
         let zone = SpawnZone {
-            center: Position::new(100, 100, 7),
+            center: home,
             radius: 3,
             entries: vec![SpawnEntry::Monster {
                 name: "Rat".into(),
-                position: Position::new(101, 101, 7),
+                position: home,
                 spawntime_ms: 5_000,
                 direction: Some(2),
             }],
         };
         world.spawns = SpawnManager::from_zones(vec![zone]);
-        ensure_walkable_tile(&mut world.map, Position::new(101, 101, 7), 100);
+        ensure_walkable_tile(&mut world.map, home, 100);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new(
+                        (home.x as i32 + dx).max(0) as u16,
+                        (home.y as i32 + dy).max(0) as u16,
+                        home.z,
+                    ),
+                    100,
+                );
+            }
+        }
         world
     }
 
@@ -814,7 +846,7 @@ mod tests {
         let mut world = world_with_spawn();
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(100, 100, 7)));
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = ConnId(1);
         world.conn_to_creature.insert(conn, viewer);
         world.known_creatures_by_conn.insert(conn, HashSet::new());
@@ -835,9 +867,13 @@ mod tests {
         let mut world = world_with_spawn();
         world.codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
         world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        // Spectator must see the spawn tile but stay off the home coord; radius-shrink
+        // suppresses respawns when any player is within the C++ search window.
+        world.mechanics.profile.spawn_near_player =
+            crate::formulas::SpawnNearPlayer::Block;
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(100, 100, 7)));
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = ConnId(3);
         world.conn_to_creature.insert(conn, viewer);
         world.known_creatures_by_conn.insert(conn, HashSet::new());
@@ -847,10 +883,15 @@ mod tests {
 
         let later = Instant::now() + std::time::Duration::from_secs(6);
         world.on_tick(later);
+        let monsters = world
+            .creatures
+            .iter()
+            .filter(|(_, k)| matches!(k, CreatureKind::Monster(_)))
+            .count();
+        assert_eq!(monsters, 1, "772 classic respawn should place one monster");
 
-        let appear = world
-            .pending_outgoing
-            .get(&conn)
+        let packets = world.pending_outgoing.get(&conn);
+        let appear = packets
             .and_then(|packets| packets.iter().find(|b| !b.is_empty() && b[0] == 0x6A))
             .expect("0x6A appear packet");
         assert_eq!(
@@ -861,11 +902,75 @@ mod tests {
     }
 
     #[test]
+    fn classic772_first_slot_spawns_within_one_tile_of_home() {
+        let mut world = minimal_world();
+        world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        let mut monsters = HashMap::new();
+        monsters.insert("rat".into(), rat_type());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+
+        let home = Position::new(100, 100, 7);
+        for dx in -2..=2 {
+            for dy in -2..=2 {
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new(
+                        (home.x as i32 + dx).max(0) as u16,
+                        (home.y as i32 + dy).max(0) as u16,
+                        home.z,
+                    ),
+                    100,
+                );
+            }
+        }
+
+        let zone = SpawnZone {
+            center: home,
+            radius: 10,
+            entries: vec![
+                SpawnEntry::Monster {
+                    name: "Rat".into(),
+                    position: home,
+                    spawntime_ms: 5_000,
+                    direction: Some(2),
+                },
+                SpawnEntry::Monster {
+                    name: "Rat".into(),
+                    position: home,
+                    spawntime_ms: 5_000,
+                    direction: Some(2),
+                },
+            ],
+        };
+        world.spawns = SpawnManager::from_zones(vec![zone]);
+        world.startup_spawns();
+        assert_eq!(world.creatures.len(), 2);
+
+        let mut positions = Vec::new();
+        for (cid, kind) in world.creatures.iter() {
+            let CreatureKind::Monster(_) = kind else {
+                continue;
+            };
+            positions.push(kind.position());
+            let _ = cid;
+        }
+        let cheb = |p: Position| {
+            (p.x as i32 - home.x as i32)
+                .abs()
+                .max((p.y as i32 - home.y as i32).abs())
+        };
+        assert!(
+            positions.iter().any(|p| cheb(*p) <= 1),
+            "first slot should land within radius-1 search of home, got {positions:?}"
+        );
+    }
+
+    #[test]
     fn disappear_on_death_broadcasts_remove() {
         let mut world = world_with_spawn();
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(100, 100, 7)));
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = ConnId(2);
         world.conn_to_creature.insert(conn, viewer);
         world.known_creatures_by_conn.insert(conn, HashSet::new());

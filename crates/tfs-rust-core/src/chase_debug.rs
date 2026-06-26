@@ -421,6 +421,19 @@ pub fn log_go_exec(tick: u64, cid: CreatureId, name: &str, from: Position, to: P
     write_line(&line);
 }
 
+/// Harness `player_walk` step — tile after legal move, before trailing `sim_tick`.
+/// C++ reference: `chase_kite_scenario.cc` `MoveKitePlayer` + `ChasePathLogHarnessPlayerStep`.
+pub fn log_harness_player_step(tick: u64, step: u32, pos: Position) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{{\"src\":\"rust\",\"evt\":\"harness_player_step\",\"tick\":{tick},\"step\":{step},{}}}",
+        pos_json("pos", pos)
+    );
+    write_line(&line);
+}
+
 fn chebyshev(a: Position, b: Position) -> i32 {
     (a.x as i32 - b.x as i32)
         .abs()

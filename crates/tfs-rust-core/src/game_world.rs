@@ -218,7 +218,7 @@ impl GameWorld {
 
     /// Millisecond clock for chase JSONL — matches C++ `ServerMilliseconds` in `chase_path_debug.cc`.
     #[inline]
-    pub(crate) fn chase_trace_tick(&self) -> u64 {
+    pub fn chase_trace_tick(&self) -> u64 {
         self.server_ms
     }
 

@@ -48,6 +48,7 @@ pub mod map;
 pub mod matrix_area;
 mod monster_ai;
 mod monster_distance_step;
+mod spawn_placement;
 mod monster_events;
 mod monster_push;
 mod monster_targets;

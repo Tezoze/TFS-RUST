@@ -244,7 +244,9 @@ impl GameWorld {
             }
             self.creature_todo_yield(victim_id);
         }
-        if !has_target {
+        // C++ `TMonster::DamageStimulus` — state + `ToDoYield` only (`crnonpl.cc:2304`);
+        // target pick is idle `Strategy[]`, not synchronous `searchTarget`.
+        if !has_target && !self.beat_driven_loop {
             self.monster_try_acquire_chase_target(victim_id, Some(attacker_id));
         }
     }
@@ -3682,8 +3684,6 @@ mod tests {
     /// P0-2 — change-target ticks advance on `ProcessCreatures` only, not each idle drain.
     #[test]
     fn test_772_change_target_only_on_process_creatures() {
-        use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
-
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
@@ -3728,8 +3728,8 @@ mod tests {
             _ => 0,
         };
         assert_eq!(
-            ticks_after_think, EVENT_CREATURE_THINK_INTERVAL_MS,
-            "ProcessCreatures must advance change-target once per ~1 Hz think"
+            ticks_after_think, 0,
+            "772 ProcessCreatures must not run TFS change-target rolls (no `onThinkTarget` in `crnonpl.cc`)"
         );
     }
 
@@ -4085,6 +4085,8 @@ mod tests {
             }),
             "PANIC must not gate IsFleeing — crnonpl.cc:3136"
         );
+        // C++ `DamageStimulus` does not set `Target`; idle `Strategy[]` picks on next drain.
+        world.monster_idle_stimulus(monster);
         assert_eq!(
             world.monster_idle_classify_walk_branch(monster),
             MonsterIdleWalkBranch::MeleeDance

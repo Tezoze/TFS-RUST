@@ -23,6 +23,7 @@ LOG_DIR = ROOT / "log"
 RUST_LOG = LOG_DIR / "chase_path_rust.log"
 CIP_LOG = LOG_DIR / "chase_path_cip.log"
 COMPARE = ROOT / "scripts" / "compare_chase_live_logs.py"
+PLAYER_WALK_COMPARE = ROOT / "scripts" / "compare_harness_player_walk.py"
 
 
 def scenario_wall_ms(scenario_path: Path) -> int:
@@ -31,7 +32,25 @@ def scenario_wall_ms(scenario_path: Path) -> int:
         parts = line.strip().split()
         if len(parts) >= 2 and parts[0] == "advance_ms":
             total += int(parts[1])
+        elif len(parts) >= 4 and parts[0] == "player_walk":
+            total += int(parts[3])
     return total
+
+
+def scenario_has_player_walk(scenario_path: Path) -> bool:
+    for line in scenario_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 1 and parts[0] == "player_walk":
+            return True
+    return False
+
+
+def scenario_uses_synthetic_arena(scenario_path: Path) -> bool:
+    for line in scenario_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0] == "arena_synthetic":
+            return parts[1] != "0"
+    return False
 
 
 def count_diag_go_exec(path: Path, monster: str | None) -> tuple[int, int]:
@@ -112,22 +131,56 @@ def main() -> int:
     parser.add_argument(
         "--synthetic",
         action="store_true",
-        help="Rust: lay flat synthetic arena tiles instead of OTBM",
+        help="Rust/C++: lay flat synthetic arena tiles instead of real map terrain",
+    )
+    parser.add_argument(
+        "--real-map",
+        action="store_true",
+        help="Real OTBM/.sec terrain (no synthetic overlay); scenario must omit arena_synthetic",
     )
     parser.add_argument("--data-dir", type=Path, help="Rust: TFS_DATA_DIR (default data/)")
     parser.add_argument("--map", help="Rust: OTBM path relative to data dir")
+    parser.add_argument(
+        "--check-player-walk",
+        action="store_true",
+        help="Fail if harness_player_step tick/tile mismatch (first 5 walks)",
+    )
     args = parser.parse_args()
+
+    if args.synthetic and args.real_map:
+        print("error: --synthetic and --real-map are mutually exclusive", file=sys.stderr)
+        return 1
 
     scenario = args.scenario.resolve()
     if not scenario.is_file():
         print(f"error: scenario not found: {scenario}", file=sys.stderr)
         return 1
 
+    if args.real_map and scenario_uses_synthetic_arena(scenario):
+        print(
+            "error: --real-map scenario must not contain `arena_synthetic 1`",
+            file=sys.stderr,
+        )
+        return 1
+
+    use_synthetic = args.synthetic
+    if args.real_map:
+        use_synthetic = False
+
+    rust_log = RUST_LOG
+    cip_log = CIP_LOG
+    if args.real_map:
+        rust_log = LOG_DIR / "chase_path_rust_realmap.log"
+        cip_log = LOG_DIR / "chase_path_cip_realmap.log"
+
     monster = args.monster or scenario_monster_label(scenario) or "rat"
     print(f"monster filter: {monster}", file=sys.stderr)
+    if args.real_map:
+        print("mode: real-map (OTBM + .sec, no synthetic overlay)", file=sys.stderr)
+        print("C++: TFS_KITE_NO_WILD=1 (purge map-embedded monsters)", file=sys.stderr)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    for path in (RUST_LOG, CIP_LOG):
+    for path in (rust_log, cip_log):
         if path.exists():
             path.unlink()
 
@@ -141,9 +194,9 @@ def main() -> int:
         "--",
         str(scenario),
         "--log",
-        str(RUST_LOG),
+        str(rust_log),
     ]
-    if args.synthetic:
+    if use_synthetic:
         rust_cmd.append("--synthetic")
     if args.data_dir:
         rust_cmd.extend(["--data-dir", str(args.data_dir.resolve())])
@@ -155,9 +208,9 @@ def main() -> int:
         env={
             **os.environ,
             "TFS_CHASE_PATH_DEBUG": "1",
-            "TFS_CHASE_PATH_LOG": str(RUST_LOG),
+            "TFS_CHASE_PATH_LOG": str(rust_log),
             "TFS_SIM_SEED": os.environ.get("TFS_SIM_SEED", "772"),
-            **({"TFS_KITE_SYNTHETIC_ARENA": "1"} if args.synthetic else {}),
+            **({"TFS_KITE_SYNTHETIC_ARENA": "1"} if use_synthetic else {}),
         },
     )
 
@@ -193,14 +246,16 @@ def main() -> int:
         if runtime_log.exists():
             runtime_log.unlink()
 
+        cpp_env = {
+            **os.environ,
+            "TIBIA_CHASE_PATH_DEBUG": "1",
+            "TFS_SIM_SEED": os.environ.get("TFS_SIM_SEED", "772"),
+            **({"TFS_KITE_SYNTHETIC_ARENA": "1"} if use_synthetic else {}),
+            **({"TFS_KITE_NO_WILD": "1"} if args.real_map else {}),
+        }
         run(
             [str(game_bin), "chase-scenario", str(scenario)],
-            env={
-                **os.environ,
-                "TIBIA_CHASE_PATH_DEBUG": "1",
-                "TFS_SIM_SEED": os.environ.get("TFS_SIM_SEED", "772"),
-                **({"TFS_KITE_SYNTHETIC_ARENA": "1"} if args.synthetic else {}),
-            },
+            env=cpp_env,
             cwd=Path(runtime),
         )
 
@@ -208,17 +263,17 @@ def main() -> int:
         if not runtime_log.is_file():
             runtime_log = Path(runtime) / "log" / "chase_path.log"
         if runtime_log.is_file():
-            shutil.copy2(runtime_log, CIP_LOG)
+            shutil.copy2(runtime_log, cip_log)
         elif cip_tmp.is_file():
-            shutil.move(str(cip_tmp), str(CIP_LOG))
-        elif not CIP_LOG.is_file():
+            shutil.move(str(cip_tmp), str(cip_log))
+        elif not cip_log.is_file():
             print(f"warn: C++ did not write {cip_tmp}", file=sys.stderr)
 
-    if not CIP_LOG.is_file() and not args.skip_cpp:
+    if not cip_log.is_file() and not args.skip_cpp:
         return 1
 
     if args.skip_cpp:
-        rust_total, rust_diag = count_diag_go_exec(RUST_LOG, monster)
+        rust_total, rust_diag = count_diag_go_exec(rust_log, monster)
         print(f"Rust go_exec: {rust_total}  diagonal: {rust_diag}")
         return 0
 
@@ -229,9 +284,9 @@ def main() -> int:
         sys.executable,
         str(ROOT / "scripts" / "summarize_chase_gaps.py"),
         "--ref",
-        str(CIP_LOG),
+        str(cip_log),
         "--rust",
-        str(RUST_LOG),
+        str(rust_log),
         "--monster",
         monster,
         "--lockstep",
@@ -243,9 +298,9 @@ def main() -> int:
         sys.executable,
         str(COMPARE),
         "--ref",
-        str(CIP_LOG),
+        str(cip_log),
         "--rust",
-        str(RUST_LOG),
+        str(rust_log),
         "--monster",
         monster,
     ]
@@ -261,10 +316,31 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         compare_rc = max(compare_rc, exc.returncode or 1)
 
-    ref_total, ref_diag = count_diag_go_exec(CIP_LOG, monster)
-    rust_total, rust_diag = count_diag_go_exec(RUST_LOG, monster)
+    ref_total, ref_diag = count_diag_go_exec(cip_log, monster)
+    rust_total, rust_diag = count_diag_go_exec(rust_log, monster)
     print(f"\nScenario wall_ms={wall_ms}")
     print(f"Diagonal go_exec — ref: {ref_diag}/{ref_total}  rust: {rust_diag}/{rust_total}")
+
+    if scenario_has_player_walk(scenario):
+        pw_cmd = [
+            sys.executable,
+            str(PLAYER_WALK_COMPARE),
+            "--ref",
+            str(cip_log),
+            "--rust",
+            str(rust_log),
+        ]
+        print("\n--- harness_player_step alignment ---", file=sys.stderr)
+        pw_proc = subprocess.run(pw_cmd, cwd=ROOT)
+        if pw_proc.returncode != 0:
+            if args.check_player_walk:
+                compare_rc = max(compare_rc, pw_proc.returncode)
+            else:
+                print(
+                    "warn: harness_player_step mismatch (use --check-player-walk to fail)",
+                    file=sys.stderr,
+                )
+
     return compare_rc
 
 

@@ -246,6 +246,17 @@ impl SpawnManager {
             .map(|(i, _)| i)
     }
 
+    pub fn count_occupied_in_zone(&self, zone_index: usize) -> usize {
+        self.slots
+            .iter()
+            .filter(|s| s.zone_index == zone_index && s.current.is_some())
+            .count()
+    }
+
+    pub fn zone_center(&self, zone_index: usize) -> Option<Position> {
+        self.zones.get(zone_index).map(|z| z.center)
+    }
+
     pub fn slot(&self, index: usize) -> Option<&SpawnSlot> {
         self.slots.get(index)
     }

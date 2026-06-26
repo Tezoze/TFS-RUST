@@ -268,6 +268,7 @@ See also: [`crates/tfs-rust-content/src/otb_patch.rs`](../crates/tfs-rust-conten
 
 ## Related docs & tests
 
+- [`772_OBJECTS_SRV_TO_OTB_LOOKUP.md`](772_OBJECTS_SRV_TO_OTB_LOOKUP.md) — practical TypeID lookup, `.sec` stacks, name-mismatch table, map ASCII
 - [`scripts/audit_objects_srv_waypoints_vs_otb.py`](../scripts/audit_objects_srv_waypoints_vs_otb.py) — Waypoints audit wrapper
 - [`scripts/audit_otb_objects_srv_flags.py`](../scripts/audit_otb_objects_srv_flags.py) — flag correlation wrapper
 - [`crates/tfs-rust-content/tests/audit_objects_srv_waypoints.rs`](../crates/tfs-rust-content/tests/audit_objects_srv_waypoints.rs)

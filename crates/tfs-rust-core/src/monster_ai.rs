@@ -765,8 +765,8 @@ impl GameWorld {
 
         if !is_idle {
             if self.beat_driven_loop {
-                // 772 `ProcessCreatures` ~1 Hz — not per idle drain (P0-2 / X2).
-                self.monster_on_think_target(cid, interval_ms);
+                // 772 `ProcessCreatures` ~1 Hz — stall rescue only; no TFS `onThinkTarget`
+                // (`changeTargetSpeed` / `changeTargetChance` — `monster.cpp` ~923, absent in `crnonpl.cc`).
                 if self.monster_combat_scheduler_needs_refresh(cid) {
                     self.monster_combat_reschedule_if_stalled(cid);
                 }
@@ -2063,8 +2063,14 @@ impl GameWorld {
         }
     }
 
-    /// TFS `Monster::onThinkTarget` — `monster.cpp` ~923.
+    /// TFS `Monster::onThinkTarget` — `monster.cpp` ~923 (1098 only).
+    ///
+    /// 772 target pick / retarget runs from [`crate::idle_stimulus`] `Strategy[]`
+    /// (`crnonpl.cc:2468`), not `changeTargetSpeed` rolls.
     pub(crate) fn monster_on_think_target(&mut self, cid: CreatureId, interval_ms: u32) {
+        if self.beat_driven_loop {
+            return;
+        }
         let (
             change_speed,
             change_chance,
@@ -2859,6 +2865,15 @@ mod world_tests {
 
     /// Fist monsters skip idle `MeleeChase` while ATTACKING; seed a queue for hysteresis tests.
     fn seed_idle_chase_queue_for_test(world: &mut GameWorld, monster: CreatureId) {
+        if world.beat_driven_loop
+            && world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().follow_target.is_none())
+        {
+            // 772 appear defers target pick to idle `Strategy[]` — run one drain for fixtures.
+            world.monster_idle_stimulus(monster);
+        }
         if world
             .creatures
             .get(monster)

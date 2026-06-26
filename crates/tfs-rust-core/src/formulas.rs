@@ -142,6 +142,15 @@ pub enum SpawnNearPlayer {
     RadiusShrink,
 }
 
+/// Tile search used when placing spawn slots (`spawn_lifecycle.rs` / `spawn_placement.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnPlacement {
+    /// TFS `Map::placeCreature` offset shuffle (`map.cpp`, `spawn.cpp`).
+    TfsShuffle,
+    /// 772 `SearchSpawnField` BFS + `LoadMonsterhomes` slot rules (`info.cc`, `crnonpl.cc`).
+    Classic772Bfs,
+}
+
 /// Per-level experience curve (`skills` module).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LevelExpModel {
@@ -229,6 +238,8 @@ pub struct MechanicsProfile {
     pub conditions: ConditionTicks,
     /// Spawn-near-player policy.
     pub spawn_near_player: SpawnNearPlayer,
+    /// Startup / respawn tile search algorithm.
+    pub spawn_placement: SpawnPlacement,
     /// Exp attribution window in combat rounds (CipSoft 60).
     pub exp_attribution_rounds: u32,
     /// PvP exp cap fraction numerator/denominator (772 `11/10`).
@@ -288,6 +299,7 @@ impl MechanicsProfile {
                     poison_start: 50,
                 },
                 spawn_near_player: SpawnNearPlayer::RadiusShrink,
+                spawn_placement: SpawnPlacement::Classic772Bfs,
                 exp_attribution_rounds: 60,
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
@@ -334,6 +346,7 @@ impl MechanicsProfile {
                     poison_start: 50,
                 },
                 spawn_near_player: SpawnNearPlayer::Block,
+                spawn_placement: SpawnPlacement::TfsShuffle,
                 exp_attribution_rounds: 60,
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
@@ -630,6 +643,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "block" => SpawnNearPlayer::Block,
         _ => p.spawn_near_player,
     };
+    p.spawn_placement = match str_or(&formulas, "spawnPlacement", "").as_str() {
+        "classic772" | "bfs" | "searchSpawnField" => SpawnPlacement::Classic772Bfs,
+        "tfs" | "shuffle" => SpawnPlacement::TfsShuffle,
+        _ => p.spawn_placement,
+    };
     p.damage_formula = match str_or(&formulas, "damageFormula", "").as_str() {
         "classic" | "probe" => DamageFormula::ClassicProbe,
         "modern" => DamageFormula::Modern,
@@ -738,6 +756,7 @@ mod tests {
         assert_eq!(p.weakest_target_metric, WeakestTargetMetric::MaxHp);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::Block);
+        assert_eq!(p.spawn_placement, SpawnPlacement::TfsShuffle);
         assert_eq!(p.level_exp, LevelExpModel::Tfs);
         assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
         assert!(!p.follow_repath_without_path);
@@ -761,6 +780,7 @@ mod tests {
         assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
+        assert_eq!(p.spawn_placement, SpawnPlacement::Classic772Bfs);
         assert_eq!(p.level_exp, LevelExpModel::DeltaPoly);
         assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
         assert_eq!(p.step_beat_ms, 50);

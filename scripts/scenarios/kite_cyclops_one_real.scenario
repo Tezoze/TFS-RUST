@@ -1,0 +1,50 @@
+name kite_cyclops_one_real
+z 7
+default_wp 150
+arena 32451 32068 4
+
+# P1 minimal real-map control — cyclops gravel bowl (32451, 32065, 7)
+# 1 cyclops @ 32453 32065, short U-loop; no arena_synthetic
+# Isolate terrain/pull-in before ramping to kite_cyclops_six_real.
+
+player_start 32451 32065
+player_name Hero
+
+monster cyclops 32453 32065
+
+monster_load_type 1
+monster_hostile 1
+monster_melee_skill 50
+monster_melee_attack 30
+monster_armor 17
+monster_defense 24
+monster_speed 55
+monster_target_distance 1
+monster_talks 5
+
+advance_ms 0
+monster_appear
+
+player_walk 32450 32065 200
+sim_tick
+
+player_walk 32450 32066 200
+sim_tick
+
+player_walk 32451 32066 200
+sim_tick
+
+player_walk 32452 32066 200
+sim_tick
+
+player_walk 32451 32065 200
+sim_tick
+
+advance_ms 1000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 1000
+sim_tick
