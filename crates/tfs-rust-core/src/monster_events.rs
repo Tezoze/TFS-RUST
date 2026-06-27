@@ -8,6 +8,7 @@
 use slotmap::Key;
 use tfs_rust_common::Position;
 
+use crate::chase_debug;
 use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
 use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
 use crate::game_world::{creature_can_see, GameWorld};
@@ -162,8 +163,25 @@ impl GameWorld {
         };
 
         if follow == Some(creature_id) {
+            if self.beat_driven_loop {
+                if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
+                    self.creatures.get(monster_id),
+                    self.creatures.get(creature_id).map(|k| k.position()),
+                ) {
+                    let cheb = chebyshev(m.base.position, target_pos);
+                    chase_debug::log_creature_move_stimulus(
+                        self.chase_trace_tick(),
+                        monster_id,
+                        m.base.name.as_str(),
+                        creature_id.data().as_ffi(),
+                        "move_stimulus",
+                        cheb,
+                    );
+                }
+            }
             self.monster_on_follow_creature_moved(monster_id, creature_id, new_pos, has_path);
             self.monster_combat_creature_move_stimulus(monster_id, creature_id);
+            self.monster_close_chase_clear_pending_go_on_target_flee(monster_id, creature_id);
             let target_visible = self
                 .creatures
                 .get(creature_id)
@@ -183,15 +201,18 @@ impl GameWorld {
         }
 
         // TFS `Monster::onCreatureMove` — `monster.cpp` ~287–289: `selectTarget(creature)` only
-        // when we have no follow; no `searchTarget` on every move. Requires line-of-sight to the
-        // mover's new tile (spatial spectators alone can include off-screen monsters).
+        // when we have no follow (1098). 772 defers to idle `Strategy[]` (`crnonpl.cc:2468`).
         if !is_summon
             && can_see_new
             && self.monster_is_opponent(monster_id, creature_id)
             && follow.is_none()
         {
             self.monster_ensure_opponent_listed(monster_id, creature_id);
-            self.monster_select_target(monster_id, creature_id);
+            if self.beat_driven_loop {
+                self.monster_schedule_chase_after_opponent_add(monster_id, Some(creature_id));
+            } else {
+                self.monster_select_target(monster_id, creature_id);
+            }
         }
 
         if self.beat_driven_loop
@@ -256,30 +277,128 @@ impl GameWorld {
 
         // C++ `CreatureMoveStimulus` close-chase clears in-flight attack todo before repath
         // (`crmain.cc:946-951` `ToDoClear` + re-queue) — only when a stale queue blocks yield.
-        if self.beat_driven_loop {
-            if let Some(k) = self.creatures.get_mut(monster_id) {
-                let base = k.base_mut();
+        if let Some(k) = self.creatures.get_mut(monster_id) {
+            let base = k.base_mut();
+            if self.beat_driven_loop {
                 if !base.todo.queue.is_empty() {
                     base.todo.queue.clear();
                     base.todo.locked = false;
                 }
+                // C++ `CreatureMoveStimulus` preempts goal `ToDoWait` — do not defer repath.
+                base.next_wakeup = None;
             }
-        }
-
-        // Do not skip repath when the follow *target moved*: `getPathTo` can return an empty
-        // list while still inside the monster's keep-distance band, which left monsters frozen
-        // after the player kited away from melee.
-        if let Some(k) = self.creatures.get_mut(monster_id) {
-            let base = k.base_mut();
             base.walk_queue.clear();
             base.walk_update_ticks = 0;
             base.is_updating_path = false;
             base.force_update_follow_path = true;
         }
         if self.beat_driven_loop {
-            self.request_idle_stimulus(monster_id);
+            self.monster_idle_stimulus(monster_id);
+            if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
+                self.creatures.get(monster_id),
+                self.creatures.get(creature_id).map(|k| k.position()),
+            ) {
+                let cheb = chebyshev(m.base.position, target_pos);
+                chase_debug::log_creature_move_stimulus(
+                    self.chase_trace_tick(),
+                    monster_id,
+                    m.base.name.as_str(),
+                    creature_id.data().as_ffi(),
+                    "dist_follow_move",
+                    cheb,
+                );
+            }
         } else {
             self.monster_follow_repath_now(monster_id, Some("target_move"));
+        }
+    }
+
+    /// Clear stale close-chase todos when the target left the adjacent band and arm chase inline.
+    ///
+    /// C++ `CreatureMoveStimulus` handles locked `TDAttack`; pending `ToDoGo` / goal `Wait` while
+    /// the target kites away must not block restep (`crmain.cc:888-961`).
+    fn monster_close_chase_clear_pending_go_on_target_flee(
+        &mut self,
+        monster_id: CreatureId,
+        target_id: CreatureId,
+    ) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let snapshot = self.creatures.get(monster_id).and_then(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return None;
+            };
+            if m.is_fleeing() {
+                return None;
+            }
+            if m.base.attack_target != Some(target_id) {
+                return None;
+            }
+            if !matches!(m.state, MonsterState::Attacking | MonsterState::Panic) {
+                return None;
+            }
+            let target_pos = self.creatures.get(target_id)?.position();
+            let dist = chebyshev(m.base.position, target_pos);
+            if dist <= 1 {
+                return None;
+            }
+            let target_distance = self.monster_effective_target_distance(m.target_distance);
+            if target_distance > 1 {
+                return None;
+            }
+            Some((
+                m.chase_mode,
+                m.base.todo.has_attack(),
+                m.base.todo.has_go(),
+                m.base.todo.locked,
+                target_pos,
+            ))
+        });
+        let Some((chase_mode, has_attack, has_go, todo_locked, target_pos)) = snapshot else {
+            return;
+        };
+        if chase_mode != MonsterChaseMode::Close {
+            return;
+        }
+        // Locked `TDAttack` path — handled by [`Self::monster_combat_creature_move_stimulus`].
+        if has_attack && todo_locked && !has_go {
+            return;
+        }
+        // Mid-batch segment drain — C++ does not idle-repath on every kite tile.
+        if self.monster_close_chase_batch_in_flight(monster_id) {
+            return;
+        }
+        // Stale single `Go` with empty walk_queue — replace with fresh chase Go.
+        if !has_go {
+            return;
+        }
+        if !self.monster_chase_needs_attacking_close_repath(monster_id, target_pos) {
+            return;
+        }
+        if let Some(k) = self.creatures.get_mut(monster_id) {
+            let base = k.base_mut();
+            base.todo.queue.clear();
+            base.todo.locked = false;
+            base.walk_queue.clear();
+            base.has_follow_path = false;
+            base.force_update_follow_path = true;
+            base.next_wakeup = None;
+        }
+        self.monster_idle_stimulus(monster_id);
+        if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
+            self.creatures.get(monster_id),
+            self.creatures.get(target_id).map(|k| k.position()),
+        ) {
+            let cheb = chebyshev(m.base.position, target_pos);
+            chase_debug::log_creature_move_stimulus(
+                self.chase_trace_tick(),
+                monster_id,
+                m.base.name.as_str(),
+                target_id.data().as_ffi(),
+                "close_flee_clear",
+                cheb,
+            );
         }
     }
 
@@ -344,6 +463,17 @@ impl GameWorld {
         if !self.enqueue_creature_wait(monster_id, 200) {
             return;
         }
+        chase_debug::log_creature_move_stimulus(
+            self.chase_trace_tick(),
+            monster_id,
+            self.creatures
+                .get(monster_id)
+                .map(|k| k.base().name.as_str())
+                .unwrap_or("?"),
+            target_id.data().as_ffi(),
+            "combat_move_rearm",
+            chebyshev(pos, target_pos),
+        );
         match self.monster_enqueue_todo_attack_actions(monster_id) {
             MonsterEnqueueAttackResult::Enqueued => {
                 self.schedule_immediate_todo_wakeup(monster_id);
@@ -420,5 +550,159 @@ impl GameWorld {
         for monster_id in monsters {
             self.monster_on_creature_move(monster_id, moved, old_pos, new_pos);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tfs_rust_common::enums::Direction;
+    use tfs_rust_common::Position;
+
+    use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
+    use crate::creature_todo::CreatureAction;
+    use crate::test_world::support::{
+        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player,
+        test_player, TEST_SYNTHETIC_GROUND_WP,
+    };
+
+    #[test]
+    fn test_772_close_flee_clear_skips_inflight_go() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(104, 100, 7);
+        let ppos_new = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.walk_queue.push_back(Direction::East);
+            m.base.walk_queue.push_back(Direction::East);
+            m.base.todo.queue.push_back(CreatureAction::Go);
+            m.base.todo.queue.push_back(CreatureAction::Attack);
+        }
+
+        let queue_len_before = world.creatures.get(monster).unwrap().base().walk_queue.len();
+        let todo_go_before = world.creatures.get(monster).unwrap().base().todo.has_go();
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        let queue_len_after = world.creatures.get(monster).unwrap().base().walk_queue.len();
+        let todo_go_after = world.creatures.get(monster).unwrap().base().todo.has_go();
+
+        assert_eq!(queue_len_before, 2);
+        assert_eq!(queue_len_after, 2, "in-flight walk_queue must not be cleared");
+        assert!(todo_go_before);
+        assert!(todo_go_after, "in-flight ToDoGo must not be cleared");
+    }
+
+    #[test]
+    fn test_772_close_flee_clear_skips_mid_batch_between_go_exec() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(104, 100, 7);
+        let ppos_new = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            // Post-Go-execute inter-step gap: Go popped, Attack still queued, segment wakeup pending.
+            m.base.todo.queue.push_back(CreatureAction::Attack);
+            m.base.todo.locked = true;
+            m.base.next_wakeup = Some(world.server_ms + 200);
+        }
+
+        let attack_queued_before = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .todo
+            .has_attack();
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(attack_queued_before);
+        assert!(
+            base.todo.has_attack(),
+            "mid-batch segment drain must not idle-repath on target kite step"
+        );
+        assert!(
+            base.todo.locked,
+            "todo lock must survive target move during batch drain"
+        );
+    }
+
+    #[test]
+    fn test_772_opponent_move_defers_select_target() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        let ppos_new = Position::new(103, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = true;
+            m.opponent_ids.push(player);
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().follow_target.is_none()),
+            "772 must not sync selectTarget on opponent move"
+        );
+        assert!(
+            world.creatures.get(monster).is_some_and(|k| {
+                k.base().next_wakeup.is_some() || !k.base().todo.is_empty()
+            }),
+            "772 must defer target via idle yield, not sync select"
+        );
     }
 }

@@ -3,6 +3,7 @@
 //! C++ reference: `chase_kite_scenario.cc` `srand(TFS_SIM_SEED)`; `utils.cc` `random`;
 //! `crskill.cc` `TSkillProbe::ProbeValue`; `crcombat.cc` `GetArmorStrength`.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rand::RngCore;
@@ -11,6 +12,30 @@ use tfs_rust_common::enums::Direction;
 static SIM_GLIBC_RNG: AtomicBool = AtomicBool::new(false);
 static SIM_RNG_TRACE: AtomicBool = AtomicBool::new(false);
 static SIM_RNG_CALLS: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static RNG_TRACE_SITE: Cell<Option<&'static str>> = const { Cell::new(None) };
+}
+
+/// Attribute the next glibc draw(s) to `site` in [`TFS_SIM_RNG_TRACE`] output.
+pub struct SimRngTraceSiteGuard {
+    prev: Option<&'static str>,
+}
+
+pub fn sim_rng_trace_site(site: &'static str) -> SimRngTraceSiteGuard {
+    let prev = RNG_TRACE_SITE.with(|c| {
+        let p = c.get();
+        c.set(Some(site));
+        p
+    });
+    SimRngTraceSiteGuard { prev }
+}
+
+impl Drop for SimRngTraceSiteGuard {
+    fn drop(&mut self) {
+        RNG_TRACE_SITE.with(|c| c.set(self.prev));
+    }
+}
 
 /// One-time enable from [`crate::game_world::GameWorld::init_sim_rng_from_env`].
 pub fn enable_sim_glibc_rng() {
@@ -36,12 +61,29 @@ pub fn reset_sim_rng_call_count() {
     SIM_RNG_CALLS.store(0, Ordering::Relaxed);
 }
 
+/// Re-seed glibc `rand()` from `TFS_SIM_SEED` — chase harness appear/combat parity.
+pub fn resync_harness_glibc_rng_from_env() {
+    if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
+        if let Ok(seed) = seed_str.parse::<u64>() {
+            if sim_glibc_rng_enabled() {
+                // SAFETY: harness-only; mirrors C++ `ResyncHarnessRng` in `chase_kite_scenario.cc`.
+                unsafe { libc::srand(seed as u32) };
+                reset_sim_rng_call_count();
+                if sim_rng_trace_enabled() {
+                    crate::chase_debug::log_rng_resync(seed);
+                }
+            }
+        }
+    }
+}
+
 fn draw_rand() -> i32 {
     // SAFETY: chase harness only; mirrors C++ `srand`/`rand` in `chase_kite_scenario.cc`.
     let value = unsafe { libc::rand() };
     let calls = SIM_RNG_CALLS.fetch_add(1, Ordering::Relaxed) + 1;
     if sim_rng_trace_enabled() {
-        crate::chase_debug::log_rng_trace(calls, value);
+        let site = RNG_TRACE_SITE.with(|c| c.get());
+        crate::chase_debug::log_rng_trace(calls, value, site);
     }
     value
 }
@@ -91,7 +133,11 @@ pub fn parity_rand_mod(modulus: u32) -> u32 {
 
 /// C++ `TSkillProbe::ProbeValue` random factor — `((rand()%100)+(rand()%100))/2`.
 pub fn sim_probe_random_factor() -> i32 {
-    (sim_rand_mod(100) as i32 + sim_rand_mod(100) as i32) / 2
+    let _a = sim_rng_trace_site("probe_rand_a");
+    let a = sim_rand_mod(100) as i32;
+    let _b = sim_rng_trace_site("probe_rand_b");
+    let b = sim_rand_mod(100) as i32;
+    (a + b) / 2
 }
 
 /// C++ dance sidestep order — `crnonpl.cc:2814-2819` (`rand()%5` → W,E,N,S,hold).

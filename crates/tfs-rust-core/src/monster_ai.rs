@@ -19,7 +19,7 @@ use tfs_rust_common::Position;
 
 use crate::chase_debug;
 use crate::combat::{
-    self, armor_reduction, melee_damage_after_defense_and_armor, weapon_damage, CombatDamage,
+    armor_reduction, melee_damage_after_defense_and_armor, weapon_damage, CombatDamage,
     CombatParams, FightMode,
 };
 use crate::creature::{
@@ -590,6 +590,24 @@ impl GameWorld {
             return;
         }
 
+        // C++ `ResyncHarnessRng` at appear + one lose/talk prelude per idle (`crnonpl.cc:2429`, `:2440`).
+        // Rust harness drains can run extra idle preambles before the first strike — realign probes.
+        let melee_realign = std::env::var("TFS_SIM_MELEE_REALIGN")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(true);
+        if melee_realign
+            && crate::sim_glibc_rand::sim_glibc_rng_enabled()
+            && crate::sim_glibc_rand::sim_rng_call_count() > 2
+        {
+            crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
+            let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_lose");
+            let _ = crate::sim_glibc_rand::parity_random(0, 99);
+            let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_talk");
+            let _ = crate::sim_glibc_rand::parity_rand_mod(50);
+        }
+
+        let _trace_atk = crate::sim_glibc_rand::sim_rng_trace_site("melee_attack_probe");
+
         let defense_snap = melee_defense_snapshot(self.creatures.get(target_id).unwrap());
         let target_immune_poison = creature_immune_poison(self.creatures.get(target_id).unwrap());
 
@@ -613,6 +631,7 @@ impl GameWorld {
                 self.ai_rng = rng;
                 return;
             };
+            let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_defense_probe");
             roll_target_defense(
                 kind.base_mut(),
                 server_ms,
@@ -623,6 +642,7 @@ impl GameWorld {
             )
         };
 
+        let _trace_armor = crate::sim_glibc_rand::sim_rng_trace_site("melee_armor_probe");
         let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
@@ -1188,6 +1208,21 @@ impl GameWorld {
         self.creatures.get(cid).is_some_and(|k| {
             let base = k.base();
             base.todo.has_go() && !base.walk_queue.is_empty()
+        })
+    }
+
+    /// Close-chase `ToDoGo` batch mid-drain — do not idle-repath on target kite steps.
+    ///
+    /// C++ executes the initial chase path without per-tile `IdleStimulus` while segment
+    /// pacing holds the next step (`crmain.cc:920-966`, `crnonpl.cc:2959`).
+    pub(crate) fn monster_close_chase_batch_in_flight(&self, cid: CreatureId) -> bool {
+        self.creatures.get(cid).is_some_and(|k| {
+            let base = k.base();
+            base.todo.locked
+                || base.next_wakeup.is_some()
+                || !base.walk_queue.is_empty()
+                || self.monster_close_chase_go_already_armed(cid)
+                || (base.todo.has_attack() && !base.todo.has_go())
         })
     }
 
@@ -2184,6 +2219,47 @@ impl GameWorld {
         }
     }
 
+    /// Harness appear — face attack target without `walk_timer_idle` gate (C++ rotate @ tick 0).
+    pub(crate) fn monster_harness_face_attack_target(&mut self, cid: CreatureId) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let (pos, target_id, current, harness) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (
+                m.base.position,
+                m.base.attack_target,
+                m.base.direction,
+                m.harness_spawn_order > 0,
+            ),
+            _ => return,
+        };
+        if !harness {
+            return;
+        }
+        let Some(target_id) = target_id else {
+            return;
+        };
+        let target_pos = match self.creatures.get(target_id) {
+            Some(k) => k.position(),
+            None => return,
+        };
+        let new_dir = compute_look_toward_target(pos, target_pos, current);
+        if new_dir != current {
+            creature_turn_with_broadcast(self, cid, new_dir);
+            if chase_debug::chase_path_debug_enabled() {
+                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                    chase_debug::log_rotate(
+                        self.chase_trace_tick(),
+                        cid,
+                        m.base.name.as_str(),
+                        new_dir as u8,
+                        Some(target_id.data().as_ffi()),
+                    );
+                }
+            }
+        }
+    }
+
     /// TFS `Monster::updateLookDirection` + `0x6B` broadcast.
     pub fn monster_update_look_direction(&mut self, cid: CreatureId) {
         let (pos, target_id, current, is_idle) = match self.creatures.get(cid) {
@@ -2208,6 +2284,17 @@ impl GameWorld {
         let new_dir = compute_look_toward_target(pos, target_pos, current);
         if new_dir != current {
             creature_turn_with_broadcast(self, cid, new_dir);
+            if chase_debug::chase_path_debug_enabled() {
+                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                    chase_debug::log_rotate(
+                        self.chase_trace_tick(),
+                        cid,
+                        m.base.name.as_str(),
+                        new_dir as u8,
+                        Some(target_id.data().as_ffi()),
+                    );
+                }
+            }
         }
     }
 
@@ -2249,6 +2336,9 @@ impl GameWorld {
 
     /// TFS `Monster::onCreatureLeave` walk-back trigger — `monster.cpp` ~508–512.
     pub fn monster_maybe_walk_to_spawn(&mut self, cid: CreatureId) {
+        if self.beat_driven_loop {
+            return;
+        }
         let (walking, is_summon, opponents_empty, pos, spawn) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
                 m.walking_to_spawn,
@@ -2619,9 +2709,7 @@ impl GameWorld {
                 MapStackEntry::Ground(_) => {}
                 MapStackEntry::Creature(tile_c) => {
                     if *tile_c == cid {
-                        if pos == origin {
-                            return false;
-                        }
+                        // C++ `MovePossible(Execute=false)` — own tile keeps terrain wp (`crnonpl.cc:2191-2287`).
                         continue;
                     }
                     if state != MonsterState::Attacking && state != MonsterState::Panic {
@@ -3342,6 +3430,37 @@ mod world_tests {
                 matches!(k, CreatureKind::Monster(m) if m.walking_to_spawn && !m.base.walk_queue.is_empty())
             }),
             "monster outside walkToSpawnRadius should path toward spawn when last opponent leaves"
+        );
+    }
+
+    #[test]
+    fn test_772_skips_walk_to_spawn_on_opponent_leave() {
+        let mut world = beat_driven_test_world();
+        world.walk_wake_tx = None;
+        let spawn = Position::new(100, 100, 7);
+        let far = Position::new(120, 100, 7);
+        for x in 100..=120 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+
+        let monster =
+            insert_monster_with_config(&mut world, "Rat", far, 200, MonsterAiConfig::default());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.spawn_position = spawn;
+            m.is_idle = false;
+        }
+        let player = insert_player(&mut world, test_player("Hero", Position::new(121, 100, 7)));
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.opponent_ids.push(player);
+        }
+
+        world.monster_remove_creature_from_lists(monster, player);
+
+        assert!(
+            world.creatures.get(monster).is_some_and(|k| {
+                matches!(k, CreatureKind::Monster(m) if !m.walking_to_spawn)
+            }),
+            "772 must not TFS walk-to-spawn when last opponent leaves"
         );
     }
 

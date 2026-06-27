@@ -4,6 +4,12 @@
 //! Combat (E0–E6): `crcombat.cc` `Attack`/`CloseAttack`; `cract.cc` `ToDoAttack`;
 //! `crnonpl.cc` CASTING / `DamageStimulus`; `crmain.cc` death drop.
 //!
+//! Full event catalog (lockstep compare via `scripts/compare_chase_live_logs.py`):
+//! `branch`, `todo_go`, `shortway`, `go_exec`, `idle_stimulus`, `todo_wait`, `rotate`,
+//! `creature_move_stimulus`, `todo_label`, `parked`, `combat_state`, `attack_enqueue`,
+//! `melee_hit`, `ranged_hit`, `spell_cast`, `damage_stimulus`, `creature_death`,
+//! `harness_player_step`, `fill_map`, `rng_trace`, `rng_resync`.
+//!
 //! Enable: env `TFS_CHASE_PATH_DEBUG=1` (optional `TFS_CHASE_PATH_LOG=/path/to/chase_ai.jsonl`).
 
 use std::fs::OpenOptions;
@@ -264,14 +270,105 @@ pub fn log_spell_cast(
     write_line(&line);
 }
 
-/// Headless sim RNG trace — glibc draw index + raw value.
-pub fn log_rng_trace(call_index: u64, value: i32) {
+/// One `TMonster::IdleStimulus` / inline repath invocation — `crnonpl.cc:2345`.
+pub fn log_idle_stimulus(tick: u64, cid: CreatureId, name: &str) {
     if !chase_path_debug_enabled() {
         return;
     }
     let line = format!(
-        "{{\"src\":\"rust\",\"evt\":\"rng_trace\",\"call_index\":{call_index},\"value\":{value}}}"
+        "{}}}",
+        header(tick, cid, name, "idle_stimulus"),
     );
+    write_line(&line);
+}
+
+/// `ToDoWait` enqueue or execute — `cract.cc:1030`.
+pub fn log_todo_wait(tick: u64, cid: CreatureId, name: &str, delay_ms: u64, phase: &str) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{},\"delay_ms\":{delay_ms},\"phase\":\"{phase}\"}}",
+        header(tick, cid, name, "todo_wait"),
+    );
+    write_line(&line);
+}
+
+/// `TCreature::Rotate` toward a target — `cract.cc:452`, idle tail `crnonpl.cc:2871`.
+pub fn log_rotate(tick: u64, cid: CreatureId, name: &str, dir: u8, target_id: Option<u64>) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let target_json = target_id
+        .map(|id| format!(",\"target_id\":{id}"))
+        .unwrap_or_default();
+    let line = format!(
+        "{},\"dir\":{dir}{target_json}}}",
+        header(tick, cid, name, "rotate"),
+    );
+    write_line(&line);
+}
+
+/// Follow-target move / combat restep — `crmain.cc:919`, dist inline repath.
+pub fn log_creature_move_stimulus(
+    tick: u64,
+    cid: CreatureId,
+    name: &str,
+    mover_id: u64,
+    kind: &str,
+    cheb: i32,
+) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{},\"mover_id\":{mover_id},\"kind\":\"{kind}\",\"cheb\":{cheb}}}",
+        header(tick, cid, name, "creature_move_stimulus"),
+    );
+    write_line(&line);
+}
+
+/// ToDo queue transition — mirrors `trace_creature_todo` labels for lockstep diffs.
+pub fn log_todo_label(
+    tick: u64,
+    cid: CreatureId,
+    name: &str,
+    label: &str,
+    queue_len: usize,
+    locked: bool,
+    walk_queue_len: usize,
+) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!(
+        "{},\"label\":\"{label}\",\"queue_len\":{queue_len},\"locked\":{},\"walk_queue_len\":{walk_queue_len}}}",
+        header(tick, cid, name, "todo_label"),
+        u8::from(locked),
+    );
+    write_line(&line);
+}
+
+/// Headless sim RNG trace — glibc draw index + raw value + optional call-site tag.
+pub fn log_rng_trace(call_index: u64, value: i32, site: Option<&'static str>) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let site_json = site
+        .map(|s| format!(",\"site\":\"{s}\""))
+        .unwrap_or_default();
+    let line = format!(
+        "{{\"src\":\"rust\",\"evt\":\"rng_trace\",\"call_index\":{call_index},\"value\":{value}{site_json}}}"
+    );
+    write_line(&line);
+}
+
+/// Harness RNG stream reset — `ResyncHarnessRng` / appear-batch parity.
+pub fn log_rng_resync(seed: u64) {
+    if !chase_path_debug_enabled() {
+        return;
+    }
+    let line = format!("{{\"src\":\"rust\",\"evt\":\"rng_resync\",\"seed\":{seed}}}");
     write_line(&line);
 }
 

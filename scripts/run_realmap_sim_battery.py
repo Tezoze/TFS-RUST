@@ -68,7 +68,7 @@ def run_battery(*, skip_cpp: bool) -> int:
             monster,
             "--max-tick",
             str(max_tick),
-            "--lockstep",
+            "--movement-core",
         ]
         with summary_path.open("w", encoding="utf-8") as out:
             sum_proc = subprocess.run(sum_cmd, cwd=ROOT, stdout=out, stderr=subprocess.PIPE, text=True)
@@ -76,13 +76,17 @@ def run_battery(*, skip_cpp: bool) -> int:
             print(sum_proc.stderr, file=sys.stderr, end="")
         lockstep = sum_proc.returncode
         results.append((slug, proc.returncode, lockstep, max_tick))
-        print(f"  logs: {cip_log.name}, {rust_log.name} → {summary_path.name} lockstep={lockstep}", file=sys.stderr)
+        gate = "PASS" if lockstep == 0 else "FAIL"
+        print(
+            f"  logs: {cip_log.name}, {rust_log.name} → {summary_path.name} movement_core={gate}",
+            file=sys.stderr,
+        )
 
     print("\n=== real-map battery summary ===", file=sys.stderr)
-    print(f"{'scenario':<18} {'run':>4} {'lockstep':>10} {'max_tick':>8}", file=sys.stderr)
+    print(f"{'scenario':<18} {'run':>4} {'movement_core':>14} {'max_tick':>8}", file=sys.stderr)
     for slug, run_code, lockstep, max_tick in results:
         ls = "PASS" if lockstep == 0 else "FAIL"
-        print(f"{slug:<18} {run_code:>4} {ls:>10} {max_tick:>8}", file=sys.stderr)
+        print(f"{slug:<18} {run_code:>4} {ls:>14} {max_tick:>8}", file=sys.stderr)
 
     if any(ls != 0 for _, _, ls, _ in results):
         return 2

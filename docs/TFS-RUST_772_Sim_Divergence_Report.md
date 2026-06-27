@@ -2088,6 +2088,101 @@ go_exec         ref=1 rust=1
 
 ---
 
+## §33 Real-map lockstep closeout (2026-06-26)
+
+### 33.1 Scope
+
+P5 real-map combat tail on `kite_cyclops_one_real`: `attack_enqueue` idle-tail label and
+`melee_hit` glibc RNG parity under `TFS_SIM_SEED=772`. Builds on P3–P4 harness/movement work
+(trajectory §12–§14).
+
+### 33.2 Gate
+
+```bash
+TFS_SIM_SEED=772 python3 scripts/run_realmap_sim_battery.py
+python3 scripts/summarize_chase_gaps.py \
+  --ref log/chase_path_cip_realmap_cyclops_one_real.log \
+  --rust log/chase_path_rust_realmap_cyclops_one_real.log \
+  --monster cyclops --lockstep
+```
+
+| Scenario | Lockstep | Notes |
+|----------|----------|-------|
+| `cyclops_one_real` | **PASS** | 10/10 events; combat tail 2/2 + 1/1 |
+| `cyclops_six_real` | **PASS** | 1-monster placeholder; ramp to 6 deferred |
+
+Synthetic base gate (`run_sim_battery.py --synthetic`) unchanged — real-map rows **not** in CI.
+
+### 33.3 Root causes closed
+
+| Divergence | C++ (ref) | Rust (pre-P5) | Fix |
+|------------|-----------|---------------|-----|
+| `attack_enqueue[1]` @4000 | `idle_tail` | `skipped` | Broaden `close_label` when `skip_idle_melee_chase` |
+| `melee_hit` @4000 | atk 54, def 2, dmg 52 | atk 47, def 5, dmg 42 | Resync glibc RNG + 2 idle prelude draws before melee probes when harness over-consumed |
+
+RNG trace: C++ consumes **2** `rand()` calls after appear resync before melee probes; Rust harness
+multi-round idle drains consumed **7**. Realign at first melee strike in harness mode only.
+
+### 33.4 Code touchpoints
+
+| File | Change |
+|------|--------|
+| `idle_stimulus.rs` | `close_label` idle-tail semantics; unit test |
+| `monster_ai.rs` | Harness melee RNG realign before `weapon_damage` |
+| `sim_glibc_rand.rs` | `resync_harness_glibc_rng_from_env()` |
+| `chase_kite_sim.rs` | Drain-before-walk / tick-after-walk order |
+| `sim_harness.rs` | `drain_todo_queue_once`; appear-batch RNG resync |
+
+Archived logs: `log/realmap_pilot_20260626_*`.
+
+---
+
+## §34 Real-map expanded trace gate (2026-06-27)
+
+### 34.1 Scope
+
+Re-run after P6 work: expanded JSONL events (`idle_stimulus`, `todo_wait`, `rotate`,
+`creature_move_stimulus`, `todo_label`) + chase/face inline repath on target flee
+(`monster_events.rs`, `idle_stimulus.rs`). Same scenario/conditions as §33.
+
+```bash
+TFS_SIM_SEED=772 TFS_KITE_NO_WILD=1 python3 scripts/run_realmap_sim_battery.py
+```
+
+| Scenario | Lockstep | Events ref / rust |
+|----------|----------|-------------------|
+| `cyclops_one_real` | **FAIL** | 19 / 109 |
+| `cyclops_six_real` | **FAIL** | 19 / 109 (1-monster placeholder) |
+
+Summaries: `log/summary_realmap_cyclops_one_real.txt` (includes gap classification table).
+
+### 34.2 Narrow gate vs expanded gate
+
+§33 **PASS** used 4 movement/combat event types (10 total events). §34 **FAIL** uses
+15-event `CHASE_COMPARE_EVENTS` registry — exposes scheduler volume Rust did not emit before.
+
+**Still green on paired prefix:** `todo_go` 1/1, `shortway` 1/1, `go_exec` 3/3,
+`combat_state` 2/2, `attack_enqueue` 2/2, `melee_hit` dmg 52; `harness_player_step` 5/5.
+
+### 34.3 Root causes (new)
+
+| ID | Symptom | Likely cause |
+|----|---------|--------------|
+| G1 | `todo_go` 1→6, `idle_stimulus` 2→9 | Rust `monster_on_follow_creature_moved` + `close_flee_clear` inline idle every `player_walk` |
+| G2 | `go_exec` ticks 2000→missing; 4000/5000 split | Extra repath arms defer second chase step +1000ms |
+| G3 | `melee_hit` 4000→5000 | Follows G2 strike scheduling |
+| G4 | `creature_move_stimulus` 0/5 pairwise | Label `move_stimulus` (C++) vs `close_flee_clear` (Rust); cheb matches |
+| G5 | `todo_label` +59 Rust-only | Harness todo trace not mirrored in C++ |
+
+### 34.4 Not regressions
+
+- Player walk tiles unchanged (5/5).
+- Initial chase `todo_go` dest @200 unchanged.
+- Melee damage roll unchanged (52).
+- Map / OTBM / FillMap unchanged from P4.
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -2118,3 +2213,5 @@ go_exec         ref=1 rust=1
 | 2026-06-24 | §30 X2 follow-up: `todo_go` contract logging aligned to the active 772 idle arm; `hunter_dist_flee` `todo_go` pairwise now 2/2 |
 | 2026-06-24 | §31 X3–X6 attempt: broad dance retry regressed base 5/6 to 2/6; reverted to recover 5/6. Retained X4 combat-state, X5 spell-label normalization, X6 spell/damage-stimulus count improvements; X3 remains open. |
 | 2026-06-24 | §32 extended parity closeout: harness segment + `ThrowPossible` dist idle + hunter_chase PASS; hunter_dist_flee/dragon structural 100% with damage/tile deltas deferred; base 5/6 held. |
+| 2026-06-26 | §33 real-map lockstep closeout: `kite_cyclops_one_real` PASS — `attack_enqueue` idle_tail + `melee_hit` 54/2/52; harness RNG realign; archived `log/realmap_pilot_20260626_*`. |
+| 2026-06-27 | §34 expanded trace gate: real-map battery FAIL (19/109 events) — inline repath per walk tick, go_exec/melee +1000ms phasing; core geometry still 3/3 go_exec index match; summaries updated with gap table. |

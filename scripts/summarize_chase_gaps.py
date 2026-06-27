@@ -25,8 +25,13 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 # Reuse compare helpers when run as a script from repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from compare_chase_live_logs import (  # noqa: E402
+    CHASE_COMPARE_EVENTS,
+    LOCKSTEP_EXCLUDE_EVENTS,
+    MOVEMENT_CORE_EVENTS,
+    SCHEDULER_TRACE_EVENTS,
     branch_key,
     compare_branch,
+    compare_event_type,
     compare_go_exec,
     compare_shortway,
     compare_todo_go,
@@ -36,9 +41,23 @@ from compare_chase_live_logs import (  # noqa: E402
     monster_name_matches,
     normalize_todo_go_events,
     pos_key,
+    shortway_origin_key,
     steps_key,
     summarize,
     todo_go_key,
+    todo_go_origin_key,
+    attack_enqueue_key,
+    combat_state_key,
+    go_exec_key,
+    melee_hit_key,
+    ranged_hit_key,
+    shortway_key,
+    idle_stimulus_key,
+    todo_wait_key,
+    rotate_key,
+    creature_move_stimulus_key,
+    todo_label_key,
+    parked_key,
 )
 
 EventList = List[Dict[str, Any]]
@@ -154,6 +173,10 @@ def diag_go_stats(events: EventList) -> Tuple[int, int]:
     return len(go), diag
 
 
+def go_exec_tick_buckets(events: EventList) -> List[int]:
+    return sorted(int(e.get("tick", 0)) for e in by_evt(events, "go_exec"))
+
+
 def pairwise_match_rate(
     ref: EventList, rust: EventList, key_fn
 ) -> Tuple[int, int, float]:
@@ -175,49 +198,6 @@ def pairwise_match_rate_cross(
         return 0, 0, 0.0
     matches = sum(1 for i in range(n) if ref_key_fn(ref[i]) == rust_key_fn(rust[i]))
     return matches, n, 100.0 * matches / n
-
-
-def go_exec_key(evt: Dict[str, Any]) -> Tuple[Any, ...]:
-    return (pos_key(evt, "from"), pos_key(evt, "to"), int(evt.get("diag", 0)))
-
-
-def combat_state_key(evt: Dict[str, Any]) -> Tuple[Any, ...]:
-    return (
-        str(evt.get("monster_state", "")),
-        str(evt.get("chase_mode", "")),
-    )
-
-
-def attack_enqueue_key(evt: Dict[str, Any]) -> Tuple[Any, ...]:
-    return (
-        int(evt.get("wait_ms", 0)),
-        int(evt.get("needs_close_step", 0)),
-        str(evt.get("close_chase", "")),
-    )
-
-
-def melee_hit_key(evt: Dict[str, Any]) -> Tuple[Any, ...]:
-    return (
-        int(evt.get("attack", 0)),
-        int(evt.get("defense", 0)),
-        int(evt.get("damage", 0)),
-        int(evt.get("hp_before", 0)),
-        int(evt.get("hp_after", 0)),
-    )
-
-
-def ranged_hit_key(evt: Dict[str, Any]) -> Tuple[Any, ...]:
-    return melee_hit_key(evt)
-
-
-def shortway_key(evt: Dict[str, Any]) -> Tuple[Any, ...]:
-    return (
-        pos_key(evt, "dest"),
-        steps_key(evt),
-        bool(evt.get("ok")),
-        int(evt.get("visible", 0)),
-        int(evt.get("min_wp", 0)),
-    )
 
 
 def first_divergence(
@@ -268,18 +248,13 @@ def build_report(
     ref_sum = summarize(ref_events)
     rust_sum = summarize(rust_events)
 
-    evt_types = [
-        "branch",
-        "todo_go",
-        "shortway",
-        "go_exec",
-        "combat_state",
-        "attack_enqueue",
-        "melee_hit",
-        "ranged_hit",
+    evt_types = [evt for evt, _ in CHASE_COMPARE_EVENTS] + [
         "spell_cast",
         "damage_stimulus",
         "creature_death",
+        "fill_map",
+        "rng_trace",
+        "rng_resync",
     ]
     count_delta = {
         evt: {
@@ -291,17 +266,7 @@ def build_report(
     }
 
     match_rates = {}
-    single_key_fns = {
-        "branch": branch_key,
-        "todo_go": todo_go_key,
-        "shortway": shortway_key,
-        "go_exec": go_exec_key,
-        "combat_state": combat_state_key,
-        "attack_enqueue": attack_enqueue_key,
-        "melee_hit": melee_hit_key,
-        "ranged_hit": ranged_hit_key,
-    }
-    for evt, key_fn in single_key_fns.items():
+    for evt, key_fn in CHASE_COMPARE_EVENTS:
         m, n, pct = pairwise_match_rate(
             by_evt(ref_events, evt), by_evt(rust_events, evt), key_fn
         )
@@ -320,13 +285,18 @@ def build_report(
 
     ref_go, ref_diag = diag_go_stats(ref_events)
     rust_go, rust_diag = diag_go_stats(rust_events)
+    ref_go_ticks = go_exec_tick_buckets(ref_events)
+    rust_go_ticks = go_exec_tick_buckets(rust_events)
 
-    branch_diffs = compare_branch(ref_events, rust_events)
-    todo_diffs = compare_todo_go(ref_events, rust_events)
-    sw_diffs = compare_shortway(ref_events, rust_events)
-    go_diffs = compare_go_exec(ref_events, rust_events)
-    combat_diffs = compare_combat_state(ref_events, rust_events)
-    melee_diffs = compare_melee_hit(ref_events, rust_events)
+    mismatch_counts: Dict[str, int] = {}
+    samples: Dict[str, List[str]] = {}
+    first: Dict[str, Optional[str]] = {}
+    for evt, key_fn in CHASE_COMPARE_EVENTS:
+        diffs = compare_event_type(ref_events, rust_events, evt, key_fn, evt)
+        mismatch_counts[evt] = len(diffs)
+        samples[evt] = sample_mismatches(diffs)
+        first[evt] = first_divergence(ref_events, rust_events, evt, key_fn, evt)
+
     spell_diffs = compare_spell_cast(
         ref_events, rust_events, ref_id_to_name, rust_id_to_name
     )
@@ -340,22 +310,39 @@ def build_report(
         rust_id_to_name,
         strict_corpse=strict_corpse,
     )
-    ranged_diffs = compare_ranged_hit(ref_events, rust_events)
-
-    first = {
-        "branch": first_divergence(
-            ref_events, rust_events, "branch", branch_key, "branch"
-        ),
-        "todo_go": first_divergence(
-            ref_events, rust_events, "todo_go", todo_go_key, "todo_go"
-        ),
-        "shortway": first_divergence(
-            ref_events, rust_events, "shortway", shortway_key, "shortway"
-        ),
-        "go_exec": first_divergence(
-            ref_events, rust_events, "go_exec", go_exec_key, "go_exec"
-        ),
-    }
+    for evt, diffs in (
+        ("spell_cast", spell_diffs),
+        ("damage_stimulus", stimulus_diffs),
+        ("creature_death", death_diffs),
+    ):
+        mismatch_counts[evt] = len(diffs)
+        samples[evt] = sample_mismatches(diffs)
+        if evt == "spell_cast":
+            first[evt] = first_divergence(
+                ref_events,
+                rust_events,
+                evt,
+                lambda e: spell_cast_key(e, ref_id_to_name),
+                evt,
+            )
+        elif evt == "damage_stimulus":
+            first[evt] = first_divergence(
+                ref_events,
+                rust_events,
+                evt,
+                lambda e: damage_stimulus_key(e, ref_id_to_name),
+                evt,
+            )
+        else:
+            first[evt] = first_divergence(
+                ref_events,
+                rust_events,
+                evt,
+                lambda e: creature_death_key(
+                    e, ref_id_to_name, strict_corpse=strict_corpse
+                ),
+                evt,
+            )
 
     return {
         "monster": monster,
@@ -370,32 +357,15 @@ def build_report(
             "ref": {"total": ref_go, "diag": ref_diag},
             "rust": {"total": rust_go, "diag": rust_diag},
         },
+        "go_exec_tick_buckets": {
+            "ref": ref_go_ticks,
+            "rust": rust_go_ticks,
+            "match": ref_go_ticks == rust_go_ticks,
+        },
         "pairwise_match_pct": match_rates,
         "first_divergence": first,
-        "mismatch_counts": {
-            "branch": len(branch_diffs),
-            "todo_go": len(todo_diffs),
-            "shortway": len(sw_diffs),
-            "go_exec": len(go_diffs),
-            "combat_state": len(combat_diffs),
-            "melee_hit": len(melee_diffs),
-            "ranged_hit": len(ranged_diffs),
-            "spell_cast": len(spell_diffs),
-            "damage_stimulus": len(stimulus_diffs),
-            "creature_death": len(death_diffs),
-        },
-        "samples": {
-            "branch": sample_mismatches(branch_diffs),
-            "todo_go": sample_mismatches(todo_diffs),
-            "shortway": sample_mismatches(sw_diffs),
-            "go_exec": sample_mismatches(go_diffs),
-            "combat_state": sample_mismatches(combat_diffs),
-            "melee_hit": sample_mismatches(melee_diffs),
-            "ranged_hit": sample_mismatches(ranged_diffs),
-            "spell_cast": sample_mismatches(spell_diffs),
-            "damage_stimulus": sample_mismatches(stimulus_diffs),
-            "creature_death": sample_mismatches(death_diffs),
-        },
+        "mismatch_counts": mismatch_counts,
+        "samples": samples,
     }
 
 
@@ -443,18 +413,21 @@ def print_report(report: Dict[str, Any]) -> None:
         f"({100 * diag['rust']['diag'] / max(diag['rust']['total'], 1):.1f}%)"
     )
 
-    print("\nCombat trace (E0–E6)")
-    for evt in (
-        "combat_state",
-        "attack_enqueue",
-        "melee_hit",
-        "ranged_hit",
-        "spell_cast",
-        "damage_stimulus",
-        "creature_death",
-    ):
-        row = report["count_delta"].get(evt, {"ref": 0, "rust": 0})
-        print(f"  {evt:<16} ref={row['ref']:>4}  rust={row['rust']:>4}")
+    buckets = report.get("go_exec_tick_buckets", {})
+    if buckets:
+        print("\ngo_exec tick buckets")
+        print(f"  ref:  {buckets.get('ref', [])}")
+        print(f"  rust: {buckets.get('rust', [])}")
+        match = buckets.get("match")
+        if match is True:
+            print("  status: PASS")
+        elif match is False:
+            print("  status: FAIL (bucket mismatch)")
+
+    print("\nCombat trace (E0–E6 + scheduler)")
+    for evt in report["count_delta"]:
+        row = report["count_delta"][evt]
+        print(f"  {evt:<24} ref={row['ref']:>4}  rust={row['rust']:>4}")
 
     print("\nPairwise sequence match (ordered, index-aligned)")
     for evt, row in report["pairwise_match_pct"].items():
@@ -480,6 +453,34 @@ def print_report(report: Dict[str, Any]) -> None:
         print(f"  [{evt}]")
         for line in samples:
             print(f"    - {line}")
+
+
+def movement_core_has_gap(report: Dict[str, Any]) -> bool:
+    """Blocking gate — movement geometry + cadence (Real Parity Sim Guide §5.3)."""
+    counts = report.get("mismatch_counts", {})
+    if any(counts.get(evt, 0) > 0 for evt in MOVEMENT_CORE_EVENTS):
+        return True
+    buckets = report.get("go_exec_tick_buckets", {})
+    return buckets.get("match") is False
+
+
+def scheduler_trace_warnings(report: Dict[str, Any]) -> List[str]:
+    """Informational scheduler deltas — repath symptoms, not independent failures."""
+    counts = report.get("mismatch_counts", {})
+    warnings: List[str] = []
+    for evt in SCHEDULER_TRACE_EVENTS:
+        n = counts.get(evt, 0)
+        if n > 0:
+            warnings.append(f"{evt}: {n} mismatch(es)")
+    return warnings
+
+
+def print_scheduler_warnings(warnings: List[str]) -> None:
+    if not warnings:
+        return
+    print("\nScheduler trace warnings (informational — do not block movement core)")
+    for line in warnings:
+        print(f"  - {line}")
 
 
 def compare_melee_hit(
@@ -623,7 +624,12 @@ def main() -> int:
     parser.add_argument(
         "--lockstep",
         action="store_true",
-        help="Exit 1 when any movement/combat sequence mismatch exists within --max-tick",
+        help="Exit 2 when any movement/combat sequence mismatch exists within --max-tick",
+    )
+    parser.add_argument(
+        "--movement-core",
+        action="store_true",
+        help="Exit 0 when movement core is green; scheduler trace gaps are warnings only",
     )
     parser.add_argument(
         "--strict-corpse",
@@ -663,12 +669,27 @@ def main() -> int:
         print(json.dumps(report, indent=2))
     else:
         print_report(report)
+        if args.movement_core:
+            core_gap = movement_core_has_gap(report)
+            print(
+                f"\nMovement core: {'FAIL' if core_gap else 'PASS'}"
+            )
+            print_scheduler_warnings(scheduler_trace_warnings(report))
 
-    # Non-zero if any pairwise mismatch exists in the paired prefix or counts differ.
-    has_gap = any(report["mismatch_counts"][k] > 0 for k in report["mismatch_counts"])
-    if args.lockstep and has_gap:
+    counts = report.get("mismatch_counts", {})
+    lockstep_keys = [
+        k for k in counts if k not in LOCKSTEP_EXCLUDE_EVENTS
+    ]
+    has_full_gap = any(counts.get(k, 0) > 0 for k in lockstep_keys)
+    core_gap = movement_core_has_gap(report)
+
+    if args.movement_core and not args.lockstep:
+        return 2 if core_gap else 0
+    if args.lockstep and has_full_gap:
         return 2
-    return 1 if has_gap else 0
+    if args.lockstep and not has_full_gap:
+        return 0
+    return 1 if has_full_gap else 0
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic, beat_driven_world_from_map,
     default_sim_map_config,     insert_monster_from_type, insert_monster_with_config, insert_player,
-    clear_harness_appear_idle_defer, harness_place_creature_login, kite_monsters_appear_batch, log_harness_player_step, move_creatures_explicit, run_sim_tick,
+    clear_harness_appear_idle_defer, harness_place_creature_login, kite_monsters_appear_batch, log_harness_player_step, drain_todo_queue_once, move_creatures_explicit, run_sim_tick,
     set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster,
     teleport_player, validate_positions_walkable, walk_player_adjacent, write_audit_route_json,
     SimMapConfig,
@@ -442,8 +442,6 @@ fn spawn_entities(
         }
     }
 
-    world.resync_sim_glibc_rng();
-
     Ok(SimHandles {
         player_id,
         monster_ids,
@@ -506,8 +504,11 @@ fn execute_step(
             let pos = Position::new(*x, *y, scenario.z);
             clock.advance(world, *ms);
             set_sim_harness_segment_ms(world, Some(*ms));
-            walk_player_adjacent(world, handles.player_id, pos)?;
+            // C++ `chase_kite_scenario.cc` — `MoveCreatures` one-pass drain after defer pull,
+            // then `MoveKitePlayer` + `DrainTodoQueue` post-walk (not 64-round pre-walk drain).
             clear_harness_appear_idle_defer(world, &handles.monster_ids);
+            drain_todo_queue_once(world);
+            walk_player_adjacent(world, handles.player_id, pos)?;
             let step = handles.player_walk_step;
             handles.player_walk_step = handles.player_walk_step.saturating_add(1);
             log_harness_player_step(world.chase_trace_tick(), step, pos);

@@ -393,14 +393,16 @@ impl GameWorld {
                             // `NextWakeup` — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
                             let _ = self.todo_start_go_delay(cid, true);
                         }
-                        if self
-                            .creatures
-                            .get(cid)
-                            .and_then(|k| k.base().next_wakeup)
-                            .is_some_and(|wakeup| wakeup > self.server_ms)
-                        {
-                            self.cleanup();
-                            return;
+                        match self.creatures.get(cid).and_then(|k| k.base().next_wakeup) {
+                            Some(wakeup) if wakeup > self.server_ms => {
+                                self.cleanup();
+                                return;
+                            }
+                            None => {
+                                self.cleanup();
+                                return;
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -518,16 +520,18 @@ impl GameWorld {
                 }
             } else if earliest > server_ms {
                 earliest - server_ms
-            } else {
-                let mut delay = self.todo_go_beat_delay_ms(cid);
-                if let (Some(wall), Some(segment)) =
-                    (self.sim_harness_wall_ms, self.sim_harness_segment_ms)
-                {
-                    if self.server_ms == wall {
-                        delay = delay.max(segment);
-                    }
+            } else if let (Some(wall), Some(segment)) =
+                (self.sim_harness_wall_ms, self.sim_harness_segment_ms)
+            {
+                // Harness first `ToDoGo` defers to the next scenario beat — same as later steps
+                // (`cract.cc:1521-1525` main-loop Beat; `chase_kite_scenario.cc` wall drain).
+                if self.server_ms == wall {
+                    segment
+                } else {
+                    self.todo_go_beat_delay_ms(cid)
                 }
-                delay
+            } else {
+                self.todo_go_beat_delay_ms(cid)
             };
             let delay = calc_delay.max(1);
             self.todo_start_from_action(cid, delay, self.harness_go_wakeup_tie_policy(cid));

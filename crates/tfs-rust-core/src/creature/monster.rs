@@ -185,6 +185,8 @@ pub struct Monster {
     pub chase_mode: MonsterChaseMode,
     /// Last `(state, chase_mode)` emitted to chase JSONL — harness dedupe only.
     pub(crate) last_combat_trace: Option<(MonsterState, MonsterChaseMode)>,
+    /// Last `IdleStimulus` drain ms — one pass per beat (`crnonpl.cc:2345`).
+    pub(crate) idle_stimulus_last_ms: Option<u64>,
     pub walking_to_spawn: bool,
     pub change_target_speed: u32,
     pub change_target_chance: i32,
@@ -246,6 +248,7 @@ impl Monster {
             state: MonsterState::Sleeping,
             chase_mode: MonsterChaseMode::None,
             last_combat_trace: None,
+            idle_stimulus_last_ms: None,
             walking_to_spawn: false,
             change_target_speed: config.change_target_speed,
             change_target_chance: config.change_target_chance,

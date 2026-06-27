@@ -73,3 +73,31 @@
 ## Extended battery follow-on (X1)
 - [x] X1 — prevent synchronous `Go` execute on the same idle-drain tick when `IdleStimulus` already armed a future `next_wakeup`; keep first dist_chase `go_exec` deferred to the next beat (`walk/mod.rs` `process_creature_todo`).
 - [x] X2 — align 772 `todo_go` trace contract with the actual chase/flee branch budget: dist-chase logs `max = cheb - target_distance`, while flee logs single-step `must=true, max=INT_MAX` (`creature_todo.rs`).
+
+## Real-map pilot — P5 combat tail lockstep (2026-06-26) — **DONE**
+
+- [x] P4 verify — unit tests + rust-only `one_real` smoke (`go_exec` @ 400/2000/4000).
+- [x] `attack_enqueue` — `idle_tail` when `skip_idle_melee_chase` + close chase skipped (`idle_stimulus.rs`).
+- [x] `melee_hit` — harness glibc RNG realign before first strike (`monster_ai.rs`, `sim_glibc_rand.rs`).
+- [x] Harness drain order — `drain_todo_queue_once` before walk, `run_sim_tick` after (`chase_kite_sim.rs`).
+- [x] Lockstep **PASS** on `kite_cyclops_one_real` + battery (`run_realmap_sim_battery.py`).
+- [x] Docs — trajectory §14, divergence §33, archived `log/realmap_pilot_20260626_*`.
+
+## Real-map P6 — expanded trace gate (2026-06-27)
+
+- [x] Expanded JSONL: `idle_stimulus`, `todo_wait`, `rotate`, `creature_move_stimulus`, `todo_label` (Rust + C++ hooks).
+- [x] Chase/face inline repath on target flee (`monster_events.rs`, `idle_stimulus.rs`).
+- [x] Lockstep compare registry — 15 event types (`compare_chase_live_logs.py`, `summarize_chase_gaps.py`).
+- [x] Real-map battery re-run; gap tables in `log/summary_realmap_cyclops_*.txt`, trajectory §15, divergence §34.
+- [x] **G1** — Stop per-walk inline repath during harness U-loop (`monster_close_chase_batch_in_flight`; `todo_go` 1 vs C++ 1).
+- [x] **G2/G3** — Restore `go_exec` @2000 and `melee_hit` @4000 tick buckets.
+- [x] **G4** — Normalize `creature_move_stimulus` kind in compare; Rust logs `move_stimulus` on follow-target move.
+- [x] **G5** — Split gate: `--movement-core` includes scheduler trace; exclude `todo_label` from lockstep.
+- [x] **G6** — Scheduler trace parity on `one_real` (idle_stimulus/todo_wait/rotate @ fresh A/B).
+
+### P6 — Real-map ramp (deferred)
+
+- [ ] Ramp `kite_cyclops_six_real` to 6 monsters; verify branch/roam under load.
+- [ ] Second real-map scenario (Thais flat control).
+- [ ] Optional: live repro + `compare_chase_live_logs.py`.
+- [ ] Real-map rows in CI gate (after six-monster validation).

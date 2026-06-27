@@ -47,6 +47,17 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
         beat_driven = world.beat_driven_loop,
         "idle_todo"
     );
+    if chase_debug::chase_path_debug_enabled() {
+        chase_debug::log_todo_label(
+            world.chase_trace_tick(),
+            cid,
+            name,
+            event,
+            action_queue_len,
+            action_locked,
+            walk_queue_len,
+        );
+    }
 }
 
 /// 772 ToDo action kinds — Rust enum instead of C++ `void*` task list.
@@ -137,13 +148,24 @@ impl GameWorld {
             .todo
             .queue
             .push_back(CreatureAction::Wait { delay_ms });
+        let name = k.base().name.clone();
+        let queue_len = k.base().todo.queue.len();
         tracing::debug!(
-            creature = k.base().name.as_str(),
+            creature = name.as_str(),
             ?cid,
             delay_ms,
-            action_queue_len = k.base().todo.queue.len(),
+            action_queue_len = queue_len,
             "idle_todo: enqueue_wait"
         );
+        if chase_debug::chase_path_debug_enabled() {
+            chase_debug::log_todo_wait(
+                self.chase_trace_tick(),
+                cid,
+                name.as_str(),
+                delay_ms,
+                "enqueue",
+            );
+        }
         true
     }
 

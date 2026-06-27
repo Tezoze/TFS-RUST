@@ -11,24 +11,27 @@
 **Pre-P3 pilot** (`kite_cyclops_six_real`, no `NO_WILD`): infrastructure proven, lockstep **FAIL**
 (ref 230 vs rust 49) — see §3 (historical).
 
-**Post-P3** (`kite_cyclops_one_real` / `six_real`, `TFS_KITE_NO_WILD=1`, `wall_ms=5000`):
-harness and minimal control are **close but not lockstep-clean**.
+**Post-P5** (`kite_cyclops_one_real`, narrow 4-event gate): **lockstep PASS** (§14).
 
-| Dimension | Pre-P3 pilot | Post-P3 (`one_real`, `NO_WILD`) |
-|-----------|--------------|-----------------------------------|
-| Harness / scenario | PASS | **PASS** — both stacks complete |
-| Map / walkability | PASS | **PASS** — route audit 0 FAIL |
-| `player_walk` tiles | (not isolated) | **PASS** — `harness_player_step` **5/5** |
-| Event volume | ref 230 / rust 49 | **10 / 10** |
-| `go_exec` pairwise (ordered) | 0% | **3/3 = 100%** |
-| Lockstep gate | FAIL | **FAIL** — see §12 remaining divergences |
-| vs synthetic quad | 20/20 PASS | Real-map still **not** synthetic gate |
+**Post-P6** (expanded JSONL + chase/face inline repath, 2026-06-27): **lockstep FAIL** on
+15-event gate — core geometry still green; volume/scheduler gaps exposed (§15).
 
-**Bottom line:** P3 closed spawn placement, appear-idle timing, and map-spawn noise.
-**Remaining gap:** trace-field / tick-phasing mismatches on `todo_go`/`shortway` comparators,
-`go_exec` step **timing** (same tiles, different ticks), FillMap creature-occupation tiles,
-and `attack_enqueue` index pairing (1/2). Not a different chase model — scheduling and
-compare semantics.
+| Dimension | Pre-P3 pilot | Post-P4 | Post-P5 (narrow gate) | Post-P6 (expanded gate) |
+|-----------|--------------|---------|-------------------------|-------------------------|
+| Harness / scenario | PASS | **PASS** | **PASS** | **PASS** |
+| Map / walkability | PASS | **PASS** | **PASS** | **PASS** |
+| `player_walk` tiles | — | **5/5** | **5/5** | **5/5** |
+| Event volume | 230 / 49 | **10 / 10** | **10 / 10** | **19 / 109** |
+| `todo_go` index pairwise | 0% | **1/1** | **1/1** | **1/1** (count 1 vs 6) |
+| `go_exec` index pairwise | 0% | **3/3** | **3/3** | **3/3** (tick buckets differ) |
+| `go_exec` tick buckets | — | 400/2000/4000 | 400/2000/4000 | ref 400/2000/4000; rust 400/4000/5000 |
+| `melee_hit` | — | dmg skew | **52 @4000** | **52** but rust @5000 |
+| Lockstep gate | FAIL | FAIL | **PASS** (4 evt types) | **FAIL** (15 evt types) |
+
+**Bottom line:** P3–P5 closed spawn, drain order, combat tail, and narrow-gate lockstep.
+P6 expanded tracing shows Rust **inline repath on every `player_walk`** (todo_go 1→6,
+idle_stimulus 2→9) and **+1000ms go_exec/melee phasing** — not a map regression; harness
+player tiles and index-aligned chase arms still match.
 
 ---
 
@@ -65,16 +68,18 @@ TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --real-map \
 
 | Artifact | Path |
 |----------|------|
-| Gap summary (post-P3) | `log/summary_realmap_cyclops_one_real.txt` |
-| C++ trace (post-P3) | `log/chase_path_cip_realmap_cyclops_one_real.log` |
-| Rust trace (post-P3) | `log/chase_path_rust_realmap_cyclops_one_real.log` |
-| Pre-P3 pilot summary | `log/summary_realmap_cyclops_six_real.txt` (early run; see §3) |
+| Gap summary (post-P6) | `log/summary_realmap_cyclops_one_real.txt` (gap table appended) |
+| C++ trace (post-P6) | `log/chase_path_cip_realmap_cyclops_one_real.log` |
+| Rust trace (post-P6) | `log/chase_path_rust_realmap_cyclops_one_real.log` |
+| Gap summary (post-P5 narrow gate) | archived `log/realmap_pilot_20260626_*` |
+| C++ trace (post-P3/P4) | `log/chase_path_cip_realmap_cyclops_one_real_nowild.log` |
+| Rust trace (post-P4) | `log/chase_path_rust_realmap_p3.out` |
 
 ---
 
 ## 3. Lockstep results — pre-P3 pilot (historical)
 
-> **Superseded by §12** for current `kite_cyclops_one_real` with `TFS_KITE_NO_WILD=1`.
+> **Superseded by §13** for current `kite_cyclops_one_real` with `TFS_KITE_NO_WILD=1`.
 > Kept as baseline for the first `six_real` run before spawn isolation and P3 fixes.
 
 ### Scenario: `kite_cyclops_six_real` (no `NO_WILD`, early wall budget)
@@ -127,18 +132,18 @@ Rust logged **no** `branch` events on this run — idle/roam path may differ or 
 
 ## 4. Comparison: real-map vs synthetic cyclops
 
-| Metric | Synthetic `kite_cyclops_quad_chase` | Pre-P3 `six_real` (no `NO_WILD`) | Post-P3 `one_real` (`NO_WILD`) |
-|--------|-------------------------------------|----------------------------------|--------------------------------|
+| Metric | Synthetic `kite_cyclops_quad_chase` | Pre-P3 `six_real` | Post-P4 `one_real` (`NO_WILD`) |
+|--------|-------------------------------------|-------------------|--------------------------------|
 | Arena | `arena_synthetic 1`, uniform wp=150 | Native OTBM / `.sec` | Native OTBM / `.sec` |
-| Monsters | 4 | 1 (pilot; map spawns leaked) | 1 (harness only) |
+| Monsters | 4 | 1 (map spawns leaked) | 1 (harness only) |
 | Player move | `player_pos` teleports | `player_walk` legal steps | `player_walk` legal steps |
 | Total events | ref=20, rust=20 | ref=230, rust=49 | ref=**10**, rust=**10** |
-| `go_exec` pairwise | **4/4 = 100%** | **0/13 = 0%** | **3/3 = 100%** |
-| Lockstep gate | **PASS** | **FAIL** | **FAIL** (tick/field residuals) |
+| `go_exec` pairwise | **4/4 = 100%** | **0/13 = 0%** | **3/3 = 100%** (tiles + ticks) |
+| Lockstep gate | **PASS** | **FAIL** | **FAIL** (combat tail only — §13) |
 
 Real-map exposes terrain-dependent pathfinding and longer combat tails that the synthetic slab
-hides. Post-P3 minimal control matches synthetic on **ordered `go_exec` tiles** but not on
-full lockstep gate (§12).
+hides. Post-P4 minimal control matches synthetic on **movement/chase scheduling**; full lockstep
+still blocked by combat-tail residuals (§13).
 
 ---
 
@@ -180,16 +185,23 @@ See [`772_OBJECTS_SRV_TO_OTB_LOOKUP.md`](772_OBJECTS_SRV_TO_OTB_LOOKUP.md) for i
 | 4 | Appear-idle defer (Rust @3000 vs C++ @200) | **Closed** — `clear_harness_appear_idle_defer` on `player_walk` |
 | 5 | FillMap dump never emitted (C++) | **Closed** — one-shot first `fill_map` @ tick 200 |
 
-### Still open (P4+)
+### Closed in P4
+
+| # | Hypothesis | Resolution |
+|---|------------|------------|
+| A | **`go_exec` tick phasing** | **Closed** — first `go_exec` @**400** both sides; harness first-step delay uses `sim_harness_segment_ms`; idle defers `Go` on drain tick (`walk/mod.rs` `todo_start_go_delay`) |
+| B | **`todo_go` / `shortway` compare field** | **Closed** — summarize compares `from`/`start` + steps, not chase-target `dest`; harness drains **before** `player_walk` so `dest` snapshot matches C++ @200 |
+| D | **FillMap creature occupation** | **Closed (self-tile)** — `monster_tshortway_fill_walkable` keeps terrain wp on own tile (`crnonpl.cc` `MovePossible Execute=false`); occupation diffs on priority tiles were dump-timing skew (pre-walk vs post-walk) |
+
+### Still open (post-P5 ramp)
 
 | # | Hypothesis | Evidence | Next action |
 |---|------------|----------|-------------|
-| A | **`go_exec` tick phasing** | Same step tiles; Rust first `go_exec` @**200**, C++ @**400**; per-tick counts differ @200/400/1000/2000/4000 | Align walk-step drain vs `NotifyGo` delay (`cract.cc` step scheduling) |
-| B | **`todo_go` / `shortway` compare field** | Summarize pairs on **dest** tuple: C++ `(32451,…)` vs Rust `(32450,…)` @200 while **path steps match** (south hook); trace `start`/`from` both `(32454,32065)` | Fix comparator to use monster `from`/`start`, not player dest; or align chase-target tile snapshot timing |
-| C | **`attack_enqueue` pairing** | **1/2** index-aligned despite equal counts (2/2) | Trace second enqueue timing / `idle_tail` vs `CreatureMoveStimulus` re-arm |
-| D | **FillMap creature occupation** | Gravel route tiles PASS; `(32451,32065)` / `(32454,32065)` / `(32450,32065)` differ on `walkable`/`wp=-1` between stacks | Align `dump_tshortway_fill_walkable_viewport` creature blocking with C++ `FillMap` |
 | E | **Idle / roam branches** | 0 `branch` on minimal control (both sides) — unproven on multi-monster / longer kite | Re-test when ramping `six_real` to 6 monsters |
 | F | **OTBM vs `.sec` id variants** | Route audit WARN only; no FAIL | Monitor if path geometry diverges on cliff-edge tiles |
+
+~~C — `attack_enqueue` pairing~~ — **closed P5** (§14).  
+~~G — `melee_hit` damage roll~~ — **closed P5** (§14).
 
 ---
 
@@ -221,17 +233,31 @@ See [`772_OBJECTS_SRV_TO_OTB_LOOKUP.md`](772_OBJECTS_SRV_TO_OTB_LOOKUP.md) for i
 - [x] Re-run `run_realmap_sim_battery.py`; event totals **10/10** on `one_real`.
 - [ ] Optional: live repro at bowl coords + `compare_chase_live_logs.py`.
 
-### P4 — Suite expansion (only after cyclops real-map trends better)
+### P4 — Movement/chase scheduling (2026-06-26)
 
-Target §12.2 divergences first (`go_exec` tick phasing, compare-field semantics, FillMap occupation).
+- [x] Align `go_exec` tick scheduling — harness drain **before** `player_walk`; first-step delay =
+  `sim_harness_segment_ms` at wall tick; pull appear-idle wakeup forward in
+  `clear_harness_appear_idle_defer`.
+- [x] Fix `summarize_chase_gaps.py` / `compare_chase_live_logs.py` — `todo_go` uses `from`,
+  `shortway` uses `start` + steps (not chase-target `dest`).
+- [x] FillMap self-tile occupation — own monster tile keeps terrain wp (`monster_ai.rs`).
+- [x] Lockstep **PASS** on `kite_cyclops_one_real` — P5 combat tail (§14).
+- [ ] Optional: live repro at bowl coords + `compare_chase_live_logs.py`.
 
-- [ ] Align `go_exec` tick scheduling (Rust step delay vs C++ drain).
-- [ ] Fix `summarize_chase_gaps.py` todo_go/shortway tuple or chase-target snapshot timing.
-- [ ] FillMap creature-blocking parity on occupied priority tiles.
-- [ ] Lockstep **PASS** on `kite_cyclops_one_real` before monster ramp.
+### P5 — Combat tail lockstep (2026-06-26) — **DONE**
+
+- [x] Close `attack_enqueue` second-index pairing (`idle_tail` vs `skipped` @4000) — `idle_stimulus.rs`.
+- [x] Close `melee_hit` damage roll parity with `TFS_SIM_SEED=772` — harness RNG realign in `monster_do_attacking`.
+- [x] Lockstep **PASS** on `kite_cyclops_one_real` (`summarize_chase_gaps.py --lockstep` exit 0).
+- [x] Archive dated logs (`log/realmap_pilot_20260626_*`).
+- [x] §33 real-map lockstep closeout in divergence report.
+
+### P6 — Suite expansion (after one_real lockstep PASS)
+
+- [ ] Ramp `kite_cyclops_six_real` to 6 monsters (verify branch/roam under load).
 - [ ] Compare real-map summary vs synthetic quad in divergence report.
 - [ ] Second real-map scenario (e.g. Thais flat `1011-1009-07` control from proposal).
-- [ ] Do **not** add real-map rows to synthetic CI gate until lockstep PASS on minimal control.
+- [ ] Do **not** add real-map rows to synthetic CI gate until six-monster ramp validated.
 
 ---
 
@@ -242,9 +268,10 @@ Target §12.2 divergences first (`go_exec` tick phasing, compare-field semantics
 | Harness runs real terrain | Both stacks complete scenario | **Done** |
 | Map loader agreement | Route walkable both sides | **Done** (`audit_realmap_route.py`: 0 FAIL, id variants WARN only) |
 | `player_walk` parity | Same player tile @ same tick | **Done** — `harness_player_step` **5/5** with `TFS_KITE_NO_WILD=1` |
-| FillMap real terrain | Viewport match cyclops bowl | **Partial** — `fill_map` emits; route tiles PASS; creature-occupied priority tiles differ |
-| `go_exec` pairwise | ≥1/1 on minimal control | **3/3** on `one_real` (`NO_WILD`) |
-| Full kite lockstep | Summarize gate PASS | **FAIL** — ordered `go_exec` 3/3 but tick/field residuals (§12) |
+| FillMap real terrain | Viewport match cyclops bowl | **Done (route + self-tile)** — gravel corridor PASS; self-tile wp matches C++ `MovePossible` |
+| `todo_go` / `shortway` pairwise | 1/1 on minimal control | **Done** — 1/1 @200 (`from`/`start` + steps) |
+| `go_exec` pairwise | ≥1/1 on minimal control | **Done** — 3/3 tiles + ticks @ 400/2000/4000 |
+| Full kite lockstep | Summarize gate PASS | **PASS** — `one_real` + `six_real` (§14) |
 
 ---
 
@@ -266,10 +293,21 @@ TFS_SIM_SEED=772 python3 scripts/run_kite_scenario.py --real-map \
 
 # Full battery
 TFS_SIM_SEED=772 python3 scripts/run_realmap_sim_battery.py
+
+# Rust-only quick check (no QM) — post-P4 movement parity
+TFS_SIM_SEED=772 cargo run -p tfs-rust-core --bin chase_kite_sim -- \
+  scripts/scenarios/kite_cyclops_one_real.scenario \
+  --log log/chase_path_rust_p4_test.log
+
+python3 scripts/summarize_chase_gaps.py \
+  --ref log/chase_path_cip_realmap_cyclops_one_real.log \
+  --rust log/chase_path_rust_p4_test.log \
+  --monster cyclops --lockstep
 ```
 
-Expect **lockstep FAIL** until §12 divergences close (primarily `go_exec` tick phasing and
-compare-field semantics). Synthetic battery remains the merge gate.
+Expect **lockstep PASS** on `one_real` (§14). Movement/chase (`todo_go`, `shortway`, `go_exec`)
+and combat tail (`attack_enqueue`, `melee_hit`) should be **100%** pairwise. Synthetic battery
+remains the merge gate.
 
 ---
 
@@ -335,6 +373,8 @@ Root causes (all addressed in P3): spawn `SetOnMap`, appear-idle defer, map spaw
 
 ## 12. Post-P3 lockstep (`kite_cyclops_one_real`, 2026-06-26)
 
+> **Historical** — pre-P4 movement scheduling. Superseded by §13 for current `one_real` state.
+
 Artifacts: `log/summary_realmap_cyclops_one_real.txt`, `log/summary_realmap_cyclops_six_real.txt`,
 `log/chase_path_cip_realmap_cyclops_one_real.log`, `log/chase_path_rust_realmap_cyclops_one_real.log`,
 `log/fill_walkable_rust_cyclops_bowl.json`.
@@ -342,7 +382,7 @@ Artifacts: `log/summary_realmap_cyclops_one_real.txt`, `log/summary_realmap_cycl
 Conditions: `TFS_KITE_NO_WILD=1`, `TFS_SIM_SEED=772`, `wall_ms=5000`, scenario tail
 `1000 + 2000 + 1000` ms advances after U-loop.
 
-### 12.1 What matches
+### 12.1 What matches (still valid post-P4)
 
 | Check | Result |
 |-------|--------|
@@ -357,63 +397,192 @@ Conditions: `TFS_KITE_NO_WILD=1`, `TFS_SIM_SEED=772`, `wall_ms=5000`, scenario t
 | FillMap emit | Both sides log `fill_map` @ tick 200 |
 | FillMap gravel route | `(32450,32066)`, `(32451,32066)`, `(32452,32066)` **PASS** |
 
-### 12.2 Remaining divergences
+### 12.2 Remaining divergences (pre-P4 — all closed in §13 except combat tail)
 
-#### A — Lockstep gate: FAIL
+#### B — `todo_go` / `shortway` comparator (closed P4)
 
-`summarize_chase_gaps.py --lockstep` returns non-zero despite matching event counts.
-Battery: `cyclops_one_real` lockstep=**FAIL**, `cyclops_six_real` lockstep=**FAIL**.
+Pre-P4 summarize paired on **dest** while Rust chased after `player_walk`. Fixed by harness
+drain-before-walk + compare `from`/`start`.
 
-#### B — `todo_go` / `shortway` pairwise: 0/1 (comparator)
+#### C — `go_exec` tick phasing (closed P4)
 
-Summarize reports first mismatch on **dest** position in the comparison tuple:
+Pre-P4 Rust fired first `go_exec` @200; C++ @400. Fixed by appear-idle wakeup pull-forward,
+harness-wall first-step segment delay, and idle `Go` deferral on drain tick.
 
-| Event | C++ (ref) | Rust |
+#### D — `attack_enqueue`: 1/2 pairwise (still open — §13)
+
+#### E — FillMap occupation (closed P4 for self-tile; dump-timing explained remaining diffs)
+
+Pre-P4 priority-tile diffs were largely **snapshot timing** (chase before vs after walk) plus
+Rust blocking own origin tile (stricter than C++ `MovePossible Execute=false`).
+
+---
+
+## 13. Post-P4 lockstep (`kite_cyclops_one_real`, 2026-06-26)
+
+Artifacts: `log/chase_path_cip_realmap_cyclops_one_real.log`, `log/chase_path_rust_p4_test.log`.
+
+Conditions: `TFS_KITE_NO_WILD=1`, `TFS_SIM_SEED=772`, `wall_ms=5000`.
+
+### 13.1 What matches
+
+| Check | Result |
+|-------|--------|
+| Event totals | **10 / 10** |
+| `harness_player_step` | **5/5** @ 200…1000 |
+| Event order @200 | chase (`combat_state`, `shortway`, `todo_go`, `attack_enqueue`) **then** `harness_player_step` — matches C++ |
+| `todo_go[0]` dest @200 | **`(32451, 32065, 7)`** both sides |
+| `shortway` path steps | **Identical** south hook |
+| `todo_go` pairwise | **1/1 = 100%** |
+| `shortway` pairwise | **1/1 = 100%** |
+| `go_exec` pairwise | **3/3 = 100%** — tiles **and** per-tick buckets |
+| `go_exec` ticks | **400, 2000, 4000** both sides |
+| `combat_state` | **2/2 = 100%** |
+| `go_exec` per-tick mismatch volume | **0** (was 5 pre-P4) |
+
+### 13.2 Remaining divergences
+
+#### A — Lockstep gate: FAIL (combat tail only)
+
+`summarize_chase_gaps.py --lockstep` returns non-zero. Movement events: **0 mismatches**.
+
+#### B — `attack_enqueue`: 1/2 pairwise
+
+| Index | C++ (ref) | Rust |
 |-------|-----------|------|
-| `todo_go[0]` @200 | dest `(32451, 32065, 7)` | dest `(32450, 32065, 7)` |
-| `shortway[0]` @200 | compare tuple start `(32451, 32065, 7)` | compare tuple start `(32450, 32065, 7)` |
+| `[0]` @200 | `idle_tail` | `idle_tail` — **match** |
+| `[1]` @4000 | `idle_tail` | `skipped` — **mismatch** |
 
-**Trace ground truth** (JSONL `start`/`from` fields): both monsters at `(32454,32065)`;
-path steps **match**. Divergence is **compare semantics / chase-target tile snapshot**
-(player @ `32450` after walk; C++ still paths toward `32451` in `dest` field), not
-different `TShortway` geometry.
+#### C — `melee_hit`: damage roll
 
-#### C — `go_exec` tick phasing
+| Field | C++ (ref) | Rust |
+|-------|-----------|------|
+| tick | 4000 | 4000 |
+| damage | 52 | 42 |
+| attack | 54 | 47 |
+| defense | 2 | 5 |
 
-Same step **tiles** in ordered pairwise (3/3), but **per-tick event counts** differ:
+Tile positions at `go_exec` @4000 now align; damage skew is combat formula / strike-context,
+not chase geometry.
 
-| Tick | C++ `go_exec` | Rust `go_exec` |
-|------|---------------|----------------|
-| 200 | 0 | 1 — `(32454,32065)→(32454,32066)` |
-| 400 | 1 — same step | 0 |
-| 1000 | 0 | 1 |
-| 2000 | `(32454,32066)→(32453,32066)` | `(32453,32066)→(32452,32066)` — **one step behind** |
-| 4000 | 1 + `melee_hit` | 0 |
+### 13.3 P4 code changes (reference)
 
-Rust issues the first walk step on the same tick as `shortway`; C++ defers `go_exec` to
-the next drain (+200 ms). Later steps accumulate ~1-tile phase offset.
+| Area | File(s) | Change |
+|------|---------|--------|
+| Harness drain order | `chase_kite_sim.rs`, `sim_harness.rs` | `run_sim_tick` **before** `walk_player_adjacent`; `clear_harness_appear_idle_defer` pulls wakeup to `server_ms` |
+| First-step delay | `walk/mod.rs` | At harness wall, `first_step` delay = `sim_harness_segment_ms` (not `max(beat, segment)`) |
+| Idle go deferral | `walk/mod.rs`, `idle_stimulus.rs` | No synchronous `Go` on idle drain tick; no `schedule_immediate` when go arm fails |
+| FillMap self-tile | `monster_ai.rs` | Own creature tile keeps terrain wp (`crnonpl.cc:2191-2287`) |
+| Compare scripts | `summarize_chase_gaps.py`, `compare_chase_live_logs.py` | `shortway` origin = `start`; `todo_go` origin = `from` |
 
-#### D — `attack_enqueue`: 1/2 pairwise
+### 13.4 P5 targets — **closed** (see §14)
 
-Counts match (2/2); index-aligned pairing fails on second enqueue (timing / `idle_tail` arm).
+---
 
-#### E — FillMap: creature-occupied priority tiles
+## 14. Post-P5 lockstep (`kite_cyclops_one_real`, 2026-06-26)
 
-`compare_fill_walkable.py --preset cyclops-bowl` — route gravel **PASS**; priority **FAIL**
-on tiles with creatures:
+Artifacts: `log/realmap_pilot_20260626_cip_one_real.log`,
+`log/realmap_pilot_20260626_rust_one_real.log`,
+`log/summary_realmap_cyclops_one_real.txt`.
 
-| Tile | Rust | C++ | Notes |
-|------|------|-----|-------|
-| `(32451, 32065, 7)` | walkable, wp=150 | wp=-1 | player_start; occupation differs |
-| `(32454, 32065, 7)` | walkable, wp=160 | wp=-1 | cyclops tile |
-| `(32450, 32065, 7)` | wp=-1 | walkable, wp=150 | player stand tile @ dump |
+Conditions: `TFS_KITE_NO_WILD=1`, `TFS_SIM_SEED=772`, `wall_ms=5000`.
 
-Viewport: ~46/462 mismatches (mostly viewport edge + occupation).
+### 14.1 Lockstep gate: **PASS**
 
-### 12.3 P4 targets (from open hypotheses §7)
+`summarize_chase_gaps.py --lockstep` exit **0**. Event totals **10/10**; all pairwise sequences **100%**.
 
-1. Align `go_exec` tick scheduling (Rust `NotifyGo` / step delay vs C++ `DrainTodoQueue`).
-2. Fix `summarize_chase_gaps.py` shortway/todo_go tuple to compare monster origin + steps,
-   not stale player dest — or align target tile in chase trace @ path time.
-3. FillMap creature blocking parity on occupied tiles.
-4. Re-run battery; target lockstep **PASS** on `one_real` before six-monster ramp.
+| Event | Pairwise |
+|-------|----------|
+| `todo_go` | 1/1 |
+| `shortway` | 1/1 |
+| `go_exec` | 3/3 @ 400/2000/4000 |
+| `combat_state` | 2/2 |
+| `attack_enqueue` | 2/2 (`idle_tail` both indices) |
+| `melee_hit` | 1/1 — atk **54**, def **2**, dmg **52**, hp 150→98 |
+
+`run_realmap_sim_battery.py --skip-cpp`: `cyclops_one_real` **PASS**, `cyclops_six_real` **PASS**
+(1-monster placeholder scenario; six-monster ramp deferred to P6).
+
+### 14.2 Root causes closed
+
+| ID | Fix | Files |
+|----|-----|-------|
+| `attack_enqueue` label | `close_label` → `idle_tail` when `skip_idle_melee_chase` even if close chase `Skipped` | `idle_stimulus.rs` |
+| `melee_hit` RNG | Harness drains over-consume glibc `rand()` before first strike; realign to seed + 2 prelude draws (lose/talk) when `sim_rng_call_count() > 2` | `monster_ai.rs`, `sim_glibc_rand.rs` |
+| Harness drain order | `drain_todo_queue_once` before `player_walk`; `run_sim_tick` after walk (C++ `DrainTodoQueue` after `MoveKitePlayer`) | `chase_kite_sim.rs`, `sim_harness.rs` |
+
+### 14.3 Tests added
+
+- `test_772_attacking_idle_tail_label_when_close_chase_skipped` — `idle_stimulus.rs`
+
+---
+
+## 15. Post-P6 expanded trace gate (`kite_cyclops_one_real`, 2026-06-27)
+
+Artifacts: `log/chase_path_cip_realmap_cyclops_one_real.log` (19 events),
+`log/chase_path_rust_realmap_cyclops_one_real.log` (109 events),
+`log/summary_realmap_cyclops_one_real.txt`.
+
+Conditions: `TFS_KITE_NO_WILD=1`, `TFS_SIM_SEED=772`, `wall_ms=5000`, expanded
+`CHASE_COMPARE_EVENTS` + chase/face inline repath (`monster_events.rs`, `idle_stimulus.rs`).
+
+### 15.1 Lockstep gate: **FAIL** (both `one_real` and `six_real`)
+
+`summarize_chase_gaps.py --lockstep` exit **2**. **63** reported mismatches per scenario.
+
+### 15.2 Event totals
+
+| Event | C++ | Rust | Δ | Notes |
+|-------|-----|------|---|-------|
+| `todo_go` | 1 | 6 | +5 | Rust re-arms on each `player_walk` @200…1000 |
+| `shortway` | 1 | 6 | +5 | Same |
+| `go_exec` | 3 | 3 | 0 | Count OK; **tick buckets** differ |
+| `idle_stimulus` | 2 | 9 | +7 | Inline idle on target move |
+| `todo_wait` | 1 | 4 | +3 | Rust logs enqueue + execute |
+| `rotate` | 1 | 2 | +1 | Timing + ID encoding |
+| `creature_move_stimulus` | 5 | 5 | 0 | **kind** differs (`move_stimulus` vs `close_flee_clear`) |
+| `todo_label` | 0 | 59 | +59 | Rust-only trace |
+| `combat_state` | 2 | 7 | +5 | Per-walk duplicate on Rust |
+| `attack_enqueue` | 2 | 7 | +5 | Per-walk duplicate on Rust |
+| `melee_hit` | 1 | 1 | 0 | **tick** 4000 vs 5000; dmg **52** both |
+| **all** | **19** | **109** | **+90** | |
+
+### 15.3 What still matches (core geometry)
+
+| Check | Result |
+|-------|--------|
+| `harness_player_step` | **5/5** @ 200…1000 |
+| `todo_go[0]` dest @200 | **`(32451, 32065, 7)`** both sides |
+| `go_exec` index pairwise | **3/3 = 100%** |
+| `todo_go` / `shortway` index pairwise | **1/1 = 100%** |
+| `combat_state` / `attack_enqueue` index pairwise | **2/2 = 100%** |
+| `melee_hit` damage | atk **54**, def **2**, dmg **52** both sides |
+| First `go_exec` @400 | `(32454,32065)` → `(32454,32066)` both sides |
+
+### 15.4 Gap classification
+
+#### A — Compare / instrumentation (not gameplay regressions)
+
+| Gap | Fix |
+|-----|-----|
+| `todo_label` Rust-only (59 evt) | Exclude from gate or add C++ `ChasePathLogTodoLabel` |
+| `creature_move_stimulus` kind | Compare `cheb` only; normalize `move_stimulus` ≈ `close_flee_clear` |
+| `rotate` / `target_id` slotmap vs C++ sequential | Role-normalize IDs (§20) |
+
+#### B — Behavioral (Rust chase/face work)
+
+| Gap | C++ | Rust | Fix target |
+|-----|-----|------|------------|
+| Per-walk repath | 1 `todo_go` total | 1 `todo_go`/walk tick | Defer inline idle to C++ cadence (`CreatureMoveStimulus` only) |
+| `go_exec` phasing | 400 / **2000** / 4000 | 400 / 4000 / **5000** | Missing mid-chase step @2000; +1000ms tail |
+| `melee_hit` tick | **4000** | **5000** | Strike scheduling after go_exec phasing shift |
+
+Observed from JSONL: Rust second `todo_go` @200 targets live player tile `(32450,32065)` via
+`attack_close_chase` arm; C++ logs only the initial chase `enter` toward `(32451,32065,7)`.
+
+#### C — P6 targets
+
+- [ ] Split lockstep gate: **movement core** (todo_go/shortway/go_exec/melee) vs **scheduler trace** (todo_label, per-tick volume)
+- [ ] Align Rust follow-move repath with C++ — no inline idle on every harness walk tick during U-loop
+- [ ] Restore `go_exec` @2000 and `melee_hit` @4000 tick buckets
+- [ ] C++ hooks: `todo_label` or exclude from gate; unify `creature_move_stimulus` kind strings

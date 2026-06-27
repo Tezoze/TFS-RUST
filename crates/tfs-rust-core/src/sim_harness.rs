@@ -1108,10 +1108,26 @@ pub fn harness_place_creature_login(
 }
 
 /// Clear harness appear-idle defer on scenario monsters — real-map `player_walk` parity.
+///
+/// When appear-idle was deferred to [`HARNESS_APPEAR_IDLE_DEFER_MS`], the first `player_walk`
+/// pulls the pending wakeup to the current harness wall so idle/chase runs before the walk step
+/// (`chase_kite_scenario.cc` drain order).
 pub fn clear_harness_appear_idle_defer(world: &mut GameWorld, monster_ids: &[CreatureId]) {
     for &monster_id in monster_ids {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
             m.harness_defer_appear_idle = false;
+        }
+        let pull_forward = world
+            .creatures
+            .get(monster_id)
+            .and_then(|k| k.base().next_wakeup)
+            .is_some_and(|w| w > world.server_ms);
+        if pull_forward {
+            world.schedule_creature_wakeup(
+                monster_id,
+                world.server_ms,
+                crate::todo_queue::WakeupTiePolicy::HarnessAppearIdle,
+            );
         }
     }
 }
@@ -1141,6 +1157,8 @@ pub fn teleport_player(
 
 /// Wake monsters, acquire targets, then batch `ToDoYield` — `chase_kite_scenario.cc` `SpawnMonsterAppear`.
 pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[CreatureId]) {
+    // C++ `EnsureMonstersSpawned` → `ResyncHarnessRng()` after spawn loot (`chase_kite_scenario.cc:537`).
+    world.resync_sim_glibc_rng();
     world.batch_appear_defer_idle = true;
     for &monster_id in monster_ids {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
@@ -1149,6 +1167,17 @@ pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[Creature
             }
         }
         world.monster_on_creature_appear_self(monster_id);
+        if world.beat_driven_loop {
+            if let Some(opponent) = world.creatures.get(monster_id).and_then(|k| {
+                let CreatureKind::Monster(m) = k else {
+                    return None;
+                };
+                m.opponent_ids.first().copied()
+            }) {
+                world.monster_select_target(monster_id, opponent);
+            }
+            world.monster_harness_face_attack_target(monster_id);
+        }
         world.add_creature_think_check(monster_id);
     }
     world.batch_appear_defer_idle = false;
@@ -1321,6 +1350,7 @@ pub fn setup_cyclops_bowl_real_first_shortway(
     set_sim_harness_wall_ms(world, Some(200));
     move_creatures_explicit(world, 200);
     clear_harness_appear_idle_defer(world, &[cyclops_id]);
+    run_sim_tick(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
     run_sim_tick(world);
 
@@ -1382,6 +1412,7 @@ pub fn setup_cyclops_bowl_real_to_tick_2000(
         set_sim_harness_wall_ms(world, Some(target_wall));
         move_creatures_explicit(world, delta);
         clear_harness_appear_idle_defer(world, &[cyclops_id]);
+        run_sim_tick(world);
         walk_player_adjacent(world, player_id, Position::new(x, y, z))?;
         run_sim_tick(world);
         wall = target_wall;
@@ -1566,6 +1597,11 @@ fn harness_clamp_delay(world: &GameWorld, delay_ms: u64) -> u64 {
         return delay_ms;
     };
     wall.saturating_sub(world.server_ms).min(delay_ms)
+}
+
+/// C++ `MoveCreatures` — single due-todo pass after advancing `ServerMilliseconds`.
+pub fn drain_todo_queue_once(world: &mut GameWorld) {
+    world.drain_todo_queue();
 }
 
 /// C++ `DrainTodoQueue` — `chase_kite_scenario.cc` (bounded `MoveCreatures` rounds).
@@ -2154,6 +2190,7 @@ mod harness_tests {
         set_sim_harness_wall_ms(&mut world, Some(200));
         move_creatures_explicit(&mut world, 200);
         clear_harness_appear_idle_defer(&mut world, &[cyclops_id]);
+        run_sim_tick(&mut world);
         walk_player_adjacent(&mut world, player_id, Position::new(32450, 32065, z))
             .expect("first player_walk");
         run_sim_tick(&mut world);
@@ -2175,6 +2212,42 @@ mod harness_tests {
                 )
             }),
             "cyclops must begin chase pathing on first player_walk @200"
+        );
+    }
+
+    /// P6 G1 — U-loop kite must not inline-repath on every player_walk; chase drains through tick 2000.
+    #[test]
+    fn cyclops_bowl_real_uloop_chase_drains_to_tick_2000() {
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
+            return;
+        };
+        let cyclops_spawn = Position::new(32453, 32065, 7);
+        let (cyclops_id, _player_id, _) =
+            setup_cyclops_bowl_real_to_tick_2000(&mut world).expect("cyclops bowl U-loop");
+
+        assert_eq!(world.server_ms, 2000);
+        let Some(CreatureKind::Monster(m)) = world.creatures.get(cyclops_id) else {
+            panic!("cyclops missing");
+        };
+        assert_eq!(m.state, MonsterState::Attacking);
+        assert!(
+            m.base.follow_target.is_some() && m.base.attack_target.is_some(),
+            "cyclops must keep combat target through U-loop"
+        );
+        assert_ne!(
+            m.base.position, cyclops_spawn,
+            "cyclops must have executed at least one go_exec step by tick 2000"
+        );
+        assert!(
+            !world.monster_close_chase_batch_in_flight(cyclops_id)
+                || m.base.todo.has_go()
+                || !m.base.walk_queue.is_empty()
+                || m.base.next_wakeup.is_some(),
+            "mid-U-loop repath storm must not leave monster in stale cleared state"
         );
     }
 

@@ -224,14 +224,7 @@ impl GameWorld {
 
     /// Re-seed glibc `rand()` after spawn loot — chase harness idle/combat parity.
     pub fn resync_sim_glibc_rng(&mut self) {
-        if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
-            if let Ok(seed) = seed_str.parse::<u64>() {
-                if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                    unsafe { libc::srand(seed as u32) };
-                    crate::sim_glibc_rand::reset_sim_rng_call_count();
-                }
-            }
-        }
+        crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
     }
 
     /// Re-seed [`Self::ai_rng`] when `TFS_SIM_SEED` is set (headless parity harness).
