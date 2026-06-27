@@ -181,8 +181,19 @@ Consequences of the mismatch:
 - Gating on `ATTACKING/PANIC + Target` is absent in the Rust push entry
   (`monster_push_before_step` only checks `can_push_creatures && !is_summon`), so push happens in
   states where 772 would not, and vice-versa.
-- "Kill the blocker on push failure" (1098) is **not** the 772 behavior — 772 throws `EXHAUSTED`
-  and the idle handler waits (see Finding 7).
+- **Kill semantics differ from 1098, but a kill still happens.** 1098 kills a blocker when the
+  *mover's* push fails and then the mover proceeds. 772 `KickCreature` (`crnonpl.cc:3074-3080`)
+  kills a **boxed-in pushable monster** (no free adjacent N,S,W,E tile) by dealing damage equal to
+  the victim's **full current HP attributed to the kicker** (`AddDamageToCombatList(this->ID, …)`
+  + `Kill()`) — so kill credit, corpse, loot and experience all go to the kicker — and the mover
+  then throws `EXHAUSTED` and waits 1000 ms (it does **not** step onto the cleared tile this beat;
+  see Finding 7). Players are never killed this way (a player tile is the `Target=0` + `EXHAUSTED`
+  case, no kick).
+  **Status (Phase 1, implemented):** `monster_kick_creature_772` mirrors this exactly — full-HP
+  physical damage via `combat::execute(Some(kicker), …)` (records the kicker in the victim's
+  `damage_map`) + `EFFECT_BLOCK_HIT` + `apply_creature_death` (corpse/loot/exp). It calls the
+  death path directly rather than `combat_execute_with_stimulus` because C++ `Kill()` does not
+  re-run `DamageStimulus`.
 
 ### Finding 6. Push direction uses `rand::thread_rng()` — non-deterministic, breaks RNG parity  — HIGH
 
@@ -350,12 +361,15 @@ diverge and the glibc stream isn't advanced for the (up to 10) draws C++ makes. 
 `TMonster::KickCreature` (`crnonpl.cc:3036`) shoves the blocker using a **fixed** offset order —
 `OffsetX={0,0,-1,1}, OffsetY={-1,1,0,0}` = **North, South, West, East** — skipping the kicker's own
 tile, requiring the blocker's `MovePossible(Execute=true)` and `!AVOID`, and **killing** the
-blocker if no offset works. There is **no random draw at all.**
+blocker if no offset works (full-HP damage attributed to the kicker → kill credit/loot/exp, then
+`Kill()`). There is **no random draw at all.**
 
 `monster_push.rs::monster_push_creature` does `dirs.shuffle(&mut rand::thread_rng())` over
 `[North, West, East, South]`. So it's wrong three ways: (1) random where C++ is deterministic,
 (2) non-glibc/non-deterministic stream, (3) different base order. Fix: drop the RNG entirely and
-try N, S, W, E in that fixed order; kill on exhaustion (matches the existing `to_kill` path).
+try N, S, W, E in that fixed order; on exhaustion kill the boxed-in blocker with full-HP damage
+**attributed to the kicker** so kill credit / corpse / loot / experience route to it (`combat::execute`
+into the victim's `damage_map` + `apply_creature_death`), not a bare `remove_creature`.
 
 ## Finding 12. Monster item-pushing (`KickBoxes`) is not implemented  — MEDIUM
 
@@ -836,7 +850,9 @@ Convention per phase: **Goal · Findings · C++ ref · Rust sites · Steps · Ve
      `State ∈ {ATTACKING, PANIC}` + `Target != 0` + mover `KickCreatures`.
   2. Replace the random shuffle with the **fixed N, S, W, E** offset order
      (`{0,0,-1,1}/{-1,1,0,0}`), skip the mover's own tile, require blocker `MovePossible(Execute)`
-     + `!AVOID`; **kill** the blocker only when all four fail.
+     + `!AVOID`; **kill** the blocker only when all four fail — with full-HP damage attributed to
+     the kicker (`combat::execute` → victim `damage_map` → `apply_creature_death` for kill
+     credit/corpse/loot/exp), not a bare remove.
   3. Implement `KickBoxes` (same fixed order, `BANK && !UNPASS` dest, delete on failure) and wire
      `CanKickBoxes` (race flag + monster-master inheritance).
   4. Blocked-step: kick-and-retry the **same** tile in-step; route genuine `EXHAUSTED` to
@@ -844,12 +860,21 @@ Convention per phase: **Goal · Findings · C++ ref · Rust sites · Steps · Ve
   5. Confirm `MovePossible(Execute=false)` planning treats kickable-creature tiles as
      plannable-through and hard-blocks for non-`KickCreatures` movers.
 - **Verify:** new tests — two `canpushcreatures="0"` monsters route around each other; two
-  `canpushcreatures="1"` shove in N,S,W,E order; box-blocked tile gets cleared; `EXHAUSTED` waits
-  1000 ms. No `thread_rng`/`ai_rng` in the push path.
+  `canpushcreatures="1"` shove in N,S,W,E order; box-blocked tile gets cleared; a boxed-in pushable
+  monster is killed with kill credit/loot/exp to the kicker; `EXHAUSTED` waits 1000 ms. No
+  `thread_rng`/`ai_rng` in the push path.
 - **Risk:** medium — touches the hot step path; keep the kill-on-exhaustion path behind the same
   conditions as C++ to avoid over-killing allies.
 
-## Phase 2 — 772 line-of-sight (`ThrowPossible`)
+## Phase 2 — 772 line-of-sight (`ThrowPossible`)  — IMPLEMENTED
+
+**Status:** done. `Map::throw_possible(orig, dest, power)` (`map/los.rs`) ports `ThrowPossible`
+exactly — major-axis interpolation, `UNTHROW`-only flag test (new `tile::flags::UNTHROW` from
+`block_projectile()`), multi-floor `MinZ` stepping, and the `HOOKEAST`/`HOOKSOUTH` `StartT=0` origin
+case (new hook flags from `is_hangable()` + `is_horizontal/vertical()`). `GameWorld::monster_sight_clear`
+dispatches 772 → `throw_possible(.,.,0)` / 1098 → Bresenham `is_sight_clear`, and all monster/combat
+sight callers route through it (monster_targets, monster_ai dist-branch + ranged, idle_stimulus spell
++ trace, creature_think). Bresenham `is_sight_clear` is untouched for 1098. Tests in `tests/map_los.rs`.
 
 - **Goal:** correct distance-vs-melee branch + ranged/spell sight for archers/casters.
 - **Findings:** 16, 16b.
@@ -870,7 +895,14 @@ Convention per phase: **Goal · Findings · C++ ref · Rust sites · Steps · Ve
   interpolation differ.
 - **Risk:** medium — multi-floor + hook edges are fiddly; start same-floor, add floor-stepping next.
 
-## Phase 3 — Chase leash + roam bounds
+## Phase 3 — Chase leash + roam bounds  — IMPLEMENTED
+
+**Status:** done. `monster_can_occupy_chase_tile` and `monster_tshortway_fill_walkable` now skip the
+`is_in_spawn_range` leash entirely for ATTACKING/PANIC (Finding 17 — the monster chases out of range
+and despawns via the existing `monster_handle_out_of_spawn_range` path). The non-attacking roam leash
+uses a per-monster `home_radius` (new field on `Monster`, set from the spawn zone `radius` in
+`spawn_monster`) via `monster_roam_leash_radius`, falling back to the global despawn radius when unset
+(`home_radius <= 0`) or on 1098 (Finding 17b). Tests in `monster_ai.rs`.
 
 - **Goal:** monsters follow targets out of the home radius (then despawn), not pin at the edge.
 - **Findings:** 17, 17b.

@@ -217,6 +217,23 @@ fn apply_item_tile_flags(
         body.flags |= flags::IMMOVABLEBLOCKPATH;
     }
 
+    // 772 `UNTHROW` — projectile-block, distinct from BLOCKSOLID/BLOCKPATH (`info.cc` `ThrowPossible`).
+    if item_type.block_projectile() {
+        body.flags |= flags::UNTHROW;
+    }
+
+    // 772 wall hooks — `HOOKEAST` (horizontal) / `HOOKSOUTH` (vertical) hangable spots.
+    // NOTE(parity): CipSoft `HOOKEAST`/`HOOKSOUTH` ≈ OTB hangable + horizontal/vertical; affects only
+    // the `StartT=0` origin-tile special case of `ThrowPossible` when throwing west/north.
+    if item_type.is_hangable() {
+        if item_type.is_horizontal() {
+            body.flags |= flags::HOOKEAST;
+        }
+        if item_type.is_vertical() {
+            body.flags |= flags::HOOKSOUTH;
+        }
+    }
+
     if items_db.is_depot(item_type.server_id) {
         body.flags |= flags::DEPOT;
     }

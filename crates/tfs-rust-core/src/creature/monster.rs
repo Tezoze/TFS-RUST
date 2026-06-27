@@ -159,6 +159,10 @@ impl MonsterAiConfig {
 pub struct Monster {
     pub base: CreatureBase,
     pub spawn_position: Position,
+    /// CipSoft `TMonsterhome::Radius` — per-home roam radius (axis box) used by the non-attacking
+    /// `MovePossible` leash (`crnonpl.cc:2148-2157`, `MonsterhomeInRange`). `0` = unset → fall back
+    /// to the global despawn radius. Set from the spawn zone `radius` at spawn time.
+    pub home_radius: i32,
     pub ai_phase: MonsterAiPhase,
     pub think_interval_ms: u32,
     /// Script registration: only if contains `onThink` does core invoke Lua think (Phase 8).
@@ -230,6 +234,7 @@ impl Monster {
         Self {
             base,
             spawn_position: spawn,
+            home_radius: 0,
             ai_phase: MonsterAiPhase::Idle,
             think_interval_ms: 1000,
             registered_events: HashSet::new(),

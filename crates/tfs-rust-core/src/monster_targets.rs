@@ -427,6 +427,17 @@ impl GameWorld {
         true
     }
 
+    /// Era-correct creature line-of-sight. 772 uses `ThrowPossible` (major-axis interpolation +
+    /// `UNTHROW`, `info.cc:1154`); 1098 uses Bresenham `Map::isSightClear`. All 772 callers throw
+    /// with `power = 0` (`crnonpl.cc:2798`).
+    pub(crate) fn monster_sight_clear(&self, from: Position, to: Position) -> bool {
+        if self.beat_driven_loop {
+            self.map.throw_possible(from, to, 0)
+        } else {
+            self.map.is_sight_clear(from, to)
+        }
+    }
+
     /// TFS `Monster::canUseAttack` — `monster.cpp` ~876.
     pub fn monster_can_use_attack(
         &self,
@@ -444,7 +455,7 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        if !self.map.is_sight_clear(pos, target_pos) {
+        if !self.monster_sight_clear(pos, target_pos) {
             return false;
         }
         let dist = chebyshev(pos, target_pos) as u32;
@@ -494,7 +505,7 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        if !self.map.is_sight_clear(pos, target_pos) {
+        if !self.monster_sight_clear(pos, target_pos) {
             return false;
         }
         let dist = chebyshev(pos, target_pos) as u32;

@@ -257,7 +257,7 @@ impl GameWorld {
         } else {
             expected_dist != target_distance
         };
-        wrong_distance || !self.map.is_sight_clear(expected_pos, target_pos)
+        wrong_distance || !self.monster_sight_clear(expected_pos, target_pos)
     }
 
     /// Central guard: `has_follow_path` vs actual follow band.
@@ -479,7 +479,7 @@ impl GameWorld {
                 }
                 return;
             }
-            if !self.map.is_sight_clear(monster_pos, target_pos) {
+            if !self.monster_sight_clear(monster_pos, target_pos) {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     k.base_mut().delay_attack_ms(server_ms, 200);
                 }
@@ -2649,6 +2649,7 @@ impl GameWorld {
         let (
             spawn,
             cfg,
+            home_radius,
             can_push_creatures,
             can_push_items,
             is_summon,
@@ -2661,6 +2662,7 @@ impl GameWorld {
             Some(CreatureKind::Monster(m)) => (
                 m.spawn_position,
                 self.monster_world_config,
+                m.home_radius,
                 m.can_push_creatures,
                 m.can_push_items,
                 m.base.is_summon(),
@@ -2672,9 +2674,11 @@ impl GameWorld {
             ),
             _ => return false,
         };
-        // C++ skips home/radius when `ATTACKING|PANIC` (`crnonpl.cc:2148-2159`).
+        // C++ skips home/radius when `ATTACKING|PANIC` (`crnonpl.cc:2148-2159`); the roam bound uses
+        // the per-home radius (Finding 17/17b).
         if state != MonsterState::Attacking && state != MonsterState::Panic {
-            if !is_in_spawn_range(pos, spawn, cfg.despawn_radius, cfg.despawn_z_range) {
+            let radius = self.monster_roam_leash_radius(home_radius);
+            if !is_in_spawn_range(pos, spawn, radius, cfg.despawn_z_range) {
                 return false;
             }
         }
@@ -2764,18 +2768,36 @@ impl GameWorld {
 
     /// Spawn leash + pathfinding tile check — shared by A* and step selection (`monster.cpp` `canWalkTo`).
     fn monster_can_occupy_chase_tile(&self, cid: CreatureId, pos: Position) -> bool {
-        let (spawn, cfg) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (m.spawn_position, self.monster_world_config),
+        let (spawn, home_radius, state) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (m.spawn_position, m.home_radius, m.state),
             _ => return false,
         };
-        if !is_in_spawn_range(pos, spawn, cfg.despawn_radius, cfg.despawn_z_range) {
-            return false;
+        // C++ `MovePossible` applies the home-radius leash **only when not** ATTACKING/PANIC
+        // (`crnonpl.cc:2148-2157`): a chasing monster follows its target out of range and despawns
+        // later via the out-of-range check, rather than pinning at the radius edge (audit Finding 17).
+        if state != MonsterState::Attacking && state != MonsterState::Panic {
+            let cfg = self.monster_world_config;
+            let radius = self.monster_roam_leash_radius(home_radius);
+            if !is_in_spawn_range(pos, spawn, radius, cfg.despawn_z_range) {
+                return false;
+            }
         }
         let Some(tile) = self.map.get_tile(pos) else {
             return false;
         };
         tile_query_add_creature(self, tile, cid, PATHFIND_WALK_FLAGS)
             == crate::return_value::ReturnValue::NoError
+    }
+
+    /// Effective per-home roam leash radius (axis-box, non-attacking). 772 uses the monster's
+    /// `home_radius` (CipSoft `MonsterhomeInRange`, `crnonpl.cc:2157`); 1098 or an unset home
+    /// (`home_radius <= 0`) falls back to the global despawn radius (audit Finding 17b).
+    fn monster_roam_leash_radius(&self, home_radius: i32) -> i32 {
+        if self.beat_driven_loop && home_radius > 0 {
+            home_radius
+        } else {
+            self.monster_world_config.despawn_radius
+        }
     }
 
     fn monster_can_walk_to(&self, cid: CreatureId, from: Position, dir: Direction) -> bool {
@@ -2886,6 +2908,71 @@ mod tests {
             50,
             2
         ));
+    }
+
+    /// Finding 17/17b — an ATTACKING monster follows its target beyond the home radius (leash
+    /// skipped), while a roaming (Idle) monster is bounded by its per-home `home_radius`.
+    #[test]
+    fn chase_leash_skipped_when_attacking_bounded_when_roaming() {
+        use crate::creature::{MonsterAiConfig, MonsterState};
+        use crate::sim_harness::{beat_driven_world, ensure_walkable_tile, insert_monster_with_config};
+
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        // Global despawn radius is large (50); the per-home radius is small (3).
+        world.monster_world_config.despawn_radius = 50;
+
+        let spawn = Position::new(100, 100, 7);
+        let far = Position::new(110, 100, 7); // chebyshev 10: > home_radius 3, < despawn 50
+        ensure_walkable_tile(&mut world.map, spawn, 1);
+        ensure_walkable_tile(&mut world.map, far, 1);
+
+        let monster = insert_monster_with_config(&mut world, "Rat", spawn, 200, MonsterAiConfig::default());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.spawn_position = spawn;
+            m.home_radius = 3;
+            m.state = MonsterState::Idle;
+        }
+        assert!(
+            !world.monster_can_occupy_chase_tile(monster, far),
+            "roaming monster must stay within its home radius"
+        );
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Attacking;
+        }
+        assert!(
+            world.monster_can_occupy_chase_tile(monster, far),
+            "ATTACKING monster must chase past the home radius"
+        );
+    }
+
+    /// Finding 17b — with no per-home radius (`home_radius == 0`) the roam leash falls back to the
+    /// global despawn radius (no behavior change for synthetic/test monsters).
+    #[test]
+    fn roam_leash_falls_back_to_despawn_radius_when_home_unset() {
+        use crate::creature::{MonsterAiConfig, MonsterState};
+        use crate::sim_harness::{beat_driven_world, ensure_walkable_tile, insert_monster_with_config};
+
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        world.monster_world_config.despawn_radius = 50;
+
+        let spawn = Position::new(100, 100, 7);
+        let near = Position::new(110, 100, 7); // cheb 10 ≤ despawn 50
+        ensure_walkable_tile(&mut world.map, spawn, 1);
+        ensure_walkable_tile(&mut world.map, near, 1);
+
+        let monster = insert_monster_with_config(&mut world, "Rat", spawn, 200, MonsterAiConfig::default());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.spawn_position = spawn;
+            m.home_radius = 0;
+            m.state = MonsterState::Idle;
+        }
+        assert!(
+            world.monster_can_occupy_chase_tile(monster, near),
+            "unset home_radius roams within the global despawn radius"
+        );
     }
 
     #[test]

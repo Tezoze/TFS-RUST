@@ -79,3 +79,62 @@ fn grid_line_includes_endpoints() {
     assert!(w.contains(&a));
     assert!(w.contains(&b));
 }
+
+fn flat_map(w: u16, h: u16) -> Map {
+    let mut map = Map {
+        width: w,
+        height: h,
+        grid: SparseGrid::new(),
+        towns: std::collections::HashMap::new(),
+        waypoints: std::collections::HashMap::new(),
+    };
+    for x in 0..w {
+        for y in 0..h {
+            map.insert_tile(Position::new(x, y, 7), body_at(x, y, 0));
+        }
+    }
+    map
+}
+
+/// 772 `ThrowPossible` is clear across open ground (same floor, `power = 0`).
+#[test]
+fn throw_possible_clear_on_open_ground() {
+    let map = flat_map(8, 8);
+    assert!(map.throw_possible(Position::new(0, 0, 7), Position::new(5, 0, 7), 0));
+    assert!(map.throw_possible(Position::new(0, 0, 7), Position::new(4, 4, 7), 0));
+}
+
+/// `UNTHROW` (projectile-block) on the interpolated line blocks 772 throw.
+#[test]
+fn throw_possible_blocked_by_unthrow() {
+    let mut map = flat_map(8, 8);
+    map.insert_tile(Position::new(2, 0, 7), body_at(2, 0, flags::UNTHROW));
+    assert!(!map.throw_possible(Position::new(0, 0, 7), Position::new(5, 0, 7), 0));
+}
+
+/// Finding 16b — a solid-but-throwable tile (`BLOCKSOLID`/`BLOCKPATH`, no `UNTHROW`) does **not**
+/// block 772 throw, even though it blocks the 1098 Bresenham `is_sight_clear`.
+#[test]
+fn throw_possible_ignores_solid_without_unthrow() {
+    let mut map = flat_map(8, 8);
+    map.insert_tile(
+        Position::new(2, 0, 7),
+        body_at(2, 0, flags::BLOCKSOLID | flags::BLOCKPATH),
+    );
+    assert!(
+        !map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
+        "1098 Bresenham is blocked by the solid tile"
+    );
+    assert!(
+        map.throw_possible(Position::new(0, 0, 7), Position::new(5, 0, 7), 0),
+        "772 throw passes a solid-but-throwable tile (UNTHROW not set)"
+    );
+}
+
+/// Adjacent / same tile is always reachable (`MaxT <= 1`).
+#[test]
+fn throw_possible_adjacent_is_clear() {
+    let map = flat_map(4, 4);
+    assert!(map.throw_possible(Position::new(1, 1, 7), Position::new(2, 1, 7), 0));
+    assert!(map.throw_possible(Position::new(1, 1, 7), Position::new(1, 1, 7), 0));
+}

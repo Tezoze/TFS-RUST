@@ -18,7 +18,7 @@
 use std::time::Instant;
 
 use rand::seq::SliceRandom;
-use tfs_rust_common::enums::Direction;
+use tfs_rust_common::enums::{CombatType, Direction};
 use tfs_rust_common::Position;
 
 use crate::creature::{CreatureKind, MonsterState};
@@ -161,7 +161,7 @@ impl GameWorld {
                     Some(CreatureKind::Monster(_)) => {
                         // C++ `crnonpl.cc:2240-2242`: kick the blocker; a forced kill (no free
                         // adjacent tile) still throws `EXHAUSTED`.
-                        if !self.monster_kick_creature_772(blocker, mover_pos, now) {
+                        if !self.monster_kick_creature_772(mover, blocker, mover_pos, now) {
                             return MonsterKickOutcome::Exhausted;
                         }
                     }
@@ -301,10 +301,13 @@ impl GameWorld {
     /// 772 `TMonster::KickCreature` — `crnonpl.cc:3036`.
     ///
     /// Tries the fixed N,S,W,E offsets (skipping the kicker's own tile and `AVOID`/magic-field
-    /// tiles); relocates the blocker to the first valid one. If none work, the blocker is killed
-    /// (C++ deals lethal damage + block-hit effect; here we remove it). Returns `true` if moved.
+    /// tiles); relocates the blocker to the first valid one. If none work, the blocker is **killed**
+    /// with full parity to C++ (`crnonpl.cc:3076-3080`): full-HP physical damage attributed to the
+    /// kicker (so kill credit / loot / experience go to it) + the block-hit effect, then the death
+    /// pipeline (corpse + loot drop + exp distribution). Returns `true` if moved, `false` if killed.
     fn monster_kick_creature_772(
         &mut self,
+        kicker: CreatureId,
         blocker: CreatureId,
         mover_pos: Position,
         now: Instant,
@@ -333,13 +336,33 @@ impl GameWorld {
             }
         }
 
-        // C++ KickCreature: "Kein Platz zum Verschieben => Töten." No adjacent tile is free.
-        // C++ applies lethal damage + EFFECT_BLOCK_HIT attributed to the kicker (`crnonpl.cc:3071-3074`).
-        // NOTE(parity): we emit the block-hit effect then remove the creature directly, which skips
-        // death-stimulus/loot/exp attribution — acceptable for this rare fully-boxed-in case;
-        // revisit if loot/exp attribution on a kick-kill is ever needed.
+        // C++ KickCreature: "Kein Platz zum Verschieben => Töten." No adjacent tile is free, so the
+        // kicker kills the boxed-in creature (`crnonpl.cc:3074-3080`):
+        //   GraphicalEffect(EFFECT_BLOCK_HIT); Combat.AddDamageToCombatList(this->ID, fullHP); Kill();
+        // We mirror this exactly: emit block-hit, deal full-HP physical damage **attributed to the
+        // kicker** (recorded in the victim's damage map for kill credit / exp), then run the death
+        // pipeline (corpse + loot + experience distribution).
         self.broadcast_magic_effect(blocker_pos, EFFECT_BLOCK_HIT);
-        self.remove_creature(blocker);
+        let victim_hp = self
+            .creatures
+            .get(blocker)
+            .map(|k| k.base().health)
+            .unwrap_or(0);
+        if victim_hp > 0 {
+            crate::combat::execute(
+                &mut self.creatures,
+                Some(kicker),
+                blocker,
+                &crate::combat::CombatDamage {
+                    primary: (CombatType::Physical, -victim_hp),
+                    secondary: (CombatType::Physical, 0),
+                },
+                &crate::combat::CombatParams::default(),
+            );
+        }
+        // C++ `Kill()` — death xp/events/corpse + remove (mirrors `combat_execute_with_stimulus`'s
+        // post-apply death branch without re-running `DamageStimulus`, which `Kill()` skips).
+        self.apply_creature_death(blocker);
         false
     }
 
@@ -619,5 +642,40 @@ mod tests {
             m.base.master = Some(master);
         }
         assert!(world.monster_can_kick_boxes_772(summon));
+    }
+
+    /// 772 `KickCreature` kill — a boxed-in pushable monster (no free adjacent tile) is killed by
+    /// the kicker and the step reports `EXHAUSTED` (`crnonpl.cc:3074-3080`).
+    #[test]
+    fn boxed_in_blocker_is_killed_and_step_exhausted() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        world.server_ms = 0;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        // Only the kicker, blocker, and far-target tiles exist — the blocker's other neighbours are
+        // absent (non-walkable), so `KickCreature` cannot relocate it and must kill.
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, bpos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let blocker =
+            insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+        let kicker = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(kicker) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+        }
+
+        let outcome = world.monster_push_before_step(kicker, bpos, now);
+        assert_eq!(outcome, MonsterKickOutcome::Exhausted);
+        assert!(
+            !world.creatures.contains_key(blocker),
+            "boxed-in blocker must be killed by the kick"
+        );
     }
 }

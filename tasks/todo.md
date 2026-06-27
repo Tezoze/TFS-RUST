@@ -110,9 +110,34 @@ Source: `docs/MONSTER_AI_772_AUDIT.md` "Phase 1". C++ ref: `crnonpl.cc:2141` `Mo
 `EXHAUSTED` catch.
 
 - [x] Step 1 — gate creature kick on `State∈{ATTACKING,PANIC}` + `Target` + `KickCreatures`, never kick target/master/NPC/unpushable (pre-existing uncommitted work in `monster_push.rs`).
-- [x] Step 2 — deterministic N,S,W,E `KickCreature`, kill on all-offsets-fail (pre-existing).
+- [x] Step 2 — deterministic N,S,W,E `KickCreature`, kill on all-offsets-fail with full-HP damage attributed to the kicker (kill credit/corpse/loot/exp via `combat::execute` → `apply_creature_death`) (pre-existing gate; kill-attribution added).
 - [x] Step 5 — `monster_tshortway_fill_walkable` plans through kickable creatures, hard-blocks for non-`KickCreatures` movers, handles UNPASS/AVOID boxes (verified `monster_ai.rs:2642`).
 - [x] Step 3 — `KickBoxes` (UNPASS/AVOID movable items) + `CanKickBoxes()` master inheritance; deterministic N,S,W,E to `BANK && !UNPASS`, delete on failure.
 - [x] Step 4 — push returns `MonsterKickOutcome`; player tile (clear `Target`) or kick-kill → `EXHAUSTED` → `Target=0; ToDoClear; Wait(1000); ToDoStart` instead of clear-queue+replan.
-- [x] Tests — `kicker_onto_player_tile_is_exhausted`, `non_kicker_onto_player_tile_proceeds`, `kicker_onto_own_target_tile_proceeds`, `exhausted_wait_clears_target_and_waits_1000`, `can_kick_boxes_inherits_from_master` (box-move itself needs real item data — covered by real-map battery + `fillmap_movepossible_blocks_unpass_under_grass`).
+- [x] Tests — `kicker_onto_player_tile_is_exhausted`, `non_kicker_onto_player_tile_proceeds`, `kicker_onto_own_target_tile_proceeds`, `exhausted_wait_clears_target_and_waits_1000`, `can_kick_boxes_inherits_from_master`, `boxed_in_blocker_is_killed_and_step_exhausted` (box-move itself needs real item data — covered by real-map battery + `fillmap_movepossible_blocks_unpass_under_grass`).
 - [x] Gate — `rtk cargo check` + `clippy` clean; `monster_push` 5/5. (Pre-existing unrelated failures: `test_e4_spell_delay_gate`, `test_e4_cobra_poison_at_range`, `test_772_dist_target_flee_inline_chase_after_goal_wait` — glibc-RNG harness, audit Finding 15; fail on HEAD without these changes.)
+
+
+## Audit Phase 2 — 772 line-of-sight (`ThrowPossible`) — DONE
+
+C++ ref: `info.cc:1154` `ThrowPossible` (Power=0 for all monster/combat callers, `crnonpl.cc:2798`).
+- [x] `tile.rs` — add `UNTHROW`/`HOOKEAST`/`HOOKSOUTH` flag bits (24–26).
+- [x] `map/mod.rs` — aggregate `UNTHROW` from `block_projectile()`, hooks from `is_hangable()`+`is_horizontal/vertical()`.
+- [x] `map/los.rs` — `Map::throw_possible(orig,dest,power)`: major-axis interpolation + `UNTHROW` + multi-floor `MinZ` step + HOOK `StartT=0`.
+- [x] `GameWorld::monster_sight_clear` dispatcher (772 → `throw_possible`, else Bresenham `is_sight_clear`); rerouted monster/combat sight checks (monster_targets, monster_ai dist-branch + ranged, idle_stimulus spell + trace, creature_think).
+- [x] Tests — `tests/map_los.rs`: open clear, UNTHROW blocks, solid-but-throwable passes (16b), adjacent clear.
+- [x] Gate — `rtk cargo check` + `clippy` clean; map_los 7/7.
+
+## Audit Phase 3 — chase leash + roam bounds — DONE
+
+C++ ref: `crnonpl.cc:2148-2167` `MovePossible` radius block; `:1515` `MonsterhomeInRange`; `:2407` despawn.
+- [x] Finding 17 — `monster_can_occupy_chase_tile` + `monster_tshortway_fill_walkable` skip the leash for ATTACKING/PANIC (chase out of range; despawn via existing out-of-range path).
+- [x] Finding 17b — per-monster `home_radius` (from spawn zone `radius` in `spawn_monster`); roam (non-attacking) leash uses it via `monster_roam_leash_radius` (falls back to global despawn radius when unset / on 1098).
+- [x] Tests — `chase_leash_skipped_when_attacking_bounded_when_roaming`, `roam_leash_falls_back_to_despawn_radius_when_home_unset`.
+- [x] Gate — `rtk cargo check` + `clippy` clean; new tests pass.
+
+> Note: `test_772_dist_dance_enqueues_go_and_wait` (and `test_e4_*`, `test_772_dist_target_flee_*`) are
+> **pre-existing non-deterministic tests** — they draw from `ai_rng = StdRng::from_entropy()` when
+> `TFS_SIM_SEED` is unset (plain `cargo test`), so they pass/fail at random regardless of these
+> changes (audit Findings 8/15; fixed by Phase 5 RNG unification). Verified flaky in isolation both
+> ways; all new P2/P3 tests are deterministic and pass.

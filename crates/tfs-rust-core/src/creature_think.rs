@@ -226,7 +226,7 @@ impl GameWorld {
             Some((attacker, target)) => (attacker.position(), target.position()),
             None => return,
         };
-        if !self.map.is_sight_clear(my_pos, target_pos) {
+        if !self.monster_sight_clear(my_pos, target_pos) {
             return;
         }
 

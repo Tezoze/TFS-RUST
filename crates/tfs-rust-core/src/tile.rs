@@ -40,6 +40,15 @@ pub mod flags {
     pub const NOFIELDBLOCKPATH: u32 = 1 << 22;
     pub const SUPPORTS_HANGABLE: u32 = 1 << 23;
 
+    // ── 772 sight / throw bits (24–26) ──
+    /// CipSoft 772 `UNTHROW` — projectile-blocking (`ItemType::block_projectile`). Distinct from
+    /// `BLOCKPATH`/`BLOCKSOLID`; used only by 772 `Map::throw_possible` (`info.cc:1189`).
+    pub const UNTHROW: u32 = 1 << 24;
+    /// CipSoft 772 `HOOKEAST` — wall hook facing east (`is_hangable && is_horizontal`).
+    pub const HOOKEAST: u32 = 1 << 25;
+    /// CipSoft 772 `HOOKSOUTH` — wall hook facing south (`is_hangable && is_vertical`).
+    pub const HOOKSOUTH: u32 = 1 << 26;
+
     // ── Composite masks ──
     pub const FLOORCHANGE: u32 = FLOORCHANGE_DOWN
         | FLOORCHANGE_NORTH

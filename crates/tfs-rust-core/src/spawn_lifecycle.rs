@@ -304,6 +304,11 @@ impl GameWorld {
             .insert(CreatureKind::Monster(Monster::with_config(
                 base, spawn_pos, ai_config,
             )));
+        // CipSoft `TMonsterhome::Radius` — per-home roam leash (`crnonpl.cc:2157`). Carried from the
+        // spawn zone radius; ≤0 (TVP `-1` / no radius) falls back to the global despawn radius.
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.home_radius = spawn_radius;
+        }
 
         let placed = self.place_spawn_creature(
             cid,

@@ -662,7 +662,7 @@ impl GameWorld {
 
             match spell.shape {
                 SpellShape::Victim | SpellShape::Destination => {
-                    if !self.map.is_sight_clear(pos, target_pos) {
+                    if !self.monster_sight_clear(pos, target_pos) {
                         continue;
                     }
                     self.monster_update_look_direction(cid);
@@ -678,7 +678,7 @@ impl GameWorld {
                 }
                 SpellShape::Origin | SpellShape::Angle => {
                     for tile in tiles {
-                        if !self.map.is_sight_clear(pos, tile) {
+                        if !self.monster_sight_clear(pos, tile) {
                             continue;
                         }
                         let victims: Vec<CreatureId> = self
@@ -1066,7 +1066,7 @@ impl GameWorld {
                 .map(|k| k.position())
                 .unwrap_or(pos);
             let cheb = chebyshev(pos, target_pos);
-            let los_clear = self.map.is_sight_clear(pos, target_pos);
+            let los_clear = self.monster_sight_clear(pos, target_pos);
             let state_str = format!("{state:?}");
             let chase_mode_str = format!("{chase_mode:?}");
             chase_debug::log_parked(
@@ -5227,7 +5227,7 @@ mod tests {
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
-                flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
+                flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH | tilestate::UNTHROW,
                 zone: ZoneType::Normal,
             }),
         );
