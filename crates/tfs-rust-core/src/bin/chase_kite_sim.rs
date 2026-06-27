@@ -11,11 +11,11 @@ use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic, beat_driven_world_from_map,
-    default_sim_map_config,     insert_monster_from_type, insert_monster_with_config, insert_player,
-    clear_harness_appear_idle_defer, harness_place_creature_login, kite_monsters_appear_batch, log_harness_player_step, drain_todo_queue_once, move_creatures_explicit, run_sim_tick,
-    set_harness_real_map, set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster,
-    teleport_player, validate_positions_walkable, walk_player_adjacent, write_audit_route_json,
-    SimMapConfig,
+    default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
+    drain_todo_queue_once, harness_place_creature_login, kite_monsters_appear_batch,
+    log_harness_player_step, move_creatures_explicit, run_sim_tick, set_sim_harness_segment_ms,
+    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
+    validate_positions_walkable, walk_player_adjacent, write_audit_route_json, SimMapConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -254,20 +254,20 @@ impl SimClock {
         Self { wall_ms: 0 }
     }
 
-    fn apply_wall(&self, world: &mut tfs_rust_core::game_world::GameWorld) {
-        set_sim_harness_wall_ms(world, Some(self.wall_ms));
+    fn apply_wall(&self, _world: &mut tfs_rust_core::game_world::GameWorld) {
+        set_sim_harness_wall_ms(Some(self.wall_ms));
     }
 
     fn advance(&mut self, world: &mut tfs_rust_core::game_world::GameWorld, ms: u64) {
         self.wall_ms = self.wall_ms.saturating_add(ms);
-        set_sim_harness_wall_ms(world, Some(self.wall_ms));
+        set_sim_harness_wall_ms(Some(self.wall_ms));
         move_creatures_explicit(world, ms);
     }
 
     /// Bump wall without draining — paired with immediate `player_pos` (`chase_kite_scenario.cc`).
-    fn bump_wall_only(&mut self, world: &mut tfs_rust_core::game_world::GameWorld, ms: u64) {
+    fn bump_wall_only(&mut self, _world: &mut tfs_rust_core::game_world::GameWorld, ms: u64) {
         self.wall_ms = self.wall_ms.saturating_add(ms);
-        set_sim_harness_wall_ms(world, Some(self.wall_ms));
+        set_sim_harness_wall_ms(Some(self.wall_ms));
     }
 }
 
@@ -324,9 +324,8 @@ fn build_world(
             scenario.default_wp,
         )?
     } else {
-        let mut w = beat_driven_world_from_map(&map_cfg.data_dir, &map_cfg.map_rel)?;
+        let w = beat_driven_world_from_map(&map_cfg.data_dir, &map_cfg.map_rel)?;
         validate_positions_walkable(&w.map, &scenario_walk_positions(scenario), "scenario")?;
-        set_harness_real_map(&mut w, true);
         w
     };
     Ok(world)
@@ -437,9 +436,6 @@ fn spawn_entities(
         };
 
         monster_ids.push(monster_id);
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-            m.harness_spawn_order = (idx as u16).saturating_add(1);
-        }
         if harness_place_creature_login(world, monster_id, monster_pos).is_none()
         {
             return Err(format!(
@@ -489,11 +485,11 @@ fn execute_step(
     match step {
         ScenarioStep::AdvanceMs(ms) if defer_advance_drain => {
             clock.bump_wall_only(world, *ms);
-            set_sim_harness_segment_ms(world, Some(*ms));
+            set_sim_harness_segment_ms(Some(*ms));
         }
         ScenarioStep::AdvanceMs(ms) => {
             clock.advance(world, *ms);
-            set_sim_harness_segment_ms(world, Some(*ms));
+            set_sim_harness_segment_ms(Some(*ms));
         }
         ScenarioStep::MonsterAppear => {
             if !handles.monsters_appeared {
@@ -517,10 +513,7 @@ fn execute_step(
         ScenarioStep::PlayerWalk(x, y, ms) => {
             let pos = Position::new(*x, *y, scenario.z);
             clock.advance(world, *ms);
-            set_sim_harness_segment_ms(world, Some(*ms));
-            // C++ `chase_kite_scenario.cc` — `MoveCreatures` one-pass drain after defer pull,
-            // then `MoveKitePlayer` + `DrainTodoQueue` post-walk (not 64-round pre-walk drain).
-            clear_harness_appear_idle_defer(world, &handles.monster_ids);
+            set_sim_harness_segment_ms(Some(*ms));
             drain_todo_queue_once(world);
             walk_player_adjacent(world, handles.player_id, pos)?;
             let step = handles.player_walk_step;

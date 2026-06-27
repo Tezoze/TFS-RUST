@@ -457,7 +457,6 @@ impl GameWorld {
         trace_creature_todo(self, cid, "schedule_wakeup");
     }
 
-    /// Harness monsters use go-step tie; production paths use FIFO.
     /// C++ `TDGo` / `CalculateDelay` when `EarliestWalkTime` is unset — one beat from `server_ms` (`cract.cc:912`).
     fn todo_go_beat_delay_ms(&self, cid: CreatureId) -> u64 {
         let Some(k) = self.creatures.get(cid) else {
@@ -493,28 +492,8 @@ impl GameWorld {
                 .get(cid)
                 .map(|k| k.base().earliest_walk_server_ms)
                 .unwrap_or(0);
-            let mut calc_delay = if !first_step {
-                // Harness multi-step `ToDoGo` batches advance on scenario `advance_ms` walls,
-                // not NotifyGo-quantized step ms (`cract.cc:1521-1525` uses main-loop Beat).
-                if let Some(segment) = self.sim_harness_segment_ms {
-                    segment
-                } else if earliest > server_ms {
-                    earliest - server_ms
-                } else {
-                    self.todo_go_beat_delay_ms(cid)
-                }
-            } else if earliest > server_ms {
+            let calc_delay = if earliest > server_ms {
                 earliest - server_ms
-            } else if let (Some(wall), Some(segment)) =
-                (self.sim_harness_wall_ms, self.sim_harness_segment_ms)
-            {
-                // Harness first `ToDoGo` defers to the next scenario beat — same as later steps
-                // (`cract.cc:1521-1525` main-loop Beat; `chase_kite_scenario.cc` wall drain).
-                if self.server_ms == wall {
-                    segment
-                } else {
-                    self.todo_go_beat_delay_ms(cid)
-                }
             } else {
                 self.todo_go_beat_delay_ms(cid)
             };

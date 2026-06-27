@@ -109,23 +109,7 @@ impl GameWorld {
                     .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
             })
             .collect();
-        if self.harness_real_map {
-            // Bowl dual-monster — match C++ drain / JSONL order (spawn 2 before spawn 1).
-            ids.sort_by(|a, b| {
-                let order = |id: CreatureId| {
-                    self.creatures
-                        .get(id)
-                        .and_then(|k| match k {
-                            CreatureKind::Monster(m) => Some(m.harness_spawn_order),
-                            _ => None,
-                        })
-                        .unwrap_or(0)
-                };
-                order(*b).cmp(&order(*a))
-            });
-        } else {
-            ids.sort_by_key(|id| id.data().as_ffi());
-        }
+        ids.sort_by_key(|id| id.data().as_ffi());
         ids.dedup();
         ids
     }
@@ -197,7 +181,6 @@ impl GameWorld {
             }
             self.monster_on_follow_creature_moved(monster_id, creature_id, new_pos, has_path);
             self.monster_combat_creature_move_stimulus(monster_id, creature_id);
-            self.monster_harness_close_kite_restep_on_target_move(monster_id, creature_id);
             self.monster_close_chase_clear_pending_go_on_target_flee(monster_id, creature_id);
             let target_visible = self
                 .creatures
@@ -215,34 +198,6 @@ impl GameWorld {
                 }
             }
             return;
-        }
-
-        // Dual harness co-chase — log when a sibling monster moves (`chase_path_cip_realmap.log` @400/2000).
-        if self.harness_real_map
-            && self.beat_driven_loop
-            && creature_id != monster_id
-        {
-            let log_co_monster = self.creatures.get(creature_id).is_some_and(|k| {
-                matches!(k, CreatureKind::Monster(m) if m.harness_spawn_order > 0)
-            }) && self.creatures.get(monster_id).is_some_and(|k| {
-                matches!(k, CreatureKind::Monster(m) if m.harness_spawn_order > 0)
-            });
-            if log_co_monster {
-                if let (Some(CreatureKind::Monster(m)), Some(mover_pos)) = (
-                    self.creatures.get(monster_id),
-                    self.creatures.get(creature_id).map(|k| k.position()),
-                ) {
-                    let cheb = chebyshev(m.base.position, mover_pos);
-                    chase_debug::log_creature_move_stimulus(
-                        self.chase_trace_tick(),
-                        monster_id,
-                        m.base.name.as_str(),
-                        creature_id.data().as_ffi(),
-                        "move_stimulus",
-                        cheb,
-                    );
-                }
-            }
         }
 
         // TFS `Monster::onCreatureMove` — `monster.cpp` ~287–289: `selectTarget(creature)` only
@@ -480,7 +435,7 @@ impl GameWorld {
                 m.base.todo.locked,
             ))
         });
-        let Some((chase_mode, state, pos, target_pos, has_attack, has_go, todo_locked)) =
+        let Some((chase_mode, _state, pos, target_pos, has_attack, has_go, todo_locked)) =
             snapshot
         else {
             return;
@@ -491,11 +446,7 @@ impl GameWorld {
         if !has_attack || has_go {
             return;
         }
-        // C++ `LockToDo` during `TDAttack` drain (`crmain.cc:930-933`); real-map harness
-        // `player_walk` may arrive same tick after defer unlock — still re-arm when attacking.
-        let harness_attacking_kite = self.harness_real_map
-            && matches!(state, MonsterState::Attacking | MonsterState::Panic);
-        if !todo_locked && !harness_attacking_kite {
+        if !todo_locked {
             return;
         }
         // C++ `CreatureMoveStimulus` — only when strike is >200ms away (`crmain.cc:924`).
@@ -538,92 +489,6 @@ impl GameWorld {
             }
             MonsterEnqueueAttackResult::Noway => {
                 self.idle_stimulus(monster_id);
-            }
-            MonsterEnqueueAttackResult::Failed => {
-                self.monster_combat_handle_close_chase_blocked(monster_id);
-            }
-        }
-    }
-
-    /// Real-map combat-under-kite — re-arm chase when player leaves cheb 1 during stand/phase C.
-    ///
-    /// C++ `CreatureMoveStimulus` @8400/9000 on cyclops bowl (`crmain.cc:920-961`); harness path
-    /// when `TDAttack` is not mid-lock but strike is >200ms away and dist 2–4.
-    fn monster_harness_close_kite_restep_on_target_move(
-        &mut self,
-        monster_id: CreatureId,
-        target_id: CreatureId,
-    ) {
-        if !self.harness_real_map || !self.beat_driven_loop {
-            return;
-        }
-        let snapshot = self.creatures.get(monster_id).and_then(|k| {
-            let CreatureKind::Monster(m) = k else {
-                return None;
-            };
-            if m.harness_spawn_order == 0 || m.is_fleeing() {
-                return None;
-            }
-            if m.base.attack_target != Some(target_id) || m.target_distance > 1 {
-                return None;
-            }
-            if !matches!(m.state, MonsterState::Attacking | MonsterState::Panic) {
-                return None;
-            }
-            if m.chase_mode != MonsterChaseMode::Close {
-                return None;
-            }
-            let target_pos = self.creatures.get(target_id)?.position();
-            let cheb = chebyshev(m.base.position, target_pos);
-            if cheb < 2 || cheb > 4 {
-                return None;
-            }
-            if m.base.todo.has_go() || self.monster_close_chase_batch_in_flight(monster_id) {
-                return None;
-            }
-            if m.base.earliest_attack_ms <= self.server_ms.saturating_add(200) {
-                return None;
-            }
-            Some((cheb, m.base.todo.locked, m.base.todo.has_attack()))
-        });
-        let Some((cheb, todo_locked, has_attack)) = snapshot else {
-            return;
-        };
-        if todo_locked && has_attack {
-            return;
-        }
-        if let Some(k) = self.creatures.get_mut(monster_id) {
-            let base = k.base_mut();
-            base.todo.queue.clear();
-            base.todo.locked = false;
-            base.walk_queue.clear();
-            base.has_follow_path = false;
-            base.force_update_follow_path = true;
-            base.next_wakeup = None;
-        }
-        if !self.enqueue_creature_wait(monster_id, 200) {
-            return;
-        }
-        chase_debug::log_creature_move_stimulus(
-            self.chase_trace_tick(),
-            monster_id,
-            self.creatures
-                .get(monster_id)
-                .map(|k| k.base().name.as_str())
-                .unwrap_or("?"),
-            target_id.data().as_ffi(),
-            "combat_move_rearm",
-            cheb,
-        );
-        match self.monster_enqueue_todo_attack_actions(monster_id) {
-            MonsterEnqueueAttackResult::Enqueued => {
-                self.schedule_immediate_todo_wakeup(monster_id);
-            }
-            MonsterEnqueueAttackResult::Retry => {
-                self.idle_enqueue_wait_and_start(monster_id, MONSTER_IDLE_WAIT_MS);
-            }
-            MonsterEnqueueAttackResult::Noway => {
-                self.monster_idle_stimulus_after_creature_move(monster_id);
             }
             MonsterEnqueueAttackResult::Failed => {
                 self.monster_combat_handle_close_chase_blocked(monster_id);

@@ -577,18 +577,10 @@ impl GameWorld {
         let melee_realign = std::env::var("TFS_SIM_MELEE_REALIGN")
             .map(|v| !v.is_empty() && v != "0")
             .unwrap_or(true);
-        let harness_monsters = self
-            .creatures
-            .iter()
-            .filter(|(_, k)| {
-                matches!(k, CreatureKind::Monster(m) if m.harness_spawn_order > 0)
-            })
-            .count();
         if melee_realign
             && !self.beat_driven_loop
             && crate::sim_glibc_rand::sim_glibc_rng_enabled()
             && crate::sim_glibc_rand::sim_rng_call_count() > 2
-            && !(self.harness_real_map && harness_monsters > 1)
             && !crate::sim_glibc_rand::harness_melee_realign_done()
         {
             crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
@@ -2181,47 +2173,6 @@ impl GameWorld {
                 self.monster_start_chase_walk(cid, true);
             } else {
                 self.creature_start_auto_walk(cid);
-            }
-        }
-    }
-
-    /// Harness appear — face attack target without `walk_timer_idle` gate (C++ rotate @ tick 0).
-    pub(crate) fn monster_harness_face_attack_target(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
-        let (pos, target_id, current, harness) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (
-                m.base.position,
-                m.base.attack_target,
-                m.base.direction,
-                m.harness_spawn_order > 0,
-            ),
-            _ => return,
-        };
-        if !harness {
-            return;
-        }
-        let Some(target_id) = target_id else {
-            return;
-        };
-        let target_pos = match self.creatures.get(target_id) {
-            Some(k) => k.position(),
-            None => return,
-        };
-        let new_dir = compute_look_toward_target(pos, target_pos, current);
-        if new_dir != current {
-            creature_turn_with_broadcast(self, cid, new_dir);
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                    chase_debug::log_rotate(
-                        self.chase_trace_tick(),
-                        cid,
-                        m.base.name.as_str(),
-                        new_dir as u8,
-                        Some(target_id.data().as_ffi()),
-                    );
-                }
             }
         }
     }
@@ -4492,7 +4443,6 @@ mod world_tests {
                 MonsterState::Attacking,
             );
             if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
-                m.harness_spawn_order = (i as u16).saturating_add(1);
                 m.is_idle = false;
                 m.opponent_ids.push(player);
                 m.base.follow_target = Some(player);
@@ -4601,7 +4551,6 @@ mod world_tests {
                 MonsterState::Attacking,
             );
             if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
-                m.harness_spawn_order = (i as u16).saturating_add(1);
                 m.is_idle = false;
                 m.opponent_ids.push(player);
                 m.base.follow_target = Some(player);

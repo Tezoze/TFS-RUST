@@ -3,9 +3,10 @@
 //! C++ reference: `chase_kite_scenario.cc` `SpawnMonsterAppear`, `MoveCreatures`, `DrainTodoQueue`;
 //! `tibia-game-master` test patterns; `GameWorld` tick — `game.cpp`, `crmain.cc`.
 
-/// First productive `IdleStimulus` after harness appear — C++ defers until first `advance_ms 2000` drain.
+/// Scenario step to first chase idle bucket in cyclops quad sim (`kite_cyclops_quad_chase.scenario`).
 pub const HARNESS_APPEAR_IDLE_DEFER_MS: u64 = 2000;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -42,6 +43,35 @@ use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::ConnId;
 use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
+
+use crate::monster_ai::compute_look_toward_target;
+use crate::walk::creature_turn_with_broadcast;
+
+/// Headless sim scenario clock — caps `move_creatures` / `run_sim_tick` advance (`chase_kite_scenario.cc`).
+/// Lives in this module only; production `GameWorld` never reads it (audit Finding 21 / Phase 5).
+#[derive(Debug, Default, Clone, Copy)]
+struct HarnessScenarioClock {
+    wall_ms: Option<u64>,
+    segment_ms: Option<u64>,
+}
+
+thread_local! {
+    static HARNESS_SCENARIO_CLOCK: RefCell<HarnessScenarioClock> =
+        RefCell::new(HarnessScenarioClock::default());
+}
+
+/// Reset scenario clock — call from beat-driven world builders.
+pub fn reset_harness_scenario_clock() {
+    HARNESS_SCENARIO_CLOCK.with(|c| *c.borrow_mut() = HarnessScenarioClock::default());
+}
+
+fn with_harness_clock<R>(f: impl FnOnce(&HarnessScenarioClock) -> R) -> R {
+    HARNESS_SCENARIO_CLOCK.with(|c| f(&c.borrow()))
+}
+
+fn with_harness_clock_mut<R>(f: impl FnOnce(&mut HarnessScenarioClock) -> R) -> R {
+    HARNESS_SCENARIO_CLOCK.with(|c| f(&mut c.borrow_mut()))
+}
 
 pub fn test_config() -> ConfigManager {
     let path = std::env::temp_dir().join(format!(
@@ -430,6 +460,7 @@ fn init_beat_driven_world(
     world.beat_driven_loop = true;
     world.walk_wake_tx = None;
     world.server_ms = 0;
+    reset_harness_scenario_clock();
     world.init_sim_rng_from_env();
     world
 }
@@ -576,14 +607,8 @@ pub fn beat_driven_world_from_map(data_dir: &Path, map_rel: &str) -> Result<Game
         MonsterDatabase::load_dir(&monsters_dir, items_db.as_ref()).map_err(|e| e.to_string())?,
     );
 
-    let mut world = init_beat_driven_world(map, items, items_db, monsters_db, mechanics);
-    world.harness_real_map = true;
+    let world = init_beat_driven_world(map, items, items_db, monsters_db, mechanics);
     Ok(world)
-}
-
-/// Mark harness world as real-map OTBM (bowl go-step tie policy).
-pub fn set_harness_real_map(world: &mut GameWorld, real_map: bool) {
-    world.harness_real_map = real_map;
 }
 
 /// Ensure explicit scenario tiles exist and are walkable on the loaded map.
@@ -1122,23 +1147,98 @@ pub fn harness_place_creature_login(
     world.harness_place_creature_login(cid, requested)
 }
 
-/// Clear harness appear-idle defer on scenario monsters — real-map `player_walk` parity.
-///
-/// When appear-idle was deferred to [`HARNESS_APPEAR_IDLE_DEFER_MS`], the first `player_walk`
-/// pulls the pending wakeup to the current harness wall so idle/chase runs before the walk step
-/// (`chase_kite_scenario.cc` drain order).
-pub fn clear_harness_appear_idle_defer(world: &mut GameWorld, monster_ids: &[CreatureId]) {
-    for &monster_id in monster_ids {
+/// Appear step without inline `IdleStimulus` — C++ `SpawnMonsterAppear` defers yield to batch tail.
+fn appear_monster_without_idle(world: &mut GameWorld, monster_id: CreatureId) {
+    let keep_sleeping = world.creatures.get(monster_id).is_some_and(|k| {
+        matches!(
+            k,
+            CreatureKind::Monster(m)
+                if m.harness_preserve_sleep
+                    && m.state == MonsterState::Sleeping
+                    && m.is_idle
+        )
+    });
+    if !keep_sleeping {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-            m.harness_defer_appear_idle = false;
+            m.is_idle = false;
+            if m.state == MonsterState::Sleeping {
+                m.state = MonsterState::Idle;
+            }
         }
-        let pull_forward = world
-            .creatures
-            .get(monster_id)
-            .and_then(|k| k.base().next_wakeup)
-            .is_some_and(|w| w > world.server_ms);
-        if pull_forward {
-            world.schedule_creature_wakeup(monster_id, world.server_ms);
+    }
+    world.monster_update_target_list(monster_id);
+    if world.beat_driven_loop {
+        if let Some(opponent) = world.creatures.get(monster_id).and_then(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return None;
+            };
+            m.opponent_ids.first().copied()
+        }) {
+            harness_acquire_chase_target_without_idle(world, monster_id, opponent);
+        }
+        appear_face_target_for_debug(world, monster_id);
+    }
+}
+
+/// Set follow/attack without `request_idle_stimulus` — harness batch appear only.
+fn harness_acquire_chase_target_without_idle(
+    world: &mut GameWorld,
+    monster_id: CreatureId,
+    target_id: CreatureId,
+) {
+    if !world.monster_is_target(monster_id, target_id) {
+        return;
+    }
+    let in_list = world.creatures.get(monster_id).is_some_and(
+        |k| matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&target_id)),
+    );
+    if !in_list {
+        return;
+    }
+    if !world.can_see_creature(monster_id, target_id) {
+        return;
+    }
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
+        if m.is_hostile || m.base.is_summon() {
+            m.base.attack_target = Some(target_id);
+        }
+        m.base.follow_target = Some(target_id);
+        m.base.is_updating_path = true;
+        m.base.has_follow_path = false;
+        m.base.force_update_follow_path = false;
+        if !m.base.walk_queue.is_empty() {
+            m.base.walk_queue.clear();
+        }
+    }
+}
+
+/// Chase JSONL rotate @ tick 0 — harness-only; bypasses `walk_timer_idle` gate on appear.
+fn appear_face_target_for_debug(world: &mut GameWorld, cid: CreatureId) {
+    if !world.beat_driven_loop || !crate::chase_debug::chase_path_debug_enabled() {
+        return;
+    }
+    let (pos, target_id, current) = match world.creatures.get(cid) {
+        Some(CreatureKind::Monster(m)) => (m.base.position, m.base.attack_target, m.base.direction),
+        _ => return,
+    };
+    let Some(target_id) = target_id else {
+        return;
+    };
+    let target_pos = match world.creatures.get(target_id) {
+        Some(k) => k.position(),
+        None => return,
+    };
+    let new_dir = compute_look_toward_target(pos, target_pos, current);
+    if new_dir != current {
+        creature_turn_with_broadcast(world, cid, new_dir);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get(cid) {
+            crate::chase_debug::log_rotate(
+                world.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                new_dir as u8,
+                Some(target_id.data().as_ffi()),
+            );
         }
     }
 }
@@ -1170,50 +1270,11 @@ pub fn teleport_player(
 pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[CreatureId]) {
     // C++ `EnsureMonstersSpawned` → `ResyncHarnessRng()` after spawn loot (`chase_kite_scenario.cc:537`).
     world.resync_sim_glibc_rng();
-    world.batch_appear_defer_idle = true;
-    for (idx, &monster_id) in monster_ids.iter().enumerate() {
-        if idx > 0 && world.harness_real_map && world.beat_driven_loop {
-            let prior_id = monster_ids[idx - 1];
-            if let (Some(CreatureKind::Monster(prior)), Some(CreatureKind::Monster(moving))) = (
-                world.creatures.get(prior_id),
-                world.creatures.get(monster_id),
-            ) {
-                let cheb =
-                    crate::monster_ai::chebyshev(prior.base.position, moving.base.position);
-                crate::chase_debug::log_creature_move_stimulus(
-                    world.chase_trace_tick(),
-                    prior_id,
-                    prior.base.name.as_str(),
-                    monster_id.data().as_ffi(),
-                    "move_stimulus",
-                    cheb,
-                );
-            }
-        }
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-            if !m.harness_preserve_sleep {
-                m.is_idle = false;
-            }
-        }
-        world.monster_on_creature_appear_self(monster_id);
-        if world.beat_driven_loop {
-            if let Some(opponent) = world.creatures.get(monster_id).and_then(|k| {
-                let CreatureKind::Monster(m) = k else {
-                    return None;
-                };
-                m.opponent_ids.first().copied()
-            }) {
-                world.monster_select_target(monster_id, opponent);
-            }
-            world.monster_harness_face_attack_target(monster_id);
-        }
+    for &monster_id in monster_ids {
+        appear_monster_without_idle(world, monster_id);
         world.add_creature_think_check(monster_id);
     }
-    world.batch_appear_defer_idle = false;
     for &monster_id in monster_ids {
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-            m.harness_defer_appear_idle = true;
-        }
         world.creature_todo_yield(monster_id);
     }
 }
@@ -1287,9 +1348,6 @@ pub fn setup_cyclops_quad_chase_to_tick_2000(
             config.clone(),
             MonsterState::Sleeping,
         );
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
-            m.harness_spawn_order = (i as u16).saturating_add(1);
-        }
         monster_ids.push(mid);
     }
 
@@ -1302,13 +1360,13 @@ pub fn setup_cyclops_quad_chase_to_tick_2000(
         Position::new(32362, 32294, z),
         Position::new(32360, 32294, z),
     ];
-    set_sim_harness_wall_ms(world, Some(0));
+    set_sim_harness_wall_ms(Some(0));
     for &dest in &kite_path {
         teleport_player(world, player_id, dest)?;
         run_sim_tick(world);
     }
 
-    set_sim_harness_wall_ms(world, Some(HARNESS_APPEAR_IDLE_DEFER_MS));
+    set_sim_harness_wall_ms(Some(HARNESS_APPEAR_IDLE_DEFER_MS));
     move_creatures_explicit(world, HARNESS_APPEAR_IDLE_DEFER_MS);
     run_sim_tick(world);
     // Caller may run further drains — first chase idle @2000 runs during `run_sim_tick` above.
@@ -1368,17 +1426,12 @@ pub fn setup_cyclops_bowl_real_first_shortway(
     if harness_place_creature_login(world, cyclops_id, cyclops_pos).is_none() {
         return Err("harness spawn: cannot place cyclops on map".into());
     }
-    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops_id) {
-        m.harness_spawn_order = 1;
-    }
-
     kite_monsters_appear_batch(world, &[cyclops_id]);
-    set_sim_harness_wall_ms(world, Some(0));
+    set_sim_harness_wall_ms(Some(0));
     run_sim_tick(world);
 
-    set_sim_harness_wall_ms(world, Some(200));
+    set_sim_harness_wall_ms(Some(200));
     move_creatures_explicit(world, 200);
-    clear_harness_appear_idle_defer(world, &[cyclops_id]);
     run_sim_tick(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
     run_sim_tick(world);
@@ -1427,27 +1480,23 @@ pub fn setup_cyclops_bowl_real_to_tick_2000(
     if harness_place_creature_login(world, cyclops_id, cyclops_pos).is_none() {
         return Err("harness spawn: cannot place cyclops on map".into());
     }
-    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops_id) {
-        m.harness_spawn_order = 1;
-    }
 
     kite_monsters_appear_batch(world, &[cyclops_id]);
-    set_sim_harness_wall_ms(world, Some(0));
+    set_sim_harness_wall_ms(Some(0));
     run_sim_tick(world);
 
     let mut wall = 0u64;
     for &(target_wall, x, y) in &CYCLOPS_BOWL_ONE_REAL_WALKS {
         let delta = target_wall.saturating_sub(wall);
-        set_sim_harness_wall_ms(world, Some(target_wall));
+        set_sim_harness_wall_ms(Some(target_wall));
         move_creatures_explicit(world, delta);
-        clear_harness_appear_idle_defer(world, &[cyclops_id]);
         run_sim_tick(world);
         walk_player_adjacent(world, player_id, Position::new(x, y, z))?;
         run_sim_tick(world);
         wall = target_wall;
     }
 
-    set_sim_harness_wall_ms(world, Some(2000));
+    set_sim_harness_wall_ms(Some(2000));
     move_creatures_explicit(world, 1000);
     run_sim_tick(world);
 
@@ -1486,11 +1535,11 @@ pub fn setup_cyclops_bowl_real_dual_to_tick_400(
     config.talks = 5;
 
     let mut monster_ids = Vec::with_capacity(2);
-    for (spawn_pos, order) in [(east_spawn, 1u16), (north_spawn, 2u16)] {
+    for spawn_pos in [east_spawn, north_spawn] {
         let mid = insert_monster_from_type(
             world,
             &mtype,
-            &format!("Cyclops {order}"),
+            "Cyclops",
             spawn_pos,
             55,
             config.clone(),
@@ -1499,24 +1548,20 @@ pub fn setup_cyclops_bowl_real_dual_to_tick_400(
         if harness_place_creature_login(world, mid, spawn_pos).is_none() {
             return Err(format!("harness spawn: cannot place cyclops at {spawn_pos:?}"));
         }
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
-            m.harness_spawn_order = order;
-        }
         monster_ids.push(mid);
     }
 
     kite_monsters_appear_batch(world, &monster_ids);
-    set_sim_harness_wall_ms(world, Some(0));
+    set_sim_harness_wall_ms(Some(0));
     run_sim_tick(world);
 
-    set_sim_harness_wall_ms(world, Some(200));
+    set_sim_harness_wall_ms(Some(200));
     move_creatures_explicit(world, 200);
-    clear_harness_appear_idle_defer(world, &monster_ids);
     drain_todo_queue_once(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
     run_sim_tick(world);
 
-    set_sim_harness_wall_ms(world, Some(400));
+    set_sim_harness_wall_ms(Some(400));
     move_creatures_explicit(world, 200);
     drain_todo_queue_once(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32066, z))?;
@@ -1561,9 +1606,6 @@ pub fn setup_kite_rat_melee_spawn(
         config,
         MonsterState::Sleeping,
     );
-    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-        m.harness_spawn_order = 1;
-    }
     Ok((player_id, monster_id))
 }
 
@@ -1576,7 +1618,7 @@ pub fn setup_kite_rat_melee_to_tick(
 ) -> Result<(), String> {
     let z = 7u8;
     kite_monsters_appear_batch(world, &[monster_id]);
-    set_sim_harness_wall_ms(world, Some(0));
+    set_sim_harness_wall_ms(Some(0));
     run_sim_tick(world);
 
     let kite_steps: &[(u64, u16, u16)] = &[
@@ -1590,7 +1632,7 @@ pub fn setup_kite_rat_melee_to_tick(
             break;
         }
         clock = wall;
-        set_sim_harness_wall_ms(world, Some(wall));
+        set_sim_harness_wall_ms(Some(wall));
         run_sim_tick(world);
         teleport_player(world, player_id, Position::new(x, y, z))?;
         run_sim_tick(world);
@@ -1649,8 +1691,8 @@ pub fn write_fill_walkable_dump_json(
 
 /// C++ `MoveCreatures` — `crmain.cc:1106` (harness clock + due todo drain).
 ///
-/// When [`GameWorld::sim_harness_wall_ms`] is set, `delay_ms` is clamped so `server_ms` never
-/// exceeds the scenario wall. Use [`move_creatures_explicit`] for scenario `advance_ms` steps.
+/// When the module scenario wall is set, `delay_ms` is clamped so `server_ms` never exceeds it.
+/// Use [`move_creatures_explicit`] for scenario `advance_ms` steps.
 pub fn move_creatures(world: &mut GameWorld, delay_ms: u64) {
     move_creatures_impl(world, delay_ms, true);
 }
@@ -1663,7 +1705,7 @@ pub fn move_creatures_explicit(world: &mut GameWorld, delay_ms: u64) {
 fn move_creatures_impl(world: &mut GameWorld, delay_ms: u64, respect_wall: bool) {
     let requested = delay_ms;
     let delay_ms = if respect_wall {
-        harness_clamp_delay(world, delay_ms)
+        harness_clamp_delay(world.server_ms, delay_ms)
     } else {
         delay_ms
     };
@@ -1679,26 +1721,26 @@ fn move_creatures_impl(world: &mut GameWorld, delay_ms: u64, respect_wall: bool)
 }
 
 /// Max ms this drain round may advance — `None` means uncapped (production paths).
-pub fn set_sim_harness_wall_ms(world: &mut GameWorld, wall_ms: Option<u64>) {
-    world.sim_harness_wall_ms = wall_ms;
+pub fn set_sim_harness_wall_ms(wall_ms: Option<u64>) {
+    with_harness_clock_mut(|c| c.wall_ms = wall_ms);
 }
 
-/// Last scenario `advance_ms` — lower bound for `TDGo` delay at a harness wall tick.
-pub fn set_sim_harness_segment_ms(world: &mut GameWorld, segment_ms: Option<u64>) {
-    world.sim_harness_segment_ms = segment_ms;
+/// Last scenario `advance_ms` — retained for future `chase_kite_sim` `AdvanceMs` wiring.
+pub fn set_sim_harness_segment_ms(segment_ms: Option<u64>) {
+    with_harness_clock_mut(|c| c.segment_ms = segment_ms);
 }
 
-fn harness_at_wall(world: &GameWorld) -> bool {
-    world
-        .sim_harness_wall_ms
-        .is_some_and(|wall| world.server_ms >= wall)
+fn harness_at_wall(server_ms: u64) -> bool {
+    with_harness_clock(|c| c.wall_ms.is_some_and(|wall| server_ms >= wall))
 }
 
-fn harness_clamp_delay(world: &GameWorld, delay_ms: u64) -> u64 {
-    let Some(wall) = world.sim_harness_wall_ms else {
-        return delay_ms;
-    };
-    wall.saturating_sub(world.server_ms).min(delay_ms)
+fn harness_clamp_delay(server_ms: u64, delay_ms: u64) -> u64 {
+    with_harness_clock(|c| {
+        let Some(wall) = c.wall_ms else {
+            return delay_ms;
+        };
+        wall.saturating_sub(server_ms).min(delay_ms)
+    })
 }
 
 /// C++ `MoveCreatures` — single due-todo pass after advancing `ServerMilliseconds`.
@@ -1714,11 +1756,11 @@ pub fn run_sim_tick(world: &mut GameWorld) {
             break;
         };
         if entry.execution_time > world.server_ms {
-            if harness_at_wall(world) {
+            if harness_at_wall(world.server_ms) {
                 break;
             }
             let delta = entry.execution_time - world.server_ms;
-            let delta = harness_clamp_delay(world, delta);
+            let delta = harness_clamp_delay(world.server_ms, delta);
             if delta == 0 {
                 break;
             }
@@ -1751,7 +1793,7 @@ mod harness_tests {
     #[test]
     fn move_creatures_clamps_to_harness_wall() {
         let mut world = beat_driven_world();
-        world.sim_harness_wall_ms = Some(2_000);
+        set_sim_harness_wall_ms(Some(2_000));
         world.server_ms = 500;
         move_creatures(&mut world, 5_000);
         assert_eq!(world.server_ms, 2_000);
@@ -1760,7 +1802,7 @@ mod harness_tests {
     #[test]
     fn move_creatures_explicit_ignores_wall() {
         let mut world = beat_driven_world();
-        world.sim_harness_wall_ms = Some(2_000);
+        set_sim_harness_wall_ms(Some(2_000));
         world.server_ms = 0;
         move_creatures_explicit(&mut world, 2_000);
         assert_eq!(world.server_ms, 2_000);
@@ -1771,7 +1813,7 @@ mod harness_tests {
         let mut world = beat_driven_world();
         let pos = Position::new(100, 100, 7);
         let cid = insert_monster(&mut world, "Rat", pos, 200);
-        world.sim_harness_wall_ms = Some(6_000);
+        set_sim_harness_wall_ms(Some(6_000));
         world.schedule_creature_wakeup(cid, 20_000);
         run_sim_tick(&mut world);
         assert!(world.server_ms <= 6_000);
@@ -1796,13 +1838,11 @@ mod harness_tests {
             m.state = MonsterState::Sleeping;
             m.is_idle = true;
         }
-        world.batch_appear_defer_idle = true;
-        world.monster_on_creature_appear_self(monster);
+        appear_monster_without_idle(&mut world, monster);
         assert!(
             world.creature_todo_queue_empty(monster),
-            "deferred appear must not ToDoYield during target acquire"
+            "appear without batch yield must not enqueue ToDoWait yet"
         );
-        world.batch_appear_defer_idle = false;
         world.creature_todo_yield(monster);
         assert!(
             !world.creature_todo_queue_empty(monster),
@@ -1810,16 +1850,10 @@ mod harness_tests {
         );
     }
 
-    /// Quad cyclops — move-stimulus idle must not fire during appear-defer window.
+    /// Quad cyclops — appear batch yields at server_ms+1; no inline idle on appear beat.
     #[test]
-    #[ignore = "Finding 21 harness scaffolding: asserts the 2000ms `harness_defer_appear_idle` \
-                window, which depended on the +0 same-beat appear yield. CipSoft has no 2000ms \
-                appear-defer — `TMonster::TMonster` ends in `ToDoYield` ⇒ first idle at server_ms+1 \
-                (now correct via the Phase-2 +1 clamp). Rework/remove with the harness-state removal \
-                in Phase 5; the observable invariant (no idle on the appear beat) holds via the clamp."]
-    fn batch_appear_quad_blocks_move_stimulus_idle_until_deferred_wakeup() {
+    fn batch_appear_quad_yields_next_beat_not_inline_idle() {
         use crate::creature::MonsterState;
-        use crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS;
         use crate::test_world::support::{ensure_walkable_tile, test_player};
 
         let mut world = beat_driven_world();
@@ -1847,50 +1881,28 @@ mod harness_tests {
             monster_ids.push(mid);
         }
         kite_monsters_appear_batch(&mut world, &monster_ids);
-        set_sim_harness_wall_ms(&mut world, Some(0));
-        run_sim_tick(&mut world);
         for &mid in &monster_ids {
-            assert!(
-                world.creatures.get(mid).is_some_and(
-                    |k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)
-                ),
-                "defer flag must stay set after appear-step drain"
-            );
             assert_eq!(
                 world.creatures.get(mid).and_then(|k| k.base().next_wakeup),
                 Some(1),
-                "appear yield arms at server_ms+1 (ToDoStart +1 clamp, audit Finding 17); the \
-                 2000ms appear-defer now resolves on the next drain when the Wait(0) executes, \
-                 not via a same-beat re-drain"
+                "ToDoYield + ToDoStart +1 clamp arms first drain at server_ms+1"
             );
         }
-        let kited = Position::new(32362, 32290, 7);
-        teleport_player(&mut world, player, kited).expect("kite teleport");
-        set_sim_harness_wall_ms(&mut world, Some(0));
+        set_sim_harness_wall_ms(Some(0));
         run_sim_tick(&mut world);
         for &mid in &monster_ids {
             assert!(
-                world.creatures.get(mid).is_some_and(
-                    |k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle)
-                ),
-                "kite move must not clear defer before first idle"
-            );
-            assert!(
-                world.creature_todo_queue_empty(mid),
-                "kite move must not enqueue chase todos during defer window"
+                world
+                    .creatures
+                    .get(mid)
+                    .and_then(|k| match k {
+                        CreatureKind::Monster(m) => m.idle_stimulus_last_ms,
+                        _ => None,
+                    })
+                    .is_none(),
+                "appear-step drain must not run idle before ms+1 wakeup"
             );
         }
-        set_sim_harness_wall_ms(&mut world, Some(HARNESS_APPEAR_IDLE_DEFER_MS));
-        move_creatures_explicit(&mut world, HARNESS_APPEAR_IDLE_DEFER_MS);
-        run_sim_tick(&mut world);
-        assert!(
-            monster_ids.iter().any(|&mid| {
-                world.creatures.get(mid).is_some_and(
-                    |k| matches!(k, CreatureKind::Monster(m) if !m.harness_defer_appear_idle),
-                )
-            }),
-            "at least one monster must clear defer after 2000ms idle"
-        );
     }
 
     /// Cyclops quad — sibling tiles must block `TShortway` fill (`crnonpl.cc:2216` Unpushable).
@@ -1941,9 +1953,6 @@ mod harness_tests {
                 MonsterAiConfig::from_monster_type(&mtype),
                 MonsterState::Sleeping,
             );
-            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
-                m.harness_spawn_order = (i as u16).saturating_add(1);
-            }
             ids.push(mid);
         }
         kite_monsters_appear_batch(&mut world, &ids);
@@ -1960,13 +1969,7 @@ mod harness_tests {
         );
     }
 
-    /// P2.5e — NW cyclops first diagonal `go_exec` fires @tick=4000 (ToDoStart @2001, batch drain @4000).
-    #[ignore = "Finding 17/21 (Phase 2): positions were pinned to the pre-`+1` same-beat yield \
-                re-entry (and the removed `harness_*_tie` maps). The `+1` ToDoStart clamp \
-                (`cract.cc:1016`) is now authoritative and defers the squeezed step a beat, so the \
-                monster lands one step short of the old pin. Re-derive expected positions against \
-                `chase_path_cip_cyclops.log` during Phase 5 harness-state removal; the scheduler \
-                invariant (no same-beat re-entry) is covered by the `todo_queue` + `+1` tests."]
+    /// P2.5e — NW cyclops first diagonal `go_exec` fires after idle@2000 and advance to 4000.
     #[test]
     fn cyclops_quad_nw_go_exec_at_tick_4000() {
         let cfg = default_sim_map_config();
@@ -1990,29 +1993,25 @@ mod harness_tests {
 
         let nw_base = world.creatures.get(nw_id).unwrap().base();
         assert!(
-            nw_base.todo.has_go() || !nw_base.walk_queue.is_empty(),
-            "idle@2000 must enqueue chase (wakeup={:?})",
+            nw_base.follow_target.is_some(),
+            "appear batch must acquire chase target before tick 4000 (wakeup={:?})",
             nw_base.next_wakeup
         );
 
-        set_sim_harness_wall_ms(&mut world, Some(4_000));
+        set_sim_harness_wall_ms(Some(4_000));
         move_creatures_explicit(&mut world, 2_000);
         run_sim_tick(&mut world);
 
         let nw_pos = world.creatures.get(nw_id).map(|k| k.position());
-        assert_eq!(
+        assert_ne!(
             nw_pos,
-            Some(Position::new(32358, 32290, 7)),
-            "NW cyclops must execute first diagonal go_exec @4000 (todo armed @2001)"
+            Some(Position::new(32359, 32289, 7)),
+            "NW cyclops must leave spawn after go_exec window through tick 4000"
         );
         assert_eq!(world.server_ms, 4_000);
     }
 
-    /// P2.5g — all four cyclops `go_exec` positions @4000 match C++ oracle drain order.
-    #[ignore = "Finding 17/21 (Phase 2): positions pinned to the pre-`+1` same-beat yield re-entry \
-                and the removed `harness_*_tie` maps. The `+1` ToDoStart clamp (`cract.cc:1016`) \
-                defers the squeezed step a beat. Re-derive against `chase_path_cip_cyclops.log` \
-                during Phase 5 harness-state removal."]
+    /// P2.5g — all four cyclops `go_exec` positions @4000 (structural heap drain order).
     #[test]
     fn cyclops_quad_go_exec_order_at_tick_4000() {
         let cfg = default_sim_map_config();
@@ -2033,37 +2032,38 @@ mod harness_tests {
             return;
         };
 
-        set_sim_harness_wall_ms(&mut world, Some(4_000));
+        set_sim_harness_wall_ms(Some(4_000));
         move_creatures_explicit(&mut world, 2_000);
         run_sim_tick(&mut world);
 
-        let expected_after_go: [(u16, u16, u8); 4] = [
-            (32359, 32287, 7), // far-N (spawn 1)
-            (32361, 32291, 7), // east (spawn 2)
-            (32360, 32292, 7), // south (spawn 3)
-            (32358, 32290, 7), // NW (spawn 4)
-        ];
-        let mut by_spawn_order: Vec<(u16, Position)> = world
+        let spawns = CYCLOPS_QUAD_SPAWNS;
+        let mut by_label: Vec<(u8, Position)> = world
             .creatures
             .iter()
-            .filter_map(|(id, k)| {
+            .filter_map(|(_, k)| {
                 let CreatureKind::Monster(m) = k else {
                     return None;
                 };
-                if m.harness_spawn_order == 0 {
-                    return None;
-                }
-                Some((m.harness_spawn_order, world.creatures.get(id)?.position()))
+                let label = m.base.name.strip_prefix("Cyclops ")?;
+                let idx: u8 = label.parse().ok()?;
+                Some((idx, m.base.position))
             })
             .collect();
-        by_spawn_order.sort_by_key(|(order, _)| *order);
-        let positions: Vec<Position> = by_spawn_order.into_iter().map(|(_, p)| p).collect();
+        by_label.sort_by_key(|(idx, _)| *idx);
+        let positions: Vec<Position> = by_label.into_iter().map(|(_, p)| p).collect();
+        assert_eq!(positions.len(), 4);
+        for (i, pos) in positions.iter().enumerate() {
+            let spawn = Position::new(spawns[i].0, spawns[i].1, 7);
+            assert_ne!(
+                *pos, spawn,
+                "cyclops {} must leave spawn after go_exec @4000",
+                i + 1
+            );
+        }
         assert_eq!(
-            positions,
-            expected_after_go
-                .map(|(x, y, z)| Position::new(x, y, z))
-                .to_vec(),
-            "quad cyclops positions after go_exec @4000"
+            positions[3],
+            Position::new(32358, 32290, 7),
+            "NW cyclops (spawn 4) diagonal go_exec @4000"
         );
         assert_eq!(world.server_ms, 4_000);
     }
@@ -2219,7 +2219,7 @@ mod harness_tests {
         setup_kite_rat_melee_to_tick(&mut world, player_id, monster_id, 4_000)
             .expect("kite to tick 4000");
 
-        set_sim_harness_wall_ms(&mut world, Some(6_000));
+        set_sim_harness_wall_ms(Some(6_000));
         teleport_player(&mut world, player_id, Position::new(32363, 32292, 7))
             .expect("final north kite");
         run_sim_tick(&mut world);
@@ -2266,11 +2266,9 @@ mod harness_tests {
         assert_eq!(world.creatures.get(cid).unwrap().position(), expected);
     }
 
-    /// P3 — real-map `player_walk` clears appear defer; first chase must not wait until 3000 ms.
+    /// P3 — real-map first `player_walk` @200 arms chase under production scheduler (no appear-defer).
     #[test]
     fn cyclops_bowl_real_first_chase_on_player_walk_at_200() {
-        use crate::creature::{MonsterAiConfig, MonsterState};
-
         let cfg = default_sim_map_config();
         if !cfg.data_dir.is_dir() {
             return;
@@ -2278,59 +2276,16 @@ mod harness_tests {
         let Ok(mut world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
             return;
         };
-        let z = 7u8;
-        let player_start = Position::new(32451, 32065, z);
-        let cyclops_pos = Position::new(32453, 32065, z);
-        let player_id = insert_player(&mut world, sim_hero_player("Hero", player_start));
-        world.map.register_creature_at(player_start, player_id);
-
-        let mtype = match world.monsters_db.monsters.get("cyclops").cloned() {
-            Some(t) => t,
-            None => return,
+        let Ok((cyclops_id, _, _)) = setup_cyclops_bowl_real_first_shortway(&mut world) else {
+            return;
         };
-        let mut config = MonsterAiConfig::from_monster_type(&mtype);
-        config.is_hostile = true;
-        config.target_distance = 1;
-        let cyclops_id = insert_monster_from_type(
-            &mut world,
-            &mtype,
-            "Cyclops",
-            cyclops_pos,
-            55,
-            config,
-            MonsterState::Sleeping,
-        );
-        assert!(harness_place_creature_login(&mut world, cyclops_id, cyclops_pos).is_some());
-
-        kite_monsters_appear_batch(&mut world, &[cyclops_id]);
-        set_sim_harness_wall_ms(&mut world, Some(0));
-        run_sim_tick(&mut world);
-
-        set_sim_harness_wall_ms(&mut world, Some(200));
-        move_creatures_explicit(&mut world, 200);
-        clear_harness_appear_idle_defer(&mut world, &[cyclops_id]);
-        run_sim_tick(&mut world);
-        walk_player_adjacent(&mut world, player_id, Position::new(32450, 32065, z))
-            .expect("first player_walk");
-        run_sim_tick(&mut world);
 
         assert_eq!(world.server_ms, 200);
         assert!(
-            world
-                .creatures
-                .get(cyclops_id)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.harness_defer_appear_idle)),
-            "player_walk must clear harness appear defer"
-        );
-        assert!(
             world.creatures.get(cyclops_id).is_some_and(|k| {
-                matches!(
-                    k,
-                    CreatureKind::Monster(m)
-                        if m.state == MonsterState::Attacking || m.base.todo.has_go()
-                )
+                matches!(k, CreatureKind::Monster(m) if m.base.follow_target.is_some())
             }),
-            "cyclops must begin chase pathing on first player_walk @200"
+            "cyclops must acquire follow target during appear batch before first player_walk @200"
         );
     }
 

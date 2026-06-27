@@ -133,14 +133,6 @@ pub struct GameWorld {
     pub(crate) ai_rng: StdRng,
     /// Per-world glibc parity stream for 772 — avoids process-global `libc::srand` (Finding 8/15).
     pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
-    /// Headless sim only — cap `move_creatures` / `run_sim_tick` time advance (`chase_kite_scenario.cc`).
-    pub(crate) sim_harness_wall_ms: Option<u64>,
-    /// Last `advance_ms` step — min go delay when arming at the harness wall (`kite_rat_melee.scenario`).
-    pub(crate) sim_harness_segment_ms: Option<u64>,
-    /// Harness batch appear — defer `request_idle_stimulus` until explicit `creature_todo_yield` pass.
-    pub(crate) batch_appear_defer_idle: bool,
-    /// Real-map OTBM harness (`kite_cyclops_*_real`) — use bowl go-step tie, not synthetic quad.
-    pub(crate) harness_real_map: bool,
 }
 
 impl GameWorld {
@@ -317,10 +309,6 @@ impl GameWorld {
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
-            sim_harness_wall_ms: None,
-            sim_harness_segment_ms: None,
-            batch_appear_defer_idle: false,
-            harness_real_map: false,
         }
     }
 

@@ -121,16 +121,6 @@ impl GameWorld {
         if !self.creature_todo_queue_empty(cid) {
             return;
         }
-        if self.batch_appear_defer_idle {
-            return;
-        }
-        if self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle))
-        {
-            return;
-        }
         if self.creatures.get(cid).is_some_and(|k| {
             matches!(
                 k,
@@ -273,8 +263,6 @@ impl GameWorld {
 
         if state_changed || was_sleeping {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(victim_id) {
-                // C++ `DamageStimulus` — `ToDoYield` without inline idle on the damage-step drain.
-                m.harness_defer_appear_idle = true;
                 // First melee after damage lands on the second post-damage idle (`tick=4000` in panic sim).
                 m.base.delay_attack_ms(self.server_ms, 4000);
             }
@@ -950,8 +938,6 @@ impl GameWorld {
         }
         if self.beat_driven_loop {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                // Appear/damage defer window ends when the first deferred idle actually runs.
-                m.harness_defer_appear_idle = false;
                 m.idle_stimulus_last_ms = Some(self.server_ms);
                 // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
                 m.last_combat_trace = None;
@@ -1401,11 +1387,6 @@ impl GameWorld {
         if !self.beat_driven_loop {
             return;
         }
-        // Real-map harness — `CloseAttack` / harness face owns rotate; idle tail duplicate
-        // adds extra JSONL @8000/@10000 (`chase_path_cip_realmap.log`).
-        if self.harness_real_map {
-            return;
-        }
         let should_rotate = self.creatures.get(cid).is_some_and(|k| {
             let CreatureKind::Monster(m) = k else {
                 return false;
@@ -1786,9 +1767,7 @@ impl GameWorld {
                 }
             }
             MonsterIdleWalkBranch::MeleeDance => {
-                if self.monster_idle_suppress_harness_post_go_melee_dance(cid) {
-                    MonsterIdleWalkOutcome::Hold
-                } else if self.monster_idle_dance_step(cid) {
+                if self.monster_idle_dance_step(cid) {
                     let queued = self.creatures.get(cid).is_some_and(|k| {
                         !k.base().walk_queue.is_empty()
                     });
@@ -2163,46 +2142,6 @@ impl GameWorld {
         self.monster_idle_stimulus(cid);
     }
 
-    /// Suppress trailing adjacent `melee_dance` when a `ToDoGo` step just landed on the
-    /// harness wall tick (`kite_rat_stand_melee` / `kite_rat_panic`). Combat tail still runs.
-    fn monster_idle_suppress_harness_post_go_melee_dance(&self, cid: CreatureId) -> bool {
-        if self.harness_real_map {
-            return false;
-        }
-        if !self.beat_driven_loop {
-            return false;
-        }
-        let Some(wall) = self.sim_harness_wall_ms else {
-            return false;
-        };
-        if self.server_ms != wall {
-            return false;
-        }
-        self.creatures.get(cid).is_some_and(|k| {
-            let CreatureKind::Monster(m) = k else {
-                return false;
-            };
-            if m.is_fleeing() {
-                return false;
-            }
-            let Some(follow) = m.base.follow_target else {
-                return false;
-            };
-            let tpos = self
-                .creatures
-                .get(follow)
-                .map(|t| t.position())
-                .unwrap_or(m.base.position);
-            let target_distance = self.monster_effective_target_distance(m.target_distance);
-            let dist = chebyshev(m.base.position, tpos);
-            target_distance <= 1
-                && dist == 1
-                && m.base
-                    .last_step_server_ms
-                    .is_some_and(|step| step == wall)
-        })
-    }
-
     /// Run one queued action (772 monsters).
     pub(crate) fn run_monster_todo_execute(&mut self, cid: CreatureId) {
         match self.execute_creature_todo_action(cid) {
@@ -2227,25 +2166,6 @@ impl GameWorld {
                 }
             }
             Some(TodoExecuteKind::Wait) => {
-                let defer_appear_idle = self.creatures.get(cid).is_some_and(
-                    |k| matches!(k, CreatureKind::Monster(m) if m.harness_defer_appear_idle),
-                );
-                if defer_appear_idle {
-                    // C++ `SpawnMonsterAppear` — `ToDoYield` queues yield; first `IdleStimulus`
-                    // runs on the first `advance_ms 2000` drain, not the appear-step drain.
-                    if self.server_ms >= crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS {
-                        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                            m.harness_defer_appear_idle = false;
-                        }
-                        self.monster_idle_stimulus(cid);
-                    } else {
-                        let remaining = crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS
-                            .saturating_sub(self.server_ms)
-                            .max(1);
-                        self.todo_start_from_action(cid, remaining);
-                    }
-                    return;
-                }
                 // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
                 // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
                 if self.creature_todo_queue_empty(cid) {

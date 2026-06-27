@@ -177,10 +177,6 @@ pub struct Monster {
     pub is_idle: bool,
     /// E6 harness — keep `Sleeping` posture until `player_damage` when scenario sets `monster_state sleeping`.
     pub harness_preserve_sleep: bool,
-    /// Chase harness — skip inline `IdleStimulus` on appear `ToDoWait(0)`; arm first idle at next drain window.
-    pub harness_defer_appear_idle: bool,
-    /// Sim harness spawn index — `ToDoQueue` tie-break for multi-monster idle @ same ms.
-    pub harness_spawn_order: u16,
     /// X3 — one adjacent `melee_dance` before `runonhealth` flee wins (`crnonpl.cc` idle order).
     pub flee_opening_melee_dance_done: bool,
     /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
@@ -247,8 +243,6 @@ impl Monster {
             is_hostile: config.is_hostile,
             is_idle: true,
             harness_preserve_sleep: false,
-            harness_defer_appear_idle: false,
-            harness_spawn_order: 0,
             flee_opening_melee_dance_done: false,
             state: MonsterState::Sleeping,
             chase_mode: MonsterChaseMode::None,

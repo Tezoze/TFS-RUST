@@ -1457,4 +1457,25 @@ schedules, and monster idle RNG; per-action `Earliest*Time` replaces unified `ne
 - Pre-existing: `shipped_772_formulas_match_profile_defaults` still fails (`step_beat_ms` 200 vs 50
   in shipped `772.lua` — unrelated walk-quantizer authority; see `CODEBASE_AUDIT.md`).
 
-*Next milestone: Phase 5 — remove harness fields from production (see roadmap above).*
+*Next milestone: Phase 6 — loop completeness & subsystem semantics (see roadmap above).*
+
+## Phase 5 — DONE (remove harness state from production — Finding 21)
+
+**Scope landed:** all `sim_harness_*` / harness scheduler fields removed from `GameWorld`, `Monster`, and production scheduling paths. Harness scenario clock lives in `sim_harness.rs` only (`HarnessScenarioClock` thread-local). The harness drives the engine via spawns, `move_creatures` / `advance_beat_772`, and player teleports/walks — never by injecting production scheduler state.
+
+### Done
+
+- **Deleted from production:** `GameWorld::{sim_harness_wall_ms, sim_harness_segment_ms, batch_appear_defer_idle, harness_real_map}`; `Monster::{harness_defer_appear_idle, harness_spawn_order}`.
+- **`todo_start_go_delay`:** production-only path — `earliest_walk_server_ms` delta or `todo_go_beat_delay_ms` (NotifyGo / `CalculateDelay`); no scenario wall/segment substitution.
+- **`idle_stimulus` / `monster_events` / `monster_ai`:** removed defer flags, harness rotate skip, spawn-order move-stimulus sort, `harness_attacking_kite` LockToDo bypass, `monster_harness_close_kite_restep_on_target_move`, `monster_harness_face_attack_target`, melee-realign spawn-order gate, post-go melee-dance suppress.
+- **`sim_harness`:** module-local `HarnessScenarioClock` + `set_sim_harness_wall_ms` / `set_sim_harness_segment_ms`; `kite_monsters_appear_batch` uses `appear_monster_without_idle` + batch `creature_todo_yield` (no production hooks); `harness_acquire_chase_target_without_idle` for target pick without inline idle.
+- **`chase_kite_sim`:** updated to module clock API; removed `harness_spawn_order`, `set_harness_real_map`, `clear_harness_appear_idle_defer`.
+- **Tests:** unignored/reworked cyclops quad tests with structural assertions (all leave spawn; NW @ `(32358,32290)`); replaced harness-defer quad test with `+1`-clamp appear invariant.
+
+### Verification (Phase 5)
+
+- Grep gate — zero hits for deleted fields in `crates/tfs-rust-core/src` outside `sim_harness.rs`.
+- `cargo test -p tfs-rust-core --lib --test-threads=1` — **383 pass**, 2 ignored (`cyclops_bowl_real_dual_go_exec_order_at_tick_400`, pre-existing).
+- `cargo check -p tfs-rust-core` — clean (warnings only).
+
+*Known follow-ups (Phase 6): Finding 19 Beat quantizer for chained `TDGo`; Finding 24 spatial move-stimulus fan-out; exact multi-cyclops positions remain RNG-sensitive without per-test seed.*
