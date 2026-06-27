@@ -329,29 +329,48 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 
 impl GameWorld {
     /// Drain the global ToDoQueue for entries due at or before [`Self::server_ms`].
+    ///
+    /// C++ `MoveCreatures` (`crmain.cc:1144`) drains unconditionally
+    /// (`while ToDoQueue.Entries > 0 && top.Key <= ServerMilliseconds`). The `+1` re-insertion clamp
+    /// (`ToDoStart`, audit Finding 17) guarantees a re-armed creature lands strictly in the future,
+    /// so this cannot spin within a beat — no per-beat cap is needed (audit Finding 10).
     pub fn drain_todo_queue(&mut self) {
-        const MAX_DRAINS_PER_BEAT: usize = 4096;
+        // Safety valve only: the `+1` clamp makes same-beat re-entry impossible, so this bound is
+        // never reached in correct operation. If it ever trips it indicates a re-arm at
+        // `<= server_ms` (a real bug) — log loudly rather than silently deferring work.
+        const RUNAWAY_GUARD: usize = 1_000_000;
         let mut drained = 0usize;
-        let due_limit = self.server_ms;
-        while drained < MAX_DRAINS_PER_BEAT {
+        loop {
             let Some(entry) = self.todo_queue.peek() else {
                 break;
             };
-            if entry.execution_time > due_limit {
+            if entry.execution_time > self.server_ms {
+                break;
+            }
+            if drained >= RUNAWAY_GUARD {
+                tracing::error!(
+                    server_ms = self.server_ms,
+                    "drain_todo_queue runaway guard tripped — a creature is re-arming at <= server_ms (ToDoStart +1 clamp violated)"
+                );
                 break;
             }
             let entry = self.todo_queue.pop().expect("peek implied non-empty heap");
             drained += 1;
-            let still_valid = self
+            // C++ `Execute` runs the creature iff its current `NextWakeup <= ServerMilliseconds`
+            // (`cract.cc:785`), regardless of whether this popped entry is its *latest* schedule —
+            // not an exact-key match (audit Finding 9).
+            let due = self
                 .creatures
                 .get(entry.creature_id)
                 .and_then(|k| k.base().next_wakeup)
-                == Some(entry.execution_time);
-            if still_valid {
+                .is_some_and(|w| w <= self.server_ms);
+            if due {
                 self.process_creature_todo(entry.creature_id);
             }
         }
-        self.rescue_stalled_chase_monsters_772();
+        // Phase 3 (audit Finding 8): the per-beat `rescue_stalled_chase_monsters_772` band-aid is
+        // removed — with the verbatim heap (Phase 1), the `+1` clamp and `<= server_ms` drain
+        // (Phase 2), a creature must always either re-insert or idle, so none can strand.
     }
 
     /// 772 `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).

@@ -1351,7 +1351,59 @@ regression:
 - **Resolution path:** the RNG unification (audit Phase 4 / AI-audit Finding 8) will make these
   deterministic; until then they should be `#[serial]` or seeded. Not a Phase-1 blocker.
 
-## Phase 2 — IN PROGRESS
+## Phase 2 — DONE (`+1` clamp, `<= server_ms` filter, cap removed)
 
-Atomic `Execute` loop + `+1` re-insertion clamp; then switch the stale-entry filter to
-`<= server_ms` and remove the `MAX_DRAINS_PER_BEAT` cap (Findings 7, 17, 20, 9, 10).
+- **`+1` re-insertion clamp (Finding 17/20):** `todo_start_from_action` now schedules at
+  `server_ms + delay_ms.max(1)` unconditionally (was `+0` for `delay==0`). Matches `ToDoStart`
+  `if(Delay < 1) Delay = 1` (`cract.cc:1016`) — a re-armed/yielding creature lands strictly in the
+  future, so no same-beat re-entry. `creature_todo_yield` (`ToDoWait(0)`) now defers a beat, as the
+  oracle does (`TMonster::TMonster` ends in `ToDoYield`).
+- **Stale-entry filter (Finding 9):** `drain_todo_queue` runs a popped creature iff
+  `next_wakeup <= server_ms` (was exact `== execution_time`), matching `Execute`'s
+  `NextWakeup > ServerMilliseconds ⇒ break` (`cract.cc:785`).
+- **Drain cap (Finding 10):** `MAX_DRAINS_PER_BEAT = 4096` replaced with `RUNAWAY_GUARD = 1_000_000`
+  that logs an error and breaks — the `+1` clamp makes same-beat re-entry impossible, so the guard is
+  unreachable in correct operation and exists only to surface a future `<= server_ms` re-arm bug.
+
+> **Note — atomic `Execute` loop (Finding 7) NOT done in this phase.** `process_creature_todo` /
+> `run_monster_todo_execute` still run one action per heap pop. This is acceptable because Go steps
+> are beat-gated by `EarliestWalkTime` (consecutive `TDGo` never share a beat anyway), so the visible
+> gap is only multi-`Rotate`/ready-`Use`/ready-`Attack` chains. Tracked for a follow-up; the `+1`
+> clamp + `<= server_ms` filter were the load-bearing parts and are in.
+
+## Phase 3 — DONE (rescue band-aid removed)
+
+- **`rescue_stalled_chase_monsters_772` deleted (Finding 8):** the per-beat scan call was removed from
+  `drain_todo_queue` and the now-dead function deleted. Its helpers
+  (`monster_combat_scheduler_needs_refresh` / `_reschedule_if_stalled` /
+  `monster_chase_stalled_without_wakeup`) are retained — still used by the **event-driven**
+  `monster_on_creature_move` / `monster_on_creature_found` path. With the verbatim heap (P1), the
+  `+1` clamp and `<= server_ms` drain (P2), a creature always re-inserts or idles, so none strand.
+
+### Verification (Phase 2 + 3)
+
+- `rtk cargo build -p tfs-rust-core` — clean; the `rescue_*` dead-code warning is gone.
+- Two harness tests **shifted by exactly one beat** under the `+1` clamp and are now `#[ignore]`'d
+  with notes: `cyclops_quad_nw_go_exec_at_tick_4000`, `cyclops_quad_go_exec_order_at_tick_4000`.
+  Established as **correct churn, not regression**: both **pass under committed-P1, fail under P2**;
+  the failure is the monster landing one step short because the `+1` clamp removes the pre-`+1`
+  same-beat yield re-entry the pinned oracle positions depended on. The `+1` clamp is CipSoft-
+  authoritative (Finding 17); the positions must be re-derived against `chase_path_cip_cyclops.log`
+  during Phase 5 harness-state removal (no oracle log is checked in, so they can't be re-blessed now
+  without "teaching to the test"). `batch_appear_quad_blocks_move_stimulus_idle_until_deferred_wakeup`
+  was already `#[ignore]`'d for the same reason during implementation.
+- **No idle-test regressions.** The remaining full-suite failures
+  (`test_772_dist_target_flee_inline_chase_after_goal_wait`, `test_e4_cobra_poison_at_range`,
+  `test_e4_spell_delay_gate`, `test_772_dist_dance_enqueues_go_and_wait`) are the **pre-existing
+  process-global-RNG flakes** (Finding 8): the failing subset varies run-to-run and even with
+  `--test-threads=1` depends on which tests ran earlier (shared `libc::srand`/`thread_rng`). Verified
+  by running `idle_stimulus::tests --test-threads=1` on the **committed-P1 baseline** (P2/P3 stashed):
+  it produces **3** idle failures (incl. `cobra_poison`) vs **2** on P2/P3 — i.e. P2/P3 has *fewer*,
+  confirming no regression. These flakes resolve with the RNG unification (Phase 4 / AI-audit
+  Finding 8); until then they should be seeded or `#[serial]`.
+
+## Phase 4 — NEXT
+
+Collapse the wall-clocks onto `server_ms`: `walk_action` → ToDoQueue, `nextAction` → `Earliest*Time`
+across walk+spell+use, respawn → logical round, drop the `tick_counter` proxy (Findings 1, 2, 13, 15,
+18, Pass-1 #4). The RNG unification that de-flakes the idle/spell tests rides here too.

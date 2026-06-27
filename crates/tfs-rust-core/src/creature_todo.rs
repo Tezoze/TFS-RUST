@@ -189,11 +189,11 @@ impl GameWorld {
 
     /// Schedule the next action wakeup after `delay_ms` logical time.
     pub(crate) fn todo_start_from_action(&mut self, cid: CreatureId, delay_ms: u64) {
-        if delay_ms == 0 {
-            self.schedule_creature_wakeup(cid, self.server_ms);
-        } else {
-            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
-        }
+        // C++ `ToDoStart` clamps `Delay < 1` to `1` (`cract.cc:1016`), so a re-insertion is always
+        // at least `server_ms + 1` — strictly future, so it cannot be re-drained in the same beat.
+        // This is the engine's anti-re-entrancy guarantee (audit Finding 17 / Phase 2).
+        let delay = delay_ms.max(1);
+        self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay));
     }
 
     /// C++ `TDAttack` branch in `ToDoStart` — `cract.cc:909-918`.
@@ -368,8 +368,7 @@ impl GameWorld {
         }
         trace_creature_todo(self, cid, "todo_yield");
         // C++ `ToDoWait(0)` → `ToDoStart` clamps `Delay<1` to 1 ⇒ wakeup at `server_ms + 1`
-        // (`cract.cc:1016`). NOTE: `todo_start_from_action` currently schedules `+0` for delay 0;
-        // the `+1` clamp is Phase-2 (audit Finding 17) — left as-is here to keep Phase 1 scoped.
+        // (next beat), the oracle's yield-defers-a-beat contract (`cract.cc:1016`, audit Finding 17).
         self.todo_start_from_action(cid, 0);
     }
 

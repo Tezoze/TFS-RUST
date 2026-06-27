@@ -1316,26 +1316,6 @@ impl GameWorld {
         self.request_idle_stimulus(cid);
     }
 
-    /// Per-beat safety net — rescue chase monsters stranded without a heap wakeup.
-    pub(crate) fn rescue_stalled_chase_monsters_772(&mut self) {
-        if !self.beat_driven_loop {
-            return;
-        }
-        let ids: Vec<CreatureId> = self
-            .creatures
-            .iter()
-            .filter(|(_, k)| matches!(k, CreatureKind::Monster(m) if !m.is_idle && !m.is_fleeing()))
-            .map(|(id, _)| id)
-            .collect();
-        for cid in ids {
-            if self.monster_chase_stalled_without_wakeup(cid)
-                || self.monster_combat_scheduler_needs_refresh(cid)
-            {
-                self.monster_combat_reschedule_if_stalled(cid);
-            }
-        }
-    }
-
     /// 772 idle melee/dist dance — `crnonpl.cc:2736`, `2772` (rand(0,4) cardinal sidestep).
     ///
     /// 1098 `getDanceStep` / `staticAttackChance` must not be used on this path — see
