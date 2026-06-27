@@ -102,3 +102,17 @@
 - [ ] Second real-map scenario (Thais flat control).
 - [ ] Optional: live repro + `compare_chase_live_logs.py`.
 - [ ] Real-map rows in CI gate (after six-monster validation).
+
+## Audit Phase 1 — Push / collision rewrite (772) — in progress
+
+Source: `docs/MONSTER_AI_772_AUDIT.md` "Phase 1". C++ ref: `crnonpl.cc:2141` `MovePossible`,
+`:2994` `KickBoxes`, `:2984` `CanKickBoxes`, `:3036` `KickCreature`, `:2890-2898` IdleStimulus
+`EXHAUSTED` catch.
+
+- [x] Step 1 — gate creature kick on `State∈{ATTACKING,PANIC}` + `Target` + `KickCreatures`, never kick target/master/NPC/unpushable (pre-existing uncommitted work in `monster_push.rs`).
+- [x] Step 2 — deterministic N,S,W,E `KickCreature`, kill on all-offsets-fail (pre-existing).
+- [x] Step 5 — `monster_tshortway_fill_walkable` plans through kickable creatures, hard-blocks for non-`KickCreatures` movers, handles UNPASS/AVOID boxes (verified `monster_ai.rs:2642`).
+- [x] Step 3 — `KickBoxes` (UNPASS/AVOID movable items) + `CanKickBoxes()` master inheritance; deterministic N,S,W,E to `BANK && !UNPASS`, delete on failure.
+- [x] Step 4 — push returns `MonsterKickOutcome`; player tile (clear `Target`) or kick-kill → `EXHAUSTED` → `Target=0; ToDoClear; Wait(1000); ToDoStart` instead of clear-queue+replan.
+- [x] Tests — `kicker_onto_player_tile_is_exhausted`, `non_kicker_onto_player_tile_proceeds`, `kicker_onto_own_target_tile_proceeds`, `exhausted_wait_clears_target_and_waits_1000`, `can_kick_boxes_inherits_from_master` (box-move itself needs real item data — covered by real-map battery + `fillmap_movepossible_blocks_unpass_under_grass`).
+- [x] Gate — `rtk cargo check` + `clippy` clean; `monster_push` 5/5. (Pre-existing unrelated failures: `test_e4_spell_delay_gate`, `test_e4_cobra_poison_at_range`, `test_772_dist_target_flee_inline_chase_after_goal_wait` — glibc-RNG harness, audit Finding 15; fail on HEAD without these changes.)

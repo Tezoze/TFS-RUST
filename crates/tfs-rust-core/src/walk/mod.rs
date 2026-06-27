@@ -1339,12 +1339,21 @@ impl GameWorld {
                     Some(k) => k.position(),
                     None => return,
                 };
-                if self
+                // 772 pre-step kick (`MovePossible(Execute=true)` side-effects). An `EXHAUSTED`
+                // outcome (player tile / kick-kill) means the mover does **not** step this beat —
+                // clear target + queue and wait 1000 ms (`crnonpl.cc:2890-2898`).
+                let kick_outcome = if self
                     .creatures
                     .get(cid)
                     .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
                 {
-                    self.monster_push_before_step(cid, old_pos.offset(dir), now);
+                    self.monster_push_before_step(cid, old_pos.offset(dir), now)
+                } else {
+                    crate::monster_push::MonsterKickOutcome::Proceed
+                };
+                if kick_outcome == crate::monster_push::MonsterKickOutcome::Exhausted {
+                    self.monster_exhausted_wait_772(cid);
+                    return;
                 }
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {

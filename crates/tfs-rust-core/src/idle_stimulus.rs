@@ -152,6 +152,27 @@ impl GameWorld {
         self.creature_todo_yield(cid);
     }
 
+    /// 772 `EXHAUSTED` recovery — the `TMonster::IdleStimulus` catch block
+    /// (`crnonpl.cc:2890-2898`): `Target = 0; ToDoClear(); ToDoWait(1000); ToDoStart();`.
+    ///
+    /// Invoked when a pre-step kick ([`crate::monster_push`]) hit a player tile or had to kill a
+    /// blocker (`KickCreature` returned `false`) — the mover does **not** step this beat, it drops
+    /// its target and stalls for a full second instead of clearing-queue and re-planning on the
+    /// same beat (audit Finding 7).
+    pub(crate) fn monster_exhausted_wait_772(&mut self, cid: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.clear_targets();
+            base.walk_queue.clear();
+            base.has_follow_path = false;
+            base.force_update_follow_path = true;
+            base.todo.queue.clear();
+            base.todo.locked = false;
+        }
+        trace_creature_todo(self, cid, "monster_exhausted_wait");
+        self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+    }
+
     /// Apply combat damage and fire 772 `DamageStimulus` when a monster loses HP.
     ///
     /// C++ reference: `Game::combatChangeHealth` → `TMonster::DamageStimulus` — `crnonpl.cc:2278`.
