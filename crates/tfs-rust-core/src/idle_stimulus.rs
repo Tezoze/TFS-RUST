@@ -1345,7 +1345,7 @@ impl GameWorld {
                 .is_some_and(|k| k.base().next_wakeup.is_none() && !k.base().todo.has_go());
             if needs_wakeup {
                 let delay_ms = self.todo_attack_delay_ms(cid);
-                self.todo_start_from_action(cid, delay_ms, self.harness_attack_wakeup_tie_policy(cid));
+                self.todo_start_from_action(cid, delay_ms);
             }
             MonsterEnqueueAttackResult::Enqueued
         } else {
@@ -1928,11 +1928,7 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "execute_wait");
                 // C++ chase trace logs `ToDoWait` enqueue only — not execute drain.
                 if delay_ms > 0 {
-                    self.todo_start_from_action(
-                        cid,
-                        delay_ms,
-                        self.harness_go_wakeup_tie_policy(cid),
-                    );
+                    self.todo_start_from_action(cid, delay_ms);
                 }
                 trace_creature_todo(self, cid, "execute_wait_done");
                 TodoExecuteKind::Wait
@@ -1944,7 +1940,7 @@ impl GameWorld {
                         k.base_mut().todo.queue.push_front(CreatureAction::Attack);
                     }
                     trace_creature_todo(self, cid, "execute_attack_deferred");
-                    self.todo_start_from_action(cid, delay, self.harness_attack_wakeup_tie_policy(cid));
+                    self.todo_start_from_action(cid, delay);
                     trace_creature_todo(self, cid, "execute_attack_deferred_done");
                     TodoExecuteKind::AttackDeferred
                 } else {
@@ -2034,11 +2030,7 @@ impl GameWorld {
                                 .map(|k| k.base().earliest_attack_ms)
                                 .filter(|&wakeup| wakeup > self.server_ms)
                             {
-                                self.schedule_creature_wakeup(
-                                    cid,
-                                    wakeup,
-                                    self.harness_attack_wakeup_tie_policy(cid),
-                                );
+                                self.schedule_creature_wakeup(cid, wakeup);
                             }
                         }
                         trace_creature_todo(self, cid, "execute_attack_done");
@@ -2138,7 +2130,7 @@ impl GameWorld {
                 if delay_ms == 0 {
                     delay_ms = 200;
                 }
-                self.todo_start_from_action(cid, delay_ms, self.harness_attack_wakeup_tie_policy(cid));
+                self.todo_start_from_action(cid, delay_ms);
                 return;
             }
             self.run_monster_todo_execute(cid);
@@ -2233,11 +2225,7 @@ impl GameWorld {
                         let remaining = crate::sim_harness::HARNESS_APPEAR_IDLE_DEFER_MS
                             .saturating_sub(self.server_ms)
                             .max(1);
-                        self.todo_start_from_action(
-                            cid,
-                            remaining,
-                            crate::todo_queue::WakeupTiePolicy::HarnessAppearIdle,
-                        );
+                        self.todo_start_from_action(cid, remaining);
                     }
                     return;
                 }
@@ -2363,7 +2351,7 @@ mod tests {
         }
 
         assert!(world.enqueue_creature_go(monster));
-        world.todo_start_from_action(monster, 500, crate::todo_queue::WakeupTiePolicy::Fifo);
+        world.todo_start_from_action(monster, 500);
         let wakeup = world
             .creatures
             .get(monster)
@@ -2407,7 +2395,7 @@ mod tests {
         }
         world.add_creature_think_check(monster);
 
-        world.schedule_creature_wakeup(monster, 0, crate::todo_queue::WakeupTiePolicy::Fifo);
+        world.schedule_creature_wakeup(monster, 0);
         world.process_creature_todo(monster);
 
         assert!(

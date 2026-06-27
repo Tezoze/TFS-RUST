@@ -1129,11 +1129,7 @@ pub fn clear_harness_appear_idle_defer(world: &mut GameWorld, monster_ids: &[Cre
             .and_then(|k| k.base().next_wakeup)
             .is_some_and(|w| w > world.server_ms);
         if pull_forward {
-            world.schedule_creature_wakeup(
-                monster_id,
-                world.server_ms,
-                crate::todo_queue::WakeupTiePolicy::HarnessAppearIdle,
-            );
+            world.schedule_creature_wakeup(monster_id, world.server_ms);
         }
     }
 }
@@ -1767,7 +1763,7 @@ mod harness_tests {
         let pos = Position::new(100, 100, 7);
         let cid = insert_monster(&mut world, "Rat", pos, 200);
         world.sim_harness_wall_ms = Some(6_000);
-        world.schedule_creature_wakeup(cid, 20_000, crate::todo_queue::WakeupTiePolicy::Fifo);
+        world.schedule_creature_wakeup(cid, 20_000);
         run_sim_tick(&mut world);
         assert!(world.server_ms <= 6_000);
         let _ = cid;

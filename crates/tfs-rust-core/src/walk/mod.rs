@@ -416,91 +416,19 @@ impl GameWorld {
     }
 
     /// Schedule a creature wakeup in the logical ToDoQueue (`cract.cc:968` `ToDoStart`).
-    pub(crate) fn schedule_creature_wakeup(
-        &mut self,
-        cid: CreatureId,
-        execution_time: u64,
-        tie_policy: crate::todo_queue::WakeupTiePolicy,
-    ) {
+    /// Insert a creature wakeup into the global `ToDoQueue` at logical `execution_time`
+    /// (`cract.cc:1021` `ToDoQueue.insert(NextWakeup, ID)`). Equal-key drain order is the
+    /// structural heap order — **no** per-scenario tie; see `todo_queue.rs` / audit Finding 6.
+    pub(crate) fn schedule_creature_wakeup(&mut self, cid: CreatureId, execution_time: u64) {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().next_walk_check = None;
             k.base_mut().next_wakeup = Some(execution_time);
         }
-        use crate::creature::CreatureKind;
-        use crate::todo_queue::{
-            harness_appear_idle_tie, harness_go_step_tie, harness_go_step_tie_realmap_bowl,
-            WakeupTiePolicy,
-        };
-        let tie = match tie_policy {
-            WakeupTiePolicy::HarnessAppearIdle => self
-                .creatures
-                .get(cid)
-                .and_then(|k| match k {
-                    CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
-                        Some(harness_appear_idle_tie(m.harness_spawn_order))
-                    }
-                    _ => None,
-                })
-                .unwrap_or_else(|| self.todo_queue.bump_sequence()),
-            WakeupTiePolicy::HarnessGoStep => self
-                .creatures
-                .get(cid)
-                .and_then(|k| match k {
-                    CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
-                        Some(if self.harness_real_map {
-                            harness_go_step_tie_realmap_bowl(m.harness_spawn_order)
-                        } else {
-                            harness_go_step_tie(m.harness_spawn_order)
-                        })
-                    }
-                    _ => None,
-                })
-                .unwrap_or_else(|| self.todo_queue.bump_sequence()),
-            WakeupTiePolicy::Fifo => self.todo_queue.bump_sequence(),
-        };
-        self.todo_queue.insert_with_tie(execution_time, cid, tie);
+        self.todo_queue.insert(execution_time, cid);
         trace_creature_todo(self, cid, "schedule_wakeup");
     }
 
     /// Harness monsters use go-step tie; production paths use FIFO.
-    pub(crate) fn harness_go_wakeup_tie_policy(
-        &self,
-        cid: CreatureId,
-    ) -> crate::todo_queue::WakeupTiePolicy {
-        use crate::creature::CreatureKind;
-        use crate::todo_queue::WakeupTiePolicy;
-        if self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.harness_spawn_order > 0))
-        {
-            WakeupTiePolicy::HarnessGoStep
-        } else {
-            WakeupTiePolicy::Fifo
-        }
-    }
-
-    /// Melee attack wakeups defer to go-step wakeups at equal key — FIFO tie on real-map bowl.
-    pub(crate) fn harness_attack_wakeup_tie_policy(
-        &self,
-        cid: CreatureId,
-    ) -> crate::todo_queue::WakeupTiePolicy {
-        use crate::creature::CreatureKind;
-        use crate::todo_queue::WakeupTiePolicy;
-        if self.harness_real_map
-            && self.creatures.get(cid).is_some_and(|k| {
-                matches!(
-                    k,
-                    CreatureKind::Monster(m) if m.harness_spawn_order > 0 && m.target_distance <= 1
-                )
-            })
-        {
-            WakeupTiePolicy::Fifo
-        } else {
-            self.harness_go_wakeup_tie_policy(cid)
-        }
-    }
-
     /// C++ `TDGo` / `CalculateDelay` when `EarliestWalkTime` is unset — one beat from `server_ms` (`cract.cc:912`).
     fn todo_go_beat_delay_ms(&self, cid: CreatureId) -> u64 {
         let Some(k) = self.creatures.get(cid) else {
@@ -562,7 +490,7 @@ impl GameWorld {
                 self.todo_go_beat_delay_ms(cid)
             };
             let delay = calc_delay.max(1);
-            self.todo_start_from_action(cid, delay, self.harness_go_wakeup_tie_policy(cid));
+            self.todo_start_from_action(cid, delay);
             return false;
         }
 
@@ -613,11 +541,7 @@ impl GameWorld {
         if ticks == 1 {
             return true;
         }
-        self.todo_start_from_action(
-            cid,
-            ticks.max(1) as u64,
-            crate::todo_queue::WakeupTiePolicy::Fifo,
-        );
+        self.todo_start_from_action(cid, ticks.max(1) as u64);
         false
     }
 
@@ -1086,11 +1010,7 @@ impl GameWorld {
         }
         let delay_ms = ticks.max(1) as u64;
         if self.beat_driven_loop {
-            self.schedule_creature_wakeup(
-                cid,
-                self.server_ms.saturating_add(delay_ms),
-                self.harness_go_wakeup_tie_policy(cid),
-            );
+            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
         } else {
             let anchor = Instant::now();
             self.commit_next_walk_deadline(cid, Some(anchor + Duration::from_millis(delay_ms)));
@@ -1187,11 +1107,7 @@ impl GameWorld {
             if first_step {
                 self.schedule_walk_followup_deadline(cid);
             } else if self.beat_driven_loop {
-                self.schedule_creature_wakeup(
-                    cid,
-                    self.server_ms.saturating_add(1),
-                    self.harness_go_wakeup_tie_policy(cid),
-                );
+                self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
             } else {
                 let anchor = Instant::now();
                 self.commit_next_walk_deadline(cid, Some(anchor + Duration::from_millis(1)));
@@ -1201,16 +1117,8 @@ impl GameWorld {
 
         let delay_ms = ticks.max(1) as u64;
         if self.beat_driven_loop {
-            let execution_time = if first_step {
-                self.server_ms.saturating_add(delay_ms)
-            } else {
-                self.server_ms.saturating_add(delay_ms)
-            };
-            self.schedule_creature_wakeup(
-                cid,
-                execution_time,
-                self.harness_go_wakeup_tie_policy(cid),
-            );
+            let execution_time = self.server_ms.saturating_add(delay_ms);
+            self.schedule_creature_wakeup(cid, execution_time);
         } else if first_step {
             self.commit_next_walk_deadline(
                 cid,
