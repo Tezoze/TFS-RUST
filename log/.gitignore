@@ -1,0 +1,3 @@
+# Local sim traces, server logs, and battery output — never commit.
+*
+!.gitignore

@@ -235,6 +235,20 @@ AGENTS.md
 /*_SUMMARY.md
 
 #############
+## Local run artifacts (sim + server)
+#############
+/log/*
+!/log/.gitignore
+/crates/tfs-rust-core/log/*
+!/crates/tfs-rust-core/log/.gitignore
+
+#############
+## Python
+#############
+__pycache__/
+*.py[cod]
+
+#############
 ## Rust
 #############
 /target/

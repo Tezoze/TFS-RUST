@@ -1,0 +1,3 @@
+# FillMap probes and chase debug from local runs — never commit.
+*
+!.gitignore
