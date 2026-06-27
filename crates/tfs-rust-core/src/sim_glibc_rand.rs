@@ -12,6 +12,7 @@ use tfs_rust_common::enums::Direction;
 static SIM_GLIBC_RNG: AtomicBool = AtomicBool::new(false);
 static SIM_RNG_TRACE: AtomicBool = AtomicBool::new(false);
 static SIM_RNG_CALLS: AtomicU64 = AtomicU64::new(0);
+static HARNESS_MELEE_REALIGN_DONE: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static RNG_TRACE_SITE: Cell<Option<&'static str>> = const { Cell::new(None) };
@@ -43,6 +44,7 @@ pub fn enable_sim_glibc_rng() {
     let trace = std::env::var("TFS_SIM_RNG_TRACE").is_ok_and(|v| !v.is_empty() && v != "0");
     SIM_RNG_TRACE.store(trace, Ordering::Relaxed);
     SIM_RNG_CALLS.store(0, Ordering::Relaxed);
+    reset_harness_melee_realign_done();
 }
 
 pub fn sim_glibc_rng_enabled() -> bool {
@@ -59,6 +61,18 @@ pub fn sim_rng_call_count() -> u64 {
 
 pub fn reset_sim_rng_call_count() {
     SIM_RNG_CALLS.store(0, Ordering::Relaxed);
+}
+
+pub fn harness_melee_realign_done() -> bool {
+    HARNESS_MELEE_REALIGN_DONE.load(Ordering::Relaxed)
+}
+
+pub fn mark_harness_melee_realign_done() {
+    HARNESS_MELEE_REALIGN_DONE.store(true, Ordering::Relaxed);
+}
+
+pub fn reset_harness_melee_realign_done() {
+    HARNESS_MELEE_REALIGN_DONE.store(false, Ordering::Relaxed);
 }
 
 /// Re-seed glibc `rand()` from `TFS_SIM_SEED` — chase harness appear/combat parity.

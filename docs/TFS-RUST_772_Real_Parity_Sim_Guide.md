@@ -283,6 +283,25 @@ python3 scripts/summarize_chase_gaps.py \
 |-------|-------|
 | `todo_label` | Rust-only — never gate |
 | `branch` / `parked` / `ranged_hit` | Scenario-dependent; warn only |
+| `branch` → `melee_dance` **dest** | RNG-soft — `rand(0,4)` cardinal (`crnonpl.cc:2736`); see §5.3.1 |
+
+#### 5.3.1 RNG-soft events — `melee_dance`
+
+772 melee dance rolls a cardinal sidestep. **Different dest tiles on the same tick do not imply AI wrongness** — two correct servers can disagree on which adjacent tile was picked.
+
+**Gate on (blocking):**
+
+- `branch` **kind** at expected ticks (e.g. `melee_dance` attempted during stand, not skipped for flee)
+- Stand-window `todo_go` / `go_exec` / `melee_hit` **counts and tick buckets**
+- Unit-tested structure: eligibility, cardinal step, blocked dance does not re-enqueue Go
+
+**Do not gate on:**
+
+- Exact `branch` / `melee_dance` `dest` `(x,y)` — compare script uses dest in `branch_key` for diagnostics; `--movement-core` lists `branch` under scheduler trace warnings only
+
+**Debug mode:** With `TFS_SIM_SEED=772` and aligned glibc draw order, dest *may* lockstep. Use `TFS_SIM_RNG_TRACE=1` when dest diverges **after** multi-monster drain order (T1/T5) is fixed — treat dest mismatch as draw-order symptom, not a separate PASS criterion.
+
+Full policy on real-map dual cyclops: trajectory §16.2.1 (T3 acceptance).
 
 **Red flags in any log:**
 
@@ -318,16 +337,21 @@ python3 scripts/summarize_chase_gaps.py \
 ## 7. Quick reference commands
 
 ```bash
-# --- Headless real-map full compare ---
+# --- Headless real-map: 1 cyclops (PASS baseline) ---
 TFS_SIM_SEED=772 TFS_KITE_NO_WILD=1 \
   python3 scripts/run_kite_scenario.py --real-map \
   scripts/scenarios/kite_cyclops_one_real.scenario
+
+# --- Headless real-map: 2 cyclops (AI parity work — see trajectory §16) ---
+TFS_SIM_SEED=772 TFS_KITE_NO_WILD=1 \
+  python3 scripts/run_kite_scenario.py --real-map \
+  scripts/scenarios/kite_cyclops_two_real.scenario
 
 # --- Gap summary (movement + scheduler gate) ---
 python3 scripts/summarize_chase_gaps.py \
   --ref log/chase_path_cip_realmap.log \
   --rust log/chase_path_rust_realmap.log \
-  --monster cyclops --max-tick 5000 --movement-core
+  --monster cyclops --max-tick 12000 --movement-core
 
 # --- Live vs headless C++ capture ---
 python3 scripts/compare_chase_live_logs.py \
@@ -340,6 +364,8 @@ python3 scripts/compare_harness_player_walk.py \
   --ref log/chase_path_cip_realmap.log \
   --rust log/chase_path_rust_realmap.log
 ```
+
+**Two-cyclops parity:** **PASS** on `--movement-core` @12000 (§16.8 in trajectory doc). Real-map battery **3/3 PASS** via `run_realmap_sim_battery.py`. Next: six-monster `six_real` ramp.
 
 ---
 

@@ -136,6 +136,8 @@ pub struct GameWorld {
     pub(crate) sim_harness_segment_ms: Option<u64>,
     /// Harness batch appear — defer `request_idle_stimulus` until explicit `creature_todo_yield` pass.
     pub(crate) batch_appear_defer_idle: bool,
+    /// Real-map OTBM harness (`kite_cyclops_*_real`) — use bowl go-step tie, not synthetic quad.
+    pub(crate) harness_real_map: bool,
 }
 
 impl GameWorld {
@@ -213,6 +215,7 @@ impl GameWorld {
             sim_harness_wall_ms: None,
             sim_harness_segment_ms: None,
             batch_appear_defer_idle: false,
+            harness_real_map: false,
         }
     }
 

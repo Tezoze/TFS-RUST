@@ -113,6 +113,17 @@ pub fn harness_go_step_tie(spawn_order: u16) -> u64 {
     }
 }
 
+/// Real-map cyclops bowl dual spawn — `kite_cyclops_two_real` drain @400/2000.
+///
+/// C++ `MoveCreatures` drains north cyclops (spawn 2) before east (spawn 1) on equal key.
+pub fn harness_go_step_tie_realmap_bowl(spawn_order: u16) -> u64 {
+    match spawn_order {
+        2 => 0, // east-north @ `(32454,32066)` — drains first
+        1 => 1, // east @ `(32454,32065)` — drains second
+        n => u64::from(n),
+    }
+}
+
 pub fn harness_appear_idle_tie(spawn_order: u16) -> u64 {
     u64::from(u16::MAX - spawn_order)
 }
@@ -167,6 +178,17 @@ mod tests {
             (nw, harness_appear_idle_tie(4)),
         ];
         assert_eq!(pops_with_tie(&inserts, 2_000), vec![nw, south, east, far_n]);
+    }
+
+    #[test]
+    fn harness_go_step_realmap_bowl_dual_at_400() {
+        let east = cid(1);
+        let north = cid(2);
+        let inserts = [
+            (east, harness_go_step_tie_realmap_bowl(1)),
+            (north, harness_go_step_tie_realmap_bowl(2)),
+        ];
+        assert_eq!(pops_with_tie(&inserts, 400), vec![north, east]);
     }
 
     #[test]

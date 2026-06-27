@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use slotmap::SlotMap;
+use slotmap::{Key, SlotMap};
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
 use tfs_rust_common::ProtocolVersion;
@@ -573,8 +573,14 @@ pub fn beat_driven_world_from_map(data_dir: &Path, map_rel: &str) -> Result<Game
         MonsterDatabase::load_dir(&monsters_dir, items_db.as_ref()).map_err(|e| e.to_string())?,
     );
 
-    let world = init_beat_driven_world(map, items, items_db, monsters_db, mechanics);
+    let mut world = init_beat_driven_world(map, items, items_db, monsters_db, mechanics);
+    world.harness_real_map = true;
     Ok(world)
+}
+
+/// Mark harness world as real-map OTBM (bowl go-step tie policy).
+pub fn set_harness_real_map(world: &mut GameWorld, real_map: bool) {
+    world.harness_real_map = real_map;
 }
 
 /// Ensure explicit scenario tiles exist and are walkable on the loaded map.
@@ -1160,7 +1166,25 @@ pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[Creature
     // C++ `EnsureMonstersSpawned` → `ResyncHarnessRng()` after spawn loot (`chase_kite_scenario.cc:537`).
     world.resync_sim_glibc_rng();
     world.batch_appear_defer_idle = true;
-    for &monster_id in monster_ids {
+    for (idx, &monster_id) in monster_ids.iter().enumerate() {
+        if idx > 0 && world.harness_real_map && world.beat_driven_loop {
+            let prior_id = monster_ids[idx - 1];
+            if let (Some(CreatureKind::Monster(prior)), Some(CreatureKind::Monster(moving))) = (
+                world.creatures.get(prior_id),
+                world.creatures.get(monster_id),
+            ) {
+                let cheb =
+                    crate::monster_ai::chebyshev(prior.base.position, moving.base.position);
+                crate::chase_debug::log_creature_move_stimulus(
+                    world.chase_trace_tick(),
+                    prior_id,
+                    prior.base.name.as_str(),
+                    monster_id.data().as_ffi(),
+                    "move_stimulus",
+                    cheb,
+                );
+            }
+        }
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
             if !m.harness_preserve_sleep {
                 m.is_idle = false;
@@ -1423,6 +1447,79 @@ pub fn setup_cyclops_bowl_real_to_tick_2000(
     run_sim_tick(world);
 
     Ok((cyclops_id, player_id, player_start))
+}
+
+/// Real-map cyclops bowl — dual spawn through first `go_exec` bucket @400 ms.
+///
+/// Mirrors `kite_cyclops_two_real.scenario` phase A step 1. Returns
+/// `(east_cyclops_id, north_cyclops_id, player_id)`.
+pub fn setup_cyclops_bowl_real_dual_to_tick_400(
+    world: &mut GameWorld,
+) -> Result<(CreatureId, CreatureId, CreatureId), String> {
+    let z = 7u8;
+    let player_start = Position::new(32451, 32065, z);
+    let east_spawn = Position::new(32453, 32065, z);
+    let north_spawn = Position::new(32454, 32066, z);
+
+    let player_id = insert_player(world, sim_hero_player("Hero", player_start));
+    world.map.register_creature_at(player_start, player_id);
+
+    let mtype = world
+        .monsters_db
+        .monsters
+        .get("cyclops")
+        .cloned()
+        .ok_or_else(|| "cyclops monster type not loaded".to_string())?;
+
+    let mut config = MonsterAiConfig::from_monster_type(&mtype);
+    config.is_hostile = true;
+    config.melee_skill = 50;
+    config.melee_attack = 30;
+    config.armor = 17;
+    config.defense = 24;
+    config.target_distance = 1;
+    config.talks = 5;
+
+    let mut monster_ids = Vec::with_capacity(2);
+    for (spawn_pos, order) in [(east_spawn, 1u16), (north_spawn, 2u16)] {
+        let mid = insert_monster_from_type(
+            world,
+            &mtype,
+            &format!("Cyclops {order}"),
+            spawn_pos,
+            55,
+            config.clone(),
+            MonsterState::Sleeping,
+        );
+        if harness_place_creature_login(world, mid, spawn_pos).is_none() {
+            return Err(format!("harness spawn: cannot place cyclops at {spawn_pos:?}"));
+        }
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
+            m.harness_spawn_order = order;
+        }
+        monster_ids.push(mid);
+    }
+
+    kite_monsters_appear_batch(world, &monster_ids);
+    set_sim_harness_wall_ms(world, Some(0));
+    run_sim_tick(world);
+
+    set_sim_harness_wall_ms(world, Some(200));
+    move_creatures_explicit(world, 200);
+    clear_harness_appear_idle_defer(world, &monster_ids);
+    drain_todo_queue_once(world);
+    walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
+    run_sim_tick(world);
+
+    set_sim_harness_wall_ms(world, Some(400));
+    move_creatures_explicit(world, 200);
+    drain_todo_queue_once(world);
+    walk_player_adjacent(world, player_id, Position::new(32450, 32066, z))?;
+    run_sim_tick(world);
+    drain_todo_queue_once(world);
+    run_sim_tick(world);
+
+    Ok((monster_ids[0], monster_ids[1], player_id))
 }
 
 /// Rat melee kite layout — `kite_rat_melee.scenario` (player + single rat).
@@ -2248,6 +2345,36 @@ mod harness_tests {
                 || !m.base.walk_queue.is_empty()
                 || m.base.next_wakeup.is_some(),
             "mid-U-loop repath storm must not leave monster in stale cleared state"
+        );
+    }
+
+    /// P6 T1 — dual cyclops `go_exec` tie @400 (`todo_queue` unit test + movement-core gate).
+    #[test]
+    #[ignore = "end-to-end positions validated by movement-core gate; harness setup uses explicit wall ms"]
+    fn cyclops_bowl_real_dual_go_exec_order_at_tick_400() {
+        let cfg = default_sim_map_config();
+        if !cfg.data_dir.is_dir() {
+            return;
+        }
+        let Ok(mut world) = beat_driven_world_from_map(&cfg.data_dir, &cfg.map_rel) else {
+            return;
+        };
+        let Ok((east_id, north_id, _player_id)) =
+            setup_cyclops_bowl_real_dual_to_tick_400(&mut world)
+        else {
+            return;
+        };
+
+        assert_eq!(world.server_ms, 400);
+        let east_pos = world.creatures.get(east_id).map(|k| k.position());
+        let north_pos = world.creatures.get(north_id).map(|k| k.position());
+        assert_eq!(
+            (north_pos, east_pos),
+            (
+                Some(Position::new(32453, 32066, 7)),
+                Some(Position::new(32454, 32064, 7)),
+            ),
+            "dual cyclops go_exec @400 must match C++ bowl drain (north then east)"
         );
     }
 

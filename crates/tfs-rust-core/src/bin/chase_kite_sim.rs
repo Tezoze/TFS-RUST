@@ -13,7 +13,7 @@ use tfs_rust_core::sim_harness::{
     audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic, beat_driven_world_from_map,
     default_sim_map_config,     insert_monster_from_type, insert_monster_with_config, insert_player,
     clear_harness_appear_idle_defer, harness_place_creature_login, kite_monsters_appear_batch, log_harness_player_step, drain_todo_queue_once, move_creatures_explicit, run_sim_tick,
-    set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster,
+    set_harness_real_map, set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster,
     teleport_player, validate_positions_walkable, walk_player_adjacent, write_audit_route_json,
     SimMapConfig,
 };
@@ -33,6 +33,8 @@ struct KiteScenario {
     arena_radius: u16,
     player_start: (u16, u16),
     player_name: String,
+    player_health: i32,
+    player_health_from_scenario: bool,
     monsters: Vec<MonsterSpawn>,
     monster_speed: i32,
     monster_speed_from_scenario: bool,
@@ -86,6 +88,7 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
         arena_radius: 5,
         player_start: (32360, 32290),
         player_name: "Hero".into(),
+        player_health: 150,
         monsters: Vec::new(),
         monster_speed: 200,
         monster_speed_from_scenario: false,
@@ -134,6 +137,10 @@ fn parse_scenario(input: &str) -> Result<KiteScenario, String> {
                 );
             }
             "player_name" if parts.len() >= 2 => s.player_name = parts[1].to_string(),
+            "player_health" if parts.len() >= 2 => {
+                s.player_health = parts[1].parse().map_err(|_| "bad player_health")?;
+                s.player_health_from_scenario = true;
+            }
             "monster" if parts.len() >= 4 => {
                 s.monsters.push(MonsterSpawn {
                     label: parts[1].to_string(),
@@ -317,8 +324,9 @@ fn build_world(
             scenario.default_wp,
         )?
     } else {
-        let w = beat_driven_world_from_map(&map_cfg.data_dir, &map_cfg.map_rel)?;
+        let mut w = beat_driven_world_from_map(&map_cfg.data_dir, &map_cfg.map_rel)?;
         validate_positions_walkable(&w.map, &scenario_walk_positions(scenario), "scenario")?;
+        set_harness_real_map(&mut w, true);
         w
     };
     Ok(world)
@@ -344,6 +352,12 @@ fn spawn_entities(
     let player_pos = Position::new(scenario.player_start.0, scenario.player_start.1, z);
 
     let player_id = insert_player(world, sim_hero_player(&scenario.player_name, player_pos));
+    if scenario.player_health_from_scenario {
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player_id) {
+            p.base.health = scenario.player_health;
+            p.base.max_health = scenario.player_health;
+        }
+    }
     world.map.register_creature_at(player_pos, player_id);
 
     let config = scenario_monster_config(scenario);

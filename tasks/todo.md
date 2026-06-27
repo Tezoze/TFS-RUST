@@ -97,6 +97,7 @@
 
 ### P6 — Real-map ramp (deferred)
 
+- [x] **`kite_cyclops_two_real`** — scenario + first A/B baseline; AI parity plan in trajectory §16.4 (T1–T6).
 - [ ] Ramp `kite_cyclops_six_real` to 6 monsters; verify branch/roam under load.
 - [ ] Second real-map scenario (Thais flat control).
 - [ ] Optional: live repro + `compare_chase_live_logs.py`.

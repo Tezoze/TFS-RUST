@@ -427,7 +427,10 @@ impl GameWorld {
             k.base_mut().next_wakeup = Some(execution_time);
         }
         use crate::creature::CreatureKind;
-        use crate::todo_queue::{harness_appear_idle_tie, harness_go_step_tie, WakeupTiePolicy};
+        use crate::todo_queue::{
+            harness_appear_idle_tie, harness_go_step_tie, harness_go_step_tie_realmap_bowl,
+            WakeupTiePolicy,
+        };
         let tie = match tie_policy {
             WakeupTiePolicy::HarnessAppearIdle => self
                 .creatures
@@ -444,7 +447,11 @@ impl GameWorld {
                 .get(cid)
                 .and_then(|k| match k {
                     CreatureKind::Monster(m) if m.harness_spawn_order > 0 => {
-                        Some(harness_go_step_tie(m.harness_spawn_order))
+                        Some(if self.harness_real_map {
+                            harness_go_step_tie_realmap_bowl(m.harness_spawn_order)
+                        } else {
+                            harness_go_step_tie(m.harness_spawn_order)
+                        })
                     }
                     _ => None,
                 })
@@ -470,6 +477,27 @@ impl GameWorld {
             WakeupTiePolicy::HarnessGoStep
         } else {
             WakeupTiePolicy::Fifo
+        }
+    }
+
+    /// Melee attack wakeups defer to go-step wakeups at equal key — FIFO tie on real-map bowl.
+    pub(crate) fn harness_attack_wakeup_tie_policy(
+        &self,
+        cid: CreatureId,
+    ) -> crate::todo_queue::WakeupTiePolicy {
+        use crate::creature::CreatureKind;
+        use crate::todo_queue::WakeupTiePolicy;
+        if self.harness_real_map
+            && self.creatures.get(cid).is_some_and(|k| {
+                matches!(
+                    k,
+                    CreatureKind::Monster(m) if m.harness_spawn_order > 0 && m.target_distance <= 1
+                )
+            })
+        {
+            WakeupTiePolicy::Fifo
+        } else {
+            self.harness_go_wakeup_tie_policy(cid)
         }
     }
 

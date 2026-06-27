@@ -17,6 +17,7 @@ SUMMARIZE = ROOT / "scripts" / "summarize_chase_gaps.py"
 
 REALMAP_BATTERY = [
     ("cyclops_one_real", "kite_cyclops_one_real.scenario", "cyclops", 5000),
+    ("cyclops_two_real", "kite_cyclops_two_real.scenario", "cyclops", 12000),
     ("cyclops_six_real", "kite_cyclops_six_real.scenario", "cyclops", 5000),
 ]
 

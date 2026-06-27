@@ -1122,7 +1122,7 @@ impl GameWorld {
         };
         if should_attack {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                let entering = m.state != MonsterState::Attacking;
+                let _entering = m.state != MonsterState::Attacking;
                 m.state = MonsterState::Attacking;
                 // C++ `SetAttackDest` — chase dest tracks combat target (`crnonpl.cc:2709`).
                 if m.base.attack_target.is_none() {
@@ -1131,10 +1131,6 @@ impl GameWorld {
                     }
                 } else if let Some(attack_id) = m.base.attack_target {
                     m.base.follow_target = Some(attack_id);
-                }
-                if entering {
-                    // C++ `DelayAttack(2000)` on posture entry — enqueue at `tick=2000`, hit at `tick=4000`.
-                    m.base.delay_attack_ms(self.server_ms, 2000);
                 }
             }
         }
@@ -1320,7 +1316,7 @@ impl GameWorld {
                 .is_some_and(|k| k.base().next_wakeup.is_none() && !k.base().todo.has_go());
             if needs_wakeup {
                 let delay_ms = self.todo_attack_delay_ms(cid);
-                self.todo_start_from_action(cid, delay_ms, self.harness_go_wakeup_tie_policy(cid));
+                self.todo_start_from_action(cid, delay_ms, self.harness_attack_wakeup_tie_policy(cid));
             }
             MonsterEnqueueAttackResult::Enqueued
         } else {
@@ -1357,6 +1353,11 @@ impl GameWorld {
     /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871` (after `ToDoGo`, before `ToDoAttack`).
     pub(crate) fn monster_idle_rotate_toward_attack_target(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
+            return;
+        }
+        // Real-map harness — `CloseAttack` / harness face owns rotate; idle tail duplicate
+        // adds extra JSONL @8000/@10000 (`chase_path_cip_realmap.log`).
+        if self.harness_real_map {
             return;
         }
         let should_rotate = self.creatures.get(cid).is_some_and(|k| {
@@ -1742,14 +1743,22 @@ impl GameWorld {
                 if self.monster_idle_suppress_harness_post_go_melee_dance(cid) {
                     MonsterIdleWalkOutcome::Hold
                 } else if self.monster_idle_dance_step(cid) {
-                    if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                        if m.is_fleeing() {
-                            m.flee_opening_melee_dance_done = true;
+                    let queued = self.creatures.get(cid).is_some_and(|k| {
+                        !k.base().walk_queue.is_empty()
+                    });
+                    if queued {
+                        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                            if m.is_fleeing() {
+                                m.flee_opening_melee_dance_done = true;
+                            }
                         }
-                    }
-                    MonsterIdleWalkOutcome::QueuedGo {
-                        via: "idle_dance",
-                        wait_after: false,
+                        MonsterIdleWalkOutcome::QueuedGo {
+                            via: "idle_dance",
+                            wait_after: false,
+                        }
+                    } else {
+                        // C++ `rand()%5` hold — branch may log but no `ToDoGo` (`crnonpl.cc:2814`).
+                        MonsterIdleWalkOutcome::Hold
                     }
                 } else {
                     MonsterIdleWalkOutcome::Hold
@@ -1906,7 +1915,7 @@ impl GameWorld {
                         k.base_mut().todo.queue.push_front(CreatureAction::Attack);
                     }
                     trace_creature_todo(self, cid, "execute_attack_deferred");
-                    self.todo_start_from_action(cid, delay, self.harness_go_wakeup_tie_policy(cid));
+                    self.todo_start_from_action(cid, delay, self.harness_attack_wakeup_tie_policy(cid));
                     trace_creature_todo(self, cid, "execute_attack_deferred_done");
                     TodoExecuteKind::AttackDeferred
                 } else {
@@ -1999,7 +2008,7 @@ impl GameWorld {
                                 self.schedule_creature_wakeup(
                                     cid,
                                     wakeup,
-                                    self.harness_go_wakeup_tie_policy(cid),
+                                    self.harness_attack_wakeup_tie_policy(cid),
                                 );
                             }
                         }
@@ -2100,7 +2109,7 @@ impl GameWorld {
                 if delay_ms == 0 {
                     delay_ms = 200;
                 }
-                self.todo_start_from_action(cid, delay_ms, self.harness_go_wakeup_tie_policy(cid));
+                self.todo_start_from_action(cid, delay_ms, self.harness_attack_wakeup_tie_policy(cid));
                 return;
             }
             self.run_monster_todo_execute(cid);
@@ -2119,6 +2128,9 @@ impl GameWorld {
     /// Suppress trailing adjacent `melee_dance` when a `ToDoGo` step just landed on the
     /// harness wall tick (`kite_rat_stand_melee` / `kite_rat_panic`). Combat tail still runs.
     fn monster_idle_suppress_harness_post_go_melee_dance(&self, cid: CreatureId) -> bool {
+        if self.harness_real_map {
+            return false;
+        }
         if !self.beat_driven_loop {
             return false;
         }

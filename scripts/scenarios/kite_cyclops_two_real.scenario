@@ -1,0 +1,78 @@
+name kite_cyclops_two_real
+z 7
+default_wp 150
+arena 32451 32068 4
+
+# Real-map cyclops gravel bowl — (32451, 32065, 7)
+# 2 cyclops: east then north (spawn order = idle drain order)
+# Phase A: 5-step U-loop | Phase B: stand ~5-6 melee hits | Phase C: 5 steps via y=32067
+
+player_start 32451 32065
+player_name Hero
+player_health 500
+
+# 1 — east (SetOnMap → ~32454,32065)
+monster cyclops 32453 32065
+# 2 — east-north gravel (off U-loop tiles 32451,32066 / 32452,32066)
+monster cyclops 32454 32066
+
+monster_load_type 1
+monster_hostile 1
+monster_melee_skill 50
+monster_melee_attack 30
+monster_armor 17
+monster_defense 24
+monster_speed 55
+monster_target_distance 1
+monster_talks 5
+
+advance_ms 0
+monster_appear
+
+# --- Phase A: U-loop (same as kite_cyclops_one_real) ---
+player_walk 32450 32065 200
+sim_tick
+
+player_walk 32450 32066 200
+sim_tick
+
+player_walk 32451 32066 200
+sim_tick
+
+player_walk 32452 32066 200
+sim_tick
+
+player_walk 32451 32065 200
+sim_tick
+
+# --- Phase B: stand still — dual cyclops melee (~5–6 hits by tick 8000) ---
+advance_ms 1000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+advance_ms 2000
+sim_tick
+
+# --- Phase C: west then north/east via y=32067 (avoid cyclops on 32451,32066) ---
+player_walk 32450 32065 200
+sim_tick
+
+player_walk 32450 32066 200
+sim_tick
+
+player_walk 32450 32067 200
+sim_tick
+
+player_walk 32451 32067 200
+sim_tick
+
+player_walk 32452 32067 200
+sim_tick
+
+advance_ms 1000
+sim_tick

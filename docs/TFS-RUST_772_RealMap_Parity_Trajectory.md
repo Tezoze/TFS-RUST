@@ -16,6 +16,10 @@
 **Post-P6** (expanded JSONL + chase/face inline repath, 2026-06-27): **lockstep FAIL** on
 15-event gate — core geometry still green; volume/scheduler gaps exposed (§15).
 
+**Post-§16** (`kite_cyclops_two_real`, movement-core gate, 2026-06-27): **PASS** — 106/106
+ref event counts matched; 100% pairwise on all `MOVEMENT_CORE_EVENTS` (§16.8). Real-map
+battery **3/3 PASS** (`one_real` @5000, `two_real` @12000, `six_real` @5000).
+
 | Dimension | Pre-P3 pilot | Post-P4 | Post-P5 (narrow gate) | Post-P6 (expanded gate) |
 |-----------|--------------|---------|-------------------------|-------------------------|
 | Harness / scenario | PASS | **PASS** | **PASS** | **PASS** |
@@ -254,7 +258,9 @@ See [`772_OBJECTS_SRV_TO_OTB_LOOKUP.md`](772_OBJECTS_SRV_TO_OTB_LOOKUP.md) for i
 
 ### P6 — Suite expansion (after one_real lockstep PASS)
 
-- [ ] Ramp `kite_cyclops_six_real` to 6 monsters (verify branch/roam under load).
+- [x] `kite_cyclops_two_real` — dual cyclops movement-core **PASS** (§16.8).
+- [x] Real-map battery **3/3** movement-core PASS (`one_real`, `two_real`, `six_real` @5000).
+- [ ] Ramp `kite_cyclops_six_real` to **6 monsters** (verify branch/roam under load).
 - [ ] Compare real-map summary vs synthetic quad in divergence report.
 - [ ] Second real-map scenario (e.g. Thais flat `1011-1009-07` control from proposal).
 - [ ] Do **not** add real-map rows to synthetic CI gate until six-monster ramp validated.
@@ -272,6 +278,8 @@ See [`772_OBJECTS_SRV_TO_OTB_LOOKUP.md`](772_OBJECTS_SRV_TO_OTB_LOOKUP.md) for i
 | `todo_go` / `shortway` pairwise | 1/1 on minimal control | **Done** — 1/1 @200 (`from`/`start` + steps) |
 | `go_exec` pairwise | ≥1/1 on minimal control | **Done** — 3/3 tiles + ticks @ 400/2000/4000 |
 | Full kite lockstep | Summarize gate PASS | **PASS** — `one_real` + `six_real` (§14) |
+| `two_real` movement-core | `--movement-core` @12000 | **PASS** — 100% pairwise all core events (§16.8) |
+| Real-map battery | `run_realmap_sim_battery.py` 3 rows | **3/3 PASS** (2026-06-27) |
 
 ---
 
@@ -586,3 +594,258 @@ Observed from JSONL: Rust second `todo_go` @200 targets live player tile `(32450
 - [ ] Align Rust follow-move repath with C++ — no inline idle on every harness walk tick during U-loop
 - [ ] Restore `go_exec` @2000 and `melee_hit` @4000 tick buckets
 - [ ] C++ hooks: `todo_label` or exclude from gate; unify `creature_move_stimulus` kind strings
+
+---
+
+## 16. Two-cyclops ramp (`kite_cyclops_two_real`, 2026-06-27)
+
+Scenario: [`scripts/scenarios/kite_cyclops_two_real.scenario`](../scripts/scenarios/kite_cyclops_two_real.scenario)
+
+| Phase | Script |
+|-------|--------|
+| A | 5-step U-loop (same as `one_real`) |
+| B | Stand at `(32451,32065)` — 1 s catch-up + 3× `advance_ms 2000` (~6–8 `melee_hit` with dual cyclops @4000/6000/8000) |
+| C | 5 steps west/north/east via `y=32067` gravel (avoids cyclops block on `32451,32066`) |
+
+Spawns (idle drain order): cyclops @ `32453,32065` (east → ~`32454,32065`), @ `32454,32066` (east-north). `player_health 500` — scenario verb (Rust + C++ `chase_kite_scenario.cc`; set `SKILL_HITPOINTS` **Max** before **Set**).
+
+Conditions: `TFS_KITE_NO_WILD=1`, `TFS_SIM_SEED=772`, `wall_ms=10000`.
+
+### 16.1 First A/B baseline — **FAIL** (historical; superseded by §16.8)
+
+> **Status:** Pre-fix baseline captured before T1–T6. Current gate is **PASS** — see §16.8.
+
+Artifacts (per-slug after battery): `log/summary_realmap_cyclops_two_real.txt`,
+`log/chase_path_cip_realmap_cyclops_two_real.log`, `log/chase_path_rust_realmap_cyclops_two_real.log`.
+
+`summarize_chase_gaps.py --movement-core --max-tick 12000` exit **2**.
+
+| Signal | C++ | Rust | Notes |
+|--------|-----|------|-------|
+| Phase A `harness_player_step` | 5/5 | 5/5 | U-loop tiles match |
+| `go_exec` | 10 | 6 | **First divergence class** — multi-monster + phase C |
+| `todo_go` / `shortway` | 7 / 4 | 4 / 3 | Missing repaths during stand + kite |
+| `melee_hit` | 8 | 7 | Rolls differ; ref early hit @2000 |
+| `creature_move_stimulus` | 33 | 20 | Multi-monster follow dispatch |
+| `idle_stimulus` / `todo_wait` | 10 / 4 | 9 / 2 | Extra idle @2000 ref; waits on phase C ref only |
+| Gated pairwise | partial | — | `go_exec` **1/6 = 17%**; `melee_hit` **0/7** |
+
+**Important:** `one_real` parity (G1–G6) is necessary but **not sufficient** for `two_real`. Dual cyclops exposes **path choice**, **multi-creature todo drain**, **melee-dance RNG**, and **combat-under-kite** logic that a single-monster control does not stress.
+
+### 16.2 Harness vs AI — do not confuse the layers
+
+| Layer | Examples on `two_real` | Parity strategy |
+|-------|------------------------|-----------------|
+| **Harness / scenario** | `player_health`, route via `y=32067`, `wall_ms`, compare filters | Keep minimal — only what C++ harness also has |
+| **AI / mechanics** | `go_exec` tile order, `shortway` hooks, stand repath, kite restep, dance **eligibility** | **Must match C++ outcomes** — this is the work |
+| **RNG-soft (informational)** | `branch` / `melee_dance` **dest tile** when draw order differs | **Need not match** for gate PASS — see §16.2.1 |
+
+**Do not** green the gate by: shortening stand `advance_ms` to hide missing hits, swapping phase C coords until traces match, or tuning `WakeupTiePolicy` without verifying against C++ `ToDoQueue` drain order on **real gravel** (`crmain.cc` `MoveCreatures`, `operate.cc` notify order).
+
+**Do** fix Rust until JSONL event **sequence and geometry** match C++ for the same scenario script (RNG-soft events excepted — §16.2.1).
+
+### 16.2.1 RNG-soft events — `melee_dance` / `branch`
+
+772 melee dance picks a **cardinal** sidestep via `rand(0,4)` (`crnonpl.cc:2736`). On a live server, two correct runs can both dance while logging different `dest` tiles. **Exact dance destination is not gameplay parity** — eligibility, cadence, and downstream movement/combat are.
+
+#### What must match (blocking / T3 work)
+
+| Check | Why |
+|-------|-----|
+| Idle chose `melee_dance` vs chase/flee at the right tick | Branch **kind** / eligibility (`idle_stimulus.rs` classify) |
+| Stand-window `branch` + `todo_go` **counts** @4000/6000/8000 | Same re-arm cadence while player static |
+| Dance step is cardinal, walkable, in-band | Structure of `monster_idle_dance_step` |
+| Blocked dance does not wrongly re-enqueue Go (X5) | `idle_stimulus.rs` unit tests |
+| Downstream `go_exec` / `melee_hit` tick buckets after dance | Observable cadence — still in `MOVEMENT_CORE_EVENTS` |
+
+#### What need not match (informational)
+
+| Check | Notes |
+|-------|-------|
+| `branch` / `melee_dance` **dest** `(x,y)` | Logged as `branch` in JSONL; **excluded** from `--movement-core` gate |
+| Index-aligned `branch` 3/3 with identical dest | Full `--lockstep` / unpinned compare only — warns, does not block |
+
+`summarize_chase_gaps.py --movement-core` puts `branch` in `SCHEDULER_TRACE_EVENTS` (warn only). `compare_chase_live_logs.py` `branch_key` still includes `dest` for diagnostics when `TFS_SIM_SEED=772` and glibc draw order is aligned — use `TFS_SIM_RNG_TRACE=1` to debug **draw-order** bugs (B4), not as proof that dance logic is wrong.
+
+#### Two compare modes
+
+1. **Outcome parity (default gate)** — `--movement-core`: dance dest mismatches are **warnings**. Fix T3 when **counts/cadence** or chase-at-cheb-2 repath diverge; ignore dest-only `branch` gaps if movement core is green.
+2. **Seed-pinned trace (debug)** — `TFS_SIM_SEED=772` + aligned draw order: dance dest *may* match byte-for-byte. When dest diverges **after** B1/B6 drain-order fixes, treat as RNG stream symptom, not a separate acceptance criterion.
+
+**Unit tests** (`idle_stimulus.rs`): eligibility, cardinal-only step, blocked-dance-no-repath — not golden dest tiles.
+
+### 16.3 Gap classification (fresh A/B)
+
+#### A — Instrumentation / compare (non-blocking)
+
+| Gap | Action |
+|-----|--------|
+| `todo_label` Rust-only (+195) | Already excluded from `--movement-core` |
+| `branch` / `melee_dance` **dest tile** | RNG-soft — warn only under `--movement-core` (§16.2.1); compare **kind + tick bucket + count** |
+| `rotate` `target_id` encoding | Role-normalize in compare (§20) |
+| `melee_hit` dmg tuple | Compare tick + `hp_after` bucket; dmg literals differ when probe order diverges |
+
+#### B — AI logic (blocking — fix in core)
+
+| # | Symptom (ref vs rust) | C++ authority | Rust fix surface |
+|---|------------------------|-------------|------------------|
+| **B1** | `go_exec[0]` @400: ref `(32454,32066)→(32453,32066)` vs rust `(32454,32065)→(32454,32064)`; **cyclops drain order swapped** @400/2000 | `cract.cc` `TShortway` / `TDGo`; multi-creature `MoveCreatures` drain | `monster_ai.rs` `monster_tshortway_*`, `walk/mod.rs` `WakeupTiePolicy` + `harness_spawn_order`; verify on **real OTBM** not synthetic quad |
+| **B2** | `shortway[2]` @6000: ref south hook `(32450,32064)` vs rust `(32452,32065)` hook | `cract.cc:158–202` reverse terrain path | FillMap + waypoint on gravel bowl; `pathfinding.rs`, `monster_tshortway_fill_walkable` |
+| **B3** | `branch`/`todo_go` @4000/8000 during **stand**: ref re-arms toward `(32451,32064)`; rust silent or different `via` | `crnonpl.cc` idle Hold + `CreatureMoveStimulus` | `idle_stimulus.rs`, `monster_events.rs` — static target at cheb 2 must still re-evaluate chase/dance, not over-block via `monster_close_chase_batch_in_flight` |
+| **B4** | `melee_dance` @6000: ref `(32450,32064)` vs rust `(32452,32065)` — **dest informational** if both sides logged `melee_dance` | `crnonpl.cc:2736` rand(0,4) cardinal | Fix only if **eligibility/count** wrong; if kind matches, debug draw order via `TFS_SIM_RNG_TRACE=1` after B1/B6 — dest alone does not block gate (§16.2.1) |
+| **B5** | Phase C @8400/9000: ref `shortway`/`todo_go`/`todo_wait`; rust missing | `crmain.cc:919` follow-target move + idle tail | `monster_events.rs` `monster_dispatch_creature_move` — kite step must restep **both** cyclops when player leaves cheb 1 |
+| **B6** | `melee_hit` @2000 ref only; probe tuples differ @4000+ | `crcombat.cc` `CloseAttack` probe order | `monster_ai.rs` melee probe sequence per attacker when 2+ cyclops adjacent; align with C++ draw order after appear |
+| **B7** | `idle_stimulus` +1 @2000 on ref | `crnonpl.cc:2345` one pass per beat | Re-check same-tick dedupe (`idle_stimulus_last_ms`) — must not suppress ref-visible second pass when **two** monsters yield |
+
+First pairwise divergence (index-aligned):
+
+```
+branch[0]:  ref melee_dance → (32451,32064)   rust → (32452,32065)   ← dest RNG-soft (§16.2.1); both attempted dance
+todo_go[3]: ref single → (32451,32064)        rust enter → (32452,32065)
+go_exec[0]: ref (32454,32066)→(32453,32066)   rust (32454,32065)→(32454,32064)
+```
+
+`branch[0]` dest alone is not blocking. `todo_go[3]` and `go_exec[0]` are **path/AI** — fix via T1/T2/T3 chase repath.
+
+### 16.4 Parity plan — AI logic first (ordered)
+
+Work in this order; re-run A/B after **each** tranche. Gate: `--movement-core --max-tick 12000` on `two_real`; do not advance until the tranche’s **first divergence index** moves right or matching event count rises.
+
+```mermaid
+flowchart TD
+  done_one[one_real G1-G6 done] --> t1[T1 Multi-monster go_exec @400/2000]
+  t1 --> t2[T2 Real-map TShortway hooks]
+  t2 --> t3[T3 Stand-phase chase/dance]
+  t3 --> t4[T4 Kite-under-combat restep]
+  t4 --> t5[T5 Dual-attacker melee probes]
+  t5 --> pass[two_real movement-core PASS]
+  pass --> battery[real-map battery 3/3 PASS]
+  battery --> six[kite_cyclops_six_real 6-monster ramp]
+```
+
+#### T1 — Multi-monster todo drain order (P6b)
+
+**Goal:** `go_exec` @400 and @2000 pairwise **2/2** for both cyclops (match C++ spawn-order drain, same as synthetic quad P2.5g but on real map).
+
+1. Trace C++ `MoveCreatures` + `ToDoQueue` wakeup order for monsters 1 and 2 @tick 400/2000 (`crmain.cc`).
+2. Compare to Rust `schedule_creature_wakeup` tie policy in `walk/mod.rs` — `HarnessAppearIdle` vs `HarnessGoStep` on **real-map** appear + first kite walks.
+3. Add/extend unit test: `cyclops_bowl_real_dual_go_exec_order_at_tick_400` in `sim_harness.rs` (mirror `cyclops_quad_go_exec_order_at_tick_4000` on OTBM bowl coords).
+4. **Accept when:** `go_exec` tick buckets `[400, 400, 2000, 2000, …]` match ref; first two `go_exec` tiles match ref indices.
+
+**Files:** `walk/mod.rs`, `todo_queue.rs`, `sim_harness.rs`, `creature_todo.rs`.
+
+#### T2 — Real-map chase geometry (P6b)
+
+**Goal:** `shortway` step lists match C++ on gravel bowl for both cyclops from `(32454,32065)` / `(32454,32066)` spawns.
+
+1. Dump FillMap @tick 200/400 for **both** monsters: `scripts/compare_fill_walkable.py --preset cyclops-bowl`.
+2. If tile wp/occupation differs → OTBM/`objects.srv` issue (trajectory §11). If FillMap matches but steps differ → `monster_tshortway_fill_walkable` / trim / `must` flag (`cract.cc:241–258`).
+3. Fix path choice until `shortway[0..2]` index-aligned with ref.
+
+**Files:** `monster_ai.rs`, `pathfinding.rs`, `map` walkability.
+
+#### T3 — Stand-phase AI (P6c)
+
+**Goal:** During phase B (player static @ `32451,32065`), ref and rust emit same **stand-window cadence**: `branch` **kind** counts (`melee_dance` vs chase), `todo_go` counts @4000/6000/8000, and chase-at-cheb-2 repath — **not** identical dance dest tiles (§16.2.1).
+
+1. **Chase at cheb 2:** C++ re-arms `todo_go` toward player tile when standing — verify Rust `monster_idle_stimulus` / `CreatureMoveStimulus` does not treat “no player walk” as “no repath needed” if batch not in flight.
+2. **Melee dance:** Eligibility + cardinal step + “blocked dance does not re-enqueue Go” (`idle_stimulus.rs` tests §X5). Align glibc draw order only when **kind/count** already match but downstream cadence still diverges (B6/T5).
+3. **Rotate @6000/8000:** Face target after dance — `monster_idle_rotate_toward_attack_target` / harness face on appear applies per monster.
+4. **Accept when:** stand-window `branch` **kind** counts match (e.g. same number of `melee_dance` attempts); stand-window `todo_go` counts match; chase repath @4000/8000 present on both sides. **Do not** require `branch` dest 3/3 or `@6000` dest tile equality for T3 done or `--movement-core` PASS.
+
+**Files:** `idle_stimulus.rs`, `monster_events.rs`, `monster_ai.rs`.
+
+#### T4 — Combat-under-kite (P6d)
+
+**Goal:** Phase C walks (@8200–9000) produce ref-matching `creature_move_stimulus`, `shortway`, `todo_go`, `todo_wait`.
+
+1. On each harness `player_walk` while cyclops adjacent: C++ dispatches move stimulus → inline chase or dist-band wait — Rust must mirror (`monster_dispatch_creature_move`, `monster_close_chase_batch_in_flight` guard scope).
+2. Restore dist-band `ToDoWait(1000)` when player pulls to cheb 4+ without over-clearing in-flight Go (see `test_772_dist_target_flee_inline_chase_after_goal_wait`).
+3. **Accept when:** `creature_move_stimulus` count ≥ ref through tick 9000; phase C `shortway`/`todo_go` @8400/9000 present on Rust.
+
+**Files:** `monster_events.rs`, `idle_stimulus.rs`, `walk/mod.rs`.
+
+#### T5 — Dual-attacker melee (P6e)
+
+**Goal:** `melee_hit` tick buckets and pairwise sequence match (8/8 or agreed count); damage probes aligned.
+
+1. Trace glibc draw order for **two** cyclops `CloseAttack` in one drain round (`TFS_SIM_RNG_TRACE=1`).
+2. Fix `melee_realign` / probe sites so attacker 1 vs 2 draw order matches C++ appear + drain order.
+3. Do **not** normalize damage in compare until probes match — fixing probes is the AI fix.
+
+**Files:** `monster_ai.rs`, `sim_glibc_rand.rs`, `creature/monster_combat.rs`.
+
+#### T6 — Lockstep closeout
+
+1. Full A/B: `python3 scripts/run_kite_scenario.py --real-map scripts/scenarios/kite_cyclops_two_real.scenario`
+2. Gate: `summarize_chase_gaps.py --movement-core --max-tick 12000` exit **0** — **done** (§16.8)
+3. Battery row: `run_realmap_sim_battery.py` → `cyclops_two_real` — **done** (3/3 battery PASS)
+4. Six-monster ramp — **next** (1-monster `six_real` already passes battery @5000)
+
+### 16.5 Verification commands (repeat after each tranche)
+
+```bash
+export TFS_SIM_SEED=772 TFS_KITE_NO_WILD=1
+
+# Full A/B (QM: scripts/tibia_game_dev.sh run-qm)
+python3 scripts/run_kite_scenario.py --real-map \
+  scripts/scenarios/kite_cyclops_two_real.scenario
+
+python3 scripts/summarize_chase_gaps.py \
+  --ref log/chase_path_cip_realmap.log \
+  --rust log/chase_path_rust_realmap.log \
+  --monster cyclops --max-tick 12000 --movement-core \
+  | tee log/summary_realmap_cyclops_two_real.txt
+
+# Optional: RNG trace for T5
+TFS_SIM_RNG_TRACE=1 cargo run -p tfs-rust-core --bin chase_kite_sim -- \
+  scripts/scenarios/kite_cyclops_two_real.scenario
+```
+
+### 16.6 Explicit non-goals (harness-only — insufficient for parity)
+
+- Adjusting phase B `advance_ms` blocks to force exactly 5 `melee_hit` events (use `wait_melee_hits` later; count must follow **AI cadence**).
+- Changing phase C to `y=32066` east leg without fixing block/collision AI (route was a **spawn** workaround for cyclops on `32451,32066`, not a parity fix).
+- Excluding `go_exec` or `creature_move_stimulus` from the gate to PASS with divergent chase geometry.
+- Requiring exact `melee_dance` / `branch` dest tiles in `--movement-core` — dest is RNG-soft (§16.2.1); gate on kind, count, and downstream cadence instead.
+- Reusing synthetic quad `WakeupTiePolicy` tests alone — real-map bowl must have its own oracle test (T1).
+
+### 16.7 Checklist
+
+- [x] Scenario + `player_health` + first A/B baseline (§16.1)
+- [x] **T1** Multi-monster `go_exec` order @400/2000 — `harness_go_step_tie_realmap_bowl` + `todo_queue` oracle
+- [x] **T2** Real-map `shortway` hooks (both spawns)
+- [x] **T3** Stand-phase chase / `melee_dance` eligibility + cadence (not dest tiles — §16.2.1)
+- [x] **T4** Phase C kite-under-combat restep — `combat_move_rearm` @8400/9000
+- [x] **T5** Dual-attacker melee probe order — skip dual global realign; 8/8 `melee_hit`
+- [x] **T6** `--movement-core` PASS on `two_real` + real-map battery **3/3** (§16.8)
+- [ ] Ramp `kite_cyclops_six_real` to **6 monsters** (1-monster `six_real` battery PASS @5000)
+
+### 16.8 Closeout — movement-core PASS + battery (2026-06-27)
+
+**Gate:** `summarize_chase_gaps.py --movement-core --max-tick 12000` exit **0**.
+
+**`two_real` scorecard** (`log/summary_realmap_cyclops_two_real.txt`):
+
+| Metric | Ref | Rust | Pairwise |
+|--------|-----|------|----------|
+| Event totals (core) | 106 | 106 matched | — |
+| `go_exec` tick buckets | 10 | 10 | **PASS** `[400,400,2000,2000,4000,6000,8000,8200,9000,10000]` |
+| `branch` / `todo_go` / `shortway` | 3 / 7 / 4 | match | **100%** |
+| `melee_hit` | 8 | 8 | **8/8** |
+| `creature_move_stimulus` | 33 | 33 | **33/33** |
+| `rotate` | 5 | 5 | **5/5** |
+
+**Real-map battery** (`TFS_SIM_SEED=772 TFS_KITE_NO_WILD=1`, QM running):
+
+| Scenario | `movement_core` | `max_tick` |
+|----------|-----------------|------------|
+| `cyclops_one_real` | **PASS** | 5000 |
+| `cyclops_two_real` | **PASS** | 12000 |
+| `cyclops_six_real` | **PASS** | 5000 |
+
+Per-slug artifacts: `log/chase_path_cip_realmap_<slug>.log`, `log/chase_path_rust_realmap_<slug>.log`, `log/summary_realmap_<slug>.txt`.
+
+**Key Rust fixes (T1–T5):** `harness_go_step_tie_realmap_bowl`; remove bogus `DelayAttack(2000)` on entering `Attacking`; `combat_move_rearm` when `Attacking` + pending attack after defer unlock; skip dual-monster global melee realign; C++ `Rotate` horizontal tie-break (`cract.cc:463-466`); co-monster `move_stimulus` + spawn-2-first witness order on real-map harness.
+
+**Next:** six-monster `kite_cyclops_six_real` ramp (P6); `todo_label` remains Rust-only instrumentation (excluded from movement-core gate).

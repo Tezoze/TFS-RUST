@@ -2183,6 +2183,36 @@ Summaries: `log/summary_realmap_cyclops_one_real.txt` (includes gap classificati
 
 ---
 
+## 35. `kite_cyclops_two_real` movement-core closeout (2026-06-27)
+
+**Scenario:** dual cyclops on OTBM gravel bowl — phases A/B/C, `wall_ms=10000`.
+
+**Gate:** `summarize_chase_gaps.py --movement-core --max-tick 12000` exit **0**.
+
+| Event type | Ref | Rust | Pairwise |
+|------------|-----|------|----------|
+| `go_exec` | 10 | 10 | 10/10 |
+| `melee_hit` | 8 | 8 | 8/8 |
+| `creature_move_stimulus` | 33 | 33 | 33/33 |
+| `todo_go` / `shortway` | 7 / 4 | match | 100% |
+| `branch` / `idle_stimulus` / `todo_wait` / `rotate` | match | match | 100% |
+
+**Real-map battery** (`run_realmap_sim_battery.py`, seed 772, `TFS_KITE_NO_WILD=1`):
+
+| Row | `movement_core` | `max_tick` |
+|-----|-----------------|------------|
+| `cyclops_one_real` | PASS | 5000 |
+| `cyclops_two_real` | PASS | 12000 |
+| `cyclops_six_real` | PASS | 5000 |
+
+Artifacts: `log/summary_realmap_cyclops_two_real.txt`, per-slug `chase_path_*_realmap_<slug>.log`.
+
+**Closed (T1–T5):** multi-monster go-step tie on real-map bowl; combat `combat_move_rearm` on phase C kite; dual-attacker melee cadence without spurious phase-C hits; C++-faithful `Rotate` on diagonal ties; co-monster move-stimulus ordering.
+
+**Still open:** six-monster `six_real` ramp; `todo_label` volume (Rust-only trace); expanded 15-event lockstep on `one_real` (§34 G1–G5).
+
+---
+
 ## Changelog
 
 | Date | Change |
@@ -2215,3 +2245,4 @@ Summaries: `log/summary_realmap_cyclops_one_real.txt` (includes gap classificati
 | 2026-06-24 | §32 extended parity closeout: harness segment + `ThrowPossible` dist idle + hunter_chase PASS; hunter_dist_flee/dragon structural 100% with damage/tile deltas deferred; base 5/6 held. |
 | 2026-06-26 | §33 real-map lockstep closeout: `kite_cyclops_one_real` PASS — `attack_enqueue` idle_tail + `melee_hit` 54/2/52; harness RNG realign; archived `log/realmap_pilot_20260626_*`. |
 | 2026-06-27 | §34 expanded trace gate: real-map battery FAIL (19/109 events) — inline repath per walk tick, go_exec/melee +1000ms phasing; core geometry still 3/3 go_exec index match; summaries updated with gap table. |
+| 2026-06-27 | §35 `two_real` closeout: movement-core PASS (106/106 counts, 100% pairwise core events); real-map battery **3/3 PASS** (`one_real`, `two_real`, `six_real` @5000). |
