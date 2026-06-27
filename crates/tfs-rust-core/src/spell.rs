@@ -2,7 +2,6 @@
 // C++ reference: `spells.cpp` `Spell::playerSpellCheck`, `playerInstantSpellCheck`.
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use crate::creature::Player;
 use crate::matrix_area::MatrixArea;
@@ -38,10 +37,14 @@ pub enum SpellFailReason {
 pub fn can_cast_instant(
     player: &Player,
     spell: &SpellDefinition,
-    now: Instant,
     now_tick: u64,
+    beat_driven_loop: bool,
 ) -> Result<(), SpellFailReason> {
-    if !player.timed_action_ready(now) {
+    if beat_driven_loop {
+        if !player.base.spell_ready_at(now_tick) {
+            return Err(SpellFailReason::NextAction);
+        }
+    } else if !player.timed_action_ready(now_tick) {
         return Err(SpellFailReason::NextAction);
     }
     if (player.level as u16) < spell.level {
@@ -144,7 +147,7 @@ mod tests {
     use tfs_rust_common::enums::{Direction, SkullType};
     use tfs_rust_common::Position;
 
-    fn minimal_player(next_action_until: Option<Instant>) -> Player {
+    fn minimal_player(next_action_until: Option<u64>) -> Player {
         Player {
             base: CreatureBase {
                 name: "t".into(),
@@ -166,6 +169,8 @@ mod tests {
                 next_wakeup: None,
                 last_step_server_ms: None,
                 earliest_walk_server_ms: 0,
+                earliest_spell_server_ms: 0,
+                earliest_multiuse_server_ms: 0,
                 walk_timer: Default::default(),
                 cancel_next_walk: false,
                 force_update_follow_path: false,
@@ -252,15 +257,39 @@ mod tests {
             group_cooldown_ticks: 0,
             vocation_mask: 0xFFFF_FFFF,
         };
-        let now = Instant::now();
-        let p = minimal_player(Some(now + Duration::from_secs(60)));
+        // nextAction is now on the logical ms clock (audit Findings 1/2, Phase 4).
+        let now_tick: u64 = 1_000;
+        let p = minimal_player(Some(now_tick + 60_000));
         assert_eq!(
-            can_cast_instant(&p, &spell, now, 0),
+            can_cast_instant(&p, &spell, now_tick, false),
             Err(SpellFailReason::NextAction)
         );
-        let p2 = minimal_player(Some(now - Duration::from_millis(1)));
-        assert!(can_cast_instant(&p2, &spell, now, 0).is_ok());
+        let p2 = minimal_player(Some(now_tick - 1));
+        assert!(can_cast_instant(&p2, &spell, now_tick, false).is_ok());
         let p3 = minimal_player(None);
-        assert!(can_cast_instant(&p3, &spell, now, 0).is_ok());
+        assert!(can_cast_instant(&p3, &spell, now_tick, false).is_ok());
+    }
+
+    #[test]
+    fn can_cast_instant_772_blocks_on_earliest_spell_time() {
+        let spell = SpellDefinition {
+            id: 1,
+            level: 1,
+            mana: 0,
+            soul: 0,
+            cooldown_ticks: 0,
+            group_id: 0,
+            group_cooldown_ticks: 0,
+            vocation_mask: 0xFFFF_FFFF,
+        };
+        let now_tick: u64 = 1_000;
+        let mut p = minimal_player(None);
+        p.base.earliest_spell_server_ms = now_tick + 500;
+        assert_eq!(
+            can_cast_instant(&p, &spell, now_tick, true),
+            Err(SpellFailReason::NextAction)
+        );
+        p.base.earliest_spell_server_ms = now_tick;
+        assert!(can_cast_instant(&p, &spell, now_tick, true).is_ok());
     }
 }

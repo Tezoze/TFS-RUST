@@ -23,6 +23,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::ConnId;
+use tfs_rust_common::GamePacket;
 use tfs_rust_common::Position;
 use tfs_rust_db::DbPool;
 use tfs_rust_net::Codec;
@@ -130,6 +131,8 @@ pub struct GameWorld {
     pub(crate) monster_viewport_notify_depth: u32,
     /// AI/combat RNG — re-seeded from `TFS_SIM_SEED` in harness runs (`crnonpl.cc` dance/attack rolls).
     pub(crate) ai_rng: StdRng,
+    /// Per-world glibc parity stream for 772 — avoids process-global `libc::srand` (Finding 8/15).
+    pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
     /// Headless sim only — cap `move_creatures` / `run_sim_tick` time advance (`chase_kite_scenario.cc`).
     pub(crate) sim_harness_wall_ms: Option<u64>,
     /// Last `advance_ms` step — min go delay when arming at the harness wall (`kite_rat_melee.scenario`).
@@ -141,10 +144,111 @@ pub struct GameWorld {
 }
 
 impl GameWorld {
-    pub fn player_timed_action_ready(&self, cid: CreatureId, now: Instant) -> bool {
+    /// Logical millisecond clock for subsystem scheduling. 772 uses `server_ms` (the beat clock);
+    /// 1098 derives a monotonic ms from the ~50 ms `tick_counter`. Used by respawn timing so it
+    /// no longer rides the wall clock (audit Finding 13).
+    pub(crate) fn now_ms(&self) -> u64 {
+        if self.beat_driven_loop {
+            self.server_ms
+        } else {
+            self.tick_counter.saturating_mul(50)
+        }
+    }
+
+    pub fn player_timed_action_ready(&self, cid: CreatureId) -> bool {
+        let now_ms = self.now_ms();
         match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.timed_action_ready(now),
+            Some(CreatureKind::Player(p)) => p.timed_action_ready(now_ms),
             _ => true,
+        }
+    }
+
+    /// Per-packet action gate — 772 uses `Earliest*Time`; 1098 uses unified `nextAction`.
+    /// C++ ref: `cract.cc:906–940` `CalculateDelay`; `crmain.cc:924` combat gates.
+    pub fn player_packet_action_ready(&self, cid: CreatureId, packet: &GamePacket) -> bool {
+        let now_ms = self.now_ms();
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return true;
+        };
+        if !self.beat_driven_loop {
+            return p.timed_action_ready(now_ms);
+        }
+        let base = &p.base;
+        match packet {
+            GamePacket::Attack { .. } => {
+                base.attack_ready_at(now_ms, base.earliest_spell_server_ms)
+            }
+            GamePacket::Throw(_) => base.multiuse_ready_at(now_ms),
+            _ => base.attack_ready_at(now_ms, base.earliest_spell_server_ms),
+        }
+    }
+
+    /// Whether a deferred walk-action may run (772 per-action timers; 1098 `nextAction`).
+    pub(crate) fn player_walk_action_ready(
+        &self,
+        cid: CreatureId,
+        action: &crate::creature::PlayerWalkAction,
+    ) -> bool {
+        let now_ms = self.now_ms();
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if !self.beat_driven_loop {
+            return p.timed_action_ready(now_ms);
+        }
+        let base = &p.base;
+        match action {
+            crate::creature::PlayerWalkAction::UseItemEx(_) => base.multiuse_ready_at(now_ms),
+            crate::creature::PlayerWalkAction::UseItem(_) | crate::creature::PlayerWalkAction::MoveItem { .. } => {
+                base.walk_action_ready_at(now_ms)
+            }
+        }
+    }
+
+    /// `UseItem` gate — 772 walk timer only; 1098 unified `nextAction`.
+    pub(crate) fn player_use_item_ready(&self, cid: CreatureId) -> bool {
+        let now_ms = self.now_ms();
+        match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) if self.beat_driven_loop => {
+                p.base.walk_action_ready_at(now_ms)
+            }
+            Some(CreatureKind::Player(p)) => p.timed_action_ready(now_ms),
+            _ => true,
+        }
+    }
+
+    /// `UseItemEx` gate — 772 `EarliestMultiuseTime`; 1098 `nextAction`.
+    pub(crate) fn player_use_item_ex_ready(&self, cid: CreatureId) -> bool {
+        let now_ms = self.now_ms();
+        match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) if self.beat_driven_loop => {
+                p.base.multiuse_ready_at(now_ms)
+            }
+            Some(CreatureKind::Player(p)) => p.timed_action_ready(now_ms),
+            _ => true,
+        }
+    }
+
+    /// C++ `Use` two-object exhaustion — `cract.cc:765`.
+    pub(crate) fn player_apply_multiuse_exhaust(&mut self, cid: CreatureId) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let now_ms = self.now_ms();
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base
+                .delay_multiuse_ms(now_ms, crate::walk_action::MULTIUSE_EXHAUST_MS);
+        }
+    }
+
+    /// C++ `CheckMana` spell exhaustion — `magic.cc:770–772` (2000 ms default world).
+    pub(crate) fn player_apply_spell_exhaust(&mut self, cid: CreatureId, delay_ms: u64) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let now_ms = self.now_ms();
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base.delay_spell_ms(now_ms, delay_ms);
         }
     }
     pub fn new(
@@ -212,6 +316,7 @@ impl GameWorld {
             monster_world_config,
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
+            parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
             sim_harness_wall_ms: None,
             sim_harness_segment_ms: None,
             batch_appear_defer_idle: false,
@@ -235,16 +340,51 @@ impl GameWorld {
         if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
             if let Ok(seed) = seed_str.parse::<u64>() {
                 self.ai_rng = StdRng::seed_from_u64(seed);
-                // C++ `srand(TFS_SIM_SEED)` — dance rolls use glibc `rand()` for parity.
+                self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed as u32);
+                // C++ `srand(TFS_SIM_SEED)` — legacy harness global stream.
                 unsafe { libc::srand(seed as u32) };
                 crate::sim_glibc_rand::enable_sim_glibc_rng();
             }
         }
     }
 
-    /// Dance / harness rolls — glibc `rand()` when `TFS_SIM_SEED` is set, else [`Self::ai_rng`].
+    /// Deterministic parity stream for unit tests and live 772 (`Finding 8/15`).
+    pub fn seed_parity_rng(&mut self, seed: u32) {
+        self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed);
+    }
+
+    /// Inclusive random on the era-appropriate stream — 772 uses per-world glibc state.
+    pub(crate) fn parity_random(&self, min: i32, max: i32) -> i32 {
+        if self.beat_driven_loop {
+            self.parity_rng.random(min, max)
+        } else {
+            crate::sim_glibc_rand::parity_random(min, max)
+        }
+    }
+
+    /// Modulo roll on the era-appropriate stream.
+    pub(crate) fn parity_rand_mod(&self, modulus: u32) -> u32 {
+        if self.beat_driven_loop {
+            self.parity_rng.rand_mod(modulus)
+        } else {
+            crate::sim_glibc_rand::parity_rand_mod(modulus)
+        }
+    }
+
+    /// Forward Fisher-Yates shuffle on the era-appropriate parity stream.
+    pub(crate) fn parity_random_shuffle<T>(&self, buf: &mut [T]) {
+        if self.beat_driven_loop {
+            self.parity_rng.random_shuffle(buf);
+        } else {
+            crate::sim_glibc_rand::parity_random_shuffle(buf);
+        }
+    }
+
+    /// Dance / harness rolls — per-world glibc on 772; env/global or [`Self::ai_rng`] on 1098.
     pub(crate) fn sim_dance_choice(&mut self) -> u32 {
-        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+        if self.beat_driven_loop {
+            self.parity_rand_mod(5)
+        } else if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
             crate::sim_glibc_rand::sim_rand_mod(5)
         } else {
             use rand::Rng;

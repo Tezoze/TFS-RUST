@@ -3,8 +3,6 @@
 // `spawn.cpp` `Spawn::spawnMonster`, `protocolgame.cpp` `sendAddCreature`.
 // 772 placement: `spawn_placement.rs` (`info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes`).
 
-use std::time::Instant;
-
 use rand::seq::SliceRandom;
 use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_common::ConnId;
@@ -165,13 +163,14 @@ impl GameWorld {
         }
     }
 
-    /// Poll respawn timers — C++ `Spawn::checkSpawn` driven from `GameWorld::on_tick`.
-    pub fn poll_spawn_respawns(&mut self, now: Instant) {
-        if !self.spawns.should_run_check(now) {
+    /// Poll respawn timers — C++ `Spawn::checkSpawn`. Driven on the **logical** clock (`now_ms`):
+    /// `server_ms` on 772, `tick_counter*50` on 1098 (audit Finding 13).
+    pub fn poll_spawn_respawns(&mut self, now_ms: u64) {
+        if !self.spawns.should_run_check(now_ms) {
             return;
         }
-        let indices = self.spawns.due_slot_indices(now);
-        self.spawns.mark_checked(now);
+        let indices = self.spawns.due_slot_indices(now_ms);
+        self.spawns.mark_checked(now_ms);
         for slot_index in indices {
             if self
                 .spawns
@@ -194,7 +193,7 @@ impl GameWorld {
             let stall_on_player =
                 self.mechanics.profile.spawn_near_player == crate::formulas::SpawnNearPlayer::Block;
             if blocked && stall_on_player {
-                self.spawns.stall_respawn(slot_index, now);
+                self.spawns.stall_respawn(slot_index, now_ms);
                 continue;
             }
             let Some(slot) = self.spawns.slot(slot_index).cloned() else {
@@ -279,6 +278,8 @@ impl GameWorld {
             next_wakeup: None,
             last_step_server_ms: None,
             earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
@@ -328,8 +329,7 @@ impl GameWorld {
             );
             self.creatures.remove(cid);
             // Avoid tight respawn loops on blocked tiles — C++ `checkSpawn` only advances timer on success.
-            self.spawns
-                .stall_respawn(slot_index, std::time::Instant::now());
+            self.spawns.stall_respawn(slot_index, self.now_ms());
             return None;
         }
 
@@ -398,6 +398,8 @@ impl GameWorld {
             next_wakeup: None,
             last_step_server_ms: None,
             earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
@@ -688,11 +690,8 @@ impl GameWorld {
     }
 
     /// Spawn-slot cleanup + disappear broadcast hook for [`GameWorld::remove_creature`].
-    pub(crate) fn on_creature_removed_for_spawn(
-        &mut self,
-        cid: CreatureId,
-        now: std::time::Instant,
-    ) {
+    /// `now_ms` is the logical clock (audit Finding 13).
+    pub(crate) fn on_creature_removed_for_spawn(&mut self, cid: CreatureId, now_ms: u64) {
         if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
             let stack_raw = self
                 .map
@@ -704,7 +703,7 @@ impl GameWorld {
             }
         }
         if let Some(slot_index) = self.spawn_slot_by_creature.remove(&cid) {
-            self.spawns.on_creature_removed(slot_index, now);
+            self.spawns.on_creature_removed(slot_index, now_ms);
         }
     }
 }
@@ -859,6 +858,9 @@ mod tests {
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
 
+        // Respawn now runs on the logical clock (audit Finding 13): advance `now_ms` (= tick_counter*50
+        // on the 1098 on_tick path) past the slot's respawn deadline + check interval.
+        world.tick_counter = 1_000_000;
         let later = Instant::now() + std::time::Duration::from_secs(6);
         world.on_tick(later);
 
@@ -886,6 +888,8 @@ mod tests {
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
 
+        // Respawn on the logical clock (audit Finding 13) — advance `now_ms` past the deadline.
+        world.tick_counter = 1_000_000;
         let later = Instant::now() + std::time::Duration::from_secs(6);
         world.on_tick(later);
         let monsters = world

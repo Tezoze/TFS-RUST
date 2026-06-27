@@ -100,6 +100,8 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             next_wakeup: None,
             last_step_server_ms: None,
             earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
             walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
@@ -365,6 +367,7 @@ pub fn beat_driven_test_world() -> GameWorld {
     let mut world = beat_driven_world_with_synthetic_ground(Some(TEST_SYNTHETIC_GROUND_WP));
     world.walk_wake_tx = None;
     world.server_ms = 0;
+    world.seed_parity_rng(42);
     world
 }
 
@@ -849,6 +852,8 @@ pub fn insert_monster_with_config(
         next_wakeup: None,
         last_step_server_ms: None,
         earliest_walk_server_ms: 0,
+        earliest_spell_server_ms: 0,
+        earliest_multiuse_server_ms: 0,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
@@ -907,6 +912,8 @@ pub fn insert_monster_from_type(
         next_wakeup: None,
         last_step_server_ms: None,
         earliest_walk_server_ms: 0,
+        earliest_spell_server_ms: 0,
+        earliest_multiuse_server_ms: 0,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
@@ -996,6 +1003,8 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         next_wakeup: None,
         last_step_server_ms: None,
         earliest_walk_server_ms: 0,
+        earliest_spell_server_ms: 0,
+        earliest_multiuse_server_ms: 0,
         walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,

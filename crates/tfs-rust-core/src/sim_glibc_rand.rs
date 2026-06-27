@@ -9,6 +9,67 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use rand::RngCore;
 use tfs_rust_common::enums::Direction;
 
+/// Per-world glibc TYPE_3 `rand()` state — isolates parallel tests (audit Finding 8/15).
+#[derive(Debug, Clone)]
+pub struct GlibcRngState {
+    next: Cell<u32>,
+}
+
+impl Default for GlibcRngState {
+    fn default() -> Self {
+        Self::seed(1)
+    }
+}
+
+impl GlibcRngState {
+    /// Mirrors `libc::srand(seed)` — glibc TYPE_3 initial state.
+    pub fn seed(seed: u32) -> Self {
+        Self {
+            next: Cell::new(seed),
+        }
+    }
+
+    /// One glibc `rand()` draw — TYPE_3: `(next/65536) % 32768`.
+    pub fn rand(&self) -> i32 {
+        let n = self
+            .next
+            .get()
+            .wrapping_mul(1_103_515_245)
+            .wrapping_add(12_345);
+        self.next.set(n);
+        ((n / 65_536) % 32_768) as i32
+    }
+
+    pub fn random(&self, min: i32, max: i32) -> i32 {
+        let range = max - min + 1;
+        if range <= 0 {
+            return min;
+        }
+        min + (self.rand() % range)
+    }
+
+    pub fn rand_mod(&self, modulus: u32) -> u32 {
+        debug_assert!(modulus > 0);
+        let m = modulus as i32;
+        (self.rand() % m) as u32
+    }
+
+    /// Forward Fisher-Yates shuffle matching C++ `RandomShuffle`.
+    pub fn random_shuffle<T>(&self, buf: &mut [T]) {
+        let size = buf.len();
+        if size < 2 {
+            return;
+        }
+        let max = (size - 1) as i32;
+        for min in 0..max {
+            let swap = self.random(min, max) as usize;
+            if swap != min as usize {
+                buf.swap(min as usize, swap);
+            }
+        }
+    }
+}
+
 static SIM_GLIBC_RNG: AtomicBool = AtomicBool::new(false);
 static SIM_RNG_TRACE: AtomicBool = AtomicBool::new(false);
 static SIM_RNG_CALLS: AtomicU64 = AtomicU64::new(0);

@@ -96,6 +96,10 @@ pub struct CreatureBase {
     pub last_step_server_ms: Option<u64>,
     /// 772 `EarliestWalkTime` — earliest logical ms the next `TDGo` may run (`cr.hh:631`, `cract.cc:912–916`).
     pub earliest_walk_server_ms: u64,
+    /// 772 `EarliestSpellTime` — spell exhaustion gate (`cr.hh:629`, `magic.cc:770–772` `CheckMana`).
+    pub earliest_spell_server_ms: u64,
+    /// 772 `EarliestMultiuseTime` — two-object use gate (`cr.hh:630`, `cract.cc:765`, `927–928`).
+    pub earliest_multiuse_server_ms: u64,
     /// When [`GameWorld`](crate::game_world::GameWorld) has `walk_wake_tx`, one-shot `tokio::time::sleep_until`
     /// tasks (`src/scheduler.cpp` Boost.Asio `steady_timer` + `stopEvent`).
     pub walk_timer: WalkTimer,
@@ -175,5 +179,47 @@ impl CreatureBase {
     /// Whether an attack todo may execute or be enqueued (`cract.cc:909` `TDAttack`).
     pub fn attack_ready_at(&self, server_ms: u64, earliest_spell_ms: u64) -> bool {
         server_ms >= self.earliest_attack_ms.max(earliest_spell_ms)
+    }
+
+    /// C++ `CheckMana` — `magic.cc:770–772` max-assign spell exhaustion.
+    pub fn delay_spell_ms(&mut self, server_ms: u64, delay_ms: u64) {
+        let earliest = server_ms.saturating_add(delay_ms);
+        self.earliest_spell_server_ms = self.earliest_spell_server_ms.max(earliest);
+    }
+
+    /// C++ `Use` two-object path — `cract.cc:765` `EarliestMultiuseTime = ServerMilliseconds + 1000`.
+    pub fn delay_multiuse_ms(&mut self, server_ms: u64, delay_ms: u64) {
+        let earliest = server_ms.saturating_add(delay_ms);
+        self.earliest_multiuse_server_ms = self.earliest_multiuse_server_ms.max(earliest);
+    }
+
+    /// C++ `TDGo` / walk-step gate — `cract.cc:918–921`.
+    #[inline]
+    pub fn walk_action_ready_at(&self, server_ms: u64) -> bool {
+        server_ms >= self.earliest_walk_server_ms
+    }
+
+    /// C++ spell cast gate — `magic.cc:3399` et al.
+    #[inline]
+    pub fn spell_ready_at(&self, server_ms: u64) -> bool {
+        server_ms >= self.earliest_spell_server_ms
+    }
+
+    /// C++ `TDUse` two-object gate — `cract.cc:927–928`.
+    #[inline]
+    pub fn multiuse_ready_at(&self, server_ms: u64) -> bool {
+        server_ms >= self.earliest_multiuse_server_ms
+    }
+
+    /// Latest blocking earliest-time among walk / spell / multiuse (for deferred walk-action reschedule).
+    pub fn earliest_action_block_ms(&self, server_ms: u64) -> Option<u64> {
+        [
+            self.earliest_walk_server_ms,
+            self.earliest_spell_server_ms,
+            self.earliest_multiuse_server_ms,
+        ]
+        .into_iter()
+        .filter(|&t| t > server_ms)
+        .max()
     }
 }

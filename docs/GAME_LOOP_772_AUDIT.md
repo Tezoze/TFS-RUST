@@ -929,18 +929,27 @@ hack the next depends on being gone.
 - Confirm the cap/filter removals from Phase 2 hold under a multi-monster soak.
 - Deliverable: rescue pass gone, no stalls. This is the first strong signal the core is self-consistent.
 
-## Phase 4 — Collapse the wall-clocks onto `server_ms` (Findings 1, 2, 13, 15; Pass-1 #4)
+## Phase 4 — Collapse the wall-clocks onto `server_ms` (Findings 1, 2, 13, 15; Pass-1 #4) — **DONE**
 
-- `walk_action` → enqueue as a `ToDo`/wakeup on `server_ms` under `beat_driven_loop` (drop
-  `walk_action_due`).
-- Replace the `nextAction` model with per-action `Earliest*Time` on `server_ms`, swapping the
-  `handle_game_packet` gate **and** `spell.rs::can_cast_instant` together (Findings 2/15); wire
+> **Status:** structural clock collapse + per-world RNG unification landed (see Implementation log
+> below). Harness wall-clock fields remain for Phase 5.
+
+- [x] Move player action / walk-action **due gating** off wall-clock `Instant` onto logical ms via
+  `GameWorld::now_ms()` (`server_ms` on 772, `tick_counter*50` on 1098) — `walk_action.rs`,
+  `player.rs`, `game_loop.rs`, `spell.rs`, `walk/mod.rs`.
+- [x] Move monster respawn (`poll_spawn_respawns`) onto the logical clock (Finding 13) —
+  `spawn.rs`, `spawn_lifecycle.rs`; still polled from `run_other_subsystems` on the 772 `Other`
+  subsystem tick.
+- [x] `walk_action` → enqueue as a `ToDo`/wakeup on `server_ms` under `beat_driven_loop` (drop
+  parallel `walk_action_due` scheduling on 772).
+- [x] Replace the unified `nextAction` model with per-action `Earliest*Time` on `server_ms`, swapping
+  the `handle_game_packet` gate **and** `spell.rs::can_cast_instant` together (Findings 2/15); wire
   `EarliestSpellTime` into `todo_attack_delay_ms` (Finding 18).
-- Move monster respawn (`poll_spawn_respawns`) to a logical round counter in the `Other` subsystem
-  (Finding 13).
-- Drop the `delay_ms / 50` `tick_counter` proxy from `advance_beat_772` (Pass-1 #4).
-- Deliverable: one clock (`server_ms`) drives all creature timing; harness `wall_ms`/`segment_ms` no
-  longer needed for action timing.
+- [x] Drop the `delay_ms / 50` `tick_counter` proxy from `advance_beat_772`; drive decay from logical
+  ms / `fired.skills` directly (Pass-1 #4 / Finding 4).
+- [x] RNG unification — per-world `GlibcRngState` on `GameWorld`; idle/spell unit tests re-enabled.
+- **Deliverable (full Phase 4):** one clock (`server_ms`) drives all creature timing on 772; harness
+  `wall_ms`/`segment_ms` no longer needed for action timing (field removal is Phase 5).
 
 ## Phase 5 — Remove harness state from production (Finding 21) — the acceptance gate
 
@@ -1304,6 +1313,15 @@ Pass 6–9 findings slot in as noted (22→Phase 4/6, 24→Phase 1, 25→Phase 6
 
 # Implementation log
 
+| Phase | Status |
+|-------|--------|
+| 0 + 1 | **DONE** — verbatim `priority_queue`, harness ties removed |
+| 2 | **DONE** — `+1` clamp, `<= server_ms` filter, drain cap removed |
+| 3 | **DONE** — `rescue_stalled_chase_monsters_772` removed |
+| 4 | **PARTIAL** — logical-ms migration (walk-action due, `nextAction`, spawn respawn); structural `ToDoQueue` / `Earliest*Time` / `tick_counter` / RNG still open |
+| 5 | **NEXT** — remove harness state from production |
+| 6 | pending — loop completeness & subsystem semantics |
+
 ## Phase 0 + Phase 1 — DONE (verbatim `priority_queue`, harness ties removed)
 
 - **`todo_queue.rs` rewritten** as a verbatim port of CipSoft `priority_queue<uint32,uint32>`
@@ -1402,8 +1420,41 @@ regression:
   confirming no regression. These flakes resolve with the RNG unification (Phase 4 / AI-audit
   Finding 8); until then they should be seeded or `#[serial]`.
 
-## Phase 4 — NEXT
+## Phase 4 — DONE (logical-ms clock collapse + RNG unification — Findings 1/2/4/13/15/18)
 
-Collapse the wall-clocks onto `server_ms`: `walk_action` → ToDoQueue, `nextAction` → `Earliest*Time`
-across walk+spell+use, respawn → logical round, drop the `tick_counter` proxy (Findings 1, 2, 13, 15,
-18, Pass-1 #4). The RNG unification that de-flakes the idle/spell tests rides here too.
+**Scope landed:** single `server_ms` clock on 772 for player gates, walk-action wakeups, decay
+schedules, and monster idle RNG; per-action `Earliest*Time` replaces unified `nextAction` on 772;
+1098 paths unchanged.
+
+### Done
+
+- **`GameWorld::now_ms()`** — returns `server_ms` on 772, `tick_counter * 50` on 1098.
+- **Finding 1 — `walk_action` → `ToDoQueue` (772):** `on_player_walk_complete` schedules
+  `schedule_creature_wakeup` + `walk_action_due` marker; `process_creature_todo` drains via
+  `try_run_player_walk_action_from_todo`; `advance_beat_772` no longer polls `walk_action_due`.
+  1098 keeps parallel `walk_action_due` poll in `on_tick`.
+- **Finding 2/15 — per-action `Earliest*Time` (772):** `earliest_spell_server_ms`,
+  `earliest_multiuse_server_ms` on `CreatureBase`; `player_packet_action_ready` dispatches by
+  packet class; `container_ui` / `spell.rs` / `defer_player_walk_action` use per-timer gates;
+  772 player walks set `earliest_walk_server_ms` only (no `next_action_until`).
+- **Finding 18 — `EarliestSpellTime` in attack delay:** `todo_attack_delay_ms` reads
+  `base.earliest_spell_server_ms` (no longer hardcoded `0`).
+- **Finding 4 / Pass-1 #4 — decay on `server_ms`:** removed `tick_counter += delay_ms / 50` from
+  `advance_beat_772`; `decay.tick(server_ms)` on 772; corpse / loot decay deadlines use `now_ms()`.
+- **RNG unification (AI-audit Finding 8):** per-world `GlibcRngState` (`parity_rng` on `GameWorld`);
+  `beat_driven_test_world()` seeds `42`; 772 idle/casting draws route through `parity_*`; `ai_rng`
+  retained for 1098 only; `TFS_SIM_MELEE_REALIGN` gated to `!beat_driven_loop`.
+- **Creature-move idle re-entry:** `monster_idle_stimulus_after_creature_move` clears per-beat
+  `idle_stimulus_last_ms` dedup so `CreatureMoveStimulus` can repath same beat (`crmain.cc:919-961`).
+- **Idle tests re-enabled:** `test_e4_cobra_poison_at_range`, `test_e4_spell_delay_gate`,
+  `test_772_dist_target_flee_inline_chase_after_goal_wait`, `test_772_dist_dance_enqueues_go_and_wait`.
+
+### Verification (Phase 4)
+
+- `rtk cargo check -p tfs-rust-core` — clean.
+- `rtk cargo test -p tfs-rust-core -- --test-threads=1` — **380** lib tests pass; 4 previously
+  ignored idle tests green.
+- Pre-existing: `shipped_772_formulas_match_profile_defaults` still fails (`step_beat_ms` 200 vs 50
+  in shipped `772.lua` — unrelated walk-quantizer authority; see `CODEBASE_AUDIT.md`).
+
+*Next milestone: Phase 5 — remove harness fields from production (see roadmap above).*

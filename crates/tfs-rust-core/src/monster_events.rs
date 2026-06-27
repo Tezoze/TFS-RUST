@@ -338,7 +338,7 @@ impl GameWorld {
             base.force_update_follow_path = true;
         }
         if self.beat_driven_loop {
-            self.monster_idle_stimulus(monster_id);
+            self.monster_idle_stimulus_after_creature_move(monster_id);
             if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
                 self.creatures.get(monster_id),
                 self.creatures.get(creature_id).map(|k| k.position()),
@@ -430,7 +430,7 @@ impl GameWorld {
             base.force_update_follow_path = true;
             base.next_wakeup = None;
         }
-        self.monster_idle_stimulus(monster_id);
+        self.monster_idle_stimulus_after_creature_move(monster_id);
         if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
             self.creatures.get(monster_id),
             self.creatures.get(target_id).map(|k| k.position()),
@@ -623,7 +623,7 @@ impl GameWorld {
                 self.idle_enqueue_wait_and_start(monster_id, MONSTER_IDLE_WAIT_MS);
             }
             MonsterEnqueueAttackResult::Noway => {
-                self.monster_idle_stimulus(monster_id);
+                self.monster_idle_stimulus_after_creature_move(monster_id);
             }
             MonsterEnqueueAttackResult::Failed => {
                 self.monster_combat_handle_close_chase_blocked(monster_id);

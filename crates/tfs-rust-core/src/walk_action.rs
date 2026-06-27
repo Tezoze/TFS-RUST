@@ -2,7 +2,7 @@
 // C++ reference: `player.cpp` `setNextWalkActionTask`, `onWalkComplete`, `onWalkAborted`;
 // `game.cpp` `playerMoveItem` (~970), `playerUseItem` (~2227), `playerUseItemEx` (~2151).
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -12,8 +12,12 @@ use crate::creature::PlayerWalkAction;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 
-/// TFS `createSchedulerTask(400, ...)` delay before walk-action fires (`game.cpp`).
-pub const WALK_ACTION_DELAY: Duration = Duration::from_millis(400);
+/// TFS `createSchedulerTask(400, ...)` delay before walk-action fires (`game.cpp`), in **logical ms**
+/// (audit Finding 1, Phase 4 — was a wall-clock `Duration`).
+pub const WALK_ACTION_DELAY_MS: u64 = 400;
+
+/// C++ two-object use exhaustion — `cract.cc:765` `EarliestMultiuseTime = ServerMilliseconds + 1000`.
+pub const MULTIUSE_EXHAUST_MS: u64 = 1000;
 
 impl GameWorld {
     /// TFS `Player::onWalkAborted` / `Game::playerMove` clearing `walkTask` (`player.cpp` ~3386, `game.cpp` ~1893).
@@ -31,21 +35,33 @@ impl GameWorld {
         }
     }
 
-    /// TFS `Player::onWalkComplete` — schedule stored `walkTask` (`player.cpp` ~3390–3395).
-    pub(crate) fn on_player_walk_complete(&mut self, cid: CreatureId, now: Instant) {
+    /// TFS `Player::onWalkComplete` — schedule stored `walkTask` on the logical clock.
+    /// 772: `ToDoQueue` wakeup (`schedule_creature_wakeup`); 1098: `walk_action_due` poll.
+    pub(crate) fn on_player_walk_complete(&mut self, cid: CreatureId) {
         let should_schedule = self
             .creatures
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.walk_action.is_some()));
-        if should_schedule {
+        if !should_schedule {
+            return;
+        }
+        let due = self.now_ms().saturating_add(WALK_ACTION_DELAY_MS);
+        if self.beat_driven_loop {
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                p.walk_action_due = Some(now + WALK_ACTION_DELAY);
+                p.walk_action_due = Some(due);
             }
+            self.schedule_creature_wakeup(cid, due);
+        } else if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.walk_action_due = Some(due);
         }
     }
 
-    /// Drain due walk-action tasks (scheduler tick equivalent).
-    pub(crate) fn process_walk_action_tasks(&mut self, now: Instant) {
+    /// Drain due walk-action tasks — **1098 only** (`on_tick`). 772 uses `ToDoQueue` drain.
+    pub(crate) fn process_walk_action_tasks(&mut self) {
+        if self.beat_driven_loop {
+            return;
+        }
+        let now_ms = self.now_ms();
         let due: Vec<(CreatureId, PlayerWalkAction)> = self
             .creatures
             .iter()
@@ -55,29 +71,57 @@ impl GameWorld {
                 };
                 let action = p.walk_action.clone()?;
                 let due_at = p.walk_action_due?;
-                (now >= due_at).then_some((cid, action))
+                (now_ms >= due_at).then_some((cid, action))
             })
             .collect();
 
+        let now = Instant::now();
         for (cid, action) in due {
             self.run_player_walk_action(cid, action, now);
         }
     }
 
-    /// Reschedule a deferred walk-action when `nextAction` is still active (`game.cpp` ~908–913).
-    pub(crate) fn defer_player_walk_action(
-        &mut self,
-        cid: CreatureId,
-        action: PlayerWalkAction,
-        now: Instant,
-    ) {
-        let due = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.next_action_until.filter(|t| *t > now),
-            _ => None,
+    /// 772 `ToDoQueue` drain hook — run deferred walk-action when its wakeup fires.
+    pub(crate) fn try_run_player_walk_action_from_todo(&mut self, cid: CreatureId, now: Instant) {
+        let (action, due_ok) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => {
+                let Some(due) = p.walk_action_due else {
+                    return;
+                };
+                let Some(action) = p.walk_action.clone() else {
+                    return;
+                };
+                (action, self.now_ms() >= due)
+            }
+            _ => return,
+        };
+        if !due_ok {
+            return;
+        }
+        self.run_player_walk_action(cid, action, now);
+    }
+
+    /// Reschedule a deferred walk-action while per-action timers are still active.
+    pub(crate) fn defer_player_walk_action(&mut self, cid: CreatureId, action: PlayerWalkAction) {
+        let now_ms = self.now_ms();
+        let due = if self.beat_driven_loop {
+            self.creatures
+                .get(cid)
+                .and_then(|k| k.base().earliest_action_block_ms(now_ms))
+                .unwrap_or(now_ms)
+        } else {
+            match self.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.next_action_until.filter(|t| *t > now_ms),
+                _ => None,
+            }
+            .unwrap_or(now_ms)
         };
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.walk_action = Some(action);
-            p.walk_action_due = Some(due.unwrap_or(now));
+            p.walk_action_due = Some(due);
+        }
+        if self.beat_driven_loop {
+            self.schedule_creature_wakeup(cid, due);
         }
     }
 
@@ -95,10 +139,8 @@ impl GameWorld {
             return false;
         };
         if path.is_empty() {
-            // Already adjacent — skip the walk, schedule action like onWalkComplete would.
-            // C++ `playerAutoWalk([]) → startAutoWalk([]) → addEventWalk → onWalkComplete`.
             self.set_next_walk_action_task(cid, action);
-            self.on_player_walk_complete(cid, now);
+            self.on_player_walk_complete(cid);
             return true;
         }
         self.set_next_walk_action_task(cid, action);
@@ -106,9 +148,14 @@ impl GameWorld {
         true
     }
 
-    fn run_player_walk_action(&mut self, cid: CreatureId, action: PlayerWalkAction, now: Instant) {
-        if !self.player_timed_action_ready(cid, now) {
-            self.defer_player_walk_action(cid, action, now);
+    pub(crate) fn run_player_walk_action(
+        &mut self,
+        cid: CreatureId,
+        action: PlayerWalkAction,
+        now: Instant,
+    ) {
+        if !self.player_walk_action_ready(cid, &action) {
+            self.defer_player_walk_action(cid, action);
             return;
         }
         self.clear_player_walk_action(cid);

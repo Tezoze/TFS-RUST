@@ -1,7 +1,6 @@
 //! Monster/NPC spawn scheduling from loaded spawn XML + OTBM references.
 // C++ reference: `spawn.cpp` `Spawn::checkSpawn`, `Spawn::spawnMonster`, `Spawn::startup`, `Spawn::findPlayer`.
 
-use std::time::{Duration, Instant};
 
 use rand::Rng;
 use tfs_rust_common::Position;
@@ -31,8 +30,10 @@ pub struct SpawnSlot {
     pub respawns: bool,
     /// Live creature occupying this slot, if any.
     pub current: Option<CreatureId>,
-    /// Earliest instant this slot may respawn (set on death).
-    pub respawn_at: Option<Instant>,
+    /// Earliest **logical ms** (`server_ms` on 772) this slot may respawn (set on death).
+    /// C++ 772: `ProcessMonsterhomes` counts respawn delay in logical rounds, not wall time
+    /// (audit Finding 13). Was `Instant`; now on the logical clock so it matches the beat loop.
+    pub respawn_at: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +50,8 @@ pub struct SpawnManager {
     pub slots: Vec<SpawnSlot>,
     /// GCD of slot spawntimes — C++ `Spawn::interval` (`spawn.cpp` ~409).
     pub check_interval_ms: u64,
-    pub last_check: Option<Instant>,
+    /// Last respawn-check time in **logical ms** (audit Finding 13).
+    pub last_check: Option<u64>,
     pub started: bool,
 }
 
@@ -164,53 +166,52 @@ impl SpawnManager {
             .collect()
     }
 
-    /// C++ `Spawn::checkSpawn` — slots due for respawn (`spawn.cpp` ~353).
-    pub fn due_slot_indices(&self, now: Instant) -> Vec<usize> {
+    /// C++ `Spawn::checkSpawn` — slots due for respawn (`spawn.cpp` ~353). `now_ms` is logical.
+    pub fn due_slot_indices(&self, now_ms: u64) -> Vec<usize> {
         self.slots
             .iter()
             .enumerate()
             .filter(|(_, slot)| slot.current.is_none() && slot.respawns)
-            .filter(|(_, slot)| slot.respawn_at.is_none_or(|at| now >= at))
+            .filter(|(_, slot)| slot.respawn_at.is_none_or(|at| now_ms >= at))
             .map(|(i, _)| i)
             .collect()
     }
 
-    pub fn should_run_check(&self, now: Instant) -> bool {
-        let interval = Duration::from_millis(self.check_interval_ms);
+    pub fn should_run_check(&self, now_ms: u64) -> bool {
         match self.last_check {
-            Some(last) => now.duration_since(last) >= interval,
+            Some(last) => now_ms.saturating_sub(last) >= self.check_interval_ms,
             None => true,
         }
     }
 
-    pub fn mark_checked(&mut self, now: Instant) {
-        self.last_check = Some(now);
+    pub fn mark_checked(&mut self, now_ms: u64) {
+        self.last_check = Some(now_ms);
     }
 
     /// C++ resets `lastSpawn` while player blocks tile.
-    pub fn stall_respawn(&mut self, slot_index: usize, now: Instant) {
+    pub fn stall_respawn(&mut self, slot_index: usize, now_ms: u64) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.respawn_at = Some(now);
+            slot.respawn_at = Some(now_ms);
         }
     }
 
-    /// C++ `Spawn::checkSpawn` — slots due for respawn (`spawn.cpp` ~353).
-    pub fn due_spawns<F>(&mut self, now: Instant, find_player: F) -> Vec<SpawnRequest>
+    /// C++ `Spawn::checkSpawn` — slots due for respawn (`spawn.cpp` ~353). `now_ms` is logical.
+    pub fn due_spawns<F>(&mut self, now_ms: u64, find_player: F) -> Vec<SpawnRequest>
     where
         F: Fn(Position) -> bool,
     {
-        if !self.should_run_check(now) {
+        if !self.should_run_check(now_ms) {
             return Vec::new();
         }
-        self.mark_checked(now);
+        self.mark_checked(now_ms);
 
         let mut out = Vec::new();
-        for slot_index in self.due_slot_indices(now) {
+        for slot_index in self.due_slot_indices(now_ms) {
             let Some(slot) = self.slots.get(slot_index) else {
                 continue;
             };
             if find_player(slot.position) {
-                self.stall_respawn(slot_index, now);
+                self.stall_respawn(slot_index, now_ms);
                 continue;
             }
             if let Some(req) = build_spawn_request(slot_index, slot, false) {
@@ -228,12 +229,12 @@ impl SpawnManager {
         }
     }
 
-    /// Schedule respawn when spawn-linked creature is removed.
-    pub fn on_creature_removed(&mut self, slot_index: usize, now: Instant) {
+    /// Schedule respawn when spawn-linked creature is removed. `now_ms` is logical (audit Finding 13).
+    pub fn on_creature_removed(&mut self, slot_index: usize, now_ms: u64) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
             slot.current = None;
             if slot.respawns {
-                slot.respawn_at = Some(now + Duration::from_millis(slot.spawntime_ms));
+                slot.respawn_at = Some(now_ms.saturating_add(slot.spawntime_ms));
             }
         }
     }
@@ -354,15 +355,15 @@ mod tests {
     #[test]
     fn due_spawns_respects_timer_and_find_player() {
         let mut mgr = SpawnManager::from_zones(vec![sample_zone()]);
-        let t0 = Instant::now();
+        let t0: u64 = 0;
         mgr.on_creature_removed(0, t0);
         assert!(mgr.due_spawns(t0, |_| false).is_empty());
-        let later = t0 + Duration::from_secs(61);
+        let later = t0 + 61_000;
         let reqs = mgr.due_spawns(later, |_| false);
         assert!(!reqs.is_empty());
 
         mgr.on_creature_removed(0, t0);
-        mgr.due_spawns(t0 + Duration::from_secs(61), |_| true);
+        mgr.due_spawns(t0 + 61_000, |_| true);
         let slot = &mgr.slots[0];
         assert!(slot.respawn_at.is_some());
     }

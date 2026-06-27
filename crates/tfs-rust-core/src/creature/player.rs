@@ -130,12 +130,15 @@ pub struct Player {
     pub last_ping_sent: Instant,
     /// Last client pong — `Player::lastPong` / `receivePing` (`player.cpp`).
     pub last_pong_at: Instant,
-    /// TFS `nextAction` — `Player::onWalk` blocks actions until this instant (`player.cpp` ~1343).
-    pub next_action_until: Option<Instant>,
+    /// TFS `nextAction` — `Player::onWalk` blocks actions until this **logical ms** (`now_ms()` /
+    /// `server_ms` on 772). On the logical clock so action gating no longer rides the wall clock
+    /// (audit Findings 1/2, Phase 4). C++ `player.cpp` ~1343.
+    pub next_action_until: Option<u64>,
     /// Pending action stored by `setNextWalkActionTask` — fired from `onWalkComplete` (`player.cpp` ~3390).
     pub walk_action: Option<PlayerWalkAction>,
-    /// When `walk_action` should run (`createSchedulerTask(400, ...)` in `game.cpp`).
-    pub walk_action_due: Option<Instant>,
+    /// When `walk_action` should run, in **logical ms** (`createSchedulerTask(400, ...)` in `game.cpp`;
+    /// audit Finding 1, Phase 4). **1098 only** — 772 uses `ToDoQueue` wakeup + this as due marker.
+    pub walk_action_due: Option<u64>,
     /// Town id → live depot chest root — C++ `Player::depotChests` (`player.h`).
     pub depot_chests: HashMap<u32, ItemId>,
     /// Map locker town id → virtual locker item — C++ `depotLockerMap`.
@@ -206,10 +209,10 @@ impl Player {
         experience_to_next_level(self.level)
     }
 
-    /// TFS `Player::canDoAction` / `nextAction` comparison (`player.cpp`).
+    /// TFS `Player::canDoAction` / `nextAction` comparison (`player.cpp`). `now_ms` is logical.
     #[inline]
-    pub fn timed_action_ready(&self, now: Instant) -> bool {
-        self.next_action_until.is_none_or(|t| now >= t)
+    pub fn timed_action_ready(&self, now_ms: u64) -> bool {
+        self.next_action_until.is_none_or(|t| now_ms >= t)
     }
 
     /// `Player::getCapacity` — `player.h` ~454–461.

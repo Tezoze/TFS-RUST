@@ -510,9 +510,9 @@ impl GameWorld {
         // C++ `internalGetCylinder`: map tile when `pos.x != 0xFFFF` — `game.cpp` ~199.
         // `pos.y & 0x40` is container encoding only when x is 0xFFFF, not a map-tile test.
         let is_map_tile = payload.pos.x != 0xFFFF;
-        if !self.player_timed_action_ready(cid, now) {
+        if !self.player_use_item_ready(cid) {
             // C++ `createSchedulerTask(delay, playerUseItem)` when `!canDoAction` (`game.cpp` ~2246).
-            self.defer_player_walk_action(cid, PlayerWalkAction::UseItem(payload.clone()), now);
+            self.defer_player_walk_action(cid, PlayerWalkAction::UseItem(payload.clone()));
             return;
         }
         let item_id =
@@ -572,8 +572,8 @@ impl GameWorld {
         now: Instant,
     ) {
         let is_map_tile = payload.from_pos.x != 0xFFFF;
-        if !self.player_timed_action_ready(cid, now) {
-            self.defer_player_walk_action(cid, PlayerWalkAction::UseItemEx(payload.clone()), now);
+        if !self.player_use_item_ex_ready(cid) {
+            self.defer_player_walk_action(cid, PlayerWalkAction::UseItemEx(payload.clone()));
             return;
         }
         let item_id = if let Some(id) =
@@ -608,6 +608,7 @@ impl GameWorld {
         }
         // `UseItemEx` has no index byte; new window uses client-chosen cid via normal `UseItem`.
         self.try_open_container_for_item(conn_id, cid, item_id, None);
+        self.player_apply_multiuse_exhaust(cid);
     }
 
     /// C++ `Actions::internalUseItem` container branch — toggle if already open; else `addContainer(index, ...)`.

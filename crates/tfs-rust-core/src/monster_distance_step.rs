@@ -583,13 +583,15 @@ where
 /// 1. Preferred axial direction.
 /// 2. Shuffled remaining 3 cardinal directions.
 /// 3. Shuffled 4 diagonal directions.
-pub fn search_flight_field<F>(
+pub fn search_flight_field<F, S>(
     creature_pos: Position,
     pursuer_pos: Position,
     can_walk: F,
+    mut parity_shuffle: S,
 ) -> Option<Direction>
 where
     F: Fn(Direction) -> bool,
+    S: FnMut(&mut [Option<Direction>]),
 {
     let ox = creature_pos.x as i32 - pursuer_pos.x as i32;
     let oy = creature_pos.y as i32 - pursuer_pos.y as i32;
@@ -627,7 +629,7 @@ where
         dirs[4] = Some(Direction::South);
     }
     // C++ `RandomShuffle(&Dir[1], 4)` — forward Fisher-Yates on the glibc parity stream (Finding 9).
-    crate::sim_glibc_rand::parity_random_shuffle(&mut dirs[1..5]);
+    parity_shuffle(&mut dirs[1..5]);
 
     // 3. Fallback to diagonal direction away from the pursuer.
     if oy <= ox {
@@ -643,7 +645,7 @@ where
         dirs[8] = Some(Direction::SouthEast);
     }
     // C++ `RandomShuffle(&Dir[5], 4)` — forward Fisher-Yates on the glibc parity stream (Finding 9).
-    crate::sim_glibc_rand::parity_random_shuffle(&mut dirs[5..9]);
+    parity_shuffle(&mut dirs[5..9]);
 
     // Evaluate in order
     for &opt_dir in &dirs {
@@ -674,13 +676,19 @@ mod tests {
         // 1. All clear -> East.
         let can_walk = |_d: Direction| true;
         assert_eq!(
-            search_flight_field(from, pursuer, can_walk),
+            search_flight_field(from, pursuer, can_walk, crate::sim_glibc_rand::parity_random_shuffle),
             Some(Direction::East)
         );
 
         // 2. East blocked -> check remaining cardinals (North/South).
         let can_walk = |d: Direction| !matches!(d, Direction::East);
-        let res = search_flight_field(from, pursuer, can_walk).unwrap();
+        let res = search_flight_field(
+            from,
+            pursuer,
+            can_walk,
+            crate::sim_glibc_rand::parity_random_shuffle,
+        )
+        .unwrap();
         assert!(matches!(res, Direction::North | Direction::South));
 
         // 3. All cardinals blocked -> check diagonals (NorthEast/SouthEast).
@@ -690,7 +698,13 @@ mod tests {
                 Direction::East | Direction::North | Direction::South | Direction::West
             )
         };
-        let res = search_flight_field(from, pursuer, can_walk).unwrap();
+        let res = search_flight_field(
+            from,
+            pursuer,
+            can_walk,
+            crate::sim_glibc_rand::parity_random_shuffle,
+        )
+        .unwrap();
         assert!(matches!(res, Direction::NorthEast | Direction::SouthEast));
     }
 

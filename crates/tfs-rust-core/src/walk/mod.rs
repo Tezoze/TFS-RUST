@@ -387,6 +387,16 @@ impl GameWorld {
             return;
         }
         let now = Instant::now();
+        if self.beat_driven_loop {
+            let had_walk_action = self.creatures.get(cid).is_some_and(|k| {
+                matches!(k, CreatureKind::Player(p) if p.walk_action.is_some())
+            });
+            if had_walk_action {
+                self.try_run_player_walk_action_from_todo(cid, now);
+                self.cleanup();
+                return;
+            }
+        }
         if self.creature_uses_todo_execute(cid) {
             trace_creature_todo(self, cid, "process_creature_todo");
             let mut ran_idle = false;
@@ -1437,7 +1447,7 @@ impl GameWorld {
                     .get(cid)
                     .is_some_and(|k| matches!(k, CreatureKind::Player(_)))
                 {
-                    self.on_player_walk_complete(cid, now);
+                    self.on_player_walk_complete(cid);
                 }
                 if self
                     .creatures
@@ -1634,6 +1644,7 @@ impl GameWorld {
         // Set the authoritative position FIRST — must happen before any broadcast so that
         // `can_see_position(viewer=self, pos=final_pos)` reads the correct z-level and
         // includes the moving player themselves in the `0x6B` spectator set.
+        let now_ms = self.now_ms();
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(final_pos);
             let dur_ms = get_step_duration_ms_with_direction(
@@ -1644,7 +1655,10 @@ impl GameWorld {
                 &self.mechanics,
             );
             if let CreatureKind::Player(p) = k {
-                p.next_action_until = Some(now + Duration::from_millis(dur_ms.max(1) as u64));
+                if !self.beat_driven_loop {
+                    // 1098 unified `nextAction` lockout (`player.cpp` `onWalk`).
+                    p.next_action_until = Some(now_ms.saturating_add(dur_ms.max(1) as u64));
+                }
             }
         }
 

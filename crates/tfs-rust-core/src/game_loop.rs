@@ -267,12 +267,13 @@ fn handle_game_packet(
     let now = Instant::now();
     let immediate_flush = needs_immediate_flush(&packet, flush_policy);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-        if game_packet_requires_timed_action(&packet) && !world.player_timed_action_ready(cid, now)
+        if game_packet_requires_timed_action(&packet)
+            && !world.player_packet_action_ready(cid, &packet)
         {
             trace!(
                 conn_id = conn_id.0,
                 ?packet,
-                "game packet ignored — nextAction lockout (TFS canDoAction)"
+                "game packet ignored — Earliest*Time / nextAction lockout"
             );
             return;
         }

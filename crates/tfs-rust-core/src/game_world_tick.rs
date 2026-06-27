@@ -13,7 +13,7 @@ impl GameWorld {
         if self.walk_wake_tx.is_none() && !self.beat_driven_loop {
             self.process_walk_deadlines();
         }
-        self.process_walk_action_tasks(now);
+        self.process_walk_action_tasks();
 
         self.tick_counter = self.tick_counter.wrapping_add(1);
 
@@ -25,7 +25,7 @@ impl GameWorld {
 
     /// Spawns, player pings, Lua GC — shared by 1098 `on_tick` and 772 other counter.
     pub(crate) fn run_other_subsystems(&mut self, now: Instant, lua_gc_every_five_ticks: bool) {
-        self.poll_spawn_respawns(now);
+        self.poll_spawn_respawns(self.now_ms());
         if lua_gc_every_five_ticks {
             if self.tick_counter.is_multiple_of(5) {
                 self.events.lua_gc_step();
@@ -48,15 +48,17 @@ impl GameWorld {
             tracing::trace!("772 cron subsystem tick — no cron engine yet");
         }
         if fired.skills {
-            let _ = self.decay.tick(self.tick_counter);
+            let decay_now = if self.beat_driven_loop {
+                self.server_ms
+            } else {
+                self.tick_counter
+            };
+            let _ = self.decay.tick(decay_now);
         }
         if fired.other {
             let now = Instant::now();
             self.run_other_subsystems(now, false);
         }
-
-        self.process_walk_action_tasks(Instant::now());
-        self.tick_counter = self.tick_counter.saturating_add(delay_ms / 50);
 
         self.server_ms = self.server_ms.saturating_add(delay_ms);
         // C++ `MoveCreatures` always drains — no lag-catchup skip (`crmain.cc:1106`).

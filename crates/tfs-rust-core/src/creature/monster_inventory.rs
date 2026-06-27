@@ -58,12 +58,12 @@ fn roll_loot_count<R: Rng + ?Sized>(rng: &mut R, countmax: i32) -> u16 {
     rng.gen_range(1..=max) as u16
 }
 
-fn roll_loot_count_glibc(countmax: i32) -> u16 {
+fn roll_loot_count_glibc(world: &GameWorld, countmax: i32) -> u16 {
     let max = countmax.max(1);
-    crate::sim_glibc_rand::parity_random(1, max) as u16
+    world.parity_random(1, max) as u16
 }
 
-fn loot_block_passes_glibc(chance: i32) -> bool {
+fn loot_block_passes_glibc(world: &GameWorld, chance: i32) -> bool {
     if chance <= 0 {
         return false;
     }
@@ -72,7 +72,7 @@ fn loot_block_passes_glibc(chance: i32) -> bool {
     }
     // C++ `TMonster` ctor — `random(0, 999) > Probability` skip (`crnonpl.cc:2056`).
     let cip_prob = (chance * 1000) / MAX_LOOTCHANCE;
-    crate::sim_glibc_rand::parity_random(0, 999) <= cip_prob
+    world.parity_random(0, 999) <= cip_prob
 }
 
 fn roll_loot_block_glibc(
@@ -81,12 +81,12 @@ fn roll_loot_block_glibc(
     registry: &mut crate::container::ContainerRegistry,
     owner: CreatureId,
 ) -> Option<ItemId> {
-    if !loot_block_passes_glibc(block.chance) {
+    if !loot_block_passes_glibc(world, block.chance) {
         return None;
     }
     let server_id = block.id as u16;
     let _item_type = world.items_db.items.get(&server_id)?;
-    let count = roll_loot_count_glibc(block.countmax);
+    let count = roll_loot_count_glibc(world, block.countmax);
 
     let mut item = Item::new(server_id, count);
     if block.sub_type != 0 {
@@ -244,7 +244,7 @@ impl GameWorld {
 
         let mut rolled: Vec<(LootDestination, ItemId)> = Vec::new();
 
-        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+        if self.beat_driven_loop || crate::sim_glibc_rand::sim_glibc_rng_enabled() {
             let mut registry = std::mem::take(&mut self.container_registry);
             for block in &mtype.loot {
                 let Some(item_id) = roll_loot_block_glibc(self, block, &mut registry, monster_id)
@@ -419,8 +419,14 @@ impl GameWorld {
             self.broadcast_magic_effect(pos, CONST_ME_DRAWBLOOD);
         }
 
+        let decay_clock = if self.beat_driven_loop {
+            self.now_ms()
+        } else {
+            self.tick_counter
+        };
+        let decay_unit_ms = if self.beat_driven_loop { 50 } else { 1 };
         let (deadline, replace_with) =
-            item_decay_schedule(&self.items_db, corpse_type, self.tick_counter);
+            item_decay_schedule(&self.items_db, corpse_type, decay_clock, decay_unit_ms);
         self.decay.schedule(corpse_id, deadline, replace_with);
 
         if self
@@ -439,10 +445,11 @@ impl GameWorld {
 fn item_decay_schedule(
     items_db: &tfs_rust_content::items::ItemDatabase,
     server_id: u16,
-    tick: u64,
+    clock: u64,
+    unit_ms: u64,
 ) -> (u64, Option<u16>) {
     let Some(it) = items_db.items.get(&server_id) else {
-        return (tick.saturating_add(600), None);
+        return (clock.saturating_add(600u64.saturating_mul(unit_ms)), None);
     };
     let duration: u64 = it
         .xml_attributes
@@ -454,7 +461,10 @@ fn item_decay_schedule(
         .get("decayto")
         .and_then(|s| s.parse::<u16>().ok())
         .filter(|&id| id > 0);
-    (tick.saturating_add(duration), decayto)
+    (
+        clock.saturating_add(duration.saturating_mul(unit_ms)),
+        decayto,
+    )
 }
 
 #[cfg(test)]

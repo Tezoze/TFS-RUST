@@ -403,7 +403,7 @@ impl GameWorld {
         // (`crnonpl.cc:2381`), even at LoseTarget=0.
         if m.base.master.is_none() {
             let _trace = crate::sim_glibc_rand::sim_rng_trace_site("idle_lose_target");
-            let roll = crate::sim_glibc_rand::parity_random(0, 99);
+            let roll = self.parity_random(0, 99);
             if roll < i32::from(m.lose_target_percent) {
                 return true;
             }
@@ -446,7 +446,7 @@ impl GameWorld {
             strat_dmg,
             {
                 let _trace = crate::sim_glibc_rand::sim_rng_trace_site("idle_strategy");
-                crate::sim_glibc_rand::parity_random(0, 99)
+                self.parity_random(0, 99)
             },
         );
         let mut should_sleep = true;
@@ -502,7 +502,7 @@ impl GameWorld {
                     .unwrap_or(0),
                 _ => 0,
             };
-            let tie = crate::sim_glibc_rand::parity_random(0, 99);
+            let tie = self.parity_random(0, 99);
             if param > best_param || (param == best_param && tie > best_tie) {
                 best_param = param;
                 best_tie = tie;
@@ -627,7 +627,7 @@ impl GameWorld {
         }
         let Some(target_id) = cast_target else {
             for delay in defense_delay_moduli {
-                let _ = crate::sim_glibc_rand::parity_rand_mod(delay);
+                let _ = self.parity_rand_mod(delay);
             }
             return;
         };
@@ -640,12 +640,17 @@ impl GameWorld {
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_fleeing()));
 
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
+        let mut rng_scratch = StdRng::from_entropy();
+        let mut rng_1098 = if self.beat_driven_loop {
+            None
+        } else {
+            Some(std::mem::replace(&mut self.ai_rng, StdRng::from_entropy()))
+        };
         for spell in &spells {
-            if spell.delay <= 0 || crate::sim_glibc_rand::parity_rand_mod(spell.delay as u32) != 0 {
+            if spell.delay <= 0 || self.parity_rand_mod(spell.delay as u32) != 0 {
                 continue;
             }
-            if fleeing && crate::sim_glibc_rand::parity_random(1, 3) != 1 {
+            if fleeing && self.parity_random(1, 3) != 1 {
                 continue;
             }
 
@@ -658,6 +663,7 @@ impl GameWorld {
             }
 
             let tiles = Self::monster_idle_spell_tiles(spell.shape, pos, target_pos, spell.radius);
+            let rng: &mut StdRng = rng_1098.as_mut().unwrap_or(&mut rng_scratch);
 
             match spell.shape {
                 SpellShape::Victim | SpellShape::Destination => {
@@ -668,10 +674,10 @@ impl GameWorld {
                     if let Some(shoot) = spell.shoot_effect {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
-                    self.monster_idle_apply_spell_impact(cid, target_id, spell, &mut rng);
+                    self.monster_idle_apply_spell_impact(cid, target_id, spell, rng);
                 }
                 SpellShape::Actor => {
-                    self.monster_idle_apply_spell_impact(cid, cid, spell, &mut rng);
+                    self.monster_idle_apply_spell_impact(cid, cid, spell, rng);
                 }
                 SpellShape::Origin | SpellShape::Angle => {
                     for tile in tiles {
@@ -690,7 +696,7 @@ impl GameWorld {
                             if let Some(shoot) = spell.shoot_effect {
                                 self.broadcast_distance_shoot(pos, tile, shoot);
                             }
-                            self.monster_idle_apply_spell_impact(cid, victim_id, spell, &mut rng);
+                            self.monster_idle_apply_spell_impact(cid, victim_id, spell, rng);
                         }
                     }
                 }
@@ -700,11 +706,13 @@ impl GameWorld {
             // gates pass is evaluated and cast in the same idle, and each spell's delay roll is drawn
             // regardless (audit Finding 2). Stopping after the first cast desyncs the glibc stream.
         }
+        if let Some(rng) = rng_1098 {
+            self.ai_rng = rng;
+        }
         // C++ `RaceData` spell list includes defense entries — consume delay rolls only.
         for delay in defense_delay_moduli {
-            let _ = crate::sim_glibc_rand::parity_rand_mod(delay);
+            let _ = self.parity_rand_mod(delay);
         }
-        self.ai_rng = rng;
     }
 
     fn monster_idle_suppress_adjacent_melee_spell(&self, cid: CreatureId, dist: i32) -> bool {
@@ -769,7 +777,7 @@ impl GameWorld {
                 let min_c = (*min_cycle).max(1);
                 let max_c = (*cycle).max(min_c);
                 let strength = if self.beat_driven_loop {
-                    crate::sim_glibc_rand::parity_random(min_c, max_c)
+                    self.parity_random(min_c, max_c)
                 } else {
                     rng.gen_range(min_c..=max_c)
                 };
@@ -809,7 +817,7 @@ impl GameWorld {
                 } else if self.beat_driven_loop {
                     // C++ `ComputeDamage` monster path: `Damage + random(-Var, Var)` (`magic.cc:776`)
                     // — glibc parity stream, not `ai_rng` (Finding 14).
-                    crate::sim_glibc_rand::parity_random(min_dmg, max_dmg).max(0)
+                    self.parity_random(min_dmg, max_dmg).max(0)
                 } else {
                     crate::combat::uniform_random(rng, min_dmg, max_dmg).max(0)
                 };
@@ -831,7 +839,7 @@ impl GameWorld {
                 let min_heal = (*base).saturating_sub(*variation);
                 let max_heal = (*base).saturating_add(*variation);
                 let heal = if self.beat_driven_loop {
-                    crate::sim_glibc_rand::parity_random(min_heal, max_heal).max(0)
+                    self.parity_random(min_heal, max_heal).max(0)
                 } else {
                     crate::combat::uniform_random(rng, min_heal, max_heal).max(0)
                 };
@@ -853,7 +861,7 @@ impl GameWorld {
                 let min_delta = (*percent).saturating_sub(*variation);
                 let max_delta = (*percent).saturating_add(*variation);
                 let flat_delta = if self.beat_driven_loop {
-                    crate::sim_glibc_rand::parity_random(min_delta, max_delta)
+                    self.parity_random(min_delta, max_delta)
                 } else {
                     crate::combat::uniform_random(rng, min_delta, max_delta)
                 };
@@ -907,6 +915,15 @@ impl GameWorld {
 
     /// 772 `TMonster::IdleStimulus` — chase/repath/roam decisions (772 only).
     pub(crate) fn monster_idle_stimulus(&mut self, cid: CreatureId) {
+        self.monster_idle_stimulus_inner(cid, false);
+    }
+
+    /// C++ `CreatureMoveStimulus` may run idle repath in the same beat as a prior `IdleStimulus`
+    /// (`crmain.cc:919-961`) — clear per-beat dedup before re-entering.
+    pub(crate) fn monster_idle_stimulus_after_creature_move(&mut self, cid: CreatureId) {
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.idle_stimulus_last_ms = None;
+        }
         self.monster_idle_stimulus_inner(cid, false);
     }
 
@@ -1120,11 +1137,11 @@ impl GameWorld {
             return;
         }
         let _trace_gate = crate::sim_glibc_rand::sim_rng_trace_site("idle_talk_gate");
-        if crate::sim_glibc_rand::parity_rand_mod(50) != 0 {
+        if self.parity_rand_mod(50) != 0 {
             return;
         }
         let _trace_pick = crate::sim_glibc_rand::sim_rng_trace_site("idle_talk_pick");
-        let _ = crate::sim_glibc_rand::parity_random(1, i32::from(talks));
+        let _ = self.parity_random(1, i32::from(talks));
     }
 
     /// C++ walking prelude — `crnonpl.cc:2705` (`SKILL_FIST > 0 && State != PANIC`).
@@ -4509,7 +4526,8 @@ mod tests {
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
 
-        let cfg = e4_cobra_config();
+        let mut cfg = e4_cobra_config();
+        cfg.spells[0].delay = 1;
         let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
@@ -4603,6 +4621,7 @@ mod tests {
     #[test]
     fn test_e4_spell_delay_gate() {
         let mut world = beat_driven_test_world();
+        world.seed_parity_rng(772);
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
         for x in 100..=103u16 {
@@ -4613,6 +4632,7 @@ mod tests {
         world.map.register_creature_at(ppos, player);
 
         let mut cfg = e4_cobra_config();
+        cfg.spells[0].delay = 4;
         let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
@@ -4625,6 +4645,7 @@ mod tests {
 
         let mut casts = 0u32;
         for _ in 0..40 {
+            world.server_ms = world.server_ms.saturating_add(200);
             if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
                 p.base.active_conditions.clear();
             }

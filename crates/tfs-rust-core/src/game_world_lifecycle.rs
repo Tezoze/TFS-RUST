@@ -3,8 +3,6 @@
 //! - `Game::removeCreature`, `Game::ReleaseCreature`, `Game::cleanup` — `game.cpp`.
 //! - `ProtocolGame::logout` — `protocolgame.cpp`.
 
-use std::time::Instant;
-
 use slotmap::Key;
 use tfs_rust_common::enums::{ConditionType, ZoneType};
 use tfs_rust_common::ConnId;
@@ -43,8 +41,8 @@ impl GameWorld {
     /// Remove creature from map index, player lookups, guild online; remove summons if master dies.
     // C++ reference: `Game::removeCreature` — summon chain + spectator disappear.
     pub fn remove_creature(&mut self, id: CreatureId) {
-        let now = Instant::now();
-        self.on_creature_removed_for_spawn(id, now);
+        let now_ms = self.now_ms();
+        self.on_creature_removed_for_spawn(id, now_ms);
 
         let mut summons: Vec<CreatureId> = Vec::new();
         for (cid, k) in self.creatures.iter() {
@@ -202,17 +200,19 @@ impl GameWorld {
             }
         }
 
+        let decay_now = self.now_ms();
         crate::death::handle_creature_death(
             &mut self.creatures,
             &mut self.items,
             &mut self.decay,
             self.events.as_ref(),
             victim,
-            self.tick_counter,
+            decay_now,
             None,
             self.mechanics.profile.step_speed,
             self.config.as_ref(),
             !self.beat_driven_loop,
+            self.beat_driven_loop,
         );
         self.remove_creature(victim);
     }

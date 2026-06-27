@@ -456,17 +456,20 @@ mod tests {
     }
 
     #[test]
-    fn tick_counter_advances_on_beat_for_decay() {
+    fn decay_advances_on_server_ms_772() {
         let mut world = beat_driven_world();
         world.walk_wake_tx = None;
 
-        assert_eq!(world.tick_counter, 0);
+        let corpse_id = world.items.insert(crate::item::Item::new(3058, 1));
+        world.decay.schedule(corpse_id, 1_000, None);
+
+        assert_eq!(world.server_ms, 0);
         for _ in 0..5 {
             world.advance_beat_772(200);
         }
-        assert_eq!(
-            world.tick_counter, 20,
-            "each 200 ms beat adds 4 fifty-ms tick units for decay parity"
-        );
+        assert_eq!(world.server_ms, 1_000);
+        let expired = world.decay.tick(world.server_ms);
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].0, corpse_id);
     }
 }

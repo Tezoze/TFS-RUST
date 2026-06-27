@@ -166,6 +166,7 @@ pub(crate) fn search_spawn_field(
     distance: i32,
     center: Position,
     mut probe_at: impl FnMut(Position) -> SpawnTileProbe,
+    mut tie_roll: impl FnMut() -> i32,
 ) -> Option<Position> {
     let minimize = distance >= 0;
     let distance = distance.unsigned_abs().min(30) as i32;
@@ -229,7 +230,7 @@ pub(crate) fn search_spawn_field(
                 if probe.login_possible {
                     // C++ `SearchSpawnField` tie-break `random(0, 99)` (`info.cc`) — glibc parity
                     // stream, not `thread_rng` (Finding 19).
-                    let tie = crate::sim_glibc_rand::parity_random(0, 99)
+                    let tie = tie_roll()
                         + if probe.login_clean { 100 } else { 0 };
                     if tie > best_tie {
                         best_tie = tie;
@@ -335,7 +336,7 @@ impl GameWorld {
                     .unwrap_or(false);
                 let pos = search_spawn_field(signed_dist, home, |try_pos| {
                     self.probe_spawn_tile(cid, try_pos, place_in_pz, forced)
-                });
+                }, || self.parity_random(0, 99));
                 let Some(pos) = pos else {
                     return false;
                 };
@@ -404,7 +405,7 @@ mod tests {
                 login_clean: ok,
                 expansion_ok: ok,
             }
-        });
+        }, || 0);
         assert_eq!(pos, Some(Position::new(10, 10, 7)));
     }
 
@@ -420,7 +421,7 @@ mod tests {
                 login_clean: ok,
                 expansion_ok: true,
             }
-        });
+        }, || 0);
         assert_eq!(pos, Some(far));
     }
 

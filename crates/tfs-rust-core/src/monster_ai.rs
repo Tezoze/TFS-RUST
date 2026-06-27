@@ -585,6 +585,7 @@ impl GameWorld {
             })
             .count();
         if melee_realign
+            && !self.beat_driven_loop
             && crate::sim_glibc_rand::sim_glibc_rng_enabled()
             && crate::sim_glibc_rand::sim_rng_call_count() > 2
             && !(self.harness_real_map && harness_monsters > 1)
@@ -943,7 +944,7 @@ impl GameWorld {
         ];
         for _ in 0..10 {
             // C++ `switch(rand()%4)` (`crnonpl.cc:2833`) — glibc parity stream, not `ai_rng` (Finding 10).
-            let dir = ROAM_DIRS[crate::sim_glibc_rand::parity_rand_mod(4) as usize];
+            let dir = ROAM_DIRS[self.parity_rand_mod(4) as usize];
             if !self.monster_can_walk_to(cid, pos, dir) {
                 continue;
             }
@@ -997,7 +998,7 @@ impl GameWorld {
         // `SearchFlightField` shuffles on the glibc parity stream internally (Finding 9) — no `ai_rng`.
         let Some(dir) = search_flight_field(pos, target_pos, |dir| {
             self.monster_can_walk_to(cid, pos, dir)
-        }) else {
+        }, |buf| self.parity_rng.random_shuffle(buf)) else {
             return false;
         };
         let dest = pos.offset(dir);

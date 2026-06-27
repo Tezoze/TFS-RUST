@@ -44,11 +44,12 @@ pub fn handle_creature_death(
     decay: &mut DecayManager,
     events: &dyn EventDispatcher,
     victim: CreatureId,
-    tick: u64,
+    decay_now: u64,
     party_size_for_xp: Option<usize>,
     step_speed_model: StepSpeedModel,
     config: &ConfigManager,
     schedule_generic_corpse: bool,
+    beat_driven_loop: bool,
 ) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return;
@@ -103,6 +104,7 @@ pub fn handle_creature_death(
 
     if schedule_generic_corpse {
         let corpse_id = items.insert(Item::new(3058, 1));
-        decay.schedule(corpse_id, tick.saturating_add(600), None);
+        let decay_offset = if beat_driven_loop { 30_000 } else { 600 };
+        decay.schedule(corpse_id, decay_now.saturating_add(decay_offset), None);
     }
 }
