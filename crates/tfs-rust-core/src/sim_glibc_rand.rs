@@ -145,6 +145,24 @@ pub fn parity_rand_mod(modulus: u32) -> u32 {
     }
 }
 
+/// C++ `RandomShuffle` (`common.hh:206`) — **forward** Fisher-Yates over glibc `random(Min, Size-1)`
+/// (inclusive). Mirrors the C++ draw count and order exactly (one `random` call per index `0..Size-1`),
+/// unlike the rand crate's backward `SliceRandom::shuffle`. Draws come from the parity stream (glibc
+/// in sim mode, `thread_rng` live), so flee/spawn shuffles advance the same stream as C++.
+pub fn parity_random_shuffle<T>(buf: &mut [T]) {
+    let size = buf.len();
+    if size < 2 {
+        return;
+    }
+    let max = (size - 1) as i32;
+    for min in 0..max {
+        let swap = parity_random(min, max) as usize;
+        if swap != min as usize {
+            buf.swap(min as usize, swap);
+        }
+    }
+}
+
 /// C++ `TSkillProbe::ProbeValue` random factor — `((rand()%100)+(rand()%100))/2`.
 pub fn sim_probe_random_factor() -> i32 {
     let _a = sim_rng_trace_site("probe_rand_a");
@@ -229,6 +247,29 @@ mod tests {
             let v = sim_random(0, 99);
             assert!((0..=99).contains(&v));
         }
+        SIM_GLIBC_RNG.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn parity_random_shuffle_is_permutation() {
+        unsafe { libc::srand(772) };
+        enable_sim_glibc_rng();
+        let mut a = [0u8, 1, 2, 3, 4, 5, 6, 7];
+        parity_random_shuffle(&mut a);
+        let mut sorted = a;
+        sorted.sort();
+        assert_eq!(
+            sorted,
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            "forward Fisher-Yates must produce a permutation"
+        );
+
+        // Trivial sizes are no-ops.
+        let mut one = [9u8];
+        parity_random_shuffle(&mut one);
+        assert_eq!(one, [9]);
+        let mut empty: [u8; 0] = [];
+        parity_random_shuffle(&mut empty);
         SIM_GLIBC_RNG.store(false, Ordering::Relaxed);
     }
 }

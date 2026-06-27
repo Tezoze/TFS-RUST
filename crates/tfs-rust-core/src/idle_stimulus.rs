@@ -658,7 +658,6 @@ impl GameWorld {
             }
 
             let tiles = Self::monster_idle_spell_tiles(spell.shape, pos, target_pos, spell.radius);
-            let mut cast_any = false;
 
             match spell.shape {
                 SpellShape::Victim | SpellShape::Destination => {
@@ -670,11 +669,9 @@ impl GameWorld {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
                     self.monster_idle_apply_spell_impact(cid, target_id, spell, &mut rng);
-                    cast_any = true;
                 }
                 SpellShape::Actor => {
                     self.monster_idle_apply_spell_impact(cid, cid, spell, &mut rng);
-                    cast_any = true;
                 }
                 SpellShape::Origin | SpellShape::Angle => {
                     for tile in tiles {
@@ -694,15 +691,14 @@ impl GameWorld {
                                 self.broadcast_distance_shoot(pos, tile, shoot);
                             }
                             self.monster_idle_apply_spell_impact(cid, victim_id, spell, &mut rng);
-                            cast_any = true;
                         }
                     }
                 }
             }
 
-            if cast_any {
-                break;
-            }
+            // C++ CASTING (`crnonpl.cc:2521-2667`) has **no** `break` — every spell whose delay/flee
+            // gates pass is evaluated and cast in the same idle, and each spell's delay roll is drawn
+            // regardless (audit Finding 2). Stopping after the first cast desyncs the glibc stream.
         }
         // C++ `RaceData` spell list includes defense entries — consume delay rolls only.
         for delay in defense_delay_moduli {
@@ -810,6 +806,10 @@ impl GameWorld {
                 let scaled = spell_damage(&profile, hooks, 0, 0, max_dmg, false, false);
                 let dmg = if scaled > 0 {
                     scaled
+                } else if self.beat_driven_loop {
+                    // C++ `ComputeDamage` monster path: `Damage + random(-Var, Var)` (`magic.cc:776`)
+                    // — glibc parity stream, not `ai_rng` (Finding 14).
+                    crate::sim_glibc_rand::parity_random(min_dmg, max_dmg).max(0)
                 } else {
                     crate::combat::uniform_random(rng, min_dmg, max_dmg).max(0)
                 };
@@ -830,7 +830,11 @@ impl GameWorld {
             SpellImpact::Healing { base, variation } => {
                 let min_heal = (*base).saturating_sub(*variation);
                 let max_heal = (*base).saturating_add(*variation);
-                let heal = crate::combat::uniform_random(rng, min_heal, max_heal).max(0);
+                let heal = if self.beat_driven_loop {
+                    crate::sim_glibc_rand::parity_random(min_heal, max_heal).max(0)
+                } else {
+                    crate::combat::uniform_random(rng, min_heal, max_heal).max(0)
+                };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
@@ -848,7 +852,11 @@ impl GameWorld {
             } => {
                 let min_delta = (*percent).saturating_sub(*variation);
                 let max_delta = (*percent).saturating_add(*variation);
-                let flat_delta = crate::combat::uniform_random(rng, min_delta, max_delta);
+                let flat_delta = if self.beat_driven_loop {
+                    crate::sim_glibc_rand::parity_random(min_delta, max_delta)
+                } else {
+                    crate::combat::uniform_random(rng, min_delta, max_delta)
+                };
                 let cond = ActiveCondition {
                     id: 0,
                     sub_id: 0,

@@ -3,7 +3,6 @@
 //! C++ reference: `info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes` /
 //! `ProcessMonsterhomes`.
 
-use rand::Rng;
 use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::Position;
 
@@ -188,7 +187,6 @@ pub(crate) fn search_spawn_field(
     let mut best_pos: Option<Position> = None;
     let mut best_tie = -1i32;
     let mut expansion_phase = 0i32;
-    let mut rng = rand::thread_rng();
 
     loop {
         let mut found = false;
@@ -229,7 +227,10 @@ pub(crate) fn search_spawn_field(
                 }
 
                 if probe.login_possible {
-                    let tie = i32::from(rng.gen_range(0..100)) + if probe.login_clean { 100 } else { 0 };
+                    // C++ `SearchSpawnField` tie-break `random(0, 99)` (`info.cc`) — glibc parity
+                    // stream, not `thread_rng` (Finding 19).
+                    let tie = crate::sim_glibc_rand::parity_random(0, 99)
+                        + if probe.login_clean { 100 } else { 0 };
                     if tie > best_tie {
                         best_tie = tie;
                         best_pos = Some(pos);

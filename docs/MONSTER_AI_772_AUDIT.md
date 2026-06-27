@@ -43,7 +43,15 @@ layer is ported from the wrong era and uses a non-deterministic RNG.
 
 ## Findings (ranked by likely "feel" impact)
 
-### 1. Distance-fighting keep band: hardcoded `4` in 772 vs per-type `targetDistance` in Rust  — HIGH
+### 1. Distance-fighting keep band: hardcoded `4` in 772 vs per-type `targetDistance` in Rust  — RECLASSIFIED (no change needed for shipped data)
+
+> **Update (Phase 4 reassessment):** no code change. The shipped `data/monster/` set uses
+> `targetdistance="4"` for **all** distance monsters and `"1"` for all melee (29× `4`, 128× `1`, no
+> other value), so `DistanceKeep::PerType` resolves to the exact C++ literals and is behaviorally
+> identical to the hardcode. Pinning `Fixed(4)` is **not** recommended — `target_distance` doubles as
+> the melee-vs-distance discriminator, so a global 4 would mis-classify melee monsters that carry a
+> ranged spell. The only residual exposure is content drift (a distance monster authored with
+> `targetdistance != 4`); an optional warn-only load guard covers that. See Phase 4 below.
 
 In `crnonpl.cc:2795–2834` the distance-fighting branch is built around a **hardcoded chebyshev
 distance of 4** for *every* distance monster:
@@ -62,13 +70,9 @@ ships `distanceKeep = "perType"` (`data/formulas/772.lua`, `DistanceKeep::PerTyp
 - `monster_idle_chase_step_budget` → `cheb - target_distance`
 - `monster_at_follow_goal` → `dist == target_distance`
 
-**Effect:** any distance monster whose XML `targetDistance ≠ 4` keeps at the wrong range,
-chases/flees with the wrong step budget, and dances at the wrong ring vs 772. The sims pass
-because fixtures use `target_distance = 1` (melee) or `4` (the one dist test).
-
-**Recommendation:** for `clientVersion = 772`, pin the band to `DistanceKeep::Fixed(4)` (set it
-in `772.lua`, or special-case the era). Verify the `dist_flee` sub-case: 772 flees on `< 4`
-(distances 1/2/3).
+**Latent effect (only if data drifts):** a distance monster whose XML `targetDistance ≠ 4` would keep
+at the wrong range, chase/flee with the wrong step budget, and dance at the wrong ring vs 772. With
+the shipped uniform-4 data this never triggers.
 
 ### 2. Casting loop stops after the first spell; 772 evaluates every spell  — HIGH
 
@@ -417,7 +421,8 @@ The reported symptoms map cleanly onto the findings:
 3. **Rewrite push/kick from `crnonpl.cc:2141`/`3036`** — deterministic N,S,W,E, gated on
    ATTACKING/PANIC + Target + `KickCreatures`, kick-and-retry-same-tile, `EXHAUSTED`→`Wait(1000)`
    (Findings 5, 6/11, 7); implement `KickBoxes` (Finding 12).
-4. **Distance band → `Fixed(4)` for 772** (Finding 1); **remove the casting `break`** (Finding 2).
+4. **Casting `break`** — remove it so multi-spell monsters cast all gated spells per idle (Finding 2).
+   (Finding 1 distance band → **no change**; keep `DistanceKeep::PerType` — see Phase 4.)
 5. Emit monster `Talk` (Finding 3); fix the `step_beat_ms` authority (latent); verify
    `CreatureMoveStimulus` tail (Finding 13).
 
@@ -551,9 +556,14 @@ interpolation + `UNTHROW` + floor-step) and route 772 sight/throw through it; ke
 
 ## Consolidated gap list (all passes)
 
+> **Implementation status (authoritative per-phase headers above):** Findings 1 (reclassified, no
+> change), 2, 5, 6/11, 7, 9, 10, 12, 14, 16/16b, 17/17b, 19 are **implemented** (Phases 1–5). Remaining:
+> Finding 8/15 RNG retirement + `melee_realign` deletion + per-world generator (needs oracle
+> re-baseline), and Phase 6 lifecycle polish (3, 18, 20). The table below is the original snapshot.
+
 | # | Gap | Severity | Live feel | Sim parity |
 |---|-----|----------|-----------|------------|
-| 1 | Distance band per-type vs hardcoded 4 | HIGH | ✔ | ✔ |
+| 1 | Distance band per-type vs hardcoded 4 — reclassified: no change (data uniform 4) | N/A | – | – |
 | 2 | Casting loop `break` (one spell/idle) | HIGH | ✔ | ✔ |
 | 3 | Monster `Talk` not emitted | LOW | ✔ (cosmetic) | – |
 | 5 | Push ported from 1098, wrong gating | HIGH | ✔ | ✔ |
@@ -800,8 +810,9 @@ reusing TFS 1098 logic** where the eras genuinely differ.
    behaviour and the branch selection it feeds.
 3. **Chase-leash exemption for ATTACKING/PANIC** + per-home radius — stops the "stuck at the
    leash" pin.
-4. **Distance band → `Fixed(4)` for 772; remove casting `break`** — small, high-value decision-tree
-   corrections.
+4. **Remove casting `break`** — multi-spell monsters cast all gated spells per idle (Finding 2).
+   (Finding 1 distance band needs **no change** — `DistanceKeep::PerType` already matches 772 on the
+   shipped uniform-4 data; see Phase 4.)
 5. **Unify RNG onto the glibc stream** (retire `ai_rng`/`thread_rng` on the 772 path; port
    `RandomShuffle`; route roam/spell-var/spawn tie-break through it; delete the `melee_realign`
    hack) — restores sim-vs-decompile parity; consider a per-world glibc generator so live 772 uses
@@ -923,21 +934,64 @@ uses a per-monster `home_radius` (new field on `Monster`, set from the spawn zon
 
 ## Phase 4 — Decision-tree constants
 
-- **Goal:** correct distance band and multi-spell casting.
-- **Findings:** 1, 2.
+- **Goal:** correct multi-spell casting. (Distance band — Finding 1 — needs **no change**, see below.)
+- **Findings:** 1 (reclassified — no change), 2 (actionable).
 - **C++ ref:** `crnonpl.cc:2795-2834` (band `4`); `:2521-2667` (cast loop, no `break`).
-- **Rust sites:** `data/formulas/772.lua` (`distanceKeep`), `formulas.rs` (`DistanceKeep`),
-  `idle_stimulus.rs` (`monster_idle_try_casting`).
-- **Steps:**
-  1. Set 772 `distanceKeep = 4` (`DistanceKeep::Fixed(4)`); keep the dist-fighter *gate* keyed off a
-     real per-type distance-fighter flag, not the (now constant) band.
-  2. Remove the `if cast_any { break; }`; evaluate and roll every spell each idle (each gated by its
-     own `parity_rand_mod(delay)`), casting all that pass.
-- **Verify:** dist monster with `targetDistance ≠ 4` now kites at chebyshev 4; a 2-offensive-spell
-  monster can fire both in one idle and its post-idle RNG call count matches the oracle.
-- **Risk:** low.
+- **Rust sites:** `idle_stimulus.rs` (`monster_idle_try_casting`).
+
+### Finding 1 — distance band: NO CODE CHANGE (keep `DistanceKeep::PerType`)
+
+Reassessed against the shipped data: **all** 772 distance monsters use `targetdistance="4"` and all
+melee use `"1"` (verified: 29× `4`, 128× `1`, no other value in `data/monster/`). Under
+`DistanceKeep::PerType` the band sites resolve to the exact C++ literals when the value is 4 — flee
+`dist < 4`, chase budget `cheb - 4`, dance `dist == 4` — so per-type is **behaviorally identical** to
+the hardcode for this data. There is no active divergence.
+
+Do **not** pin `DistanceKeep::Fixed(4)`:
+- `target_distance` does double duty as the **melee-vs-distance discriminator**
+  (`monster_idle_uses_dist_branch` = `target_distance > 1 && monster_throw_possible(...)`). Forcing
+  `Fixed(4)` makes `monster_effective_target_distance` return 4 for every monster, collapsing the
+  discriminator to "has a ranged spell?" — a `targetdistance="1"` melee monster that also carries a
+  ranged spell would flip into a kiter. `PerType` keeps it melee. So `Fixed(4)` adds risk with zero
+  upside on uniform-4 data.
+
+The only residual exposure is **data drift**: a distance monster authored with `targetdistance != 4`
+(e.g. a pasted 1098 `monster.xml`) would kite/dance/flee at a non-772 ring. CipSoft 772 cannot express
+a per-type keep distance at all (the `.mon` files have no such field — the band is a global hardcode),
+so the band knob is a 1098-ism that merely coincides with 772 at 4.
+
+- **Optional guard (not required):** a warn-only load-time validation that flags any 772
+  distance-fighter (`targetdistance > 1`) whose value `!= 4`, so bad content can't silently produce
+  un-772 kiting. Behavior-preserving; implement only if desired.
+
+### Finding 2 — remove the casting `break` (IMPLEMENTED)
+
+`crnonpl.cc` CASTING (`~2521-2667`) loops `for SpellNr = 1..=Spells`, each gated by its own
+`rand() % Delay`, with **no `break`** — a multi-spell 772 monster can fire several impacts in one idle
+and **draws a delay roll for every spell every idle**. Rust `monster_idle_try_casting` broke after
+the first successful cast, which (a) capped multi-spell monsters at one cast/idle and (b) skipped the
+remaining offensive spells' delay rolls, desyncing the glibc stream.
+
+**Status:** done — the `if cast_any { break; }` is removed (`idle_stimulus.rs`); every spell whose
+delay/flee/range/sight gates pass is evaluated and cast in the same idle. Single-spell monsters
+(most fixtures) are unaffected.
 
 ## Phase 5 — RNG unification (sim parity)
+
+> **Status (partial — Findings 9/10/14/19 done; 8/15 remaining):** the concrete per-draw routing is
+> implemented — `RandomShuffle` ported exactly as `sim_glibc_rand::parity_random_shuffle` (forward
+> Fisher-Yates over `parity_random`) and used for both `SearchFlightField` sub-slices (9); roam now
+> draws `parity_rand_mod(4)` (10); monster spell-damage/heal/speed variation draws `parity_random`
+> on 772 (14); spawn tile tie-break draws `parity_random(0,99)` (19). These all flow through the one
+> `sim_glibc_rand` stream in sim mode (and `thread_rng` live), removing the residual `ai_rng`/`thread_rng`
+> leaks the audit flagged.
+>
+> **Remaining (Finding 8/15, deferred):** fully retiring `ai_rng` from the 772 path, deleting the
+> `TFS_SIM_MELEE_REALIGN` hack, and the per-`GameWorld` glibc generator. These require **re-baselining
+> the C++-oracle golden RNG traces** (the harness battery `run_sim_battery.py` compares against
+> captured `.jsonl` oracle logs), which needs the CipSoft harness — out of band for this change. The
+> melee-realign hack is inert outside seeded harness runs (gated on `sim_glibc_rng_enabled()`), so it
+> stays in place until the oracle re-baseline confirms the streams align without it.
 
 - **Goal:** all 772 AI/combat draws come from one glibc-equivalent stream, in C++ order.
 - **Findings:** 8, 9, 10, 14, 19; 15 (architecture).

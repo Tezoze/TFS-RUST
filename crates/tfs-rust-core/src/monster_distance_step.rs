@@ -587,7 +587,6 @@ pub fn search_flight_field<F>(
     creature_pos: Position,
     pursuer_pos: Position,
     can_walk: F,
-    rng: &mut impl Rng,
 ) -> Option<Direction>
 where
     F: Fn(Direction) -> bool,
@@ -627,7 +626,8 @@ where
     if oy >= 0 {
         dirs[4] = Some(Direction::South);
     }
-    dirs[1..5].shuffle(rng);
+    // C++ `RandomShuffle(&Dir[1], 4)` — forward Fisher-Yates on the glibc parity stream (Finding 9).
+    crate::sim_glibc_rand::parity_random_shuffle(&mut dirs[1..5]);
 
     // 3. Fallback to diagonal direction away from the pursuer.
     if oy <= ox {
@@ -642,7 +642,8 @@ where
     if oy >= -ox {
         dirs[8] = Some(Direction::SouthEast);
     }
-    dirs[5..9].shuffle(rng);
+    // C++ `RandomShuffle(&Dir[5], 4)` — forward Fisher-Yates on the glibc parity stream (Finding 9).
+    crate::sim_glibc_rand::parity_random_shuffle(&mut dirs[5..9]);
 
     // Evaluate in order
     for &opt_dir in &dirs {
@@ -670,18 +671,16 @@ mod tests {
                                                  // Fallback card: East (already preferred), North, South.
                                                  // Fallback diag: NorthEast, SouthEast.
 
-        let mut rng = StdRng::seed_from_u64(1);
-
         // 1. All clear -> East.
         let can_walk = |_d: Direction| true;
         assert_eq!(
-            search_flight_field(from, pursuer, can_walk, &mut rng),
+            search_flight_field(from, pursuer, can_walk),
             Some(Direction::East)
         );
 
         // 2. East blocked -> check remaining cardinals (North/South).
         let can_walk = |d: Direction| !matches!(d, Direction::East);
-        let res = search_flight_field(from, pursuer, can_walk, &mut rng).unwrap();
+        let res = search_flight_field(from, pursuer, can_walk).unwrap();
         assert!(matches!(res, Direction::North | Direction::South));
 
         // 3. All cardinals blocked -> check diagonals (NorthEast/SouthEast).
@@ -691,7 +690,7 @@ mod tests {
                 Direction::East | Direction::North | Direction::South | Direction::West
             )
         };
-        let res = search_flight_field(from, pursuer, can_walk, &mut rng).unwrap();
+        let res = search_flight_field(from, pursuer, can_walk).unwrap();
         assert!(matches!(res, Direction::NorthEast | Direction::SouthEast));
     }
 

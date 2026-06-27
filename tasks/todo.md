@@ -141,3 +141,26 @@ C++ ref: `crnonpl.cc:2148-2167` `MovePossible` radius block; `:1515` `Monsterhom
 > `TFS_SIM_SEED` is unset (plain `cargo test`), so they pass/fail at random regardless of these
 > changes (audit Findings 8/15; fixed by Phase 5 RNG unification). Verified flaky in isolation both
 > ways; all new P2/P3 tests are deterministic and pass.
+
+
+## Audit Phase 4 — decision-tree constants — scope revised
+
+- Finding 1 (distance band) — **no code change.** Shipped data is uniform (`targetdistance` 4 for all
+  distance monsters, 1 for melee), so `DistanceKeep::PerType` already matches the 772 hardcoded-4
+  behavior; pinning `Fixed(4)` would mis-classify melee monsters carrying a ranged spell. Optional
+  warn-only load guard for `targetdistance != 4` distance-fighters (not required).
+- [x] Finding 2 — remove `if cast_any { break; }` in `monster_idle_try_casting` (`idle_stimulus.rs`);
+  evaluate + cast every spell whose gates pass per idle. Fixes multi-spell-per-idle + glibc RNG desync.
+
+## Audit Phase 5 — RNG unification (sim parity) — partial (9/10/14/19 done)
+
+C++ ref: `common.hh:206` `RandomShuffle`; `info.cc:1030` `SearchFlightField`; `magic.cc:776` `ComputeDamage`; `info.cc` `SearchSpawnField`.
+- [x] Finding 9 — `sim_glibc_rand::parity_random_shuffle` (forward Fisher-Yates over `parity_random`); used for both `SearchFlightField` sub-slices. `search_flight_field` no longer takes `rng`.
+- [x] Finding 10 — roam draws `parity_rand_mod(4)` (was `ai_rng.gen_range(0..4)`).
+- [x] Finding 14 — monster spell damage/heal/speed variation draws `parity_random` on 772 (Condition arm already did).
+- [x] Finding 19 — spawn tile tie-break draws `parity_random(0,99)` (was `thread_rng`).
+- [x] Tests — `parity_random_shuffle_is_permutation`; flight_field/roam/spawn suites green; clippy clean.
+- [ ] Finding 8/15 (deferred) — retire `ai_rng` from the 772 path, delete `TFS_SIM_MELEE_REALIGN` hack,
+  per-`GameWorld` glibc generator. Requires re-baselining the C++-oracle golden RNG traces
+  (`run_sim_battery.py`), which needs the CipSoft harness — out of band here. Hack is inert outside
+  seeded harness runs, left in place until re-baseline.

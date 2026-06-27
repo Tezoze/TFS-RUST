@@ -935,7 +935,6 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
         const ROAM_DIRS: [Direction; 4] = [
             Direction::West,
             Direction::East,
@@ -943,7 +942,8 @@ impl GameWorld {
             Direction::South,
         ];
         for _ in 0..10 {
-            let dir = ROAM_DIRS[rng.gen_range(0..4)];
+            // C++ `switch(rand()%4)` (`crnonpl.cc:2833`) — glibc parity stream, not `ai_rng` (Finding 10).
+            let dir = ROAM_DIRS[crate::sim_glibc_rand::parity_rand_mod(4) as usize];
             if !self.monster_can_walk_to(cid, pos, dir) {
                 continue;
             }
@@ -970,10 +970,8 @@ impl GameWorld {
                     );
                 }
             }
-            self.ai_rng = rng;
             return true;
         }
-        self.ai_rng = rng;
         false
     }
 
@@ -996,17 +994,12 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
-        let Some(dir) = search_flight_field(
-            pos,
-            target_pos,
-            |dir| self.monster_can_walk_to(cid, pos, dir),
-            &mut rng,
-        ) else {
-            self.ai_rng = rng;
+        // `SearchFlightField` shuffles on the glibc parity stream internally (Finding 9) — no `ai_rng`.
+        let Some(dir) = search_flight_field(pos, target_pos, |dir| {
+            self.monster_can_walk_to(cid, pos, dir)
+        }) else {
             return false;
         };
-        self.ai_rng = rng;
         let dest = pos.offset(dir);
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
