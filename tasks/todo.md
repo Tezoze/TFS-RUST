@@ -164,3 +164,21 @@ C++ ref: `common.hh:206` `RandomShuffle`; `info.cc:1030` `SearchFlightField`; `m
   per-`GameWorld` glibc generator. Requires re-baselining the C++-oracle golden RNG traces
   (`run_sim_battery.py`), which needs the CipSoft harness — out of band here. Hack is inert outside
   seeded harness runs, left in place until re-baseline.
+
+## Audit Phase 6 — Lifecycle polish (respawn / summon / talk) — DONE
+
+C++ ref: `crnonpl.cc:1296` `StartMonsterhomeTimer`; `:2359–2405` summon despawn/re-bind; `:2442–2458` Talk.
+- [x] Finding 18 — `RespawnModel::Monsterhome772` in `MechanicsProfile`; `compute_respawn_delay_ms`
+      in `spawn_lifecycle.rs` — `random(regen/2, regen)` + player-count scaling (`>800 → *2/5`,
+      `>200 → *200/(n/2+100)`). 1098 stays `Fixed`. Lua keys in `data/formulas/{772,1098}.lua`.
+- [x] Finding 20 — `monster_idle_summon_lifecycle_772` in `idle_stimulus.rs` — master gone / floor
+      change / >30 tiles → despawn; re-bind `Following ? Target=0 : Target=AttackDest`, fallback
+      `Target=Master`. Runs before sleeping/idle check (C++ ordering).
+- [x] Finding 3 — `monster_idle_try_talk` emits `0xAA` via era-aware `Codec::encode_creature_say`
+      (772 omits `level`). `#y `/`#Y ` prefix → `TALKTYPE_MONSTER_YELL=0x10`, else `MONSTER_SAY=0x11`.
+      Talk texts from `<voices><voice sentence="…"/></voices>` in monster XML (`monsters.rs`).
+- [x] `CreatureSayWire` + `ProtocolCodec::encode_creature_say` in `tfs-rust-net` codec (1098 with
+      `level`, 772 without). `broadcast_creature_say_viewport` refactored to codec path + monster
+      speaker support.
+- [x] Tests — 10 new: respawn band/scaling/fixed (4), summon despawn/rebind (5), talk emit/no-emit (2).
+      399 existing tests still pass. Clippy clean.

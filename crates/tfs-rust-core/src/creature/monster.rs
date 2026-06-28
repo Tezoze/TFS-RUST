@@ -80,6 +80,9 @@ pub struct MonsterAiConfig {
     pub immunity_poison: bool,
     /// Non-melee attacks from `<attacks>` — idle CASTING (E4).
     pub spells: Vec<MonsterSpell>,
+    /// 772 `RaceData[].Talk` text list — `<voices><voice sentence="…"/></voices>`
+    /// (`crnonpl.cc:2442`, `crmain.cc:1551`). Empty = no broadcast (gate still draws for RNG parity).
+    pub talk_texts: Vec<String>,
 }
 
 impl Default for MonsterAiConfig {
@@ -107,6 +110,7 @@ impl Default for MonsterAiConfig {
             defense: 0,
             immunity_poison: false,
             spells: Vec::new(),
+            talk_texts: Vec::new(),
         }
     }
 }
@@ -135,6 +139,7 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             defense: 0,
             immunity_poison: false,
             spells: Vec::new(),
+            talk_texts: Vec::new(),
         }
     }
 }
@@ -151,6 +156,9 @@ impl MonsterAiConfig {
         cfg.defense = combat.defense;
         cfg.immunity_poison = combat.immunity_poison;
         cfg.spells = combat.spells;
+        cfg.talk_texts = mtype.talk_texts.clone();
+        // 772 `RaceData[].Talks` is the count of `Talk` entries (`crmain.cc:1552`).
+        cfg.talks = mtype.talk_texts.len().min(u8::MAX as usize) as u8;
         cfg
     }
 }
@@ -195,6 +203,8 @@ pub struct Monster {
     pub strategy_health: u8,
     pub strategy_damage: u8,
     pub talks: u8,
+    /// 772 `RaceData[].Talk` text list — `<voices>` (`crnonpl.cc:2442`). Empty = no broadcast.
+    pub talk_texts: Vec<String>,
     pub melee_skill: i32,
     pub melee_attack: i32,
     pub poison_cycles: i32,
@@ -256,6 +266,7 @@ impl Monster {
             strategy_health: config.strategy_health,
             strategy_damage: config.strategy_damage,
             talks: config.talks,
+            talk_texts: config.talk_texts,
             melee_skill: config.melee_skill,
             melee_attack: config.melee_attack,
             poison_cycles: config.poison_cycles,

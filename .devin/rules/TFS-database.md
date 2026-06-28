@@ -1,7 +1,6 @@
 ---
-inclusion: conditional
-name: tfs-database
-description: SQLx patterns, transaction rules, and database schema compatibility for TFS 1.4.2 parity. Applies to the tfs-rust-db crate.
+trigger: model_decision
+description: SQLx patterns, transaction rules, and database schema compatibility for TFS 1.4.2 parity.
 globs: ["crates/tfs-rust-db/**/*.rs"]
 ---
 
@@ -69,14 +68,16 @@ let player = load_player_by_guid(&pool, guid).await.ok()?;
 // Good: Transactional save
 pub async fn save_player_full(pool: &DbPool, player: &Player) -> Result<()> {
     let mut tx = pool.begin().await?;
-
+    
+    // Save player
     sqlx::query!(
         "UPDATE players SET health = ?, mana = ?, level = ? WHERE id = ?",
         player.health, player.mana, player.level, player.guid
     )
     .execute(&mut *tx)
     .await?;
-
+    
+    // Save inventory
     for (slot, item_id) in &player.inventory {
         sqlx::query!(
             "INSERT INTO player_items (player_id, slot, item_id) VALUES (?, ?, ?)
@@ -86,7 +87,7 @@ pub async fn save_player_full(pool: &DbPool, player: &Player) -> Result<()> {
         .execute(&mut *tx)
         .await?;
     }
-
+    
     tx.commit().await?;
     Ok(())
 }
@@ -108,6 +109,7 @@ tx.commit().await?; // Only commits if all queries succeeded
 ## Connection Pool Management
 
 ```rust
+// Create pool at startup
 let pool = sqlx::MySqlPoolOptions::new()
     .max_connections(10)
     .connect(&database_url)
@@ -235,6 +237,7 @@ Use `sqlx::test` for integration tests:
 ```rust
 #[sqlx::test]
 async fn test_load_player(pool: MySqlPool) -> sqlx::Result<()> {
+    // Test DB is created/cleaned automatically
     let player = create_test_player(&pool).await?;
     let loaded = load_player(&pool, player.id).await?;
     assert_eq!(player.name, loaded.name);

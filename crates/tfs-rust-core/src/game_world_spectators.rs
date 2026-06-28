@@ -11,7 +11,6 @@ use tfs_rust_common::enums::ConditionType;
 use tfs_rust_common::protocol_constants::{MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y};
 use tfs_rust_common::{ConnId, Position};
 use tfs_rust_net::codec::ItemTemplateArgs;
-use tfs_rust_net::outgoing_extra::send_creature_say;
 use tfs_rust_net::NetworkMessage;
 
 use crate::condition::ActiveCondition;
@@ -122,8 +121,15 @@ impl GameWorld {
         speak_type: u8,
         text: &str,
     ) {
+        // C++ `Game::internalCreatureSay` — `game.cpp` / `gameserver/src/game.cpp`.
+        // Era-aware wire: 1098 writes `name + u16 level + speakType + pos + text`;
+        // 772 omits `level` (`gameserver/src/protocolgame.cpp:1422`).
+        use tfs_rust_net::codec::wire::CreatureSayWire;
         let (pos, name, level) = match self.creatures.get(speaker) {
             Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
+            // Monster talk — 772 `crnonpl.cc:2458` `Talk(this->ID, Mode, NULL, Text, false)`.
+            // Level is unused on 772 wire (codec omits it); 1098 monsters don't talk.
+            Some(CreatureKind::Monster(m)) => (m.base.position, m.base.name.clone(), 0),
             _ => return,
         };
         let viewers: Vec<(ConnId, CreatureId)> = self
@@ -134,9 +140,17 @@ impl GameWorld {
         for (conn, viewer) in viewers {
             if self.can_see_position(viewer, pos) {
                 let sid = self.alloc_statement_id();
-                let packet =
-                    send_creature_say(sid, &name, level, speak_type, pos, text).into_bytes();
-                self.enqueue_outgoing(conn, packet);
+                let pkt = self.codec.encode_creature_say(
+                    sid,
+                    &CreatureSayWire {
+                        speaker_name: name.clone(),
+                        level,
+                        speak_type,
+                        pos,
+                        text: text.into(),
+                    },
+                );
+                self.enqueue_outgoing(conn, pkt.into_bytes());
             }
         }
     }

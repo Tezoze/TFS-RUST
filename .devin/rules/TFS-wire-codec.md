@@ -1,13 +1,12 @@
 ---
-inclusion: conditional
-name: tfs-wire-codec
+trigger: model_decision
 description: How to add wire functions, packets, and encoders behind the ProtocolCodec seam (772 / 1098).
 globs: ["crates/tfs-rust-net/**/*.rs", "crates/tfs-rust-common/src/protocol*.rs"]
 ---
 
 # Wire Codec (772 / 1098)
 
-Complements `tfs-packets.md`. Architecture: `docs/PROTOCOL_VERSIONING.md` §4.
+Complements `@.cursor/rules/TFS-packets.mdc`. Architecture: `docs/PROTOCOL_VERSIONING.md` §4.
 
 ## Transport is capability-gated
 

@@ -1,12 +1,12 @@
 ---
-inclusion: auto
-name: tfs-rust-idioms
+trigger: always_on
 description: Mandatory idiomatic Rust rules and safety standards for all Rust code in the TFS project.
+globs:
 ---
 
 # Rust Idioms (Mandatory)
 
-**Not a C++ transliteration.** Reference C++ defines *what* the server must do; Rust defines *how* — idiomatically, safely, and with zero-cost patterns where possible. Same outcome, better structure. See `tfs-core.md` §Porting model.
+**Not a C++ transliteration.** Reference C++ defines *what* the server must do; Rust defines *how* — idiomatically, safely, and with zero-cost patterns where possible. Same outcome, better structure.
 
 - **Proactively use the best modern Rust methods** that achieve the exact same outcome as the original C++ code (zero-cost abstractions, iterators, pattern matching, async/await, zero-copy parsing, etc.).
 - Use traits, enums with data, and pattern matching. No deep OOP hierarchies.

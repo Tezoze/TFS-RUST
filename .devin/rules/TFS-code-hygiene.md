@@ -1,7 +1,7 @@
 ---
-inclusion: auto
-name: tfs-code-hygiene
+trigger: always_on
 description: Code hygiene — deduplication, naming, dead-code removal, and reuse of existing helpers.
+globs:
 ---
 
 # Code Hygiene (Mandatory)
@@ -38,7 +38,7 @@ If the pattern appears 3+ times and no wrapper exists, add one scoped helper ins
 
 ## Remove Dead Code in the Same PR
 
-After refactors that add early returns or outer `if let` guards, **delete unreachable inner blocks** in the same change — do not leave duplicate paths "just in case."
+After refactors that add early returns or outer `if let` guards, **delete unreachable inner blocks** in the same change — do not leave duplicate paths “just in case.”
 
 ## Comment Non-Obvious Indirection
 

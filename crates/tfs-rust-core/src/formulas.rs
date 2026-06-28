@@ -151,6 +151,16 @@ pub enum SpawnPlacement {
     Classic772Bfs,
 }
 
+/// Respawn timer model — audit Finding 18 (`crnonpl.cc:1296` `StartMonsterhomeTimer`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RespawnModel {
+    /// TFS 1098 — fixed per-slot `spawntime_ms` (`spawn.cpp` `Spawn::checkSpawn`).
+    Fixed,
+    /// 772 `StartMonsterhomeTimer` — `random(regen/2, regen)` via glibc, scaled by online player
+    /// count: `>800 → *2/5`, `>200 → *200/(n/2+100)`. Faster respawns under load.
+    Monsterhome772,
+}
+
 /// Per-level experience curve (`skills` module).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LevelExpModel {
@@ -240,6 +250,8 @@ pub struct MechanicsProfile {
     pub spawn_near_player: SpawnNearPlayer,
     /// Startup / respawn tile search algorithm.
     pub spawn_placement: SpawnPlacement,
+    /// Respawn timer model — audit Finding 18 (`crnonpl.cc:1296`).
+    pub respawn_model: RespawnModel,
     /// Exp attribution window in combat rounds (CipSoft 60).
     pub exp_attribution_rounds: u32,
     /// PvP exp cap fraction numerator/denominator (772 `11/10`).
@@ -300,6 +312,7 @@ impl MechanicsProfile {
                 },
                 spawn_near_player: SpawnNearPlayer::RadiusShrink,
                 spawn_placement: SpawnPlacement::Classic772Bfs,
+                respawn_model: RespawnModel::Monsterhome772,
                 exp_attribution_rounds: 60,
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
@@ -347,6 +360,7 @@ impl MechanicsProfile {
                 },
                 spawn_near_player: SpawnNearPlayer::Block,
                 spawn_placement: SpawnPlacement::TfsShuffle,
+                respawn_model: RespawnModel::Fixed,
                 exp_attribution_rounds: 60,
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
@@ -648,6 +662,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "tfs" | "shuffle" => SpawnPlacement::TfsShuffle,
         _ => p.spawn_placement,
     };
+    p.respawn_model = match str_or(&formulas, "respawnModel", "").as_str() {
+        "monsterhome772" | "monsterhome" | "772" => RespawnModel::Monsterhome772,
+        "fixed" | "tfs" | "1098" => RespawnModel::Fixed,
+        _ => p.respawn_model,
+    };
     p.damage_formula = match str_or(&formulas, "damageFormula", "").as_str() {
         "classic" | "probe" => DamageFormula::ClassicProbe,
         "modern" => DamageFormula::Modern,
@@ -757,6 +776,7 @@ mod tests {
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::Block);
         assert_eq!(p.spawn_placement, SpawnPlacement::TfsShuffle);
+        assert_eq!(p.respawn_model, RespawnModel::Fixed);
         assert_eq!(p.level_exp, LevelExpModel::Tfs);
         assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
         assert!(!p.follow_repath_without_path);
@@ -781,6 +801,7 @@ mod tests {
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
         assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
         assert_eq!(p.spawn_placement, SpawnPlacement::Classic772Bfs);
+        assert_eq!(p.respawn_model, RespawnModel::Monsterhome772);
         assert_eq!(p.level_exp, LevelExpModel::DeltaPoly);
         assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
         assert_eq!(p.step_beat_ms, 200);

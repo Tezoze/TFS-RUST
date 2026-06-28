@@ -10,8 +10,8 @@ use crate::item_encode::{item_template_wire_len, write_item_live, write_item_tem
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, DistanceShootWire, ItemTemplateArgs,
-    MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, DistanceShootWire,
+    ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
 /// Zero-sized 10.98 codec (stateless; caps from `ProtocolVersion::V1098`).
@@ -424,6 +424,20 @@ impl Codec1098 {
         m.write_u8(w.damage_color);
         m.write_u32(0);
         m.write_u8(0);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendCreatureSay` — opcode `0xAA` (`src/protocolgame.cpp` ~2427):
+    /// `u32 statementId + name + u16 level + u8 speakType + pos + text`.
+    pub fn encode_creature_say(&self, statement_id: u32, w: &CreatureSayWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(statement_id);
+        m.write_string(&w.speaker_name);
+        m.write_u16(w.level);
+        m.write_u8(w.speak_type);
+        m.write_position(&w.pos);
         m.write_string(&w.text);
         m
     }

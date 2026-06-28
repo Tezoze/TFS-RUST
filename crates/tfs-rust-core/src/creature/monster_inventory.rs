@@ -595,6 +595,7 @@ mod tests {
                 spells: Vec::new(),
                 immunity_poison: false,
             },
+            talk_texts: Vec::new(),
         }
     }
 

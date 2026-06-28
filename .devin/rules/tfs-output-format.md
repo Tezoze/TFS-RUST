@@ -1,7 +1,7 @@
 ---
-inclusion: auto
-name: tfs-output-format
+trigger: always_on
 description: Exact response format and style rules for all interactions in the TFS project.
+globs: ["**/*"]
 ---
 
 # Output Format (Always Use This Structure)

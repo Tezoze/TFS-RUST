@@ -1,7 +1,7 @@
 ---
-inclusion: auto
-name: tfs-cpp-references
+trigger: always_on
 description: Mandatory C++ source tracing for all ported logic to ensure exact parity with TFS 1.4.2.
+globs:
 ---
 
 # C++ Source Tracing (Mandatory)
@@ -58,7 +58,11 @@ const PLAYER_MIN_SPEED: i32 = 10; // player.h PLAYER_MIN_SPEED
 
 1. **Stop immediately** — do not guess or assume behavior
 2. State the uncertainty clearly
-3. Use Grep or SemanticSearch to find the relevant TFS 1.4.2 C++ source in the workspace
+3. Find the reference source by era:
+   - **1098:** `semantic_search_nodes_tool` / built-in Grep on repo-root `src/`
+   - **772 mechanics:** `cross_repo_search_tool` (`ref-772-mechanics`), then Read `reference/cipsoft-772/tibia-game-master/src/`
+   - **772 wire:** `cross_repo_search_tool` (`ref-772-wire`), then Read `reference/tvp-772/gameserver/src/`
+   - Shell fallback for 772 text search: `scripts/ref_grep.sh PATTERN` (not `rtk grep`)
 4. If the C++ source is not available in the workspace, ask the user for clarification
 5. Document the exact C++ behavior once confirmed
 

@@ -350,6 +350,113 @@ impl GameWorld {
     }
 
     /// C++ target validity + `LoseTarget` — `crnonpl.cc:2368-2384`.
+    /// 772 summon despawn / re-bind block — `crnonpl.cc:2359–2405`.
+    ///
+    /// Runs at the top of `IdleStimulus` for summons (`Master != 0`). Despawns when the master is
+    /// gone, on a different floor (non-player master), or beyond 30 tiles / `|Δz| > 1`. Otherwise
+    /// re-binds the summon's target: `Master->Combat.Following ? Target=0 : Target=Master->AttackDest`,
+    /// falling back to `Target=Master` when that clears or points at self.
+    ///
+    /// Returns `true` when the summon was despawned (caller must early-return — the creature is gone).
+    fn monster_idle_summon_lifecycle_772(&mut self, cid: CreatureId) -> bool {
+        let (master_id, master_is_player, summon_pos) = match self.creatures.get(cid) {
+            Some(k) => match k.base().master {
+                Some(m) => (
+                    m,
+                    matches!(self.creatures.get(m), Some(CreatureKind::Player(_))),
+                    k.position(),
+                ),
+                None => return false, // Not a summon — skip the block.
+            },
+            None => return false,
+        };
+
+        let master_present = self.creatures.contains_key(master_id);
+        let should_despawn = if !master_present {
+            // C++ `Master == NULL` → despawn (`crnonpl.cc:2363`).
+            tracing::debug!(?cid, ?master_id, master_is_player, "summon despawn: master gone");
+            true
+        } else {
+            let master_pos = self
+                .creatures
+                .get(master_id)
+                .map(|k| k.position())
+                .unwrap_or(summon_pos);
+            // C++ non-player master on a different floor → despawn (`crnonpl.cc:2373`).
+            if !master_is_player && master_pos.z != summon_pos.z {
+                tracing::debug!(?cid, ?master_id, "summon despawn: monster master on different floor");
+                true
+            } else {
+                // C++ `|Δz| > 1 || |Δx| > 30 || |Δy| > 30` → despawn (`crnonpl.cc:2376`).
+                let dz = (master_pos.z as i32 - summon_pos.z as i32).unsigned_abs();
+                let dx = (master_pos.x as i32 - summon_pos.x as i32).unsigned_abs();
+                let dy = (master_pos.y as i32 - summon_pos.y as i32).unsigned_abs();
+                if dz > 1 || dx > 30 || dy > 30 {
+                    tracing::debug!(?cid, ?master_id, dz, dx, dy, "summon despawn: too far from master");
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+
+        if should_despawn {
+            // C++ player master → `StartLogout(true, true)`; monster master → `Kill()` (`crnonpl.cc:2388`).
+            // Both paths set `State = SLEEPING` and return. Rust `remove_creature` covers the
+            // disappear broadcast + summon-chain cleanup; `apply_creature_death` is reserved for
+            // combat kills (loot/XP), not lifecycle despawns.
+            self.remove_creature(cid);
+            return true;
+        }
+
+        // Re-bind — `crnonpl.cc:2397–2405`. `Combat.Following` maps to an active follow target on
+        // the master; `Combat.AttackDest` is the master's attack target.
+        let master_following = self
+            .creatures
+            .get(master_id)
+            .is_some_and(|k| k.base().follow_target.is_some());
+        let master_attack_dest = self
+            .creatures
+            .get(master_id)
+            .and_then(|k| k.base().attack_target);
+
+        let new_target = if master_following {
+            None // `Target = 0`
+        } else {
+            master_attack_dest // `Target = Master->Combat.AttackDest`
+        };
+        // C++ `if (Target == 0 || Target == self) Target = Master` (`crnonpl.cc:2403`).
+        let new_target = match new_target {
+            Some(t) if t != cid => Some(t),
+            _ => Some(master_id),
+        };
+
+        // Apply via the existing target helpers so follow/attack stay aligned. The later
+        // `monster_think_summon_stub` pass refines the follow target; this block sets the
+        // authoritative attack-dest per C++.
+        if let Some(target_id) = new_target {
+            if self.monster_is_target(cid, target_id) {
+                let _ = self.monster_set_follow_creature(cid, Some(target_id));
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().attack_target = Some(target_id);
+                }
+            } else {
+                // Target not in opponent list (e.g. master itself) — still set follow per C++.
+                let _ = self.monster_set_follow_creature(cid, Some(target_id));
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().attack_target = Some(target_id);
+                }
+            }
+        } else {
+            let _ = self.monster_set_follow_creature(cid, None);
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().attack_target = None;
+            }
+        }
+
+        false
+    }
+
     fn monster_idle_772_lose_existing_target(&mut self, cid: CreatureId) {
         let target_id = self.creatures.get(cid).and_then(|k| k.base().follow_target);
         let Some(target_id) = target_id else {
@@ -968,6 +1075,13 @@ impl GameWorld {
             )
         };
 
+        // C++ summon despawn / re-bind block — runs at the very top of `IdleStimulus`
+        // (`crnonpl.cc:2359–2405`), BEFORE the sleeping/idle checks. A sleeping summon still
+        // gets despawned if its master is gone / too far / on a different floor.
+        if self.beat_driven_loop && is_summon && self.monster_idle_summon_lifecycle_772(cid) {
+            return;
+        }
+
         if sleeping_772 {
             if is_idle {
                 return;
@@ -1109,19 +1223,21 @@ impl GameWorld {
         }
     }
 
-    /// C++ talk gate — `crnonpl.cc:2392` (`rand()%50`, then `random(1,Talks)` on hit).
+    /// C++ talk gate + broadcast — `crnonpl.cc:2442–2458`:
+    /// `if (Talks > 0 && (rand() % 50) == 0)` → `TalkNr = random(1, Talks)` → fetch text →
+    /// `Talk(this->ID, Mode, NULL, Text, false)`. `Mode = TALK_ANIMAL_LOW`; a `#y `/`#Y ` prefix
+    /// (decompile) or `<voice yell="1">` (TVP) switches to `TALK_ANIMAL_LOUD` and strips the prefix.
     ///
-    /// Sim harness consumes RNG only; no `Talk` packet side effect.
+    /// Wire speak types (TVP `gameserver/src/const.h`): `TALKTYPE_MONSTER_YELL = 0x10`,
+    /// `TALKTYPE_MONSTER_SAY = 0x11`. The RNG draw order (gate then pick) is preserved exactly so
+    /// the glibc parity stream stays aligned with the sim harness.
     fn monster_idle_try_talk(&mut self, cid: CreatureId) {
-        let talks = self
-            .creatures
-            .get(cid)
-            .and_then(|k| match k {
-                CreatureKind::Monster(m) => Some(m.talks),
-                _ => None,
-            })
-            .unwrap_or(0);
-        if talks == 0 {
+        // Borrow the talk list + count together so we don't hold a borrow across the RNG draws.
+        let (talks, talk_texts) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (m.talks, m.talk_texts.clone()),
+            _ => return,
+        };
+        if talks == 0 || talk_texts.is_empty() {
             return;
         }
         let _trace_gate = crate::sim_glibc_rand::sim_rng_trace_site("idle_talk_gate");
@@ -1129,7 +1245,31 @@ impl GameWorld {
             return;
         }
         let _trace_pick = crate::sim_glibc_rand::sim_rng_trace_site("idle_talk_pick");
-        let _ = self.parity_random(1, i32::from(talks));
+        // C++ `TalkNr = random(1, Talks)` — 1-indexed; Rust `talk_texts` is 0-indexed.
+        let talk_nr = self.parity_random(1, i32::from(talks));
+        let idx = (talk_nr.max(1) as usize).saturating_sub(1).min(talk_texts.len() - 1);
+        let raw = &talk_texts[idx];
+
+        // C++ `if (Text[0] == '#' && Text[1] != 0 && Text[2] == ' ')` yell marker (`crnonpl.cc:2450`).
+        // TVP equivalent: `<voice yell="1">` sets `voiceBlock.yellText` (`monster.cpp:851`).
+        // We support the decompile `#y `/`#Y ` prefix in the sentence text.
+        const TALKTYPE_MONSTER_SAY: u8 = 0x11;
+        const TALKTYPE_MONSTER_YELL: u8 = 0x10;
+        let (speak_type, text) = if raw.len() >= 3
+            && raw.as_bytes()[0] == b'#'
+            && (raw.as_bytes()[1] == b'y' || raw.as_bytes()[1] == b'Y')
+            && raw.as_bytes()[2] == b' '
+        {
+            (TALKTYPE_MONSTER_YELL, &raw[3..])
+        } else {
+            (TALKTYPE_MONSTER_SAY, raw.as_str())
+        };
+
+        // C++ `if (Text != 0 && Text[0] != 0)` — skip empty text after prefix strip.
+        if text.is_empty() {
+            return;
+        }
+        self.broadcast_creature_say_viewport(cid, speak_type, text);
     }
 
     /// C++ walking prelude — `crnonpl.cc:2705` (`SKILL_FIST > 0 && State != PANIC`).
@@ -5376,6 +5516,202 @@ mod tests {
         assert!(
             !monster_is_parked(&world, monster),
             "attack execute Skipped must not park"
+        );
+    }
+
+    // --- Phase 6: summon despawn / re-bind (Finding 20, `crnonpl.cc:2359–2405`) ---
+
+    /// Helper: insert a summon monster linked to `master_id` at `pos`.
+    fn insert_summon(
+        world: &mut GameWorld,
+        name: &str,
+        pos: Position,
+        master_id: CreatureId,
+    ) -> CreatureId {
+        let summon = insert_monster_with_config(
+            world,
+            name,
+            pos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+            m.base.master = Some(master_id);
+        }
+        summon
+    }
+
+    /// Wake a monster so it passes the sleeping+idle early return in `IdleStimulus`.
+    fn wake_monster(world: &mut GameWorld, cid: CreatureId) {
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
+            m.state = MonsterState::Idle;
+            m.is_idle = false;
+        }
+    }
+
+    /// Summon despawns when its master is gone (removed from world).
+    #[test]
+    fn summon_despawns_when_master_gone() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let master = insert_monster(&mut world, "Master", mpos, 200);
+        let summon = insert_summon(&mut world, "Summon", mpos, master);
+        // Bypass `remove_creature`'s summon-chain cleanup — directly remove the master from the
+        // SlotMap so the summon's `master` field still points to a now-gone creature. This
+        // simulates the C++ path where `GetCreature(Master)` returns NULL.
+        world.map.unregister_creature_at(mpos, master);
+        world.creatures.remove(master);
+        assert!(world.creatures.contains_key(summon));
+        world.monster_idle_stimulus(summon);
+        assert!(
+            !world.creatures.contains_key(summon),
+            "summon must despawn when master is gone"
+        );
+    }
+
+    /// Summon despawns when master changes floor (non-player master, `posz != this->posz`).
+    #[test]
+    fn summon_despawns_on_floor_change() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let master = insert_monster(&mut world, "Master", mpos, 200);
+        // Move master to floor 6 (different z).
+        if let Some(k) = world.creatures.get_mut(master) {
+            k.base_mut().position = Position::new(100, 100, 6);
+        }
+        let summon = insert_summon(&mut world, "Summon", mpos, master);
+        world.monster_idle_stimulus(summon);
+        assert!(
+            !world.creatures.contains_key(summon),
+            "summon must despawn when monster master changes floor"
+        );
+    }
+
+    /// Summon despawns when straying beyond 30 tiles from master.
+    #[test]
+    fn summon_despawns_beyond_30_tiles() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let master = insert_monster(&mut world, "Master", mpos, 200);
+        let far = Position::new(135, 100, 7); // 35 tiles away
+        ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
+        let summon = insert_summon(&mut world, "Summon", far, master);
+        world.monster_idle_stimulus(summon);
+        assert!(
+            !world.creatures.contains_key(summon),
+            "summon must despawn when >30 tiles from master"
+        );
+    }
+
+    /// Summon stays alive when within range and re-binds to master's attack target.
+    #[test]
+    fn summon_rebinds_to_master_attack_target_when_not_following() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let master = insert_monster(&mut world, "Master", mpos, 200);
+        // Give master an attack target but no follow target (Combat.Following = false).
+        let victim = insert_monster(&mut world, "Victim", Position::new(101, 100, 7), 200);
+        if let Some(k) = world.creatures.get_mut(master) {
+            k.base_mut().attack_target = Some(victim);
+            k.base_mut().follow_target = None;
+        }
+        let summon = insert_summon(&mut world, "Summon", Position::new(102, 100, 7), master);
+        wake_monster(&mut world, summon);
+        world.monster_idle_stimulus(summon);
+        assert!(world.creatures.contains_key(summon), "summon must stay alive");
+        let base = world.creatures.get(summon).unwrap().base();
+        assert_eq!(
+            base.attack_target,
+            Some(victim),
+            "summon must inherit master's attack_target when master is not following"
+        );
+    }
+
+    /// Summon clears target when master is following (Combat.Following = true), then falls back
+    /// to master per `if (Target == 0 || Target == self) Target = Master`.
+    #[test]
+    fn summon_rebinds_to_master_when_target_clears() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let master = insert_monster(&mut world, "Master", mpos, 200);
+        // Master is following (follow_target set) → summon Target = 0 → fallback to master.
+        let follow_target = insert_monster(&mut world, "Follow", Position::new(101, 100, 7), 200);
+        if let Some(k) = world.creatures.get_mut(master) {
+            k.base_mut().follow_target = Some(follow_target);
+        }
+        let summon = insert_summon(&mut world, "Summon", Position::new(102, 100, 7), master);
+        wake_monster(&mut world, summon);
+        world.monster_idle_stimulus(summon);
+        assert!(world.creatures.contains_key(summon));
+        let base = world.creatures.get(summon).unwrap().base();
+        assert_eq!(
+            base.attack_target,
+            Some(master),
+            "summon must fall back to master when target clears"
+        );
+    }
+
+    // --- Phase 6: monster Talk packet (Finding 3, `crnonpl.cc:2442–2458`) ---
+
+    /// Monster talk emits a `0xAA` packet to spectators when the RNG gate hits.
+    #[test]
+    fn monster_talk_emits_packet_on_gate_hit() {
+        let mpos = Position::new(100, 100, 7);
+
+        // Try multiple seeds until the gate hits (rand_mod(50) == 0).
+        let mut found_packet = false;
+        for seed in 0..200u32 {
+            let mut w = beat_driven_test_world();
+            w.seed_parity_rng(seed);
+            let mut c = MonsterAiConfig::default();
+            c.talk_texts = vec!["Zzzzzz".into()];
+            c.talks = 1;
+            let m = insert_monster_with_config(&mut w, "Cobra", mpos, 200, c);
+            // Wake the monster so it reaches the talk path (sleeping+idle returns early).
+            if let Some(CreatureKind::Monster(mon)) = w.creatures.get_mut(m) {
+                mon.state = MonsterState::Idle;
+                mon.is_idle = false;
+            }
+            let v = insert_player(&mut w, test_player("Spec", Position::new(101, 100, 7)));
+            let cn = tfs_rust_common::ConnId(3);
+            w.conn_to_creature.insert(cn, v);
+            w.known_creatures_by_conn.insert(cn, std::collections::HashSet::new());
+            w.pending_outgoing.clear();
+            w.monster_idle_stimulus(m);
+            if let Some(pkts) = w.pending_outgoing.get(&cn) {
+                if pkts.iter().any(|b| !b.is_empty() && b[0] == 0xAA) {
+                    found_packet = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            found_packet,
+            "monster talk must emit a 0xAA packet on gate hit for some seed"
+        );
+    }
+
+    /// Monster with no talk texts emits no packet even when the gate would hit (Talks == 0 return).
+    #[test]
+    fn monster_no_talk_when_talk_texts_empty() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200); // default: talks=0, no talk_texts
+        // Wake the monster so it reaches the talk path.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Idle;
+            m.is_idle = false;
+        }
+        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
+        let conn = tfs_rust_common::ConnId(3);
+        world.conn_to_creature.insert(conn, viewer);
+        world.known_creatures_by_conn.insert(conn, std::collections::HashSet::new());
+        world.pending_outgoing.clear();
+        world.monster_idle_stimulus(monster);
+        let pkts = world.pending_outgoing.get(&conn);
+        assert!(
+            !pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0xAA)),
+            "monster with no talk texts must not emit 0xAA"
         );
     }
 }

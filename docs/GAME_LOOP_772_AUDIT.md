@@ -1,6 +1,6 @@
 # 772 Game Loop & Scheduler — 1098-Bleed Parity Audit
 
-**Status Update (Jun 2026):** Most critical findings have been addressed. See "Implementation Status" section at end.
+**Status Update (Jun 2026 re-verification):** Most critical findings have been addressed, **except Finding 7 (atomic `Execute` loop)** — previously marked FIXED in the summary table, that was a documentation error. Finding 7 is the **primary "smoothness" defect**: `run_monster_todo_execute` still pops one action per heap call, so a Rotate+Attack chain takes 2 beats (400 ms) vs C++'s 1 beat (200 ms). See "Implementation Status" and `MONSTER_AI_772_AUDIT.md` "Smoothness Root Cause Analysis."
 
 Scope: a *structural* pass over the Rust game loop and creature/action scheduling against the
 CipSoft 772 beat-driven model (`reference/cipsoft-772/tibia-game-master/src/`). The question this
@@ -973,13 +973,80 @@ hack the next depends on being gone.
 - Fill `Other`/`cron` gaps incrementally: idle-timeout kick + ambiente/day-night light first (Finding 14).
 - Deliverable: subsystems do the right work at the right cadence.
 
+## Phase 7 — Vocation data-driven regen & `process_creatures_772` player coverage (Finding 30)
+
+> **Status:** not started. Depends on Phase 6 (`ProcessSkills` slot is wired but regen logic is
+> stubbed with hardcoded values). This phase makes regen data-driven via `vocations.xml` and
+> adds the missing item-regen path + food gating.
+
+- **Goal:** player HP/mana regen matches C++ 772 — food-gated, vocation-cadence from
+  `vocations.xml`, item-regen (life ring) from `ProcessCreatures`, PZ-gated.
+- **Findings:** 30 (a–e).
+- **C++ ref:** `crskill.cc:810–886` `TSkillFed::Event`; `crmain.cc:1087–1095`
+  `ProcessCreatures` item-regen; `moveuse.cc:1840–1846` `UseFood` (timer arming);
+  `crskill.cc:179–196` `TSkill::Process` (countdown semantics).
+- **Rust sites:** `tfs-rust-content/src/vocations.rs` (struct + parser),
+  `tfs-rust-core/src/creature/vocation.rs` (`per_level_gains` stub),
+  `tfs-rust-core/src/process_skills.rs:168–215` (`process_player_fed_regen_772` +
+  `fed_regen_cadence`), `tfs-rust-core/src/creature_think.rs:108` (`process_creatures_772`).
+- **Steps:**
+  1. **Extend `Vocation` struct** (`tfs-rust-content/src/vocations.rs`) to parse all regen and
+     progression fields from `vocations.xml`: `gainhpticks`, `gainhpamount`, `gainmanaticks`,
+     `gainmanaamount`, `gaincap`, `gainhp`, `gainmana`, `manamultiplier`, `attackspeed`,
+     `basespeed`, `soulmax`, `gainsoulticks`. Match the TFS C++ `Vocation` struct
+     (`src/vocation.h:93–110`).
+  2. **Delete `fed_regen_cadence`** (`process_skills.rs:203–215`) — read cadence from the
+     loaded `VocationDatabase` instead. Delete `per_level_gains` stub
+     (`creature/vocation.rs:27–34`) — read from `VocationDatabase`.
+  3. **Food gating (bug a):** add `fed_timer_remaining: u32` to player state. Arm from
+     `UseFood` (eating food adds `NUTRITION * 12` to the timer, matching `moveuse.cc:1846`).
+     Decrement each `ProcessSkills` tick. Only regen while `> 0`.
+  4. **Timer direction (bug b):** use the countdown value for the modulo check (count down
+     from `FoodTime` to 0, matching C++ `TimerValue()` = `Cycle`).
+  5. **Item-regen path (bug d):** extend `process_creatures_772` (`creature_think.rs:108`) to
+     iterate players (not just monsters/NPCs). Add the `RegenInterval = Skills[SKILL_FED]->Get()`
+     path: HP+1, Mana+4 every `RegenInterval` rounds, gated on `!IsProtectionZone`
+     (`crmain.cc:1087–1095`). This is the life-ring / item-based regen, separate from food.
+  6. **PZ check (bug e):** add `!is_protection_zone(pos)` gate to both regen paths.
+  7. **772 cadence override:** the `vocations.xml` values are TFS 1098. For 772, the
+     None-vocation (0) differs (772: 6/6 vs 1098: 12/6). Add a `MechanicsProfile` /
+     `data/formulas/772.lua` override for the None-vocation regen cadence. All other
+     vocations match between 1098 `vocations.xml` and 772 `TSkillFed::Event`.
+- **Verify:** unit test — player with food regens at vocation cadence; player without food
+  does not regen; life ring arms item-regen; PZ blocks regen; None-vocation uses 772 override
+  (6/6) not 1098 (12/6). Integration: eat food → regen starts → timer expires → regen stops.
+- **Risk:** low-medium — extends `Vocation` struct (test churn) and adds player iteration to
+  `process_creatures_772` (borrow-checker care needed). No scheduler changes.
+
+## Phase 8 — Remaining parity polish (Findings 22, 24, 27, 28, 29)
+
+> **Status:** not started. Independent of Phase 7; can run in parallel. Low-to-medium
+> impact items that don't affect the scheduler core.
+
+- **Drunk-walk (Finding 22):** port 772 `rand()%max(7-level,1)` algo on the glibc stream
+  (not 1098 `r/4 > d` on `thread_rng`). Wire to `Skills[SKILL_DRUNKEN]` timer-skill, not
+  `ConditionDrunk`. Depends on Phase 5 RNG unification (AI doc).
+- **Move-stimulus fan-out (Finding 24):** replace SlotMap-key sort with C++ creature-list
+  order (spatial sector walk). `monster_events.rs:112`.
+- **`CalculateDelay` TDUse (Finding 27):** add `TDUse` delay to `CalculateDelay` — latent
+  (no Use entries yet, blocked by `CreatureAction::Use` in Phase 6).
+- **Poison field extension (Finding 29):** extend poison duration when creature stands on
+  poison field (`crskill.cc:1043` `Cycle += 1`). `process_skills.rs:74–86`.
+- **MoveStimulus `has_go` (Finding 28):** head-only check vs entire queue.
+  `monster_events.rs:446`.
+- **Deliverable:** remaining parity items cleared; no 1098 bleeds in walk/stimulus paths.
+
 ## Sequencing rationale
 
 1 → 2 → 3 are the load-bearing core and **must** be done in order (each removes a hack the next relies
 on being absent). 4 → 5 collapse the clocks and prove it by deleting harness state. 6 is independent
-content/cadence work that's clearer once the core is exact. The monster-AI parity items in
-`MONSTER_AI_772_AUDIT.md` (push/kick era, RNG unification, casting loop) should be re-validated
-**after** Phase 5 — several of its "feel" findings are downstream of the scheduler defects fixed here.
+content/cadence work that's clearer once the core is exact. **7** (vocation data-driven regen) depends
+on 6's `ProcessSkills` slot being wired but is otherwise independent — it's a data-layer + player-
+iteration change, not a scheduler change. **8** (parity polish) is independent of 6–7 and can run in
+parallel; its only dependency is Phase 5 (RNG unification) for the drunk-walk RNG stream. The
+monster-AI parity items in `MONSTER_AI_772_AUDIT.md` (push/kick era, RNG unification, casting loop)
+should be re-validated **after** Phase 5 — several of its "feel" findings are downstream of the
+scheduler defects fixed here.
 
 ---
 
@@ -1292,15 +1359,17 @@ lifetime within a beat matches the oracle.*
 
 ---
 
-# Audit status after 9 passes
+# Audit status after 10 passes
 
-Nine passes have now covered: the loop skeleton and flush policy (Pass 1), the `ToDoQueue` structure
+Ten passes have now covered: the loop skeleton and flush policy (Pass 1), the `ToDoQueue` structure
 and `Execute` (Pass 2), subsystem semantics and the wall-clocks (Pass 3), the `+1` re-insertion clamp
 and delay computation (Pass 4), first-ToDo arming and harness entanglement (Pass 5), walk-execution
-internals/drunk (Pass 6), event fan-out ordering (Pass 7), NPC scheduling (Pass 8), and death/removal
-timing (Pass 9). 26 findings total; the foundational set is **6** (heap order), **7** (atomic
-`Execute`), **17** (`+1` clamp), **24** (fan-out order), and the **wall-clock collapse** (1/2/13) —
-everything else is symptom, completeness, or cleanliness layered on those.
+internals/drunk (Pass 6), event fan-out ordering (Pass 7), NPC scheduling (Pass 8), death/removal
+timing (Pass 9), and deep behavioral re-verification of `CalculateDelay`/`MoveStimulus`/skills
+(Pass 10). 29 findings total; the foundational set is **6** (heap order), **7** (atomic
+`Execute` — root cause now identified as `CreatureAction` enum gap), **17** (`+1` clamp), **24**
+(fan-out order), and the **wall-clock collapse** (1/2/13) — everything else is symptom, completeness,
+or cleanliness layered on those.
 
 Confidence: the **scheduler/loop/ToDoQueue core** is now traced end-to-end against the CipSoft sources
 and I do not expect further structural foundation findings — remaining risk is in **leaf behavior**
@@ -1313,6 +1382,209 @@ Pass 6–9 findings slot in as noted (22→Phase 4/6, 24→Phase 1, 25→Phase 6
 
 ---
 
+# Pass 10 — deep behavioral re-verification (Jun 2026)
+
+Pass 10 went deeper into `CalculateDelay` completeness, the `CreatureMoveStimulus` event
+path, `process_skills_772` tick details, and the `CreatureAction` enum. **One structural
+root cause found; two new behavioral divergences; one skill-tick gap.** Combat math,
+LockToDo, ToDoStart/Yield/Wait, DelayAttack, and condition intervals all verified faithful.
+
+## Structural root cause: `CreatureAction` enum missing Rotate/Talk/Use — blocks Finding 7
+
+C++ `Execute` (`cract.cc:783–890`) dispatches on `TDRotate`, `TDTalk`, `TDUse`, `TDTrade`,
+`TDMove`, `TDTurn`, `TDAttack`, `TDChangeState`. The Rust `CreatureAction` enum
+(`creature_todo.rs:65–72`) has only **Go, Wait, Attack**.
+
+This is the **structural reason** the atomic `Execute` loop (Finding 7) can't be fixed by
+simply adding a `while` loop — there are no Rotate/Talk/Use entries to drain. C++ enqueues
+`TDRotate(Target) + TDAttack()` and fires both zero-delay in one beat. Rust does Rotate
+out-of-band (`monster_update_look_direction`, gated by `walk_timer_idle`) and enqueues
+only Attack. The two can never be atomic because they live in different systems.
+
+**Fix path:** add `CreatureAction::Rotate { direction }` to the enum. Enqueue
+`Rotate + Attack` from `monster_idle_maybe_enqueue_attack` (matching `crnonpl.cc:2872`).
+Then the atomic `Execute` `while` loop fires both zero-delay. This **subsumes** AI audit
+Finding 22 (the `walk_timer_idle` gate becomes irrelevant). See `MONSTER_AI_772_AUDIT.md`
+Pass 7 "Structural root cause" for details.
+
+## Finding 27. `CalculateDelay` is not a unified function — TDUse delay missing — LOW
+
+C++ `CalculateDelay` (`cract.cc:906–951`) handles `TDWait`, `TDGo`, `TDUse` (with
+`Obj2 → EarliestMultiuseTime`), `TDAttack` (`max(EarliestAttackTime, EarliestSpellTime)`).
+Rust has `todo_attack_delay_ms` (`creature_todo.rs:199–210`) for the Attack case only.
+Wait delays are stored inline in `CreatureAction::Wait { delay_ms }`. Go delays are
+handled via `earliest_walk_server_ms` in the walk scheduling path.
+
+**Missing:** `TDUse` delay from `EarliestMultiuseTime` — not yet relevant because monster
+ToDo queues don't contain Use entries (the `CreatureAction` enum doesn't have Use). When
+Use is added (for NPC object interaction), the delay calculation must be added too.
+
+**Impact:** none currently (monsters don't Use objects); latent for NPC AI completeness.
+
+## Finding 28. `CreatureMoveStimulus` has extra `has_go` check — MEDIUM
+
+C++ `CreatureMoveStimulus` (`crmain.cc:920–940`) checks the **head** of the ToDo list:
+
+```cpp
+if(this->ActToDo >= this->NrToDo
+    || this->ToDoList.at(this->ActToDo)->Code != TDAttack){
+    return;
+}
+```
+
+Rust `monster_combat_creature_move_stimulus` (`monster_events.rs:446`) checks the **entire
+queue**:
+
+```rust
+if !has_attack || has_go {   // has_go is extra — not in C++
+    return;
+}
+```
+
+If the queue is `[Attack, Go]` (head is Attack, Go later), C++ fires the stimulus (head is
+Attack). Rust doesn't (`has_go` is true). This blocks the combat re-arm in the close-chase
+scenario where it matters most — the monster has a chase step queued after the attack.
+
+**Fix:** replace `!has_attack || has_go` with a head-specific check matching C++:
+`todo.queue.front() == Some(&CreatureAction::Attack)`. (See also AI audit Finding 26.)
+
+## Finding 29. Poison field extension missing in `process_skills_772` — LOW
+
+C++ `TSkillPoison::Event` (`crskill.cc:1020–1048`) extends poison duration when the
+creature stands on a poison field (`AVOID + DAMAGE_POISON → Cycle += 1`). Rust
+`process_skills.rs:74–86` ticks poison and decays `total_rank` by 50% but does not check
+for poison fields. Poison wears off on schedule in Rust even when the creature stands in a
+fresh field. (See also AI audit Finding 28.)
+
+## Finding 30. `process_player_fed_regen_772` has multiple bugs — no food gating, wrong timer direction, cadence mismatches — HIGH
+
+C++ has **two** regen paths, both gated on the `SKILL_FED` timer-skill (`crskill.cc:810–886`,
+`crmain.cc:1087–1095`):
+
+1. **`TSkillFed::Event`** (`crskill.cc:812`) — food-based regen. The `SKILL_FED` timer is
+   **armed by eating food** (`moveuse.cc:1846` `SetTimer(SKILL_FED, FoodTime, 0, 0, -1)`).
+   `TSkill::Process` (`crskill.cc:179–196`) decrements `Cycle` by 1 each `ProcessSkills` tick
+   and calls `Event` while `Cycle > 0`. When `Cycle` reaches 0, the skill is removed from the
+   `TimerList` and `Event` **stops firing**. `TimerValue()` returns `Cycle` (the **remaining**
+   food time, counting **down**). `Timer % SecsPerHP == 0` checks the countdown value.
+   Regen: HP+1, Mana+2.
+
+2. **`ProcessCreatures`** (`crmain.cc:1087`) — item-based regen (life ring, etc.).
+   `RegenInterval = Skills[SKILL_FED]->Get()` fires HP+1, Mana+4 every `RegenInterval`
+   rounds. This is a **separate** regen source from food, driven by the `Get()` value (not
+   the timer countdown).
+
+Rust `process_player_fed_regen_772` (`process_skills.rs:168–199`) has **five** bugs:
+
+| # | Bug | C++ | Rust |
+|---|-----|-----|------|
+| a | **No food gating** | `Event` only fires while `SKILL_FED` timer is active (armed by eating) | Fires unconditionally every skills tick — regen even without food |
+| b | **Timer direction** | `TimerValue()` = `Cycle` counts **down** from `FoodTime` to 0 | `skills_fed_timer` counts **up** from 0 — modulo pattern is semantically wrong |
+| c | **Cadence table** | Paladin (8,4), Sorc/Druid (12,3), None (6,6) | Paladin (6,3), Sorc/Druid (12,2), None (12,6) — 3 of 7 entries wrong |
+| d | **Missing item-regen** | `ProcessCreatures` `RegenInterval` path (HP+1/Mana+4) | Not implemented — life ring regen missing entirely |
+| e | **Missing PZ check** | `!IsProtectionZone(...)` in both paths | No PZ check — regen in protection zones |
+
+**Cadence table detail** — three-way comparison: C++ 772 (`crskill.cc:828–874`),
+`vocations.xml` (TFS 1098 `gainhpticks`/`gainmanaticks`), and Rust hardcoded
+(`process_skills.rs:203–215`):
+
+| Vocation | C++ 772 (HP, Mana) | `vocations.xml` 1098 (HP, Mana) | Rust hardcoded (HP, Mana) | 772 match? |
+|----------|--------------------|---------------------------------|---------------------------|------------|
+| None (0) | (6, 6) | (12, 6) | (12, 6) | ✗ |
+| Knight (4) | (6, 6) | (6, 6) | (6, 6) | ✓ |
+| Paladin (3) | (8, 4) | (8, 4) | (6, 3) | ✗ |
+| Sorcerer (1) | (12, 3) | (12, 3) | (12, 2) | ✗ |
+| Druid (2) | (12, 3) | (12, 3) | (12, 2) | ✗ |
+| Elite Knight (8) | (4, 6) | (4, 6) | (4, 6) | ✓ |
+| Royal Paladin (7) | (6, 3) | (6, 3) | (6, 3) | ✓ |
+| Master Sorcerer (5) | (12, 2) | (12, 2) | (12, 2) | ✓ |
+| Elder Druid (6) | (12, 2) | (12, 2) | (12, 2) | ✓ |
+
+Notable: the `vocations.xml` 1098 values **almost match** C++ 772 — only None (0) differs
+(1098: 12/6 vs 772: 6/6). The Rust hardcoded values are wrong for 4 of 9 vocations because
+they collapse `1|2|5|6` to `(12, 2)` (master values for base vocations) and use `(6, 3)` for
+Paladin instead of `(8, 4)`. Reading from `vocations.xml` would fix 3 of 4 wrong entries
+automatically; the None-vocation 772 override (6/6 vs 12/6) would come from
+`MechanicsProfile` / `data/formulas/772.lua`.
+
+**Impact:** HIGH — players regenerate without food (bug a), at wrong intervals (bug c), and
+life ring / item-based regen doesn't work at all (bug d). PZ regen is a minor balance issue
+(bug e). The timer direction (bug b) produces a different regen cadence pattern even when the
+interval values are correct.
+
+**Fix (TFS-style — data-driven via `vocations.xml`, not hardcoded match arms):**
+
+The `vocations.xml` already has the regen fields per vocation: `gainhpticks`, `gainhpamount`,
+`gainmanaticks`, `gainmanaamount`. The TFS C++ `Vocation` struct (`src/vocation.h:93–110`)
+parses all of these. The Rust `Vocation` struct (`tfs-rust-content/src/vocations.rs:9–15`)
+only parses `id`, `client_id`, `name`, `description`, `from_vocation` — **ignoring all regen
+fields**. The hardcoded `fed_regen_cadence` match arm in `process_skills.rs:203–215` is a
+workaround for this missing data.
+
+1. **Extend `Vocation` struct** (`tfs-rust-content/src/vocations.rs`) to parse
+   `gainhpticks`, `gainhpamount`, `gainmanaticks`, `gainmanaamount` (and `gaincap`,
+   `gainhp`, `gainmana`, `manamultiplier`, `attackspeed`, `basespeed`, `soulmax`,
+   `gainsoulticks` while at it — `per_level_gains` in `creature/vocation.rs:27` is also a
+   hardcoded stub with wrong values).
+2. **Delete `fed_regen_cadence`** — read cadence from the loaded `VocationDatabase` instead.
+3. **(a) Food gating:** add a `fed_timer_remaining: u32` field to player state; arm it from
+   `UseFood` (`moveuse.cc:1846` `SetTimer(SKILL_FED, FoodTime, 0, 0, -1)`); decrement each
+   `ProcessSkills` tick; only regen while `> 0`.
+4. **(b) Timer direction:** use the countdown value for the modulo check (count down from
+   `FoodTime` to 0, matching C++ `TimerValue()` = `Cycle`).
+5. **(d) Item-regen path:** add the `ProcessCreatures` `RegenInterval` path (HP+1/Mana+4)
+   in `process_creatures_772` — currently only iterates monsters/NPCs, needs to include
+   players per `crmain.cc:1075–1095`.
+6. **(e) PZ check:** add `!is_protection_zone(pos)` gate to both regen paths.
+
+> **Note:** the `vocations.xml` `gainhpticks`/`gainmanaticks` values are the **TFS 1098**
+> regen cadence. For 772, the C++ `TSkillFed::Event` table (`crskill.cc:828–874`) has
+> different values for some vocations (e.g., Paladin HP=8 not 6, Sorc/Druid Mana=3 not 4).
+> The 772-specific cadence should come from `MechanicsProfile` / `data/formulas/772.lua`
+> overrides on top of the `vocations.xml` base, or a 772-specific `vocations.xml`. The
+> hardcoded Rust match arm currently has **neither** the 1098 nor the 772 values correct.
+
+## Verified faithful (this pass)
+
+- **`DelayAttack`** — `EarliestAttackTime = max(existing, server_ms + ms)`; 200ms fast /
+  2000ms cadence. Match (`creature/base.rs:175`, `monster_ai.rs:478-680`).
+- **`LockToDo`** — checked before pop, set after. Match (`idle_stimulus.rs:1905-1914`).
+- **`ToDoStart`/`ToDoYield`/`ToDoWait`** — `+1` clamp, `ToDoWait(0)+Start`, relative time
+  storage. Match (`creature_todo.rs:191-197, 354-372`).
+- **Combat damage** — `((rand%100+rand%100)/2)*Max/10000`, fight mode modifiers. Match.
+- **Condition ticks** — fire 10/8, energy 25/10, poison 50% decay. Match.
+- **GoStrength expiry** — handled via Haste/Paralyze condition expiry →
+  `recompute_speed_from_conditions` (`process_skills.rs:87-94, 150-152`). Match (via
+  condition system, not C++ timer-skill, but outcome equivalent).
+- **`Attack` in Execute** — checks `attack_ready_at`, defers if not ready, executes via
+  `monster_do_attacking`. Match (`idle_stimulus.rs:1934-2034`).
+
+## Pass 10 verdict
+
+The scheduler **invariants** (Finding 17 `+1` clamp, Finding 9 `<= server_ms` filter,
+Finding 6 heap order) are solid. The **atomic `Execute` loop** (Finding 7) remains the
+primary defect, and the root cause is now identified: the `CreatureAction` enum gap. The
+new findings (27–29) are secondary — `CalculateDelay` completeness is latent (no Use
+entries yet), MoveStimulus `has_go` is a real medium-impact gate error, and poison field
+extension is low-impact. **Finding 30** (fed_regen) is a separate HIGH-impact gameplay
+bug: players regen without food, at wrong intervals, and item-based regen (life ring) is
+missing entirely.
+
+**Updated fix priority (mapped to phases):**
+1. **Add `CreatureAction::Rotate`** + atomic `Execute` `while` loop (Finding 7 + structural
+   root cause) — subsumes AI#22. → **Phase 6**
+2. **Fix MoveStimulus `has_go` → head-only check** (Finding 28 / AI#26). → **Phase 8**
+3. **Kick-and-retry loop** (AI#23), **Z-level target clear** (AI#24), **lose-target
+   completeness** (AI#25). → AI Phases 1/5
+4. **Drunk-walk** (Finding 22), **fan-out order** (Finding 24). → **Phase 8**
+5. **Poison field extension** (Finding 29), **CalculateDelay TDUse** (Finding 27). → **Phase 8**
+6. **Fed regen bugs** (Finding 30) — food gating, vocation data from `vocations.xml`,
+   item-regen path, PZ check. → **Phase 7**
+7. **PANIC→ATTACKING promotion** (AI#30), **IdleStimulus catch-all** (AI#31). → AI Phase 7
+
+
+---
+
 # Implementation log
 
 | Phase | Status |
@@ -1320,9 +1592,11 @@ Pass 6–9 findings slot in as noted (22→Phase 4/6, 24→Phase 1, 25→Phase 6
 | 0 + 1 | **DONE** — verbatim `priority_queue`, harness ties removed |
 | 2 | **DONE** — `+1` clamp, `<= server_ms` filter, drain cap removed |
 | 3 | **DONE** — `rescue_stalled_chase_monsters_772` removed |
-| 4 | **PARTIAL** — logical-ms migration (walk-action due, `nextAction`, spawn respawn); structural `ToDoQueue` / `Earliest*Time` / `tick_counter` / RNG still open |
-| 5 | **NEXT** — remove harness state from production |
-| 6 | pending — loop completeness & subsystem semantics |
+| 4 | **DONE** — logical-ms clock collapse, `Earliest*Time`, `ProcessSkills`, RNG unification, walk quantizer |
+| 5 | **DONE** — harness state removed from production |
+| 6 | **NEXT** — atomic `Execute` loop (Finding 7 + `CreatureAction::Rotate`), loop completeness |
+| 7 | **PLANNED** — vocation data-driven regen, `process_creatures_772` player coverage (Finding 30) |
+| 8 | **PLANNED** — parity polish: drunk-walk, fan-out, `CalculateDelay` TDUse, poison field, MoveStimulus (Findings 22, 24, 27, 28, 29) |
 
 ## Phase 0 + Phase 1 — DONE (verbatim `priority_queue`, harness ties removed)
 
@@ -1495,34 +1769,64 @@ schedules, and monster idle RNG; per-action `Earliest*Time` replaces unified `ne
 | 3 | Beat cadence: Burst replay + no lag-guard | **FIXED** (coalesces beats, has lag-guard) | Phase 4 |
 | 4 | `tick_counter` 50ms artifact | **FIXED** (removed, decay on `server_ms`) | Phase 4 |
 | 6 | ToDoQueue tie order FIFO vs structural heap | **FIXED** (verbatim CipSoft port) | Phase 2 |
-| 7 | Execute one action per pop vs atomic zero-delay drain | **FIXED** | Phase 2 |
+| 7 | Execute one action per pop vs atomic zero-delay drain | **STILL BROKEN** — see below | Phase 2 (clamp only) |
 | 8 | `rescue_stalled_chase_monsters_772` band-aid | **FIXED** (removed) | Phase 2 |
 | 9 | Stale entry filter exact match vs `NextWakeup > ServerMilliseconds` | **FIXED** | Phase 2 |
 | 10 | `MAX_DRAINS_PER_BEAT = 4096` cap | **FIXED** (removed) | Phase 2 |
+| 12 | `fired.skills` runs item decay vs creature timer-skills | **FIXED** (`process_skills_772`) | Phase 4 |
+| 13 | Monster respawn on wall-clock `Instant` | **FIXED** (logical clock) | Phase 4 |
 | 17 | `ToDoYield` re-inserts at `server_ms + 0` vs `+1` clamp | **FIXED** | Phase 2 |
 | 18 | `todo_attack_delay_ms` hardcodes `EarliestSpellTime = 0` | **FIXED** | Phase 4 |
-
-## Medium/Low Findings — RESOLVED
-
-| Finding | Issue | Status | Phase |
-|---------|-------|--------|-------|
-| 12 | `fired.skills` runs item decay vs creature timer-skills | **FIXED** | Phase 4 |
-| 13 | Monster respawn on wall-clock `Instant` | **FIXED** | Phase 4 |
+| 19 | Walk-step quantize 50ms vs 200ms Beat | **FIXED** (`LinearGo` → `beat_ms`) | Phase 4 |
 | 21 | Harness state in production | **FIXED** (removed) | Phase 5 |
+
+> **⚠ Finding 7 correction (Jun 2026 re-verification):** the summary table previously
+> marked Finding 7 as FIXED, but that was a **documentation error**. The Phase 2 notes
+> themselves state "the atomic `Execute` loop (Finding 7) NOT done in this phase." What
+> Phase 2 actually delivered was the `+1` re-insertion clamp (Finding 17), the
+> `<= server_ms` stale-entry filter (Finding 9), and the drain-cap removal (Finding 10) —
+> the *load-bearing scheduler invariants*. The **atomic zero-delay drain loop** itself
+> (`while(true)` over consecutive `CalculateDelay == 0` entries in one heap pop,
+> `cract.cc:783–890`) was **not** implemented. `run_monster_todo_execute`
+> (`idle_stimulus.rs:2148`) still pops one action per call, then returns/re-arms. This is
+> the **primary "smoothness" defect** — see "Smoothness Root Cause" in
+> `MONSTER_AI_772_AUDIT.md`. A Rotate+Attack sequence takes 2 beats (400 ms) in Rust vs
+> 1 beat (200 ms) in C++.
 
 ## Remaining Issues
 
 | Finding | Issue | Severity | Notes |
 |---------|-------|----------|-------|
+| **7** | **Execute one action per pop vs atomic zero-delay drain** | **HIGH** | **Primary smoothness defect.** Root cause: `CreatureAction` enum only has Go/Wait/Attack — no Rotate/Talk/Use to drain atomically. Rotate+Attack = 2 beats not 1. `idle_stimulus.rs:2148`, `creature_todo.rs:65` |
 | 2/15 | Still uses unified `nextAction` model | MEDIUM | Should use independent `Earliest*Time` fields |
-| 14 | `Other` and `cron` subsystems largely unimplemented | MEDIUM | Idle-timeout and ambiente needed |
-| 19 | Walk-step quantize uses 50ms vs 200ms Beat | LOW | Harness-only discrepancy |
+| 14 | `Other`/`cron` subsystems partially implemented | LOW | Idle-timeout + ambiente done; raids/autosave missing |
+| 22 | Drunk-walk stagger is 1098 algo on `thread_rng` | HIGH | `walk/mod.rs:116` — wrong algo + wrong RNG + wrong source |
+| 24 | Move-stimulus fan-out uses SlotMap-key sort | MEDIUM | `monster_events.rs:112` — should be C++ creature-list order |
+| 27 | `CalculateDelay` not unified; TDUse delay missing | LOW | `creature_todo.rs:199` — latent (no Use entries yet) |
+| 28 | `CreatureMoveStimulus` extra `has_go` check | MEDIUM | `monster_events.rs:446` — checks entire queue vs C++ head-only |
+| 29 | Poison field extension missing | LOW | `process_skills.rs:74` — doesn't extend poison on field (`crskill.cc:1043`) |
+| **30** | **Fed regen: no food gating, wrong timer direction, cadence mismatches, missing item-regen** | **HIGH** | `process_skills.rs:168` — 5 bugs vs C++ `TSkillFed::Event` + `ProcessCreatures` |
 
 ## Overall Assessment
 
-The foundational scheduler issues (ToDoQueue structure, Execute atomicity, +1 clamp, drain cap, rescue pass) have been resolved. The loop now correctly uses logical time (`server_ms`) for creature scheduling and has proper beat coalescing with lag-guard. The remaining issues are primarily:
-1. **Per-action timing model** — still uses unified `nextAction` instead of independent `Earliest*Time` fields
-2. **Subsystem completeness** — `Other`/`cron` subsystems need implementation
-3. **Minor quantizer discrepancy** — walk-step quantizer uses 50ms instead of 200ms Beat (harness-only)
+The foundational scheduler **invariants** (ToDoQueue structure, `+1` clamp, stale-entry
+filter, drain-cap removal, rescue-pass deletion) are resolved. The loop correctly uses
+logical time (`server_ms`) for creature scheduling and has proper beat coalescing with
+lag-guard. `ProcessSkills`, the walk-step Beat quantizer, and harness-state removal are
+done.
 
-The core game loop architecture is now faithful to the 772 beat-driven model.
+The **primary remaining defect** is Finding 7 — the atomic `Execute` loop is still
+one-action-per-pop. This is the dominant cause of the "decompile AI is smoother" symptom:
+every Rotate→Attack, Talk→Act, or ready-Use→Act chain that C++ fires in one beat (200 ms)
+takes 2+ beats in Rust. Combined with the monster-AI findings (Rotate gate AI#22,
+kick-and-retry AI#23, Z-level target clear AI#24), this produces the visible stutter in
+melee combat. See `MONSTER_AI_772_AUDIT.md` "Smoothness Root Cause Analysis" for the full
+chain.
+
+Secondary remaining items: the unified `nextAction` model (Finding 2/15), drunk-walk
+(Finding 22), move-stimulus fan-out order (Finding 24), and `Other`/`cron` subsystem
+completeness (Finding 14 — raids/autosave). **Finding 30** (fed regen) is a HIGH-impact
+gameplay bug scheduled for Phase 7 — players regen without food, at wrong intervals, and
+item-based regen (life ring) is missing entirely. The fix is data-driven via `vocations.xml`
+(TFS style), not hardcoded match arms. Phase 8 covers the remaining parity polish items
+(Findings 22, 24, 27, 28, 29).

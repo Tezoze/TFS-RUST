@@ -119,5 +119,20 @@ pub struct CombatDamageNotifyWire {
     pub text: String,
 }
 
+/// `ProtocolGame::sendCreatureSay` — `0xAA` speech packet.
+/// 1098 (`src/protocolgame.cpp` ~2427): `name + u16 level + speak_type + pos + text`.
+/// 772 (`gameserver/src/protocolgame.cpp` ~1422): `name + speak_type + pos + text` (no level).
+/// `speak_type` is the era-native `SpeakClasses` byte (e.g. 772 `TALKTYPE_MONSTER_SAY=0x11`,
+/// 1098 `TALKTYPE_MONSTER_SAY=36`).
+#[derive(Debug, Clone)]
+pub struct CreatureSayWire {
+    pub speaker_name: String,
+    /// 1098 only — 772 omits this field.
+    pub level: u16,
+    pub speak_type: u8,
+    pub pos: Position,
+    pub text: String,
+}
+
 #[deprecated(note = "use PlayerStatsWire")]
 pub type PlayerStats1098 = PlayerStatsWire;

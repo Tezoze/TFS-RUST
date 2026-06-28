@@ -126,6 +126,12 @@ pub struct MonsterType {
     pub loot: Vec<LootBlock>,
     pub attack_spells: Vec<MonsterSpellNode>,
     pub defenses: MonsterDefenses,
+    /// `<voices><voice sentence="…"/></voices>` — 772 `RaceData.Talk` list (`crnonpl.cc:2442`).
+    /// Empty when the monster has no `<voices>` block; the idle talk gate still draws `rand()%50`
+    /// + `random(1, Talks)` for RNG parity but emits no packet (matches C++ `Talks == 0` return).
+    /// Each entry may carry a `#y `/`#Y ` prefix (decompile yell marker, `crnonpl.cc:2450`) — the
+    /// idle talk path strips it and switches to `TALKTYPE_MONSTER_YELL` on hit.
+    pub talk_texts: Vec<String>,
 }
 
 pub struct MonsterDatabase {
@@ -461,6 +467,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         spells: Vec::new(),
         immunity_poison: false,
     };
+    let mut talk_texts = Vec::new();
 
     for child in monster.children().filter(|n| n.is_element()) {
         let tag = child.tag_name().name();
@@ -504,6 +511,17 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
             }
         } else if tag.eq_ignore_ascii_case("targetchange") {
             parse_target_change(child, &mut flags, file_str);
+        } else if tag.eq_ignore_ascii_case("voices") {
+            // 772 `RaceData.Talk` list — `<voice sentence="…"/>` (`crnonpl.cc:2442`, `crmain.cc:1551`).
+            for voice in child.children().filter(|n| n.is_element()) {
+                if voice.tag_name().name().eq_ignore_ascii_case("voice") {
+                    if let Some(sentence) = voice.attribute("sentence") {
+                        if !sentence.is_empty() {
+                            talk_texts.push(sentence.to_string());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -521,6 +539,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         loot,
         attack_spells,
         defenses,
+        talk_texts,
     })
 }
 

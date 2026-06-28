@@ -1,13 +1,12 @@
 ---
-inclusion: conditional
-name: tfs-mechanics-profile
+trigger: model_decision
 description: How to add shared mechanics functions using MechanicsProfile and data/formulas (772 / 1098).
 globs: ["crates/tfs-rust-core/**/*.rs", "data/formulas/**"]
 ---
 
 # Mechanics Profile (772 / 1098)
 
-Mechanics are **shared code**, **era-tuned data**. Full spec: `docs/PROTOCOL_VERSIONING.md` §12, §12.13. Implement in idiomatic Rust for the same observable outcome — not a C++ transliteration (`tfs-core.md`).
+Mechanics are **shared code**, **era-tuned data**. Full spec: `docs/PROTOCOL_VERSIONING.md` §12, §12.13.
 
 ## Add or change a mechanic (combat, conditions, walk, AI, spells)
 

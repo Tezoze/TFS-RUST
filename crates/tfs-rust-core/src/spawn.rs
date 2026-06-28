@@ -230,11 +230,14 @@ impl SpawnManager {
     }
 
     /// Schedule respawn when spawn-linked creature is removed. `now_ms` is logical (audit Finding 13).
-    pub fn on_creature_removed(&mut self, slot_index: usize, now_ms: u64) {
+    /// `delay_ms` is the respawn delay — fixed `spawntime_ms` on 1098, or the 772
+    /// `StartMonsterhomeTimer` draw (`random(regen/2, regen)` scaled by player count) computed by
+    /// [`GameWorld::compute_respawn_delay_ms`] (`crnonpl.cc:1296`).
+    pub fn on_creature_removed(&mut self, slot_index: usize, now_ms: u64, delay_ms: u64) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
             slot.current = None;
             if slot.respawns {
-                slot.respawn_at = Some(now_ms.saturating_add(slot.spawntime_ms));
+                slot.respawn_at = Some(now_ms.saturating_add(delay_ms));
             }
         }
     }
@@ -356,13 +359,13 @@ mod tests {
     fn due_spawns_respects_timer_and_find_player() {
         let mut mgr = SpawnManager::from_zones(vec![sample_zone()]);
         let t0: u64 = 0;
-        mgr.on_creature_removed(0, t0);
+        mgr.on_creature_removed(0, t0, 60_000);
         assert!(mgr.due_spawns(t0, |_| false).is_empty());
         let later = t0 + 61_000;
         let reqs = mgr.due_spawns(later, |_| false);
         assert!(!reqs.is_empty());
 
-        mgr.on_creature_removed(0, t0);
+        mgr.on_creature_removed(0, t0, 60_000);
         mgr.due_spawns(t0 + 61_000, |_| true);
         let slot = &mgr.slots[0];
         assert!(slot.respawn_at.is_some());

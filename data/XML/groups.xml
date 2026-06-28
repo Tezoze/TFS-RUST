@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <groups>
-	<group id="1" name="player" access="0" maxdepotitems="0" maxvipentries="0">
-		<flags>
-			<flag ignorespellcheck="0" />
-		</flags>
-	</group>
+	<group id="1" name="player" access="0" maxdepotitems="0" maxvipentries="0" />
 	<group id="2" name="tutor" access="0" maxdepotitems="0" maxvipentries="0">
 		<flags>
 			<flag talkorangehelpchannel="1" />
@@ -21,9 +17,9 @@
 	</group>
 	<group id="4" name="gamemaster" access="1" maxdepotitems="0" maxvipentries="200">
 		<flags>
-			<flag cannotusecombat="1" />
-			<flag cannotattackplayer="1" />
-			<flag cannotattackmonster="1" />
+			<flag cannotusecombat="0" />
+			<flag cannotattackplayer="0" />
+			<flag cannotattackmonster="0" />
 			<flag cannotbeattacked="1" />
 			<flag canconvinceall="0" />
 			<flag cansummonall="0" />
@@ -40,7 +36,7 @@
 			<flag canbroadcast="1" />
 			<flag canedithouses="0" />
 			<flag cannotbebanned="1" />
-			<flag cannotbepushed="1" />
+			<flag cannotbepushed="0" />
 			<flag hasinfinitecapacity="1" />
 			<flag canpushallcreatures="1" />
 			<flag cantalkredprivate="1" />
@@ -50,7 +46,7 @@
 			<flag notgainmana="1" />
 			<flag notgainhealth="1" />
 			<flag notgainskill="1" />
-			<flag setmaxspeed="1" />
+			<flag setmaxspeed="0" />
 			<flag specialvip="1" />
 			<flag notgenerateloot="1" />
 			<flag ignoreprotectionzone="1" />
@@ -58,12 +54,13 @@
 			<flag ignoreweaponcheck="1" />
 			<flag cannotbemuted="1" />
 			<flag isalwayspremium="1" />
+			<flag fulllight="1" />
 		</flags>
 	</group>
 	<group id="5" name="community manager" access="1" maxdepotitems="0" maxvipentries="200">
 		<flags>
 			<flag cannotusecombat="0" />
-			<flag cannotattackplayer="1" />
+			<flag cannotattackplayer="0" />
 			<flag cannotattackmonster="0" />
 			<flag cannotbeattacked="1" />
 			<flag canconvinceall="1" />
@@ -81,7 +78,7 @@
 			<flag canbroadcast="1" />
 			<flag canedithouses="0" />
 			<flag cannotbebanned="1" />
-			<flag cannotbepushed="1" />
+			<flag cannotbepushed="0" />
 			<flag hasinfinitecapacity="1" />
 			<flag canpushallcreatures="1" />
 			<flag cantalkredprivate="1" />
@@ -91,7 +88,7 @@
 			<flag notgainmana="1" />
 			<flag notgainhealth="1" />
 			<flag notgainskill="1" />
-			<flag setmaxspeed="1" />
+			<flag setmaxspeed="0" />
 			<flag specialvip="1" />
 			<flag notgenerateloot="1" />
 			<flag ignoreprotectionzone="1" />
@@ -99,12 +96,13 @@
 			<flag ignoreweaponcheck="1" />
 			<flag cannotbemuted="1" />
 			<flag isalwayspremium="1" />
+			<flag fulllight="1" />
 		</flags>
 	</group>
 	<group id="6" name="god" access="1" maxdepotitems="0" maxvipentries="200">
 		<flags>
 			<flag cannotusecombat="0" />
-			<flag cannotattackplayer="1" />
+			<flag cannotattackplayer="0" />
 			<flag cannotattackmonster="0" />
 			<flag cannotbeattacked="1" />
 			<flag canconvinceall="1" />
@@ -122,7 +120,7 @@
 			<flag canbroadcast="1" />
 			<flag canedithouses="1" />
 			<flag cannotbebanned="1" />
-			<flag cannotbepushed="1" />
+			<flag cannotbepushed="0" />
 			<flag hasinfinitecapacity="1" />
 			<flag canpushallcreatures="1" />
 			<flag cantalkredprivate="1" />
@@ -132,7 +130,7 @@
 			<flag notgainmana="1" />
 			<flag notgainhealth="1" />
 			<flag notgainskill="1" />
-			<flag setmaxspeed="1" />
+			<flag setmaxspeed="0" />
 			<flag specialvip="1" />
 			<flag notgenerateloot="0" />
 			<flag ignoreprotectionzone="1" />
@@ -140,6 +138,7 @@
 			<flag ignoreweaponcheck="1" />
 			<flag cannotbemuted="1" />
 			<flag isalwayspremium="1" />
+			<flag fulllight="1" />
 		</flags>
 	</group>
 </groups>

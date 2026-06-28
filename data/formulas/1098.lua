@@ -24,6 +24,7 @@ formulas = {
     divisor = 2,
   },
   spawnNearPlayer = "block",
+  respawnModel = "fixed",        -- TFS Spawn::checkSpawn: fixed per-slot spawntime_ms
   expAttributionRounds = 60,
   followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
   pathForwardFallback = true,      -- TFS falls back to forward search if reverse fails

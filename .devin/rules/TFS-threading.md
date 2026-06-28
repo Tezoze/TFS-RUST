@@ -1,7 +1,7 @@
 ---
-inclusion: auto
-name: tfs-threading
+trigger: always_on
 description: Game thread vs I/O thread boundaries and concurrency rules for safe async networking.
+globs:
 ---
 
 # Threading Model (Game Thread vs I/O Threads)
@@ -74,7 +74,7 @@ Mark game-thread-only data structures:
 pub struct GameWorld {
     /// GAME THREAD ONLY — insert/remove from I/O threads must not be added.
     pub player_by_name: HashMap<String, CreatureId>,
-
+    
     /// GAME THREAD ONLY — paired with `player_by_name`.
     pub player_by_guid: HashMap<u32, CreatureId>,
 }

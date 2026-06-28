@@ -1,7 +1,7 @@
 ---
-inclusion: auto
-name: tfs-protocol-versioning
+trigger: always_on
 description: Two-axis versioning (wire codec + mechanics profile). Where new code goes for 772 vs 1098.
+globs:
 ---
 
 # Protocol & Mechanics Versioning
@@ -29,13 +29,13 @@ One binary, both eras — **no** `if version == 772` in core, **no** `condition_
 
 **Clean-room (772 mechanics):** replicate decompile *outcomes*, never transcribe its source. Write Rust in TFS/TVP style.
 
-**All eras:** C++ is the spec for observable behavior; Rust is idiomatic implementation — not a line-for-line port. See `tfs-core.md` §Porting model.
+**All eras:** C++ is the spec for observable behavior; Rust is idiomatic implementation — not a line-for-line port. See `@.cursor/rules/TFS-Core.mdc` §Porting model.
 
 ## Where new code goes (R1–R12 summary)
 
 - **Game logic** → `tfs-rust-core` — shared, protocol-free, reads `MechanicsProfile` for era constants
-- **Wire bytes** → `tfs-rust-net` codec only — see `tfs-wire-codec.md`
-- **Balance literals** → `MechanicsProfile` / `data/formulas/*.lua` — see `tfs-mechanics-profile.md`
+- **Wire bytes** → `tfs-rust-net` codec only — see `@.cursor/rules/TFS-wire-codec.mdc`
+- **Balance literals** → `MechanicsProfile` / `data/formulas/*.lua` — see `@.cursor/rules/TFS-mechanics-profile.mdc`
 - **DB save format** → shared schema — **not** version-gated (except auth: account number vs name)
 - **NPC scripts** → TFS Lua only (`data/npc/scripts/`) — no `.ndb` engine in Rust
 

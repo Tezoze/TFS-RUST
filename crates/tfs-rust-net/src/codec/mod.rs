@@ -154,6 +154,9 @@ pub trait ProtocolCodec {
 
     /// Player damage caption — simple text (772) vs damage block (1098).
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
+
+    /// `ProtocolGame::sendCreatureSay` — `0xAA` speech packet (1098 with `level`, 772 without).
+    fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
 }
 
 impl ProtocolCodec for Codec1098 {
@@ -359,6 +362,10 @@ impl ProtocolCodec for Codec1098 {
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
         Codec1098::encode_combat_damage_text_message(self, w)
     }
+
+    fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
+        Codec1098::encode_creature_say(self, statement_id, w)
+    }
 }
 
 impl ProtocolCodec for Codec772 {
@@ -563,6 +570,10 @@ impl ProtocolCodec for Codec772 {
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
         Codec772::encode_combat_damage_text_message(self, w)
     }
+
+    fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
+        Codec772::encode_creature_say(self, statement_id, w)
+    }
 }
 
 /// Zero-cost dispatcher for the active wire codec (A5: `V1098` + `V772`).
@@ -704,6 +715,8 @@ impl Codec {
         encode_creature_health(w: &wire::CreatureHealthWire) -> NetworkMessage;
 
         encode_combat_damage_text_message(w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
+
+        encode_creature_say(statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
     }
 }
 
@@ -908,5 +921,9 @@ impl ProtocolCodec for Codec {
 
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
         Codec::encode_combat_damage_text_message(self, w)
+    }
+
+    fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
+        Codec::encode_creature_say(self, statement_id, w)
     }
 }

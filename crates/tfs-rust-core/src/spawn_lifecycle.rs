@@ -703,8 +703,48 @@ impl GameWorld {
             }
         }
         if let Some(slot_index) = self.spawn_slot_by_creature.remove(&cid) {
-            self.spawns.on_creature_removed(slot_index, now_ms);
+            let regen_ms = self
+                .spawns
+                .slot(slot_index)
+                .filter(|s| s.respawns)
+                .map(|s| s.spawntime_ms)
+                .unwrap_or(0);
+            let delay_ms = self.compute_respawn_delay_ms(regen_ms);
+            self.spawns.on_creature_removed(slot_index, now_ms, delay_ms);
         }
+    }
+
+    /// 772 `StartMonsterhomeTimer` respawn delay — `crnonpl.cc:1296`:
+    /// ```text
+    /// MaxTimer = RegenerationTime;
+    /// if (NumPlayers > 800)      MaxTimer = MaxTimer * 2 / 5;
+    /// else if (NumPlayers > 200) MaxTimer = MaxTimer * 200 / (NumPlayers/2 + 100);
+    /// Timer = random(MaxTimer/2, MaxTimer);   // glibc parity stream
+    /// ```
+    /// 1098 (`RespawnModel::Fixed`) returns `regen_ms` unchanged. The parity draw runs on the
+    /// game thread (this is called from `remove_creature` → `on_creature_removed_for_spawn`).
+    pub fn compute_respawn_delay_ms(&self, regen_ms: u64) -> u64 {
+        if self.mechanics.profile.respawn_model != crate::formulas::RespawnModel::Monsterhome772 {
+            return regen_ms;
+        }
+        if regen_ms == 0 {
+            return 0;
+        }
+        let num_players = self.player_by_name.len() as u64;
+        // C++ integer math — `MaxTimer * 2 / 5` and `MaxTimer * 200 / (NumPlayers/2 + 100)`.
+        let max_timer = if num_players > 800 {
+            regen_ms.saturating_mul(2) / 5
+        } else if num_players > 200 {
+            let denom = (num_players / 2).saturating_add(100).max(1);
+            regen_ms.saturating_mul(200) / denom
+        } else {
+            regen_ms
+        };
+        let max_timer = max_timer.max(1);
+        let half = max_timer / 2;
+        // `parity_random(min, max)` returns `[min, max]` inclusive on glibc `random()`.
+        let draw = self.parity_random(half as i32, max_timer as i32);
+        draw.max(0) as u64
     }
 }
 
@@ -713,7 +753,7 @@ mod tests {
     use super::*;
     use crate::spawn::SpawnManager;
     use crate::test_world::support::{
-        ensure_walkable_tile, insert_player, minimal_world, test_player,
+        beat_driven_test_world, ensure_walkable_tile, insert_player, minimal_world, test_player,
     };
     use std::collections::HashMap;
     use std::collections::HashSet;
@@ -756,6 +796,7 @@ mod tests {
                 spells: Vec::new(),
                 immunity_poison: false,
             },
+            talk_texts: Vec::new(),
         }
     }
 
@@ -988,5 +1029,88 @@ mod tests {
 
         let packets = world.pending_outgoing.get(&conn);
         assert!(packets.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0x6C)));
+    }
+
+    // --- Phase 6: 772 respawn timing (Finding 18, `crnonpl.cc:1296` StartMonsterhomeTimer) ---
+
+    /// 772 respawn delay falls in `[regen/2, regen]` with no players online.
+    #[test]
+    fn respawn_772_randomized_in_regen_band() {
+        let mut world = beat_driven_test_world();
+        world.mechanics.profile.respawn_model =
+            crate::formulas::RespawnModel::Monsterhome772;
+        // regen = 60s; no players → max_timer = 60s; draw ∈ [30s, 60s].
+        let regen = 60_000u64;
+        for _ in 0..50 {
+            let delay = world.compute_respawn_delay_ms(regen);
+            assert!(
+                delay >= regen / 2 && delay <= regen,
+                "delay {delay} outside [{}, {}]",
+                regen / 2,
+                regen
+            );
+        }
+    }
+
+    /// 772 respawn scales down above 200 players: `max_timer = regen * 200 / (n/2 + 100)`.
+    #[test]
+    fn respawn_772_scales_down_above_200_players() {
+        let mut world = beat_driven_test_world();
+        world.mechanics.profile.respawn_model =
+            crate::formulas::RespawnModel::Monsterhome772;
+        // Insert 300 fake players by name to drive `player_by_name.len()`.
+        for i in 0..300 {
+            world
+                .player_by_name
+                .insert(format!("P{i}"), CreatureId::default());
+        }
+        let regen = 60_000u64;
+        // n=300 → denom = 150+100 = 250 → max_timer = 60000*200/250 = 48000.
+        // draw ∈ [24000, 48000] — strictly below the no-load [30000, 60000] band.
+        for _ in 0..50 {
+            let delay = world.compute_respawn_delay_ms(regen);
+            assert!(
+                delay >= 24_000 && delay <= 48_000,
+                "delay {delay} outside [24000, 48000] for 300 players"
+            );
+        }
+    }
+
+    /// 772 respawn halves above 800 players: `max_timer = regen * 2 / 5`.
+    #[test]
+    fn respawn_772_halves_above_800_players() {
+        let mut world = beat_driven_test_world();
+        world.mechanics.profile.respawn_model =
+            crate::formulas::RespawnModel::Monsterhome772;
+        for i in 0..900 {
+            world
+                .player_by_name
+                .insert(format!("P{i}"), CreatureId::default());
+        }
+        let regen = 60_000u64;
+        // n=900 → max_timer = 60000*2/5 = 24000. draw ∈ [12000, 24000].
+        for _ in 0..50 {
+            let delay = world.compute_respawn_delay_ms(regen);
+            assert!(
+                delay >= 12_000 && delay <= 24_000,
+                "delay {delay} outside [12000, 24000] for 900 players"
+            );
+        }
+    }
+
+    /// 1098 respawn stays fixed at `spawntime_ms` regardless of player count.
+    #[test]
+    fn respawn_1098_stays_fixed() {
+        let mut world = beat_driven_test_world();
+        world.mechanics.profile.respawn_model = crate::formulas::RespawnModel::Fixed;
+        for i in 0..500 {
+            world
+                .player_by_name
+                .insert(format!("P{i}"), CreatureId::default());
+        }
+        let regen = 60_000u64;
+        for _ in 0..10 {
+            assert_eq!(world.compute_respawn_delay_ms(regen), regen);
+        }
     }
 }

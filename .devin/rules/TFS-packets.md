@@ -1,13 +1,12 @@
 ---
-inclusion: conditional
-name: tfs-packets
-description: Network protocol encoding standards and zero-copy parsing patterns for Tibia protocol. Applies to the tfs-rust-net crate.
+trigger: model_decision
+description: Network protocol encoding standards and zero-copy parsing patterns for Tibia protocol.
 globs: ["crates/tfs-rust-net/**/*.rs"]
 ---
 
 # Network Protocol Encoding (Tibia Protocol)
 
-**Versioning:** wire layout differs by `clientVersion` (772 vs 1098). Follow `tfs-wire-codec.md` for adding packets; route encoders through `ProtocolCodec`, not ad-hoc `*_1098` helpers. **1098** cites repo-root `src/`; **772 wire cites `gameserver/src/` only** (not decompile, not repo-root `src/`).
+**Versioning:** wire layout differs by `clientVersion` (772 vs 1098). Follow `@.cursor/rules/TFS-wire-codec.mdc` for adding packets; route encoders through `ProtocolCodec`, not ad-hoc `*_1098` helpers. **1098** cites repo-root `src/`; **772 wire cites `gameserver/src/` only** (not decompile, not repo-root `src/`).
 
 All packet encoding follows TFS `NetworkMessage` semantics (little-endian, length-prefixed strings).
 
@@ -169,7 +168,7 @@ See `tasks/lessons.md` entry #2 for details.
 
 ```rust
 if data.len() < expected_len {
-    tracing::warn!("malformed packet from {:?}: expected {}, got {}",
+    tracing::warn!("malformed packet from {:?}: expected {}, got {}", 
                    conn_id, expected_len, data.len());
     return Err(anyhow!("packet too short"));
 }
