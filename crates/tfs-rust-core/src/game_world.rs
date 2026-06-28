@@ -133,6 +133,14 @@ pub struct GameWorld {
     pub(crate) ai_rng: StdRng,
     /// Per-world glibc parity stream for 772 — avoids process-global `libc::srand` (Finding 8/15).
     pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
+    /// 772 `RoundNr` — incremented each `Other` subsystem tick (`main.cc:350`).
+    pub(crate) round_nr_772: u32,
+    /// Last broadcast ambiente brightness — `AdvanceGame` `OldAmbiente` (`main.cc:323`).
+    pub(crate) last_ambiente_brightness: i8,
+    /// True when last beat advance skipped `MoveCreatures` due to lag (`main.cc:449`).
+    pub(crate) lag_772: bool,
+    /// Idle-kick disconnects queued from `process_connections_772` — drained by the 772 game loop.
+    pub(crate) pending_idle_kick_772: Vec<ConnId>,
 }
 
 impl GameWorld {
@@ -309,6 +317,10 @@ impl GameWorld {
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
+            round_nr_772: 0,
+            last_ambiente_brightness: -1,
+            lag_772: false,
+            pending_idle_kick_772: Vec::new(),
         }
     }
 

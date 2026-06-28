@@ -63,6 +63,8 @@ mod player_inventory_query_add;
 mod player_inventory_util;
 mod player_lua_context;
 mod player_ping;
+mod connections_772;
+mod process_skills;
 pub mod protocol_hooks;
 pub mod return_value;
 mod run_server;

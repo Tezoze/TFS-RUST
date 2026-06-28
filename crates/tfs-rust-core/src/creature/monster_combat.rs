@@ -290,6 +290,7 @@ pub fn melee_poison_on_hit<R: Rng + ?Sized>(
         data: ConditionData::Damage {
             total_rank: poison_dmg,
         },
+        timer_rounds_left: None,
     })
 }
 

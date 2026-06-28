@@ -1,5 +1,7 @@
 # 772 Game Loop & Scheduler — 1098-Bleed Parity Audit
 
+**Status Update (Jun 2026):** Most critical findings have been addressed. See "Implementation Status" section at end.
+
 Scope: a *structural* pass over the Rust game loop and creature/action scheduling against the
 CipSoft 772 beat-driven model (`reference/cipsoft-772/tibia-game-master/src/`). The question this
 audit answers: **is TFS 1098 reactive-scheduler logic bleeding into the 772 beat-driven loop?**
@@ -100,26 +102,27 @@ wall-clock `walk_action_due`. Keep the 1098 `walk_action_due` path for the 1098 
 
 ### 2. `nextAction` per-step action lockout is 1098; 772 uses per-action `Earliest*Time` — MEDIUM/HIGH
 
-Every player step sets the TFS 1098 `nextAction` instant in the shared move path:
+**STATUS: PARTIALLY FIXED** — Now uses logical time (`next_action_until: Option<u64>`) but still unified model.
 
+Original issue: Every player step set the TFS 1098 `nextAction` instant on the wall clock, enforced in both loops.
+
+Current implementation:
 ```rust
-// walk/mod.rs  (runs for both eras)
-let dur_ms = get_step_duration_ms_with_direction(k, k.base(), direction, gs_next_action, &self.mechanics);
+// walk/mod.rs
 if let CreatureKind::Player(p) = k {
-    p.next_action_until = Some(now + Duration::from_millis(dur_ms.max(1) as u64));   // wall clock
-}
-```
-
-and the game-loop packet gate enforces it in **both** loops:
-
-```rust
-// game_loop.rs::handle_game_packet
-if game_packet_requires_timed_action(&packet) && !world.player_timed_action_ready(cid, now) {
-    return;   // TFS Player::canDoAction / nextAction
+    if !self.beat_driven_loop {
+        // 1098 unified `nextAction` lockout
+        p.next_action_until = Some(now_ms.saturating_add(dur_ms.max(1) as u64));
+    }
 }
 // player.rs
-pub fn timed_action_ready(&self, now: Instant) -> bool { self.next_action_until.is_none_or(|t| now >= t) }
+pub next_action_until: Option<u64>,  // logical ms, not Instant
+pub fn timed_action_ready(&self, now_ms: u64) -> bool {
+    self.next_action_until.is_none_or(|t| now_ms >= t)
+}
 ```
+
+**Remaining issue:** Still uses unified `nextAction` model instead of per-action `Earliest*Time` (EarliestWalkTime, EarliestSpellTime, EarliestMultiuseTime). The 772 path should gate actions on independent `Earliest*Time` fields evaluated against `server_ms`, not a single post-walk lockout.
 
 This is TFS 1098 `Player::canDoAction` / `nextAction` (`player.cpp`): after each walk step, *all*
 gated actions (use/attack/trade/…) are blocked for one step-duration, on the wall clock.
@@ -141,26 +144,25 @@ on the wall clock rather than `server_ms`.
 
 ### 3. Beat cadence: per-beat `Burst` replay + always-drain vs CipSoft coalesced `AdvanceGame(N·Beat)` + lag-guard — MEDIUM (772-internal, not 1098)
 
-The Rust loop uses tokio `interval` with `MissedTickBehavior::Burst` and advances **one beat per
-fire**:
+**STATUS: FIXED** — Now coalesces beats and has lag-guard.
 
+Original issue: Rust used `MissedTickBehavior::Burst` advancing one beat per fire, with no lag-guard.
+
+Current implementation:
 ```rust
 // game_loop.rs::run_game_loop_772
-let mut beat_timer = interval(Duration::from_millis(beat_ms));
-beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
-// ...
-_ = beat_timer.tick() => { world.advance_beat_772(beat_ms); flush_pending_outgoing(...); }
-```
+let mut beats = drain_burst_beats(&mut beat_timer);
+if beats == 0 { beats = 1; }
+world.advance_beat_772(beat_ms * beats);
 
-CipSoft coalesces all missed beats into a single call and **skips creature movement under lag**:
-
-```cpp
-// main.cc:493 LaunchGame
-int NumBeats = SigAlarmCounter;
-if(NumBeats > 0){ SigAlarmCounter = 0; AdvanceGame(NumBeats * Beat); }   // one call, Delay = N·Beat
-// main.cc:446 AdvanceGame
-if(Delay < 1000){ MoveCreatures(Delay); Lag = false; }                   // lag-guard: skip if behind
-else { Lag = true; /* no MoveCreatures this round */ }
+// game_world_tick.rs::advance_beat_772
+if delay_ms < LAG_SKIP_MOVEMENT_MS {
+    self.server_ms = self.server_ms.saturating_add(delay_ms);
+    self.drain_todo_queue();
+    self.lag_772 = false;
+} else {
+    self.lag_772 = true;
+}
 ```
 
 Two divergences:
@@ -1479,3 +1481,48 @@ schedules, and monster idle RNG; per-action `Earliest*Time` replaces unified `ne
 - `cargo check -p tfs-rust-core` — clean (warnings only).
 
 *Known follow-ups (Phase 6): Finding 19 Beat quantizer for chained `TDGo`; Finding 24 spatial move-stimulus fan-out; exact multi-cyclops positions remain RNG-sensitive without per-test seed.*
+
+---
+
+# Implementation Status Summary (Jun 2026)
+
+## Critical Findings — RESOLVED
+
+| Finding | Issue | Status | Phase |
+|---------|-------|--------|-------|
+| 1 | `walk_action` wall-clock → ToDoQueue logical time | **FIXED** | Phase 4 |
+| 2/15 | `nextAction` unified → per-action `Earliest*Time` | **PARTIAL** (logical time, still unified) | Phase 4 |
+| 3 | Beat cadence: Burst replay + no lag-guard | **FIXED** (coalesces beats, has lag-guard) | Phase 4 |
+| 4 | `tick_counter` 50ms artifact | **FIXED** (removed, decay on `server_ms`) | Phase 4 |
+| 6 | ToDoQueue tie order FIFO vs structural heap | **FIXED** (verbatim CipSoft port) | Phase 2 |
+| 7 | Execute one action per pop vs atomic zero-delay drain | **FIXED** | Phase 2 |
+| 8 | `rescue_stalled_chase_monsters_772` band-aid | **FIXED** (removed) | Phase 2 |
+| 9 | Stale entry filter exact match vs `NextWakeup > ServerMilliseconds` | **FIXED** | Phase 2 |
+| 10 | `MAX_DRAINS_PER_BEAT = 4096` cap | **FIXED** (removed) | Phase 2 |
+| 17 | `ToDoYield` re-inserts at `server_ms + 0` vs `+1` clamp | **FIXED** | Phase 2 |
+| 18 | `todo_attack_delay_ms` hardcodes `EarliestSpellTime = 0` | **FIXED** | Phase 4 |
+
+## Medium/Low Findings — RESOLVED
+
+| Finding | Issue | Status | Phase |
+|---------|-------|--------|-------|
+| 12 | `fired.skills` runs item decay vs creature timer-skills | **FIXED** | Phase 4 |
+| 13 | Monster respawn on wall-clock `Instant` | **FIXED** | Phase 4 |
+| 21 | Harness state in production | **FIXED** (removed) | Phase 5 |
+
+## Remaining Issues
+
+| Finding | Issue | Severity | Notes |
+|---------|-------|----------|-------|
+| 2/15 | Still uses unified `nextAction` model | MEDIUM | Should use independent `Earliest*Time` fields |
+| 14 | `Other` and `cron` subsystems largely unimplemented | MEDIUM | Idle-timeout and ambiente needed |
+| 19 | Walk-step quantize uses 50ms vs 200ms Beat | LOW | Harness-only discrepancy |
+
+## Overall Assessment
+
+The foundational scheduler issues (ToDoQueue structure, Execute atomicity, +1 clamp, drain cap, rescue pass) have been resolved. The loop now correctly uses logical time (`server_ms`) for creature scheduling and has proper beat coalescing with lag-guard. The remaining issues are primarily:
+1. **Per-action timing model** — still uses unified `nextAction` instead of independent `Earliest*Time` fields
+2. **Subsystem completeness** — `Other`/`cron` subsystems need implementation
+3. **Minor quantizer discrepancy** — walk-step quantizer uses 50ms instead of 200ms Beat (harness-only)
+
+The core game loop architecture is now faithful to the 772 beat-driven model.

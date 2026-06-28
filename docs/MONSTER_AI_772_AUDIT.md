@@ -1,5 +1,7 @@
 # 772 Monster AI — High-Level Parity Audit
 
+**Status Update (Jun 2026):** Most critical findings have been addressed. See "Implementation Status Summary" section at end.
+
 Scope: a *structural* pass over the Rust monster AI against the CipSoft 772 decompile
 (`reference/cipsoft-772/tibia-game-master/src/`). Focus areas: idle stimulus, monster walking,
 the map/viewport (Pass 1), and melee reactivity / bumping / the step-scheduling layer (Pass 2).
@@ -1042,5 +1044,58 @@ delay/flee/range/sight gates pass is evaluated and cast in the same idle. Single
 ## Out of plan (revisit only if in scope)
 
 `TNPC::IdleStimulus` (NPC AI), `MovePossible` field-`AVOID` cross-check (fire/poison/energy field
+
+---
+
+# Implementation Status Summary (Jun 2026)
+
+## Critical Findings — RESOLVED
+
+| Finding | Issue | Status | Notes |
+|---------|-------|--------|-------|
+| 2 | Casting loop stops after first spell | **FIXED** | Now evaluates every spell (comment in idle_stimulus.rs) |
+| 5 | Push logic ported from 1098 era | **FIXED** | 772-specific logic with deterministic N,S,W,E order in monster_push.rs |
+| 6/11 | Push direction uses `thread_rng` | **FIXED** | Uses deterministic `KICK_DIRS_772` constant |
+| 7 | Blocked-step recovery doesn't match EXHAUSTED contract | **FIXED** | `monster_exhausted_wait_772` implemented |
+| 9 | SearchFlightField shuffle wrong algorithm/stream | **FIXED** | Uses `parity_random_shuffle` with glibc parity stream |
+| 10 | Roam uses `ai_rng` instead of glibc | **FIXED** | Uses `parity_rand_mod(4)` |
+| 12 | `KickBoxes` not implemented | **FIXED** | `monster_kick_boxes_772` implemented |
+| 14 | Spell-damage variation uses `ai_rng` | **FIXED** | Uses `parity_random` for 772 |
+
+## Medium/Low Findings — PARTIALLY RESOLVED
+
+| Finding | Issue | Status | Notes |
+|---------|-------|--------|-------|
+| 8 | RNG stream fragmentation | **PARTIAL** | Has `parity_rng` for 772, but some `thread_rng` usage remains (spawn_placement, creature_think) |
+| 3 | Monster Talk is RNG-only, no packet | **PARTIAL** | RNG draw implemented, packet emission may still be missing |
+
+## Remaining Issues
+
+| Finding | Issue | Severity | Notes |
+|---------|-------|----------|-------|
+| 16 | LOS is 1098 Bresenham, not 772 `ThrowPossible` | HIGH | Uses `is_sight_clear` (Bresenham) instead of `ThrowPossible` |
+| 16b | `blocks_sight` tests `BLOCK_SOLID\|BLOCK_PROJECTILE` | MED | Should test only `UNTHROW`-equivalent flag |
+| 17 | Chase leash not exempt in ATTACKING/PANIC | HIGH | Monsters pinned at radius edge instead of chasing out |
+| 17b | Global despawn radius vs per-Monsterhome `Radius` | MED | Should use per-home radius |
+| 18 | Respawn timing fixed (1098) vs 772 random + crowd scaling | MED | Uses fixed `spawntime_ms` instead of `random(regen/2, regen)` with player-count scaling |
+| 19 | Spawn tile tie-break uses `thread_rng` | LOW/MED | Should use glibc `random(0,99)` |
+| 20 | Summon lifecycle is a stub | MED | Missing master despawn conditions and re-bind logic |
+| 21 | Convince/Challenge are 772-shaped differently | LOW | Has 1098-style `challenge_focus_duration` |
+| 22 | Rotate in ATTACKING/PANIC blocked by `walk_timer_idle` gate | HIGH | C++ `Rotate(Target)` at `crnonpl.cc:2872` runs unconditionally when State==ATTACKING/PANIC before ToDoAttack. Rust's `monster_update_look_direction` has `walk_timer_idle` gate (checks `next_wakeup.is_none()`) that blocks rotation when monster has active walk deadline. This prevents combat rotation even when monster is at target preparing to attack. Fix: bypass gate for `monster_idle_rotate_toward_attack_target` calls. |
+| 23 | Missing retry loop in `MovePossible` kick logic | HIGH | C++ `MovePossible` has `for(int Attempt = 0; Attempt < 100; Attempt += 1)` retry loop when kicking blocking objects (`crnonpl.cc:2185-2288`). After each kick (creature or box), it breaks inner loop and retries from outer loop to verify tile is now clear. Rust's `monster_kick_before_step_772` attempts kick once and returns, causing premature EXHAUSTED when kick doesn't immediately clear path. Fix: add retry loop with tile re-check after kicks. |
+| 24 | Z-level change clears follow/attack target | HIGH | Rust's `monster_on_creature_move` at line 190 clears both follow_target and attack_target when `new_pos.z != old_pos.z || !target_visible` (`monster_events.rs:190-198`). C++ `TMonster::CreatureMoveStimulus` (`crnonpl.cc:2943`) and `TCreature::CreatureMoveStimulus` (`crmain.cc:920`) do NOT clear targets on Z-change - they only handle combat re-arm for close-chase. When player drops ramp, monsters lose target and must re-acquire via idle stimulus, causing visible delay. Fix: remove Z-change target clear for 772 path. |
+
+## Overall Assessment
+
+The monster AI core (idle stimulus, casting, push/kick, blocked-step recovery, distance-fighting) has been substantially improved and most critical behavioral issues resolved. The push/collision layer is now correctly era-split with deterministic 772 behavior. RNG architecture has been partially unified with a per-world glibc parity stream, though some `thread_rng` usage remains.
+
+The remaining issues fall into five clusters:
+1. **Line-of-sight** — still uses 1098 Bresenham instead of 772 `ThrowPossible`
+2. **Spawn/leash lifecycle** — chase-leash exemption, per-home radius, 772 respawn timing
+3. **RNG stream completeness** — remaining `thread_rng` usage in spawn placement and creature think
+4. **Reactivity gaps** — Rotate gated by walk timer (Finding 22), missing retry loop in kick logic (Finding 23), Z-level change clears follow target (Finding 24)
+5. **Collision handling** — premature EXHAUSTED on collision due to single-attempt kick
+
+The core monster AI movement and combat behavior is now much closer to 772 fidelity. The remaining gaps are primarily in lifecycle management, the LOS primitive, and reactivity timing. The new findings (22-24) directly address the user-reported "feel" issues: turn-then-walk delay, bump/pause on collision, and ramp drop reactivity lag.
 avoidance, PANIC hazard ignore), `SearchSummonField` summon placement, and 772 convince/challenge
 rune semantics (Finding 21) — none are on the reported melee/distance "feel" path.

@@ -126,6 +126,12 @@ pub struct Player {
     pub health_hidden: bool,
     /// TFS idle / kick — `resetIdleTime` updates this (`player.cpp`).
     pub last_activity: Instant,
+    /// 772 `TConnection::TimeStamp` — last command round (`connections.cc:55`).
+    pub last_command_round: u32,
+    /// 772 `TConnection::TimeStampAction` — last non-idle command round (`connections.cc:61`).
+    pub last_action_round: u32,
+    /// 772 `TSkillFed` timer rounds — regen cadence (`crskill.cc:877`).
+    pub skills_fed_timer: u32,
     /// Last server `sendPing` (`0x1D`) — `Player::lastPing` (`player.cpp`).
     pub last_ping_sent: Instant,
     /// Last client pong — `Player::lastPong` / `receivePing` (`player.cpp`).

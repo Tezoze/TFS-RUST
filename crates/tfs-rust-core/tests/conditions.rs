@@ -16,6 +16,7 @@ proptest! {
             sub_id,
             ctype: ConditionType::Drunk,
             data: ConditionData::Generic { ticks },
+            timer_rounds_left: None,
         };
         let mut list = Vec::new();
         add_condition_merge(&mut list, incoming.clone());

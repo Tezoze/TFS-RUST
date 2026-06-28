@@ -167,8 +167,12 @@ pub(crate) fn calculated_step_speed_tfs(step_speed: i32) -> u32 {
 }
 
 fn walk_quantizer_ms(mech: &crate::formulas::Mechanics) -> i64 {
-    // TVP `gameserver` walk quantizer + OTClient animation grid — not main-loop `beat_ms` (200).
-    mech.profile.step_beat_ms.max(1) as i64
+    match mech.profile.step_speed {
+        // 772 `NotifyGo` — `ceil(Delay/Beat)*Beat` (`cract.cc:1532-1534`).
+        crate::formulas::StepSpeedModel::LinearGo => mech.profile.beat_ms.max(1) as i64,
+        // 1098 / TVP wire animation grid.
+        crate::formulas::StepSpeedModel::TfsLog => mech.profile.step_beat_ms.max(1) as i64,
+    }
 }
 
 #[inline]
@@ -190,8 +194,7 @@ pub(crate) fn peek_next_walk_direction(base: &crate::creature::CreatureBase) -> 
     base.walk_queue.back().copied()
 }
 
-/// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to step quantizer (`cract.cc:1461–1462`).
-/// Quantizer is [`MechanicsProfile::step_beat_ms`] (TVP 50 ms), not main-loop [`beat_ms`].
+/// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to `Beat` (`cract.cc:1461–1534`).
 /// `waypoint_cost` is 1 (cardinal), 3 (diagonal), or 2 (floor) applied to tile waypoints before ceil.
 fn linear_go_step_duration_ms(
     kind: &CreatureKind,

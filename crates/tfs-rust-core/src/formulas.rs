@@ -265,8 +265,8 @@ impl MechanicsProfile {
         match version.raw() {
             772 => Self {
                 beat_ms: 200,
-                // TVP `gameserver/src/creature.cpp` — `50 * ((50 + 1000*wp/speed - 1) / 50)`.
-                step_beat_ms: 50,
+                // 772 mechanics `NotifyGo` uses main-loop `Beat` (200 ms); 1098 uses TVP step grid.
+                step_beat_ms: 200,
                 step_speed: StepSpeedModel::LinearGo,
                 player_speed_model: PlayerSpeedModel::BalancedLog,
                 path_cost: PathCostModel::TerrainWeighted,
@@ -783,7 +783,7 @@ mod tests {
         assert_eq!(p.spawn_placement, SpawnPlacement::Classic772Bfs);
         assert_eq!(p.level_exp, LevelExpModel::DeltaPoly);
         assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
-        assert_eq!(p.step_beat_ms, 50);
+        assert_eq!(p.step_beat_ms, 200);
         assert_eq!(p.conditions.fire, TickSpec { dmg: 10, ticks: 8 });
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });
         assert_eq!(p.fight_modes.defensive_def, 1.80);

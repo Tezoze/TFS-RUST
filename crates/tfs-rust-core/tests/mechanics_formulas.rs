@@ -69,7 +69,7 @@ fn shipped_772_formulas_match_profile_defaults() {
     assert_eq!(p.distance_keep, DistanceKeep::PerType);
     assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
     assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
-    assert_eq!(p.step_beat_ms, 50);
+    assert_eq!(p.step_beat_ms, 200);
     assert_eq!(p.conditions.fire.dmg, 10);
     assert_eq!(p.conditions.fire.ticks, 8);
     assert_eq!(p.conditions.energy.dmg, 25);

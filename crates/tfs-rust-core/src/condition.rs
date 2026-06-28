@@ -52,6 +52,27 @@ pub struct ActiveCondition {
     pub sub_id: u32,
     pub ctype: ConditionType,
     pub data: ConditionData,
+    /// 772 `ProcessSkills` rounds remaining — fire/energy/haste expiry (`crskill.cc:179`).
+    pub timer_rounds_left: Option<i32>,
+}
+
+impl ActiveCondition {
+    /// New condition with optional timer rounds (defaults applied on first tick when `None`).
+    pub fn new(
+        id: u32,
+        sub_id: u32,
+        ctype: ConditionType,
+        data: ConditionData,
+        timer_rounds_left: Option<i32>,
+    ) -> Self {
+        Self {
+            id,
+            sub_id,
+            ctype,
+            data,
+            timer_rounds_left,
+        }
+    }
 }
 
 /// Insert or merge with an existing condition of the same `(ctype, sub_id)`.
@@ -102,8 +123,14 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
             if incoming.id >= existing.id {
                 existing.data = incoming.data.clone();
                 existing.id = incoming.id;
+                if incoming.timer_rounds_left.is_some() {
+                    existing.timer_rounds_left = incoming.timer_rounds_left;
+                }
             }
         }
+    }
+    if incoming.timer_rounds_left.is_some() {
+        existing.timer_rounds_left = incoming.timer_rounds_left;
     }
 }
 
@@ -142,12 +169,14 @@ mod tests {
             sub_id: 0,
             ctype: ConditionType::Pz,
             data: ConditionData::Generic { ticks: 100 },
+            timer_rounds_left: None,
         }];
         let again = ActiveCondition {
             id: 2,
             sub_id: 0,
             ctype: ConditionType::Pz,
             data: ConditionData::Generic { ticks: 100 },
+            timer_rounds_left: None,
         };
         add_condition_merge(&mut v, again.clone());
         let one = v.clone();

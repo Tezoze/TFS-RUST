@@ -1,0 +1,212 @@
+---
+inclusion: conditional
+name: tfs-packets
+description: Network protocol encoding standards and zero-copy parsing patterns for Tibia protocol. Applies to the tfs-rust-net crate.
+globs: ["crates/tfs-rust-net/**/*.rs"]
+---
+
+# Network Protocol Encoding (Tibia Protocol)
+
+**Versioning:** wire layout differs by `clientVersion` (772 vs 1098). Follow `tfs-wire-codec.md` for adding packets; route encoders through `ProtocolCodec`, not ad-hoc `*_1098` helpers. **1098** cites repo-root `src/`; **772 wire cites `gameserver/src/` only** (not decompile, not repo-root `src/`).
+
+All packet encoding follows TFS `NetworkMessage` semantics (little-endian, length-prefixed strings).
+
+## Core Libraries
+
+```rust
+use bytes::{Bytes, BytesMut, Buf, BufMut};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+```
+
+**Use `bytes` crate for:**
+- Zero-copy packet building
+- Efficient buffer management
+- Slice manipulation without allocations
+
+## Endianness (Always Little-Endian)
+
+All multi-byte integers are **little-endian** (Tibia protocol standard):
+
+```rust
+// Good
+buf.put_u16_le(1098); // protocol version
+buf.put_u32_le(player.guid);
+
+// Bad
+buf.put_u16(1098); // Wrong: network byte order (big-endian)
+```
+
+## Packet Structure
+
+### Login / game framing
+
+Base frame: `[u16 length][body]`. **Adler32** (4-byte header, `INITIAL_BUFFER_POSITION = 8`) is **1098 only** — 772 has no checksum (`ProtocolCaps.adler_checksum = false`, slack `-4`). Pre-login `0x1F` challenge: **1098 only**. See `docs/PROTOCOL_VERSIONING.md` §2.1.
+
+Game body after login: XTEA-encrypted payload (shared algorithm; slack varies by caps).
+
+## Parsing Pattern
+
+```rust
+// Good: Check bounds before reading
+pub fn parse_move_packet(data: &[u8]) -> Result<Direction> {
+    if data.len() < 1 {
+        return Err(anyhow!("packet too short"));
+    }
+    let dir_byte = data[0];
+    Direction::from_byte(dir_byte)
+        .ok_or_else(|| anyhow!("invalid direction: {}", dir_byte))
+}
+
+// Bad: Panic on malformed packet
+pub fn parse_move_packet(data: &[u8]) -> Direction {
+    Direction::from_byte(data[0]).unwrap() // DON'T PANIC
+}
+```
+
+## Encoding Pattern
+
+```rust
+// Good: Return Vec<u8> or write to BytesMut
+pub fn encode_creature_health(guid: u32, health: u8) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(5);
+    buf.put_u8(0x8C); // opcode
+    buf.put_u32_le(guid);
+    buf.put_u8(health);
+    buf
+}
+
+// Good: Reuse buffer
+pub fn encode_into(buf: &mut BytesMut, guid: u32, health: u8) {
+    buf.put_u8(0x8C);
+    buf.put_u32_le(guid);
+    buf.put_u8(health);
+}
+```
+
+## String Encoding
+
+Strings are length-prefixed (u16):
+
+```rust
+// Encoding
+fn put_string(buf: &mut BytesMut, s: &str) {
+    buf.put_u16_le(s.len() as u16);
+    buf.put_slice(s.as_bytes());
+}
+
+// Parsing
+fn read_string(data: &mut &[u8]) -> Result<String> {
+    if data.len() < 2 {
+        return Err(anyhow!("string length missing"));
+    }
+    let len = data.get_u16_le() as usize;
+    if data.len() < len {
+        return Err(anyhow!("string truncated"));
+    }
+    let bytes = &data[..len];
+    data.advance(len);
+    String::from_utf8(bytes.to_vec())
+        .map_err(|e| anyhow!("invalid UTF-8: {}", e))
+}
+```
+
+## Position Encoding
+
+Positions are 5 bytes (x, y, z):
+
+```rust
+pub fn put_position(buf: &mut BytesMut, pos: Position) {
+    buf.put_u16_le(pos.x);
+    buf.put_u16_le(pos.y);
+    buf.put_u8(pos.z);
+}
+
+pub fn read_position(data: &mut &[u8]) -> Result<Position> {
+    if data.len() < 5 {
+        return Err(anyhow!("position truncated"));
+    }
+    Ok(Position {
+        x: data.get_u16_le(),
+        y: data.get_u16_le(),
+        z: data.get_u8(),
+    })
+}
+```
+
+## XTEA Encryption
+
+Use TFS's custom XTEA implementation (not standard XTEA):
+
+```rust
+use crate::xtea_tfs::{xtea_encrypt, xtea_decrypt};
+
+// TFS uses 8-byte blocks with specific padding
+// See xtea_tfs.rs for exact implementation
+```
+
+**Never use standard XTEA crates** — TFS has custom block handling.
+
+## RSA Decryption
+
+TFS uses raw modular exponentiation, not PKCS#1:
+
+```rust
+// Good: Raw modpow
+let plaintext = ciphertext.modpow(&d, &n);
+
+// Bad: PKCS#1 decrypt (adds unwrapping that TFS doesn't use)
+let plaintext = private_key.decrypt(padding, ciphertext)?; // WRONG
+```
+
+See `tasks/lessons.md` entry #2 for details.
+
+## Validation Rules
+
+1. **Always check packet length** before reading
+2. **Return `Err`** on malformed packets, never panic
+3. **Log malformed packets** for debugging (potential attacks)
+4. **Disconnect on repeated malformed packets** (rate limit)
+
+```rust
+if data.len() < expected_len {
+    tracing::warn!("malformed packet from {:?}: expected {}, got {}",
+                   conn_id, expected_len, data.len());
+    return Err(anyhow!("packet too short"));
+}
+```
+
+## Performance Patterns
+
+```rust
+// Good: Allocate once
+let mut buf = BytesMut::with_capacity(1024);
+encode_map_description(&mut buf, ...);
+
+// Bad: Allocate per-field
+let mut parts = Vec::new();
+parts.extend_from_slice(&encode_creatures(...));
+parts.extend_from_slice(&encode_items(...));
+```
+
+## Reference C++ source (by version)
+
+| Version | Tree |
+|---------|------|
+| **1098** | repo-root `src/networkmessage.cpp`, `protocolgame.cpp`, `protocollogin.cpp` |
+| **772** | **`gameserver/src/` only** — `networkmessage.cpp`, `protocolgame.cpp`, `protocollogin.cpp` (TVP 7.72; sole wire reference) |
+
+**772 wire:** never cite `tibia-game-master` or repo-root `src/` for packet/protocol work.
+
+Do not guess layouts — cite file + function in codec module headers.
+
+## Testing
+
+For critical packets, include hex dump tests:
+
+```rust
+#[test]
+fn test_encode_creature_health() {
+    let packet = encode_creature_health(0x12345678, 100);
+    assert_eq!(packet, &[0x8C, 0x78, 0x56, 0x34, 0x12, 100]);
+}
+```

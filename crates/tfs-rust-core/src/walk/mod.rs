@@ -1866,7 +1866,7 @@ mod step_speed_tests {
             wire_step_speed(WalkSpeedRole::MonsterOrNpc, &base, &mech),
             164
         );
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
     }
 
     /// 1098 wire payload is halved in codec; neutral struct holds full GoStrength before `/2`.
@@ -1909,7 +1909,7 @@ mod step_speed_tests {
         assert_eq!(ticks, 1);
     }
 
-    /// 772 wolf GoStrength 42 → `GetSpeed` 164; TVP step quantizer 50 ms → 950 ms on ground 150.
+    /// 772 wolf GoStrength 42 → `GetSpeed` 164; `NotifyGo` quantizes to `Beat` (200 ms).
     #[test]
     fn linear_go_step_duration_matches_notify_go() {
         let p = test_player("Wolf", Position::new(100, 100, 7));
@@ -1918,8 +1918,8 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         assert_eq!(linear_go_effective_speed(42), 164);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 50, 0);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 200, 0);
     }
 
     /// 772 diagonal: `×3` waypoints before step quantizer ceil — 2750 ms, not TFS-style 950×3.
@@ -1935,8 +1935,8 @@ mod step_speed_tests {
             get_step_duration_ms_with_direction(&kind, &base, Direction::East, 150, &mech);
         let diagonal =
             get_step_duration_ms_with_direction(&kind, &base, Direction::NorthEast, 150, &mech);
-        assert_eq!(cardinal, 950);
-        assert_eq!(diagonal, 2750);
+        assert_eq!(cardinal, 1000);
+        assert_eq!(diagonal, 2800);
         assert_ne!(diagonal, cardinal * 3, "CipSoft ceils before ×3, not after");
     }
 

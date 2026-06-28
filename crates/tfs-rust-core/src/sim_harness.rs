@@ -192,6 +192,9 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         vip_list: Vec::new(),
         health_hidden: false,
         last_activity: Instant::now(),
+        last_command_round: 0,
+        last_action_round: 0,
+        skills_fed_timer: 0,
         last_ping_sent: Instant::now(),
         last_pong_at: Instant::now(),
         next_action_until: None,
@@ -1687,6 +1690,11 @@ pub fn write_fill_walkable_dump_json(
     writeln!(out, "  ]")?;
     writeln!(out, "}}")?;
     Ok(())
+}
+
+/// Full 772 beat advance including subsystem semantics — use for ProcessSkills/oracle tests.
+pub fn advance_scenario_beat(world: &mut GameWorld, delay_ms: u64) {
+    world.advance_beat_772(delay_ms);
 }
 
 /// C++ `MoveCreatures` — `crmain.cc:1106` (harness clock + due todo drain).

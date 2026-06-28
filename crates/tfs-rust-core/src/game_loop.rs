@@ -267,6 +267,12 @@ fn handle_game_packet(
     let now = Instant::now();
     let immediate_flush = needs_immediate_flush(&packet, flush_policy);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+        if world.beat_driven_loop {
+            world.player_reset_connection_rounds(
+                cid,
+                crate::connections_772::packet_counts_as_action_772(&packet),
+            );
+        }
         if game_packet_requires_timed_action(&packet)
             && !world.player_packet_action_ready(cid, &packet)
         {
@@ -552,6 +558,26 @@ pub async fn run_game_loop_1098(
     Ok(())
 }
 
+/// Count additional burst ticks already pending on `interval` after one `tick().await` fired.
+fn drain_burst_beats(interval: &mut tokio::time::Interval) -> u64 {
+    use std::future::Future;
+    use std::task::Poll;
+
+    let mut beats = 1u64;
+    loop {
+        let next = interval.tick();
+        tokio::pin!(next);
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(&waker);
+        if matches!(next.as_mut().poll(&mut cx), Poll::Ready(_)) {
+            beats += 1;
+        } else {
+            break;
+        }
+    }
+    beats
+}
+
 /// 772 beat-driven loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
 pub async fn run_game_loop_772(
     mut world: GameWorld,
@@ -603,7 +629,14 @@ pub async fn run_game_loop_772(
                 }
             }
             _ = beat_timer.tick() => {
-                world.advance_beat_772(beat_ms);
+                let mut beats = drain_burst_beats(&mut beat_timer);
+                if beats == 0 {
+                    beats = 1;
+                }
+                world.advance_beat_772(beat_ms * beats);
+                while let Some(conn_id) = world.pending_idle_kick_772.pop() {
+                    handle_player_disconnect(&mut world, conn_id, false, &out_registry);
+                }
                 flush_pending_outgoing(&mut world, &out_registry);
             }
         }

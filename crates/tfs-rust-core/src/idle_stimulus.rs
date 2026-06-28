@@ -776,6 +776,7 @@ impl GameWorld {
                     data: ConditionData::Damage {
                         total_rank: strength,
                     },
+                    timer_rounds_left: None,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -858,6 +859,7 @@ impl GameWorld {
                     sub_id: 0,
                     ctype: ConditionType::Haste,
                     data: ConditionData::Speed { flat_delta },
+                    timer_rounds_left: None,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
