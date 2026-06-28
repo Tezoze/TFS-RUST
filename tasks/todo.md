@@ -201,3 +201,26 @@ C++ ref: `crnonpl.cc:1296` `StartMonsterhomeTimer`; `:2359–2405` summon despaw
 - [x] Tests — 3 new: `test_phase8_rotate_then_attack_fires_in_one_beat` (direction + HP + no
       server_ms advance in one call), `test_phase8_rotate_enqueued_when_walk_armed`,
       `test_phase8_idle_tail_enqueues_rotate_before_attack`. 408 tests pass, clippy clean.
+
+## 772 Monster AI audit — Phase 9: Z-level target clear + move-stimulus fixes — done
+- [x] `monster_events.rs`: AI#24 — gated Z-level target clear on `!beat_driven_loop` (1098 only);
+      772 monsters keep targets across ramp drops (C++ `CreatureMoveStimulus` `crmain.cc:920` does
+      NOT clear on Z-change). `!target_visible` clear stays for both eras.
+- [x] `idle_stimulus.rs`: AI#25 — added `IsHouse(target_pos)` (`crnonpl.cc:2427`, via
+      `matches!(tile, Tile::House(_))`) and `target.is_invisible() && !see_invisible`
+      (`crnonpl.cc:2429`) to `monster_idle_772_should_lose_target`, after the Protection zone
+      check, matching C++ order.
+- [x] `monster_events.rs`: AI#26 — replaced `!has_attack || has_go` (whole-queue scan) with
+      head-only check `todo.queue.front() == Some(&CreatureAction::Attack)` in
+      `monster_combat_creature_move_stimulus`, matching C++ `crmain.cc:931-932`
+      `ToDoList.at(ActToDo)->Code == TDAttack`. `[Attack, Go]` now correctly fires combat re-arm.
+- [x] `monster_events.rs`: GL#24 — added `NOTE(parity)` comment documenting 16×16 (C++
+      `TFindCreatures`) vs 64×64 (Rust `CHUNK_SIZE`) chunk granularity divergence; creation-order
+      sort kept as deterministic fallback (audit's explicit fallback path).
+- [x] Tests — 7 new: `test_phase9_772_keeps_target_across_z_change`,
+      `test_phase9_1098_clears_target_across_z_change`,
+      `test_phase9_772_loses_target_entering_house`,
+      `test_phase9_772_loses_invisible_target_without_see_invisible`,
+      `test_phase9_772_keeps_invisible_target_with_see_invisible`,
+      `test_phase9_move_stimulus_fires_when_head_is_attack`,
+      `test_phase9_move_stimulus_skips_when_head_is_go`. 446 tests pass, clippy clean.

@@ -495,9 +495,20 @@ impl GameWorld {
             return true;
         }
         if let Some(tile) = self.map.get_tile(tp) {
+            // C++ `crnonpl.cc:2426` `IsProtectionZone(Target->posx, …)`.
             if tile.body().zone == ZoneType::Protection {
                 return true;
             }
+            // C++ `crnonpl.cc:2427` `IsHouse(Target->posx, Target->posy, Target->posz)`
+            // (AI#25). House tiles are a hard lose-target — monsters don't chase into houses.
+            if matches!(tile, crate::tile::Tile::House(_)) {
+                return true;
+            }
+        }
+        // C++ `crnonpl.cc:2429` `(Target->IsInvisible() && !RaceData[this->Race].SeeInvisible)`
+        // (AI#25). Monsters without `SeeInvisible` lose invisible targets.
+        if target.base().is_invisible() && !m.see_invisible {
+            return true;
         }
         // C++ `|| (Master==0 && random(0,99) < LoseTarget)` — draw always when no master
         // (`crnonpl.cc:2381`), even at LoseTarget=0.
@@ -5902,6 +5913,157 @@ mod tests {
         assert!(
             !pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0xAA)),
             "monster with no talk texts must not emit 0xAA"
+        );
+    }
+
+    // AI#25: monster loses target when the target stands on a house tile — C++
+    // `crnonpl.cc:2427` `IsHouse(Target->posx, …)`. Uses a non-summon monster target so
+    // the acquire path (`monster_idle_772_acquire_target`) skips it (non-summon monsters
+    // are filtered at `crnonpl.cc:2500`) and doesn't re-acquire after the lose-target clear.
+    #[test]
+    fn test_phase9_772_loses_target_entering_house() {
+        use crate::tile::{HouseTile, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        // Insert a house tile at the target position — C++ `IsHouse`.
+        world.map.insert_tile(
+            tpos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(1),
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                },
+                house_id: 1,
+            }),
+        );
+
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+            m.base.follow_target = Some(target);
+            m.base.attack_target = Some(target);
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert_eq!(
+            base.follow_target, None,
+            "AI#25: monster must lose target on a house tile (IsHouse)"
+        );
+        assert_eq!(
+            base.attack_target, None,
+            "AI#25: monster must lose attack target on a house tile"
+        );
+    }
+
+    // AI#25: monster without `SeeInvisible` loses an invisible target — C++
+    // `crnonpl.cc:2429` `(Target->IsInvisible() && !RaceData[Race].SeeInvisible)`.
+    #[test]
+    fn test_phase9_772_loses_invisible_target_without_see_invisible() {
+        use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        // Make the target invisible.
+        if let Some(k) = world.creatures.get_mut(target) {
+            add_condition_merge(
+                &mut k.base_mut().active_conditions,
+                ActiveCondition::new(
+                    0,
+                    0,
+                    ConditionType::Invisible,
+                    ConditionData::Generic { ticks: 0 },
+                    None,
+                ),
+            );
+        }
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+            // see_invisible defaults to false.
+            m.base.follow_target = Some(target);
+            m.base.attack_target = Some(target);
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert_eq!(
+            base.follow_target, None,
+            "AI#25: monster without SeeInvisible must lose invisible target"
+        );
+        assert_eq!(
+            base.attack_target, None,
+            "AI#25: monster without SeeInvisible must lose invisible attack target"
+        );
+    }
+
+    // AI#25 counterpart: monster WITH `SeeInvisible` keeps an invisible target — the
+    // `(IsInvisible && !SeeInvisible)` gate does not fire.
+    #[test]
+    fn test_phase9_772_keeps_invisible_target_with_see_invisible() {
+        use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        if let Some(k) = world.creatures.get_mut(target) {
+            add_condition_merge(
+                &mut k.base_mut().active_conditions,
+                ActiveCondition::new(
+                    0,
+                    0,
+                    ConditionType::Invisible,
+                    ConditionData::Generic { ticks: 0 },
+                    None,
+                ),
+            );
+        }
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Cyclops",
+            mpos,
+            200,
+            MonsterAiConfig {
+                see_invisible: true,
+                ..MonsterAiConfig::default()
+            },
+        );
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+            m.base.follow_target = Some(target);
+            m.base.attack_target = Some(target);
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert_eq!(
+            base.follow_target,
+            Some(target),
+            "AI#25: monster with SeeInvisible must keep invisible target"
         );
     }
 }

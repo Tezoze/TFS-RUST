@@ -1,6 +1,6 @@
 # 772 Monster AI — High-Level Parity Audit
 
-**Status (Jun 2026, post-Phase 8):** Phases 1–6, the Pass 8 re-audit fixes, and the Next-Implementation-Plan **Phase 8** (`CreatureAction::Rotate` + atomic `Execute` drain) are **DONE** — push/collision rewrite, 772 LOS, chase leash, casting loop, RNG per-draw routing, lifecycle polish, all 9 HIGH/MED Pass 8 push-gate fixes (AI#23 kick-and-retry, P1-A1..A3, P1-B1..B5), and the GL#7/AI#22/Structural melee smoothness fix (Rotate+Attack fires in one 200 ms beat). The remaining "feel" defects cluster around the Z-level target clear (AI#24), the move-stimulus fan-out (GL#24), and the drunk-walk RNG stream (GL#22). Two LOW Pass 8 items (P1-B6/B7) are also open. See "Implementation Status Summary" and "Next Implementation Plan" at end.
+**Status (Jun 2026, post-Phase 9):** Phases 1–6, the Pass 8 re-audit fixes, the Next-Implementation-Plan **Phase 8** (`CreatureAction::Rotate` + atomic `Execute` drain), and **Phase 9** (Z-level target clear + move-stimulus fixes) are **DONE** — push/collision rewrite, 772 LOS, chase leash, casting loop, RNG per-draw routing, lifecycle polish, all 9 HIGH/MED Pass 8 push-gate fixes (AI#23 kick-and-retry, P1-A1..A3, P1-B1..B5), the GL#7/AI#22/Structural melee smoothness fix (Rotate+Attack fires in one 200 ms beat), and the AI#24/AI#25/AI#26/GL#24 target-clear + combat-re-arm + fan-out fixes. The remaining "feel" defect clusters around the drunk-walk RNG stream (GL#22). Two LOW Pass 8 items (P1-B6/B7) are also open. See "Implementation Status Summary" and "Next Implementation Plan" at end.
 
 Scope: a *structural* pass over the Rust monster AI against the CipSoft 772 decompile
 (`reference/cipsoft-772/tibia-game-master/src/`). Focus areas: idle stimulus, monster walking,
@@ -1147,11 +1147,11 @@ delay/flee/range/sight gates pass is evaluated and cast in the same idle. Single
 | **GL#7** | **Execute one action per pop vs atomic zero-delay drain** | **HIGH** | OPEN | **Primary smoothness defect.** `idle_stimulus.rs:2148` `run_monster_todo_execute` pops one action then returns/re-arms. C++ `Execute` (`cract.cc:783`) is `while(true)` over consecutive `CalculateDelay==0` entries. Rotate+Attack = 2 beats (400 ms) vs C++ 1 beat (200 ms). |
 | **22** | **Rotate in ATTACKING/PANIC blocked by `walk_timer_idle` gate** | **HIGH** | OPEN | `monster_ai.rs:2191` — `walk_timer_idle` returns `next_wakeup.is_none()` on 772; after a Go step the monster always has a wakeup, so `monster_update_look_direction` returns early. C++ `Rotate(Target)` at `crnonpl.cc:2872` runs **unconditionally** in ATTACKING/PANIC before `ToDoAttack`. Compounds GL#7. |
 | **23** | **Missing retry loop in `MovePossible` kick logic** | **HIGH** | **FIXED** | `for _attempt in 0..100` retry loop with tile re-check implemented in `monster_kick_before_step_772` (`monster_push.rs`). |
-| **24** | **Z-level change clears follow/attack target** | **HIGH** | OPEN | `monster_events.rs:190-198` clears both targets when `new_pos.z != old_pos.z`, not era-gated. C++ `CreatureMoveStimulus` (`crmain.cc:920`, `crnonpl.cc:2943`) does **not** clear targets on Z-change. Ramp drops cause target loss → re-acquire delay. |
+| **24** | **Z-level change clears follow/attack target** | **HIGH** | **FIXED** | `monster_events.rs:190-198` — Z-change target clear gated on `!beat_driven_loop` (1098 only). 772 monsters keep targets across ramp drops (C++ `CreatureMoveStimulus` `crmain.cc:920` does not clear on Z-change). |
 | **GL#22** | **Drunk-walk stagger is 1098 algo on `thread_rng`** | **HIGH** | OPEN | `walk/mod.rs:116-131` — 1098 `r/4 > d` curve on `thread_rng()` instead of 772 `rand()%max(7-level,1)` on glibc stream. Wrong algo + wrong RNG + wrong source. Desyncs every subsequent `parity_*` draw. |
-| **GL#24** | **Move-stimulus fan-out uses SlotMap-key sort** | **MEDIUM** | OPEN | `monster_events.rs:112` — `ids.sort_by_key(|id| id.data().as_ffi())` (creation order) vs C++ creature-list order (spatial sector walk). Affects which monster reacts first to a move event. |
-| **25** | **Lose-target missing `IsHouse` + invisibility checks** | **MEDIUM** | OPEN | `idle_stimulus.rs:365-399` — missing `IsHouse` (`crnonpl.cc:2427`) and `IsInvisible && !SeeInvisible` (`crnonpl.cc:2429`). Monsters chase into houses / after invisible targets. |
-| **26** | **`CreatureMoveStimulus` extra `has_go` check** | **MEDIUM** | OPEN | `monster_events.rs:446` — `!has_attack \|\| has_go` checks entire queue; C++ checks head only (`ToDoList.at(ActToDo)->Code == TDAttack`). Blocks combat re-arm when `[Attack, Go]` queued. |
+| **GL#24** | **Move-stimulus fan-out uses SlotMap-key sort** | **MEDIUM** | **DOCUMENTED** | `monster_events.rs:112` — `NOTE(parity)` added: C++ `TFindCreatures` (`crmain.cc:101`) walks 16×16 blocks; Rust uses 64×64 chunks (`CHUNK_SIZE=64`). Granularity mismatch makes exact parity impossible without re-bucketing; creation-order sort kept as deterministic fallback. |
+| **25** | **Lose-target missing `IsHouse` + invisibility checks** | **MEDIUM** | **FIXED** | `idle_stimulus.rs:497-512` — added `IsHouse(target_pos)` (`matches!(tile, Tile::House(_))`) and `target.is_invisible() && !see_invisible` to `monster_idle_772_should_lose_target`, matching C++ `crnonpl.cc:2427-2429` order. |
+| **26** | **`CreatureMoveStimulus` extra `has_go` check** | **MEDIUM** | **FIXED** | `monster_events.rs:446` — replaced `!has_attack \|\| has_go` (whole-queue scan) with head-only check `todo.queue.front() == Some(&CreatureAction::Attack)`, matching C++ `crmain.cc:931-932` `ToDoList.at(ActToDo)->Code == TDAttack`. `[Attack, Go]` now fires combat re-arm. |
 | **27** | **Waypoint cost source mismatch** | **LOW** | OPEN | `walk/walk_timing.rs:211` — uses `ground_speed` from items_db vs C++ `WAYPOINTS` tile attribute (`cract.cc:1521`). Latent if data matches. |
 | **28** | **Poison field extension missing** | **LOW** | OPEN | `process_skills.rs:74-86` — doesn't extend poison duration when creature stands on poison field (`crskill.cc:1043` `Cycle += 1`). |
 | **30** | **PANIC→ATTACKING promotion only on successful dance step** | **LOW** | OPEN | `monster_ai.rs:1353` — early-returns before promotion at 1374 when dance step blocked. C++ `crnonpl.cc:2832` promotes unconditionally in melee band. |
@@ -1268,9 +1268,9 @@ relevant for sim parity.
    ATTACKING/PANIC. Subsumed by #1 once `CreatureAction::Rotate` is added.
 3. **Kick-and-retry loop (AI#23)** — add `for Attempt in 0..100` with tile re-check to
    `monster_kick_before_step_772`.
-4. **Z-level target clear (AI#24)** — gate to `!beat_driven_loop` or remove for 772.
+4. ~~**Z-level target clear (AI#24)**~~ — **DONE**: gated on `!beat_driven_loop` (1098 only).
 5. **Drunk-walk (GL#22)** — port 772 algo + glibc stream. (GL Phase 8 / AI Phase 5)
-6. **Move-stimulus fan-out (GL#24)** — C++ creature-list order. (GL Phase 8)
+6. ~~**Move-stimulus fan-out (GL#24)**~~ — **DOCUMENTED**: `NOTE(parity)` — 16×16 vs 64×64 chunk granularity divergence; creation-order sort kept as fallback.
 7. **PANIC→ATTACKING promotion (AI#30)** — move outside early-return guard. (AI Phase 7)
 8. **IdleStimulus catch-all (AI#31)** — structural, optional. (AI Phase 7)
 
@@ -1747,7 +1747,7 @@ enqueue Go; Rust enqueues then fails → clear-queue + idle stimulus).
 4. ~~`is_invisible` missing from creature base~~ — **DONE**: `is_invisible()` method added to
    `CreatureBase` (checks `active_conditions` for `ConditionType::Invisible`).
 
-## Recommended fix order — COMPLETED (9 of 11)
+## Recommended fix order — COMPLETED (12 of 14)
 
 1. ~~**P1-A3 + P1-A1 + P1-A2**~~ — **DONE**: `monster_move_possible_planning_772` extracted;
    `monster_can_occupy_chase_tile` routes through it; `!is_summon` dropped; player tiles
@@ -1758,7 +1758,11 @@ enqueue Go; Rust enqueues then fails → clear-queue + idle stimulus).
 5. ~~**P1-B3**~~ — **DONE**: `see_invisible`/`is_invisible` + invisibility gate in kick + planning.
 6. ~~**P1-B4**~~ — **DONE**: `monster_move_possible_planning_772` + `move_creature_on_map`.
 7. ~~**P1-B5**~~ — **DONE**: `Tile::House` check in `monster_move_possible_planning_772`.
-8. **P1-B6, P1-B7** — OPEN (LOW priority).
+8. ~~**AI#24**~~ — **DONE** (Phase 9): Z-level target clear gated on `!beat_driven_loop`.
+9. ~~**AI#25**~~ — **DONE** (Phase 9): `IsHouse` + `IsInvisible && !SeeInvisible` in lose-target.
+10. ~~**AI#26**~~ — **DONE** (Phase 9): head-only `front() == Attack` check in `CreatureMoveStimulus`.
+11. ~~**GL#24**~~ — **DOCUMENTED** (Phase 9): `NOTE(parity)` — 16×16 vs 64×64 chunk granularity.
+12. **P1-B6, P1-B7** — OPEN (LOW priority).
 
 ---
 
@@ -1811,7 +1815,7 @@ clippy` + `rtk cargo test`). Capture C++-behaviour surprises in `tasks/lessons.m
   must terminate (guaranteed by the `+1` clamp on re-inserted entries). Test the
   Rotate+Attack sequence explicitly against the C++ oracle.
 
-## Phase 9 — Z-level target clear + move-stimulus fixes (AI#24, AI#25, AI#26, GL#24)
+## Phase 9 — Z-level target clear + move-stimulus fixes (AI#24, AI#25, AI#26, GL#24) — **DONE**
 
 - **Goal:** monsters don't lose targets on ramp drops; lose-target checks house +
   invisibility; move-stimulus uses head-only check; fan-out order matches C++.

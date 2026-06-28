@@ -10,7 +10,7 @@ use tfs_rust_common::Position;
 
 use crate::chase_debug;
 use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
-use crate::creature_todo::MONSTER_IDLE_WAIT_MS;
+use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_ai::{chebyshev, MonsterEnqueueAttackResult, MAP_MAX_VIEWPORT};
@@ -109,6 +109,16 @@ impl GameWorld {
                     .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
             })
             .collect();
+        // NOTE(parity, GL#24): C++ `TFindCreatures::getNext` (`crmain.cc:101–144`) walks
+        // 16×16 blocks in row-major order (blockx inner, blocky outer) and follows the
+        // `NextChainCreature` linked list within each block — so the move-stimulus fan-out
+        // order is spatial-sector, not creation-order. Rust `grid.collect_spectators`
+        // (`grid.rs:150`) walks 64×64 chunks (`CHUNK_SIZE = 64`) in the same row-major shape,
+        // but the 4× coarser granularity means creatures within one 64×64 chunk but different
+        // 16×16 blocks arrive in chunk-insertion order, not C++ block order. Exact parity
+        // would require re-bucketing to 16×16 blocks; until then the SlotMap-key (creation
+        // order) sort is kept as a deterministic stable fallback. Affects which monster
+        // reacts first to a move event — observable only in tie-break edge cases.
         ids.sort_by_key(|id| id.data().as_ffi());
         ids.dedup();
         ids
@@ -187,7 +197,14 @@ impl GameWorld {
                 .get(creature_id)
                 .map(|k| creature_can_see(monster_pos, k.position(), range, range))
                 .unwrap_or(false);
-            if new_pos.z != old_pos.z || !target_visible {
+            // AI#24: C++ `CreatureMoveStimulus` (`crmain.cc:920`) does NOT clear targets on
+            // Z-change — it only re-arms close-chase combat. The Z-level clear is a 1098
+            // `Monster::onCreatureMove` behavior; gate it on `!beat_driven_loop` so 772
+            // monsters keep tracking targets across ramp drops and re-acquire via the idle
+            // lose-target range check (`crnonpl.cc:2422`) instead. The `!target_visible`
+            // clear stays for both eras (redundant with the idle range check, not flagged).
+            let z_change_clears = !self.beat_driven_loop && new_pos.z != old_pos.z;
+            if z_change_clears || !target_visible {
                 if let Some(k) = self.creatures.get_mut(monster_id) {
                     if k.base().follow_target == Some(creature_id) {
                         k.base_mut().clear_follow_for_target(creature_id);
@@ -425,17 +442,24 @@ impl GameWorld {
                 return None;
             }
             let target_pos = self.creatures.get(target_id)?.position();
+            // AI#26: C++ `CreatureMoveStimulus` gates on the HEAD todo entry only
+            // (`crmain.cc:931-932`: `ActToDo >= NrToDo || ToDoList.at(ActToDo)->Code != TDAttack`),
+            // not the whole queue. The previous `has_attack() || has_go()` scan over-gated:
+            // a `[Attack, Go]` queue (head=Attack) was blocked because `has_go()` scanned the
+            // tail. Use `front() == Attack` so combat re-arm fires when the head is TDAttack,
+            // matching C++ exactly. Empty queue → `None` != `Some(Attack)` → early return
+            // (matches `ActToDo >= NrToDo`).
+            let head_is_attack = m.base.todo.queue.front() == Some(&CreatureAction::Attack);
             Some((
                 m.chase_mode,
                 m.state,
                 m.base.position,
                 target_pos,
-                m.base.todo.has_attack(),
-                m.base.todo.has_go(),
+                head_is_attack,
                 m.base.todo.locked,
             ))
         });
-        let Some((chase_mode, _state, pos, target_pos, has_attack, has_go, todo_locked)) =
+        let Some((chase_mode, _state, pos, target_pos, head_is_attack, todo_locked)) =
             snapshot
         else {
             return;
@@ -443,7 +467,7 @@ impl GameWorld {
         if chase_mode != MonsterChaseMode::Close {
             return;
         }
-        if !has_attack || has_go {
+        if !head_is_attack {
             return;
         }
         if !todo_locked {
@@ -709,6 +733,193 @@ mod tests {
                 k.base().next_wakeup.is_some() || !k.base().todo.is_empty()
             }),
             "772 must defer target via idle yield, not sync select"
+        );
+    }
+
+    // AI#24: 772 monsters keep follow/attack targets across Z-change (ramp drops).
+    // C++ `CreatureMoveStimulus` (`crmain.cc:920`) does NOT clear targets on Z-change.
+    // Uses z=8→z=9 (underground ±2) so `creature_can_see` stays true and only the
+    // Z-change gate is exercised. `target_distance=1` + `state=Idle` + `chase_mode=None`
+    // isolate the Z-clear from idle-stimulus / combat-rearm / close-chase-repath paths.
+    #[test]
+    fn test_phase9_772_keeps_target_across_z_change() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 8);
+        let ppos = Position::new(101, 100, 8);
+        let ppos_new = Position::new(101, 100, 9);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+            m.chase_mode = MonsterChaseMode::None;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert_eq!(
+            base.follow_target,
+            Some(player),
+            "AI#24: 772 must keep follow target across Z-change (ramp drop)"
+        );
+        assert_eq!(
+            base.attack_target,
+            Some(player),
+            "AI#24: 772 must keep attack target across Z-change (ramp drop)"
+        );
+    }
+
+    // AI#24 counterpart: 1098 clears targets on Z-change (`Monster::onCreatureMove`).
+    #[test]
+    fn test_phase9_1098_clears_target_across_z_change() {
+        use crate::test_world::support::minimal_world;
+
+        let mut world = minimal_world();
+        let mpos = Position::new(100, 100, 8);
+        let ppos = Position::new(101, 100, 8);
+        let ppos_new = Position::new(101, 100, 9);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, ppos, 1);
+        ensure_walkable_tile(&mut world.map, ppos_new, 1);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+            m.chase_mode = MonsterChaseMode::None;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.has_follow_path = false;
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert_eq!(
+            base.follow_target, None,
+            "AI#24: 1098 must clear follow target on Z-change"
+        );
+        assert_eq!(
+            base.attack_target, None,
+            "AI#24: 1098 must clear attack target on Z-change"
+        );
+    }
+
+    // AI#26: `CreatureMoveStimulus` fires when the HEAD todo is `Attack` even if a `Go`
+    // is queued behind it — C++ `crmain.cc:931-932` checks `ToDoList.at(ActToDo)->Code
+    // == TDAttack` (head-only), not the whole queue. Previously `has_go()` scanned the
+    // tail and blocked re-arm for `[Attack, Go]`.
+    #[test]
+    fn test_phase9_move_stimulus_fires_when_head_is_attack() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(104, 100, 7);
+        let ppos_new = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.todo.locked = true;
+            // Head is Attack, Go behind it — C++ fires (head == TDAttack).
+            m.base.todo.queue.push_back(CreatureAction::Attack);
+            m.base.todo.queue.push_back(CreatureAction::Go);
+            m.base.earliest_attack_ms = 10_000;
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            base.todo.has_wait(),
+            "AI#26: stimulus must fire (re-arm) when head is Attack, enqueuing Wait"
+        );
+        assert!(
+            !matches!(base.todo.queue.front(), Some(CreatureAction::Attack)),
+            "AI#26: original [Attack, Go] must be cleared by the re-arm"
+        );
+    }
+
+    // AI#26 counterpart: stimulus skips when HEAD is `Go` (not `Attack`).
+    #[test]
+    fn test_phase9_move_stimulus_skips_when_head_is_go() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(104, 100, 7);
+        let ppos_new = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Attacking;
+            m.chase_mode = MonsterChaseMode::Close;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.base.todo.locked = true;
+            // Head is Go — C++ skips (head != TDAttack).
+            m.base.todo.queue.push_back(CreatureAction::Go);
+            m.base.todo.queue.push_back(CreatureAction::Attack);
+            m.base.earliest_attack_ms = 10_000;
+        }
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.position = ppos_new;
+        }
+        world.map.unregister_creature_at(ppos, player);
+        world.map.register_creature_at(ppos_new, player);
+        world.monster_dispatch_creature_move(player, ppos, ppos_new);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            !base.todo.has_wait(),
+            "AI#26: stimulus must NOT fire when head is Go (no Wait enqueued)"
+        );
+        assert_eq!(
+            base.todo.queue.front(),
+            Some(&CreatureAction::Go),
+            "AI#26: queue must be unchanged when head is Go"
         );
     }
 }
