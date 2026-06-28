@@ -62,10 +62,11 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
 
 /// 772 ToDo action kinds — Rust enum instead of C++ `void*` task list.
 ///
-/// Mirrors the `TToDoEntry::Code` discriminator in `cract.cc:812-868` (`TDGo`, `TDRotate`,
-/// `TDAttack`, `TDWait`, …). Phase 8 closes the structural gap by adding `Rotate`
-/// (`TDRotate` — `cract.cc:818`) so the idle combat tail can queue `Rotate(target) + Attack`
-/// and have both fire in one beat via the atomic `Execute` drain.
+/// Mirrors the `TToDoEntry::Code` discriminator in `cract.cc:812-868` (`TDGo`, `TDAttack`,
+/// `TDWait`, …). `TDRotate` (`cract.cc:818`) is **not** modeled as a queued action: the 772
+/// idle combat tail calls `Rotate(Target)` directly (`crnonpl.cc:2872-2873`), so the 0x6B turn
+/// broadcast lands in the same beat as the first `TDGo` move packet — making the turn
+/// imperceptible. Enqueuing it caused a visible "turn on the spot" defect (audit: turn-on-spot).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatureAction {
     /// `TDGo` — execute one walk step from `listWalkDir`.
@@ -74,10 +75,6 @@ pub enum CreatureAction {
     Wait { delay_ms: u64 },
     /// `TDAttack` — melee/ranged strike (`cract.cc:1325`); execute stub until Phase E2.
     Attack,
-    /// `TDRotate` — turn toward `target_id` (`cract.cc:818`, `Rotate(Target)` `cract.cc:452`).
-    /// `CalculateDelay` falls through to `default` ⇒ delay 0, so the atomic `Execute` loop
-    /// drains it in the same beat as a following zero-delay `Attack` (Phase 8 / GL#7).
-    Rotate { target_id: CreatureId },
 }
 
 /// Per-creature action queue paired with the global wakeup heap.
@@ -107,12 +104,6 @@ impl CreatureTodo {
         self.queue
             .iter()
             .any(|a| matches!(a, CreatureAction::Attack))
-    }
-
-    pub fn has_rotate(&self) -> bool {
-        self.queue
-            .iter()
-            .any(|a| matches!(a, CreatureAction::Rotate { .. }))
     }
 }
 
@@ -198,38 +189,6 @@ impl GameWorld {
             ?cid,
             action_queue_len = k.base().todo.queue.len(),
             "idle_todo: enqueue_attack"
-        );
-        true
-    }
-
-    /// Push `Rotate { target_id }` if not already queued — Phase 8 / AI#22.
-    ///
-    /// C++ `crnonpl.cc:2872-2873` calls `Rotate(Target)` directly (unconditional in
-    /// ATTACKING/PANIC). Rust enqueues it as a `TDRotate` action (`cract.cc:818`) so the
-    /// atomic `Execute` drain fires `Rotate` + a following zero-delay `Attack` in one beat
-    /// (200 ms), matching the C++ outcome without the `walk_timer_idle` gate that previously
-    /// skipped the rotate when a walk was armed.
-    pub(crate) fn enqueue_creature_rotate(
-        &mut self,
-        cid: CreatureId,
-        target_id: CreatureId,
-    ) -> bool {
-        let Some(k) = self.creatures.get_mut(cid) else {
-            return false;
-        };
-        if k.base().todo.has_rotate() {
-            return false;
-        }
-        k.base_mut()
-            .todo
-            .queue
-            .push_back(CreatureAction::Rotate { target_id });
-        tracing::debug!(
-            creature = k.base().name.as_str(),
-            ?cid,
-            ?target_id,
-            action_queue_len = k.base().todo.queue.len(),
-            "idle_todo: enqueue_rotate"
         );
         true
     }

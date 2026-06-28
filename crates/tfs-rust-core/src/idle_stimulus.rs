@@ -73,9 +73,6 @@ pub(crate) enum TodoExecuteKind {
     Attack,
     DistanceAttack,
     AttackDeferred,
-    /// `TDRotate` — zero-delay turn toward target; chains to the next action in the same beat
-    /// (Phase 8 / GL#7 atomic `Execute` drain).
-    Rotate,
 }
 
 impl GameWorld {
@@ -767,6 +764,17 @@ impl GameWorld {
 
             let dist = chebyshev(pos, target_pos);
             if spell.range > 0 && dist > spell.range {
+                continue;
+            }
+            // C++ `VictimShapeSpell` (`magic.cc:423`) and `CircleShapeSpell` (used by
+            // `DestinationShapeSpell`, `magic.cc:522`) both check `Actor->posz != DestZ`
+            // → return. `OriginShapeSpell`/`AngleShapeSpell` use `Actor->posz` for all
+            // tiles (implicitly same-Z). `Actor` is self-cast. So only `Victim` and
+            // `Destination` need the gate — `Origin`/`Angle` tiles already use `caster_pos.z`
+            // (`monster_idle_spell_tiles` lines 684, 701).
+            if matches!(spell.shape, SpellShape::Victim | SpellShape::Destination)
+                && pos.z != target_pos.z
+            {
                 continue;
             }
             if self.monster_idle_suppress_adjacent_melee_spell(cid, dist) {
@@ -1540,12 +1548,13 @@ impl GameWorld {
         self.monster_can_use_attack(cid, pos, attack_id)
     }
 
-    /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871` (after `ToDoGo`, before `ToDoAttack`).
-    ///
-    /// Phase 8 / AI#22: enqueues `CreatureAction::Rotate { target_id }` instead of calling
-    /// `monster_update_look_direction` directly. The enqueued action executes without the
-    /// `walk_timer_idle` gate (matching C++'s unconditional `Rotate(Target)`), and the atomic
-    /// `Execute` drain fires it + a following zero-delay `Attack` in one beat (200 ms).
+    /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871` (after `ToDoGo`, before
+    /// `ToDoAttack`). Called **directly** (not enqueued), matching the C++ unconditional
+    /// `Rotate(Target)` direct call. The 0x6B turn broadcast and the first `TDGo` move packet
+    /// land in the same beat, so the client renders the turn imperceptibly — the move packet
+    /// immediately overrides the facing direction. Enqueuing `Rotate` as a todo action (the
+    /// Phase 8 approach) caused a visible "turn on the spot" because the 0x6B fired in a
+    /// separate beat from any move packet (audit: turn-on-spot defect).
     pub(crate) fn monster_idle_rotate_toward_attack_target(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
@@ -1560,14 +1569,13 @@ impl GameWorld {
             m.base.attack_target
         });
         if let Some(target_id) = target_id {
-            self.enqueue_creature_rotate(cid, target_id);
+            self.monster_execute_rotate_toward(cid, target_id);
         }
     }
 
-    /// Execute a queued `CreatureAction::Rotate` — C++ `Rotate(TCreature *Target)`
-    /// (`cract.cc:452-473`). No `walk_timer_idle` gate: the turn is unconditional, matching
-    /// the C++ idle tail (`crnonpl.cc:2872-2873`). If the target is gone, no-op (C++ checks
-    /// `Target == NULL` and returns).
+    /// C++ `Rotate(TCreature *Target)` — `cract.cc:452-473`. No `walk_timer_idle` gate: the
+    /// turn is unconditional, matching the C++ idle tail (`crnonpl.cc:2872-2873`). If the
+    /// target is gone, no-op (C++ checks `Target == NULL` and returns).
     pub(crate) fn monster_execute_rotate_toward(&mut self, cid: CreatureId, target_id: CreatureId) {
         let (pos, current) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (m.base.position, m.base.direction),
@@ -2233,18 +2241,6 @@ impl GameWorld {
                     }
                 }
             }
-            CreatureAction::Rotate { target_id } => {
-                // C++ `TDRotate` → `Rotate(Target)` (`cract.cc:818`, `:452`). `CalculateDelay`
-                // falls through to `default` ⇒ delay 0, so the atomic `Execute` drain fires
-                // this and a following zero-delay `Attack` in one beat (Phase 8 / GL#7).
-                // Unlike `monster_update_look_direction`, this path has NO `walk_timer_idle`
-                // gate — matching C++'s unconditional `Rotate(Target)` in ATTACKING/PANIC
-                // (`crnonpl.cc:2872-2873`).
-                trace_creature_todo(self, cid, "execute_rotate");
-                self.monster_execute_rotate_toward(cid, target_id);
-                trace_creature_todo(self, cid, "execute_rotate_done");
-                TodoExecuteKind::Rotate
-            }
         };
 
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -2359,8 +2355,7 @@ impl GameWorld {
     pub(crate) fn run_monster_todo_execute(&mut self, cid: CreatureId) {
         match self.execute_creature_todo_action(cid) {
             Some(TodoExecuteKind::Go)
-            | Some(TodoExecuteKind::Attack)
-            | Some(TodoExecuteKind::Rotate) => {
+            | Some(TodoExecuteKind::Attack) => {
                 self.finish_creature_todo_execute(cid);
             }
             Some(TodoExecuteKind::DistanceAttack) => {
@@ -4633,20 +4628,24 @@ mod tests {
         assert!(matches!(todo.queue[1], CreatureAction::Attack));
     }
 
-    // ---- Phase 8: CreatureAction::Rotate + atomic Execute drain (GL#7, AI#22) ----
+    // ---- Rotate direct call (audit: turn-on-spot defect) ----
+    //
+    // C++ `Rotate(Target)` is called directly in `IdleStimulus` (`crnonpl.cc:2872-2873`),
+    // NOT enqueued as a `TDRotate` todo action. The 0x6B turn broadcast and the first `TDGo`
+    // move packet land in the same beat, so the client renders the turn imperceptibly.
+    // Enqueuing `Rotate` caused a visible "turn on the spot" because the 0x6B fired in a
+    // separate beat from any move packet.
 
-    /// Phase 8 / GL#7: `Rotate` + `Attack` (both delay 0) drain in one `run_monster_todo_execute`
-    /// call — one beat (200 ms), not two. The monster turns toward the target AND strikes in the
-    /// same beat, matching C++ `crnonpl.cc:2872-2877` + `cract.cc:783-898` `Execute` while-loop.
+    /// `monster_idle_rotate_toward_attack_target` turns the monster directly (no enqueue),
+    /// matching C++'s unconditional `Rotate(Target)` direct call. The direction changes
+    /// immediately and no `Rotate` action is left in the todo queue.
     #[test]
-    fn test_phase8_rotate_then_attack_fires_in_one_beat() {
+    fn test_rotate_direct_call_turns_monster_immediately() {
         let mut world = beat_driven_test_world();
         world.server_ms = 1000;
         let (monster, player) = e1_melee_target_setup(&mut world, 15);
-        // Force ATTACKING so the rotate path is active; attack_target is already set by e1.
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.state = MonsterState::Attacking;
-            m.melee_attack = 7;
         }
         // Monster starts facing North (insert_monster default); player is East at (101,100).
         assert_eq!(
@@ -4654,41 +4653,33 @@ mod tests {
             Direction::North
         );
 
-        // Enqueue Rotate(player) + Attack — mirrors the idle combat tail order.
-        assert!(world.enqueue_creature_rotate(monster, player));
-        assert!(world.enqueue_creature_attack(monster));
+        world.monster_idle_rotate_toward_attack_target(monster);
 
-        let hp_before = world.creatures.get(player).unwrap().base().health;
-
-        // Single execute call must drain BOTH actions (atomic Execute drain).
-        let server_ms_before = world.server_ms;
-        world.run_monster_todo_execute(monster);
-
-        // Rotate fired: direction now East toward the player.
+        // Direction changed immediately — no enqueue, no deferred execute.
         assert_eq!(
             world.creatures.get(monster).unwrap().base().direction,
             Direction::East,
-            "Rotate must turn the monster toward the target in the same beat"
+            "Rotate must turn the monster toward the target immediately (direct call)"
         );
-        // Attack fired: HP dropped in the same beat.
-        let hp_after = world.creatures.get(player).unwrap().base().health;
-        assert!(
-            hp_after < hp_before,
-            "Attack must fire in the same beat as Rotate (atomic Execute drain)"
-        );
-        // No beat advanced — both fired within one `run_monster_todo_execute` call (one 200 ms beat).
-        assert_eq!(
-            world.server_ms, server_ms_before,
-            "Rotate + Attack must drain without advancing server_ms (same-beat atomic drain)"
-        );
+        // No Rotate action in the queue — it was a direct call, not an enqueue.
+        // (CreatureAction no longer has a Rotate variant; the queue can only hold
+        // Go/Wait/Attack, so this is structurally guaranteed.)
+        let _ = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .todo
+            .queue
+            .iter()
+            .count();
     }
 
-    /// Phase 8 / AI#22: `Rotate` is enqueued even when a walk (`Go`) is already armed. The old
-    /// `monster_update_look_direction` path was gated by `walk_timer_idle` and would SKIP the
-    /// rotate when a walk timer was armed — causing the 400 ms turn-then-hit defect. The enqueued
-    /// `CreatureAction::Rotate` bypasses that gate, matching C++'s unconditional `Rotate(Target)`.
+    /// `Rotate(Target)` fires even when a walk (`Go`) is already armed — no `walk_timer_idle`
+    /// gate, matching C++'s unconditional direct call. The old `monster_update_look_direction`
+    /// path was gated and would SKIP the rotate when a walk timer was armed.
     #[test]
-    fn test_phase8_rotate_enqueued_when_walk_armed() {
+    fn test_rotate_direct_call_fires_when_walk_armed() {
         let mut world = beat_driven_test_world();
         world.server_ms = 1000;
         let (monster, player) = e1_melee_target_setup(&mut world, 15);
@@ -4710,29 +4701,24 @@ mod tests {
             "test precondition: walk timer must be armed (walk_timer_idle == false)"
         );
 
-        // The idle rotate tail must still enqueue Rotate despite the armed walk timer.
+        // The idle rotate tail must still turn the monster despite the armed walk timer.
         world.monster_idle_rotate_toward_attack_target(monster);
 
-        assert!(
-            world
-                .creatures
-                .get(monster)
-                .unwrap()
-                .base()
-                .todo
-                .has_rotate(),
-            "Rotate must be enqueued even when a walk timer is armed (AI#22 fix)"
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().direction,
+            Direction::East,
+            "Rotate must fire directly even when a walk timer is armed (no walk_timer_idle gate)"
         );
     }
 
-    /// Phase 8: the idle combat tail enqueues `Rotate` before `Attack` so the atomic drain fires
-    /// both in one beat. Verifies the enqueue order produced by
-    /// `monster_idle_rotate_toward_attack_target` + `monster_idle_maybe_enqueue_attack`.
+    /// The idle combat tail calls `Rotate(Target)` directly (not enqueued) before
+    /// `ToDoAttack` is enqueued — matching C++ `crnonpl.cc:2872-2877` order. The turn
+    /// broadcast lands in the same beat as the first `Go`/`Attack`, making it imperceptible.
     #[test]
-    fn test_phase8_idle_tail_enqueues_rotate_before_attack() {
+    fn test_idle_tail_rotate_direct_then_attack_enqueued() {
         let mut world = beat_driven_test_world();
         world.server_ms = 1000;
-        let (monster, player) = e1_melee_target_setup(&mut world, 15);
+        let (monster, _player) = e1_melee_target_setup(&mut world, 15);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.state = MonsterState::Attacking;
             m.melee_attack = 7;
@@ -4743,21 +4729,19 @@ mod tests {
         let attack_enqueued = world.monster_idle_maybe_enqueue_attack(monster);
         assert!(attack_enqueued);
 
+        // Rotate was a direct call — direction already changed, no Rotate in the queue.
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().direction,
+            Direction::East,
+            "Rotate direct call must have turned the monster"
+        );
+        // Attack is enqueued (Rotate is not, since it was a direct call).
+        // (CreatureAction no longer has a Rotate variant; the queue can only hold
+        // Go/Wait/Attack, so absence of Rotate is structurally guaranteed.)
         let todo = &world.creatures.get(monster).unwrap().base().todo;
-        // Rotate must precede Attack so the atomic drain fires turn-then-hit in one beat.
-        let rotate_idx = todo
-            .queue
-            .iter()
-            .position(|a| matches!(a, CreatureAction::Rotate { .. }));
-        let attack_idx = todo
-            .queue
-            .iter()
-            .position(|a| matches!(a, CreatureAction::Attack));
-        assert!(rotate_idx.is_some(), "Rotate must be enqueued");
-        assert!(attack_idx.is_some(), "Attack must be enqueued");
         assert!(
-            rotate_idx.unwrap() < attack_idx.unwrap(),
-            "Rotate must precede Attack in the queue (crnonpl.cc:2872-2877 order)"
+            todo.queue.iter().any(|a| matches!(a, CreatureAction::Attack)),
+            "Attack must be enqueued after the direct Rotate call"
         );
     }
 
@@ -6064,6 +6048,66 @@ mod tests {
             base.follow_target,
             Some(target),
             "AI#25: monster with SeeInvisible must keep invisible target"
+        );
+    }
+
+    /// C++ `VictimShapeSpell` (`magic.cc:423`) checks `Actor->posz != Victim->posz` → return,
+    /// and `CircleShapeSpell` (`magic.cc:522`, used by `DestinationShapeSpell`) checks
+    /// `Actor->posz != DestZ` → return. A monster must NOT cast a `Victim`/`Destination`
+    /// spell at a target on a different floor, even if `chebyshev` (x/y only) says it's in range.
+    #[test]
+    fn test_772_spell_blocked_across_z_levels() {
+        use crate::creature::{MonsterAiConfig, MonsterSpell, SpellImpact, SpellShape};
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
+        };
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        // Monster on z=7, player on z=8 — same x/y (in spell range, different floor).
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(103, 100, 8);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        // Construct a Victim-shape damage spell with range 5 and delay=1 (always casts).
+        let mut cfg = MonsterAiConfig::default();
+        cfg.spells.push(MonsterSpell {
+            delay: 1,
+            range: 5,
+            radius: 0,
+            min_cycle: 0,
+            shape: SpellShape::Victim,
+            impact: SpellImpact::Damage {
+                element: CombatType::Energy,
+                base: 50,
+                variation: 0,
+            },
+            shoot_effect: None,
+            area_effect: None,
+        });
+        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, cfg);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.state = MonsterState::Attacking;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        let hp_before = world.creatures.get(player).unwrap().base().health;
+        // Run idle stimulus — the spell loop will attempt to cast.
+        world.monster_idle_stimulus(monster);
+        let hp_after = world.creatures.get(player).unwrap().base().health;
+
+        assert_eq!(
+            hp_before, hp_after,
+            "monster must not cast Victim spell at a target on a different Z-level \
+             (C++ VictimShapeSpell magic.cc:423 checks Actor->posz != Victim->posz)"
         );
     }
 }

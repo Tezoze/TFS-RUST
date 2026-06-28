@@ -465,6 +465,16 @@ impl GameWorld {
         }
 
         let target_pos = self.creatures.get(target_id).unwrap().position();
+        // C++ `ObjectDistance` returns `INT_MAX` when Z-levels differ (`info.cc:313`),
+        // so `TCombat::Attack` gets `Distance > 8` → `StopAttack` + `TARGETLOST`
+        // (`crcombat.cc:574-578`). Block the attack when on a different floor —
+        // `chebyshev` only uses x/y and would otherwise allow cross-floor melee.
+        if monster_pos.z != target_pos.z {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().delay_attack_ms(server_ms, 200);
+            }
+            return;
+        }
         let cheb = chebyshev(monster_pos, target_pos);
         let in_pz = self.monster_tile_in_protection_zone(monster_pos)
             || self.monster_tile_in_protection_zone(target_pos);
@@ -2180,13 +2190,13 @@ impl GameWorld {
 
     /// TFS `Monster::updateLookDirection` + `0x6B` broadcast.
     ///
-    /// NOTE(Phase 8 / AI#22): the ATTACKING/PANIC rotate-toward-attack-target path no longer
-    /// calls this function — it enqueues `CreatureAction::Rotate { target_id }` via
-    /// [`GameWorld::monster_idle_rotate_toward_attack_target`] and executes it through
-    /// [`GameWorld::monster_execute_rotate_toward`], which has NO `walk_timer_idle` gate
-    /// (matching C++'s unconditional `Rotate(Target)` at `crnonpl.cc:2872-2873`). This
-    /// function is still used by the casting turn (`monster_idle_try_casting`) and the
-    /// 1098 `onThink` path, where the `walk_timer_idle` gate remains correct.
+    /// NOTE: the ATTACKING/PANIC rotate-toward-attack-target path no longer calls this
+    /// function — it calls [`GameWorld::monster_execute_rotate_toward`] directly via
+    /// [`GameWorld::monster_idle_rotate_toward_attack_target`], which has NO
+    /// `walk_timer_idle` gate (matching C++'s unconditional `Rotate(Target)` at
+    /// `crnonpl.cc:2872-2873`). This function is still used by the casting turn
+    /// (`monster_idle_try_casting`) and the 1098 `onThink` path, where the
+    /// `walk_timer_idle` gate remains correct.
     pub fn monster_update_look_direction(&mut self, cid: CreatureId) {
         let (pos, target_id, current, is_idle) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
@@ -4694,6 +4704,54 @@ mod world_tests {
         assert!(
             is_diagonal_step(nw_start, nw_tiles[0]),
             "NW first hop must be diagonal (live ref go_exec diag=1)"
+        );
+    }
+
+    /// C++ `ObjectDistance` returns `INT_MAX` when Z-levels differ (`info.cc:313`),
+    /// so `TCombat::Attack` gets `Distance > 8` → `StopAttack` + `TARGETLOST`
+    /// (`crcombat.cc:574-578`). A monster must NOT deal damage to a player on a
+    /// different floor, even if `chebyshev` (x/y only) says they're adjacent.
+    #[test]
+    fn test_772_attack_blocked_across_z_levels() {
+        use crate::creature::MonsterState;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player,
+            test_player,
+        };
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        // Monster on z=7, player on z=8 — same x/y (adjacent in chebyshev, different floor).
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 8);
+        ensure_walkable_tile(&mut world.map, mpos, 2148);
+        ensure_walkable_tile(&mut world.map, ppos, 2148);
+
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let mut player = test_player("Hero", ppos);
+        player.base.health = 500;
+        player.base.max_health = 500;
+        let player = insert_player(&mut world, player);
+        world.map.register_creature_at(ppos, player);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.melee_skill = 15;
+            m.melee_attack = 7;
+            m.is_hostile = true;
+            m.base.attack_target = Some(player);
+            m.base.follow_target = Some(player);
+            m.state = MonsterState::Attacking;
+        }
+
+        let hp_before = world.creatures.get(player).unwrap().base().health;
+        world.monster_do_attacking(monster, 200);
+        let hp_after = world.creatures.get(player).unwrap().base().health;
+
+        assert_eq!(
+            hp_before, hp_after,
+            "monster must not deal damage to a player on a different Z-level \
+             (C++ ObjectDistance returns INT_MAX for diff Z → Distance>8 → TARGETLOST)"
         );
     }
 }
