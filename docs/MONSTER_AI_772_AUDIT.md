@@ -1,6 +1,6 @@
 # 772 Monster AI — High-Level Parity Audit
 
-**Status (Jun 2026, post-Pass 8):** Phases 1–6 and the Pass 8 re-audit fixes are **DONE** — push/collision rewrite, 772 LOS, chase leash, casting loop, RNG per-draw routing, lifecycle polish, and all 9 HIGH/MED Pass 8 push-gate fixes (AI#23 kick-and-retry, P1-A1..A3, P1-B1..B5). The remaining "feel" defects cluster around **melee smoothness**: the atomic `Execute` loop (GL#7), the Rotate gate (AI#22), the Z-level target clear (AI#24), and the `CreatureAction` enum gap (Structural). Two LOW Pass 8 items (P1-B6/B7) are also open. See "Implementation Status Summary" and "Next Implementation Plan" at end.
+**Status (Jun 2026, post-Phase 8):** Phases 1–6, the Pass 8 re-audit fixes, and the Next-Implementation-Plan **Phase 8** (`CreatureAction::Rotate` + atomic `Execute` drain) are **DONE** — push/collision rewrite, 772 LOS, chase leash, casting loop, RNG per-draw routing, lifecycle polish, all 9 HIGH/MED Pass 8 push-gate fixes (AI#23 kick-and-retry, P1-A1..A3, P1-B1..B5), and the GL#7/AI#22/Structural melee smoothness fix (Rotate+Attack fires in one 200 ms beat). The remaining "feel" defects cluster around the Z-level target clear (AI#24), the move-stimulus fan-out (GL#24), and the drunk-walk RNG stream (GL#22). Two LOW Pass 8 items (P1-B6/B7) are also open. See "Implementation Status Summary" and "Next Implementation Plan" at end.
 
 Scope: a *structural* pass over the Rust monster AI against the CipSoft 772 decompile
 (`reference/cipsoft-772/tibia-game-master/src/`). Focus areas: idle stimulus, monster walking,
@@ -1770,9 +1770,17 @@ Convention per phase: **Goal · Findings · C++ ref · Rust sites · Steps · Ve
 Each phase is independently shippable and ends at a green gate (`rtk cargo check` + `rtk cargo
 clippy` + `rtk cargo test`). Capture C++-behaviour surprises in `tasks/lessons.md`.
 
-## Phase 8 — `CreatureAction` enum + atomic `Execute` loop (GL#7, AI#22, Structural)
+## Phase 8 — `CreatureAction` enum + atomic `Execute` loop (GL#7, AI#22, Structural) — **DONE**
 
 **The primary smoothness defect.** Every melee turn-and-hit takes 400 ms in Rust vs 200 ms in C++.
+
+> **Update (Jun 2026, implemented):** `CreatureAction::Rotate { target_id }` added (mirrors C++
+> `TDRotate` `cract.cc:818`); `monster_idle_rotate_toward_attack_target` now enqueues the action
+> instead of calling the `walk_timer_idle`-gated `monster_update_look_direction` (AI#22); the
+> atomic drain is realized via the existing `finish_creature_todo_execute` → `run_monster_todo_execute`
+> tail-recursion (Rotate routed through the `Go|Attack` dispatch arm), semantically equivalent to
+> C++'s `while(true)` `Execute` and bounded by the `+1` clamp — no risky hot-path rewrite needed.
+> 3 new tests; 408 pass. See `tasks/lessons.md` #78.
 
 - **Goal:** Rotate+Attack fires in one beat; the ToDo queue drains zero-delay entries atomically.
 - **Findings:** Structural (CreatureAction enum), GL#7 (atomic Execute), AI#22 (Rotate gate).

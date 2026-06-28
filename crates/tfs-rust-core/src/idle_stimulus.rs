@@ -27,11 +27,13 @@ use crate::creature_todo::{trace_creature_todo, CreatureAction, MONSTER_IDLE_WAI
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::monster_ai::{
-    chebyshev, manhattan, monster_idle_chase_step_budget, monster_master_follow_in_wait_band,
-    MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult, MonsterIdleChaseRepathOutcome,
+    chebyshev, compute_look_toward_target, manhattan, monster_idle_chase_step_budget,
+    monster_master_follow_in_wait_band, MonsterCombatCloseChaseEnqueue,
+    MonsterEnqueueAttackResult, MonsterIdleChaseRepathOutcome,
 };
 use crate::monster_targets::TargetSearchType;
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
+use crate::walk::creature_turn_with_broadcast;
 
 /// C++ `TMonster::IdleStimulus` walking arms — `crnonpl.cc:2676`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +73,9 @@ pub(crate) enum TodoExecuteKind {
     Attack,
     DistanceAttack,
     AttackDeferred,
+    /// `TDRotate` — zero-delay turn toward target; chains to the next action in the same beat
+    /// (Phase 8 / GL#7 atomic `Execute` drain).
+    Rotate,
 }
 
 impl GameWorld {
@@ -1525,19 +1530,56 @@ impl GameWorld {
     }
 
     /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871` (after `ToDoGo`, before `ToDoAttack`).
+    ///
+    /// Phase 8 / AI#22: enqueues `CreatureAction::Rotate { target_id }` instead of calling
+    /// `monster_update_look_direction` directly. The enqueued action executes without the
+    /// `walk_timer_idle` gate (matching C++'s unconditional `Rotate(Target)`), and the atomic
+    /// `Execute` drain fires it + a following zero-delay `Attack` in one beat (200 ms).
     pub(crate) fn monster_idle_rotate_toward_attack_target(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
         }
-        let should_rotate = self.creatures.get(cid).is_some_and(|k| {
+        let target_id = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
-                return false;
+                return None;
             };
-            matches!(m.state, MonsterState::Attacking | MonsterState::Panic)
-                && m.base.attack_target.is_some()
+            if !matches!(m.state, MonsterState::Attacking | MonsterState::Panic) {
+                return None;
+            }
+            m.base.attack_target
         });
-        if should_rotate {
-            self.monster_update_look_direction(cid);
+        if let Some(target_id) = target_id {
+            self.enqueue_creature_rotate(cid, target_id);
+        }
+    }
+
+    /// Execute a queued `CreatureAction::Rotate` — C++ `Rotate(TCreature *Target)`
+    /// (`cract.cc:452-473`). No `walk_timer_idle` gate: the turn is unconditional, matching
+    /// the C++ idle tail (`crnonpl.cc:2872-2873`). If the target is gone, no-op (C++ checks
+    /// `Target == NULL` and returns).
+    pub(crate) fn monster_execute_rotate_toward(&mut self, cid: CreatureId, target_id: CreatureId) {
+        let (pos, current) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => (m.base.position, m.base.direction),
+            _ => return,
+        };
+        let target_pos = match self.creatures.get(target_id) {
+            Some(k) => k.position(),
+            None => return,
+        };
+        let new_dir = compute_look_toward_target(pos, target_pos, current);
+        if new_dir != current {
+            creature_turn_with_broadcast(self, cid, new_dir);
+            if chase_debug::chase_path_debug_enabled() {
+                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                    chase_debug::log_rotate(
+                        self.chase_trace_tick(),
+                        cid,
+                        m.base.name.as_str(),
+                        new_dir as u8,
+                        Some(target_id.data().as_ffi()),
+                    );
+                }
+            }
         }
     }
 
@@ -2180,6 +2222,18 @@ impl GameWorld {
                     }
                 }
             }
+            CreatureAction::Rotate { target_id } => {
+                // C++ `TDRotate` → `Rotate(Target)` (`cract.cc:818`, `:452`). `CalculateDelay`
+                // falls through to `default` ⇒ delay 0, so the atomic `Execute` drain fires
+                // this and a following zero-delay `Attack` in one beat (Phase 8 / GL#7).
+                // Unlike `monster_update_look_direction`, this path has NO `walk_timer_idle`
+                // gate — matching C++'s unconditional `Rotate(Target)` in ATTACKING/PANIC
+                // (`crnonpl.cc:2872-2873`).
+                trace_creature_todo(self, cid, "execute_rotate");
+                self.monster_execute_rotate_toward(cid, target_id);
+                trace_creature_todo(self, cid, "execute_rotate_done");
+                TodoExecuteKind::Rotate
+            }
         };
 
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -2285,9 +2339,17 @@ impl GameWorld {
     }
 
     /// Run one queued action (772 monsters).
+    ///
+    /// Phase 8 / GL#7: the atomic `Execute` drain is realized via the tail-recursion in
+    /// [`finish_creature_todo_execute`] → `run_monster_todo_execute`, which chains zero-delay
+    /// actions (e.g. `Rotate` → `Attack`) in one beat — semantically equivalent to C++'s
+    /// `while(true)` `Execute` loop (`cract.cc:783-898`) and bounded by the `+1` re-insertion
+    /// clamp (`ToDoStart`, audit Finding 17).
     pub(crate) fn run_monster_todo_execute(&mut self, cid: CreatureId) {
         match self.execute_creature_todo_action(cid) {
-            Some(TodoExecuteKind::Go) | Some(TodoExecuteKind::Attack) => {
+            Some(TodoExecuteKind::Go)
+            | Some(TodoExecuteKind::Attack)
+            | Some(TodoExecuteKind::Rotate) => {
                 self.finish_creature_todo_execute(cid);
             }
             Some(TodoExecuteKind::DistanceAttack) => {
@@ -4558,6 +4620,134 @@ mod tests {
             CreatureAction::Wait { delay_ms: 100 }
         ));
         assert!(matches!(todo.queue[1], CreatureAction::Attack));
+    }
+
+    // ---- Phase 8: CreatureAction::Rotate + atomic Execute drain (GL#7, AI#22) ----
+
+    /// Phase 8 / GL#7: `Rotate` + `Attack` (both delay 0) drain in one `run_monster_todo_execute`
+    /// call — one beat (200 ms), not two. The monster turns toward the target AND strikes in the
+    /// same beat, matching C++ `crnonpl.cc:2872-2877` + `cract.cc:783-898` `Execute` while-loop.
+    #[test]
+    fn test_phase8_rotate_then_attack_fires_in_one_beat() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let (monster, player) = e1_melee_target_setup(&mut world, 15);
+        // Force ATTACKING so the rotate path is active; attack_target is already set by e1.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Attacking;
+            m.melee_attack = 7;
+        }
+        // Monster starts facing North (insert_monster default); player is East at (101,100).
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().direction,
+            Direction::North
+        );
+
+        // Enqueue Rotate(player) + Attack — mirrors the idle combat tail order.
+        assert!(world.enqueue_creature_rotate(monster, player));
+        assert!(world.enqueue_creature_attack(monster));
+
+        let hp_before = world.creatures.get(player).unwrap().base().health;
+
+        // Single execute call must drain BOTH actions (atomic Execute drain).
+        let server_ms_before = world.server_ms;
+        world.run_monster_todo_execute(monster);
+
+        // Rotate fired: direction now East toward the player.
+        assert_eq!(
+            world.creatures.get(monster).unwrap().base().direction,
+            Direction::East,
+            "Rotate must turn the monster toward the target in the same beat"
+        );
+        // Attack fired: HP dropped in the same beat.
+        let hp_after = world.creatures.get(player).unwrap().base().health;
+        assert!(
+            hp_after < hp_before,
+            "Attack must fire in the same beat as Rotate (atomic Execute drain)"
+        );
+        // No beat advanced — both fired within one `run_monster_todo_execute` call (one 200 ms beat).
+        assert_eq!(
+            world.server_ms, server_ms_before,
+            "Rotate + Attack must drain without advancing server_ms (same-beat atomic drain)"
+        );
+    }
+
+    /// Phase 8 / AI#22: `Rotate` is enqueued even when a walk (`Go`) is already armed. The old
+    /// `monster_update_look_direction` path was gated by `walk_timer_idle` and would SKIP the
+    /// rotate when a walk timer was armed — causing the 400 ms turn-then-hit defect. The enqueued
+    /// `CreatureAction::Rotate` bypasses that gate, matching C++'s unconditional `Rotate(Target)`.
+    #[test]
+    fn test_phase8_rotate_enqueued_when_walk_armed() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let (monster, player) = e1_melee_target_setup(&mut world, 15);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Attacking;
+        }
+
+        // Arm a Go first (simulates the walk branch having queued a step).
+        assert!(world.enqueue_creature_go(monster));
+        // Arm a wakeup so walk_timer_idle() returns false — the old gate condition.
+        world.schedule_immediate_todo_wakeup(monster);
+        assert!(
+            !world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .walk_timer_idle(world.beat_driven_loop),
+            "test precondition: walk timer must be armed (walk_timer_idle == false)"
+        );
+
+        // The idle rotate tail must still enqueue Rotate despite the armed walk timer.
+        world.monster_idle_rotate_toward_attack_target(monster);
+
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .unwrap()
+                .base()
+                .todo
+                .has_rotate(),
+            "Rotate must be enqueued even when a walk timer is armed (AI#22 fix)"
+        );
+    }
+
+    /// Phase 8: the idle combat tail enqueues `Rotate` before `Attack` so the atomic drain fires
+    /// both in one beat. Verifies the enqueue order produced by
+    /// `monster_idle_rotate_toward_attack_target` + `monster_idle_maybe_enqueue_attack`.
+    #[test]
+    fn test_phase8_idle_tail_enqueues_rotate_before_attack() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let (monster, player) = e1_melee_target_setup(&mut world, 15);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Attacking;
+            m.melee_attack = 7;
+        }
+
+        // Invoke the two idle combat tail calls in order (crnonpl.cc:2872-2877).
+        world.monster_idle_rotate_toward_attack_target(monster);
+        let attack_enqueued = world.monster_idle_maybe_enqueue_attack(monster);
+        assert!(attack_enqueued);
+
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        // Rotate must precede Attack so the atomic drain fires turn-then-hit in one beat.
+        let rotate_idx = todo
+            .queue
+            .iter()
+            .position(|a| matches!(a, CreatureAction::Rotate { .. }));
+        let attack_idx = todo
+            .queue
+            .iter()
+            .position(|a| matches!(a, CreatureAction::Attack));
+        assert!(rotate_idx.is_some(), "Rotate must be enqueued");
+        assert!(attack_idx.is_some(), "Attack must be enqueued");
+        assert!(
+            rotate_idx.unwrap() < attack_idx.unwrap(),
+            "Rotate must precede Attack in the queue (crnonpl.cc:2872-2877 order)"
+        );
     }
 
     fn e4_cobra_config() -> MonsterAiConfig {

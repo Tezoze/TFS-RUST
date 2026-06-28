@@ -182,3 +182,22 @@ C++ ref: `crnonpl.cc:1296` `StartMonsterhomeTimer`; `:2359–2405` summon despaw
       speaker support.
 - [x] Tests — 10 new: respawn band/scaling/fixed (4), summon despawn/rebind (5), talk emit/no-emit (2).
       399 existing tests still pass. Clippy clean.
+
+## 772 Monster AI audit — Phase 8: CreatureAction::Rotate + atomic Execute drain — done
+- [x] `creature_todo.rs`: added `CreatureAction::Rotate { target_id }` (mirrors C++ `TDRotate`
+      `cract.cc:818`), `CreatureTodo::has_rotate`, `GameWorld::enqueue_creature_rotate`.
+- [x] `idle_stimulus.rs`: added `TodoExecuteKind::Rotate`; `CreatureAction::Rotate` arm in
+      `execute_creature_todo_action` → `monster_execute_rotate_toward` (NO `walk_timer_idle`
+      gate — matches C++ unconditional `Rotate(Target)` `cract.cc:452`); routed `Rotate` through
+      the `Go|Attack` dispatch in `run_monster_todo_execute` (atomic drain via
+      `finish_creature_todo_execute` tail-recursion — semantically equivalent to C++ `while(true)`
+      `Execute` `cract.cc:783-898`, bounded by the `+1` clamp).
+- [x] `idle_stimulus.rs`: `monster_idle_rotate_toward_attack_target` now enqueues
+      `CreatureAction::Rotate { target_id }` instead of calling the gated
+      `monster_update_look_direction` (AI#22 fix — rotate no longer skipped when walk armed).
+- [x] `monster_ai.rs`: doc note on `monster_update_look_direction` — ATTACKING/PANIC rotate path
+      now uses the enqueued action; this function retains its `walk_timer_idle` gate for the
+      casting turn + 1098 `onThink` path.
+- [x] Tests — 3 new: `test_phase8_rotate_then_attack_fires_in_one_beat` (direction + HP + no
+      server_ms advance in one call), `test_phase8_rotate_enqueued_when_walk_armed`,
+      `test_phase8_idle_tail_enqueues_rotate_before_attack`. 408 tests pass, clippy clean.

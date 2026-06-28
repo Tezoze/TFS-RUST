@@ -2179,6 +2179,14 @@ impl GameWorld {
     }
 
     /// TFS `Monster::updateLookDirection` + `0x6B` broadcast.
+    ///
+    /// NOTE(Phase 8 / AI#22): the ATTACKING/PANIC rotate-toward-attack-target path no longer
+    /// calls this function — it enqueues `CreatureAction::Rotate { target_id }` via
+    /// [`GameWorld::monster_idle_rotate_toward_attack_target`] and executes it through
+    /// [`GameWorld::monster_execute_rotate_toward`], which has NO `walk_timer_idle` gate
+    /// (matching C++'s unconditional `Rotate(Target)` at `crnonpl.cc:2872-2873`). This
+    /// function is still used by the casting turn (`monster_idle_try_casting`) and the
+    /// 1098 `onThink` path, where the `walk_timer_idle` gate remains correct.
     pub fn monster_update_look_direction(&mut self, cid: CreatureId) {
         let (pos, target_id, current, is_idle) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
