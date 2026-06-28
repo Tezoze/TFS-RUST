@@ -104,34 +104,31 @@ impl GameWorld {
         }
     }
 
-    /// 772 `ProcessCreatures` — full monster/NPC sweep ~1 Hz (`main.cc` `AdvanceGame`).
+    /// 772 `ProcessCreatures` — regen + death safety only (`crmain.cc:1075–1138`).
+    ///
+    /// **Not** an AI think sweep. C++ `ProcessCreatures` does HP/mana regen (via `SKILL_FED`),
+    /// player `CheckState` / logout marks, and a death safety net (`HP <= 0 && !IsDead → Death()`).
+    /// It does **not** call `onThink`, `IdleStimulus`, target validation, or idle status updates —
+    /// monster AI is driven entirely by the ToDoQueue / `IdleStimulus` / `CreatureMoveStimulus` /
+    /// `DamageStimulus`. Calling `monster_on_think` here caused premature target loss and sleep
+    /// transitions (audit RC1 — `docs/TFS-RUST_772_Monster_AI_Transition_Audit.md`).
+    ///
+    /// Regen is already handled by `process_skills_772` → `process_player_fed_regen_772`
+    /// (`process_skills.rs:29`). Logout is handled by `process_connections_772` /
+    /// `pending_idle_kick_772`. This function only retains the death safety net.
     pub fn process_creatures_772(&mut self) {
-        let interval_ms = EVENT_CREATURE_THINK_INTERVAL_MS;
-        let ids: Vec<CreatureId> = self
-            .creatures
-            .iter()
-            .filter(|(_, k)| {
-                matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
-                    && k.base().think_check_bucket.is_some()
-            })
-            .map(|(id, _)| id)
-            .collect();
+        // C++ iterates all creatures (`FirstFreeCreature`), not just think-bucketed ones.
+        let ids: Vec<CreatureId> = self.creatures.iter().map(|(id, _)| id).collect();
 
         for cid in ids {
-            if !self.creature_alive_for_think(cid) {
-                continue;
-            }
-
-            match self.creatures.get(cid) {
-                Some(CreatureKind::Monster(_)) => {
-                    self.monster_on_think(cid, interval_ms);
-                    // 772 monsters attack via todo `CreatureAction::Attack` from idle (E1-lite).
-                    if self.creature_alive_for_think(cid) && !self.beat_driven_loop {
-                        self.creature_on_attacking(cid, interval_ms);
-                    }
-                }
-                Some(CreatureKind::Npc(_)) => self.npc_on_think(cid, interval_ms),
-                _ => continue,
+            // C++ `ProcessCreatures` death safety (`crmain.cc:1113–1117`):
+            //   if(!Creature->IsDead && Creature->Skills[SKILL_HITPOINTS]->Get() <= 0){
+            //       error(...); Creature->Death();
+            //   }
+            // `apply_creature_death` is idempotent (returns early if creature gone).
+            let hp = self.creatures.get(cid).map(|k| k.base().health).unwrap_or(0);
+            if hp <= 0 && self.creatures.contains_key(cid) {
+                self.apply_creature_death(cid);
             }
         }
     }
@@ -418,8 +415,10 @@ mod tests {
         step_ticks(&mut world, start, 25, 50);
     }
 
+    /// RC1: `process_creatures_772` must NOT call `onThink` — C++ `ProcessCreatures`
+    /// (`crmain.cc:1075–1138`) is regen + death safety only. AI is ToDoQueue-driven.
     #[test]
-    fn process_creatures_772_thinks_at_1hz() {
+    fn process_creatures_772_does_not_call_on_think() {
         let (mut world, counter) = {
             let counter = std::sync::Arc::new(CountingEventDispatcher::default());
             let mut world = beat_driven_world();
@@ -434,24 +433,89 @@ mod tests {
         world.set_creature_think_check_bucket(npc, 0);
 
         const BEAT_MS: u64 = 200;
+        // 9 beats = 1800 ms → creature counter fires once at 1750 ms threshold.
         for _ in 0..9 {
             world.advance_beat_772(BEAT_MS);
         }
 
         assert_eq!(
             counter.total_think_calls(),
-            1,
-            "772 creature counter fires once at 1750 ms (9×200 ms beats)"
+            0,
+            "RC1: process_creatures_772 must not call onThink — AI is ToDoQueue-driven"
         );
 
+        // 5 more beats = 2800 ms cumulative → second ProcessCreatures fire.
         for _ in 0..5 {
             world.advance_beat_772(BEAT_MS);
         }
 
         assert_eq!(
             counter.total_think_calls(),
-            2,
-            "second ProcessCreatures at ~2750 ms cumulative"
+            0,
+            "RC1: second ProcessCreatures fire still must not call onThink"
+        );
+    }
+
+    /// RC1: `process_creatures_772` retains the C++ death safety net
+    /// (`crmain.cc:1113–1117`: `HP <= 0 && !IsDead → Death()`).
+    #[test]
+    fn process_creatures_772_applies_death_safety() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let monster = crate::test_world::support::insert_monster(&mut world, "Rat", pos, 200);
+
+        // Simulate a creature that has HP <= 0 but wasn't killed through the normal path.
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().health = 0;
+        }
+        assert!(world.creatures.contains_key(monster));
+
+        world.process_creatures_772();
+
+        assert!(
+            !world.creatures.contains_key(monster),
+            "RC1: process_creatures_772 death safety must kill creatures with HP <= 0"
+        );
+    }
+
+    /// RC1: `process_creatures_772` must not clear follow/attack targets.
+    /// Previously `monster_on_think` → `creature_on_think` cleared targets out of view
+    /// on a 1 Hz timer; C++ 772 only clears targets inside `IdleStimulus`.
+    #[test]
+    fn process_creatures_772_does_not_clear_targets() {
+        use crate::test_world::support::{insert_player, test_player};
+
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(115, 100, 7); // beyond 10-tile targeting range
+        ensure_walkable_tile(&mut world.map, mpos, 100);
+        ensure_walkable_tile(&mut world.map, ppos, 100);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = crate::test_world::support::insert_monster(&mut world, "Rat", mpos, 200);
+
+        // Manually set a target (simulating a chase that went out of view).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+        world.add_creature_think_check(monster);
+
+        world.process_creatures_772();
+
+        let still_has_target = world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().follow_target == Some(player));
+        assert!(
+            still_has_target,
+            "RC1: process_creatures_772 must not clear targets — only IdleStimulus does (crnonpl.cc:2418)"
         );
     }
 

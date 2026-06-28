@@ -1180,6 +1180,21 @@ impl GameWorld {
         }
 
         self.monster_idle_reschedule_target_bound_if_parked(cid);
+
+        // RC2: C++ `IdleStimulus` idle-wandering catch-all — `crnonpl.cc:2920–2939`.
+        // Every path through the C++ function either returns early with `ToDoStart()` (combat
+        // branches) or falls through to the idle-wandering tail which always ends with
+        // `ToDoWait(1000) + ToDoStart()`. The decomposed Rust helpers above cover the combat
+        // branches and the chase-target parked case, but when no target exists and roam fails
+        // (Hold outcome), no wakeup was scheduled — causing ~750 ms stalls. This tail mirrors
+        // the C++ catch-all: if nothing above armed a wakeup, enqueue a 1000 ms re-think.
+        let already_armed = self.creatures.get(cid).is_some_and(|k| {
+            let base = k.base();
+            !base.todo.is_empty() || base.next_wakeup.is_some()
+        });
+        if !already_armed {
+            self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+        }
     }
 
     /// C++ trailing `ToDoStart()` — never leave a live target without a heap wakeup (`crnonpl.cc:2809`).
@@ -1508,13 +1523,30 @@ impl GameWorld {
                     );
                 }
             }
+            // C++ `ToDoStart` always arms `NextWakeup` for the head todo entry when the list is
+            // non-empty (`cract.cc:1010-1023`). The walk branch normally schedules the Go via
+            // `idle_enqueue_paced_go`, but when `skip_idle_melee_chase` is true (ATTACKING/PANIC
+            // at dist>1) the walk branch is `Hold` and the Go is enqueued here by
+            // `monster_combat_enqueue_close_chase_go` — without a wakeup. That left the monster
+            // parked with `[Go, Attack]` and no heap entry until the ~1 Hz think tick rescued it
+            // via `monster_combat_reschedule_if_stalled`, causing a visible ~1 s stall after every
+            // chase-batch drain while the target was kiting (audit: close-chase-wakeup-gap).
             let needs_wakeup = self
                 .creatures
                 .get(cid)
-                .is_some_and(|k| k.base().next_wakeup.is_none() && !k.base().todo.has_go());
+                .is_some_and(|k| k.base().next_wakeup.is_none());
             if needs_wakeup {
-                let delay_ms = self.todo_attack_delay_ms(cid);
-                self.todo_start_from_action(cid, delay_ms);
+                let has_go = self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| k.base().todo.has_go());
+                if has_go {
+                    // Go was enqueued by close-chase — schedule its walk delay (head entry).
+                    let _ = self.todo_start_go_delay(cid, true);
+                } else {
+                    let delay_ms = self.todo_attack_delay_ms(cid);
+                    self.todo_start_from_action(cid, delay_ms);
+                }
             }
             MonsterEnqueueAttackResult::Enqueued
         } else {
@@ -2516,6 +2548,146 @@ mod tests {
             Some(wakeup)
         );
         assert_eq!(world.todo_queue.len(), heap_len);
+    }
+
+    /// RC2 — idle stimulus must always schedule a wakeup, even when no action was queued.
+    /// C++ `IdleStimulus` idle-wandering catch-all always ends with `ToDoWait(1000) + ToDoStart()`
+    /// (`crnonpl.cc:2938–2939`). Without it, a monster with no target and no roam step stalls.
+    #[test]
+    fn rc2_idle_stimulus_always_schedules_wakeup_when_no_action_queued() {
+        let mut world = beat_driven_test_world();
+        // Single walkable tile — monster is surrounded by non-walkable, so roam will fail.
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let monster = insert_monster(&mut world, "Rat", pos, 200);
+
+        // A second non-summon monster on the same floor prevents sleep
+        // (`should_sleep = false` in `monster_idle_772_acquire_target`) but is NOT a valid
+        // target (filtered out in the target selection loop), so the monster falls through
+        // to the idle-wandering catch-all with no target and no Go queued.
+        let bystander_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, bystander_pos, TEST_SYNTHETIC_GROUND_WP);
+        let _bystander = insert_monster(&mut world, "Spider", bystander_pos, 200);
+        world.map.register_creature_at(bystander_pos, _bystander);
+
+        // No target, no opponents — idle stimulus will try to roam and fail (Hold).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+        }
+
+        // Clear any pre-existing wakeup from spawn.
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().next_wakeup = None;
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        let has_wakeup = world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().next_wakeup.is_some());
+        assert!(
+            has_wakeup,
+            "RC2: idle stimulus must schedule a 1000 ms wakeup even when roam fails (Hold)"
+        );
+    }
+
+    /// RC2 — idle stimulus must not double-schedule when a wakeup was already armed by a branch.
+    #[test]
+    fn rc2_idle_stimulus_does_not_double_schedule_when_already_armed() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        for x in 101..=104 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        // Chase branch should have armed a wakeup (Go + ToDoStart).
+        let wakeup_after_chase = world
+            .creatures
+            .get(monster)
+            .and_then(|k| k.base().next_wakeup)
+            .expect("chase branch armed a wakeup");
+        let todo_len = world
+            .creatures
+            .get(monster)
+            .map(|k| k.base().todo.queue.len())
+            .unwrap_or(0);
+
+        // Run idle stimulus again — the trailing tail must NOT overwrite the existing wakeup.
+        world.monster_idle_stimulus(monster);
+        let wakeup_after_second = world
+            .creatures
+            .get(monster)
+            .and_then(|k| k.base().next_wakeup);
+
+        assert_eq!(
+            wakeup_after_second,
+            Some(wakeup_after_chase),
+            "RC2: trailing tail must not overwrite an already-armed wakeup"
+        );
+        // Todo list should not have an extra Wait stacked from the tail.
+        let todo_len_after = world
+            .creatures
+            .get(monster)
+            .map(|k| k.base().todo.queue.len())
+            .unwrap_or(0);
+        assert!(
+            todo_len_after <= todo_len + 1,
+            "RC2: trailing tail must not stack extra Wait actions when already armed"
+        );
+    }
+
+    /// RC2 — the trailing wakeup delay matches C++ `ToDoWait(1000)` (`crnonpl.cc:2938`).
+    #[test]
+    fn rc2_idle_trailing_wait_is_1000ms() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let monster = insert_monster(&mut world, "Rat", pos, 200);
+
+        // Bystander prevents sleep without being a valid target (same as test above).
+        let bystander_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, bystander_pos, TEST_SYNTHETIC_GROUND_WP);
+        let _bystander = insert_monster(&mut world, "Spider", bystander_pos, 200);
+        world.map.register_creature_at(bystander_pos, _bystander);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+        }
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().next_wakeup = None;
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        // The trailing tail enqueues a Wait(1000) — verify the todo head is a 1000 ms Wait.
+        let has_1000ms_wait = world.creatures.get(monster).is_some_and(|k| {
+            k.base().todo.queue.iter().any(|a| {
+                matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)
+            })
+        });
+        assert!(
+            has_1000ms_wait,
+            "RC2: trailing tail must enqueue ToDoWait(1000), matching C++ crnonpl.cc:2938"
+        );
     }
 
     /// Phase A — process_creature_todo runs idle when action queue empty on wakeup.
@@ -4452,6 +4624,34 @@ mod tests {
         assert!(
             go_idx < attack_idx,
             "ToDoAttack order: Go before Attack (cract.cc:1325-1334)"
+        );
+    }
+
+    /// Regression: ATTACKING melee monster at dist>1 must arm `next_wakeup` after idle stimulus.
+    ///
+    /// The walk branch is `Hold` (ATTACKING skips idle melee chase — `crnonpl.cc:2808`), so the Go
+    /// is enqueued by `monster_combat_enqueue_close_chase_go` inside `monster_enqueue_todo_attack_actions`.
+    /// C++ `ToDoStart` (`cract.cc:1010-1023`) always arms `NextWakeup` for the head todo entry; the
+    /// Rust `needs_wakeup` gate previously skipped scheduling when `has_go()` was true, leaving the
+    /// monster parked with `[Go, Attack]` and no heap entry until the ~1 Hz think tick rescued it
+    /// — a visible ~1 s stall after every chase-batch drain while the target was kiting.
+    #[test]
+    fn test_e3_attacking_close_chase_arms_wakeup_after_idle() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let (monster, _player) = e3_melee_target_at_cheb2(&mut world, 15);
+
+        world.monster_idle_stimulus(monster);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            base.todo.has_go(),
+            "close-chase Go must be enqueued"
+        );
+        assert!(
+            base.next_wakeup.is_some(),
+            "ATTACKING close-chase Go must arm next_wakeup — \
+             C++ ToDoStart always arms NextWakeup (cract.cc:1010-1023)"
         );
     }
 
