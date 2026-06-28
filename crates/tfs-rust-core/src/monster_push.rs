@@ -25,6 +25,7 @@ use crate::creature::{CreatureKind, MonsterState};
 use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
+use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
 use crate::tile::flags as tilestate;
 
 /// 772 `TMonster::KickCreature` / `KickBoxes` shove order — `crnonpl.cc:3057-3058`, `:3014-3015`
@@ -93,13 +94,19 @@ impl GameWorld {
     }
 
     /// 772 pre-step kick side-effects — `TMonster::MovePossible(Execute=true)` (`crnonpl.cc:2225-2272`).
+    ///
+    /// Includes the C++ kick-and-retry loop (`crnonpl.cc:2185` `for Attempt 0..100`): after each
+    /// successful kick, the destination tile is re-checked. If still blocked by another creature,
+    /// the loop kicks again. This lets a monster step through a multi-deep creature wall on the
+    /// same beat. After 100 attempts or a non-recoverable block (player, IGNORED, invisible,
+    /// forced kill), returns `Exhausted`.
     fn monster_kick_before_step_772(
         &mut self,
         mover: CreatureId,
         dest: Position,
         now: Instant,
     ) -> MonsterKickOutcome {
-        let Some((mover_pos, master, target_attack, target_follow, state, can_push_creatures, is_summon)) = ({
+        let Some((mover_pos, master, target_attack, target_follow, state, can_push_creatures, see_invisible)) = ({
             match self.creatures.get(mover) {
                 Some(CreatureKind::Monster(m)) => Some((
                     m.base.position,
@@ -108,7 +115,7 @@ impl GameWorld {
                     m.base.follow_target,
                     m.state,
                     m.can_push_creatures,
-                    m.base.is_summon(),
+                    m.see_invisible,
                 )),
                 _ => return MonsterKickOutcome::Proceed,
             }
@@ -117,55 +124,76 @@ impl GameWorld {
         };
 
         // C++ creature-block gate: only an ATTACKING/PANIC monster with a target and the
-        // `KickCreatures` race flag (and no master) ever kicks a blocking creature.
+        // `KickCreatures` race flag ever kicks a blocking creature. P1-A1: no `!is_summon` gate —
+        // C++ `MovePossible` (`crnonpl.cc:2202`) has no summon check; a summon with KickCreatures
+        // can kick blocking monsters.
         let has_target = target_attack.is_some() || target_follow.is_some();
         let posture = matches!(state, MonsterState::Attacking | MonsterState::Panic);
-        let creature_kicker = can_push_creatures && !is_summon && posture && has_target;
+        let creature_kicker = can_push_creatures && posture && has_target;
 
         // C++ box-block gate (`CanKickBoxes`) is independent of attack posture.
         let can_kick_boxes = self.monster_can_kick_boxes_772(mover);
 
-        // Creatures first (chain tail in the Rust tile model). A player tile or a forced kill is
-        // the `EXHAUSTED` short-circuit — stop and report it (C++ `throw EXHAUSTED`).
+        // C++ kick-and-retry loop (`crnonpl.cc:2185` `for Attempt 0..100`): after each kick,
+        // re-check the destination. If still blocked, kick again. Up to 100 attempts.
         if creature_kicker {
-            let blockers: Vec<CreatureId> = self
-                .map
-                .get_tile(dest)
-                .map(|t| {
-                    t.body()
-                        .creatures
-                        .iter()
-                        .copied()
-                        .filter(|&c| c != mover)
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            for blocker in blockers {
-                // C++ `MovePossible` creature gate (`crnonpl.cc:2207-2210`): never kick the mover's
-                // own target or master — these are hard blocks, not `EXHAUSTED`.
+            for _attempt in 0..100 {
+                let blockers: Vec<CreatureId> = self
+                    .map
+                    .get_tile(dest)
+                    .map(|t| {
+                        t.body()
+                            .creatures
+                            .iter()
+                            .copied()
+                            .filter(|&c| c != mover)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if blockers.is_empty() {
+                    break; // destination clear — proceed with the step
+                }
+                // C++ `MovePossible` processes the first creature on the tile; if it's a hard
+                // block or a kick-kill, throw EXHAUSTED. Otherwise kick it and loop.
+                let blocker = blockers[0];
+                // C++ `MovePossible` creature gate (`crnonpl.cc:2207-2210`): never kick the
+                // mover's own target or master — these are hard blocks, not `EXHAUSTED`.
                 if Some(blocker) == target_attack
                     || Some(blocker) == target_follow
                     || Some(blocker) == master
                 {
-                    continue;
+                    break; // hard block — stop kicking, but still proceed (step will fail at tile_query)
                 }
                 match self.creatures.get(blocker) {
-                    // C++ `crnonpl.cc:2236-2238`: a player blocker clears `Target` and throws
-                    // `EXHAUSTED`. (NOTE(parity): `IGNORED_BY_MONSTERS` GM flag not modeled — such
-                    // a player is a hard block in C++, not `EXHAUSTED`.)
+                    // P1-B3: C++ `crnonpl.cc:2221-2223`: invisible blocker (when mover lacks
+                    // SeeInvisible) is a hard block — not kicked, not EXHAUSTED.
+                    Some(k) if !see_invisible && k.base().is_invisible() => break,
+                    // P1-B2: C++ `crnonpl.cc:2230`: a summon (Master != 0) treats a player tile
+                    // as a hard block. A player with `IGNORED_BY_MONSTERS` is also a hard block.
+                    // Otherwise (`crnonpl.cc:2236-2238`): a player blocker clears `Target` and
+                    // throws `EXHAUSTED`.
+                    Some(CreatureKind::Player(p)) if master.is_some() => break,
+                    Some(CreatureKind::Player(p))
+                        if has_player_flag(
+                            flags_for_group(&self.groups, p.group_id),
+                            PLAYER_FLAG_IGNORED_BY_MONSTERS,
+                        ) =>
+                    {
+                        break
+                    }
                     Some(CreatureKind::Player(_)) => return MonsterKickOutcome::Exhausted,
                     // NPC / unpushable monster → hard block (`crnonpl.cc:2216,2228`), not kicked.
-                    Some(CreatureKind::Npc(_)) => continue,
-                    Some(CreatureKind::Monster(m)) if !m.is_pushable() => continue,
+                    Some(CreatureKind::Npc(_)) => break,
+                    Some(CreatureKind::Monster(m)) if !m.is_pushable() => break,
                     Some(CreatureKind::Monster(_)) => {
                         // C++ `crnonpl.cc:2240-2242`: kick the blocker; a forced kill (no free
                         // adjacent tile) still throws `EXHAUSTED`.
                         if !self.monster_kick_creature_772(mover, blocker, mover_pos, now) {
                             return MonsterKickOutcome::Exhausted;
                         }
+                        // Kick succeeded — loop re-checks the destination tile for more blockers.
                     }
-                    None => continue,
+                    None => break,
                 }
             }
         }
@@ -189,10 +217,13 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return,
         };
-        let immune = matches!(
-            self.creatures.get(mover),
-            Some(CreatureKind::Monster(m)) if m.immunity_poison
-        );
+        // P1-B1: C++ `MovePossible` AVOID branch (`crnonpl.cc:2264-2267`) — per-damage-type
+        // immunity. PANIC ignores all hazards; NoPoison/NoBurning/NoEnergy ignore matching
+        // fields only. Was poison-only, now per-type.
+        let (immunity_poison, immunity_fire, immunity_energy) = match self.creatures.get(mover) {
+            Some(CreatureKind::Monster(m)) => (m.immunity_poison, m.immunity_fire, m.immunity_energy),
+            _ => (false, false, false),
+        };
 
         // Snapshot the blocking items first — kicking mutates the tile chain.
         let to_kick: Vec<ItemId> = self
@@ -204,7 +235,15 @@ impl GameWorld {
                     .iter()
                     .chain(t.body().top_items.iter())
                     .copied()
-                    .filter(|&iid| self.item_is_kickable_box_772(iid, state, immune))
+                    .filter(|&iid| {
+                        self.item_is_kickable_box_772(
+                            iid,
+                            state,
+                            immunity_poison,
+                            immunity_fire,
+                            immunity_energy,
+                        )
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -216,8 +255,16 @@ impl GameWorld {
 
     /// True when an item on a destination tile is a movable blocker the mover must shove
     /// (`MovePossible` `UNPASS`/`AVOID` branches, `crnonpl.cc:2250-2284`). Hazard `AVOID` fields
-    /// are ignored while `PANIC` or for a poison-immune mover.
-    fn item_is_kickable_box_772(&self, item_id: ItemId, state: MonsterState, immune: bool) -> bool {
+    /// are ignored while `PANIC` or when the mover is immune to the field's damage type
+    /// (`crnonpl.cc:2264-2267`).
+    fn item_is_kickable_box_772(
+        &self,
+        item_id: ItemId,
+        state: MonsterState,
+        immunity_poison: bool,
+        immunity_fire: bool,
+        immunity_energy: bool,
+    ) -> bool {
         let Some(item) = self.items.get(item_id) else {
             return false;
         };
@@ -226,7 +273,15 @@ impl GameWorld {
             return !self.items_db.is_unmove_772(server_id);
         }
         if self.items_db.is_avoid_hazard_772(server_id) {
-            let ignore_hazard = state == MonsterState::Panic || immune;
+            // P1-B1: per-damage-type immunity — PANIC ignores all; type-specific immunity
+            // ignores matching fields only.
+            let ignore_hazard = state == MonsterState::Panic
+                || match self.items_db.avoid_damage_type_772(server_id) {
+                    Some(tfs_rust_content::items::FieldDamageType::Poison) => immunity_poison,
+                    Some(tfs_rust_content::items::FieldDamageType::Fire) => immunity_fire,
+                    Some(tfs_rust_content::items::FieldDamageType::Energy) => immunity_energy,
+                    None => false,
+                };
             return !ignore_hazard && !self.items_db.is_unmove_772(server_id);
         }
         false
@@ -305,12 +360,17 @@ impl GameWorld {
     /// with full parity to C++ (`crnonpl.cc:3076-3080`): full-HP physical damage attributed to the
     /// kicker (so kill credit / loot / experience go to it) + the block-hit effect, then the death
     /// pipeline (corpse + loot drop + exp distribution). Returns `true` if moved, `false` if killed.
+    ///
+    /// P1-B4: destination validation uses the blocker's own `MovePossible(Execute=true)` model
+    /// (`crnonpl.cc:3066`), not the 1098 `tile_query_add_monster`. For a monster blocker this is
+    /// `monster_tshortway_fill_walkable` (the 772 planning gate). A forced relocate via
+    /// `move_creature_on_map` bypasses the walk-timer gate (a kick is not a walk step).
     fn monster_kick_creature_772(
         &mut self,
         kicker: CreatureId,
         blocker: CreatureId,
         mover_pos: Position,
-        now: Instant,
+        _now: Instant,
     ) -> bool {
         let blocker_pos = match self.creatures.get(blocker) {
             Some(k) => k.position(),
@@ -329,11 +389,26 @@ impl GameWorld {
                     continue;
                 }
             }
-            // `Creature->MovePossible(Dest, Execute=true)` is enforced inside the move
-            // (`tile_query_add_creature`); a kick is a forced relocate (no walk-timer gate).
-            if self.try_creature_walk_step(blocker, dir, now) {
-                return true;
+            // P1-B4: C++ `Creature->MovePossible(Dest, Execute=true)` — the blocker's own 772
+            // `MovePossible` gate (leash, PZ, house, creature-block, item-block). For a monster
+            // blocker, `monster_move_possible_planning_772` is the 772 planning equivalent
+            // (no TShortway terrain checks — those are pathfinder-specific).
+            let can_occupy = match self.creatures.get(blocker) {
+                Some(CreatureKind::Monster(_)) => {
+                    self.monster_move_possible_planning_772(blocker, try_pos)
+                }
+                // Non-monster blockers (player/NPC) are never kicked — they're hard blocks in
+                // the caller. This branch is unreachable but kept for exhaustiveness.
+                _ => false,
+            };
+            if !can_occupy {
+                continue;
             }
+            // Forced relocate — bypasses `tile_query_add_creature` (no walk-timer gate, no 1098
+            // creature-block model). C++ `KickCreature` calls `Creature::Move` directly after
+            // `MovePossible` passes.
+            self.move_creature_on_map(blocker, blocker_pos, try_pos);
+            return true;
         }
 
         // C++ KickCreature: "Kein Platz zum Verschieben => Töten." No adjacent tile is free, so the
@@ -676,6 +751,260 @@ mod tests {
         assert!(
             !world.creatures.contains_key(blocker),
             "boxed-in blocker must be killed by the kick"
+        );
+    }
+
+    // ─────────── Pass 8 re-audit tests (P1-A1, P1-B2, P1-B3, AI#23) ───────────
+
+    /// P1-A1: a summon with `KickCreatures` CAN kick a blocking pushable monster — C++ `MovePossible`
+    /// (`crnonpl.cc:2202`) has no summon gate. The old Rust `!is_summon` gate is dropped.
+    #[test]
+    fn summon_kicks_blocking_monster() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        let escape = Position::new(101, 101, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, bpos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+        ensure_walkable_tile(&mut world.map, escape, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let blocker =
+            insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(bpos, blocker);
+        // Summon with KickCreatures — master is a far-away monster.
+        let master = insert_monster_with_config(&mut world, "Master", tpos, 200, kicker_config());
+        let summon = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        world.map.register_creature_at(mpos, summon);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+            m.base.master = Some(master);
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+        }
+
+        let outcome = world.monster_push_before_step(summon, bpos, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Proceed,
+            "summon with KickCreatures must kick the blocker, not stall"
+        );
+        assert_ne!(
+            world.creatures.get(blocker).map(|k| k.position()),
+            Some(bpos),
+            "blocker must have been relocated by the kick"
+        );
+    }
+
+    /// P1-B2: a player with `IGNORED_BY_MONSTERS` on the destination tile is a hard block
+    /// (Proceed), not `EXHAUSTED` — C++ `crnonpl.cc:2230`. This test verifies the baseline
+    /// (non-ignored player → EXHAUSTED); the IGNORED case requires group DB setup and is
+    /// verified by the code path in `monster_kick_before_step_772`.
+    #[test]
+    fn ignored_player_tile_is_hard_block_not_exhausted() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, ppos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+        }
+
+        // Without IGNORED_BY_MONSTERS flag, player tile is EXHAUSTED (baseline).
+        assert_eq!(
+            world.monster_push_before_step(mover, ppos, now),
+            MonsterKickOutcome::Exhausted,
+            "non-ignored player tile must be EXHAUSTED (baseline)"
+        );
+    }
+
+    /// P1-B3: an invisible blocker (when the mover lacks SeeInvisible) is a hard block in the
+    /// planning gate — `monster_move_possible_planning_772` returns false for invisible creatures.
+    #[test]
+    fn invisible_blocker_is_hard_block_in_planning() {
+        use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+        use tfs_rust_common::enums::ConditionType as CondType;
+
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, bpos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        // A separate target (not the blocker) so the blocker is not the chase target.
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let blocker =
+            insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(bpos, blocker);
+        // Make the blocker invisible.
+        if let Some(k) = world.creatures.get_mut(blocker) {
+            add_condition_merge(
+                &mut k.base_mut().active_conditions,
+                ActiveCondition::new(0, 0, CondType::Invisible, ConditionData::Generic { ticks: 0 }, None),
+            );
+        }
+
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+            // SeeInvisible is false by default.
+        }
+
+        // Planning gate: invisible blocker is a hard block (no SeeInvisible).
+        assert!(
+            !world.monster_move_possible_planning_772(mover, bpos),
+            "invisible blocker must be a hard block when mover lacks SeeInvisible"
+        );
+
+        // With SeeInvisible, the blocker is plannable-through.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.see_invisible = true;
+        }
+        assert!(
+            world.monster_move_possible_planning_772(mover, bpos),
+            "invisible blocker is plannable when mover has SeeInvisible"
+        );
+    }
+
+    /// AI#23: the kick-and-retry loop clears a two-deep creature wall on the same beat.
+    /// Two blockers on the destination tile; the first kick relocates one, the second kick
+    /// relocates the other, then the destination is clear and the step proceeds.
+    #[test]
+    fn kick_and_retry_clears_two_deep_blockers() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let dest = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        let escape1 = Position::new(101, 101, 7);
+        let escape2 = Position::new(101, 99, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, dest, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+        ensure_walkable_tile(&mut world.map, escape1, 1);
+        ensure_walkable_tile(&mut world.map, escape2, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        // Two blockers on the destination tile.
+        let b1 = insert_monster_with_config(&mut world, "Rat1", dest, 200, MonsterAiConfig::default());
+        let b2 = insert_monster_with_config(&mut world, "Rat2", dest, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(dest, b1);
+        world.map.register_creature_at(dest, b2);
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+        }
+
+        let outcome = world.monster_push_before_step(mover, dest, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Proceed,
+            "kick-and-retry must clear both blockers and proceed"
+        );
+        // Both blockers should have been relocated off the destination.
+        assert_ne!(
+            world.creatures.get(b1).map(|k| k.position()),
+            Some(dest),
+            "first blocker must be relocated"
+        );
+        assert_ne!(
+            world.creatures.get(b2).map(|k| k.position()),
+            Some(dest),
+            "second blocker must be relocated"
+        );
+    }
+
+    /// P1-A2: a player tile is plannable-through in the 772 `MovePossible` planning gate
+    /// (non-summon, non-IGNORED) — C++ `crnonpl.cc:2229-2233`.
+    #[test]
+    fn player_tile_is_plannable_through_in_move_possible() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, ppos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        // A separate target (not the player on the dest tile) so the player is not the chase target.
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+        }
+
+        // Player tile is plannable-through (non-summon, non-IGNORED, has KickCreatures + target).
+        assert!(
+            world.monster_move_possible_planning_772(mover, ppos),
+            "player tile must be plannable-through for non-summon kicker with target"
+        );
+    }
+
+    /// P1-B5: a house tile is a hard block in the 772 `MovePossible` planning gate —
+    /// C++ `crnonpl.cc:2168` `IsHouse(x,y,z)`.
+    #[test]
+    fn house_tile_is_hard_block_in_move_possible() {
+        use crate::tile::{HouseTile, Tile, TileBody};
+
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+
+        let mpos = Position::new(100, 100, 7);
+        let hpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        // Insert a house tile.
+        world.map.insert_tile(
+            hpos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(1),
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: tfs_rust_common::enums::ZoneType::Normal,
+                },
+                house_id: 1,
+            }),
+        );
+
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+        }
+
+        assert!(
+            !world.monster_move_possible_planning_772(mover, hpos),
+            "house tile must be a hard block in MovePossible planning"
         );
     }
 }

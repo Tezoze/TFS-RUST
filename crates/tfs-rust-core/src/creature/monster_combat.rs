@@ -83,6 +83,12 @@ pub struct MonsterCombatSnapshot {
     pub armor: i32,
     pub defense: i32,
     pub immunity_poison: bool,
+    /// `<immunity fire="1"/>` — `crmain.cc:549` `RaceData[Race].NoBurning`.
+    pub immunity_fire: bool,
+    /// `<immunity energy="1"/>` — `crmain.cc:550` `RaceData[Race].NoEnergy`.
+    pub immunity_energy: bool,
+    /// `<immunity invisible="1"/>` — `crmain.cc:1493` `RaceData[Race].SeeInvisible`.
+    pub see_invisible: bool,
     pub spells: Vec<MonsterSpell>,
 }
 
@@ -130,6 +136,9 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
         armor: mtype.defenses.armor.unwrap_or(0),
         defense: mtype.defenses.defense.unwrap_or(0),
         immunity_poison: mtype.defenses.immunity_poison,
+        immunity_fire: mtype.defenses.immunity_fire,
+        immunity_energy: mtype.defenses.immunity_energy,
+        see_invisible: mtype.defenses.see_invisible,
         ..MonsterCombatSnapshot::default()
     };
 

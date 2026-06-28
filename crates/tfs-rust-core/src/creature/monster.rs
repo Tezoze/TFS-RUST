@@ -78,6 +78,12 @@ pub struct MonsterAiConfig {
     pub defense: i32,
     /// `<immunity poison="1"/>` at spawn — `crmain.cc:548` `NoPoison`.
     pub immunity_poison: bool,
+    /// `<immunity fire="1"/>` — `crmain.cc:549` `NoBurning`.
+    pub immunity_fire: bool,
+    /// `<immunity energy="1"/>` — `crmain.cc:550` `NoEnergy`.
+    pub immunity_energy: bool,
+    /// `<immunity invisible="1"/>` — `crmain.cc:1493` `SeeInvisible`.
+    pub see_invisible: bool,
     /// Non-melee attacks from `<attacks>` — idle CASTING (E4).
     pub spells: Vec<MonsterSpell>,
     /// 772 `RaceData[].Talk` text list — `<voices><voice sentence="…"/></voices>`
@@ -109,6 +115,9 @@ impl Default for MonsterAiConfig {
             armor: 0,
             defense: 0,
             immunity_poison: false,
+            immunity_fire: false,
+            immunity_energy: false,
+            see_invisible: false,
             spells: Vec::new(),
             talk_texts: Vec::new(),
         }
@@ -138,6 +147,9 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             armor: 0,
             defense: 0,
             immunity_poison: false,
+            immunity_fire: false,
+            immunity_energy: false,
+            see_invisible: false,
             spells: Vec::new(),
             talk_texts: Vec::new(),
         }
@@ -155,6 +167,9 @@ impl MonsterAiConfig {
         cfg.armor = combat.armor;
         cfg.defense = combat.defense;
         cfg.immunity_poison = combat.immunity_poison;
+        cfg.immunity_fire = combat.immunity_fire;
+        cfg.immunity_energy = combat.immunity_energy;
+        cfg.see_invisible = combat.see_invisible;
         cfg.spells = combat.spells;
         cfg.talk_texts = mtype.talk_texts.clone();
         // 772 `RaceData[].Talks` is the count of `Talk` entries (`crmain.cc:1552`).
@@ -211,6 +226,12 @@ pub struct Monster {
     pub armor: i32,
     pub defense: i32,
     pub immunity_poison: bool,
+    /// `<immunity fire="1"/>` — `crmain.cc:549` `NoBurning`.
+    pub immunity_fire: bool,
+    /// `<immunity energy="1"/>` — `crmain.cc:550` `NoEnergy`.
+    pub immunity_energy: bool,
+    /// `<immunity invisible="1"/>` — `crmain.cc:1493` `SeeInvisible`.
+    pub see_invisible: bool,
     pub spells: Vec<MonsterSpell>,
     /// Race XP grant on death — `MonsterType.experience` / `crcombat.cc:908`.
     pub experience: u32,
@@ -273,6 +294,9 @@ impl Monster {
             armor: config.armor,
             defense: config.defense,
             immunity_poison: config.immunity_poison,
+            immunity_fire: config.immunity_fire,
+            immunity_energy: config.immunity_energy,
+            see_invisible: config.see_invisible,
             spells: config.spells,
             experience: 0,
             corpse_id: 0,

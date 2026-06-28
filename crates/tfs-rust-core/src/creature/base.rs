@@ -222,4 +222,13 @@ impl CreatureBase {
         .filter(|&t| t > server_ms)
         .max()
     }
+
+    /// C++ `TCreature::IsInvisible()` — true while an `Invisible` condition is active
+    /// (`crnonpl.cc:2221`, `crnonpl.cc:2429`). Checked by `MovePossible` and `IdleStimulus`
+    /// lose-target against the mover's `RaceData[Race].SeeInvisible` flag.
+    pub fn is_invisible(&self) -> bool {
+        self.active_conditions
+            .iter()
+            .any(|c| c.ctype == tfs_rust_common::enums::ConditionType::Invisible)
+    }
 }

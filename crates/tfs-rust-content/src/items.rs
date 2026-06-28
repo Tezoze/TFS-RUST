@@ -23,6 +23,19 @@ pub const ITEM_TYPE_CONTAINER: u8 = 4;
 /// C++ `ItemTypes_t::ITEM_TYPE_DOOR` — `src/items.h`.
 pub const ITEM_TYPE_DOOR: u8 = 5;
 /// C++ `ItemTypes_t::ITEM_TYPE_MAGICFIELD` — `src/items.h`.
+
+/// 772 magic-field damage kind — `ObjType.getAttribute(AVOIDDAMAGETYPES)` (`crnonpl.cc:2263`,
+/// `enums.hh:147`). Used by `MovePossible` to decide whether a race's `NoPoison`/`NoBurning`/
+/// `NoEnergy` flag ignores the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldDamageType {
+    /// `DAMAGE_POISON = 0x2` — `RaceData[Race].NoPoison` ignores.
+    Poison,
+    /// `DAMAGE_FIRE = 0x4` — `RaceData[Race].NoBurning` ignores.
+    Fire,
+    /// `DAMAGE_ENERGY = 0x8` — `RaceData[Race].NoEnergy` ignores.
+    Energy,
+}
 pub const ITEM_TYPE_MAGICFIELD: u8 = 6;
 /// C++ `ItemTypes_t::ITEM_TYPE_TELEPORT` — `src/items.h`.
 pub const ITEM_TYPE_TELEPORT: u8 = 7;
@@ -206,6 +219,26 @@ impl ItemDatabase {
         self.items
             .get(&server_id)
             .is_some_and(|t| t.is_avoid_hazard_772())
+    }
+
+    /// 772 `ObjType.getAttribute(AVOIDDAMAGETYPES)` — the damage type a magic field inflicts
+    /// (`crnonpl.cc:2263`). Resolved from the items.xml `<attribute key="field" value="…"/>`
+    /// (fire/poison/energy). Returns `None` for non-fields or unknown field kinds.
+    ///
+    /// C++ `DamageType` values: `DAMAGE_POISON=0x2`, `DAMAGE_FIRE=0x4`, `DAMAGE_ENERGY=0x8`
+    /// (`enums.hh:147`).
+    #[inline]
+    pub fn avoid_damage_type_772(&self, server_id: u16) -> Option<FieldDamageType> {
+        let t = self.items.get(&server_id)?;
+        if !t.is_avoid_hazard_772() {
+            return None;
+        }
+        match t.xml_attributes.get("field").map(String::as_str) {
+            Some("fire") => Some(FieldDamageType::Fire),
+            Some("poison") | Some("earth") => Some(FieldDamageType::Poison),
+            Some("energy") => Some(FieldDamageType::Energy),
+            _ => None,
+        }
     }
 
     /// Resolve `name="..."` loot references; errors if unknown or ambiguous (see `monsters.cpp` `loadLootItem`).

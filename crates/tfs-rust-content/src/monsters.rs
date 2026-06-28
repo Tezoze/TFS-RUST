@@ -41,6 +41,12 @@ pub struct MonsterDefenses {
     pub spells: Vec<MonsterSpellNode>,
     /// `<immunity poison="1"/>` — `crmain.cc:548` `RaceData[Race].NoPoison`.
     pub immunity_poison: bool,
+    /// `<immunity fire="1"/>` — `crmain.cc:549` `RaceData[Race].NoBurning`.
+    pub immunity_fire: bool,
+    /// `<immunity energy="1"/>` — `crmain.cc:550` `RaceData[Race].NoEnergy`.
+    pub immunity_energy: bool,
+    /// `<immunity invisible="1"/>` — `crmain.cc:1493` `RaceData[Race].SeeInvisible`.
+    pub see_invisible: bool,
 }
 
 /// Monster `<look>` block — C++ `MonsterType` look fields (`monsters.cpp` `loadMonster`).
@@ -466,6 +472,9 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         defense: None,
         spells: Vec::new(),
         immunity_poison: false,
+        immunity_fire: false,
+        immunity_energy: false,
+        see_invisible: false,
     };
     let mut talk_texts = Vec::new();
 
@@ -506,6 +515,18 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                         .is_some_and(|v| parse_bool_flag(v))
                     {
                         defenses.immunity_poison = true;
+                    }
+                    // C++ `RaceData[Race].NoBurning` — `crmain.cc:549`.
+                    if imm.attribute("fire").is_some_and(|v| parse_bool_flag(v)) {
+                        defenses.immunity_fire = true;
+                    }
+                    // C++ `RaceData[Race].NoEnergy` — `crmain.cc:550`.
+                    if imm.attribute("energy").is_some_and(|v| parse_bool_flag(v)) {
+                        defenses.immunity_energy = true;
+                    }
+                    // C++ `RaceData[Race].SeeInvisible` — `crmain.cc:1493`.
+                    if imm.attribute("invisible").is_some_and(|v| parse_bool_flag(v)) {
+                        defenses.see_invisible = true;
                     }
                 }
             }

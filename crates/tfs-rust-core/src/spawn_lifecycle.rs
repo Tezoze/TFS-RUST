@@ -795,6 +795,9 @@ mod tests {
                 defense: Some(3),
                 spells: Vec::new(),
                 immunity_poison: false,
+                immunity_fire: false,
+                immunity_energy: false,
+                see_invisible: false,
             },
             talk_texts: Vec::new(),
         }

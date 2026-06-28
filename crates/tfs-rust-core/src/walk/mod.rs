@@ -1698,7 +1698,7 @@ impl GameWorld {
     /// Move a creature between tiles on the map (unregister from old, register at new).
     /// C++ `Map::moveCreature` — position follows the tile (`newTile.addThing`) before
     /// `onCreatureMove` fan-out (`map.cpp` ~293–324).
-    fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
+    pub(crate) fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
         if from == to {
             return;
         }

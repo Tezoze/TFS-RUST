@@ -1,6 +1,6 @@
 # 772 Monster AI — High-Level Parity Audit
 
-**Status Update (Jun 2026 re-verification):** Most critical findings have been addressed. Findings 16 (LOS `ThrowPossible`) and 17/17b (chase leash) are now **FIXED**. The remaining "feel" defects cluster around **melee smoothness**: the atomic `Execute` loop (game-loop Finding 7 — still one-action-per-pop), the Rotate gate (AI#22), the missing kick-and-retry loop (AI#23), and the Z-level target clear (AI#24). See "Smoothness Root Cause Analysis" and "Implementation Status Summary" at end.
+**Status (Jun 2026, post-Pass 8):** Phases 1–6 and the Pass 8 re-audit fixes are **DONE** — push/collision rewrite, 772 LOS, chase leash, casting loop, RNG per-draw routing, lifecycle polish, and all 9 HIGH/MED Pass 8 push-gate fixes (AI#23 kick-and-retry, P1-A1..A3, P1-B1..B5). The remaining "feel" defects cluster around **melee smoothness**: the atomic `Execute` loop (GL#7), the Rotate gate (AI#22), the Z-level target clear (AI#24), and the `CreatureAction` enum gap (Structural). Two LOW Pass 8 items (P1-B6/B7) are also open. See "Implementation Status Summary" and "Next Implementation Plan" at end.
 
 Scope: a *structural* pass over the Rust monster AI against the CipSoft 772 decompile
 (`reference/cipsoft-772/tibia-game-master/src/`). Focus areas: idle stimulus, monster walking,
@@ -559,9 +559,12 @@ interpolation + `UNTHROW` + floor-step) and route 772 sight/throw through it; ke
 ## Consolidated gap list (all passes)
 
 > **Implementation status (authoritative per-phase headers above):** Findings 1 (reclassified, no
-> change), 2, 5, 6/11, 7, 9, 10, 12, 14, 16/16b, 17/17b, 19 are **implemented** (Phases 1–5). Remaining:
-> Finding 8/15 RNG retirement + `melee_realign` deletion + per-world generator (needs oracle
-> re-baseline), and Phase 6 lifecycle polish (3, 18, 20). The table below is the original snapshot.
+> change), 2, 3, 5, 6/11, 7, 9, 10, 12, 14, 16/16b, 17/17b, 18, 19, 20 are **implemented** (Phases 1–6).
+> Pass 8 re-audit: AI#23, P1-A1..A3, P1-B1..B5 are **implemented**. Remaining: Finding 8/15 RNG
+> retirement + `melee_realign` deletion + per-world generator (needs oracle re-baseline), the
+> smoothness cluster (GL#7, AI#22, AI#24, GL#22, Structural), medium findings (GL#24, AI#25, AI#26),
+> low findings (AI#27, AI#28, AI#30, AI#31, P1-B6, P1-B7), and Finding 21 (convince/challenge).
+> The table below is the original snapshot.
 
 | # | Gap | Severity | Live feel | Sim parity |
 |---|-----|----------|-----------|------------|
@@ -850,7 +853,19 @@ any C++-behaviour surprises in `tasks/lessons.md` as you go. Keep all version br
 
 Convention per phase: **Goal · Findings · C++ ref · Rust sites · Steps · Verify · Risk.**
 
-## Phase 1 — Push / collision rewrite (biggest live melee win)
+## Phase 1 — Push / collision rewrite (biggest live melee win) — DONE
+
+**Status:** done. The 772 push/collision layer is fully implemented: deterministic N,S,W,E kick
+order, `MovePossible`-gated creature/box kicking, kick-and-retry loop (AI#23), `EXHAUSTED`→
+`Wait(1000)`, `KickBoxes` with `CanKickBoxes` master inheritance, and kick-kill with full kill
+credit/loot/exp. The Pass 8 re-audit closed 9 additional gaps: `monster_move_possible_planning_772`
+extracted (772 `MovePossible` planning gate without TShortway terrain checks), `!is_summon` gate
+dropped, player tiles plannable-through, per-damage-type hazard immunity, `IGNORED_BY_MONSTERS`
+hard block, invisibility gate, `KickCreature` dest validation via blocker's `MovePossible`,
+`IsHouse` check, and `BLOCKSOLID` check. Data model extended with `immunity_fire`/`immunity_energy`/
+`see_invisible`/`is_invisible()`/`FieldDamageType`/`avoid_damage_type_772`. 6 new tests in
+`monster_push.rs`. Remaining: P1-B6 (master proximity leash) and P1-B7 (GoStrength < 0 check) —
+both LOW.
 
 - **Goal:** melee monsters shove through each other deterministically instead of bumping/stalling.
 - **Findings:** 5, 6/11, 7, 12.
@@ -1090,13 +1105,14 @@ delay/flee/range/sight gates pass is evaluated and cast in the same idle. Single
 
 | Phase | Status |
 |-------|--------|
-| 1 | **PARTIAL** — push/collision rewrite (kick-and-retry loop AI#23 still broken) |
+| 1 | **DONE** — push/collision rewrite + Pass 8 re-audit fixes (AI#23, P1-A1..A3, P1-B1..B5) |
 | 2 | **DONE** — 772 line-of-sight (`ThrowPossible`) |
 | 3 | **DONE** — chase leash + roam bounds |
 | 4 | **DONE** — decision-tree constants (no change needed) |
-| 5 | **PARTIAL** — RNG unification (drunk walk + `ai_rng` retirement remaining) |
-| 6 | **PLANNED** — lifecycle polish (respawn, summon, talk) |
+| 5 | **PARTIAL** — per-draw RNG routing done; `ai_rng` retirement + drunk-walk + `melee_realign` deletion remaining (needs oracle re-baseline) |
+| 6 | **DONE** — lifecycle polish (respawn, summon, talk) |
 | 7 | **PLANNED** — PANIC→ATTACKING promotion + IdleStimulus catch-all (Findings 30, 31) |
+| 8 | **DONE** — 9 of 11 Pass 8 items (all HIGH/MED); P1-B6/B7 (LOW) remaining |
 
 ## Critical Findings — RESOLVED
 
@@ -1117,31 +1133,34 @@ delay/flee/range/sight gates pass is evaluated and cast in the same idle. Single
 
 | Finding | Issue | Status | Notes |
 |---------|-------|--------|-------|
-| 8 | RNG stream fragmentation | **PARTIAL** | `parity_rng` on `GameWorld` for 772 idle/casting; but `thread_rng` remains in drunk walk, `creature_think.rs`, `monster_push.rs:445`, `monster_ai.rs` distance/dance step, `spawn_lifecycle.rs` shuffles, `spawn.rs:301` |
-| 3 | Monster Talk is RNG-only, no packet | **PARTIAL** | RNG draw implemented, packet emission may still be missing |
-| 14 (GL) | `Other`/`cron` subsystems | **PARTIAL** | Idle-timeout + ambiente done; raids/autosave missing |
+| 8 | RNG stream fragmentation | **PARTIAL** | Per-draw routing done (9/10/14/19); `ai_rng` retirement + drunk walk (GL#22) + `melee_realign` deletion remaining (needs oracle re-baseline) |
+| 3 | Monster Talk is RNG-only, no packet | **DONE** | Packet emission implemented via era-aware `Codec::encode_creature_say` (Phase 6) |
+| 18 | Respawn timing fixed (1098) vs 772 random + crowd scaling | **DONE** | `RespawnModel::Monsterhome772` implemented (Phase 6) |
+| 19 | Spawn tile tie-break uses `thread_rng` | **DONE** | Uses `parity_random(0,99)` (Phase 5) |
+| 20 | Summon lifecycle is a stub | **DONE** | `monster_idle_summon_lifecycle_772` implemented (Phase 6) |
+| 21 | Convince/Challenge are 772-shaped differently | **OPEN** | Low priority; has 1098-style `challenge_focus_duration` |
 
 ## Remaining Issues — the "smoothness" cluster
 
-| Finding | Issue | Severity | Notes |
-|---------|-------|----------|-------|
-| **GL#7** | **Execute one action per pop vs atomic zero-delay drain** | **HIGH** | **Primary smoothness defect.** `idle_stimulus.rs:2148` `run_monster_todo_execute` pops one action then returns/re-arms. C++ `Execute` (`cract.cc:783`) is `while(true)` over consecutive `CalculateDelay==0` entries. Rotate+Attack = 2 beats (400 ms) vs C++ 1 beat (200 ms). |
-| **22** | **Rotate in ATTACKING/PANIC blocked by `walk_timer_idle` gate** | **HIGH** | `monster_ai.rs:2191` — `walk_timer_idle` returns `next_wakeup.is_none()` on 772; after a Go step the monster always has a wakeup, so `monster_update_look_direction` returns early. C++ `Rotate(Target)` at `crnonpl.cc:2872` runs **unconditionally** in ATTACKING/PANIC before `ToDoAttack`. Compounds GL#7: even if Execute were atomic, the Rotate wouldn't fire. |
-| **23** | **Missing retry loop in `MovePossible` kick logic** | **HIGH** | `monster_push.rs:96-179` kicks once and returns. C++ `MovePossible` (`crnonpl.cc:2185-2288`) has `for Attempt in 0..100` — after each kick it breaks the inner loop and **retries the outer loop** to re-check the tile. Single-attempt kick → premature `EXHAUSTED` → `Wait(1000)` stall on ally contention. This is the "bumping into each other, stopping for a second" symptom. |
-| **24** | **Z-level change clears follow/attack target** | **HIGH** | `monster_events.rs:190-198` clears both targets when `new_pos.z != old_pos.z`, not era-gated. C++ `CreatureMoveStimulus` (`crmain.cc:920`, `crnonpl.cc:2943`) does **not** clear targets on Z-change — only handles combat re-arm for close-chase. Ramp drops cause target loss → re-acquire delay. |
-| **GL#22** | **Drunk-walk stagger is 1098 algo on `thread_rng`** | **HIGH** | `walk/mod.rs:116-131` — 1098 `r/4 > d` curve on `thread_rng()` instead of 772 `rand()%max(7-level,1)` on glibc stream. Wrong algo + wrong RNG + wrong source (`ConditionDrunk` vs `Skills[SKILL_DRUNKEN]` timer-skill). Desyncs every subsequent `parity_*` draw. |
-| **GL#24** | **Move-stimulus fan-out uses SlotMap-key sort** | **MEDIUM** | `monster_events.rs:112` — `ids.sort_by_key(|id| id.data().as_ffi())` (creation order) vs C++ creature-list order (spatial sector walk). Affects which monster reacts first to a move event. |
-| **25** | **Lose-target missing `IsHouse` + invisibility checks** | **MEDIUM** | `idle_stimulus.rs:365-399` — missing `IsHouse` (`crnonpl.cc:2427`) and `IsInvisible && !SeeInvisible` (`crnonpl.cc:2429`). Monsters chase into houses / after invisible targets. |
-| **26** | **`CreatureMoveStimulus` extra `has_go` check** | **MEDIUM** | `monster_events.rs:446` — `!has_attack \|\| has_go` checks entire queue; C++ checks head only (`ToDoList.at(ActToDo)->Code == TDAttack`). Blocks combat re-arm when `[Attack, Go]` queued. |
-| **27** | **Waypoint cost source mismatch** | **LOW** | `walk/walk_timing.rs:211` — uses `ground_speed` from items_db vs C++ `WAYPOINTS` tile attribute (`cract.cc:1521`). Latent if data matches. |
-| **28** | **Poison field extension missing** | **LOW** | `process_skills.rs:74-86` — doesn't extend poison duration when creature stands on poison field (`crskill.cc:1043` `Cycle += 1`). |
-| **30** | **PANIC→ATTACKING promotion only on successful dance step** | **LOW** | `monster_ai.rs:1353` — early-returns before promotion at 1374 when dance step blocked. C++ `crnonpl.cc:2832` promotes unconditionally in melee band. Narrow: cornered PANIC monsters stay PANIC. |
-| **31** | **`IdleStimulus` catch block not comprehensive** | **LOW** | `idle_stimulus.rs:152` — `monster_exhausted_wait_772` covers push/walk failures but isn't a catch-all like C++ try/catch (`crnonpl.cc:2890`). Risk: future failure paths may miss cleanup. |
-| **Structural** | **`CreatureAction` enum missing Rotate/Talk/Use** | **HIGH** | `creature_todo.rs:65-72` — only Go/Wait/Attack. Blocks atomic Execute (GL#7) fix and forces out-of-band Rotate workaround (AI#22). Root cause, not a symptom. |
-| 18 | Respawn timing fixed (1098) vs 772 random + crowd scaling | MED | `spawn.rs:237` — `now + spawntime_ms` instead of `random(regen/2, regen)` with player-count scaling (`crnonpl.cc:1296`) |
-| 19 | Spawn tile tie-break uses `thread_rng` | LOW/MED | `spawn_placement.rs` — should use `parity_random(0,99)` (partially done per GL audit; verify) |
-| 20 | Summon lifecycle is a stub | MED | `monster_ai.rs:2033` — missing master despawn/re-bind/distance checks |
-| 21 | Convince/Challenge are 772-shaped differently | LOW | Has 1098-style `challenge_focus_duration` |
+| Finding | Issue | Severity | Status | Notes |
+|---------|-------|----------|--------|-------|
+| **GL#7** | **Execute one action per pop vs atomic zero-delay drain** | **HIGH** | OPEN | **Primary smoothness defect.** `idle_stimulus.rs:2148` `run_monster_todo_execute` pops one action then returns/re-arms. C++ `Execute` (`cract.cc:783`) is `while(true)` over consecutive `CalculateDelay==0` entries. Rotate+Attack = 2 beats (400 ms) vs C++ 1 beat (200 ms). |
+| **22** | **Rotate in ATTACKING/PANIC blocked by `walk_timer_idle` gate** | **HIGH** | OPEN | `monster_ai.rs:2191` — `walk_timer_idle` returns `next_wakeup.is_none()` on 772; after a Go step the monster always has a wakeup, so `monster_update_look_direction` returns early. C++ `Rotate(Target)` at `crnonpl.cc:2872` runs **unconditionally** in ATTACKING/PANIC before `ToDoAttack`. Compounds GL#7. |
+| **23** | **Missing retry loop in `MovePossible` kick logic** | **HIGH** | **FIXED** | `for _attempt in 0..100` retry loop with tile re-check implemented in `monster_kick_before_step_772` (`monster_push.rs`). |
+| **24** | **Z-level change clears follow/attack target** | **HIGH** | OPEN | `monster_events.rs:190-198` clears both targets when `new_pos.z != old_pos.z`, not era-gated. C++ `CreatureMoveStimulus` (`crmain.cc:920`, `crnonpl.cc:2943`) does **not** clear targets on Z-change. Ramp drops cause target loss → re-acquire delay. |
+| **GL#22** | **Drunk-walk stagger is 1098 algo on `thread_rng`** | **HIGH** | OPEN | `walk/mod.rs:116-131` — 1098 `r/4 > d` curve on `thread_rng()` instead of 772 `rand()%max(7-level,1)` on glibc stream. Wrong algo + wrong RNG + wrong source. Desyncs every subsequent `parity_*` draw. |
+| **GL#24** | **Move-stimulus fan-out uses SlotMap-key sort** | **MEDIUM** | OPEN | `monster_events.rs:112` — `ids.sort_by_key(|id| id.data().as_ffi())` (creation order) vs C++ creature-list order (spatial sector walk). Affects which monster reacts first to a move event. |
+| **25** | **Lose-target missing `IsHouse` + invisibility checks** | **MEDIUM** | OPEN | `idle_stimulus.rs:365-399` — missing `IsHouse` (`crnonpl.cc:2427`) and `IsInvisible && !SeeInvisible` (`crnonpl.cc:2429`). Monsters chase into houses / after invisible targets. |
+| **26** | **`CreatureMoveStimulus` extra `has_go` check** | **MEDIUM** | OPEN | `monster_events.rs:446` — `!has_attack \|\| has_go` checks entire queue; C++ checks head only (`ToDoList.at(ActToDo)->Code == TDAttack`). Blocks combat re-arm when `[Attack, Go]` queued. |
+| **27** | **Waypoint cost source mismatch** | **LOW** | OPEN | `walk/walk_timing.rs:211` — uses `ground_speed` from items_db vs C++ `WAYPOINTS` tile attribute (`cract.cc:1521`). Latent if data matches. |
+| **28** | **Poison field extension missing** | **LOW** | OPEN | `process_skills.rs:74-86` — doesn't extend poison duration when creature stands on poison field (`crskill.cc:1043` `Cycle += 1`). |
+| **30** | **PANIC→ATTACKING promotion only on successful dance step** | **LOW** | OPEN | `monster_ai.rs:1353` — early-returns before promotion at 1374 when dance step blocked. C++ `crnonpl.cc:2832` promotes unconditionally in melee band. |
+| **31** | **`IdleStimulus` catch block not comprehensive** | **LOW** | OPEN | `idle_stimulus.rs:152` — `monster_exhausted_wait_772` covers push/walk failures but isn't a catch-all like C++ try/catch (`crnonpl.cc:2890`). |
+| **Structural** | **`CreatureAction` enum missing Rotate/Talk/Use** | **HIGH** | OPEN | `creature_todo.rs:65-72` — only Go/Wait/Attack. Blocks atomic Execute (GL#7) fix and forces out-of-band Rotate workaround (AI#22). Root cause, not a symptom. |
+| **P1-B6** | Master proximity leash for non-combat summons missing | **LOW** | OPEN | `crnonpl.cc:2172–2181` — non-ATTACKING/PANIC summon >1 Manhattan from master can't step closer. Not in any Rust gate. |
+| **P1-B7** | GoStrength < 0 (paralyze) check missing from planning | **LOW** | OPEN | `crnonpl.cc:2162` — paralyzed monster plans paths but fails at step execution. Minor since step fails anyway. |
+| 8/15 | RNG stream fragmentation + `ai_rng` retirement | **PARTIAL** | OPEN | Per-draw routing done (9/10/14/19); `ai_rng` retirement + `melee_realign` deletion + per-world generator need oracle re-baseline. |
+| 21 | Convince/Challenge are 772-shaped differently | **LOW** | OPEN | Has 1098-style `challenge_focus_duration`; 772 uses one-shot set-target+rotate+yield. |
 
 ## Smoothness Root Cause Analysis
 
@@ -1195,21 +1214,17 @@ the gate blocks the Rotate. C++ `Rotate(Target)` at `crnonpl.cc:2872` runs
 or route combat rotation through the ToDo queue as a `TDRotate` entry (which the atomic
 loop would then fire zero-delay).
 
-### 3. Missing kick-and-retry in `MovePossible` (AI#23) — the "bump and stall" defect
+### 3. Missing kick-and-retry in `MovePossible` (AI#23) — the "bump and stall" defect — FIXED
 
 C++ `MovePossible` (`crnonpl.cc:2185-2288`) has `for(int Attempt = 0; Attempt < 100; …)`:
 after kicking a blocking creature/box, it **breaks the inner loop and retries the outer
 loop** to re-check whether the tile is now clear. If the kick succeeded and the tile is
 empty, the step proceeds **this beat** — no stall.
 
-Rust `monster_kick_before_step_772` (`monster_push.rs:96-179`) kicks once and returns
-`Proceed` or `Exhausted`. If the kick moves the blocker but another blocker is behind it
-(or the tile needs a second verification), Rust returns `Exhausted` → `Wait(1000)` — a
-**1-second stall** where C++ would have retried and stepped through.
-
-This is the "two monsters bump into each other, stop for a second" symptom. The fix is the
-`for Attempt in 0..100` retry loop with tile re-check after each kick, matching
-`crnonpl.cc:2185-2288`.
+**FIXED:** `monster_kick_before_step_772` now has a `for _attempt in 0..100` loop that
+re-checks the destination tile after each kick. If the tile is clear, the step proceeds;
+if a hard block is hit (player, IGNORED, invisible, NPC, unpushable), the loop breaks;
+if a kick-kill occurs, `EXHAUSTED` is returned. Test: `kick_and_retry_clears_two_deep_blockers`.
 
 ### 4. Z-level change clears targets (AI#24) — the "ramp drop" defect
 
@@ -1522,3 +1537,357 @@ match the C++ catch-all semantics, but is not urgent given current coverage.
 `TNPC::IdleStimulus` (NPC AI), `MovePossible` field-`AVOID` cross-check (fire/poison/energy
 avoidance, PANIC hazard ignore), `SearchSummonField` summon placement, and 772 convince/challenge
 rune semantics (Finding 21) — none are on the reported melee/distance "feel" path.
+
+---
+
+# Pass 8 — Phase 1 re-audit (push/collision layer)
+
+A focused re-audit of the Phase 1 surface (Findings 5, 6/11, 7, 12) against the CipSoft 772
+reference. Cross-referenced `TMonster::MovePossible` (`crnonpl.cc:2141–2293`),
+`KickCreature` (`crnonpl.cc:3036–3093`), `KickBoxes` (`crnonpl.cc:2994–3034`),
+`CanKickBoxes` (`crnonpl.cc:2984–2992`) against the Rust kick path
+(`monster_push.rs:96–367`), the TShortway fill gate (`monster_ai.rs:2568–2692`), the
+dance/roam/flee step gate (`monster_ai.rs:2728–2730` → `monster_can_occupy_chase_tile` →
+`tile_query_add_monster` in `walk_tile.rs:350–454`), and the step execution call site
+(`walk/mod.rs:1261–1273`).
+
+**Known gap:** AI#23 (kick-and-retry loop) — **FIXED** (see summary table below).
+
+**New gaps found: 10 divergences** (3 HIGH, 5 MEDIUM, 2 LOW), grouped into two root causes.
+**9 of 11 are now FIXED** (all HIGH/MED); P1-B6/B7 (LOW) remain open.
+
+## Root cause A — Planning gates use the 1098 `tile_query_add_monster` model, not 772 `MovePossible(Execute=false)`
+
+The dance step, roam step, flee step, and greedy chase step all plan through
+`monster_can_walk_to` → `monster_can_occupy_chase_tile` → `tile_query_add_creature` →
+`tile_query_add_monster` (`walk_tile.rs:350`). That function is the TFS 1098 `Tile::queryAdd`
+model, not the 772 `MovePossible` creature/item gate. Only `monster_tshortway_fill_walkable`
+(the TShortway/A* fill) has a 772-specific gate. The single-step gates do not.
+
+### Finding P1-A1 (HIGH) — `!is_summon` gate prevents summons from kicking/planning through creatures
+
+C++ `MovePossible` creature branch (`crnonpl.cc:2202`) gates on
+`RaceData[this->Race].KickCreatures` only — **no summon/Master check**. A summon with
+`KickCreatures` CAN kick blocking monsters. The player-block case (`crnonpl.cc:2230`) is the
+only place `this->Master != 0` is checked (a summon treats a player tile as a hard block, not
+EXHAUSTED).
+
+Rust gates on `!is_summon` in three places:
+- `monster_kick_before_step_772` (`monster_push.rs:123`):
+  `creature_kicker = can_push_creatures && !is_summon && posture && has_target`
+- `monster_tshortway_fill_walkable` (`monster_ai.rs:2659`):
+  `if can_push_creatures && !is_summon { continue; }`
+- `tile_query_add_monster` (`walk_tile.rs:387`): `if can_push_creatures && !is_summon { ... }`
+
+**Effect:** a summoned cyclops (KickCreatures=1) boxed in by another monster cannot kick it
+aside in Rust. In C++ it kicks and proceeds. Matters for summon-vs-monster combat in tight
+spaces.
+
+### Finding P1-A2 (HIGH) — Player tile is a hard block in TShortway fill, not plannable-through
+
+C++ `MovePossible(Execute=false)` creature branch (`crnonpl.cc:2229–2233`): a PLAYER blocker
+(when `this->Master == 0` and not `IGNORED_BY_MONSTERS`) does **not** return false — the inner
+loop falls past it, so the tile is **plannable-through**. The `Execute=true` path then throws
+`EXHAUSTED` (`crnonpl.cc:2236–2238`).
+
+Rust `monster_tshortway_fill_walkable` (`monster_ai.rs:2666`):
+`CreatureKind::Player(_) | CreatureKind::Npc(_) => return false` — a player tile is a
+**hard block** in the path search.
+
+**Effect:** C++ chase paths route through player tiles (then EXHAUSTED on step → lose target +
+Wait(1000)); Rust chase paths route around. A chasing monster in C++ beelines toward a player
+blocker and stops; in Rust it detours. This changes which tile the monster attempts and
+whether EXHAUSTED fires.
+
+### Finding P1-A3 (MEDIUM) — `tile_query_add_monster` uses 1098 creature-block model for dance/roam/flee step gates
+
+`monster_can_occupy_chase_tile` (`monster_ai.rs:2713`) calls `tile_query_add_creature` →
+`tile_query_add_monster` (`walk_tile.rs:350–454`), which uses the 1098 model:
+- `can_push_creatures && !is_summon` gate (P1-A1 above)
+- `other_summon_with_player_master` hard block (`walk_tile.rs:406–412`) — not in C++ 772
+  `MovePossible`
+- No ATTACKING/PANIC + Target gate — a roaming IDLE monster with `can_push_creatures` treats
+  creature tiles as plannable-through; C++ requires ATTACKING/PANIC + Target
+- No invisibility check (P1-B3 below)
+
+The 772-specific `monster_tshortway_fill_walkable` exists but is only used for the
+TShortway/A* path, not for the single-step dance/roam/flee gates.
+
+**Effect:** dance/roam/flee step planning doesn't match C++ 772 `MovePossible` gates for
+creature-blocked tiles.
+
+## Root cause B — Execution kick path (`monster_kick_before_step_772`) missing gates and wrong validation model
+
+### Finding P1-B1 (MEDIUM) — KickBoxes hazard immunity is poison-only, not per-damage-type
+
+C++ `MovePossible` AVOID branch (`crnonpl.cc:2264–2267`):
+```cpp
+bool IgnoreHazard = (this->State == PANIC && AvoidDamageTypes != 0)
+    || (RaceData[this->Race].NoPoison  && AvoidDamageTypes == DAMAGE_POISON)
+    || (RaceData[this->Race].NoBurning && AvoidDamageTypes == DAMAGE_FIRE)
+    || (RaceData[this->Race].NoEnergy  && AvoidDamageTypes == DAMAGE_ENERGY);
+```
+
+Rust (`monster_push.rs:192–195` and `monster_ai.rs:2681`):
+```rust
+let immune = matches!(self.creatures.get(mover), Some(CreatureKind::Monster(m)) if m.immunity_poison);
+let ignore_hazard = state == MonsterState::Panic || immune;
+```
+
+**Two divergences:**
+1. **Over-applies poison immunity:** a poison-immune monster ignores fire and energy fields in
+   Rust. C++ only ignores poison fields for `NoPoison`.
+2. **Missing fire/energy immunity:** a fire-immune or energy-immune monster (without poison
+   immunity) does NOT ignore fire/energy fields in Rust. C++ does.
+
+**Data model gap:** `creature/monster.rs` only has `immunity_poison: bool` — no
+`immunity_fire` / `immunity_energy`. And `is_avoid_hazard_772` returns a boolean, not the
+`AvoidDamageTypes` attribute. Both need to be extended.
+
+### Finding P1-B2 (MEDIUM) — `IGNORED_BY_MONSTERS` player is EXHAUSTED, not hard block
+
+C++ `MovePossible` (`crnonpl.cc:2229–2232`): a player with
+`CheckRight(Creature->ID, IGNORED_BY_MONSTERS)` → `return false` (hard block, no EXHAUSTED).
+Rust (`monster_push.rs:157`): any player → `return MonsterKickOutcome::Exhausted`. The code
+comment at line 155 acknowledges this.
+
+**Effect:** a GM/counselor player on the destination tile causes the monster to lose target +
+Wait(1000) in Rust; in C++ the monster treats it as a hard block and routes around.
+`PLAYER_FLAG_IGNORED_BY_MONSTERS` already exists in Rust (`player_flags.rs:11`) and is used in
+target acquisition (`monster_targets.rs:298`) and spawn placement (`spawn_placement.rs:68`) —
+just not in the kick path.
+
+### Finding P1-B3 (MEDIUM) — Invisibility check missing from kick and planning gates
+
+C++ `MovePossible` (`crnonpl.cc:2221–2223`):
+`!RaceData[this->Race].SeeInvisible && Creature->IsInvisible()` → `return false` (hard
+block). Neither `monster_kick_before_step_772` nor `monster_tshortway_fill_walkable` nor
+`tile_query_add_monster` checks blocker invisibility or the mover's SeeInvisible flag.
+
+**Effect:** a monster without SeeInvisible treats an invisible creature as kickable/plannable
+in Rust; in C++ it's a hard block. The monster kicks or paths through invisible creatures.
+
+**Data model gap:** `see_invisible` and `is_invisible` fields don't exist on the Rust
+monster/creature structs.
+
+### Finding P1-B4 (MEDIUM) — `KickCreature` destination validation uses wrong model
+
+C++ `KickCreature` (`crnonpl.cc:3066–3067`):
+```cpp
+if(Creature->MovePossible(DestX, DestY, DestZ, true, false)
+        && !CoordinateFlag(DestX, DestY, DestZ, AVOID)){
+```
+This calls the **blocker's own** `MovePossible(Execute=true)` — which checks the blocker's
+leash, GoStrength, PZ, house, and creature-block-with-kick-through. Then checks `!AVOID` (no
+hazard field on dest).
+
+Rust (`monster_push.rs:334`): `self.try_creature_walk_step(blocker, dir, now)` →
+`internal_move_creature_step` → `tile_query_add_monster` (1098 model).
+
+**Divergences:**
+1. The blocker's home-radius leash isn't checked (C++ `MovePossible` checks it for
+   non-ATTACKING/PANIC blockers).
+2. The 1098 creature-block model is applied to the blocker's destination (so if the
+   destination has another creature, the blocker can't step there in Rust; C++ would check the
+   blocker's `MovePossible` which has the 772 kick-through logic).
+3. The AVOID check uses `tilestate::MAGICFIELD` (`monster_push.rs:328`) vs C++
+   `CoordinateFlag(Dest, AVOID)` — these may diverge if not all AVOID items set MAGICFIELD.
+
+### Finding P1-B5 (MEDIUM) — `IsHouse` check missing from planning gates
+
+C++ `MovePossible` (`crnonpl.cc:2168`): `IsProtectionZone(x,y,z) || IsHouse(x,y,z)` →
+`return false`. Rust:
+- `monster_tshortway_fill_walkable` (`monster_ai.rs:2614`): checks `PROTECTIONZONE` but
+  **not** house tiles.
+- `tile_query_add_monster` (`walk_tile.rs:372`): checks `PROTECTIONZONE` but **not**
+  `Tile::House` (only `tile_query_add_npc` at line 463 blocks houses).
+
+**Effect:** monsters can plan paths into house tiles in Rust. C++ 772 blocks house tiles in
+`MovePossible`. (Related to but separate from Finding 25 — that's about losing target when the
+*target* enters a house; this is about the *monster* stepping into a house tile.)
+
+### Finding P1-B6 (LOW) — Master proximity leash for non-combat summons missing
+
+C++ `MovePossible` (`crnonpl.cc:2172–2181`): a non-ATTACKING/PANIC summon (Master != 0)
+currently >1 Manhattan from master cannot step to a tile ≤1 from master. This is an
+anti-clustering measure for idle/roam summons. Not in any Rust planning or execution gate.
+
+### Finding P1-B7 (LOW) — GoStrength < 0 (paralyze) check missing from planning
+
+C++ `MovePossible` (`crnonpl.cc:2162–2166`): `Skills[SKILL_GO_STRENGTH]->Act < 0` →
+`return false`. Not in Rust planning gates. A paralyzed monster plans paths but fails at step
+execution. Minor since the step fails anyway, but the failure path differs (C++ doesn't
+enqueue Go; Rust enqueues then fails → clear-queue + idle stimulus).
+
+## Pass 8 summary table
+
+| ID | Gap | Severity | Status | C++ ref | Rust site |
+|----|-----|----------|--------|---------|-----------|
+| AI#23 | Kick-and-retry loop missing (known) | HIGH | **FIXED** | `crnonpl.cc:2185` `for Attempt 0..100` | `monster_push.rs` — `for _attempt in 0..100` with tile re-check |
+| P1-A1 | `!is_summon` gate prevents summons from kicking | HIGH | **FIXED** | `crnonpl.cc:2202` (no summon check) | `monster_push.rs`, `monster_ai.rs` — `!is_summon` gate dropped |
+| P1-A2 | Player tile hard block in TShortway, not plannable-through | HIGH | **FIXED** | `crnonpl.cc:2229–2233` (falls past) | `monster_ai.rs` — player plannable-through for non-summon non-IGNORED |
+| P1-A3 | Dance/roam/flee step gates use 1098 `tile_query_add_monster` | MED | **FIXED** | `crnonpl.cc:2194–2233` (772 model) | `monster_ai.rs` — `monster_move_possible_planning_772` extracted; `monster_can_occupy_chase_tile` routes through it |
+| P1-B1 | KickBoxes hazard immunity poison-only, not per-damage-type | MED | **FIXED** | `crnonpl.cc:2264–2267` | `monster_push.rs`, `items.rs` — `immunity_fire`/`immunity_energy` + `avoid_damage_type_772` + `FieldDamageType` |
+| P1-B2 | `IGNORED_BY_MONSTERS` player → EXHAUSTED, not hard block | MED | **FIXED** | `crnonpl.cc:2230` | `monster_push.rs` — `IGNORED_BY_MONSTERS` check added (hard block) |
+| P1-B3 | Invisibility check missing from kick + planning | MED | **FIXED** | `crnonpl.cc:2221` | `monster_push.rs`, `monster_ai.rs`, `creature/base.rs` — `see_invisible` + `is_invisible()` added |
+| P1-B4 | `KickCreature` dest validation uses 1098 model, not blocker's `MovePossible` | MED | **FIXED** | `crnonpl.cc:3066` | `monster_push.rs` — `try_creature_walk_step` replaced with `monster_move_possible_planning_772` + `move_creature_on_map` |
+| P1-B5 | `IsHouse` check missing from planning gates | MED | **FIXED** | `crnonpl.cc:2168` | `monster_ai.rs` — `Tile::House` check added to `monster_move_possible_planning_772` |
+| P1-B6 | Master proximity leash for non-combat summons missing | LOW | OPEN | `crnonpl.cc:2172–2181` | — |
+| P1-B7 | GoStrength < 0 (paralyze) check missing from planning | LOW | OPEN | `crnonpl.cc:2162` | — |
+
+## Data model gaps — RESOLVED
+
+1. ~~`immunity_fire` / `immunity_energy` missing from `Monster` struct~~ — **DONE**: added to
+   `MonsterDefenses`, `MonsterAiConfig`, `MonsterCombatSnapshot`, `Monster` struct; parsed from
+   `<immunity fire="1"/>`, `<immunity energy="1"/>`.
+2. ~~`AvoidDamageTypes` not exposed by `is_avoid_hazard_772`~~ — **DONE**: `avoid_damage_type_772`
+   method + `FieldDamageType` enum added to `items.rs`.
+3. ~~`see_invisible` missing from `Monster` struct~~ — **DONE**: added to `MonsterDefenses`,
+   `MonsterAiConfig`, `MonsterCombatSnapshot`, `Monster`; parsed from `<immunity invisible="1"/>`.
+4. ~~`is_invisible` missing from creature base~~ — **DONE**: `is_invisible()` method added to
+   `CreatureBase` (checks `active_conditions` for `ConditionType::Invisible`).
+
+## Recommended fix order — COMPLETED (9 of 11)
+
+1. ~~**P1-A3 + P1-A1 + P1-A2**~~ — **DONE**: `monster_move_possible_planning_772` extracted;
+   `monster_can_occupy_chase_tile` routes through it; `!is_summon` dropped; player tiles
+   plannable-through.
+2. ~~**AI#23**~~ — **DONE**: `for _attempt in 0..100` retry loop with tile re-check.
+3. ~~**P1-B2**~~ — **DONE**: `IGNORED_BY_MONSTERS` check (hard block, not EXHAUSTED).
+4. ~~**P1-B1**~~ — **DONE**: `immunity_fire`/`immunity_energy` + `avoid_damage_type_772`.
+5. ~~**P1-B3**~~ — **DONE**: `see_invisible`/`is_invisible` + invisibility gate in kick + planning.
+6. ~~**P1-B4**~~ — **DONE**: `monster_move_possible_planning_772` + `move_creature_on_map`.
+7. ~~**P1-B5**~~ — **DONE**: `Tile::House` check in `monster_move_possible_planning_772`.
+8. **P1-B6, P1-B7** — OPEN (LOW priority).
+
+---
+
+# Next Implementation Plan — the "smoothness" cluster + remaining polish
+
+**Created:** Jun 2026, post-Pass 8. Covers all OPEN findings from the audit.
+
+Convention per phase: **Goal · Findings · C++ ref · Rust sites · Steps · Verify · Risk.**
+Each phase is independently shippable and ends at a green gate (`rtk cargo check` + `rtk cargo
+clippy` + `rtk cargo test`). Capture C++-behaviour surprises in `tasks/lessons.md`.
+
+## Phase 8 — `CreatureAction` enum + atomic `Execute` loop (GL#7, AI#22, Structural)
+
+**The primary smoothness defect.** Every melee turn-and-hit takes 400 ms in Rust vs 200 ms in C++.
+
+- **Goal:** Rotate+Attack fires in one beat; the ToDo queue drains zero-delay entries atomically.
+- **Findings:** Structural (CreatureAction enum), GL#7 (atomic Execute), AI#22 (Rotate gate).
+- **C++ ref:** `cract.cc:783–890` `TCreature::Execute` (`while(true)` over `CalculateDelay==0`
+  entries); `crnonpl.cc:2872` `Rotate(Target)` (unconditional in ATTACKING/PANIC);
+  `creature_todo.rs:65-72` (enum only has Go/Wait/Attack).
+- **Rust sites:** `creature_todo.rs` (enum + queue), `idle_stimulus.rs:2148`
+  (`run_monster_todo_execute`), `monster_ai.rs:2191` (`monster_update_look_direction` /
+  `walk_timer_idle` gate).
+- **Steps:**
+  1. **Structural:** Add `CreatureAction::Rotate { target_id: CreatureId }` (and optionally
+     `Talk`, `Use`) to the enum. Add `CalculateDelay` logic for each (Rotate = 0, Talk = 0,
+     Use = spell-dependent).
+  2. **AI#22:** In `monster_idle_rotate_toward_attack_target`, enqueue
+     `CreatureAction::Rotate { target_id }` instead of calling
+     `monster_update_look_direction` directly. Remove the `walk_timer_idle` gate for
+     ATTACKING/PANIC + has attack_target.
+  3. **GL#7:** Make `run_monster_todo_execute` a `while` loop mirroring C++ `Execute`:
+     after each zero-delay action, check the next head's `CalculateDelay`; if 0, continue
+     in the same call; if >0, re-insert at `server_ms + delay` and break. The `+1` clamp
+     and `<= server_ms` filter guarantee no same-beat re-entrancy.
+  4. Ensure `IdleStimulus` enqueues `Rotate(target) + Attack` (both delay 0) so the atomic
+     loop fires both in one beat.
+- **Verify:** new tests — Rotate+Attack fires in one beat (not two); a Go step with a
+  pending zero-delay Attack doesn't delay the Attack to the next beat; existing 436 tests
+  pass.
+- **Risk:** medium — touches the hot step path and the ToDo queue core. The `while` loop
+  must terminate (guaranteed by the `+1` clamp on re-inserted entries). Test the
+  Rotate+Attack sequence explicitly against the C++ oracle.
+
+## Phase 9 — Z-level target clear + move-stimulus fixes (AI#24, AI#25, AI#26, GL#24)
+
+- **Goal:** monsters don't lose targets on ramp drops; lose-target checks house +
+  invisibility; move-stimulus uses head-only check; fan-out order matches C++.
+- **Findings:** AI#24, AI#25, AI#26, GL#24.
+- **C++ ref:** `crmain.cc:920–940` `CreatureMoveStimulus` (no target clear on Z-change,
+  head-only `TDAttack` check); `crnonpl.cc:2427–2429` (lose-target: `IsHouse` +
+  `IsInvisible && !SeeInvisible`).
+- **Rust sites:** `monster_events.rs:190-198` (Z-level clear), `monster_events.rs:446`
+  (`has_go` check), `monster_events.rs:112` (sort order), `idle_stimulus.rs:365-399`
+  (`monster_idle_772_should_lose_target`).
+- **Steps:**
+  1. **AI#24:** Gate the Z-level target clear on `!beat_driven_loop` (1098 only). On 772,
+     keep targets across floor changes — C++ `CreatureMoveStimulus` only handles combat
+     re-arm for close-chase, not target loss.
+  2. **AI#25:** Add `IsHouse(target_pos)` and `target.is_invisible() && !see_invisible`
+     to `monster_idle_772_should_lose_target`. The `see_invisible` and `is_invisible()`
+     fields already exist from Pass 8.
+  3. **AI#26:** Replace `!has_attack || has_go` with a head-specific check:
+     `todo.queue.front() == Some(&CreatureAction::Attack)`, matching C++'s
+     `ToDoList.at(ActToDo)->Code == TDAttack`.
+  4. **GL#24:** Replace `ids.sort_by_key(|id| id.data().as_ffi())` with C++ creature-list
+     order (spatial sector walk). If the sector walk is not available, document the
+     divergence and leave creation-order sort with a NOTE(parity) comment.
+- **Verify:** new tests — monster keeps target across Z-change on 772; monster loses target
+  entering house; monster loses invisible target without SeeInvisible; move-stimulus fires
+  when queue is `[Attack, Go]`; existing tests pass.
+- **Risk:** low-medium — AI#24 is a one-line gate; AI#25/AI#26 are small additions; GL#24
+  may need deeper investigation of the C++ sector walk order.
+
+## Phase 10 — Drunk-walk 772 algo + RNG stream (GL#22, Finding 8/15)
+
+- **Goal:** drunk-walk uses the 772 `rand()%max(7-level,1)` algo on the glibc stream;
+  `ai_rng` retired from the 772 path; `melee_realign` hack deleted.
+- **Findings:** GL#22, Finding 8/15.
+- **C++ ref:** `walk/mod.rs:116-131` (1098 `r/4 > d` curve); C++ 772 drunk-walk
+  `rand()%max(7-level,1)` on glibc stream; `sim_glibc_rand.rs` (parity stream).
+- **Rust sites:** `walk/mod.rs:116-131` (drunk walk), `game_world.rs` (`ai_rng`),
+  `sim_glibc_rand.rs` (parity stream), `monster_do_attacking` (`melee_realign` hack).
+- **Steps:**
+  1. **GL#22:** Replace the 1098 `r/4 > d` curve with 772 `rand()%max(7-level,1)` on the
+     parity stream (`parity_rand_mod`). Change the source from `ConditionDrunk` to
+     `Skills[SKILL_DRUNKEN]` timer-skill.
+  2. **Finding 8:** Audit remaining `ai_rng` / `thread_rng` call sites on the 772 path
+     and route them through `parity_*` dispatchers.
+  3. **Finding 15:** Delete the `TFS_SIM_MELEE_REALIGN` hack once draws align.
+  4. **(Stretch)** Replace process-global `libc::rand` with a per-`GameWorld`
+     glibc-equivalent generator so live 772 uses the same code path.
+- **Verify:** RNG trace (`TFS_SIM_RNG_TRACE`) call counts/values match the C++ oracle
+  across a drunk-walk + flee + roam + multi-hit scenario; harness battery green without
+  realign. **Requires re-baselining golden RNG traces from the C++ oracle.**
+- **Risk:** medium — re-baselining golden logs is out of band for a Rust-only change. Do
+  the drunk-walk fix first (it's self-contained), defer the `ai_rng` retirement until the
+  oracle re-baseline is available.
+
+## Phase 11 — Low-priority polish (AI#27, AI#28, AI#30, AI#31, P1-B6, P1-B7, Finding 21)
+
+- **Goal:** close all remaining LOW findings.
+- **Findings:** AI#27, AI#28, AI#30, AI#31, P1-B6, P1-B7, Finding 21.
+- **C++ ref:** `cract.cc:1521` (WAYPOINTS), `crskill.cc:1043` (poison field extension),
+  `crnonpl.cc:2832` (PANIC promotion), `crnonpl.cc:2890` (catch block),
+  `crnonpl.cc:2172–2181` (master proximity leash), `crnonpl.cc:2162` (GoStrength < 0),
+  `crnonpl.cc:3177/3196` (convince/challenge).
+- **Rust sites:** `walk/walk_timing.rs:211`, `process_skills.rs:74-86`,
+  `monster_ai.rs:1349-1381`, `idle_stimulus.rs:152-164`, `monster_ai.rs` (planning gates).
+- **Steps:**
+  1. **AI#27:** Verify `items_db.ground_speed` maps 1:1 to C++ `WAYPOINTS` attribute for
+     all tile types. If mismatch, read `WAYPOINTS` from the tile's `BANK` object.
+  2. **AI#28:** In `process_skills_772`, check for poison fields under the creature and
+     extend poison duration (`Cycle += 1`).
+  3. **AI#30:** Move the `band == 1` PANIC→ATTACKING promotion outside the
+     `monster_idle_dance_step` early-return guard.
+  4. **AI#31:** (Optional, structural) Make `monster_idle_prepare_and_enqueue_go` return
+     a `Result` and handle all errors with `monster_exhausted_wait_772`.
+  5. **P1-B6:** Add master proximity leash to `monster_move_possible_planning_772` — a
+     non-ATTACKING/PANIC summon >1 Manhattan from master can't step to a tile ≤1 from master.
+  6. **P1-B7:** Add `GoStrength < 0` (paralyze) check to `monster_move_possible_planning_772`.
+  7. **Finding 21:** If 772 convince/challenge runes are in scope, implement 772 semantics
+     (one-shot set-target+rotate+yield for challenge; `Convince(Master)` for convince).
+- **Verify:** targeted unit tests for each fix; existing tests pass.
+- **Risk:** low — all are small, isolated changes.
+
+## Cross-cutting verification
+
+- After each phase: `rtk cargo check` → `rtk cargo clippy` → `rtk cargo test`, then the
+  772 chase/kite harness battery, comparing against the C++ oracle logs.
+- Phase 10 requires re-baselining golden RNG traces — do it last.
+- Keep `tasks/lessons.md` updated with any C++ behaviour that differs from this audit's reading.

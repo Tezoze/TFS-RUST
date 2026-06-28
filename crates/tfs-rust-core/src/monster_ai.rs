@@ -37,6 +37,7 @@ use crate::pathfinding::{
     scan_min_terrain_waypoints, uses_reverse_terrain_path, FindPathParams, CHASE_PATH_MAX_STEPS,
     REVERSE_PATH_VIEW_RADIUS,
 };
+use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
 use crate::tile::{flags as tilestate, MapStackEntry};
 use crate::walk::{creature_turn_with_broadcast, tile_query_add_creature, PATHFIND_WALK_FLAGS};
 
@@ -2565,24 +2566,32 @@ impl GameWorld {
     ///
     /// Chase fill may plan through pushable creatures when `can_push_creatures`; unpushable
     /// monsters always block. Follow/attack target tile is **not** walkable (`Target` match).
-    pub(crate) fn monster_tshortway_fill_walkable(
-        &self,
-        cid: CreatureId,
-        pos: Position,
-        _target: Position,
-    ) -> bool {
+    /// 772 `TMonster::MovePossible(Execute=false)` creature/item gate — `crnonpl.cc:2141–2293`.
+    ///
+    /// This is the planning-phase `MovePossible` check (no side effects). It validates:
+    /// - Home-radius leash (non-ATTACKING/PANIC only)
+    /// - PZ / house / floorchange / teleport tile blocks
+    /// - Creature-block gate (772 model: no `!is_summon`, player plannable-through, invisibility,
+    ///   IGNORED_BY_MONSTERS)
+    /// - Item-block gate (UNPASS/AVOID with per-damage-type hazard immunity)
+    ///
+    /// It does **not** include the `TShortway::FillMap` terrain checks (`BANK`, waypoint chain) —
+    /// those are [`Self::monster_tshortway_fill_walkable`]'s responsibility. Used by
+    /// [`Self::monster_can_occupy_chase_tile`] for single-step gates (dance/roam/flee/chase).
+    pub(crate) fn monster_move_possible_planning_772(&self, cid: CreatureId, pos: Position) -> bool {
         let (
             spawn,
             cfg,
             home_radius,
             can_push_creatures,
             can_push_items,
-            is_summon,
             immunity_poison,
+            immunity_fire,
+            immunity_energy,
+            see_invisible,
             state,
             chase_target,
             master,
-            origin,
         ) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
                 m.spawn_position,
@@ -2590,12 +2599,13 @@ impl GameWorld {
                 m.home_radius,
                 m.can_push_creatures,
                 m.can_push_items,
-                m.base.is_summon(),
                 m.immunity_poison,
+                m.immunity_fire,
+                m.immunity_energy,
+                m.see_invisible,
                 m.state,
                 m.base.attack_target.or(m.base.follow_target),
                 m.base.master,
-                m.base.position,
             ),
             _ => return false,
         };
@@ -2610,21 +2620,22 @@ impl GameWorld {
         let Some(tile) = self.map.get_tile(pos) else {
             return false;
         };
+        // C++ `MovePossible` blocks house tiles (`crnonpl.cc:2168` `IsHouse(x,y,z)`).
+        if matches!(tile, crate::tile::Tile::House(_)) {
+            return false;
+        }
         let body = tile.body();
-        if (body.flags & (tilestate::PROTECTIONZONE | tilestate::FLOORCHANGE | tilestate::TELEPORT))
+        if (body.flags
+            & (tilestate::PROTECTIONZONE
+                | tilestate::FLOORCHANGE
+                | tilestate::TELEPORT
+                | tilestate::BLOCKSOLID))
             != 0
         {
             return false;
         }
 
         let chain = body.map_object_chain();
-        let Some(MapStackEntry::Ground(head_id)) = chain.first() else {
-            return false;
-        };
-        if !self.items_db.is_terrain_bank_772(*head_id) {
-            return false;
-        }
-
         for entry in &chain {
             match entry {
                 MapStackEntry::Ground(_) => {}
@@ -2651,19 +2662,37 @@ impl GameWorld {
                     let Some(other) = self.creatures.get(*tile_c) else {
                         return false;
                     };
+                    // C++ `MovePossible` invisibility gate (`crnonpl.cc:2221-2223`): a blocker
+                    // the mover can't see (no SeeInvisible + blocker invisible) is a hard block.
+                    if !see_invisible && other.base().is_invisible() {
+                        return false;
+                    }
                     match other {
                         CreatureKind::Monster(m) => {
                             if !m.is_pushable() {
                                 return false;
                             }
-                            if can_push_creatures && !is_summon {
-                                continue;
-                            }
-                            return false;
+                            // C++ `MovePossible` has no summon gate — a summon with KickCreatures
+                            // plans through pushable monsters like any other kicker (`crnonpl.cc:2202`).
+                            // P1-A1: the old `!is_summon` gate is dropped.
+                            continue;
                         }
                         CreatureKind::Player(p) if p.ghost_mode => continue,
-                        CreatureKind::Player(_) if master.is_some() => return false,
-                        CreatureKind::Player(_) | CreatureKind::Npc(_) => return false,
+                        // C++ `crnonpl.cc:2230`: a summon (Master != 0) treats a player tile as a
+                        // hard block. `IGNORED_BY_MONSTERS` players are also hard blocks.
+                        CreatureKind::Player(p) if master.is_some() => return false,
+                        CreatureKind::Player(p)
+                            if has_player_flag(
+                                flags_for_group(&self.groups, p.group_id),
+                                PLAYER_FLAG_IGNORED_BY_MONSTERS,
+                            ) =>
+                        {
+                            return false
+                        }
+                        // C++ `crnonpl.cc:2229-2233`: a non-summon kicker facing a normal player
+                        // falls past the creature (plannable-through); EXHAUSTED fires at Execute.
+                        CreatureKind::Player(_) => continue,
+                        CreatureKind::Npc(_) => return false,
                     }
                 }
                 MapStackEntry::Item(item_id) => {
@@ -2678,7 +2707,22 @@ impl GameWorld {
                         continue;
                     }
                     if self.items_db.is_avoid_hazard_772(server_id) {
-                        let ignore_hazard = state == MonsterState::Panic || immunity_poison;
+                        // C++ `MovePossible` AVOID branch (`crnonpl.cc:2264-2267`): per-damage-type
+                        // immunity — PANIC ignores all hazards; NoPoison/NoBurning/NoEnergy ignore
+                        // matching fields only. P1-B1: was poison-only, now per-type.
+                        let ignore_hazard = state == MonsterState::Panic
+                            || match self.items_db.avoid_damage_type_772(server_id) {
+                                Some(tfs_rust_content::items::FieldDamageType::Poison) => {
+                                    immunity_poison
+                                }
+                                Some(tfs_rust_content::items::FieldDamageType::Fire) => {
+                                    immunity_fire
+                                }
+                                Some(tfs_rust_content::items::FieldDamageType::Energy) => {
+                                    immunity_energy
+                                }
+                                None => false,
+                            };
                         if !ignore_hazard
                             && (self.items_db.is_unmove_772(server_id) || !can_push_items)
                         {
@@ -2691,8 +2735,48 @@ impl GameWorld {
         true
     }
 
+    /// 772 `TShortway::FillMap` walkable gate — `cract.cc` `FillMap` + `MovePossible(Execute=false)`.
+    ///
+    /// Adds the TShortway-specific terrain checks (`BANK` ground, waypoint chain) on top of
+    /// [`Self::monster_move_possible_planning_772`]. Used by the A*/TShortway pathfinder only.
+    pub(crate) fn monster_tshortway_fill_walkable(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        _target: Position,
+    ) -> bool {
+        // `MovePossible` creature/item gate (PZ, house, leash, creatures, items).
+        if !self.monster_move_possible_planning_772(cid, pos) {
+            return false;
+        }
+        // TShortway `FillMap` terrain gate — `BANK` ground required for waypoint overlay.
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        let chain = body.map_object_chain();
+        let Some(MapStackEntry::Ground(head_id)) = chain.first() else {
+            return false;
+        };
+        if !self.items_db.is_terrain_bank_772(*head_id) {
+            return false;
+        }
+        true
+    }
+
     /// Spawn leash + pathfinding tile check — shared by A* and step selection (`monster.cpp` `canWalkTo`).
+    ///
+    /// On 772 (`beat_driven_loop`), delegates to [`Self::monster_tshortway_fill_walkable`] which
+    /// mirrors `MovePossible(Execute=false)` (`crnonpl.cc:2141–2293`): the 772 creature/item gate
+    /// with per-damage-type hazard immunity, invisibility, house, and player-plannable-through
+    /// semantics. On 1098, uses the TFS `Tile::queryAdd` model (`tile_query_add_monster`).
     fn monster_can_occupy_chase_tile(&self, cid: CreatureId, pos: Position) -> bool {
+        if self.beat_driven_loop {
+            // P1-A3: route single-step gates (dance/roam/flee/chase) through the 772 `MovePossible`
+            // planning model, not the 1098 `tile_query_add_monster`. Uses
+            // `monster_move_possible_planning_772` (no TShortway terrain checks).
+            return self.monster_move_possible_planning_772(cid, pos);
+        }
         let (spawn, home_radius, state) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (m.spawn_position, m.home_radius, m.state),
             _ => return false,
