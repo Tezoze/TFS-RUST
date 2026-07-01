@@ -306,6 +306,52 @@ fn table_f64_required(table: &mlua::Table, key: &str) -> Result<f64> {
     }
 }
 
+/// Connection idle/timeout settings — C++ `configmanager.cpp` `KICK_AFTER_MINUTES` +
+/// 772 `connections.cc` dead-connection literals.
+///
+/// `kick_idle_after_minutes` is config-driven (`config.lua` `kickIdlePlayerAfterMinutes`,
+/// default 15). The idle warning fires at that many minutes; the forced kick fires one
+/// minute later (matching the C++ "disconnected in one minute" message at
+/// `connections.cc:29-33` and kick at `connections.cc:35`).
+///
+/// The proactive ping cadence (rounds 30/60) and the dead-connection timeout (round 90)
+/// are 772 engine constants (`connections.cc:24,37`) — not config-driven in the C++
+/// decompile, so they stay as fixed constants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectionConfig {
+    /// `config.lua` `kickIdlePlayerAfterMinutes` (default 15) — idle warning fires at this
+    /// many minutes; forced kick one minute later.
+    pub kick_idle_after_minutes: u32,
+}
+
+impl ConnectionConfig {
+    /// C++ `configmanager.cpp` `KICK_AFTER_MINUTES` default (`kickIdlePlayerAfterMinutes`, 15).
+    pub fn defaults() -> Self {
+        Self {
+            kick_idle_after_minutes: 15,
+        }
+    }
+
+    pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
+        Ok(Self {
+            kick_idle_after_minutes: get_i64_or(cfg, "kickIdlePlayerAfterMinutes", 15)?
+                .max(0) as u32,
+        })
+    }
+
+    /// 772 round (1 round = 1 s) at which the idle warning fires
+    /// (`connections.cc:29` — `LastAction == kick_minutes * 60`).
+    pub fn idle_warn_rounds(&self) -> u32 {
+        self.kick_idle_after_minutes.saturating_mul(60)
+    }
+
+    /// 772 round at which the forced idle kick fires — one minute after the warning
+    /// (`connections.cc:35` — `LastAction >= (kick_minutes + 1) * 60`).
+    pub fn idle_kick_rounds(&self) -> u32 {
+        self.kick_idle_after_minutes.saturating_add(1).saturating_mul(60)
+    }
+}
+
 /// Monster despawn / walk-back settings — C++ `configmanager.cpp` ~232–251.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonsterWorldConfig {

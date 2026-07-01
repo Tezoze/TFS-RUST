@@ -126,6 +126,8 @@ pub struct GameWorld {
     pub(crate) subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
     pub monster_world_config: crate::config::MonsterWorldConfig,
+    /// Connection idle/timeout settings from `config.lua` (`kickIdlePlayerAfterMinutes`).
+    pub connection_config: crate::config::ConnectionConfig,
     /// Nesting depth for [`crate::monster_events::GameWorld::monster_notify_creature_enter_viewport`]
     /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
     pub(crate) monster_viewport_notify_depth: u32,
@@ -268,6 +270,8 @@ impl GameWorld {
     ) -> Self {
         let monster_world_config = crate::config::MonsterWorldConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
+        let connection_config = crate::config::ConnectionConfig::from_config(config.as_ref())
+            .unwrap_or_else(|_| crate::config::ConnectionConfig::defaults());
         let beat_driven_loop =
             mechanics.profile.step_speed == crate::formulas::StepSpeedModel::LinearGo;
         Self {
@@ -314,6 +318,7 @@ impl GameWorld {
             spawn_slot_by_creature: HashMap::new(),
             subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772::default(),
             monster_world_config,
+            connection_config,
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
