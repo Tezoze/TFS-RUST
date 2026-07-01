@@ -188,6 +188,7 @@ mod tests {
                 earliest_defend_ms: 0,
                 last_defend_ms: 0,
                 todo: Default::default(),
+                chase_mode: Default::default(),
             },
             account_id: 1,
             guid: 1,

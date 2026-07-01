@@ -19,7 +19,7 @@ use crate::combat::math::spell_damage;
 use crate::combat::{CombatDamage, CombatParams};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
-    monster_weapon_attack_distance, CreatureBase, CreatureKind, MonsterChaseMode, MonsterSpell,
+    monster_weapon_attack_distance, CreatureBase, CreatureKind, ChaseMode, MonsterSpell,
     MonsterState, SpellImpact, SpellShape,
 };
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
@@ -77,6 +77,10 @@ pub(crate) enum TodoExecuteKind {
 
 impl GameWorld {
     /// 772 `TCreature::IdleStimulus` — dispatch on creature kind.
+    ///
+    /// Phase 1 walk-engine unification: widened to dispatch **players** to
+    /// [`player_idle_stimulus`] (`crplayer.cc:388-405`) in addition to monsters
+    /// (`crnonpl.cc:2386`). NPCs remain excluded.
     pub(crate) fn idle_stimulus(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
@@ -97,20 +101,55 @@ impl GameWorld {
                 self.monster_idle_stimulus(cid);
                 trace_creature_todo(self, cid, "idle_stimulus_exit");
             }
+            Some(CreatureKind::Player(_)) => {
+                trace_creature_todo(self, cid, "idle_stimulus_enter");
+                self.player_idle_stimulus(cid);
+                trace_creature_todo(self, cid, "idle_stimulus_exit");
+            }
             _ => {}
         }
     }
 
+    /// 772 `TPlayer::IdleStimulus` — `crplayer.cc:388-405`.
+    ///
+    /// Player idle handles **only** `Combat.AttackDest`: `ToDoAttack` → `ToDoStart`. On thrown
+    /// `RESULT` → `ToDoClear`, and unless `NOERROR`/`NOWAY` send `SendResult` + `ToDoWait(1000)`
+    /// + `ToDoStart`. There is **no** separate follow re-path — follow lives in Combat
+    /// (`CanToDoAttack`, Phase 1.4).
+    ///
+    /// With no attack target the player simply goes idle — the ToDo queue is empty and no
+    /// wakeup is armed. This is the key fix for audit P2/P6: players no longer re-arm via the
+    /// old `walk_queue` + `add_event_walk` path.
+    ///
+    /// Phase 1.4 will wire the `Attack` execute branch for players (melee + chase). Until then,
+    /// enqueuing `Attack` here is safe — `execute_creature_todo_action` defers player `Attack`
+    /// via `TodoExecuteKind::AttackDeferred` (no monster-specific code runs).
+    fn player_idle_stimulus(&mut self, cid: CreatureId) {
+        let has_attack_target = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().attack_target.is_some());
+        if !has_attack_target {
+            // No attack target → idle drain complete, no re-arm (`crplayer.cc:388-405`).
+            return;
+        }
+        // `Combat.AttackDest` is set → `ToDoAttack(); ToDoStart();` (`crplayer.cc:392-395`).
+        // Phase 1.4 will handle the thrown `RESULT` (ToDoClear + SendResult + ToDoWait(1000)).
+        let _ = self.enqueue_creature_attack(cid);
+        let attack_delay = self.todo_attack_delay_ms(cid);
+        let delay = if attack_delay > 0 { attack_delay } else { 1 };
+        self.todo_start_from_action(cid, delay);
+    }
+
     /// Request idle when the action queue is drained — sync or deferred to next wakeup.
+    ///
+    /// Phase 1: widened from monster-only to all creatures on the unified ToDo path
+    /// (players + monsters) via [`creature_uses_todo_execute`](Self::creature_uses_todo_execute).
     pub(crate) fn request_idle_stimulus(&mut self, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
         }
-        if !self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-        {
+        if !self.creature_uses_todo_execute(cid) {
             return;
         }
         if !self
@@ -123,6 +162,8 @@ impl GameWorld {
         if !self.creature_todo_queue_empty(cid) {
             return;
         }
+        // Monster-only dedupe: one `IdleStimulus` pass per beat (`crnonpl.cc:2345`).
+        // Players have no equivalent throttle — `IdleStimulus` is only called on queue drain.
         if self.creatures.get(cid).is_some_and(|k| {
             matches!(
                 k,
@@ -1217,7 +1258,7 @@ impl GameWorld {
                 base.follow_target,
                 base.attack_target,
                 m.state,
-                m.chase_mode,
+                m.base.chase_mode,
                 chase_target,
             ))
         });
@@ -1383,21 +1424,21 @@ impl GameWorld {
             return;
         };
         let new_mode = if !matches!(state, MonsterState::Attacking | MonsterState::Panic) {
-            MonsterChaseMode::None
+            ChaseMode::None
         } else if let Some(follow_id) = follow_id {
             let target_distance = self.monster_effective_target_distance(raw_target_distance);
             let uses_dist_branch =
                 self.monster_idle_uses_dist_branch(cid, pos, follow_id, target_distance);
             if uses_dist_branch {
-                MonsterChaseMode::None
+                ChaseMode::None
             } else {
-                MonsterChaseMode::Close
+                ChaseMode::Close
             }
         } else {
-            MonsterChaseMode::None
+            ChaseMode::None
         };
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            m.chase_mode = new_mode;
+            m.base.chase_mode = new_mode;
         }
     }
 
@@ -1414,15 +1455,15 @@ impl GameWorld {
                 m.last_combat_trace = None;
                 return None;
             }
-            let trace_key = (m.state, m.chase_mode);
+            let trace_key = (m.state, m.base.chase_mode);
             if m.last_combat_trace == Some(trace_key) {
                 return None;
             }
             m.last_combat_trace = Some(trace_key);
-            let mode = match m.chase_mode {
-                MonsterChaseMode::Close => "close",
-                MonsterChaseMode::Range => "range",
-                MonsterChaseMode::None => "none",
+            let mode = match m.base.chase_mode {
+                ChaseMode::Close => "close",
+                ChaseMode::Range => "range",
+                ChaseMode::None => "none",
             };
             let state = match m.state {
                 MonsterState::Attacking => "attacking",
@@ -1571,7 +1612,7 @@ impl GameWorld {
         let target_distance = self.monster_effective_target_distance(m.target_distance);
         let dist = chebyshev(pos, target_pos);
         // `CanToDoAttack` close walk at cheb>1 — no strike-range cap (`crcombat.cc:496`).
-        if m.melee_skill > 0 && m.chase_mode == MonsterChaseMode::Close {
+        if m.melee_skill > 0 && m.base.chase_mode == ChaseMode::Close {
             return true;
         }
         if target_distance <= 1 {
@@ -2165,13 +2206,21 @@ impl GameWorld {
                 TodoExecuteKind::Wait
             }
             CreatureAction::Attack => {
+                // Phase 1.2: player Attack execution is deferred to Phase 1.4 (melee + chase
+                // via `CanToDoAttack`). Until then, re-queue and schedule — no monster-specific
+                // code runs for players (`crplayer.cc:388-405` idle re-issues `ToDoAttack`).
+                let is_player = self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
                 let delay = self.todo_attack_delay_ms(cid);
-                if delay > 0 {
+                if delay > 0 || is_player {
                     if let Some(k) = self.creatures.get_mut(cid) {
                         k.base_mut().todo.queue.push_front(CreatureAction::Attack);
                     }
                     trace_creature_todo(self, cid, "execute_attack_deferred");
-                    self.todo_start_from_action(cid, delay);
+                    let schedule_delay = if delay > 0 { delay } else { 200 };
+                    self.todo_start_from_action(cid, schedule_delay);
                     trace_creature_todo(self, cid, "execute_attack_deferred_done");
                     TodoExecuteKind::AttackDeferred
                 } else {
@@ -2434,7 +2483,7 @@ mod tests {
 
     use crate::combat::{CombatDamage, CombatParams};
     use crate::creature::{
-        CreatureKind, MonsterAiConfig, MonsterChaseMode, MonsterSpell, MonsterState, SpellImpact,
+        CreatureKind, MonsterAiConfig, ChaseMode, MonsterSpell, MonsterState, SpellImpact,
         SpellShape,
     };
     use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
@@ -4570,7 +4619,7 @@ mod tests {
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
         }
 
         assert_eq!(
@@ -4593,8 +4642,8 @@ mod tests {
             _ => panic!("expected monster"),
         };
         assert_eq!(
-            m.chase_mode,
-            MonsterChaseMode::Close,
+            m.base.chase_mode,
+            ChaseMode::Close,
             "melee ATTACKING must set CHASE_MODE_CLOSE"
         );
         assert!(
@@ -5211,7 +5260,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.walk_queue.clear();
             m.base.todo.queue.clear();
             m.base.next_wakeup = None;
@@ -5267,7 +5316,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.walk_queue.clear();
             m.base.todo.queue.push_back(CreatureAction::Attack);
             m.base.todo.locked = false;
@@ -5381,7 +5430,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.walk_queue.clear();
             m.base.todo.queue.push_back(CreatureAction::Go);
             m.base.todo.locked = false;
@@ -5443,7 +5492,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
         }
 
         assert_eq!(
@@ -5466,7 +5515,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.todo.queue.clear();
         }
         assert!(
@@ -5542,7 +5591,7 @@ mod tests {
             m.is_idle = false;
             m.melee_skill = 15;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.base.walk_queue = VecDeque::from([Direction::East]);
@@ -5581,7 +5630,7 @@ mod tests {
             m.is_idle = false;
             m.melee_skill = 50;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.base.todo.queue.clear();
@@ -5635,7 +5684,7 @@ mod tests {
                 m.base.follow_target = Some(player);
                 m.base.attack_target = Some(player);
                 m.state = MonsterState::Attacking;
-                m.chase_mode = MonsterChaseMode::Close;
+                m.base.chase_mode = ChaseMode::Close;
             }
         }
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(follower) {
@@ -5708,7 +5757,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.has_follow_path = false;
             m.base.walk_queue.clear();
             m.base.todo.queue.clear();
@@ -5754,7 +5803,7 @@ mod tests {
             m.base.follow_target = Some(decoy_player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.todo.queue.clear();
             m.base.next_wakeup = None;
         }
@@ -5808,7 +5857,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.todo.queue.clear();
             m.base.walk_queue.clear();
             m.base.next_wakeup = None;
@@ -5846,7 +5895,7 @@ mod tests {
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.base.todo.queue.clear();
             m.base.next_wakeup = None;
         }
@@ -5883,7 +5932,7 @@ mod tests {
             m.is_idle = false;
             m.melee_skill = 15;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::None;
+            m.base.chase_mode = ChaseMode::None;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);

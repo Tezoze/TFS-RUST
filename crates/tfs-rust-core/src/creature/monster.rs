@@ -34,18 +34,6 @@ pub enum MonsterState {
     Panic,
 }
 
-/// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (`beat_driven_loop` gates use).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MonsterChaseMode {
-    /// `CHASE_MODE_NONE` — idle dist arms or pre-melee reset (`crnonpl.cc:2711`).
-    #[default]
-    None,
-    /// `CHASE_MODE_CLOSE` — `CanToDoAttack` close walk (`crcombat.cc:496`).
-    Close,
-    /// `CHASE_MODE_RANGE` — E4 wires keep-distance combat walk (`crcombat.cc:500`).
-    Range,
-}
-
 /// AI flags and combat data copied from [`MonsterType`] at spawn.
 #[derive(Debug, Clone)]
 pub struct MonsterAiConfig {
@@ -204,10 +192,9 @@ pub struct Monster {
     pub flee_opening_melee_dance_done: bool,
     /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
     pub state: MonsterState,
-    /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
-    pub chase_mode: MonsterChaseMode,
     /// Last `(state, chase_mode)` emitted to chase JSONL — harness dedupe only.
-    pub(crate) last_combat_trace: Option<(MonsterState, MonsterChaseMode)>,
+    /// `chase_mode` lives on [`CreatureBase`] (shared with players); this dedupe key reads it.
+    pub(crate) last_combat_trace: Option<(MonsterState, crate::creature::ChaseMode)>,
     /// Last `IdleStimulus` drain ms — one pass per beat (`crnonpl.cc:2345`).
     pub(crate) idle_stimulus_last_ms: Option<u64>,
     pub walking_to_spawn: bool,
@@ -276,7 +263,6 @@ impl Monster {
             harness_preserve_sleep: false,
             flee_opening_melee_dance_done: false,
             state: MonsterState::Sleeping,
-            chase_mode: MonsterChaseMode::None,
             last_combat_trace: None,
             idle_stimulus_last_ms: None,
             walking_to_spawn: false,

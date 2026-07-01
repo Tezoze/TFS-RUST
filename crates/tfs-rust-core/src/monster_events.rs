@@ -9,7 +9,7 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
-use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
+use crate::creature::{CreatureKind, ChaseMode, MonsterState};
 use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
@@ -365,7 +365,7 @@ impl GameWorld {
                 return None;
             }
             Some((
-                m.chase_mode,
+                m.base.chase_mode,
                 m.base.todo.has_attack(),
                 m.base.todo.has_go(),
                 m.base.todo.locked,
@@ -375,7 +375,7 @@ impl GameWorld {
         let Some((chase_mode, has_attack, has_go, todo_locked, target_pos)) = snapshot else {
             return;
         };
-        if chase_mode != MonsterChaseMode::Close {
+        if chase_mode != ChaseMode::Close {
             return;
         }
         // Locked `TDAttack` path — handled by [`Self::monster_combat_creature_move_stimulus`].
@@ -451,7 +451,7 @@ impl GameWorld {
             // (matches `ActToDo >= NrToDo`).
             let head_is_attack = m.base.todo.queue.front() == Some(&CreatureAction::Attack);
             Some((
-                m.chase_mode,
+                m.base.chase_mode,
                 m.state,
                 m.base.position,
                 target_pos,
@@ -464,7 +464,7 @@ impl GameWorld {
         else {
             return;
         };
-        if chase_mode != MonsterChaseMode::Close {
+        if chase_mode != ChaseMode::Close {
             return;
         }
         if !head_is_attack {
@@ -588,7 +588,7 @@ mod tests {
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::Position;
 
-    use crate::creature::{CreatureKind, MonsterChaseMode, MonsterState};
+    use crate::creature::{CreatureKind, ChaseMode, MonsterState};
     use crate::creature_todo::CreatureAction;
     use crate::test_world::support::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player,
@@ -612,7 +612,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
@@ -658,7 +658,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
@@ -757,7 +757,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.state = MonsterState::Idle;
-            m.chase_mode = MonsterChaseMode::None;
+            m.base.chase_mode = ChaseMode::None;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
@@ -802,7 +802,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.state = MonsterState::Idle;
-            m.chase_mode = MonsterChaseMode::None;
+            m.base.chase_mode = ChaseMode::None;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
@@ -847,7 +847,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
@@ -893,7 +893,7 @@ mod tests {
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.state = MonsterState::Attacking;
-            m.chase_mode = MonsterChaseMode::Close;
+            m.base.chase_mode = ChaseMode::Close;
             m.opponent_ids.push(player);
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);

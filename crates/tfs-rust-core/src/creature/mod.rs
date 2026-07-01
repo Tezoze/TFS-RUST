@@ -11,10 +11,10 @@ mod npc;
 mod player;
 pub mod vocation;
 
-pub use base::{CreatureBase, DamageMap, Outfit, WalkTimer};
+pub use base::{ChaseMode, CreatureBase, DamageMap, Outfit, WalkTimer};
 pub use kind::CreatureKind;
 pub use light::LightInfo;
-pub use monster::{Monster, MonsterAiConfig, MonsterAiPhase, MonsterChaseMode, MonsterState};
+pub use monster::{Monster, MonsterAiConfig, MonsterAiPhase, MonsterState};
 pub use monster_combat::{
     combat_from_monster_type, creature_immune_poison, defend_fight_mode_for_target,
     melee_defense_snapshot, melee_poison_on_hit, monster_has_melee_strike,

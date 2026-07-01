@@ -297,6 +297,7 @@ impl GameWorld {
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             todo: Default::default(),
+            chase_mode: Default::default(),
         };
 
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
@@ -417,6 +418,7 @@ impl GameWorld {
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             todo: Default::default(),
+            chase_mode: Default::default(),
         };
 
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {

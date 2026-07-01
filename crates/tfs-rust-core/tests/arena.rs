@@ -50,6 +50,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             todo: Default::default(),
+            chase_mode: Default::default(),
         },
         account_id: 0,
         guid,

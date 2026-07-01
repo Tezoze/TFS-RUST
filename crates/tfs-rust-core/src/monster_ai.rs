@@ -26,7 +26,7 @@ use crate::creature::{
     creature_immune_poison, melee_defense_snapshot, melee_poison_on_hit,
     monster_weapon_attack_distance, roll_target_defense,
 };
-use crate::creature::{CreatureKind, MonsterAiPhase, MonsterChaseMode, MonsterState};
+use crate::creature::{CreatureKind, MonsterAiPhase, ChaseMode, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
@@ -1126,13 +1126,13 @@ impl GameWorld {
                 return MonsterCombatCloseChaseEnqueue::Skipped;
             };
             (
-                m.chase_mode,
+                m.base.chase_mode,
                 m.base.attack_target,
                 m.base.position,
                 m.is_fleeing(),
             )
         };
-        if chase_mode != MonsterChaseMode::Close || fleeing {
+        if chase_mode != ChaseMode::Close || fleeing {
             return MonsterCombatCloseChaseEnqueue::Skipped;
         }
         let Some(attack_id) = attack_id else {

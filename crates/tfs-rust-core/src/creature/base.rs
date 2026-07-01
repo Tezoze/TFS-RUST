@@ -10,6 +10,21 @@ use crate::ids::CreatureId;
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
 
+/// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (`beat_driven_loop` gates use).
+///
+/// Lives on [`CreatureBase`] so both players and monsters share the unified ToDo/`CanToDoAttack`
+/// chase path (Phase 0 walk-engine unification). 772 players use `Close` when following.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChaseMode {
+    /// `CHASE_MODE_NONE` — idle dist arms or pre-melee reset (`crnonpl.cc:2711`).
+    #[default]
+    None,
+    /// `CHASE_MODE_CLOSE` — `CanToDoAttack` close walk (`crcombat.cc:496`).
+    Close,
+    /// `CHASE_MODE_RANGE` — E4 wires keep-distance combat walk (`crcombat.cc:500`).
+    Range,
+}
+
 /// Tokio one-shot aligned with `Creature::eventWalk` (`creature.cpp`) — **not** carried across `Clone`
 /// of [`CreatureBase`] (mirrors dropping the scheduler event when copying state).
 #[derive(Debug, Default)]
@@ -134,6 +149,9 @@ pub struct CreatureBase {
     pub last_defend_ms: u64,
     /// 772 per-creature ToDo action list (772 idle-driven AI).
     pub todo: CreatureTodo,
+    /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
+    /// Shared by players and monsters on the unified ToDo/`CanToDoAttack` path.
+    pub chase_mode: ChaseMode,
 }
 
 impl CreatureBase {

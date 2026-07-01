@@ -641,25 +641,41 @@ impl GameWorld {
         }
     }
 
-    /// 772 `Creature::clearToDo` — stop pending walk execution and notify the client.
+    /// 772 `TCreature::ToDoClear` — clear the entire ToDo queue + walk queue + cancel wakeup.
     ///
-    /// Called before adding new walk entries on 772, where every `playerMove` / `playerAutoWalk`
-    /// clears pending ToDo entries and reschedules from scratch. TFS 1.4.2 keeps the existing
-    /// `eventWalk` timer instead — the 10.98 client predicts locally so stale timers are fine.
-    /// The 7.72 client doesn't predict, so stale timers cause visible stutter.
+    /// Returns `true` when there was a pending `Go` (walk in progress), in which case the caller
+    /// must send `SendSnapback` (`0xB5`) — matching `if (ToDoClear()) SendSnapback;`
+    /// (`receiving.cc:120-199`, `cract.cc:953-989`).
     ///
-    /// C++ ref: `gameserver/src/creature.cpp` `clearToDo` (~1351–1366),
-    ///          `game.cpp` `playerMove` (~1997–1999).
-    fn clear_todo_772(&mut self, conn_id: ConnId, cid: CreatureId) {
-        if !matches!(self.codec, tfs_rust_net::codec::Codec::V772(_)) {
-            return;
-        }
-        let had_pending = self.creatures.get(cid).is_some_and(|k| {
+    /// Phase 1 walk-engine unification: replaces the old `clear_todo_772` which only stopped the
+    /// event-walk timer. The unified path clears the ToDo action queue as well, so stale `Go`
+    /// entries from a prior autowalk don't bleed into the new walk.
+    fn player_todo_clear(&mut self, cid: CreatureId) -> bool {
+        let had_pending_go = self.creatures.get(cid).is_some_and(|k| {
             let b = k.base();
-            !b.walk_queue.is_empty() || b.next_walk_check.is_some() || b.next_wakeup.is_some()
+            b.todo.has_go() || !b.walk_queue.is_empty()
         });
         self.stop_event_walk(cid);
-        // C++ `playerMove`: `if (player->clearToDo()) { player->sendCancelWalk(); }`
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.walk_queue.clear();
+            base.todo.queue.clear();
+            base.todo.locked = false;
+            base.next_wakeup = None;
+            base.has_follow_path = false;
+        }
+        had_pending_go
+    }
+
+    /// 772 `ToDoClear` + `SendSnapback` — the `CGoDirection` / `CGoPath` preamble.
+    ///
+    /// C++ ref: `receiving.cc:120-199` (`if (ToDoClear()) SendSnapback;`),
+    /// `cract.cc:953-989` (`ToDoClear` clears the whole queue).
+    fn player_todo_clear_with_snapback(&mut self, conn_id: ConnId, cid: CreatureId) {
+        if !self.beat_driven_loop {
+            return;
+        }
+        let had_pending = self.player_todo_clear(cid);
         if had_pending {
             let dir_byte = self
                 .creatures
@@ -672,9 +688,9 @@ impl GameWorld {
 
     /// TFS `Game::playerMove` (`game.cpp` ~1880–1895).
     ///
-    /// **772** (`gameserver/src/game.cpp` ~1982–2003): `clearToDo()` → `sendCancelWalk()` →
-    /// `addWalkToDo(dir)` → `startToDo()`. Every new move clears pending execution and
-    /// reschedules from scratch.
+    /// **772** (`receiving.cc:120-199` `CGoDirection`, `cract.cc:1050-1107` `ToDoGo`/`ToDoStart`):
+    /// `ToDoClear()` → `SendSnapback` if pending → `TDGo(dir)` → `ToDoStart()`. Every new move
+    /// clears pending execution and reschedules from scratch via the unified ToDo engine.
     pub fn player_move_request(
         &mut self,
         conn_id: ConnId,
@@ -700,12 +716,25 @@ impl GameWorld {
             return;
         }
 
-        self.clear_todo_772(conn_id, cid);
+        if self.beat_driven_loop {
+            // 772 unified ToDo path — `CGoDirection` (`receiving.cc:120-199`).
+            self.player_todo_clear_with_snapback(conn_id, cid);
+            if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
+                pl.last_activity = now;
+                pl.base.walk_queue.push_back(direction);
+            }
+            // `ToDoGo` → `ToDoStart` (`cract.cc:1050-1107`, `:991-1024`).
+            let _ = self.enqueue_creature_go(cid);
+            if self.todo_start_go_delay(cid, true) {
+                self.schedule_immediate_todo_wakeup(cid);
+            }
+            return;
+        }
 
+        // 1098 TFS path — `addEventWalk` timer (`game.cpp` ~1880–1895).
+        self.clear_player_walk_action(cid);
         if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
             pl.last_activity = now;
-            // TFS 1.4.2: `addEventWalk` returns if `eventWalk != 0` (`creature.cpp` ~307–309).
-            // On 772 `clear_todo_772` already stopped the timer, so `add_event_walk` proceeds.
             pl.base.walk_queue.clear();
             pl.base.walk_queue.push_back(direction);
         }
@@ -715,9 +744,9 @@ impl GameWorld {
 
     /// TFS `Game::playerAutoWalk` (`game.cpp` ~2075–2084).
     ///
-    /// **772** (`gameserver/src/game.cpp` ~2162–2173): `addWalkToDo(listDir)` (first call
-    /// triggers `clearToDo()` if `isExecuting`) → `startToDo()`. Same clear-and-restart
-    /// pattern as `playerMove`.
+    /// **772** (`receiving.cc:120-199` `CGoPath`, `cract.cc:1050-1107`): `ToDoClear()` →
+    /// `SendSnapback` if pending → enqueue N `TDGo` entries (one per step) → single `ToDoStart()`.
+    /// Same clear-and-restart pattern as `playerMove`, via the unified ToDo engine.
     pub fn player_auto_walk_path(
         &mut self,
         conn_id: ConnId,
@@ -739,10 +768,26 @@ impl GameWorld {
             return;
         }
 
-        self.clear_todo_772(conn_id, cid);
+        if self.beat_driven_loop {
+            // 772 unified ToDo path — `CGoPath` (`receiving.cc:120-199`).
+            self.player_todo_clear_with_snapback(conn_id, cid);
+            if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
+                pl.last_activity = now;
+                for d in &path {
+                    pl.base.walk_queue.push_back(*d);
+                }
+            }
+            // `CGoPath` builds N entries then a single `ToDoStart` — one `Go` action drains the
+            // whole `walk_queue` via `finish_creature_todo_execute` re-arm (`cract.cc:1050-1107`).
+            let _ = self.enqueue_creature_go(cid);
+            if self.todo_start_go_delay(cid, true) {
+                self.schedule_immediate_todo_wakeup(cid);
+            }
+            return;
+        }
 
-        let is_772 = matches!(self.codec, tfs_rust_net::codec::Codec::V772(_));
-        let first_only = is_772 || path.len() == 1;
+        // 1098 TFS path — `addEventWalk` timer (`game.cpp` ~2075–2084).
+        let first_only = path.len() == 1;
         if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
             pl.last_activity = now;
             pl.base.walk_queue.clear();
@@ -810,8 +855,18 @@ impl GameWorld {
         );
     }
 
-    /// TFS `Player::stopWalk` (`player.cpp` ~3398).
+    /// TFS `Player::stopWalk` (`player.cpp` ~3398); 772 `CGoStop` → `ToDoStop`
+    /// (`receiving.cc:201-211`, `cract.cc:1002-1008`).
+    ///
+    /// 772 clears the ToDo queue + walk queue + cancels wakeup (no snapback — `CGoStop` doesn't
+    /// send one). 1098 sets `cancel_next_walk` which is processed in `onWalk`.
     pub fn player_stop_auto_walk(&mut self, cid: CreatureId) {
+        if self.beat_driven_loop {
+            // 772 `ToDoStop` — clears the queue without snapback (`receiving.cc:201-211`).
+            self.player_todo_clear(cid);
+            return;
+        }
+        // 1098 TFS `stopWalk` — `cancel_next_walk` processed in `onWalk` (`player.cpp` ~3398).
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.base.cancel_next_walk = true;
         }
@@ -1292,26 +1347,23 @@ impl GameWorld {
                         }
                         // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
                         // popped in `getNextStep` (`src/creature.cpp` ~205–213).
-                        // 772: `ToDoClear` + `ToDoYield` on blocked step (`cract.cc:393-414`, `:845-852`).
-                        if self.beat_driven_loop
-                            && self
-                                .creatures
-                                .get(cid)
-                                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-                        {
+                        // 772: `ToDoClear` + `ToDoYield` on blocked step (`cract.cc:870-889`).
+                        // Phase 1.3: widened from monster-only to all creatures on the unified
+                        // ToDo path (players + monsters). `ToDoClear` is unconditional — clears
+                        // the whole queue regardless of attack state (`cract.cc:871`).
+                        if self.creature_uses_todo_execute(cid) {
                             if let Some(k) = self.creatures.get_mut(cid) {
                                 let base = k.base_mut();
-                                if base.follow_target.is_some() || base.attack_target.is_some() {
-                                    base.walk_queue.clear();
-                                    base.has_follow_path = false;
-                                    base.force_update_follow_path = true;
-                                    base.todo
-                                        .queue
-                                        .retain(|action| !matches!(action, CreatureAction::Go));
-                                }
+                                base.walk_queue.clear();
+                                base.has_follow_path = false;
+                                base.force_update_follow_path = true;
+                                base.todo.queue.clear();
+                                base.todo.locked = false;
                             }
                             self.request_idle_stimulus(cid);
                         } else if let Some(k) = self.creatures.get_mut(cid) {
+                            // 1098: TFS keeps `listWalkDir` and sets `forceUpdateFollowPath` only
+                            // when following (`creature.cpp` ~213).
                             if k.base().follow_target.is_some() {
                                 k.base_mut().force_update_follow_path = true;
                             }

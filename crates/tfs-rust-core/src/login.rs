@@ -112,6 +112,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         earliest_defend_ms: 0,
         last_defend_ms: 0,
         todo: Default::default(),
+        chase_mode: Default::default(),
     };
 
     let account_id =

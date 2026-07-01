@@ -3,6 +3,22 @@
 //! - 772 `TCreature::Execute` / `ToDoList` — `cract.cc:728`.
 //! - `ToDoWait` — `cract.cc:1008`; idle pacing — `crnonpl.cc:2693–2807,2852`.
 //! - Global wakeup heap: [`ToDoQueue`](crate::todo_queue::ToDoQueue) + `next_wakeup`.
+//!
+//! # Clock seam (Phase 0 — documented, 1098 side not yet implemented)
+//!
+//! The ToDo engine is clock-agnostic by design. The seam is two methods on [`GameWorld`]:
+//!
+//! - **`now_beat()`** — current logical time. On 772 this is `server_ms` (Beat-quantized:
+//!   `EarliestWalkTime = now + ceil(Delay/Beat)*Beat`, `cract.cc:1530`). On 1098 it will be
+//!   a pass-through `Instant`-derived ms (no Beat quantization).
+//! - **`schedule_at(cid, time)`** — insert into the global wakeup heap at `time`. Currently
+//!   [`GameWorld::schedule_creature_wakeup`]; the 1098 adapter will wrap the same heap with
+//!   a wall-clock → logical-ms conversion.
+//!
+//! **772 (current):** `server_ms` + `ToDoQueue` (Beat-quantized). All references to
+//! `server_ms` / `next_wakeup` / `Beat` in this module are the 772 realization of this seam.
+//! **1098 (future Phase 2):** continuous `Instant` → `server_ms` mapping, same heap, no
+//! Beat quantization. The API contract (`schedule_at` / `now_beat`) does not change.
 
 use std::collections::VecDeque;
 
@@ -377,12 +393,16 @@ impl GameWorld {
         self.todo_start_from_action(cid, 0);
     }
 
+    /// Whether `cid` runs on the unified 772 ToDo/`Execute`/`IdleStimulus` path.
+    ///
+    /// Phase 0 walk-engine unification: widened from monster-only to include **players** so both
+    /// share `Execute` → `Go`/`Attack` → `IdleStimulus` → `Combat.CanToDoAttack`
+    /// (`cract.cc:783`, `crplayer.cc:388`). NPCs remain excluded (no ToDo-driven behavior).
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {
         self.beat_driven_loop
-            && self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+            && self.creatures.get(cid).is_some_and(|k| {
+                matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_))
+            })
     }
 }
 
