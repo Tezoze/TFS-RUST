@@ -1,6 +1,8 @@
 # TFS-RUST Refactor Audit
 
 **Date:** 2026-06-28
+**Re-verified:** 2026-07-01 — all findings re-measured against the current tree; numbers below
+refreshed. Every metric held or worsened since the original audit (the debt is self-reinforcing).
 **Scope:** Structural health of the Rust workspace — module organization, file/function size,
 the `GameWorld` god-object, naming-rule compliance, and test/production separation.
 **Out of scope:** Behavioral/parity correctness (see `docs/CODEBASE_AUDIT.md`).
@@ -10,25 +12,28 @@ the `GameWorld` god-object, naming-rule compliance, and test/production separati
 ## Executive Summary
 
 The port is functionally rich but is accumulating **structural debt** concentrated in
-`tfs-rust-core`, which is **52,629 LOC — 76% of all Rust in the workspace**. The pain is
-not spread evenly: a handful of files and one god-object (`GameWorld`) account for most of
-the mess.
+`tfs-rust-core`, which is **54,648 LOC — ~73% of all Rust in the workspace** (74,803 total,
+whole-crate including `tests/`/`examples/`). The pain is not spread evenly: a handful of files
+and one god-object (`GameWorld`) account for most of the mess.
 
 | Crate | LOC | Health |
 |-------|-----|--------|
-| `tfs-rust-core` | 52,629 | **Needs work** — god-object + 2 mega-files |
-| `tfs-rust-net` | 8,591 | OK — well-split codec/encode |
+| `tfs-rust-core` | 54,648 | **Needs work** — god-object + 2 mega-files |
+| `tfs-rust-net` | 8,623 | OK — well-split codec/encode |
 | `tfs-rust-content` | 5,906 | OK |
 | `tfs-rust-common` | 2,013 | OK |
 | `tfs-rust-db` | 1,915 | OK |
 | `tfs-rust-lua` | 1,698 | OK |
 
+> Only `core` (+2,019) and `net` (+32) grew since the original audit; `content`/`common`/`db`/`lua`
+> are byte-for-byte unchanged. Debt is still overwhelmingly a `core` problem.
+
 **Top 5 refactor priorities (highest impact first):**
 
-1. **Split `idle_stimulus.rs` (6,158 LOC) and `monster_ai.rs` (4,757 LOC).**
-2. **Tame the `GameWorld` god-object** — `impl GameWorld` is spread across **33 files**.
+1. **Split `idle_stimulus.rs` (6,809→2,511 LOC) and `monster_ai.rs` (4,758→2,843 LOC).** ✅ Phase 1 done 2026-07-01 — inline tests extracted to `#[path]` sibling files; test pass count & clippy set byte-identical before/after. The remaining split into `monster_idle/` + `monster_ai/` module *directories* (per §1 recommendation) is Phase 4 work.
+2. **Tame the `GameWorld` god-object** — `impl GameWorld` is spread across **34 files**.
 3. **Move simulation/debug harness code out of the production `core` library.**
-4. **Fix `_772` naming-rule violations on core functions** (147 occurrences).
+4. **Fix `_772` naming-rule violations on core functions** (259 identifiers, 110 on `fn`s).
 5. **Decompose oversized functions** (20+ functions over 120 lines, longest is 317).
 
 ---
@@ -37,19 +42,27 @@ the mess.
 
 | File | LOC | Prod LOC | Test LOC | `fn` count |
 |------|-----|----------|----------|-----------|
-| `idle_stimulus.rs` | 6,158 | ~2,415 | ~3,743 (61%) | 145 |
-| `monster_ai.rs` | 4,757 | ~2,835 | ~1,922 (40%) | 105 |
-| `sim_harness.rs` | 2,437 | ~1,782 | ~655 | — |
+| `idle_stimulus.rs` | 6,809 | ~2,415 | ~4,394 (65%) | 145 |
+| `monster_ai.rs` | 4,758 | ~2,835 | ~1,923 (40%) | 105 |
+| `sim_harness.rs` | 2,441 | ~1,782 | ~659 | — |
 | `pathfinding.rs` | 2,261 | ~1,228 | ~1,033 | — |
-| `walk/mod.rs` | 2,081 | — | — | 46 |
+| `walk/mod.rs` | 2,285 | — | — | 46 |
 
 ### Findings
 
-- `idle_stimulus.rs` is a **single 243 KB file** holding 145 functions plus ~3,700 lines of
+- `idle_stimulus.rs` is a **single ~270 KB file** holding 145 functions plus ~4,400 lines of
   inline tests. It is effectively a sub-system, not a module. The IDE chokes on it and
   reviewers cannot reason about it.
 - Both mega-files mix several concerns: idle/chase stepping, spell impact application,
   walk-branch execution, and target selection all live together.
+- **The tail is short but real.** Beyond the top 5, only one more core file crosses 1,200 LOC
+  (`monster_push.rs`, 1,545). The next tier (800–1,200 LOC) is a further 9 files:
+  `player_inventory_query_add.rs` (1,184), `spawn_lifecycle.rs` (1,121),
+  `game_world_inventory.rs` (964), `monster_events.rs` (925), `bin/chase_kite_sim.rs` (888),
+  `formulas.rs` (870), `container_ui.rs` (833), `login_out.rs` (804),
+  `creature/monster_combat.rs` (803). So the "two mega-files" framing is fair — the bulk of the
+  pain is concentrated — but these ~10 second-tier files are the natural Phase 4/5 backlog once
+  the top two are split.
 
 ### Recommendation
 
@@ -66,8 +79,8 @@ the mess.
 
 ### Finding
 
-`GameWorld` has **35 public fields** and its `impl` blocks are scattered across **33 source
-files**. Method counts per file (inside `impl GameWorld`):
+`GameWorld` has **~51 public fields** (up from 35 at the original audit) and its `impl` blocks
+are scattered across **34 source files**. Method counts per file (inside `impl GameWorld`):
 
 ```
 145  idle_stimulus.rs        35  game_world_inventory.rs    25  container_ui.rs
@@ -122,8 +135,9 @@ This is a long-term effort — do **not** attempt in one pass. Incrementally:
 
 ### Finding
 
-There are **147** `_772`-suffixed identifiers in `tfs-rust-core/src`. Many are on core game
-functions, which directly violates the project's own always-on rule
+There are **259** `_772`-suffixed identifiers in `tfs-rust-core/src` (110 of them on `fn`
+definitions). Many are on core game functions, which directly violates the project's own
+always-on rule
 (`TFS-Core` → *"No version suffix on core functions — era is config + profile, not function name"*):
 
 ```
@@ -187,6 +201,14 @@ documents the surface, rather than dozens of `prefix_suffix.rs` files at the cra
 
 ## 7. Lower-priority / housekeeping
 
+- **`unsafe` surface** — 21 `unsafe` uses in core, confined to three files:
+  `lua_scope.rs` (15 — the sanctioned re-entrant `&mut GameWorld` scope required by
+  `tfs-lua-boundaries.md`), `sim_glibc_rand.rs` (5 — parity RNG, diagnostic-only) and
+  `game_world.rs` (1). This is *correctly localized* per the rules, but the audit should track
+  it: Phase 2 (sim quarantine) removes the 5 `sim_glibc_rand` cases from the production build,
+  and Phase 6 (god-object) is the only thing that can shrink the 15 in `lua_scope.rs` — those
+  exist *because* subsystems re-borrow the whole `GameWorld`. Treat "no new `unsafe` outside
+  `lua_scope.rs`" as a standing invariant.
 - **`.unwrap()` / `.expect()`** — 283 in core, but **almost entirely in test code**
   (idle_stimulus: 0 in prod / 82 in tests; monster_ai: 7 in prod). The rule bans them in
   *production*; the 7 prod cases in `monster_ai.rs` plus the handful in `config.rs` /
@@ -201,9 +223,44 @@ documents the surface, rather than dozens of `prefix_suffix.rs` files at the cra
 
 ---
 
+## 8. What this audit does *not* measure (scope honesty)
+
+The findings above are size/shape/naming metrics that are cheap to quantify mechanically. Two
+axes are deliberately **not** covered and should not be assumed clean:
+
+- **Code duplication is unquantified.** The `TFS-code-hygiene` rule is largely about
+  "extract before duplication," yet this audit never ran clone detection. The mega-files and the
+  `game_world_*` / `monster_*` sibling clusters are exactly where copy-paste tends to hide. Before
+  Phase 4, run a clone pass (e.g. a token-based duplication check) so splits *consolidate*
+  duplicates instead of scattering them across new module files.
+- **Behavioral / parity correctness is out of scope** — that lives in `docs/CODEBASE_AUDIT.md`.
+  This document assumes the current behavior is the reference; every phase preserves it.
+
+These are gaps in *this* audit, not clean bills of health.
+
 ---
 
-# Phased Refactoring Plan
+# High-Level Roadmap (condensed)
+
+The whole effort rests on one invariant: **every phase is behavior-preserving** — no wire
+bytes, formulas, or game logic change. Gate each step with
+`rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test`; any test-count or clippy
+delta means *stop*, not *adjust the test*. Stages are ordered so leverage-per-risk descends and
+each stage shrinks the surface the next has to move.
+
+| Stage | Phases | Effort | Risk | Outcome |
+|-------|--------|--------|------|---------|
+| **A — Clear the noise** | 0, 1 | ~2–3 d | ~zero | Backups/markers gone; inline tests pulled out — roughly halves the two mega-files by pure cut/paste. **Phase 1 ✅ done 2026-07-01** (Phase 0 still pending). |
+| **B — Shrink the surface** | 2, 3 | ~2–4 d | low | Sim/debug code behind a `sim` feature; `_772` core fns renamed by behavior (compiler-guided) |
+| **C — Make monoliths legible** | 4, 5 | ~1–2 wk | low/med | `idle_stimulus.rs`/`monster_ai.rs` become module dirs; 20+ oversized fns split into per-stage helpers |
+| **D — Tame the god-object** | 6 | multi-wk | **high** | ~51 `GameWorld` fields grouped into sub-structs; `impl` methods become free fns on minimal borrows — kills `mem::take`/borrow-splitting |
+
+**Why this order:** Stage A is the highest-leverage, lowest-risk work (test extraction alone
+halves the worst files). Stage D is the real prize but is only tractable once A–C remove the
+mega-file bulk and `_772` churn. Do **not** reorder — D before A/B multiplies the god-object's
+blast radius. The detailed, per-phase execution plan follows.
+
+---
 
 ## Guiding principles
 
@@ -213,14 +270,45 @@ documents the surface, rather than dozens of `prefix_suffix.rs` files at the cra
 - **One concern per PR/commit.** Each phase below is sized to land independently and stay
   reviewable. Do not bundle phases.
 - **Verify after every step**, not just every phase:
-  `rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test`. The full suite
-  (currently ~187 core tests) is the safety net for these mechanical moves.
+  `rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test`. The core suite is the
+  safety net — see **Baseline metrics** below for the exact frozen counts.
 - **Snapshot the public API.** Before Phase 3+, capture `cargo public-api` (or a `grep` of
   `pub use` in `lib.rs`) so re-exports can be kept byte-identical across module moves.
 - **Track progress in `tasks/todo.md`** per the always-on workflow rule, and record any
   surprises in `tasks/lessons.md`.
 
 Phases are ordered by **risk-adjusted leverage**: cheap/zero-risk first, god-object last.
+
+---
+
+## Baseline metrics (frozen 2026-07-01)
+
+These are the "green" reference points every behavior-preserving phase must reproduce. Because
+the tree drifts, **re-capture and re-freeze these at the moment Phase 0 actually starts** — then
+treat any deviation during Phases 1–6 as a stop-and-review signal, not a test to adjust.
+
+| Metric | Baseline | Command |
+|--------|----------|---------|
+| Core tests | **482 passed, 2 ignored** (12 suites, ~85 s) | `rtk cargo test -p tfs-rust-core` |
+| Clippy (whole workspace, clean build) | **46 `^warning:` lines / 44 unique warnings** (re-measured 2026-07-01, all pre-existing) | `cargo clippy --all-targets 2>&1 \| grep '^warning:' \| sort` |
+| Ignored tests | 2 (document why each is ignored before Phase 1) | — |
+
+Notes:
+- The original audit's "~187 core tests" was **stale**; the real current count is 482 passing.
+- **Clippy baseline corrected (Phase 1, 2026-07-01):** the original audit's "0 warnings — No
+  issues found" claim is **stale**. A clean-build re-measurement via
+  `cargo clippy --all-targets 2>&1 | grep '^warning:' | sort` yields **46 `^warning:` lines /
+  44 unique warnings**, all pre-existing (`too_many_arguments` in `chase_debug.rs` /
+  `monster_ai.rs`; `dead_code` on test-only-called fns like `monster_has_melee_attack_spell`,
+  `monster_idle_roll_strategy`, `execute_creature_todo_go`, `parity_random_shuffle`,
+  `SimGlibcRng`; `drop`-of-reference in `process_skills.rs`; etc.).
+- **Do NOT diff `rtk cargo clippy` aggregated summaries for regression checks** — its output is
+  non-deterministic across runs (it prints a rotating subset of locations per rule; untouched
+  files appear/disappear). Use raw `cargo clippy ... | grep '^warning:' | sort` instead.
+  (See `tasks/lessons.md` #96.)
+- The bar for Phases 2–6 is "no NEW warning vs. the live captured baseline above," not
+  "0 warnings." Phase 1 verified its extraction produced a **byte-identical** warning set
+  before/after.
 
 ---
 
@@ -240,7 +328,9 @@ recorded as the new baseline.
 
 ---
 
-## Phase 1 — Extract inline tests from mega-files (1–2 days, very low risk)
+## Phase 1 — Extract inline tests from mega-files (1–2 days, very low risk) ✅ DONE 2026-07-01
+
+> **Status: COMPLETE.** All exit criteria met. See "Phase 1 results" below.
 
 **Goal:** halve the worst files with pure code-movement, no logic touched.
 
@@ -258,6 +348,51 @@ is the single highest-leverage low-risk change.
 
 **Exit criteria:** `idle_stimulus.rs` and `monster_ai.rs` each under ~2,500 LOC; identical
 test pass count before/after.
+
+### Phase 1 results
+
+Pattern used: `#[cfg(test)] #[path = "<file>_tests.rs"] mod <name>;` — the `#[path]` file
+holds the module **body** (bytes between `mod <name> {` and its closing `}`). The extracted
+module stays a child of the source module, so `use super::*` / private-item access and
+`crate::<src>::<tests>::*` filter paths are preserved exactly. All extracted tests rely on
+private items, so `tests/` integration promotion was not viable — `#[path]` siblings in
+`src/` is the correct pattern.
+
+| Source file | Before | After | Test file(s) created |
+|-------------|--------|-------|----------------------|
+| `idle_stimulus.rs` | 6,809 | 2,511 | `idle_stimulus_tests.rs` (4,299) |
+| `monster_ai.rs` | 4,758 | 2,843 | `monster_ai_tests.rs` (200) + `monster_ai_world_tests.rs` (1,716) |
+| `pathfinding.rs` | 2,261 | 1,230 | `pathfinding_tests.rs` (1,031) |
+| `sim_harness.rs` | 2,441 | 1,788 | `sim_harness_tests.rs` (653) |
+| `todo_queue.rs` | 293 | 124 | `todo_queue_tests.rs` (169) |
+| `monster_push.rs` | 1,545 | 639 | `monster_push_tests.rs` (906) |
+| `spell.rs` | 299 | 137 | `spell_tests.rs` (162) |
+| `creature_think.rs` | 539 | 256 | `creature_think_tests.rs` (283) |
+
+`monster_ai.rs` had **two** inline test mods (`tests` + `world_tests`); each was extracted to
+its own `#[path]` file with its own `mod <name>;` declaration to preserve the nested module
+path (`crate::monster_ai::{tests,world_tests}::*`) and existing test filters — do not collapse
+them into one wrapper module.
+
+**Verification:**
+- `rtk cargo test -p tfs-rust-core` → **482 passed, 2 ignored, 12 suites** — byte-identical to
+  the pre-Phase-1 baseline. ✅
+- `cargo clippy --all-targets 2>&1 | grep '^warning:' | sort` diffed before/after via
+  `git stash` → **byte-identical** (46 warning lines / 44 unique in both). **Zero clippy
+  regression.** ✅
+- `rtk cargo check -p tfs-rust-core` after each file → 0 errors throughout. ✅
+- Exit criteria: `idle_stimulus.rs` ≤~2,500 (2,511), `monster_ai.rs` at audit-measured prod
+  LOC ~2,835 (2,843). ✅
+
+**Lessons captured** (`tasks/lessons.md` #95, #96):
+- `#[cfg(test)] #[path] mod <name>;` extraction semantics (the `#[path]` file holds the body,
+  not the wrapper).
+- **`rtk cargo clippy` aggregated output is non-deterministic** across runs (rotating subset of
+  locations per rule; untouched files appear/disappear). Do NOT diff rtk summaries for
+  regression checks — use raw `cargo clippy ... | grep '^warning:' | sort`.
+- The audit's "Clippy is currently clean — 0 warnings" baseline claim (line ~293) is **stale**:
+  the live baseline is **46 `^warning:` lines / 44 unique warnings**, all pre-existing. The bar
+  for Phases 2–6 is "no NEW warning vs. the live captured baseline," not "0 warnings."
 
 ---
 
@@ -391,15 +526,19 @@ they need and the `mem::take`/borrow-splitting workarounds disappear.
 
 Incremental strategy (each sub-step is its own PR):
 
-1. **Group fields into cohesive sub-structs**, leaving `GameWorld` as a thin container:
-   | Sub-struct | Fields (from the current 35) |
+1. **Group fields into cohesive sub-structs**, leaving `GameWorld` as a thin container. The
+   field set has grown to ~51 since the original audit, so the grouping below now also absorbs
+   the newer `pub(crate)` beat-loop/RNG/scheduler fields:
+   | Sub-struct | Fields (from the current ~51) |
    |------------|------------------------------|
    | `entities` | `creatures`, `items`, `map`, `container_registry` |
    | `players`  | `player_by_name`, `player_by_guid`, `conn_to_creature` |
-   | `net_state`| `pending_outgoing`, `known_creatures_by_conn`, `creature_fully_sent_by_conn`, `deferred_turn_broadcast`, `codec`, `protocol_hooks` |
+   | `net_state`| `pending_outgoing`, `known_creatures_by_conn`, `creature_fully_sent_by_conn`, `deferred_turn_broadcast`, `codec`, `protocol_hooks`, `next_statement_id`, `pending_idle_kick_772` |
    | `social`   | `guilds`, `parties`, `party_invites`, `next_party_id` |
-   | `world_sys`| `decay`, `spawns`, `houses`, `wildcards`, `stability` |
-   | `static_db`| `items_db`, `monsters_db`, `groups`, `vocations`, `mechanics`, `config` |
+   | `world_sys`| `decay`, `spawns`, `houses`, `wildcards`, `stability`, `spawn_slot_by_creature`, `check_creature_bucket_index`, `last_creature_bucket_tick`, `creatures_pending_release`, `items_pending_release` |
+   | `static_db`| `items_db`, `monsters_db`, `groups`, `vocations`, `mechanics`, `config`, `db`, `monster_world_config`, `connection_config` |
+   | `beat_loop`| `tick_counter`, `server_ms`, `beat_driven_loop`, `todo_queue`, `walk_wake_tx`, `subsystem_counters_772`, `round_nr_772`, `last_ambiente_brightness`, `lag_772`, `monster_viewport_notify_depth` |
+   | `rng`      | `ai_rng`, `parity_rng` |
 2. Migrate one subsystem at a time: introduce the sub-struct, update field access via a
    thin accessor, run tests, commit. Use `rustc`'s borrow errors as the to-do list.
 3. **Convert `impl GameWorld` methods to free functions** that take the minimal `&mut` slices

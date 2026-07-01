@@ -268,3 +268,27 @@ Source: `docs/TFS-RUST_772_Monster_Audit_Verification.md` §7 Step 4 & Step 5.
 - [x] Verify — `rtk cargo test -p tfs-rust-core` (482 pass, 0 fail); `rtk cargo clippy` no new
       warnings in changed files. Audit doc §6/§7 + cross-cutting checkboxes ticked; lessons #93/#94
       appended to `tasks/lessons.md`.
+
+## Refactor Audit Phase 1 — Extract inline tests from mega-files  [2026-07-01]
+
+Source: `docs/REFACTOR_AUDIT.md` §"Phase 1". Pure code-movement; no logic/renames.
+
+- [x] Baseline captured: `rtk cargo test -p tfs-rust-core` → 482 passed, 2 ignored, 12 suites.
+- [x] `idle_stimulus.rs` (6809→2511): `mod tests` body → `idle_stimulus_tests.rs` via
+      `#[cfg(test)] #[path] mod tests;`. Module path `crate::idle_stimulus::tests::*` preserved.
+- [x] `monster_ai.rs` (4758→2843): two test mods → `monster_ai_tests.rs` (`mod tests`) +
+      `monster_ai_world_tests.rs` (`mod world_tests`), both via `#[cfg(test)] #[path]`.
+      Kept separate to preserve `crate::monster_ai::{tests,world_tests}::*` filter paths.
+- [x] `pathfinding.rs` (2261→1230): `mod tests` → `pathfinding_tests.rs`.
+- [x] `sim_harness.rs` (2441→1788): `mod harness_tests` → `sim_harness_tests.rs`.
+- [x] `>50%-test` sweep: `todo_queue.rs` (293→124), `monster_push.rs` (1545→639),
+      `spell.rs` (299→137), `creature_think.rs` (539→256) — each `mod tests` → `*_tests.rs`.
+      `test_world.rs` already fully `#[cfg(test)]` — left alone.
+- [x] Verify — `rtk cargo test -p tfs-rust-core` → 482 passed, 2 ignored, 12 suites (identical).
+- [x] Verify — `cargo clippy --all-targets` full `^warning:` set byte-identical before/after
+      (46 warning lines / 44 unique in both). **Zero regression.**
+      NOTE: `rtk cargo clippy` aggregated output shows a non-deterministic subset per run
+      (files never touched appear/disappear) — do NOT diff rtk summaries; use raw
+      `cargo clippy ... | grep '^warning:' | sort` for reliable before/after comparison.
+- [x] Exit criteria: `idle_stimulus.rs` ≤~2500 (2511), `monster_ai.rs` at audit-measured prod
+      LOC ~2835 (2843). Test pass count identical.
