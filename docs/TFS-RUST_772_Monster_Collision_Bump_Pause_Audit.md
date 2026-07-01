@@ -20,11 +20,11 @@ The kick/push/kill *structure* was audited in Pass 8 (lesson #77) and is faithfu
 
 | # | Severity | Finding | Subsystem | Symptom contribution |
 |---|----------|---------|-----------|----------------------|
-| **F1** | **Critical** | Hard-block `Err` path doesn't re-run `IdleStimulus` next beat when an `Attack` is queued | blocked-step recovery | Monster pauses **200 ms – 2000 ms+** (attack cooldown) instead of re-pathing in 1 ms |
+| **F1** | **Resolved (superseded)** | ~~Hard-block `Err` path doesn't re-run `IdleStimulus` next beat when an `Attack` is queued~~ — superseded by walk-engine unification Phase 1.3 (commit `c7b4df4`, 2026-07-01); see §4.1 and [`TFS-RUST_772_Monster_Audit_Verification.md`](TFS-RUST_772_Monster_Audit_Verification.md) §2.1 | blocked-step recovery | ~~Monster pauses 200 ms – 2000 ms+~~ No longer occurs — full `ToDoClear` + yield landed |
 | **F2** | **High** | `KickCreature` dest validation uses `MovePossible(Execute=false)` (planning); C++ uses `Execute=true` (recursive chain-kick) | kick/push | No chain-push in dense convoys → kills / EXHAUSTED-pauses / creature stacking where C++ keeps everyone moving |
 | **F3** | **Medium** | `monster_exhausted_wait_772` clears the target unconditionally; C++ `Execute` catch preserves it (only the player-tile case clears) | EXHAUSTED recovery | Blocked monster drops the player and re-acquires after 1 s instead of re-engaging the same target |
 
-**Bottom line:** F1 + F2 are the primary causes of the "bump pause" in dense groups. F1 makes a single hard-blocked monster stall for the attack cooldown instead of routing around; F2 prevents chain-push so dense convoys stack/kill/stall where C++ flows. F3 amplifies the "they pause and seem to give up" feel by dropping aggro on top of the pause.
+**Bottom line:** F1 was the primary single-monster stall cause but is now resolved. F2 is the remaining primary cause of the "bump pause" in dense groups — no chain-push so dense convoys stack/kill/stall where C++ flows. F3 amplifies the "they pause and seem to give up" feel by dropping aggro on top of the pause. F2+F3 compound with the RC1 fix (no 1 Hz think re-acquire) — see [`TFS-RUST_772_Monster_Audit_Verification.md`](TFS-RUST_772_Monster_Audit_Verification.md) §4.3 (N3).
 
 ---
 
@@ -181,10 +181,13 @@ The 1 ms `MOVENOTPOSSIBLE` recovery is the key to fluid chasing in dense groups:
 
 ## 4. Findings
 
-### 4.1 Finding F1 — Hard-block `Err` path doesn't re-run `IdleStimulus` next beat (Critical)
+### 4.1 Finding F1 — RESOLVED (superseded by walk-engine unification Phase 1.3)
 
-**Severity:** Critical
-**Symptom contribution:** "Pause when bumping" — single hard-blocked monster stalls 200 ms – 2000 ms+ instead of re-pathing in 1 ms
+**Status:** Resolved / superseded by commit `c7b4df4` ("772 walk-engine unification Phase 0 + 1.1-1.3", 2026-07-01).
+**Original severity:** Critical
+**Original symptom contribution:** "Pause when bumping" — single hard-blocked monster stalls 200 ms – 2000 ms+ instead of re-pathing in 1 ms
+
+> **Re-verification (2026-07-01):** See [`TFS-RUST_772_Monster_Audit_Verification.md`](TFS-RUST_772_Monster_Audit_Verification.md) §2.1. The `retain(!Go)` path described below no longer exists — the `Err` arm now does a full `todo.queue.clear()` + `locked = false` + `request_idle_stimulus`, which is functionally equivalent to the §6.2 recommended fix. The sections below are retained for historical reference.
 
 #### 4.1.1 The Rust blocked-step `Err` arm (`walk/mod.rs:1296-1318`)
 
@@ -472,11 +475,13 @@ These subsystems are faithful to the 772 reference and are **not** the source of
 
 | Priority | Finding | Effort | Impact | Risk |
 |----------|---------|--------|--------|------|
-| **P0** | F1 — Hard-block `Err` path: full `ToDoClear` + direct `creature_todo_yield` | Small | Eliminates 200 ms – 2000 ms+ pauses on hard blocks | Low (localized to `Err` arm) |
+| ~~P0~~ | ~~F1 — Hard-block `Err` path: full `ToDoClear` + direct `creature_todo_yield`~~ | ~~Small~~ | **Resolved** by `c7b4df4` (Phase 1.3) — full clear + yield landed. Residual: indirect yield via `request_idle_stimulus` (see §6.2, deferred to Step 5 of the verification doc) | Low |
 | **P1** | F2 — `KickCreature` recursive chain-push via execute-mode `MovePossible` | Medium | Eliminates stacking + spurious kills in dense convoys | Medium (recursive kick; needs cycle guard) |
 | **P2** | F3 — Split EXHAUSTED semantics (kick-kill preserves target, player-tile clears) | Small | Corrects aggro drop on kick-kill | Low (localized to `monster_exhausted_wait_772`) |
 
 ### 6.2 Fix F1 — Hard-block `Err` path mirrors C++ `MOVENOTPOSSIBLE` recovery
+
+> **Status (2026-07-01):** ~90% landed by commit `c7b4df4` (Phase 1.3). The `Err` arm now does a full `todo.queue.clear()` + `locked = false` + `request_idle_stimulus` (was: `retain(!Go)` + `request_idle_stimulus`). The `request_idle_stimulus` guards all pass in the hard-block scenario (queue empty, `walk_timer_idle` true, no dedup, no `Wait`), so the monster re-runs `IdleStimulus` on the next beat (~1 ms logical). The one residual deviation from the recommendation below: the landed code calls `request_idle_stimulus` (indirect yield through guards) instead of a direct `creature_todo_yield`. This is functionally equivalent in the traced scenario but adds guard coupling. Switching to a direct `creature_todo_yield` is deferred to Step 5 of [`TFS-RUST_772_Monster_Audit_Verification.md`](TFS-RUST_772_Monster_Audit_Verification.md). The fix sketch below is retained for reference.
 
 **Goal:** A hard-blocked `Go` (no kick possible) must re-run `IdleStimulus` on the **next beat (1 ms)**, matching C++ `Execute` catch `MOVENOTPOSSIBLE` → `ToDoClear` + `ToDoYield` (`cract.cc:875-877`).
 
@@ -815,9 +820,9 @@ The current doc comment cites `crnonpl.cc:2890-2898` (the `IdleStimulus` catch),
 
 ### 7.1 Suggested commit sequence
 
-1. **F1** (P0, smallest blast radius) — `walk/mod.rs` `Err` arm: full `ToDoClear` + direct `creature_todo_yield`. Failing tests first, then fix. Verify all existing tests pass.
+1. **F1** — ~~P0, smallest blast radius~~ **Resolved** by `c7b4df4` (Phase 1.3, 2026-07-01). No code needed. Residual: indirect yield hardening deferred to Step 5 of the verification doc.
 2. **F3** (P2, small) — `monster_push.rs` + `idle_stimulus.rs` + `walk/mod.rs`: split `MonsterKickOutcome`, add `clear_target` param. Failing tests first, then fix.
-3. **F2** (P1, medium) — `monster_push.rs` + `monster_ai.rs`: introduce `monster_move_possible_execute_for_kick_772` with recursive chain-push + cycle guard. Failing tests first, then fix. This is the largest change and should land last so F1+F3 are stable.
+3. **F2** (P1, medium) — `monster_push.rs` + `monster_ai.rs`: introduce `monster_move_possible_execute_for_kick_772` with recursive chain-push + cycle guard. Failing tests first, then fix. This is the largest change and should land last so F3 is stable.
 
 ### 7.2 Verification per fix
 

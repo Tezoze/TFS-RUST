@@ -182,17 +182,22 @@ impl GameWorld {
         self.creature_todo_yield(cid);
     }
 
-    /// 772 `EXHAUSTED` recovery — the `TMonster::IdleStimulus` catch block
-    /// (`crnonpl.cc:2890-2898`): `Target = 0; ToDoClear(); ToDoWait(1000); ToDoStart();`.
+    /// 772 `Execute` catch `EXHAUSTED` recovery (`cract.cc:870-877`):
+    /// `ToDoClear() + ToDoWait(1000) + ToDoStart()`. The `Execute` catch does NOT clear `Target`
+    /// itself — it relies on the throw site:
+    /// - player-tile (`crnonpl.cc:2236-2238`): `Target = 0` before `throw EXHAUSTED`
+    /// - kick-kill (`crnonpl.cc:2241-2242`): `KickCreature` returned false → `throw EXHAUSTED`
+    ///   (Target NOT cleared)
     ///
-    /// Invoked when a pre-step kick ([`crate::monster_push`]) hit a player tile or had to kill a
-    /// blocker (`KickCreature` returned `false`) — the mover does **not** step this beat, it drops
-    /// its target and stalls for a full second instead of clearing-queue and re-planning on the
-    /// same beat (audit Finding 7).
-    pub(crate) fn monster_exhausted_wait_772(&mut self, cid: CreatureId) {
+    /// `clear_target` mirrors this distinction. The previous implementation unconditionally
+    /// cleared the target, citing the `IdleStimulus` catch (`crnonpl.cc:2890-2898`) — wrong catch
+    /// block (audit F3).
+    pub(crate) fn monster_exhausted_wait_772(&mut self, cid: CreatureId, clear_target: bool) {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
-            base.clear_targets();
+            if clear_target {
+                base.clear_targets(); // player-tile only (`crnonpl.cc:2237`)
+            }
             base.walk_queue.clear();
             base.has_follow_path = false;
             base.force_update_follow_path = true;

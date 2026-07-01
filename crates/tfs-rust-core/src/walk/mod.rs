@@ -1325,7 +1325,9 @@ impl GameWorld {
                 };
                 // 772 pre-step kick (`MovePossible(Execute=true)` side-effects). An `EXHAUSTED`
                 // outcome (player tile / kick-kill) means the mover does **not** step this beat —
-                // clear target + queue and wait 1000 ms (`crnonpl.cc:2890-2898`).
+                // `ToDoClear + Wait(1000) + ToDoStart` (`cract.cc:870-877`). F3: the player-tile
+                // case clears `Target` (`crnonpl.cc:2236-2238`); the kick-kill case preserves it
+                // (`crnonpl.cc:2241-2242`).
                 let kick_outcome = if self
                     .creatures
                     .get(cid)
@@ -1335,9 +1337,18 @@ impl GameWorld {
                 } else {
                     crate::monster_push::MonsterKickOutcome::Proceed
                 };
-                if kick_outcome == crate::monster_push::MonsterKickOutcome::Exhausted {
-                    self.monster_exhausted_wait_772(cid);
-                    return;
+                match kick_outcome {
+                    crate::monster_push::MonsterKickOutcome::Exhausted => {
+                        // Kick-kill: Target preserved (C++ Execute catch + `crnonpl.cc:2241-2242`).
+                        self.monster_exhausted_wait_772(cid, false);
+                        return;
+                    }
+                    crate::monster_push::MonsterKickOutcome::ExhaustedDropTarget => {
+                        // Player-tile: Target cleared (C++ `crnonpl.cc:2237`).
+                        self.monster_exhausted_wait_772(cid, true);
+                        return;
+                    }
+                    crate::monster_push::MonsterKickOutcome::Proceed => {}
                 }
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {

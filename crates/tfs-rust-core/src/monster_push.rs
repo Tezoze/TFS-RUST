@@ -10,8 +10,10 @@
 //!   `CanKickBoxes()` (race flag, or inherited from a monster master) shoves a blocking movable
 //!   **box/field** aside (same N,S,W,E order, `BANK && !UNPASS` destination), deleting it on
 //!   failure. Stepping onto a **player** tile, or a `KickCreature` that has to kill, is the C++
-//!   `EXHAUSTED` case → [`MonsterKickOutcome::Exhausted`] (the caller clears the target and waits
-//!   1000 ms; `crnonpl.cc:2890-2898`).
+//!   `EXHAUSTED` case → [`MonsterKickOutcome::Exhausted`] (kick-kill: target preserved, C++
+//!   `Execute` catch `cract.cc:870-877`) or [`MonsterKickOutcome::ExhaustedDropTarget`]
+//!   (player-tile: target cleared, C++ `crnonpl.cc:2236-2238`). The caller waits 1000 ms in both
+//!   cases.
 //!
 //! Called from [`crate::walk::GameWorld::on_walk`] before the mover steps.
 
@@ -42,15 +44,26 @@ const KICK_DIRS_772: [Direction; 4] = [
 /// to the era wire id.
 const EFFECT_BLOCK_HIT: u8 = 3;
 
+/// F2: cycle guard for recursive chain-push. C++ `KickCreature` has no explicit depth guard —
+/// it relies on the fixed N,S,W,E offset order + `skip kicker's tile` check (`crnonpl.cc:3062-3064`)
+/// to terminate. Rust is explicit: 8 levels is deeper than any realistic chain-push (a 5-monster
+/// convoy only needs depth 4) while bounding pathological cycles (A→B→C→A).
+const MAX_KICK_DEPTH: u8 = 8;
+
 /// Outcome of the 772 pre-step kick gate — mirrors the `Execute=true` side of
 /// `TMonster::MovePossible` (`crnonpl.cc:2225-2244`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MonsterKickOutcome {
     /// Not a 772 kick situation, or the destination was cleared — proceed with the normal step.
     Proceed,
-    /// 772 `EXHAUSTED` — a player blocker or a `KickCreature` kill. The mover must **not** step
-    /// this beat; the caller runs `Target=0; ToDoClear; Wait(1000); ToDoStart`.
+    /// 772 `EXHAUSTED` — a `KickCreature` kill (blocker boxed in). The mover must **not** step
+    /// this beat; the caller runs `ToDoClear; Wait(1000); ToDoStart` (**Target preserved** —
+    /// C++ `Execute` catch `cract.cc:870-877`; throw site `crnonpl.cc:2241-2242`).
     Exhausted,
+    /// 772 `EXHAUSTED` — a player blocker on the destination tile. The mover must **not** step
+    /// this beat; the caller runs `Target=0; ToDoClear; Wait(1000); ToDoStart` (**Target
+    /// cleared** — C++ `crnonpl.cc:2236-2238` clears `Target` before `throw EXHAUSTED`).
+    ExhaustedDropTarget,
 }
 
 impl GameWorld {
@@ -181,13 +194,19 @@ impl GameWorld {
                     {
                         break
                     }
-                    Some(CreatureKind::Player(_)) => return MonsterKickOutcome::Exhausted,
+                    // C++ `crnonpl.cc:2236-2238`: player-tile `EXHAUSTED` — `Target = 0` before
+                    // `throw EXHAUSTED`. The `Execute` catch (`cract.cc:870-877`) does NOT clear
+                    // `Target` itself; the throw site does. F3: split from kick-kill `Exhausted`.
+                    Some(CreatureKind::Player(_)) => return MonsterKickOutcome::ExhaustedDropTarget,
                     // NPC / unpushable monster → hard block (`crnonpl.cc:2216,2228`), not kicked.
                     Some(CreatureKind::Npc(_)) => break,
                     Some(CreatureKind::Monster(m)) if !m.is_pushable() => break,
                     Some(CreatureKind::Monster(_)) => {
                         // C++ `crnonpl.cc:2240-2242`: kick the blocker; a forced kill (no free
-                        // adjacent tile) still throws `EXHAUSTED`.
+                        // adjacent tile) still throws `EXHAUSTED`. F3: `Exhausted` (not
+                        // `ExhaustedDropTarget`) — the kick-kill throw site does NOT clear
+                        // `Target` (`crnonpl.cc:2241-2242`); the `Execute` catch preserves it
+                        // (`cract.cc:870-877`).
                         if !self.monster_kick_creature_772(mover, blocker, mover_pos, now) {
                             return MonsterKickOutcome::Exhausted;
                         }
@@ -361,17 +380,48 @@ impl GameWorld {
     /// kicker (so kill credit / loot / experience go to it) + the block-hit effect, then the death
     /// pipeline (corpse + loot drop + exp distribution). Returns `true` if moved, `false` if killed.
     ///
-    /// P1-B4: destination validation uses the blocker's own `MovePossible(Execute=true)` model
-    /// (`crnonpl.cc:3066`), not the 1098 `tile_query_add_monster`. For a monster blocker this is
-    /// `monster_tshortway_fill_walkable` (the 772 planning gate). A forced relocate via
-    /// `move_creature_on_map` bypasses the walk-timer gate (a kick is not a walk step).
+    /// F2: destination validation uses the execute-mode `MovePossible` gate
+    /// ([`Self::monster_move_possible_execute_for_kick_772`]) — the blocker's own
+    /// `MovePossible(Execute=true)` (`crnonpl.cc:3066`) — which recursively kicks pushable
+    /// creatures on the escape tile (chain-push). Was: planning gate (`Execute=false`) which
+    /// skipped the recursive kick and caused stacking + spurious kills in dense convoys.
     fn monster_kick_creature_772(
         &mut self,
         kicker: CreatureId,
         blocker: CreatureId,
         mover_pos: Position,
-        _now: Instant,
+        now: Instant,
     ) -> bool {
+        self.monster_kick_creature_772_inner(kicker, blocker, mover_pos, now, 0)
+    }
+
+    /// F2: depth-threaded inner variant of [`Self::monster_kick_creature_772`].
+    ///
+    /// `depth` bounds the recursive chain-push (A→B→C→…). C++ has no explicit guard — it relies
+    /// on the fixed N,S,W,E offset order + `skip kicker's tile` check (`crnonpl.cc:3062-3064`).
+    /// Rust is explicit via [`MAX_KICK_DEPTH`].
+    fn monster_kick_creature_772_inner(
+        &mut self,
+        kicker: CreatureId,
+        blocker: CreatureId,
+        mover_pos: Position,
+        now: Instant,
+        depth: u8,
+    ) -> bool {
+        // F2 cycle guard.
+        if depth >= MAX_KICK_DEPTH {
+            return false;
+        }
+        // C++ `KickCreature` only kicks monsters (`crnonpl.cc:3042-3045`). The top-level caller
+        // only invokes this for monster blockers, but the recursive chain-push may encounter
+        // non-monsters on escape tiles — guard prevents accidentally killing players.
+        if !self
+            .creatures
+            .get(blocker)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+        {
+            return false;
+        }
         let blocker_pos = match self.creatures.get(blocker) {
             Some(k) => k.position(),
             None => return false,
@@ -389,18 +439,18 @@ impl GameWorld {
                     continue;
                 }
             }
-            // P1-B4: C++ `Creature->MovePossible(Dest, Execute=true)` — the blocker's own 772
-            // `MovePossible` gate (leash, PZ, house, creature-block, item-block). For a monster
-            // blocker, `monster_move_possible_planning_772` is the 772 planning equivalent
-            // (no TShortway terrain checks — those are pathfinder-specific).
-            let can_occupy = match self.creatures.get(blocker) {
-                Some(CreatureKind::Monster(_)) => {
-                    self.monster_move_possible_planning_772(blocker, try_pos)
-                }
-                // Non-monster blockers (player/NPC) are never kicked — they're hard blocks in
-                // the caller. This branch is unreachable but kept for exhaustiveness.
-                _ => false,
-            };
+            // F2: C++ `Creature->MovePossible(Dest, Execute=true)` (`crnonpl.cc:3066`) — the
+            // blocker's own `MovePossible` in execute mode, which recursively kicks pushable
+            // creatures on the escape tile (chain-push). Was: planning gate (`Execute=false`)
+            // which treated pushable monsters as plannable-through and skipped the recursive
+            // kick, causing stacking + spurious kills in dense convoys (audit F2).
+            let can_occupy = self.monster_move_possible_execute_for_kick_772(
+                blocker,
+                try_pos,
+                blocker_pos,
+                now,
+                depth,
+            );
             if !can_occupy {
                 continue;
             }
@@ -439,6 +489,55 @@ impl GameWorld {
         // post-apply death branch without re-running `DamageStimulus`, which `Kill()` skips).
         self.apply_creature_death(blocker);
         false
+    }
+
+    /// F2: 772 `TMonster::MovePossible(Execute=true)` for `KickCreature` dest validation
+    /// (`crnonpl.cc:3066`). Unlike [`Self::monster_move_possible_planning_772`] (Execute=false),
+    /// this recursively kicks pushable creatures on the escape tile (chain-push) before declaring
+    /// it passable. Returns `true` if the blocker can occupy `try_pos` (after any chain-kick
+    /// side-effects), `false` on a hard block or a failed chain-kick.
+    ///
+    /// `kicker_pos` is the blocker's current position (the blocker is the "kicker" in the
+    /// recursive call) — used to skip the blocker's own tile in the recursive kick.
+    fn monster_move_possible_execute_for_kick_772(
+        &mut self,
+        blocker: CreatureId,
+        try_pos: Position,
+        kicker_pos: Position,
+        now: Instant,
+        depth: u8,
+    ) -> bool {
+        // Reuse the planning gate for non-creature blocks (leash, PZ, house, items, terrain).
+        // Hard blocks (unpushable, target, master, invisible, NPC, summon-player, IGNORED) return
+        // false here. Pushable monsters and players are plannable-through (planning `continue`s).
+        if !self.monster_move_possible_planning_772(blocker, try_pos) {
+            return false;
+        }
+        // Planning passed — but if a pushable creature is on `try_pos`, planning treated it as
+        // plannable-through. Execute-mode must KICK it (chain-push) before declaring the tile
+        // occupiable. Re-check the tile each iteration (creatures move during chain-kicks).
+        loop {
+            let other = self
+                .map
+                .get_tile(try_pos)
+                .and_then(|t| {
+                    t.body()
+                        .creatures
+                        .iter()
+                        .copied()
+                        .find(|&c| c != blocker)
+                });
+            let Some(other) = other else {
+                break; // tile clear → passable
+            };
+            // Only pushable monsters reach here (hard blocks returned false via planning;
+            // non-monsters cause `monster_kick_creature_772_inner` to return false). Recursively
+            // kick — C++ `Creature->MovePossible(Execute=true)` (`crnonpl.cc:3066`).
+            if !self.monster_kick_creature_772_inner(blocker, other, kicker_pos, now, depth + 1) {
+                return false; // kick failed (kill or no escape) → tile not passable
+            }
+        }
+        true
     }
 
     // ───────────────────────────── 1098 (`Monster::pushCreatures`) ─────────────────────────────
@@ -554,7 +653,8 @@ mod tests {
     }
 
     /// 772 `MovePossible` creature branch: a `KickCreatures` attacker stepping onto a **player**
-    /// tile (not its target) is the `EXHAUSTED` case — `crnonpl.cc:2236-2238`.
+    /// tile (not its target) is the `EXHAUSTED` case — `crnonpl.cc:2236-2238`. F3: this is
+    /// `ExhaustedDropTarget` (Target cleared), distinct from kick-kill `Exhausted`.
     #[test]
     fn kicker_onto_player_tile_is_exhausted() {
         let mut world = beat_driven_world();
@@ -579,7 +679,7 @@ mod tests {
         }
 
         let outcome = world.monster_push_before_step(mover, ppos, now);
-        assert_eq!(outcome, MonsterKickOutcome::Exhausted);
+        assert_eq!(outcome, MonsterKickOutcome::ExhaustedDropTarget);
         // Player is untouched — never kicked.
         assert_eq!(world.creatures.get(player).map(|k| k.position()), Some(ppos));
     }
@@ -641,7 +741,9 @@ mod tests {
         );
     }
 
-    /// `EXHAUSTED` recovery clears the target and arms a 1000 ms wait (`crnonpl.cc:2890-2898`).
+    /// `EXHAUSTED` recovery with `clear_target=true` (player-tile case) clears the target and
+    /// arms a 1000 ms wait (`cract.cc:870-877` + `crnonpl.cc:2236-2238`). F3: the kick-kill case
+    /// passes `clear_target=false` and preserves the target — see `f3_kick_kill_preserves_target`.
     #[test]
     fn exhausted_wait_clears_target_and_waits_1000() {
         let mut world = beat_driven_world();
@@ -661,7 +763,7 @@ mod tests {
             m.base.todo.queue.push_back(CreatureAction::Go);
         }
 
-        world.monster_exhausted_wait_772(mover);
+        world.monster_exhausted_wait_772(mover, true);
 
         let base = world.creatures.get(mover).unwrap().base();
         assert_eq!(base.attack_target, None);
@@ -826,11 +928,11 @@ mod tests {
             m.base.attack_target = Some(target);
         }
 
-        // Without IGNORED_BY_MONSTERS flag, player tile is EXHAUSTED (baseline).
+        // Without IGNORED_BY_MONSTERS flag, player tile is ExhaustedDropTarget (baseline).
         assert_eq!(
             world.monster_push_before_step(mover, ppos, now),
-            MonsterKickOutcome::Exhausted,
-            "non-ignored player tile must be EXHAUSTED (baseline)"
+            MonsterKickOutcome::ExhaustedDropTarget,
+            "non-ignored player tile must be ExhaustedDropTarget (baseline)"
         );
     }
 
@@ -1005,6 +1107,439 @@ mod tests {
         assert!(
             !world.monster_move_possible_planning_772(mover, hpos),
             "house tile must be a hard block in MovePossible planning"
+        );
+    }
+
+    // ─────────── F3: split EXHAUSTED target semantics (`cract.cc:870-877`) ───────────
+
+    /// F3: a kick-kill (`Exhausted`) preserves the target — C++ `Execute` catch
+    /// (`cract.cc:870-877`) does NOT clear `Target`; the kick-kill throw site
+    /// (`crnonpl.cc:2241-2242`) doesn't clear it either. Was: unconditionally cleared.
+    #[test]
+    fn f3_kick_kill_preserves_target() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        world.server_ms = 0;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        // Only the kicker, blocker, and far-target tiles exist — the blocker is boxed in
+        // (no escape tiles), so `KickCreature` kills it and returns false → `Exhausted`.
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, bpos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let blocker =
+            insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(bpos, blocker);
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+            m.base.follow_target = Some(target);
+        }
+
+        let outcome = world.monster_push_before_step(mover, bpos, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Exhausted,
+            "kick-kill must return Exhausted (target preserved)"
+        );
+
+        // F3: kick-kill recovery preserves the target (`clear_target = false`).
+        world.monster_exhausted_wait_772(mover, false);
+
+        let base = world.creatures.get(mover).unwrap().base();
+        assert_eq!(
+            base.attack_target,
+            Some(target),
+            "kick-kill must preserve attack_target (C++ Execute catch cract.cc:870-877)"
+        );
+        assert_eq!(
+            base.follow_target,
+            Some(target),
+            "kick-kill must preserve follow_target (C++ Execute catch cract.cc:870-877)"
+        );
+        // Blocker was killed.
+        assert!(!world.creatures.contains_key(blocker));
+        // Wait armed.
+        assert!(
+            base.todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)),
+            "EXHAUSTED must enqueue a {MONSTER_IDLE_WAIT_MS} ms Wait"
+        );
+    }
+
+    /// F3: a player-tile `ExhaustedDropTarget` clears the target — C++ `crnonpl.cc:2236-2238`
+    /// clears `Target` before `throw EXHAUSTED`. Regression of the original behavior.
+    #[test]
+    fn f3_player_tile_clears_target() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        world.server_ms = 0;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, ppos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        // A separate target so the player on the dest tile is *not* the attack target.
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+            m.base.follow_target = Some(target);
+        }
+
+        let outcome = world.monster_push_before_step(mover, ppos, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::ExhaustedDropTarget,
+            "player-tile must return ExhaustedDropTarget (target cleared)"
+        );
+
+        // F3: player-tile recovery clears the target (`clear_target = true`).
+        world.monster_exhausted_wait_772(mover, true);
+
+        let base = world.creatures.get(mover).unwrap().base();
+        assert_eq!(
+            base.attack_target, None,
+            "player-tile must clear attack_target (C++ crnonpl.cc:2237)"
+        );
+        assert_eq!(
+            base.follow_target, None,
+            "player-tile must clear follow_target (C++ crnonpl.cc:2237)"
+        );
+        assert!(
+            base.todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)),
+            "EXHAUSTED must enqueue a {MONSTER_IDLE_WAIT_MS} ms Wait"
+        );
+    }
+
+    /// F3: after a kick-kill + 1 s wait, the monster re-engages the **same** target — the
+    /// target was preserved, so `IdleStimulus`'s `lose_existing_target` keeps it (close, valid)
+    /// and `acquire_target` skips (already has a target). Was: target dropped → re-acquire
+    /// might pick a different target or sleep.
+    #[test]
+    fn f3_kick_kill_reengages_same_target() {
+        use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+
+        let mut world = beat_driven_test_world();
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        // Walkable corridor: mover → blocker → player. Blocker is boxed in (only corridor tiles
+        // exist; no perpendicular escape), so KickCreature kills it.
+        for x in 100..=103u16 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let blocker =
+            insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(bpos, blocker);
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        world.map.register_creature_at(mpos, mover);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(player);
+            m.base.follow_target = Some(player);
+        }
+
+        // Kick-kill the blocker → Exhausted (target preserved).
+        let outcome = world.monster_push_before_step(mover, bpos, now);
+        assert_eq!(outcome, MonsterKickOutcome::Exhausted);
+        world.monster_exhausted_wait_772(mover, false);
+
+        // Target preserved after the exhausted wait.
+        let base = world.creatures.get(mover).unwrap().base();
+        assert_eq!(base.attack_target, Some(player));
+        assert_eq!(base.follow_target, Some(player));
+
+        // Advance past the 1000 ms wait and run IdleStimulus — the monster should still
+        // target the same player (close, same floor, not in PZ/house, not invisible).
+        world.server_ms += MONSTER_IDLE_WAIT_MS as u64 + 1;
+        world.monster_idle_stimulus(mover);
+
+        let base = world.creatures.get(mover).unwrap().base();
+        assert_eq!(
+            base.attack_target,
+            Some(player),
+            "monster must re-engage the same target after kick-kill + 1s wait"
+        );
+        assert_eq!(
+            base.follow_target,
+            Some(player),
+            "monster must still follow the same target after kick-kill + 1s wait"
+        );
+    }
+
+    // ─────────── F2: recursive chain-push (`crnonpl.cc:3066`) ───────────
+
+    /// Helper: set up an ATTACKING pushable monster with a far-away target.
+    fn insert_chain_monster(
+        world: &mut GameWorld,
+        name: &str,
+        pos: Position,
+        target: CreatureId,
+    ) -> CreatureId {
+        let cid = insert_monster_with_config(world, name, pos, 200, kicker_config());
+        world.map.register_creature_at(pos, cid);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+            m.base.follow_target = Some(target);
+        }
+        cid
+    }
+
+    /// F2: A→B→C chain-push — A kicks B, B's escape tile has C, B kicks C (chain-push),
+    /// C relocates to a free tile, B relocates to C's old spot, A's dest is clear.
+    /// All in one beat, no stacking (`crnonpl.cc:3066`).
+    #[test]
+    fn f2_chain_push_three_monsters() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let cpos = Position::new(101, 101, 7);
+        let escape = Position::new(101, 102, 7);
+        let tpos = Position::new(105, 105, 7);
+        // Only the corridor tiles + far target exist; N(101,99) is absent so B tries S first.
+        for &p in &[mpos, bpos, cpos, escape, tpos] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let c = insert_chain_monster(&mut world, "RatC", cpos, target);
+        let b = insert_chain_monster(&mut world, "RatB", bpos, target);
+        let a = insert_chain_monster(&mut world, "Cyclops", mpos, target);
+
+        let outcome = world.monster_push_before_step(a, bpos, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Proceed,
+            "chain-push must clear the dest tile and let A proceed"
+        );
+        // B relocated to C's old spot.
+        assert_eq!(
+            world.creatures.get(b).map(|k| k.position()),
+            Some(cpos),
+            "B must relocate to C's old spot (chain-push)"
+        );
+        // C relocated to the free escape tile.
+        assert_eq!(
+            world.creatures.get(c).map(|k| k.position()),
+            Some(escape),
+            "C must relocate to the free escape tile"
+        );
+        // No stacking: B and C on different tiles.
+        assert_ne!(
+            world.creatures.get(b).map(|k| k.position()),
+            world.creatures.get(c).map(|k| k.position()),
+            "B and C must not share a tile (no stacking)"
+        );
+    }
+
+    /// F2: A→B where B's only escape has a pushable C → B and C do **not** share a tile.
+    /// Before F2, B was forcibly relocated onto C's tile (stacking). After F2, B kicks C first.
+    #[test]
+    fn f2_chain_push_no_stacking() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let cpos = Position::new(101, 101, 7);
+        let escape = Position::new(101, 102, 7);
+        let tpos = Position::new(105, 105, 7);
+        for &p in &[mpos, bpos, cpos, escape, tpos] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let c = insert_chain_monster(&mut world, "RatC", cpos, target);
+        let b = insert_chain_monster(&mut world, "RatB", bpos, target);
+        let a = insert_chain_monster(&mut world, "Cyclops", mpos, target);
+
+        let _ = world.monster_push_before_step(a, bpos, now);
+
+        let b_pos = world.creatures.get(b).map(|k| k.position());
+        let c_pos = world.creatures.get(c).map(|k| k.position());
+        assert_ne!(
+            b_pos, c_pos,
+            "B and C must not share a tile — F2 chain-push prevents stacking"
+        );
+        // B moved off its original tile.
+        assert_ne!(b_pos, Some(bpos), "B must have been relocated");
+        // C moved off its original tile.
+        assert_ne!(c_pos, Some(cpos), "C must have been relocated by chain-push");
+    }
+
+    /// F2: a boxed-in blocker (no escape tiles at all) is still killed — regression of the
+    /// existing `boxed_in_blocker_is_killed_and_step_exhausted` behavior with the F2 changes.
+    #[test]
+    fn f2_chain_push_boxed_in_kills() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        // Only the kicker, blocker, and far-target tiles exist — the blocker's other neighbours
+        // are absent (non-walkable), so `KickCreature` cannot relocate it and must kill.
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, bpos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let blocker = insert_chain_monster(&mut world, "Rat", bpos, target);
+        let kicker = insert_chain_monster(&mut world, "Cyclops", mpos, target);
+
+        let outcome = world.monster_push_before_step(kicker, bpos, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Exhausted,
+            "boxed-in blocker must be killed → Exhausted (kick-kill)"
+        );
+        assert!(
+            !world.creatures.contains_key(blocker),
+            "boxed-in blocker must be killed by the kick"
+        );
+    }
+
+    /// F2: cycle guard — a 4-monster cycle (B→C→D→A→B) must terminate via `MAX_KICK_DEPTH`
+    /// instead of infinite recursion. Each monster's only escape is the next one's tile.
+    #[test]
+    fn f2_chain_push_cycle_guard() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        // 2×2 cluster: A(100,100), B(101,100), C(101,101), D(100,101).
+        // Only these 4 tiles + far target exist — each monster's only escape is the next one's tile.
+        let apos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let cpos = Position::new(101, 101, 7);
+        let dpos = Position::new(100, 101, 7);
+        let tpos = Position::new(105, 105, 7);
+        for &p in &[apos, bpos, cpos, dpos, tpos] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let _d = insert_chain_monster(&mut world, "RatD", dpos, target);
+        let _c = insert_chain_monster(&mut world, "RatC", cpos, target);
+        let b = insert_chain_monster(&mut world, "RatB", bpos, target);
+        let a = insert_chain_monster(&mut world, "Cyclops", apos, target);
+
+        // A kicks B. B's only escape is S(101,101)=C. C's only escape is W(100,101)=D.
+        // D's only escape is N(100,100)=A. A's only escape is E(101,100)=B. → 4-cycle.
+        // The depth guard must terminate the recursion. Eventually B has no passable escape
+        // and is killed. The test passing (not hanging) proves the cycle guard works.
+        let outcome = world.monster_push_before_step(a, bpos, now);
+        // The cycle causes all chain-kicks attempts to fail at MAX_KICK_DEPTH → B has no
+        // passable escape → B is killed → Exhausted (kick-kill).
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Exhausted,
+            "cycle must terminate via depth guard → blocker killed → Exhausted"
+        );
+        assert!(
+            !world.creatures.contains_key(b),
+            "blocker must be killed after cycle guard terminates recursion"
+        );
+    }
+
+    /// F2: a 5-monster chain-push (A→B→C→D→E) in a 1-wide corridor — all relocate one tile
+    /// in a single beat. This is the "dense convoy" scenario from the audit.
+    #[test]
+    fn f2_dense_convoy_fluid() {
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        let now = std::time::Instant::now();
+
+        // Corridor: A(100,100)→B(101,100)→C(101,101)→D(101,102)→E(101,103)→escape(101,104).
+        // The chain goes South: each blocker's escape is the next one's tile.
+        let positions: [Position; 6] = [
+            Position::new(100, 100, 7), // A (mover)
+            Position::new(101, 100, 7), // B
+            Position::new(101, 101, 7), // C
+            Position::new(101, 102, 7), // D
+            Position::new(101, 103, 7), // E
+            Position::new(101, 104, 7), // escape (free)
+        ];
+        let tpos = Position::new(105, 105, 7);
+        for &p in positions.iter().chain(std::iter::once(&tpos)) {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        // Insert in reverse order so chain-push goes A→B→C→D→E.
+        let e = insert_chain_monster(&mut world, "RatE", positions[4], target);
+        let d = insert_chain_monster(&mut world, "RatD", positions[3], target);
+        let c = insert_chain_monster(&mut world, "RatC", positions[2], target);
+        let b = insert_chain_monster(&mut world, "RatB", positions[1], target);
+        let a = insert_chain_monster(&mut world, "Cyclops", positions[0], target);
+
+        let outcome = world.monster_push_before_step(a, positions[1], now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Proceed,
+            "5-monster chain-push must clear the dest tile and let A proceed"
+        );
+        // Each monster advanced one tile South.
+        assert_eq!(
+            world.creatures.get(b).map(|k| k.position()),
+            Some(positions[2]),
+            "B must advance to C's old spot"
+        );
+        assert_eq!(
+            world.creatures.get(c).map(|k| k.position()),
+            Some(positions[3]),
+            "C must advance to D's old spot"
+        );
+        assert_eq!(
+            world.creatures.get(d).map(|k| k.position()),
+            Some(positions[4]),
+            "D must advance to E's old spot"
+        );
+        assert_eq!(
+            world.creatures.get(e).map(|k| k.position()),
+            Some(positions[5]),
+            "E must advance to the free escape tile"
+        );
+        // No stacking: all on distinct tiles.
+        let positions_after: Vec<_> = [b, c, d, e]
+            .iter()
+            .map(|&id| world.creatures.get(id).map(|k| k.position()))
+            .collect();
+        let unique: std::collections::HashSet<_> = positions_after.iter().collect();
+        assert_eq!(
+            unique.len(),
+            positions_after.len(),
+            "all monsters must be on distinct tiles (no stacking)"
         );
     }
 }
