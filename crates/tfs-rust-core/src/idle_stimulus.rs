@@ -330,7 +330,7 @@ impl GameWorld {
         }
     }
 
-    /// C++ `TMonster::CreatureMoveStimulus` sleep wake — `crnonpl.cc:2866`.
+    /// C++ `TMonster::CreatureMoveStimulus` sleep wake — `crnonpl.cc:2943-2982`.
     pub(crate) fn monster_sleep_wake_on_creature_move(
         &mut self,
         monster_id: CreatureId,
@@ -354,13 +354,18 @@ impl GameWorld {
             self.creature_todo_yield(monster_id);
             return;
         }
-        let should_wake = self.creatures.get(moved_id).is_some_and(|k| match k {
-            CreatureKind::Npc(_) => false,
-            CreatureKind::Monster(m) => {
-                !m.base.is_summon() && m.opponent_ids.is_empty() && !m.is_hostile
-            }
-            CreatureKind::Player(_) => true,
-        });
+        // C++ wake gate (`crnonpl.cc:2969-2975`): NPC → no; Monster → only if
+        // `IsPlayerControlled()` (master is a PLAYER, `crnonpl.cc:3139-3146`);
+        // Player → yes. Wild monsters and NPC-owned summons do NOT wake sleepers.
+        // `is_summon()` alone is too broad (any master) — require a player master.
+        let should_wake = match self.creatures.get(moved_id) {
+            None => false,
+            Some(CreatureKind::Npc(_)) => false,
+            Some(CreatureKind::Player(_)) => true,
+            Some(CreatureKind::Monster(m)) => m.base.master.is_some_and(|mid| {
+                matches!(self.creatures.get(mid), Some(CreatureKind::Player(_)))
+            }),
+        };
         if !should_wake {
             return;
         }
@@ -6667,5 +6672,138 @@ mod tests {
             pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0xAA)),
             "Talk execute must broadcast 0xAA speech packet"
         );
+    }
+
+    /// B3 helper: place a sleeping monster at `pos` with a cleared ToDo/queue.
+    fn place_sleeping_monster(world: &mut GameWorld, pos: Position, name: &str) -> CreatureId {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mid = insert_monster(world, name, pos, 200);
+        world.map.register_creature_at(pos, mid);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mid) {
+            m.state = MonsterState::Sleeping;
+            m.is_idle = true;
+            m.base.clear_targets();
+            m.opponent_ids.clear();
+            m.base.todo.queue.clear();
+            m.base.next_wakeup = None;
+        }
+        mid
+    }
+
+    /// B3: a Player mover wakes a sleeping monster (`crnonpl.cc:2969-2975`).
+    #[test]
+    fn sleep_wake_wakes_for_player() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(101, 100, 7);
+        let sleeper = place_sleeping_monster(&mut world, mpos, "Sleeper");
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+
+        world.monster_sleep_wake_on_creature_move(sleeper, player);
+
+        let m = match world.creatures.get(sleeper) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(m.state, MonsterState::Idle, "player mover must wake sleeper");
+        assert!(!m.is_idle, "wake must clear idle posture");
+    }
+
+    /// B3: a wild monster (no master) does NOT wake a sleeping monster
+    /// (`crnonpl.cc:2973-2974` — `!IsPlayerControlled()` → return).
+    #[test]
+    fn sleep_wake_does_not_wake_for_wild_monster() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let wpos = Position::new(101, 100, 7);
+        let sleeper = place_sleeping_monster(&mut world, mpos, "Sleeper");
+        ensure_walkable_tile(&mut world.map, wpos, TEST_SYNTHETIC_GROUND_WP);
+        let wild = insert_monster(&mut world, "WildRat", wpos, 200);
+        world.map.register_creature_at(wpos, wild);
+        // Wild monster: no master, hostile, with an opponent — the old band-aid
+        // (`!is_summon && opponent_ids.is_empty() && !is_hostile`) would have
+        // skipped wake here only because of the opponent/hostile clauses; the
+        // fix keys purely on `IsPlayerControlled()`.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(wild) {
+            m.is_hostile = false;
+            m.opponent_ids.clear();
+        }
+
+        world.monster_sleep_wake_on_creature_move(sleeper, wild);
+
+        let m = match world.creatures.get(sleeper) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(
+            m.state,
+            MonsterState::Sleeping,
+            "wild monster mover must not wake sleeper"
+        );
+        assert!(m.is_idle, "sleeper stays in idle posture");
+    }
+
+    /// B3: a player-owned summon wakes a sleeping monster; an NPC-owned summon
+    /// does not (`IsPlayerControlled` requires `Master->Type == PLAYER`,
+    /// `crnonpl.cc:3139-3146`). Guards the `is_summon()` vs `IsPlayerControlled()`
+    /// distinction — `is_summon()` alone would wrongly wake for NPC summons.
+    #[test]
+    fn sleep_wake_wakes_for_player_summon() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        let npos = Position::new(103, 100, 7);
+        let spos = Position::new(101, 100, 7);
+        let sleeper = place_sleeping_monster(&mut world, mpos, "Sleeper");
+
+        // Player-owned summon at spos.
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        ensure_walkable_tile(&mut world.map, spos, TEST_SYNTHETIC_GROUND_WP);
+        let p_summon = insert_summon(&mut world, "PSummon", spos, player);
+        world.map.register_creature_at(spos, p_summon);
+
+        world.monster_sleep_wake_on_creature_move(sleeper, p_summon);
+        let m = match world.creatures.get(sleeper) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(
+            m.state,
+            MonsterState::Idle,
+            "player-owned summon mover must wake sleeper"
+        );
+        assert!(!m.is_idle, "wake must clear idle posture");
+
+        // Reset sleeper and verify an NPC-owned summon does NOT wake it.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(sleeper) {
+            m.state = MonsterState::Sleeping;
+            m.is_idle = true;
+            m.base.todo.queue.clear();
+            m.base.next_wakeup = None;
+        }
+        ensure_walkable_tile(&mut world.map, npos, TEST_SYNTHETIC_GROUND_WP);
+        let npc_master = insert_monster(&mut world, "NpcMaster", npos, 200);
+        world.map.register_creature_at(npos, npc_master);
+        let n_summon = insert_summon(&mut world, "NSummon", spos, npc_master);
+        // `insert_summon` registered the player summon at spos first; re-register
+        // for the new occupant so the map stays consistent.
+        world.map.unregister_creature_at(spos, p_summon);
+        world.map.register_creature_at(spos, n_summon);
+
+        world.monster_sleep_wake_on_creature_move(sleeper, n_summon);
+        let m = match world.creatures.get(sleeper) {
+            Some(CreatureKind::Monster(m)) => m,
+            _ => panic!("expected monster"),
+        };
+        assert_eq!(
+            m.state,
+            MonsterState::Sleeping,
+            "NPC-owned summon mover must not wake sleeper (IsPlayerControlled is false)"
+        );
+        assert!(m.is_idle, "sleeper stays in idle posture for NPC summon");
     }
 }

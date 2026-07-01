@@ -266,13 +266,13 @@ Ordered for minimal churn and safe interleaving. F1 requires **no code** (alread
 - [x] Tests: `f2_chain_push_three_monsters`, `f2_chain_push_no_stacking`, `f2_chain_push_boxed_in_kills` (regression), `f2_chain_push_cycle_guard`, `f2_dense_convoy_fluid`.
 - [x] Run full `tfs-rust-core` suite (F2+F3 share the seam) — 476 passed, 0 failed.
 
-### Step 3 — B3: fix sleep-wake polarity — P2, trivial
-**File:** `idle_stimulus.rs` (~355-362)
-**C++ ref:** `TMonster::CreatureMoveStimulus` `crnonpl.cc:2955-2958` (wake for players + player-controlled summons, not wild monsters).
+### Step 3 — B3: fix sleep-wake polarity — P2, trivial ✅
+**File:** `idle_stimulus.rs` (~333-369)
+**C++ ref:** `TMonster::CreatureMoveStimulus` `crnonpl.cc:2943-2982` (wake for players + player-controlled summons, not wild monsters); `IsPlayerControlled` `crnonpl.cc:3139-3146`.
 
-- [ ] Replace the monster arm with `m.base.is_summon()` (wake for player summons). Remove the `opponent_ids.is_empty() && !m.is_hostile` band-aid.
-- [ ] Verify `is_summon()` maps to C++ `IsPlayerControlled()` (player-owned only; NPC summons should not wake).
-- [ ] Tests: `sleep_wake_wakes_for_player_summon`, `sleep_wake_does_not_wake_for_wild_monster`, `sleep_wake_wakes_for_player`.
+- [x] Replace the monster arm with a player-master check (`m.base.master.is_some_and(|mid| matches!(self.creatures.get(mid), Some(CreatureKind::Player(_))))`). Remove the `opponent_ids.is_empty() && !m.is_hostile` band-aid.
+- [x] Verify `is_summon()` maps to C++ `IsPlayerControlled()` — **it does not**: `is_summon()` is `master.is_some()` (any master), `IsPlayerControlled()` requires `Master->Type == PLAYER`. Used the player-master check instead to preserve exact parity (same pattern as `monster_idle_summon_lifecycle_772` `idle_stimulus.rs:411`). NPC-owned summons do not wake.
+- [x] Tests: `sleep_wake_wakes_for_player_summon` (also asserts NPC-owned summon does not wake), `sleep_wake_does_not_wake_for_wild_monster`, `sleep_wake_wakes_for_player`. Full suite: 479 passed, 0 failed.
 
 ### Step 4 — M5: Z-visibility alignment — P3, small (edge case)
 **File:** `game_world_spectators.rs` (~59-70)
