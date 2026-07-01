@@ -139,6 +139,7 @@ impl GameWorld {
             op,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
+            self.beat_driven_loop,
         )
     }
 
@@ -168,6 +169,7 @@ impl GameWorld {
             creature_pos,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
+            self.beat_driven_loop,
         ) {
             return;
         }
@@ -712,6 +714,7 @@ impl GameWorld {
                 target_pos,
                 i32::from(MAP_MAX_VIEWPORT),
                 i32::from(MAP_MAX_VIEWPORT),
+                self.beat_driven_loop,
             )
         {
             if let Some(k) = self.creatures.get_mut(monster_id) {

@@ -227,8 +227,8 @@ This is not a new bug — it is the intended post-RC1 architecture — but it me
 | P1 | Fix **F3** (split kick-kill vs player-tile target semantics) — small, unblocks F2 | Small |
 | P1 | Fix **F2** (execute-mode recursive chain-push + cycle guard) | Medium |
 | P2 | Fix **B3** (correct `is_summon` sleep-wake polarity) | Trivial |
-| P3 | Add tests per **N2** (hard-block re-path for monster + player) | Small |
-| P3 | Fix **M5** (align AI Z-visibility with 772 `IsVisible`, gated on `beat_driven_loop`) | Small |
+| P3 | Add tests per **N2** (hard-block re-path for monster + player) | Small ✅ |
+| P3 | Fix **M5** (align AI Z-visibility with 772 `IsVisible`, gated on `beat_driven_loop`) | Small ✅ |
 
 All C++-referenced fixes must cite `gameserver`/decompile file + function in the module header per `tfs-cpp-references`.
 
@@ -274,22 +274,22 @@ Ordered for minimal churn and safe interleaving. F1 requires **no code** (alread
 - [x] Verify `is_summon()` maps to C++ `IsPlayerControlled()` — **it does not**: `is_summon()` is `master.is_some()` (any master), `IsPlayerControlled()` requires `Master->Type == PLAYER`. Used the player-master check instead to preserve exact parity (same pattern as `monster_idle_summon_lifecycle_772` `idle_stimulus.rs:411`). NPC-owned summons do not wake.
 - [x] Tests: `sleep_wake_wakes_for_player_summon` (also asserts NPC-owned summon does not wake), `sleep_wake_does_not_wake_for_wild_monster`, `sleep_wake_wakes_for_player`. Full suite: 479 passed, 0 failed.
 
-### Step 4 — M5: Z-visibility alignment — P3, small (edge case)
+### Step 4 — M5: Z-visibility alignment — P3, small (edge case) ✅
 **File:** `game_world_spectators.rs` (~59-70)
 **C++ ref:** `TConnection::IsVisible` `connections.cc:357-378` (underground: only `abs(dz) > 2` rejects).
 
-- [ ] Remove the `if tz < 8 { return false; }` underground-rejection so underground viewers can see surface within 2 floors.
-- [ ] If 1098 shares `creature_can_see`, gate the change on `beat_driven_loop` (772-only) or split the function; confirm `protocol_can_see` (client viewport) is untouched.
-- [ ] Test: `creature_can_see_underground_to_surface`.
+- [x] Remove the `if tz < 8 { return false; }` underground-rejection so underground viewers can see surface within 2 floors.
+- [x] If 1098 shares `creature_can_see`, gate the change on `beat_driven_loop` (772-only) or split the function; confirm `protocol_can_see` (client viewport) is untouched.
+- [x] Test: `creature_can_see_underground_to_surface`.
 
-### Step 5 — N2: F1 regression coverage (+ optional hardening) — P3, small
+### Step 5 — N2: F1 regression coverage (+ optional hardening) — P3, small ✅
 **Files:** `walk/mod.rs` (tests; optional edit)
 
-- [ ] Add `hard_block_reruns_idle_next_beat`: chasing monster whose only path step lands on its own target → assert `next_wakeup == server_ms + 1` and `todo.queue.is_empty()` after the blocked step.
-- [ ] Add a player analogue: blocked player walk with no attack target → assert the player stops cleanly (queue empty, no re-arm).
+- [x] Add `hard_block_reruns_idle_next_beat`: chasing monster whose only path step lands on its own target → assert `next_wakeup == server_ms + 1` and `todo.queue.is_empty()` after the blocked step.
+- [x] Add a player analogue: blocked player walk with no attack target → assert the player stops cleanly (queue empty, no re-arm).
 - [ ] Optional: swap the Err-arm `request_idle_stimulus(cid)` for a direct `creature_todo_yield(cid)` per the original F1 §6.2 recommendation, to drop the extra guard coupling. Only if the regression tests pass unchanged.
 
 ### Cross-cutting
-- [ ] After all steps: `rtk cargo test -p tfs-rust-core` green; `rtk cargo clippy` no new warnings.
+- [x] After all steps: `rtk cargo test -p tfs-rust-core` green (482 passed, 0 failed); `rtk cargo clippy` no new warnings.
 - [ ] Append lessons for F2/F3/B3 to `tasks/lessons.md` (per the collision audit §7.3 wording).
-- [ ] Every ported fix cites `gameserver`/decompile file + function in the module header (`tfs-cpp-references`).
+- [x] Every ported fix cites `gameserver`/decompile file + function in the module header (`tfs-cpp-references`).

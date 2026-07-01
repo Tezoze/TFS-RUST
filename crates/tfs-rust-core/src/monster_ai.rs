@@ -2392,6 +2392,7 @@ impl GameWorld {
                     master_kind.position(),
                     i32::from(MAP_MAX_VIEWPORT),
                     i32::from(MAP_MAX_VIEWPORT),
+                    self.beat_driven_loop,
                 )
             })
         });

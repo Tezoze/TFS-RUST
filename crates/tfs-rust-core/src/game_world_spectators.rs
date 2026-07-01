@@ -47,11 +47,17 @@ pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
 
 /// C++ `Creature::canSee(myPos, pos, viewRangeX, viewRangeY)` — `creature.cpp` ~45–66.
 /// Monster target list / follow use `Map::maxViewportX` / `maxViewportY` (11), not client viewport.
+///
+/// `beat_driven_loop` selects the era's underground Z-rule:
+/// - **false (1098 / TFS `canSee`):** underground viewers cannot see surface (`tz < 8` rejects).
+/// - **true (772 `TConnection::IsVisible`, `connections.cc:357-378`):** underground viewers CAN see
+///   surface within 2 floors — only `abs(dz) > 2` rejects (audit M5).
 pub fn creature_can_see(
     viewer_pos: Position,
     target: Position,
     view_range_x: i32,
     view_range_y: i32,
+    beat_driven_loop: bool,
 ) -> bool {
     let my_z = i32::from(viewer_pos.z);
     let tz = i32::from(target.z);
@@ -61,7 +67,9 @@ pub fn creature_can_see(
             return false;
         }
     } else if my_z >= 8 {
-        if tz < 8 {
+        // 772 `IsVisible` (`connections.cc:363-366`) has no `tz < 8` rejection — underground CAN
+        // see surface within ±2 floors. 1098/TFS `canSee` keeps the surface rejection.
+        if !beat_driven_loop && tz < 8 {
             return false;
         }
         if (my_z - tz).abs() > 2 {
@@ -543,13 +551,35 @@ mod creature_can_see_tests {
     fn within_map_viewport_range() {
         let viewer = Position::new(100, 100, 8);
         let target = Position::new(110, 100, 8);
-        assert!(creature_can_see(viewer, target, 11, 11));
+        assert!(creature_can_see(viewer, target, 11, 11, false));
     }
 
     #[test]
     fn outside_map_viewport_range() {
         let viewer = Position::new(100, 100, 8);
         let target = Position::new(130, 100, 8);
-        assert!(!creature_can_see(viewer, target, 11, 11));
+        assert!(!creature_can_see(viewer, target, 11, 11, false));
+    }
+
+    /// M5: 772 `TConnection::IsVisible` (`connections.cc:357-378`) — underground viewers CAN see
+    /// surface within 2 floors (no `tz < 8` rejection). `beat_driven_loop = true`.
+    #[test]
+    fn creature_can_see_underground_to_surface() {
+        let viewer = Position::new(100, 100, 9);
+        let target = Position::new(100, 100, 7);
+        // 772: dz = 2 → visible (within ±2).
+        assert!(
+            creature_can_see(viewer, target, 11, 11, true),
+            "772 underground viewer must see surface within 2 floors (IsVisible connections.cc:357-378)"
+        );
+        // 1098: underground viewer cannot see surface (`tz < 8` rejection).
+        assert!(
+            !creature_can_see(viewer, target, 11, 11, false),
+            "1098 underground viewer must NOT see surface (TFS canSee)"
+        );
+        // Both eras reject |dz| > 2.
+        let too_far = Position::new(100, 100, 6);
+        assert!(!creature_can_see(viewer, too_far, 11, 11, true));
+        assert!(!creature_can_see(viewer, too_far, 11, 11, false));
     }
 }

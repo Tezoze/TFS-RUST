@@ -89,7 +89,7 @@ impl GameWorld {
                 let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
                     return false;
                 };
-                creature_can_see(center, other_pos, range, range)
+                creature_can_see(center, other_pos, range, range, self.beat_driven_loop)
             })
             .collect()
     }
@@ -152,8 +152,8 @@ impl GameWorld {
             None => return,
         };
         let range = i32::from(MAP_MAX_VIEWPORT);
-        let can_see_new = creature_can_see(monster_pos, new_pos, range, range);
-        let can_see_old = creature_can_see(monster_pos, old_pos, range, range);
+        let can_see_new = creature_can_see(monster_pos, new_pos, range, range, self.beat_driven_loop);
+        let can_see_old = creature_can_see(monster_pos, old_pos, range, range, self.beat_driven_loop);
 
         if can_see_new && !can_see_old {
             self.monster_on_creature_found(monster_id, creature_id, true);
@@ -195,7 +195,7 @@ impl GameWorld {
             let target_visible = self
                 .creatures
                 .get(creature_id)
-                .map(|k| creature_can_see(monster_pos, k.position(), range, range))
+                .map(|k| creature_can_see(monster_pos, k.position(), range, range, self.beat_driven_loop))
                 .unwrap_or(false);
             // AI#24: C++ `CreatureMoveStimulus` (`crmain.cc:920`) does NOT clear targets on
             // Z-change — it only re-arms close-chase combat. The Z-level clear is a 1098

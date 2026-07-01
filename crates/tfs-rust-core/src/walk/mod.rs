@@ -2154,4 +2154,132 @@ mod monster_walk_tests {
         assert!(world.todo_queue.is_empty());
         assert_eq!(world.creatures.get(cid).unwrap().position(), pos);
     }
+
+    /// N2 / F1 regression: a hard-blocked monster (only path step lands on a missing tile) must
+    /// full-clear the ToDo queue and re-arm `IdleStimulus` on the next beat via `ToDoYield`
+    /// (`cract.cc:870-889`). Asserts the post-RC1 architecture: no think-sweep safety net, so the
+    /// `IdleStimulus` re-arm is the sole guardian of chase continuity.
+    ///
+    /// Drives `on_walk` directly (the function that owns the Err arm) so the assertion observes the
+    /// Err-arm + `request_idle_stimulus` contract in isolation — the full `process_creature_todo`
+    /// drain would then consume the yield `Wait(0)` in `finish_creature_todo_execute`'s recursive
+    /// `run_monster_todo_execute` and run `idle_stimulus`, masking the F1 contract.
+    #[test]
+    fn hard_block_reruns_idle_next_beat() {
+        use crate::creature_todo::CreatureAction;
+
+        let mut world = support::beat_driven_world();
+        world.walk_wake_tx = None;
+        world.server_ms = 100;
+
+        let pos = Position::new(100, 100, 7);
+        // Destination tile (100, 99, 7) is intentionally NOT created → `internal_move_creature_step`
+        // returns `Err(NotPossible)` (`walk/mod.rs` ~1588-1590) → hard-block Err arm.
+        support::ensure_walkable_tile(&mut world.map, pos, 2148);
+        let cid = support::insert_monster(&mut world, "Rat", pos, 200);
+
+        // Mirror the state `execute_creature_todo_action` leaves for `on_walk`: the chase `Go` is
+        // still queued (Err arm clears it), `locked` is set, a North step is queued, and
+        // `next_wakeup` was already taken by `process_creature_todo`'s entry.
+        {
+            let m = world.creatures.get_mut(cid).unwrap();
+            let base = m.base_mut();
+            base.todo.queue.push_back(CreatureAction::Go);
+            base.todo.locked = true;
+            base.walk_queue.push_back(Direction::North);
+            base.next_wakeup = None; // taken at `process_creature_todo` entry
+            base.last_step_server_ms = None; // → `get_walk_delay_logical` returns 0 → step runs now
+        }
+
+        world.on_walk(cid, false, std::time::Instant::now(), None);
+
+        let base = world.creatures.get(cid).unwrap().base();
+        // Chase Go cleared; a yield `Wait(0)` is the only queued entry.
+        assert!(
+            !base
+                .todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Go)),
+            "hard-block Err arm must clear the chase Go (ToDoClear cract.cc:871)"
+        );
+        assert!(
+            base.todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == 0)),
+            "creature_todo_yield must enqueue ToDoWait(0) (cract.cc:1001)"
+        );
+        assert!(!base.todo.locked, "Err arm must unlock the ToDo queue");
+        // IdleStimulus re-armed for the next beat.
+        assert_eq!(
+            base.next_wakeup,
+            Some(world.server_ms + 1),
+            "hard-blocked monster must re-run IdleStimulus at server_ms + 1 (ToDoStart clamps Delay<1 to 1)"
+        );
+        // The blocked North step was consumed (popped before the failed move).
+        assert!(base.walk_queue.is_empty(), "blocked step direction must be popped");
+    }
+
+    /// N2 / F1 regression (player analogue): a blocked player walk with no attack target stops
+    /// cleanly — ToDo queue cleared, no walk re-arm. Phase 1.3 widened the Err arm to all
+    /// todo-execute creatures (`crplayer.cc:388-405`); this test pins the player seam.
+    #[test]
+    fn hard_block_player_stops_cleanly() {
+        use crate::creature_todo::CreatureAction;
+
+        let mut world = support::beat_driven_world();
+        world.walk_wake_tx = None;
+        world.server_ms = 100;
+
+        let pos = Position::new(100, 100, 7);
+        // Destination tile (100, 99, 7) is intentionally missing → Err(NotPossible).
+        support::ensure_walkable_tile(&mut world.map, pos, 2148);
+        let cid = support::insert_player(&mut world, support::test_player("Hero", pos));
+
+        {
+            let p = world.creatures.get_mut(cid).unwrap();
+            let base = p.base_mut();
+            base.todo.queue.push_back(CreatureAction::Go);
+            base.todo.locked = true;
+            base.walk_queue.push_back(Direction::North);
+            base.next_wakeup = None;
+            base.last_step_server_ms = None;
+        }
+
+        world.on_walk(cid, false, std::time::Instant::now(), None);
+
+        let p = world.creatures.get(cid).unwrap();
+        let base = p.base();
+        assert!(
+            !base
+                .todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Go)),
+            "blocked player walk must clear the Go (ToDoClear cract.cc:871)"
+        );
+        assert!(
+            base.todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == 0)),
+            "player Err arm must yield ToDoWait(0) (cract.cc:1001)"
+        );
+        assert!(!base.todo.locked, "player Err arm must unlock the ToDo queue");
+        // Player stops: no walk direction remains, no walk_action re-arm.
+        assert!(base.walk_queue.is_empty(), "blocked player step must be popped");
+        if let crate::creature::CreatureKind::Player(pl) = world.creatures.get(cid).unwrap() {
+            assert!(
+                pl.walk_action.is_none(),
+                "blocked player with no attack target must not re-arm a walk"
+            );
+        }
+        // Yield armed for the next beat (IdleStimulus re-arm seam).
+        assert_eq!(
+            base.next_wakeup,
+            Some(world.server_ms + 1),
+            "player Err arm must re-arm IdleStimulus at server_ms + 1"
+        );
+    }
 }

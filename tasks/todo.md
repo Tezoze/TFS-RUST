@@ -250,3 +250,21 @@ Wire ref (772): `gameserver/src/protocolgame.cpp:1485-1490` `sendCancelTarget` (
       drunk stagger. 11 new `test_phase1_*` tests; 468 total pass.
 - [x] Verify — `rtk cargo check` / `clippy` / `test -p tfs-rust-core` (468 pass) /
       `-p tfs-rust-net` (95 pass); no new clippy warnings in changed files.
+
+## 772 Monster Audit Verification — Step 4 (M5) + Step 5 (N2)  [2026-07-01]
+
+Source: `docs/TFS-RUST_772_Monster_Audit_Verification.md` §7 Step 4 & Step 5.
+
+- [x] Step 4 — M5: align AI Z-visibility with 772 `TConnection::IsVisible` (`connections.cc:357-378`).
+      Added `beat_driven_loop: bool` param to `creature_can_see`; 772 drops the `tz < 8`
+      underground→surface rejection (only `abs(dz) > 2` rejects). 1098/TFS `canSee` path unchanged.
+      Updated 8 call sites (monster_events ×4, monster_ai ×1, monster_targets ×3) to pass
+      `self.beat_driven_loop`. `protocol_can_see` (client viewport) untouched.
+      Test: `creature_can_see_underground_to_surface`.
+- [x] Step 5 — N2: F1 regression coverage. `hard_block_reruns_idle_next_beat` (monster) +
+      `hard_block_player_stops_cleanly` (player) drive `on_walk` directly to assert the Err-arm
+      contract: chase `Go` cleared, `locked=false`, `Wait{0}` enqueued, `next_wakeup == server_ms+1`,
+      `walk_queue` empty. Optional direct-`creature_todo_yield` hardening deferred (guards traced OK).
+- [x] Verify — `rtk cargo test -p tfs-rust-core` (482 pass, 0 fail); `rtk cargo clippy` no new
+      warnings in changed files. Audit doc §6/§7 + cross-cutting checkboxes ticked; lessons #93/#94
+      appended to `tasks/lessons.md`.
