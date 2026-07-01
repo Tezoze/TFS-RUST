@@ -180,7 +180,8 @@ fn ceil_to_walk_quantizer(raw_ms: i64, quantizer_ms: i64) -> i64 {
     ((raw_ms + quantizer_ms - 1) / quantizer_ms) * quantizer_ms
 }
 
-/// 772 / TVP diagonal and floor multipliers on tile waypoints (`cract.cc:1454`, `creature.cpp`).
+/// 772 diagonal multiplier on tile waypoints — `×3` for diagonal, `×1` for cardinal
+/// (`cract.cc:1526-1528`).
 fn waypoint_step_cost_for_direction(dir: Direction) -> u32 {
     if is_diagonal(dir) {
         3
@@ -195,7 +196,8 @@ pub(crate) fn peek_next_walk_direction(base: &crate::creature::CreatureBase) -> 
 }
 
 /// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to `Beat` (`cract.cc:1461–1534`).
-/// `waypoint_cost` is 1 (cardinal), 3 (diagonal), or 2 (floor) applied to tile waypoints before ceil.
+/// `waypoint_cost` is 1 (cardinal) or 3 (diagonal) applied to tile waypoints before ceil
+/// (`cract.cc:1526-1528`).
 fn linear_go_step_duration_ms(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,

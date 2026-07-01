@@ -352,6 +352,52 @@ fn handle_game_packet(
                 world.player_stop_auto_walk(cid);
             }
         }
+        GamePacket::Attack { creature_id } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                // 772 `CAttack(Follow=false)` — `receiving.cc:1133-1155`.
+                world.player_set_attack_dest(conn_id, cid, creature_id, false);
+            }
+        }
+        GamePacket::Follow { creature_id } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                // 772 `CAttack(Follow=true)` — `receiving.cc:1133-1155`.
+                world.player_set_attack_dest(conn_id, cid, creature_id, true);
+            }
+        }
+        GamePacket::CancelAttackAndFollow => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                // 772 `CCancelAttack` — `SetAttackDest(0)` + `ToDoStop` (`receiving.cc`,
+                // `cract.cc:1002-1008`). 1098 defers to Phase 2.
+                world.player_cancel_attack_and_follow(conn_id, cid);
+            }
+        }
+        GamePacket::FightModes {
+            raw_chase_mode,
+            ..
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                // 772 `TCombat::SetChaseMode` — `crcombat.cc:339-345` (only NONE/CLOSE accepted).
+                // Fight mode / secure mode storage is deferred to the player weapon-combat system.
+                let chase = match raw_chase_mode {
+                    0 => crate::creature::ChaseMode::None,
+                    1 => crate::creature::ChaseMode::Close,
+                    other => {
+                        tracing::warn!(
+                            conn_id = conn_id.0,
+                            raw_chase_mode = other,
+                            "FightModes: 772 SetChaseMode only accepts NONE(0)/CLOSE(1); clamping to NONE"
+                        );
+                        crate::creature::ChaseMode::None
+                    }
+                };
+                if let Some(k) = world.creatures.get_mut(cid) {
+                    // Do not override `Close` forced by an active follow (`Following ⇒ CLOSE`).
+                    if k.base().follow_target.is_none() {
+                        k.base_mut().chase_mode = chase;
+                    }
+                }
+            }
+        }
         GamePacket::Throw(payload) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_move_thing(

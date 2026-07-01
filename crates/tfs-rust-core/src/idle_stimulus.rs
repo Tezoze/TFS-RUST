@@ -11,7 +11,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use slotmap::Key;
-use tfs_rust_common::enums::{CombatType, ConditionType, ZoneType};
+use tfs_rust_common::enums::{CombatType, ConditionType, SpeakType, ZoneType};
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
@@ -112,18 +112,15 @@ impl GameWorld {
 
     /// 772 `TPlayer::IdleStimulus` — `crplayer.cc:388-405`.
     ///
-    /// Player idle handles **only** `Combat.AttackDest`: `ToDoAttack` → `ToDoStart`. On thrown
-    /// `RESULT` → `ToDoClear`, and unless `NOERROR`/`NOWAY` send `SendResult` + `ToDoWait(1000)`
-    /// + `ToDoStart`. There is **no** separate follow re-path — follow lives in Combat
-    /// (`CanToDoAttack`, Phase 1.4).
+    /// Player idle handles **only** `Combat.AttackDest`: `ToDoAttack` → `ToDoStart`. The thrown
+    /// `RESULT` → `ToDoClear` + `SendResult` (unless `NOERROR`/`NOWAY`) + `ToDoWait(1000)` +
+    /// `ToDoStart` path is handled in [`Self::player_execute_attack`] (the `TDAttack` execute
+    /// arm + `CanToDoAttack` chase, Phase 1.4). There is **no** separate follow re-path — follow
+    /// lives in Combat (`CanToDoAttack`).
     ///
     /// With no attack target the player simply goes idle — the ToDo queue is empty and no
     /// wakeup is armed. This is the key fix for audit P2/P6: players no longer re-arm via the
     /// old `walk_queue` + `add_event_walk` path.
-    ///
-    /// Phase 1.4 will wire the `Attack` execute branch for players (melee + chase). Until then,
-    /// enqueuing `Attack` here is safe — `execute_creature_todo_action` defers player `Attack`
-    /// via `TodoExecuteKind::AttackDeferred` (no monster-specific code runs).
     fn player_idle_stimulus(&mut self, cid: CreatureId) {
         let has_attack_target = self
             .creatures
@@ -134,7 +131,7 @@ impl GameWorld {
             return;
         }
         // `Combat.AttackDest` is set → `ToDoAttack(); ToDoStart();` (`crplayer.cc:392-395`).
-        // Phase 1.4 will handle the thrown `RESULT` (ToDoClear + SendResult + ToDoWait(1000)).
+        // The thrown `RESULT` catch lives in `player_execute_attack` (the `TDAttack` execute arm).
         let _ = self.enqueue_creature_attack(cid);
         let attack_delay = self.todo_attack_delay_ms(cid);
         let delay = if attack_delay > 0 { attack_delay } else { 1 };
@@ -2205,22 +2202,43 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "execute_wait_done");
                 TodoExecuteKind::Wait
             }
+            CreatureAction::Talk { text } => {
+                // C++ `TDTalk` — `cract.cc:848-851`, `:1367-1390`: `this->Talk(Mode, NULL, Text, false)`.
+                // Talk mode: `TALK_SAY` for players, `TALK_ANIMAL_LOW` for monsters (`cract.cc:409`).
+                trace_creature_todo(self, cid, "execute_talk");
+                let is_monster = self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)));
+                let speak_type = if is_monster {
+                    SpeakType::MonsterSay as u8
+                } else {
+                    SpeakType::Say as u8
+                };
+                self.broadcast_creature_say_viewport(cid, speak_type, text);
+                trace_creature_todo(self, cid, "execute_talk_done");
+                TodoExecuteKind::Wait
+            }
             CreatureAction::Attack => {
-                // Phase 1.2: player Attack execution is deferred to Phase 1.4 (melee + chase
-                // via `CanToDoAttack`). Until then, re-queue and schedule — no monster-specific
-                // code runs for players (`crplayer.cc:388-405` idle re-issues `ToDoAttack`).
+                // Phase 1.4: player Attack execute routes through `CanToDoAttack` chase
+                // (`crcombat.cc:442-511`). The melee **strike** is deferred until a player
+                // weapon-combat system exists; the chase (`ToDoGo` toward target) and the
+                // thrown-`RESULT` `ToDoClear` + `SendResult` + `ToDoWait(1000)` path land here
+                // (`crplayer.cc:388-405`, `cract.cc:870-889`).
                 let is_player = self
                     .creatures
                     .get(cid)
                     .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+                if is_player {
+                    self.player_execute_attack(cid)
+                } else {
                 let delay = self.todo_attack_delay_ms(cid);
-                if delay > 0 || is_player {
+                if delay > 0 {
                     if let Some(k) = self.creatures.get_mut(cid) {
                         k.base_mut().todo.queue.push_front(CreatureAction::Attack);
                     }
                     trace_creature_todo(self, cid, "execute_attack_deferred");
-                    let schedule_delay = if delay > 0 { delay } else { 200 };
-                    self.todo_start_from_action(cid, schedule_delay);
+                    self.todo_start_from_action(cid, delay);
                     trace_creature_todo(self, cid, "execute_attack_deferred_done");
                     TodoExecuteKind::AttackDeferred
                 } else {
@@ -2320,6 +2338,7 @@ impl GameWorld {
                             TodoExecuteKind::Attack
                         }
                     }
+                }
                 }
             }
         };
@@ -6357,6 +6376,291 @@ mod tests {
             hp_before, hp_after,
             "monster must not cast Victim spell at a target on a different Z-level \
              (C++ VictimShapeSpell magic.cc:423 checks Actor->posz != Victim->posz)"
+        );
+    }
+
+    // ===== Phase 1.4–1.5: player ToDo / idle / combat dest tests =====
+
+    fn setup_player_world_with_conn() -> (GameWorld, CreatureId, tfs_rust_common::ConnId) {
+        let mut world = beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        // Lay a small arena so the player can walk and chase.
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new(
+                        (ppos.x as i32 + dx) as u16,
+                        (ppos.y as i32 + dy) as u16,
+                        ppos.z,
+                    ),
+                    TEST_SYNTHETIC_GROUND_WP,
+                );
+            }
+        }
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let conn = tfs_rust_common::ConnId(1);
+        world.conn_to_creature.insert(conn, player);
+        world
+            .known_creatures_by_conn
+            .insert(conn, std::collections::HashSet::new());
+        (world, player, conn)
+    }
+
+    /// Phase 1.4: single-step player walk executes via ToDo `Go` — `cract.cc:813-815`.
+    #[test]
+    fn test_phase1_player_single_step_walk_via_todo() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::East, now);
+
+        // The ToDo queue should have a `Go` action.
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(base.todo.has_go(), "player ToDo must have Go after move request");
+        assert!(!base.walk_queue.is_empty(), "walk_queue must have the step");
+    }
+
+    /// Phase 1.4: `player_stop_auto_walk` clears the ToDo queue — `cract.cc:1002-1008`.
+    #[test]
+    fn test_phase1_player_stop_auto_walk_clears_todo() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::East, now);
+        assert!(world.creatures.get(player).unwrap().base().todo.has_go());
+
+        world.player_stop_auto_walk(player);
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            !base.todo.has_go(),
+            "player ToDo must be cleared after stop_auto_walk"
+        );
+    }
+
+    /// Phase 1.4: `player_set_attack_dest` (Attack) sets `attack_target` and enqueues `Attack`.
+    #[test]
+    fn test_phase1_player_attack_sets_target_and_enqueues() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        // Resolve the target's wire id (non-player: low 32 bits of SlotMap key).
+        let wire_id = {
+            use slotmap::Key;
+            (target.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        world.player_set_attack_dest(conn, player, wire_id, false);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.attack_target, Some(target));
+        assert!(base.todo.has_attack(), "player ToDo must have Attack enqueued");
+    }
+
+    /// Phase 1.4: `player_set_attack_dest` (Follow) sets `follow_target` + `ChaseMode::Close`.
+    #[test]
+    fn test_phase1_player_follow_sets_follow_and_close_chase() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        let wire_id = {
+            use slotmap::Key;
+            (target.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        world.player_set_attack_dest(conn, player, wire_id, true);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.follow_target, Some(target), "follow must set follow_target");
+        assert_eq!(base.chase_mode, ChaseMode::Close, "follow must set CLOSE chase");
+    }
+
+    /// Phase 1.4: `player_cancel_attack_and_follow` clears target + sends `0xA3` + stops ToDo.
+    #[test]
+    fn test_phase1_player_cancel_clears_target_and_sends_clear_target() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        let wire_id = {
+            use slotmap::Key;
+            (target.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        world.player_set_attack_dest(conn, player, wire_id, false);
+        assert!(world.creatures.get(player).unwrap().base().attack_target.is_some());
+
+        world.pending_outgoing.clear();
+        world.player_cancel_attack_and_follow(conn, player);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.attack_target, None, "cancel must clear attack_target");
+        assert_eq!(base.follow_target, None, "cancel must clear follow_target");
+        assert!(!base.todo.has_attack(), "cancel must clear ToDo Attack");
+
+        // `SendClearTarget` — `0xA3` (`gameserver/src/protocolgame.cpp:1485-1490`).
+        let pkts = world.pending_outgoing.get(&conn).expect("must enqueue clear-target");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xA3),
+            "cancel must send 0xA3 clear-target packet"
+        );
+    }
+
+    /// Phase 1.4: `player_can_to_do_attack_chase` arms a chase `Go` when target is > 1 tile away.
+    #[test]
+    fn test_phase1_player_chase_arms_go_when_target_far() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        // Place target 3 tiles east — cheb = 3 > 1.
+        let tpos = Position::new(103, 100, 7);
+        for x in 101..=103 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(target);
+            k.base_mut().chase_mode = ChaseMode::Close;
+        }
+
+        let outcome = world.player_can_to_do_attack_chase(player);
+        assert_eq!(
+            outcome,
+            crate::player_combat::PlayerChaseOutcome::ChaseArmed,
+            "close chase at cheb>1 must arm a Go"
+        );
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(!base.walk_queue.is_empty(), "chase must populate walk_queue");
+        assert!(base.todo.has_go(), "chase must enqueue Go");
+    }
+
+    /// Phase 1.4: `player_can_to_do_attack_chase` returns `Adjacent` when target is at cheb ≤ 1.
+    #[test]
+    fn test_phase1_player_chase_adjacent_when_target_close() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(target);
+            k.base_mut().chase_mode = ChaseMode::Close;
+        }
+
+        let outcome = world.player_can_to_do_attack_chase(player);
+        assert_eq!(
+            outcome,
+            crate::player_combat::PlayerChaseOutcome::Adjacent,
+            "cheb=1 must be Adjacent (strike deferred)"
+        );
+    }
+
+    /// Phase 1.4: `player_can_to_do_attack_chase` returns `TargetLost` when target is > 8 tiles away.
+    #[test]
+    fn test_phase1_player_chase_target_lost_when_far() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        let tpos = Position::new(110, 100, 7);
+        for x in 101..=110 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(target);
+            k.base_mut().chase_mode = ChaseMode::Close;
+        }
+
+        let outcome = world.player_can_to_do_attack_chase(player);
+        assert_eq!(
+            outcome,
+            crate::player_combat::PlayerChaseOutcome::TargetLost,
+            "cheb>8 must be TargetLost"
+        );
+    }
+
+    /// Phase 1.4: `player_stop_attack` sends `0xA3` clear-target when was attacking.
+    #[test]
+    fn test_phase1_player_stop_attack_sends_clear_target() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        let wire_id = {
+            use slotmap::Key;
+            (target.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        world.player_set_attack_dest(conn, player, wire_id, false);
+        world.pending_outgoing.clear();
+
+        world.player_stop_attack(conn, player);
+
+        let pkts = world.pending_outgoing.get(&conn).expect("must enqueue clear-target");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xA3),
+            "stop_attack must send 0xA3"
+        );
+    }
+
+    /// Phase 1.5: drunk stagger clears ToDo + enqueues Talk "Hicks!" — `cract.cc:405-411`.
+    #[test]
+    fn test_phase1_drunk_stagger_clears_todo_and_enqueues_talk() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Set drunk: `drunkenness = 10` → `stagger_chance = max(7-10, 1) = 1` → always stagger.
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().drunkenness = 10;
+        }
+
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::East, now);
+
+        // Advance past the walk delay so `on_walk` actually pops and steps.
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_walk_server_ms = 0;
+        }
+
+        world.pending_outgoing.clear();
+
+        // Execute the Go action — `on_walk` runs the drunk stagger inside `Go`.
+        // `drunkenness = 10` → `stagger_chance = 1` → `rand() % 1 == 0` always true.
+        // The stagger enqueues `Talk("Hicks!")`, which `run_monster_todo_execute` then drains,
+        // broadcasting the 0xAA speech packet.
+        world.run_monster_todo_execute(player);
+
+        // The 0xAA speech packet for "Hicks!" should be in the outgoing buffer.
+        let pkts = world.pending_outgoing.get(&conn);
+        assert!(
+            pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0xAA)),
+            "drunk stagger must broadcast 'Hicks!' (0xAA) via ToDoTalk"
+        );
+        // The walk_queue must be cleared (ToDoClear).
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            base.walk_queue.is_empty(),
+            "drunk stagger must clear walk_queue (ToDoClear)"
+        );
+    }
+
+    /// Phase 1.5: `CreatureAction::Talk` execute broadcasts via `broadcast_creature_say_viewport`.
+    #[test]
+    fn test_phase1_talk_action_broadcasts() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        world.pending_outgoing.clear();
+
+        let _ = world.enqueue_creature_talk(player, "Hicks!");
+        world.todo_start_from_action(player, 1);
+        // Execute the Talk action.
+        world.run_monster_todo_execute(player);
+
+        // The 0xAA speech packet should be in the outgoing buffer.
+        let pkts = world.pending_outgoing.get(&conn);
+        assert!(
+            pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0xAA)),
+            "Talk execute must broadcast 0xAA speech packet"
         );
     }
 }

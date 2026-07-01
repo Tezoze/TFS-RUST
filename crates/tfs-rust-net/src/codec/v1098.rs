@@ -353,6 +353,13 @@ impl Codec1098 {
         m
     }
 
+    /// `ProtocolGame::sendCancelTarget` opcode `0xA3` (`src/protocolgame.cpp:2497-2500`): single byte.
+    pub fn encode_clear_target(&self) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xA3);
+        m
+    }
+
     /// `ProtocolGame::sendContainer` opcode `0x6E` (`src/protocolgame.cpp` ~1751): cid + container
     /// item + name + `u8` capacity + `u8` hasParent + `u8` unlocked + `u8` pagination + `u16` size +
     /// `u16` firstIndex + (`u8` count + items) when `firstIndex < size`.

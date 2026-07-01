@@ -91,6 +91,9 @@ pub enum CreatureAction {
     Wait { delay_ms: u64 },
     /// `TDAttack` — melee/ranged strike (`cract.cc:1325`); execute stub until Phase E2.
     Attack,
+    /// `TDTalk` — speak text on the next ToDo execute (`cract.cc:848`, `:1367-1390`).
+    /// `text` is `&'static str` to avoid allocation in the hot walk path (drunk "Hicks!").
+    Talk { text: &'static str },
 }
 
 /// Per-creature action queue paired with the global wakeup heap.
@@ -120,6 +123,12 @@ impl CreatureTodo {
         self.queue
             .iter()
             .any(|a| matches!(a, CreatureAction::Attack))
+    }
+
+    pub fn has_talk(&self) -> bool {
+        self.queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Talk { .. }))
     }
 }
 
@@ -205,6 +214,21 @@ impl GameWorld {
             ?cid,
             action_queue_len = k.base().todo.queue.len(),
             "idle_todo: enqueue_attack"
+        );
+        true
+    }
+
+    /// C++ `TCreature::ToDoTalk` — `cract.cc:1367-1390`: enqueue `TDTalk` at the back.
+    pub(crate) fn enqueue_creature_talk(&mut self, cid: CreatureId, text: &'static str) -> bool {
+        let Some(k) = self.creatures.get_mut(cid) else {
+            return false;
+        };
+        k.base_mut().todo.queue.push_back(CreatureAction::Talk { text });
+        tracing::debug!(
+            creature = k.base().name.as_str(),
+            ?cid,
+            action_queue_len = k.base().todo.queue.len(),
+            "idle_todo: enqueue_talk"
         );
         true
     }

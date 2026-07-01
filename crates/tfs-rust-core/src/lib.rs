@@ -55,6 +55,7 @@ mod monster_targets;
 pub mod output_queue;
 pub mod party;
 pub mod pathfinding;
+mod player_combat;
 mod player_depot;
 mod player_flags;
 mod player_inventory_load;

@@ -224,3 +224,29 @@ C++ ref: `crnonpl.cc:1296` `StartMonsterhomeTimer`; `:2359–2405` summon despaw
       `test_phase9_772_keeps_invisible_target_with_see_invisible`,
       `test_phase9_move_stimulus_fires_when_head_is_attack`,
       `test_phase9_move_stimulus_skips_when_head_is_go`. 446 tests pass, clippy clean.
+
+## Walk-engine unification Phase 1 (1.4–1.7) — 772 player parity — in progress
+
+Source: `tasks/walk-engine-unification.md` Phase 1.4–1.7. C++ ref (mechanics):
+`tibia-game-master/src/` `crcombat.cc:357-522` (`SetAttackDest`/`CanToDoAttack`/`StopAttack`),
+`receiving.cc:1133-1155` (`CAttack`), `crplayer.cc:388-405` (`IdleStimulus`),
+`cract.cc:392-413` (drunk stagger), `cract.cc:953-1008` (`ToDoClear`/`ToDoStop`).
+Wire ref (772): `gameserver/src/protocolgame.cpp:1485-1490` `sendCancelTarget` (`0xA3`).
+
+- [x] 1.4a — `encode_clear_target` (`0xA3`) on `ProtocolCodec` + `Codec772`/`Codec1098` + delegate.
+- [x] 1.4b — `player_combat.rs`: `player_set_attack_dest` / `player_stop_attack` /
+      `player_cancel_attack_and_follow` / `player_can_to_do_attack_chase` (close chase via
+      `get_creature_path_to`; strike deferred — no player weapon damage yet).
+- [x] 1.4c — `game_loop.rs`: `Attack`/`Follow`/`CancelAttackAndFollow`/`FightModes` arms
+      (FightModes sets `base.chase_mode` from `raw_chase_mode`: 0=None, 1=Close).
+- [x] 1.4d — `idle_stimulus.rs`: player `Attack` execute via `player_can_to_do_attack_chase`;
+      `player_idle_stimulus` thrown-`RESULT` path (`ToDoClear` + `SendResult` + `ToDoWait(1000)`).
+- [x] 1.5 — CipSoft drunk formula (`max(7-DrunkLevel,1)`, `rand%chance==0`) in `walk/mod.rs`;
+      `CreatureAction::Talk` variant + execute arm; stagger → `ToDoClear` + snapback +
+      `ToDoTalk("Hicks!")` + `ToDoStart` + random cardinal step.
+- [x] 1.6 — Delete "floor ×2" comment in `walk_timing.rs:198`; re-point 772 mechanics comments
+      to decompile refs; verify `ground_speed_for_item` returns BANK `WAYPOINTS` on 772.
+- [x] 1.7 — Player ToDo/idle tests: walk, autowalk, blocked step, attack/follow chase, cancel,
+      drunk stagger. 11 new `test_phase1_*` tests; 468 total pass.
+- [x] Verify — `rtk cargo check` / `clippy` / `test -p tfs-rust-core` (468 pass) /
+      `-p tfs-rust-net` (95 pass); no new clippy warnings in changed files.

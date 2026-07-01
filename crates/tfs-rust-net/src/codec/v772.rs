@@ -358,6 +358,13 @@ impl Codec772 {
         m
     }
 
+    /// 7.72 `ProtocolGame::sendCancelTarget` opcode `0xA3` (~L1485-1490): single byte.
+    pub fn encode_clear_target(&self) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xA3);
+        m
+    }
+
     /// 7.72 `ProtocolGame::sendContainer` opcode `0x6E` (~L1326): cid + container item + name +
     /// `u8` capacity + `u8` hasParent + `u8` count + items. No unlock / pagination / `u16` size /
     /// firstIndex (all 10.x additions). 7.72 never paginates, so `items` is the leading slice and

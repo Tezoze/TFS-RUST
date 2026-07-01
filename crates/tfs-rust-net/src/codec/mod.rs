@@ -141,6 +141,10 @@ pub trait ProtocolCodec {
 
     fn encode_cancel_walk(&self, direction: u8) -> NetworkMessage;
 
+    /// `ProtocolGame::sendCancelTarget` — single byte `0xA3` (both eras).
+    /// 772: `gameserver/src/protocolgame.cpp:1485-1490`; 1098: `src/protocolgame.cpp:2497-2500`.
+    fn encode_clear_target(&self) -> NetworkMessage;
+
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage;
 
     /// 7.72 `sendAnimatedText`; 10.98 has no equivalent (returns empty message).
@@ -337,6 +341,10 @@ impl ProtocolCodec for Codec1098 {
 
     fn encode_cancel_walk(&self, direction: u8) -> NetworkMessage {
         Codec1098::encode_cancel_walk(self, direction)
+    }
+
+    fn encode_clear_target(&self) -> NetworkMessage {
+        Codec1098::encode_clear_target(self)
     }
 
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {
@@ -547,6 +555,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_cancel_walk(self, direction)
     }
 
+    fn encode_clear_target(&self) -> NetworkMessage {
+        Codec772::encode_clear_target(self)
+    }
+
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {
         Codec772::encode_container_open(self, c)
     }
@@ -703,6 +715,8 @@ impl Codec {
         ) -> NetworkMessage;
 
         encode_cancel_walk(direction: u8) -> NetworkMessage;
+
+        encode_clear_target() -> NetworkMessage;
 
         encode_container_open(c: &ContainerOpenWire) -> NetworkMessage;
 
@@ -897,6 +911,10 @@ impl ProtocolCodec for Codec {
 
     fn encode_cancel_walk(&self, direction: u8) -> NetworkMessage {
         Codec::encode_cancel_walk(self, direction)
+    }
+
+    fn encode_clear_target(&self) -> NetworkMessage {
+        Codec::encode_clear_target(self)
     }
 
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {

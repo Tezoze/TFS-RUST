@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 const WALK_DEADLINE_GRACE: Duration = Duration::ZERO;
 
 use rand::thread_rng;
-use tfs_rust_common::enums::{ConditionType, Direction, SpeakType};
+use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{
@@ -108,21 +108,27 @@ fn has_drunk_condition(base: &crate::creature::CreatureBase) -> bool {
     base.active_conditions
         .iter()
         .any(|c| c.ctype == ConditionType::Drunk)
+        || base.drunkenness > 0
 }
 
-/// TFS `Creature::onWalk(Direction&)` (`creature.cpp` ~236–248): `hasCondition(CONDITION_DRUNK)`,
-/// `uniform_random(0,399)`, `rand/4 > getDrunkenness()` early out, else `dir = rand%4` cardinal;
-/// caller sends `internalCreatureSay(..., "Hicks!")` when `Some`.
+/// 772 drunk stagger — `cract.cc:392-413`: `DrunkLevel = Skills[SKILL_DRUNKEN]->TimerValue()`,
+/// `StaggerChance = max(7 - DrunkLevel, 1)`, `rand() % StaggerChance == 0` → random cardinal.
+///
+/// `DrunkLevel` maps to `base.drunkenness` (set by `SpellImpact::Drunk`). The CipSoft
+/// `Get() == 0` skill-level check is implicitly true (no CipSoft skill system in Rust).
+/// Returns `Some(dir)` when the step should be replaced with a random cardinal stagger.
 fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Direction> {
     if !has_drunk_condition(base) {
         return None;
     }
-    let d = base.drunkenness;
-    let r = uniform_random(&mut thread_rng(), 0, 399) as u32;
-    if r / 4 > d {
+    let drunk_level = base.drunkenness as i32;
+    let stagger_chance = (7 - drunk_level).max(1) as u32;
+    let r = uniform_random(&mut thread_rng(), 0, (stagger_chance as i32).saturating_sub(1)) as u32;
+    if r != 0 {
         return None;
     }
-    Some(match r % 4 {
+    let dir_roll = uniform_random(&mut thread_rng(), 0, 3) as u32;
+    Some(match dir_roll {
         0 => Direction::North,
         1 => Direction::East,
         2 => Direction::South,
@@ -650,7 +656,7 @@ impl GameWorld {
     /// Phase 1 walk-engine unification: replaces the old `clear_todo_772` which only stopped the
     /// event-walk timer. The unified path clears the ToDo action queue as well, so stale `Go`
     /// entries from a prior autowalk don't bleed into the new walk.
-    fn player_todo_clear(&mut self, cid: CreatureId) -> bool {
+    pub(crate) fn player_todo_clear(&mut self, cid: CreatureId) -> bool {
         let had_pending_go = self.creatures.get(cid).is_some_and(|k| {
             let b = k.base();
             b.todo.has_go() || !b.walk_queue.is_empty()
@@ -1292,19 +1298,26 @@ impl GameWorld {
             };
 
             if let Some(mut dir) = pop_dir {
-                let mut drunk_hicks = false;
+                // 772 drunk stagger — `cract.cc:392-413`: on stagger, replace the step direction
+                // with a random cardinal, `ToDoClear` + `SendSnapback` (player) + `ToDoTalk("Hicks!")`
+                // + `ToDoStart`, then continue with the staggered step.
+                let mut drunk_staggered = false;
                 if let Some(CreatureKind::Player(p)) = self.creatures.get(cid) {
                     if let Some(new_dir) = try_drunk_walk_direction(&p.base) {
                         dir = new_dir;
-                        drunk_hicks = true;
+                        drunk_staggered = true;
                     }
                 }
-                if drunk_hicks {
-                    self.broadcast_creature_say_viewport(
-                        cid,
-                        SpeakType::MonsterSay as u8,
-                        "Hicks!",
-                    );
+                if drunk_staggered {
+                    // `ToDoClear` + `SendSnapback` (player) — `cract.cc:405-407`.
+                    if let Some(conn) = self.conn_for_creature(cid) {
+                        self.player_todo_clear_with_snapback(conn, cid);
+                    } else {
+                        self.player_todo_clear(cid);
+                    }
+                    // `ToDoTalk("Hicks!")` + `ToDoStart()` — `cract.cc:409-411`.
+                    let _ = self.enqueue_creature_talk(cid, "Hicks!");
+                    self.todo_start_from_action(cid, 1);
                 }
                 let old_pos = match self.creatures.get(cid) {
                     Some(k) => k.position(),
