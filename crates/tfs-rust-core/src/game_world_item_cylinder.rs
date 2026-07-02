@@ -279,10 +279,34 @@ impl GameWorld {
             }
         }
 
-        // Add item to tile
-        let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
-        let stack_pos = tile.down_item_start_stack_pos();
-        tile.add_item(item_id);
+        // Add item to tile. Always-on-top items (splashes/pools, ladders, signs, borders) live in
+        // the top-item group, which the client renders BEFORE creatures — C++ `Tile::addThing`
+        // (`tile.cpp:1455`). Routing them into down_items (after creatures) shifts every creature's
+        // client stackpos by one, desyncing subsequent creature moves (e.g. a blood splash under a
+        // player froze their movement).
+        let always_on_top = self
+            .items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.always_on_top())
+            .unwrap_or(false);
+
+        {
+            let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
+            if always_on_top {
+                tile.add_top_item(item_id);
+            } else {
+                tile.add_item(item_id);
+            }
+        }
+
+        // Stackpos of the item as it now sits on the tile (top items counted before creatures,
+        // down items after) — matches C++ `Tile::getStackposOfItem`.
+        let stack_pos = self
+            .map
+            .get_tile(pos)
+            .and_then(|t| t.get_item_stack_pos(item_id))
+            .unwrap_or(0);
 
         // Broadcast add
         self.broadcast_tile_item_add(pos, item_id, stack_pos);

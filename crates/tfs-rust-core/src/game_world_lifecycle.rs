@@ -170,14 +170,14 @@ impl GameWorld {
                 let CreatureKind::Monster(m) = k else {
                     return None;
                 };
-                Some((m.base.position, m.corpse_id, m.inventory.clone()))
+                Some((m.base.position, m.corpse_id, m.blood, m.inventory.clone()))
             })
         } else {
             None
         };
 
-        if let Some((pos, corpse_id, inventory)) = corpse_snapshot {
-            self.drop_monster_corpse_772(pos, corpse_id, &inventory);
+        if let Some((pos, corpse_id, blood, inventory)) = corpse_snapshot {
+            self.drop_monster_corpse_772(pos, corpse_id, blood, &inventory);
         }
 
         if crate::chase_debug::chase_path_debug_enabled() {

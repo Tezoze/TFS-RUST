@@ -183,6 +183,65 @@
         assert!(world.monster_can_kick_boxes_772(summon));
     }
 
+    /// Regression: a `KickCreatures` cyclops facing a pushable bear blocking a 1-wide corridor
+    /// to the player must **path through the bear** (planning gate allows pushable creatures) —
+    /// not stall with NOWAY. The execution side then kicks/kills the boxed-in bear (covered by
+    /// `boxed_in_blocker_is_killed_and_step_exhausted`). Before the fix, a Noway from the
+    /// close-chase returned `Retry` and the monster parked indefinitely.
+    #[test]
+    fn kicker_paths_through_pushable_bear_not_stall() {
+        use crate::creature::ChaseMode;
+        use crate::monster_ai::MonsterCombatCloseChaseEnqueue;
+        use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+
+        let mut world = beat_driven_test_world();
+        world.walk_wake_tx = None;
+        // 1-wide corridor: cyclops(100,100) → bear(101,100) → player(103,100).
+        // Walls (no tile) above/below the bear so it can't be pushed aside → kill on execute.
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let ppos = Position::new(103, 100, 7);
+        for x in 100..=103 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        // Bear: pushable (default), no KickCreatures.
+        let bear =
+            insert_monster_with_config(&mut world, "Bear", bpos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(bpos, bear);
+        let cyclops = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        world.map.register_creature_at(mpos, cyclops);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops) {
+            m.melee_skill = 15;
+            m.is_hostile = true;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.state = MonsterState::Attacking;
+            m.base.chase_mode = ChaseMode::Close;
+        }
+
+        // The close-chase pathfind must route THROUGH the pushable bear (planning gate allows it
+        // for an ATTACKING KickCreatures monster) — returning Queued, not Noway/Retry.
+        assert_eq!(
+            world.monster_combat_enqueue_close_chase_go(cyclops),
+            MonsterCombatCloseChaseEnqueue::Queued,
+            "cyclops must path through pushable bear (planning gate), not stall on Noway"
+        );
+        let base = world.creatures.get(cyclops).unwrap().base();
+        assert!(
+            base.todo.has_go(),
+            "close-chase must enqueue a Go stepping toward the bear"
+        );
+        // Bear is still alive — the kill happens at step execution, not during planning.
+        assert!(
+            world.creatures.contains_key(bear),
+            "planning must not kill the bear — only the execute-time kick does"
+        );
+    }
+
     /// 772 `KickCreature` kill — a boxed-in pushable monster (no free adjacent tile) is killed by
     /// the kicker and the step reports `EXHAUSTED` (`crnonpl.cc:3074-3080`).
     #[test]
@@ -215,6 +274,62 @@
         assert!(
             !world.creatures.contains_key(blocker),
             "boxed-in blocker must be killed by the kick"
+        );
+    }
+
+    /// End-to-end: cyclops paths through a boxed-in **pushable** creature (rat) in a 1-wide
+    /// corridor and kills it on step execution. This verifies the full flow: planning routes
+    /// through the pushable creature → Go enqueued → `on_walk` → `monster_push_before_step` →
+    /// `KickCreature` kill. The rat has no escape tiles (walls on all sides except the cyclops),
+    /// so `KickCreature` must kill it (`crnonpl.cc:3074-3080`).
+    #[test]
+    fn cyclops_kills_boxed_in_pushable_blocker_end_to_end() {
+        use crate::creature::ChaseMode;
+
+        let mut world = beat_driven_world();
+        world.walk_wake_tx = None;
+        world.server_ms = 0;
+        let now = std::time::Instant::now();
+
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let tpos = Position::new(105, 100, 7);
+        // Only corridor tiles on y=100 exist — rat at (101,100) has no escape
+        // (no tiles at (101,99) or (101,101)), so KickCreature must kill it.
+        ensure_walkable_tile(&mut world.map, mpos, 1);
+        ensure_walkable_tile(&mut world.map, bpos, 1);
+        ensure_walkable_tile(&mut world.map, tpos, 1);
+
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        // Rat blocker: pushable (default), no KickCreatures.
+        let rat =
+            insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+        let cyclops = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops) {
+            m.melee_skill = 15;
+            m.is_hostile = true;
+            m.base.follow_target = Some(target);
+            m.base.attack_target = Some(target);
+            m.state = MonsterState::Attacking;
+            m.base.chase_mode = ChaseMode::Close;
+        }
+
+        // Step 1: planning must route through the pushable rat.
+        assert!(
+            world.monster_move_possible_planning_772(cyclops, bpos),
+            "planning gate must allow routing through pushable rat"
+        );
+
+        // Step 2: execute-time kick must kill the boxed-in rat.
+        let outcome = world.monster_push_before_step(cyclops, bpos, now);
+        assert_eq!(
+            outcome,
+            MonsterKickOutcome::Exhausted,
+            "boxed-in pushable rat must be killed (EXHAUSTED), not Proceed"
+        );
+        assert!(
+            !world.creatures.contains_key(rat),
+            "rat must be killed by the cyclops kick"
         );
     }
 

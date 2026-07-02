@@ -463,26 +463,14 @@ impl GameWorld {
         trace_creature_todo(self, cid, "schedule_wakeup");
     }
 
-    /// C++ `TDGo` / `CalculateDelay` when `EarliestWalkTime` is unset — one beat from `server_ms` (`cract.cc:912`).
-    fn todo_go_beat_delay_ms(&self, cid: CreatureId) -> u64 {
-        let Some(k) = self.creatures.get(cid) else {
-            return 1;
-        };
-        let pos = k.position();
-        let ground_speed = self
-            .map
-            .get_tile(pos)
-            .map(|t| crate::walk::ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
-            .unwrap_or(150);
-        let ms =
-            crate::walk::walk_timing::get_step_duration(k, k.base(), ground_speed, &self.mechanics);
-        ms.max(1) as u64
-    }
-
     /// Compute walk delay for the next queued Go and arm the global heap (772 monster idle path).
     /// Returns `true` when the step should run immediately (1098 `getEventStepTicks` <= 1).
     ///
-    /// 772 beat path mirrors `CalculateDelay` (`TDGo`) + `ToDoStart` (`cract.cc:912–917`, `1004–1017`).
+    /// 772 beat path mirrors `CalculateDelay` (`TDGo`) + `ToDoStart` (`cract.cc:918–923`, `1010–1023`):
+    /// `Delay = EarliestWalkTime - ServerMilliseconds` when the cooldown is still active, else `0`;
+    /// `ToDoStart` clamps `Delay < 1` to `1`, so a fresh walk from standstill arms at
+    /// `ServerMilliseconds + 1` and lands on the next beat drain — **not** a full step duration.
+    /// Subsequent steps wait out `EarliestWalkTime` set by `NotifyGo` (`on_walk`).
     pub(crate) fn todo_start_go_delay(&mut self, cid: CreatureId, first_step: bool) -> bool {
         if self.beat_driven_loop {
             if !self
@@ -498,10 +486,14 @@ impl GameWorld {
                 .get(cid)
                 .map(|k| k.base().earliest_walk_server_ms)
                 .unwrap_or(0);
+            // C++ `CalculateDelay(TDGo)`: `Delay = EarliestWalkTime - ServerMilliseconds` only when
+            // the cooldown is still active; otherwise `Delay` stays `0` and `ToDoStart` clamps it to
+            // `1` (`cract.cc:918–923`, `:1016–1018`). Arming a full step duration here added up to
+            // one extra step of input latency to every walk started from rest (audit #1).
             let calc_delay = if earliest > server_ms {
                 earliest - server_ms
             } else {
-                self.todo_go_beat_delay_ms(cid)
+                1
             };
             let delay = calc_delay.max(1);
             self.todo_start_from_action(cid, delay);
@@ -667,6 +659,7 @@ impl GameWorld {
             base.walk_queue.clear();
             base.todo.queue.clear();
             base.todo.locked = false;
+            base.todo.todo_stop = false;
             base.next_wakeup = None;
             base.has_follow_path = false;
         }
@@ -677,7 +670,7 @@ impl GameWorld {
     ///
     /// C++ ref: `receiving.cc:120-199` (`if (ToDoClear()) SendSnapback;`),
     /// `cract.cc:953-989` (`ToDoClear` clears the whole queue).
-    fn player_todo_clear_with_snapback(&mut self, conn_id: ConnId, cid: CreatureId) {
+    pub(crate) fn player_todo_clear_with_snapback(&mut self, conn_id: ConnId, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
         }
@@ -864,12 +857,46 @@ impl GameWorld {
     /// TFS `Player::stopWalk` (`player.cpp` ~3398); 772 `CGoStop` → `ToDoStop`
     /// (`receiving.cc:201-211`, `cract.cc:1002-1008`).
     ///
-    /// 772 clears the ToDo queue + walk queue + cancels wakeup (no snapback — `CGoStop` doesn't
-    /// send one). 1098 sets `cancel_next_walk` which is processed in `onWalk`.
+    /// 772 `ToDoStop` (`cract.cc:1002-1008`):
+    /// - **Locked** (walk in progress, wakeup armed): set `Stop = true` — the in-flight step
+    ///   lands on the next beat, then `Execute` checks `Stop` and does `ToDoClear + SendSnapback`
+    ///   (`cract.cc:891-897`, `:797-801`). The client always gets a snapback.
+    /// - **Not locked** (no walk): immediate `SendSnapback` (queue is empty, nothing to clear).
+    ///
+    /// 1098 sets `cancel_next_walk` which is processed in `onWalk`.
     pub fn player_stop_auto_walk(&mut self, cid: CreatureId) {
         if self.beat_driven_loop {
-            // 772 `ToDoStop` — clears the queue without snapback (`receiving.cc:201-211`).
-            self.player_todo_clear(cid);
+            // C++ `LockToDo` is true from `ToDoStart` until `ToDoClear` — i.e. any pending or
+            // active ToDo. In Rust, `todo.locked` is only true during `execute_creature_todo_action`
+            // (narrow window). The equivalent "walk in progress" check is: a wakeup is armed, a
+            // `Go` is queued, or steps remain in `walk_queue` (`cract.cc:1003`).
+            let walk_in_progress = self.creatures.get(cid).is_some_and(|k| {
+                let b = k.base();
+                b.todo.locked
+                    || b.next_wakeup.is_some()
+                    || b.todo.has_go()
+                    || !b.walk_queue.is_empty()
+            });
+            if walk_in_progress {
+                // C++ `ToDoStop` locked branch: `this->Stop = true` (`cract.cc:1003-1004`).
+                // The in-flight step lands on the next beat; `finish_creature_todo_execute`
+                // checks `todo_stop` and does `ToDoClear + SendSnapback` (`cract.cc:891-897`).
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().todo.todo_stop = true;
+                }
+            } else {
+                // C++ `ToDoStop` not-locked branch: immediate `SendSnapback` (`cract.cc:1005-1006`).
+                // Queue is empty; `player_todo_clear` is a harmless no-op that also resets flags.
+                if let Some(conn) = self.conn_for_creature(cid) {
+                    let dir_byte = self
+                        .creatures
+                        .get(cid)
+                        .map(|k| k.base().direction as u8)
+                        .unwrap_or(0);
+                    self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
+                }
+                self.player_todo_clear(cid);
+            }
             return;
         }
         // 1098 TFS `stopWalk` — `cancel_next_walk` processed in `onWalk` (`player.cpp` ~3398).
@@ -973,7 +1000,7 @@ impl GameWorld {
     }
 
     /// `ProtocolGame::sendMoveCreature` for other clients (`protocolgame.cpp` ~2872–2893).
-    fn broadcast_spectator_move(
+    pub(crate) fn broadcast_spectator_move(
         &mut self,
         mover: CreatureId,
         old_pos: Position,
@@ -1376,6 +1403,14 @@ impl GameWorld {
                         // ToDo path (players + monsters). `ToDoClear` is unconditional — clears
                         // the whole queue regardless of attack state (`cract.cc:871`).
                         if self.creature_uses_todo_execute(cid) {
+                            // C++ `Execute` catch: `SnapbackNecessary = ToDoClear() || Stop`
+                            // (`cract.cc:871`). The snapback above already fired for players.
+                            // If `todo_stop` was set (player `CGoStop` while locked), the stop is
+                            // now satisfied — clear the flag and skip idle stimulus (`cract.cc:891-897`).
+                            let was_stop_requested = self
+                                .creatures
+                                .get(cid)
+                                .is_some_and(|k| k.base().todo.todo_stop);
                             if let Some(k) = self.creatures.get_mut(cid) {
                                 let base = k.base_mut();
                                 base.walk_queue.clear();
@@ -1383,8 +1418,11 @@ impl GameWorld {
                                 base.force_update_follow_path = true;
                                 base.todo.queue.clear();
                                 base.todo.locked = false;
+                                base.todo.todo_stop = false;
                             }
-                            self.request_idle_stimulus(cid);
+                            if !was_stop_requested {
+                                self.request_idle_stimulus(cid);
+                            }
                         } else if let Some(k) = self.creatures.get_mut(cid) {
                             // 1098: TFS keeps `listWalkDir` and sets `forceUpdateFollowPath` only
                             // when following (`creature.cpp` ~213).

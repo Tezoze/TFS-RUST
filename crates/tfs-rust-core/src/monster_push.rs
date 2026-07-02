@@ -39,10 +39,16 @@ const KICK_DIRS_772: [Direction; 4] = [
     Direction::East,
 ];
 
-/// CipSoft `EFFECT_BLOCK_HIT` — graphical effect on a kick-kill / box delete (`crnonpl.cc:3071`).
-/// Neutral effect enum value (`tfs_rust_common::enums::MagicEffect::BlockHit`); the codec maps it
-/// to the era wire id.
-const EFFECT_BLOCK_HIT: u8 = 3;
+/// CipSoft `EFFECT_BLOCK_HIT` — graphical effect on a kick-kill / box delete
+/// (`crnonpl.cc:3071`, `:3025`). This is the raw client wire byte: `encode_magic_effect` writes
+/// `effect_id` verbatim on both eras (matching tvp-772 `ProtocolGame::sendMagicEffect`), so this
+/// must be the on-wire value, **not** the 0-indexed `MagicEffect` enum.
+///
+/// Wire id `4` = `CONST_ME_BLOCKHIT` (the gray "spark"): CipSoft `EFFECT_BLOCK_HIT = 4`
+/// (`tibia-game-master/src/enums.hh:180`) and tvp-772 `CONST_ME_BLOCKHIT = 4`
+/// (`gameserver/src/const.h:14`). Was `3`, which is `CONST_ME_POFF` — the client rendered a poff
+/// instead of the block-hit spark on kick-kills / box deletes.
+const EFFECT_BLOCK_HIT: u8 = 4;
 
 /// F2: cycle guard for recursive chain-push. C++ `KickCreature` has no explicit depth guard —
 /// it relies on the fixed N,S,W,E offset order + `skip kicker's tile` check (`crnonpl.cc:3062-3064`)
@@ -457,7 +463,21 @@ impl GameWorld {
             // Forced relocate — bypasses `tile_query_add_creature` (no walk-timer gate, no 1098
             // creature-block model). C++ `KickCreature` calls `Creature::Move` directly after
             // `MovePossible` passes.
+            //
+            // C++ `Creature::Move` updates spectators (`sendCreatureMove`). We must do the same:
+            // capture the blocker's stackpos on its OLD tile *before* the relocate, then broadcast
+            // a `0x6B` move packet. Without this the client keeps the creature on its old tile;
+            // a later removal packet (computed at the NEW tile) is then discarded by the client,
+            // leaving the creature visibly alive after it has died server-side (the reported
+            // cyclops-walks-over-wolf desync).
+            let old_stack = self
+                .map
+                .get_tile(blocker_pos)
+                .map(|t| crate::tile::client_creature_stack_pos(t.body(), blocker))
+                .filter(|s| *s >= 0)
+                .unwrap_or(1);
             self.move_creature_on_map(blocker, blocker_pos, try_pos);
+            self.broadcast_spectator_move(blocker, blocker_pos, try_pos, old_stack);
             return true;
         }
 

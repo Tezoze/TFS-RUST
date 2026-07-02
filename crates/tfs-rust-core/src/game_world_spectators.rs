@@ -244,7 +244,12 @@ impl GameWorld {
         const TEXTCOLOR_RED: u8 = 180;
         const CONST_ME_DRAWBLOOD: u8 = 1;
 
-        self.broadcast_magic_effect(pos, CONST_ME_DRAWBLOOD);
+        // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood_772` in the
+        // combat apply path (`crmain.cc:762-775`), so avoid a duplicate draw-blood here. 1098 keeps
+        // the effect on this player-notify path (`game.cpp` combatGetTypeInfo is not yet wired).
+        if !self.beat_driven_loop {
+            self.broadcast_magic_effect(pos, CONST_ME_DRAWBLOOD);
+        }
 
         use tfs_rust_net::codec::wire::{
             AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire,

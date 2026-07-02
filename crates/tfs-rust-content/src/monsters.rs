@@ -140,6 +140,14 @@ pub struct MonsterType {
     pub talk_texts: Vec<String>,
 }
 
+impl MonsterType {
+    /// Blood family for on-hit effect + splash, derived from the XML `race` attribute.
+    /// See [`tfs_rust_common::enums::BloodType::from_race_str`].
+    pub fn blood_type(&self) -> tfs_rust_common::enums::BloodType {
+        tfs_rust_common::enums::BloodType::from_race_str(&self.race)
+    }
+}
+
 pub struct MonsterDatabase {
     pub monsters: HashMap<String, MonsterType>,
 }

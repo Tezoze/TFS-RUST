@@ -1164,7 +1164,14 @@ impl GameWorld {
         let outcome =
             self.monster_idle_chase_repath(cid, Some("attack_close_chase"), max_steps, must_reach);
         if outcome == MonsterIdleChaseRepathOutcome::Noway {
-            return MonsterCombatCloseChaseEnqueue::Retry;
+            // C++ `CanToDoAttack` close-chase `ToDoGo` throws NOWAY when `TShortway::Calculate`
+            // finds no path (`cract.cc:1104`). This propagates up to the `IdleStimulus`
+            // `catch(RESULT r)` block (`crnonpl.cc:2890-2898`) which clears `Target` and, for
+            // NOWAY (non-EXHAUSTED), falls through to the idle-wandering roam tail. The caller
+            // (`monster_idle_maybe_enqueue_attack` / execute-Attack path) performs the
+            // clear-target + roam fall-through — mirroring C++. Was: `Retry` (keep target +
+            // wait), which left the monster parked indefinitely re-failing the same pathfind.
+            return MonsterCombatCloseChaseEnqueue::Noway;
         }
         if outcome != MonsterIdleChaseRepathOutcome::PathQueued {
             return MonsterCombatCloseChaseEnqueue::Skipped;

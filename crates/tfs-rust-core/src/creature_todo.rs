@@ -102,6 +102,10 @@ pub struct CreatureTodo {
     pub queue: VecDeque<CreatureAction>,
     /// C++ `LockToDo` while an action is executing.
     pub locked: bool,
+    /// C++ `Stop` flag — set by `ToDoStop` when `LockToDo` is true (`cract.cc:1002-1008`).
+    /// The in-flight step lands on the next beat, then `Execute` checks `Stop` and does
+    /// `ToDoClear + SendSnapback` (`cract.cc:891-897`, `:797-801`). Player-only semantics.
+    pub todo_stop: bool,
 }
 
 impl CreatureTodo {

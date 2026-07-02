@@ -3017,19 +3017,19 @@
 
         assert_eq!(
             world.monster_combat_enqueue_close_chase_go(monster),
-            MonsterCombatCloseChaseEnqueue::Retry,
-            "attack-path close chase must Retry when TShortway fails"
+            MonsterCombatCloseChaseEnqueue::Noway,
+            "attack-path close chase must Noway when TShortway fails (C++ catch clears Target)"
         );
         let base = world.creatures.get(monster).unwrap().base();
         assert_eq!(
             base.follow_target,
             Some(player),
-            "Retry must keep chase target"
+            "Noway return must keep chase target — caller clears it (monster_idle_noway_clear_and_roam)"
         );
         assert_eq!(base.attack_target, Some(player));
         assert!(
             !base.todo.has_attack(),
-            "Retry must not leave undeliverable Attack"
+            "Noway must not leave undeliverable Attack"
         );
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -3041,9 +3041,9 @@
         assert!(
             matches!(
                 world.monster_enqueue_todo_attack_actions(monster),
-                MonsterEnqueueAttackResult::Retry | MonsterEnqueueAttackResult::Failed,
+                MonsterEnqueueAttackResult::Noway,
             ),
-            "blocked chase must not enqueue Attack"
+            "blocked chase must return Noway (not enqueue Attack)"
         );
         assert!(
             !world
@@ -3054,6 +3054,90 @@
                 .todo
                 .has_attack(),
             "blocked chase must not leave Attack on the todo queue"
+        );
+    }
+
+    /// Regression: an ATTACKING melee monster with a visible target but NO walkable path must
+    /// clear its target and roam — not park indefinitely re-failing the same pathfind.
+    ///
+    /// C++ `IdleStimulus` catch block (`crnonpl.cc:2890-2898`): `ToDoAttack`→`CanToDoAttack`→
+    /// `ToDoGo` throws NOWAY → `Target = 0` + fall through to roam tail (`crnonpl.cc:2900-2939`).
+    /// Before the fix, the Rust close-chase returned `Retry` (keep target + wait 1000 ms),
+    /// causing an infinite parking loop.
+    #[test]
+    fn test_772_attacking_no_path_roams_not_park() {
+        use crate::map::Map;
+        use crate::tile::{Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        fn sight_open_unwalkable(map: &mut Map, pos: Position) {
+            map.insert_tile(
+                pos,
+                Tile::Normal(TileBody {
+                    ground: None,
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                }),
+            );
+        }
+
+        let mut world = beat_driven_test_world();
+        // Monster at (100,100), player at (102,100), wall at (101,100) — no path.
+        let mpos = Position::new(100, 100, 7);
+        let wall = Position::new(101, 100, 7);
+        let ppos = Position::new(102, 100, 7);
+        // Roam escape tiles around the monster (so roam can step somewhere).
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), TEST_SYNTHETIC_GROUND_WP);
+        sight_open_unwalkable(&mut world.map, wall);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            200,
+            MonsterAiConfig::default(),
+        );
+        world.map.register_creature_at(mpos, monster);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.is_hostile = true;
+            m.melee_skill = 15;
+            m.opponent_ids.push(player);
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.state = MonsterState::Attacking;
+            m.base.chase_mode = ChaseMode::Close;
+            m.base.walk_queue.clear();
+            m.base.todo.queue.clear();
+        }
+
+        world.monster_idle_stimulus(monster);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        // C++ catch clears Target on NOWAY — the monster must not keep chasing an unreachable
+        // target (which caused the infinite Retry parking loop).
+        assert!(
+            base.follow_target.is_none(),
+            "ATTACKING monster with no path must clear follow_target (C++ NOWAY catch), \
+             was {:?}",
+            base.follow_target
+        );
+        assert!(
+            base.attack_target.is_none(),
+            "attack_target must also be cleared on NOWAY"
+        );
+        // The monster must arm a wakeup (roam Go or Wait) — not be left parked with no todo.
+        assert!(
+            !base.todo.is_empty() || base.next_wakeup.is_some(),
+            "no-path ATTACKING monster must arm a roam Go/Wait, not park with empty todo"
         );
     }
 
@@ -3925,7 +4009,9 @@
         assert!(!base.walk_queue.is_empty(), "walk_queue must have the step");
     }
 
-    /// Phase 1.4: `player_stop_auto_walk` clears the ToDo queue — `cract.cc:1002-1008`.
+    /// Phase 1.4 / Audit #2: `player_stop_auto_walk` sets `todo_stop` (deferred) when a walk is
+    /// in progress — the in-flight step lands on the next beat, then `ToDoClear + SendSnapback`
+    /// (`cract.cc:1002-1008`, `:891-897`).
     #[test]
     fn test_phase1_player_stop_auto_walk_clears_todo() {
         let (mut world, player, conn) = setup_player_world_with_conn();
@@ -3933,11 +4019,71 @@
         world.player_move_request(conn, player, Direction::East, now);
         assert!(world.creatures.get(player).unwrap().base().todo.has_go());
 
+        // `ToDoStop` locked branch: walk in progress → set `Stop = true` (deferred).
         world.player_stop_auto_walk(player);
         let base = world.creatures.get(player).unwrap().base();
         assert!(
+            base.todo.todo_stop,
+            "player todo_stop must be set when walk is in progress (cract.cc:1003-1004)"
+        );
+
+        // Advance one beat — the in-flight step lands, then `ToDoClear + SendSnapback`.
+        world.pending_outgoing.clear();
+        world.advance_beat_772(200);
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
             !base.todo.has_go(),
-            "player ToDo must be cleared after stop_auto_walk"
+            "player ToDo must be cleared after in-flight step lands (cract.cc:891-897)"
+        );
+        assert!(!base.todo.todo_stop, "todo_stop must be cleared after stop completes");
+        // `SendSnapback` — `0xB5` (`encode_cancel_walk`).
+        let pkts = world.pending_outgoing.get(&conn).expect("must enqueue snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "stop must send 0xB5 snapback after in-flight step (cract.cc:894)"
+        );
+    }
+
+    /// Audit #2: `player_stop_auto_walk` sends an immediate snapback when no walk is in progress
+    /// — C++ `ToDoStop` not-locked branch (`cract.cc:1005-1006`).
+    #[test]
+    fn test_audit2_stop_from_standstill_sends_immediate_snapback() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+
+        // No walk in progress — `LockToDo` is false.
+        world.pending_outgoing.clear();
+        world.player_stop_auto_walk(player);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(!base.todo.todo_stop, "todo_stop must not be set when no walk is in progress");
+        // Immediate `SendSnapback` — `0xB5` (`cract.cc:1005-1006`).
+        let pkts = world.pending_outgoing.get(&conn).expect("must enqueue immediate snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "stop from standstill must send 0xB5 snapback immediately (cract.cc:1006)"
+        );
+    }
+
+    /// Audit #2: `player_cancel_attack_and_follow` sends snapback when a pending Go is cleared —
+    /// C++ `CCancelAttack`: `if(Player->ToDoClear()) SendSnapback` (`receiving.cc:1339-1341`).
+    #[test]
+    fn test_audit2_cancel_attack_sends_snapback_when_walk_pending() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::East, now);
+        assert!(world.creatures.get(player).unwrap().base().todo.has_go());
+
+        // `CCancelAttack` — `ToDoClear` + `SendSnapback` if pending Go.
+        world.pending_outgoing.clear();
+        world.player_cancel_attack_and_follow(conn, player);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(!base.todo.has_go(), "cancel must clear pending Go (ToDoClear)");
+        // `SendSnapback` — `0xB5` (`receiving.cc:1340`).
+        let pkts = world.pending_outgoing.get(&conn).expect("must enqueue snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "cancel with pending walk must send 0xB5 snapback (receiving.cc:1340)"
         );
     }
 
@@ -4296,4 +4442,61 @@
             "NPC-owned summon mover must not wake sleeper (IsPlayerControlled is false)"
         );
         assert!(m.is_idle, "sleeper stays in idle posture for NPC summon");
+    }
+
+    /// Audit #1: a fresh walk from standstill arms the wakeup at `server_ms + 1` (C++
+    /// `CalculateDelay(TDGo)` leaves `Delay = 0` when `EarliestWalkTime` has elapsed, and
+    /// `ToDoStart` clamps it to `1` — `cract.cc:918-923`, `:1016-1018`), **not** a full step
+    /// duration. The old Rust fallback armed `get_step_duration(...)` ms into the future,
+    /// adding up to one extra step of input latency to every walk started from rest.
+    #[test]
+    fn test_audit1_first_step_from_standstill_arms_at_one_ms() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // `beat_driven_test_world` starts at `server_ms = 0` with `earliest_walk_server_ms = 0`
+        // — the canonical "fresh walk from standstill" state.
+        assert_eq!(world.server_ms, 0);
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().earliest_walk_server_ms,
+            0
+        );
+
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::East, now);
+
+        let wakeup = world.creatures.get(player).unwrap().base().next_wakeup;
+        assert!(
+            wakeup.is_some(),
+            "fresh walk must arm a wakeup in the ToDo heap"
+        );
+        // C++ clamp: `NextWakeup = ServerMilliseconds + 1` (`cract.cc:1020`).
+        assert_eq!(
+            wakeup,
+            Some(world.server_ms + 1),
+            "first step from standstill must arm at server_ms + 1 (C++ ToDoStart clamp), \
+             not a full step duration"
+        );
+    }
+
+    /// Audit #1 (cooldown-active case): when `EarliestWalkTime` is still in the future
+    /// (set by `NotifyGo` after a prior step), the wakeup must arm at
+    /// `EarliestWalkTime` — i.e. `earliest - server_ms` ms into the future
+    /// (`cract.cc:919-920`). This confirms the fix did not regress the cooldown path.
+    #[test]
+    fn test_audit1_cooldown_active_arms_at_earliest_walk_time() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Simulate a recent step's `NotifyGo` (`cract.cc:1515-1525`): cooldown 400 ms out.
+        const COOLDOWN_MS: u64 = 400;
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_walk_server_ms = world.server_ms + COOLDOWN_MS;
+        }
+
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::East, now);
+
+        let wakeup = world.creatures.get(player).unwrap().base().next_wakeup;
+        assert_eq!(
+            wakeup,
+            Some(world.server_ms + COOLDOWN_MS),
+            "cooldown-active walk must arm at EarliestWalkTime, not server_ms + 1"
+        );
     }

@@ -972,6 +972,7 @@ pub fn insert_monster_from_type(
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
             m.experience = mtype.experience;
             m.corpse_id = mtype.outfit.corpse_id;
+            m.blood = mtype.blood_type();
             m.state = initial_state;
             m.is_idle = true;
         }

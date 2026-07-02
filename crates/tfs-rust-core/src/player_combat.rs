@@ -175,18 +175,19 @@ impl GameWorld {
         }
     }
 
-    /// 772 `CCancelAttack` / `ToDoStop` — `receiving.cc` `CCancelAttack`, `cract.cc:1002-1008`.
+    /// 772 `CCancelAttack` — `receiving.cc:1330-1347`, `cract.cc:953-989`.
     ///
-    /// `SetAttackDest(0)` (→ `StopAttack` → `SendClearTarget`) + `ToDoStop`. `ToDoStop` sends a
-    /// snapback only when `LockToDo` (`cract.cc:1003-1007`); otherwise it just clears the queue
-    /// (`player_todo_clear` already cancels the wakeup).
+    /// `StopAttack` (→ `SendClearTarget`) + `ToDoClear` + `SendSnapback` if a pending `Go` was
+    /// cleared (`receiving.cc:1338-1341`: `if(Player->ToDoClear()) SendSnapback`). Unlike
+    /// `ToDoStop` (used by `CGoStop`), `CCancelAttack` calls `ToDoClear` directly — immediate
+    /// clear + conditional snapback, no deferred `Stop` flag.
     pub(crate) fn player_cancel_attack_and_follow(&mut self, conn_id: ConnId, cid: CreatureId) {
         if !self.beat_driven_loop {
             return;
         }
         self.player_stop_attack(conn_id, cid);
-        // `ToDoStop` — clears the ToDo queue without snapback when not locked (`cract.cc:1002-1008`).
-        self.player_todo_clear(cid);
+        // `ToDoClear` + `SendSnapback` if pending Go (`receiving.cc:1339-1341`).
+        self.player_todo_clear_with_snapback(conn_id, cid);
     }
 
     /// 772 `TCombat::CanToDoAttack` — `crcombat.cc:442-511`.

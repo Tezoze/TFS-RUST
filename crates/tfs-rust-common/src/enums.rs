@@ -160,6 +160,35 @@ pub enum SpeakType {
     MonsterYell = 37,
 }
 
+/// Creature blood family — decides the physical-hit graphical effect and whether a blood/slime
+/// splash item is dropped. CipSoft `RaceData[].Blood` (`tibia-game-master/src/enums.hh:102`,
+/// `BT_BLOOD/BT_SLIME/BT_BONES/BT_FIRE/BT_ENERGY`); TFS `RaceType_t` on the tvp-772 side
+/// (`gameserver/src/game.cpp` `combatGetTypeInfo`). Default `Blood` mirrors C++ `crmain.cc:1236`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum BloodType {
+    #[default]
+    Blood,
+    Slime,
+    Bones,
+    Fire,
+    Energy,
+}
+
+impl BloodType {
+    /// Parse the monster XML `race` attribute. TFS race names map onto the CipSoft blood families:
+    /// `venom`→Slime, `undead`→Bones, `fire`→Fire, `energy`→Energy, `blood`/unknown→Blood
+    /// (`gameserver/src/monsters.cpp` race parse; `tibia-game-master/src/crmain.cc:1446`).
+    pub fn from_race_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "venom" | "slime" => Self::Slime,
+            "undead" | "bones" => Self::Bones,
+            "fire" => Self::Fire,
+            "energy" => Self::Energy,
+            _ => Self::Blood,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum MagicEffect {

@@ -342,6 +342,7 @@ impl GameWorld {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
                 m.experience = mtype.experience;
                 m.corpse_id = mtype.outfit.corpse_id;
+                m.blood = mtype.blood_type();
             }
             let is_summon = self
                 .creatures

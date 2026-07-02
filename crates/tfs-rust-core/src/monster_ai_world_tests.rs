@@ -1228,10 +1228,15 @@
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
 
-            // Set last step to now so there is a positive walk delay
+            // Simulate the post-step state that `NotifyGo` would have produced (`cract.cc:1515-1525`):
+            // `EarliestWalkTime = ServerMilliseconds + step_duration`. C++ `CalculateDelay(TDGo)`
+            // consults `EarliestWalkTime` only (`cract.cc:918-923`), so the repath wakeup must be
+            // armed `step_duration` into the future — not at `+1` (fresh-walk clamp).
+            const STEP_COOLDOWN_MS: u64 = 350;
             m.base.last_step_server_ms = Some(world.server_ms);
             m.base.last_step_ground_speed = 150;
             m.base.last_step_cost = 1;
+            m.base.earliest_walk_server_ms = world.server_ms + STEP_COOLDOWN_MS;
         }
 
         // Trigger repath
@@ -1239,7 +1244,7 @@
 
         let wakeup = world.creatures.get(monster).unwrap().base().next_wakeup;
 
-        // Wakeup should be scheduled for server_ms + walk_delay (approx 350 ms)
+        // Wakeup should be scheduled for server_ms + walk_delay (the `EarliestWalkTime` delta).
         assert!(wakeup.is_some());
         let delay = wakeup.unwrap() - world.server_ms;
         assert!(

@@ -512,7 +512,8 @@ impl GameWorld {
                 self.idle_enqueue_wait_and_start(monster_id, MONSTER_IDLE_WAIT_MS);
             }
             MonsterEnqueueAttackResult::Noway => {
-                self.idle_stimulus(monster_id);
+                // C++ NOWAY catch: clear `Target` + fall through to roam (`crnonpl.cc:2890-2898`).
+                self.monster_idle_noway_clear_and_roam(monster_id);
             }
             MonsterEnqueueAttackResult::Failed => {
                 self.monster_combat_handle_close_chase_blocked(monster_id);

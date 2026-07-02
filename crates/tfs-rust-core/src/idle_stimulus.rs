@@ -232,6 +232,20 @@ impl GameWorld {
                 .get(target)
                 .map(|k| k.base().health)
                 .unwrap_or(0);
+
+            // 772 physical-hit blood: race-keyed effect + blood/slime splash on the victim's tile
+            // (`TCreature::Damage`, `crmain.cc:762-775`). Emitted for any physical damage that
+            // landed, including the killing blow (C++ emits the effect before `Kill()`); the
+            // full-blood pool is added afterwards by the death path.
+            if self.beat_driven_loop
+                && stimulus_damage > 0
+                && damage.primary.0 == CombatType::Physical
+            {
+                if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                    self.apply_physical_hit_blood_772(target, pos);
+                }
+            }
+
             if hp_after <= 0 && self.creatures.contains_key(target) {
                 self.apply_creature_death(target);
             }
@@ -1682,6 +1696,43 @@ impl GameWorld {
         }
     }
 
+    /// 772 NOWAY fall-through — clear chase target and roam (`crnonpl.cc:2890-2898` + `:2900-2939`).
+    ///
+    /// Mirrors the C++ `catch(RESULT r)` block in `TMonster::IdleStimulus`: when the close-chase
+    /// `ToDoGo` (via `CanToDoAttack`) throws NOWAY because `TShortway::Calculate` found no path,
+    /// C++ clears `Target`, `ToDoClear()`, and — for NOWAY (non-EXHAUSTED) — falls through to the
+    /// idle-wandering roam tail (`crnonpl.cc:2900-2939`). EXHAUSTED (kick-kill / player-tile) is
+    /// handled separately by the walk executor (`monster_exhausted_wait_772`).
+    ///
+    /// Used by the attack-tail NOWAY arm ([`Self::monster_idle_maybe_enqueue_attack`]) so an
+    /// ATTACKING melee monster with no path to the target clears its target and roams instead of
+    /// parking indefinitely. The walk-branch NOWAY handler
+    /// ([`Self::monster_idle_prepare_and_enqueue_go`]) inlines the same clear+roam via its own
+    /// `match outcome` block.
+    pub(crate) fn monster_idle_noway_clear_and_roam(&mut self, cid: CreatureId) {
+        self.monster_on_chase_noway_772(cid);
+        let outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
+        match outcome {
+            MonsterIdleWalkOutcome::QueuedGo { via, wait_after } => {
+                self.idle_enqueue_paced_go(
+                    cid,
+                    true,
+                    Some(via),
+                    wait_after.then_some(MONSTER_IDLE_WAIT_MS),
+                );
+            }
+            MonsterIdleWalkOutcome::QueuedWait => {
+                self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+            }
+            // Roam found no walkable tile — C++ `ToDoWait(1000) + ToDoStart()`
+            // (`crnonpl.cc:2937-2939`). The idle catch-all (`crnonpl.cc:2920-2939` tail) also
+            // covers this, but arming the wait here keeps the contract explicit.
+            MonsterIdleWalkOutcome::Hold | MonsterIdleWalkOutcome::Noway => {
+                self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+            }
+        }
+    }
+
     /// C++ idle combat tail — `Rotate` + `ToDoAttack` (`crnonpl.cc:2795`).
     fn monster_idle_maybe_enqueue_attack(&mut self, cid: CreatureId) -> bool {
         let (attack_id, pos) = match self.creatures.get(cid) {
@@ -1719,7 +1770,12 @@ impl GameWorld {
                 false
             }
             MonsterEnqueueAttackResult::Noway => {
-                self.monster_idle_prepare_and_enqueue_go(cid);
+                // C++ `catch(RESULT r)` for NOWAY: clear `Target` + fall through to roam
+                // (`crnonpl.cc:2890-2898` + `:2900-2939`). Was: recurse into
+                // `monster_idle_prepare_and_enqueue_go` which, with the target still set and
+                // state ATTACKING, re-entered the same Hold→close-chase→Noway path — an
+                // infinite recursion / parking loop.
+                self.monster_idle_noway_clear_and_roam(cid);
                 false
             }
             MonsterEnqueueAttackResult::Failed => {
@@ -2379,6 +2435,26 @@ impl GameWorld {
     /// After Go/Attack execute: schedule next step or chain queued actions.
     pub(crate) fn finish_creature_todo_execute(&mut self, cid: CreatureId) {
         if !self.creature_uses_todo_execute(cid) {
+            return;
+        }
+
+        // C++ `Execute` checks `Stop` after a successful action (`cract.cc:891-897`) and when the
+        // next step's `Delay > 0` (`cract.cc:797-801`): `ToDoClear + SendSnapback` (player only).
+        // `todo_stop` is set by `player_stop_auto_walk` (772 `ToDoStop` locked branch,
+        // `cract.cc:1003-1004`). The in-flight step has just landed; now clear + snapback.
+        let stop_requested = self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Player(_)) && k.base().todo.todo_stop
+        });
+        if stop_requested {
+            if let Some(conn) = self.conn_for_creature(cid) {
+                let dir_byte = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().direction as u8)
+                    .unwrap_or(0);
+                self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
+            }
+            self.player_todo_clear(cid);
             return;
         }
 

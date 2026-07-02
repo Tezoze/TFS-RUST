@@ -7,6 +7,7 @@ use crate::creature::base::CreatureBase;
 use crate::creature::monster_combat::{combat_from_monster_type, MonsterSpell};
 use crate::creature::monster_inventory::MonsterInventory;
 use crate::ids::CreatureId;
+use tfs_rust_common::enums::BloodType;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::{MonsterType, MonsterTypeFlags};
 
@@ -224,6 +225,9 @@ pub struct Monster {
     pub experience: u32,
     /// `<look corpse=…>` item id for death drop — `crmain.cc:204`.
     pub corpse_id: u16,
+    /// Blood family — on-hit effect + death/hit splash liquid. Set at spawn from `MonsterType.race`
+    /// (`crmain.cc:706-776` on-hit, `crmain.cc:207-226` death pool).
+    pub blood: BloodType,
     /// Spawn-rolled bag + equip — `crnonpl.cc:2050`.
     pub inventory: MonsterInventory,
     /// C++ `Monster::targetChangeTicks` — `monster.cpp` `onThinkTarget`.
@@ -286,6 +290,7 @@ impl Monster {
             spells: config.spells,
             experience: 0,
             corpse_id: 0,
+            blood: BloodType::Blood,
             inventory: MonsterInventory::default(),
             target_change_ticks: 0,
             target_change_cooldown: 0,
