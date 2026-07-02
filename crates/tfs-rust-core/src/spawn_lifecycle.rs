@@ -647,18 +647,19 @@ impl GameWorld {
 
     /// C++ `Game::placeCreature` → `sendAddCreature` for spectators (`game.cpp` ~552).
     pub fn broadcast_creature_appear(&mut self, cid: CreatureId, pos: Position) {
+        // Grid-based fan-out (audit #4) — `spectator_conns_via_grid` already applies
+        // `can_see_position(viewer, pos)`, so every conn here can see the target tile.
+        // C++ reference: `Game::addCreature` spectator fan-out via `Map::getSpectators`
+        // (`game.cpp` ~463, `map.cpp` ~386–474).
         let spectators: Vec<(ConnId, CreatureId)> = self
-            .conn_to_creature
-            .iter()
-            .filter_map(|(&conn, &viewer)| {
+            .spectator_conns_via_grid(pos)
+            .into_iter()
+            .filter_map(|conn| {
+                let viewer = *self.conn_to_creature.get(&conn)?;
                 if viewer == cid {
                     return None;
                 }
-                if self.can_see_position(viewer, pos) {
-                    Some((conn, viewer))
-                } else {
-                    None
-                }
+                Some((conn, viewer))
             })
             .collect();
 
@@ -668,6 +669,9 @@ impl GameWorld {
     }
 
     /// C++ `Game::removeCreature` spectator strip (`game.cpp` ~577).
+    /// Grid-based fan-out (audit #4): spatial collection via `spectator_conns_via_grid`
+    /// (which applies `can_see_position`), then the per-creature `canSeeCreature` check
+    /// for ghost/invisibility filtering — matching C++ `getSpectators` + `canSeeCreature`.
     pub(crate) fn broadcast_creature_disappear(
         &mut self,
         cid: CreatureId,
@@ -675,9 +679,10 @@ impl GameWorld {
         stack_raw: i32,
     ) {
         let spectators: Vec<(ConnId, CreatureId)> = self
-            .conn_to_creature
-            .iter()
-            .filter_map(|(&conn, &viewer)| {
+            .spectator_conns_via_grid(pos)
+            .into_iter()
+            .filter_map(|conn| {
+                let viewer = *self.conn_to_creature.get(&conn)?;
                 if viewer == cid {
                     return None;
                 }
@@ -758,7 +763,8 @@ mod tests {
     use super::*;
     use crate::spawn::SpawnManager;
     use crate::test_world::support::{
-        beat_driven_test_world, ensure_walkable_tile, insert_player, minimal_world, test_player,
+        beat_driven_test_world, ensure_walkable_tile, insert_player, insert_spectator_player,
+        minimal_world, test_player,
     };
     use std::collections::HashMap;
     use std::collections::HashSet;
@@ -899,9 +905,8 @@ mod tests {
         let mut world = world_with_spawn();
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = ConnId(1);
-        world.conn_to_creature.insert(conn, viewer);
+        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
         world.known_creatures_by_conn.insert(conn, HashSet::new());
 
         world.remove_creature(monster_cid);
@@ -929,9 +934,8 @@ mod tests {
             crate::formulas::SpawnNearPlayer::Block;
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = ConnId(3);
-        world.conn_to_creature.insert(conn, viewer);
+        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
         world.known_creatures_by_conn.insert(conn, HashSet::new());
 
         world.remove_creature(monster_cid);
@@ -1028,9 +1032,8 @@ mod tests {
         let mut world = world_with_spawn();
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = ConnId(2);
-        world.conn_to_creature.insert(conn, viewer);
+        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
         world.known_creatures_by_conn.insert(conn, HashSet::new());
 
         world.remove_creature(monster_cid);

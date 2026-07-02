@@ -39,7 +39,10 @@ impl GameWorld {
         }
     }
     /// TFS `Map::getSpectators` multifloor Z span — `map.cpp` ~444–462.
-    fn spectator_z_range(center_z: u8, multifloor: bool) -> std::ops::RangeInclusive<u8> {
+    ///
+    /// `pub(crate)` so the player fan-out path (`game_world_spectators::spectator_conns_via_grid`,
+    /// audit #4) reuses the same Z-span logic as the monster fan-out path.
+    pub(crate) fn spectator_z_range(center_z: u8, multifloor: bool) -> std::ops::RangeInclusive<u8> {
         if !multifloor {
             return center_z..=center_z;
         }

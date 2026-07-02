@@ -200,7 +200,7 @@ async fn handle_player_login(
 ) {
     match crate::login::login_player(world, &name, operating_system, otclient_v8).await {
         Ok(cid) => {
-            world.conn_to_creature.insert(conn_id, cid);
+            world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
             // Login always flushes — client must receive map / self-appear before play.
             flush_pending_outgoing(world, out_registry);
@@ -245,7 +245,7 @@ fn handle_player_disconnect(
         world.remove_creature(cid);
     }
     flush_pending_outgoing(world, out_registry);
-    world.conn_to_creature.remove(&conn_id);
+    world.unregister_conn_mapping(conn_id);
     world.known_creatures_by_conn.remove(&conn_id);
     world.creature_fully_sent_by_conn.remove(&conn_id);
     if let Some(reg) = out_registry.as_ref() {

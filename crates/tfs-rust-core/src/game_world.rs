@@ -86,6 +86,11 @@ pub struct GameWorld {
     pub mechanics: crate::formulas::Mechanics,
     /// TCP connection → logged-in player (`conn_id` from `tfs-rust-net`).
     pub conn_to_creature: HashMap<ConnId, CreatureId>,
+    /// Reverse index of [`Self::conn_to_creature`] — `CreatureId → ConnId`.
+    /// Maintained by [`Self::register_conn_mapping`] / [`Self::unregister_conn_mapping`]
+    /// so spatial fan-out (`spectator_conns_via_grid`, audit #4) can resolve a creature's
+    /// connection in O(1) instead of scanning all online players.
+    pub creature_to_conn: HashMap<CreatureId, ConnId>,
     /// Game-thread only — see [`DeferredTurnBroadcast`].
     pub deferred_turn_broadcast: HashMap<CreatureId, DeferredTurnBroadcast>,
     /// `ProtocolGame::knownCreatureSet` — must persist across `0x64` / move strips (`src/protocolgame.cpp`).
@@ -298,6 +303,7 @@ impl GameWorld {
             codec,
             mechanics,
             conn_to_creature: HashMap::new(),
+            creature_to_conn: HashMap::new(),
             deferred_turn_broadcast: HashMap::new(),
             known_creatures_by_conn: HashMap::new(),
             creature_fully_sent_by_conn: HashMap::new(),

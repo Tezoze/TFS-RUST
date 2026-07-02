@@ -146,7 +146,7 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 150);
         let player = insert_player(&mut world, test_player("Idle", pos));
-        world.conn_to_creature.insert(tfs_rust_common::ConnId(1), player);
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), player);
 
         // `last_command_round` stays recent so only the idle-kick path is exercised.
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
@@ -167,7 +167,7 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 150);
         let player = insert_player(&mut world, test_player("Idle", pos));
-        world.conn_to_creature.insert(tfs_rust_common::ConnId(1), player);
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), player);
 
         // Keep `last_command_round` recent so the 90-round connection timeout
         // doesn't fire before the idle kick — we're testing idle timing only.
@@ -201,7 +201,7 @@ mod tests {
         ensure_walkable_tile(&mut world.map, pos, 150);
         let player = insert_player(&mut world, test_player("Pinged", pos));
         let conn = tfs_rust_common::ConnId(1);
-        world.conn_to_creature.insert(conn, player);
+        world.register_conn_mapping(conn, player);
 
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.last_command_round = 0;
@@ -221,7 +221,7 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 150);
         let player = insert_player(&mut world, test_player("Timeout", pos));
-        world.conn_to_creature.insert(tfs_rust_common::ConnId(1), player);
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), player);
 
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.last_command_round = 0;

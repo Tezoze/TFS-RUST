@@ -1092,7 +1092,7 @@ pub fn insert_spectator_player(
 ) -> CreatureId {
     let pos = player.base.position;
     let cid = insert_player(world, player);
-    world.conn_to_creature.insert(conn_id, cid);
+    world.register_conn_mapping(conn_id, cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid

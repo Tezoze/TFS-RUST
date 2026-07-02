@@ -21,11 +21,9 @@ use crate::thing::LookTarget;
 use slotmap::Key;
 
 impl GameWorld {
+    /// O(1) reverse lookup via `creature_to_conn` (audit #4).
     pub(crate) fn conn_id_for_creature(&self, cid: CreatureId) -> Option<ConnId> {
-        self.conn_to_creature
-            .iter()
-            .find(|(_, &c)| c == cid)
-            .map(|(&conn, _)| conn)
+        self.creature_to_conn.get(&cid).copied()
     }
 
     /// `Player` inventory slot item — `Game::internalGetThing` inventory branch (`game.cpp` ~320–326).

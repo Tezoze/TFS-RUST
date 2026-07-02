@@ -309,17 +309,8 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
 
     // Broadcast `0x6B` to ALL spectators (inc. the mover) that can see the position.
     // C++ `map.getSpectators(spectators, pos, true, true)` → players only.
-    let spectators: Vec<ConnId> = world
-        .conn_to_creature
-        .iter()
-        .filter_map(|(&conn, &viewer)| {
-            if world.can_see_position(viewer, pos) {
-                Some(conn)
-            } else {
-                None
-            }
-        })
-        .collect();
+    // Grid-based fan-out (audit #4) — `spectator_conns_via_grid` applies `can_see_position`.
+    let spectators: Vec<ConnId> = world.spectator_conns_via_grid(pos);
 
     let packet = world
         .codec
@@ -600,11 +591,10 @@ impl GameWorld {
         self.check_creature_walk(cid, Instant::now());
     }
 
+    /// O(1) reverse lookup via `creature_to_conn` (audit #4). Replaces the previous
+    /// O(players) linear scan of `conn_to_creature`.
     pub(crate) fn conn_for_creature(&self, cid: CreatureId) -> Option<ConnId> {
-        self.conn_to_creature
-            .iter()
-            .find(|(_, &c)| c == cid)
-            .map(|(k, _)| *k)
+        self.creature_to_conn.get(&cid).copied()
     }
 
     /// Send a deferred `0x6B` from [`Self::player_turn_request`], if any (`walk-smoothness-audit` Bug 7).
@@ -618,17 +608,9 @@ impl GameWorld {
             stack_u8,
             dir,
         } = data;
-        let spectators: Vec<ConnId> = self
-            .conn_to_creature
-            .iter()
-            .filter_map(|(&conn, &viewer)| {
-                if self.can_see_position(viewer, pos) {
-                    Some(conn)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        // Grid-based fan-out (audit #4) — `spectator_conns_via_grid` already applies
+        // `can_see_position`, so every conn here can see `pos`.
+        let spectators: Vec<ConnId> = self.spectator_conns_via_grid(pos);
         for conn in spectators {
             let packet = self
                 .codec
@@ -1045,10 +1027,18 @@ impl GameWorld {
         let surface_to_underground = old_pos.z == 7 && new_pos.z >= 8;
         let z_changed = old_pos.z != new_pos.z;
 
-        let spectators: Vec<(ConnId, CreatureId)> = self
-            .conn_to_creature
-            .iter()
-            .filter_map(|(&conn, &viewer)| {
+        // Grid-based fan-out (audit #4): collect spectators from both old and new
+        // position viewports, union + dedup, then apply per-viewer can_see checks.
+        // C++ `Map::getSpectators` collects the union of old+new spectator sets
+        // (`map.cpp` ~264–323).
+        let mut spectator_conns: Vec<ConnId> = self.spectator_conns_via_grid(old_pos);
+        spectator_conns.extend(self.spectator_conns_via_grid(new_pos));
+        spectator_conns.sort_by_key(|c| c.0);
+        spectator_conns.dedup();
+        let spectators: Vec<(ConnId, CreatureId)> = spectator_conns
+            .into_iter()
+            .filter_map(|conn| {
+                let viewer = *self.conn_to_creature.get(&conn)?;
                 if viewer == mover {
                     return None;
                 }

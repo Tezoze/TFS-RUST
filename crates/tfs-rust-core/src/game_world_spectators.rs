@@ -98,13 +98,67 @@ impl GameWorld {
         protocol_can_see(viewer_pos, pos)
     }
 
+    /// Register a bidirectional `ConnId ↔ CreatureId` mapping (audit #4).
+    /// Maintains both [`Self::conn_to_creature`] and the reverse [`Self::creature_to_conn`]
+    /// index so spatial fan-out can resolve a creature's connection in O(1).
+    /// Call this instead of `conn_to_creature.insert` directly.
+    pub fn register_conn_mapping(&mut self, conn: ConnId, cid: CreatureId) {
+        self.conn_to_creature.insert(conn, cid);
+        self.creature_to_conn.insert(cid, conn);
+    }
+
+    /// Remove a `ConnId ↔ CreatureId` mapping (audit #4). Companion to
+    /// [`Self::register_conn_mapping`]. Call this instead of `conn_to_creature.remove`
+    /// directly so the reverse index stays in sync.
+    pub fn unregister_conn_mapping(&mut self, conn: ConnId) {
+        if let Some(cid) = self.conn_to_creature.remove(&conn) {
+            self.creature_to_conn.remove(&cid);
+        }
+    }
+
     /// Collect all `ConnId`s whose creature can see `pos`. Used by every broadcast.
+    ///
+    /// Resolves spectators through the chunk grid spatial index (audit #4) —
+    /// O(local crowd) instead of O(all online players). The grid over-collects
+    /// at chunk granularity; `protocol_can_see` filters precisely.
+    // C++ reference: `Map::getSpectators` (`map.cpp` ~386–474) + `ProtocolGame::canSee`
+    // (`protocolgame.cpp` ~796–823).
     fn spectator_conns(&self, pos: Position) -> Vec<ConnId> {
-        self.conn_to_creature
-            .iter()
-            .filter(|(_, &vid)| self.can_see_position(vid, pos))
-            .map(|(&c, _)| c)
-            .collect()
+        self.spectator_conns_via_grid(pos)
+    }
+
+    /// Grid-based spectator connection resolution (audit #4).
+    ///
+    /// Walks the chunk spatial index over the multi-floor Z span
+    /// ([`Self::spectator_z_range`], shared with the monster fan-out path), collects
+    /// all creatures in the overlapping chunks, then keeps only those that (a) hold a
+    /// `ConnId` (i.e. are online players) and (b) pass `ProtocolGame::canSee` for `pos`.
+    /// Sorted + deduped by SlotMap key for deterministic fan-out order.
+    pub(crate) fn spectator_conns_via_grid(&self, pos: Position) -> Vec<ConnId> {
+        let mut creature_ids: Vec<CreatureId> = Vec::new();
+        for z in Self::spectator_z_range(pos.z, true) {
+            self.map.grid.collect_spectators(
+                pos.x,
+                pos.y,
+                z,
+                MAX_CLIENT_VIEWPORT_X as u16,
+                MAX_CLIENT_VIEWPORT_Y as u16,
+                &mut creature_ids,
+            );
+        }
+        creature_ids.sort_by_key(|id| id.data().as_ffi());
+        creature_ids.dedup();
+
+        let mut conns: Vec<ConnId> = Vec::with_capacity(creature_ids.len());
+        for cid in creature_ids {
+            let Some(&viewer_conn) = self.creature_to_conn.get(&cid) else {
+                continue; // monster / NPC — not a player spectator
+            };
+            if self.can_see_position(cid, pos) {
+                conns.push(viewer_conn);
+            }
+        }
+        conns
     }
 
     /// Enqueue the same packet bytes for every connection that can see `pos` (clone per viewer).
@@ -140,26 +194,31 @@ impl GameWorld {
             Some(CreatureKind::Monster(m)) => (m.base.position, m.base.name.clone(), 0),
             _ => return,
         };
+        // `spectator_conns_via_grid` already filters by `can_see_position(viewer, pos)`,
+        // so every conn here can see the speaker's tile.
         let viewers: Vec<(ConnId, CreatureId)> = self
-            .conn_to_creature
-            .iter()
-            .map(|(&conn, &viewer)| (conn, viewer))
+            .spectator_conns_via_grid(pos)
+            .into_iter()
+            .filter_map(|conn| {
+                self.conn_to_creature
+                    .get(&conn)
+                    .copied()
+                    .map(|viewer| (conn, viewer))
+            })
             .collect();
-        for (conn, viewer) in viewers {
-            if self.can_see_position(viewer, pos) {
-                let sid = self.alloc_statement_id();
-                let pkt = self.codec.encode_creature_say(
-                    sid,
-                    &CreatureSayWire {
-                        speaker_name: name.clone(),
-                        level,
-                        speak_type,
-                        pos,
-                        text: text.into(),
-                    },
-                );
-                self.enqueue_outgoing(conn, pkt.into_bytes());
-            }
+        for (conn, _viewer) in viewers {
+            let sid = self.alloc_statement_id();
+            let pkt = self.codec.encode_creature_say(
+                sid,
+                &CreatureSayWire {
+                    speaker_name: name.clone(),
+                    level,
+                    speak_type,
+                    pos,
+                    text: text.into(),
+                },
+            );
+            self.enqueue_outgoing(conn, pkt.into_bytes());
         }
     }
 
@@ -497,6 +556,197 @@ impl GameWorld {
             .encode_remove_tile_thing(pos, stack_pos)
             .into_bytes();
         self.broadcast_to_spectators(pos, pkt);
+    }
+}
+
+/// Audit #4 / Phase 3 — equivalence test: the grid-based spectator connection set
+/// (`spectator_conns_via_grid`) must equal the old O(all players) full-scan set for a
+/// range of positions and floors, including the surface/underground boundary and
+/// underground ±2.
+#[cfg(test)]
+mod spectator_fanout_grid_tests {
+    use super::*;
+    use crate::sim_harness::{insert_spectator_player, minimal_world, test_player};
+    use slotmap::Key;
+    use std::collections::HashSet;
+    use tfs_rust_common::{ConnId, Position};
+
+    /// The pre-Phase-3 full-scan implementation, replicated locally for equivalence
+    /// comparison. Iterates every online connection and applies `can_see_position`.
+    fn spectator_conns_full_scan(world: &GameWorld, pos: Position) -> HashSet<ConnId> {
+        world
+            .conn_to_creature
+            .iter()
+            .filter(|(_, &vid)| world.can_see_position(vid, pos))
+            .map(|(&c, _)| c)
+            .collect()
+    }
+
+    fn grid_set(world: &GameWorld, pos: Position) -> HashSet<ConnId> {
+        world.spectator_conns_via_grid(pos).into_iter().collect()
+    }
+
+    /// Seed a world with players on surface (z=7), underground (z=8, 9, 10), and far away.
+    /// Returns the world. Each player gets a unique ConnId.
+    fn seeded_world() -> GameWorld {
+        let mut world = minimal_world();
+        // Surface cluster around (100, 100, 7).
+        insert_spectator_player(
+            &mut world,
+            ConnId(1),
+            test_player("A", Position::new(100, 100, 7)),
+        );
+        insert_spectator_player(
+            &mut world,
+            ConnId(2),
+            test_player("B", Position::new(105, 103, 7)),
+        );
+        insert_spectator_player(
+            &mut world,
+            ConnId(3),
+            test_player("C", Position::new(108, 106, 7)),
+        );
+        // Just outside the 8×6+1 viewport of (100,100,7): x=110 is at the edge.
+        insert_spectator_player(
+            &mut world,
+            ConnId(4),
+            test_player("D", Position::new(120, 120, 7)),
+        );
+        // Underground, directly below the surface cluster.
+        insert_spectator_player(
+            &mut world,
+            ConnId(5),
+            test_player("E", Position::new(100, 100, 8)),
+        );
+        insert_spectator_player(
+            &mut world,
+            ConnId(6),
+            test_player("F", Position::new(100, 100, 9)),
+        );
+        // Underground too deep to see z=8 from z=10 is fine (|dz|=2), but z=11 vs z=8 is |dz|=3.
+        insert_spectator_player(
+            &mut world,
+            ConnId(7),
+            test_player("G", Position::new(100, 100, 11)),
+        );
+        // Far away on surface — no spatial overlap with the (100,100) cluster.
+        insert_spectator_player(
+            &mut world,
+            ConnId(8),
+            test_player("H", Position::new(200, 200, 7)),
+        );
+        world
+    }
+
+    #[test]
+    fn grid_equals_full_scan_surface_center() {
+        let world = seeded_world();
+        let pos = Position::new(100, 100, 7);
+        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+    }
+
+    #[test]
+    fn grid_equals_full_scan_surface_edge() {
+        let world = seeded_world();
+        // A position near the viewport edge of player D.
+        let pos = Position::new(119, 119, 7);
+        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+    }
+
+    #[test]
+    fn grid_equals_full_scan_underground() {
+        let world = seeded_world();
+        // Underground at z=8 — surface players (z<=7) cannot see this; underground
+        // players within ±2 can.
+        let pos = Position::new(100, 100, 8);
+        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+    }
+
+    #[test]
+    fn grid_equals_full_scan_underground_deep() {
+        let world = seeded_world();
+        // z=9: visible from z=8 (|dz|=1) and z=10..11 (|dz|<=2), not from z=7 surface.
+        let pos = Position::new(100, 100, 9);
+        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+    }
+
+    #[test]
+    fn grid_equals_full_scan_surface_underground_boundary() {
+        let world = seeded_world();
+        // Querying from surface (z=7) — underground players are never visible
+        // (protocol_can_see: my_z<=7 && z>7 → false).
+        let pos = Position::new(105, 103, 7);
+        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+    }
+
+    #[test]
+    fn grid_equals_full_scan_far_away_isolated() {
+        let world = seeded_world();
+        // A position near the far-away player H — only H should see it.
+        let pos = Position::new(200, 200, 7);
+        let grid = grid_set(&world, pos);
+        let full = spectator_conns_full_scan(&world, pos);
+        assert_eq!(grid, full);
+        // Sanity: the far-away player is the only spectator.
+        assert!(grid.contains(&ConnId(8)), "far-away player H must be a spectator of its own tile");
+        assert_eq!(grid.len(), 1, "only H should see (200,200,7)");
+    }
+
+    #[test]
+    fn grid_equals_full_scan_void_position_no_spectators() {
+        let world = seeded_world();
+        // A position with no tile and no nearby players in the chunk.
+        let pos = Position::new(50, 50, 7);
+        let grid = grid_set(&world, pos);
+        let full = spectator_conns_full_scan(&world, pos);
+        assert_eq!(grid, full);
+        assert!(grid.is_empty(), "no player should see an isolated void position");
+    }
+
+    /// The grid path must not return duplicate conns even when a creature's chunk
+    /// is collected from multiple Z-floors (it can't be on two floors, but the
+    /// dedup must hold for the general case).
+    #[test]
+    fn grid_no_duplicates() {
+        let world = seeded_world();
+        let pos = Position::new(100, 100, 8);
+        let conns = world.spectator_conns_via_grid(pos);
+        let unique: HashSet<ConnId> = conns.iter().copied().collect();
+        assert_eq!(conns.len(), unique.len(), "spectator_conns_via_grid must not produce duplicates");
+    }
+
+    /// `conn_for_creature` must agree with the reverse index for every online player.
+    #[test]
+    fn conn_for_creature_uses_reverse_index() {
+        let world = seeded_world();
+        for (&conn, &cid) in &world.conn_to_creature {
+            assert_eq!(
+                world.conn_for_creature(cid),
+                Some(conn),
+                "conn_for_creature must agree with conn_to_creature for creature {:?}",
+                cid.data().as_ffi()
+            );
+        }
+    }
+
+    /// `register_conn_mapping` / `unregister_conn_mapping` keep both maps in sync.
+    #[test]
+    fn register_unregister_conn_mapping_keeps_reverse_index_in_sync() {
+        let mut world = seeded_world();
+        let conn = ConnId(99);
+        let cid = insert_spectator_player(
+            &mut world,
+            conn,
+            test_player("Z", Position::new(100, 100, 7)),
+        );
+        assert_eq!(world.conn_for_creature(cid), Some(conn));
+        assert_eq!(world.conn_to_creature.get(&conn), Some(&cid));
+        assert_eq!(world.creature_to_conn.get(&cid), Some(&conn));
+
+        world.unregister_conn_mapping(conn);
+        assert!(world.conn_for_creature(cid).is_none());
+        assert!(!world.conn_to_creature.contains_key(&conn));
+        assert!(!world.creature_to_conn.contains_key(&cid));
     }
 }
 

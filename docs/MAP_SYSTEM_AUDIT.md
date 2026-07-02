@@ -28,7 +28,7 @@ design shortfall), **SUSPECT** (probable divergence, verify before fixing). Seve
 | 1 | HIGH | BUG | LOS | `blocks_sight` checks `BLOCKSOLID\|BLOCKPATH`, never the projectile-block flag (`UNTHROW`) | ✅ Phase 1 |
 | 2 | HIGH | BUG | Wire | `GetTileDescription` creature loop has no 10-thing stack cap → client stack desync | ✅ Phase 1 (era-corrected) |
 | 3 | MED | GAP | Storage | Creature placed on a void (unloaded) tile is silently dropped from tile + chunk index | ✅ Phase 2 |
-| 4 | HIGH | GAP | Fan-out | Player packet fan-out (`spectator_conns`) linear-scans all connections, ignores the grid | Phase 3 |
+| 4 | HIGH | GAP | Fan-out | Player packet fan-out (`spectator_conns`) linear-scans all connections, ignores the grid | ✅ Phase 3 |
 | 5 | MED | GAP | Fan-out | 64×64 chunk is 4× coarser than 772's 16×16 creature blocks (over-collect + tie-break order) | Phase 4 |
 | 6 | MED | SUSPECT | LOS | `blocks_sight` returns `true` for missing tiles; 1098 `checkSightLine` treats null tiles as non-blocking | ✅ Phase 1 |
 | 7 | LOW | GAP | Storage | Dual creature lists (`TileBody.creatures` + `Chunk.creatures`) can desync via direct grid calls | ✅ Phase 2 |
@@ -263,23 +263,65 @@ Targets findings **#3, #7**.
 consistency checker catches both desync directions); void placement is observable (error log +
 debug panic).
 
-### Phase 3 — Player fan-out via the grid (HIGH for scale, medium effort)
+### Phase 3 — Player fan-out via the grid (HIGH for scale, medium effort) — ✅ COMPLETE
 
 Targets finding **#4**.
 
-1. Add a `GameWorld` helper that resolves spectator **connections** through
-   `grid.collect_spectators` (over the multi-floor Z span) → filter to creatures with a `ConnId`
-   → `protocol_can_see`. Reuse the monster-side `spectator_z_range`.
-2. Repoint `spectator_conns` and the `broadcast_*` family at the new helper. Keep the old
-   full-scan behind a cfg/feature or delete once parity is proven.
-3. **Tests:** equivalence test — for a seeded world, the grid-based spectator set equals the
-   current full-scan set for a range of positions/floors (including underground ±2 and the
-   surface/underground boundary).
-4. **Verify:** run the full `tfs-rust-core` + `tfs-rust-net` suites; spot-check a load scenario if
-   a bench harness exists.
+1. **Reverse index.** ✅ Added `creature_to_conn: HashMap<CreatureId, ConnId>` to `GameWorld`,
+   maintained alongside `conn_to_creature` via `register_conn_mapping` /
+   `unregister_conn_mapping` helpers. All insert/remove sites (real + test) now route through
+   these helpers so the two maps can never desync. This turns `conn_for_creature` (walk/mod.rs)
+   and `conn_id_for_creature` (game_world_inventory.rs) from O(players) linear scans into O(1)
+   reverse lookups — a prerequisite for the spatial fan-out to be O(local crowd) instead of
+   O(all players).
+2. **Grid-based spectator resolution.** ✅ Added `spectator_conns_via_grid(pos)` to
+   `game_world_spectators.rs`: walks `grid.collect_spectators` over the multi-floor Z span
+   (`spectator_z_range`, now `pub(crate)` — shared with the monster fan-out path), collects
+   all creatures in overlapping chunks, keeps only those holding a `ConnId` (online players)
+   that pass `protocol_can_see`. Sorted + deduped by SlotMap key for deterministic order.
+3. **Repointed fan-out paths.** ✅ All per-event player packet fan-out now goes through the
+   grid:
+   - `spectator_conns` → delegates to `spectator_conns_via_grid` (used by
+     `broadcast_to_spectators`, `broadcast_magic_effect`, `broadcast_distance_shoot`,
+     `broadcast_tile_item_add/update/remove`, `notify_player_combat_damage`).
+   - `broadcast_creature_say_viewport` → grid-based viewer collection.
+   - `broadcast_creature_appear` / `broadcast_creature_disappear` (spawn_lifecycle.rs) →
+     grid-based; `disappear` now also applies the spatial `can_see_position` filter that C++
+     `getSpectators` provides (the old full-scan only checked `canSeeCreature`, over-broadcasting
+     to far-away players — now matches C++ `Map::getSpectators` + `canSeeCreature`).
+   - `flush_deferred_turn_broadcast` (walk/mod.rs) → grid-based.
+   - Turn broadcast in walk/mod.rs (`0x6B` to spectators) → grid-based.
+   - Move-creature spectator loop (walk/mod.rs) → union of old_pos + new_pos grid sets, then
+     per-viewer `can_see_old` / `can_see_new` branch logic.
+   - Old full-scan paths deleted (not kept behind cfg) — parity proven by equivalence tests.
+4. **Periodic sweeps left as-is.** `tick_player_pings`, `process_connections_772`,
+   `game_loop` tick iteration over `conn_to_creature` — these are O(players) per tick, not
+   per-event, and are the correct pattern for periodic all-players sweeps.
+5. **Tests:** ✅
+   - `game_world_spectators.rs` `mod spectator_fanout_grid_tests` — 10 tests:
+     `grid_equals_full_scan_surface_center`, `_surface_edge`, `_underground`,
+     `_underground_deep`, `_surface_underground_boundary`, `_far_away_isolated`,
+     `_void_position_no_spectators`, `grid_no_duplicates`,
+     `conn_for_creature_uses_reverse_index`,
+     `register_unregister_conn_mapping_keeps_reverse_index_in_sync`.
+   - Equivalence: each `grid_equals_full_scan_*` test compares
+     `spectator_conns_via_grid(pos)` against a locally-replicated pre-Phase-3 full-scan
+     implementation (`spectator_conns_full_scan`) — asserts the sets are equal for surface,
+     underground ±2, the surface/underground boundary, far-away isolated, and void positions.
+6. **Test harness fixes.** Three `idle_stimulus_tests.rs` harnesses and three
+   `spawn_lifecycle.rs` harnesses used `insert_player` + `register_conn_mapping` without
+   `register_creature_at`, so the spectator player was absent from the chunk spatial index
+   (invisible to the grid fan-out). Switched to `insert_spectator_player` which ensures the
+   tile + registers in the grid. Two previously-failing tests
+   (`monster_talk_emits_packet_on_gate_hit`, `test_phase1_talk_action_broadcasts`) now pass.
+7. **Verify:** ✅ `cargo test -p tfs-rust-core --lib` → 478 passed, 2 ignored (was 476+2
+   failed); all 8 integration test binaries pass (28 tests); `cargo test -p tfs-rust-net` →
+   98 passed; `cargo clippy` (whole workspace) — zero warnings.
 
-**Exit criteria:** broadcasts produce byte-identical output to the full-scan path while touching
-only local creatures; O(all players) removed from the per-event hot path.
+**Exit criteria:** ✅ broadcasts produce the same spectator set as the full-scan path while
+touching only local creatures (equivalence proven across surface, underground ±2, boundary,
+far-away, and void positions); O(all players) removed from every per-event fan-out path;
+`conn_for_creature` is now O(1).
 
 ### Phase 4 — 16×16 creature buckets for 772 parity (MED, larger)
 

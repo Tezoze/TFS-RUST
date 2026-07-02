@@ -14,8 +14,8 @@
     use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult};
     use crate::test_world::support::{
         dist_idle_monster_config, beat_driven_test_world, ensure_walkable_tile,
-        insert_monster, insert_monster_with_config, insert_player, minimal_world,
-        test_player, TEST_SYNTHETIC_GROUND_WP,
+        insert_monster, insert_monster_with_config, insert_player, insert_spectator_player,
+        minimal_world, test_player, TEST_SYNTHETIC_GROUND_WP,
     };
 
     /// Same-floor creature outside the 10-tile targeting box — `CanSeeFloor` awake without a target.
@@ -3710,9 +3710,8 @@
                 mon.state = MonsterState::Idle;
                 mon.is_idle = false;
             }
-            let v = insert_player(&mut w, test_player("Spec", Position::new(101, 100, 7)));
             let cn = tfs_rust_common::ConnId(3);
-            w.conn_to_creature.insert(cn, v);
+            let v = insert_spectator_player(&mut w, cn, test_player("Spec", Position::new(101, 100, 7)));
             w.known_creatures_by_conn.insert(cn, std::collections::HashSet::new());
             w.pending_outgoing.clear();
             w.monster_idle_stimulus(m);
@@ -3740,9 +3739,8 @@
             m.state = MonsterState::Idle;
             m.is_idle = false;
         }
-        let viewer = insert_player(&mut world, test_player("Spec", Position::new(101, 100, 7)));
         let conn = tfs_rust_common::ConnId(3);
-        world.conn_to_creature.insert(conn, viewer);
+        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
         world.known_creatures_by_conn.insert(conn, std::collections::HashSet::new());
         world.pending_outgoing.clear();
         world.monster_idle_stimulus(monster);
@@ -3987,9 +3985,8 @@
                 );
             }
         }
-        let player = insert_player(&mut world, test_player("Hero", ppos));
         let conn = tfs_rust_common::ConnId(1);
-        world.conn_to_creature.insert(conn, player);
+        let player = insert_spectator_player(&mut world, conn, test_player("Hero", ppos));
         world
             .known_creatures_by_conn
             .insert(conn, std::collections::HashSet::new());

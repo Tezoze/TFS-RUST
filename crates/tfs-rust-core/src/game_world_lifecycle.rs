@@ -145,8 +145,8 @@ impl GameWorld {
             self.broadcast_magic_effect(pos, 4);
         }
 
-        // Remove connection mapping
-        self.conn_to_creature.remove(&conn_id);
+        // Remove connection mapping (audit #4 — keeps reverse index in sync)
+        self.unregister_conn_mapping(conn_id);
         self.known_creatures_by_conn.remove(&conn_id);
         self.creature_fully_sent_by_conn.remove(&conn_id);
 
