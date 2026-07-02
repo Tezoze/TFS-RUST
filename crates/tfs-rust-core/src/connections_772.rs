@@ -120,14 +120,25 @@ impl GameWorld {
     }
 }
 
-/// Whether a client packet counts as player action for idle kick — `connections.cc:56-60`.
+/// Whether a client packet counts as player action for idle kick.
+///
+/// Mirrors `TConnection::ResetTimer` (`tibia-game-master/src/connections.cc:53-63`): the five
+/// 772 opcodes that refresh `TimeStamp` but **not** `TimeStampAction` are
+/// `CL_CMD_PING` (0x1E → `Ping`), `CL_CMD_GO_STOP` (0x69 → `StopAutoWalk`),
+/// `CL_CMD_CANCEL` (0xBE → `CancelAttackAndFollow`), `CL_CMD_REFRESH_FIELD` (0xC9 → `UpdateTile`
+/// in the shared decoder; the 772 "browse field" request) and `CL_CMD_REFRESH_CONTAINER`
+/// (0xCA → `UpdateContainer`).
+///
+/// `Turn` (0x6F–0x72) and `PingBack` (0x1D, OTClient-only) are **not** in the C++ exemption list
+/// and therefore do count as actions — turning to dodge the idle kick is not 772-faithful.
 pub(crate) fn packet_counts_as_action_772(packet: &GamePacket) -> bool {
     !matches!(
         packet,
         GamePacket::Ping
-            | GamePacket::PingBack
             | GamePacket::StopAutoWalk
-            |         GamePacket::Turn(_)
+            | GamePacket::CancelAttackAndFollow
+            | GamePacket::UpdateTile
+            | GamePacket::UpdateContainer { .. }
     )
 }
 
@@ -230,5 +241,53 @@ mod tests {
         world.round_nr_772 = 90;
         let kick = world.process_connections_772();
         assert_eq!(kick.len(), 1, "LastCommand >= 90 must trigger connection timeout");
+    }
+
+    /// `packet_counts_as_action_772` mirrors `TConnection::ResetTimer` (`connections.cc:53-63`):
+    /// the five 772 exempt opcodes do **not** refresh `TimeStampAction`; everything else (including
+    /// `Turn` and `PingBack`, which were previously mis-exempted) does.
+    #[test]
+    fn packet_counts_as_action_matches_772_reset_timer() {
+        use tfs_rust_common::enums::Direction;
+        use tfs_rust_common::game_packet::SayPayload;
+        use tfs_rust_common::GamePacket;
+
+        use super::packet_counts_as_action_772;
+
+        // Exempt — must NOT count as action (matches C++ exemption list).
+        let exempt = [
+            GamePacket::Ping,
+            GamePacket::StopAutoWalk,
+            GamePacket::CancelAttackAndFollow,
+            GamePacket::UpdateTile,
+            GamePacket::UpdateContainer { cid: 0 },
+        ];
+        for p in exempt {
+            assert!(
+                !packet_counts_as_action_772(&p),
+                "exempt packet {p:?} must not count as action"
+            );
+        }
+
+        // Counts as action — previously mis-exempted or never exempt.
+        let actionable = [
+            GamePacket::PingBack,
+            GamePacket::Turn(Direction::North),
+            GamePacket::Turn(Direction::East),
+            GamePacket::Move(Direction::South),
+            GamePacket::Attack { creature_id: 1 },
+            GamePacket::Say(SayPayload {
+                speak_class: 0,
+                channel_id: 0,
+                receiver: String::new(),
+                text: "hi".into(),
+            }),
+        ];
+        for p in actionable {
+            assert!(
+                packet_counts_as_action_772(&p),
+                "action packet {p:?} must count as action"
+            );
+        }
     }
 }

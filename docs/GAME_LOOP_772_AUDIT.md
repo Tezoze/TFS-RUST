@@ -19,7 +19,7 @@ ToDo/`Execute` path, the delayed-event `Scheduler`, and the player-move scheduli
 
 | # | Area | Severity | Status |
 |---|------|----------|--------|
-| 1 | Idle-timer action-exemption list wrong (`packet_counts_as_action_772`) | **High** | Bug |
+| 1 | Idle-timer action-exemption list wrong (`packet_counts_as_action_772`) | **High** | ✅ Fixed (F1) |
 | 2 | `ProcessCreatures`: PK-mark clearing + PZ-gated item regen missing | Medium | Gap |
 | 3 | `TSkillFed` regen: hardcoded Rust table instead of `vocations.xml`; no PZ / no-food gate | Medium | Bug |
 | 4 | `Scheduler` (`addEvent`) delivers `LuaCallback` but it is never dispatched | Medium | Gap |
@@ -52,7 +52,7 @@ ToDo/`Execute` path, the delayed-event `Scheduler`, and the player-move scheduli
 
 ---
 
-## Finding 1 — Idle-timer action-exemption list is wrong (High)
+## Finding 1 — Idle-timer action-exemption list is wrong (High) — ✅ Fixed (F1)
 
 **File:** `crates/tfs-rust-core/src/connections_772.rs` — `packet_counts_as_action_772`
 **C++:** `TConnection::ResetTimer` (`connections.cc:53-63`), opcodes `connections.hh:14-75`
@@ -65,28 +65,19 @@ ToDo/`Execute` path, the delayed-event `Scheduler`, and the player-move scheduli
 | `CL_CMD_PING` | 30 | `Ping` |
 | `CL_CMD_GO_STOP` | 105 | `StopAutoWalk` |
 | `CL_CMD_CANCEL` | 190 | `CancelAttackAndFollow` |
-| `CL_CMD_REFRESH_FIELD` | 201 | `BrowseField` |
+| `CL_CMD_REFRESH_FIELD` | 201 | `UpdateTile` (772 "refresh field", 0xC9; shared decoder maps to `UpdateTile`) |
 | `CL_CMD_REFRESH_CONTAINER` | 202 | `UpdateContainer` |
 
-Current Rust:
+**Resolution (F1):** exemption list rewritten to match the C++ list exactly — `Ping`,
+`StopAutoWalk`, `CancelAttackAndFollow`, `UpdateTile`, `UpdateContainer { .. }`. Removed
+`Turn(_)` (not in C++ list — turning resets the action timer) and `PingBack` (OTClient-only
+0x1D, not a 772 opcode). Test `packet_counts_as_action_matches_772_reset_timer` covers all
+exempt + actionable cases.
 
-```rust
-!matches!(packet,
-    GamePacket::Ping | GamePacket::PingBack
-    | GamePacket::StopAutoWalk
-    | GamePacket::Turn(_))          // wrong
-```
-
-Divergences:
-
-- **`Turn` is wrongly exempted.** `CL_CMD_ROTATE_*` (111–114) is **not** in the C++ exempt list,
-  so turning *does* reset the action timer. As written, a player who only turns keeps counting
-  toward the idle kick and gets disconnected when the engine would keep them active.
-- **`CancelAttackAndFollow` (`CL_CMD_CANCEL` 190) is missing** — should be exempt; it currently
-  resets the idle timer.
-- **`BrowseField` (`CL_CMD_REFRESH_FIELD` 201) and `UpdateContainer`
-  (`CL_CMD_REFRESH_CONTAINER` 202) are missing** — should be exempt.
-- `PingBack` is extra but harmless (772 has a single ping opcode 30).
+> Note: the audit originally listed `BrowseField` for `CL_CMD_REFRESH_FIELD`, but `0xCB`
+> (`BrowseField`) is in `V772_REMOVED` — 772 clients never send it. The 772 "refresh field"
+> opcode is `0xC9`, which the shared decoder maps to `UpdateTile`. `BrowseField` is a
+> 1098-only concept.
 
 **Fix:** exempt `Ping`, `StopAutoWalk`, `CancelAttackAndFollow`, `BrowseField`, `UpdateContainer`
 (and, if desired, keep `PingBack`); **remove `Turn`**.
