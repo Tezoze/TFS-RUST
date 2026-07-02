@@ -37,11 +37,9 @@ impl GameWorld {
             self.events.lua_gc_step();
         }
         // 1098 proactive `sendPing` uses wallclock `Instant` (`Player::sendPing` `player.cpp` ~902).
-        // 772 `ProcessConnections` sends pings at round 30/60 via `process_connections_772`
-        // (`connections.cc:24`) — no wallclock on the 772 path.
-        if !self.beat_driven_loop {
-            self.tick_player_pings(now);
-        }
+        // 772 `Player::sendPing` (`player.cpp:754`) is also wallclock-based (5000ms from `onThink`)
+        // and runs alongside the round-based `ProcessConnections` idle ping — both eras use it.
+        self.tick_player_pings(now);
 
         if self.beat_driven_loop {
             self.round_nr_772 = self.round_nr_772.saturating_add(1);
