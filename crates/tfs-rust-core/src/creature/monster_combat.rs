@@ -284,10 +284,19 @@ pub fn melee_poison_on_hit<R: Rng + ?Sized>(
         return None;
     }
     let half = poison_cycles / 2;
-    let poison_dmg = if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-        crate::sim_glibc_rand::sim_random(half, poison_cycles)
-    } else {
-        crate::combat::uniform_random(rng, half, poison_cycles)
+    let poison_dmg = {
+        #[cfg(any(test, feature = "sim"))]
+        {
+            if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                crate::sim_glibc_rand::sim_random(half, poison_cycles)
+            } else {
+                crate::combat::uniform_random(rng, half, poison_cycles)
+            }
+        }
+        #[cfg(not(any(test, feature = "sim")))]
+        {
+            crate::combat::uniform_random(rng, half, poison_cycles)
+        }
     };
     if poison_dmg <= 0 {
         return None;

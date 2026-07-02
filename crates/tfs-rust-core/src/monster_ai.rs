@@ -585,21 +585,24 @@ impl GameWorld {
         // C++ `ResyncHarnessRng` at appear + one lose/talk prelude per idle (`crnonpl.cc:2429`, `:2440`).
         // Rust harness drains can run extra idle preambles before the first strike — realign probes.
         // Dual-monster real-map bowl: C++ draw order differs from one_real; skip global realign (T5).
-        let melee_realign = std::env::var("TFS_SIM_MELEE_REALIGN")
-            .map(|v| !v.is_empty() && v != "0")
-            .unwrap_or(true);
-        if melee_realign
-            && !self.beat_driven_loop
-            && crate::sim_glibc_rand::sim_glibc_rng_enabled()
-            && crate::sim_glibc_rand::sim_rng_call_count() > 2
-            && !crate::sim_glibc_rand::harness_melee_realign_done()
+        #[cfg(any(test, feature = "sim"))]
         {
-            crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
-            let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_lose");
-            let _ = crate::sim_glibc_rand::parity_random(0, 99);
-            let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_talk");
-            let _ = crate::sim_glibc_rand::parity_rand_mod(50);
-            crate::sim_glibc_rand::mark_harness_melee_realign_done();
+            let melee_realign = std::env::var("TFS_SIM_MELEE_REALIGN")
+                .map(|v| !v.is_empty() && v != "0")
+                .unwrap_or(true);
+            if melee_realign
+                && !self.beat_driven_loop
+                && crate::sim_glibc_rand::sim_glibc_rng_enabled()
+                && crate::sim_glibc_rand::sim_rng_call_count() > 2
+                && !crate::sim_glibc_rand::harness_melee_realign_done()
+            {
+                crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
+                let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_lose");
+                let _ = crate::sim_glibc_rand::parity_random(0, 99);
+                let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_talk");
+                let _ = crate::sim_glibc_rand::parity_rand_mod(50);
+                crate::sim_glibc_rand::mark_harness_melee_realign_done();
+            }
         }
 
         let _trace_atk = crate::sim_glibc_rand::sim_rng_trace_site("melee_attack_probe");

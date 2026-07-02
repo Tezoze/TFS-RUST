@@ -293,6 +293,37 @@ Source: `docs/REFACTOR_AUDIT.md` §"Phase 1". Pure code-movement; no logic/renam
 - [x] Exit criteria: `idle_stimulus.rs` ≤~2500 (2511), `monster_ai.rs` at audit-measured prod
       LOC ~2835 (2843). Test pass count identical.
 
+## Refactor Audit Phase 2 — Quarantine simulation/debug code  [2026-07-02]
+
+Source: `docs/REFACTOR_AUDIT.md` §"Phase 2". Gate diagnostic/sim modules behind `sim` cargo feature.
+
+- [x] Add `sim = []` cargo feature to `tfs-rust-core/Cargo.toml` (default off).
+      `chase_kite_sim` bin: `required-features = ["sim"]`. `path_compare` bin: no feature needed.
+- [x] Gate `pub mod sim_harness` in `lib.rs` with `#[cfg(any(test, feature = "sim"))]`.
+- [x] `chase_debug.rs` — split into no-op stubs (`#[cfg(not(any(test, feature = "sim")))]`)
+      + full implementation (`#[cfg(any(test, feature = "sim"))]`). Stubs have identical
+      signatures; `chase_path_debug_enabled() → false` eliminates all log call branches.
+- [x] `sim_glibc_rand.rs` — always-compiled: `GlibcRngState`, `DANCE_DIR_ORDER`,
+      `parity_random/rand_mod/random_shuffle` (sim branch gated), `sim_glibc_rng_enabled`
+      (returns `false` in production), `SimRngTraceSiteGuard` + `sim_rng_trace_site` (no-op).
+      Feature-gated: `sim_random`, `sim_rand_mod`, `SimGlibcRng`, `enable_sim_glibc_rng`,
+      `resync_harness_glibc_rng_from_env`, trace functions, `sim_probe_random_factor`,
+      `harness_melee_realign_*`, `draw_rand`.
+- [x] Production call sites — `#[cfg(any(test, feature = "sim"))]` on sim-only branches:
+      `combat/math.rs` (2: probe factor + armor roll), `creature/monster_combat.rs` (1: poison),
+      `monster_ai.rs` (1: melee realign block), `game_world.rs` (3: init_sim_rng, resync, dance).
+- [x] Exposed dead code gated: `spawn_placement.rs` (`search_login_field`, `spiral_login_positions`,
+      `harness_place_creature_login`), `game_world.rs` (`player_apply_spell_exhaust`,
+      `parity_random_shuffle` method), `sim_glibc_rand.rs` (`parity_random_shuffle` free fn).
+- [x] Verify — `cargo check -p tfs-rust-core` (default) → 0 errors, no sim code compiled.
+- [x] Verify — `cargo test -p tfs-rust-core --lib` → 481 passed, 2 ignored (identical to baseline).
+- [x] Verify — `cargo check -p tfs-rust-core --features sim` → 0 errors.
+- [x] Verify — `cargo check --bin chase_kite_sim --features sim` → 0 errors.
+- [x] Verify — `cargo check --bin path_compare` (no sim) → 0 errors.
+- [x] Verify — `cargo check --bin chase_kite_sim` (no sim) → correctly fails (feature required).
+- [x] Verify — clippy net warnings **decreased**: lib 44→29, test 76→75. No new unique warnings.
+- [x] Lessons: appended #100 to `tasks/lessons.md`.
+
 ## Map System Audit — Phase 2: Storage invariants (findings #3, #7)
 
 Source: `docs/MAP_SYSTEM_AUDIT.md` §Phase 2. Targets MED #3 (void-tile registration loss)

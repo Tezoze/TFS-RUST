@@ -32,7 +32,7 @@ and one god-object (`GameWorld`) account for most of the mess.
 
 1. **Split `idle_stimulus.rs` (6,809→2,511 LOC) and `monster_ai.rs` (4,758→2,843 LOC).** ✅ Phase 1 done 2026-07-01 — inline tests extracted to `#[path]` sibling files; test pass count & clippy set byte-identical before/after. The remaining split into `monster_idle/` + `monster_ai/` module *directories* (per §1 recommendation) is Phase 4 work.
 2. **Tame the `GameWorld` god-object** — `impl GameWorld` is spread across **34 files**.
-3. **Move simulation/debug harness code out of the production `core` library.**
+3. **Move simulation/debug harness code out of the production `core` library.** ✅ Phase 2 done 2026-07-02 — `sim_harness`, `chase_debug`, and `sim_glibc_rand` sim parts gated behind `#[cfg(any(test, feature = "sim"))]` with no-op stubs for production. `chase_kite_sim` bin requires `--features sim`.
 4. **Fix `_772` naming-rule violations on core functions** (259 identifiers, 110 on `fn`s).
 5. **Decompose oversized functions** (20+ functions over 120 lines, longest is 317).
 
@@ -251,7 +251,7 @@ each stage shrinks the surface the next has to move.
 | Stage | Phases | Effort | Risk | Outcome |
 |-------|--------|--------|------|---------|
 | **A — Clear the noise** | 0, 1 | ~2–3 d | ~zero | Backups/markers gone; inline tests pulled out — roughly halves the two mega-files by pure cut/paste. **Phase 1 ✅ done 2026-07-01** (Phase 0 still pending). |
-| **B — Shrink the surface** | 2, 3 | ~2–4 d | low | Sim/debug code behind a `sim` feature; `_772` core fns renamed by behavior (compiler-guided) |
+| **B — Shrink the surface** | 2, 3 | ~2–4 d | low | Sim/debug code behind a `sim` feature; `_772` core fns renamed by behavior (compiler-guided). **Phase 2 ✅ done 2026-07-02** |
 | **C — Make monoliths legible** | 4, 5 | ~1–2 wk | low/med | `idle_stimulus.rs`/`monster_ai.rs` become module dirs; 20+ oversized fns split into per-stage helpers |
 | **D — Tame the god-object** | 6 | multi-wk | **high** | ~51 `GameWorld` fields grouped into sub-structs; `impl` methods become free fns on minimal borrows — kills `mem::take`/borrow-splitting |
 
@@ -396,7 +396,9 @@ them into one wrapper module.
 
 ---
 
-## Phase 2 — Quarantine simulation/debug code (1 day, low risk)
+## Phase 2 — Quarantine simulation/debug code (1 day, low risk) ✅ DONE 2026-07-02
+
+> **Status: COMPLETE.** All exit criteria met. See "Phase 2 results" below.
 
 **Goal:** stop diagnostic scaffolding from shipping in the production `core` API.
 
@@ -411,6 +413,52 @@ them into one wrapper module.
 
 **Exit criteria:** `rtk cargo check -p tfs-rust-core` (default features) compiles without
 `sim_harness`/`chase_debug`; sim binaries still build with `--features sim`.
+
+### Phase 2 results
+
+**Key discovery:** the audit's framing of `chase_debug` and `sim_glibc_rand` as pure "diagnostic
+scaffolding" was partially incorrect. Both are called from 6+ production files. `sim_glibc_rand`
+contains production code: `GlibcRngState` (the `GameWorld::parity_rng` field for the 772 beat-driven
+loop), `DANCE_DIR_ORDER` (monster AI constant), and `parity_random/rand_mod/random_shuffle`
+(production RNG dispatchers that use `thread_rng` when sim mode is off). A simple `#[cfg(feature =
+"sim")]` gate on the whole module would break production compilation.
+
+**Approach:** `#[cfg(any(test, feature = "sim"))]` gates the full implementation;
+`#[cfg(not(any(test, feature = "sim")))]` provides no-op stubs with identical signatures. `cargo
+test` auto-enables via `cfg(test)` — no workflow change. Production builds compile stubs only.
+
+| Module | Always compiled | `#[cfg(any(test, feature = "sim"))]` |
+|--------|----------------|--------------------------------------|
+| `sim_harness` | — | Entire module (test/diagnostic only) |
+| `chase_debug` | Stubs (all `log_*` → no-op, `chase_path_debug_enabled() → false`) | Full JSONL trace implementation |
+| `sim_glibc_rand` | `GlibcRngState`, `DANCE_DIR_ORDER`, `parity_*` dispatchers, `sim_glibc_rng_enabled() → false`, `sim_rng_trace_site` (no-op guard) | `sim_random`, `sim_rand_mod`, `SimGlibcRng`, `enable_sim_glibc_rng`, `resync_harness_glibc_rng_from_env`, trace functions, `sim_probe_random_factor`, `harness_melee_realign_*`, `draw_rand` |
+
+**Production call site changes** — `#[cfg(any(test, feature = "sim"))]` on sim-only branches
+inside `if sim_glibc_rng_enabled()` blocks:
+- `combat/math.rs` (2 sites: probe random factor + armor roll)
+- `creature/monster_combat.rs` (1 site: poison damage sim path)
+- `monster_ai.rs` (1 site: melee realign block)
+- `game_world.rs` (3 sites: `init_sim_rng_from_env` sim parts, `resync_sim_glibc_rng`, `sim_dance_choice` sim branch)
+
+**Exposed dead code** — gating `sim_harness` revealed functions only kept alive by the
+`chase_kite_sim` bin: `search_login_field` / `spiral_login_positions` / `harness_place_creature_login`
+in `spawn_placement.rs` (gated with `#[cfg(any(test, feature = "sim"))]`), `player_apply_spell_exhaust`
+and `parity_random_shuffle` method in `game_world.rs` (`#[allow(dead_code)]` — pre-existing dead code).
+
+**Verification:**
+- `cargo check -p tfs-rust-core` (default) → 0 errors, no sim code compiled. ✅
+- `cargo test -p tfs-rust-core --lib` → **481 passed, 2 ignored** — identical to pre-Phase-2 baseline. ✅
+- `cargo check -p tfs-rust-core --features sim` → 0 errors. ✅
+- `cargo check --bin chase_kite_sim --features sim` → 0 errors. ✅
+- `cargo check --bin path_compare` (no sim) → 0 errors. ✅
+- `cargo check --bin chase_kite_sim` (no sim) → correctly fails (`requires the features: sim`). ✅
+- Clippy net warnings **decreased**: lib 44→29, test 76→75. No new unique warnings. ✅
+
+**Lessons captured** (`tasks/lessons.md` #100):
+- `chase_debug` and `sim_glibc_rand` are NOT pure diagnostic — they have production callers.
+- `#[cfg(any(test, feature = "sim"))]` + stub pattern lets `cargo test` work without `--features sim`.
+- `parity_random` uses `#[cfg]` on the sim branch, falling through to `thread_rng` in production.
+- Gating sim bins exposes pre-existing dead code that was only alive via the bin's dependency.
 
 ---
 

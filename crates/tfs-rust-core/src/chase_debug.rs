@@ -11,23 +11,257 @@
 //! `harness_player_step`, `fill_map`, `rng_trace`, `rng_resync`.
 //!
 //! Enable: env `TFS_CHASE_PATH_DEBUG=1` (optional `TFS_CHASE_PATH_LOG=/path/to/chase_ai.jsonl`).
+//!
+//! Phase 2: real implementation is `#[cfg(any(test, feature = "sim"))]`; production builds
+//! compile no-op stubs below to keep call sites valid without shipping diagnostic code.
 
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
-
-use slotmap::Key;
 use tfs_rust_common::Position;
 
 use crate::ids::CreatureId;
 
+// ---------------------------------------------------------------------------
+// Production stubs — no-op when `sim` feature is off and not in test mode.
+// ---------------------------------------------------------------------------
+
+#[cfg(not(any(test, feature = "sim")))]
+#[allow(unused_variables, dead_code, clippy::too_many_arguments)]
+mod stubs {
+    use super::*;
+
+    pub fn chase_path_debug_enabled() -> bool {
+        false
+    }
+
+    pub fn chase_path_reset_log() {}
+
+    pub fn log_branch(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        branch: &str,
+        from: Position,
+        dest: Position,
+        must_reach: bool,
+        max_steps: i32,
+        reason: Option<&str>,
+    ) {
+    }
+
+    /// C++ `ToDoGo` via label — `cract.cc:1054` (manhattan==1 → `single`, else `enter`).
+    pub fn todo_go_via_from_path(from: Position, dest: Position) -> &'static str {
+        let dx = (dest.x as i32 - from.x as i32).abs();
+        let dy = (dest.y as i32 - from.y as i32).abs();
+        if dx + dy == 1 {
+            "single"
+        } else {
+            "enter"
+        }
+    }
+
+    pub fn log_todo_go(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        via: &str,
+        from: Position,
+        dest: Position,
+        must_reach: bool,
+        max_steps: i32,
+        arm: Option<&str>,
+    ) {
+    }
+
+    pub fn log_todo_go_aligned(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        from: Position,
+        dest: Position,
+        must_reach: bool,
+        max_steps: i32,
+        arm: Option<&str>,
+    ) {
+    }
+
+    pub fn log_combat_state(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        state: &str,
+        chase_mode: &str,
+        attack_target: Option<u64>,
+    ) {
+    }
+
+    pub fn log_attack_enqueue(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        wait_ms: u32,
+        needs_close_step: bool,
+        close_chase: &str,
+    ) {
+    }
+
+    pub fn log_damage_stimulus(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        old_state: &str,
+        new_state: &str,
+        attacker_id: u64,
+        damage: i32,
+        had_target: bool,
+    ) {
+    }
+
+    pub fn log_spell_cast(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        spell_name: &str,
+        target_id: u64,
+        shape: &str,
+        range: i32,
+    ) {
+    }
+
+    pub fn log_idle_stimulus(tick: u64, cid: CreatureId, name: &str) {}
+
+    pub fn log_todo_wait(tick: u64, cid: CreatureId, name: &str, delay_ms: u64, phase: &str) {}
+
+    pub fn log_rotate(tick: u64, cid: CreatureId, name: &str, dir: u8, target_id: Option<u64>) {}
+
+    pub fn log_creature_move_stimulus(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        mover_id: u64,
+        kind: &str,
+        cheb: i32,
+    ) {
+    }
+
+    pub fn log_todo_label(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        label: &str,
+        queue_len: usize,
+        locked: bool,
+        walk_queue_len: usize,
+    ) {
+    }
+
+    pub fn log_rng_trace(call_index: u64, value: i32, site: Option<&'static str>) {}
+
+    pub fn log_rng_resync(seed: u64) {}
+
+    pub fn log_melee_hit(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        target_id: u64,
+        attack: i32,
+        defense: i32,
+        armor: i32,
+        damage: i32,
+        hp_before: i32,
+        hp_after: i32,
+        earliest_attack_ms: u64,
+    ) {
+    }
+
+    pub fn log_creature_death(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        killer_id: u64,
+        experience: u32,
+        corpse_id: u16,
+    ) {
+    }
+
+    pub fn log_ranged_hit(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        target_id: u64,
+        attack: i32,
+        defense: i32,
+        armor: i32,
+        damage: i32,
+        hp_before: i32,
+        hp_after: i32,
+        earliest_attack_ms: u64,
+    ) {
+    }
+
+    pub fn log_shortway(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        start: Position,
+        dest: Position,
+        visible: i32,
+        min_wp: u32,
+        must_reach: bool,
+        max_steps: i32,
+        ok: bool,
+        steps: &[Position],
+    ) {
+    }
+
+    pub fn log_parked(
+        tick: u64,
+        cid: CreatureId,
+        name: &str,
+        pos: Position,
+        state: &str,
+        follow_target: Option<u64>,
+        attack_target: Option<u64>,
+        chase_mode: &str,
+        cheb: i32,
+        los_clear: bool,
+    ) {
+    }
+
+    pub fn log_go_exec(tick: u64, cid: CreatureId, name: &str, from: Position, to: Position) {}
+
+    pub fn log_harness_player_step(tick: u64, step: u32, pos: Position) {}
+}
+
+#[cfg(not(any(test, feature = "sim")))]
+pub use stubs::*;
+
+// ---------------------------------------------------------------------------
+// Full implementation — compiled for tests and `--features sim` builds.
+// ---------------------------------------------------------------------------
+
+#[cfg(any(test, feature = "sim"))]
+use std::fs::OpenOptions;
+#[cfg(any(test, feature = "sim"))]
+use std::io::Write;
+#[cfg(any(test, feature = "sim"))]
+use std::path::PathBuf;
+#[cfg(any(test, feature = "sim"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, feature = "sim"))]
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(any(test, feature = "sim"))]
+use slotmap::Key;
+
+#[cfg(any(test, feature = "sim"))]
 static ENABLED: AtomicBool = AtomicBool::new(false);
+#[cfg(any(test, feature = "sim"))]
 static INIT: OnceLock<()> = OnceLock::new();
+#[cfg(any(test, feature = "sim"))]
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
+#[cfg(any(test, feature = "sim"))]
 static LOG_MUTEX: Mutex<()> = Mutex::new(());
 
+#[cfg(any(test, feature = "sim"))]
 fn ensure_init() {
     INIT.get_or_init(|| {
         let enabled = std::env::var("TFS_CHASE_PATH_DEBUG")
@@ -43,12 +277,14 @@ fn ensure_init() {
     });
 }
 
+#[cfg(any(test, feature = "sim"))]
 pub fn chase_path_debug_enabled() -> bool {
     ensure_init();
     ENABLED.load(Ordering::Relaxed)
 }
 
 /// Truncate chase JSONL at scenario start — C++ `ChasePathResetLog`.
+#[cfg(any(test, feature = "sim"))]
 pub fn chase_path_reset_log() {
     ensure_init();
     if !chase_path_debug_enabled() {
@@ -66,6 +302,7 @@ pub fn chase_path_reset_log() {
     let _ = std::fs::write(path, "");
 }
 
+#[cfg(any(test, feature = "sim"))]
 fn write_line(line: &str) {
     let Some(path) = LOG_PATH.get() else {
         return;
@@ -82,10 +319,12 @@ fn write_line(line: &str) {
     }
 }
 
+#[cfg(any(test, feature = "sim"))]
 fn json_escape_name(name: &str) -> String {
     name.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+#[cfg(any(test, feature = "sim"))]
 fn pos_json(key: &str, pos: Position) -> String {
     format!(
         "\"{key}\":{{\"x\":{},\"y\":{},\"z\":{}}}",
@@ -93,6 +332,7 @@ fn pos_json(key: &str, pos: Position) -> String {
     )
 }
 
+#[cfg(any(test, feature = "sim"))]
 fn header(tick: u64, cid: CreatureId, name: &str, evt: &str) -> String {
     format!(
         "{{\"src\":\"rust\",\"evt\":\"{evt}\",\"tick\":{tick},\"id\":{},\"name\":\"{}\"",
@@ -101,6 +341,7 @@ fn header(tick: u64, cid: CreatureId, name: &str, evt: &str) -> String {
     )
 }
 
+#[cfg(any(test, feature = "sim"))]
 pub fn log_branch(
     tick: u64,
     cid: CreatureId,
@@ -130,6 +371,7 @@ pub fn log_branch(
 }
 
 /// C++ `ToDoGo` via label — `cract.cc:1054` (manhattan==1 → `single`, else `enter`).
+#[cfg(any(test, feature = "sim"))]
 pub fn todo_go_via_from_path(from: Position, dest: Position) -> &'static str {
     let dx = (dest.x as i32 - from.x as i32).abs();
     let dy = (dest.y as i32 - from.y as i32).abs();
@@ -140,6 +382,7 @@ pub fn todo_go_via_from_path(from: Position, dest: Position) -> &'static str {
     }
 }
 
+#[cfg(any(test, feature = "sim"))]
 pub fn log_todo_go(
     tick: u64,
     cid: CreatureId,
@@ -171,6 +414,7 @@ pub fn log_todo_go(
 }
 
 /// Log `todo_go` with C++-aligned `via` (`enter`/`single`) and optional idle arm name.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_todo_go_aligned(
     tick: u64,
     cid: CreatureId,
@@ -186,6 +430,7 @@ pub fn log_todo_go_aligned(
 }
 
 /// E1/E3 — combat state + chase mode (`crnonpl.cc:2387`, `:2705-2712`).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_combat_state(
     tick: u64,
     cid: CreatureId,
@@ -208,6 +453,7 @@ pub fn log_combat_state(
 }
 
 /// E2/E3 — idle `ToDoAttack` enqueue (`cract.cc:1325`, `crnonpl.cc:2800`).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_attack_enqueue(
     tick: u64,
     cid: CreatureId,
@@ -228,6 +474,7 @@ pub fn log_attack_enqueue(
 }
 
 /// E5 — `TMonster::DamageStimulus` state transition (`crnonpl.cc:2278`).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_damage_stimulus(
     tick: u64,
     cid: CreatureId,
@@ -250,6 +497,7 @@ pub fn log_damage_stimulus(
 }
 
 /// E4 prep — monster spell impact (`crnonpl.cc:2521` CASTING block).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_spell_cast(
     tick: u64,
     cid: CreatureId,
@@ -271,6 +519,7 @@ pub fn log_spell_cast(
 }
 
 /// One `TMonster::IdleStimulus` / inline repath invocation — `crnonpl.cc:2345`.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_idle_stimulus(tick: u64, cid: CreatureId, name: &str) {
     if !chase_path_debug_enabled() {
         return;
@@ -283,6 +532,7 @@ pub fn log_idle_stimulus(tick: u64, cid: CreatureId, name: &str) {
 }
 
 /// `ToDoWait` enqueue or execute — `cract.cc:1030`.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_todo_wait(tick: u64, cid: CreatureId, name: &str, delay_ms: u64, phase: &str) {
     if !chase_path_debug_enabled() {
         return;
@@ -295,6 +545,7 @@ pub fn log_todo_wait(tick: u64, cid: CreatureId, name: &str, delay_ms: u64, phas
 }
 
 /// `TCreature::Rotate` toward a target — `cract.cc:452`, idle tail `crnonpl.cc:2871`.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_rotate(tick: u64, cid: CreatureId, name: &str, dir: u8, target_id: Option<u64>) {
     if !chase_path_debug_enabled() {
         return;
@@ -310,6 +561,7 @@ pub fn log_rotate(tick: u64, cid: CreatureId, name: &str, dir: u8, target_id: Op
 }
 
 /// Follow-target move / combat restep — `crmain.cc:919`, dist inline repath.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_creature_move_stimulus(
     tick: u64,
     cid: CreatureId,
@@ -329,6 +581,7 @@ pub fn log_creature_move_stimulus(
 }
 
 /// ToDo queue transition — mirrors `trace_creature_todo` labels for lockstep diffs.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_todo_label(
     tick: u64,
     cid: CreatureId,
@@ -350,6 +603,7 @@ pub fn log_todo_label(
 }
 
 /// Headless sim RNG trace — glibc draw index + raw value + optional call-site tag.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_rng_trace(call_index: u64, value: i32, site: Option<&'static str>) {
     if !chase_path_debug_enabled() {
         return;
@@ -364,6 +618,7 @@ pub fn log_rng_trace(call_index: u64, value: i32, site: Option<&'static str>) {
 }
 
 /// Harness RNG stream reset — `ResyncHarnessRng` / appear-batch parity.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_rng_resync(seed: u64) {
     if !chase_path_debug_enabled() {
         return;
@@ -373,6 +628,7 @@ pub fn log_rng_resync(seed: u64) {
 }
 
 /// E2 — melee strike outcome (`crcombat.cc:647` `CloseAttack`).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_melee_hit(
     tick: u64,
     cid: CreatureId,
@@ -397,6 +653,7 @@ pub fn log_melee_hit(
 }
 
 /// E6 — monster death trace for harness compare (`~TMonster` / `DistributeExperiencePoints`).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_creature_death(
     tick: u64,
     cid: CreatureId,
@@ -416,6 +673,7 @@ pub fn log_creature_death(
 }
 
 /// E4 — ranged / distance attack outcome (`crcombat.cc:609` `DistanceAttack`).
+#[cfg(any(test, feature = "sim"))]
 pub fn log_ranged_hit(
     tick: u64,
     cid: CreatureId,
@@ -439,6 +697,7 @@ pub fn log_ranged_hit(
     write_line(&line);
 }
 
+#[cfg(any(test, feature = "sim"))]
 pub fn log_shortway(
     tick: u64,
     cid: CreatureId,
@@ -474,6 +733,7 @@ pub fn log_shortway(
 }
 
 /// Monster ended idle with a bound target but no todo/walk/wakeup — scheduler dead-end.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_parked(
     tick: u64,
     cid: CreatureId,
@@ -504,6 +764,7 @@ pub fn log_parked(
     write_line(&line);
 }
 
+#[cfg(any(test, feature = "sim"))]
 pub fn log_go_exec(tick: u64, cid: CreatureId, name: &str, from: Position, to: Position) {
     if !chase_path_debug_enabled() {
         return;
@@ -520,6 +781,7 @@ pub fn log_go_exec(tick: u64, cid: CreatureId, name: &str, from: Position, to: P
 
 /// Harness `player_walk` step — tile after legal move, before trailing `sim_tick`.
 /// C++ reference: `chase_kite_scenario.cc` `MoveKitePlayer` + `ChasePathLogHarnessPlayerStep`.
+#[cfg(any(test, feature = "sim"))]
 pub fn log_harness_player_step(tick: u64, step: u32, pos: Position) {
     if !chase_path_debug_enabled() {
         return;
@@ -531,6 +793,7 @@ pub fn log_harness_player_step(tick: u64, step: u32, pos: Position) {
     write_line(&line);
 }
 
+#[cfg(any(test, feature = "sim"))]
 fn chebyshev(a: Position, b: Position) -> i32 {
     (a.x as i32 - b.x as i32)
         .abs()

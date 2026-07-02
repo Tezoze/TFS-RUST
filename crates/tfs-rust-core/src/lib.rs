@@ -71,6 +71,9 @@ pub mod return_value;
 mod run_server;
 pub mod scheduler;
 mod sim_glibc_rand;
+/// Headless simulation harness — test/diagnostic only.
+/// Compiled when `cfg(test)` or `--features sim`; excluded from production builds.
+#[cfg(any(test, feature = "sim"))]
 pub mod sim_harness;
 pub mod spawn;
 mod spawn_lifecycle;

@@ -249,6 +249,7 @@ impl GameWorld {
     }
 
     /// C++ `CheckMana` spell exhaustion — `magic.cc:770–772` (2000 ms default world).
+    #[allow(dead_code)]
     pub(crate) fn player_apply_spell_exhaust(&mut self, cid: CreatureId, delay_ms: u64) {
         if !self.beat_driven_loop {
             return;
@@ -343,7 +344,12 @@ impl GameWorld {
 
     /// Re-seed glibc `rand()` after spawn loot — chase harness idle/combat parity.
     pub fn resync_sim_glibc_rng(&mut self) {
+        #[cfg(any(test, feature = "sim"))]
         crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
+        #[cfg(not(any(test, feature = "sim")))]
+        {
+            // No-op in production builds — sim harness not compiled.
+        }
     }
 
     /// Re-seed [`Self::ai_rng`] when `TFS_SIM_SEED` is set (headless parity harness).
@@ -352,9 +358,12 @@ impl GameWorld {
             if let Ok(seed) = seed_str.parse::<u64>() {
                 self.ai_rng = StdRng::seed_from_u64(seed);
                 self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed as u32);
-                // C++ `srand(TFS_SIM_SEED)` — legacy harness global stream.
-                unsafe { libc::srand(seed as u32) };
-                crate::sim_glibc_rand::enable_sim_glibc_rng();
+                // C++ `srand(TFS_SIM_SEED)` — legacy harness global stream (sim only).
+                #[cfg(any(test, feature = "sim"))]
+                {
+                    unsafe { libc::srand(seed as u32) };
+                    crate::sim_glibc_rand::enable_sim_glibc_rng();
+                }
             }
         }
     }
@@ -383,6 +392,7 @@ impl GameWorld {
     }
 
     /// Forward Fisher-Yates shuffle on the era-appropriate parity stream.
+    #[allow(dead_code)]
     pub(crate) fn parity_random_shuffle<T>(&self, buf: &mut [T]) {
         if self.beat_driven_loop {
             self.parity_rng.random_shuffle(buf);
@@ -395,9 +405,11 @@ impl GameWorld {
     pub(crate) fn sim_dance_choice(&mut self) -> u32 {
         if self.beat_driven_loop {
             self.parity_rand_mod(5)
-        } else if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-            crate::sim_glibc_rand::sim_rand_mod(5)
         } else {
+            #[cfg(any(test, feature = "sim"))]
+            if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                return crate::sim_glibc_rand::sim_rand_mod(5);
+            }
             use rand::Rng;
             self.ai_rng.gen_range(0..5)
         }

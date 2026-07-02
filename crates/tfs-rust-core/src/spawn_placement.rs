@@ -95,6 +95,7 @@ fn offset_position(center: Position, dx: i32, dy: i32) -> Position {
 }
 
 /// C++ `SearchFreeField` / `SearchLoginField` east-first spiral (`info.cc:761`, `info.cc:868`).
+#[cfg(any(test, feature = "sim"))]
 fn spiral_login_positions(center: Position, distance: i32) -> Vec<Position> {
     let mut out = Vec::new();
     let base_x = center.x as i32;
@@ -147,6 +148,7 @@ fn spiral_login_positions(center: Position, distance: i32) -> Vec<Position> {
 }
 
 /// C++ `SearchLoginField` (`info.cc:861`) — spiral login probe up to `distance`.
+#[cfg(any(test, feature = "sim"))]
 pub(crate) fn search_login_field(
     center: Position,
     distance: i32,
@@ -350,6 +352,7 @@ impl GameWorld {
     }
 
     /// Harness `TCreature::SetOnMap` — `SearchLoginField(dist=1)` (`cract.cc:311`, `info.cc:861`).
+    #[cfg(any(test, feature = "sim"))]
     pub(crate) fn harness_place_creature_login(
         &mut self,
         cid: CreatureId,
