@@ -2483,9 +2483,22 @@ impl GameWorld {
                 self.request_idle_stimulus(cid);
                 return;
             }
+            let queue_len = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().walk_queue.len())
+                .unwrap_or(0);
             // Re-arm `Go` before pending `Attack` — one step per execute (`cract.cc:728`).
             let _ = self.enqueue_creature_go_at(cid, true);
-            if self.todo_start_go_delay(cid, false) {
+            let immediate = self.todo_start_go_delay(cid, false);
+            tracing::debug!(
+                ?cid,
+                queue_len,
+                immediate,
+                server_ms = self.server_ms,
+                "autowalk_772: finish_creature_todo_execute — chain next step"
+            );
+            if immediate {
                 self.schedule_immediate_todo_wakeup(cid);
             }
             return;

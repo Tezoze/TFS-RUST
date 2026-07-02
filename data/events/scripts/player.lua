@@ -1,14 +1,11 @@
-function Player:onBrowseField(position)
-	if hasEventCallback(EVENT_CALLBACK_ONBROWSEFIELD) then
-		return EventCallback(EVENT_CALLBACK_ONBROWSEFIELD, self, position)
-	end
-	return true
-end
-
 function Player:onLook(thing, position, distance)
 	local description = ""
 	if hasEventCallback(EVENT_CALLBACK_ONLOOK) then
 		description = EventCallback(EVENT_CALLBACK_ONLOOK, self, thing, position, distance, description)
+	end
+	if thing:isItem() and (thing:getActionId() == 1224 or thing:getActionId() == 1040) then
+		self:sendTextMessage(MESSAGE_INFO_DESCR, "You see a loose board.")
+		return
 	end
 	self:sendTextMessage(MESSAGE_INFO_DESCR, description)
 end
@@ -29,15 +26,36 @@ function Player:onLookInTrade(partner, item, distance)
 	self:sendTextMessage(MESSAGE_INFO_DESCR, description)
 end
 
-function Player:onLookInShop(itemType, count, description)
-	local description = "You see " .. description
-	if hasEventCallback(EVENT_CALLBACK_ONLOOKINSHOP) then
-		description = EventCallback(EVENT_CALLBACK_ONLOOKINSHOP, self, itemType, count, description)
+function Player:onUseItem(item)
+	if self:getGroup():getAccess() then	
+		if onUseRope(self, item, item:getPosition(), item, item:getPosition()) or onUsePick(self, item, fromPosition, item, item:getPosition()) or
+		onUseShovel(self, item, item:getPosition(), item, item:getPosition()) or onUseScythe(self, item, fromPosition, item, item:getPosition()) or
+		onUseMachete(self, item, item:getPosition(), item, item:getPosition()) then
+		return true
+		end
 	end
-	self:sendTextMessage(MESSAGE_INFO_DESCR, description)
+	
+	if hasEventCallback(EVENT_CALLBACK_ONUSEITEM) then
+		return EventCallback(EVENT_CALLBACK_ONUSEITEM, self, item)
+	end
+	return false
 end
 
 function Player:onMoveItem(item, count, fromPosition, toPosition, fromCylinder, toCylinder)
+	-- Do not allow moving of map quest objects
+	if item:getActionId() >= 1000 and item:getActionId() <= 2000 then
+		return RETURNVALUE_NOTMOVEABLE
+	end
+	
+	-- Convert permanent candelabrum into expiring candelabrum
+	if item:getId() == 2057 then
+		item:transform(2042)
+	end
+	
+	if toCylinder:isTile() and toCylinder:getGround() and toCylinder:getGround():getActionId() == actionIds.blockingTile then
+		return RETURNVALUE_NOTENOUGHROOM
+	end
+
 	if hasEventCallback(EVENT_CALLBACK_ONMOVEITEM) then
 		return EventCallback(EVENT_CALLBACK_ONMOVEITEM, self, item, count, fromPosition, toPosition, fromCylinder, toCylinder)
 	end
@@ -48,6 +66,14 @@ function Player:onItemMoved(item, count, fromPosition, toPosition, fromCylinder,
 	if hasEventCallback(EVENT_CALLBACK_ONITEMMOVED) then
 		EventCallback(EVENT_CALLBACK_ONITEMMOVED, self, item, count, fromPosition, toPosition, fromCylinder, toCylinder)
 	end
+
+	-- Open trap
+	if item:getId() == 2579 then
+		item:transform(2578)
+		if item then
+			toCylinder:getPosition():sendMagicEffect(CONST_ME_POFF)
+		end
+	end
 end
 
 function Player:onMoveCreature(creature, fromPosition, toPosition)
@@ -55,12 +81,6 @@ function Player:onMoveCreature(creature, fromPosition, toPosition)
 		return EventCallback(EVENT_CALLBACK_ONMOVECREATURE, self, creature, fromPosition, toPosition)
 	end
 	return true
-end
-
-function Player:onReportRuleViolation(targetName, reportType, reportReason, comment, translation)
-	if hasEventCallback(EVENT_CALLBACK_ONREPORTRULEVIOLATION) then
-		EventCallback(EVENT_CALLBACK_ONREPORTRULEVIOLATION, self, targetName, reportType, reportReason, comment, translation)
-	end
 end
 
 function Player:onReportBug(message, position, category)
@@ -108,10 +128,6 @@ local function useStamina(player)
 	end
 
 	local playerId = player:getId()
-	if not nextUseStaminaTime[playerId] then
-		nextUseStaminaTime[playerId] = 0
-	end
-
 	local currentTime = os.time()
 	local timePassed = currentTime - nextUseStaminaTime[playerId]
 	if timePassed <= 0 then
@@ -177,46 +193,4 @@ function Player:onGainSkillTries(skill, tries)
 	end
 	tries = tries * configManager.getNumber(configKeys.RATE_SKILL)
 	return hasEventCallback(EVENT_CALLBACK_ONGAINSKILLTRIES) and EventCallback(EVENT_CALLBACK_ONGAINSKILLTRIES, self, skill, tries) or tries
-end
-
-function Player:onWrapItem(item)
-	local topCylinder = item:getTopParent()
-	if not topCylinder then
-		return
-	end
-
-	local tile = Tile(topCylinder:getPosition())
-	if not tile then
-		return
-	end
-
-	local house = tile:getHouse()
-	if not house then
-		self:sendCancelMessage("You can only wrap and unwrap this item inside a house.")
-		return
-	end
-
-	if house ~= self:getHouse() and not string.find(house:getAccessList(SUBOWNER_LIST):lower(), "%f[%a]" .. self:getName():lower() .. "%f[%A]") then
-		self:sendCancelMessage("You cannot wrap or unwrap items from a house, which you are only guest to.")
-		return
-	end
-
-	local wrapId = item:getAttribute("wrapid")
-	if wrapId == 0 then
-		return
-	end
-
-	if not hasEventCallback(EVENT_CALLBACK_ONWRAPITEM) or EventCallback(EVENT_CALLBACK_ONWRAPITEM, self, item) then
-		local oldId = item:getId()
-		item:remove(1)
-		local item = tile:addItem(wrapId)
-		if item then
-			item:setAttribute("wrapid", oldId)
-		end
-	end
-end
-
-function Player:onInventoryUpdate(item, slot, equip)
-	-- Hook for scripts; enable via events.xml `Player:onInventoryUpdate`.
-	return
 end

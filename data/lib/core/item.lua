@@ -365,7 +365,7 @@ do
 
 			if not found then
 				if it:getType() == ITEM_TYPE_KEY then
-					local aid = item and item:getActionId() or 0
+					local aid = item and item:getAttribute(ITEM_ATTRIBUTE_KEYNUMBER) or 0
 					ss:append(' (Key:%s)', ('0'):rep(4 - #tostring(aid)) .. aid)
 				elseif it:getGroup() == ITEM_GROUP_FLUID then
 					if subType > 0 then
@@ -382,7 +382,7 @@ do
 					else
 						ss:append('unknown')
 					end
-				elseif it:hasAllowDistRead() and (it:getId() < 7369 or it:getId() > 7371) then
+				elseif it:hasAllowDistRead() then
 					ss:append('.\n')
 					if lookDistance <= 4 then
 						if item then
@@ -412,10 +412,7 @@ do
 						ss:append('You are too far away to read it.')
 					end
 				elseif it:getLevelDoor() ~= 0 and item then
-					local aid = item:getActionId()
-					if aid >= it:getLevelDoor() then
-						ss:append(' for level %d', aid - it:getLevelDoor())
-					end
+					ss:append(' for level %d', item:getAttribute(ITEM_ATTRIBUTE_DOORLEVEL))
 				end
 			end
 		end
@@ -461,7 +458,7 @@ do
 			end
 		end
 
-		if not it:hasAllowDistRead() or (it:getId() >= 7369 and it:getId() <= 7371) then
+		if not it:hasAllowDistRead() then
 			ss:append('.')
 		else
 			if not text and item then
@@ -528,7 +525,7 @@ do
 			ss:append('\n%s', it:getDescription())
 		end
 
-		if it:hasAllowDistRead() or (it:getId() >= 7369 and it:getId() <= 7371) then
+		if it:hasAllowDistRead() then
 			if not text and item then
 				text = item:getText()
 			end

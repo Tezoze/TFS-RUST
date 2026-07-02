@@ -142,6 +142,22 @@ impl GameWorld {
             base.earliest_attack_ms = 0;
         }
 
+        // `ToDoAttack()` → `ToDoAdd(TDAttack)`. Every `ToDoAdd` runs the `LockToDo` preamble:
+        // when a walk/action is already armed, it `ToDoClear()`s the queue and — for a player
+        // with a pending `Go` — `SendSnapback`s before appending the new entry
+        // (`cract.cc:993-1000`, `ToDoAttack` `cract.cc:1353-1365`). Without this, issuing an
+        // attack/follow mid-autowalk left the old `Go` + full `walk_queue` in place: the player
+        // kept auto-walking the whole path (attack queued behind it) and the client never
+        // resynced (no `0xB5`). The walk-request handlers already do this via
+        // `player_todo_clear_with_snapback`; the attack handler was the missing override path.
+        let lock_to_do = self.creatures.get(cid).is_some_and(|k| {
+            let b = k.base();
+            b.todo.locked || b.next_wakeup.is_some() || b.todo.has_go() || !b.walk_queue.is_empty()
+        });
+        if lock_to_do {
+            self.player_todo_clear_with_snapback(conn_id, cid);
+        }
+
         // `ToDoAttack(); ToDoStart();` (`receiving.cc:1147-1148`).
         let _ = self.enqueue_creature_attack(cid);
         let attack_delay = self.todo_attack_delay_ms(cid);

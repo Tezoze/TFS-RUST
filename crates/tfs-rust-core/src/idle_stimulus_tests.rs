@@ -4084,6 +4084,58 @@
         );
     }
 
+    /// Attack override: issuing `CAttack`/`CFollow` while a walk is in progress must run the
+    /// C++ `ToDoAdd` `LockToDo` preamble — `ToDoClear()` the pending walk and `SendSnapback`
+    /// (`0xB5`) before enqueuing the `Attack` (`cract.cc:993-1000`, `ToDoAttack` `:1353-1365`).
+    /// Regression: previously the attack was appended behind the still-armed `Go`, so the player
+    /// kept auto-walking the whole path and the client never resynced.
+    #[test]
+    fn test_attack_override_clears_pending_walk_and_snapbacks() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        let wire_id = {
+            use slotmap::Key;
+            (target.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        // Player starts an autowalk — pending `Go` + queued step directions.
+        let now = std::time::Instant::now();
+        world.player_auto_walk_path(
+            conn,
+            player,
+            vec![Direction::East, Direction::East, Direction::East],
+            now,
+        );
+        assert!(world.creatures.get(player).unwrap().base().todo.has_go());
+        assert!(!world.creatures.get(player).unwrap().base().walk_queue.is_empty());
+
+        // Override with an attack mid-walk.
+        world.pending_outgoing.clear();
+        world.player_set_attack_dest(conn, player, wire_id, false);
+
+        let base = world.creatures.get(player).unwrap().base();
+        // The pending walk must be gone: no lingering `Go`, no queued step directions.
+        assert!(
+            !base.todo.has_go(),
+            "attack override must clear the pending Go (C++ ToDoAdd → ToDoClear)"
+        );
+        assert!(
+            base.walk_queue.is_empty(),
+            "attack override must clear the queued walk steps"
+        );
+        // The new action is armed.
+        assert_eq!(base.attack_target, Some(target));
+        assert!(base.todo.has_attack(), "attack must be enqueued after the clear");
+        // The client is resynced — `SendSnapback` (`0xB5`).
+        let pkts = world.pending_outgoing.get(&conn).expect("must enqueue snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "attack override with a pending walk must send 0xB5 snapback (cract.cc:993-1000)"
+        );
+    }
+
     /// Phase 1.4: `player_set_attack_dest` (Attack) sets `attack_target` and enqueues `Attack`.
     #[test]
     fn test_phase1_player_attack_sets_target_and_enqueues() {

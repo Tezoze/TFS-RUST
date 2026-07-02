@@ -29,7 +29,7 @@ function Player.getClosestFreePosition(self, position, extended)
 end
 
 function Player.getDepotItems(self, depotId)
-	return self:getDepotChest(depotId, true):getItemHoldingCount()
+	return self:getDepotLocker(depotId, true):getItemHoldingCount()
 end
 
 function Player.hasFlag(self, flag)
@@ -333,6 +333,3 @@ function Player.getWeaponType(self)
 	return WEAPON_NONE
 end
 
-function Player.getTotalMoney(self)
-	return self:getMoney() + self:getBankBalance()
-end

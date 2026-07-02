@@ -16,7 +16,7 @@ pub use crate::map_description::send_update_tile;
 /// Matches OTClient `parseLogin` / `GameNewSpeedLaw` + 1054/1058 + `GameIngameStore` tail.
 #[deprecated(note = "use Codec::encode_self_appear_login")]
 pub fn send_self_appear_login(player_id: u32) -> NetworkMessage {
-    Codec1098.encode_self_appear_login(player_id)
+    Codec1098.encode_self_appear_login(player_id, 0x32)
 }
 
 #[inline]

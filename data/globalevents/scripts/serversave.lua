@@ -1,37 +1,36 @@
-local function ServerSave()
-	if configManager.getBoolean(configKeys.SERVER_SAVE_CLEAN_MAP) then
-		cleanMap()
-	end
-
-	if configManager.getBoolean(configKeys.SERVER_SAVE_CLOSE) then
-		Game.setGameState(GAME_STATE_CLOSED)
-	end
-
-	if configManager.getBoolean(configKeys.SERVER_SAVE_SHUTDOWN) then
-		Game.setGameState(GAME_STATE_SHUTDOWN)
-	end
-end
-
-local function ServerSaveWarning(time)
-	local remaningTime = tonumber(time) - 60000
-
-	if configManager.getBoolean(configKeys.SERVER_SAVE_NOTIFY_MESSAGE) then
-		Game.broadcastMessage("Server is saving game in " .. (remaningTime/60000) .."  minute(s). Please logout.", MESSAGE_STATUS_WARNING)
-	end
-
-	if remaningTime > 60000 then
-		addEvent(ServerSaveWarning, 60000, remaningTime)
-	else
-		addEvent(ServerSave, 60000)
-	end
-end
+local config = {
+	saveTime = 5 * 60 * 1000,
+	closeServer = true, -- closes when preparing to save (within save time)
+	shutdownServer = true, -- shutsdown the server
+}
 
 function onTime(interval)
-	local remaningTime = configManager.getNumber(configKeys.SERVER_SAVE_NOTIFY_DURATION) * 60000
-	if configManager.getBoolean(configKeys.SERVER_SAVE_NOTIFY_MESSAGE) then
-		Game.broadcastMessage("Server is saving game in " .. (remaningTime/60000) .."  minute(s). Please logout.", MESSAGE_STATUS_WARNING)
-	end
+    Game.broadcastMessage("Server is saving game in " .. config.saveTime / 60000 .. " minutes.\nPlease come back in 10 minutes.", MESSAGE_STATUS_WARNING)
 
-	addEvent(ServerSaveWarning, 60000, remaningTime)
-	return not configManager.getBoolean(configKeys.SERVER_SAVE_SHUTDOWN)
+    if config.closeServer then
+		-- Do not allow players to login until server has restarted
+        Game.setGameState(GAME_STATE_CLOSED)
+    end
+
+	-- First warning in 2 minutes
+    addEvent(function () 
+		Game.broadcastMessage("Server is saving game in 3 minutes.\nPlease come back in 10 minutes.", MESSAGE_STATUS_WARNING)
+	end, config.saveTime - 3 * 60 * 1000)
+
+	-- Last warning in 4 minutes
+	addEvent(function () 
+		Game.broadcastMessage("Server is saving game in one minute.\nPlease log out.", MESSAGE_STATUS_WARNING)
+	end, config.saveTime - 1 * 60 * 1000)
+
+	-- Server save function
+	addEvent(function () 
+		if config.shutdownServer then
+			Game.setGameState(GAME_STATE_SHUTDOWN)
+		else
+			-- Save server without shutdown
+			saveServer()
+		end
+	end, config.saveTime)
+
+    return true
 end

@@ -1,9 +1,4 @@
 function Creature:onChangeOutfit(outfit)
-	if hasEventCallback(EVENT_CALLBACK_ONCHANGEMOUNT) then
-		if not EventCallback(EVENT_CALLBACK_ONCHANGEMOUNT, self, outfit.lookMount) then
-			return false
-		end
-	end
 	if hasEventCallback(EVENT_CALLBACK_ONCHANGEOUTFIT) then
 		return EventCallback(EVENT_CALLBACK_ONCHANGEOUTFIT, self, outfit)
 	else

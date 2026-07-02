@@ -30,6 +30,17 @@ ec.onLook = function(self, thing, position, distance, description)
 			if decayId ~= -1 then
 				description = string.format("%s\nDecays to: %d", description, decayId)
 			end
+			
+			local doorQuestNumber = thing:getAttribute(ITEM_ATTRIBUTE_DOORQUESTNUMBER)
+			if doorQuestNumber ~= 0 then
+				description = string.format("%s\nDoor Quest Number: %d", description, doorQuestNumber)
+				description = string.format("%s\nDoor Quest Value: %d", description, thing:getAttribute(ITEM_ATTRIBUTE_DOORQUESTVALUE))
+			end
+			
+			local keyholeNumber = thing:getAttribute(ITEM_ATTRIBUTE_KEYHOLENUMBER)
+			if keyholeNumber ~= 0 then
+				description = string.format("%s\nKeyHole Number: %d", description, keyholeNumber)
+			end
 		elseif thing:isCreature() then
 			local str = "%s\nHealth: %d / %d"
 			if thing:isPlayer() and thing:getMaxMana() > 0 then
@@ -43,7 +54,24 @@ ec.onLook = function(self, thing, position, distance, description)
 			"%s\nPosition: %d, %d, %d",
 			description, position.x, position.y, position.z
 		)
-
+		
+		local tile = thing:getTile()
+		if tile:hasFlag(TILESTATE_REFRESH) then
+			description = string.format("%s\nRefreshable zone.", description)
+		end
+		
+		if tile:hasFlag(TILESTATE_NOLOGOUT) then
+			description = string.format("%s\nNo-Logout zone.", description)
+		end
+				
+		if tile:hasFlag(TILESTATE_PVPZONE) then
+			description = string.format("%s\nPvP-Zone.", description)
+		end
+		
+		if tile:hasFlag(TILESTATE_PROTECTIONZONE) then
+			description = string.format("%s\nProtection zone.", description)
+		end
+		
 		if thing:isCreature() then
 			if thing:isPlayer() then
 				description = string.format("%s\nIP: %s.", description, Game.convertIpToString(thing:getIp()))

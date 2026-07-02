@@ -1181,7 +1181,7 @@ function getThingfromPos(pos)
 	return pushThing(thing)
 end
 
-function doRelocate(fromPos, toPos)
+function doRelocate(fromPos, toPos, force)
 	if fromPos == toPos then
 		return false
 	end
@@ -1199,14 +1199,38 @@ function doRelocate(fromPos, toPos)
 		local thing = fromTile:getThing(i)
 		if thing then
 			if thing:isItem() then
-				if ItemType(thing:getId()):isMovable() then
+				if ItemType(thing:getId()):isMovable() or force and not ItemType(thing:getId()):isGroundTile() then
 					thing:moveTo(toPos)
 				end
 			elseif thing:isCreature() then
-				thing:teleportTo(toPos)
+				thing:teleportTo(toPos, true)
 			end
 		end
 	end
+
+	local magicWall = fromTile:getItemById(ITEM_MAGICWALL)
+	if magicWall then
+		magicWall:remove()
+		fromTile:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+
+	local wildGrowth = fromTile:getItemById(ITEM_WILDGROWTH)
+	if wildGrowth then
+		wildGrowth:remove()
+		fromTile:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+
+	local splashItem = fromTile:getItemByGroup(ITEM_GROUP_SPLASH)
+	if splashItem then
+		splashItem:remove()
+	end
+	
+	local magicField = fromTile:getItemByGroup(ITEM_GROUP_MAGICFIELD)
+	if magicField then
+		magicField:remove()
+		fromTile:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+
 	return true
 end
 
@@ -1438,10 +1462,6 @@ do
 		[COMBAT_LIFEDRAIN] = 'lifedrain',
 		[COMBAT_MANADRAIN] = 'manadrain',
 		[COMBAT_HEALING] = 'healing',
-		[COMBAT_DROWNDAMAGE] = 'drown',
-		[COMBAT_ICEDAMAGE] = 'ice',
-		[COMBAT_HOLYDAMAGE] = 'holy',
-		[COMBAT_DEATHDAMAGE] = 'death'
 	}
 
 	function getCombatName(combat)

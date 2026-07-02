@@ -1,10 +1,8 @@
 function onStartup()
-
 	db.query("TRUNCATE TABLE `players_online`")
 	db.asyncQuery("DELETE FROM `guild_wars` WHERE `status` = 0")
 	db.asyncQuery("DELETE FROM `players` WHERE `deletion` != 0 AND `deletion` < " .. os.time())
 	db.asyncQuery("DELETE FROM `ip_bans` WHERE `expires_at` != 0 AND `expires_at` <= " .. os.time())
-	db.asyncQuery("DELETE FROM `market_history` WHERE `inserted` <= " .. (os.time() - configManager.getNumber(configKeys.MARKET_OFFER_DURATION)))
 
 	-- Move expired bans to ban history
 	local resultId = db.storeQuery("SELECT * FROM `account_bans` WHERE `expires_at` != 0 AND `expires_at` <= " .. os.time())
@@ -18,7 +16,7 @@ function onStartup()
 	end
 
 	-- Check house auctions
-	local resultId = db.storeQuery("SELECT `id`, `highest_bidder`, `last_bid`, (SELECT `balance` FROM `players` WHERE `players`.`id` = `highest_bidder`) AS `balance` FROM `houses` WHERE `owner` = 0 AND `bid_end` != 0 AND `bid_end` < " .. os.time())
+	local resultId = db.storeQuery("SELECT `id`, `highest_bidder`, `last_bid`, (SELECT `balance` FROM `players` WHERE `players`.`id` = `highest_bidder`) AS `balance`, (SELECT `account_id` FROM `players` WHERE `players`.`id` = `highest_bidder`) AS `account_id` FROM `houses` WHERE `owner` = 0 AND `bid_end` != 0 AND `bid_end` < " .. os.time())
 	if resultId ~= false then
 		repeat
 			local house = House(result.getNumber(resultId, "id"))
@@ -26,11 +24,24 @@ function onStartup()
 				local highestBidder = result.getNumber(resultId, "highest_bidder")
 				local balance = result.getNumber(resultId, "balance")
 				local lastBid = result.getNumber(resultId, "last_bid")
-				if balance >= lastBid then
-					db.query("UPDATE `players` SET `balance` = " .. (balance - lastBid) .. " WHERE `id` = " .. highestBidder)
-					house:setOwnerGuid(highestBidder)
+
+				if configManager.getBoolean(configKeys.HOUSES_BANKSYSTEM) then
+					if balance >= lastBid + house:getRent() then
+						db.query("UPDATE `players` SET `balance` = " .. (balance - lastBid - house:getRent()) .. " WHERE `id` = " .. highestBidder)
+						house:setOwnerGuid(highestBidder)
+					end
+				else
+					if doRemoveOfflinePlayerMoney(highestBidder, house:getTown():getId(), lastBid + house:getRent()) then
+						house:setOwnerGuid(highestBidder)
+					end
 				end
+				
 				db.asyncQuery("UPDATE `houses` SET `last_bid` = 0, `bid_end` = 0, `highest_bidder` = 0, `bid` = 0 WHERE `id` = " .. house:getId())
+				
+				-- did not have enough money to pay bid and rent, add a warning to the account
+				if house:getOwnerGuid() ~= highestBidder then
+					db.query("UPDATE `accounts` SET `failed_bid_count` = `failed_bid_count` + 1 WHERE `id` = " .. result.getNumber("account_id"))
+				end
 			end
 		until not result.next(resultId)
 		result.free(resultId)

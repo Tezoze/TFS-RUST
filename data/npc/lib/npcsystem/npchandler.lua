@@ -358,16 +358,6 @@ if NpcHandler == nil then
 	-- Handles onCreatureAppear events. If you with to handle this yourself, please use the CALLBACK_CREATURE_APPEAR callback.
 	function NpcHandler:onCreatureAppear(creature)
 		local cid = creature:getId()
-		if cid == getNpcCid() and next(self.shopItems) then
-			local npc = Npc()
-			local speechBubble = npc:getSpeechBubble()
-			if speechBubble == SPEECHBUBBLE_QUEST then
-				npc:setSpeechBubble(SPEECHBUBBLE_QUESTTRADER)
-			else
-				npc:setSpeechBubble(SPEECHBUBBLE_TRADE)
-			end
-		end
-
 		local callback = self:getCallback(CALLBACK_CREATURE_APPEAR)
 		if callback == nil or callback(cid) then
 			if self:processModuleCallback(CALLBACK_CREATURE_APPEAR, cid) then
@@ -404,7 +394,7 @@ if NpcHandler == nil then
 				end
 
 				if self.keywordHandler then
-					if self:isFocused(cid) and msgtype == TALKTYPE_PRIVATE_PN or not self:isFocused(cid) then
+					if self:isFocused(cid) and msgtype == TALKTYPE_SAY or not self:isFocused(cid) then
 						local ret = self.keywordHandler:processMessage(cid, msg)
 						if not ret then
 							local callback = self:getCallback(CALLBACK_MESSAGE_DEFAULT)
@@ -596,7 +586,7 @@ if NpcHandler == nil then
 		local ret = {}
 		for aux = 1, #msgs do
 			self.eventDelayedSay[pcid][aux] = {}
-			doCreatureSayWithDelay(getNpcCid(), msgs[aux], TALKTYPE_PRIVATE_NP, ((aux-1) * (interval or 4000)) + 700, self.eventDelayedSay[pcid][aux], pcid)
+			doCreatureSayWithDelay(getNpcCid(), msgs[aux], TALKTYPE_SAY, ((aux-1) * (interval or 4000)) + 700, self.eventDelayedSay[pcid][aux], pcid)
 			ret[#ret + 1] = self.eventDelayedSay[pcid][aux]
 		end
 		return(ret)
@@ -628,7 +618,7 @@ if NpcHandler == nil then
 			end
 			local player = Player(focusId)
 			if player then
-				npc:say(message, TALKTYPE_PRIVATE_NP, false, player, npc:getPosition())
+				npc:say(message, TALKTYPE_SAY, false, player, npc:getPosition())
 			end
 		end, self.talkDelayTime * 1000, Npc():getId(), message, focus)
 	end

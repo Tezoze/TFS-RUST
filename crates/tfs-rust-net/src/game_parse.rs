@@ -288,11 +288,18 @@ fn parse_auto_walk(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result
     for _ in 0..n {
         raw_dirs.push(msg.read_u8()?);
     }
+    tracing::debug!(
+        version = version.raw(),
+        numdirs = n,
+        ?raw_dirs,
+        "autowalk: parsed packet"
+    );
     // C++ reads with `getPreviousByte()` — last queued step is executed first (`protocolgame.cpp` ~857–889).
     let mut path = Vec::with_capacity(n);
     for raw in raw_dirs.into_iter().rev() {
         path.push(raw_dir_to_direction(raw)?);
     }
+    tracing::debug!(?path, "autowalk: execution-order path (rev of wire)");
     Ok(GamePacket::AutoWalk { path })
 }
 

@@ -201,16 +201,21 @@ impl Codec772 {
     }
 
     /// 7.72 self-appear (`gameserver/src/protocolgame.cpp` `sendAddCreature` self branch ~L1730):
-    /// `0x0A` + `u32 id` + `u16` beat (`0x32`) + `u8` canReportBugs. Opcode is version-keyed via
+    /// `0x0A` + `u32 id` + `u16` beat + `u8` canReportBugs. Opcode is version-keyed via
     /// `protocol_opcodes::server::self_appear`. `canReportBugs` defaults to 0 (non-tutor) — account
     /// type is not threaded into this neutral signature.
-    pub fn encode_self_appear_login(&self, player_id: u32) -> NetworkMessage {
+    ///
+    /// `server_beat` is the beat duration in ms advertised to the client. TVP `gameserver` hardcodes
+    /// `0x32` (50); the 772 mechanics decompile (`tibia-game-master/src/config.cc:102`) defaults
+    /// `Beat = 200` and exposes it via `data/formulas/772.lua` `beatMs`. We send the profile value so
+    /// the client walk clock matches the server's beat loop (`game_loop.rs` uses the same `beat_ms`).
+    pub fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(tfs_rust_common::protocol_opcodes::server::self_appear(
             ProtocolVersion::V772,
         ));
         m.write_u32(player_id);
-        m.write_u16(0x32);
+        m.write_u16(server_beat);
         m.write_u8(0x00); // canReportBugs (ACCOUNT_TYPE_TUTOR+) — default off
         m
     }

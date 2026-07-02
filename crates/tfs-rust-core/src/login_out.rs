@@ -465,7 +465,10 @@ fn enqueue_initial_login_packets_772(
     }
 
     // Self-appear (`0x0A` in 772 via the codec) then the full map description (`0x64`).
-    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid));
+    // 772 beat duration comes from `MechanicsProfile::beat_ms` (`data/formulas/772.lua` `beatMs`,
+    // default 200 per `tibia-game-master/src/config.cc:102`) — the same value the game loop ticks at.
+    let server_beat = world.mechanics.profile.beat_ms.min(u16::MAX as u32) as u16;
+    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid, server_beat));
 
     let mut known = world
         .known_creatures_by_conn
@@ -658,7 +661,7 @@ fn enqueue_initial_login_packets_1098(
     );
     world.enqueue_outgoing(conn_id, send_extended_opcode(0, "").into_bytes());
 
-    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid));
+    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid, 0x32));
     world.enqueue_outgoing(conn_id, send_pending_state_entered().into_bytes());
     world.enqueue_outgoing(conn_id, send_otc_features_raw().into_bytes());
     world.enqueue_outgoing(conn_id, send_enter_world().into_bytes());

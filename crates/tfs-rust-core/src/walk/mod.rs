@@ -352,11 +352,19 @@ impl GameWorld {
             // C++ `Execute` runs the creature iff its current `NextWakeup <= ServerMilliseconds`
             // (`cract.cc:785`), regardless of whether this popped entry is its *latest* schedule —
             // not an exact-key match (audit Finding 9).
-            let due = self
+            let next_wakeup_snap = self
                 .creatures
                 .get(entry.creature_id)
-                .and_then(|k| k.base().next_wakeup)
-                .is_some_and(|w| w <= self.server_ms);
+                .and_then(|k| k.base().next_wakeup);
+            let due = next_wakeup_snap.is_some_and(|w| w <= self.server_ms);
+            tracing::debug!(
+                ?entry.creature_id,
+                entry_time = entry.execution_time,
+                server_ms = self.server_ms,
+                next_wakeup = ?next_wakeup_snap,
+                due,
+                "autowalk_772: drain_todo_queue — heap entry popped"
+            );
             if due {
                 self.process_creature_todo(entry.creature_id);
             }
@@ -370,6 +378,7 @@ impl GameWorld {
     pub fn process_creature_todo(&mut self, cid: CreatureId) {
         let health_ok = self.creatures.get(cid).is_some_and(|k| k.base().health > 0);
         if !health_ok {
+            tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — SKIP (health_ok=false)");
             return;
         }
         let had_wakeup = self
@@ -377,6 +386,7 @@ impl GameWorld {
             .get_mut(cid)
             .and_then(|k| k.base_mut().next_wakeup.take());
         if had_wakeup.is_none() {
+            tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — SKIP (had_wakeup=None)");
             return;
         }
         let now = Instant::now();
@@ -385,15 +395,24 @@ impl GameWorld {
                 matches!(k, CreatureKind::Player(p) if p.walk_action.is_some())
             });
             if had_walk_action {
+                tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — try_run_player_walk_action (had_walk_action=true)");
                 self.try_run_player_walk_action_from_todo(cid, now);
                 self.cleanup();
                 return;
             }
         }
         if self.creature_uses_todo_execute(cid) {
+            tracing::debug!(
+                ?cid,
+                server_ms = self.server_ms,
+                todo_queue_len = self.creatures.get(cid).map(|k| k.base().todo.queue.len()).unwrap_or(0),
+                walk_queue_len = self.creatures.get(cid).map(|k| k.base().walk_queue.len()).unwrap_or(0),
+                "autowalk_772: process_creature_todo — entering todo_execute path"
+            );
             trace_creature_todo(self, cid, "process_creature_todo");
             let mut ran_idle = false;
             if self.creature_todo_queue_empty(cid) {
+                tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — todo queue empty, calling idle stimulus");
                 self.maybe_idle_stimulus_after_go_complete(cid);
                 ran_idle = true;
             }
@@ -483,6 +502,15 @@ impl GameWorld {
                 1
             };
             let delay = calc_delay.max(1);
+            tracing::debug!(
+                ?cid,
+                first_step,
+                earliest_walk_ms = earliest,
+                server_ms,
+                calc_delay,
+                delay,
+                "autowalk_772: CalculateDelay(TDGo) + ToDoStart arm"
+            );
             self.todo_start_from_action(cid, delay);
             return false;
         }
@@ -783,11 +811,27 @@ impl GameWorld {
                     acc = acc.offset(*d);
                     pl.base.walk_destinations.push_front(acc);
                 }
+                tracing::debug!(
+                    ?cid,
+                    start_pos = ?pos,
+                    path_len = path.len(),
+                    ?path,
+                    earliest_walk_ms = pl.base.earliest_walk_server_ms,
+                    server_ms = self.server_ms,
+                    "autowalk_772: CGoPath enqueue"
+                );
             }
             // `CGoPath` builds N entries then a single `ToDoStart` — one `Go` action drains the
             // whole `walk_queue` via `finish_creature_todo_execute` re-arm (`cract.cc:1050-1107`).
             let _ = self.enqueue_creature_go(cid);
-            if self.todo_start_go_delay(cid, true) {
+            let immediate = self.todo_start_go_delay(cid, true);
+            tracing::debug!(
+                ?cid,
+                immediate,
+                server_ms = self.server_ms,
+                "autowalk_772: ToDoStart decision"
+            );
+            if immediate {
                 self.schedule_immediate_todo_wakeup(cid);
             }
             return;
@@ -1390,7 +1434,16 @@ impl GameWorld {
                     // speed/conditions (audit #5/#6 — the recomputation applied `last_step_cost
                     // = 2` on z-change and re-read speed, both diverging from C++ which fixes
                     // the delay at step-completion time).
-                    k.base().earliest_walk_server_ms.saturating_sub(self.server_ms) as i64
+                    let d = k.base().earliest_walk_server_ms.saturating_sub(self.server_ms) as i64;
+                    tracing::debug!(
+                        ?cid,
+                        earliest_walk_ms = k.base().earliest_walk_server_ms,
+                        server_ms = self.server_ms,
+                        walk_delay = d,
+                        queue_len = k.base().walk_queue.len(),
+                        "autowalk_772: on_walk gate (EarliestWalkTime - ServerMs)"
+                    );
+                    d
                 } else {
                     get_walk_delay(k, k.base(), now, &self.mechanics)
                 }
@@ -1435,6 +1488,13 @@ impl GameWorld {
             };
 
             if let Some(mut dir) = pop_dir {
+                tracing::debug!(
+                    ?cid,
+                    ?dir,
+                    ?pop_dest,
+                    server_ms = self.server_ms,
+                    "autowalk_772: on_walk step popped"
+                );
                 // 772 absolute-destination adjacency check — `cract.cc:386-389`:
                 // `Distance = max(abs(OrigX - DestX), abs(OrigY - DestY)); if(Distance > 1 || OrigZ != DestZ) throw NOTACCESSIBLE`.
                 // C++ `TDGo` stores absolute coordinates; if the player was pushed mid-walk the
@@ -1506,6 +1566,13 @@ impl GameWorld {
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
+                        tracing::debug!(
+                            ?cid,
+                            ?dir,
+                            ?ret,
+                            server_ms = self.server_ms,
+                            "autowalk_772: step REJECTED"
+                        );
                         self.on_walk_step_rejected(cid, ret);
                     }
                     Ok(segments) => {
@@ -1573,8 +1640,20 @@ impl GameWorld {
                                 base.last_step_server_ms = Some(self.server_ms);
                                 if let Some(step_ms) = notify_go_ms {
                                     // C++ `NotifyGo` — `EarliestWalkTime` (`cract.cc:1515–1525`).
-                                    base.earliest_walk_server_ms =
+                                    let new_earliest =
                                         self.server_ms.saturating_add(step_ms.max(1) as u64);
+                                    tracing::debug!(
+                                        ?cid,
+                                        ?dir,
+                                        ?old_pos,
+                                        ?new_pos,
+                                        ground_speed = gs_dest,
+                                        step_ms,
+                                        server_ms = self.server_ms,
+                                        new_earliest_walk_ms = new_earliest,
+                                        "autowalk_772: NotifyGo — EarliestWalkTime set"
+                                    );
+                                    base.earliest_walk_server_ms = new_earliest;
                                 }
                             }
                         }

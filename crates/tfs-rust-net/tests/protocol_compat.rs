@@ -607,13 +607,13 @@ mod v772 {
         );
     }
 
-    /// Self-appear (`0x0A`): id + `u16` beat (0x32) + `u8` canReportBugs.
+    /// Self-appear (`0x0A`): id + `u16` beat (from `MechanicsProfile::beat_ms`, 200 for 772) + `u8` canReportBugs.
     #[test]
     fn self_appear_772_layout() {
-        let b = codec().encode_self_appear_login(0x11223344).into_bytes();
+        let b = codec().encode_self_appear_login(0x11223344, 200).into_bytes();
         assert_eq!(
             b,
-            vec![0x0A, 0x44, 0x33, 0x22, 0x11, 0x32, 0x00, 0x00]
+            vec![0x0A, 0x44, 0x33, 0x22, 0x11, 0xC8, 0x00, 0x00]
         );
     }
 

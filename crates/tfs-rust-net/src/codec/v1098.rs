@@ -163,7 +163,8 @@ impl Codec1098 {
 
     /// `ProtocolGame::sendAddCreature` self branch — opcode `0x17` (1098).
     /// Opcode is version-keyed via `protocol_opcodes::server::self_appear` (Phase A2).
-    pub fn encode_self_appear_login(&self, player_id: u32) -> NetworkMessage {
+    /// `server_beat` is ignored: 1098 reference (`src/protocolgame.cpp:2775`) hardcodes `0x32` (50).
+    pub fn encode_self_appear_login(&self, player_id: u32, _server_beat: u16) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(tfs_rust_common::protocol_opcodes::server::self_appear(
             ProtocolVersion::V1098,

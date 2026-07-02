@@ -1,3 +1,88 @@
+function Game.setMapItemActionId(position, itemid, actionid)
+	local tile = Tile(position)
+	if not tile then
+		error("Game.setMapItemActionId - Tile not found")
+		return false
+	end
+	
+	local item = tile:getItemById(itemid)
+	if not item then
+		error("Game.setMapItemActionId - Item not found")
+		return false
+	end
+	
+	item:setActionId(actionid)
+	return true
+end
+
+function Game.isItemInPosition(position, itemid)
+	local tile = Tile(position)
+	if not tile then
+		error("Game.isItemInPosition - Tile not found")
+		return false
+	end
+
+	local item = tile:getItemById(itemid)
+	if not item then
+		return false
+	end
+	
+	return true
+end
+
+function Game.removeItemInPosition(position, itemid)
+	local tile = Tile(position)
+	if not tile then
+		error("Game.removeItemInPosition - Tile not found")
+		return false
+	end
+	
+	local item = tile:getItemById(itemid)
+	if not item then
+		return false
+	end
+	
+	item:remove()
+	return true
+end
+
+function Game.removeItemsInPosition(position)
+	local tile = Tile(position)
+	if not tile then
+		error("Game.removeItemsInPosition - Tile not found")
+		return false
+	end
+	
+	for _, item in ipairs(tile:getItems()) do
+		local itemType = ItemType(item:getId())
+		if itemType:isMovable() then
+			item:remove()
+		end
+	end
+end
+
+function Game.sendMagicEffect(position, effect)
+	local pos = Position(position.x, position.y, position.z)
+	pos:sendMagicEffect(effect)
+end
+
+function Game.transformItemInPosition(position, fromitemid, toitemid)
+	local tile = Tile(position)
+	if not tile then
+		error("Game.transformItemInPosition - Tile not found")
+		return false
+	end
+
+	local item = tile:getItemById(fromitemid)
+	if not item then
+		return false
+	end
+	
+	item:transform(toitemid)
+	item:decay()
+	return true
+end
+
 function Game.broadcastMessage(message, messageType)
 	if not messageType then
 		messageType = MESSAGE_STATUS_WARNING

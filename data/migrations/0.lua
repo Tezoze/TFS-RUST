@@ -1,7 +1,6 @@
 function onUpdateDatabase()
-	print("> Updating database to version 1 (account names)")
-	db.query("ALTER TABLE `accounts` ADD `name` VARCHAR(32) NOT NULL AFTER `id`")
-	db.query("UPDATE `accounts` SET `name` = `id`")
-	db.query("ALTER TABLE `accounts` ADD UNIQUE (`name`)")
+	db.query("ALTER TABLE `account_bans` DROP FOREIGN KEY `account_bans_ibfk_2`;")
+	db.query("ALTER TABLE `account_ban_history` DROP FOREIGN KEY `account_ban_history_ibfk_2`;")
+	db.query("ALTER TABLE `ip_bans` DROP FOREIGN KEY `ip_bans_ibfk_1`;")
 	return true
 end
