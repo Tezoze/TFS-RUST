@@ -62,7 +62,7 @@ that blocks "all mechanics run through ToDo."
       on login (`crplayer.cc:1395-1400`). **Eat action:** `player:feed(amount)` Lua binding
       (mutation `PlayerFeed` → `lua_script_player_feed`); `food.lua` updated to use
       `player:getFood()` instead of `CONDITION_REGENERATION` for the "full" check.
-- [ ] **F4 — Scheduler dispatch** (`scheduler.rs` / `game_loop.rs`): actually invoke
+- [x] **F4 — Scheduler dispatch** (`scheduler.rs` / `game_loop.rs`): actually invoke
       `GameCommand::LuaCallback { event_id }` instead of only tracing it. Wire to `addEvent`/
       `stopEvent` per `tfs-lua-boundaries.md` §"Full API Port Plan" item 4.
 - [ ] **F8 — route player non-walk actions through ToDo `Execute`** (structural): move

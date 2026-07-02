@@ -68,6 +68,15 @@ pub trait EventDispatcher {
         _equip: bool,
     ) {
     }
+
+    /// Execute a fired `addEvent` timer callback.
+    ///
+    /// C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).
+    /// Called from the game loop when `GameCommand::LuaCallback { event_id }` arrives.
+    /// Returns `true` if the event was found and executed.
+    fn execute_timer_event(&self, _event_id: u64) -> bool {
+        false
+    }
 }
 
 /// Default no-op dispatcher for tests and early wiring.

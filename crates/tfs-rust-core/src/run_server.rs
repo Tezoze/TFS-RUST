@@ -166,6 +166,19 @@ pub async fn run() -> anyhow::Result<()> {
     let spawns = SpawnManager::from_zones(spawn_zones);
     let vocations = std::sync::Arc::new(content.vocations);
 
+    // Game command channel — created early so the `Scheduler` can be wired before
+    // `LuaRuntime::new()` (scripts may call `addEvent` at load time).
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<GameCommand>();
+    // `addEvent` / `stopEvent` scheduler — game-thread only (`Rc` → `!Send`).
+    // C++ reference: `g_scheduler` (`scheduler.cpp`).
+    let scheduler = std::rc::Rc::new(crate::scheduler::Scheduler::new(
+        cmd_tx.clone(),
+        tokio::runtime::Handle::current(),
+    ));
+    // Bind the scheduler to the thread-local so `addEvent`/`stopEvent` Lua closures
+    // can reach it. Set once for the game thread's lifetime.
+    tfs_rust_lua::set_timer_scheduler(scheduler.clone());
+
     let events: Box<dyn crate::event_dispatcher::EventDispatcher> = match LuaRuntime::new() {
         Ok(mut lua_runtime) => {
             let mut move_events = tfs_rust_lua::MoveEventsRegistry::default();
@@ -237,6 +250,7 @@ pub async fn run() -> anyhow::Result<()> {
         codec,
         mechanics,
     );
+    world.scheduler = Some(scheduler.clone());
     world.startup_spawns();
     info!(
         map_chunks = world.map.grid.chunk_count(),
@@ -250,7 +264,6 @@ pub async fn run() -> anyhow::Result<()> {
     );
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<GameCommand>();
     let shutdown_cmd_tx = cmd_tx.clone();
     let out_for_loop = out_registry.clone();
 

@@ -148,6 +148,9 @@ pub struct GameWorld {
     pub(crate) lag_772: bool,
     /// Idle-kick disconnects queued from `process_connections_772` — drained by the 772 game loop.
     pub(crate) pending_idle_kick_772: Vec<ConnId>,
+    /// `addEvent` / `stopEvent` scheduler — `None` in tests / when Lua is unavailable.
+    /// Game-thread only (`Rc` → `!Send`); used by the game loop to `forget` fired timers.
+    pub(crate) scheduler: Option<std::rc::Rc<crate::scheduler::Scheduler>>,
 }
 
 impl GameWorld {
@@ -333,6 +336,7 @@ impl GameWorld {
             last_ambiente_brightness: -1,
             lag_772: false,
             pending_idle_kick_772: Vec::new(),
+            scheduler: None,
         }
     }
 

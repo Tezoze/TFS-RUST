@@ -4,10 +4,15 @@
 //! and manages script registry and global function registration.
 
 use mlua::Lua;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
 
 use crate::context::{CreatureRef, ItemRef};
+use crate::timer_events::{
+    execute_timer_event, register_add_event_stop_event, TimerEvents,
+};
 use crate::userdata::{register_container_metatable, register_creature_metatable, register_item_metatable};
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
@@ -20,6 +25,9 @@ pub struct CallbackRef(mlua::RegistryKey);
 pub struct LuaRuntime {
     lua: Lua,
     script_registry: HashMap<String, ()>,
+    /// `addEvent` / `stopEvent` timer-event registry (C++ `g_luaEnvironment.timerEvents`).
+    /// `Rc<RefCell<…>>` so the Lua closures and `execute_timer_event` share access.
+    timer_events: TimerEvents,
 }
 
 impl LuaRuntime {
@@ -40,12 +48,21 @@ impl LuaRuntime {
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
 
+        // `addEvent` / `stopEvent` globals (C++ `luascript.cpp:1126-1130`).
+        // The `TimerScheduler` thread-local is set later from `run_server.rs`;
+        // the closures read it at call time, not registration time.
+        let timer_events: TimerEvents = Rc::new(RefCell::new(HashMap::new()));
+        let next_timer_id = Rc::new(RefCell::new(1u64));
+        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id)
+            .map_err(LuaError::Registration)?;
+
         // Load data/lib/*.lua files (fatal if any fail)
         // TODO: Implement lib loading after we have a data directory path
 
         Ok(Self {
             lua,
             script_registry: HashMap::new(),
+            timer_events,
         })
     }
 
@@ -106,6 +123,16 @@ impl LuaRuntime {
             .create_userdata(CreatureRef(creature))
             .map_err(LuaError::Init)?;
         function.call::<bool>(player).map_err(LuaError::Init)
+    }
+
+    /// Execute a fired `addEvent` timer callback.
+    ///
+    /// C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).
+    /// Called from the game loop when `GameCommand::LuaCallback { event_id }` arrives.
+    /// Returns `Ok(true)` if the event was found and executed, `Ok(false)` if it was
+    /// already cancelled.
+    pub fn execute_timer_event(&self, event_id: u64) -> Result<bool, LuaError> {
+        execute_timer_event(&self.lua, &self.timer_events, event_id).map_err(LuaError::Init)
     }
 
     /// Register `TableName.methodName` from a loaded script (e.g. `Player.onInventoryUpdate`).

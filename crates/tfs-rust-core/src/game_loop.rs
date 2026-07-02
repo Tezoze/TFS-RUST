@@ -504,7 +504,13 @@ async fn dispatch_command(
             ControlFlow::Continue(())
         }
         GameCommand::LuaCallback { event_id } => {
-            trace!(event_id, "lua callback — scheduler / Phase 8");
+            // C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).
+            // Dispatch the `addEvent` callback with Lua mutation scope + read context,
+            // then clean up the stale abort handle in the scheduler.
+            crate::lua_scope::fire_on_timer_event(world, event_id);
+            if let Some(scheduler) = &world.scheduler {
+                scheduler.forget(event_id);
+            }
             ControlFlow::Continue(())
         }
         GameCommand::LuaAsyncResult {

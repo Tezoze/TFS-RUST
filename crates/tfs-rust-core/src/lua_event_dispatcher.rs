@@ -240,4 +240,15 @@ impl EventDispatcher for LuaEventDispatcher {
             }
         });
     }
+
+    fn execute_timer_event(&self, event_id: u64) -> bool {
+        // C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).
+        match self.runtime.execute_timer_event(event_id) {
+            Ok(found) => found,
+            Err(e) => {
+                tracing::error!(event_id, "Lua addEvent callback failed: {e}");
+                false
+            }
+        }
+    }
 }

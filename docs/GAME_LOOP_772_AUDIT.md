@@ -167,7 +167,7 @@ etc.).
 
 ---
 
-## Finding 4 — Scheduler is a no-op stub (Medium)
+## Finding 4 — Scheduler is a no-op stub (Medium) — RESOLVED
 
 **File:** `crates/tfs-rust-core/src/scheduler.rs`, dispatch in `game_loop.rs`
 
@@ -184,6 +184,13 @@ GameCommand::LuaCallback { event_id } => {
 Scheduled (`addEvent`) callbacks never run. Not 772-specific (772 AI is driven off the
 `ToDoQueue`, not `addEvent`), but the file is in scope and this is a latent gap for any Lua that
 relies on `addEvent`/`stopEvent`.
+
+**Resolved (F4):** `addEvent`/`stopEvent` Lua globals are now registered in `LuaRuntime::new`
+(`timer_events.rs`), backed by the `TimerScheduler` trait. `Scheduler` implements `TimerScheduler`
+with Tokio `AbortHandle`-based cancellation. The game loop dispatches `LuaCallback` via
+`fire_on_timer_event` (mutation scope + read context) then cleans up the stale abort handle.
+C++ references: `luascript.cpp:3789` (`luaAddEvent`), `luascript.cpp:3907` (`luaStopEvent`),
+`luascript.cpp:18238` (`executeTimerEvent`), `scheduler.cpp:10` (`Scheduler::addEvent`).
 
 ---
 

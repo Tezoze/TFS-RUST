@@ -156,6 +156,21 @@ pub fn fire_on_login(world: &mut GameWorld, cid: CreatureId) {
     });
 }
 
+/// Execute a fired `addEvent` timer callback with read context and mutation scope.
+///
+/// C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).
+/// Called from the game loop when `GameCommand::LuaCallback { event_id }` arrives.
+pub fn fire_on_timer_event(world: &mut GameWorld, event_id: u64) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.execute_timer_event(event_id);
+        });
+    });
+}
+
 /// TFS `Events::eventPlayerOnInventoryUpdate` with read/mutation scope for userdata.
 pub fn fire_on_player_inventory_update(
     world: &mut GameWorld,

@@ -8,6 +8,7 @@ pub mod lua_mutation;
 pub mod move_events;
 pub mod runtime;
 pub mod script_loader;
+pub mod timer_events;
 pub mod userdata;
 
 // Re-export commonly used types
@@ -24,6 +25,10 @@ pub use lua_mutation::{
 pub use move_events::{MoveEventEntry, MoveEventKind, MoveEventsRegistry};
 pub use runtime::{CallbackRef, LuaError, LuaRuntime, RegisterLuaFunctions};
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
+pub use timer_events::{
+    execute_timer_event, register_add_event_stop_event, set_timer_scheduler, TimerEventDesc,
+    TimerEvents, TimerScheduler,
+};
 pub use userdata::{
     register_container_metatable, register_creature_metatable, register_item_metatable, ContainerRef,
 };
