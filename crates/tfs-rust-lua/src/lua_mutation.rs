@@ -64,6 +64,12 @@ pub enum LuaMutation {
         item_id: u64,
         store: bool,
     },
+    /// 772 `SKILL_FED` refill — `player:feed(amount)` adds to `food_remaining`
+    /// (`moveuse.cc:1846` `SetTimer(SKILL_FED, CurFoodTime + ObjFoodTime, ...)`).
+    PlayerFeed {
+        creature_id: u64,
+        amount: u32,
+    },
 }
 
 /// Destination for `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
@@ -243,4 +249,12 @@ pub fn call_lua_set_unique_id(item_id: u64, unique_id: u16) -> Result<(), String
 
 pub fn call_lua_set_store_item(item_id: u64, store: bool) -> Result<(), String> {
     apply_mutation(LuaMutation::ItemSetStoreItem { item_id, store })
+}
+
+/// 772 `player:feed(amount)` — refill `food_remaining` (`moveuse.cc:1846`).
+pub fn call_lua_feed(creature_id: u64, amount: u32) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerFeed {
+        creature_id,
+        amount,
+    })
 }

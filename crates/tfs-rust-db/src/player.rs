@@ -66,6 +66,14 @@ pub struct PlayerRecord {
     pub save: i8,
     pub onlinetime: i64,
     pub deletion: i64,
+    /// 772 `SKILL_FED` `Cycle` — food-remaining rounds (`crskill.cc:220` `TimerValue`).
+    /// `0` ⇒ skill inactive ⇒ no regen. Persisted across relogs (`crplayer.cc:2496`).
+    /// TVP/TFS-1.4.2 do not track food; column defaults to `0`.
+    pub food_remaining: i32,
+    /// 772 `SKILL_FED` `Act` — regen interval for `ProcessCreatures` item regen
+    /// (`crmain.cc:1087` `RegenInterval = Skills[SKILL_FED]->Get()`).
+    /// TVP/TFS-1.4.2 do not track food; column defaults to `0`.
+    pub food_level: i32,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -136,7 +144,8 @@ impl<'a> PlayerStore<'a> {
             skulltime, skull, town_id, balance, offlinetraining_time, offlinetraining_skill, stamina,
             skill_fist, skill_fist_tries, skill_club, skill_club_tries, skill_sword, skill_sword_tries,
             skill_axe, skill_axe_tries, skill_dist, skill_dist_tries, skill_shielding, skill_shielding_tries,
-            skill_fishing, skill_fishing_tries, direction, save, onlinetime, deletion
+            skill_fishing, skill_fishing_tries, direction, save, onlinetime, deletion,
+            food_remaining, food_level
             FROM players WHERE name = ? AND deletion = 0"#;
 
         let Some(player) = self
@@ -331,7 +340,8 @@ impl<'a> PlayerStore<'a> {
             stamina = ?, skill_fist = ?, skill_fist_tries = ?, skill_club = ?, skill_club_tries = ?,
             skill_sword = ?, skill_sword_tries = ?, skill_axe = ?, skill_axe_tries = ?,
             skill_dist = ?, skill_dist_tries = ?, skill_shielding = ?, skill_shielding_tries = ?,
-            skill_fishing = ?, skill_fishing_tries = ?, direction = ?, onlinetime = ?, blessings = ?
+            skill_fishing = ?, skill_fishing_tries = ?, direction = ?, onlinetime = ?, blessings = ?,
+            food_remaining = ?, food_level = ?
             WHERE id = ?"#,
         )
         .bind(p.level)
@@ -384,6 +394,8 @@ impl<'a> PlayerStore<'a> {
         .bind(p.direction)
         .bind(p.onlinetime)
         .bind(p.blessings)
+        .bind(p.food_remaining)
+        .bind(p.food_level)
         .bind(p.id)
         .execute(&mut *tx)
         .await

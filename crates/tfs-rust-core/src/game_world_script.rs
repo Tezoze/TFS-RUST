@@ -254,4 +254,15 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let iid = self.resolve_item_u64(item_id)?;
         self.script_item_position(iid)
     }
+
+    fn get_player_food(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<u32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.food_remaining),
+            _ => None,
+        })
+    }
 }

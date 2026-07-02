@@ -51,11 +51,17 @@ that blocks "all mechanics run through ToDo."
 - [x] **F3 — fed regen from `vocations.xml`** (`process_skills.rs`): delete `fed_regen_cadence`
       hardcoded table; read `gainhpticks/amount` + `gainmanaticks/amount` from vocation def; add
       PZ gate + food-remaining gate (`SKILL_FED > 0`). (`crskill.cc:812-885`)
-- [ ] **F5 — lag log gate** (`game_world_tick.rs::advance_beat_772`): log the error only on the
+- [x] **F5 — lag log gate** (`game_world_tick.rs::advance_beat_772`): log the error only on the
       `!lag_772 → lag_772` transition. (`main.cc:447`)
-- [ ] **F2 — `ProcessCreatures` gaps** (`creature_think.rs`): PK-mark clearing on
-      `EarliestLogoutRound` expiry (needs the PvP-mark timer field); PZ-gated HP+1/Mana+4 item
-      regen separate from `TSkillFed`. (`crmain.cc:1087-1107`)
+- [x] **F2 — `ProcessCreatures` gaps** (`creature_think.rs`): PK-mark clearing on
+      `EarliestLogoutRound` expiry (stub — field zeroed, full `ClearPlayerkillingMarks` deferred
+      until PvP aggressor subsystem exists); PZ-gated HP+1/Mana+4 item regen separate from
+      `TSkillFed`, keyed on `food_level` (`SKILL_FED` `Act`). (`crmain.cc:1087-1107`)
+      **Food persistence:** added `food_remaining` + `food_level` columns to `players`
+      (migration `20260702000000_food_skill.sql`); load/save in `player.rs`; offline food drain
+      on login (`crplayer.cc:1395-1400`). **Eat action:** `player:feed(amount)` Lua binding
+      (mutation `PlayerFeed` → `lua_script_player_feed`); `food.lua` updated to use
+      `player:getFood()` instead of `CONDITION_REGENERATION` for the "full" check.
 - [ ] **F4 — Scheduler dispatch** (`scheduler.rs` / `game_loop.rs`): actually invoke
       `GameCommand::LuaCallback { event_id }` instead of only tracing it. Wire to `addEvent`/
       `stopEvent` per `tfs-lua-boundaries.md` §"Full API Port Plan" item 4.

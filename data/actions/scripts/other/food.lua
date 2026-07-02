@@ -113,8 +113,8 @@ function onUse(player, item, fromPosition, target, toPosition, isHotkey)
 		return false
 	end
 
-	local condition = player:getCondition(CONDITION_REGENERATION, CONDITIONID_DEFAULT)
-	if condition and math.floor(condition:getTicks() / 1000 + (food[1] * 12)) >= 1200 then
+	-- 772 `moveuse.cc:1841-1843`: `if (CurFoodTime + ObjFoodTime) > MaxFoodTime -> FEDUP`.
+	if player:getFood() + (food[1] * 12) >= 1200 then
 		player:sendTextMessage(MESSAGE_STATUS_SMALL, "You are full.")
 	else
 		player:feed(food[1] * 12)

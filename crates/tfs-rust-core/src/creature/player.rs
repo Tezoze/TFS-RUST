@@ -134,6 +134,15 @@ pub struct Player {
     /// `moveuse.cc:1840` `Skills[SKILL_FED]->TimerValue()`). Decrements each
     /// `ProcessSkills` tick; `0` ⇒ skill inactive ⇒ no HP/mana regen (`crskill.cc:180`).
     pub food_remaining: u32,
+    /// 772 `TSkillFed` `Act` — regen interval for `ProcessCreatures` item regen
+    /// (`crmain.cc:1087` `RegenInterval = Skills[SKILL_FED]->Get()`).
+    /// `0` ⇒ no item regen. Set by eating (each food item sets a fixed interval).
+    pub food_level: i32,
+    /// 772 `EarliestLogoutRound` — PK-mark clearing timer (`crmain.cc:1102-1105`).
+    /// When non-zero and `<= round_nr`, `ClearPlayerkillingMarks` fires and the field
+    /// is zeroed. **Stub**: full PK-mark clearing (attacked-players list, aggressor
+    /// flag, skull broadcast) is deferred until the PvP aggressor subsystem exists.
+    pub earliest_logout_round: u32,
     /// Last server `sendPing` (`0x1D`) — `Player::lastPing` (`player.cpp`).
     pub last_ping_sent: Instant,
     /// Last client pong — `Player::lastPong` / `receivePing` (`player.cpp`).

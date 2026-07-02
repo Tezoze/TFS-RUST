@@ -20,7 +20,7 @@ ToDo/`Execute` path, the delayed-event `Scheduler`, and the player-move scheduli
 | # | Area | Severity | Status |
 |---|------|----------|--------|
 | 1 | Idle-timer action-exemption list wrong (`packet_counts_as_action_772`) | **High** | ✅ Fixed (F1) |
-| 2 | `ProcessCreatures`: PK-mark clearing + PZ-gated item regen missing | Medium | Gap |
+| 2 | `ProcessCreatures`: PK-mark clearing + PZ-gated item regen missing | Medium | ✅ Fixed (F2) |
 | 3 | `TSkillFed` regen: hardcoded Rust table instead of `vocations.xml`; no PZ / no-food gate | Medium | ✅ Fixed (F3) |
 | 4 | `Scheduler` (`addEvent`) delivers `LuaCallback` but it is never dispatched | Medium | Gap |
 | 5 | Lag error logs every beat instead of once on transition | Low | Nit |
@@ -84,26 +84,36 @@ exempt + actionable cases.
 
 ---
 
-## Finding 2 — `ProcessCreatures` responsibilities dropped (Medium)
+## Finding 2 — `ProcessCreatures` responsibilities dropped (Medium) — ✅ Fixed (F2)
 
 **File:** `crates/tfs-rust-core/src/creature_think.rs` — `process_creatures_772`
 **C++:** `ProcessCreatures` (`crmain.cc:1075-1138`)
 
-`process_creatures_772` keeps only the death-safety net and delegates the rest. Two pieces of the
-C++ function have no home:
+`process_creatures_772` previously kept only the death-safety net and delegated the rest. Two
+pieces of the C++ function had no home:
 
-1. **PK-mark clearing is missing.** C++ clears playerkilling marks when
+1. **PK-mark clearing — stub implemented.** C++ clears playerkilling marks when
    `EarliestLogoutRound != 0 && EarliestLogoutRound <= RoundNr`, then zeroes `EarliestLogoutRound`
-   (`crmain.cc:1104-1107`). There is no `EarliestLogoutRound` / `ClearPlayerkillingMarks`
-   equivalent in core (only a doc-comment mention). White/red-skull expiry will never fire.
-2. **PZ-gated item regen is missing.** C++ does HP+1 / Mana+4 every `SKILL_FED` rounds, gated on
+   (`crmain.cc:1104-1107`). The `EarliestLogoutRound` field is now on `Player`; the expiry check
+   fires in `process_creatures_772` and zeroes the field. Full `ClearPlayerkillingMarks` (attacked-
+   players list, aggressor flag, skull broadcast) is **deferred** until the PvP aggressor subsystem
+   exists — the stub logs the expiry at `debug` level.
+2. **PZ-gated item regen — implemented.** C++ does HP+1 / Mana+4 every `SKILL_FED` rounds, gated on
    `RegenInterval > 0 && (RoundNr % RegenInterval) == 0 && !IsDead && !IsProtectionZone`
-   (`crmain.cc:1087-1096`). This is a **separate** regen from `TSkillFed::Event`; only the latter
-   is ported (and imperfectly — see Finding 3).
+   (`crmain.cc:1087-1096`). This is a **separate** regen from `TSkillFed::Event` (vocation regen,
+   F3). Item regen keys off `food_level` (`SKILL_FED` `Act` = `RegenInterval`), while vocation
+   regen keys off `food_remaining` (`SKILL_FED` `Cycle`) and vocation tick params. Both now run:
+   item regen in `process_creatures_772`, vocation regen in `process_skills_772`.
+
+**Food persistence:** `food_remaining` + `food_level` are persisted to DB (migration
+`20260702000000_food_skill.sql`); loaded on login with offline food drain (`crplayer.cc:1395-1400`);
+saved on logout. **Eat action:** `player:feed(amount)` Lua binding via `LuaMutation::PlayerFeed`
+→ `lua_script_player_feed` (refills `food_remaining`, capped at 1200, sets `food_level = 12`).
+`data/lib/core/player.lua` and `data/scripts/actions/other/food.lua` updated to use the 772
+`SKILL_FED` model instead of TFS `CONDITION_REGENERATION`.
 
 `CheckState()` (`crmain.cc:1099`) and `LoggingOut`/`LogoutPossible` removal (`crmain.cc:1114-1125`)
-are approximated by `process_connections_772` + `pending_idle_kick_772`; acceptable, but note the
-regen/PK responsibilities above are genuinely absent, not relocated.
+are approximated by `process_connections_772` + `pending_idle_kick_772`; acceptable.
 
 ---
 
@@ -177,7 +187,7 @@ relies on `addEvent`/`stopEvent`.
 
 ---
 
-## Finding 5 — Lag error logged every beat (Low)
+## Finding 5 — Lag error logged every beat (Low) — RESOLVED
 
 **File:** `crates/tfs-rust-core/src/game_world_tick.rs` — `advance_beat_772`
 
@@ -193,6 +203,10 @@ C++ logs only on the transition into lag: `if(!Lag && RoundNr > 10) error(...)` 
 the error log. Behavior (movement skip) is correct; only the logging fidelity differs.
 
 **Fix:** gate the `error!` on `!self.lag_772` before setting it.
+
+**Resolved (F5):** the `error!` is now gated on `!self.lag_772 && self.round_nr_772 > 10` and
+`lag_772` is set *after* the check, matching `main.cc:449-452` exactly. Sustained lag emits the
+error once per `!Lag → Lag` transition.
 
 ---
 
@@ -296,6 +310,8 @@ parity is required.
 2. **Finding 3** (regen from `vocations.xml` + PZ/food gates) — drop the hardcoded table and read
    `gainhp*`/`gainmana*` from the vocation definition; values already match the decompile. ✅
 3. **Finding 5** (lag log gate) — one-line fidelity fix.
-4. **Finding 2** (PK-mark clearing + PZ item regen) — needs the PvP-mark timer field first.
+4. **Finding 2** (PK-mark clearing + PZ item regen) — ✅ Fixed (F2). PK-mark clearing is a
+   stub (field zeroed, full `ClearPlayerkillingMarks` deferred). PZ-gated item regen implemented
+   with `food_level` persistence + `player:feed()` Lua binding.
 5. **Findings 4 / 8** — larger, phase-level (Lua scheduler dispatch; unifying player actions
    under the ToDo engine).

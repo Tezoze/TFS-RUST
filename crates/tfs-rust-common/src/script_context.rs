@@ -188,4 +188,11 @@ pub trait ScriptContext {
         let _ = item_id;
         None
     }
+
+    /// 772 `SKILL_FED` `Cycle` — food-remaining rounds (`crskill.cc:220`).
+    /// Used by `player:getFood()` in Lua.
+    fn get_player_food(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let _ = creature_id;
+        None
+    }
 }

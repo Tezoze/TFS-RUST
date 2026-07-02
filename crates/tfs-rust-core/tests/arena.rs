@@ -98,6 +98,8 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         last_command_round: 0,
         last_action_round: 0,
         food_remaining: 0,
+        food_level: 0,
+        earliest_logout_round: 0,
         last_ping_sent: Instant::now(),
         last_pong_at: Instant::now(),
         next_action_until: None,

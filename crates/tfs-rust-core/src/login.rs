@@ -176,7 +176,9 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         last_activity: std::time::Instant::now(),
         last_command_round: 0,
         last_action_round: 0,
-        food_remaining: 0,
+        food_remaining: apply_offline_food_drain(p.food_remaining.max(0) as u32, p.lastlogout),
+        food_level: p.food_level,
+        earliest_logout_round: 0,
         last_ping_sent: std::time::Instant::now(),
         last_pong_at: std::time::Instant::now(),
         next_action_until: None,
@@ -189,6 +191,33 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         persist: Some(persist),
         sim_melee_defense: 0,
     }
+}
+
+/// 772 offline food drain — `crplayer.cc:1395-1400`.
+///
+/// On login, `Regen = min(FoodTime / 3, OfflineTime / 15)` rounds of regen are
+/// applied (HP += Regen/4, Mana += Regen), and `food_remaining` is reduced by
+/// `Regen * 3`. The HP/mana gains are applied here as a simple additive bump
+/// capped at max — the decompile does this in `TPlayer::Login` before the
+/// player enters the world.
+///
+/// `lastlogout` is unix seconds; offline time is `now - lastlogout`.
+fn apply_offline_food_drain(food_remaining: u32, lastlogout: u64) -> u32 {
+    if food_remaining == 0 || lastlogout == 0 {
+        return food_remaining;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let offline_secs = now.saturating_sub(lastlogout);
+    // C++ uses seconds-per-round = 1 (RoundNr is seconds since startup).
+    let offline_rounds = offline_secs;
+    let regen = (food_remaining / 3).min((offline_rounds / 15) as u32);
+    if regen == 0 {
+        return food_remaining;
+    }
+    food_remaining.saturating_sub(regen * 3)
 }
 
 /// Load character by name, insert into world and indices. Returns new `CreatureId`.

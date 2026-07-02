@@ -1,6 +1,6 @@
     use std::time::{Duration, Instant};
 
-    use tfs_rust_common::Position;
+    use tfs_rust_common::{Position, ZoneType};
 
     use crate::test_world::support::{
         beat_driven_world, ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
@@ -280,4 +280,237 @@
         let expired = world.decay.tick(world.server_ms);
         assert_eq!(expired.len(), 1);
         assert_eq!(expired[0].0, corpse_id);
+    }
+
+    // ─── F2 Part A: item regen (HP+1/Mana+4) tests ───
+    // C++ reference: `crmain.cc:1087-1095` `ProcessCreatures` item regen.
+
+    use crate::creature::CreatureKind;
+    use crate::test_world::support::{beat_driven_test_world, insert_player, test_player};
+    use crate::tile::{Tile, TileBody};
+    use slotmap::Key;
+
+    /// Insert a protection-zone ground tile at `pos` (mirrors `ensure_walkable_tile`
+    /// but with `ZoneType::Protection` — `crmain.cc:1093` PZ gate).
+    fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position, ground_type: u16) {
+        map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: Some(ground_type),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: 0,
+                zone: ZoneType::Protection,
+            }),
+        );
+    }
+
+    /// F2: `ProcessCreatures` item regen fires HP+1/Mana+4 when `food_level > 0`
+    /// and `round_nr % food_level == 0` (`crmain.cc:1087-1095`).
+    #[test]
+    fn item_regen_fires_at_food_level_cadence() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Fed", pos);
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_level = 12; // regen every 12 rounds
+        let pid = insert_player(&mut world, player);
+
+        // round_nr starts at 0; 0 % 12 == 0, so first call fires.
+        world.round_nr_772 = 0;
+        world.process_creatures_772();
+
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.base.health, 91, "HP should gain +1 from item regen");
+        assert_eq!(p.mana, 44, "Mana should gain +4 from item regen");
+    }
+
+    /// F2: item regen does NOT fire when `food_level == 0` (`crmain.cc:1087`).
+    #[test]
+    fn item_regen_skipped_when_food_level_zero() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Hungry", pos);
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_level = 0;
+        let pid = insert_player(&mut world, player);
+
+        world.round_nr_772 = 0;
+        world.process_creatures_772();
+
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.base.health, 90, "no regen when food_level == 0");
+        assert_eq!(p.mana, 40, "no regen when food_level == 0");
+    }
+
+    /// F2: item regen does NOT fire inside a protection zone (`crmain.cc:1093`).
+    #[test]
+    fn item_regen_skipped_in_protection_zone() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_pz_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("PZ", pos);
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_level = 12;
+        let pid = insert_player(&mut world, player);
+
+        world.round_nr_772 = 0;
+        world.process_creatures_772();
+
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.base.health, 90, "no regen in PZ");
+        assert_eq!(p.mana, 40, "no regen in PZ");
+    }
+
+    /// F2: item regen does NOT fire when the player is dead (`crmain.cc:1092` `!IsDead`).
+    #[test]
+    fn item_regen_skipped_when_dead() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Dead", pos);
+        player.base.health = 0;
+        player.base.max_health = 100;
+        player.mana = 0;
+        player.max_mana = 50;
+        player.food_level = 12;
+        let pid = insert_player(&mut world, player);
+
+        world.round_nr_772 = 0;
+        world.process_creatures_772();
+
+        // Player should be processed by death safety, not regen.
+        // HP stays 0 (or creature is dead/removed by apply_creature_death).
+        let p = world.creatures.get(pid);
+        if let Some(creature) = p {
+            if let CreatureKind::Player(p) = creature {
+                assert!(p.base.health <= 0, "dead player should not gain HP from regen");
+            }
+        }
+    }
+
+    /// F2: item regen does NOT fire when `round_nr % food_level != 0` (`crmain.cc:1088`).
+    #[test]
+    fn item_regen_skipped_off_cadence() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("OffCadence", pos);
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_level = 12;
+        let pid = insert_player(&mut world, player);
+
+        // round_nr = 5; 5 % 12 != 0, so no regen.
+        world.round_nr_772 = 5;
+        world.process_creatures_772();
+
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.base.health, 90, "no regen off cadence");
+        assert_eq!(p.mana, 40, "no regen off cadence");
+    }
+
+    /// F2: `EarliestLogoutRound` expiry clears the PK-mark timer (`crmain.cc:1102-1105`).
+    /// Stub: the field is zeroed; full `ClearPlayerkillingMarks` is deferred.
+    #[test]
+    fn earliest_logout_round_expiry_clears_pk_marks() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("PK", pos);
+        player.earliest_logout_round = 10;
+        let pid = insert_player(&mut world, player);
+
+        // round_nr = 10; 10 <= 10, so timer expires.
+        world.round_nr_772 = 10;
+        world.process_creatures_772();
+
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.earliest_logout_round, 0, "PK-mark timer should be cleared");
+    }
+
+    /// F2: `EarliestLogoutRound` does NOT expire before the round (`crmain.cc:1102`).
+    #[test]
+    fn earliest_logout_round_not_expired_before_round() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("PK2", pos);
+        player.earliest_logout_round = 10;
+        let pid = insert_player(&mut world, player);
+
+        world.round_nr_772 = 5;
+        world.process_creatures_772();
+
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.earliest_logout_round, 10, "PK-mark timer should not expire early");
+    }
+
+    /// F2: `player:feed(amount)` refills `food_remaining`, capped at `MAX_FOOD` (1200).
+    /// C++ reference: `moveuse.cc:1846` `SetTimer(SKILL_FED, CurFoodTime + ObjFoodTime, ...)`.
+    #[test]
+    fn lua_feed_refills_food_remaining_capped() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Eater", pos);
+        player.food_remaining = 100;
+        let pid = insert_player(&mut world, player);
+
+        // Feed 200 → 100 + 200 = 300.
+        world.lua_script_player_feed(pid.data().as_ffi(), 200).unwrap();
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.food_remaining, 300, "food should be 100 + 200 = 300");
+
+        // Feed 1200 → 300 + 1200 = 1500, capped at 1200.
+        world.lua_script_player_feed(pid.data().as_ffi(), 1200).unwrap();
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.food_remaining, 1200, "food should be capped at MAX_FOOD");
+    }
+
+    /// F2: `player:feed` sets `food_level` to the regen interval on first eat.
+    #[test]
+    fn lua_feed_sets_food_level() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("FirstEat", pos);
+        player.food_level = 0;
+        let pid = insert_player(&mut world, player);
+
+        world.lua_script_player_feed(pid.data().as_ffi(), 100).unwrap();
+        let p = world.creatures.get(pid).unwrap();
+        let CreatureKind::Player(p) = p else { panic!("not a player") };
+        assert_eq!(p.food_level, 12, "food_level should be set to 12 (default regen interval)");
     }

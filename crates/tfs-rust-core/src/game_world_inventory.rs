@@ -1,6 +1,12 @@
 //! Inventory cylinder moves, equip UI updates, quick-equip, look-at.
 // C++ reference: `src/game.cpp` `internalMoveItem`, `playerEquipItem`, `playerLookAt`.
 
+/// 772 `SKILL_FED` `Max` — food counter cap. The decompile defaults `Max` to
+/// `INT_MAX` (`crskill.cc:234`), but `food.lua` uses `1200` as the "full"
+/// threshold (`data/scripts/actions/other/food.lua:52`). We cap at 1200 to
+/// match the Lua script's observable behavior.
+pub(crate) const MAX_FOOD: u32 = 1200;
+
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_net::codec::ItemTemplateArgs;
@@ -518,6 +524,36 @@ impl GameWorld {
             Ok(())
         } else {
             Err("item not found".into())
+        }
+    }
+
+    /// 772 `player:feed(amount)` — refill `food_remaining` (`moveuse.cc:1846`
+    /// `SetTimer(SKILL_FED, CurFoodTime + ObjFoodTime, ...)`).
+    ///
+    /// Capped at `MAX_FOOD` (1200) matching the `food.lua` "full" threshold.
+    /// Also sets `food_level` to the regen interval — the decompile's `SKILL_FED`
+    /// `Act` field controls the `ProcessCreatures` item-regen cadence
+    /// (`crmain.cc:1087`). Eating sets `food_level = 12` (the decompile default
+    /// `SecsPerHP` for `PROFESSION_NONE`, `crskill.cc:828-835`).
+    pub fn lua_script_player_feed(
+        &mut self,
+        creature_u64: u64,
+        amount: u32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        if let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.food_remaining = (p.food_remaining.saturating_add(amount)).min(MAX_FOOD);
+            // Eating sets the regen interval — decompile `SKILL_FED` `Act` is the
+            // `ProcessCreatures` `RegenInterval` (`crmain.cc:1087`). We use 12
+            // (the `PROFESSION_NONE`/Knight default `SecsPerHP`, `crskill.cc:833`).
+            if p.food_level <= 0 {
+                p.food_level = 12;
+            }
+            Ok(())
+        } else {
+            Err("not a player".into())
         }
     }
 

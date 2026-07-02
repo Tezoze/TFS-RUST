@@ -1,25 +1,10 @@
-local foodCondition = Condition(CONDITION_REGENERATION, CONDITIONID_DEFAULT)
-
-function Player.feed(self, food)
-	local condition = self:getCondition(CONDITION_REGENERATION, CONDITIONID_DEFAULT)
-	if condition then
-		condition:setTicks(condition:getTicks() + (food * 1000))
-	else
-		local vocation = self:getVocation()
-		if not vocation then
-			return nil
-		end
-
-		foodCondition:setTicks(food * 1000)
-		foodCondition:setParameter(CONDITION_PARAM_HEALTHGAIN, vocation:getHealthGainAmount())
-		foodCondition:setParameter(CONDITION_PARAM_HEALTHTICKS, vocation:getHealthGainTicks() * 1000)
-		foodCondition:setParameter(CONDITION_PARAM_MANAGAIN, vocation:getManaGainAmount())
-		foodCondition:setParameter(CONDITION_PARAM_MANATICKS, vocation:getManaGainTicks() * 1000)
-
-		self:addCondition(foodCondition)
-	end
-	return true
-end
+-- 772 `SKILL_FED` food system — `moveuse.cc:1839-1846` `UseFood`.
+-- TFS 1.4.2 uses CONDITION_REGENERATION; the 772 decompile uses a timer-skill
+-- (`crskill.cc:220` Cycle). The Rust engine models the decompile: `player:feed`
+-- (registered as a userdata method in tfs-rust-lua) refills `food_remaining`
+-- (capped at 1200), and `ProcessCreatures` applies HP+1/Mana+4 item regen
+-- gated on `food_level` (`crmain.cc:1087`).
+-- No Lua wrapper needed — the Rust binding is the direct implementation.
 
 function Player.getClosestFreePosition(self, position, extended)
 	if self:getGroup():getAccess() and self:getAccountType() >= ACCOUNT_TYPE_GOD then

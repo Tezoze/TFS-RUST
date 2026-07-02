@@ -7,8 +7,8 @@ use std::cell::RefCell;
 
 use crate::context::{CreatureData, CreatureRef, ItemRef, CURRENT_CTX, LuaContext};
 use crate::lua_mutation::{
-    call_lua_add_item, call_lua_add_item_full, call_lua_get_depot_chest, call_lua_get_inbox,
-    call_lua_remove_item,
+    call_lua_add_item, call_lua_add_item_full, call_lua_feed, call_lua_get_depot_chest,
+    call_lua_get_inbox, call_lua_remove_item,
 };
 use crate::userdata::container::ContainerRef;
 
@@ -238,6 +238,19 @@ impl UserData for CreatureRef {
                     .map(i32::from)
                     .unwrap_or(-1))
             })
+        });
+
+        // 772 `player:feed(amount)` — refill `SKILL_FED` `Cycle` (`moveuse.cc:1846`).
+        // C++ TFS uses `CONDITION_REGENERATION`; the 772 decompile uses a timer-skill.
+        // We model the decompile: `food_remaining += amount`, capped at `MAX_FOOD`.
+        methods.add_method("feed", |_, this, amount: u32| {
+            call_lua_feed(this.0, amount).map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
+
+        // 772 `player:getFood()` — read `SKILL_FED` `Cycle` (`crskill.cc:220`).
+        methods.add_method("getFood", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_player_food(this.0).unwrap_or(0)))
         });
     }
 }
