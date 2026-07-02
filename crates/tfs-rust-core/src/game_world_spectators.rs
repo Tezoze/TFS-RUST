@@ -461,11 +461,10 @@ impl GameWorld {
 
     pub(crate) fn send_cancel_message(&mut self, conn_id: ConnId, rv: ReturnValue) {
         use tfs_rust_net::outgoing_extra::send_text_message_simple;
-        const MESSAGE_STATUS_SMALL: u8 = 0x15;
         let msg = rv.description();
         self.enqueue_outgoing(
             conn_id,
-            send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+            send_text_message_simple(self.codec.failure_message_type(), msg).into_bytes(),
         );
     }
 

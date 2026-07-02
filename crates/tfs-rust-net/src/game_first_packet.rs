@@ -9,6 +9,7 @@
 use rsa::RsaPrivateKey;
 use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::ProtocolCaps;
+use tracing::{debug, warn};
 
 use crate::adler::adler_checksum;
 use crate::rsa::decrypt as rsa_decrypt_block;
@@ -70,7 +71,7 @@ pub enum FirstClientPacket {
 }
 
 /// Which protocol shape an RSA-offset candidate decodes into.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum FirstKind {
     Game,
     Login,
@@ -78,7 +79,7 @@ enum FirstKind {
 
 /// A candidate framing: where the 128-byte RSA block starts and where the `OperatingSystem_t`
 /// `u16` lives, both relative to the body returned by `read_sized_payload`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct FrameCandidate {
     rsa_off: usize,
     os_off: usize,
@@ -93,6 +94,18 @@ pub fn parse_first_client_packet(
     private_key: &RsaPrivateKey,
     caps: &ProtocolCaps,
 ) -> Result<FirstClientPacket> {
+    // DEBUG: dump the raw first-packet body so we can see what the client actually sends.
+    // Hex dump first 64 bytes + total length + caps flags. Remove once login is working.
+    debug!(
+        len = body.len(),
+        adler_checksum = caps.adler_checksum,
+        prelogin_challenge = caps.prelogin_challenge,
+        account_name_login = caps.account_name_login,
+        session_key_login = caps.session_key_login,
+        first_64_hex = %hex_dump(body, 64),
+        "parse_first_client_packet: raw body"
+    );
+
     // 1098 prefixes a 4-byte Adler checksum; 772 omits it (`docs/PROTOCOL_VERSIONING.md` §2.1).
     if caps.adler_checksum {
         const MIN_LEN: usize = 4 + 11 + 128;
@@ -106,10 +119,16 @@ pub fn parse_first_client_packet(
         let recv = u32::from_le_bytes(body[0..4].try_into().unwrap());
         let expected = adler_checksum(&body[4..]);
         if recv != expected {
+            warn!(
+                recv = format!("0x{recv:08x}"),
+                expected = format!("0x{expected:08x}"),
+                "first packet checksum mismatch"
+            );
             return Err(TfsRustError::Protocol(format!(
                 "first packet checksum mismatch: recv=0x{recv:08x} expected=0x{expected:08x}"
             )));
         }
+        debug!("adler checksum OK");
     } else if body.len() < 5 + 128 {
         return Err(TfsRustError::Protocol(format!(
             "first packet too short: {} bytes (772, need {})",
@@ -118,18 +137,64 @@ pub fn parse_first_client_packet(
         )));
     }
 
-    for cand in frame_candidates(caps) {
+    let candidates = frame_candidates(caps);
+    debug!(
+        count = candidates.len(),
+        candidates = ?candidates.iter().map(|c| (c.rsa_off, c.os_off, c.kind)).collect::<Vec<_>>(),
+        "trying RSA frame candidates"
+    );
+
+    for cand in candidates {
         if body.len() < cand.rsa_off + 128 {
+            debug!(
+                rsa_off = cand.rsa_off,
+                os_off = cand.os_off,
+                kind = ?cand.kind,
+                body_len = body.len(),
+                "skip candidate: body shorter than rsa_off+128"
+            );
             continue;
         }
         let block: &[u8; 128] = match body[cand.rsa_off..cand.rsa_off + 128].try_into() {
             Ok(b) => b,
             Err(_) => continue,
         };
+        debug!(
+            rsa_off = cand.rsa_off,
+            os_off = cand.os_off,
+            kind = ?cand.kind,
+            block_first_16_hex = %hex_dump(block, 16),
+            "trying RSA decrypt at offset"
+        );
         let rsa_plain = match rsa_decrypt_block(block, private_key) {
             Ok(p) if !p.is_empty() && p[0] == 0 => p,
-            _ => continue,
+            Ok(p) => {
+                debug!(
+                    rsa_off = cand.rsa_off,
+                    kind = ?cand.kind,
+                    plain_first_byte = p.first().copied().unwrap_or(0),
+                    plain_len = p.len(),
+                    plain_first_16_hex = %hex_dump(&p, 16),
+                    "RSA decrypt OK but plaintext[0] != 0 (wrong key/offset)"
+                );
+                continue;
+            }
+            Err(e) => {
+                debug!(
+                    rsa_off = cand.rsa_off,
+                    kind = ?cand.kind,
+                    error = %e,
+                    "RSA decrypt failed"
+                );
+                continue;
+            }
         };
+        debug!(
+            rsa_off = cand.rsa_off,
+            kind = ?cand.kind,
+            plain_first_32_hex = %hex_dump(&rsa_plain, 32),
+            "RSA decrypt succeeded, plaintext[0]==0"
+        );
         let rsa_arr: &[u8; 128] = match rsa_plain.as_slice().try_into() {
             Ok(a) => a,
             Err(_) => continue,
@@ -143,14 +208,39 @@ pub fn parse_first_client_packet(
             FirstKind::Game => parse_game_first(key, rsa_arr, tail, operating_system, caps),
             FirstKind::Login => parse_login_first(key, rsa_arr, tail, operating_system, caps),
         };
+        match &parsed {
+            Ok(_) => debug!(rsa_off = cand.rsa_off, kind = ?cand.kind, "candidate parsed OK"),
+            Err(e) => debug!(rsa_off = cand.rsa_off, kind = ?cand.kind, error = %e, "candidate parse failed"),
+        }
         if let Ok(v) = parsed {
             return Ok(v);
         }
     }
 
+    warn!(
+        body_len = body.len(),
+        full_hex = %hex_dump(body, body.len().min(256)),
+        "no valid RSA block for the configured protocol version"
+    );
     Err(TfsRustError::Protocol(
         "no valid RSA block for the configured protocol version".into(),
     ))
+}
+
+/// Hex-dump up to `max` bytes of `data` as a space-separated hex string (for debug logging).
+fn hex_dump(data: &[u8], max: usize) -> String {
+    let n = data.len().min(max);
+    let mut s = String::with_capacity(n * 3);
+    for (i, b) in data[..n].iter().enumerate() {
+        if i > 0 {
+            s.push(' ');
+        }
+        s.push_str(&format!("{b:02x}"));
+    }
+    if data.len() > n {
+        s.push_str(&format!(" ... ({} more)", data.len() - n));
+    }
+    s
 }
 
 /// Game-only first packet (fails if login layout matched).
@@ -212,27 +302,33 @@ fn read_u16_at(body: &[u8], off: usize) -> u16 {
     }
 }
 
-/// `uint16_t len` + optional `"OTCv8"` + `uint16_t` build (`protocolgame.cpp` ~468–472, `protocollogin.cpp` ~243–249).
+/// `uint16_t len` + optional `"OTCv8"` + `uint16_t` build (`protocolgame.cpp` ~468–472,
+/// `protocollogin.cpp` ~243–249).
+///
+/// **Best-effort / non-fatal**: the C++ reference reads a `u16` length unconditionally, then only
+/// consumes the string + version if `len == 5 && str == "OTCv8"`. Non-OTClient clients (real Tibia,
+/// Forgotten Client without OTCv8) leave `0xff` RSA padding here, which decodes as a huge `u16`
+/// length — the C++ code just ignores it and leaves `otclientV8 = 0`. We replicate that: any probe
+/// that doesn't match the `len==5 && "OTCv8"` shape returns `(0, s)` without error.
 fn parse_otcv8_string_probe(s: &[u8]) -> Result<(u16, &[u8])> {
     if s.len() < 2 {
         return Ok((0, s));
     }
     let len = u16::from_le_bytes([s[0], s[1]]) as usize;
-    if s.len() < 2 + len {
-        return Err(TfsRustError::Protocol(
-            "truncated OTCv8 / string probe after credentials".into(),
-        ));
+    // C++ only consumes the string when length == 5; anything else (incl. 0xffff padding) is ignored.
+    if len != 5 || s.len() < 2 + 5 {
+        return Ok((0, s));
     }
-    let chunk = &s[2..2 + len];
-    let tail = &s[2 + len..];
-    if len == 5 && chunk == b"OTCv8" {
-        if tail.len() < 2 {
-            return Err(TfsRustError::Protocol("truncated OTCv8 version u16".into()));
-        }
-        let ver = u16::from_le_bytes([tail[0], tail[1]]);
-        return Ok((ver, &tail[2..]));
+    let chunk = &s[2..7];
+    if chunk != b"OTCv8" {
+        return Ok((0, s));
     }
-    Ok((0, tail))
+    let tail = &s[7..];
+    if tail.len() < 2 {
+        return Ok((0, s));
+    }
+    let ver = u16::from_le_bytes([tail[0], tail[1]]);
+    Ok((ver, &tail[2..]))
 }
 
 /// Assemble the post-RSA credential stream: `rsa_plain[17..]` (after the leading 0 + 16-byte key)
@@ -519,5 +615,23 @@ mod tests {
 
         let c = parse_game_credentials(&stream, &caps).expect("parse with otcv8");
         assert_eq!(c.otclient_v8, 260);
+    }
+
+    #[test]
+    fn login_credentials_772_with_rsa_padding_no_otcv8() {
+        // Real Tibia 7.72 / Forgotten Client without OTCv8: after account + password, the
+        // remaining RSA block bytes are 0xff padding. The probe must not error on this.
+        // C++ ref: protocollogin.cpp ~243-249 — reads u16 length, if != 5 just moves on.
+        let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
+        let mut stream = Vec::new();
+        stream.extend_from_slice(&2u32.to_le_bytes()); // account number
+        put_string(&mut stream, "2"); // password
+        stream.extend_from_slice(&[0xff; 100]); // RSA padding (0xff bytes)
+
+        let (identity, password, otc) =
+            parse_login_credentials(&stream, &caps).expect("parse 772 with padding");
+        assert_eq!(identity, LoginIdentity::AccountNumber(2));
+        assert_eq!(password, "2");
+        assert_eq!(otc, 0);
     }
 }

@@ -135,9 +135,6 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
     })
 }
 
-/// `MESSAGE_STATUS_SMALL` (`src/const.h`).
-const MESSAGE_STATUS_SMALL: u8 = 21;
-
 pub(crate) fn ground_speed_for_tile_body(
     body: &crate::tile::TileBody,
     items_db: &ItemDatabase,
@@ -1314,7 +1311,7 @@ impl GameWorld {
             let msg = ret.description();
             self.enqueue_outgoing(
                 conn,
-                send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+                send_text_message_simple(self.codec.failure_message_type(), msg).into_bytes(),
             );
             self.enqueue_outgoing(conn, self.codec.encode_cancel_walk(d as u8).into_bytes());
         }
@@ -1333,12 +1330,26 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| k.base().todo.todo_stop);
+            let is_monster = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)));
             if let Some(k) = self.creatures.get_mut(cid) {
                 let base = k.base_mut();
                 base.walk_queue.clear();
                 base.walk_destinations.clear();
                 base.has_follow_path = false;
-                base.force_update_follow_path = true;
+                // `force_update_follow_path` is a **monster chase-repath** flag
+                // (`crnonpl.cc` `IdleStimulus` repath). C++ `Execute` catch
+                // (`cract.cc:870-889`) only calls `ToDoClear + ToDoYield` — it does
+                // NOT set any follow-path flag. Setting it for players strands them:
+                // `finish_creature_todo_execute` clears `walk_queue` on every
+                // subsequent step, and `monster_idle_stimulus` (the only clearer)
+                // is a no-op for players. Only set it for monsters that may need
+                // to repath toward a follow/attack target.
+                if is_monster {
+                    base.force_update_follow_path = true;
+                }
                 base.todo.queue.clear();
                 base.todo.locked = false;
                 base.todo.todo_stop = false;

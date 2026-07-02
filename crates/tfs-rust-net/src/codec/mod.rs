@@ -169,6 +169,16 @@ pub trait ProtocolCodec {
 
     /// `ProtocolGame::sendCreatureSay` — `0xAA` speech packet (1098 with `level`, 772 without).
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
+
+    /// Era-correct wire value for the "cancel / failure" text-message channel used by
+    /// `sendCancelMessage` (1098) / `SendResult` (772).
+    ///
+    /// - **1098** (`src/const.h:190`): `MESSAGE_STATUS_SMALL = 21` — `sendCancelMessage` →
+    ///   `sendTextMessage(MESSAGE_STATUS_SMALL, ...)`.
+    /// - **772** (`sending.cc:339`, `enums.hh:674`): `TALK_FAILURE_MESSAGE = 23` — `SendResult` →
+    ///   `SendMessage(TALK_FAILURE_MESSAGE, ...)`. The 772 TVP `const.h` names this
+    ///   `MESSAGE_STATUS_SMALL = 0x17 = 23` — same wire byte, different name than 1098.
+    fn failure_message_type(&self) -> u8;
 }
 
 impl ProtocolCodec for Codec1098 {
@@ -388,6 +398,10 @@ impl ProtocolCodec for Codec1098 {
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
         Codec1098::encode_creature_say(self, statement_id, w)
     }
+
+    fn failure_message_type(&self) -> u8 {
+        21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
+    }
 }
 
 impl ProtocolCodec for Codec772 {
@@ -606,6 +620,10 @@ impl ProtocolCodec for Codec772 {
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
         Codec772::encode_creature_say(self, statement_id, w)
     }
+
+    fn failure_message_type(&self) -> u8 {
+        23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
+    }
 }
 
 /// Zero-cost dispatcher for the active wire codec (A5: `V1098` + `V772`).
@@ -753,6 +771,8 @@ impl Codec {
         encode_combat_damage_text_message(w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
 
         encode_creature_say(statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
+
+        failure_message_type() -> u8;
     }
 }
 
@@ -969,5 +989,9 @@ impl ProtocolCodec for Codec {
 
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
         Codec::encode_creature_say(self, statement_id, w)
+    }
+
+    fn failure_message_type(&self) -> u8 {
+        Codec::failure_message_type(self)
     }
 }

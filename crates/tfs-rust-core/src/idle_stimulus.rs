@@ -2464,10 +2464,16 @@ impl GameWorld {
             .is_some_and(|k| !k.base().walk_queue.is_empty());
 
         if walk_queue_has_more {
+            // `force_update_follow_path` is a monster chase-repath flag — only
+            // monsters have a follow target and `IdleStimulus` to clear it.
+            // For players, it must never gate step chaining (C++ `Execute` catch
+            // does not set any follow-path flag — `cract.cc:870-889`).
             let force_repath = self
                 .creatures
                 .get(cid)
-                .is_some_and(|k| k.base().force_update_follow_path);
+                .is_some_and(|k| {
+                    matches!(k, CreatureKind::Monster(_)) && k.base().force_update_follow_path
+                });
             if force_repath {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     let base = k.base_mut();

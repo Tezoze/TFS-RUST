@@ -30,9 +30,6 @@ use crate::ids::CreatureId;
 use crate::monster_ai::chebyshev;
 use crate::return_value::ReturnValue;
 
-/// `MESSAGE_STATUS_SMALL` (`src/const.h`) — matches the move-failure text channel used in `on_walk`.
-const MESSAGE_STATUS_SMALL: u8 = 21;
-
 /// C++ `RESULT` codes thrown by `SetAttackDest` / `CanToDoAttack` (`crcombat.cc`, `sending.cc:285`).
 ///
 /// Mapped onto [`ReturnValue`] for the player-visible `SendResult` text (`ReturnValue::description`
@@ -393,7 +390,7 @@ impl GameWorld {
         let msg = result.to_return_value().description();
         self.enqueue_outgoing(
             conn_id,
-            send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+            send_text_message_simple(self.codec.failure_message_type(), msg).into_bytes(),
         );
     }
 

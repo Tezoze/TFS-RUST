@@ -4799,3 +4799,206 @@
             "walk_destinations must drain on completion"
         );
     }
+
+    /// Reproduction: auto-walk → arrow key override → new auto-walk must complete
+    /// all steps (not just 1 tile). Tests that `player_todo_clear` properly resets
+    /// all state that `finish_creature_todo_execute` checks for step chaining.
+    #[test]
+    fn test_arrow_override_does_not_break_subsequent_auto_walk() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Extend arena east: (102,100,7) through (105,100,7) and south (100,101,7).
+        for x in 102..=105 {
+            ensure_walkable_tile(
+                &mut world.map,
+                Position::new(x, 100, 7),
+                TEST_SYNTHETIC_GROUND_WP,
+            );
+        }
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(101, 101, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+
+        let now = std::time::Instant::now();
+
+        // 1) Start a 3-step auto-walk east from (100,100,7).
+        world.player_auto_walk_path(
+            conn,
+            player,
+            vec![Direction::East, Direction::East, Direction::East],
+            now,
+        );
+
+        // 2) First step fires at server_ms = 1 → (101,100,7).
+        world.advance_beat_772(1);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 100, 7)),
+            "auto-walk first step must land"
+        );
+
+        // 3) Override with an arrow key (south) while auto-walk is in progress.
+        world.player_move_request(conn, player, Direction::South, now);
+
+        // 4) Advance to let the arrow step fire.
+        let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+        let advance = earliest.saturating_sub(world.server_ms).max(1);
+        world.advance_beat_772(advance);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 101, 7)),
+            "arrow key override step must land"
+        );
+
+        // 5) Start a NEW 3-step auto-walk east from (101,101,7).
+        //    Destinations: (102,101,7), (103,101,7), (104,101,7).
+        //    Need walkable tiles south of the east corridor.
+        for x in 102..=104 {
+            ensure_walkable_tile(
+                &mut world.map,
+                Position::new(x, 101, 7),
+                TEST_SYNTHETIC_GROUND_WP,
+            );
+        }
+        world.player_auto_walk_path(
+            conn,
+            player,
+            vec![Direction::East, Direction::East, Direction::East],
+            now,
+        );
+
+        // 6) Advance beats — ALL 3 steps must land, not just 1.
+        let mut expected_x = 102;
+        for step in 1..=3u32 {
+            let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+            let advance = earliest.saturating_sub(world.server_ms).max(1);
+            world.advance_beat_772(advance);
+            let pos = world.creatures.get(player).map(|k| k.position()).unwrap();
+            assert_eq!(
+                pos,
+                Position::new(expected_x, 101, 7),
+                "new auto-walk step {} must land at ({},101,7), got {:?}",
+                step,
+                expected_x,
+                pos,
+            );
+            expected_x += 1;
+        }
+
+        // Verify no stuck state.
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            base.walk_queue.is_empty(),
+            "walk_queue must drain after auto-walk completes"
+        );
+        assert!(!base.todo.has_go(), "todo Go must be drained after completion");
+    }
+
+    /// Regression: a rejected step (blocked tile) must NOT strand subsequent
+    /// auto-walks at 1 tile per move. The bug was that `on_walk_step_rejected`
+    /// set `force_update_follow_path = true` for ALL ToDo creatures including
+    /// players, but that flag is a monster chase-repath concept —
+    /// `finish_creature_todo_execute` clears `walk_queue` when it's set, and
+    /// `monster_idle_stimulus` (the only clearer) is a no-op for players.
+    /// C++ `Execute` catch (`cract.cc:870-889`) only calls `ToDoClear + ToDoYield`
+    /// — it does NOT set any follow-path flag.
+    #[test]
+    fn test_rejected_step_does_not_strand_subsequent_auto_walk() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Extend arena east: (102,100,7) through (105,100,7).
+        for x in 102..=105 {
+            ensure_walkable_tile(
+                &mut world.map,
+                Position::new(x, 100, 7),
+                TEST_SYNTHETIC_GROUND_WP,
+            );
+        }
+
+        let now = std::time::Instant::now();
+
+        // 1) Place a monster on (102,100,7) to block the first east step.
+        let _blocker = insert_monster(
+            &mut world,
+            "Rat",
+            Position::new(102, 100, 7),
+            200,
+        );
+
+        // 2) Start a 3-step auto-walk east from (100,100,7).
+        world.player_auto_walk_path(
+            conn,
+            player,
+            vec![Direction::East, Direction::East, Direction::East],
+            now,
+        );
+
+        // 3) First step fires at server_ms = 1 → tries to step to (101,100,7).
+        //    This step succeeds (101 is walkable). The second step would try
+        //    (102,100,7) which is blocked by the monster.
+        world.advance_beat_772(1);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 100, 7)),
+            "first step must land"
+        );
+
+        // 4) Advance to the second step — it should be REJECTED (blocked by monster).
+        let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+        let advance = earliest.saturating_sub(world.server_ms).max(1);
+        world.advance_beat_772(advance);
+        // Player stays at (101,100,7) — the step was rejected.
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 100, 7)),
+            "second step must be rejected (blocked by monster)"
+        );
+
+        // 5) Verify `force_update_follow_path` is NOT set for a player.
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            !base.force_update_follow_path,
+            "force_update_follow_path must NOT be set for players after rejected step \
+             (cract.cc:870-889 does not set any follow-path flag)"
+        );
+
+        // 6) Remove the blocker and start a NEW 3-step auto-walk east.
+        //    ALL 3 steps must land — the prior rejection must not strand the walk.
+        //    Remove the monster by killing it.
+        if let Some(k) = world.creatures.get_mut(_blocker) {
+            k.base_mut().health = 0;
+        }
+        world.apply_creature_death(_blocker);
+
+        world.player_auto_walk_path(
+            conn,
+            player,
+            vec![Direction::East, Direction::East, Direction::East],
+            now,
+        );
+
+        let mut expected_x = 102u16;
+        for step in 1..=3u32 {
+            let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+            let advance = earliest.saturating_sub(world.server_ms).max(1);
+            world.advance_beat_772(advance);
+            let pos = world.creatures.get(player).map(|k| k.position()).unwrap();
+            assert_eq!(
+                pos,
+                Position::new(expected_x, 100, 7),
+                "new auto-walk step {} must land at ({},100,7), got {:?} — \
+                 rejected step must not strand subsequent walks",
+                step,
+                expected_x,
+                pos,
+            );
+            expected_x += 1;
+        }
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            base.walk_queue.is_empty(),
+            "walk_queue must drain after auto-walk completes"
+        );
+        assert!(!base.force_update_follow_path, "flag must remain clear for players");
+    }
