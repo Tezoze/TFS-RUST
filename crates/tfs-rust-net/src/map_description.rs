@@ -87,6 +87,11 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
     }
 
     for c in tile.creatures.iter().rev() {
+        // 7.72 (`gameserver/src/protocolgame.cpp:572-574`) returns early once count hits 10 inside
+        // the creature loop; 10.98 (`src/protocolgame.cpp:669-682`) does not cap creatures.
+        if codec.tile_description_caps_creatures() && count == 10 {
+            return;
+        }
         let id = c.id;
         let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
         let mut cw = c.clone();
@@ -168,6 +173,10 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
     }
 
     for c in tile.creatures.iter().rev() {
+        // Must mirror `get_tile_description` exactly (debug_assert in `send_map_description_packet`).
+        if codec.tile_description_caps_creatures() && count == 10 {
+            return n;
+        }
         let id = c.id;
         let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
         let mut cw = c.clone();

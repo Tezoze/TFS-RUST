@@ -32,6 +32,14 @@ pub trait ProtocolCodec {
     /// Byte length of [`Self::write_tile_environment_prefix`] (2 for 1098, 0 for 772).
     fn tile_environment_prefix_len(&self) -> usize;
 
+    /// Whether `GetTileDescription` caps the creature loop at the 10-thing stack limit.
+    ///
+    /// 7.72 (`gameserver/src/protocolgame.cpp:572-574`) returns early once `count` hits 10 inside
+    /// the creature loop; 10.98 (`src/protocolgame.cpp:669-682`) increments `count` but never
+    /// checks it during creature emission (the cap is only enforced in the top-items `break` and
+    /// the down-items `return`).
+    fn tile_description_caps_creatures(&self) -> bool;
+
     /// Mirrors C++ `NetworkMessage::addItem` template field list (parity); higher-level call sites
     /// use the `ItemTemplateArgs` struct form.
     #[allow(clippy::too_many_arguments)]
@@ -175,6 +183,12 @@ impl ProtocolCodec for Codec1098 {
 
     fn tile_environment_prefix_len(&self) -> usize {
         2
+    }
+
+    fn tile_description_caps_creatures(&self) -> bool {
+        // 10.98 `GetTileDescription` (`src/protocolgame.cpp:669-682`) — creature loop has no
+        // `count == 10` check; only top-items `break` and down-items `return` enforce the cap.
+        false
     }
 
     fn write_item_template(
@@ -387,6 +401,12 @@ impl ProtocolCodec for Codec772 {
 
     fn tile_environment_prefix_len(&self) -> usize {
         0
+    }
+
+    fn tile_description_caps_creatures(&self) -> bool {
+        // 7.72 `GetTileDescription` (`gameserver/src/protocolgame.cpp:572-574`) — creature loop
+        // returns early once `count` hits 10, matching the down-items early return.
+        true
     }
 
     fn write_item_template(
@@ -636,6 +656,8 @@ impl Codec {
 
         tile_environment_prefix_len() -> usize;
 
+        tile_description_caps_creatures() -> bool;
+
         write_item_template(
             msg: &mut NetworkMessage,
             client_id: u16,
@@ -745,6 +767,10 @@ impl ProtocolCodec for Codec {
 
     fn tile_environment_prefix_len(&self) -> usize {
         Codec::tile_environment_prefix_len(self)
+    }
+
+    fn tile_description_caps_creatures(&self) -> bool {
+        Codec::tile_description_caps_creatures(self)
     }
 
     fn write_item_template(

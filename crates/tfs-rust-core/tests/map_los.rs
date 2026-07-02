@@ -25,10 +25,8 @@ fn map_with_wall() -> Map {
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
     map.insert_tile(Position::new(1, 0, 7), body_at(1, 0, 0));
-    map.insert_tile(
-        Position::new(2, 0, 7),
-        body_at(2, 0, flags::BLOCK_SOLID | flags::BLOCK_PROJECTILE),
-    );
+    // C++ `Map::isTileClear` blocks sight only on `CONST_PROP_BLOCKPROJECTILE` (Rust `UNTHROW`).
+    map.insert_tile(Position::new(2, 0, 7), body_at(2, 0, flags::UNTHROW));
     map.insert_tile(Position::new(3, 0, 7), body_at(3, 0, 0));
     map
 }
@@ -39,6 +37,63 @@ fn sight_blocked_by_tile() {
     let a = Position::new(0, 0, 7);
     let b = Position::new(3, 0, 7);
     assert!(!m.is_sight_clear(a, b));
+}
+
+/// Finding #1 — `BLOCKPATH`-only tile (no `UNTHROW`) does **not** block sight.
+/// C++ `checkSightLine` tests only `CONST_PROP_BLOCKPROJECTILE`, not `blockPathFind`.
+#[test]
+fn sight_not_blocked_by_blockpath_only() {
+    let mut map = flat_map(8, 1);
+    map.insert_tile(Position::new(2, 0, 7), body_at(2, 0, flags::BLOCKPATH));
+    assert!(
+        map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
+        "BLOCKPATH without UNTHROW must not block sight"
+    );
+}
+
+/// Finding #1 — `BLOCKSOLID`-only tile (no `UNTHROW`) does **not** block sight.
+#[test]
+fn sight_not_blocked_by_blocksolid_only() {
+    let mut map = flat_map(8, 1);
+    map.insert_tile(Position::new(2, 0, 7), body_at(2, 0, flags::BLOCKSOLID));
+    assert!(
+        map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
+        "BLOCKSOLID without UNTHROW must not block sight"
+    );
+}
+
+/// Finding #1 — `UNTHROW` (projectile-block) tile **does** block sight.
+#[test]
+fn sight_blocked_by_unthrow() {
+    let mut map = flat_map(8, 1);
+    map.insert_tile(Position::new(2, 0, 7), body_at(2, 0, flags::UNTHROW));
+    assert!(
+        !map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
+        "UNTHROW must block sight"
+    );
+}
+
+/// Finding #6 — a missing (unloaded) tile does **not** block sight.
+/// C++ `Map::isTileClear` returns `true` for null tiles (`src/map.cpp:499-501`).
+#[test]
+fn sight_not_blocked_by_missing_tile() {
+    let mut map = Map {
+        width: 8,
+        height: 1,
+        grid: SparseGrid::new(),
+        towns: std::collections::HashMap::new(),
+        waypoints: std::collections::HashMap::new(),
+    };
+    map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
+    map.insert_tile(Position::new(1, 0, 7), body_at(1, 0, 0));
+    // tile (2,0) is intentionally absent (void)
+    map.insert_tile(Position::new(3, 0, 7), body_at(3, 0, 0));
+    map.insert_tile(Position::new(4, 0, 7), body_at(4, 0, 0));
+    map.insert_tile(Position::new(5, 0, 7), body_at(5, 0, 0));
+    assert!(
+        map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
+        "missing tile must not block sight (C++ isTileClear returns true for null)"
+    );
 }
 
 #[test]
@@ -113,7 +168,7 @@ fn throw_possible_blocked_by_unthrow() {
 }
 
 /// Finding 16b — a solid-but-throwable tile (`BLOCKSOLID`/`BLOCKPATH`, no `UNTHROW`) does **not**
-/// block 772 throw, even though it blocks the 1098 Bresenham `is_sight_clear`.
+/// block 772 throw, nor 1098 `is_sight_clear` (both test only `UNTHROW`/`CONST_PROP_BLOCKPROJECTILE`).
 #[test]
 fn throw_possible_ignores_solid_without_unthrow() {
     let mut map = flat_map(8, 8);
@@ -122,8 +177,8 @@ fn throw_possible_ignores_solid_without_unthrow() {
         body_at(2, 0, flags::BLOCKSOLID | flags::BLOCKPATH),
     );
     assert!(
-        !map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
-        "1098 Bresenham is blocked by the solid tile"
+        map.is_sight_clear(Position::new(0, 0, 7), Position::new(5, 0, 7)),
+        "is_sight_clear tests only UNTHROW — solid/path tile without UNTHROW does not block"
     );
     assert!(
         map.throw_possible(Position::new(0, 0, 7), Position::new(5, 0, 7), 0),

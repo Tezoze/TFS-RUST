@@ -82,13 +82,16 @@ impl Map {
         }
     }
 
+    /// C++ `Map::isTileClear` (repo-root `src/map.cpp:496-508`) — blocks sight **only** on
+    /// `CONST_PROP_BLOCKPROJECTILE` (Rust `UNTHROW`, set from `ItemType::block_projectile`).
+    /// A missing tile does **not** block (C++ returns `true` for null tiles).
     pub(crate) fn blocks_sight(&self, pos: Position) -> bool {
         match self.get_tile(pos) {
             Some(t) => {
                 let body = t.body();
-                body.flags & (flags::BLOCK_SOLID | flags::BLOCK_PROJECTILE) != 0
+                body.flags & flags::UNTHROW != 0
             }
-            None => true,
+            None => false,
         }
     }
 

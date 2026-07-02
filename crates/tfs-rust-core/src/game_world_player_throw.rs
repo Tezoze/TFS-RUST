@@ -335,7 +335,9 @@ impl GameWorld {
             return false;
         }
 
-        if body.flags & crate::tile::flags::BLOCK_PROJECTILE != 0 {
+        // C++ `CONST_PROP_BLOCKPROJECTILE` → Rust `UNTHROW` (set from `block_projectile()`).
+        // The legacy `BLOCK_PROJECTILE` alias maps to `BLOCKPATH` (pathfinding) — wrong flag.
+        if body.flags & crate::tile::flags::UNTHROW != 0 {
             return false;
         }
 
