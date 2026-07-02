@@ -6,7 +6,7 @@ globs: ["crates/tfs-rust-net/**/*.rs", "crates/tfs-rust-common/src/protocol*.rs"
 
 # Wire Codec (772 / 1098)
 
-Complements `@.cursor/rules/TFS-packets.mdc`. Architecture: `docs/PROTOCOL_VERSIONING.md` §4.
+Complements `@.devin/rules/TFS-packets.md`. Default era is 772.
 
 ## Transport is capability-gated
 
@@ -19,7 +19,7 @@ Adler32 checksum, pre-login `0x1F` challenge, XTEA slack (`-4` vs `-6`) follow *
 3. **Trait** — add `ProtocolCodec::write_xxx(&self, msg, &XxxWire)`.
 4. **Impls** — `Codec1098` (current behavior) and `Codec772` when layout differs. Branch lives in codec only.
 5. **Opcode** — version-keyed table in `protocol_opcodes.rs`. Never inline hex at call sites.
-6. **C++ ref** — 1098: repo-root `protocolgame.cpp` / `networkmessage.cpp`; **772: `gameserver/src/` only** (same filenames — never repo-root `src/`, never `tibia-game-master`).
+6. **C++ ref** — 772: `gameserver/src/` (primary), `tibia-game-master/src/` or repo-root `src/` as secondary cross-refs — cite which source you used; 1098: repo-root `protocolgame.cpp` / `networkmessage.cpp`.
 7. **Test** — golden bytes in `tests/protocol_compat.rs`, one module per version.
 
 ## Add a client→server handler
@@ -41,5 +41,5 @@ Adler32 checksum, pre-login `0x1F` challenge, XTEA slack (`-4` vs `-6`) follow *
 - Add version checks in `tfs-rust-core`
 - Route DB `item_blob` through the codec
 - Treat OTCv8 quirks as generic 1098 — flag separately (`docs/OTCLIENT_INFO.md`)
-- Guess 772 layouts — confirm against **`gameserver/src/` only**; cite file + function
-- Use `tibia-game-master` or repo-root `src/` for **772** packet/protocol references
+- Guess 772 layouts — confirm against a cited C++ source; note which tree is authoritative
+- Cite a source without checking it — if you use `tibia-game-master` for a wire value, verify it matches the actual client behavior

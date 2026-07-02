@@ -6,7 +6,7 @@ globs: ["crates/tfs-rust-core/**/*.rs", "data/formulas/**"]
 
 # Mechanics Profile (772 / 1098)
 
-Mechanics are **shared code**, **era-tuned data**. Full spec: `docs/PROTOCOL_VERSIONING.md` §12, §12.13.
+Mechanics are **shared code**, **era-tuned data**. Default era is 772; balance literals live in `data/formulas/772.lua` (772) or `data/formulas/1098.lua` (1098).
 
 ## Add or change a mechanic (combat, conditions, walk, AI, spells)
 
@@ -38,3 +38,13 @@ Mechanics are **shared code**, **era-tuned data**. Full spec: `docs/PROTOCOL_VER
 - Put opcode bytes or `NetworkMessage` writes in core
 - Hardcode `2000` ms attack, `10/8` fire, beat `200` ms — belong in `772.lua` / `1098.lua`
 - Copy decompiled C++ source — outcomes only, validated clean-room
+
+## Wire-coupled profile fields
+
+Some `MechanicsProfile` fields feed **both** the game loop and the wire:
+
+| Field | Game loop use | Wire use |
+|-------|--------------|----------|
+| `beat_ms` | `game_loop.rs` tick interval | `encode_self_appear_login` server_beat (772) — client reads this as its walk/animation clock |
+
+Changing these in `data/formulas/772.lua` affects both sides automatically. Do not split them into separate constants — the single-source-of-truth is what keeps the client walk clock and server beat in sync.

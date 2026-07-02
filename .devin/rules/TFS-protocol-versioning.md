@@ -6,7 +6,7 @@ globs:
 
 # Protocol & Mechanics Versioning
 
-Full matrix: `docs/PROTOCOL_VERSIONING.md`. Config key: `clientVersion` (`772` | `1098`).
+Config key: `clientVersion` (`772` | `1098`). **Default era is 772** (`config.lua`). 1098 is the secondary supported era.
 
 ## Two independent axes
 
@@ -19,23 +19,24 @@ One binary, both eras — **no** `if version == 772` in core, **no** `condition_
 
 ## Source-of-truth by era
 
-| Building… | 1098 | 772 wire / packets | 772 behavior |
-|-----------|------|--------------------|--------------|
-| Packets / opcodes | repo-root `src/` | **`gameserver/src/` only** | — |
-| Game mechanics | TFS 1.4.2 `src/` | — | `tibia-game-master/src/` (outcomes only) |
-| Code shape | TFS idioms | TVP/TFS idioms | TFS APIs, CipSoft numbers via profile |
+| Building… | 772 (default) | 1098 |
+|-----------|---------------|------|
+| Packets / opcodes | `gameserver/src/` (primary); `tibia-game-master/src/` and repo-root `src/` as secondary cross-refs | repo-root `src/` |
+| Game mechanics | `tibia-game-master/src/` (outcomes); `gameserver/src/` for wire-adjacent constants | TFS 1.4.2 `src/` |
+| Code shape | TFS/TVP idioms | TFS idioms |
+| Balance literals | `MechanicsProfile` / `data/formulas/772.lua` | `MechanicsProfile` / `data/formulas/1098.lua` |
 
-**772 wire rule:** all 772 packet bytes, opcodes, login, and transport come **exclusively** from `gameserver/src/`. Do **not** use `tibia-game-master` or repo-root `src/` for 772 wire work.
+**772 wire rule (relaxed):** TVP `gameserver/src/` is the **primary** wire reference. The decompile (`tibia-game-master/src/`) and repo-root `src/` may be freely consulted as secondary/cross-reference sources — especially when TVP is incomplete or ambiguous (e.g. `config.cc:Beat=200` owns the beat duration constant that TVP hardcodes without explanation). **Cite which source informed each decision.** Do not silently mix without noting which tree is authoritative for a given byte/value.
 
 **Clean-room (772 mechanics):** replicate decompile *outcomes*, never transcribe its source. Write Rust in TFS/TVP style.
 
-**All eras:** C++ is the spec for observable behavior; Rust is idiomatic implementation — not a line-for-line port. See `@.cursor/rules/TFS-Core.mdc` §Porting model.
+**All eras:** C++ is the spec for observable behavior; Rust is idiomatic implementation — not a line-for-line port. See `@.devin/rules/TFS-Core.md` §Porting model.
 
 ## Where new code goes (R1–R12 summary)
 
 - **Game logic** → `tfs-rust-core` — shared, protocol-free, reads `MechanicsProfile` for era constants
-- **Wire bytes** → `tfs-rust-net` codec only — see `@.cursor/rules/TFS-wire-codec.mdc`
-- **Balance literals** → `MechanicsProfile` / `data/formulas/*.lua` — see `@.cursor/rules/TFS-mechanics-profile.mdc`
+- **Wire bytes** → `tfs-rust-net` codec only — see `@.devin/rules/TFS-wire-codec.md`
+- **Balance literals** → `MechanicsProfile` / `data/formulas/*.lua` — see `@.devin/rules/TFS-mechanics-profile.md`
 - **DB save format** → shared schema — **not** version-gated (except auth: account number vs name)
 - **NPC scripts** → TFS Lua only (`data/npc/scripts/`) — no `.ndb` engine in Rust
 

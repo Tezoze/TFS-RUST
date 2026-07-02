@@ -6,7 +6,7 @@ globs: ["crates/tfs-rust-net/**/*.rs"]
 
 # Network Protocol Encoding (Tibia Protocol)
 
-**Versioning:** wire layout differs by `clientVersion` (772 vs 1098). Follow `@.cursor/rules/TFS-wire-codec.mdc` for adding packets; route encoders through `ProtocolCodec`, not ad-hoc `*_1098` helpers. **1098** cites repo-root `src/`; **772 wire cites `gameserver/src/` only** (not decompile, not repo-root `src/`).
+**Versioning:** wire layout differs by `clientVersion` (772 default vs 1098). Follow `@.devin/rules/TFS-wire-codec.md` for adding packets; route encoders through `ProtocolCodec`, not ad-hoc `*_1098` helpers. **772** cites `gameserver/src/` (primary), `tibia-game-master/src/` or repo-root `src/` as secondary cross-refs — cite which source you used. **1098** cites repo-root `src/`.
 
 All packet encoding follows TFS `NetworkMessage` semantics (little-endian, length-prefixed strings).
 
@@ -39,7 +39,7 @@ buf.put_u16(1098); // Wrong: network byte order (big-endian)
 
 ### Login / game framing
 
-Base frame: `[u16 length][body]`. **Adler32** (4-byte header, `INITIAL_BUFFER_POSITION = 8`) is **1098 only** — 772 has no checksum (`ProtocolCaps.adler_checksum = false`, slack `-4`). Pre-login `0x1F` challenge: **1098 only**. See `docs/PROTOCOL_VERSIONING.md` §2.1.
+Base frame: `[u16 length][body]`. **Adler32** (4-byte header, `INITIAL_BUFFER_POSITION = 8`) is **1098 only** — 772 has no checksum (`ProtocolCaps.adler_checksum = false`, slack `-4`). Pre-login `0x1F` challenge: **1098 only**. See `ProtocolCaps` in `tfs-rust-common`.
 
 Game body after login: XTEA-encrypted payload (shared algorithm; slack varies by caps).
 
@@ -189,14 +189,12 @@ parts.extend_from_slice(&encode_items(...));
 
 ## Reference C++ source (by version)
 
-| Version | Tree |
-|---------|------|
-| **1098** | repo-root `src/networkmessage.cpp`, `protocolgame.cpp`, `protocollogin.cpp` |
-| **772** | **`gameserver/src/` only** — `networkmessage.cpp`, `protocolgame.cpp`, `protocollogin.cpp` (TVP 7.72; sole wire reference) |
+| Version | Primary tree | Secondary cross-refs |
+|---------|-------------|---------------------|
+| **772** (default) | `gameserver/src/` — `networkmessage.cpp`, `protocolgame.cpp`, `protocollogin.cpp` (TVP 7.72) | `tibia-game-master/src/` (config constants, mechanics-adjacent values); repo-root `src/` (opcode cross-ref) |
+| **1098** | repo-root `src/networkmessage.cpp`, `protocolgame.cpp`, `protocollogin.cpp` | — |
 
-**772 wire:** never cite `tibia-game-master` or repo-root `src/` for packet/protocol work.
-
-Do not guess layouts — cite file + function in codec module headers.
+**772 wire:** any of the three C++ trees may be consulted — cite which one informed each decision. Do not guess layouts; cite file + function in codec module headers.
 
 ## Testing
 

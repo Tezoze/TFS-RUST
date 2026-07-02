@@ -59,12 +59,11 @@ const PLAYER_MIN_SPEED: i32 = 10; // player.h PLAYER_MIN_SPEED
 1. **Stop immediately** — do not guess or assume behavior
 2. State the uncertainty clearly
 3. Find the reference source by era:
-   - **1098:** `semantic_search_nodes_tool` / built-in Grep on repo-root `src/`
-   - **772 mechanics:** `cross_repo_search_tool` (`ref-772-mechanics`), then Read `reference/cipsoft-772/tibia-game-master/src/`
-   - **772 wire:** `cross_repo_search_tool` (`ref-772-wire`), then Read `reference/tvp-772/gameserver/src/`
+   - **772 (default):** `gameserver/src/` (primary wire), `tibia-game-master/src/` (mechanics + config constants), or repo-root `src/` (cross-ref). Use built-in Grep/Read or `scripts/ref_grep.sh PATTERN` for 772 reference trees.
+   - **1098:** built-in Grep on repo-root `src/`
    - Shell fallback for 772 text search: `scripts/ref_grep.sh PATTERN` (not `rtk grep`)
 4. If the C++ source is not available in the workspace, ask the user for clarification
-5. Document the exact C++ behavior once confirmed
+5. Document the exact C++ behavior once confirmed, citing which tree was authoritative
 
 ## Lessons Learned
 
