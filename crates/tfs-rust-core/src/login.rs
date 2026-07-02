@@ -176,7 +176,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         last_activity: std::time::Instant::now(),
         last_command_round: 0,
         last_action_round: 0,
-        skills_fed_timer: 0,
+        food_remaining: 0,
         last_ping_sent: std::time::Instant::now(),
         last_pong_at: std::time::Instant::now(),
         next_action_until: None,

@@ -48,7 +48,7 @@ that blocks "all mechanics run through ToDo."
       exempt `Ping`, `StopAutoWalk`, `CancelAttackAndFollow`, `UpdateTile` (772 "refresh field",
       0xC9), `UpdateContainer`; **remove `Turn`** and **remove `PingBack`** (OTClient-only 0x1D).
       (`connections.cc:53-63`)
-- [ ] **F3 — fed regen from `vocations.xml`** (`process_skills.rs`): delete `fed_regen_cadence`
+- [x] **F3 — fed regen from `vocations.xml`** (`process_skills.rs`): delete `fed_regen_cadence`
       hardcoded table; read `gainhpticks/amount` + `gainmanaticks/amount` from vocation def; add
       PZ gate + food-remaining gate (`SKILL_FED > 0`). (`crskill.cc:812-885`)
 - [ ] **F5 — lag log gate** (`game_world_tick.rs::advance_beat_772`): log the error only on the

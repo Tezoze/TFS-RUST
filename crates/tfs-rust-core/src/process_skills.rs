@@ -164,31 +164,55 @@ impl GameWorld {
         base.speed = base_speed + delta;
     }
 
-    /// C++ `TSkillFed::Event` — vocation HP/mana regen (`crskill.cc:851-885`).
+    /// C++ `TSkillFed::Event` — vocation HP/mana regen (`crskill.cc:812-885`).
+    ///
+    /// Gates (matching the reference):
+    /// - **Protection zone**: return early inside a PZ (`crskill.cc:819`).
+    /// - **Food remaining**: `SKILL_FED` `Cycle == 0` ⇒ skill inactive ⇒ no regen
+    ///   (`crskill.cc:180`, `crskill.cc:877`).
+    ///
+    /// Cadence comes from `vocations.xml` (`gainhpticks`/`gainhpamount`/
+    /// `gainmanaticks`/`gainmanaamount`) via `VocationDatabase::fed_regen_params`, not a
+    /// hardcoded table. `TSkill::Process` decrements `Cycle` *before* `Event` runs
+    /// (`crskill.cc:186-191`), so the modulo is taken on the post-decrement value —
+    /// regen fires when the remaining-food counter hits a multiple of the vocation's
+    /// tick interval (counting down to 0).
     fn process_player_fed_regen_772(&mut self, cid: CreatureId) {
-        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
-            return;
+        let (food_remaining, voc_id, pos) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => {
+                (p.food_remaining, p.vocation_id, p.base.position)
+            }
+            _ => return,
         };
-        p.skills_fed_timer = p.skills_fed_timer.saturating_add(1);
-        let timer = p.skills_fed_timer;
-        let voc_id = p.vocation_id.max(0) as u32;
-        drop(p);
 
-        let (hp_ticks, mana_ticks, hp_amount, mana_amount) = fed_regen_cadence(voc_id);
-
-        let mut hp_gain = 0i32;
-        let mut mana_gain = 0i32;
-        if hp_ticks > 0 && timer.is_multiple_of(hp_ticks) {
-            hp_gain = hp_amount;
-        }
-        if mana_ticks > 0 && timer.is_multiple_of(mana_ticks) {
-            mana_gain = mana_amount;
-        }
-        if hp_gain == 0 && mana_gain == 0 {
+        // PZ gate — `crskill.cc:819`.
+        if self.tile_in_protection_zone(pos) {
             return;
         }
+        // Food-remaining gate — `SKILL_FED` inactive (`crskill.cc:180`).
+        if food_remaining == 0 {
+            return;
+        }
+
+        // `TSkill::Process` decrements `Cycle` then calls `Event` (`crskill.cc:186-191`).
+        let timer = food_remaining - 1;
+
+        let (hp_ticks, hp_amount, mana_ticks, mana_amount) =
+            self.vocations.fed_regen_params(voc_id);
+
+        let hp_gain = if hp_ticks > 0 && timer % hp_ticks == 0 {
+            hp_amount
+        } else {
+            0
+        };
+        let mana_gain = if mana_ticks > 0 && timer % mana_ticks == 0 {
+            mana_amount
+        } else {
+            0
+        };
 
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.food_remaining = timer;
             if hp_gain > 0 {
                 p.base.health = (p.base.health + hp_gain).min(p.base.max_health);
             }
@@ -199,32 +223,24 @@ impl GameWorld {
     }
 }
 
-/// Map vocation to regen cadence — 772 `TSkillFed::Event` profession table (`crskill.cc:851-874`).
-fn fed_regen_cadence(vocation_id: u32) -> (u32, u32, i32, i32) {
-    match vocation_id {
-        // Knight / Elite Knight
-        4 => (6, 6, 1, 2),
-        8 => (4, 6, 1, 2),
-        // Paladin / Royal Paladin
-        3 => (6, 3, 1, 2),
-        7 => (6, 3, 1, 2),
-        // Sorcerer / Druid / promoted
-        1 | 2 | 5 | 6 => (12, 2, 1, 2),
-        _ => (12, 6, 1, 2),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use tfs_rust_common::enums::ConditionType;
-    use tfs_rust_common::Position;
+    use tfs_rust_common::{Position, ZoneType};
+
+    use tfs_rust_content::vocations::{Vocation, VocationDatabase};
 
     use crate::combat::{apply_condition, CombatParams};
     use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
     use crate::creature::CreatureKind;
+    use crate::map::Map;
     use crate::test_world::support::{
         beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
     };
+    use crate::tile::{Tile, TileBody};
 
     #[test]
     fn fire_condition_ticks_damage_and_expires() {
@@ -310,5 +326,146 @@ mod tests {
             })
             .unwrap_or(0);
         assert_eq!(rank, 10, "poison strength should decay 50% per round");
+    }
+
+    /// Build a `VocationDatabase` with a single knight vocation (id=4) matching
+    /// `data/XML/vocations.xml`: `gainhpticks=6 gainhpamount=1 gainmanaticks=6 gainmanaamount=2`.
+    fn knight_vocation_db() -> Arc<VocationDatabase> {
+        let mut vocations = HashMap::new();
+        vocations.insert(
+            4u16,
+            Vocation {
+                id: 4,
+                client_id: 1,
+                name: "Knight".into(),
+                description: "a knight".into(),
+                from_vocation: 4,
+                gain_hp_ticks: 6,
+                gain_hp_amount: 1,
+                gain_mana_ticks: 6,
+                gain_mana_amount: 2,
+            },
+        );
+        Arc::new(VocationDatabase { vocations })
+    }
+
+    /// Insert a protection-zone ground tile at `pos` (mirrors `ensure_walkable_tile`
+    /// but with `ZoneType::Protection` — `crskill.cc:819` PZ gate).
+    fn ensure_pz_tile(map: &mut Map, pos: Position, ground_type: u16) {
+        map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: Some(ground_type),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: 0,
+                zone: ZoneType::Protection,
+            }),
+        );
+    }
+
+    /// F3: `TSkillFed::Event` regen reads `gainhpticks`/`gainmanaticks`/amounts from
+    /// `vocations.xml` (via `VocationDatabase`), keys the modulo off the decrementing
+    /// food counter, and regenerates HP/mana while food remains (`crskill.cc:812-885`).
+    #[test]
+    fn fed_regen_uses_vocation_xml_params_and_food_counter() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Knight", pos);
+        player.vocation_id = 4;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_remaining = 12;
+        let pid = insert_player(&mut world, player);
+
+        // 12 ticks: regen fires at food_remaining=6 and =0 (knight 6/6 cadence),
+        // giving +2 HP / +4 mana, and the food counter drains to 0.
+        for _ in 0..12 {
+            world.process_skills_772();
+        }
+        let p = world.creatures.get(pid).unwrap();
+        assert_eq!(p.base().health, 92, "knight should gain 2 HP over 12 fed ticks");
+        let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
+            panic!("not a player");
+        };
+        assert_eq!(p.mana, 44, "knight should gain 4 mana over 12 fed ticks");
+        assert_eq!(p.food_remaining, 0, "food counter should drain to 0");
+
+        // Food exhausted ⇒ `SKILL_FED` inactive ⇒ no further regen (`crskill.cc:180`).
+        for _ in 0..6 {
+            world.process_skills_772();
+        }
+        let p = world.creatures.get(pid).unwrap();
+        assert_eq!(p.base().health, 92, "no regen after food runs out");
+    }
+
+    /// F3: `TSkillFed::Event` returns early inside a protection zone (`crskill.cc:819`).
+    #[test]
+    fn fed_regen_skipped_in_protection_zone() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_pz_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("PzKnight", pos);
+        player.vocation_id = 4;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_remaining = 12;
+        let pid = insert_player(&mut world, player);
+
+        for _ in 0..12 {
+            world.process_skills_772();
+        }
+        let p = world.creatures.get(pid).unwrap();
+        assert_eq!(p.base().health, 90, "no HP regen inside a protection zone");
+        let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
+            panic!("not a player");
+        };
+        assert_eq!(p.mana, 40, "no mana regen inside a protection zone");
+        assert_eq!(
+            p.food_remaining, 12,
+            "PZ gate returns before decrementing food"
+        );
+    }
+
+    /// F3: with no food remaining, `SKILL_FED` is inactive and no regen occurs
+    /// (`crskill.cc:180`, `crskill.cc:877`).
+    #[test]
+    fn fed_regen_skipped_when_food_exhausted() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Hungry", pos);
+        player.vocation_id = 4;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_remaining = 0;
+        let pid = insert_player(&mut world, player);
+
+        for _ in 0..12 {
+            world.process_skills_772();
+        }
+        let p = world.creatures.get(pid).unwrap();
+        assert_eq!(p.base().health, 90, "no regen with food_remaining = 0");
+        let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
+            panic!("not a player");
+        };
+        assert_eq!(p.mana, 40, "no mana regen with food_remaining = 0");
     }
 }

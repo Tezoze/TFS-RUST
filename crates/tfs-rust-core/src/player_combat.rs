@@ -395,7 +395,7 @@ impl GameWorld {
         CombatResult::NoError
     }
 
-    fn tile_in_protection_zone(&self, pos: tfs_rust_common::Position) -> bool {
+    pub(crate) fn tile_in_protection_zone(&self, pos: tfs_rust_common::Position) -> bool {
         self.map
             .get_tile(pos)
             .is_some_and(|t| t.body().zone == ZoneType::Protection)

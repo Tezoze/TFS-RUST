@@ -21,7 +21,7 @@ ToDo/`Execute` path, the delayed-event `Scheduler`, and the player-move scheduli
 |---|------|----------|--------|
 | 1 | Idle-timer action-exemption list wrong (`packet_counts_as_action_772`) | **High** | ✅ Fixed (F1) |
 | 2 | `ProcessCreatures`: PK-mark clearing + PZ-gated item regen missing | Medium | Gap |
-| 3 | `TSkillFed` regen: hardcoded Rust table instead of `vocations.xml`; no PZ / no-food gate | Medium | Bug |
+| 3 | `TSkillFed` regen: hardcoded Rust table instead of `vocations.xml`; no PZ / no-food gate | Medium | ✅ Fixed (F3) |
 | 4 | `Scheduler` (`addEvent`) delivers `LuaCallback` but it is never dispatched | Medium | Gap |
 | 5 | Lag error logs every beat instead of once on transition | Low | Nit |
 | 6 | Idle warn/kick config-driven vs fixed 900/960; no `NO_LOGOUT_BLOCK` right | Low | Nit |
@@ -107,10 +107,10 @@ regen/PK responsibilities above are genuinely absent, not relocated.
 
 ---
 
-## Finding 3 — `TSkillFed` regen: hardcoded table instead of `vocations.xml` (Medium)
+## Finding 3 — `TSkillFed` regen: hardcoded table instead of `vocations.xml` (Medium) — ✅ Fixed (F3)
 
-**File:** `crates/tfs-rust-core/src/process_skills.rs` — `fed_regen_cadence`,
-`process_player_fed_regen_772`
+**File:** `crates/tfs-rust-core/src/process_skills.rs` — `process_player_fed_regen_772`;
+`crates/tfs-rust-content/src/vocations.rs` — `Vocation` + `fed_regen_params`.
 **Data source (correct):** `data/XML/vocations.xml` — `gainhpticks`, `gainhpamount`,
 `gainmanaticks`, `gainmanaamount` per vocation.
 **C++:** `TSkillFed::Event` (`crskill.cc:812-885`).
@@ -292,9 +292,9 @@ parity is required.
 
 ## Recommended fix order
 
-1. **Finding 1** (idle exemption list) — small, self-contained, clear decompile values.
+1. **Finding 1** (idle exemption list) — small, self-contained, clear decompile values. ✅
 2. **Finding 3** (regen from `vocations.xml` + PZ/food gates) — drop the hardcoded table and read
-   `gainhp*`/`gainmana*` from the vocation definition; values already match the decompile.
+   `gainhp*`/`gainmana*` from the vocation definition; values already match the decompile. ✅
 3. **Finding 5** (lag log gate) — one-line fidelity fix.
 4. **Finding 2** (PK-mark clearing + PZ item regen) — needs the PvP-mark timer field first.
 5. **Findings 4 / 8** — larger, phase-level (Lua scheduler dispatch; unifying player actions

@@ -130,8 +130,10 @@ pub struct Player {
     pub last_command_round: u32,
     /// 772 `TConnection::TimeStampAction` — last non-idle command round (`connections.cc:61`).
     pub last_action_round: u32,
-    /// 772 `TSkillFed` timer rounds — regen cadence (`crskill.cc:877`).
-    pub skills_fed_timer: u32,
+    /// 772 `TSkillFed` `Cycle` — food-remaining rounds (`crskill.cc:220` `TimerValue`,
+    /// `moveuse.cc:1840` `Skills[SKILL_FED]->TimerValue()`). Decrements each
+    /// `ProcessSkills` tick; `0` ⇒ skill inactive ⇒ no HP/mana regen (`crskill.cc:180`).
+    pub food_remaining: u32,
     /// Last server `sendPing` (`0x1D`) — `Player::lastPing` (`player.cpp`).
     pub last_ping_sent: Instant,
     /// Last client pong — `Player::lastPong` / `receivePing` (`player.cpp`).

@@ -196,7 +196,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         last_activity: Instant::now(),
         last_command_round: 0,
         last_action_round: 0,
-        skills_fed_timer: 0,
+        food_remaining: 0,
         last_ping_sent: Instant::now(),
         last_pong_at: Instant::now(),
         next_action_until: None,
