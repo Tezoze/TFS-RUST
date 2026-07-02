@@ -603,6 +603,7 @@ mod tests {
             drunkenness: 0,
             active_conditions: Vec::new(),
             walk_queue: VecDeque::new(),
+            walk_destinations: VecDeque::new(),
             last_step: None,
             last_step_cost: 1,
             last_step_ground_speed: 150,

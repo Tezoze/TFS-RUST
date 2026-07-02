@@ -23,7 +23,7 @@ edge cases or secondary mechanics, **L** = cosmetic / unlikely-to-observe / wire
 | 1 | H | First-step scheduling | **FIXED** — Fresh walk from standstill waited a full step duration before the first step; C++ executes it on the next beat (≤ `Beat` ms). Fix: `todo_start_go_delay` arms `server_ms + 1` (C++ `ToDoStart` clamp) when `earliest_walk_server_ms` has elapsed, instead of `get_step_duration(...)`. Removed dead `todo_go_beat_delay_ms`. Regression tests: `test_audit1_first_step_from_standstill_arms_at_one_ms`, `test_audit1_cooldown_active_arms_at_earliest_walk_time`. |
 | 2 | H | `CGoStop` | **FIXED** — Stop never sent snapback and cancelled the in-flight step; C++ always snapbacks and lets the in-flight step land. Fix: `player_stop_auto_walk` now mirrors `ToDoStop` (`cract.cc:1002-1008`): if a walk is in progress (wakeup armed / `Go` queued), set `todo_stop` flag (deferred — in-flight step lands, then `finish_creature_todo_execute` does `ToDoClear + SendSnapback` per `cract.cc:891-897`); if not walking, send immediate `SendSnapback` (`cract.cc:1005-1006`). Also fixed `player_cancel_attack_and_follow` to send snapback via `player_todo_clear_with_snapback` (C++ `CCancelAttack`: `if(ToDoClear()) SendSnapback`, `receiving.cc:1339-1341`) and corrected its inverted doc comment. Regression tests: `test_phase1_player_stop_auto_walk_clears_todo`, `test_audit2_stop_from_standstill_sends_immediate_snapback`, `test_audit2_cancel_attack_sends_snapback_when_walk_pending`. |
 | 3 | H | Walk-to-act | **FIXED** — `player_auto_walk_path` / `player_stop_auto_walk` didn't clear pending `walk_action`; stale deferred Use/Move fired after an unrelated walk. Fix: `player_todo_clear` now calls `clear_player_walk_action` (C++ `ToDoClear` wipes all pending entries including queued `TDUse`/`TDMove`, `cract.cc:953-989`), covering `CGoPath`/`CGoStop`/`CCancelAttack`/drunk-stagger. `try_walk_to_and_action` reordered to set the new `walk_action` **after** `player_auto_walk_path`'s internal clear. Regression tests: `test_audit3_auto_walk_clears_stale_walk_action`, `test_audit3_stop_clears_stale_walk_action`, `test_audit3_walk_to_use_preserves_walk_action`. |
-| 4 | M | Queue model | Rust queues relative directions; C++ `TDGo` stores absolute coordinates — divergence when the player is pushed mid-walk |
+| 4 | M | Queue model | **FIXED** — Rust queued relative `Direction`s; C++ `TDGo` stores absolute coordinates (`receiving.cc:141-160`), so a mid-walk push left the rest of the path silently replayed offset by the push delta instead of aborting. Fix: added `walk_destinations: VecDeque<Position>` overlay on `CreatureBase`, populated in `player_move_request` / `player_auto_walk_path` / `player_combat.rs` chase path alongside `walk_queue`. `on_walk` pops the parallel destination and verifies adjacency (`cract.cc:386-389`: `Distance > 1 || OrigZ != DestZ → NOTACCESSIBLE`) before the step; on failure, `on_walk_step_rejected` sends `SendResult("Sorry, not possible.")` + `SendSnapback` + `ToDoClear` + `ToDoYield` (`cract.cc:870-889`). Regression tests: `test_audit4_push_mid_auto_walk_aborts_remaining_path`, `test_audit4_unpushed_auto_walk_completes_normally`. |
 | 5 | M | Floor-change cooldown | **FIXED** — `last_step_cost = 2` on z-change doubled the post-stair-hop walk delay on the LinearGo path; C++ `NotifyGo` never applies a z multiplier. Fix: `completed_step_duration_ms` LinearGo arm maps `last_step_cost` to the C++ `NotifyGo` waypoint cost (3 if diagonal same-z, else 1) instead of `last_step_cost.max(1)` (`cract.cc:1526-1528`). Regression test: `linear_go_completed_step_zchange_uses_one_waypoint_cost`. |
 | 6 | M | Walk delay source | **FIXED** — Two sources of truth for the walk cooldown (`earliest_walk_server_ms` vs recomputed `get_walk_delay_logical`) could disagree, e.g. after mid-cooldown speed change. Fix: `on_walk` beat-path gate now derives from `earliest_walk_server_ms` directly (C++ single source `EarliestWalkTime`, `cract.cc:918-923`/`:1515-1525`), not from `get_walk_delay_logical` which recomputed `completed_step_duration_ms` from current speed. Regression test: `test_audit6_on_walk_gate_uses_earliest_walk_time`. |
 | 7 | M | Player checks | `tile_query_add_player` lacks PZ-lock (`ENTERPROTECTIONZONE`) and house-invite (`NOTINVITED`) checks (partially documented as unported) |
@@ -139,7 +139,7 @@ Repro: click a distant item (Use) → while walking, map-click somewhere else �
 forever). On 1098 the `cancel_next_walk` path does call `clear_player_walk_action`
 (`walk/mod.rs:1535`), so this is a 772-path-only hole.
 
-### 4. [M] Relative-direction queue vs absolute-coordinate `TDGo`
+### 4. [M] Relative-direction queue vs absolute-coordinate `TDGo` — **FIXED**
 
 C++ `CGoPath` accumulates **absolute** coordinates per step at packet-receive time
 (`receiving.cc:141–160`) and `TCreature::Go` throws `NOTACCESSIBLE` when the stored
@@ -153,10 +153,20 @@ if(Distance > 1 || OrigZ != DestZ) throw NOTACCESSIBLE;
 If the player is pushed one tile mid-auto-walk, the next `TDGo` is now 2 tiles away →
 walk aborts with `SendResult` + snapback.
 
-Rust stores `Direction`s in `walk_queue` and applies them from wherever the player
-currently stands (`walk/mod.rs:1295–1300` pop + `internal_move_creature_step`). After a
-push, the rest of the path is silently replayed **offset by the push delta**, walking
-the player to the wrong destination instead of aborting.
+Rust stored `Direction`s in `walk_queue` and applied them from wherever the player
+currently stands. After a push, the rest of the path was silently replayed **offset by
+the push delta**, walking the player to the wrong destination instead of aborting.
+
+**Fix:** added a `walk_destinations: VecDeque<Position>` overlay on `CreatureBase`,
+populated alongside `walk_queue` in `player_move_request` / `player_auto_walk_path` /
+`player_combat.rs` chase path. The overlay stores the absolute destination of each step
+(C++ `TDGo` semantics). `on_walk` pops the parallel destination and checks adjacency
+before the step — if `max(|dx|, |dy|) > 1 || z differs`, it calls `on_walk_step_rejected`
+(`ReturnValue::NotPossible`) which sends `SendResult("Sorry, not possible.")` +
+`SendSnapback` + `ToDoClear` + `ToDoYield` (`cract.cc:870-889`). The `Err(ret)` branch
+of `internal_move_creature_step` was refactored into the same `on_walk_step_rejected`
+helper to share the error-handling path. The `walk_destinations` queue uses `push_front`
+in execution order so `pop_back` stays in sync with `walk_queue`'s LIFO-at-back.
 
 ### 5. [M] Stair-hop doubles the next-step delay (`last_step_cost = 2` on LinearGo path) — **FIXED**
 

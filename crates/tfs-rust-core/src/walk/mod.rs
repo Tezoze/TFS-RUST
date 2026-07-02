@@ -661,6 +661,7 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             base.todo.queue.clear();
             base.todo.locked = false;
             base.todo.todo_stop = false;
@@ -722,9 +723,16 @@ impl GameWorld {
         if self.beat_driven_loop {
             // 772 unified ToDo path — `CGoDirection` (`receiving.cc:120-199`).
             self.player_todo_clear_with_snapback(conn_id, cid);
-            if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
+            let cur_pos = self.creatures.get(cid).map(|k| k.position());
+            if let (Some(CreatureKind::Player(pl)), Some(pos)) =
+                (self.creatures.get_mut(cid), cur_pos)
+            {
                 pl.last_activity = now;
                 pl.base.walk_queue.push_back(direction);
+                // C++ `TDGo` stores absolute coordinates (`receiving.cc:189-192`); Rust stores
+                // `Direction`s. Track the absolute destination alongside so `on_walk` can verify
+                // adjacency after a mid-walk push (audit #4 — `cract.cc:386-389`).
+                pl.base.walk_destinations.push_back(pos.offset(direction));
             }
             // `ToDoGo` → `ToDoStart` (`cract.cc:1050-1107`, `:991-1024`).
             let _ = self.enqueue_creature_go(cid);
@@ -774,10 +782,27 @@ impl GameWorld {
         if self.beat_driven_loop {
             // 772 unified ToDo path — `CGoPath` (`receiving.cc:120-199`).
             self.player_todo_clear_with_snapback(conn_id, cid);
-            if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
+            let cur_pos = self.creatures.get(cid).map(|k| k.position());
+            if let (Some(CreatureKind::Player(pl)), Some(pos)) =
+                (self.creatures.get_mut(cid), cur_pos)
+            {
                 pl.last_activity = now;
+                // C++ `CGoPath` accumulates absolute coordinates from `Player->posx/y/z`
+                // (`receiving.cc:141-160`); Rust stores `Direction`s. Track the absolute
+                // destination of each step alongside so `on_walk` can verify adjacency after a
+                // mid-walk push (audit #4 — `cract.cc:386-389`).
+                //
+                // `path` is in reverse execution order (packet parser `.rev()`), and
+                // `walk_queue` uses `push_back` + `pop_back` (LIFO), so `pop_back` yields the
+                // first-to-execute step. Accumulate destinations in execution order (rev of
+                // `path`) and `push_front` so `pop_back` on both queues stays in sync.
                 for d in &path {
                     pl.base.walk_queue.push_back(*d);
+                }
+                let mut acc = pos;
+                for d in path.iter().rev() {
+                    acc = acc.offset(*d);
+                    pl.base.walk_destinations.push_front(acc);
                 }
             }
             // `CGoPath` builds N entries then a single `ToDoStart` — one `Go` action drains the
@@ -1279,6 +1304,67 @@ impl GameWorld {
         self.cleanup();
     }
 
+    /// 772 `Execute` catch — `cract.cc:870-889`: on a rejected step (`NOTACCESSIBLE` /
+    /// `MOVENOTPOSSIBLE` / etc.), send `SendResult` + `SendSnapback` (player), clear the
+    /// ToDo/walk queue (`ToDoClear`), and request an idle stimulus (`ToDoYield`).
+    ///
+    /// Shared by the adjacency-abort path (audit #4 — `cract.cc:386-389` `NOTACCESSIBLE`)
+    /// and the `internal_move_creature_step` `Err` path. The snapback fires for players
+    /// here; the C++ `Execute` catch's own snapback exclusion for `MOVENOTPOSSIBLE` /
+    /// `NOTINVITED` / `ENTERPROTECTIONZONE` exists because `SendResult` already sent one
+    /// for those — here we always send both (message + snapback) which matches the
+    /// `NOTACCESSIBLE` case (excluded from `SendResult`'s snapback, included in `Execute`'s).
+    fn on_walk_step_rejected(&mut self, cid: CreatureId, ret: ReturnValue) {
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let d = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().direction)
+                .unwrap_or(Direction::North);
+            let msg = ret.description();
+            self.enqueue_outgoing(
+                conn,
+                send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
+            );
+            self.enqueue_outgoing(conn, self.codec.encode_cancel_walk(d as u8).into_bytes());
+        }
+        // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
+        // popped in `getNextStep` (`src/creature.cpp` ~205–213).
+        // 772: `ToDoClear` + `ToDoYield` on blocked step (`cract.cc:870-889`).
+        // Phase 1.3: widened from monster-only to all creatures on the unified
+        // ToDo path (players + monsters). `ToDoClear` is unconditional — clears
+        // the whole queue regardless of attack state (`cract.cc:871`).
+        if self.creature_uses_todo_execute(cid) {
+            // C++ `Execute` catch: `SnapbackNecessary = ToDoClear() || Stop`
+            // (`cract.cc:871`). The snapback above already fired for players.
+            // If `todo_stop` was set (player `CGoStop` while locked), the stop is
+            // now satisfied — clear the flag and skip idle stimulus (`cract.cc:891-897`).
+            let was_stop_requested = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().todo.todo_stop);
+            if let Some(k) = self.creatures.get_mut(cid) {
+                let base = k.base_mut();
+                base.walk_queue.clear();
+                base.walk_destinations.clear();
+                base.has_follow_path = false;
+                base.force_update_follow_path = true;
+                base.todo.queue.clear();
+                base.todo.locked = false;
+                base.todo.todo_stop = false;
+            }
+            if !was_stop_requested {
+                self.request_idle_stimulus(cid);
+            }
+        } else if let Some(k) = self.creatures.get_mut(cid) {
+            // 1098: TFS keeps `listWalkDir` and sets `forceUpdateFollowPath` only
+            // when following (`creature.cpp` ~213).
+            if k.base().follow_target.is_some() {
+                k.base_mut().force_update_follow_path = true;
+            }
+        }
+    }
+
     /// TFS `Creature::onWalk` (`creature.cpp` ~200–234).
     /// `reschedule_after` = C++ `eventWalk != 0` before the end block — only then does `onWalk` call `addEventWalk()`.
     ///
@@ -1313,7 +1399,10 @@ impl GameWorld {
         let mut stopped_without_reschedule = false;
 
         if walk_delay <= 0 {
-            let pop_dir = if self
+            // Pop the next step direction. For players on the 772 beat-driven path, also pop
+            // the parallel `walk_destinations` entry (absolute destination of this step) so the
+            // adjacency check below can verify it against the current position (audit #4).
+            let (pop_dir, pop_dest) = if self
                 .creatures
                 .get(cid)
                 .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
@@ -1323,19 +1412,44 @@ impl GameWorld {
                     .get(cid)
                     .is_some_and(|k| !k.base().walk_queue.is_empty())
                 {
-                    self.creatures
+                    let dir = self
+                        .creatures
                         .get_mut(cid)
-                        .and_then(|k| k.base_mut().walk_queue.pop_back())
+                        .and_then(|k| k.base_mut().walk_queue.pop_back());
+                    (dir, None)
                 } else {
-                    self.monster_next_walk_step(cid, now)
+                    (self.monster_next_walk_step(cid, now), None)
                 }
             } else {
-                self.creatures
-                    .get_mut(cid)
-                    .and_then(|k| k.base_mut().walk_queue.pop_back())
+                let mut dest = None;
+                let dir = self.creatures.get_mut(cid).and_then(|k| {
+                    let base = k.base_mut();
+                    let d = base.walk_queue.pop_back();
+                    if d.is_some() && self.beat_driven_loop {
+                        dest = base.walk_destinations.pop_back();
+                    }
+                    d
+                });
+                (dir, dest)
             };
 
             if let Some(mut dir) = pop_dir {
+                // 772 absolute-destination adjacency check — `cract.cc:386-389`:
+                // `Distance = max(abs(OrigX - DestX), abs(OrigY - DestY)); if(Distance > 1 || OrigZ != DestZ) throw NOTACCESSIBLE`.
+                // C++ `TDGo` stores absolute coordinates; if the player was pushed mid-walk the
+                // stored dest is no longer adjacent → `Execute` catch (`cract.cc:870-889`):
+                // `SendResult("Sorry, not possible.")` + `SendSnapback` + `ToDoClear` + `ToDoYield`
+                // (audit #4). The check runs before drunk stagger, matching C++ order.
+                if let Some(dest) = pop_dest {
+                    if let Some(cur_pos) = self.creatures.get(cid).map(|k| k.position()) {
+                        let dx = (cur_pos.x as i32 - dest.x as i32).unsigned_abs();
+                        let dy = (cur_pos.y as i32 - dest.y as i32).unsigned_abs();
+                        if dx > 1 || dy > 1 || cur_pos.z != dest.z {
+                            self.on_walk_step_rejected(cid, ReturnValue::NotPossible);
+                            return;
+                        }
+                    }
+                }
                 // 772 drunk stagger — `cract.cc:392-413`: on stagger, replace the step direction
                 // with a random cardinal, `ToDoClear` + `SendSnapback` (player) + `ToDoTalk("Hicks!")`
                 // + `ToDoStart`, then continue with the staggered step.
@@ -1391,56 +1505,7 @@ impl GameWorld {
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
-                        if let Some(conn) = self.conn_for_creature(cid) {
-                            let d = self
-                                .creatures
-                                .get(cid)
-                                .map(|k| k.base().direction)
-                                .unwrap_or(Direction::North);
-                            let msg = ret.description();
-                            self.enqueue_outgoing(
-                                conn,
-                                send_text_message_simple(MESSAGE_STATUS_SMALL, msg).into_bytes(),
-                            );
-                            self.enqueue_outgoing(
-                                conn,
-                                self.codec.encode_cancel_walk(d as u8).into_bytes(),
-                            );
-                        }
-                        // TFS `Creature::onWalk` — `listWalkDir` is **not** cleared on failed move; step was already
-                        // popped in `getNextStep` (`src/creature.cpp` ~205–213).
-                        // 772: `ToDoClear` + `ToDoYield` on blocked step (`cract.cc:870-889`).
-                        // Phase 1.3: widened from monster-only to all creatures on the unified
-                        // ToDo path (players + monsters). `ToDoClear` is unconditional — clears
-                        // the whole queue regardless of attack state (`cract.cc:871`).
-                        if self.creature_uses_todo_execute(cid) {
-                            // C++ `Execute` catch: `SnapbackNecessary = ToDoClear() || Stop`
-                            // (`cract.cc:871`). The snapback above already fired for players.
-                            // If `todo_stop` was set (player `CGoStop` while locked), the stop is
-                            // now satisfied — clear the flag and skip idle stimulus (`cract.cc:891-897`).
-                            let was_stop_requested = self
-                                .creatures
-                                .get(cid)
-                                .is_some_and(|k| k.base().todo.todo_stop);
-                            if let Some(k) = self.creatures.get_mut(cid) {
-                                let base = k.base_mut();
-                                base.walk_queue.clear();
-                                base.has_follow_path = false;
-                                base.force_update_follow_path = true;
-                                base.todo.queue.clear();
-                                base.todo.locked = false;
-                                base.todo.todo_stop = false;
-                            }
-                            if !was_stop_requested {
-                                self.request_idle_stimulus(cid);
-                            }
-                        } else if let Some(k) = self.creatures.get_mut(cid) {
-                            // 1098: TFS keeps `listWalkDir` and sets `forceUpdateFollowPath` only
-                            // when following (`creature.cpp` ~213).
-                            if k.base().follow_target.is_some() {
-                                k.base_mut().force_update_follow_path = true;
-                            }
-                        }
+                        self.on_walk_step_rejected(cid, ret);
                     }
                     Ok(segments) => {
                         let new_pos = match self.creatures.get(cid) {
@@ -1575,6 +1640,7 @@ impl GameWorld {
             let conn = self.conn_for_creature(cid);
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.base.walk_queue.clear();
+                p.base.walk_destinations.clear();
                 p.base.cancel_next_walk = false;
             }
             // TFS `Player::onWalkAborted` — `sendCancelWalk` (`player.cpp` ~3384–3387).

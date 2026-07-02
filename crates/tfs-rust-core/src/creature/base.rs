@@ -95,6 +95,13 @@ pub struct CreatureBase {
     pub active_conditions: Vec<ActiveCondition>,
     /// TFS `Creature::listWalkDir` — consumed from the **back** in `getNextStep` (`creature.cpp`).
     pub walk_queue: VecDeque<Direction>,
+    /// 772 absolute-destination overlay — parallel to `walk_queue`, stores the absolute
+    /// `Position` each queued step lands on. C++ `TDGo` stores absolute coordinates
+    /// (`receiving.cc:141-160`); Rust stores `Direction`s. This overlay lets `on_walk`
+    /// verify adjacency after a mid-walk push (`cract.cc:386-389` `Distance > 1 → NOTACCESSIBLE`,
+    /// audit #4). Populated only on the player 772 beat-driven path; always empty for
+    /// monsters/NPCs and on the 1098 TFS path.
+    pub walk_destinations: VecDeque<Position>,
     /// TFS `Creature::lastStep` (`OTSYS_TIME()` ms). We store `Instant` for deltas (`creature.cpp` `onCreatureMove`).
     pub last_step: Option<Instant>,
     /// TFS `Creature::lastStepCost` — 1 normal, 2 floor change, 3 diagonal (`creature.cpp` ~490–498).

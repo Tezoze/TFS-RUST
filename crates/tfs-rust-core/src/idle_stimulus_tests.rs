@@ -4671,3 +4671,134 @@
              speed change (C++ EarliestWalkTime is fixed at step-completion, cract.cc:1515-1525)"
         );
     }
+
+    // ===== Audit #4: absolute-destination walk queue — push mid-walk aborts remaining path =====
+
+    /// Audit #4: C++ `TDGo` stores absolute coordinates (`receiving.cc:141-160`); if the player
+    /// is pushed mid-auto-walk, the next `TDGo`'s stored dest is no longer adjacent →
+    /// `Go` throws `NOTACCESSIBLE` (`cract.cc:386-389`) → `Execute` catch sends
+    /// `SendResult("Sorry, not possible.")` + `SendSnapback` + `ToDoClear` + `ToDoYield`
+    /// (`cract.cc:870-889`). Rust stores `Direction`s; the `walk_destinations` overlay lets
+    /// `on_walk` detect the divergence and abort instead of silently replaying the path
+    /// offset by the push delta.
+    #[test]
+    fn test_audit4_push_mid_auto_walk_aborts_remaining_path() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Extend the arena east: (102,100,7) and (103,100,7).
+        ensure_walkable_tile(&mut world.map, Position::new(102, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, Position::new(103, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        // Also make (101,102,7) walkable — the push landing tile.
+        ensure_walkable_tile(&mut world.map, Position::new(101, 102, 7), TEST_SYNTHETIC_GROUND_WP);
+
+        // Queue a 3-step auto-walk east from (100,100,7).
+        // Destinations: (101,100,7), (102,100,7), (103,100,7).
+        let now = std::time::Instant::now();
+        world.player_auto_walk_path(
+            conn,
+            player,
+            vec![Direction::East, Direction::East, Direction::East],
+            now,
+        );
+        // Verify destinations were populated — in pop_back order (execution order):
+        // first step's dest is at the back of the queue.
+        let dests: Vec<_> = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .walk_destinations
+            .iter()
+            .rev()
+            .copied()
+            .collect();
+        assert_eq!(
+            dests,
+            vec![
+                Position::new(101, 100, 7),
+                Position::new(102, 100, 7),
+                Position::new(103, 100, 7),
+            ],
+            "walk_destinations pop_back order must match execution order (receiving.cc:141-160)"
+        );
+
+        // First step fires at server_ms = 1 (C++ ToDoStart clamp) → lands at (101,100,7).
+        world.advance_beat_772(1);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 100, 7)),
+            "first step must land"
+        );
+
+        // Simulate a push: teleport the player 2 tiles south to (101,102,7).
+        // The next stored dest (102,100,7) is now 2 tiles away → NOTACCESSIBLE.
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.set_position(Position::new(101, 102, 7));
+        }
+
+        // Advance to the earliest_walk_server_ms — the second step attempts to fire.
+        let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+        let advance = earliest.saturating_sub(world.server_ms);
+        world.pending_outgoing.clear();
+        world.advance_beat_772(advance);
+
+        // The adjacency check must abort: player stays at the pushed position.
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 102, 7)),
+            "pushed player must NOT step toward the stale destination (cract.cc:386-389)"
+        );
+        // Queue must be cleared (ToDoClear — cract.cc:871).
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            base.walk_queue.is_empty(),
+            "walk_queue must be cleared after NOTACCESSIBLE abort"
+        );
+        assert!(
+            base.walk_destinations.is_empty(),
+            "walk_destinations must be cleared after NOTACCESSIBLE abort"
+        );
+        assert!(!base.todo.has_go(), "ToDo Go must be cleared after abort");
+        // SendSnapback (0xB5) must be sent (Execute catch — cract.cc:881-886).
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("must enqueue snapback + message");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "NOTACCESSIBLE abort must send 0xB5 snapback (cract.cc:885)"
+        );
+    }
+
+    /// Audit #4: a normal (un-pushed) auto-walk must still complete — the adjacency check
+    /// passes when the player is at the expected origin for each step.
+    #[test]
+    fn test_audit4_unpushed_auto_walk_completes_normally() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        ensure_walkable_tile(&mut world.map, Position::new(102, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+
+        let now = std::time::Instant::now();
+        world.player_auto_walk_path(conn, player, vec![Direction::East, Direction::East], now);
+
+        // First step at server_ms = 1 → (101,100,7).
+        world.advance_beat_772(1);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 100, 7)),
+        );
+
+        // Second step at earliest_walk_server_ms → (102,100,7).
+        let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+        let advance = earliest.saturating_sub(world.server_ms);
+        world.advance_beat_772(advance);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(102, 100, 7)),
+            "un-pushed auto-walk must complete normally (adjacency check passes)"
+        );
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(base.walk_queue.is_empty(), "walk_queue must drain on completion");
+        assert!(
+            base.walk_destinations.is_empty(),
+            "walk_destinations must drain on completion"
+        );
+    }

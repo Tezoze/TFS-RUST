@@ -246,9 +246,19 @@ impl GameWorld {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     let base = k.base_mut();
                     base.walk_queue.clear();
-                    // `listWalkDir` is LIFO at the back (`creature.cpp` `getNextStep`).
+                    base.walk_destinations.clear();
+                    // C++ `ToDoGo` stores absolute coordinates per `TDGo` entry (`cract.cc:1093-1095`,
+                    // audit #4). `steps` is in forward execution order; `walk_queue` uses
+                    // `push_back` in rev order + `pop_back` (LIFO) so `pop_back` yields the first
+                    // step. Accumulate destinations in forward (execution) order and `push_front`
+                    // so `pop_back` on both queues stays in sync.
                     for d in steps.iter().rev() {
                         base.walk_queue.push_back(*d);
+                    }
+                    let mut acc = pos;
+                    for &d in &steps {
+                        acc = acc.offset(d);
+                        base.walk_destinations.push_front(acc);
                     }
                     base.has_follow_path = true;
                     base.force_update_follow_path = false;
