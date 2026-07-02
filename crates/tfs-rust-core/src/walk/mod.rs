@@ -91,8 +91,7 @@ use walk_tile::{
 };
 use walk_timing::{
     get_event_step_ticks, get_step_duration_ms_with_direction, get_walk_delay,
-    get_walk_delay_logical, last_step_cost_for_move, peek_next_walk_direction,
-    walk_timing_speed_kind,
+    last_step_cost_for_move, peek_next_walk_direction, walk_timing_speed_kind,
 };
 pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole};
 
@@ -654,6 +653,11 @@ impl GameWorld {
             b.todo.has_go() || !b.walk_queue.is_empty()
         });
         self.stop_event_walk(cid);
+        // C++ `ToDoClear` wipes **all** pending entries, including a queued `TDUse` / `TDMove`
+        // from a prior walk-to-use (`cract.cc:953-989`). Rust's `walk_action` is the deferred
+        // walk-to-act marker — clear it here so a new `CGoPath` / `CGoStop` / `CCancelAttack`
+        // doesn't leave a stale Use/Move firing after an unrelated walk (audit #3).
+        self.clear_player_walk_action(cid);
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.walk_queue.clear();
@@ -1292,7 +1296,14 @@ impl GameWorld {
             .get(cid)
             .map(|k| {
                 if self.beat_driven_loop {
-                    get_walk_delay_logical(k, k.base(), self.server_ms, &self.mechanics)
+                    // C++ has a single source of truth: `EarliestWalkTime`, fixed by `NotifyGo`
+                    // at step-completion and consumed by `CalculateDelay` (`cract.cc:918-923`,
+                    // `:1515-1525`). Derive the gate from `earliest_walk_server_ms` directly
+                    // instead of recomputing `completed_step_duration_ms` from **current**
+                    // speed/conditions (audit #5/#6 — the recomputation applied `last_step_cost
+                    // = 2` on z-change and re-read speed, both diverging from C++ which fixes
+                    // the delay at step-completion time).
+                    k.base().earliest_walk_server_ms.saturating_sub(self.server_ms) as i64
                 } else {
                     get_walk_delay(k, k.base(), now, &self.mechanics)
                 }
@@ -2089,6 +2100,52 @@ mod step_speed_tests {
         let p = test_player("Hooked", Position::new(100, 100, 7));
         let kind = CreatureKind::Player(p.clone());
         assert_eq!(get_step_duration(&kind, &p.base, 150, &mech), 1234);
+    }
+
+    /// Audit #5: `completed_step_duration_ms` LinearGo arm must NOT apply `last_step_cost
+    /// = 2` (z-change / stair-hop) as a waypoint multiplier — C++ `NotifyGo` only
+    /// multiplies ×3 for diagonal **same-z**; a floor change gets ×1
+    /// (`cract.cc:1526-1528`). The old code passed `last_step_cost.max(1)`, doubling the
+    /// post-stair-hop cooldown (e.g. 600 ms instead of 400 ms for speed 220 / ground 150).
+    #[test]
+    fn linear_go_completed_step_zchange_uses_one_waypoint_cost() {
+        use super::walk_timing::get_walk_delay_logical;
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 220;
+        base.last_step_ground_speed = 150;
+        base.last_step_server_ms = Some(0);
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let kind = CreatureKind::Player(p);
+
+        // Cardinal same-z (last_step_cost = 1) — the C++ NotifyGo ×1 reference.
+        let mut base_cardinal = base.clone();
+        base_cardinal.last_step_cost = 1;
+        let delay_cardinal = get_walk_delay_logical(&kind, &base_cardinal, 0, &mech);
+
+        // Diagonal same-z (last_step_cost = 3) — C++ NotifyGo ×3.
+        let mut base_diagonal = base.clone();
+        base_diagonal.last_step_cost = 3;
+        let delay_diagonal = get_walk_delay_logical(&kind, &base_diagonal, 0, &mech);
+
+        // Z-change / stair-hop (last_step_cost = 2) — C++ NotifyGo ×1, NOT ×2.
+        let mut base_zchange = base.clone();
+        base_zchange.last_step_cost = 2;
+        let delay_zchange = get_walk_delay_logical(&kind, &base_zchange, 0, &mech);
+
+        // Cardinal: 150×1000/520 = 288 → ceil 200 = 400 ms.
+        assert_eq!(delay_cardinal, 400, "cardinal completed step = 400 ms");
+        // Z-change must equal cardinal (×1), not double (×2 → 600 ms).
+        assert_eq!(
+            delay_zchange, delay_cardinal,
+            "z-change completed step must use ×1 waypoint cost, not ×2 (cract.cc:1526-1528)"
+        );
+        // Diagonal: 150×3×1000/520 = 865 → ceil 200 = 1000 ms (×3 before ceil).
+        assert_eq!(delay_diagonal, 1000, "diagonal completed step = ×3 = 1000 ms");
+        assert_ne!(
+            delay_diagonal, delay_cardinal,
+            "diagonal must differ from cardinal (×3 vs ×1)"
+        );
     }
 }
 

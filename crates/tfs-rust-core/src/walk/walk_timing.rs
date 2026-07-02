@@ -259,7 +259,13 @@ fn completed_step_duration_ms(
 ) -> i64 {
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::LinearGo => {
-            linear_go_step_duration_ms(kind, base, ground_speed, base.last_step_cost.max(1), mech)
+            // C++ `NotifyGo` multiplies waypoints ×3 only for a diagonal **same-z** move;
+            // a stair-hop / floor change gets ×1 (`cract.cc:1526-1528`). `last_step_cost`
+            // encodes 3 = diagonal same-z, 2 = z-change, 1 = cardinal — map to the C++
+            // waypoint cost (audit #5: the old `last_step_cost.max(1)` passed 2 on z-change,
+            // doubling the post-stair-hop cooldown).
+            let waypoint_cost = if base.last_step_cost == 3 { 3 } else { 1 };
+            linear_go_step_duration_ms(kind, base, ground_speed, waypoint_cost, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => {
             get_step_duration(kind, base, ground_speed, mech)

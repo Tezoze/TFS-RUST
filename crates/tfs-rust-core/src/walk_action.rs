@@ -143,8 +143,11 @@ impl GameWorld {
             self.on_player_walk_complete(cid);
             return true;
         }
-        self.set_next_walk_action_task(cid, action);
+        // `player_auto_walk_path` → `player_todo_clear_with_snapback` → `player_todo_clear`
+        // wipes any stale `walk_action` (C++ `ToDoClear`, audit #3). Set the new walk-action
+        // **after** the clear so it survives until `on_player_walk_complete` fires.
         self.player_auto_walk_path(conn_id, cid, path, now);
+        self.set_next_walk_action_task(cid, action);
         true
     }
 

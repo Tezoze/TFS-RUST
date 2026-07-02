@@ -4500,3 +4500,174 @@
             "cooldown-active walk must arm at EarliestWalkTime, not server_ms + 1"
         );
     }
+
+    // ===== Audit #3: stale walk_action cleared by new auto-walk / stop =====
+
+    /// Helper: plant a stale `walk_action` on the player (simulates a prior walk-to-use
+    /// whose action hasn't fired yet).
+    fn plant_stale_walk_action(world: &mut GameWorld, player: CreatureId) {
+        use crate::creature::PlayerWalkAction;
+        use tfs_rust_common::game_packet::UseItemPayload;
+        let action = PlayerWalkAction::UseItem(UseItemPayload {
+            pos: Position::new(100, 100, 7),
+            sprite_id: 100,
+            stack_pos: 0,
+            index: 0,
+        });
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.walk_action = Some(action);
+            p.walk_action_due = Some(12345);
+        }
+    }
+
+    /// Helper: read the player's `walk_action` (pattern-matches `CreatureKind::Player`).
+    fn player_walk_action(world: &GameWorld, player: CreatureId) -> Option<crate::creature::PlayerWalkAction> {
+        match world.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.walk_action.clone(),
+            _ => None,
+        }
+    }
+
+    /// Helper: read the player's `walk_action_due`.
+    fn player_walk_action_due(world: &GameWorld, player: CreatureId) -> Option<u64> {
+        match world.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.walk_action_due,
+            _ => None,
+        }
+    }
+
+    /// Audit #3: `player_auto_walk_path` (client `CGoPath`) must clear a stale `walk_action`
+    /// — C++ `ToDoClear()` wipes all pending entries including a queued `TDUse`/`TDMove`
+    /// (`receiving.cc:120-199`, `cract.cc:953-989`). Without the clear, a prior walk-to-use
+    /// fires from the wrong position after the new walk completes.
+    #[test]
+    fn test_audit3_auto_walk_clears_stale_walk_action() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        plant_stale_walk_action(&mut world, player);
+        assert!(player_walk_action(&world, player).is_some());
+
+        let now = std::time::Instant::now();
+        world.player_auto_walk_path(conn, player, vec![Direction::East], now);
+
+        assert!(
+            player_walk_action(&world, player).is_none(),
+            "player_auto_walk_path must clear stale walk_action (C++ ToDoClear, cract.cc:953-989)"
+        );
+        assert!(
+            player_walk_action_due(&world, player).is_none(),
+            "player_auto_walk_path must clear stale walk_action_due"
+        );
+    }
+
+    /// Audit #3: `player_stop_auto_walk` (`CGoStop` → `ToDoStop`) must clear a stale
+    /// `walk_action` — C++ `ToDoStop` ends in `ToDoClear` (`cract.cc:1002-1008`).
+    #[test]
+    fn test_audit3_stop_clears_stale_walk_action() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        plant_stale_walk_action(&mut world, player);
+        assert!(player_walk_action(&world, player).is_some());
+
+        // From standstill — not-locked branch → immediate `player_todo_clear`.
+        world.player_stop_auto_walk(player);
+
+        assert!(
+            player_walk_action(&world, player).is_none(),
+            "player_stop_auto_walk must clear stale walk_action (C++ ToDoStop→ToDoClear)"
+        );
+    }
+
+    /// Audit #3: `try_walk_to_and_action` must preserve the newly-set `walk_action` —
+    /// `player_auto_walk_path` clears stale state first, then `set_next_walk_action_task`
+    /// sets the new action **after** the clear.
+    #[test]
+    fn test_audit3_walk_to_use_preserves_walk_action() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Target 2 tiles east — needs (101,100,7) + (102,100,7) walkable.
+        let target = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, target, TEST_SYNTHETIC_GROUND_WP);
+        // Plant a stale action from a *prior* walk-to-use.
+        plant_stale_walk_action(&mut world, player);
+
+        use crate::creature::PlayerWalkAction;
+        use tfs_rust_common::game_packet::UseItemPayload;
+        let new_action = PlayerWalkAction::UseItem(UseItemPayload {
+            pos: target,
+            sprite_id: 200,
+            stack_pos: 0,
+            index: 0,
+        });
+        let now = std::time::Instant::now();
+        let ok = world.try_walk_to_and_action(conn, player, target, new_action.clone(), now);
+        assert!(ok, "try_walk_to_and_action must find a path to the target");
+
+        let preserved = player_walk_action(&world, player);
+        assert!(
+            preserved.is_some(),
+            "walk_to_use must preserve the new walk_action after the internal ToDoClear"
+        );
+        // The preserved action must be the NEW one, not the stale one.
+        match preserved {
+            Some(PlayerWalkAction::UseItem(u)) => {
+                assert_eq!(u.pos, target, "preserved walk_action must be the new one");
+                assert_eq!(u.sprite_id, 200);
+            }
+            other => panic!("expected UseItem walk_action, got {other:?}"),
+        }
+    }
+
+    // ===== Audit #6: on_walk gate uses earliest_walk_server_ms (single source of truth) =====
+
+    /// Audit #6: the `on_walk` cooldown gate on the beat path must derive from
+    /// `earliest_walk_server_ms` (C++ `EarliestWalkTime`, fixed by `NotifyGo` at
+    /// step-completion — `cract.cc:1515-1525`), NOT from a recomputation that reads
+    /// current speed/conditions. Repro: take a step, then paralyze the player (halve
+    /// speed) between steps. The recomputed `get_walk_delay_logical` would block the
+    /// next step even though `EarliestWalkTime` has elapsed; the single-source gate
+    /// lets it fire on time.
+    #[test]
+    fn test_audit6_on_walk_gate_uses_earliest_walk_time() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        // Extend the arena east so a 2-step walk can land.
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(102, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+        // Player starts at speed 220 (GoStrength) → effective 520 → cardinal step on
+        // 150-waypoint ground = 288 ms → ceil to beat 200 = 400 ms.
+        assert_eq!(world.creatures.get(player).unwrap().base().speed, 220);
+
+        let now = std::time::Instant::now();
+        world.player_auto_walk_path(conn, player, vec![Direction::East, Direction::East], now);
+
+        // First step fires at server_ms = 1 (C++ ToDoStart clamp). After it lands,
+        // `earliest_walk_server_ms = 1 + 400 = 401`.
+        world.advance_beat_772(1);
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(101, 100, 7)),
+            "first step must land at server_ms = 1"
+        );
+        let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
+        assert_eq!(earliest, 401, "NotifyGo sets earliest_walk_server_ms = 1 + 400");
+
+        // Paralyze the player mid-cooldown (speed 42 → effective 164). The old
+        // recomputation would yield a 1000 ms completed-step duration, blocking the
+        // second step at server_ms = 401 (delay = 1000 - 400 = 600 > 0).
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().speed = 42;
+        }
+
+        // Advance to `earliest_walk_server_ms` — the second step must fire.
+        world.advance_beat_772(400);
+        assert_eq!(
+            world.server_ms, 401,
+            "server_ms must reach earliest_walk_server_ms"
+        );
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(102, 100, 7)),
+            "second step must fire at earliest_walk_server_ms even after mid-cooldown \
+             speed change (C++ EarliestWalkTime is fixed at step-completion, cract.cc:1515-1525)"
+        );
+    }
