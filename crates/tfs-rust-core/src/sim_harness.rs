@@ -762,6 +762,18 @@ pub fn ensure_walkable_tile(map: &mut Map, pos: Position, ground_type: u16) {
     );
 }
 
+/// Insert a default walkable ground tile at `pos` only if no tile is present.
+///
+/// Harness `insert_*` helpers call this before `register_creature_at` so the
+/// "creatures stand on valid tiles" invariant (map audit #3) holds in test worlds
+/// that did not pre-populate the spawn position (e.g. `minimal_world`). Does NOT
+/// overwrite intentionally-placed tiles.
+pub fn ensure_walkable_tile_if_absent(map: &mut Map, pos: Position) {
+    if map.get_tile(pos).is_none() {
+        ensure_walkable_tile(map, pos, 100);
+    }
+}
+
 /// Lay a square arena of walkable tiles centered at `(cx, cy)` with inclusive radius.
 pub fn lay_arena_tiles(map: &mut Map, cx: u16, cy: u16, radius: u16, z: u8, ground_type: u16) {
     let r = radius as i32;
@@ -909,6 +921,7 @@ pub fn insert_monster_with_config(
         .insert(CreatureKind::Monster(Monster::with_config(
             base, pos, config,
         )));
+    ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid
 }
@@ -982,6 +995,7 @@ pub fn insert_monster_from_type(
         world.roll_monster_spawn_loot(cid, mtype);
         world.recompute_monster_combat_from_equipment(cid);
     }
+    ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid
 }
@@ -1064,6 +1078,7 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         base,
         npc_type_id: 0,
     }));
+    ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     world.add_creature_think_check(cid);
     cid
@@ -1078,6 +1093,7 @@ pub fn insert_spectator_player(
     let pos = player.base.position;
     let cid = insert_player(world, player);
     world.conn_to_creature.insert(conn_id, cid);
+    ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid
 }
@@ -1273,6 +1289,7 @@ pub fn teleport_player(
         p.base.position = new_pos;
     }
     world.map.unregister_creature_at(old_pos, player_id);
+    ensure_walkable_tile_if_absent(&mut world.map, new_pos);
     world.map.register_creature_at(new_pos, player_id);
     world.monster_dispatch_creature_move(player_id, old_pos, new_pos);
     Ok(())

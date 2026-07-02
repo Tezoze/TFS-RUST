@@ -292,3 +292,37 @@ Source: `docs/REFACTOR_AUDIT.md` §"Phase 1". Pure code-movement; no logic/renam
       `cargo clippy ... | grep '^warning:' | sort` for reliable before/after comparison.
 - [x] Exit criteria: `idle_stimulus.rs` ≤~2500 (2511), `monster_ai.rs` at audit-measured prod
       LOC ~2835 (2843). Test pass count identical.
+
+## Map System Audit — Phase 2: Storage invariants (findings #3, #7)
+
+Source: `docs/MAP_SYSTEM_AUDIT.md` §Phase 2. Targets MED #3 (void-tile registration loss)
+and LOW #7 (dual creature-list desync).
+
+- [x] **#3 Void-tile registration.** `Map::register_creature_at` currently silently drops a
+      creature when the target tile/chunk is absent (the `if let Some(t)` skips the tile list,
+      and `grid.register_creature` no-ops on a missing chunk). Fix: detect the void case and
+      `tracing::error!` (release) + `debug_assert!` (debug/test) — never panic in release per
+      `tfs-packets.md` validation rules. Same treatment for `unregister_creature_at` at
+      `warn` level (less harmful but still indicates untracked state).
+- [x] **#7 Single placement path.** Restrict `SparseGrid::register_creature` /
+      `unregister_creature` from `pub` to `pub(super)` so only `map/mod.rs` (the `*_at`
+      wrappers) can call them. The grid's own `#[cfg(test)] mod tests` retains access as a
+      child module. Add `SparseGrid::debug_assert_creature_lists_agree` (delegated through
+      `Map`) that checks every `Chunk.creatures` entry is on some tile in the chunk and vice
+      versa — `debug_assert!`-gated so it compiles out in release.
+- [x] **Tests** (`tests/map_storage.rs` + `map/grid.rs` `mod tests`):
+  - `register_creature_at_on_void_tile_is_noop` — register on a position in an absent chunk;
+    debug panics, release logs+drops; creature absent from both lists.
+  - `unregister_creature_at_on_void_tile_is_noop` — no panic, no state change.
+  - `creature_lists_agree_after_batch_of_moves` — register/move/unregister batch + consistency check.
+  - `debug_assert_catches_chunk_list_creature_not_on_tile` / `debug_assert_catches_tile_list_creature_not_in_chunk`
+    (grid unit tests, `#[cfg(debug_assertions)]`) — confirm the checker trips on each desync direction.
+  - `debug_assert_passes_on_clean_grid` — clean grid does not trip.
+- [x] **Harness invariant fix.** Added `ensure_walkable_tile_if_absent` to central harness
+      `insert_*` / `player_walk` paths — 10 pre-existing tests silently relied on the old
+      silent-drop. Does NOT overwrite intentional tiles.
+- [x] **Verify:** `cargo test -p tfs-rust-core --lib` → 468 passed, 2 ignored (was 458+10
+      failed); all 9 integration binaries pass; `cargo test -p tfs-rust-net` → 98 passed;
+      clippy clean on changed files.
+- [x] **Lessons:** appended #98 to `tasks/lessons.md`.
+- [x] **Docs:** marked Phase 2 ✅ in `docs/MAP_SYSTEM_AUDIT.md` summary table + Phase 2 header.

@@ -27,11 +27,11 @@ design shortfall), **SUSPECT** (probable divergence, verify before fixing). Seve
 |---|-----|------|------|---------|--------|
 | 1 | HIGH | BUG | LOS | `blocks_sight` checks `BLOCKSOLID\|BLOCKPATH`, never the projectile-block flag (`UNTHROW`) | ✅ Phase 1 |
 | 2 | HIGH | BUG | Wire | `GetTileDescription` creature loop has no 10-thing stack cap → client stack desync | ✅ Phase 1 (era-corrected) |
-| 3 | MED | GAP | Storage | Creature placed on a void (unloaded) tile is silently dropped from tile + chunk index | Phase 2 |
+| 3 | MED | GAP | Storage | Creature placed on a void (unloaded) tile is silently dropped from tile + chunk index | ✅ Phase 2 |
 | 4 | HIGH | GAP | Fan-out | Player packet fan-out (`spectator_conns`) linear-scans all connections, ignores the grid | Phase 3 |
 | 5 | MED | GAP | Fan-out | 64×64 chunk is 4× coarser than 772's 16×16 creature blocks (over-collect + tie-break order) | Phase 4 |
 | 6 | MED | SUSPECT | LOS | `blocks_sight` returns `true` for missing tiles; 1098 `checkSightLine` treats null tiles as non-blocking | ✅ Phase 1 |
-| 7 | LOW | GAP | Storage | Dual creature lists (`TileBody.creatures` + `Chunk.creatures`) can desync via direct grid calls | Phase 2 |
+| 7 | LOW | GAP | Storage | Dual creature lists (`TileBody.creatures` + `Chunk.creatures`) can desync via direct grid calls | ✅ Phase 2 |
 | 8 | LOW | GAP | Query | `find_item_position` full-world scan (every chunk × 4096 slots) | Phase 5 |
 | 9 | LOW | SUSPECT | Tile | `is_walkable` ignores creatures + `BLOCKPATH`; `Tile::query_add` is a `true` stub | Phase 5 |
 
@@ -223,20 +223,45 @@ Targets findings **#1, #2, #6**.
 **Exit criteria:** ✅ monster kiting/flee LOS matches expectations over furniture; 772 tiles cap
 at 10 things (1098 does not, matching C++); count/write passes stay byte-identical.
 
-### Phase 2 — Storage invariants (MED, small)
+### Phase 2 — Storage invariants (MED, small) — ✅ COMPLETE
 
 Targets findings **#3, #7**.
 
-1. **Void-tile registration (#3).** Make `register_creature_at` assert/log when the target tile or
-   chunk is absent instead of silently dropping. Choose `debug_assert!` + `tracing::error!` (never
-   panic in release — see `tfs-packets.md` validation rules).
-2. **Single placement path (#7).** Restrict direct `grid.register_creature`/`unregister_creature`
-   visibility (e.g. `pub(super)`), route all callers through `*_at`, and add a debug-only
-   consistency check that `TileBody.creatures` and `Chunk.creatures` agree.
-3. **Tests:** unit test that registering on a void tile is a no-op **with a logged error**, and a
-   consistency test after a batch of moves.
+1. **Void-tile registration (#3).** ✅ `Map::register_creature_at` now detects when the target
+   tile is absent and emits `tracing::error!` (release) + `debug_assert!` (debug/test) — never
+   panics in release (per `tfs-packets.md` validation rules). `unregister_creature_at` mirrors
+   with `tracing::warn!` (unregister-on-void is less harmful but still indicates untracked
+   state). The old silent-drop path is gone: a void placement is now observable.
+2. **Single placement path (#7).** ✅ `SparseGrid::register_creature` /
+   `unregister_creature` narrowed from `pub` to `pub(super)` so only `map/mod.rs` (the `*_at`
+   wrappers) can call them; the grid's own `#[cfg(test)] mod tests` retains child-module
+   access. Added `SparseGrid::debug_assert_creature_lists_agree` (delegated through
+   `Map::debug_assert_creature_lists_agree`) that verifies every `Chunk.creatures` entry is on
+   some tile's `TileBody.creatures` list and vice versa — all `debug_assert!`-gated so the body
+   compiles out in release.
+3. **Harness invariant fix.** ✅ Test harnesses (`minimal_world`-based tests) were registering
+   creatures at positions with no tile, violating the "creatures stand on valid tiles"
+   invariant the audit makes explicit. Added `ensure_walkable_tile_if_absent` and wired it into
+   the central `insert_monster_with_config` / `insert_monster_from_type` / `insert_npc` /
+   `insert_spectator_player` / `player_walk` move paths. Does NOT overwrite intentionally-placed
+   tiles. This fixed 10 pre-existing test harnesses that silently relied on the old
+   silent-drop behavior.
+4. **Tests:** ✅
+   - `tests/map_storage.rs` — `register_creature_at_on_void_tile_is_noop` (debug panics,
+     release logs+drops; creature absent from both lists), `unregister_creature_at_on_void_tile_is_noop`,
+     `creature_lists_agree_after_batch_of_moves` (register/move/unregister batch + consistency check).
+   - `map/grid.rs` `mod tests` — `debug_assert_catches_chunk_list_creature_not_on_tile`,
+     `debug_assert_catches_tile_list_creature_not_in_chunk` (both `#[cfg(debug_assertions)]`,
+     confirm the checker trips on each desync direction), `debug_assert_passes_on_clean_grid`.
+5. **Verify:** ✅ `cargo test -p tfs-rust-core --lib` → 468 passed, 2 ignored (was 458+10
+   failed); all 9 integration test binaries pass (map_storage 3, map_los 11, + 7 others);
+   `cargo test -p tfs-rust-net` → 98 passed. `cargo clippy` — zero warnings in changed files
+   (`map/mod.rs`, `map/grid.rs`, `tests/map_storage.rs`, `sim_harness.rs`); pre-existing
+   sim_harness unused-import/variable warnings shifted line numbers only.
 
-**Exit criteria:** no code path can desync the two creature lists; void placement is observable.
+**Exit criteria:** ✅ no code path can desync the two creature lists (grid seam is `pub(super)`,
+consistency checker catches both desync directions); void placement is observable (error log +
+debug panic).
 
 ### Phase 3 — Player fan-out via the grid (HIGH for scale, medium effort)
 

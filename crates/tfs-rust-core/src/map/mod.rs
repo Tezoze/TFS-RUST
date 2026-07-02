@@ -96,7 +96,13 @@ impl Map {
     }
 
     /// Update tile stack + chunk spatial index (`Map::moveCreature` creature lists — `map.cpp`).
+    ///
+    /// Audit #3: a creature placed on a void (unloaded) tile would be silently dropped from
+    /// both the tile stack and the chunk spatial index. Surface the violation instead —
+    /// `tracing::error!` in release, `debug_assert!` panic in debug/test. Never panics in
+    /// release (per `tfs-packets.md` validation rules).
     pub fn register_creature_at(&mut self, pos: Position, id: CreatureId) {
+        let tile_present = self.get_tile(pos).is_some();
         if let Some(t) = self.get_tile_mut(pos) {
             let body = t.body();
             if !body.creatures.contains(&id) {
@@ -104,13 +110,41 @@ impl Map {
             }
         }
         self.grid.register_creature(pos.x, pos.y, pos.z, id);
+        if !tile_present {
+            tracing::error!(
+                x = pos.x, y = pos.y, z = pos.z, creature = ?id,
+                "register_creature_at: target tile is void (unloaded); \
+                 creature dropped from tile stack + chunk spatial index"
+            );
+            debug_assert!(
+                tile_present,
+                "register_creature_at: target tile at {:?} must exist (void placement)",
+                pos
+            );
+        }
     }
 
+    /// Audit #3 / #7: unregistering on a void tile is a silent no-op in the old code; log at
+    /// `warn` so untracked-state bugs are observable. Routes through the grid's `pub(super)`
+    /// seam so the dual lists cannot desync via direct grid calls (audit #7).
     pub fn unregister_creature_at(&mut self, pos: Position, id: CreatureId) {
+        let tile_present = self.get_tile(pos).is_some();
         if let Some(t) = self.get_tile_mut(pos) {
             t.remove_creature(id);
         }
         self.grid.unregister_creature(pos.x, pos.y, pos.z, id);
+        if !tile_present {
+            tracing::warn!(
+                x = pos.x, y = pos.y, z = pos.z, creature = ?id,
+                "unregister_creature_at: target tile is void (unloaded); \
+                 creature was not tracked at this position"
+            );
+        }
+    }
+
+    /// Debug-only dual-list consistency check (audit #7). No-op in release builds.
+    pub fn debug_assert_creature_lists_agree(&self) {
+        self.grid.debug_assert_creature_lists_agree();
     }
 }
 

@@ -124,7 +124,11 @@ impl SparseGrid {
     }
 
     /// Chunk spatial list only — does not allocate a chunk (tile must exist first).
-    pub fn register_creature(&mut self, x: u16, y: u16, z: u8, id: CreatureId) {
+    ///
+    /// `pub(super)`: all creature placement must funnel through `Map::register_creature_at`
+    /// so the dual `TileBody.creatures` / `Chunk.creatures` lists stay in sync (audit #7).
+    // C++ reference: `map.cpp` `Map::moveCreature` creature-list bookkeeping.
+    pub(super) fn register_creature(&mut self, x: u16, y: u16, z: u8, id: CreatureId) {
         let key = ChunkKey::from_pos(x, y, z);
         let Some(chunk) = self.chunks.get_mut(&key) else {
             return;
@@ -134,7 +138,9 @@ impl SparseGrid {
         }
     }
 
-    pub fn unregister_creature(&mut self, x: u16, y: u16, z: u8, id: CreatureId) {
+    /// `pub(super)`: see [`SparseGrid::register_creature`] — route through
+    /// `Map::unregister_creature_at` to keep the dual lists in sync (audit #7).
+    pub(super) fn unregister_creature(&mut self, x: u16, y: u16, z: u8, id: CreatureId) {
         let key = ChunkKey::from_pos(x, y, z);
         let Some(chunk) = self.chunks.get_mut(&key) else {
             return;
@@ -142,6 +148,50 @@ impl SparseGrid {
         chunk.creatures.retain(|c| *c != id);
         if chunk.creatures.is_empty() && chunk.tile_count == 0 {
             self.chunks.remove(&key);
+        }
+    }
+
+    /// Debug-only dual-list consistency check (audit #7).
+    ///
+    /// Verifies every `Chunk.creatures` entry is on some tile's `TileBody.creatures` list
+    /// within that chunk, and vice versa. All assertions are `debug_assert!` so the entire
+    /// body compiles out in release builds — safe to call from test harnesses.
+    pub fn debug_assert_creature_lists_agree(&self) {
+        for (key, chunk) in &self.chunks {
+            // Every chunk-list creature must be on some tile in this chunk.
+            for &cid in &chunk.creatures {
+                let on_tile = chunk.tiles.iter().any(|slot| {
+                    slot.as_deref()
+                        .map(|t| t.body().creatures.contains(&cid))
+                        .unwrap_or(false)
+                });
+                debug_assert!(
+                    on_tile,
+                    "creature {:?} in chunk {:?} spatial list but not on any tile",
+                    cid,
+                    key
+                );
+            }
+            // Every tile-list creature must be in the chunk spatial list.
+            let (ox, oy, z) = key.chunk_origin();
+            for (idx, slot) in chunk.tiles.iter().enumerate() {
+                let Some(tile) = slot else { continue };
+                let body = tile.body();
+                if body.creatures.is_empty() {
+                    continue;
+                }
+                let lx = (idx % CHUNK_SIZE as usize) as u16;
+                let ly = (idx / CHUNK_SIZE as usize) as u16;
+                let pos = Position::new(ox + lx, oy + ly, z);
+                for &cid in &body.creatures {
+                    debug_assert!(
+                        chunk.creatures.contains(&cid),
+                        "creature {:?} on tile {:?} missing from chunk spatial list",
+                        cid,
+                        pos
+                    );
+                }
+            }
         }
     }
 
@@ -234,5 +284,97 @@ mod tests {
         out.clear();
         grid.collect_spectators(0, 0, 7, 5, 5, &mut out);
         assert!(!out.contains(&id1));
+    }
+
+    /// Audit #7 — a creature in `Chunk.creatures` but not on any tile's `TileBody.creatures`
+    /// must trip `debug_assert_creature_lists_agree`. Debug-only (`debug_assert!` compiles
+    /// out in release).
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_assert_catches_chunk_list_creature_not_on_tile() {
+        let mut grid = SparseGrid::new();
+        let tile = crate::tile::Tile::Normal(TileBody {
+            ground: Some(100),
+            down_items: vec![],
+            top_items: vec![],
+            creatures: vec![],
+            flags: 0,
+            zone: tfs_rust_common::ZoneType::Normal,
+        });
+        grid.insert_tile(70, 70, 7, tile);
+
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let orphan = sm.insert(());
+
+        // Corrupt: push into the chunk spatial list without touching any tile list.
+        let key = ChunkKey::from_pos(70, 70, 7);
+        grid.chunks.get_mut(&key).unwrap().creatures.push(orphan);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            grid.debug_assert_creature_lists_agree();
+        }));
+        assert!(
+            result.is_err(),
+            "debug_assert_creature_lists_agree must catch a chunk-list creature not on any tile"
+        );
+    }
+
+    /// Audit #7 — a creature on a tile's `TileBody.creatures` list but missing from the
+    /// chunk spatial list must trip `debug_assert_creature_lists_agree`. Debug-only.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_assert_catches_tile_list_creature_not_in_chunk() {
+        let mut grid = SparseGrid::new();
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let orphan = sm.insert(());
+
+        let tile = crate::tile::Tile::Normal(TileBody {
+            ground: Some(100),
+            down_items: vec![],
+            top_items: vec![],
+            creatures: vec![orphan],
+            flags: 0,
+            zone: tfs_rust_common::ZoneType::Normal,
+        });
+        grid.insert_tile(70, 70, 7, tile);
+        // Corrupt: remove from the chunk spatial list (insert_tile did not add it, and we
+        // deliberately skip register_creature).
+        let key = ChunkKey::from_pos(70, 70, 7);
+        assert!(
+            !grid.chunks.get(&key).unwrap().creatures.contains(&orphan),
+            "precondition: orphan must not be in chunk list"
+        );
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            grid.debug_assert_creature_lists_agree();
+        }));
+        assert!(
+            result.is_err(),
+            "debug_assert_creature_lists_agree must catch a tile-list creature missing from the chunk"
+        );
+    }
+
+    /// Audit #7 — a clean grid must NOT trip the consistency check. The tile list and chunk
+    /// list must both hold the creature (the `*_at` seam keeps them in sync; here we mirror
+    /// that by inserting a tile whose `creatures` list already contains the id, then syncing
+    /// the chunk list via `register_creature`).
+    #[test]
+    fn debug_assert_passes_on_clean_grid() {
+        let mut grid = SparseGrid::new();
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let id = sm.insert(());
+
+        let tile = crate::tile::Tile::Normal(TileBody {
+            ground: Some(100),
+            down_items: vec![],
+            top_items: vec![],
+            creatures: vec![id],
+            flags: 0,
+            zone: tfs_rust_common::ZoneType::Normal,
+        });
+        grid.insert_tile(70, 70, 7, tile);
+        grid.register_creature(70, 70, 7, id);
+        // No panic expected in either build.
+        grid.debug_assert_creature_lists_agree();
     }
 }
