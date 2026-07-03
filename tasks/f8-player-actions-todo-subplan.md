@@ -5,7 +5,7 @@
 **Decompile ref tree:** `reference/cipsoft-772/tibia-game-master/src/` — `receiving.cc`,
 `cract.cc`, `cr.hh`. **(772 mechanics = `tibia-game-master/src/`; do not cite `gameserver/src/`
 or repo-root `src/` for this ToDo model.)**
-**Status:** 🟡 S0 DONE (narrow scope locked) — S1–S8 pending.
+**Status:** 🟡 S0–S3 DONE — S4–S8 pending.
 **S0 decision (recorded):** Narrow scope. In-scope executors: `Use`/`UseItemEx` (reroute),
 `Throw`/`Move` (reroute), `RotateItem`/`CTurnObject` (build + route). **Out of scope, forked to
 their own sub-plans:** `UseOnCreature`/`CUseOnCreature` (§0.1 F3 — build-from-scratch), player
@@ -327,8 +327,19 @@ reactive path alive behind the existing gate until its ToDo replacement is verif
       `pickup_item_type` to set `moveable_override: Some(true)` (gold IS moveable in Tibia;
       `internal_get_thing_move` requires `moveable()`). `cargo check` + `clippy --all-targets`
       + 531 tests pass.
-- [ ] **S3 — CalculateDelay.** Wire the multiuse gate for two-object `Use`; 0 for Move/Turn. Test:
-      two-object use within 1000 ms defers; single-object use does not.
+- [x] **S3 — CalculateDelay.** DONE. Wired the C++ `CalculateDelay(TDUse)` gate
+      (`cract.cc:925-932`): two-object `Use` (`obj2.is_some()`) defers when
+      `earliest_multiuse_server_ms > server_ms`; single-object `Use`, `Move`, and `Turn`
+      are ungated (delay 0 — C++ `default` case, `cract.cc:946-948`). Added
+      `multiuse_gate_delay_ms(cid, has_obj2)` shared core + peek-based `todo_use_delay_ms`
+      (for S6 handler routing) + `TodoExecuteKind::Deferred` variant (no-op in
+      `run_monster_todo_execute` — wakeup already armed). The `Use` execute arm calls
+      `multiuse_gate_delay_ms` directly with the popped `obj2.is_some()` (not the
+      peek-based helper — the action is already popped at that point). 5 tests: 3 unit
+      (`todo_use_delay_ms` two-object within gate → remaining delay, single-object → 0,
+      two-object past gate → 0) + 2 integration (two-object Use defers with wakeup at
+      `earliest_multiuse_server_ms`; single-object Use does not defer, queue drains).
+      `cargo check` + `clippy --all-targets` + 536 tests pass.
 - [ ] **S4 — Execute dispatch.**
       - Move `player_use_item(_ex)` bodies into the `Use` execute arm (re-validate →
         `NOTACCESSIBLE`) — reroute only, both already exist.

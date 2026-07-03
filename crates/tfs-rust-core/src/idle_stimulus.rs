@@ -73,6 +73,11 @@ pub(crate) enum TodoExecuteKind {
     Attack,
     DistanceAttack,
     AttackDeferred,
+    /// F8 S3 — generic `CalculateDelay` gate deferral (e.g. two-object `Use` waiting on
+    /// `EarliestMultiuseTime`). The wakeup was already armed by `todo_start_from_action`
+    /// in the gate check, so the post-execute handler is a no-op — mirrors C++ `Execute`'s
+    /// "Delay > 0 → schedule + break" (`cract.cc:795-801`).
+    Deferred,
 }
 
 impl GameWorld {
@@ -2401,16 +2406,43 @@ impl GameWorld {
                 }
             }
             // F8 S1 stub arms — `Use`/`Move`/`Turn` enum variants compile-only.
-            // Executors + builders land in S2/S4; these never fire yet (no enqueue path).
-            CreatureAction::Use { .. } => {
-                trace_creature_todo(self, cid, "execute_use_stub");
-                TodoExecuteKind::Wait
+            // Executors land in S4; the S3 multiuse gate below is the only live behavior.
+            CreatureAction::Use { obj1, obj2, open_index } => {
+                // F8 S3 — C++ `CalculateDelay(TDUse)` gate (`cract.cc:925-932`): two-object
+                // use defers when `EarliestMultiuseTime > ServerMilliseconds`; single-object
+                // use is ungated (delay 0). The action was already popped at the top of
+                // `execute_creature_todo_action`, so we pass `obj2.is_some()` directly to
+                // `multiuse_gate_delay_ms` (not the peek-based `todo_use_delay_ms`, which
+                // would see the next queue entry, not this one). On deferral we push it
+                // back to the front and arm a wakeup at `earliest_multiuse_server_ms` —
+                // same pattern as the `Attack` defer above (`cract.cc:870-889`, `:795-801`).
+                let delay = self.multiuse_gate_delay_ms(cid, obj2.is_some());
+                if delay > 0 {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().todo.queue.push_front(CreatureAction::Use {
+                            obj1,
+                            obj2,
+                            open_index,
+                        });
+                    }
+                    trace_creature_todo(self, cid, "execute_use_deferred");
+                    self.todo_start_from_action(cid, delay);
+                    trace_creature_todo(self, cid, "execute_use_deferred_done");
+                    TodoExecuteKind::Deferred
+                } else {
+                    trace_creature_todo(self, cid, "execute_use_stub");
+                    TodoExecuteKind::Wait
+                }
             }
             CreatureAction::Move { .. } => {
+                // F8 S3 — C++ `CalculateDelay` `default` case: `TDMove` is delay 0
+                // (`cract.cc:946-948`); no gate. Executor lands in S4.
                 trace_creature_todo(self, cid, "execute_move_stub");
                 TodoExecuteKind::Wait
             }
             CreatureAction::Turn { .. } => {
+                // F8 S3 — C++ `CalculateDelay` `default` case: `TDTurn` is delay 0
+                // (`cract.cc:946-948`); no gate. Executor lands in S4.
                 trace_creature_todo(self, cid, "execute_turn_stub");
                 TodoExecuteKind::Wait
             }
@@ -2603,6 +2635,10 @@ impl GameWorld {
             Some(TodoExecuteKind::AttackDeferred) => {
                 self.monster_combat_reschedule_if_stalled(cid);
             }
+            // F8 S3 — gate-deferred action (two-object Use waiting on multiuse exhaustion).
+            // The wakeup was already armed by `todo_start_from_action` in the gate check;
+            // no reschedule needed (`cract.cc:795-801` "Delay > 0 → schedule + break").
+            Some(TodoExecuteKind::Deferred) => {}
             None => {}
         }
     }

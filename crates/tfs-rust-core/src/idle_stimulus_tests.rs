@@ -5054,3 +5054,159 @@
         );
         assert!(!base.force_update_follow_path, "flag must remain clear for players");
     }
+
+    // === F8 S3 — CalculateDelay multiuse gate integration tests ===
+    // C++ ref: `cract.cc:901-960` `CalculateDelay`, `cract.cc:795-801` `Execute` drain
+    // "Delay > 0 → schedule + break". Two-object `Use` defers on `EarliestMultiuseTime`;
+    // single-object `Use` is ungated (`cract.cc:925-932`).
+
+    /// Place a bag (container, id 1987) on a tile and return its `ActionObjectRef`.
+    /// Mirrors `creature_todo.rs::place_bag_on_tile` — `sprite_id=0` matches the
+    /// default `client_id=0` in the test items_db.
+    fn place_bag_on_tile_772(
+        world: &mut GameWorld,
+        pos: Position,
+    ) -> crate::creature_todo::ActionObjectRef {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let item_id = world.items.insert(crate::item::Item::new_single(1987));
+        world
+            .map
+            .get_tile_mut(pos)
+            .expect("tile just inserted")
+            .add_item(item_id);
+        crate::creature_todo::ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 0,
+        }
+    }
+
+    /// Two-object `Use` within the multiuse gate defers: the `Use` action is pushed
+    /// back to the front and a wakeup is armed at `earliest_multiuse_server_ms`.
+    #[test]
+    fn two_object_use_within_multiuse_gate_defers() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let item_pos2 = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", player_pos));
+        world.map.register_creature_at(player_pos, player);
+        let obj1 = place_bag_on_tile_772(&mut world, item_pos);
+        let obj2 = place_bag_on_tile_772(&mut world, item_pos2);
+
+        world
+            .enqueue_player_use(player, obj1, Some(obj2), 0)
+            .expect("both bags resolve");
+        // Queue: [Wait{100}, Use{obj2:Some}]. Arm multiuse exhaustion 1000 ms ahead.
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_multiuse_server_ms = 2000;
+        }
+
+        // 1) Execute the Wait{100} — schedules wakeup at server_ms+100=1100.
+        let kind = world.execute_creature_todo_action(player);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "Wait{{100}} executes first"
+        );
+        // Queue is now [Use{obj2:Some}].
+        assert_eq!(
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .todo
+                .queue
+                .len(),
+            1,
+            "Wait consumed, Use remains"
+        );
+
+        // 2) Advance past the Wait floor to the multiuse-gated execute.
+        world.server_ms = 1100;
+        // Clear the wakeup armed by the Wait so the next execute isn't blocked by
+        // process_creature_todo's `next_wakeup` gate (we call execute directly here).
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().next_wakeup = None;
+        }
+
+        let kind = world.execute_creature_todo_action(player);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
+            "two-object Use within gate must defer (CalculateDelay > 0)"
+        );
+
+        // Use was pushed back to the front; wakeup armed at earliest_multiuse_server_ms.
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(
+            base.todo.queue.len(),
+            1,
+            "deferred Use must be pushed back to the front"
+        );
+        assert!(
+            matches!(base.todo.queue.front(), Some(CreatureAction::Use { .. })),
+            "front must still be the Use action"
+        );
+        assert_eq!(
+            base.next_wakeup,
+            Some(2000),
+            "wakeup armed at earliest_multiuse_server_ms (server_ms + delay = 1100 + 900)"
+        );
+    }
+
+    /// Single-object `Use` does not defer — the gate only applies to `Obj2 != 0`
+    /// (`cract.cc:926`). The stub executor fires (queue drains, no deferral).
+    #[test]
+    fn single_object_use_does_not_defer() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1000;
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", player_pos));
+        world.map.register_creature_at(player_pos, player);
+        let obj1 = place_bag_on_tile_772(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(player, obj1, None, 0)
+            .expect("bag resolves");
+        // Queue: [Wait{100}, Use{obj2:None}]. Arm multiuse exhaustion far in the future
+        // — single-object Use must still be ungated.
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_multiuse_server_ms = 5000;
+        }
+
+        // 1) Execute the Wait{100}.
+        let kind = world.execute_creature_todo_action(player);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "Wait{{100}} executes first"
+        );
+
+        // 2) Advance past the Wait floor.
+        world.server_ms = 1100;
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().next_wakeup = None;
+        }
+
+        let kind = world.execute_creature_todo_action(player);
+        // Single-object Use is ungated → stub fires (S4 replaces with real executor).
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "single-object Use does not defer (stub fires, S4 wires executor)"
+        );
+
+        // Queue drained — Use was consumed, not pushed back.
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            base.todo.queue.is_empty(),
+            "single-object Use must not be pushed back (no deferral)"
+        );
+        assert_eq!(
+            base.next_wakeup,
+            None,
+            "no wakeup armed — single-object Use is ungated"
+        );
+    }
