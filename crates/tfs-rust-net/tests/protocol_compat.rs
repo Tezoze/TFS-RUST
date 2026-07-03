@@ -1246,4 +1246,44 @@ mod v772_floor_change {
         );
         assert_eq!(m772[0], 0x64);
     }
+
+    /// Phase 3 verification (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3): both-axes diagonal+z
+    /// move `(100,100,7)→(101,101,8)`.
+    ///
+    /// 772 `NotifyGo` would emit (x-steps then y-steps):
+    ///   `0xBF, 0x66, 0x66, 0x67, 0x67`
+    /// Rust `send_move_creature_player` (772, post-Phase 1) emits (append's fixed col+row,
+    /// then outer N/S before E/W):
+    ///   `0xBF, 0x66, 0x67, 0x67, 0x66`
+    ///
+    /// Both the row **ordering** and the row **content** (x0/y0 origins) diverge from 772.
+    /// However, this case is **unreachable via the walk path**: `are_in_range_1_1_0` requires
+    /// `dz == 0`, so any z-change routes to the teleport path (`emit_teleport_move_packet`),
+    /// never `send_move_creature_player`. See the companion test
+    /// `are_in_range_1_1_0_rejects_z_change_confirming_both_axes_z_unreachable` in
+    /// `tfs-rust-core/src/walk/mod.rs`. Per Phase 3, this is a documented no-op.
+    #[test]
+    fn both_axes_z_change_documents_unreachable_divergence() {
+        let old = Position::new(100, 100, 7);
+        let new = Position::new(101, 101, 8);
+        let b = move_creature_player_bytes(&codec_772(), old, new, 0, CID);
+
+        // Post-Phase 1: no self-packet. First byte is 0xBF (SendFloors down).
+        assert_eq!(b[0], 0xBF, "772 both-axes+z starts with 0xBF (no self-packet)");
+
+        // The row sequence is 0xBF, 0x66, 0x67, 0x67, 0x66 — NOT 772's ideal
+        // 0xBF, 0x66, 0x66, 0x67, 0x67. This divergence is accepted because the
+        // case is unreachable (z-changes route to the teleport path).
+        let opcodes: Vec<u8> = b
+            .iter()
+            .copied()
+            .filter(|&op| matches!(op, 0xBF | 0xBE | 0x66 | 0x67 | 0x68 | 0x65))
+            .collect();
+        // append_move_down: 0xBF + 0x66 + 0x67; outer: oy<ny → 0x67, ox<nx → 0x66.
+        assert_eq!(
+            opcodes,
+            vec![0xBF, 0x66, 0x67, 0x67, 0x66],
+            "772 both-axes+z row order diverges from NotifyGo but is unreachable"
+        );
+    }
 }

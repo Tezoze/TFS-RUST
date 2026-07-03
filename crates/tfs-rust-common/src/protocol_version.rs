@@ -59,6 +59,12 @@ pub struct ProtocolCaps {
     pub stats_capacity_u32: bool,
     pub skills_u16: bool,
     pub icons_u16: bool,
+    /// 772 `NotifyGo` (`cract.cc:1400-1460`) never emits a self-move creature packet
+    /// (`0x6D`/`0x6C`) for the player's own move — the viewport is updated purely via
+    /// `SendFloors` (0xBE/0xBF) + `SendRow` (0x65-0x68). 1098 `sendMoveCreature`
+    /// (`protocolgame.cpp:2827-2870`) emits the leading self-packet. `false` for 772,
+    /// `true` for 1098. See `docs/772_FLOOR_CHANGE_DESYNC.md` Phase 1/2.
+    pub move_creature_self_packet: bool,
     pub self_appear_opcode: u8,
     pub initial_buffer_position: u8,
     pub xtea_length_slack: u8,
@@ -82,6 +88,7 @@ impl ProtocolCaps {
                 stats_capacity_u32: false,
                 skills_u16: false,
                 icons_u16: false,
+                move_creature_self_packet: false,
                 self_appear_opcode: 0x0A,
                 initial_buffer_position: 4,
                 xtea_length_slack: 4,
@@ -101,6 +108,7 @@ impl ProtocolCaps {
                 stats_capacity_u32: true,
                 skills_u16: true,
                 icons_u16: true,
+                move_creature_self_packet: true,
                 self_appear_opcode: 0x17,
                 initial_buffer_position: 8,
                 xtea_length_slack: 6,

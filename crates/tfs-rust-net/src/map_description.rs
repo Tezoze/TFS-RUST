@@ -667,6 +667,11 @@ fn append_move_down_creature<F: FnMut(u32) -> bool>(
 
 /// Local player walk: `ProtocolGame::sendMoveCreature` when `creature == player` and not teleport.
 // C++ reference: `src/protocolgame.cpp` `ProtocolGame::sendMoveCreature` (lines ~2827–2870).
+//
+// 772 era: `TCreature::NotifyGo` (`cract.cc:1400-1460`) never emits the leading self-packet
+// (`0x6D`/`0x6C`) — the viewport is updated purely via `SendFloors` + `SendRow`. The
+// `move_creature_self_packet` cap gates this; the floor/row emission that follows is
+// unchanged (it already matches 772 — see `docs/772_FLOOR_CHANGE_DESYNC.md` §16.1).
 #[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendMoveCreature` parameters (parity)
 pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     codec: &Codec,
@@ -679,28 +684,32 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     can_see_creature: &mut F,
     with_description: bool,
 ) -> NetworkMessage {
+    let emit_self_packet = codec.caps().move_creature_self_packet;
     if old_pos.z != new_pos.z {
         let mut msg = NetworkMessage::new();
-        if old_pos.z == 7 && new_pos.z >= 8 {
-            if (0..10).contains(&old_stack_pos) {
-                msg.write_u8(0x6C);
-                msg.write_position(&old_pos);
-                msg.write_u8(old_stack_pos as u8);
+        // 772 `NotifyGo` never emits the self-packet; 1098 does (`protocolgame.cpp:2827-2870`).
+        if emit_self_packet {
+            if old_pos.z == 7 && new_pos.z >= 8 {
+                if (0..10).contains(&old_stack_pos) {
+                    msg.write_u8(0x6C);
+                    msg.write_position(&old_pos);
+                    msg.write_u8(old_stack_pos as u8);
+                } else {
+                    msg.write_u8(0x6C);
+                    msg.write_u16(0xFFFF);
+                    msg.write_u32(creature_id);
+                }
             } else {
-                msg.write_u8(0x6C);
-                msg.write_u16(0xFFFF);
-                msg.write_u32(creature_id);
+                msg.write_u8(0x6D);
+                if (0..10).contains(&old_stack_pos) {
+                    msg.write_position(&old_pos);
+                    msg.write_u8(old_stack_pos as u8);
+                } else {
+                    msg.write_u16(0xFFFF);
+                    msg.write_u32(creature_id);
+                }
+                msg.write_position(&new_pos);
             }
-        } else {
-            msg.write_u8(0x6D);
-            if (0..10).contains(&old_stack_pos) {
-                msg.write_position(&old_pos);
-                msg.write_u8(old_stack_pos as u8);
-            } else {
-                msg.write_u16(0xFFFF);
-                msg.write_u32(creature_id);
-            }
-            msg.write_position(&new_pos);
         }
 
         if new_pos.z > old_pos.z {
@@ -803,15 +812,18 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     }
 
     let mut msg = NetworkMessage::new();
-    msg.write_u8(0x6D);
-    if (0..10).contains(&old_stack_pos) {
-        msg.write_position(&old_pos);
-        msg.write_u8(old_stack_pos as u8);
-    } else {
-        msg.write_u16(0xFFFF);
-        msg.write_u32(creature_id);
+    // 772 `NotifyGo` same-z path: only `SendRow`, no self-packet (`cract.cc:1400-1460`).
+    if emit_self_packet {
+        msg.write_u8(0x6D);
+        if (0..10).contains(&old_stack_pos) {
+            msg.write_position(&old_pos);
+            msg.write_u8(old_stack_pos as u8);
+        } else {
+            msg.write_u16(0xFFFF);
+            msg.write_u32(creature_id);
+        }
+        msg.write_position(&new_pos);
     }
-    msg.write_position(&new_pos);
 
     let w = client_viewport_width();
     let h = client_viewport_height();
@@ -891,23 +903,37 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 /// Other creature's walk (not the local player): `ProtocolGame::sendMoveCreature` when
 /// `creature != player` and both old and new positions are visible (`protocolgame.cpp` ~2872–2887).
 /// No map row opcodes — client shifts the sprite from old stack to new tile.
+///
+/// 772 era (`sending.cc:658-700` `SendMoveCreature`): uses `OrigIndex` (stackpos) directly
+/// when `OrigIndex < MAX_OBJECTS_PER_POINT` (= 10). 772 has **no** `0xFFFF + creature_id`
+/// fallback — when `OrigIndex >= 10`, `WasVisible` is false and the caller must emit
+/// `SendAddField` (appear) instead. Returns `None` in that case so the caller can fall back
+/// to the appear path. 1098 always emits `0x6D` with the `0xFFFF + id` fallback for
+/// `stack >= 10`. See `docs/772_FLOOR_CHANGE_DESYNC.md` Phase 4 / §16.4.
 pub fn send_move_creature_spectator(
+    codec: &Codec,
     old_pos: Position,
     new_pos: Position,
     old_stack_pos: i32,
     creature_id: u32,
-) -> NetworkMessage {
+) -> Option<NetworkMessage> {
+    // 772: stack >= 10 (or invalid) → WasVisible=false → no 0x6D; caller emits appear.
+    if !codec.caps().move_creature_self_packet && !(0..10).contains(&old_stack_pos) {
+        return None;
+    }
+
     let mut msg = NetworkMessage::new();
     msg.write_u8(0x6D);
     if (0..10).contains(&old_stack_pos) {
         msg.write_position(&old_pos);
         msg.write_u8(old_stack_pos as u8);
     } else {
+        // 1098 fallback: 0xFFFF + creature_id (`protocolgame.cpp` ~2876-2880).
         msg.write_u16(0xFFFF);
         msg.write_u32(creature_id);
     }
     msg.write_position(&new_pos);
-    msg
+    Some(msg)
 }
 
 /// `ProtocolGame::sendUpdateTile` (`src/protocolgame.cpp` ~2683).

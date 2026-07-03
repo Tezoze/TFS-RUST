@@ -123,24 +123,44 @@ fn move_creature_player_starts_with_6d_not_full_map_stub() {
 fn move_creature_spectator_uses_stack_when_in_range() {
     let old_p = Position::new(100, 200, 7);
     let new_p = Position::new(101, 200, 7);
-    let msg = send_move_creature_spectator(old_p, new_p, 3, 0x11223344);
-    let b = msg.as_bytes();
-    assert_eq!(b[0], 0x6D);
-    assert_eq!(&b[1..6], &[100, 0, 200, 0, 7]);
-    assert_eq!(b[6], 3);
-    assert_eq!(&b[7..12], &[101, 0, 200, 0, 7]);
+    // Both eras emit 0x6D with stackpos when stack < 10.
+    for codec in [codec_1098(), codec_772()] {
+        let msg = send_move_creature_spectator(&codec, old_p, new_p, 3, 0x11223344).unwrap();
+        let b = msg.as_bytes();
+        assert_eq!(b[0], 0x6D);
+        assert_eq!(&b[1..6], &[100, 0, 200, 0, 7]);
+        assert_eq!(b[6], 3);
+        assert_eq!(&b[7..12], &[101, 0, 200, 0, 7]);
+    }
 }
 
 #[test]
-fn move_creature_spectator_falls_back_to_creature_id_when_stack_invalid() {
+fn move_creature_spectator_1098_falls_back_to_creature_id_when_stack_invalid() {
     let old_p = Position::new(50, 60, 3);
     let new_p = Position::new(51, 60, 3);
-    let msg = send_move_creature_spectator(old_p, new_p, -1, 0xAABBCCDD);
+    // 1098 uses 0xFFFF + creature_id fallback for stack >= 10 or invalid.
+    let msg = send_move_creature_spectator(&codec_1098(), old_p, new_p, -1, 0xAABBCCDD).unwrap();
     let b = msg.as_bytes();
     assert_eq!(b[0], 0x6D);
     assert_eq!(&b[1..3], &[0xFF, 0xFF]);
     assert_eq!(&b[3..7], &[0xDD, 0xCC, 0xBB, 0xAA]);
     assert_eq!(&b[7..12], &[51, 0, 60, 0, 3]);
+}
+
+/// 772 `SendMoveCreature` (`sending.cc:658-700`): when `OrigIndex >= MAX_OBJECTS_PER_POINT`
+/// (= 10) or invalid, `WasVisible` is false → no `0x6D`; caller emits `SendAddField` (appear).
+/// Phase 4: `send_move_creature_spectator` returns `None` for 772 + stack >= 10.
+#[test]
+fn move_creature_spectator_772_returns_none_when_stack_invalid() {
+    let old_p = Position::new(50, 60, 3);
+    let new_p = Position::new(51, 60, 3);
+    // stack = 10 (>= MAX_OBJECTS_PER_POINT) → None.
+    assert!(send_move_creature_spectator(&codec_772(), old_p, new_p, 10, 0xAABBCCDD).is_none());
+    // stack = -1 (invalid) → None.
+    assert!(send_move_creature_spectator(&codec_772(), old_p, new_p, -1, 0xAABBCCDD).is_none());
+    // stack = 9 (< 10) → Some (0x6D with stack).
+    let msg = send_move_creature_spectator(&codec_772(), old_p, new_p, 9, 0xAABBCCDD).unwrap();
+    assert_eq!(msg.as_bytes()[0], 0x6D);
 }
 
 /// Finding #2 — `GetTileDescription` creature stack cap.

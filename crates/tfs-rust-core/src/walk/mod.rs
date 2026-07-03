@@ -990,6 +990,10 @@ impl GameWorld {
 
     /// C++ `sendCreatureMove` teleport path: `sendRemoveTileCreature` + `sendMapDescription`.
     /// Used for queryDestination chain steps where `areInRange<1,1,0>` fails (z-change or >1 tile).
+    ///
+    /// 772 era: `SendFullScreen` (`sending.cc:421-460`) emits `0x64` alone — no remove packet.
+    /// The `move_creature_self_packet` cap gates the remove; the map description (`0x64`) is
+    /// era-independent. See `docs/772_FLOOR_CHANGE_DESYNC.md` Phase 2.
     fn emit_teleport_move_packet(
         &mut self,
         cid: CreatureId,
@@ -1002,18 +1006,23 @@ impl GameWorld {
             return;
         };
         let with_description = p.item_with_description();
+        let emit_self_packet = self.codec.caps().move_creature_self_packet;
 
-        // 1) sendRemoveTileCreature(creature, oldPos, oldStackPos)
-        let remove_pkt = if (0..10).contains(&old_stack) {
-            self.codec
-                .encode_remove_tile_thing(old_pos, old_stack as u8)
-                .into_bytes()
-        } else {
-            self.codec
-                .encode_remove_tile_creature_by_id(p.guid)
-                .into_bytes()
-        };
-        self.enqueue_outgoing(conn_id, remove_pkt);
+        // 1) sendRemoveTileCreature(creature, oldPos, oldStackPos) — 1098 only.
+        // 772 `SendFullScreen` skips the remove; the full-screen map description repositions
+        // the viewport without a self-remove (`cract.cc:1430-1432`, `sending.cc:421-460`).
+        if emit_self_packet {
+            let remove_pkt = if (0..10).contains(&old_stack) {
+                self.codec
+                    .encode_remove_tile_thing(old_pos, old_stack as u8)
+                    .into_bytes()
+            } else {
+                self.codec
+                    .encode_remove_tile_creature_by_id(p.guid)
+                    .into_bytes()
+            };
+            self.enqueue_outgoing(conn_id, remove_pkt);
+        }
 
         // 2) sendMapDescription(newPos)
         let mut known = self
@@ -1077,8 +1086,11 @@ impl GameWorld {
             })
             .collect();
 
+        // 772 `SendMoveCreature` returns `None` when `OrigIndex >= 10` (WasVisible=false) —
+        // the caller must emit `SendAddField` (appear) instead of `0x6D` (`sending.cc:658-700`).
         let move_packet =
-            send_move_creature_spectator(old_pos, new_pos, old_stack, wire_id).into_bytes();
+            send_move_creature_spectator(&self.codec, old_pos, new_pos, old_stack, wire_id)
+                .map(|m| m.into_bytes());
 
         for (conn, viewer) in spectators {
             let can_see_old = self.can_see_position(viewer, old_pos);
@@ -1088,9 +1100,14 @@ impl GameWorld {
                 if z_changed && surface_to_underground {
                     self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
-                } else if self.is_creature_fully_sent_to_conn(conn, wire_id) {
-                    self.enqueue_outgoing(conn, move_packet.clone());
+                } else if let Some(pkt) = &move_packet {
+                    if self.is_creature_fully_sent_to_conn(conn, wire_id) {
+                        self.enqueue_outgoing(conn, pkt.clone());
+                    } else {
+                        self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
+                    }
                 } else {
+                    // 772 + stack >= 10: WasVisible=false → appear-only (SendAddField).
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                 }
             } else if can_see_old {
@@ -2282,6 +2299,32 @@ mod step_speed_tests {
             delay_diagonal, delay_cardinal,
             "diagonal must differ from cardinal (×3 vs ×1)"
         );
+    }
+
+    /// Phase 3 reachability guard (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3):
+    /// `are_in_range_1_1_0` requires `dz == 0`, so ANY z-change (height climbing,
+    /// queryDestination chain) makes the segment a teleport → `emit_teleport_move_packet`,
+    /// NOT `emit_move_packet`/`send_move_creature_player`. This confirms the both-axes+z
+    /// diagonal case is unreachable via the walk path, making Phase 3 a no-op.
+    #[test]
+    fn are_in_range_1_1_0_rejects_z_change_confirming_both_axes_z_unreachable() {
+        use super::are_in_range_1_1_0;
+        use tfs_rust_common::Position;
+        // Same-z adjacent: in range → non-teleport (send_move_creature_player path).
+        assert!(are_in_range_1_1_0(
+            Position::new(100, 100, 7),
+            Position::new(101, 101, 7),
+        ));
+        // z-change (dz=1): NOT in range → teleport path, regardless of x/y delta.
+        assert!(!are_in_range_1_1_0(
+            Position::new(100, 100, 7),
+            Position::new(101, 101, 8),
+        ));
+        // z-change in-place (dz=1, dx=0, dy=0): also teleport.
+        assert!(!are_in_range_1_1_0(
+            Position::new(100, 100, 7),
+            Position::new(100, 100, 8),
+        ));
     }
 }
 

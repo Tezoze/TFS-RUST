@@ -1,8 +1,8 @@
 # 772 Floor Change Desync — Protocol Divergence Audit
 
-**Status:** Open — root cause identified and narrowed (audit #2, 2026-07-03); Phase 0 golden tests implemented; fix (Phase 1+) not yet implemented.
+**Status:** Fixed (Phases 1–4 implemented 2026-07-03) — root cause identified and narrowed (audit #2, 2026-07-03); Phase 0 golden tests implemented; Phases 1–4 implemented.
 **Severity:** High — every player floor transition (stairs, rope, ladder) desyncs the 772 client.
-**Reported:** 2026-07-03. **Re-audited:** 2026-07-03 (§16). **Phase 0:** 2026-07-03.
+**Reported:** 2026-07-03. **Re-audited:** 2026-07-03 (§16). **Phase 0:** 2026-07-03. **Phases 1–4:** 2026-07-03.
 
 ---
 
@@ -571,7 +571,7 @@ The 772 tests derive expected bytes by stripping the leading self-packet from th
 the self-packet diverges (§16.1). All tests use an empty map (`get_tile` → `None`) for deterministic
 skip-compression bytes.
 
-### Phase 1 — Suppress the self-creature packet for 772 (primary fix)
+### Phase 1 — Suppress the self-creature packet for 772 (primary fix) — **IMPLEMENTED 2026-07-03**
 
 In `send_move_creature_player` (`map_description.rs`), gate the leading self-packet on the era.
 The floor/row emission that follows is **unchanged** (it already matches 772):
@@ -595,7 +595,7 @@ if emit_self_packet {
 // same-z branch: guard the leading 0x6D with `emit_self_packet` too
 ```
 
-### Phase 2 — 772 teleport path
+### Phase 2 — 772 teleport path — **IMPLEMENTED 2026-07-03**
 
 772 teleport = `SendFullScreen` (`0x64`) alone (§13); 1098 = `0x6C` remove + map description.
 Options:
@@ -606,7 +606,7 @@ Options:
 
 Prefer (a) — the remove is the only divergent piece; the map description is identical.
 
-### Phase 3 — Verify row ordering on combined diagonal+z moves (§16.3)
+### Phase 3 — Verify row ordering on combined diagonal+z moves (§16.3) — **VERIFIED NO-OP 2026-07-03**
 
 For moves with **both** a z-change and a leftover x **and** y delta (e.g. diagonal stair-steps),
 772 orders rows *x-steps then y-steps*, while the Rust path emits append's fixed `0x66/0x67`
@@ -615,7 +615,7 @@ reorder the outer row emission for the 772 era to match `NotifyGo` (x-loop befor
 in-game move actually produces a leftover in both axes after the diagonal shift, this phase is a
 no-op — verify with a test before writing code.
 
-### Phase 4 — (Optional) spectator `0xFFFF` fallback (§16.4)
+### Phase 4 — (Optional) spectator `0xFFFF` fallback (§16.4) — **IMPLEMENTED 2026-07-03**
 
 Low priority; only affects tiles with ≥10 stacked objects. Give `send_move_creature_spectator`
 an era-aware path: 772 uses `OrigIndex` directly and, when `OrigIndex ≥ MAX_OBJECTS_PER_POINT`,
