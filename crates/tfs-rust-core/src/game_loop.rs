@@ -408,11 +408,13 @@ fn handle_game_packet(
         GamePacket::Throw(payload) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 // F8 S6 — 772 `CMoveObject` (`receiving.cc:233`): `ToDoMove(…)` + `ToDoStart`
-                // (no `ToDoWait`). Route through the unified ToDo engine instead of the
-                // reactive executor. `TDMove` delay = 0 (`cract.cc:946-948` default), clamped
-                // to 1 for forward progress (`cract.cc:1016`). `ToDoAdd` preamble clears any
-                // pending armed action + snapback (`cract.cc:993-1000`). 1098 keeps the
-                // reactive `player_move_thing` path until Phase 2/3 unification.
+                // (the *handler* adds no `ToDoWait`; the `ToDoMove` builder itself always
+                // prepends `Wait{100}` — `cract.cc:1155,1165`, D1). Route through the
+                // unified ToDo engine instead of the reactive executor. `TDMove` delay = 0
+                // (`cract.cc:946-948` default), clamped to 1 for forward progress
+                // (`cract.cc:1016`). `ToDoAdd` preamble clears any pending armed action +
+                // snapback (`cract.cc:993-1000`). 1098 keeps the reactive
+                // `player_move_thing` path until Phase 2/3 unification.
                 if world.beat_driven_loop {
                     let obj = ActionObjectRef {
                         pos: payload.from_pos,
@@ -1067,9 +1069,11 @@ mod f8_s6_handler_routing_tests {
         assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
     }
 
-    /// `Throw` routes to `[Move]` (no `Wait` prefix — `CMoveObject` has no `ToDoWait`).
+    /// `Throw` routes to `[Wait{100}, Move]` — D1: `ToDoMove` itself always calls
+    /// `this->ToDoWait(100)` (`cract.cc:1155,1165`), even though the `CMoveObject`
+    /// handler adds no leading `ToDoWait`. Same queue shape as `Use`/`Turn`.
     #[test]
-    fn throw_routes_through_todo_builder_no_wait() {
+    fn throw_routes_through_todo_builder_with_wait_floor() {
         let mut world = beat_driven_test_world();
         let player_pos = Position::new(100, 100, 7);
         let item_pos = Position::new(101, 100, 7);
@@ -1091,8 +1095,16 @@ mod f8_s6_handler_routing_tests {
         );
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(base.todo.queue.len(), 1, "Move → single entry, no Wait prefix");
-        match base.todo.queue[0] {
+        assert_eq!(
+            base.todo.queue.len(),
+            2,
+            "Move → [Wait{{100}}, Move] (D1: ToDoMove prepends Wait{{100}})"
+        );
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }),
+            "front = Wait{{100}}"
+        );
+        match base.todo.queue[1] {
             CreatureAction::Move { dest: d, count, .. } => {
                 assert_eq!(d, dest);
                 assert_eq!(count, 1);

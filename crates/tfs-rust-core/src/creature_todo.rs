@@ -394,11 +394,17 @@ impl GameWorld {
     }
 
     /// F8 S2 — `ToDoMove` builder (`cract.cc:1123-1172`, `CMoveObject`
-    /// `receiving.cc:233`). Resolves the source object now, enqueues `Move` with
-    /// **no** `Wait` prefix (the decompile's `CMoveObject` handler calls
-    /// `ToDoMove` + `ToDoStart` directly — no `ToDoWait`). `dest` is the throw
-    /// destination (map/inventory/container encoded in `Position`), `count` is the
-    /// stack count. Maps to Rust `GamePacket::Throw` (not `MoveObject` — F8 §0.1 F5).
+    /// `receiving.cc:233`). Resolves the source object now, prepends
+    /// `Wait{100}` (`cract.cc:1155` `int Delay = 100;` → `this->ToDoWait(Delay)`
+    /// at `cract.cc:1165`), and enqueues `Move`. The `CMoveObject` handler itself
+    /// adds no leading `ToDoWait` — but `ToDoMove` **always** does, so the
+    /// resulting queue for an adjacent map item is `[Wait{100}, Move]`. The
+    /// creature-container branch (`Delay = 1000` + `BANK` dest check,
+    /// `cract.cc:1156-1163`) is not ported yet (D9 — creature push is out of
+    /// scope); when it lands, the delay must be selected per source kind.
+    /// `dest` is the throw destination (map/inventory/container encoded in
+    /// `Position`), `count` is the stack count. Maps to Rust `GamePacket::Throw`
+    /// (not `MoveObject` — F8 §0.1 F5).
     pub(crate) fn enqueue_player_move(
         &mut self,
         cid: CreatureId,
@@ -407,6 +413,12 @@ impl GameWorld {
         count: u8,
     ) -> Result<(), ReturnValue> {
         self.validate_move_object_ref(cid, obj)?;
+        // D1 — `ToDoMove` always calls `this->ToDoWait(Delay)` with `Delay = 100`
+        // for the non-creature-container path (`cract.cc:1155,1165`). Without this
+        // the throw executes on the next beat (~1 ms) instead of ~100 ms out, so
+        // items move faster than the reference and rapid move packets have no
+        // pacing. Creature-container push (Delay = 1000) is D9, not yet ported.
+        self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().todo.queue.push_back(CreatureAction::Move {
                 obj,
@@ -994,7 +1006,10 @@ mod tests {
     }
 
     #[test]
-    fn enqueue_player_move_enqueues_single_move_no_wait() {
+    fn enqueue_player_move_prepends_wait_then_move() {
+        // D1 — `ToDoMove` always calls `this->ToDoWait(100)` (`cract.cc:1155,1165`),
+        // so the builder queue is `[Wait{100}, Move]`, matching the reference's
+        // ~100 ms throw floor (not the next-beat ~1 ms execution the old code had).
         let mut world = beat_driven_test_world();
         let player_pos = Position::new(100, 100, 7);
         let item_pos = Position::new(101, 100, 7);
@@ -1007,8 +1022,12 @@ mod tests {
             .expect("gold on tile resolves");
 
         let todo = &world.creatures.get(cid).unwrap().base().todo;
-        assert_eq!(todo.queue.len(), 1, "Move → single entry, no Wait");
-        match todo.queue[0] {
+        assert_eq!(todo.queue.len(), 2, "Move → [Wait{{100}}, Move]");
+        assert!(
+            matches!(todo.queue[0], CreatureAction::Wait { delay_ms: 100 }),
+            "front = Wait{{100}}"
+        );
+        match todo.queue[1] {
             CreatureAction::Move {
                 obj: ref o,
                 dest: d,
@@ -1544,7 +1563,10 @@ mod tests {
     }
 
     /// S5: `Move` execute arm with a not-adjacent map tile → `Go`-prepend.
-    /// The queue becomes `[Go, Move]` and `walk_queue` is populated.
+    /// The queue becomes `[Go, Move]` and `walk_queue` is populated. D1 added a
+    /// `Wait{100}` prefix from the builder (`cract.cc:1165`), so the test drains
+    /// it first (one `execute_creature_todo_action` returning `Wait`) before the
+    /// `Move` arm runs the `Go`-prepend.
     #[test]
     fn s5_move_not_adjacent_prepends_go_and_re_enqueues_move() {
         let mut world = beat_driven_test_world();
@@ -1558,6 +1580,13 @@ mod tests {
         world
             .enqueue_player_move(cid, obj, dest, 1)
             .expect("gold on tile resolves");
+
+        // D1: drain the builder's `Wait{100}` floor first.
+        let drain_kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(drain_kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "builder Wait{{100}} drains first"
+        );
 
         // Execute the `Move` — should detect non-adjacency and Go-prepend.
         let kind = world.execute_creature_todo_action(cid);
