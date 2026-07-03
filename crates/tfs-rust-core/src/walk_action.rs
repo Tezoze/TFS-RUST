@@ -37,8 +37,14 @@ impl GameWorld {
     }
 
     /// TFS `Player::onWalkComplete` — schedule stored `walkTask` on the logical clock.
-    /// 772: `ToDoQueue` wakeup (`schedule_creature_wakeup`); 1098: `walk_action_due` poll.
+    /// **1098 only** — sets `walk_action_due` for `process_walk_action_tasks` to drain.
+    /// F8 S7: the 772 `schedule_creature_wakeup` path was removed because `walk_action` is
+    /// never set for 772 players after S6 (all player actions route through ToDo builders);
+    /// the old `try_run_player_walk_action_from_todo` hook that consumed it is gone.
     pub(crate) fn on_player_walk_complete(&mut self, cid: CreatureId) {
+        if self.beat_driven_loop {
+            return;
+        }
         let should_schedule = self
             .creatures
             .get(cid)
@@ -47,12 +53,7 @@ impl GameWorld {
             return;
         }
         let due = self.now_ms().saturating_add(WALK_ACTION_DELAY_MS);
-        if self.beat_driven_loop {
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                p.walk_action_due = Some(due);
-            }
-            self.schedule_creature_wakeup(cid, due);
-        } else if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.walk_action_due = Some(due);
         }
     }
@@ -80,26 +81,6 @@ impl GameWorld {
         for (cid, action) in due {
             self.run_player_walk_action(cid, action, now);
         }
-    }
-
-    /// 772 `ToDoQueue` drain hook — run deferred walk-action when its wakeup fires.
-    pub(crate) fn try_run_player_walk_action_from_todo(&mut self, cid: CreatureId, now: Instant) {
-        let (action, due_ok) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => {
-                let Some(due) = p.walk_action_due else {
-                    return;
-                };
-                let Some(action) = p.walk_action.clone() else {
-                    return;
-                };
-                (action, self.now_ms() >= due)
-            }
-            _ => return,
-        };
-        if !due_ok {
-            return;
-        }
-        self.run_player_walk_action(cid, action, now);
     }
 
     /// Reschedule a deferred walk-action while per-action timers are still active.

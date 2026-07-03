@@ -387,17 +387,10 @@ impl GameWorld {
             return;
         }
         let now = Instant::now();
-        if self.beat_driven_loop {
-            let had_walk_action = self.creatures.get(cid).is_some_and(|k| {
-                matches!(k, CreatureKind::Player(p) if p.walk_action.is_some())
-            });
-            if had_walk_action {
-                tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — try_run_player_walk_action (had_walk_action=true)");
-                self.try_run_player_walk_action_from_todo(cid, now);
-                self.cleanup();
-                return;
-            }
-        }
+        // F8 S7 — the `walk_action` deferral branch is removed. After S6, all 772
+        // player actions (Use/Move/Turn) route through ToDo builders at packet receipt;
+        // `walk_action` is never set for 772 players, so `try_run_player_walk_action_from_todo`
+        // was dead code. The 1098 walk-action path (`process_walk_action_tasks`) is unaffected.
         if self.creature_uses_todo_execute(cid) {
             tracing::debug!(
                 ?cid,

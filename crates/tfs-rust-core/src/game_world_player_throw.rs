@@ -21,9 +21,11 @@ impl GameWorld {
     /// Handle `parseThrow` — player moves a thing from one position to another.
     // C++ ref: src/game.cpp Game::playerMoveThing — signature mirrors the protocol call.
     ///
-    /// F8 S4 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
+    /// F8 S4/S7 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
     /// C++ `RESULT` catch (`cract.cc:870-889`). `Err(rv)` = hard failure; `Ok(())` =
-    /// success **or** walk-to-reach deferral (transitional — S5 folds into `Go`-prepend).
+    /// success **or** walk-to-reach deferral (1098 reactive path — `try_walk_to_and_action`
+    /// sets `walk_action` and returns; the 772 ToDo path uses `Go`-prepend via
+    /// `execute_player_move` instead).
     #[allow(clippy::too_many_arguments)]
     pub fn player_move_thing(
         &mut self,

@@ -5,7 +5,7 @@
 **Decompile ref tree:** `reference/cipsoft-772/tibia-game-master/src/` — `receiving.cc`,
 `cract.cc`, `cr.hh`. **(772 mechanics = `tibia-game-master/src/`; do not cite `gameserver/src/`
 or repo-root `src/` for this ToDo model.)**
-**Status:** 🟡 S0–S6 DONE — S7–S8 pending.
+**Status:** ✅ S0–S8 DONE.
 **S0 decision (recorded):** Narrow scope. In-scope executors: `Use`/`UseItemEx` (reroute),
 `Throw`/`Move` (reroute), `RotateItem`/`CTurnObject` (build + route). **Out of scope, forked to
 their own sub-plans:** `UseOnCreature`/`CUseOnCreature` (§0.1 F3 — build-from-scratch), player
@@ -408,9 +408,37 @@ reactive path alive behind the existing gate until its ToDo replacement is verif
       enqueue; `LookAt` stays reactive (regression). `cargo check` + `clippy --all-targets`
       (only the pre-existing `game_world_player_throw.rs:195` `?`-rewrite warning remains) +
       557 tests pass.
-- [ ] **S7 — Delete dead reactive paths + mitigations** that the ToDo path now covers. `grep`
-      confirms no inline executor calls for the rerouted opcodes in `handle_game_packet`.
-- [ ] **S8 — Tests** (see §8) + update `tasks/lessons.md`.
+- [x] **S7 — Delete dead reactive paths + mitigations.** DONE. After S6, all 772 player
+      actions (Use/Move/Turn) route through ToDo builders at packet receipt; `walk_action`
+      is never set for 772 players. Removed three dead pieces: **(1)** the `had_walk_action`
+      branch in `process_creature_todo` (walk/mod.rs:390-400) — checked `p.walk_action.is_some()`
+      and dispatched to `try_run_player_walk_action_from_todo`; always false for 772.
+      **(2)** `try_run_player_walk_action_from_todo` (walk_action.rs:86-103) — the 772 ToDo
+      drain hook; only caller was the dead branch. **(3)** the 772 `schedule_creature_wakeup`
+      path in `on_player_walk_complete` (walk_action.rs:50-54) — even if `walk_action` were
+      set (tests only), scheduling a wakeup with no `walk_action` handler would leave the
+      action stuck. Simplified `on_player_walk_complete` to early-return when
+      `beat_driven_loop` (1098 path unchanged). Updated "transitional — S5 folds" comments
+      on `player_use_item`/`player_use_item_ex`/`player_move_thing` to "1098 reactive path"
+      (the deferral is permanent 1098 behavior, not transitional). grep-verified: the 772
+      (`if beat_driven_loop`) branches in `handle_game_packet` for `UseItem`/`UseItemEx`/
+      `Throw`/`RotateItem` call only builders + `todo_start_from_action` — no inline
+      executor calls. The 1098 `else` branches still call the reactive executors (intentional
+      — 1098 keeps the reactive path until Phase 2/3). What stays for 1098: `walk_action`/
+      `walk_action_due` fields, `process_walk_action_tasks`, `on_player_walk_complete` (1098
+      branch), `defer_player_walk_action`, `try_walk_to_and_action`, `run_player_walk_action`,
+      `set_next_walk_action_task`, `clear_player_walk_action`. `cargo check` + `clippy
+      --all-targets` (no new warnings) + 559 tests pass.
+- [x] **S8 — Tests + lessons.** DONE. Added 2 new tests in `idle_stimulus_tests.rs`:
+      `test_f8_s7_on_walk_complete_noop_for_beat_driven` (clears stale `walk_action_due`,
+      plants `walk_action`, calls `on_player_walk_complete`, asserts no `walk_action_due`
+      set + no wakeup armed for 772); `test_f8_s7_process_creature_todo_ignores_walk_action_for_beat_driven`
+      (plants `walk_action`, arms wakeup, calls `process_creature_todo`, asserts
+      `walk_action` is NOT consumed — the old `try_run_player_walk_action_from_todo` path
+      would have cleared it). Updated `tasks/lessons.md` with lesson #110 (F8 S7 dead code
+      removal). §8 test list fully covered by S2–S6 tests (builder shapes, builder failure,
+      gate, execute, catch path, walk-to-reach, LookAt regression). `cargo check` +
+      `clippy --all-targets` + 559 tests pass.
 
 ## 7. Risks & parity notes
 

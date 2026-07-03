@@ -501,10 +501,11 @@ impl GameWorld {
 
     /// `Game::playerUseItem` — open container when item is a bag (`actions.cpp` container branch).
     ///
-    /// F8 S4 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
+    /// F8 S4/S7 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
     /// C++ `RESULT` catch (`cract.cc:870-889`). `Err(rv)` = hard failure (the reactive
     /// caller wraps with `send_cancel_message`); `Ok(())` = success **or** walk-to-reach
-    /// deferral (transitional — S5 folds the deferral into `Go`-prepend).
+    /// deferral (1098 reactive path — `try_walk_to_and_action` sets `walk_action` and
+    /// returns; the 772 ToDo path uses `Go`-prepend via `execute_player_use` instead).
     pub fn player_use_item(
         &mut self,
         conn_id: ConnId,
@@ -585,9 +586,10 @@ impl GameWorld {
 
     /// Use-with: if the source item is a container, open it (minimal parity until full use-with).
     ///
-    /// F8 S4 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
+    /// F8 S4/S7 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
     /// C++ `RESULT` catch. On two-object success, multiuse exhaustion is set inside this
-    /// function via `player_apply_multiuse_exhaust` (`cract.cc:765`).
+    /// function via `player_apply_multiuse_exhaust` (`cract.cc:765`). `Ok(())` = success
+    /// **or** walk-to-reach deferral (1098 reactive path only; 772 uses `Go`-prepend).
     pub fn player_use_item_ex(
         &mut self,
         conn_id: ConnId,

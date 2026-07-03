@@ -4664,6 +4664,67 @@
         }
     }
 
+    // ===== F8 S7: walk_action deferral branch removed for 772 =====
+
+    /// F8 S7 — `on_player_walk_complete` is a no-op for 772 even when `walk_action` is set.
+    /// After S6, all 772 player actions route through ToDo builders; `walk_action` is never
+    /// set in production. The old 772 path scheduled a `schedule_creature_wakeup` that fired
+    /// `process_creature_todo` → `try_run_player_walk_action_from_todo` (now removed). This
+    /// test confirms the no-op: even with a planted `walk_action`, no `walk_action_due` is
+    /// set and no wakeup is armed.
+    #[test]
+    fn test_f8_s7_on_walk_complete_noop_for_beat_driven() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        plant_stale_walk_action(&mut world, player);
+        // Clear the stale `walk_action_due` planted by the helper so we can verify
+        // `on_player_walk_complete` doesn't re-set it.
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.walk_action_due = None;
+        }
+        assert!(player_walk_action(&world, player).is_some());
+        assert!(player_walk_action_due(&world, player).is_none());
+
+        world.on_player_walk_complete(player);
+
+        // `walk_action_due` must NOT be set — the 772 scheduling path is removed.
+        assert!(
+            player_walk_action_due(&world, player).is_none(),
+            "on_player_walk_complete must not schedule walk_action_due for 772 (S7)"
+        );
+        // No wakeup armed.
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(
+            base.next_wakeup.is_none(),
+            "on_player_walk_complete must not arm a wakeup for 772 (S7)"
+        );
+    }
+
+    /// F8 S7 — `process_creature_todo` no longer dispatches via `walk_action` for 772.
+    /// Before S7, a planted `walk_action` would cause `process_creature_todo` to call
+    /// `try_run_player_walk_action_from_todo` → `run_player_walk_action` → reactive
+    /// executor. After S7, the `had_walk_action` branch is removed; `process_creature_todo`
+    /// falls through to the ToDo execute path. With an empty ToDo queue + planted
+    /// `walk_action`, the drain runs idle stimulus (not the walk-action), and the
+    /// `walk_action` is left untouched (not consumed).
+    #[test]
+    fn test_f8_s7_process_creature_todo_ignores_walk_action_for_beat_driven() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        plant_stale_walk_action(&mut world, player);
+        assert!(player_walk_action(&world, player).is_some());
+
+        // Arm a wakeup so `process_creature_todo` doesn't early-return on `had_wakeup.is_none()`.
+        world.schedule_creature_wakeup(player, 0);
+        world.process_creature_todo(player);
+
+        // The walk_action must still be set — `process_creature_todo` did NOT consume it
+        // (the old `try_run_player_walk_action_from_todo` path would have cleared it via
+        // `clear_player_walk_action` inside `run_player_walk_action`).
+        assert!(
+            player_walk_action(&world, player).is_some(),
+            "process_creature_todo must not consume walk_action for 772 (S7 — had_walk_action branch removed)"
+        );
+    }
+
     // ===== Audit #6: on_walk gate uses earliest_walk_server_ms (single source of truth) =====
 
     /// Audit #6: the `on_walk` cooldown gate on the beat path must derive from
