@@ -357,3 +357,19 @@ and LOW #7 (dual creature-list desync).
       clippy clean on changed files.
 - [x] **Lessons:** appended #98 to `tasks/lessons.md`.
 - [x] **Docs:** marked Phase 2 ✅ in `docs/MAP_SYSTEM_AUDIT.md` summary table + Phase 2 header.
+
+## F8 D3 — `Turn` walk-to-reach (decompile parity audit) — done
+- [x] `idle_stimulus.rs` `CreatureAction::Turn` execute arm: mirror the S5 `Go`-prepend
+      pattern from the `Move` arm — if `obj.pos.x != 0xFFFF` and `dx>1 || dy>1`,
+      `setup_player_walk_to_target` + push `[Go, Turn]` + `todo_start_go_delay`/schedule;
+      on `Err(rv)` apply `apply_todo_result_catch`. C++ ref: `cract.cc:1340-1341`
+      `ObjectInRange(1)` → `ToDoGo(...)`.
+- [x] Update `enqueue_player_turn` doc comment to note walk-to-reach is in the execute arm
+      (same shape as `Use`/`Move`).
+- [x] Tests: `s5_turn_not_adjacent_prepends_go_and_re_enqueues_turn`,
+      `s5_turn_adjacent_does_not_go_prepend`,
+      `s5_turn_no_path_to_target_applies_result_catch`.
+- [x] Mark D3 Fixed in `tasks/f8-decompile-parity-audit.md`.
+- [x] `cargo check`/`clippy`/`test -p tfs-rust-core --lib` → 533 passed, 2 ignored
+      (was 530); clippy clean on changed files (1 pre-existing warning in
+      `game_world_player_throw.rs:197`, unrelated).

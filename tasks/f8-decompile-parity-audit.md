@@ -26,7 +26,7 @@ fine **if** the outcome matches. The findings flag where the outcome actually di
 |---|---------|-------------|----------|------------------|--------|
 | D1 | `Move` never enqueues the builder's `ToDoWait(Delay)` (100 ms floor) | `enqueue_player_move` | **High** | Yes — move executes ~100 ms too early | **Fixed** — builder now prepends `Wait{100}` (`cract.cc:1155,1165`); tests + `game_loop.rs` comment updated |
 | D2 | No `UPSTAIRS`/`DOWNSTAIRS` throw for cross-floor map objects | all three | **High** | Yes — wrong `ReturnValue` + no early reject | Open |
-| D3 | `Turn` has no walk-to-reach; fails instead of walking | `enqueue_player_turn` + Turn execute arm | **High** | Yes — distant rotate fails | Open |
+| D3 | `Turn` has no walk-to-reach; fails instead of walking | `enqueue_player_turn` + Turn execute arm | **High** | Yes — distant rotate fails | **Fixed** — `Turn` execute arm (`idle_stimulus.rs`) now mirrors the S5 `Go`-prepend: not-adjacent map tile → `setup_player_walk_to_target` + `[Go, Turn]`; no-path → `apply_todo_result_catch` (`cract.cc:1340-1341`); tests + builder doc comment updated |
 | D4 | Single-object `Use` C++ path enqueues **two** `Wait{100}` (handler + builder); Rust enqueues one | `enqueue_player_use` | Medium | Yes (verify) — ~100 ms vs ~200 ms floor | Open |
 | D5 | Walk-to-reach moved from builder to execute arm changes the `NOWAY` snapback/clear timing | `Use`/`Move` | Medium | Possibly — snapback path differs | Open |
 | D6 | Range gate uses `look_distance_tfs` (+15 for Δz) not `ObjectInRange(1)` (strict same-z) | all three | Medium | Only on Δz (folds into D2) | Open |
@@ -303,7 +303,7 @@ Ordered by severity. Each item cites the C++ anchor to preserve in a module-head
 - [x] **D1 — add the `Move` builder `Wait`.** In `enqueue_player_move`, prepend
   `enqueue_creature_wait(cid, 100)` before pushing `Move` (`cract.cc:1160`,
   `ToDoWait(Delay)` with `Delay=100`). Update the (incorrect) doc comment and F8 §0.1 F5 note.
-- [ ] **D3 — give `Turn` walk-to-reach.** Mirror the `Use`/`Move` S5 `Go`-prepend in the
+- [x] **D3 — give `Turn` walk-to-reach.** Mirror the `Use`/`Move` S5 `Go`-prepend in the
   `CreatureAction::Turn` execute arm (`idle_stimulus.rs`): if `obj.pos` is a map tile and
   `dx>1 || dy>1`, `setup_player_walk_to_target` + push `[Go, Turn]` instead of calling
   `player_rotate_item` immediately (`cract.cc:1338-1339` `ToDoGo`).

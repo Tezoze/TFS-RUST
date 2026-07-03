@@ -435,6 +435,12 @@ impl GameWorld {
     /// `CRotate` (player facing, `receiving.cc:213`, already immediate). Resolves
     /// the object now, prepends `Wait{100}` (`receiving.cc:549`), enqueues `Turn`.
     /// The executor is new code (S4 — nothing exists to reuse, F8 §0.1 F2).
+    ///
+    /// F8 D3 — the C++ builder's `ObjectInRange(1)` → `ToDoGo(...)` walk-to-reach
+    /// (`cract.cc:1340-1341`) is **not** enqueued here; it is deferred to the
+    /// `Turn` execute arm in `idle_stimulus.rs` (S5 `Go`-prepend pattern, same
+    /// shape as `Use`/`Move`). The Δz `UPSTAIRS`/`DOWNSTAIRS` throw
+    /// (`cract.cc:1334-1338`) is D2/D6, not yet ported.
     pub(crate) fn enqueue_player_turn(
         &mut self,
         cid: CreatureId,
@@ -1692,6 +1698,144 @@ mod tests {
         assert!(
             matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 500 }),
             "ToDo queue not cleared by setup_player_walk_to_target"
+        );
+    }
+
+    /// S5/D3: `Turn` execute arm with a not-adjacent map tile → `Go`-prepend.
+    /// The queue becomes `[Go, Turn]` and `walk_queue` is populated. The builder
+    /// prepends `Wait{100}` (`cract.cc:1345`), so the test drains it first (one
+    /// `execute_creature_todo_action` returning `Wait`) before the `Turn` arm runs
+    /// the `Go`-prepend — same shape as `s5_move_not_adjacent_prepends_go_and_re_enqueues_move`.
+    /// C++ ref: `cract.cc:1340-1341` `ObjectInRange(1)` → `ToDoGo(...)`.
+    #[test]
+    fn s5_turn_not_adjacent_prepends_go_and_re_enqueues_turn() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(105, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
+
+        world
+            .enqueue_player_turn(cid, obj)
+            .expect("rotatable on tile resolves");
+
+        // Drain the builder's `Wait{100}` floor first (`cract.cc:1345`).
+        let drain_kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(drain_kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "builder Wait{{100}} drains first"
+        );
+
+        // Execute the `Turn` — should detect non-adjacency and Go-prepend.
+        let kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
+            "not-adjacent Turn → Deferred (Go-prepend)"
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(
+            base.todo.queue.len(),
+            2,
+            "queue → [Go, Turn]"
+        );
+        assert!(matches!(base.todo.queue[0], CreatureAction::Go), "front = Go");
+        assert!(
+            matches!(base.todo.queue[1], CreatureAction::Turn { .. }),
+            "second = Turn"
+        );
+        assert!(
+            !base.walk_queue.is_empty(),
+            "walk_queue populated for walk-to-reach"
+        );
+    }
+
+    /// S5/D3: `Turn` execute arm with an adjacent map tile → no `Go`-prepend.
+    /// Dispatches to `player_rotate_item` directly; the rotatable item transforms
+    /// to `rotate_to` (mirrors `s5_use_adjacent_does_not_go_prepend`).
+    #[test]
+    fn s5_turn_adjacent_does_not_go_prepend() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
+
+        let item_id = world
+            .resolve_rotate_item_id(cid, obj)
+            .expect("rotatable item resolves");
+
+        world
+            .enqueue_player_turn(cid, obj)
+            .expect("rotatable on tile resolves");
+        // Drain the `Wait{100}`.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front();
+        }
+
+        let kind = world.execute_creature_todo_action(cid);
+        // Adjacent → dispatches to `player_rotate_item` → Ok. Kind = Wait.
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "adjacent Turn → Wait (no Go-prepend)"
+        );
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(
+            base.todo.queue.is_empty(),
+            "queue drained after adjacent Turn execute"
+        );
+        assert!(
+            base.walk_queue.is_empty(),
+            "no walk_queue for adjacent Turn"
+        );
+        // Verify the rotate actually fired (item transformed to `rotate_to`).
+        assert_eq!(
+            world.items.get(item_id).unwrap().item_type,
+            5002,
+            "adjacent Turn rotated the item"
+        );
+    }
+
+    /// S5/D3: `Turn` execute arm with no path to target → `Err(ThereIsNoWay)` →
+    /// RESULT catch. The catch clears the queue and enqueues `Wait{0}` (ToDoYield).
+    /// Mirrors `s5_use_no_path_to_target_applies_result_catch`.
+    #[test]
+    fn s5_turn_no_path_to_target_applies_result_catch() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        // Rotatable on an isolated tile — no walkable path from player.
+        let item_pos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, item_pos, TEST_SYNTHETIC_GROUND_WP);
+        // No corridor between (100,100) and (105,100) — tiles 101-104 are missing.
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
+
+        world
+            .enqueue_player_turn(cid, obj)
+            .expect("rotatable on tile resolves");
+        // Drain the `Wait{100}`.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front();
+        }
+
+        let kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "no-path Turn → Wait (RESULT catch applied)"
+        );
+        let base = world.creatures.get(cid).unwrap().base();
+        // RESULT catch: ToDoClear + ToDoYield (Wait{0}).
+        assert_eq!(
+            base.todo.queue.len(),
+            1,
+            "RESULT catch → [Wait{{0}}] (ToDoYield)"
+        );
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 0 }),
+            "yield enqueued Wait{{0}}"
         );
     }
 }

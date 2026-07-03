@@ -2541,16 +2541,57 @@ impl GameWorld {
             }
             CreatureAction::Turn { obj } => {
                 // F8 S4 — `TDTurn` execute (`cract.cc:838-841`). C++ `CalculateDelay`
-                // `default` case: delay 0 (`cract.cc:946-948`); no gate. Dispatch to the
-                // new `player_rotate_item` executor (F8 §0.1 F2 — nothing existed to
-                // reuse). On `Err(rv)` apply the `RESULT` catch.
-                trace_creature_todo(self, cid, "execute_turn");
-                let result = self.player_rotate_item(cid, obj);
-                if let Err(rv) = result {
-                    self.apply_todo_result_catch(cid, rv);
+                // `default` case: delay 0 (`cract.cc:946-948`); no gate.
+                //
+                // F8 D3 — walk-to-reach via `Go`-prepend (C++ `ToDoTurn` `cract.cc:1340-1341`:
+                // `if(!ObjectInRange(this->ID, Obj, 1)) this->ToDoGo(ObjX, ObjY, ObjZ, false,
+                // INT_MAX)`). For map-tile sources, if the player isn't within 1 tile,
+                // prepend `Go` + re-enqueue `Turn` + `ToDoStart` — same shape as the `Use`/
+                // `Move` S5 arms. The reach predicate uses the same-z Chebyshev `dx>1 ||
+                // dy>1` form as the `Move` arm (matches `ObjectInRange(1)` for same-z; the
+                // Δz case is D2/D6, handled separately). On `Err(rv)` from
+                // `setup_player_walk_to_target` apply the C++ `RESULT` catch
+                // (`cract.cc:870-889`).
+                let needs_walk = obj.pos.x != 0xFFFF
+                    && self.creatures.get(cid).is_some_and(|k| {
+                        let pp = k.position();
+                        let dx = (pp.x as i32 - obj.pos.x as i32).unsigned_abs();
+                        let dy = (pp.y as i32 - obj.pos.y as i32).unsigned_abs();
+                        dx > 1 || dy > 1
+                    });
+                if needs_walk {
+                    let now = Instant::now();
+                    match self.setup_player_walk_to_target(cid, obj.pos, now) {
+                        Ok(()) => {
+                            // `push_front(Turn)` then `push_front(Go)` → `[Go, Turn, ...]`
+                            // (C++ `ToDoGo(dest)` + re-enqueue `ToDoTurn`, `cract.cc:1341`).
+                            if let Some(k) = self.creatures.get_mut(cid) {
+                                k.base_mut().todo.queue.push_front(CreatureAction::Turn { obj });
+                                k.base_mut().todo.queue.push_front(CreatureAction::Go);
+                            }
+                            if self.todo_start_go_delay(cid, true) {
+                                self.schedule_immediate_todo_wakeup(cid);
+                            }
+                            trace_creature_todo(self, cid, "execute_turn_walk_to_reach");
+                            TodoExecuteKind::Deferred
+                        }
+                        Err(rv) => {
+                            self.apply_todo_result_catch(cid, rv);
+                            TodoExecuteKind::Wait
+                        }
+                    }
+                } else {
+                    // Adjacent (or inventory/container source) — dispatch to the
+                    // `player_rotate_item` executor (F8 §0.1 F2 — nothing existed to
+                    // reuse). On `Err(rv)` apply the `RESULT` catch.
+                    trace_creature_todo(self, cid, "execute_turn");
+                    let result = self.player_rotate_item(cid, obj);
+                    if let Err(rv) = result {
+                        self.apply_todo_result_catch(cid, rv);
+                    }
+                    trace_creature_todo(self, cid, "execute_turn_done");
+                    TodoExecuteKind::Wait
                 }
-                trace_creature_todo(self, cid, "execute_turn_done");
-                TodoExecuteKind::Wait
             }
         };
 
