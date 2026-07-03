@@ -266,10 +266,33 @@ pub async fn login_player(
     );
 
     // GAME THREAD ONLY
-    world.player_by_name.insert(key, cid);
+    world.player_by_name.insert(key.clone(), cid);
     world.player_by_guid.insert(guid, cid);
-    world.map.register_creature_at(pos, cid);
-    world.monster_notify_creature_enter_viewport(cid, pos);
+
+    // C++ `Game::placeCreature` login flow — try saved position, then town temple fallback.
+    // TFS 1.4.2: `src/protocolgame.cpp:258-263`. 772 decompile: `cract.cc:314-332` `SetOnMap`.
+    let town_id = world
+        .creatures
+        .get(cid)
+        .map(|k| match k {
+            CreatureKind::Player(p) => p.town_id,
+            _ => 0,
+        })
+        .unwrap_or(0);
+    let placed_pos = match world.place_player_on_login(cid, pos, town_id) {
+        Some(p) => p,
+        None => {
+            // Both login and temple positions unplaceable — disconnect, don't crash.
+            // C++: `disconnectClient("Temple position is wrong. Contact the administrator.")`.
+            world.creatures.remove(cid);
+            world.player_by_name.remove(&key);
+            world.player_by_guid.remove(&guid);
+            return Err(TfsRustError::Database(format!(
+                "could not place player `{name}` at login position {pos:?} or town {town_id} temple"
+            )));
+        }
+    };
+    world.monster_notify_creature_enter_viewport(cid, placed_pos);
 
     let guild_opt = world.creatures.get(cid).and_then(|k| match k {
         CreatureKind::Player(p) => p.social.guild_id,

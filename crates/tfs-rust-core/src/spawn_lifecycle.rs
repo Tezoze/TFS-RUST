@@ -560,6 +560,59 @@ impl GameWorld {
         }
     }
 
+    /// Place a player on login — C++ `Game::placeCreature` login flow.
+    ///
+    /// TFS 1.4.2 (`src/protocolgame.cpp:258-263`): try `placeCreature(loginPos)` → if fail,
+    /// `placeCreature(templePos, force=true)` → if fail, disconnect.
+    /// 772 decompile (`cract.cc:314-332` `TCreature::SetOnMap`): `SearchLoginField` at saved
+    /// pos → fall back to `startx/starty/startz` (hometown temple).
+    ///
+    /// Returns the actual placement position, or `None` if both login and temple positions
+    /// are unplaceable (caller should disconnect the client, not crash).
+    pub(crate) fn place_player_on_login(
+        &mut self,
+        cid: CreatureId,
+        login_pos: Position,
+        town_id: i32,
+    ) -> Option<Position> {
+        // 1. Try the saved login position (with neighbor search like `Map::placeCreature`).
+        if self.find_and_place_creature_tfs(cid, login_pos, false, false, 0) {
+            return self.creatures.get(cid).map(|k| k.position());
+        }
+
+        // 2. Fall back to the town temple position (forced — `FLAG_IGNOREBLOCKITEM`).
+        let temple_pos = self
+            .map
+            .towns
+            .get(&(town_id as u32))
+            .map(|t| t.temple_position);
+
+        if let Some(temple) = temple_pos {
+            tracing::warn!(
+                ?login_pos,
+                temple = ?temple,
+                town_id,
+                "login position unplaceable — falling back to town temple"
+            );
+            if self.find_and_place_creature_tfs(cid, temple, false, true, 0) {
+                return self.creatures.get(cid).map(|k| k.position());
+            }
+            tracing::error!(
+                ?temple,
+                town_id,
+                "town temple position also unplaceable — player will be disconnected"
+            );
+        } else {
+            tracing::error!(
+                town_id,
+                ?login_pos,
+                "login position unplaceable and town_id has no temple — player will be disconnected"
+            );
+        }
+
+        None
+    }
+
     /// Whether `conn` received a full `AddCreature` block for `wire_id`.
     pub(crate) fn is_creature_fully_sent_to_conn(&self, conn: ConnId, wire_id: u32) -> bool {
         self.creature_fully_sent_by_conn
