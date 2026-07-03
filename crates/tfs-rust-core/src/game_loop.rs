@@ -21,6 +21,7 @@ use tfs_rust_common::{GameCommand, GamePacket};
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{error, info, trace, warn};
 
+use crate::creature_todo::ActionObjectRef;
 use crate::game_world::GameWorld;
 use crate::stability::ErrorCategory;
 use tfs_rust_db::player::PlayerStore;
@@ -152,6 +153,11 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::SeekInContainer { .. }
             | GamePacket::UseItem(_)
             | GamePacket::UseItemEx(_)
+            // F8 S6 — `Throw`/`RotateItem` now route through the ToDo engine (Wait{100} +
+            // CalculateDelay gate), so the `player_packet_action_ready` receipt-time gate is
+            // redundant and would drop packets the ToDo engine would correctly queue.
+            | GamePacket::Throw(_)
+            | GamePacket::RotateItem { .. }
             | GamePacket::BugReport(_)
             | GamePacket::ThankYou
             | GamePacket::DebugAssert { .. }
@@ -401,7 +407,27 @@ fn handle_game_packet(
         }
         GamePacket::Throw(payload) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-                if let Err(rv) = world.player_move_thing(
+                // F8 S6 — 772 `CMoveObject` (`receiving.cc:233`): `ToDoMove(…)` + `ToDoStart`
+                // (no `ToDoWait`). Route through the unified ToDo engine instead of the
+                // reactive executor. `TDMove` delay = 0 (`cract.cc:946-948` default), clamped
+                // to 1 for forward progress (`cract.cc:1016`). `ToDoAdd` preamble clears any
+                // pending armed action + snapback (`cract.cc:993-1000`). 1098 keeps the
+                // reactive `player_move_thing` path until Phase 2/3 unification.
+                if world.beat_driven_loop {
+                    let obj = ActionObjectRef {
+                        pos: payload.from_pos,
+                        stack_pos: payload.from_stack_pos,
+                        sprite_id: payload.sprite_id,
+                    };
+                    world.player_todo_clear_with_snapback(conn_id, cid);
+                    if let Err(rv) =
+                        world.enqueue_player_move(cid, obj, payload.to_pos, payload.count)
+                    {
+                        world.send_cancel_message(conn_id, rv);
+                    } else {
+                        world.todo_start_from_action(cid, 1);
+                    }
+                } else if let Err(rv) = world.player_move_thing(
                     conn_id,
                     cid,
                     payload.from_pos,
@@ -416,16 +442,89 @@ fn handle_game_packet(
             }
         }
         GamePacket::UseItem(payload) => {
-            if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
-                if let Err(rv) = world.player_use_item(conn_id, creature_id, payload, now) {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                // F8 S6 — 772 `CUseObject` (`receiving.cc:384`): `ToDoWait(100)` + `ToDoUse(1,…)`
+                // + `ToDoStart`. Route through the unified ToDo engine; the `Wait{100}` entry
+                // drives the 100ms floor and the execute arm applies the multiuse gate (S3,
+                // single-object use is ungated). `ToDoAdd` preamble clears any pending armed
+                // action + snapback (`cract.cc:993-1000`). 1098 keeps the reactive
+                // `player_use_item` path until Phase 2/3 unification.
+                if world.beat_driven_loop {
+                    let obj = ActionObjectRef {
+                        pos: payload.pos,
+                        stack_pos: payload.stack_pos,
+                        sprite_id: payload.sprite_id,
+                    };
+                    world.player_todo_clear_with_snapback(conn_id, cid);
+                    if let Err(rv) = world.enqueue_player_use(cid, obj, None, payload.index) {
+                        world.send_cancel_message(conn_id, rv);
+                    } else {
+                        world.todo_start_from_action(cid, 1);
+                    }
+                } else if let Err(rv) = world.player_use_item(conn_id, cid, payload, now) {
                     world.send_cancel_message(conn_id, rv);
                 }
             }
         }
         GamePacket::UseItemEx(payload) => {
-            if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
-                if let Err(rv) = world.player_use_item_ex(conn_id, creature_id, payload, now) {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                // F8 S6 — 772 `CUseTwoObjects` (`receiving.cc:430`): `ToDoWait(100)` +
+                // `ToDoUse(2,…)` + `ToDoStart`. Same ToDo routing as `UseItem`; the execute
+                // arm gates two-object use on `EarliestMultiuseTime` (S3). `open_index` = 0
+                // (`UseItemEx` has no index byte). 1098 keeps the reactive path.
+                if world.beat_driven_loop {
+                    let obj1 = ActionObjectRef {
+                        pos: payload.from_pos,
+                        stack_pos: payload.from_stack_pos,
+                        sprite_id: payload.from_sprite_id,
+                    };
+                    let obj2 = ActionObjectRef {
+                        pos: payload.to_pos,
+                        stack_pos: payload.to_stack_pos,
+                        sprite_id: payload.to_sprite_id,
+                    };
+                    world.player_todo_clear_with_snapback(conn_id, cid);
+                    if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {
+                        world.send_cancel_message(conn_id, rv);
+                    } else {
+                        world.todo_start_from_action(cid, 1);
+                    }
+                } else if let Err(rv) = world.player_use_item_ex(conn_id, cid, payload, now) {
                     world.send_cancel_message(conn_id, rv);
+                }
+            }
+        }
+        // F8 S6 — 772 `CTurnObject` (`receiving.cc:549`): `ToDoWait(100)` + `ToDoTurn(…)` +
+        // `ToDoStart`. Rotates a rotatable *item* (wall torch/rope) — **not** `CRotate` (player
+        // facing, `receiving.cc:213`, already immediate via `GamePacket::Turn`). This arm is
+        // new in S6: `RotateItem` previously fell through to the catch-all `_ => trace!`
+        // (§0.1 F2). The executor (`player_rotate_item`) was built in S4. 1098 has no
+        // reactive executor either — deferred to Phase 2/3.
+        GamePacket::RotateItem {
+            pos,
+            sprite_id,
+            stack_pos,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                if world.beat_driven_loop {
+                    let obj = ActionObjectRef {
+                        pos,
+                        stack_pos,
+                        sprite_id,
+                    };
+                    world.player_todo_clear_with_snapback(conn_id, cid);
+                    if let Err(rv) = world.enqueue_player_turn(cid, obj) {
+                        world.send_cancel_message(conn_id, rv);
+                    } else {
+                        // `TDTurn` delay = 0 (`cract.cc:946-948` default); the `Wait{100}`
+                        // prefix drives the 100ms floor. Clamp to 1 for forward progress.
+                        world.todo_start_from_action(cid, 1);
+                    }
+                } else {
+                    trace!(
+                        conn_id = conn_id.0,
+                        "RotateItem — 1098 reactive path deferred to Phase 2"
+                    );
                 }
             }
         }
@@ -779,6 +878,27 @@ mod timed_action_gate_tests {
         )));
     }
 
+    /// F8 S6 — `Throw`/`RotateItem` now route through the ToDo engine (Wait{100} +
+    /// CalculateDelay gate), so the receipt-time `player_packet_action_ready` gate is
+    /// redundant and must not drop them. Mirrors `use_item_defers_to_handler_not_game_loop_gate`.
+    #[test]
+    fn throw_and_rotate_item_defer_to_handler_not_game_loop_gate() {
+        assert!(!game_packet_requires_timed_action(&GamePacket::Throw(
+            tfs_rust_common::game_packet::ThrowPayload {
+                from_pos: tfs_rust_common::Position::new(0, 0, 7),
+                sprite_id: 100,
+                from_stack_pos: 0,
+                to_pos: tfs_rust_common::Position::new(1, 0, 7),
+                count: 1,
+            }
+        )));
+        assert!(!game_packet_requires_timed_action(&GamePacket::RotateItem {
+            pos: tfs_rust_common::Position::new(0, 0, 7),
+            sprite_id: 100,
+            stack_pos: 0,
+        }));
+    }
+
     #[test]
     fn movement_packets_flush_immediately_on_1098() {
         assert!(needs_immediate_flush(
@@ -799,5 +919,291 @@ mod timed_action_gate_tests {
         world.mechanics.profile.step_speed = StepSpeedModel::LinearGo;
         world.beat_driven_loop = world.mechanics.profile.step_speed == StepSpeedModel::LinearGo;
         assert!(world.beat_driven_loop);
+    }
+}
+
+/// F8 S6 — handler routing tests.
+///
+/// Verifies `handle_game_packet` routes `UseItem`/`UseItemEx`/`Throw`/`RotateItem` through
+/// the ToDo builders (`enqueue_player_use`/`enqueue_player_move`/`enqueue_player_turn`) +
+/// `todo_start_from_action` when `beat_driven_loop`, instead of the reactive executors.
+/// C++ ref: `receiving.cc:384/430/233/549` (`CUseObject`/`CUseTwoObjects`/`CMoveObject`/
+/// `CTurnObject`) → `ToDo*` builder + `ToDoStart` (`cract.cc:955-1024`).
+#[cfg(test)]
+mod f8_s6_handler_routing_tests {
+    use std::collections::VecDeque;
+
+    use tokio::sync::mpsc;
+
+    use tfs_rust_common::{ConnId, GameCommand, GamePacket, Position};
+
+    use crate::creature::{CreatureKind, Player};
+    use crate::creature_todo::{ActionObjectRef, CreatureAction};
+    use crate::item::Item;
+    use crate::test_world::support::{
+        beat_driven_test_world, ensure_walkable_tile, test_player, TEST_SYNTHETIC_GROUND_WP,
+    };
+
+    use super::{handle_game_packet, FlushPolicy};
+
+    /// Place a bag (container, client_id=0 in the test items_db) on a tile and return its
+    /// `ActionObjectRef`. Mirrors `creature_todo` tests' `place_bag_on_tile`.
+    fn place_bag_on_tile(world: &mut crate::game_world::GameWorld, pos: Position) -> ActionObjectRef {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let item_id = world.items.insert(Item::new_single(1987));
+        world
+            .map
+            .get_tile_mut(pos)
+            .expect("tile just inserted")
+            .add_item(item_id);
+        ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 0,
+        }
+    }
+
+    /// Place a gold (pickupable + moveable) item on a tile for the Move/Throw test.
+    fn place_gold_on_tile(world: &mut crate::game_world::GameWorld, pos: Position) -> ActionObjectRef {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let item_id = world.items.insert(Item::new_single(2148));
+        world
+            .map
+            .get_tile_mut(pos)
+            .expect("tile just inserted")
+            .add_item(item_id);
+        ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 0,
+        }
+    }
+
+    fn insert_player(world: &mut crate::game_world::GameWorld, pos: Position) -> (ConnId, crate::ids::CreatureId) {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = world.creatures.insert(CreatureKind::Player(test_player("S6Hero", pos)));
+        world.map.register_creature_at(pos, cid);
+        let conn_id = ConnId(1);
+        world.register_conn_mapping(conn_id, cid);
+        (conn_id, cid)
+    }
+
+    /// Drive one packet through `handle_game_packet` with empty cmd/pending queues.
+    fn dispatch(world: &mut crate::game_world::GameWorld, conn_id: ConnId, packet: GamePacket) {
+        let (_tx, mut rx) = mpsc::unbounded_channel::<GameCommand>();
+        let mut pending = VecDeque::new();
+        handle_game_packet(world, conn_id, packet, &mut rx, &mut pending, FlushPolicy::BeatEndOnly);
+        // None of the rerouted opcodes push to pending (only Logout does).
+        assert!(pending.is_empty(), "Use/Throw/RotateItem must not push commands");
+    }
+
+    /// `UseItem` (single-object) routes to `[Wait{100}, Use{obj2:None}]` + arms a wakeup.
+    #[test]
+    fn use_item_routes_through_todo_builder_when_beat_driven() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+        let obj = place_bag_on_tile(&mut world, item_pos);
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::UseItem(tfs_rust_common::game_packet::UseItemPayload {
+                pos: obj.pos,
+                sprite_id: obj.sprite_id,
+                stack_pos: obj.stack_pos,
+                index: 4,
+            }),
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 2, "Use single → [Wait{{100}}, Use]");
+        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        match base.todo.queue[1] {
+            CreatureAction::Use { obj2, open_index, .. } => {
+                assert!(obj2.is_none(), "single-object use has no obj2");
+                assert_eq!(open_index, 4, "open_index carries UseItemPayload.index");
+            }
+            ref other => panic!("expected Use, got {other:?}"),
+        }
+        assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
+    }
+
+    /// `UseItemEx` (two-object) routes to `[Wait{100}, Use{obj2:Some}]`.
+    #[test]
+    fn use_item_ex_routes_through_todo_builder_with_obj2() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let item_pos2 = Position::new(102, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+        let obj2 = place_bag_on_tile(&mut world, item_pos2);
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::UseItemEx(tfs_rust_common::game_packet::UseItemExPayload {
+                from_pos: obj1.pos,
+                from_sprite_id: obj1.sprite_id,
+                from_stack_pos: obj1.stack_pos,
+                to_pos: obj2.pos,
+                to_sprite_id: obj2.sprite_id,
+                to_stack_pos: obj2.stack_pos,
+            }),
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 2, "Use two-object → [Wait{{100}}, Use]");
+        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        match base.todo.queue[1] {
+            CreatureAction::Use { obj2, open_index, .. } => {
+                assert!(obj2.is_some(), "two-object use carries obj2");
+                assert_eq!(open_index, 0, "UseItemEx has no index byte → 0");
+            }
+            ref other => panic!("expected Use, got {other:?}"),
+        }
+        assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
+    }
+
+    /// `Throw` routes to `[Move]` (no `Wait` prefix — `CMoveObject` has no `ToDoWait`).
+    #[test]
+    fn throw_routes_through_todo_builder_no_wait() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let dest = Position::new(103, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+        ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
+        let obj = place_gold_on_tile(&mut world, item_pos);
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::Throw(tfs_rust_common::game_packet::ThrowPayload {
+                from_pos: obj.pos,
+                sprite_id: obj.sprite_id,
+                from_stack_pos: obj.stack_pos,
+                to_pos: dest,
+                count: 1,
+            }),
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 1, "Move → single entry, no Wait prefix");
+        match base.todo.queue[0] {
+            CreatureAction::Move { dest: d, count, .. } => {
+                assert_eq!(d, dest);
+                assert_eq!(count, 1);
+            }
+            ref other => panic!("expected Move, got {other:?}"),
+        }
+        assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
+    }
+
+    /// `RotateItem` (new arm in S6) routes to `[Wait{100}, Turn]`.
+    #[test]
+    fn rotate_item_routes_through_todo_builder() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+        let obj = place_bag_on_tile(&mut world, item_pos);
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::RotateItem {
+                pos: obj.pos,
+                sprite_id: obj.sprite_id,
+                stack_pos: obj.stack_pos,
+            },
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
+        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert!(matches!(base.todo.queue[1], CreatureAction::Turn { .. }));
+        assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
+    }
+
+    /// `RotateItem` in a non-beat-driven (1098) world must not enqueue a ToDo entry —
+    /// there is no reactive executor either, so it stays a no-op trace until Phase 2/3.
+    #[test]
+    fn rotate_item_no_op_when_not_beat_driven() {
+        let mut world = beat_driven_test_world();
+        world.beat_driven_loop = false;
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+        let obj = place_bag_on_tile(&mut world, item_pos);
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::RotateItem {
+                pos: obj.pos,
+                sprite_id: obj.sprite_id,
+                stack_pos: obj.stack_pos,
+            },
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(base.todo.is_empty(), "1098 RotateItem must not enqueue");
+        assert!(base.next_wakeup.is_none());
+    }
+
+    /// Builder failure (absent object) → `send_cancel_message`, no ToDo entry, no wakeup.
+    /// Mirrors C++ `GetObject` `throw RESULT` at enqueue (`receiving.cc` handler catch).
+    #[test]
+    fn use_item_builder_failure_sends_cancel_and_enqueues_nothing() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+        // No item placed at (101,100,7) — sprite 100 won't resolve.
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::UseItem(tfs_rust_common::game_packet::UseItemPayload {
+                pos: Position::new(101, 100, 7),
+                sprite_id: 100,
+                stack_pos: 0,
+                index: 0,
+            }),
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(base.todo.is_empty(), "failed builder must not enqueue");
+        assert!(base.next_wakeup.is_none(), "failed builder must not arm a wakeup");
+    }
+
+    /// `LookAt` stays reactive — no ToDo entry created (regression, F8 §1).
+    #[test]
+    fn look_at_stays_reactive_no_todo_entry() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let (conn_id, cid) = insert_player(&mut world, player_pos);
+
+        dispatch(
+            &mut world,
+            conn_id,
+            GamePacket::LookAt {
+                pos: Position::new(101, 100, 7),
+                stack_pos: 0,
+            },
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(base.todo.is_empty(), "LookAt must not create a ToDo entry");
+        assert!(base.next_wakeup.is_none());
+    }
+
+    // Suppress unused-import warning for `Player` (re-exported via test_player; kept for
+    // future tests that construct a Player directly).
+    #[allow(dead_code)]
+    fn _suppress_player_import() -> Player {
+        test_player("unused", Position::new(0, 0, 7))
     }
 }

@@ -5,7 +5,7 @@
 **Decompile ref tree:** `reference/cipsoft-772/tibia-game-master/src/` — `receiving.cc`,
 `cract.cc`, `cr.hh`. **(772 mechanics = `tibia-game-master/src/`; do not cite `gameserver/src/`
 or repo-root `src/` for this ToDo model.)**
-**Status:** 🟡 S0–S5 DONE — S6–S8 pending.
+**Status:** 🟡 S0–S6 DONE — S7–S8 pending.
 **S0 decision (recorded):** Narrow scope. In-scope executors: `Use`/`UseItemEx` (reroute),
 `Throw`/`Move` (reroute), `RotateItem`/`CTurnObject` (build + route). **Out of scope, forked to
 their own sub-plans:** `UseOnCreature`/`CUseOnCreature` (§0.1 F3 — build-from-scratch), player
@@ -383,12 +383,31 @@ reactive path alive behind the existing gate until its ToDo replacement is verif
       not-adjacent → `[Go, Use]` + walk_queue; Use adjacent → no Go; Use inventory → no Go;
       Move not-adjacent → `[Go, Move]`; Use no-path → RESULT catch; `setup_player_walk_to_target`
       doesn't clear ToDo. `cargo check` + `clippy --all-targets` + 552 tests pass.
-- [ ] **S6 — Reroute/wire handlers.** Point `UseItem`/`UseItemEx`/`Throw`/`RotateItem` arms at
-      builder+`ToDoStart`. `RotateItem` needs its match arm *added* to `handle_game_packet` first
-      (it currently falls through to the catch-all `_ => trace!`, §0.1 F2). Keep
-      `LookAt`/container-refresh reactive. Leave `Trade`/`UseWithCreature`/`Say` unrouted/unbuilt
-      (all three forked per S0). Remove rerouted opcodes from `game_packet_requires_timed_action` /
-      `player_packet_action_ready` once the ToDo gate subsumes them.
+- [x] **S6 — Reroute/wire handlers.** DONE. Pointed `UseItem`/`UseItemEx`/`Throw`/`RotateItem`
+      arms at builder+`ToDoStart` when `beat_driven_loop` (772); 1098 keeps the reactive path
+      until Phase 2/3. `RotateItem` match arm *added* to `handle_game_packet` (it previously
+      fell through to the catch-all `_ => trace!`, §0.1 F2) → `enqueue_player_turn` + start.
+      Each rerouted arm runs the `ToDoAdd` preamble (`player_todo_clear_with_snapback` when
+      locked/armed — mirrors `cract.cc:993-1000`, same pattern as `player_set_attack_dest`)
+      before the builder, then `todo_start_from_action(cid, 1)` (the `Wait{100}` prefix drives
+      the 100ms floor for Use/Turn; the execute arm applies the multiuse gate for two-object
+      Use when the action reaches the front — `TDMove`/`TDTurn` delay 0, clamped to 1). On
+      builder `Err(rv)` → `send_cancel_message` (matches the handler-level `catch(RESULT)` in
+      `receiving.cc`). `LookAt`/container-refresh left reactive. `Trade`/`UseWithCreature`/`Say`
+      left unrouted (all three forked per S0). Removed `Throw`/`RotateItem` from the
+      `game_packet_requires_timed_action` gated set (added to the exclusion list — the ToDo
+      gate subsumes the receipt-time `player_packet_action_ready` gate) and dropped the now-
+      dead `Throw` arm from `player_packet_action_ready`. Also removed the S3 `todo_use_delay_ms`
+      peek-based helper + its 3 unit tests: it was built "for S6 routing" assuming the action
+      sits at the queue front after enqueue, but the `Wait{100}` prefix means the front is
+      `Wait`, not `Use` — so it always returned 0 at handler-routing time. The multiuse gate
+      is still applied by `multiuse_gate_delay_ms` in the execute arm (action already popped)
+      + covered by the 2 S3 integration tests. 8 new tests: `Throw`/`RotateItem` exclusion
+      from the receipt-time gate; `UseItem`/`UseItemEx`/`Throw`/`RotateItem` handler routing
+      (queue shape + wakeup armed); `RotateItem` 1098 no-op; builder failure → cancel + no
+      enqueue; `LookAt` stays reactive (regression). `cargo check` + `clippy --all-targets`
+      (only the pre-existing `game_world_player_throw.rs:195` `?`-rewrite warning remains) +
+      557 tests pass.
 - [ ] **S7 — Delete dead reactive paths + mitigations** that the ToDo path now covers. `grep`
       confirms no inline executor calls for the rerouted opcodes in `handle_game_packet`.
 - [ ] **S8 — Tests** (see §8) + update `tasks/lessons.md`.

@@ -462,9 +462,11 @@ impl GameWorld {
 
     /// F8 S3 — C++ `CalculateDelay(TDUse)` core — `cract.cc:925-932`. Returns
     /// `EarliestMultiuseTime - ServerMilliseconds` **only if `has_obj2`** (two-object
-    /// use); single-object use is ungated (delay 0). Shared by the peek-based
-    /// [`todo_use_delay_ms`] (S6 routing — action at front of queue) and the execute-arm
-    /// gate check (action already popped — passes `obj2.is_some()` directly).
+    /// use); single-object use is ungated (delay 0). Called by the execute-arm gate check
+    /// (action already popped — passes `obj2.is_some()` directly). The S6 handler does NOT
+    /// call this — the `Wait{100}` prefix drives the initial `ToDoStart` delay, and the
+    /// multiuse gate is applied here when the `Use` action reaches the front during the
+    /// execute drain (mirroring C++ `Execute` re-running `CalculateDelay` per entry).
     pub(crate) fn multiuse_gate_delay_ms(&self, cid: CreatureId, has_obj2: bool) -> u64 {
         if !has_obj2 {
             return 0;
@@ -473,22 +475,6 @@ impl GameWorld {
             .get(cid)
             .map(|k| k.base().earliest_multiuse_server_ms.saturating_sub(self.server_ms))
             .unwrap_or(0)
-    }
-
-    /// F8 S3 — C++ `CalculateDelay(TDUse)` — `cract.cc:925-932`. Returns the multiuse gate
-    /// delay for the front `Use` action: `EarliestMultiuseTime - ServerMilliseconds` **only
-    /// if `obj2.is_some()`** (two-object use); single-object use is ungated (delay 0). The
-    /// `default` case (`TDMove`/`TDTurn`/`TDTalk`/…) is delay 0 (`cract.cc:946-948`), so this
-    /// helper returns 0 for any non-`Use` front action — Move/Turn are ungated by design.
-    /// Used by S6 handler routing (action is at the front after enqueue). The execute arm
-    /// calls [`multiuse_gate_delay_ms`] directly with the popped action's `obj2.is_some()`.
-    pub(crate) fn todo_use_delay_ms(&self, cid: CreatureId) -> u64 {
-        let has_obj2 = self
-            .creatures
-            .get(cid)
-            .and_then(|k| k.base().todo.queue.front())
-            .is_some_and(|a| matches!(a, CreatureAction::Use { obj2: Some(_), .. }));
-        self.multiuse_gate_delay_ms(cid, has_obj2)
     }
 
     /// Enqueue Wait and arm an immediate execute wakeup (`cract.cc` `ToDoStart`).
@@ -1117,102 +1103,6 @@ mod tests {
         assert!(
             world.creatures.get(cid).unwrap().base().todo.is_empty(),
             "failed builder must not enqueue anything"
-        );
-    }
-
-    // === F8 S3 — CalculateDelay multiuse gate tests ===
-    // C++ ref: `cract.cc:925-932` `CalculateDelay(TDUse)` — gates only `Obj2 != 0`;
-    //          `cract.cc:946-948` `default` → 0 for `TDMove`/`TDTurn`/etc.
-
-    /// Two-object `Use` within the multiuse gate returns the remaining delay
-    /// (`EarliestMultiuseTime - ServerMilliseconds`).
-    #[test]
-    fn todo_use_delay_ms_two_object_within_gate_returns_remaining() {
-        let mut world = beat_driven_test_world_at(1000);
-        let player_pos = Position::new(100, 100, 7);
-        let item_pos = Position::new(101, 100, 7);
-        let item_pos2 = Position::new(102, 100, 7);
-        let cid = insert_test_player(&mut world, player_pos);
-        let obj1 = place_bag_on_tile(&mut world, item_pos);
-        let obj2 = place_bag_on_tile(&mut world, item_pos2);
-
-        world
-            .enqueue_player_use(cid, obj1, Some(obj2), 0)
-            .expect("both bags resolve");
-        // Queue is [Wait{100}, Use{obj2:Some}]. `todo_use_delay_ms` peeks the front
-        // (Wait), which is not a `Use` → returns 0. Pop the Wait manually so the
-        // front becomes the `Use` we want to gate-check.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.pop_front();
-        }
-        // Arm multiuse exhaustion 500 ms in the future.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().earliest_multiuse_server_ms = 1500;
-        }
-
-        assert_eq!(
-            world.todo_use_delay_ms(cid),
-            500,
-            "two-object Use within gate → EarliestMultiuseTime - ServerMs"
-        );
-    }
-
-    /// Single-object `Use` is ungated — delay 0 regardless of `EarliestMultiuseTime`.
-    /// C++ only gates `Obj2 != 0` (`cract.cc:926`).
-    #[test]
-    fn todo_use_delay_ms_single_object_is_ungated() {
-        let mut world = beat_driven_test_world_at(1000);
-        let player_pos = Position::new(100, 100, 7);
-        let item_pos = Position::new(101, 100, 7);
-        let cid = insert_test_player(&mut world, player_pos);
-        let obj1 = place_bag_on_tile(&mut world, item_pos);
-
-        world
-            .enqueue_player_use(cid, obj1, None, 0)
-            .expect("bag resolves");
-        // Pop the Wait so the front is the single-object Use.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.pop_front();
-        }
-        // Arm multiuse exhaustion — single-object Use must still be ungated.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().earliest_multiuse_server_ms = 5000;
-        }
-
-        assert_eq!(
-            world.todo_use_delay_ms(cid),
-            0,
-            "single-object Use is ungated (C++ only gates Obj2 != 0)"
-        );
-    }
-
-    /// Two-object `Use` past the multiuse gate returns 0 (no remaining delay).
-    #[test]
-    fn todo_use_delay_ms_two_object_past_gate_returns_zero() {
-        let mut world = beat_driven_test_world_at(2000);
-        let player_pos = Position::new(100, 100, 7);
-        let item_pos = Position::new(101, 100, 7);
-        let item_pos2 = Position::new(102, 100, 7);
-        let cid = insert_test_player(&mut world, player_pos);
-        let obj1 = place_bag_on_tile(&mut world, item_pos);
-        let obj2 = place_bag_on_tile(&mut world, item_pos2);
-
-        world
-            .enqueue_player_use(cid, obj1, Some(obj2), 0)
-            .expect("both bags resolve");
-        // Pop the Wait so the front is the two-object Use.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.pop_front();
-        }
-        // Gate is in the past (server_ms=2000, gate=1000).
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().earliest_multiuse_server_ms = 1000;
-        }
-
-        assert_eq!(
-            world.todo_use_delay_ms(cid),
-            0,
-            "two-object Use past gate → 0 (saturating_sub clamps to 0)"
         );
     }
 

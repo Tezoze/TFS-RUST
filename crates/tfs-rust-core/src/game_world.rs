@@ -188,7 +188,10 @@ impl GameWorld {
             GamePacket::Attack { .. } => {
                 base.attack_ready_at(now_ms, base.earliest_spell_server_ms)
             }
-            GamePacket::Throw(_) => base.multiuse_ready_at(now_ms),
+            // F8 S6 — `Throw`/`UseItem`/`UseItemEx`/`RotateItem` no longer reach this gate
+            // (excluded from `game_packet_requires_timed_action`); their timing is owned by
+            // the ToDo engine (`Wait{100}` + `CalculateDelay`). The `_` arm covers any
+            // remaining gated opcode (e.g. future combat-adjacent packets).
             _ => base.attack_ready_at(now_ms, base.earliest_spell_server_ms),
         }
     }

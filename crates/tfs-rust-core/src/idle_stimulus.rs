@@ -2416,10 +2416,9 @@ impl GameWorld {
                 // use defers when `EarliestMultiuseTime > ServerMilliseconds`; single-object
                 // use is ungated (delay 0). The action was already popped at the top of
                 // `execute_creature_todo_action`, so we pass `obj2.is_some()` directly to
-                // `multiuse_gate_delay_ms` (not the peek-based `todo_use_delay_ms`, which
-                // would see the next queue entry, not this one). On deferral we push it
-                // back to the front and arm a wakeup at `earliest_multiuse_server_ms` —
-                // same pattern as the `Attack` defer above (`cract.cc:870-889`, `:795-801`).
+                // `multiuse_gate_delay_ms`. On deferral we push it back to the front and
+                // arm a wakeup at `earliest_multiuse_server_ms` — same pattern as the
+                // `Attack` defer above (`cract.cc:870-889`, `:795-801`).
                 let delay = self.multiuse_gate_delay_ms(cid, obj2.is_some());
                 if delay > 0 {
                     if let Some(k) = self.creatures.get_mut(cid) {
