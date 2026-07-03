@@ -165,7 +165,7 @@ impl GameWorld {
         let Some(conn_id) = self.conn_for_creature(cid) else {
             return;
         };
-        match action {
+        let result = match action {
             PlayerWalkAction::MoveItem {
                 from_pos,
                 sprite_id,
@@ -183,11 +183,14 @@ impl GameWorld {
                 now,
             ),
             PlayerWalkAction::UseItem(payload) => {
-                self.player_use_item(conn_id, cid, payload, now);
+                self.player_use_item(conn_id, cid, payload, now)
             }
             PlayerWalkAction::UseItemEx(payload) => {
-                self.player_use_item_ex(conn_id, cid, payload, now);
+                self.player_use_item_ex(conn_id, cid, payload, now)
             }
+        };
+        if let Err(rv) = result {
+            self.send_cancel_message(conn_id, rv);
         }
     }
 }

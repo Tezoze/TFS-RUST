@@ -401,7 +401,7 @@ fn handle_game_packet(
         }
         GamePacket::Throw(payload) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-                world.player_move_thing(
+                if let Err(rv) = world.player_move_thing(
                     conn_id,
                     cid,
                     payload.from_pos,
@@ -410,17 +410,23 @@ fn handle_game_packet(
                     payload.to_pos,
                     payload.count,
                     now,
-                );
+                ) {
+                    world.send_cancel_message(conn_id, rv);
+                }
             }
         }
         GamePacket::UseItem(payload) => {
             if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
-                world.player_use_item(conn_id, creature_id, payload, now);
+                if let Err(rv) = world.player_use_item(conn_id, creature_id, payload, now) {
+                    world.send_cancel_message(conn_id, rv);
+                }
             }
         }
         GamePacket::UseItemEx(payload) => {
             if let Some(creature_id) = world.conn_to_creature.get(&conn_id).copied() {
-                world.player_use_item_ex(conn_id, creature_id, payload, now);
+                if let Err(rv) = world.player_use_item_ex(conn_id, creature_id, payload, now) {
+                    world.send_cancel_message(conn_id, rv);
+                }
             }
         }
         GamePacket::CloseContainer { cid: client_cid } => {

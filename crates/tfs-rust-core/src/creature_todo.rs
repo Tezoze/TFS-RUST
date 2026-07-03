@@ -30,7 +30,7 @@ use crate::monster_ai::{chebyshev, monster_idle_chase_step_budget};
 use crate::pathfinding::CHASE_PATH_MAX_STEPS;
 use crate::return_value::ReturnValue;
 use crate::thing::Thing;
-use tfs_rust_common::Position;
+use tfs_rust_common::{ConnId, Position};
 
 /// C++ `ToDoWait(1000)` after roam, dist_dance, dist_flee fail, master dist 2–3 (`crnonpl.cc`).
 pub const MONSTER_IDLE_WAIT_MS: u64 = 1000;
@@ -311,7 +311,7 @@ impl GameWorld {
     /// (wire identity triple, unchanged) on success; `Err(NotPossible)` on failure —
     /// C++ `NOTACCESSIBLE` maps to `ReturnValue::NotPossible` (matching
     /// `walk/mod.rs:1506`'s `NOTACCESSIBLE` → `NotPossible` convention).
-    fn validate_action_object_ref(
+    pub(crate) fn validate_action_object_ref(
         &self,
         cid: CreatureId,
         obj: ActionObjectRef,
@@ -344,7 +344,7 @@ impl GameWorld {
     /// (moveable-priority stack walk), not `resolve_item_at_position`
     /// (container-priority). The builder validates with the same path its S4
     /// executor will re-validate with.
-    fn validate_move_object_ref(
+    pub(crate) fn validate_move_object_ref(
         &self,
         cid: CreatureId,
         obj: ActionObjectRef,
@@ -663,6 +663,71 @@ impl GameWorld {
             && self.creatures.get(cid).is_some_and(|k| {
                 matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_))
             })
+    }
+
+    /// F8 S4 — C++ `Execute` `RESULT` catch — `cract.cc:870-889`.
+    ///
+    /// Called by the `Use`/`Move`/`Turn` execute arms when the executor returns
+    /// `Err(rv)`. Mirrors the C++ catch:
+    /// 1. `ToDoClear()` — clear the queue; `had_pending_go` drives the snapback decision
+    ///    (`cract.cc:871`, `:953-989`).
+    /// 2. `EXHAUSTED` → `ToDoWait(1000)` + `ToDoStart` (`cract.cc:872-874`).
+    ///    Else → `ToDoYield` = `ToDoWait(0)` + `ToDoStart` (`cract.cc:875-877`, `:1026-1031`).
+    /// 3. Player-only: `SendResult` (= `send_cancel_message`) + conditional `SendSnapback`
+    ///    (`cract.cc:879-886`). Snapback is skipped for `MOVENOTPOSSIBLE` / `NOTINVITED` /
+    ///    `ENTERPROTECTIONZONE` (772 RESULT codes 52/50/48, `enums.hh:440-444`).
+    ///
+    /// 772 RESULT → Rust `ReturnValue` mapping (approximate — no exact variants for
+    /// `MOVENOTPOSSIBLE`/`NOTTURNABLE`/`DESTROYED`; `NotPossible`/`ThereIsNoWay` are the
+    /// existing convention per `walk/mod.rs:1506`):
+    /// - `EXHAUSTED` (49) → `YouAreExhausted`
+    /// - `NOTINVITED` (50) → `PlayerIsNotInvited`
+    /// - `ENTERPROTECTIONZONE` (48) → `ActionNotPermittedInProtectionZone`
+    /// - `MOVENOTPOSSIBLE` (52) → `ThereIsNoWay` (closest — used when no path)
+    pub(crate) fn apply_todo_result_catch(&mut self, cid: CreatureId, rv: ReturnValue) {
+        // `ToDoClear` — clear the queue. `player_todo_clear` also clears walk state
+        // (broader than C++ `ToDoClear`, but correct for a failed action restart).
+        let had_pending_go = self.player_todo_clear(cid);
+
+        if rv == ReturnValue::YouAreExhausted {
+            // `EXHAUSTED` → `ToDoWait(1000)` + `ToDoStart` (`cract.cc:872-874`).
+            self.enqueue_creature_wait(cid, 1000);
+            self.todo_start_from_action(cid, 1000);
+            trace_creature_todo(self, cid, "result_catch_exhausted");
+        } else {
+            // `ToDoYield` = `ToDoWait(0)` + `ToDoStart` (`cract.cc:875-877`, `:1026-1031`).
+            self.enqueue_creature_wait(cid, 0);
+            self.todo_start_from_action(cid, 0);
+            trace_creature_todo(self, cid, "result_catch_yield");
+        }
+
+        // Player-only: `SendResult` + conditional `SendSnapback` (`cract.cc:879-886`).
+        if let Some(conn) = self.conn_for_creature(cid) {
+            self.send_result_player(conn, cid, rv, had_pending_go);
+        }
+    }
+
+    /// `SendResult` + conditional `SendSnapback` — the player tail of the `RESULT` catch
+    /// (`cract.cc:879-886`). Split out so `apply_todo_result_catch` stays readable.
+    fn send_result_player(&mut self, conn: ConnId, cid: CreatureId, rv: ReturnValue, snapback: bool) {
+        // `SendResult` — `sending.cc:285-357`: text via `SendMessage(TALK_FAILURE_MESSAGE, ...)`.
+        self.send_cancel_message(conn, rv);
+        // `SendSnapback` — skip for `MOVENOTPOSSIBLE` / `NOTINVITED` / `ENTERPROTECTIONZONE`
+        // (`cract.cc:882-884`). Only sent when `SnapbackNecessary` (a pending `TDGo` was cleared).
+        let snapback_exempt = matches!(
+            rv,
+            ReturnValue::PlayerIsNotInvited               // NOTINVITED (50)
+                | ReturnValue::ActionNotPermittedInProtectionZone // ENTERPROTECTIONZONE (48)
+                | ReturnValue::ThereIsNoWay               // MOVENOTPOSSIBLE (52) — closest
+        );
+        if snapback && !snapback_exempt {
+            let dir_byte = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().direction as u8)
+                .unwrap_or(0);
+            self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
+        }
     }
 }
 
@@ -1148,6 +1213,301 @@ mod tests {
             world.todo_use_delay_ms(cid),
             0,
             "two-object Use past gate → 0 (saturating_sub clamps to 0)"
+        );
+    }
+
+    // === F8 S4 — Turn executor + RESULT catch tests ===
+    // C++ ref: `operate.cc:2562-2583` `Turn`, `cract.cc:870-889` RESULT catch,
+    //          `cract.cc:1026-1031` `ToDoYield`, `enums.hh:390-453` RESULT codes.
+
+    /// Helper: register a rotatable item type (server id `id`, rotates to `to`) in the
+    /// test `items_db` and return the registered `ItemType`. The default
+    /// `beat_driven_test_world` items_db only has bag (1987) + gold (2148); rotatable
+    /// items need `rotatable()` + `rotate_to` set.
+    fn register_rotatable_item(
+        world: &mut crate::game_world::GameWorld,
+        server_id: u16,
+        rotate_to: u16,
+    ) {
+        use tfs_rust_content::otb::ItemType;
+        let mut it = ItemType {
+            server_id,
+            ..Default::default()
+        };
+        // `FLAG_ROTATABLE` = `1 << 15` (`otb.rs:427`) — private, so set the bit directly.
+        it.flags |= 1u32 << 15;
+        it.rotate_to = rotate_to;
+        // Rebuild the items_db Arc with the new entry added. Tests own the only ref.
+        let mut items_map = world.items_db.items.clone();
+        items_map.insert(server_id, it);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items: items_map,
+            client_to_server: std::collections::HashMap::new(),
+        });
+    }
+
+    /// Place a rotatable item on a tile and return its `ActionObjectRef`.
+    fn place_rotatable_on_tile(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+        server_id: u16,
+        rotate_to: u16,
+    ) -> ActionObjectRef {
+        register_rotatable_item(world, server_id, rotate_to);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let item_id = world
+            .items
+            .insert(crate::item::Item::new_single(server_id));
+        world
+            .map
+            .get_tile_mut(pos)
+            .expect("tile just inserted")
+            .add_item(item_id);
+        ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 0, // default client_id=0 in test items_db
+        }
+    }
+
+    /// `Turn` executor: rotatable item transforms to `rotate_to` on success.
+    /// C++ ref: `operate.cc:2577-2583` `Change(Obj, RotateTarget, 0)`.
+    #[test]
+    fn player_rotate_item_transforms_rotatable_item() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
+
+        let item_id = world
+            .resolve_rotate_item_id(cid, obj)
+            .expect("rotatable item resolves");
+        assert_eq!(
+            world.items.get(item_id).unwrap().item_type,
+            5001,
+            "item starts at original type"
+        );
+
+        world
+            .player_rotate_item(cid, obj)
+            .expect("rotatable item rotates");
+
+        assert_eq!(
+            world.items.get(item_id).unwrap().item_type,
+            5002,
+            "item transformed to rotate_to"
+        );
+    }
+
+    /// `Turn` executor: non-rotatable item → `Err(NotPossible)` (C++ `NOTTURNABLE`).
+    #[test]
+    fn player_rotate_item_fails_on_non_rotatable() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        // Bag (1987) is a container, not rotatable.
+        let obj = place_bag_on_tile(&mut world, item_pos);
+
+        let result = world.player_rotate_item(cid, obj);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "non-rotatable item → NOTTURNABLE → NotPossible"
+        );
+    }
+
+    /// `Turn` executor: out-of-range map tile → `Err(NotPossible)` (C++ `NOTACCESSIBLE`).
+    #[test]
+    fn player_rotate_item_fails_when_out_of_range() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let far_pos = Position::new(110, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, far_pos, 5001, 5002);
+
+        let result = world.player_rotate_item(cid, obj);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "out-of-range item → NOTACCESSIBLE → NotPossible"
+        );
+    }
+
+    /// `Turn` executor: absent item → `Err(NotPossible)` (C++ `DESTROYED`).
+    #[test]
+    fn player_rotate_item_fails_on_absent_object() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let absent = ActionObjectRef {
+            pos: Position::new(200, 200, 7),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        let result = world.player_rotate_item(cid, absent);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "absent item → DESTROYED → NotPossible"
+        );
+    }
+
+    /// `Turn` executor: `rotate_to == 0` → `Err(NotPossible)` (no rotation target).
+    #[test]
+    fn player_rotate_item_fails_when_rotate_to_zero() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 0);
+
+        let result = world.player_rotate_item(cid, obj);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "rotate_to=0 → no rotation target → NotPossible"
+        );
+    }
+
+    /// RESULT catch: `EXHAUSTED` → `ToDoWait(1000)` + `ToDoStart` + queue cleared.
+    /// C++ ref: `cract.cc:872-874`.
+    #[test]
+    fn apply_todo_result_catch_exhausted_clears_queue_and_waits_1000() {
+        let mut world = beat_driven_test_world_at(5000);
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        // Pre-populate the queue with a Turn so we can verify clear.
+        let obj = place_rotatable_on_tile(
+            &mut world,
+            Position::new(101, 100, 7),
+            5001,
+            5002,
+        );
+        world
+            .enqueue_player_turn(cid, obj)
+            .expect("rotatable resolves");
+        assert!(
+            !world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "queue populated before catch"
+        );
+
+        world.apply_todo_result_catch(cid, crate::return_value::ReturnValue::YouAreExhausted);
+
+        let base = world.creatures.get(cid).unwrap().base();
+        // `ToDoClear` wipes the queue, then `ToDoWait(1000)` enqueues a single
+        // `Wait{1000}`. The original Turn/Wait entries are gone; only the catch's
+        // Wait remains (`cract.cc:872-874`).
+        assert_eq!(
+            base.todo.queue.len(),
+            1,
+            "EXHAUSTED catch → ToDoClear + ToDoWait(1000) → [Wait{{1000}}]"
+        );
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 1000 }
+        ));
+    }
+
+    /// RESULT catch: non-exhausted error → `ToDoYield` = `ToDoWait(0)` + `ToDoStart`.
+    /// C++ ref: `cract.cc:875-877`, `:1026-1031`.
+    #[test]
+    fn apply_todo_result_catch_non_exhausted_yields_wait_zero() {
+        let mut world = beat_driven_test_world_at(5000);
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(
+            &mut world,
+            Position::new(101, 100, 7),
+            5001,
+            5002,
+        );
+        world
+            .enqueue_player_turn(cid, obj)
+            .expect("rotatable resolves");
+
+        world.apply_todo_result_catch(cid, crate::return_value::ReturnValue::NotPossible);
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(
+            base.todo.queue.len(),
+            1,
+            "non-exhausted catch → [Wait{{0}}] (ToDoYield)"
+        );
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 0 }
+        ));
+    }
+
+    /// RESULT catch: `had_pending_go` is returned by `player_todo_clear` and would
+    /// trigger `SendSnapback` for non-exempt errors. This test verifies the
+    /// snapback-exempt set (`ThereIsNoWay` = `MOVENOTPOSSIBLE`) does **not** panic
+    /// and leaves the queue in the yield state — the actual snapback packet requires
+    /// a conn and is exercised in integration tests.
+    #[test]
+    fn apply_todo_result_catch_snapback_exempt_does_not_panic() {
+        let mut world = beat_driven_test_world_at(5000);
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        // Enqueue a Go so `had_pending_go` is true.
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(102, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.push_back(CreatureAction::Go);
+        }
+
+        // `ThereIsNoWay` is snapback-exempt (MOVENOTPOSSIBLE) — no panic, queue cleared.
+        world.apply_todo_result_catch(cid, crate::return_value::ReturnValue::ThereIsNoWay);
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 0 }
+        ));
+    }
+
+    /// `Use` execute arm: single-object use on a bag opens the container (success).
+    /// Verifies the execute dispatch reaches `player_use_item` and returns `Ok(())`.
+    #[test]
+    fn execute_player_use_single_object_opens_container() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        // `execute_player_use` re-validates + dispatches to `player_use_item`.
+        // No conn registered → returns `Ok(())` (no-op, no panic).
+        let result = world.execute_player_use(cid, obj1, None, 0);
+        assert!(result.is_ok(), "single-object use dispatches without conn");
+    }
+
+    /// `Move` execute arm: re-validation failure (absent object) → `Err(NotPossible)`.
+    /// The `RESULT` catch is applied by the caller (`execute_creature_todo_action`);
+    /// here we verify the executor returns the error.
+    #[test]
+    fn execute_player_move_fails_on_absent_object() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let absent = ActionObjectRef {
+            pos: Position::new(200, 200, 7),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        let result = world.execute_player_move(cid, absent, Position::new(105, 100, 7), 1);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "absent object → re-validation fails → NotPossible"
         );
     }
 }

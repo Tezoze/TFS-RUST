@@ -5,7 +5,7 @@
 **Decompile ref tree:** `reference/cipsoft-772/tibia-game-master/src/` — `receiving.cc`,
 `cract.cc`, `cr.hh`. **(772 mechanics = `tibia-game-master/src/`; do not cite `gameserver/src/`
 or repo-root `src/` for this ToDo model.)**
-**Status:** 🟡 S0–S3 DONE — S4–S8 pending.
+**Status:** 🟡 S0–S4 DONE — S5–S8 pending.
 **S0 decision (recorded):** Narrow scope. In-scope executors: `Use`/`UseItemEx` (reroute),
 `Throw`/`Move` (reroute), `RotateItem`/`CTurnObject` (build + route). **Out of scope, forked to
 their own sub-plans:** `UseOnCreature`/`CUseOnCreature` (§0.1 F3 — build-from-scratch), player
@@ -340,14 +340,32 @@ reactive path alive behind the existing gate until its ToDo replacement is verif
       two-object past gate → 0) + 2 integration (two-object Use defers with wakeup at
       `earliest_multiuse_server_ms`; single-object Use does not defer, queue drains).
       `cargo check` + `clippy --all-targets` + 536 tests pass.
-- [ ] **S4 — Execute dispatch.**
-      - Move `player_use_item(_ex)` bodies into the `Use` execute arm (re-validate →
-        `NOTACCESSIBLE`) — reroute only, both already exist.
-      - Move `player_move_thing`/`player_move_item` into the `Move` execute arm — reroute only,
-        already exists (§0.1 F5; not "`player_move_object`").
-      - **Write** a new rotate-item executor for `Turn` — nothing exists to reuse (§0.1 F2).
-      - Wire the `RESULT` catch (`EXHAUSTED`→wait1000+start, else yield, `SendResult`+snapback) for
-        all arms. Set multiuse exhaustion on success.
+- [x] **S4 — Execute dispatch.** ✅ DONE
+      - Refactored `player_use_item`/`player_use_item_ex` (`container_ui.rs`) and
+        `player_move_thing`/`player_move_item` (`game_world_player_throw.rs`) to return
+        `Result<(), ReturnValue>` — `Err(rv)` = hard failure; `Ok(())` = success **or**
+        walk-to-reach deferral (transitional — S5 folds into `Go`-prepend).
+      - Updated reactive callers (`game_loop.rs`, `walk_action.rs`) to wrap `Err` →
+        `send_cancel_message` (preserves existing reactive behavior until S7).
+      - **Wrote** new `player_rotate_item` executor (`game_world_player_rotate.rs`) for
+        `Turn` — re-validates object, checks `rotatable()` + `rotate_to != 0`, transforms
+        `item.item_type = rotate_to`, broadcasts `0x6B` for map tiles. C++ ref:
+        `operate.cc:2562-2583` `Turn`, `cract.cc:771-777` `TCreature::Turn`.
+      - Added `apply_todo_result_catch` helper (`creature_todo.rs`) — C++ `RESULT` catch
+        (`cract.cc:870-889`): `ToDoClear` → `EXHAUSTED`→`ToDoWait(1000)`+`ToDoStart`,
+        else →`ToDoYield`(`ToDoWait(0)`+`ToDoStart`); player-only `SendResult` +
+        conditional `SendSnapback` (exempt: `NOTINVITED`/`ENTERPROTECTIONZONE`/
+        `MOVENOTPOSSIBLE`).
+      - Wired `Use`/`Move`/`Turn` execute arms in `execute_creature_todo_action`
+        (`idle_stimulus.rs`) — S3 multiuse gate still runs first; on gate pass, dispatch
+        to executors via `execute_player_use`/`execute_player_move`/`player_rotate_item`;
+        `Err(rv)` → `apply_todo_result_catch`. Multiuse exhaustion set inside
+        `player_use_item_ex` on two-object success.
+      - 10 new tests: Turn executor (rotatable transforms, non-rotatable→Err,
+        out-of-range→Err, absent→Err, rotate_to=0→Err); RESULT catch (EXHAUSTED→
+        Wait{1000}, non-exhausted→Wait{0}, snapback-exempt no panic); Use/Move execute
+        arms (single-object use dispatches, absent object→Err).
+      - `cargo check` + `clippy --all-targets` + 546 tests pass.
 - [ ] **S5 — Walk-to-reach.** Route not-adjacent Use/Move through `Go`-prepend + re-enqueue;
       retire the bespoke `walk_action_due` path in favor of the unified Go+action enqueue (verify
       `try_run_player_walk_action_from_todo` tests still describe the same outcome). Note `Move`

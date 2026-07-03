@@ -12,6 +12,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, ConditionType, SpeakType, ZoneType};
+use tfs_rust_common::game_packet::{ThrowPayload, UseItemExPayload, UseItemPayload};
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
@@ -23,9 +24,10 @@ use crate::creature::{
     MonsterState, SpellImpact, SpellShape,
 };
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
-use crate::creature_todo::{trace_creature_todo, CreatureAction, MONSTER_IDLE_WAIT_MS};
+use crate::creature_todo::{trace_creature_todo, ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::return_value::ReturnValue;
 use crate::monster_ai::{
     chebyshev, compute_look_toward_target, manhattan, monster_idle_chase_step_budget,
     monster_master_follow_in_wait_band, MonsterCombatCloseChaseEnqueue,
@@ -2405,8 +2407,8 @@ impl GameWorld {
                 }
                 }
             }
-            // F8 S1 stub arms — `Use`/`Move`/`Turn` enum variants compile-only.
-            // Executors land in S4; the S3 multiuse gate below is the only live behavior.
+            // F8 S4 — `Use`/`Move`/`Turn` execute arms. S3 multiuse gate still runs first
+            // (two-object `Use` deferral); the executor dispatch + `RESULT` catch land here.
             CreatureAction::Use { obj1, obj2, open_index } => {
                 // F8 S3 — C++ `CalculateDelay(TDUse)` gate (`cract.cc:925-932`): two-object
                 // use defers when `EarliestMultiuseTime > ServerMilliseconds`; single-object
@@ -2430,20 +2432,45 @@ impl GameWorld {
                     trace_creature_todo(self, cid, "execute_use_deferred_done");
                     TodoExecuteKind::Deferred
                 } else {
-                    trace_creature_todo(self, cid, "execute_use_stub");
+                    // F8 S4 — `TDUse` execute (`cract.cc:833-836`). Re-validate the object
+                    // (mirrors C++ `Obj.exists()` in the executor), then dispatch to the
+                    // existing `player_use_item` / `player_use_item_ex` (reroute only —
+                    // both already exist). On `Err(rv)` apply the C++ `RESULT` catch
+                    // (`cract.cc:870-889`). Multiuse exhaustion is set inside
+                    // `player_use_item_ex` on two-object success (`cract.cc:765`).
+                    trace_creature_todo(self, cid, "execute_use");
+                    let result = self.execute_player_use(cid, obj1, obj2, open_index);
+                    if let Err(rv) = result {
+                        self.apply_todo_result_catch(cid, rv);
+                    }
+                    trace_creature_todo(self, cid, "execute_use_done");
                     TodoExecuteKind::Wait
                 }
             }
-            CreatureAction::Move { .. } => {
-                // F8 S3 — C++ `CalculateDelay` `default` case: `TDMove` is delay 0
-                // (`cract.cc:946-948`); no gate. Executor lands in S4.
-                trace_creature_todo(self, cid, "execute_move_stub");
+            CreatureAction::Move { obj, dest, count } => {
+                // F8 S4 — `TDMove` execute (`cract.cc:823-826`). C++ `CalculateDelay`
+                // `default` case: delay 0 (`cract.cc:946-948`); no gate. Re-validate the
+                // object, then dispatch to `player_move_thing` (reroute only — already
+                // exists, F8 §0.1 F5). On `Err(rv)` apply the `RESULT` catch.
+                trace_creature_todo(self, cid, "execute_move");
+                let result = self.execute_player_move(cid, obj, dest, count);
+                if let Err(rv) = result {
+                    self.apply_todo_result_catch(cid, rv);
+                }
+                trace_creature_todo(self, cid, "execute_move_done");
                 TodoExecuteKind::Wait
             }
-            CreatureAction::Turn { .. } => {
-                // F8 S3 — C++ `CalculateDelay` `default` case: `TDTurn` is delay 0
-                // (`cract.cc:946-948`); no gate. Executor lands in S4.
-                trace_creature_todo(self, cid, "execute_turn_stub");
+            CreatureAction::Turn { obj } => {
+                // F8 S4 — `TDTurn` execute (`cract.cc:838-841`). C++ `CalculateDelay`
+                // `default` case: delay 0 (`cract.cc:946-948`); no gate. Dispatch to the
+                // new `player_rotate_item` executor (F8 §0.1 F2 — nothing existed to
+                // reuse). On `Err(rv)` apply the `RESULT` catch.
+                trace_creature_todo(self, cid, "execute_turn");
+                let result = self.player_rotate_item(cid, obj);
+                if let Err(rv) = result {
+                    self.apply_todo_result_catch(cid, rv);
+                }
+                trace_creature_todo(self, cid, "execute_turn_done");
                 TodoExecuteKind::Wait
             }
         };
@@ -2461,6 +2488,94 @@ impl GameWorld {
         }
 
         Some(kind)
+    }
+
+    /// F8 S4 — `TDUse` execute dispatch. Re-validates the object(s) at execute time
+    /// (mirrors C++ `Obj.exists()` in the `Use` executor, `cract.cc:727-760`), then
+    /// reconstructs the wire payload from the resolved-at-enqueue `ActionObjectRef`s
+    /// and calls the existing `player_use_item` (single) / `player_use_item_ex`
+    /// (two-object) executor. Returns `Err(rv)` on re-validation or executor failure
+    /// so the caller can apply the `RESULT` catch.
+    pub(crate) fn execute_player_use(
+        &mut self,
+        cid: CreatureId,
+        obj1: ActionObjectRef,
+        obj2: Option<ActionObjectRef>,
+        open_index: u8,
+    ) -> Result<(), ReturnValue> {
+        // Re-validate obj1 (and obj2 if present) — `validate_action_object_ref` resolves
+        // the item + checks the sprite, returning `Err(NotPossible)` on mismatch (C++
+        // `NOTACCESSIBLE` → `NotPossible`, `walk/mod.rs:1506` convention).
+        self.validate_action_object_ref(cid, obj1)?;
+        if let Some(o2) = obj2 {
+            self.validate_action_object_ref(cid, o2)?;
+        }
+
+        let Some(conn_id) = self.conn_for_creature(cid) else {
+            // Player disconnected — no conn to send results/open containers to.
+            tracing::debug!(?cid, "execute_player_use: no conn — skipping");
+            return Ok(());
+        };
+        let now = Instant::now();
+
+        if let Some(o2) = obj2 {
+            // Two-object use — `CUseTwoObjects` (`receiving.cc:430`).
+            let payload = UseItemExPayload {
+                from_pos: obj1.pos,
+                from_sprite_id: obj1.sprite_id,
+                from_stack_pos: obj1.stack_pos,
+                to_pos: o2.pos,
+                to_sprite_id: o2.sprite_id,
+                to_stack_pos: o2.stack_pos,
+            };
+            self.player_use_item_ex(conn_id, cid, payload, now)
+        } else {
+            // Single-object use — `CUseObject` (`receiving.cc:384`).
+            let payload = UseItemPayload {
+                pos: obj1.pos,
+                sprite_id: obj1.sprite_id,
+                stack_pos: obj1.stack_pos,
+                index: open_index,
+            };
+            self.player_use_item(conn_id, cid, payload, now)
+        }
+    }
+
+    /// F8 S4 — `TDMove` execute dispatch. Re-validates the source object, reconstructs
+    /// the `ThrowPayload` from the `ActionObjectRef` + destination, and calls the
+    /// existing `player_move_thing` executor (reroute only — F8 §0.1 F5). Returns
+    /// `Err(rv)` on re-validation or executor failure for the `RESULT` catch.
+    pub(crate) fn execute_player_move(
+        &mut self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+        dest: Position,
+        count: u8,
+    ) -> Result<(), ReturnValue> {
+        self.validate_move_object_ref(cid, obj)?;
+
+        let Some(conn_id) = self.conn_for_creature(cid) else {
+            tracing::debug!(?cid, "execute_player_move: no conn — skipping");
+            return Ok(());
+        };
+        let now = Instant::now();
+        let payload = ThrowPayload {
+            from_pos: obj.pos,
+            sprite_id: obj.sprite_id,
+            from_stack_pos: obj.stack_pos,
+            to_pos: dest,
+            count,
+        };
+        self.player_move_thing(
+            conn_id,
+            cid,
+            payload.from_pos,
+            payload.sprite_id,
+            payload.from_stack_pos,
+            payload.to_pos,
+            payload.count,
+            now,
+        )
     }
 
     /// Execute one `CreatureAction::Go` for 772 monsters — returns true if an action ran.

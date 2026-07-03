@@ -20,6 +20,10 @@ impl GameWorld {
 
     /// Handle `parseThrow` — player moves a thing from one position to another.
     // C++ ref: src/game.cpp Game::playerMoveThing — signature mirrors the protocol call.
+    ///
+    /// F8 S4 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
+    /// C++ `RESULT` catch (`cract.cc:870-889`). `Err(rv)` = hard failure; `Ok(())` =
+    /// success **or** walk-to-reach deferral (transitional — S5 folds into `Go`-prepend).
     #[allow(clippy::too_many_arguments)]
     pub fn player_move_thing(
         &mut self,
@@ -31,14 +35,13 @@ impl GameWorld {
         to_pos: Position,
         count: u8,
         now: Instant,
-    ) {
+    ) -> Result<(), ReturnValue> {
         if from_pos == to_pos {
-            return;
+            return Ok(());
         }
         // Resolve source thing
         let Some(thing) = self.internal_get_thing_move(cid, from_pos, from_stack_pos) else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         };
 
         match thing {
@@ -46,6 +49,7 @@ impl GameWorld {
                 // Creature move — already handled by walk system for players;
                 // NPC/monster push is Phase 9+.
                 tracing::debug!("player_move_thing: creature move not yet wired");
+                Ok(())
             }
             Thing::Item(item_id) => {
                 self.player_move_item(
@@ -58,7 +62,7 @@ impl GameWorld {
                     count,
                     item_id,
                     now,
-                );
+                )
             }
         }
     }
@@ -77,7 +81,7 @@ impl GameWorld {
         count: u8,
         item_id: ItemId,
         now: Instant,
-    ) {
+    ) -> Result<(), ReturnValue> {
         let item_is_pickupable;
         let item_throw_range;
         // Verify client sprite ID matches
@@ -85,36 +89,30 @@ impl GameWorld {
             let it = self.items_db.items.get(&item.item_type);
             let client_id = it.map(|t| t.client_id).unwrap_or(0);
             if client_id != sprite_id {
-                self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-                return;
+                return Err(ReturnValue::NotPossible);
             }
             // Check moveable
             let is_moveable = it.map(|t| t.moveable()).unwrap_or(false);
             if !is_moveable {
-                self.send_cancel_message(conn_id, ReturnValue::NotMoveable);
-                return;
+                return Err(ReturnValue::NotMoveable);
             }
             item_is_pickupable = it.map(|t| t.pickupable()).unwrap_or(false);
             // C++ ref: src/item.h:828-829 Item::getThrowRange (pickupable ? 15 : 2)
             item_throw_range = if item_is_pickupable { 15u32 } else { 2u32 };
         } else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         }
 
         // Resolve cylinders
         let Some(from_cylinder) = self.internal_get_cylinder(cid, from_pos) else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         };
         let Some(to_cylinder) = self.internal_get_cylinder(cid, to_pos) else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         };
 
         let Some(player_pos) = self.creatures.get(cid).map(|p| p.position()) else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         };
 
         let map_from_pos = match from_cylinder {
@@ -135,8 +133,7 @@ impl GameWorld {
                 } else {
                     ReturnValue::FirstGoDownStairs
                 };
-                self.send_cancel_message(conn_id, rv);
-                return;
+                return Err(rv);
             }
             // Distance check — walk to item first if out of range (`game.cpp` ~970–983).
             let dx = (player_pos.x as i32 - map_from_pos.x as i32).unsigned_abs();
@@ -150,8 +147,7 @@ impl GameWorld {
                         item_throw_range,
                     )
                 {
-                    self.send_cancel_message(conn_id, ReturnValue::DestinationOutOfReach);
-                    return;
+                    return Err(ReturnValue::DestinationOutOfReach);
                 }
                 let action = PlayerWalkAction::MoveItem {
                     from_pos,
@@ -161,35 +157,31 @@ impl GameWorld {
                     count,
                 };
                 if !self.try_walk_to_and_action(conn_id, cid, map_from_pos, action, now) {
-                    self.send_cancel_message(conn_id, ReturnValue::ThereIsNoWay);
+                    return Err(ReturnValue::ThereIsNoWay);
                 }
-                return;
+                return Ok(());
             }
         }
 
         // C++ ref: src/game.cpp:1046-1060 Game::playerMoveItem
         if !item_is_pickupable && player_pos.z != map_to_pos.z {
-            self.send_cancel_message(conn_id, ReturnValue::DestinationOutOfReach);
-            return;
+            return Err(ReturnValue::DestinationOutOfReach);
         }
 
         let to_dx = (player_pos.x as i32 - map_to_pos.x as i32).unsigned_abs();
         let to_dy = (player_pos.y as i32 - map_to_pos.y as i32).unsigned_abs();
         if to_dx > item_throw_range || to_dy > item_throw_range {
-            self.send_cancel_message(conn_id, ReturnValue::DestinationOutOfReach);
-            return;
+            return Err(ReturnValue::DestinationOutOfReach);
         }
 
         // C++ ref: src/game.cpp:1058 `canThrowObjectTo(mapFromPos, mapToPos, true, false, throwRange, throwRange)`
         if !self.can_throw_object_to(map_from_pos, map_to_pos, item_throw_range) {
-            self.send_cancel_message(conn_id, ReturnValue::CannotThrow);
-            return;
+            return Err(ReturnValue::CannotThrow);
         }
 
         // Check if destination tile can accept the thrown item
         if to_pos.x != 0xFFFF && !self.can_throw_to_tile(map_to_pos, item_id) {
-            self.send_cancel_message(conn_id, ReturnValue::NotEnoughRoom);
-            return;
+            return Err(ReturnValue::NotEnoughRoom);
         }
 
         let result = self.internal_move_item(
@@ -201,8 +193,9 @@ impl GameWorld {
             CylinderFlags::NONE,
         );
         if let Err(rv) = result {
-            self.send_cancel_message(conn_id, rv);
+            return Err(rv);
         }
+        Ok(())
     }
 
     // C++ ref: src/map.cpp:486-494 `Map::canThrowObjectTo` + `isSightClear` / `isTileClear`

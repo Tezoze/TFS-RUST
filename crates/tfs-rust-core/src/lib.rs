@@ -24,6 +24,7 @@ mod game_world_item_cylinder;
 mod game_world_item_move;
 mod game_world_lifecycle;
 mod game_world_player;
+mod game_world_player_rotate;
 mod game_world_player_throw;
 mod game_world_save;
 mod game_world_script;

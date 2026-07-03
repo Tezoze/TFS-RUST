@@ -500,20 +500,25 @@ impl GameWorld {
     }
 
     /// `Game::playerUseItem` — open container when item is a bag (`actions.cpp` container branch).
+    ///
+    /// F8 S4 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
+    /// C++ `RESULT` catch (`cract.cc:870-889`). `Err(rv)` = hard failure (the reactive
+    /// caller wraps with `send_cancel_message`); `Ok(())` = success **or** walk-to-reach
+    /// deferral (transitional — S5 folds the deferral into `Go`-prepend).
     pub fn player_use_item(
         &mut self,
         conn_id: ConnId,
         cid: CreatureId,
         payload: UseItemPayload,
         now: Instant,
-    ) {
+    ) -> Result<(), ReturnValue> {
         // C++ `internalGetCylinder`: map tile when `pos.x != 0xFFFF` — `game.cpp` ~199.
         // `pos.y & 0x40` is container encoding only when x is 0xFFFF, not a map-tile test.
         let is_map_tile = payload.pos.x != 0xFFFF;
         if !self.player_use_item_ready(cid) {
             // C++ `createSchedulerTask(delay, playerUseItem)` when `!canDoAction` (`game.cpp` ~2246).
             self.defer_player_walk_action(cid, PlayerWalkAction::UseItem(payload.clone()));
-            return;
+            return Ok(());
         }
         let item_id =
             if let Some(id) = self.resolve_item_at_position(cid, payload.pos, payload.stack_pos) {
@@ -524,24 +529,21 @@ impl GameWorld {
                 None
             };
         let Some(item_id) = item_id else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         };
         if !self.validate_item_sprite(item_id, payload.sprite_id) {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         }
         if is_map_tile {
             let Some(pp) = self.creatures.get(cid).map(|k| k.position()) else {
-                self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-                return;
+                return Err(ReturnValue::NotPossible);
             };
             if look_distance_tfs(pp, payload.pos) > 1 {
                 let action = PlayerWalkAction::UseItem(payload.clone());
                 if !self.try_walk_to_and_action(conn_id, cid, payload.pos, action, now) {
-                    self.send_cancel_message(conn_id, ReturnValue::ThereIsNoWay);
+                    return Err(ReturnValue::ThereIsNoWay);
                 }
-                return;
+                return Ok(());
             }
         }
         let preferred_cid =
@@ -556,25 +558,30 @@ impl GameWorld {
             );
             let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
             if ret != ReturnValue::NoError {
-                self.send_cancel_message(conn_id, ret);
+                return Err(ret);
             }
-            return;
+            return Ok(());
         }
         self.try_open_container_for_item(conn_id, cid, item_id, preferred_cid);
+        Ok(())
     }
 
     /// Use-with: if the source item is a container, open it (minimal parity until full use-with).
+    ///
+    /// F8 S4 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
+    /// C++ `RESULT` catch. On two-object success, multiuse exhaustion is set inside this
+    /// function via `player_apply_multiuse_exhaust` (`cract.cc:765`).
     pub fn player_use_item_ex(
         &mut self,
         conn_id: ConnId,
         cid: CreatureId,
         payload: UseItemExPayload,
         now: Instant,
-    ) {
+    ) -> Result<(), ReturnValue> {
         let is_map_tile = payload.from_pos.x != 0xFFFF;
         if !self.player_use_item_ex_ready(cid) {
             self.defer_player_walk_action(cid, PlayerWalkAction::UseItemEx(payload.clone()));
-            return;
+            return Ok(());
         }
         let item_id = if let Some(id) =
             self.resolve_item_at_position(cid, payload.from_pos, payload.from_stack_pos)
@@ -586,29 +593,27 @@ impl GameWorld {
             None
         };
         let Some(item_id) = item_id else {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         };
         if !self.validate_item_sprite(item_id, payload.from_sprite_id) {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-            return;
+            return Err(ReturnValue::NotPossible);
         }
         if is_map_tile {
             let Some(pp) = self.creatures.get(cid).map(|k| k.position()) else {
-                self.send_cancel_message(conn_id, ReturnValue::NotPossible);
-                return;
+                return Err(ReturnValue::NotPossible);
             };
             if look_distance_tfs(pp, payload.from_pos) > 1 {
                 let action = PlayerWalkAction::UseItemEx(payload.clone());
                 if !self.try_walk_to_and_action(conn_id, cid, payload.from_pos, action, now) {
-                    self.send_cancel_message(conn_id, ReturnValue::ThereIsNoWay);
+                    return Err(ReturnValue::ThereIsNoWay);
                 }
-                return;
+                return Ok(());
             }
         }
         // `UseItemEx` has no index byte; new window uses client-chosen cid via normal `UseItem`.
         self.try_open_container_for_item(conn_id, cid, item_id, None);
         self.player_apply_multiuse_exhaust(cid);
+        Ok(())
     }
 
     /// C++ `Actions::internalUseItem` container branch — toggle if already open; else `addContainer(index, ...)`.
