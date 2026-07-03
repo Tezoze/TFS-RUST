@@ -76,6 +76,27 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
     }
 }
 
+/// Resolved-at-enqueue object identity for `Use`/`Move`/`Turn` actions.
+///
+/// Rust analog of the decompile's `Object` handle resolved by `GetObject` in
+/// `ToDoUse`/`ToDoMove`/`ToDoTurn` (`cract.cc:1260/1125/1327`). Carries enough
+/// to re-locate + re-validate the item at execute time (mirroring `Obj.exists()`
+/// in the `Execute` drain, `cract.cc:783-898`). **Does not cache a raw `ItemId`** —
+/// the SlotMap could reuse a freed slot's generation, so the executor must re-resolve
+/// via `resolve_item_at_position` + `validate_item_sprite` and return `NOTACCESSIBLE`
+/// on mismatch (F8 §7 risk note).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ActionObjectRef {
+    /// Wire `Position` — encodes map tile / inventory slot / container slot via the
+    /// `0xFFFF` / `0x40` conventions (same encoding `resolve_item_at_position` reads).
+    pub pos: Position,
+    /// Wire `stack_pos` / `RNum` — tile stack index or container slot index.
+    pub stack_pos: u8,
+    /// Expected client sprite id — re-validated at execute time via
+    /// `validate_item_sprite` (mirrors `Obj.exists()` type check).
+    pub sprite_id: u16,
+}
+
 /// 772 ToDo action kinds — Rust enum instead of C++ `void*` task list.
 ///
 /// Mirrors the `TToDoEntry::Code` discriminator in `cract.cc:812-868` (`TDGo`, `TDAttack`,
@@ -94,6 +115,31 @@ pub enum CreatureAction {
     /// `TDTalk` — speak text on the next ToDo execute (`cract.cc:848`, `:1367-1390`).
     /// `text` is `&'static str` to avoid allocation in the hot walk path (drunk "Hicks!").
     Talk { text: &'static str },
+    /// `TDUse` — `cract.cc:1258-1296` `ToDoUse`. `obj2.is_none()` = single-object use
+    /// (`CUseObject` `receiving.cc:384`); `obj2.is_some()` = two-object use
+    /// (`CUseTwoObjects` `receiving.cc:430`), gated by `earliest_multiuse_server_ms` in
+    /// `CalculateDelay` (`cract.cc:925`). `open_index` is the client's preferred container
+    /// cid (`UseItemPayload.index`, `cract.cc:1294` "next free container index"); 0 for
+    /// `UseItemEx` (which has no index byte).
+    Use {
+        obj1: ActionObjectRef,
+        obj2: Option<ActionObjectRef>,
+        open_index: u8,
+    },
+    /// `TDMove` — `cract.cc:1123-1172` `ToDoMove` (`CMoveObject` `receiving.cc:233`).
+    /// `obj` = source, `dest` = throw destination (map/inventory/container encoded in
+    /// `Position`), `count` = stack count. Maps to Rust `GamePacket::Throw` (not
+    /// `MoveObject` — F8 §0.1 F5).
+    Move {
+        obj: ActionObjectRef,
+        dest: Position,
+        count: u8,
+    },
+    /// `TDTurn` — `cract.cc:1326-1351` `ToDoTurn` (rotate a rotatable *item*,
+    /// `CTurnObject` `receiving.cc:549`). **Not** `CRotate` (player facing) — that's
+    /// `GamePacket::Turn` and stays immediate (`receiving.cc:213`). No `Rotate` variant
+    /// on this enum (§3 note); this `Turn` variant is the item-rotate action only.
+    Turn { obj: ActionObjectRef },
 }
 
 /// Per-creature action queue paired with the global wakeup heap.
@@ -133,6 +179,24 @@ impl CreatureTodo {
         self.queue
             .iter()
             .any(|a| matches!(a, CreatureAction::Talk { .. }))
+    }
+
+    pub fn has_use(&self) -> bool {
+        self.queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Use { .. }))
+    }
+
+    pub fn has_move(&self) -> bool {
+        self.queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Move { .. }))
+    }
+
+    pub fn has_turn(&self) -> bool {
+        self.queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Turn { .. }))
     }
 }
 
@@ -439,7 +503,7 @@ mod tests {
     use tfs_rust_common::Position;
 
     use crate::creature::CreatureKind;
-    use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+    use crate::creature_todo::{ActionObjectRef, CreatureAction, CreatureTodo, MONSTER_IDLE_WAIT_MS};
     use crate::test_world::support::{
         dist_idle_monster_config, beat_driven_test_world, ensure_walkable_tile,
         insert_monster, insert_monster_with_config, insert_player, minimal_world, test_player,
@@ -545,5 +609,41 @@ mod tests {
             i32::MAX,
             "flee trace must mirror ToDoGo(must=true,max=INT_MAX)"
         );
+    }
+
+    #[test]
+    fn has_use_move_turn_helpers_detect_queued_variants() {
+        let obj = ActionObjectRef {
+            pos: Position::new(100, 100, 7),
+            stack_pos: 0,
+            sprite_id: 100,
+        };
+        let mut todo = CreatureTodo::default();
+        assert!(!todo.has_use());
+        assert!(!todo.has_move());
+        assert!(!todo.has_turn());
+
+        todo.queue.push_back(CreatureAction::Use {
+            obj1: obj,
+            obj2: None,
+            open_index: 0,
+        });
+        assert!(todo.has_use());
+        assert!(!todo.has_move());
+        assert!(!todo.has_turn());
+
+        todo.queue.push_back(CreatureAction::Move {
+            obj,
+            dest: Position::new(101, 100, 7),
+            count: 1,
+        });
+        assert!(todo.has_use());
+        assert!(todo.has_move());
+        assert!(!todo.has_turn());
+
+        todo.queue.push_back(CreatureAction::Turn { obj });
+        assert!(todo.has_use());
+        assert!(todo.has_move());
+        assert!(todo.has_turn());
     }
 }

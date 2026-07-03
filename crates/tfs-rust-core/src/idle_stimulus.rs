@@ -2400,6 +2400,20 @@ impl GameWorld {
                 }
                 }
             }
+            // F8 S1 stub arms — `Use`/`Move`/`Turn` enum variants compile-only.
+            // Executors + builders land in S2/S4; these never fire yet (no enqueue path).
+            CreatureAction::Use { .. } => {
+                trace_creature_todo(self, cid, "execute_use_stub");
+                TodoExecuteKind::Wait
+            }
+            CreatureAction::Move { .. } => {
+                trace_creature_todo(self, cid, "execute_move_stub");
+                TodoExecuteKind::Wait
+            }
+            CreatureAction::Turn { .. } => {
+                trace_creature_todo(self, cid, "execute_turn_stub");
+                TodoExecuteKind::Wait
+            }
         };
 
         if let Some(k) = self.creatures.get_mut(cid) {
