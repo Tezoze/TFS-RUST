@@ -297,6 +297,7 @@ pub fn bag_item_type(server_id: u16) -> ItemType {
 pub fn pickup_item_type(server_id: u16) -> ItemType {
     ItemType {
         allow_pickupable: true,
+        moveable_override: Some(true),
         server_id,
         ..Default::default()
     }

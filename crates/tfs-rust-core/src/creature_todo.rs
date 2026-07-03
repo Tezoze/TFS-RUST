@@ -28,6 +28,8 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::monster_ai::{chebyshev, monster_idle_chase_step_budget};
 use crate::pathfinding::CHASE_PATH_MAX_STEPS;
+use crate::return_value::ReturnValue;
+use crate::thing::Thing;
 use tfs_rust_common::Position;
 
 /// C++ `ToDoWait(1000)` after roam, dist_dance, dist_flee fail, master dist 2–3 (`crnonpl.cc`).
@@ -301,6 +303,141 @@ impl GameWorld {
         true
     }
 
+    /// F8 S2 — validate that an item exists at the wire location with the expected
+    /// sprite, using the **Use/Turn** resolution path (`resolve_item_at_position` +
+    /// `find_tile_item_by_client_sprite` fallback for map tiles). Mirrors the
+    /// decompile's `GetObject` (`cract.cc:1260/1327`) which throws `RESULT` at
+    /// enqueue time if the object can't be resolved. Returns the `ActionObjectRef`
+    /// (wire identity triple, unchanged) on success; `Err(NotPossible)` on failure —
+    /// C++ `NOTACCESSIBLE` maps to `ReturnValue::NotPossible` (matching
+    /// `walk/mod.rs:1506`'s `NOTACCESSIBLE` → `NotPossible` convention).
+    fn validate_action_object_ref(
+        &self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+    ) -> Result<ActionObjectRef, ReturnValue> {
+        let is_map_tile = obj.pos.x != 0xFFFF;
+        // C++ ref: `Game::internalGetThing` — `resolve_item_at_position` mirrors the
+        // `STACKPOS_USEITEM` path; `find_tile_item_by_client_sprite` is the sprite-id
+        // fallback for map tiles (same logic as `player_use_item`, `container_ui.rs:518-525`).
+        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj.pos, obj.stack_pos) {
+            Some(id)
+        } else if is_map_tile {
+            self.find_tile_item_by_client_sprite(obj.pos, obj.sprite_id)
+        } else {
+            None
+        };
+        let Some(item_id) = item_id else {
+            return Err(ReturnValue::NotPossible);
+        };
+        // Re-validate sprite — mirrors `Obj.exists()` type check (`cract.cc:783-898`).
+        if !self.validate_item_sprite(item_id, obj.sprite_id) {
+            return Err(ReturnValue::NotPossible);
+        }
+        Ok(obj)
+    }
+
+    /// F8 S2 — validate that a moveable item exists at the wire location, using the
+    /// **Move** resolution path (`internal_get_thing_move` — `STACKPOS_MOVE`). Same
+    /// `GetObject` → `throw RESULT` contract as [`validate_action_object_ref`], but
+    /// the Move executor (`player_move_item`) resolves via `internal_get_thing_move`
+    /// (moveable-priority stack walk), not `resolve_item_at_position`
+    /// (container-priority). The builder validates with the same path its S4
+    /// executor will re-validate with.
+    fn validate_move_object_ref(
+        &self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+    ) -> Result<ActionObjectRef, ReturnValue> {
+        let thing = self.internal_get_thing_move(cid, obj.pos, obj.stack_pos);
+        let item_id = match thing {
+            Some(Thing::Item(id)) => Some(id),
+            _ => None,
+        };
+        let Some(item_id) = item_id else {
+            return Err(ReturnValue::NotPossible);
+        };
+        if !self.validate_item_sprite(item_id, obj.sprite_id) {
+            return Err(ReturnValue::NotPossible);
+        }
+        Ok(obj)
+    }
+
+    /// F8 S2 — `ToDoUse` builder (`cract.cc:1258-1296`). Resolves both objects now
+    /// (mirroring `GetObject`'s `throw RESULT` on failure), prepends `Wait{100}`
+    /// (`receiving.cc:384/430`), and enqueues `Use`. `obj2.is_none()` = single-object
+    /// `CUseObject` (`receiving.cc:384`); `obj2.is_some()` = two-object
+    /// `CUseTwoObjects` (`receiving.cc:430`). `open_index` is the client's preferred
+    /// container cid (`UseItemPayload.index`); 0 for `UseItemEx` (no index byte).
+    pub(crate) fn enqueue_player_use(
+        &mut self,
+        cid: CreatureId,
+        obj1: ActionObjectRef,
+        obj2: Option<ActionObjectRef>,
+        open_index: u8,
+    ) -> Result<(), ReturnValue> {
+        self.validate_action_object_ref(cid, obj1)?;
+        if let Some(o2) = obj2 {
+            self.validate_action_object_ref(cid, o2)?;
+        }
+        // `ToDoWait(100)` then `ToDoUse(...)` — `receiving.cc:384/430`.
+        self.enqueue_creature_wait(cid, 100);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.push_back(CreatureAction::Use {
+                obj1,
+                obj2,
+                open_index,
+            });
+        }
+        trace_creature_todo(self, cid, "enqueue_player_use");
+        Ok(())
+    }
+
+    /// F8 S2 — `ToDoMove` builder (`cract.cc:1123-1172`, `CMoveObject`
+    /// `receiving.cc:233`). Resolves the source object now, enqueues `Move` with
+    /// **no** `Wait` prefix (the decompile's `CMoveObject` handler calls
+    /// `ToDoMove` + `ToDoStart` directly — no `ToDoWait`). `dest` is the throw
+    /// destination (map/inventory/container encoded in `Position`), `count` is the
+    /// stack count. Maps to Rust `GamePacket::Throw` (not `MoveObject` — F8 §0.1 F5).
+    pub(crate) fn enqueue_player_move(
+        &mut self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+        dest: Position,
+        count: u8,
+    ) -> Result<(), ReturnValue> {
+        self.validate_move_object_ref(cid, obj)?;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.push_back(CreatureAction::Move {
+                obj,
+                dest,
+                count,
+            });
+        }
+        trace_creature_todo(self, cid, "enqueue_player_move");
+        Ok(())
+    }
+
+    /// F8 S2 — `ToDoTurn` builder (`cract.cc:1326-1351`, `CTurnObject`
+    /// `receiving.cc:549`). Rotates a rotatable *item* (wall torch/rope) — **not**
+    /// `CRotate` (player facing, `receiving.cc:213`, already immediate). Resolves
+    /// the object now, prepends `Wait{100}` (`receiving.cc:549`), enqueues `Turn`.
+    /// The executor is new code (S4 — nothing exists to reuse, F8 §0.1 F2).
+    pub(crate) fn enqueue_player_turn(
+        &mut self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+    ) -> Result<(), ReturnValue> {
+        self.validate_action_object_ref(cid, obj)?;
+        // `ToDoWait(100)` then `ToDoTurn(...)` — `receiving.cc:549`.
+        self.enqueue_creature_wait(cid, 100);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.push_back(CreatureAction::Turn { obj });
+        }
+        trace_creature_todo(self, cid, "enqueue_player_turn");
+        Ok(())
+    }
+
     /// Schedule the next action wakeup after `delay_ms` logical time.
     pub(crate) fn todo_start_from_action(&mut self, cid: CreatureId, delay_ms: u64) {
         // C++ `ToDoStart` clamps `Delay < 1` to `1` (`cract.cc:1016`), so a re-insertion is always
@@ -504,6 +641,7 @@ mod tests {
 
     use crate::creature::CreatureKind;
     use crate::creature_todo::{ActionObjectRef, CreatureAction, CreatureTodo, MONSTER_IDLE_WAIT_MS};
+    use crate::ids::CreatureId;
     use crate::test_world::support::{
         dist_idle_monster_config, beat_driven_test_world, ensure_walkable_tile,
         insert_monster, insert_monster_with_config, insert_player, minimal_world, test_player,
@@ -645,5 +783,244 @@ mod tests {
         assert!(todo.has_use());
         assert!(todo.has_move());
         assert!(todo.has_turn());
+    }
+
+    // === F8 S2 — builder queue-shape + failure tests ===
+    // C++ ref: `cract.cc:1258-1296` `ToDoUse`, `:1123-1172` `ToDoMove`,
+    //          `:1326-1351` `ToDoTurn`; `receiving.cc:384/430/233/549` handlers.
+    // The `beat_driven_test_world` items_db registers bag (1987, GROUP_CONTAINER)
+    // and gold (2148, pickupable) with `client_id=0` (default), so `sprite_id=0`
+    // validates via `validate_item_sprite` (`client_id_for_server == 0`).
+
+    /// Place a bag (container) item on a tile and return its `ActionObjectRef`.
+    /// Used by the Use/Turn success tests — `item_id_for_tile_use` finds
+    /// containers via `is_container` priority.
+    fn place_bag_on_tile(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+    ) -> ActionObjectRef {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let item_id = world.items.insert(crate::item::Item::new_single(1987));
+        world
+            .map
+            .get_tile_mut(pos)
+            .expect("tile just inserted")
+            .add_item(item_id);
+        ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 0, // matches default `client_id=0` in test items_db
+        }
+    }
+
+    /// Place a gold (pickupable, moveable) item on a tile and return its
+    /// `ActionObjectRef`. Used by the Move success test —
+    /// `internal_get_thing_move` finds moveable down-items via `get_top_down_item`.
+    fn place_gold_on_tile(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+    ) -> ActionObjectRef {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let item_id = world.items.insert(crate::item::Item::new_single(2148));
+        world
+            .map
+            .get_tile_mut(pos)
+            .expect("tile just inserted")
+            .add_item(item_id);
+        ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 0,
+        }
+    }
+
+    fn insert_test_player(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+    ) -> CreatureId {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = world
+            .creatures
+            .insert(CreatureKind::Player(test_player("S2Hero", pos)));
+        world.map.register_creature_at(pos, cid);
+        cid
+    }
+
+    #[test]
+    fn enqueue_player_use_single_prepends_wait_then_use() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("bag on tile resolves");
+
+        let todo = &world.creatures.get(cid).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2, "Use single → [Wait{{100}}, Use]");
+        assert!(matches!(
+            todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
+        match todo.queue[1] {
+            CreatureAction::Use {
+                obj1: ref o1,
+                obj2,
+                open_index,
+            } => {
+                assert_eq!(*o1, obj1);
+                assert!(obj2.is_none(), "single-object use has no obj2");
+                assert_eq!(open_index, 0);
+            }
+            ref other => panic!("expected Use, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enqueue_player_use_two_object_prepends_wait_then_use_with_obj2() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let item_pos2 = Position::new(102, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+        let obj2 = place_bag_on_tile(&mut world, item_pos2);
+
+        world
+            .enqueue_player_use(cid, obj1, Some(obj2), 3)
+            .expect("both bags resolve");
+
+        let todo = &world.creatures.get(cid).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2, "Use two-object → [Wait{{100}}, Use]");
+        assert!(matches!(
+            todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
+        match todo.queue[1] {
+            CreatureAction::Use {
+                obj1: _,
+                obj2: Some(ref o2),
+                open_index,
+            } => {
+                assert_eq!(*o2, obj2);
+                assert_eq!(open_index, 3);
+            }
+            ref other => panic!("expected Use with obj2, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enqueue_player_move_enqueues_single_move_no_wait() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let dest = Position::new(105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_gold_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_move(cid, obj, dest, 1)
+            .expect("gold on tile resolves");
+
+        let todo = &world.creatures.get(cid).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 1, "Move → single entry, no Wait");
+        match todo.queue[0] {
+            CreatureAction::Move {
+                obj: ref o,
+                dest: d,
+                count,
+            } => {
+                assert_eq!(*o, obj);
+                assert_eq!(d, dest);
+                assert_eq!(count, 1);
+            }
+            ref other => panic!("expected Move, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enqueue_player_turn_prepends_wait_then_turn() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_turn(cid, obj)
+            .expect("bag on tile resolves");
+
+        let todo = &world.creatures.get(cid).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
+        assert!(matches!(
+            todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
+        match todo.queue[1] {
+            CreatureAction::Turn { obj: ref o } => assert_eq!(*o, obj),
+            ref other => panic!("expected Turn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enqueue_player_use_fails_on_absent_object() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let absent = ActionObjectRef {
+            pos: Position::new(200, 200, 7), // no tile, no item
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        let result = world.enqueue_player_use(cid, absent, None, 0);
+
+        assert_eq!(result, Err(crate::return_value::ReturnValue::NotPossible));
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "failed builder must not enqueue anything"
+        );
+    }
+
+    #[test]
+    fn enqueue_player_turn_fails_on_absent_object() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let absent = ActionObjectRef {
+            pos: Position::new(200, 200, 7),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        let result = world.enqueue_player_turn(cid, absent);
+
+        assert_eq!(result, Err(crate::return_value::ReturnValue::NotPossible));
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "failed builder must not enqueue anything"
+        );
+    }
+
+    #[test]
+    fn enqueue_player_move_fails_on_absent_object() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let absent = ActionObjectRef {
+            pos: Position::new(200, 200, 7),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        let result = world.enqueue_player_move(cid, absent, Position::new(105, 100, 7), 1);
+
+        assert_eq!(result, Err(crate::return_value::ReturnValue::NotPossible));
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "failed builder must not enqueue anything"
+        );
     }
 }

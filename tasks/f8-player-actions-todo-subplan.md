@@ -316,8 +316,17 @@ reactive path alive behind the existing gate until its ToDo replacement is verif
       on `CreatureTodo`. Stub match arms in `execute_creature_todo_action` (trace + `Wait` kind)
       keep the enum exhaustive; no executor wired yet. Unit test covers all three `has_*`
       helpers. `cargo check` + `clippy --all-targets` + 524 tests pass.
-- [ ] **S2 — Builders.** `enqueue_player_use/move/turn` with resolve-now + `Err(ReturnValue)`;
-      Use/Turn prepend `Wait{100}`. Unit-test each builder's queue shape + failure `RESULT`.
+- [x] **S2 — Builders.** DONE. Added `enqueue_player_use`/`enqueue_player_move`/`enqueue_player_turn`
+      + `validate_action_object_ref` (Use/Turn path: `resolve_item_at_position` +
+      `find_tile_item_by_client_sprite` fallback) + `validate_move_object_ref` (Move path:
+      `internal_get_thing_move`). Each resolves the object at enqueue time and returns
+      `Err(NotPossible)` on failure (C++ `NOTACCESSIBLE` → `NotPossible`, matching
+      `walk/mod.rs:1506`). Use/Turn prepend `Wait{100}`; Move does not. 7 unit tests cover
+      all queue shapes (`[Wait{100}, Use]` single/two-object, `[Move]`, `[Wait{100}, Turn]`)
+      + failure cases (absent object → `Err(NotPossible)`, queue unchanged). Also fixed
+      `pickup_item_type` to set `moveable_override: Some(true)` (gold IS moveable in Tibia;
+      `internal_get_thing_move` requires `moveable()`). `cargo check` + `clippy --all-targets`
+      + 531 tests pass.
 - [ ] **S3 — CalculateDelay.** Wire the multiuse gate for two-object `Use`; 0 for Move/Turn. Test:
       two-object use within 1000 ms defers; single-object use does not.
 - [ ] **S4 — Execute dispatch.**
