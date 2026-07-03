@@ -152,8 +152,8 @@ fn parse_flags(block: &str) -> (bool, bool) {
         .and_then(|s| s.split('}').next())
         .map(|s| s.split(',').map(str::trim).collect())
         .unwrap_or_default();
-    let bank = flags.iter().any(|f| *f == "Bank");
-    let unpass = flags.iter().any(|f| *f == "Unpass");
+    let bank = flags.contains(&"Bank");
+    let unpass = flags.contains(&"Unpass");
     (bank, unpass)
 }
 

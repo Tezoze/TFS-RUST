@@ -373,6 +373,7 @@ pub(crate) fn get_walk_delay_logical(
     delay.max(0)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn get_event_step_ticks(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,

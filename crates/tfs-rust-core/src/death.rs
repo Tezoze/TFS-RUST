@@ -38,6 +38,7 @@ fn death_loss_fraction(config: &ConfigManager, level: i32, experience: u64) -> f
 /// When `schedule_generic_corpse` is false (772 race corpse already placed on tile), skip the
 /// generic item 3058 insert.
 // C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:891-908`.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_creature_death(
     creatures: &mut SlotMap<CreatureId, CreatureKind>,
     items: &mut SlotMap<ItemId, Item>,

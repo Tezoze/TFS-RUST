@@ -408,11 +408,6 @@ impl GameWorld {
         3
     }
 
-    /// Roll 772 `Strategy[]` bucket — `crnonpl.cc:2424` (last bucket is random).
-    fn monster_idle_roll_strategy(nearest: u8, health: u8, damage: u8, rng: &mut impl Rng) -> u8 {
-        Self::monster_idle_roll_strategy_from_roll(nearest, health, damage, rng.gen_range(0..100))
-    }
-
     /// C++ target validity + `LoseTarget` — `crnonpl.cc:2368-2384`.
     /// 772 summon despawn / re-bind block — `crnonpl.cc:2359–2405`.
     ///
@@ -601,7 +596,7 @@ impl GameWorld {
                 m.strategy_damage,
             ))
         });
-        let Some((pos, existing_follow, state, strat_near, strat_hp, strat_dmg)) = snapshot else {
+        let Some((pos, existing_follow, _state, strat_near, strat_hp, strat_dmg)) = snapshot else {
             return false;
         };
 
@@ -668,7 +663,7 @@ impl GameWorld {
                 2 => self
                     .creatures
                     .get(cid)
-                    .map(|k| k.base().damage_map.get(&target_id).copied().unwrap_or(0) as i32)
+                    .map(|k| k.base().damage_map.get(target_id).copied().unwrap_or(0) as i32)
                     .unwrap_or(0),
                 _ => 0,
             };
@@ -1631,7 +1626,7 @@ impl GameWorld {
             return false;
         };
         let target_distance = self.monster_effective_target_distance(m.target_distance);
-        let dist = chebyshev(pos, target_pos);
+        let _dist = chebyshev(pos, target_pos);
         // `CanToDoAttack` close walk at cheb>1 — no strike-range cap (`crcombat.cc:496`).
         if m.melee_skill > 0 && m.base.chase_mode == ChaseMode::Close {
             return true;
@@ -2236,9 +2231,7 @@ impl GameWorld {
         }
 
         let action = {
-            let Some(k) = self.creatures.get_mut(cid) else {
-                return None;
-            };
+            let k = self.creatures.get_mut(cid)?;
             if k.base().todo.locked {
                 return None;
             }
@@ -2425,6 +2418,7 @@ impl GameWorld {
     }
 
     /// Execute one `CreatureAction::Go` for 772 monsters — returns true if an action ran.
+    #[cfg(test)]
     pub(crate) fn execute_creature_todo_go(&mut self, cid: CreatureId) -> bool {
         matches!(
             self.execute_creature_todo_action(cid),

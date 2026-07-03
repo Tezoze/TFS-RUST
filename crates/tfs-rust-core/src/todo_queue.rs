@@ -110,6 +110,7 @@ impl ToDoQueue {
         self.entries -= 1;
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.entries < 1
     }

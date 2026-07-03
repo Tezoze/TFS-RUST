@@ -152,7 +152,7 @@ impl GameWorld {
             if let Some((food_level, _hp, alive, pos)) = regen_info {
                 if food_level > 0
                     && alive
-                    && (round_nr % food_level as u32) == 0
+                    && round_nr.is_multiple_of(food_level as u32)
                     && !self.tile_in_protection_zone(pos)
                 {
                     if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(*cid) {

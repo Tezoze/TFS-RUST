@@ -75,6 +75,12 @@ pub struct TileBody {
     pub zone: ZoneType,
 }
 
+impl Default for TileBody {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TileBody {
     pub fn new() -> Self {
         Self {

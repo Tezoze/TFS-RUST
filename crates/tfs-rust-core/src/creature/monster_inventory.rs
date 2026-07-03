@@ -110,7 +110,7 @@ fn roll_loot_block_glibc(
     world: &mut GameWorld,
     block: &LootBlock,
     registry: &mut crate::container::ContainerRegistry,
-    owner: CreatureId,
+    _owner: CreatureId,
 ) -> Option<ItemId> {
     if !loot_block_passes_glibc(world, block.chance) {
         return None;
@@ -136,7 +136,7 @@ fn roll_loot_block_glibc(
         let cap = world.container_capacity(server_id);
         let mut container = Container::new(item_id, cap);
         for child in &block.child_loot {
-            if let Some(child_id) = roll_loot_block_glibc(world, child, registry, owner) {
+            if let Some(child_id) = roll_loot_block_glibc(world, child, registry, _owner) {
                 let _ = container.add_item(child_id);
                 if let Some(ch) = registry.get_mut(child_id) {
                     ch.parent_container = Some(item_id);
@@ -154,7 +154,7 @@ fn roll_loot_block<R: Rng + ?Sized>(
     rng: &mut R,
     block: &LootBlock,
     registry: &mut crate::container::ContainerRegistry,
-    owner: CreatureId,
+    _owner: CreatureId,
 ) -> Option<ItemId> {
     if block.chance > 0 && block.chance < MAX_LOOTCHANCE {
         if rng.gen_range(0..MAX_LOOTCHANCE) >= block.chance {
@@ -185,7 +185,7 @@ fn roll_loot_block<R: Rng + ?Sized>(
         let cap = world.container_capacity(server_id);
         let mut container = Container::new(item_id, cap);
         for child in &block.child_loot {
-            if let Some(child_id) = roll_loot_block(world, rng, child, registry, owner) {
+            if let Some(child_id) = roll_loot_block(world, rng, child, registry, _owner) {
                 let _ = container.add_item(child_id);
                 if let Some(ch) = registry.get_mut(child_id) {
                     ch.parent_container = Some(item_id);

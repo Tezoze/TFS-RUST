@@ -23,6 +23,7 @@ pub const ITEM_TYPE_CONTAINER: u8 = 4;
 /// C++ `ItemTypes_t::ITEM_TYPE_DOOR` — `src/items.h`.
 pub const ITEM_TYPE_DOOR: u8 = 5;
 /// C++ `ItemTypes_t::ITEM_TYPE_MAGICFIELD` — `src/items.h`.
+pub const ITEM_TYPE_MAGICFIELD: u8 = 6;
 
 /// 772 magic-field damage kind — `ObjType.getAttribute(AVOIDDAMAGETYPES)` (`crnonpl.cc:2263`,
 /// `enums.hh:147`). Used by `MovePossible` to decide whether a race's `NoPoison`/`NoBurning`/
@@ -36,7 +37,6 @@ pub enum FieldDamageType {
     /// `DAMAGE_ENERGY = 0x8` — `RaceData[Race].NoEnergy` ignores.
     Energy,
 }
-pub const ITEM_TYPE_MAGICFIELD: u8 = 6;
 /// C++ `ItemTypes_t::ITEM_TYPE_TELEPORT` — `src/items.h`.
 pub const ITEM_TYPE_TELEPORT: u8 = 7;
 /// C++ `ItemTypes_t::ITEM_TYPE_BED` — `src/items.h`.

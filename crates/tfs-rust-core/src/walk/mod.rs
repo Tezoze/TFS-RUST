@@ -333,10 +333,7 @@ impl GameWorld {
         // `<= server_ms` (a real bug) — log loudly rather than silently deferring work.
         const RUNAWAY_GUARD: usize = 1_000_000;
         let mut drained = 0usize;
-        loop {
-            let Some(entry) = self.todo_queue.peek() else {
-                break;
-            };
+        while let Some(entry) = self.todo_queue.peek() {
             if entry.execution_time > self.server_ms {
                 break;
             }
@@ -1754,7 +1751,7 @@ impl GameWorld {
         &mut self,
         cid: CreatureId,
         direction: Direction,
-        now: Instant,
+        _now: Instant,
     ) -> Result<Vec<MoveSegment>, ReturnValue> {
         let current_pos = match self.creatures.get(cid) {
             Some(k) => k.position(),

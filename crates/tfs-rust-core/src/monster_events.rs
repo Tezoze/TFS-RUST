@@ -254,13 +254,13 @@ impl GameWorld {
         &mut self,
         monster_id: CreatureId,
         creature_id: CreatureId,
-        new_pos: Position,
+        _new_pos: Position,
         has_path: bool,
     ) {
-        if !self
+        if self
             .creatures
             .get(monster_id)
-            .is_some_and(|k| k.base().follow_target.is_some())
+            .is_none_or(|k| k.base().follow_target.is_none())
         {
             return;
         }

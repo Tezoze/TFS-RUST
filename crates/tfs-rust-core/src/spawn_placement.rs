@@ -297,6 +297,7 @@ impl GameWorld {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn place_spawn_creature(
         &mut self,
         cid: CreatureId,

@@ -1,8 +1,8 @@
 //! Central simulation state: entities, map, managers, DB handle.
 //!
 //! - `Game` / `Map` ownership — `game.cpp`.
-//! Tick: [`crate::game_world_tick`]. Lifecycle: [`crate::game_world_lifecycle`].
-//! Spectators: [`crate::game_world_spectators`]. Items: [`crate::game_world_item_cylinder`], [`crate::game_world_item_move`].
+//!   Tick: [`crate::game_world_tick`]. Lifecycle: [`crate::game_world_lifecycle`].
+//!   Spectators: [`crate::game_world_spectators`]. Items: [`crate::game_world_item_cylinder`], [`crate::game_world_item_move`].
 // C++ reference: `Game` / `Map` ownership in `game.cpp`.
 
 pub use crate::game_world_spectators::{creature_can_see, protocol_can_see};
@@ -262,6 +262,7 @@ impl GameWorld {
             p.base.delay_spell_ms(now_ms, delay_ms);
         }
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         map: Map,
         items: SlotMap<ItemId, Item>,

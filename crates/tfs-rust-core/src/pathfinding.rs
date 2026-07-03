@@ -426,6 +426,7 @@ const TSHORTWAY_UNVISITED_H: i32 = i32::MAX;
 
 /// Prefer cardinal when two relaxations reach the same `waylength` (`cract.cc` strict `<` keeps
 /// first-seen; linked-list expand order can still tie — cardinals match live 772 chase traces).
+#[cfg(test)]
 fn tshortway_should_relax(prev_waylength: u32, new_waylength: u32) -> bool {
     new_waylength < prev_waylength
 }
@@ -572,7 +573,7 @@ impl TShortwaySearch {
             }
 
             // `cract.cc:181-184` — signed sum; negative `Waylength` is valid during reverse expand.
-            let distance = manhattan_dist(neighbor_pos, self.origin) as i32;
+            let distance = manhattan_dist(neighbor_pos, self.origin);
             let heuristic =
                 neighbor_wl + neighbor_wp + (self.min_waypoints as i32) * (distance - 1);
 

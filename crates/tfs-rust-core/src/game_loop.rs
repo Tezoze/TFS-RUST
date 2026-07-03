@@ -123,43 +123,44 @@ fn flush_pending_outgoing(world: &mut GameWorld, out_registry: &Option<OutRegist
 /// default is **gated** for gameplay (use/attack/trade/etc.).  
 // C++ reference: per-handler checks in `game.cpp` / `player.cpp`; refine when each opcode is ported.
 fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
-    match packet {
+    !matches!(
+        packet,
         GamePacket::EnterGame
-        | GamePacket::Logout
-        | GamePacket::Ping
-        | GamePacket::PingBack
-        | GamePacket::Move(_)
-        | GamePacket::AutoWalk { .. }
-        | GamePacket::StopAutoWalk => false,
-        GamePacket::ExtendedOpcode { .. } => false,
-        GamePacket::Turn(_) | GamePacket::CancelAttackAndFollow => false,
-        GamePacket::FightModes { .. } => false,
-        GamePacket::LookAt { .. }
-        | GamePacket::LookInBattleList { .. }
-        | GamePacket::BrowseField { .. }
-        | GamePacket::GetObjectInfo => false,
-        GamePacket::Say(_)
-        | GamePacket::RequestChannels
-        | GamePacket::OpenChannel { .. }
-        | GamePacket::CloseChannel { .. }
-        | GamePacket::OpenPrivateChannel { .. }
-        | GamePacket::CloseNpcChannel => false,
-        GamePacket::CloseContainer { .. }
-        | GamePacket::UpArrowContainer { .. }
-        | GamePacket::UpdateContainer { .. }
-        | GamePacket::SeekInContainer { .. }
-        | GamePacket::UseItem(_)
-        | GamePacket::UseItemEx(_) => false,
-        GamePacket::BugReport(_)
-        | GamePacket::ThankYou
-        | GamePacket::DebugAssert { .. }
-        | GamePacket::QuestLog
-        | GamePacket::QuestLine { .. } => false,
-        GamePacket::VipAdd { .. } | GamePacket::VipRemove { .. } | GamePacket::VipEdit { .. } => {
-            false
-        }
-        _ => true,
-    }
+            | GamePacket::Logout
+            | GamePacket::Ping
+            | GamePacket::PingBack
+            | GamePacket::Move(_)
+            | GamePacket::AutoWalk { .. }
+            | GamePacket::StopAutoWalk
+            | GamePacket::ExtendedOpcode { .. }
+            | GamePacket::Turn(_)
+            | GamePacket::CancelAttackAndFollow
+            | GamePacket::FightModes { .. }
+            | GamePacket::LookAt { .. }
+            | GamePacket::LookInBattleList { .. }
+            | GamePacket::BrowseField { .. }
+            | GamePacket::GetObjectInfo
+            | GamePacket::Say(_)
+            | GamePacket::RequestChannels
+            | GamePacket::OpenChannel { .. }
+            | GamePacket::CloseChannel { .. }
+            | GamePacket::OpenPrivateChannel { .. }
+            | GamePacket::CloseNpcChannel
+            | GamePacket::CloseContainer { .. }
+            | GamePacket::UpArrowContainer { .. }
+            | GamePacket::UpdateContainer { .. }
+            | GamePacket::SeekInContainer { .. }
+            | GamePacket::UseItem(_)
+            | GamePacket::UseItemEx(_)
+            | GamePacket::BugReport(_)
+            | GamePacket::ThankYou
+            | GamePacket::DebugAssert { .. }
+            | GamePacket::QuestLog
+            | GamePacket::QuestLine { .. }
+            | GamePacket::VipAdd { .. }
+            | GamePacket::VipRemove { .. }
+            | GamePacket::VipEdit { .. }
+    )
 }
 
 fn packet_would_immediate_flush(packet: &GamePacket) -> bool {
@@ -620,7 +621,7 @@ fn drain_burst_beats(interval: &mut tokio::time::Interval) -> u64 {
         let next = interval.tick();
         tokio::pin!(next);
         let waker = std::task::Waker::noop();
-        let mut cx = std::task::Context::from_waker(&waker);
+        let mut cx = std::task::Context::from_waker(waker);
         if matches!(next.as_mut().poll(&mut cx), Poll::Ready(_)) {
             beats += 1;
         } else {

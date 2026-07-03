@@ -135,8 +135,8 @@ pub struct MonsterType {
     /// `<voices><voice sentence="…"/></voices>` — 772 `RaceData.Talk` list (`crnonpl.cc:2442`).
     /// Empty when the monster has no `<voices>` block; the idle talk gate still draws `rand()%50`
     /// + `random(1, Talks)` for RNG parity but emits no packet (matches C++ `Talks == 0` return).
-    /// Each entry may carry a `#y `/`#Y ` prefix (decompile yell marker, `crnonpl.cc:2450`) — the
-    /// idle talk path strips it and switches to `TALKTYPE_MONSTER_YELL` on hit.
+    ///   Each entry may carry a `#y `/`#Y ` prefix (decompile yell marker, `crnonpl.cc:2450`) — the
+    ///   idle talk path strips it and switches to `TALKTYPE_MONSTER_YELL` on hit.
     pub talk_texts: Vec<String>,
 }
 
@@ -520,20 +520,20 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                 if imm.tag_name().name().eq_ignore_ascii_case("immunity") {
                     if imm.attribute("poison")
                         .or_else(|| imm.attribute("earth"))
-                        .is_some_and(|v| parse_bool_flag(v))
+                        .is_some_and(parse_bool_flag)
                     {
                         defenses.immunity_poison = true;
                     }
                     // C++ `RaceData[Race].NoBurning` — `crmain.cc:549`.
-                    if imm.attribute("fire").is_some_and(|v| parse_bool_flag(v)) {
+                    if imm.attribute("fire").is_some_and(parse_bool_flag) {
                         defenses.immunity_fire = true;
                     }
                     // C++ `RaceData[Race].NoEnergy` — `crmain.cc:550`.
-                    if imm.attribute("energy").is_some_and(|v| parse_bool_flag(v)) {
+                    if imm.attribute("energy").is_some_and(parse_bool_flag) {
                         defenses.immunity_energy = true;
                     }
                     // C++ `RaceData[Race].SeeInvisible` — `crmain.cc:1493`.
-                    if imm.attribute("invisible").is_some_and(|v| parse_bool_flag(v)) {
+                    if imm.attribute("invisible").is_some_and(parse_bool_flag) {
                         defenses.see_invisible = true;
                     }
                 }

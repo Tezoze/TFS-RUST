@@ -399,9 +399,9 @@ impl GameWorld {
 
     /// B3.1 — lowest-health opponent from `candidates`, using the profile's [`WeakestTargetMetric`]
     /// (current HP for 772, max HP for TFS). Ties keep the first candidate.
-
+    ///
     /// C++ `Monster::onCreatureAppear` self branch — `monster.cpp` ~159–166.
-
+    ///
     /// C++ `TCombat::Attack` / `CloseAttack` / `DistanceAttack` — `crcombat.cc:530`, `:609`, `:647`.
     pub fn monster_do_attacking(&mut self, cid: CreatureId, _interval_ms: u32) {
         self.monster_update_look_direction(cid);
@@ -1034,23 +1034,6 @@ impl GameWorld {
         true
     }
 
-    /// Whether the monster type has a melee strike (`SKILL_FIST` / melee attack spell).
-    ///
-    /// C++ reference: `crnonpl.cc:2705–2706` — fist skill sets `ATTACKING` posture.
-    pub(crate) fn monster_has_melee_attack_spell(&self, cid: CreatureId) -> bool {
-        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
-            return false;
-        };
-        if self.monster_effective_target_distance(m.target_distance) > 1 {
-            return false;
-        }
-        if m.melee_skill > 0 {
-            return true;
-        }
-        // Stub spawns without combat config (unit tests): hostile melee types only.
-        m.is_hostile
-    }
-
     /// Whether idle `MeleeChase` at cheb>1 must not run — `crnonpl.cc:2731` (`ATTACKING`/`PANIC`).
     ///
     /// Close walk at distance comes from `ToDoAttack` → `CanToDoAttack` (`crcombat.cc:496`), not idle chase.
@@ -1147,10 +1130,10 @@ impl GameWorld {
                 .is_none_or(|k| { k.base().follow_target == Some(attack_id) }),
             "close-chase repath requires follow_target == attack_target"
         );
-        if !self
+        if self
             .creatures
             .get(attack_id)
-            .is_some_and(|k| k.base().health > 0)
+            .is_none_or(|k| k.base().health <= 0)
         {
             return MonsterCombatCloseChaseEnqueue::Skipped;
         }
@@ -1674,6 +1657,7 @@ impl GameWorld {
     }
 
     /// Apply A* (primary + relaxed) or return false so caller can try one-tile fallbacks.
+    #[allow(clippy::too_many_arguments)]
     fn monster_try_apply_chase_path(
         &mut self,
         cid: CreatureId,
@@ -2407,22 +2391,24 @@ impl GameWorld {
             })
         });
 
-        if !walking_to_spawn && follow.is_none() && (!is_summon || !master_in_range) {
-            if !self.beat_driven_loop {
-                let elapsed_ms = self
-                    .creatures
-                    .get(cid)
-                    .and_then(|k| k.base().last_step)
-                    .map(|last| now.duration_since(last).as_millis())
-                    .unwrap_or(u128::MAX);
-                if elapsed_ms < 1000 {
-                    return None;
-                }
-                let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-                let mut rng = rand::thread_rng();
-                return get_random_step(can_walk, &mut rng);
+        // 772: roam step picked in idle + `ToDoWait` pacing only (X6).
+        if !walking_to_spawn
+            && follow.is_none()
+            && (!is_summon || !master_in_range)
+            && !self.beat_driven_loop
+        {
+            let elapsed_ms = self
+                .creatures
+                .get(cid)
+                .and_then(|k| k.base().last_step)
+                .map(|last| now.duration_since(last).as_millis())
+                .unwrap_or(u128::MAX);
+            if elapsed_ms < 1000 {
+                return None;
             }
-            // 772: roam step picked in idle + `ToDoWait` pacing only (X6).
+            let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
+            let mut rng = rand::thread_rng();
+            return get_random_step(can_walk, &mut rng);
         }
 
         if (is_summon && master_in_range) || follow.is_some() || walking_to_spawn {
