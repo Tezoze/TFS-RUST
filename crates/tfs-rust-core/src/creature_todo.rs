@@ -1510,4 +1510,269 @@ mod tests {
             "absent object → re-validation fails → NotPossible"
         );
     }
+
+    // === F8 S5 — Go-prepend walk-to-reach tests ===
+    // C++ ref: `cract.cc:600-760` `Use` executor — if the target isn't reachable,
+    // prepend `ToDoGo(dest)` + re-enqueue `ToDoUse`/`ToDoMove` + `ToDoStart`.
+
+    /// Helper: lay a walkable corridor from `start` to `end` (inclusive, X axis).
+    fn ensure_walkable_corridor_x(
+        world: &mut crate::game_world::GameWorld,
+        start_x: u16,
+        end_x: u16,
+        y: u16,
+        z: u8,
+    ) {
+        for x in start_x..=end_x {
+            ensure_walkable_tile(&mut world.map, Position::new(x, y, z), TEST_SYNTHETIC_GROUND_WP);
+        }
+    }
+
+    /// S5: `Use` execute arm with a not-adjacent map tile → `Go`-prepend.
+    /// The queue becomes `[Go, Use]` and `walk_queue` is populated — mirroring the
+    /// C++ `Use` executor's `ToDoGo(dest)` + re-enqueue `ToDoUse` (`cract.cc:600-760`).
+    #[test]
+    fn s5_use_not_adjacent_prepends_go_and_re_enqueues_use() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(105, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("bag on tile resolves");
+        // Pop the `Wait{100}` so the front is the `Use` action.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front();
+        }
+
+        // Execute the `Use` — should detect non-adjacency and Go-prepend.
+        let kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
+            "not-adjacent Use → Deferred (Go-prepend)"
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(
+            base.todo.queue.len(),
+            2,
+            "queue → [Go, Use]"
+        );
+        assert!(matches!(base.todo.queue[0], CreatureAction::Go), "front = Go");
+        assert!(
+            matches!(base.todo.queue[1], CreatureAction::Use { .. }),
+            "second = Use"
+        );
+        assert!(
+            !base.walk_queue.is_empty(),
+            "walk_queue populated for walk-to-reach"
+        );
+    }
+
+    /// S5: `Use` execute arm with an adjacent map tile → no `Go`-prepend.
+    /// Dispatches to the executor directly (queue empty after execute).
+    #[test]
+    fn s5_use_adjacent_does_not_go_prepend() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("bag on tile resolves");
+        // Pop the `Wait{100}`.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front();
+        }
+
+        let kind = world.execute_creature_todo_action(cid);
+        // Adjacent → dispatches to executor. No conn → Ok(()). Kind = Wait.
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "adjacent Use → Wait (no Go-prepend)"
+        );
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(
+            base.todo.queue.is_empty(),
+            "queue drained after adjacent Use execute"
+        );
+        assert!(
+            base.walk_queue.is_empty(),
+            "no walk_queue for adjacent Use"
+        );
+    }
+
+    /// S5: `Use` execute arm with an inventory source → no `Go`-prepend.
+    /// Inventory/container sources are always "adjacent" (no walk needed).
+    #[test]
+    fn s5_use_inventory_source_does_not_go_prepend() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_test_player(&mut world, player_pos);
+        // Inventory slot encoding: pos.x = 0xFFFF, pos.y = 0x40 | slot.
+        let inv_obj = ActionObjectRef {
+            pos: Position::new(0xFFFF, 0x40 | 1, 7),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        // Enqueue — validate_action_object_ref may fail for an empty inventory slot,
+        // so we push the Use directly (bypassing the builder's validation) to test
+        // the execute arm's adjacency logic only.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.push_back(CreatureAction::Use {
+                obj1: inv_obj,
+                obj2: None,
+                open_index: 0,
+            });
+        }
+
+        let kind = world.execute_creature_todo_action(cid);
+        // Inventory source → no Go-prepend → dispatches to executor.
+        // No conn + no item at that slot → executor returns Err(NotPossible) → RESULT catch.
+        // The catch enqueues Wait{0} (ToDoYield). Kind = Wait.
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "inventory Use → Wait (no Go-prepend)"
+        );
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(
+            !base.todo.queue.iter().any(|a| matches!(a, CreatureAction::Go)),
+            "no Go enqueued for inventory source"
+        );
+        assert!(
+            base.walk_queue.is_empty(),
+            "no walk_queue for inventory source"
+        );
+    }
+
+    /// S5: `Move` execute arm with a not-adjacent map tile → `Go`-prepend.
+    /// The queue becomes `[Go, Move]` and `walk_queue` is populated.
+    #[test]
+    fn s5_move_not_adjacent_prepends_go_and_re_enqueues_move() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(105, 100, 7);
+        let dest = Position::new(110, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 110, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_gold_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_move(cid, obj, dest, 1)
+            .expect("gold on tile resolves");
+
+        // Execute the `Move` — should detect non-adjacency and Go-prepend.
+        let kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
+            "not-adjacent Move → Deferred (Go-prepend)"
+        );
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(
+            base.todo.queue.len(),
+            2,
+            "queue → [Go, Move]"
+        );
+        assert!(matches!(base.todo.queue[0], CreatureAction::Go), "front = Go");
+        assert!(
+            matches!(base.todo.queue[1], CreatureAction::Move { .. }),
+            "second = Move"
+        );
+        assert!(
+            !base.walk_queue.is_empty(),
+            "walk_queue populated for walk-to-reach"
+        );
+    }
+
+    /// S5: `Use` execute arm with no path to target → `Err(ThereIsNoWay)` → RESULT catch.
+    /// The catch clears the queue and enqueues `Wait{0}` (ToDoYield).
+    #[test]
+    fn s5_use_no_path_to_target_applies_result_catch() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        // Item on an isolated tile — no walkable path from player.
+        let item_pos = Position::new(105, 100, 7);
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, item_pos, TEST_SYNTHETIC_GROUND_WP);
+        // No corridor between (100,100) and (105,100) — tiles 101-104 are missing.
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("bag on tile resolves");
+        // Pop the `Wait{100}`.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front();
+        }
+
+        let kind = world.execute_creature_todo_action(cid);
+        assert!(
+            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            "no-path Use → Wait (RESULT catch applied)"
+        );
+        let base = world.creatures.get(cid).unwrap().base();
+        // RESULT catch: ToDoClear + ToDoYield (Wait{0}).
+        assert_eq!(
+            base.todo.queue.len(),
+            1,
+            "RESULT catch → [Wait{{0}}] (ToDoYield)"
+        );
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 0 }),
+            "yield enqueued Wait{{0}}"
+        );
+    }
+
+    /// S5: `setup_player_walk_to_target` sets up the walk queue without clearing ToDo.
+    /// Verifies the helper populates `walk_queue`/`walk_destinations` and does NOT
+    /// touch the ToDo action queue (unlike `player_auto_walk_path` which clears).
+    #[test]
+    fn s5_setup_player_walk_to_target_populates_walk_queue_without_clearing_todo() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let target = Position::new(103, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 103, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+
+        // Pre-populate the ToDo queue to verify it's NOT cleared.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut()
+                .todo
+                .queue
+                .push_back(CreatureAction::Wait { delay_ms: 500 });
+        }
+
+        let now = std::time::Instant::now();
+        let result = world.setup_player_walk_to_target(cid, target, now);
+        assert!(result.is_ok(), "path to target exists");
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(
+            !base.walk_queue.is_empty(),
+            "walk_queue populated"
+        );
+        assert!(
+            !base.walk_destinations.is_empty(),
+            "walk_destinations populated"
+        );
+        assert_eq!(
+            base.todo.queue.len(),
+            1,
+            "ToDo queue unchanged (Wait{{500}} still there)"
+        );
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 500 }),
+            "ToDo queue not cleared by setup_player_walk_to_target"
+        );
+    }
 }

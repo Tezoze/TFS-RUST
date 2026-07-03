@@ -5,7 +5,7 @@
 **Decompile ref tree:** `reference/cipsoft-772/tibia-game-master/src/` — `receiving.cc`,
 `cract.cc`, `cr.hh`. **(772 mechanics = `tibia-game-master/src/`; do not cite `gameserver/src/`
 or repo-root `src/` for this ToDo model.)**
-**Status:** 🟡 S0–S4 DONE — S5–S8 pending.
+**Status:** 🟡 S0–S5 DONE — S6–S8 pending.
 **S0 decision (recorded):** Narrow scope. In-scope executors: `Use`/`UseItemEx` (reroute),
 `Throw`/`Move` (reroute), `RotateItem`/`CTurnObject` (build + route). **Out of scope, forked to
 their own sub-plans:** `UseOnCreature`/`CUseOnCreature` (§0.1 F3 — build-from-scratch), player
@@ -366,11 +366,23 @@ reactive path alive behind the existing gate until its ToDo replacement is verif
         Wait{1000}, non-exhausted→Wait{0}, snapback-exempt no panic); Use/Move execute
         arms (single-object use dispatches, absent object→Err).
       - `cargo check` + `clippy --all-targets` + 546 tests pass.
-- [ ] **S5 — Walk-to-reach.** Route not-adjacent Use/Move through `Go`-prepend + re-enqueue;
-      retire the bespoke `walk_action_due` path in favor of the unified Go+action enqueue (verify
-      `try_run_player_walk_action_from_todo` tests still describe the same outcome). Note `Move`
-      already has its own working reach-check (`throw_dest_reachable_after_walk_to_item`) using the
-      same `try_walk_to_and_action` helper — this step folds it in, doesn't build it new.
+- [x] **S5 — Walk-to-reach.** DONE. Route not-adjacent Use/Move through `Go`-prepend +
+      re-enqueue in the ToDo execute arm (`execute_creature_todo_action`), replacing the
+      bespoke `walk_action_due` path for the ToDo flow. Added `setup_player_walk_to_target`
+      helper (`walk_action.rs`) — path-finds + sets up `walk_queue`/`walk_destinations`
+      **without** `ToDoClear` (unlike `player_auto_walk_path`), so the execute arm can
+      prepend `Go` + re-enqueue the action itself. Use arm checks adjacency via
+      `look_distance_tfs`; Move arm checks `dx > 1 || dy > 1`. On no-path →
+      `Err(ThereIsNoWay)` → `apply_todo_result_catch`. Extracted `player_use_item_core` /
+      `player_use_item_ex_core` (`container_ui.rs`) — the ToDo execute arm calls these
+      directly (skipping the reactive-path ready check + `try_walk_to_and_action`), so
+      `execute_player_use` no longer triggers the bespoke `walk_action_due` path. The
+      reactive path (`player_use_item`/`player_move_item`) still uses `try_walk_to_and_action`
+      until S6/S7 reroute + delete. `try_run_player_walk_action_from_todo` tests still pass
+      (function intact, just no longer triggered by the ToDo flow). 6 new tests: Use
+      not-adjacent → `[Go, Use]` + walk_queue; Use adjacent → no Go; Use inventory → no Go;
+      Move not-adjacent → `[Go, Move]`; Use no-path → RESULT catch; `setup_player_walk_to_target`
+      doesn't clear ToDo. `cargo check` + `clippy --all-targets` + 552 tests pass.
 - [ ] **S6 — Reroute/wire handlers.** Point `UseItem`/`UseItemEx`/`Throw`/`RotateItem` arms at
       builder+`ToDoStart`. `RotateItem` needs its match arm *added* to `handle_game_packet` first
       (it currently falls through to the catch-all `_ => trace!`, §0.1 F2). Keep

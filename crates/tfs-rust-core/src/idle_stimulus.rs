@@ -12,7 +12,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, ConditionType, SpeakType, ZoneType};
-use tfs_rust_common::game_packet::{ThrowPayload, UseItemExPayload, UseItemPayload};
+use tfs_rust_common::game_packet::ThrowPayload;
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
@@ -2409,6 +2409,8 @@ impl GameWorld {
             }
             // F8 S4 — `Use`/`Move`/`Turn` execute arms. S3 multiuse gate still runs first
             // (two-object `Use` deferral); the executor dispatch + `RESULT` catch land here.
+            // F8 S5 — not-adjacent Use/Move prepend `Go` + re-enqueue instead of the bespoke
+            // `walk_action_due` path (C++ `Use` executor `cract.cc:600-760`).
             CreatureAction::Use { obj1, obj2, open_index } => {
                 // F8 S3 — C++ `CalculateDelay(TDUse)` gate (`cract.cc:925-932`): two-object
                 // use defers when `EarliestMultiuseTime > ServerMilliseconds`; single-object
@@ -2432,33 +2434,111 @@ impl GameWorld {
                     trace_creature_todo(self, cid, "execute_use_deferred_done");
                     TodoExecuteKind::Deferred
                 } else {
-                    // F8 S4 — `TDUse` execute (`cract.cc:833-836`). Re-validate the object
-                    // (mirrors C++ `Obj.exists()` in the executor), then dispatch to the
-                    // existing `player_use_item` / `player_use_item_ex` (reroute only —
-                    // both already exist). On `Err(rv)` apply the C++ `RESULT` catch
-                    // (`cract.cc:870-889`). Multiuse exhaustion is set inside
-                    // `player_use_item_ex` on two-object success (`cract.cc:765`).
-                    trace_creature_todo(self, cid, "execute_use");
-                    let result = self.execute_player_use(cid, obj1, obj2, open_index);
-                    if let Err(rv) = result {
-                        self.apply_todo_result_catch(cid, rv);
+                    // F8 S5 — walk-to-reach via `Go`-prepend (C++ `Use` executor
+                    // `cract.cc:600-760`): if obj1 is a map tile and the player isn't
+                    // adjacent, prepend `Go` + re-enqueue `Use` + `ToDoStart`. This
+                    // replaces the bespoke `walk_action_due` path for the ToDo flow.
+                    let needs_walk = obj1.pos.x != 0xFFFF
+                        && self.creatures.get(cid).is_some_and(|k| {
+                            crate::item_look::look_distance_tfs(k.position(), obj1.pos) > 1
+                        });
+                    if needs_walk {
+                        let now = Instant::now();
+                        match self.setup_player_walk_to_target(cid, obj1.pos, now) {
+                            Ok(()) => {
+                                // `push_front(Use)` then `push_front(Go)` → `[Go, Use, ...]`
+                                // (C++ `ToDoGo(dest)` + re-enqueue `ToDoUse`, `cract.cc:600-760`).
+                                if let Some(k) = self.creatures.get_mut(cid) {
+                                    k.base_mut().todo.queue.push_front(CreatureAction::Use {
+                                        obj1,
+                                        obj2,
+                                        open_index,
+                                    });
+                                    k.base_mut().todo.queue.push_front(CreatureAction::Go);
+                                }
+                                if self.todo_start_go_delay(cid, true) {
+                                    self.schedule_immediate_todo_wakeup(cid);
+                                }
+                                trace_creature_todo(self, cid, "execute_use_walk_to_reach");
+                                TodoExecuteKind::Deferred
+                            }
+                            Err(rv) => {
+                                self.apply_todo_result_catch(cid, rv);
+                                TodoExecuteKind::Wait
+                            }
+                        }
+                    } else {
+                        // F8 S4 — `TDUse` execute (`cract.cc:833-836`). Re-validate the
+                        // object (mirrors C++ `Obj.exists()` in the executor), then dispatch
+                        // to `player_use_item_core` / `player_use_item_ex_core` (S5: core
+                        // helpers skip the ready check + walk-to-reach — the ToDo arm handles
+                        // adjacency via `Go`-prepend and timing via `Wait{100}` +
+                        // `CalculateDelay`). On `Err(rv)` apply the C++ `RESULT` catch
+                        // (`cract.cc:870-889`). Multiuse exhaustion is set inside
+                        // `player_use_item_ex_core` on two-object success (`cract.cc:765`).
+                        trace_creature_todo(self, cid, "execute_use");
+                        let result = self.execute_player_use(cid, obj1, obj2, open_index);
+                        if let Err(rv) = result {
+                            self.apply_todo_result_catch(cid, rv);
+                        }
+                        trace_creature_todo(self, cid, "execute_use_done");
+                        TodoExecuteKind::Wait
                     }
-                    trace_creature_todo(self, cid, "execute_use_done");
-                    TodoExecuteKind::Wait
                 }
             }
             CreatureAction::Move { obj, dest, count } => {
-                // F8 S4 — `TDMove` execute (`cract.cc:823-826`). C++ `CalculateDelay`
-                // `default` case: delay 0 (`cract.cc:946-948`); no gate. Re-validate the
-                // object, then dispatch to `player_move_thing` (reroute only — already
-                // exists, F8 §0.1 F5). On `Err(rv)` apply the `RESULT` catch.
-                trace_creature_todo(self, cid, "execute_move");
-                let result = self.execute_player_move(cid, obj, dest, count);
-                if let Err(rv) = result {
-                    self.apply_todo_result_catch(cid, rv);
+                // F8 S5 — walk-to-reach via `Go`-prepend. For map-tile sources, if the
+                // player isn't within 1 tile of the source, prepend `Go` + re-enqueue
+                // `Move` + `ToDoStart`. C++ `Move` executor re-validates the object at
+                // execute time (`Obj.exists()` → `NOTACCESSIBLE`); the throw-destination
+                // range check runs inside `player_move_item` after the walk (matches C++
+                // behavior — walk there, then fail if dest unreachable). The reactive
+                // path's `throw_dest_reachable_after_walk_to_item` pre-check stays in
+                // `player_move_item` for the reactive caller; on the ToDo path it's a
+                // no-op (player is adjacent after the walk, so `dx <= 1 && dy <= 1`).
+                let needs_walk = obj.pos.x != 0xFFFF
+                    && self.creatures.get(cid).is_some_and(|k| {
+                        let pp = k.position();
+                        let dx = (pp.x as i32 - obj.pos.x as i32).unsigned_abs();
+                        let dy = (pp.y as i32 - obj.pos.y as i32).unsigned_abs();
+                        dx > 1 || dy > 1
+                    });
+                if needs_walk {
+                    let now = Instant::now();
+                    match self.setup_player_walk_to_target(cid, obj.pos, now) {
+                        Ok(()) => {
+                            if let Some(k) = self.creatures.get_mut(cid) {
+                                k.base_mut().todo.queue.push_front(CreatureAction::Move {
+                                    obj,
+                                    dest,
+                                    count,
+                                });
+                                k.base_mut().todo.queue.push_front(CreatureAction::Go);
+                            }
+                            if self.todo_start_go_delay(cid, true) {
+                                self.schedule_immediate_todo_wakeup(cid);
+                            }
+                            trace_creature_todo(self, cid, "execute_move_walk_to_reach");
+                            TodoExecuteKind::Deferred
+                        }
+                        Err(rv) => {
+                            self.apply_todo_result_catch(cid, rv);
+                            TodoExecuteKind::Wait
+                        }
+                    }
+                } else {
+                    // F8 S4 — `TDMove` execute (`cract.cc:823-826`). C++ `CalculateDelay`
+                    // `default` case: delay 0 (`cract.cc:946-948`); no gate. Re-validate the
+                    // object, then dispatch to `player_move_thing` (reroute only — already
+                    // exists, F8 §0.1 F5). On `Err(rv)` apply the `RESULT` catch.
+                    trace_creature_todo(self, cid, "execute_move");
+                    let result = self.execute_player_move(cid, obj, dest, count);
+                    if let Err(rv) = result {
+                        self.apply_todo_result_catch(cid, rv);
+                    }
+                    trace_creature_todo(self, cid, "execute_move_done");
+                    TodoExecuteKind::Wait
                 }
-                trace_creature_todo(self, cid, "execute_move_done");
-                TodoExecuteKind::Wait
             }
             CreatureAction::Turn { obj } => {
                 // F8 S4 — `TDTurn` execute (`cract.cc:838-841`). C++ `CalculateDelay`
@@ -2490,12 +2570,13 @@ impl GameWorld {
         Some(kind)
     }
 
-    /// F8 S4 — `TDUse` execute dispatch. Re-validates the object(s) at execute time
-    /// (mirrors C++ `Obj.exists()` in the `Use` executor, `cract.cc:727-760`), then
-    /// reconstructs the wire payload from the resolved-at-enqueue `ActionObjectRef`s
-    /// and calls the existing `player_use_item` (single) / `player_use_item_ex`
-    /// (two-object) executor. Returns `Err(rv)` on re-validation or executor failure
-    /// so the caller can apply the `RESULT` catch.
+    /// F8 S4/S5 — `TDUse` execute dispatch. Re-validates the object(s) at execute time
+    /// (mirrors C++ `Obj.exists()` in the `Use` executor, `cract.cc:727-760`), resolves
+    /// the `ItemId` from the `ActionObjectRef`, then calls the core use helpers
+    /// (`player_use_item_core` / `player_use_item_ex_core`) directly — **skipping** the
+    /// reactive-path ready check + walk-to-reach (S5: the ToDo arm handles adjacency via
+    /// `Go`-prepend and timing via `Wait{100}` + `CalculateDelay`). Returns `Err(rv)` on
+    /// re-validation or executor failure so the caller can apply the `RESULT` catch.
     pub(crate) fn execute_player_use(
         &mut self,
         cid: CreatureId,
@@ -2516,28 +2597,31 @@ impl GameWorld {
             tracing::debug!(?cid, "execute_player_use: no conn — skipping");
             return Ok(());
         };
-        let now = Instant::now();
 
-        if let Some(o2) = obj2 {
-            // Two-object use — `CUseTwoObjects` (`receiving.cc:430`).
-            let payload = UseItemExPayload {
-                from_pos: obj1.pos,
-                from_sprite_id: obj1.sprite_id,
-                from_stack_pos: obj1.stack_pos,
-                to_pos: o2.pos,
-                to_sprite_id: o2.sprite_id,
-                to_stack_pos: o2.stack_pos,
-            };
-            self.player_use_item_ex(conn_id, cid, payload, now)
+        // Resolve `ItemId` for obj1 — same resolution path as `validate_action_object_ref`
+        // (`resolve_item_at_position` + `find_tile_item_by_client_sprite` fallback).
+        let is_map_tile = obj1.pos.x != 0xFFFF;
+        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj1.pos, obj1.stack_pos)
+        {
+            Some(id)
+        } else if is_map_tile {
+            self.find_tile_item_by_client_sprite(obj1.pos, obj1.sprite_id)
+        } else {
+            None
+        };
+        let Some(item_id) = item_id else {
+            return Err(ReturnValue::NotPossible);
+        };
+
+        if obj2.is_some() {
+            // Two-object use — `CUseTwoObjects` (`receiving.cc:430`). Core helper sets
+            // multiuse exhaustion on success (`cract.cc:765`).
+            self.player_use_item_ex_core(conn_id, cid, item_id)
         } else {
             // Single-object use — `CUseObject` (`receiving.cc:384`).
-            let payload = UseItemPayload {
-                pos: obj1.pos,
-                sprite_id: obj1.sprite_id,
-                stack_pos: obj1.stack_pos,
-                index: open_index,
-            };
-            self.player_use_item(conn_id, cid, payload, now)
+            let preferred_cid =
+                (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index);
+            self.player_use_item_core(conn_id, cid, item_id, is_map_tile, obj1.pos, preferred_cid)
         }
     }
 

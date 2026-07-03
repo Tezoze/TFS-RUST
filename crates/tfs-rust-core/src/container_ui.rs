@@ -548,13 +548,30 @@ impl GameWorld {
         }
         let preferred_cid =
             (payload.index < crate::container::MAX_CONTAINER_WINDOWS).then_some(payload.index);
+        self.player_use_item_core(conn_id, cid, item_id, is_map_tile, payload.pos, preferred_cid)
+    }
+
+    /// F8 S5 — core use-item logic shared by the reactive path ([`player_use_item`]) and
+    /// the ToDo execute arm ([`execute_player_use`]). Skips the ready check + walk-to-reach
+    /// (those are reactive-path concerns; the ToDo arm handles adjacency via `Go`-prepend
+    /// and timing via `Wait{100}` + `CalculateDelay`). C++ ref: `actions.cpp` container
+    /// branch + `game.cpp` teleport-floor-use (`~2227`).
+    pub(crate) fn player_use_item_core(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        item_id: ItemId,
+        is_map_tile: bool,
+        pos: Position,
+        preferred_cid: Option<u8>,
+    ) -> Result<(), ReturnValue> {
         let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
         if is_map_tile && crate::floor_change_use::is_teleport_floor_use_item(item_type) {
             let dest = crate::floor_change_use::resolve_teleport_use_destination(
                 self,
                 cid,
                 item_type,
-                payload.pos,
+                pos,
             );
             let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
             if ret != ReturnValue::NoError {
@@ -610,6 +627,19 @@ impl GameWorld {
                 return Ok(());
             }
         }
+        self.player_use_item_ex_core(conn_id, cid, item_id)
+    }
+
+    /// F8 S5 — core two-object use logic shared by the reactive path
+    /// ([`player_use_item_ex`]) and the ToDo execute arm ([`execute_player_use`]).
+    /// Skips the ready check + walk-to-reach (ToDo arm handles those). On success,
+    /// sets multiuse exhaustion via `player_apply_multiuse_exhaust` (`cract.cc:765`).
+    pub(crate) fn player_use_item_ex_core(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        item_id: ItemId,
+    ) -> Result<(), ReturnValue> {
         // `UseItemEx` has no index byte; new window uses client-chosen cid via normal `UseItem`.
         self.try_open_container_for_item(conn_id, cid, item_id, None);
         self.player_apply_multiuse_exhaust(cid);
