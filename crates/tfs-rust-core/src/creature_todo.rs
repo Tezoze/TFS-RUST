@@ -363,8 +363,40 @@ impl GameWorld {
         Ok(obj)
     }
 
+    /// F8 D2/D6 — `ObjectInRange` z-floor gate shared by `ToDoUse`/`ToDoMove`/
+    /// `ToDoTurn` (`cract.cc:1131-1135/1272-1276/1332-1336`). For map-tile sources
+    /// (`obj.pos.x != 0xFFFF`), throws `UPSTAIRS`/`DOWNSTAIRS` (Rust
+    /// `FirstGoUpStairs`/`FirstGoDownStairs`) when the player and object are on
+    /// different floors — before any walk attempt. Mirrors `info.cc:233-257`
+    /// `ObjectInRange`'s `posz == ObjZ` precondition; the same-z Chebyshev
+    /// `|dx|<=1 && |dy|<=1` reach test lives in the execute arms (D6).
+    /// Inventory/container sources (`0xFFFF`) skip the check (always "adjacent").
+    pub(crate) fn validate_action_object_z_floor(
+        &self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+    ) -> Result<(), ReturnValue> {
+        if obj.pos.x == 0xFFFF {
+            return Ok(());
+        }
+        let Some(k) = self.creatures.get(cid) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let pp = k.position();
+        // C++ `posz > ObjZ → UPSTAIRS` (player deeper than object → go up),
+        // `posz < ObjZ → DOWNSTAIRS` (player above object → go down).
+        if pp.z > obj.pos.z {
+            Err(ReturnValue::FirstGoUpStairs)
+        } else if pp.z < obj.pos.z {
+            Err(ReturnValue::FirstGoDownStairs)
+        } else {
+            Ok(())
+        }
+    }
+
     /// F8 S2 — `ToDoUse` builder (`cract.cc:1258-1296`). Resolves both objects now
-    /// (mirroring `GetObject`'s `throw RESULT` on failure), prepends `Wait{100}`
+    /// (mirroring `GetObject`'s `throw RESULT` on failure), applies the D2/D6
+    /// z-floor gate (`cract.cc:1272-1276`), prepends `Wait{100}`
     /// (`receiving.cc:384/430`), and enqueues `Use`. `obj2.is_none()` = single-object
     /// `CUseObject` (`receiving.cc:384`); `obj2.is_some()` = two-object
     /// `CUseTwoObjects` (`receiving.cc:430`). `open_index` is the client's preferred
@@ -380,6 +412,8 @@ impl GameWorld {
         if let Some(o2) = obj2 {
             self.validate_action_object_ref(cid, o2)?;
         }
+        // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1272-1276`).
+        self.validate_action_object_z_floor(cid, obj1)?;
         // `ToDoWait(100)` then `ToDoUse(...)` — `receiving.cc:384/430`.
         self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -394,17 +428,17 @@ impl GameWorld {
     }
 
     /// F8 S2 — `ToDoMove` builder (`cract.cc:1123-1172`, `CMoveObject`
-    /// `receiving.cc:233`). Resolves the source object now, prepends
-    /// `Wait{100}` (`cract.cc:1155` `int Delay = 100;` → `this->ToDoWait(Delay)`
-    /// at `cract.cc:1165`), and enqueues `Move`. The `CMoveObject` handler itself
-    /// adds no leading `ToDoWait` — but `ToDoMove` **always** does, so the
-    /// resulting queue for an adjacent map item is `[Wait{100}, Move]`. The
-    /// creature-container branch (`Delay = 1000` + `BANK` dest check,
-    /// `cract.cc:1156-1163`) is not ported yet (D9 — creature push is out of
-    /// scope); when it lands, the delay must be selected per source kind.
-    /// `dest` is the throw destination (map/inventory/container encoded in
-    /// `Position`), `count` is the stack count. Maps to Rust `GamePacket::Throw`
-    /// (not `MoveObject` — F8 §0.1 F5).
+    /// `receiving.cc:233`). Resolves the source object now, applies the D2/D6
+    /// z-floor gate (`cract.cc:1131-1135`), prepends `Wait{100}` (`cract.cc:1155`
+    /// `int Delay = 100;` → `this->ToDoWait(Delay)` at `cract.cc:1165`), and
+    /// enqueues `Move`. The `CMoveObject` handler itself adds no leading
+    /// `ToDoWait` — but `ToDoMove` **always** does, so the resulting queue for an
+    /// adjacent map item is `[Wait{100}, Move]`. The creature-container branch
+    /// (`Delay = 1000` + `BANK` dest check, `cract.cc:1156-1163`) is not ported
+    /// yet (D9 — creature push is out of scope); when it lands, the delay must
+    /// be selected per source kind. `dest` is the throw destination
+    /// (map/inventory/container encoded in `Position`), `count` is the stack
+    /// count. Maps to Rust `GamePacket::Throw` (not `MoveObject` — F8 §0.1 F5).
     pub(crate) fn enqueue_player_move(
         &mut self,
         cid: CreatureId,
@@ -413,6 +447,8 @@ impl GameWorld {
         count: u8,
     ) -> Result<(), ReturnValue> {
         self.validate_move_object_ref(cid, obj)?;
+        // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1131-1135`).
+        self.validate_action_object_z_floor(cid, obj)?;
         // D1 — `ToDoMove` always calls `this->ToDoWait(Delay)` with `Delay = 100`
         // for the non-creature-container path (`cract.cc:1155,1165`). Without this
         // the throw executes on the next beat (~1 ms) instead of ~100 ms out, so
@@ -433,20 +469,22 @@ impl GameWorld {
     /// F8 S2 — `ToDoTurn` builder (`cract.cc:1326-1351`, `CTurnObject`
     /// `receiving.cc:549`). Rotates a rotatable *item* (wall torch/rope) — **not**
     /// `CRotate` (player facing, `receiving.cc:213`, already immediate). Resolves
-    /// the object now, prepends `Wait{100}` (`receiving.cc:549`), enqueues `Turn`.
-    /// The executor is new code (S4 — nothing exists to reuse, F8 §0.1 F2).
+    /// the object now, applies the D2/D6 z-floor gate (`cract.cc:1334-1338`),
+    /// prepends `Wait{100}` (`receiving.cc:549`), enqueues `Turn`. The executor
+    /// is new code (S4 — nothing exists to reuse, F8 §0.1 F2).
     ///
     /// F8 D3 — the C++ builder's `ObjectInRange(1)` → `ToDoGo(...)` walk-to-reach
     /// (`cract.cc:1340-1341`) is **not** enqueued here; it is deferred to the
     /// `Turn` execute arm in `idle_stimulus.rs` (S5 `Go`-prepend pattern, same
-    /// shape as `Use`/`Move`). The Δz `UPSTAIRS`/`DOWNSTAIRS` throw
-    /// (`cract.cc:1334-1338`) is D2/D6, not yet ported.
+    /// shape as `Use`/`Move`).
     pub(crate) fn enqueue_player_turn(
         &mut self,
         cid: CreatureId,
         obj: ActionObjectRef,
     ) -> Result<(), ReturnValue> {
         self.validate_action_object_ref(cid, obj)?;
+        // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1334-1338`).
+        self.validate_action_object_z_floor(cid, obj)?;
         // `ToDoWait(100)` then `ToDoTurn(...)` — `receiving.cc:549`.
         self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -1836,6 +1874,180 @@ mod tests {
         assert!(
             matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 0 }),
             "yield enqueued Wait{{0}}"
+        );
+    }
+
+    // === F8 D2/D6 — z-floor gate tests ===
+    // C++ ref: `cract.cc:1131-1135/1272-1276/1332-1336` `UPSTAIRS`/`DOWNSTAIRS`;
+    //          `info.cc:233-257` `ObjectInRange` `posz == ObjZ` precondition.
+
+    /// D2/D6 — `enqueue_player_use` rejects a map-tile source below the player
+    /// (player z=6, item z=7 → player above object → `FirstGoDownStairs`).
+    /// C++ ref: `cract.cc:1276-1278` `if(this->posz < ObjZ) throw DOWNSTAIRS`.
+    #[test]
+    fn enqueue_player_use_rejects_cross_floor_below_with_downstairs() {
+        let mut world = beat_driven_test_world();
+        // player z=6 < item z=7 → player above object → DOWNSTAIRS.
+        let player_pos = Position::new(100, 100, 6);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        let result = world.enqueue_player_use(cid, obj1, None, 0);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::FirstGoDownStairs),
+            "player above object (z=6 < z=7) → DOWNSTAIRS"
+        );
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "z-floor reject must not enqueue anything"
+        );
+    }
+
+    /// D2/D6 — `enqueue_player_use` rejects a map-tile source above the player
+    /// (player z=7, item z=6 → player deeper than object → `FirstGoUpStairs`).
+    /// C++ ref: `cract.cc:1272-1276` `if(this->posz > ObjZ) throw UPSTAIRS`.
+    #[test]
+    fn enqueue_player_use_rejects_cross_floor_above_with_upstairs() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 6);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        let result = world.enqueue_player_use(cid, obj1, None, 0);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::FirstGoUpStairs),
+            "player deeper than object (z=7 > z=6) → UPSTAIRS"
+        );
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "z-floor reject must not enqueue anything"
+        );
+    }
+
+    /// D2/D6 — `enqueue_player_use` accepts a same-z map-tile source (the
+    /// existing happy path; this guards against the z-gate over-firing).
+    #[test]
+    fn enqueue_player_use_accepts_same_floor_map_tile() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("same-z map tile passes the z-floor gate");
+        assert_eq!(
+            world.creatures.get(cid).unwrap().base().todo.queue.len(),
+            2,
+            "same-z → [Wait{{100}}, Use]"
+        );
+    }
+
+    /// D2/D6 — `enqueue_player_move` rejects a cross-floor map-tile source.
+    /// C++ ref: `cract.cc:1131-1135`.
+    #[test]
+    fn enqueue_player_move_rejects_cross_floor_with_upstairs() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 6);
+        let dest = Position::new(105, 100, 6);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_gold_on_tile(&mut world, item_pos);
+
+        // player z=7 > item z=6 → UPSTAIRS.
+        let result = world.enqueue_player_move(cid, obj, dest, 1);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::FirstGoUpStairs),
+            "Move cross-floor source → UPSTAIRS"
+        );
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "z-floor reject must not enqueue anything"
+        );
+    }
+
+    /// D2/D6 — `enqueue_player_move` rejects a cross-floor source below the player.
+    #[test]
+    fn enqueue_player_move_rejects_cross_floor_with_downstairs() {
+        let mut world = beat_driven_test_world();
+        // player z=6, item z=7 → player above object → DOWNSTAIRS.
+        let player_pos = Position::new(100, 100, 6);
+        let item_pos = Position::new(101, 100, 7);
+        let dest = Position::new(105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_gold_on_tile(&mut world, item_pos);
+
+        let result = world.enqueue_player_move(cid, obj, dest, 1);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::FirstGoDownStairs),
+            "Move cross-floor source → DOWNSTAIRS"
+        );
+    }
+
+    /// D2/D6 — `enqueue_player_turn` rejects a cross-floor map-tile source.
+    /// C++ ref: `cract.cc:1334-1338`.
+    #[test]
+    fn enqueue_player_turn_rejects_cross_floor_with_upstairs() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let item_pos = Position::new(101, 100, 6);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
+
+        let result = world.enqueue_player_turn(cid, obj);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::FirstGoUpStairs),
+            "Turn cross-floor source → UPSTAIRS"
+        );
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "z-floor reject must not enqueue anything"
+        );
+    }
+
+    /// D2/D6 — `enqueue_player_turn` rejects a cross-floor source below the player.
+    #[test]
+    fn enqueue_player_turn_rejects_cross_floor_with_downstairs() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 6);
+        let item_pos = Position::new(101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
+
+        let result = world.enqueue_player_turn(cid, obj);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::FirstGoDownStairs),
+            "Turn cross-floor source → DOWNSTAIRS"
+        );
+    }
+
+    /// D2/D6 — inventory/container sources (`pos.x == 0xFFFF`) skip the z-gate.
+    /// The z-floor only applies to map-tile sources (`cract.cc:1131` `if(ObjX != 0xFFFF)`).
+    #[test]
+    fn validate_action_object_z_floor_skips_inventory_source() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        // Inventory slot encoding: pos.x = 0xFFFF — z is irrelevant.
+        let inv_obj = ActionObjectRef {
+            pos: Position::new(0xFFFF, 0x40 | 1, 99),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+
+        let result = world.validate_action_object_z_floor(cid, inv_obj);
+        assert!(
+            result.is_ok(),
+            "inventory source skips z-floor gate regardless of z"
         );
     }
 }

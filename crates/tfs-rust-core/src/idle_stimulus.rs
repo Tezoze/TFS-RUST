@@ -2437,9 +2437,18 @@ impl GameWorld {
                     // `cract.cc:600-760`): if obj1 is a map tile and the player isn't
                     // adjacent, prepend `Go` + re-enqueue `Use` + `ToDoStart`. This
                     // replaces the bespoke `walk_action_due` path for the ToDo flow.
+                    //
+                    // F8 D6 — reach predicate uses the same-z Chebyshev `dx>1 || dy>1`
+                    // form (matches `ObjectInRange(1)` for same-z, `info.cc:233-257`),
+                    // NOT `look_distance_tfs` (which adds +15 for Δz and would misroute
+                    // a cross-floor source into a walk). Cross-floor sources are now
+                    // rejected at enqueue by `validate_action_object_z_floor` (D2).
                     let needs_walk = obj1.pos.x != 0xFFFF
                         && self.creatures.get(cid).is_some_and(|k| {
-                            crate::item_look::look_distance_tfs(k.position(), obj1.pos) > 1
+                            let pp = k.position();
+                            let dx = (pp.x as i32 - obj1.pos.x as i32).unsigned_abs();
+                            let dy = (pp.y as i32 - obj1.pos.y as i32).unsigned_abs();
+                            dx > 1 || dy > 1
                         });
                     if needs_walk {
                         let now = Instant::now();

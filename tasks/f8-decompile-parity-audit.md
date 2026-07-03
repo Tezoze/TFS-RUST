@@ -25,11 +25,11 @@ fine **if** the outcome matches. The findings flag where the outcome actually di
 | # | Finding | Function(s) | Severity | Outcome differs? | Status |
 |---|---------|-------------|----------|------------------|--------|
 | D1 | `Move` never enqueues the builder's `ToDoWait(Delay)` (100 ms floor) | `enqueue_player_move` | **High** | Yes — move executes ~100 ms too early | **Fixed** — builder now prepends `Wait{100}` (`cract.cc:1155,1165`); tests + `game_loop.rs` comment updated |
-| D2 | No `UPSTAIRS`/`DOWNSTAIRS` throw for cross-floor map objects | all three | **High** | Yes — wrong `ReturnValue` + no early reject | Open |
+| D2 | No `UPSTAIRS`/`DOWNSTAIRS` throw for cross-floor map objects | all three | **High** | Yes — wrong `ReturnValue` + no early reject | **Fixed** — all three builders now call `validate_action_object_z_floor` after object validation: map-tile source (`pos.x != 0xFFFF`) with `player.z > obj.z` → `Err(FirstGoUpStairs)`, `player.z < obj.z` → `Err(FirstGoDownStairs)` (`cract.cc:1131-1135/1272-1276/1332-1336`, `info.cc:233-257`); inventory/container sources skip the gate. Tests added for both directions across all three builders + an inventory-skip test. |
 | D3 | `Turn` has no walk-to-reach; fails instead of walking | `enqueue_player_turn` + Turn execute arm | **High** | Yes — distant rotate fails | **Fixed** — `Turn` execute arm (`idle_stimulus.rs`) now mirrors the S5 `Go`-prepend: not-adjacent map tile → `setup_player_walk_to_target` + `[Go, Turn]`; no-path → `apply_todo_result_catch` (`cract.cc:1340-1341`); tests + builder doc comment updated |
 | D4 | Single-object `Use` C++ path enqueues **two** `Wait{100}` (handler + builder); Rust enqueues one | `enqueue_player_use` | Medium | Yes (verify) — ~100 ms vs ~200 ms floor | Open |
 | D5 | Walk-to-reach moved from builder to execute arm changes the `NOWAY` snapback/clear timing | `Use`/`Move` | Medium | Possibly — snapback path differs | Open |
-| D6 | Range gate uses `look_distance_tfs` (+15 for Δz) not `ObjectInRange(1)` (strict same-z) | all three | Medium | Only on Δz (folds into D2) | Open |
+| D6 | Range gate uses `look_distance_tfs` (+15 for Δz) not `ObjectInRange(1)` (strict same-z) | all three | Medium | Only on Δz (folds into D2) | **Fixed** — `Use` execute arm reach predicate replaced with same-z Chebyshev `dx>1 \|\| dy>1` (matching `Move`/`Turn` arms); `look_distance_tfs` no longer referenced from `idle_stimulus.rs`. Combined with the D2 z-floor at enqueue, cross-floor sources can no longer masquerade as "needs walk". |
 | D7 | `Wait` drain ignores `EarliestWalkTime`; relative-delay re-anchoring | all (via `Wait`) | Low | Minor timing | Open |
 | D8 | Handler flag pre-validation absent (`MULTIUSE`, `isMapContainer`, `CUMULATIVE&&Count==0`, `Dummy` bound) | all three | Low | Edge/robustness | Open |
 | D9 | `Move` creature-container branch (`Delay=1000`, BANK dest) not ported | `enqueue_player_move` | Low | Out of scope (creature push) | Open (blocked on creature push) |
@@ -307,11 +307,15 @@ Ordered by severity. Each item cites the C++ anchor to preserve in a module-head
   `CreatureAction::Turn` execute arm (`idle_stimulus.rs`): if `obj.pos` is a map tile and
   `dx>1 || dy>1`, `setup_player_walk_to_target` + push `[Go, Turn]` instead of calling
   `player_rotate_item` immediately (`cract.cc:1338-1339` `ToDoGo`).
-- [ ] **D2/D6 — add z-checks + fix the reach predicate.** In all three builders, for
+- [x] **D2/D6 — add z-checks + fix the reach predicate.** In all three builders, for
   `obj.pos.x != 0xFFFF`: if `player.z > obj.z` → `Err(FirstGoUpStairs)`, if `<` →
   `Err(FirstGoDownStairs)` (`cract.cc:1131-1135/1272-1276/1332-1336`). Replace the
   `look_distance_tfs`-based reach test in the execute arms with a same-z Chebyshev `ObjectInRange(1)`
-  equivalent so Δz no longer masquerades as "needs walk".
+  equivalent so Δz no longer masquerades as "needs walk". **Done** —
+  `validate_action_object_z_floor` helper in `creature_todo.rs` called by all three
+  builders after object validation; `Use` execute arm reach predicate in
+  `idle_stimulus.rs` switched to `dx>1 || dy>1` (matching `Move`/`Turn`); tests added
+  for both z-directions across all three builders + an inventory-skip test.
 - [ ] **D4 — resolve the double-`Wait`.** Confirm whether 772 use really floors at ~200 ms
   (handler `ToDoWait(100)` + builder `ToDoWait(100)`). If yes, enqueue two `Wait{100}` for
   `Use` (and keep one for `Turn`, whose handler has no extra wait — `CTurnObject` calls only

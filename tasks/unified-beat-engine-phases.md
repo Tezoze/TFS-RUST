@@ -65,7 +65,7 @@ that blocks "all mechanics run through ToDo."
 - [x] **F4 — Scheduler dispatch** (`scheduler.rs` / `game_loop.rs`): actually invoke
       `GameCommand::LuaCallback { event_id }` instead of only tracing it. Wire to `addEvent`/
       `stopEvent` per `tfs-lua-boundaries.md` §"Full API Port Plan" item 4.
-- [ ] **F8 — route player non-walk actions through ToDo `Execute`** (structural): move
+- [x] **F8 — route player non-walk actions through ToDo `Execute`** (structural): move
       `player_use_item` / `player_use_item_ex` / `player_look_at` / container ops / `Say` off the
       reactive `handle_game_packet` path and onto `ToDoUse`/`ToDoMove`/`ToDoTrade` +
       `CalculateDelay` (`EarliestMultiuseTime`, `cract.cc:765-766`). This is the phase that makes
