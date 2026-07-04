@@ -187,7 +187,28 @@ impl Tile {
         self.body_mut().down_items.insert(0, item_id);
     }
 
-    /// Add an always-on-top item to this tile.
+    /// Add an always-on-top item to this tile, inserted at `index` (for sorted insertion
+    /// by `alwaysOnTopOrder`, matching C++ `Tile::addThing` `tile.cpp:898-906`). The caller
+    /// computes the insertion index by comparing `alwaysOnTopOrder` against existing top
+    /// items — items with equal order are inserted BEFORE existing ones (`<=`), so a splash
+    /// (order 2) lands before a ladder (order 2). This keeps the server's `top_items` vector
+    /// in the same order the 772 client renders them (the client sorts by `.dat`
+    /// `alwaysOnTopOrder` on `0x6A` add, which omits stackpos). Without this,
+    /// `get_item_stack_pos` returns a different index than the client's, causing `0x6C`
+    /// remove to delete the wrong item (e.g. a ladder instead of a splash).
+    pub fn add_top_item_at(&mut self, item_id: ItemId, index: usize) {
+        let items = &mut self.body_mut().top_items;
+        if index >= items.len() {
+            items.push(item_id);
+        } else {
+            items.insert(index, item_id);
+        }
+    }
+
+    /// Add an always-on-top item to this tile (append to end, unsorted).
+    /// Only use when the caller cannot compute the `alwaysOnTopOrder` insertion index
+    /// (e.g. OTBM load, where items are already in map-editor order). For runtime adds
+    /// via `internal_add_item_to_tile`, use `add_top_item_at` with a sorted index.
     pub fn add_top_item(&mut self, item_id: ItemId) {
         self.body_mut().top_items.push(item_id);
     }

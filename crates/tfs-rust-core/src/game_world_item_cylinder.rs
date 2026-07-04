@@ -284,17 +284,38 @@ impl GameWorld {
         // (`tile.cpp:1455`). Routing them into down_items (after creatures) shifts every creature's
         // client stackpos by one, desyncing subsequent creature moves (e.g. a blood splash under a
         // player froze their movement).
-        let always_on_top = self
-            .items_db
-            .items
-            .get(&item_type)
-            .map(|t| t.always_on_top())
-            .unwrap_or(false);
+        //
+        // Top items are inserted sorted by `alwaysOnTopOrder` (ascending), matching C++
+        // `Tile::addThing` (`tile.cpp:898-906`): the new item is inserted before the first existing
+        // top item with `alwaysOnTopOrder >= new`. The 772 client's `0x6A` (add tile item) omits
+        // stackpos, so the client places the item by `.dat` `alwaysOnTopOrder` — if our server
+        // vector order doesn't match, `0x6C` remove hits the wrong client stackpos (e.g. a splash
+        // and ladder both order 2: server appends splash after ladder, client inserts splash
+        // before ladder → remove at server stackpos deletes the ladder on the client).
+        let item_type_info = self.items_db.items.get(&item_type);
+        let always_on_top = item_type_info.map(|t| t.always_on_top()).unwrap_or(false);
+        let new_order = item_type_info.map(|t| t.always_on_top_order).unwrap_or(0);
 
         {
             let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
             if always_on_top {
-                tile.add_top_item(item_id);
+                // Compute the sorted insertion index: first position where existing order >= new.
+                // C++ `tile.cpp:901`: `if (itemType.alwaysOnTopOrder <= Item::items[(*it)->getID()].alwaysOnTopOrder)`.
+                let insert_at = tile
+                    .body()
+                    .top_items
+                    .iter()
+                    .position(|&existing_id| {
+                        let existing_order = self
+                            .items
+                            .get(existing_id)
+                            .and_then(|it| self.items_db.items.get(&it.item_type))
+                            .map(|t| t.always_on_top_order)
+                            .unwrap_or(0);
+                        new_order <= existing_order
+                    })
+                    .unwrap_or_else(|| tile.body().top_items.len());
+                tile.add_top_item_at(item_id, insert_at);
             } else {
                 tile.add_item(item_id);
             }
