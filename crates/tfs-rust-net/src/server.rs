@@ -347,12 +347,25 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     forward_game_packets_xtea(
         read_half,
         conn_id,
-        wire.cmd_tx,
+        wire.cmd_tx.clone(),
         &round_keys,
         wire.protocol_version,
         &caps,
     )
     .await?;
+
+    // TCP connection dropped (client crash / disconnect). Send PlayerDisconnect so the
+    // game loop removes the creature from the map — otherwise it stays as a ghost that
+    // other players see (no name, no health bar) and desyncs their client.
+    tracing::info!(
+        conn_id = conn_id.0,
+        "game connection closed — sending PlayerDisconnect to game loop"
+    );
+    let _ = wire.cmd_tx.send(GameCommand::PlayerDisconnect {
+        conn_id,
+        display_effect: false,
+    });
+
     let mut g = wire.out_registry.lock().expect("out_registry lock");
     g.remove(&conn_id);
     Ok(())

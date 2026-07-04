@@ -537,6 +537,11 @@ impl GameWorld {
             k.set_position(pos);
         }
         self.map.register_creature_at(pos, cid);
+        tracing::info!(
+            ?cid,
+            placed_at = ?pos,
+            "LOGIN: creature registered on map at login position"
+        );
         true
     }
 

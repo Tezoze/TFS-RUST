@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use tfs_rust_net::creature_encode::write_add_creature;
 use tfs_rust_net::map_description::{
     send_map_description_packet, send_map_description_stub, send_move_creature_player,
+    send_notify_go,
 };
 use tfs_rust_net::outgoing::{
     send_creature_health, send_extended_opcode, send_magic_effect, send_otcv8_features, send_ping,
@@ -966,27 +967,8 @@ fn empty_can_see_creature(_id: u32) -> bool {
     true
 }
 
-/// Computes the length of the leading self-creature packet that the 1098 path
-/// emits (and 772 `NotifyGo` does NOT).
-///
-/// - `0x6C` remove (surface→underground, `old.z == 7 && new.z >= 8`):
-///   `1 + position(5) + stack(1)` = 7 bytes (stack < 10).
-/// - `0x6D` move (other z-change or same-z):
-///   `1 + position(5) + stack(1) + position(5)` = 12 bytes (stack < 10).
-fn self_packet_len(old_pos: Position, new_pos: Position, _old_stack: i32) -> usize {
-    if old_pos.z != new_pos.z {
-        if old_pos.z == 7 && new_pos.z >= 8 {
-            // 0x6C remove: opcode + position + stack
-            1 + 5 + 1
-        } else {
-            // 0x6D move: opcode + old_pos + stack + new_pos
-            1 + 5 + 1 + 5
-        }
-    } else {
-        // 0x6D move (same-z): opcode + old_pos + stack + new_pos
-        1 + 5 + 1 + 5
-    }
-}
+/// Top-level creature ID for `notify_go_bytes` (the 772 self-move path).
+const NOTIFY_GO_CID: u32 = 0x11223344;
 
 /// Calls `send_move_creature_player` with an empty map and returns the raw
 /// bytes for the given codec.
@@ -1010,6 +992,18 @@ fn move_creature_player_bytes(
         &mut known,
         &mut can_see,
         false,
+    )
+    .into_bytes()
+}
+
+/// Calls `send_notify_go` (the 772 self-move path) with an empty map and returns
+/// the raw bytes for the given codec.
+fn notify_go_bytes(codec: &Codec, orig: Position, dest: Position) -> Vec<u8> {
+    let mut known = HashSet::new();
+    let mut get_tile = empty_get_tile;
+    let mut can_see = empty_can_see_creature;
+    send_notify_go(
+        codec, orig, dest, 0, NOTIFY_GO_CID, &mut get_tile, &mut known, &mut can_see, false,
     )
     .into_bytes()
 }
@@ -1116,12 +1110,17 @@ mod v1098_floor_change {
     }
 }
 
-/// 772 floor-change golden tests — expected `NotifyGo` output (NO self-packet).
+/// 772 self-move golden tests — decompile `TCreature::NotifyGo` (`cract.cc:1400-1465`).
 ///
-/// These tests FAIL until Phase 1 gates the self-packet on
-/// `codec.caps().move_creature_self_packet`. The expected 772 bytes are
-/// derived by stripping the leading self-packet from the 1098 output
-/// (§16.1: map body is byte-identical across eras).
+/// The 7.72 client requires a `0x6D` self-packet (decompile `AnnounceMovingCreature` →
+/// `SendMoveCreature`) BEFORE the `NotifyGo` floor/row stream. Without it the client doesn't
+/// update its central position → desync (§6 experiment). `send_notify_go` emits the 0x6D
+/// self-packet (12 bytes: opcode + old_pos + old_stack + new_pos), then the **overall**
+/// old→new delta: z-steps (each shifts x/y diagonally), then x-steps, then y-steps —
+/// `SendFloors`/`SendRow` per step, or `SendFullScreen` (0x64) when non-adjacent. This fixes
+/// the combined diagonal+z stair desync (§16.3): walking perpendicular onto a stair (west
+/// onto south-facing stairs) leaves a leftover delta on both axes that per-segment emission
+/// encoded as an invalid row sequence.
 mod v772_floor_change {
     use super::*;
 
@@ -1129,161 +1128,72 @@ mod v772_floor_change {
         Codec::from_version(ProtocolVersion::V772).expect("772 codec")
     }
 
-    fn codec_1098() -> Codec {
-        Codec::from_version(ProtocolVersion::V1098).expect("1098 codec")
+    /// 0x6D self-packet is 12 bytes: 1 (opcode) + 5 (old_pos) + 1 (old_stack) + 5 (new_pos).
+    const SELF_PACKET_LEN: usize = 12;
+
+    /// Assert the stream leads with a `0x6D` self-packet and return the offset where the
+    /// floor/row stream begins.
+    fn assert_self_packet_then_stream(bytes: &[u8]) -> usize {
+        assert_eq!(
+            bytes[0], 0x6D,
+            "772 NotifyGo must lead with 0x6D self-packet (got {:#04X})",
+            bytes[0]
+        );
+        SELF_PACKET_LEN
     }
 
-    const CID: u32 = 0x11223344;
+    /// Hole straight down (100,100,7)→(100,100,8): 0x6D self-packet, then `0xBF`
+    /// (SendFloors down), then `0x66` east + `0x67` south from the diagonal unwind.
+    #[test]
+    fn hole_down_self_packet_then_floors() {
+        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), Position::new(100, 100, 8));
+        let off = assert_self_packet_then_stream(&b);
+        assert_eq!(b[off], 0xBF, "hole down leads with SendFloors down (0xBF)");
+    }
 
-    /// Asserts that the 772 output equals the 1098 output with the leading
-    /// self-creature packet stripped. This is the core Phase 0 invariant:
-    /// the map body matches, only the self-packet is spurious (§16.1).
-    fn assert_772_matches_1098_minus_self_packet(
-        old_pos: Position,
-        new_pos: Position,
-        old_stack: i32,
-    ) {
-        let out_1098 = move_creature_player_bytes(&codec_1098(), old_pos, new_pos, old_stack, CID);
-        let out_772 = move_creature_player_bytes(&codec_772(), old_pos, new_pos, old_stack, CID);
-        let self_len = self_packet_len(old_pos, new_pos, old_stack);
-        let expected_772 = &out_1098[self_len..];
+    /// Ladder straight up (100,100,8)→(100,100,7): 0x6D self-packet, then `0xBE`.
+    #[test]
+    fn ladder_up_self_packet_then_floors() {
+        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 8), Position::new(100, 100, 7));
+        let off = assert_self_packet_then_stream(&b);
+        assert_eq!(b[off], 0xBE, "ladder up leads with SendFloors up (0xBE)");
+    }
 
-        assert_eq!(
-            out_772.as_slice(),
-            expected_772,
-            "772 output must equal 1098 output minus the leading self-packet ({} bytes). \
-             772 `NotifyGo` never emits 0x6D/0x6C for the player's own move (cract.cc:1400-1460).",
-            self_len
+    /// Same-z east step (100,100,7)→(101,100,7): 0x6D self-packet, then a lone `SendRow` east (0x66).
+    #[test]
+    fn same_z_east_self_packet_then_row() {
+        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), Position::new(101, 100, 7));
+        let off = assert_self_packet_then_stream(&b);
+        assert_eq!(b[off], 0x66, "same-z east is a lone SendRow east (0x66)");
+    }
+
+    /// The reported repro. South-facing stairs at (100,100,z) send the climber to (100,101,z-1).
+    /// Walking NORTH onto them → pure-vertical overall move (parallel to the stair shift).
+    /// Walking WEST onto them → leftover delta on BOTH axes (perpendicular). Both must have
+    /// the self-packet and produce *different* floor/row streams (the pre-fix per-segment path
+    /// emitted the same buggy sequence regardless of approach).
+    #[test]
+    fn west_vs_north_onto_south_stairs_differ() {
+        // North approach: start south of the stair, overall (100,101,8)→(100,101,7) — pure vertical.
+        let north = notify_go_bytes(&codec_772(), Position::new(100, 101, 8), Position::new(100, 101, 7));
+        // West approach: start east of the stair, overall (101,100,8)→(100,101,7) — dx=1, dy=1, dz=1.
+        let west = notify_go_bytes(&codec_772(), Position::new(101, 100, 8), Position::new(100, 101, 7));
+
+        let n_off = assert_self_packet_then_stream(&north);
+        let w_off = assert_self_packet_then_stream(&west);
+        assert_eq!(north[n_off], 0xBE, "north approach leads with SendFloors up");
+        assert_eq!(west[w_off], 0xBE, "west approach leads with SendFloors up");
+        assert_ne!(
+            north, west,
+            "approach direction changes the leftover x/y delta → different row stream (§16.3)"
         );
     }
 
-    /// Hole straight down (100,100,7)→(100,100,8): expect `0xBF, 0x66, 0x67`, no `0x6C`.
+    /// Non-adjacent move (dz > 1): 0x6D self-packet, then `SendFullScreen` (0x64).
     #[test]
-    fn hole_down_in_place_no_self_packet() {
-        let old = Position::new(100, 100, 7);
-        let new = Position::new(100, 100, 8);
-        assert_772_matches_1098_minus_self_packet(old, new, 0);
-
-        // Also assert the first byte directly — must be 0xBF, NOT 0x6C.
-        let b = move_creature_player_bytes(&codec_772(), old, new, 0, CID);
-        assert_ne!(b[0], 0x6C, "772 must NOT emit 0x6C for self-move");
-        assert_eq!(b[0], 0xBF, "772 hole-down starts with 0xBF (SendFloors down)");
-    }
-
-    /// Ladder straight up (100,100,8)→(100,100,7): expect `0xBE, 0x68, 0x65`, no `0x6D`.
-    #[test]
-    fn ladder_up_in_place_no_self_packet() {
-        let old = Position::new(100, 100, 8);
-        let new = Position::new(100, 100, 7);
-        assert_772_matches_1098_minus_self_packet(old, new, 0);
-
-        let b = move_creature_player_bytes(&codec_772(), old, new, 0, CID);
-        assert_ne!(b[0], 0x6D, "772 must NOT emit 0x6D for self-move");
-        assert_eq!(b[0], 0xBE, "772 ladder-up starts with 0xBE (SendFloors up)");
-    }
-
-    /// Stairs down diagonal (100,100,7)→(100,101,8): expect `0xBF, 0x66, 0x67, 0x67`, no `0x6C`.
-    #[test]
-    fn stairs_down_diag_no_self_packet() {
-        let old = Position::new(100, 100, 7);
-        let new = Position::new(100, 101, 8);
-        assert_772_matches_1098_minus_self_packet(old, new, 0);
-
-        let b = move_creature_player_bytes(&codec_772(), old, new, 0, CID);
-        assert_ne!(b[0], 0x6C, "772 must NOT emit 0x6C for self-move");
-        assert_eq!(b[0], 0xBF);
-    }
-
-    /// Same-z east move (100,100,7)→(101,100,7): expect `0x66` only, no `0x6D`.
-    #[test]
-    fn same_z_east_no_self_packet() {
-        let old = Position::new(100, 100, 7);
-        let new = Position::new(101, 100, 7);
-        assert_772_matches_1098_minus_self_packet(old, new, 0);
-
-        let b = move_creature_player_bytes(&codec_772(), old, new, 0, CID);
-        assert_ne!(b[0], 0x6D, "772 must NOT emit 0x6D for self-move");
-        assert_eq!(b[0], 0x66, "772 same-z east starts with 0x66 (SendRow east)");
-    }
-
-    /// Teleport (772): `SendFullScreen` (`0x64`) alone — no `0x6C` remove.
-    /// At the net level, `send_map_description_packet` produces the same
-    /// `0x64` output for both eras. The 772 teleport path in
-    /// `emit_teleport_move_packet` (core) must skip the remove packet —
-    /// that is Phase 2. Here we verify the map description body matches.
-    #[test]
-    fn teleport_772_map_description_matches_1098_body() {
-        let pos = Position::new(100, 100, 7);
-        let mut known_a = HashSet::new();
-        let mut known_b = HashSet::new();
-        let mut get_tile_a = empty_get_tile;
-        let mut get_tile_b = empty_get_tile;
-        let mut can_see_a = empty_can_see_creature;
-        let mut can_see_b = empty_can_see_creature;
-        let m1098 = send_map_description_packet(
-            &codec_1098(),
-            pos,
-            pos,
-            &mut get_tile_a,
-            &mut known_a,
-            &mut can_see_a,
-            false,
-        )
-        .into_bytes();
-        let m772 = send_map_description_packet(
-            &codec_772(),
-            pos,
-            pos,
-            &mut get_tile_b,
-            &mut known_b,
-            &mut can_see_b,
-            false,
-        )
-        .into_bytes();
-        assert_eq!(
-            m772, m1098,
-            "772 and 1098 teleport map description (0x64) bodies must match for empty map"
-        );
-        assert_eq!(m772[0], 0x64);
-    }
-
-    /// Phase 3 verification (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3): both-axes diagonal+z
-    /// move `(100,100,7)→(101,101,8)`.
-    ///
-    /// 772 `NotifyGo` would emit (x-steps then y-steps):
-    ///   `0xBF, 0x66, 0x66, 0x67, 0x67`
-    /// Rust `send_move_creature_player` (772, post-Phase 1) emits (append's fixed col+row,
-    /// then outer N/S before E/W):
-    ///   `0xBF, 0x66, 0x67, 0x67, 0x66`
-    ///
-    /// Both the row **ordering** and the row **content** (x0/y0 origins) diverge from 772.
-    /// However, this case is **unreachable via the walk path**: `are_in_range_1_1_0` requires
-    /// `dz == 0`, so any z-change routes to the teleport path (`emit_teleport_move_packet`),
-    /// never `send_move_creature_player`. See the companion test
-    /// `are_in_range_1_1_0_rejects_z_change_confirming_both_axes_z_unreachable` in
-    /// `tfs-rust-core/src/walk/mod.rs`. Per Phase 3, this is a documented no-op.
-    #[test]
-    fn both_axes_z_change_documents_unreachable_divergence() {
-        let old = Position::new(100, 100, 7);
-        let new = Position::new(101, 101, 8);
-        let b = move_creature_player_bytes(&codec_772(), old, new, 0, CID);
-
-        // Post-Phase 1: no self-packet. First byte is 0xBF (SendFloors down).
-        assert_eq!(b[0], 0xBF, "772 both-axes+z starts with 0xBF (no self-packet)");
-
-        // The row sequence is 0xBF, 0x66, 0x67, 0x67, 0x66 — NOT 772's ideal
-        // 0xBF, 0x66, 0x66, 0x67, 0x67. This divergence is accepted because the
-        // case is unreachable (z-changes route to the teleport path).
-        let opcodes: Vec<u8> = b
-            .iter()
-            .copied()
-            .filter(|&op| matches!(op, 0xBF | 0xBE | 0x66 | 0x67 | 0x68 | 0x65))
-            .collect();
-        // append_move_down: 0xBF + 0x66 + 0x67; outer: oy<ny → 0x67, ox<nx → 0x66.
-        assert_eq!(
-            opcodes,
-            vec![0xBF, 0x66, 0x67, 0x67, 0x66],
-            "772 both-axes+z row order diverges from NotifyGo but is unreachable"
-        );
+    fn non_adjacent_self_packet_then_full_screen() {
+        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), Position::new(100, 100, 9));
+        let off = assert_self_packet_then_stream(&b);
+        assert_eq!(b[off], 0x64, "non-adjacent NotifyGo uses SendFullScreen (0x64)");
     }
 }

@@ -130,6 +130,10 @@ impl NetworkMessage {
         self.buf.put_u64_le(val);
     }
 
+    pub fn write_bytes(&mut self, bytes: &[u8]) {
+        self.buf.extend_from_slice(bytes);
+    }
+
     pub fn write_string(&mut self, val: &str) {
         self.write_u16(val.len() as u16);
         self.buf.extend_from_slice(val.as_bytes());

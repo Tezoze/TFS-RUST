@@ -352,6 +352,11 @@ pub(crate) fn map_tile_content(
     }
 
     if on_self && !content.creatures.iter().any(|c| c.id == self_guid) {
+        tracing::debug!(
+            self_cid = ?self_cid,
+            pos = ?pos,
+            "map_tile_content: self not on tile, injecting self_wire (ghost check)"
+        );
         content.creatures.push(self_wire);
     }
 

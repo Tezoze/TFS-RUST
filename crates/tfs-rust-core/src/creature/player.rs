@@ -179,6 +179,18 @@ impl Player {
         self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
     }
 
+    /// OTClient connection flag — TVP gates several wire quirks on
+    /// `operatingSystem >= CLIENTOS_OTCLIENT_LINUX` (`protocolgame.cpp:171,265`,
+    /// `player_ping.rs:61`). Used by the walk dispatch to route OTClient-on-772
+    /// floor changes through TVP's teleport contract (remove + `0x64`), since
+    /// OTClient tracks the local player as a tile creature and cannot reconcile
+    /// the decompile `NotifyGo` incremental `SendFloors`/`SendRow` stream
+    /// (`docs/772_FLOOR_CHANGE_CLIENT_TARGETS.md` §6).
+    #[inline]
+    pub fn is_otclient(&self) -> bool {
+        self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
+    }
+
     pub fn add_experience(
         &mut self,
         amount: u64,

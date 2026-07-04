@@ -1,8 +1,8 @@
 # 772 Floor Change Desync — Protocol Divergence Audit
 
-**Status:** Fixed (Phases 1–4 implemented 2026-07-03) — root cause identified and narrowed (audit #2, 2026-07-03); Phase 0 golden tests implemented; Phases 1–4 implemented.
+**Status:** Fixed (Phases 1–4 implemented 2026-07-03; era-aware teleport detection 2026-07-04; TVP-aligned self-packet + teleport remove 2026-07-04) — root cause identified and narrowed (audit #2, 2026-07-03); Phase 0 golden tests implemented; era-aware teleport detection routes 772 adjacent z-changes through `SendFloors`/`SendRow`; self-packet and teleport-remove now match TVP exactly (both eras).
 **Severity:** High — every player floor transition (stairs, rope, ladder) desyncs the 772 client.
-**Reported:** 2026-07-03. **Re-audited:** 2026-07-03 (§16). **Phase 0:** 2026-07-03. **Phases 1–4:** 2026-07-03.
+**Reported:** 2026-07-03. **Re-audited:** 2026-07-03 (§16). **Phase 0:** 2026-07-03. **Phases 1–4:** 2026-07-03. **Teleport detection fix:** 2026-07-04. **TVP alignment:** 2026-07-04.
 
 ---
 
@@ -421,8 +421,20 @@ No y-steps.
 0x66  | east column at x=101+8+1=110, y=100-6=94..108  ← correct
 ```
 
-**Total: 2 packets** — `0x6D`, `0x66`. The extra `0x6D` is likely ignored by the 772 client
-(creature ID == self → skip), so same-z moves work despite the extra packet.
+**Total: 2 packets** — `0x6D`, `0x66`. ~~The extra `0x6D` is likely ignored by the 772 client
+(creature ID == self → skip), so same-z moves work despite the extra packet.~~
+
+> **Correction (2026-07-04 live client debugging).** The §10 assumption was **wrong**.
+> The 772 client does NOT track the player's own creature in its tile map. When it receives
+> `0x6D` for a self-move, it logs **"MoveCreature has been received for a coordinate where
+> there is no creature anymore [bug000017]"** — the source position (player's own tile) has
+> no creature entry. The decompile's `NotifyGo` (`cract.cc:1400-1460`) never sends `0x6D`
+> for self-moves — the viewport is updated purely via `SendRow` (0x65-0x68), which the client
+> interprets as an implicit self-move (shift viewport + update internal position). TVP
+> (`protocolgame.cpp:1796`) sends `0x6D` for self-moves (1098 pattern), but TVP was designed
+> for OTClient, not the real 772 client. **The decompile is authoritative** for the real
+> 772 client. The Rust server now suppresses `0x6D`/`0x6C` for ALL self-moves (same-z AND
+> z-changes) for 772, matching the decompile.
 
 ---
 
@@ -571,10 +583,11 @@ The 772 tests derive expected bytes by stripping the leading self-packet from th
 the self-packet diverges (§16.1). All tests use an empty map (`get_tile` → `None`) for deterministic
 skip-compression bytes.
 
-### Phase 1 — Suppress the self-creature packet for 772 (primary fix) — **IMPLEMENTED 2026-07-03**
+### Phase 1 — Suppress the self-creature packet for ALL 772 self-moves (primary fix) — **IMPLEMENTED 2026-07-03, REFINED 2026-07-04**
 
-In `send_move_creature_player` (`map_description.rs`), gate the leading self-packet on the era.
-The floor/row emission that follows is **unchanged** (it already matches 772):
+In `send_move_creature_player` (`map_description.rs`), gate the leading self-packet on the era
+for **ALL self-moves** (both z-changes AND same-z). The floor/row emission that follows is
+**unchanged** (it already matches 772):
 
 **New capability required.** `ProtocolCaps` (`crates/tfs-rust-common/src/protocol_version.rs:47`)
 has no bool that captures this today. Add one — `move_creature_self_packet: bool` — set `true`
@@ -592,8 +605,25 @@ if emit_self_packet {
     }
 }
 // append_move_down/up + outer rows: UNCHANGED (already byte-identical to 772)
-// same-z branch: guard the leading 0x6D with `emit_self_packet` too
+// same-z branch: also gated on emit_self_packet (772 suppresses 0x6D for ALL self-moves)
 ```
+
+> **TVP vs decompile divergence (2026-07-04).** TVP `sendMoveCreature` (`protocolgame.cpp:1796`)
+> sends `0x6D` for self-moves (1098 pattern). The decompile's `NotifyGo` (`cract.cc:1400-1460`)
+> never sends `0x6D` for self. Live client debugging confirmed the decompile is authoritative:
+> the 772 client does NOT track the player's own creature in its tile map, so `0x6D` at the
+> player's position triggers "MoveCreature has been received for a coordinate where there is
+> no creature anymore [bug000017]". TVP was designed for OTClient (which handles self `0x6D`
+> differently), not the real 772 client. **The decompile is authoritative for the real 772
+> client.** The Rust server suppresses `0x6D`/`0x6C` for ALL self-moves for 772.
+>
+> **Earlier same-z revert (2026-07-04) was wrong.** The initial Phase 1 suppressed `0x6D` for
+> all self-moves. The user reported "can't move at all" on same-z steps, so we reverted to
+> keeping `0x6D` for same-z. This was a misdiagnosis — the real issue was the teleport detection
+> (z-changes routing to 0x64 full-screen instead of SendFloors/SendRow), which has since been
+> fixed with era-aware `is_adjacent_move`. With both fixes in place (self-packet suppression +
+> era-aware teleport detection), same-z moves emit only `SendRow` (0x65-0x68), matching the
+> decompile's `NotifyGo`.
 
 ### Phase 2 — 772 teleport path — **IMPLEMENTED 2026-07-03**
 

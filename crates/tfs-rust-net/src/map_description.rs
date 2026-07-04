@@ -665,13 +665,158 @@ fn append_move_down_creature<F: FnMut(u32) -> bool>(
     );
 }
 
-/// Local player walk: `ProtocolGame::sendMoveCreature` when `creature == player` and not teleport.
-// C++ reference: `src/protocolgame.cpp` `ProtocolGame::sendMoveCreature` (lines ~2827–2870).
+/// `SendFloors` body — floor description data after the 0xBE/0xBF opcode.
+// C++ reference: `sending.cc:517-578` `SendFloors`.
 //
-// 772 era: `TCreature::NotifyGo` (`cract.cc:1400-1460`) never emits the leading self-packet
-// (`0x6D`/`0x6C`) — the viewport is updated purely via `SendFloors` + `SendRow`. The
-// `move_creature_self_packet` cap gates this; the floor/row emission that follows is
-// unchanged (it already matches 772 — see `docs/772_FLOOR_CHANGE_DESYNC.md` §16.1).
+/// `player_z` is the CURRENT z (after adjustment). The floor description covers
+/// the new floors the client needs based on direction (up/down) and current z.
+#[allow(clippy::too_many_arguments)]
+fn append_send_floors_body<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    msg: &mut NetworkMessage,
+    player_x: i32,
+    player_y: i32,
+    player_z: i32,
+    up: bool,
+    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
+    known_creatures: &mut HashSet<u32>,
+    can_see_creature: &mut F,
+    with_description: bool,
+) {
+    let vw = client_viewport_width();
+    let vh = client_viewport_height();
+    let ox = player_x - MAX_CLIENT_VIEWPORT_X;
+    let oy = player_y - MAX_CLIENT_VIEWPORT_Y;
+
+    // Decompile `SendFloors`:
+    //   Up + z==7: send floors [5, 0] (going to surface)
+    //   Up + z>7:  send floor z-2 (one floor up, still underground)
+    //   Down + z==8: send floors [8, 10] (going underground)
+    //   Down + z>8:  send floor z+2 (one floor down, still underground)
+    let (start_z, end_z, step_z): (i32, i32, i32) = if up {
+        if player_z == 7 {
+            (5, -1, -1) // floors 5→0, step -1 (EndZ exclusive: EndZ = 0 + (-1) = -1)
+        } else if player_z > 7 {
+            (player_z - 2, player_z - 3, -1) // one floor up
+        } else {
+            return; // z < 7 going up — no floor data
+        }
+    } else {
+        if player_z == 8 {
+            (8, 11, 1) // floors 8→10, step 1 (EndZ exclusive: EndZ = 10 + 1 = 11)
+        } else if player_z > 8 && player_z + 2 <= 15 {
+            (player_z + 2, player_z + 3, 1) // one floor down
+        } else {
+            return; // no floor data
+        }
+    };
+
+    let mut skip = -1_i32;
+    let mut z = start_z;
+    while z != end_z {
+        // Decompile uses ZOffset = player_z - z for x/y adjustment
+        let z_offset = player_z - z;
+        get_floor_description(
+            codec,
+            msg,
+            ox,
+            oy,
+            z,
+            vw,
+            vh,
+            z_offset,
+            &mut skip,
+            get_tile,
+            known_creatures,
+            can_see_creature,
+            with_description,
+        );
+        z += step_z;
+    }
+    if skip >= 0 {
+        msg.write_u8(skip as u8);
+        msg.write_u8(0xFF);
+    }
+}
+
+/// `SendRow` body — row description data after the direction opcode.
+// C++ reference: `sending.cc:463-515` `SendRow`.
+//
+/// Sends a single row/column of map data at the given player position, with
+/// multi-floor z-offset logic (sends multiple z-levels).
+#[allow(clippy::too_many_arguments)]
+fn append_send_row<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    msg: &mut NetworkMessage,
+    player_x: i32,
+    player_y: i32,
+    player_z: i32,
+    direction_opcode: u8,
+    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
+    known_creatures: &mut HashSet<u32>,
+    can_see_creature: &mut F,
+    with_description: bool,
+) {
+    msg.write_u8(direction_opcode);
+
+    let vw = client_viewport_width();
+    let vh = client_viewport_height();
+    let min_x = player_x - MAX_CLIENT_VIEWPORT_X;
+    let min_y = player_y - MAX_CLIENT_VIEWPORT_Y;
+
+    // Decompile `SendRow` z-range:
+    //   z <= 7: floors 7→0, step -1
+    //   z > 7:  floors z-2 → min(z+2, 15), step 1
+    let (start_z, end_z, step_z): (i32, i32, i32) = if player_z <= 7 {
+        (7, -1, -1) // floors 7→0, EndZ = 0 + (-1) = -1
+    } else {
+        let end = (player_z + 2).min(15) + 1;
+        (player_z - 2, end, 1)
+    };
+
+    // Determine which row/column to send based on direction.
+    // Decompile `SendRow`: NORTH → y=min_y, EAST → x=max_x, SOUTH → y=max_y, WEST → x=min_x.
+    let (origin_x, origin_y, width, height) = match direction_opcode {
+        0x65 => (min_x, min_y, vw, 1),         // NORTH: full width, 1 row at min_y
+        0x66 => (min_x + vw - 1, min_y, 1, vh), // EAST:  1 col at max_x, full height
+        0x67 => (min_x, min_y + vh - 1, vw, 1), // SOUTH: full width, 1 row at max_y
+        0x68 => (min_x, min_y, 1, vh),          // WEST:  1 col at min_x, full height
+        _ => return,
+    };
+
+    let mut skip = -1_i32;
+    let mut z = start_z;
+    while z != end_z {
+        let z_offset = player_z - z;
+        get_floor_description(
+            codec,
+            msg,
+            origin_x,
+            origin_y,
+            z,
+            width,
+            height,
+            z_offset,
+            &mut skip,
+            get_tile,
+            known_creatures,
+            can_see_creature,
+            with_description,
+        );
+        z += step_z;
+    }
+    if skip >= 0 {
+        msg.write_u8(skip as u8);
+        msg.write_u8(0xFF);
+    }
+}
+
+
+//
+// Both eras emit the self-packet (`0x6D`/`0x6C`) — TVP works fine on the real 772 client.
+// The self-packet updates the client's central position BEFORE the floor change (0xBE/0xBF)
+// is processed. Without it, the client uses the OLD position when parsing the floor
+// description, placing tiles at wrong coordinates → "no thing at pos" errors.
 #[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendMoveCreature` parameters (parity)
 pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     codec: &Codec,
@@ -684,32 +829,33 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     can_see_creature: &mut F,
     with_description: bool,
 ) -> NetworkMessage {
-    let emit_self_packet = codec.caps().move_creature_self_packet;
     if old_pos.z != new_pos.z {
         let mut msg = NetworkMessage::new();
-        // 772 `NotifyGo` never emits the self-packet; 1098 does (`protocolgame.cpp:2827-2870`).
-        if emit_self_packet {
-            if old_pos.z == 7 && new_pos.z >= 8 {
-                if (0..10).contains(&old_stack_pos) {
-                    msg.write_u8(0x6C);
-                    msg.write_position(&old_pos);
-                    msg.write_u8(old_stack_pos as u8);
-                } else {
-                    msg.write_u8(0x6C);
-                    msg.write_u16(0xFFFF);
-                    msg.write_u32(creature_id);
-                }
+        // Self-packet is REQUIRED for both clients — it updates the client's central
+        // position BEFORE the floor change (0xBE/0xBF) is processed. §6 experiment
+        // (2026-07-04) confirmed: suppressing it desyncs both OTClient and the real
+        // 772 client immediately. The `bug000017` log is a debug warning, not a desync.
+        // TVP sends it on both eras and works fine.
+        if old_pos.z == 7 && new_pos.z >= 8 {
+            if (0..10).contains(&old_stack_pos) {
+                msg.write_u8(0x6C);
+                msg.write_position(&old_pos);
+                msg.write_u8(old_stack_pos as u8);
             } else {
-                msg.write_u8(0x6D);
-                if (0..10).contains(&old_stack_pos) {
-                    msg.write_position(&old_pos);
-                    msg.write_u8(old_stack_pos as u8);
-                } else {
-                    msg.write_u16(0xFFFF);
-                    msg.write_u32(creature_id);
-                }
-                msg.write_position(&new_pos);
+                msg.write_u8(0x6C);
+                msg.write_u16(0xFFFF);
+                msg.write_u32(creature_id);
             }
+        } else {
+            msg.write_u8(0x6D);
+            if (0..10).contains(&old_stack_pos) {
+                msg.write_position(&old_pos);
+                msg.write_u8(old_stack_pos as u8);
+            } else {
+                msg.write_u16(0xFFFF);
+                msg.write_u32(creature_id);
+            }
+            msg.write_position(&new_pos);
         }
 
         if new_pos.z > old_pos.z {
@@ -812,18 +958,17 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     }
 
     let mut msg = NetworkMessage::new();
-    // 772 `NotifyGo` same-z path: only `SendRow`, no self-packet (`cract.cc:1400-1460`).
-    if emit_self_packet {
-        msg.write_u8(0x6D);
-        if (0..10).contains(&old_stack_pos) {
-            msg.write_position(&old_pos);
-            msg.write_u8(old_stack_pos as u8);
-        } else {
-            msg.write_u16(0xFFFF);
-            msg.write_u32(creature_id);
-        }
-        msg.write_position(&new_pos);
+    // Self-packet is REQUIRED for both clients on same-z moves too. §6 experiment
+    // confirmed suppressing it desyncs immediately.
+    msg.write_u8(0x6D);
+    if (0..10).contains(&old_stack_pos) {
+        msg.write_position(&old_pos);
+        msg.write_u8(old_stack_pos as u8);
+    } else {
+        msg.write_u16(0xFFFF);
+        msg.write_u32(creature_id);
     }
+    msg.write_position(&new_pos);
 
     let w = client_viewport_width();
     let h = client_viewport_height();
@@ -900,35 +1045,156 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     msg
 }
 
+/// 772 `TCreature::NotifyGo` — the player's **own** move notification
+/// (`reference/cipsoft-772/tibia-game-master/src/cract.cc:1400-1465`).
+///
+/// This is the real 7.72 client's ground truth for self-moves. Unlike TVP / 1098
+/// (`send_move_creature_player`), it emits **no** `0x6D`/`0x6C` self-packet. Instead it
+/// computes the **overall** `orig → dest` delta and walks it in a fixed order —
+/// z-steps first (each shifts x/y diagonally by ∓1), then x-steps, then y-steps —
+/// emitting `SendFloors` (0xBE/0xBF) / `SendRow` (0x65-0x68) per step. Non-adjacent moves
+/// (`|d| > 1` on any axis) use `SendFullScreen` (`0x64`).
+///
+/// Callers pass the overall pre-move position (`orig`) and final position (`dest`); the
+/// queryDestination chain must **not** be emitted per segment — that produces an invalid
+/// row sequence for combined diagonal+z stair moves (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3,
+/// e.g. walking west onto south-facing stairs).
+#[allow(clippy::too_many_arguments)]
+pub fn send_notify_go<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    orig: Position,
+    dest: Position,
+    old_stack_pos: i32,
+    creature_id: u32,
+    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
+    known_creatures: &mut HashSet<u32>,
+    can_see_creature: &mut F,
+    with_description: bool,
+) -> NetworkMessage {
+    let (ox, oy, oz) = (orig.x as i32, orig.y as i32, orig.z as i32);
+    let (dx, dy, dz) = (dest.x as i32, dest.y as i32, dest.z as i32);
+
+    // Non-adjacent → SendFullScreen (`cract.cc:1457-1461`).
+    if (dx - ox).abs() > 1 || (dy - oy).abs() > 1 || (dz - oz).abs() > 1 {
+        // Self-packet first (decompile `AnnounceMovingCreature` → `SendMoveCreature`).
+        let mut msg = NetworkMessage::new();
+        msg.write_u8(0x6D);
+        if (0..10).contains(&old_stack_pos) {
+            msg.write_position(&orig);
+            msg.write_u8(old_stack_pos as u8);
+        } else {
+            msg.write_u16(0xFFFF);
+            msg.write_u32(creature_id);
+        }
+        msg.write_position(&dest);
+        let map_pkt = send_map_description_packet(
+            codec,
+            dest,
+            dest,
+            get_tile,
+            known_creatures,
+            can_see_creature,
+            with_description,
+        );
+        msg.write_bytes(&map_pkt.into_bytes());
+        return msg;
+    }
+
+    let mut msg = NetworkMessage::new();
+
+    // Self-move packet (0x6D) — decompile `AnnounceMovingCreature` → `SendMoveCreature`
+    // sends 0x6D to ALL visible players including self BEFORE `NotifyGo`. Without this,
+    // the client doesn't update its central position → desync (§6 experiment).
+    // Decompile `SendMoveCreature` format: 0x6D + pos(old) + stack + pos(new).
+    msg.write_u8(0x6D);
+    if (0..10).contains(&old_stack_pos) {
+        msg.write_position(&orig);
+        msg.write_u8(old_stack_pos as u8);
+    } else {
+        msg.write_u16(0xFFFF);
+        msg.write_u32(creature_id);
+    }
+    msg.write_position(&dest);
+
+    let (mut px, mut py, mut pz) = (ox, oy, oz);
+
+    // z-steps first — each floor change shifts x/y diagonally (`cract.cc:1423-1436`).
+    while pz < dz {
+        px -= 1;
+        py -= 1;
+        pz += 1;
+        msg.write_u8(0xBF);
+        append_send_floors_body(
+            codec, &mut msg, px, py, pz, false, get_tile, known_creatures, can_see_creature,
+            with_description,
+        );
+    }
+    while pz > dz {
+        px += 1;
+        py += 1;
+        pz -= 1;
+        msg.write_u8(0xBE);
+        append_send_floors_body(
+            codec, &mut msg, px, py, pz, true, get_tile, known_creatures, can_see_creature,
+            with_description,
+        );
+    }
+
+    // x-steps (`cract.cc:1438-1446`).
+    while px < dx {
+        px += 1;
+        append_send_row(
+            codec, &mut msg, px, py, pz, 0x66, get_tile, known_creatures, can_see_creature,
+            with_description,
+        );
+    }
+    while px > dx {
+        px -= 1;
+        append_send_row(
+            codec, &mut msg, px, py, pz, 0x68, get_tile, known_creatures, can_see_creature,
+            with_description,
+        );
+    }
+
+    // y-steps (`cract.cc:1448-1456`).
+    while py < dy {
+        py += 1;
+        append_send_row(
+            codec, &mut msg, px, py, pz, 0x67, get_tile, known_creatures, can_see_creature,
+            with_description,
+        );
+    }
+    while py > dy {
+        py -= 1;
+        append_send_row(
+            codec, &mut msg, px, py, pz, 0x65, get_tile, known_creatures, can_see_creature,
+            with_description,
+        );
+    }
+
+    msg
+}
+
 /// Other creature's walk (not the local player): `ProtocolGame::sendMoveCreature` when
-/// `creature != player` and both old and new positions are visible (`protocolgame.cpp` ~2872–2887).
+/// `creature != player` and both old and new positions are visible (`protocolgame.cpp:1830-1848`).
 /// No map row opcodes — client shifts the sprite from old stack to new tile.
 ///
-/// 772 era (`sending.cc:658-700` `SendMoveCreature`): uses `OrigIndex` (stackpos) directly
-/// when `OrigIndex < MAX_OBJECTS_PER_POINT` (= 10). 772 has **no** `0xFFFF + creature_id`
-/// fallback — when `OrigIndex >= 10`, `WasVisible` is false and the caller must emit
-/// `SendAddField` (appear) instead. Returns `None` in that case so the caller can fall back
-/// to the appear path. 1098 always emits `0x6D` with the `0xFFFF + id` fallback for
-/// `stack >= 10`. See `docs/772_FLOOR_CHANGE_DESYNC.md` Phase 4 / §16.4.
+/// TVP always sends `0x6D` for spectators (non-teleport, non-z7→z8, both visible),
+/// using the `0xFFFF + creatureID` fallback when `oldStackPos >= 10` (line 1844-1845).
 pub fn send_move_creature_spectator(
-    codec: &Codec,
+    _codec: &Codec,
     old_pos: Position,
     new_pos: Position,
     old_stack_pos: i32,
     creature_id: u32,
 ) -> Option<NetworkMessage> {
-    // 772: stack >= 10 (or invalid) → WasVisible=false → no 0x6D; caller emits appear.
-    if !codec.caps().move_creature_self_packet && !(0..10).contains(&old_stack_pos) {
-        return None;
-    }
-
     let mut msg = NetworkMessage::new();
     msg.write_u8(0x6D);
     if (0..10).contains(&old_stack_pos) {
         msg.write_position(&old_pos);
         msg.write_u8(old_stack_pos as u8);
     } else {
-        // 1098 fallback: 0xFFFF + creature_id (`protocolgame.cpp` ~2876-2880).
+        // 0xFFFF + creature_id fallback (`protocolgame.cpp:1844-1845`).
         msg.write_u16(0xFFFF);
         msg.write_u32(creature_id);
     }

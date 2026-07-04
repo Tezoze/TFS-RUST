@@ -39,7 +39,7 @@ use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{
     send_map_description_packet, send_move_creature_player, send_move_creature_spectator,
-    TileContent,
+    send_notify_go, TileContent,
 };
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
@@ -74,12 +74,72 @@ struct MoveSegment {
     teleport: bool,
 }
 
+/// Pending chain turn deferred from `internal_move_creature_step` — the direction
+/// is set immediately (matching C++ `internalCreatureTurn` state mutation), but the
+/// `0x6B` broadcast is deferred until AFTER move packets are emitted in `on_walk`.
+/// C++ order: `Map::moveCreature` sends `sendMoveCreature` during the move loop
+/// (`map.cpp:316`), THEN `Game::internalMoveCreature` calls `internalCreatureTurn`
+/// → `sendCreatureTurn` (`0x6B`) after the loop (`game.cpp:888`). Rust previously
+/// emitted `0x6B` inside `internal_move_creature_step` (before move packets in
+/// `on_walk`), causing the client to receive `0x6B` for a position it hasn't seen
+/// the creature move to yet → "no thing at pos" errors.
+struct PendingChainTurn {
+    cid: CreatureId,
+    dir: Direction,
+}
+
 /// C++ `Position::areInRange<1,1,0>` — dx<=1, dy<=1, dz==0.
 fn are_in_range_1_1_0(a: Position, b: Position) -> bool {
     let dx = (a.x as i32 - b.x as i32).unsigned_abs();
     let dy = (a.y as i32 - b.y as i32).unsigned_abs();
     let dz = (a.z as i32 - b.z as i32).unsigned_abs();
     dx <= 1 && dy <= 1 && dz == 0
+}
+
+/// 772 `NotifyGo` adjacent condition: `DistanceX <= 1 && DistanceY <= 1 && DistanceZ <= 1`
+/// (`cract.cc:1421`). 772 uses `SendFloors` (0xBE/0xBF) + `SendRow` (0x65-0x68) for
+/// adjacent z-changes — an incremental floor update. Only `DistanceZ > 1` (or dx/dy > 1)
+/// triggers `SendFullScreen` (0x64). 1098 uses `areInRange<1,1,0>` (dz==0) — z-changes
+/// are always teleports (full screen 0x64). See `docs/772_FLOOR_CHANGE_DESYNC.md`.
+fn are_in_range_1_1_1(a: Position, b: Position) -> bool {
+    let dx = (a.x as i32 - b.x as i32).unsigned_abs();
+    let dy = (a.y as i32 - b.y as i32).unsigned_abs();
+    let dz = (a.z as i32 - b.z as i32).unsigned_abs();
+    dx <= 1 && dy <= 1 && dz <= 1
+}
+
+/// Era- and client-aware teleport range check.
+///
+/// - **1098** (`move_creature_self_packet == true`): TVP `areInRange<1,1,0>` — `dz == 0`
+///   required, so any z-change is a teleport (full-screen `0x64`).
+/// - **772 real client** (`!otclient`): decompile `NotifyGo` adjacent condition —
+///   `DistanceZ <= 1` uses incremental `SendFloors`/`SendRow`; only `dz > 1` (or
+///   dx/dy > 1) is a teleport.
+/// - **772 OTClient** (`otclient`): TVP contract — OTClient tracks the local player
+///   as a tile creature and cannot reconcile the decompile's incremental floor/row
+///   stream, so it gets the same `dz == 0` rule as 1098 (z-changes → `0x64`).
+///   See `docs/772_FLOOR_CHANGE_CLIENT_TARGETS.md` §6.
+///
+/// `otclient` is the connection's OTClient flag (`Player::is_otclient`); the dispatch
+/// site owns the policy decision and threads the bool in here rather than reaching
+/// into world state from a free function.
+fn is_adjacent_move(
+    codec: &tfs_rust_net::codec::Codec,
+    otclient: bool,
+    a: Position,
+    b: Position,
+) -> bool {
+    if codec.caps().move_creature_self_packet {
+        // 1098: `areInRange<1,1,0>` — z-changes are teleports.
+        are_in_range_1_1_0(a, b)
+    } else if otclient {
+        // 772 OTClient: TVP contract — z-changes are teleports (full-screen 0x64).
+        are_in_range_1_1_0(a, b)
+    } else {
+        // 772 real client: `NotifyGo` adjacent condition — `DistanceZ <= 1` uses
+        // SendFloors/SendRow.
+        are_in_range_1_1_1(a, b)
+    }
 }
 
 mod walk_tile;
@@ -286,6 +346,14 @@ fn internal_creature_turn_with_broadcast(world: &mut GameWorld, cid: CreatureId,
         k.base_mut().direction = dir;
     }
 
+    internal_creature_turn_broadcast_only(world, cid, dir);
+}
+
+/// Emit the `0x6B` turn broadcast WITHOUT mutating direction state. Used by
+/// `on_walk` to emit the deferred chain turn AFTER move packets — the direction
+/// was already set in `internal_move_creature_step` (matching C++ state mutation
+/// order); this only sends the wire packet.
+fn internal_creature_turn_broadcast_only(world: &mut GameWorld, cid: CreatureId, dir: Direction) {
     // Gather wire id, position, stack position (needed for the 0x6B wire format).
     let (wire_id, pos) = match world.creatures.get(cid) {
         Some(k) => (creature_wire_id(cid, k), k.position()),
@@ -947,6 +1015,8 @@ impl GameWorld {
         }
     }
 
+    /// 1098 self-move (`ProtocolGame::sendMoveCreature`, `creature == player`, non-teleport).
+    /// 772 self-moves use [`Self::emit_notify_go`] instead.
     fn emit_move_packet(
         &mut self,
         cid: CreatureId,
@@ -988,12 +1058,61 @@ impl GameWorld {
         self.enqueue_outgoing(conn_id, packet);
     }
 
-    /// C++ `sendCreatureMove` teleport path: `sendRemoveTileCreature` + `sendMapDescription`.
-    /// Used for queryDestination chain steps where `areInRange<1,1,0>` fails (z-change or >1 tile).
+    /// 772 self-move — decompile `TCreature::NotifyGo` (`cract.cc:1400-1465`).
     ///
-    /// 772 era: `SendFullScreen` (`sending.cc:421-460`) emits `0x64` alone — no remove packet.
-    /// The `move_creature_self_packet` cap gates the remove; the map description (`0x64`) is
-    /// era-independent. See `docs/772_FLOOR_CHANGE_DESYNC.md` Phase 2.
+    /// Emits a single packet for the **overall** `old_pos → new_pos` move (never per segment):
+    /// no `0x6D`/`0x6C` self-packet; adjacent moves stream `SendFloors`/`SendRow`, non-adjacent
+    /// moves use `SendFullScreen` (0x64). Fixes the combined diagonal+z stair desync (§16.3):
+    /// walking perpendicular onto a stair (e.g. west onto south-facing stairs) leaves a leftover
+    /// delta on both axes, which per-segment emission cannot encode as a valid row sequence.
+    fn emit_notify_go(
+        &mut self,
+        cid: CreatureId,
+        conn_id: ConnId,
+        old_pos: Position,
+        new_pos: Position,
+        old_stack: i32,
+    ) {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return;
+        };
+        let with_description = p.item_with_description();
+        let guid = p.guid;
+
+        let mut known = self
+            .known_creatures_by_conn
+            .remove(&conn_id)
+            .unwrap_or_default();
+        self.reconcile_known_creatures_for_send(conn_id, &mut known);
+        let packet = {
+            let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
+                map_tile_content(self, cid, new_pos, tx, ty, tz)
+            };
+            let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
+            send_notify_go(
+                &self.codec,
+                old_pos,
+                new_pos,
+                old_stack,
+                guid,
+                &mut get_tile,
+                &mut known,
+                &mut can_see,
+                with_description,
+            )
+            .into_bytes()
+        };
+        self.commit_known_creatures_after_send(conn_id, &known);
+        self.enqueue_outgoing(conn_id, packet);
+    }
+
+    /// C++ `sendCreatureMove` teleport path: `sendRemoveTileCreature` + `sendMapDescription`.
+    /// Used for queryDestination chain steps where `areInRange` fails (>1 tile or, for 1098, any z-change).
+    ///
+    /// TVP (`protocolgame.cpp:1768-1790`): for self-teleport, sends `sendRemoveTileCreature`
+    /// UNLESS `newPos.z == 8 && oldPos.z == 7` (surface→underground skips remove), then
+    /// `sendMapDescription(newPos)` (0x64). Both eras use the same logic. §6 experiment
+    /// confirmed the self-packet and remove are required for both clients.
     fn emit_teleport_move_packet(
         &mut self,
         cid: CreatureId,
@@ -1006,12 +1125,13 @@ impl GameWorld {
             return;
         };
         let with_description = p.item_with_description();
-        let emit_self_packet = self.codec.caps().move_creature_self_packet;
 
-        // 1) sendRemoveTileCreature(creature, oldPos, oldStackPos) — 1098 only.
-        // 772 `SendFullScreen` skips the remove; the full-screen map description repositions
-        // the viewport without a self-remove (`cract.cc:1430-1432`, `sending.cc:421-460`).
-        if emit_self_packet {
+        // 1) sendRemoveTileCreature — TVP: skip when leaving surface (oldPos.z == 7)
+        // in either direction OR going down to underground (newPos.z == 8).
+        // `protocolgame.cpp:1770`: `if (newPos.z != 8 && oldPos.z != 7)` — send remove
+        // only when BOTH conditions hold; skip when EITHER is false.
+        let skip_remove = old_pos.z == 7 || new_pos.z == 8;
+        if !skip_remove {
             let remove_pkt = if (0..10).contains(&old_stack) {
                 self.codec
                     .encode_remove_tile_thing(old_pos, old_stack as u8)
@@ -1086,8 +1206,8 @@ impl GameWorld {
             })
             .collect();
 
-        // 772 `SendMoveCreature` returns `None` when `OrigIndex >= 10` (WasVisible=false) —
-        // the caller must emit `SendAddField` (appear) instead of `0x6D` (`sending.cc:658-700`).
+        // TVP always sends 0x6D for spectators (non-teleport, non-z7→z8, both visible),
+        // using the 0xFFFF + creatureID fallback for stack >= 10 (`protocolgame.cpp:1837-1848`).
         let move_packet =
             send_move_creature_spectator(&self.codec, old_pos, new_pos, old_stack, wire_id)
                 .map(|m| m.into_bytes());
@@ -1106,9 +1226,6 @@ impl GameWorld {
                     } else {
                         self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                     }
-                } else {
-                    // 772 + stack >= 10: WasVisible=false → appear-only (SendAddField).
-                    self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                 }
             } else if can_see_old {
                 self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
@@ -1582,33 +1699,61 @@ impl GameWorld {
                         );
                         self.on_walk_step_rejected(cid, ret);
                     }
-                    Ok(segments) => {
+                    Ok((segments, pending_turn)) => {
                         let new_pos = match self.creatures.get(cid) {
                             Some(k) => k.position(),
                             None => return,
                         };
 
-                        // Emit per-segment move packets — matches C++ `Map::moveCreature` which
-                        // sends a packet for each call (game.cpp ~863-864 loop).
+                        // Emit move packets to self.
+                        // 772 real client (decompile `NotifyGo`, `cract.cc:1400-1465`): ONE
+                        //   combined packet for the overall old→final move. `AnnounceMovingCreature`
+                        //   sends `SendMoveCreature` (0x6D) to all players including self, THEN
+                        //   `NotifyGo` sends `SendFloors` (0xBE/0xBF) + `SendRow` (0x65-0x68) to
+                        //   self only. The 0x6D self-packet is REQUIRED — without it the client
+                        //   doesn't update its central position, only the view shifts → desync
+                        //   (§6 experiment). Per-segment emission produces an invalid row sequence
+                        //   for combined diagonal+z stair moves (§16.3), so 772 must emit from the
+                        //   overall delta.
+                        // 772 OTClient: TVP contract — OTClient tracks the local player as a tile
+                        //   creature and cannot reconcile the decompile's incremental floor/row
+                        //   stream after the leading 0x6D pre-jumps the self to the final tile.
+                        //   Route through the per-segment TVP path (teleport = remove + 0x64 for
+                        //   z-changes), matching `protocolgame.cpp:1766-1829`. Fixes the
+                        //   perpendicular-approach stair desync (west onto south-facing stairs):
+                        //   `docs/772_FLOOR_CHANGE_CLIENT_TARGETS.md` §6.
+                        // 1098 (TVP `sendMoveCreature`): per-segment emission — each
+                        //   `map.moveCreature` call sends its own packet (teleport for z-changes).
+                        let is_772 = !self.codec.caps().move_creature_self_packet;
+                        let is_otclient = self
+                            .creatures
+                            .get(cid)
+                            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
+                        let use_notify_go = is_772 && !is_otclient;
+                        let overall_old_stack = segments.first().map(|s| s.old_stack).unwrap_or(1);
                         if let Some(conn) = self.conn_for_creature(cid) {
-                            for seg in &segments {
-                                if seg.teleport {
-                                    // C++ teleport path: sendRemoveTileCreature + sendMapDescription
-                                    self.emit_teleport_move_packet(
-                                        cid,
-                                        conn,
-                                        seg.from,
-                                        seg.to,
-                                        seg.old_stack,
-                                    );
-                                } else {
-                                    self.emit_move_packet(
-                                        cid,
-                                        conn,
-                                        seg.from,
-                                        seg.to,
-                                        seg.old_stack,
-                                    );
+                            if use_notify_go {
+                                self.emit_notify_go(cid, conn, old_pos, new_pos, overall_old_stack);
+                            } else {
+                                for seg in &segments {
+                                    if seg.teleport {
+                                        // C++ teleport path: sendRemoveTileCreature + sendMapDescription
+                                        self.emit_teleport_move_packet(
+                                            cid,
+                                            conn,
+                                            seg.from,
+                                            seg.to,
+                                            seg.old_stack,
+                                        );
+                                    } else {
+                                        self.emit_move_packet(
+                                            cid,
+                                            conn,
+                                            seg.from,
+                                            seg.to,
+                                            seg.old_stack,
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -1617,6 +1762,16 @@ impl GameWorld {
                         // important for spectator rendering.
                         let overall_old_stack = segments.first().map(|s| s.old_stack).unwrap_or(1);
                         self.broadcast_spectator_move(cid, old_pos, new_pos, overall_old_stack);
+
+                        // Emit deferred chain turn `0x6B` AFTER move packets — matches C++ wire
+                        // order: `Map::moveCreature` sends `sendMoveCreature` during the move
+                        // loop (`map.cpp:316`), THEN `Game::internalMoveCreature` calls
+                        // `internalCreatureTurn` → `sendCreatureTurn` (`0x6B`) after the loop
+                        // (`game.cpp:888`). The direction was already set in
+                        // `internal_move_creature_step`; this only emits the `0x6B` broadcast.
+                        if let Some(pt) = pending_turn {
+                            internal_creature_turn_broadcast_only(self, pt.cid, pt.dir);
+                        }
 
                         // TFS `lastStep` is set in `onCreatureMove` **after** `sendCreatureMove` (`map.cpp` ~309–324).
                         let gs_dest = self
@@ -1754,15 +1909,19 @@ impl GameWorld {
     /// TFS `Game::internalMoveCreature` — both overloads combined.
     /// C++ ref: src/game.cpp:797-894
     ///
-    /// Returns `Ok(segments)` on success — each segment corresponds to one C++
-    /// `Map::moveCreature` call and needs its own move packet.
+    /// Returns `Ok((segments, pending_turn))` on success — each segment corresponds
+    /// to one C++ `Map::moveCreature` call and needs its own move packet.
+    /// `pending_turn` is `Some` when a post-chain direction change is needed
+    /// (C++ `game.cpp:882-891`); the caller must emit the `0x6B` broadcast AFTER
+    /// the move packets to match C++ wire order (`map.cpp:316` sends moves before
+    /// `game.cpp:888` sends the turn).
     /// Returns `Err(ret)` when the move is rejected.
     fn internal_move_creature_step(
         &mut self,
         cid: CreatureId,
         direction: Direction,
         _now: Instant,
-    ) -> Result<Vec<MoveSegment>, ReturnValue> {
+    ) -> Result<(Vec<MoveSegment>, Option<PendingChainTurn>), ReturnValue> {
         let current_pos = match self.creatures.get(cid) {
             Some(k) => k.position(),
             None => return Err(ReturnValue::NotPossible),
@@ -1773,6 +1932,15 @@ impl GameWorld {
             .creatures
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+
+        // OTClient flag for era-aware teleport detection. OTClient-on-772 uses TVP's
+        // `areInRange<1,1,0>` (z-changes are teleports); the real 7.72 client uses the
+        // decompile `NotifyGo` `DistanceZ <= 1` rule (adjacent z-changes are incremental).
+        // See `is_adjacent_move` and `docs/772_FLOOR_CHANGE_CLIENT_TARGETS.md` §6.
+        let otclient = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
 
         // Phase 1: destination — height-based floor change is player-only (`game.cpp` ~805).
         let (dest_pos, flags) = if is_player {
@@ -1787,7 +1955,15 @@ impl GameWorld {
         } else {
             (current_pos.offset(direction), flags_in)
         };
+        let is_floor_change = dest_pos.z != current_pos.z;
         let Some(to_tile) = self.map.get_tile(dest_pos) else {
+            tracing::warn!(
+                ?cid,
+                ?direction,
+                from = ?current_pos,
+                dest = ?dest_pos,
+                "destination tile is None (not loaded)"
+            );
             return Err(ReturnValue::NotPossible);
         };
 
@@ -1819,13 +1995,14 @@ impl GameWorld {
         };
 
         // C++ map.cpp:262 — teleport detection for initial step.
+        // 772: adjacent z-changes (dz ≤ 1) use `SendFloors`/`SendRow` (not teleport).
+        // 1098: z-changes (dz != 0) are always teleports.
         let has_ground = self
             .map
             .get_tile(dest_pos)
             .map(|t| t.body().ground.is_some())
             .unwrap_or(false);
-        let initial_teleport = !has_ground || !are_in_range_1_1_0(old_pos, dest_pos);
-
+        let initial_teleport = !has_ground || !is_adjacent_move(&self.codec, otclient, old_pos, dest_pos);
         // Move creature to initial destination.
         self.move_creature_on_map(cid, old_pos, dest_pos);
 
@@ -1864,7 +2041,7 @@ impl GameWorld {
                 .get_tile(new_pos)
                 .map(|t| t.body().ground.is_some())
                 .unwrap_or(false);
-            let chain_teleport = !chain_has_ground || !are_in_range_1_1_0(final_pos, new_pos);
+            let chain_teleport = !chain_has_ground || !is_adjacent_move(&self.codec, otclient, final_pos, new_pos);
 
             // Move creature to the chained destination.
             self.move_creature_on_map(cid, final_pos, new_pos);
@@ -1937,16 +2114,23 @@ impl GameWorld {
             }
         }
 
-        // Step 3: post-queryDestination chain turn overrides everything.
-        // C++ ref: src/game.cpp:882-891
-        // C++ calls `internalCreatureTurn` here — which sets direction AND sends `0x6B`.
-        // Now that creature.position() == final_pos, the broadcast will correctly reach
-        // the moving player (previously dropped due to z-mismatch in can_see_position).
+        // Step 3: post-queryDestination chain turn — set direction NOW (matching C++
+        // `internalCreatureTurn` state mutation at `game.cpp:888`), but DEFER the `0x6B`
+        // broadcast. C++ wire order: `Map::moveCreature` sends `sendMoveCreature` during
+        // the move loop (`map.cpp:316`), THEN `internalCreatureTurn` sends `0x6B`
+        // (`game.cpp:888`). Rust emits move packets in `on_walk` AFTER this function
+        // returns, so the `0x6B` must be deferred to the caller to avoid sending it
+        // before the client knows the creature moved to the new position.
+        let mut pending_turn: Option<PendingChainTurn> = None;
         if let Some(fp) = from_pos {
             if fp.z != final_pos.z && (fp.x != final_pos.x || fp.y != final_pos.y) {
                 let dir = direction_from_positions(fp, final_pos);
                 if !is_diagonal(dir) {
-                    internal_creature_turn_with_broadcast(self, cid, dir);
+                    // Set direction immediately (state mutation only).
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().direction = dir;
+                    }
+                    pending_turn = Some(PendingChainTurn { cid, dir });
                 }
             }
         }
@@ -1959,18 +2143,75 @@ impl GameWorld {
             self.auto_close_containers_for_player(cid);
         }
 
-        Ok(segments)
+        // Ghost diagnostic: after all moves, verify the creature is ONLY on the final tile.
+        // Scan the old position and any intermediate positions for stale registrations.
+        let mut ghost_positions: Vec<Position> = Vec::new();
+        for seg in &segments {
+            if seg.from != final_pos
+                && self
+                    .map
+                    .get_tile(seg.from)
+                    .is_some_and(|t| t.body().creatures.contains(&cid))
+            {
+                ghost_positions.push(seg.from);
+            }
+        }
+        if !ghost_positions.is_empty() {
+            tracing::error!(
+                ?cid,
+                final_pos = ?final_pos,
+                ?ghost_positions,
+                "GHOST DETECTED: creature still registered on old/intermediate tile(s) after move"
+            );
+            debug_assert!(
+                ghost_positions.is_empty(),
+                "GHOST: creature {:?} still on tiles {:?} after move to {:?}",
+                cid,
+                ghost_positions,
+                final_pos
+            );
+        }
+
+        // Final sanity: creature must be on the final tile.
+        let on_final = self
+            .map
+            .get_tile(final_pos)
+            .is_some_and(|t| t.body().creatures.contains(&cid));
+        if !on_final && is_player && (is_floor_change || segments.len() > 1) {
+            tracing::error!(
+                ?cid,
+                final_pos = ?final_pos,
+                "GHOST DETECTED: creature NOT on final tile after move!"
+            );
+            debug_assert!(
+                on_final,
+                "GHOST: creature {:?} not on final tile {:?} after move",
+                cid,
+                final_pos
+            );
+        }
+
+        Ok((segments, pending_turn))
     }
 
     /// One walk step for push / auxiliary callers (discards segment payloads).
+    /// Emits any pending chain turn `0x6B` immediately — push callers don't have
+    /// a separate move-packet emission phase, so the deferred turn is flushed here.
     pub(crate) fn try_creature_walk_step(
         &mut self,
         cid: CreatureId,
         direction: Direction,
         now: Instant,
     ) -> bool {
-        self.internal_move_creature_step(cid, direction, now)
-            .is_ok()
+        match self.internal_move_creature_step(cid, direction, now) {
+            Ok((_segments, pending_turn)) => {
+                if let Some(pt) = pending_turn {
+                    internal_creature_turn_with_broadcast(self, pt.cid, pt.dir);
+                }
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// Move a creature between tiles on the map (unregister from old, register at new).
@@ -1979,6 +2220,31 @@ impl GameWorld {
     pub(crate) fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
         if from == to {
             return;
+        }
+        // Ghost diagnostic: verify the creature is actually on the `from` tile.
+        // If not, unregister is a silent no-op and the creature stays on its real
+        // tile → ghost (creature on two tiles simultaneously).
+        let on_from = self
+            .map
+            .get_tile(from)
+            .is_some_and(|t| t.body().creatures.contains(&cid));
+        if !on_from {
+            let actual = self.creatures.get(cid).map(|k| k.position());
+            tracing::error!(
+                ?cid,
+                from = ?from,
+                to = ?to,
+                actual_pos = ?actual,
+                "move_creature_on_map: creature NOT on `from` tile — \
+                 unregister will be a no-op → ghost on real tile"
+            );
+            debug_assert!(
+                on_from,
+                "move_creature_on_map: creature {:?} not on `from` tile {:?} (actual {:?})",
+                cid,
+                from,
+                actual
+            );
         }
         self.map.unregister_creature_at(from, cid);
         self.map.register_creature_at(to, cid);
@@ -2302,29 +2568,62 @@ mod step_speed_tests {
     }
 
     /// Phase 3 reachability guard (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3):
-    /// `are_in_range_1_1_0` requires `dz == 0`, so ANY z-change (height climbing,
-    /// queryDestination chain) makes the segment a teleport → `emit_teleport_move_packet`,
-    /// NOT `emit_move_packet`/`send_move_creature_player`. This confirms the both-axes+z
-    /// diagonal case is unreachable via the walk path, making Phase 3 a no-op.
+    /// 1098 uses `areInRange<1,1,0>` (dz==0) — z-changes are teleports.
+    /// 772 uses `NotifyGo`'s adjacent condition (dz ≤ 1) — adjacent z-changes use
+    /// `SendFloors`/`SendRow` via `send_move_creature_player`, NOT the teleport path.
+    /// The both-axes+z diagonal case IS reachable for 772 (e.g. diagonal stair-step
+    /// with dx=1, dy=1, dz=1) — it routes through `send_move_creature_player`'s
+    /// z-change branch, which has a row-ordering divergence from 772 `NotifyGo`
+    /// (§16.3). This is accepted because the row content is correct; only the
+    /// sequence differs, and the 772 client applies rows to viewport edges
+    /// sequentially so the sequence matters but the desync is minor and
+    /// self-correcting (same mechanism as same-z double-shift, §1).
     #[test]
-    fn are_in_range_1_1_0_rejects_z_change_confirming_both_axes_z_unreachable() {
-        use super::are_in_range_1_1_0;
+    fn era_aware_teleport_detection_routes_z_changes_correctly() {
+        use super::{are_in_range_1_1_0, are_in_range_1_1_1, is_adjacent_move};
         use tfs_rust_common::Position;
-        // Same-z adjacent: in range → non-teleport (send_move_creature_player path).
+        use tfs_rust_net::codec::Codec;
+        use tfs_rust_common::ProtocolVersion;
+
+        // 1098: dz==0 required — z-changes are teleports.
         assert!(are_in_range_1_1_0(
             Position::new(100, 100, 7),
             Position::new(101, 101, 7),
         ));
-        // z-change (dz=1): NOT in range → teleport path, regardless of x/y delta.
         assert!(!are_in_range_1_1_0(
             Position::new(100, 100, 7),
             Position::new(101, 101, 8),
         ));
-        // z-change in-place (dz=1, dx=0, dy=0): also teleport.
         assert!(!are_in_range_1_1_0(
             Position::new(100, 100, 7),
             Position::new(100, 100, 8),
         ));
+
+        // 772: dz ≤ 1 allowed — adjacent z-changes use SendFloors/SendRow.
+        assert!(are_in_range_1_1_1(
+            Position::new(100, 100, 7),
+            Position::new(101, 101, 8),
+        ));
+        assert!(are_in_range_1_1_1(
+            Position::new(100, 100, 7),
+            Position::new(100, 100, 8),
+        ));
+        // 772: dz > 1 is still a teleport.
+        assert!(!are_in_range_1_1_1(
+            Position::new(100, 100, 7),
+            Position::new(100, 100, 9),
+        ));
+
+        // Era- and client-aware dispatch:
+        //   1098 → dz==0 (z-changes are teleports)
+        //   772 real client → dz ≤ 1 (adjacent z-changes use SendFloors/SendRow)
+        //   772 OTClient → dz==0 (TVP contract — z-changes are teleports)
+        let codec_1098 = Codec::from_version(ProtocolVersion::V1098).unwrap();
+        let codec_772 = Codec::from_version(ProtocolVersion::V772).unwrap();
+        let z_change = (Position::new(100, 100, 7), Position::new(100, 100, 8));
+        assert!(!is_adjacent_move(&codec_1098, false, z_change.0, z_change.1), "1098: z-change is teleport");
+        assert!(is_adjacent_move(&codec_772, false, z_change.0, z_change.1), "772 real client: adjacent z-change is NOT teleport");
+        assert!(!is_adjacent_move(&codec_772, true, z_change.0, z_change.1), "772 OTClient: z-change is teleport (TVP contract)");
     }
 }
 

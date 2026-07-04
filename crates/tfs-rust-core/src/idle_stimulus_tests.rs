@@ -5271,3 +5271,302 @@
             "no wakeup armed — single-object Use is ungated"
         );
     }
+
+    // ===== OTClient-on-772 floor-change dispatch tests =====
+    //
+    // OTClient tracks the local player as a tile creature and cannot reconcile the
+    // decompile `NotifyGo` incremental `SendFloors`/`SendRow` stream after the leading
+    // `0x6D` pre-jumps the self to the final tile. The fix routes OTClient-on-772
+    // floor changes through TVP's per-segment teleport path (remove + `0x64`), while
+    // the real 7.72 client keeps the decompile `NotifyGo` incremental path.
+    // See `docs/772_FLOOR_CHANGE_CLIENT_TARGETS.md` §6.
+
+    use tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
+
+    /// Set up a south-facing stair at (100,100,8) — queryDestination sends the
+    /// climber to (100,101,7). Returns (world, player_id, conn_id).
+    fn setup_south_stair_world(
+        player_start: Position,
+        operating_system: u16,
+    ) -> (GameWorld, CreatureId, tfs_rust_common::ConnId) {
+        let mut world = beat_driven_test_world();
+        // Stair tile at (100,100,8) with FLOORCHANGE_SOUTH.
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+        world.map.insert_tile(
+            Position::new(100, 100, 8),
+            Tile::Normal(TileBody {
+                ground: Some(TEST_SYNTHETIC_GROUND_WP),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::FLOORCHANGE_SOUTH,
+                zone: ZoneType::Normal,
+            }),
+        );
+        // Destination tile after queryDestination chain: (100,101,7).
+        ensure_walkable_tile(&mut world.map, Position::new(100, 101, 7), TEST_SYNTHETIC_GROUND_WP);
+        // Player start tile.
+        ensure_walkable_tile(&mut world.map, player_start, TEST_SYNTHETIC_GROUND_WP);
+
+        let conn = tfs_rust_common::ConnId(1);
+        let mut player = test_player("Hero", player_start);
+        player.operating_system = operating_system;
+        let player = insert_spectator_player(&mut world, conn, player);
+        world
+            .known_creatures_by_conn
+            .insert(conn, std::collections::HashSet::new());
+        (world, player, conn)
+    }
+
+    /// OTClient-on-772: walking west onto south-facing stairs must emit the TVP
+    /// teleport path (`0x6C` remove + `0x64` full screen) for the z-change segment,
+    /// NOT the decompile `NotifyGo` incremental path (`0x6D` + `0xBE` + rows).
+    /// This is the perpendicular-approach repro from the bug report.
+    #[test]
+    fn otclient_772_west_onto_south_stairs_uses_teleport_path() {
+        let (mut world, player, conn) =
+            setup_south_stair_world(Position::new(101, 100, 8), CLIENTOS_OTCLIENT_LINUX);
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::West, now);
+
+        // Advance beats until the player reaches (100,101,7) or timeout.
+        for _ in 0..10 {
+            if world.creatures.get(player).map(|k| k.position())
+                == Some(Position::new(100, 101, 7))
+            {
+                break;
+            }
+            let earliest = world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .earliest_walk_server_ms;
+            let advance = earliest.saturating_sub(world.server_ms).max(1);
+            world.advance_beat_772(advance);
+        }
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(100, 101, 7)),
+            "OTClient player must reach (100,101,7) via south stair"
+        );
+
+        let packets = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
+        // The z-change segment must go through emit_teleport_move_packet:
+        //   0x6C (remove) + 0x64 (full screen map description).
+        assert!(
+            packets.iter().any(|p| !p.is_empty() && p[0] == 0x64),
+            "OTClient-on-772 z-change must emit 0x64 full screen (teleport path), \
+             not NotifyGo incremental"
+        );
+        assert!(
+            packets.iter().any(|p| !p.is_empty() && p[0] == 0x6C),
+            "OTClient-on-772 z-change must emit 0x6C remove (teleport path)"
+        );
+        // Must NOT emit the NotifyGo incremental floor-change stream. The 0x6D
+        // self-packet from segment 1 (same-z step onto the stair) is expected,
+        // but no 0xBE/0xBF floor-change opcodes anywhere (those only appear in
+        // the NotifyGo path, which is suppressed for OTClient).
+        let has_floor_change_opcode = packets.iter().any(|p| {
+            p.iter().any(|&b| b == 0xBE || b == 0xBF)
+        });
+        assert!(
+            !has_floor_change_opcode,
+            "OTClient-on-772 must NOT emit 0xBE/0BF (NotifyGo incremental path) \
+             — the z-change must be a full-screen 0x64 teleport"
+        );
+    }
+
+    /// Real 7.72 client (non-OTClient): walking west onto south-facing stairs must
+    /// emit the decompile `NotifyGo` incremental path (`0x6D` + `0xBE` + rows),
+    /// NOT the TVP teleport path (`0x6C` + `0x64`). This is the regression guard
+    /// for the real-client contract after the OTClient dispatch fix.
+    #[test]
+    fn real_772_client_west_onto_south_stairs_uses_notify_go() {
+        let (mut world, player, conn) =
+            setup_south_stair_world(Position::new(101, 100, 8), 0);
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::West, now);
+
+        for _ in 0..10 {
+            if world.creatures.get(player).map(|k| k.position())
+                == Some(Position::new(100, 101, 7))
+            {
+                break;
+            }
+            let earliest = world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .earliest_walk_server_ms;
+            let advance = earliest.saturating_sub(world.server_ms).max(1);
+            world.advance_beat_772(advance);
+        }
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(100, 101, 7)),
+            "real 772 client must reach (100,101,7) via south stair"
+        );
+
+        let packets = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
+        // The real 772 client uses NotifyGo: a single packet with 0x6D self-packet
+        // followed by 0xBE/0xBF + rows. The 0xBE/0xBF is embedded inside the
+        // packet (after the 12-byte self-packet), not at position 0.
+        let has_floor_change = packets.iter().any(|p| {
+            p.iter().any(|&b| b == 0xBE || b == 0xBF)
+        });
+        assert!(
+            has_floor_change,
+            "real 772 client must emit 0xBE/0xBF (NotifyGo incremental floor change)"
+        );
+        // Must NOT emit 0x64 full screen (that's the OTClient/teleport path).
+        assert!(
+            !packets.iter().any(|p| !p.is_empty() && p[0] == 0x64),
+            "real 772 client must NOT emit 0x64 full screen (that's the teleport path)"
+        );
+    }
+
+    /// TVP `skip_remove` parity: when leaving the surface (oldPos.z == 7) in ANY
+    /// direction — up to z=6 OR down to z=8 — TVP skips the `0x6C` remove and
+    /// emits only `0x64` full screen. The Rust code previously used `&&` (only
+    /// skip for z=7→z=8), sending a spurious remove on z=7→z=6 that caused
+    /// OTClient errors. This test locks the `||` condition.
+    /// TVP ref: `protocolgame.cpp:1770` — `if (newPos.z != 8 && oldPos.z != 7)`.
+    #[test]
+    fn otclient_772_up_from_surface_skips_remove() {
+        let (mut world, player, conn) =
+            setup_south_stair_world(Position::new(101, 100, 8), CLIENTOS_OTCLIENT_LINUX);
+        // Modify the stair to go UP instead: place a north-facing stair at z=7
+        // that chains to z=6. We need tiles at z=6 for the destination.
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+        // Replace the z=8 stair with a z=7 stair going north (up to z=6).
+        world.map.insert_tile(
+            Position::new(100, 100, 7),
+            Tile::Normal(TileBody {
+                ground: Some(TEST_SYNTHETIC_GROUND_WP),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::FLOORCHANGE_NORTH,
+                zone: ZoneType::Normal,
+            }),
+        );
+        // Destination after queryDestination: (100, 99, 6).
+        ensure_walkable_tile(&mut world.map, Position::new(100, 99, 6), TEST_SYNTHETIC_GROUND_WP);
+        // Move player to (101, 100, 7) — east of the stair, same z.
+        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.set_position(Position::new(101, 100, 7));
+        }
+        world.map.unregister_creature_at(Position::new(101, 100, 8), player);
+        world.map.register_creature_at(Position::new(101, 100, 7), player);
+
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::West, now);
+
+        for _ in 0..10 {
+            if world.creatures.get(player).map(|k| k.position())
+                == Some(Position::new(100, 99, 6))
+            {
+                break;
+            }
+            let earliest = world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .earliest_walk_server_ms;
+            let advance = earliest.saturating_sub(world.server_ms).max(1);
+            world.advance_beat_772(advance);
+        }
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(100, 99, 6)),
+            "OTClient player must reach (100,99,6) via north stair up from surface"
+        );
+
+        let packets = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
+        // Must emit 0x64 full screen (teleport path).
+        assert!(
+            packets.iter().any(|p| !p.is_empty() && p[0] == 0x64),
+            "OTClient z-change must emit 0x64 full screen"
+        );
+        // Must NOT emit 0x6C remove — TVP skips when oldPos.z == 7 (leaving surface
+        // in any direction). The 0x64 full screen redraw handles the relocation.
+        assert!(
+            !packets.iter().any(|p| !p.is_empty() && p[0] == 0x6C),
+            "OTClient z=7→z=6 must NOT emit 0x6C remove — TVP skips when oldPos.z == 7"
+        );
+    }
+
+    /// Wire order: the `0x6B` chain turn must be emitted AFTER the move packets
+    /// (`0x64`/`0x6D`/`0x6C`), not before. C++ order: `Map::moveCreature` sends
+    /// `sendMoveCreature` during the move loop (`map.cpp:316`), THEN
+    /// `internalCreatureTurn` sends `0x6B` after the loop (`game.cpp:888`).
+    /// Rust previously emitted `0x6B` inside `internal_move_creature_step` (before
+    /// move packets in `on_walk`), causing the client to receive `0x6B` for a
+    /// position it hasn't seen the creature move to yet.
+    #[test]
+    fn otclient_772_chain_turn_emitted_after_move_packets() {
+        let (mut world, player, conn) =
+            setup_south_stair_world(Position::new(101, 100, 8), CLIENTOS_OTCLIENT_LINUX);
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::West, now);
+
+        for _ in 0..10 {
+            if world.creatures.get(player).map(|k| k.position())
+                == Some(Position::new(100, 101, 7))
+            {
+                break;
+            }
+            let earliest = world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .earliest_walk_server_ms;
+            let advance = earliest.saturating_sub(world.server_ms).max(1);
+            world.advance_beat_772(advance);
+        }
+        assert_eq!(
+            world.creatures.get(player).map(|k| k.position()),
+            Some(Position::new(100, 101, 7)),
+            "player must reach (100,101,7) via south stair"
+        );
+
+        let packets = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
+
+        // Find the index of the first 0x6B (turn) packet and the first 0x64
+        // (full screen map description = teleport move) packet.
+        let turn_idx = packets.iter().position(|p| !p.is_empty() && p[0] == 0x6B);
+        let move_idx = packets.iter().position(|p| !p.is_empty() && p[0] == 0x64);
+
+        assert!(move_idx.is_some(), "must emit 0x64 move packet");
+        assert!(turn_idx.is_some(), "must emit 0x6B chain turn");
+        assert!(
+            turn_idx.unwrap() > move_idx.unwrap(),
+            "0x6B turn must come AFTER 0x64 move packet (C++ wire order: \
+             sendMoveCreature then sendCreatureTurn), got turn at {} vs move at {}",
+            turn_idx.unwrap(),
+            move_idx.unwrap()
+        );
+    }

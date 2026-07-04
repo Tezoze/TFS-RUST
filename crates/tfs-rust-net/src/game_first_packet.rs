@@ -9,12 +9,7 @@
 use rsa::RsaPrivateKey;
 use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::ProtocolCaps;
-use tracing::{debug, warn};
 
-use crate::adler::adler_checksum;
-use crate::rsa::decrypt as rsa_decrypt_block;
-
-pub type XteaKey = [u32; 4];
 
 /// Account identity carried by the first packet. Capability-gated (`ProtocolCaps::account_name_login`):
 /// 1098 uses an account **name** string; 772 uses a numeric **account number** (`accounts.id`).
@@ -71,7 +66,7 @@ pub enum FirstClientPacket {
 }
 
 /// Which protocol shape an RSA-offset candidate decodes into.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 enum FirstKind {
     Game,
     Login,
@@ -79,8 +74,8 @@ enum FirstKind {
 
 /// A candidate framing: where the 128-byte RSA block starts and where the `OperatingSystem_t`
 /// `u16` lives, both relative to the body returned by `read_sized_payload`.
-#[derive(Clone, Copy, Debug)]
-struct FrameCandidate {
+#[derive(Clone, Copy)]
+struct FrameCandidat
     rsa_off: usize,
     os_off: usize,
     kind: FirstKind,
@@ -94,436 +89,98 @@ pub fn parse_first_client_packet(
     private_key: &RsaPrivateKey,
     caps: &ProtocolCaps,
 ) -> Result<FirstClientPacket> {
-    // DEBUG: dump the raw first-packet body so we can see what the client actually sends.
-    // Hex dump first 64 bytes + total length + caps flags. Remove once login is working.
-    debug!(
-        len = body.len(),
-        adler_checksum = caps.adler_checksum,
-        prelogin_challenge = caps.prelogin_challenge,
-        account_name_login = caps.account_name_login,
-        session_key_login = caps.session_key_login,
-        first_64_hex = %hex_dump(body, 64),
-        "parse_first_client_packet: raw body"
-    );
-
     // 1098 prefixes a 4-byte Adler checksum; 772 omits it (`docs/PROTOCOL_VERSIONING.md` §2.1).
-    if caps.adler_checksum {
-        const MIN_LEN: usize = 4 + 11 + 128;
-        if body.len() < MIN_LEN {
-            return Err(TfsRustError::Protocol(format!(
-                "first packet too short: {} bytes (need {})",
-                body.len(),
-                MIN_LEN
-            )));
-        }
-        let recv = u32::from_le_bytes(body[0..4].try_into().unwrap());
-        let expected = adler_checksum(&body[4..]);
-        if recv != expected {
-            warn!(
-                recv = format!("0x{recv:08x}"),
-                expected = format!("0x{expected:08x}"),
-                "first packet checksum mismatch"
-            );
-            return Err(TfsRustError::Protocol(format!(
-                "first packet checksum mismatch: recv=0x{recv:08x} expected=0x{expected:08x}"
-            )));
-        }
-        debug!("adler checksum OK");
-    } else if body.len() < 5 + 128 {
-        return Err(TfsRustError::Protocol(format!(
-            "first packet too short: {} bytes (772, need {})",
-            body.len(),
-            5 + 128
-        )));
-    }
-
-    let candidates = frame_candidates(caps);
-    debug!(
-        count = candidates.len(),
-        candidates = ?candidates.iter().map(|c| (c.rsa_off, c.os_off, c.kind)).collect::<Vec<_>>(),
-        "trying RSA frame candidates"
-    );
-
-    for cand in candidates {
-        if body.len() < cand.rsa_off + 128 {
-            debug!(
-                rsa_off = cand.rsa_off,
-                os_off = cand.os_off,
-                kind = ?cand.kind,
-                body_len = body.len(),
-                "skip candidate: body shorter than rsa_off+128"
-            );
-            continue;
-        }
-        let block: &[u8; 128] = match body[cand.rsa_off..cand.rsa_off + 128].try_into() {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        debug!(
-            rsa_off = cand.rsa_off,
-            os_off = cand.os_off,
-            kind = ?cand.kind,
-            block_first_16_hex = %hex_dump(block, 16),
-            "trying RSA decrypt at offset"
-        );
-        let rsa_plain = match rsa_decrypt_block(block, private_key) {
-            Ok(p) if !p.is_empty() && p[0] == 0 => p,
-            Ok(p) => {
-                debug!(
-                    rsa_off = cand.rsa_off,
-                    kind = ?cand.kind,
-                    plain_first_byte = p.first().copied().unwrap_or(0),
-                    plain_len = p.len(),
-                    plain_first_16_hex = %hex_dump(&p, 16),
-                    "RSA decrypt OK but plaintext[0] != 0 (wrong key/offset)"
-                );
-                continue;
-            }
-            Err(e) => {
-                debug!(
-                    rsa_off = cand.rsa_off,
-                    kind = ?cand.kind,
-                    error = %e,
-                    "RSA decrypt failed"
-                );
-                continue;
-            }
-        };
-        debug!(
-            rsa_off = cand.rsa_off,
-            kind = ?cand.kind,
-            plain_first_32_hex = %hex_dump(&rsa_plain, 32),
-            "RSA decrypt succeeded, plaintext[0]==0"
-        );
-        let rsa_arr: &[u8; 128] = match rsa_plain.as_slice().try_into() {
-            Ok(a) => a,
-            Err(_) => continue,
-        };
-
-        let key = xtea_key_from_plain(rsa_arr);
-        let operating_system = read_u16_at(body, cand.os_off);
-        let tail = &body[cand.rsa_off + 128..];
-
-        let parsed = match cand.kind {
-            FirstKind::Game => parse_game_first(key, rsa_arr, tail, operating_system, caps),
-            FirstKind::Login => parse_login_first(key, rsa_arr, tail, operating_system, caps),
-        };
-        match &parsed {
-            Ok(_) => debug!(rsa_off = cand.rsa_off, kind = ?cand.kind, "candidate parsed OK"),
-            Err(e) => debug!(rsa_off = cand.rsa_off, kind = ?cand.kind, error = %e, "candidate parse failed"),
-        }
-        if let Ok(v) = parsed {
-            return Ok(v);
-        }
-    }
-
-    warn!(
-        body_len = body.len(),
-        full_hex = %hex_dump(body, body.len().min(256)),
-        "no valid RSA block for the configured protocol version"
-    );
-    Err(TfsRustError::Protocol(
-        "no valid RSA block for the configured protocol version".into(),
-    ))
-}
-
-/// Hex-dump up to `max` bytes of `data` as a space-separated hex string (for debug logging).
-fn hex_dump(data: &[u8], max: usize) -> String {
-    let n = data.len().min(max);
-    let mut s = String::with_capacity(n * 3);
-    for (i, b) in data[..n].iter().enumerate() {
-        if i > 0 {
-            s.push(' ');
-        }
-        s.push_str(&format!("{b:02x}"));
-    }
-    if data.len() > n {
-        s.push_str(&format!(" ... ({} more)", data.len() - n));
-    }
-    s
-}
-
-/// Game-only first packet (fails if login layout matched).
-pub fn parse_first_game_packet(
+    if      return Err(TfsRustError::Protocol(format!(
+        candne.f ody_len = body.len(),
+              E) => {, error = %e, "first-packet: RSA decrypt failed");
+            E) => {
+))tracing::debug!first-nnckptfirst-ptoo acket fo acetdidate, fkippingogst_game_packet(
     body: &[u8],
     private_key: &RsaPrivateKey,
-    caps: &ProtocolCaps,
-) -> Result<GameFirstParsed> {
-    match parse_first_client_packet(body, private_key, caps)? {
-        FirstClientPacket::Game(g) => Ok(g),
-        FirstClientPacket::Login { .. } => {
-            Err(TfsRustError::Protocol("expected game first packet".into()))
-        }
     }
 }
 
 /// RSA-offset / OS-offset candidates for the active era.
-//
-// 1098 (`src/protocolgame.cpp` / `src/protocollogin.cpp`): checksum(4) prefix. Game prelude
-//   = opcode `0x0A`(1) + OS(2) + version(2) + clientVer(4) + revision(2) + preview(1) = 16; the
-//   971/pre-971 variants (15/25/20) are kept for older OTClient builds. Login prelude = OS(2) +
-//   version(2) + spr/pic(8) + padding(2) → RSA at 26 (or 25/20 historical), OS at body[4].
-// 772 (`gameserver/src/`): no checksum; `make_protocol` consumes the proto-id byte, so the body
-//   keeps it. Game = proto-id `0x0A`(1) + OS(2) + version(2) → RSA at 5, OS at body[1]. Login =
-//   proto-id `0x01`(1) + OS(2) + version(2) + skipBytes(12) → RSA at 17, OS at body[1].
-//   PROTOCOL: confirm 772 offsets against live captures in A6 before flipping `clientVersion = 772`.
-fn frame_candidates(caps: &ProtocolCaps) -> Vec<FrameCandidate> {
-    if caps.adler_checksum {
-        vec![
-            FrameCandidate { rsa_off: 16, os_off: 5, kind: FirstKind::Game },
-            FrameCandidate { rsa_off: 26, os_off: 4, kind: FirstKind::Login },
-            FrameCandidate { rsa_off: 15, os_off: 5, kind: FirstKind::Game },
-            FrameCandidate { rsa_off: 25, os_off: 4, kind: FirstKind::Login },
-            FrameCandidate { rsa_off: 20, os_off: 4, kind: FirstKind::Login },
-        ]
-    } else {
-        vec![
-            FrameCandidate { rsa_off: 5, os_off: 1, kind: FirstKind::Game },
-            FrameCandidate { rsa_off: 17, os_off: 1, kind: FirstKind::Login },
-        ]
-    }
-}
-
-fn xtea_key_from_plain(rsa_plain: &[u8; 128]) -> XteaKey {
-    [
-        u32::from_le_bytes(rsa_plain[1..5].try_into().unwrap()),
-        u32::from_le_bytes(rsa_plain[5..9].try_into().unwrap()),
-        u32::from_le_bytes(rsa_plain[9..13].try_into().unwrap()),
-        u32::from_le_bytes(rsa_plain[13..17].try_into().unwrap()),
-    ]
-}
-
-/// Read a little-endian `u16` at `off`, or `0` if out of range.
-fn read_u16_at(body: &[u8], off: usize) -> u16 {
-    if body.len() >= off + 2 {
-        u16::from_le_bytes([body[off], body[off + 1]])
-    } else {
-        0
-    }
-}
-
-/// `uint16_t len` + optional `"OTCv8"` + `uint16_t` build (`protocolgame.cpp` ~468–472,
-/// `protocollogin.cpp` ~243–249).
-///
-/// **Best-effort / non-fatal**: the C++ reference reads a `u16` length unconditionally, then only
-/// consumes the string + version if `len == 5 && str == "OTCv8"`. Non-OTClient clients (real Tibia,
-/// Forgotten Client without OTCv8) leave `0xff` RSA padding here, which decodes as a huge `u16`
-/// length — the C++ code just ignores it and leaves `otclientV8 = 0`. We replicate that: any probe
-/// that doesn't match the `len==5 && "OTCv8"` shape returns `(0, s)` without error.
-fn parse_otcv8_string_probe(s: &[u8]) -> Result<(u16, &[u8])> {
+//let rsa_plain = match rsa_crypt_lockblock, private_key) {
+// 1098 (`srOk(p)co> {
+                iflp.ip`empty() {src/protocollogin.cpp`): checksum(4) prefix. Game prelude
+        //   = opcodtracing::debug!(r a`0x0A`(1) + rSa(2) +e-971 vakind_name(iants (15)/n"spr/p- aA es:/src/`): no creeurnedc;mp y`);make_protocol` consumes the proto-id byte, so the body
+//  entSig::PROTOCOnr }aboay 0caps: &ProtocolCaps) -> Vec<FrameCandidate> {
+    fclar_checc:   _nam([]
+ro{rlet kind_name = |k: FirstKind| match k { FirstKind::Game => "game", FirstKind::Login => "login" };
+                frame_    "fir"k(caps)et: -packOt:sKint first bye0x0 or wrong 
+            }Kind::Login },
+    
+      }pki = _name()
+Err(e)=>{
+tracing::debug!(af(rst-r_ckatme(laintoo : &[u fo8+cirdidate,s-kippingptional `"OTCv8"` tring_probe(s: &[u8]) -> Result<(u16, &[u8])> {
     if s.len() < 2 {
         return Ok((0, s));
     }
-    let len = u16::from_le_bytes([s[0], s[1]]) as usize;
-    // C++ only consumes the string when length == 5; anything else (incl. 0xffff padding) is ignored.
-    if len != 5 || s.len() < 2 + 5 {
-        return Ok((0, s));
-    }
-    let chunk = &s[2..7];
-    if chunk != b"OTCv8" {
-        return Ok((0, s));
-    }
-    let tail = &s[7..];
-    if tail.len() < 2 {
-        return Ok((0, s));
-    }
-    let ver = u16::from_le_bytes([tail[0], tail[1]]);
-    Ok((ver, &tail[2..]))
-}
-
-/// Assemble the post-RSA credential stream: `rsa_plain[17..]` (after the leading 0 + 16-byte key)
-/// followed by the unencrypted tail.
-fn credential_stream(rsa_plain: &[u8; 128], tail: &[u8]) -> Vec<u8> {
-    let mut stream = Vec::with_capacity(111 + tail.len());
-    stream.extend_from_slice(&rsa_plain[17..128]);
-    stream.extend_from_slice(tail);
-    stream
-}
-
-fn parse_login_first(
-    key: XteaKey,
-    rsa_plain: &[u8; 128],
-    tail: &[u8],
-    operating_system: u16,
-    caps: &ProtocolCaps,
-) -> Result<FirstClientPacket> {
-    let stream = credential_stream(rsa_plain, tail);
-    let (identity, password, otclient_v8) = parse_login_credentials(&stream, caps)?;
-    Ok(FirstClientPacket::Login {
-        xtea_key: key,
-        identity,
-        password,
-        operating_system,
-        otclient_v8,
-    })
-}
-
-/// Login-port credential block. 1098 = `string account` + `string password`; 772 =
-/// `u32 accountNumber` + `string password` (`gameserver/src/protocollogin.cpp` `onRecvFirstMessage`).
-fn parse_login_credentials(
-    stream: &[u8],
-    caps: &ProtocolCaps,
-) -> Result<(LoginIdentity, String, u16)> {
-    let mut s = stream;
-    let identity = read_identity(&mut s, caps)?;
-    let password = read_string(&mut s)?;
-    let (otclient_v8, _) = parse_otcv8_string_probe(s)?;
-    Ok((identity, password, otclient_v8))
-}
-
-fn parse_game_first(
-    key: XteaKey,
-    rsa_plain: &[u8; 128],
-    tail: &[u8],
-    operating_system: u16,
-    caps: &ProtocolCaps,
-) -> Result<FirstClientPacket> {
-    let stream = credential_stream(rsa_plain, tail);
-    let parsed = parse_game_credentials(&stream, caps)?;
-    Ok(FirstClientPacket::Game(GameFirstParsed {
-        xtea_key: key,
-        operating_system,
-        identity: parsed.identity,
-        password: parsed.password,
-        token: parsed.token,
-        token_time: parsed.token_time,
-        character_name: parsed.character_name,
-        challenge_ts: parsed.challenge_ts,
-        challenge_rand: parsed.challenge_rand,
-        otclient_v8: parsed.otclient_v8,
-    }))
-}
-
-/// Decoded game-port credential block (era-neutral result).
-struct GameCredentials {
-    identity: LoginIdentity,
-    password: String,
-    token: String,
-    token_time: u32,
-    character_name: String,
-    challenge_ts: u32,
-    challenge_rand: u8,
-    otclient_v8: u16,
-}
-
-/// Game-port credential block, capability-gated.
-//
-// 1098 (`src/protocolgame.cpp` `onRecvFirstMessage`): `u8 gm` + `string sessionKey` + `string
-//   character` + `u32 challengeTimestamp` + `u8 challengeRandom` + OTCv8 probe. The session key is
-//   `account\npassword\ntoken\ntime`.
-// 772 (`gameserver/src/protocolgame.cpp` `onRecvFirstMessage`): `skipBytes(1)` gm flag +
-//   `u32 accountNumber` + `string character` + `string password` + OTCv8 probe. No session key, no
-//   challenge echo (`caps.prelogin_challenge = false`).
-fn parse_game_credentials(stream: &[u8], caps: &ProtocolCaps) -> Result<GameCredentials> {
-    let mut s = stream;
-
-    if s.is_empty() {
-        return Err(TfsRustError::Protocol("missing gamemaster flag".into()));
-    }
-    let _gm = s[0];
-    s = &s[1..];
-
-    if caps.session_key_login {
-        // 1098: session key string carries account/password/token/time.
-        let session = read_string(&mut s)?;
-        let character_name = read_string(&mut s)?;
-        let challenge_ts = read_u32(&mut s)?;
-        let challenge_rand = read_u8(&mut s)?;
-        let (otclient_v8, _) = parse_otcv8_string_probe(s)?;
-
-        let parts: Vec<&str> = session.splitn(4, '\n').collect();
-        if parts.len() != 4 {
-            return Err(TfsRustError::Protocol(
-                "session key must have 4 fields".into(),
-            ));
-        }
-        let account_name = parts[0].to_string();
-        let password = parts[1].to_string();
-        let token = parts[2].to_string();
-        let token_time: u32 = parts[3]
-            .parse()
-            .map_err(|_| TfsRustError::Protocol("invalid token time in session key".into()))?;
+    let chunk = &s[2..2 + len];
+     fctl,rr p)_(p)
+/// Assemblepta}
+        }ps: &ProtocolCaps,
+    
+  ) -> Result<lnpPacket> {
+          le}
+t stream =  Err(e) => {
+let (identity, ptracing::debug!(assword, otclient_v8) =acket::Lkind_name(gin {)ey,8,first-packet:  _) = parse_otcv8_s6,
+    caps    otclienErrvTfsRustError::Protocol8"truncated OTCv8pveraion u16".into()rsed.otclient_v8,
+        }))
+    }_trontoken\ntime`.
+/ 772 (`c   .map_err(|_| TfsRustError::Protocol("invalid token time in session key".into()))?;
 
         Ok(GameCredentials {
-            identity: LoginIdentity::AccountName(account_name),
-            password,
-            token,
-            token_time,
-            character_name,
-            challenge_ts,
-            challenge_rand,
-            otclient_v8,
-        })
-    } else {
-        // 772: inline account number + character + password, no session key / challenge.
-        let identity = read_identity(&mut s, caps)?;
-        let character_name = read_string(&mut s)?;
-        let password = read_string(&mut s)?;
-        let (otclient_v8, _) = parse_otcv8_string_probe(s)?;
+    if s.len() < 2   denn{
+        returt Err(TfyR:otError::Protocol(
+g           "iruncatIddOTCv8 / entity:probconfnrreetal".t(),
+     asr);
+}
+    l   ch okk=&[2..2 + len];       token_time,
+        tailharacte + lenr_ame,
+       len == 5 &&      c=allenge_ts,       otclient_v8,
+      } else {
+            // 772:ErrnTfsRustError::Protocoll"truncated OTCv8ever ion u16".into()account number + character + password, no session key / challenge.
+          
+    Ok((let (otclient_v8, _) = parse_otcv8_string_probe(s)?;
 
         Ok(GameCredentials {
             identity,
             password,
-            token: String::new(),
-            token_time: 0,
-            character_name,
-            challenge_ts: 0,
-            challenge_rand: 0,
             otclient_v8,
         })
     }
 }
 
-/// Read the account identity: a length-prefixed string (1098) or a `u32` account number (772).
-fn read_identity(data: &mut &[u8], caps: &ProtocolCaps) -> Result<LoginIdentity> {
-    if caps.account_name_login {
-        Ok(LoginIdentity::AccountName(read_string(data)?))
-    } else {
-        Ok(LoginIdentity::AccountNumber(read_u32(data)?))
-    }
-}
-
-fn read_u16(data: &mut &[u8]) -> Result<u16> {
-    if data.len() < 2 {
-        return Err(TfsRustError::Protocol("EOF u16".into()));
-    }
-    let v = u16::from_le_bytes([data[0], data[1]]);
-    *data = &data[2..];
-    Ok(v)
-}
+/// 
 
 fn read_u32(data: &mut &[u8]) -> Result<u32> {
     if data.len() < 4 {
         return Err(TfsRustError::Protocol("EOF u32".into()));
     }
     let v = u32::from_le_bytes(data[0..4].try_into().unwrap());
-    *data = &data[4..];
-    Ok(v)
-}
-
-fn read_u8(data: &mut &[u8]) -> Result<u8> {
-    if data.is_empty() {
-        return Err(TfsRustError::Protocol("EOF u8".into()));
-    }
+    *data = &data[4..]; Ok(v)
     let b = data[0];
     *data = &data[1..];
     Ok(b)
 }
 
-fn read_string(data: &mut &[u8]) -> Result<String> {
-    let len = read_u16(data)? as usize;
-    if data.len() < len {
-        return Err(TfsRustError::Protocol("EOF string".into()));
+   fifns.len() <r2dtrlen {
+       dretura Err(Tf:R utError::Protocol(
+           t"trunca [d OTCv8 /u8]) ->lprob< frreetal".t(),
+    tn et);
+a?a }ze;
+if dlta ch.ekn=e&n[2..2 + len];   return Err(TfsRustError::Protocol("EOF string".into()));
+    }tail + len
+    le len == 5 &&t out ==String::from
     }
-    let out = String::from_utf8_lossy(&data[..len]).into_owned();
-    *data = &data[len..];
-    Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tfs_rust_common::ProtocolVersion;
+#[cfg(te    st)]ErrTfsRustError::Protocol"truncated OTCv8verion u16".into()
+    mod tests {
+        use super::*;
+        return use tfs_rust_common));
+    }
+    Ok((0, tail::ProtocolVersion;
 
     fn put_string(buf: &mut Vec<u8>, s: &str) {
         buf.extend_from_slice(&(s.len() as u16).to_le_bytes());
@@ -555,33 +212,27 @@ mod tests {
     fn game_credentials_772_account_number() {
         // C++ ref: gameserver/src/protocolgame.cpp onRecvFirstMessage.
         let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
-        let mut stream = Vec::new();
-        stream.push(0); // gm flag (skipBytes(1))
-        stream.extend_from_slice(&123_456u32.to_le_bytes()); // account number
-        put_string(&mut stream, "Druid");
-        put_string(&mut stream, "hunter2");
-        stream.extend_from_slice(&0u16.to_le_bytes()); // no OTCv8 probe
-
-        let c = parse_game_credentials(&stream, &caps).expect("parse 772 game creds");
-        assert_eq!(c.identity, LoginIdentity::AccountNumber(123_456));
+        let mut stream = Vec::new();     stream.push(0); // gm flag (skipBytes(1))
+sm"; Cassert_eq!(c.identity, LoginIdentity::AccountNumber(123_456));
         assert_eq!(c.password, "hunter2");
         assert_eq!(c.character_name, "Druid");
         assert!(c.token.is_empty());
         assert_eq!(c.token_time, 0);
-        assert_eq!(c.challenge_ts, 0);
-        assert_eq!(c.challenge_rand, 0);
+    if s.len() < 2 astene{
+        retur( Err(TfcR.atError::Protocol(
+           l"truncalnd OTCv8 /ge_ts, probfrreetal".t(),
+    ste()l;
+g_ad} 0);
+}l chk=&[2..2+len];
+    #[tetail + len
+    fn len == 5 && login_=redentials_7   let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
+  mt        stream.extend_from_slice(&777u32.to_le_bytes());
+            put_strErrgTfsRustError::Protocol("truncated OTCv8uvertion u16".into() stream, "pw");
+            stream.extend_from_slice(&0u16.to_le_bytes());
+    
+        return     let (identity, ));
     }
-
-    #[test]
-    fn login_credentials_772_account_number() {
-        // C++ ref: gameserver/src/protocollogin.cpp onRecvFirstMessage.
-        let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
-        let mut stream = Vec::new();
-        stream.extend_from_slice(&777u32.to_le_bytes());
-        put_string(&mut stream, "pw");
-        stream.extend_from_slice(&0u16.to_le_bytes());
-
-        let (identity, password, otc) =
+    Ok((0, tailpassword, otc) =
             parse_login_credentials(&stream, &caps).expect("parse 772 login creds");
         assert_eq!(identity, LoginIdentity::AccountNumber(777));
         assert_eq!(password, "pw");
@@ -615,23 +266,5 @@ mod tests {
 
         let c = parse_game_credentials(&stream, &caps).expect("parse with otcv8");
         assert_eq!(c.otclient_v8, 260);
-    }
-
-    #[test]
-    fn login_credentials_772_with_rsa_padding_no_otcv8() {
-        // Real Tibia 7.72 / Forgotten Client without OTCv8: after account + password, the
-        // remaining RSA block bytes are 0xff padding. The probe must not error on this.
-        // C++ ref: protocollogin.cpp ~243-249 — reads u16 length, if != 5 just moves on.
-        let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
-        let mut stream = Vec::new();
-        stream.extend_from_slice(&2u32.to_le_bytes()); // account number
-        put_string(&mut stream, "2"); // password
-        stream.extend_from_slice(&[0xff; 100]); // RSA padding (0xff bytes)
-
-        let (identity, password, otc) =
-            parse_login_credentials(&stream, &caps).expect("parse 772 with padding");
-        assert_eq!(identity, LoginIdentity::AccountNumber(2));
-        assert_eq!(password, "2");
-        assert_eq!(otc, 0);
     }
 }

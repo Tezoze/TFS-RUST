@@ -147,18 +147,20 @@ fn move_creature_spectator_1098_falls_back_to_creature_id_when_stack_invalid() {
     assert_eq!(&b[7..12], &[51, 0, 60, 0, 3]);
 }
 
-/// 772 `SendMoveCreature` (`sending.cc:658-700`): when `OrigIndex >= MAX_OBJECTS_PER_POINT`
-/// (= 10) or invalid, `WasVisible` is false → no `0x6D`; caller emits `SendAddField` (appear).
-/// Phase 4: `send_move_creature_spectator` returns `None` for 772 + stack >= 10.
+/// TVP `sendMoveCreature` spectator path (`protocolgame.cpp:1837-1848`): always sends `0x6D`,
+/// using the `0xFFFF + creatureID` fallback when `oldStackPos >= 10`. Both eras use the same
+/// logic — TVP works fine on the real 772 client.
 #[test]
-fn move_creature_spectator_772_returns_none_when_stack_invalid() {
+fn move_creature_spectator_always_emits_0x6d() {
     let old_p = Position::new(50, 60, 3);
     let new_p = Position::new(51, 60, 3);
-    // stack = 10 (>= MAX_OBJECTS_PER_POINT) → None.
-    assert!(send_move_creature_spectator(&codec_772(), old_p, new_p, 10, 0xAABBCCDD).is_none());
-    // stack = -1 (invalid) → None.
-    assert!(send_move_creature_spectator(&codec_772(), old_p, new_p, -1, 0xAABBCCDD).is_none());
-    // stack = 9 (< 10) → Some (0x6D with stack).
+    // stack = 10 (>= 10) → 0x6D with 0xFFFF + creatureID fallback (TVP line 1844-1845).
+    let msg = send_move_creature_spectator(&codec_772(), old_p, new_p, 10, 0xAABBCCDD).unwrap();
+    let b = msg.as_bytes();
+    assert_eq!(b[0], 0x6D);
+    assert_eq!(&b[1..3], &[0xFF, 0xFF]);
+    assert_eq!(&b[3..7], &[0xDD, 0xCC, 0xBB, 0xAA]);
+    // stack = 9 (< 10) → 0x6D with position + stack.
     let msg = send_move_creature_spectator(&codec_772(), old_p, new_p, 9, 0xAABBCCDD).unwrap();
     assert_eq!(msg.as_bytes()[0], 0x6D);
 }

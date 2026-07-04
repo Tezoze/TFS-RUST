@@ -64,6 +64,11 @@ impl GameWorld {
         });
 
         if let Some(p) = pos {
+            tracing::info!(
+                ?id,
+                at = ?p,
+                "LOGOUT: unregistering creature from map"
+            );
             self.map.unregister_creature_at(p, id);
         }
 

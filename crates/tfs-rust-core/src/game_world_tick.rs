@@ -77,16 +77,13 @@ impl GameWorld {
             self.drain_todo_queue();
             self.lag_772 = false;
         } else {
-            // C++ `AdvanceGame` logs only on the `!Lag → Lag` transition
-            // (`main.cc:449`): `if(!Lag && RoundNr > 10) error(...)` then `Lag = true`.
-            // Gating on `!self.lag_772` avoids spamming the log on sustained lag.
-            if !self.lag_772 && self.round_nr_772 > 10 {
+            self.lag_772 = true;
+            if self.round_nr_772 > 10 {
                 tracing::error!(
                     delay_ms,
                     "772 beat advance skipped MoveCreatures due to lag (Delay >= 1000)"
                 );
             }
-            self.lag_772 = true;
         }
     }
 }

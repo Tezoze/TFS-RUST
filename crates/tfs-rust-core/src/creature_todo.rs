@@ -1989,6 +1989,10 @@ mod tests {
             Err(crate::return_value::ReturnValue::FirstGoDownStairs),
             "Move cross-floor source → DOWNSTAIRS"
         );
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "z-floor reject must not enqueue anything"
+        );
     }
 
     /// D2/D6 — `enqueue_player_turn` rejects a cross-floor map-tile source.
@@ -2027,6 +2031,10 @@ mod tests {
             result,
             Err(crate::return_value::ReturnValue::FirstGoDownStairs),
             "Turn cross-floor source → DOWNSTAIRS"
+        );
+        assert!(
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "z-floor reject must not enqueue anything"
         );
     }
 
