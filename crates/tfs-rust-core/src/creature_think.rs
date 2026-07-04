@@ -23,9 +23,6 @@ pub const EVENT_CREATURECOUNT: u32 = 10;
 pub const EVENT_CHECK_CREATURE_INTERVAL_MS: u32 =
     EVENT_CREATURE_THINK_INTERVAL_MS / EVENT_CREATURECOUNT;
 
-/// Ms between follow path recomputes when following (`creature.cpp` ~153).
-const FOLLOW_PATH_UPDATE_INTERVAL_MS: u32 = 200;
-
 impl GameWorld {
     /// TFS `Game::addCreatureCheck` — random bucket assignment (`game.cpp` ~3798).
     pub(crate) fn add_creature_think_check(&mut self, cid: CreatureId) {
@@ -91,13 +88,10 @@ impl GameWorld {
             }
 
             match self.creatures.get(cid) {
-                Some(CreatureKind::Monster(_)) => {
-                    self.monster_on_think(cid, interval_ms);
-                    // C++ `checkCreatures`: `onAttacking` after `onThink` (`game.cpp` ~3837–3840).
-                    if self.creature_alive_for_think(cid) {
-                        self.creature_on_attacking(cid, interval_ms);
-                    }
-                }
+                // Phase 3: monsters now run on the 772 ToDo/IdleStimulus engine (drained in
+                // `on_tick` / `advance_beat_772`). Skip the 1098 `monster_on_think` +
+                // `creature_on_attacking` bucket-think path — NPC bucket think still runs.
+                Some(CreatureKind::Monster(_)) => continue,
                 Some(CreatureKind::Npc(_)) => self.npc_on_think(cid, interval_ms),
                 _ => continue,
             }
@@ -232,38 +226,6 @@ impl GameWorld {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     k.base_mut().clear_attack_for_target(attack_id);
                 }
-            }
-        }
-
-        let follow_id = self.creatures.get(cid).and_then(|k| k.base().follow_target);
-        let skip_repath_at_goal =
-            follow_id.is_some_and(|fid| self.monster_should_skip_follow_repath(cid, fid));
-
-        if !self.beat_driven_loop {
-            let mut run_follow_repath = false;
-            if let Some(k) = self.creatures.get_mut(cid) {
-                let base = k.base_mut();
-                if let Some(_follow_id) = base.follow_target {
-                    base.walk_update_ticks = base.walk_update_ticks.saturating_add(interval_ms);
-                    let wants_repath = base.force_update_follow_path
-                        || base.walk_update_ticks >= FOLLOW_PATH_UPDATE_INTERVAL_MS;
-                    if wants_repath {
-                        base.walk_update_ticks = 0;
-                        base.force_update_follow_path = false;
-                        if skip_repath_at_goal {
-                            base.has_follow_path = true;
-                        } else {
-                            base.is_updating_path = true;
-                        }
-                    }
-                }
-                run_follow_repath = base.is_updating_path;
-                if run_follow_repath {
-                    base.is_updating_path = false;
-                }
-            }
-            if run_follow_repath {
-                self.go_to_follow_creature(cid, Some("think_repath"));
             }
         }
 

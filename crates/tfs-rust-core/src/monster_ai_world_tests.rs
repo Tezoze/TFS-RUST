@@ -12,8 +12,9 @@
     use crate::monster_ai::MonsterIdleChaseRepathOutcome;
     use crate::pathfinding::{truncate_cipsoft_chase_queue, uses_reverse_terrain_path, CHASE_PATH_MAX_STEPS};
     use crate::test_world::support::{
-        beat_driven_test_world, beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
-        insert_spectator_player, minimal_world, test_player, TEST_SYNTHETIC_GROUND_WP,
+        beat_driven_test_world, beat_driven_world, dist_idle_monster_config, ensure_walkable_tile,
+        insert_monster_with_config, insert_player, insert_spectator_player, minimal_world,
+        test_player, TEST_SYNTHETIC_GROUND_WP,
     };
     use crate::{CreatureId, GameWorld};
 
@@ -50,7 +51,7 @@
 
     #[test]
     fn monster_acquires_target_and_steps_toward_player() {
-        let mut world = minimal_world();
+        let mut world = beat_driven_test_world();
         world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
@@ -70,6 +71,9 @@
             ),
             "player should be registered as opponent"
         );
+
+        // 772: target acquisition is deferred to the idle drain (`Strategy[]`).
+        world.monster_idle_stimulus(monster);
         assert!(
             world
                 .creatures
@@ -78,13 +82,11 @@
                 .base()
                 .follow_target
                 .is_some(),
-            "appear-self should select target without waiting for onThink"
+            "idle drain should select target via Strategy[]"
         );
 
-        if let Some(k) = world.creatures.get_mut(monster) {
-            k.base_mut().next_walk_check = Some(Instant::now());
-        }
-        world.process_walk_deadlines();
+        // Advance one beat to fire the queued Go — monster steps toward player.
+        world.advance_beat_772(200);
 
         let new_pos = world.creatures.get(monster).unwrap().position();
         assert!(
@@ -101,27 +103,37 @@
                 .base()
                 .follow_target
                 .is_some(),
-            "monster should acquire follow target"
+            "monster should retain follow target after stepping"
         );
     }
 
     #[test]
     fn monster_repaths_when_follow_target_moves() {
-        let mut world = minimal_world();
+        let mut world = beat_driven_test_world();
         world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        let ppos_moved = Position::new(104, 100, 7);
+        let ppos = Position::new(106, 100, 7);
+        let ppos_moved = Position::new(105, 100, 7);
         for x in 100..=106 {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
+        // 772: `monster_on_follow_creature_moved` only triggers a synchronous repath for
+        // dist monsters (`target_distance > 1` + `monster_can_use_attack`). A dist config
+        // with a ranged spell satisfies both gates.
+        let config = dist_idle_monster_config(4);
+        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
 
+        // 772: appear-self defers target pick to idle `Strategy[]`. Clear the wakeup
+        // armed by `request_idle_stimulus` so the idle drain can both acquire the target
+        // and queue the chase path in a single pass.
         world.monster_on_creature_appear_self(monster);
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().next_wakeup = None;
+        }
+        world.monster_idle_stimulus(monster);
         assert_eq!(
             world.creatures.get(monster).unwrap().base().follow_target,
             Some(player),
@@ -142,6 +154,11 @@
             world.creatures.get(monster).unwrap().base().has_follow_path,
             "chasing monster should have has_follow_path set"
         );
+
+        // Clear `is_updating_path` so `monster_on_follow_creature_moved` can proceed.
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().is_updating_path = false;
+        }
 
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.base.position = ppos_moved;
@@ -179,84 +196,12 @@
     }
 
     #[test]
-    fn monster_follow_repath_without_path_is_profile_gated() {
-        let mut world = minimal_world();
-        world.walk_wake_tx = None;
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        let ppos_moved = Position::new(104, 100, 7);
-        let ppos_moved_again = Position::new(103, 100, 7);
-        for x in 100..=106 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
-        }
-
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_at(ppos, player);
-
-        // Chase state without has_follow_path — keep-distance band / idle before pathfinding.
-        if let Some(k) = world.creatures.get_mut(monster) {
-            let base = k.base_mut();
-            base.follow_target = Some(player);
-            base.has_follow_path = false;
-            base.walk_queue = VecDeque::from([Direction::North]);
-        }
-        assert!(!world.mechanics.profile.follow_repath_without_path);
-
-        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
-            p.base.position = ppos_moved;
-        }
-        world.map.unregister_creature_at(ppos, player);
-        world.map.register_creature_at(ppos_moved, player);
-        world.monster_dispatch_creature_move(player, ppos, ppos_moved);
-
-        assert_eq!(
-            world.creatures.get(monster).unwrap().base().walk_queue,
-            VecDeque::from([Direction::North]),
-            "1098 profile should not repath when has_follow_path is false"
-        );
-
-        // 772 / 772 profile: repath even without has_follow_path.
-        world.mechanics.profile.follow_repath_without_path = true;
-        if let Some(k) = world.creatures.get_mut(monster) {
-            let base = k.base_mut();
-            base.walk_queue = VecDeque::from([Direction::North]);
-        }
-        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
-            p.base.position = ppos_moved_again;
-        }
-        world.map.unregister_creature_at(ppos_moved, player);
-        world.map.register_creature_at(ppos_moved_again, player);
-        world.monster_dispatch_creature_move(player, ppos_moved, ppos_moved_again);
-
-        let queue_beat_driven = world
-            .creatures
-            .get(monster)
-            .unwrap()
-            .base()
-            .walk_queue
-            .clone();
-        assert_ne!(
-            queue_beat_driven,
-            VecDeque::from([Direction::North]),
-            "772 profile should repath when follow target moves without has_follow_path"
-        );
-        assert!(
-            queue_beat_driven.iter().all(|&d| d == Direction::East),
-            "repath should step east toward player at {:?}, got {:?}",
-            ppos_moved_again,
-            queue_beat_driven
-        );
-    }
-
-    #[test]
     fn monster_acquires_target_when_player_walks_into_viewport() {
-        let mut world = minimal_world();
+        let mut world = beat_driven_test_world();
         world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let far = Position::new(112, 100, 7);
-        let near = Position::new(111, 100, 7);
+        let near = Position::new(110, 100, 7);
         for x in 100..=112 {
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
@@ -273,6 +218,10 @@
         world.map.register_creature_at(near, player);
         world.monster_dispatch_creature_move(player, far, near);
 
+        // 772: target acquisition is deferred to the idle drain — `CreatureMoveStimulus`
+        // calls `request_idle_stimulus`, not synchronous `searchTarget`. Drain the todo
+        // queue to let the idle stimulus pick the target via `Strategy[]`.
+        world.advance_beat_772(200);
         assert!(
             world.creatures.get(monster).unwrap().base().follow_target == Some(player),
             "monster should target player as soon as they enter viewport"
@@ -281,7 +230,7 @@
 
     #[test]
     fn fleeing_monster_steps_away_from_player() {
-        let mut world = minimal_world();
+        let mut world = beat_driven_test_world();
         world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
@@ -295,15 +244,21 @@
         };
         let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
         let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
 
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.base.health = 30;
             m.opponent_ids.push(player);
             m.is_idle = false;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = Some(player);
+            m.flee_opening_melee_dance_done = true;
         }
-        let _ = world.monster_search_target(monster, super::TargetSearchType::Default);
-        world.go_to_follow_creature(monster, None);
-        world.process_walk_deadlines();
+
+        // 772: flee is classified and enqueued by the idle drain.
+        world.monster_idle_stimulus(monster);
+        // Advance one beat to fire the queued Go — monster steps away from player.
+        world.advance_beat_772(200);
 
         let new_pos = world.creatures.get(monster).unwrap().position();
         assert!(
@@ -351,61 +306,6 @@
             world.creatures.get(monster).unwrap().base().direction,
             Direction::East
         );
-    }
-
-    #[test]
-    fn update_look_direction_ignored_when_walking() {
-        let mut world = minimal_world();
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
-        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
-
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
-
-        let conn = ConnId(7);
-        let player = insert_spectator_player(&mut world, conn, test_player("Hero", ppos));
-
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.base.attack_target = Some(player);
-            m.base.direction = Direction::North;
-            m.base.next_walk_check = Some(Instant::now() + std::time::Duration::from_millis(500));
-        }
-
-        world.monster_update_look_direction(monster);
-
-        // Direction should remain North because walk is active (not idle)
-        assert_eq!(
-            world.creatures.get(monster).unwrap().base().direction,
-            Direction::North
-        );
-    }
-
-    #[test]
-    fn select_target_automatically_updates_look_direction() {
-        let mut world = minimal_world();
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
-        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
-
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
-        let conn = ConnId(7);
-        let player = insert_spectator_player(&mut world, conn, test_player("Hero", ppos));
-
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.base.direction = Direction::North;
-            m.opponent_ids.push(player);
-        }
-
-        // monster_select_target should automatically set follow/attack target and update look direction to East (towards player).
-        let selected = world.monster_select_target(monster, player);
-        assert!(selected);
-
-        let dir = world.creatures.get(monster).unwrap().base().direction;
-        assert_eq!(dir, Direction::East);
     }
 
     #[test]
@@ -469,37 +369,6 @@
     }
 
     #[test]
-    fn monster_walks_back_when_target_lost() {
-        let mut world = minimal_world();
-        world.walk_wake_tx = None;
-        let spawn = Position::new(100, 100, 7);
-        let far = Position::new(120, 100, 7);
-        for x in 100..=120 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
-        }
-
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", far, 200, MonsterAiConfig::default());
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.spawn_position = spawn;
-            m.is_idle = false;
-        }
-        let player = insert_player(&mut world, test_player("Hero", Position::new(121, 100, 7)));
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.opponent_ids.push(player);
-        }
-
-        world.monster_remove_creature_from_lists(monster, player);
-
-        assert!(
-            world.creatures.get(monster).is_some_and(|k| {
-                matches!(k, CreatureKind::Monster(m) if m.walking_to_spawn && !m.base.walk_queue.is_empty())
-            }),
-            "monster outside walkToSpawnRadius should path toward spawn when last opponent leaves"
-        );
-    }
-
-    #[test]
     fn test_772_skips_walk_to_spawn_on_opponent_leave() {
         let mut world = beat_driven_test_world();
         world.walk_wake_tx = None;
@@ -556,14 +425,14 @@
 
     #[test]
     fn active_monster_random_roams_after_one_second() {
-        let mut world = minimal_world();
+        let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
         for dx in -1..=1_i32 {
             for dy in -1..=1_i32 {
                 ensure_walkable_tile(
                     &mut world.map,
                     Position::new((100 + dx) as u16, (100 + dy) as u16, 7),
-                    100,
+                    TEST_SYNTHETIC_GROUND_WP,
                 );
             }
         }
@@ -573,21 +442,27 @@
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
         }
+        // A distant floor spectator prevents sleep so the monster falls through to roam.
+        let _spectator = insert_spectator_player(
+            &mut world,
+            ConnId(3),
+            test_player("Spectator", Position::new(115, 100, 7)),
+        );
 
-        let now = Instant::now();
-        if let Some(k) = world.creatures.get_mut(monster) {
-            k.base_mut().last_step = Some(now - Duration::from_secs(2));
-        }
-        let step = world.monster_next_walk_step(monster, now);
+        // 772: roaming is handled by the idle drain, not `monster_next_walk_step`.
+        world.monster_idle_stimulus(monster);
         assert!(
-            step.is_some(),
-            "active monster should pick a random roam direction after 1 s idle on tile"
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().todo.has_go()),
+            "active monster should enqueue a roam Go via idle stimulus"
         );
     }
 
     #[test]
     fn ranged_monster_steps_away_when_adjacent() {
-        let mut world = minimal_world();
+        let mut world = beat_driven_test_world();
         world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
@@ -595,59 +470,9 @@
             ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
         }
 
-        let config = MonsterAiConfig {
-            target_distance: 4,
-            ..Default::default()
-        };
-        let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.is_idle = false;
-            m.opponent_ids.push(player);
-            m.base.follow_target = Some(player);
-            m.base.attack_target = Some(player);
-            m.base.has_follow_path = true;
-        }
-
-        world.go_to_follow_creature(monster, None);
-
-        let stepped_away = world
-            .creatures
-            .get(monster)
-            .is_some_and(|k| k.base().walk_queue.iter().any(|&d| d == Direction::West));
-        if stepped_away {
-            return;
-        }
-
-        if let Some(k) = world.creatures.get_mut(monster) {
-            k.base_mut().next_walk_check = Some(Instant::now());
-        }
-        world.process_walk_deadlines();
-
-        let final_pos = world.creatures.get(monster).unwrap().position();
-        assert!(
-            final_pos.x < mpos.x,
-            "ranged monster should step west away from adjacent player (was {:?}, now {:?})",
-            mpos,
-            final_pos
-        );
-    }
-
-    #[test]
-    fn ranged_keep_distance_clamps_to_melee_when_attack_unusable() {
-        let mut world = minimal_world();
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(104, 100, 7);
-        for x in 100..=104 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
-        }
-
-        // Rat has melee-only attack data in content, so at distance 4 it cannot use attack.
-        let config = MonsterAiConfig {
-            target_distance: 4,
-            ..Default::default()
-        };
+        // `dist_idle_monster_config` provides `is_hostile` + a ranged spell so the 772 idle
+        // drain classifies the dist chase branch (plain config lacks a usable ranged attack).
+        let config = dist_idle_monster_config(4);
         let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
         let player = insert_player(&mut world, test_player("Hero", ppos));
         world.map.register_creature_at(ppos, player);
@@ -658,16 +483,29 @@
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
             m.base.has_follow_path = false;
+            m.base.walk_queue.clear();
         }
 
-        let fpp = world.monster_path_search_params(monster, player, false, 4, false, false);
-        assert_eq!(
-            fpp.max_target_dist, 4,
-            "TFS keeps maxTargetDist at XML targetDistance"
-        );
+        // 772: dist chase keeps distance via the idle drain, not `go_to_follow_creature`.
+        world.monster_idle_stimulus(monster);
+
+        let stepped_away = world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().walk_queue.iter().any(|&d| d == Direction::West));
+        if stepped_away {
+            return;
+        }
+
+        // Advance one beat to fire the queued Go.
+        world.advance_beat_772(200);
+
+        let final_pos = world.creatures.get(monster).unwrap().position();
         assert!(
-            fpp.full_path_search,
-            "TFS sets fullPathSearch when attack is unusable at range"
+            final_pos.x < mpos.x,
+            "ranged monster should step west away from adjacent player (was {:?}, now {:?})",
+            mpos,
+            final_pos
         );
     }
 

@@ -340,7 +340,8 @@ impl GameWorld {
         self.spawn_slot_by_creature.insert(cid, slot_index);
         self.monster_on_creature_appear_self(cid);
 
-        if self.beat_driven_loop {
+        // Phase 3: both eras run the 772 spawn loot / combat recompute path.
+        {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
                 m.experience = mtype.experience;
                 m.corpse_id = mtype.outfit.corpse_id;

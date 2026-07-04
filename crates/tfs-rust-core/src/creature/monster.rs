@@ -19,7 +19,7 @@ pub enum MonsterAiPhase {
     ReturnToSpawn,
 }
 
-/// 772 reference `STATE` — `enums.hh`; 1098 ignores this field (`beat_driven_loop` gates all use).
+/// 772 reference `STATE` — `enums.hh`; used by both eras (Phase 3: 1098 now runs 772 monster AI).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MonsterState {
     /// Spawn default — `crnonpl.cc:1516` `TNonplayer` constructor.

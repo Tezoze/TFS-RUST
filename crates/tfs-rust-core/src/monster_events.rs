@@ -32,11 +32,7 @@ impl GameWorld {
         }
         // 772: `TMonster::IdleStimulus` `Strategy[]` acquires targets (`crnonpl.cc:2468`).
         // TFS `searchTarget` on appear is 1098-only (`monster.cpp` ~159).
-        if self.beat_driven_loop {
-            self.request_idle_stimulus(cid);
-        } else {
-            self.monster_try_acquire_chase_target(cid, None);
-        }
+        self.request_idle_stimulus(cid);
     }
     /// TFS `Map::getSpectators` multifloor Z span — `map.cpp` ~444–462.
     ///
@@ -92,7 +88,7 @@ impl GameWorld {
                 let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
                     return false;
                 };
-                creature_can_see(center, other_pos, range, range, self.beat_driven_loop)
+                creature_can_see(center, other_pos, range, range, true)
             })
             .collect()
     }
@@ -146,17 +142,15 @@ impl GameWorld {
             return;
         }
 
-        if self.beat_driven_loop {
-            self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
-        }
+        self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
 
         let monster_pos = match self.creatures.get(monster_id) {
             Some(k) => k.position(),
             None => return,
         };
         let range = i32::from(MAP_MAX_VIEWPORT);
-        let can_see_new = creature_can_see(monster_pos, new_pos, range, range, self.beat_driven_loop);
-        let can_see_old = creature_can_see(monster_pos, old_pos, range, range, self.beat_driven_loop);
+        let can_see_new = creature_can_see(monster_pos, new_pos, range, range, true);
+        let can_see_old = creature_can_see(monster_pos, old_pos, range, range, true);
 
         if can_see_new && !can_see_old {
             self.monster_on_creature_found(monster_id, creature_id, true);
@@ -176,21 +170,19 @@ impl GameWorld {
         };
 
         if follow == Some(creature_id) {
-            if self.beat_driven_loop {
-                if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
-                    self.creatures.get(monster_id),
-                    self.creatures.get(creature_id).map(|k| k.position()),
-                ) {
-                    let cheb = chebyshev(m.base.position, target_pos);
-                    chase_debug::log_creature_move_stimulus(
-                        self.chase_trace_tick(),
-                        monster_id,
-                        m.base.name.as_str(),
-                        creature_id.data().as_ffi(),
-                        "move_stimulus",
-                        cheb,
-                    );
-                }
+            if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
+                self.creatures.get(monster_id),
+                self.creatures.get(creature_id).map(|k| k.position()),
+            ) {
+                let cheb = chebyshev(m.base.position, target_pos);
+                chase_debug::log_creature_move_stimulus(
+                    self.chase_trace_tick(),
+                    monster_id,
+                    m.base.name.as_str(),
+                    creature_id.data().as_ffi(),
+                    "move_stimulus",
+                    cheb,
+                );
             }
             self.monster_on_follow_creature_moved(monster_id, creature_id, new_pos, has_path);
             self.monster_combat_creature_move_stimulus(monster_id, creature_id);
@@ -198,16 +190,15 @@ impl GameWorld {
             let target_visible = self
                 .creatures
                 .get(creature_id)
-                .map(|k| creature_can_see(monster_pos, k.position(), range, range, self.beat_driven_loop))
+                .map(|k| creature_can_see(monster_pos, k.position(), range, range, true))
                 .unwrap_or(false);
             // AI#24: C++ `CreatureMoveStimulus` (`crmain.cc:920`) does NOT clear targets on
-            // Z-change — it only re-arms close-chase combat. The Z-level clear is a 1098
-            // `Monster::onCreatureMove` behavior; gate it on `!beat_driven_loop` so 772
-            // monsters keep tracking targets across ramp drops and re-acquire via the idle
-            // lose-target range check (`crnonpl.cc:2422`) instead. The `!target_visible`
-            // clear stays for both eras (redundant with the idle range check, not flagged).
-            let z_change_clears = !self.beat_driven_loop && new_pos.z != old_pos.z;
-            if z_change_clears || !target_visible {
+            // Z-change — it only re-arms close-chase combat. The Z-level clear was a 1098
+            // `Monster::onCreatureMove` behavior; 772 monsters keep tracking targets across
+            // ramp drops and re-acquire via the idle lose-target range check
+            // (`crnonpl.cc:2422`). The `!target_visible` clear stays (redundant with the idle
+            // range check, not flagged).
+            if !target_visible {
                 if let Some(k) = self.creatures.get_mut(monster_id) {
                     if k.base().follow_target == Some(creature_id) {
                         k.base_mut().clear_follow_for_target(creature_id);
@@ -228,15 +219,10 @@ impl GameWorld {
             && follow.is_none()
         {
             self.monster_ensure_opponent_listed(monster_id, creature_id);
-            if self.beat_driven_loop {
-                self.monster_schedule_chase_after_opponent_add(monster_id, Some(creature_id));
-            } else {
-                self.monster_select_target(monster_id, creature_id);
-            }
+            self.monster_schedule_chase_after_opponent_add(monster_id, Some(creature_id));
         }
 
-        if self.beat_driven_loop
-            && creature_id != monster_id
+        if creature_id != monster_id
             && follow.is_some()
             && follow != Some(creature_id)
             && self.monster_chase_stalled_without_wakeup(monster_id)
@@ -265,8 +251,7 @@ impl GameWorld {
             return;
         }
         // 772 idle drain owns repath even without an in-flight path (P0-1 / freeze fix).
-        if !has_path && !self.mechanics.profile.follow_repath_without_path && !self.beat_driven_loop
-        {
+        if !has_path && !self.mechanics.profile.follow_repath_without_path {
             return;
         }
         if self
@@ -277,19 +262,15 @@ impl GameWorld {
             return;
         }
 
-        let should_repath = if self.beat_driven_loop {
-            self.creatures.get(monster_id).is_some_and(|k| {
-                let CreatureKind::Monster(m) = k else {
-                    return false;
-                };
-                let target_distance = self.monster_effective_target_distance(m.target_distance);
-                target_distance > 1
-                    && m.base.follow_target == Some(creature_id)
-                    && self.monster_can_use_attack(monster_id, m.base.position, creature_id)
-            })
-        } else {
-            true
-        };
+        let should_repath = self.creatures.get(monster_id).is_some_and(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return false;
+            };
+            let target_distance = self.monster_effective_target_distance(m.target_distance);
+            target_distance > 1
+                && m.base.follow_target == Some(creature_id)
+                && self.monster_can_use_attack(monster_id, m.base.position, creature_id)
+        });
 
         if !should_repath {
             return;
@@ -299,37 +280,31 @@ impl GameWorld {
         // (`crmain.cc:946-951` `ToDoClear` + re-queue) — only when a stale queue blocks yield.
         if let Some(k) = self.creatures.get_mut(monster_id) {
             let base = k.base_mut();
-            if self.beat_driven_loop {
-                if !base.todo.queue.is_empty() {
-                    base.todo.queue.clear();
-                    base.todo.locked = false;
-                }
-                // C++ `CreatureMoveStimulus` preempts goal `ToDoWait` — do not defer repath.
-                base.next_wakeup = None;
+            if !base.todo.queue.is_empty() {
+                base.todo.queue.clear();
+                base.todo.locked = false;
             }
+            // C++ `CreatureMoveStimulus` preempts goal `ToDoWait` — do not defer repath.
+            base.next_wakeup = None;
             base.walk_queue.clear();
             base.walk_update_ticks = 0;
             base.is_updating_path = false;
             base.force_update_follow_path = true;
         }
-        if self.beat_driven_loop {
-            self.monster_idle_stimulus_after_creature_move(monster_id);
-            if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
-                self.creatures.get(monster_id),
-                self.creatures.get(creature_id).map(|k| k.position()),
-            ) {
-                let cheb = chebyshev(m.base.position, target_pos);
-                chase_debug::log_creature_move_stimulus(
-                    self.chase_trace_tick(),
-                    monster_id,
-                    m.base.name.as_str(),
-                    creature_id.data().as_ffi(),
-                    "dist_follow_move",
-                    cheb,
-                );
-            }
-        } else {
-            self.monster_follow_repath_now(monster_id, Some("target_move"));
+        self.monster_idle_stimulus_after_creature_move(monster_id);
+        if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
+            self.creatures.get(monster_id),
+            self.creatures.get(creature_id).map(|k| k.position()),
+        ) {
+            let cheb = chebyshev(m.base.position, target_pos);
+            chase_debug::log_creature_move_stimulus(
+                self.chase_trace_tick(),
+                monster_id,
+                m.base.name.as_str(),
+                creature_id.data().as_ffi(),
+                "dist_follow_move",
+                cheb,
+            );
         }
     }
 
@@ -342,9 +317,6 @@ impl GameWorld {
         monster_id: CreatureId,
         target_id: CreatureId,
     ) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let snapshot = self.creatures.get(monster_id).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -432,9 +404,6 @@ impl GameWorld {
         monster_id: CreatureId,
         target_id: CreatureId,
     ) {
-        if !self.beat_driven_loop {
-            return;
-        }
         self.monster_idle_prepare_combat_chase(monster_id);
         let snapshot = self.creatures.get(monster_id).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
@@ -784,50 +753,6 @@ mod tests {
             base.attack_target,
             Some(player),
             "AI#24: 772 must keep attack target across Z-change (ramp drop)"
-        );
-    }
-
-    // AI#24 counterpart: 1098 clears targets on Z-change (`Monster::onCreatureMove`).
-    #[test]
-    fn test_phase9_1098_clears_target_across_z_change() {
-        use crate::test_world::support::minimal_world;
-
-        let mut world = minimal_world();
-        let mpos = Position::new(100, 100, 8);
-        let ppos = Position::new(101, 100, 8);
-        let ppos_new = Position::new(101, 100, 9);
-        ensure_walkable_tile(&mut world.map, mpos, 1);
-        ensure_walkable_tile(&mut world.map, ppos, 1);
-        ensure_walkable_tile(&mut world.map, ppos_new, 1);
-
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_at(ppos, player);
-        let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.is_idle = false;
-            m.state = MonsterState::Idle;
-            m.base.chase_mode = ChaseMode::None;
-            m.opponent_ids.push(player);
-            m.base.follow_target = Some(player);
-            m.base.attack_target = Some(player);
-            m.base.has_follow_path = false;
-        }
-
-        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
-            p.base.position = ppos_new;
-        }
-        world.map.unregister_creature_at(ppos, player);
-        world.map.register_creature_at(ppos_new, player);
-        world.monster_dispatch_creature_move(player, ppos, ppos_new);
-
-        let base = world.creatures.get(monster).unwrap().base();
-        assert_eq!(
-            base.follow_target, None,
-            "AI#24: 1098 must clear follow target on Z-change"
-        );
-        assert_eq!(
-            base.attack_target, None,
-            "AI#24: 1098 must clear attack target on Z-change"
         );
     }
 

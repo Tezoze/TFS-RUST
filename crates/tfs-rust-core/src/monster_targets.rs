@@ -139,7 +139,7 @@ impl GameWorld {
             op,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
-            self.beat_driven_loop,
+            true,
         )
     }
 
@@ -169,7 +169,7 @@ impl GameWorld {
             creature_pos,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
-            self.beat_driven_loop,
+            true,
         ) {
             return;
         }
@@ -205,7 +205,7 @@ impl GameWorld {
     pub(crate) fn monster_schedule_chase_after_opponent_add(
         &mut self,
         monster_id: CreatureId,
-        preferred: Option<CreatureId>,
+        _preferred: Option<CreatureId>,
     ) {
         let should = self.creatures.get(monster_id).is_some_and(|k| {
             matches!(k, CreatureKind::Monster(m) if {
@@ -229,40 +229,9 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(monster_id) {
                 k.base_mut().think_check_bucket = Some(bucket);
             }
-        } else if self.beat_driven_loop {
-            self.request_idle_stimulus(monster_id);
         } else {
-            self.monster_try_acquire_chase_target(monster_id, preferred);
-        }
-    }
-
-    /// Acquire `follow_target` immediately when a player/opponent enters range — 1098 `onThink` path.
-    ///
-    /// 772 defers to [`crate::idle_stimulus`] `Strategy[]` (`crnonpl.cc:2468`).
-    pub(crate) fn monster_try_acquire_chase_target(
-        &mut self,
-        monster_id: CreatureId,
-        preferred: Option<CreatureId>,
-    ) {
-        if self.beat_driven_loop {
             self.request_idle_stimulus(monster_id);
-            return;
         }
-        if self.creatures.get(monster_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(m) if m.base.is_summon())
-                || k.base().follow_target.is_some()
-        }) {
-            return;
-        }
-        if let Some(pid) = preferred {
-            if self.monster_is_opponent(monster_id, pid) {
-                self.monster_ensure_opponent_listed(monster_id, pid);
-            }
-            if self.monster_select_target(monster_id, pid) {
-                return;
-            }
-        }
-        self.monster_search_target(monster_id, TargetSearchType::Default);
     }
 
     pub(crate) fn monster_is_friend(
@@ -372,16 +341,12 @@ impl GameWorld {
                 return;
             }
             let was_idle = m.is_idle;
-            if self.beat_driven_loop {
-                if idle {
-                    m.state = MonsterState::Sleeping;
-                    m.is_idle = true;
-                } else if was_idle || m.state == MonsterState::Sleeping {
-                    m.state = MonsterState::Idle;
-                    m.is_idle = false;
-                }
-            } else {
-                m.is_idle = idle;
+            if idle {
+                m.state = MonsterState::Sleeping;
+                m.is_idle = true;
+            } else if was_idle || m.state == MonsterState::Sleeping {
+                m.state = MonsterState::Idle;
+                m.is_idle = false;
             }
             if idle {
                 m.base.damage_map.clear();
@@ -397,9 +362,7 @@ impl GameWorld {
             self.remove_creature_think_check(cid);
         } else {
             self.add_creature_think_check(cid);
-            if self.beat_driven_loop {
-                self.request_idle_stimulus(cid);
-            }
+            self.request_idle_stimulus(cid);
         }
     }
 
@@ -429,15 +392,11 @@ impl GameWorld {
         true
     }
 
-    /// Era-correct creature line-of-sight. 772 uses `ThrowPossible` (major-axis interpolation +
-    /// `UNTHROW`, `info.cc:1154`); 1098 uses Bresenham `Map::isSightClear`. All 772 callers throw
-    /// with `power = 0` (`crnonpl.cc:2798`).
+    /// Creature line-of-sight via `ThrowPossible` (major-axis interpolation +
+    /// `UNTHROW`, `info.cc:1154`). All callers throw with `power = 0`
+    /// (`crnonpl.cc:2798`).
     pub(crate) fn monster_sight_clear(&self, from: Position, to: Position) -> bool {
-        if self.beat_driven_loop {
-            self.map.throw_possible(from, to, 0)
-        } else {
-            self.map.is_sight_clear(from, to)
-        }
+        self.map.throw_possible(from, to, 0)
     }
 
     /// TFS `Monster::canUseAttack` — `monster.cpp` ~876.
@@ -667,11 +626,6 @@ impl GameWorld {
         }
 
         let ret = self.monster_set_follow_creature(monster_id, Some(target_id));
-        // 1098: `selectTarget` snaps look each pick (`monster.cpp` ~662).
-        // 772: facing follows walk / idle band rules — not on every `SetAttackDest`.
-        if ret && !self.beat_driven_loop {
-            self.monster_update_look_direction(monster_id);
-        }
         ret
     }
     /// TFS `Creature::setFollowCreature` — `creature.cpp` ~1058.
@@ -714,7 +668,7 @@ impl GameWorld {
                 target_pos,
                 i32::from(MAP_MAX_VIEWPORT),
                 i32::from(MAP_MAX_VIEWPORT),
-                self.beat_driven_loop,
+                true,
             )
         {
             if let Some(k) = self.creatures.get_mut(monster_id) {
@@ -733,21 +687,17 @@ impl GameWorld {
             base.follow_target = Some(target_id);
             base.is_updating_path = true;
         }
-        if self.beat_driven_loop {
-            let arm_idle = !self.creatures.get(monster_id).is_some_and(|k| {
-                matches!(
-                    k,
-                    CreatureKind::Monster(m)
-                        if m.harness_preserve_sleep
-                            && m.state == MonsterState::Sleeping
-                            && m.is_idle
-                )
-            });
-            if arm_idle {
-                self.request_idle_stimulus(monster_id);
-            }
-        } else {
-            self.monster_follow_repath_now(monster_id, Some("set_follow"));
+        let arm_idle = !self.creatures.get(monster_id).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m)
+                    if m.harness_preserve_sleep
+                        && m.state == MonsterState::Sleeping
+                        && m.is_idle
+            )
+        });
+        if arm_idle {
+            self.request_idle_stimulus(monster_id);
         }
         true
     }

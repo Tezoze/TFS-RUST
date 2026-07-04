@@ -230,6 +230,11 @@ pub async fn run() -> anyhow::Result<()> {
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
     info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
     let beat_driven = mechanics.profile.step_speed == StepSpeedModel::LinearGo;
+    // Phase 3 A/B dev flag: force the 772 beat loop for 1098 to compare loop mechanics
+    // (beat vs tick cadence) while monster AI is already unified. Set `TFS_FORCE_BEAT_LOOP=1`
+    // to run 1098 on `run_game_loop_772` instead of `run_game_loop_1098`.
+    let beat_driven = beat_driven
+        || std::env::var("TFS_FORCE_BEAT_LOOP").ok().as_deref() == Some("1");
     let walk_wake_tx = if beat_driven {
         None
     } else {
@@ -251,6 +256,8 @@ pub async fn run() -> anyhow::Result<()> {
         mechanics,
     );
     world.scheduler = Some(scheduler.clone());
+    // Phase 3 A/B: override `beat_driven_loop` if the dev flag forced the 772 loop for 1098.
+    world.beat_driven_loop = beat_driven;
     world.startup_spawns();
     info!(
         map_chunks = world.map.grid.chunk_count(),

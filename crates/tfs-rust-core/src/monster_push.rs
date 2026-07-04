@@ -1,25 +1,22 @@
-//! Monster push-before-step — era-split.
+//! Monster push-before-step — the 772 `TMonster::MovePossible` kick gate (both eras).
 //!
-//! - **1098** (`beat_driven_loop == false`): TFS `Monster::pushCreature` / `pushCreatures`
-//!   (`monster.cpp` ~1174–1221) — random-cardinal shove, kill on failure.
-//! - **772** (`beat_driven_loop == true`): the execute side-effects of `TMonster::MovePossible`
-//!   (`crnonpl.cc:2141–2291`) — `TMonster::KickCreature` (`crnonpl.cc:3036`) and
-//!   `TMonster::KickBoxes` (`crnonpl.cc:2994`). An ATTACKING/PANIC monster that has a target and
-//!   the `KickCreatures` race flag shoves a blocking **pushable monster** aside in fixed
-//!   **N, S, W, E** order, killing it when no adjacent tile is free. A monster with
-//!   `CanKickBoxes()` (race flag, or inherited from a monster master) shoves a blocking movable
-//!   **box/field** aside (same N,S,W,E order, `BANK && !UNPASS` destination), deleting it on
-//!   failure. Stepping onto a **player** tile, or a `KickCreature` that has to kill, is the C++
-//!   `EXHAUSTED` case → [`MonsterKickOutcome::Exhausted`] (kick-kill: target preserved, C++
-//!   `Execute` catch `cract.cc:870-877`) or [`MonsterKickOutcome::ExhaustedDropTarget`]
-//!   (player-tile: target cleared, C++ `crnonpl.cc:2236-2238`). The caller waits 1000 ms in both
-//!   cases.
+//! The execute side-effects of `TMonster::MovePossible`
+//! (`crnonpl.cc:2141–2291`) — `TMonster::KickCreature` (`crnonpl.cc:3036`) and
+//! `TMonster::KickBoxes` (`crnonpl.cc:2994`). An ATTACKING/PANIC monster that has a target and
+//! the `KickCreatures` race flag shoves a blocking **pushable monster** aside in fixed
+//! **N, S, W, E** order, killing it when no adjacent tile is free. A monster with
+//! `CanKickBoxes()` (race flag, or inherited from a monster master) shoves a blocking movable
+//! **box/field** aside (same N,S,W,E order, `BANK && !UNPASS` destination), deleting it on
+//! failure. Stepping onto a **player** tile, or a `KickCreature` that has to kill, is the C++
+//! `EXHAUSTED` case → [`MonsterKickOutcome::Exhausted`] (kick-kill: target preserved, C++
+//! `Execute` catch `cract.cc:870-877`) or [`MonsterKickOutcome::ExhaustedDropTarget`]
+//! (player-tile: target cleared, C++ `crnonpl.cc:2236-2238`). The caller waits 1000 ms in both
+//! cases.
 //!
 //! Called from [`crate::walk::GameWorld::on_walk`] before the mover steps.
 
 use std::time::Instant;
 
-use rand::seq::SliceRandom;
 use tfs_rust_common::enums::{CombatType, Direction};
 use tfs_rust_common::Position;
 
@@ -80,12 +77,7 @@ impl GameWorld {
         dest: Position,
         now: Instant,
     ) -> MonsterKickOutcome {
-        if self.beat_driven_loop {
-            self.monster_kick_before_step_772(mover, dest, now)
-        } else {
-            self.monster_push_before_step_tfs(mover, dest, now);
-            MonsterKickOutcome::Proceed
-        }
+        self.monster_kick_before_step_772(mover, dest, now)
     }
 
     // ───────────────────────── 772 (`MovePossible` / `KickCreature`) ─────────────────────────
@@ -558,99 +550,6 @@ impl GameWorld {
             }
         }
         true
-    }
-
-    // ───────────────────────────── 1098 (`Monster::pushCreatures`) ─────────────────────────────
-
-    /// TFS `Monster::getNextStep` — push blocking creatures off the destination tile (`monster.cpp`).
-    fn monster_push_before_step_tfs(
-        &mut self,
-        mover: CreatureId,
-        dest: Position,
-        now: Instant,
-    ) {
-        let (can_push_creatures, can_push_items) = match self.creatures.get(mover) {
-            Some(CreatureKind::Monster(m)) if m.can_push_creatures && !m.base.is_summon() => {
-                (true, m.can_push_items)
-            }
-            Some(CreatureKind::Monster(m)) => (false, m.can_push_items),
-            _ => return,
-        };
-
-        if can_push_items {
-            // TFS `Monster::pushItems` — deferred; item cylinder move path not wired here yet.
-        }
-
-        if can_push_creatures {
-            self.monster_push_creatures_on_tile(dest, mover, now);
-        }
-    }
-
-    /// TFS `Monster::pushCreatures(Tile*)` — shuffle-push pushable monsters; kill on failure.
-    fn monster_push_creatures_on_tile(&mut self, dest: Position, mover: CreatureId, now: Instant) {
-        let blockers: Vec<CreatureId> = self
-            .map
-            .get_tile(dest)
-            .map(|t| {
-                t.body()
-                    .creatures
-                    .iter()
-                    .copied()
-                    .filter(|&c| c != mover)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut last_pushed: Option<CreatureId> = None;
-        let mut to_kill: Vec<CreatureId> = Vec::new();
-
-        for blocker in blockers {
-            let Some(CreatureKind::Monster(m)) = self.creatures.get(blocker) else {
-                continue;
-            };
-            if !m.is_pushable() {
-                continue;
-            }
-            if last_pushed != Some(blocker) && self.monster_push_creature(blocker, now) {
-                last_pushed = Some(blocker);
-                continue;
-            }
-            to_kill.push(blocker);
-        }
-
-        for id in to_kill {
-            self.remove_creature(id);
-        }
-    }
-
-    /// TFS `Monster::pushCreature(Creature*)` — random cardinal `internalMoveCreature`.
-    fn monster_push_creature(&mut self, cid: CreatureId, now: Instant) -> bool {
-        let pos = match self.creatures.get(cid) {
-            Some(k) => k.position(),
-            None => return false,
-        };
-
-        let mut dirs = [
-            Direction::North,
-            Direction::West,
-            Direction::East,
-            Direction::South,
-        ];
-        dirs.shuffle(&mut rand::thread_rng());
-
-        for dir in dirs {
-            let try_pos = pos.offset(dir);
-            let Some(tile) = self.map.get_tile(try_pos) else {
-                continue;
-            };
-            if (tile.body().flags & tilestate::BLOCKPATH) != 0 {
-                continue;
-            }
-            if self.try_creature_walk_step(cid, dir, now) {
-                return true;
-            }
-        }
-        false
     }
 }
 

@@ -3,7 +3,8 @@
 //! - `TCreature::IdleStimulus` — virtual dispatch after `Execute` drains the action list.
 //! - `TMonster::IdleStimulus` — `crnonpl.cc:2386`.
 //!
-//! Profile-gated via `GameWorld::beat_driven_loop` (same flag as P2 ToDo walk).
+//! Phase 3: monsters run on this engine for **both** eras (1098 monster AI deleted).
+//! Players remain gated on `GameWorld::beat_driven_loop` until Phase 4.
 
 use std::time::Instant;
 
@@ -89,8 +90,14 @@ impl GameWorld {
     /// Phase 1 walk-engine unification: widened to dispatch **players** to
     /// [`player_idle_stimulus`] (`crplayer.cc:388-405`) in addition to monsters
     /// (`crnonpl.cc:2386`). NPCs remain excluded.
+    /// Phase 3: monsters run on the ToDo/IdleStimulus engine for **both** eras. Players remain
+    /// gated on `beat_driven_loop` until Phase 4.
     pub(crate) fn idle_stimulus(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
+        let is_monster = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)));
+        if !is_monster && !self.beat_driven_loop {
             return;
         }
         if !self.creatures.contains_key(cid) {
@@ -150,17 +157,16 @@ impl GameWorld {
     ///
     /// Phase 1: widened from monster-only to all creatures on the unified ToDo path
     /// (players + monsters) via [`creature_uses_todo_execute`](Self::creature_uses_todo_execute).
+    /// Phase 3: monsters use the ToDo path for both eras; `creature_uses_todo_execute` now
+    /// returns true for monsters regardless of `beat_driven_loop`.
     pub(crate) fn request_idle_stimulus(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
         if !self.creature_uses_todo_execute(cid) {
             return;
         }
         if !self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().walk_timer_idle(self.beat_driven_loop))
+            .is_some_and(|k| k.base().walk_timer_idle(true))
         {
             return;
         }
@@ -245,10 +251,7 @@ impl GameWorld {
             // (`TCreature::Damage`, `crmain.cc:762-775`). Emitted for any physical damage that
             // landed, including the killing blow (C++ emits the effect before `Kill()`); the
             // full-blood pool is added afterwards by the death path.
-            if self.beat_driven_loop
-                && stimulus_damage > 0
-                && damage.primary.0 == CombatType::Physical
-            {
+            if stimulus_damage > 0 && damage.primary.0 == CombatType::Physical {
                 if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
                     self.apply_physical_hit_blood_772(target, pos);
                 }
@@ -268,7 +271,7 @@ impl GameWorld {
         attacker_id: CreatureId,
         damage: i32,
     ) {
-        if !self.beat_driven_loop || damage <= 0 || attacker_id == victim_id {
+        if damage <= 0 || attacker_id == victim_id {
             return;
         }
         let snapshot = {
@@ -337,9 +340,7 @@ impl GameWorld {
         }
         // C++ `TMonster::DamageStimulus` — state + `ToDoYield` only (`crnonpl.cc:2304`);
         // target pick is idle `Strategy[]`, not synchronous `searchTarget`.
-        if !has_target && !self.beat_driven_loop {
-            self.monster_try_acquire_chase_target(victim_id, Some(attacker_id));
-        }
+        // Phase 3: 1098 synchronous `searchTarget` deleted — both eras use idle `Strategy[]`.
     }
 
     fn monster_state_trace_str(state: MonsterState) -> &'static str {
@@ -353,14 +354,12 @@ impl GameWorld {
     }
 
     /// C++ `TMonster::CreatureMoveStimulus` sleep wake — `crnonpl.cc:2943-2982`.
+    /// Phase 3: runs for both eras (772 monster AI is the single system).
     pub(crate) fn monster_sleep_wake_on_creature_move(
         &mut self,
         monster_id: CreatureId,
         moved_id: CreatureId,
     ) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let sleeping = self.creatures.get(monster_id).is_some_and(
             |k| matches!(k, CreatureKind::Monster(m) if m.state == MonsterState::Sleeping),
         );
@@ -814,11 +813,7 @@ impl GameWorld {
             .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_fleeing()));
 
         let mut rng_scratch = StdRng::from_entropy();
-        let mut rng_1098 = if self.beat_driven_loop {
-            None
-        } else {
-            Some(std::mem::replace(&mut self.ai_rng, StdRng::from_entropy()))
-        };
+        // Phase 3: 1098 `ai_rng` path deleted — both eras use the 772 parity RNG stream.
         for spell in &spells {
             if spell.delay <= 0 || self.parity_rand_mod(spell.delay as u32) != 0 {
                 continue;
@@ -847,7 +842,7 @@ impl GameWorld {
             }
 
             let tiles = Self::monster_idle_spell_tiles(spell.shape, pos, target_pos, spell.radius);
-            let rng: &mut StdRng = rng_1098.as_mut().unwrap_or(&mut rng_scratch);
+            let rng: &mut StdRng = &mut rng_scratch;
 
             match spell.shape {
                 SpellShape::Victim | SpellShape::Destination => {
@@ -890,9 +885,6 @@ impl GameWorld {
             // gates pass is evaluated and cast in the same idle, and each spell's delay roll is drawn
             // regardless (audit Finding 2). Stopping after the first cast desyncs the glibc stream.
         }
-        if let Some(rng) = rng_1098 {
-            self.ai_rng = rng;
-        }
         // C++ `RaceData` spell list includes defense entries — consume delay rolls only.
         for delay in defense_delay_moduli {
             let _ = self.parity_rand_mod(delay);
@@ -900,7 +892,7 @@ impl GameWorld {
     }
 
     fn monster_idle_suppress_adjacent_melee_spell(&self, cid: CreatureId, dist: i32) -> bool {
-        if !self.beat_driven_loop || dist > 1 {
+        if dist > 1 {
             return false;
         }
         self.creatures.get(cid).is_some_and(|k| {
@@ -960,11 +952,7 @@ impl GameWorld {
             } => {
                 let min_c = (*min_cycle).max(1);
                 let max_c = (*cycle).max(min_c);
-                let strength = if self.beat_driven_loop {
-                    self.parity_random(min_c, max_c)
-                } else {
-                    rng.gen_range(min_c..=max_c)
-                };
+                let strength = self.parity_random(min_c, max_c);
                 let cond = ActiveCondition {
                     id: 0,
                     sub_id: 0,
@@ -999,12 +987,10 @@ impl GameWorld {
                 let scaled = spell_damage(&profile, hooks, 0, 0, max_dmg, false, false);
                 let dmg = if scaled > 0 {
                     scaled
-                } else if self.beat_driven_loop {
+                } else {
                     // C++ `ComputeDamage` monster path: `Damage + random(-Var, Var)` (`magic.cc:776`)
                     // — glibc parity stream, not `ai_rng` (Finding 14).
                     self.parity_random(min_dmg, max_dmg).max(0)
-                } else {
-                    crate::combat::uniform_random(rng, min_dmg, max_dmg).max(0)
                 };
                 let params = CombatParams {
                     primary_type: *element,
@@ -1023,11 +1009,7 @@ impl GameWorld {
             SpellImpact::Healing { base, variation } => {
                 let min_heal = (*base).saturating_sub(*variation);
                 let max_heal = (*base).saturating_add(*variation);
-                let heal = if self.beat_driven_loop {
-                    self.parity_random(min_heal, max_heal).max(0)
-                } else {
-                    crate::combat::uniform_random(rng, min_heal, max_heal).max(0)
-                };
+                let heal = self.parity_random(min_heal, max_heal).max(0);
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
@@ -1045,11 +1027,7 @@ impl GameWorld {
             } => {
                 let min_delta = (*percent).saturating_sub(*variation);
                 let max_delta = (*percent).saturating_add(*variation);
-                let flat_delta = if self.beat_driven_loop {
-                    self.parity_random(min_delta, max_delta)
-                } else {
-                    crate::combat::uniform_random(rng, min_delta, max_delta)
-                };
+                let flat_delta = self.parity_random(min_delta, max_delta);
                 let cond = ActiveCondition {
                     id: 0,
                     sub_id: 0,
@@ -1134,12 +1112,10 @@ impl GameWorld {
                 chase_debug::log_idle_stimulus(self.chase_trace_tick(), cid, &m.base.name);
             }
         }
-        if self.beat_driven_loop {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                m.idle_stimulus_last_ms = Some(self.server_ms);
-                // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
-                m.last_combat_trace = None;
-            }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.idle_stimulus_last_ms = Some(self.server_ms);
+            // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
+            m.last_combat_trace = None;
         }
         if self
             .creatures
@@ -1160,14 +1136,14 @@ impl GameWorld {
                 m.base.follow_target,
                 m.is_fleeing(),
                 m.base.position,
-                self.beat_driven_loop && m.state == MonsterState::Sleeping,
+                m.state == MonsterState::Sleeping,
             )
         };
 
         // C++ summon despawn / re-bind block — runs at the very top of `IdleStimulus`
         // (`crnonpl.cc:2359–2405`), BEFORE the sleeping/idle checks. A sleeping summon still
         // gets despawned if its master is gone / too far / on a different floor.
-        if self.beat_driven_loop && is_summon && self.monster_idle_summon_lifecycle_772(cid) {
+        if is_summon && self.monster_idle_summon_lifecycle_772(cid) {
             return;
         }
 
@@ -1179,54 +1155,34 @@ impl GameWorld {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
                 m.state = MonsterState::Idle;
             }
-        } else if !self.beat_driven_loop && is_idle {
+        }
+
+        // Phase 3: 772 idle path runs unconditionally for both eras.
+        self.monster_idle_772_lose_existing_target(cid);
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            if !m.is_fleeing() {
+                m.flee_opening_melee_dance_done = false;
+            }
+        }
+        self.monster_idle_reset_combat_state(cid);
+        self.monster_idle_try_talk(cid);
+        if self.monster_idle_772_acquire_target(cid) {
             return;
         }
-
-        if self.beat_driven_loop {
-            self.monster_idle_772_lose_existing_target(cid);
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                if !m.is_fleeing() {
-                    m.flee_opening_melee_dance_done = false;
-                }
-            }
-            self.monster_idle_reset_combat_state(cid);
-            self.monster_idle_try_talk(cid);
-            if self.monster_idle_772_acquire_target(cid) {
-                return;
-            }
-            if !skip_casting {
-                self.monster_idle_try_casting(cid);
-            }
+        if !skip_casting {
+            self.monster_idle_try_casting(cid);
         }
 
-        if is_summon {
-            self.monster_think_summon_stub(cid);
-        } else if !self.beat_driven_loop && has_opponents {
-            if follow.is_none() {
-                let _ = self.monster_search_target(cid, TargetSearchType::Default);
-            }
-            if fleeing {
-                let attack = self.creatures.get(cid).and_then(|k| k.base().attack_target);
-                if let Some(target_id) = attack {
-                    if !self.monster_can_use_attack(cid, pos, target_id) {
-                        let _ = self.monster_search_target(cid, TargetSearchType::AttackRange);
-                    }
-                }
-            }
-        }
-
-        if !self.beat_driven_loop {
-            self.monster_on_think_target(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
-            self.monster_update_look_direction(cid);
-        }
+        // Phase 3: 1098 synchronous target search / on_think_target / look update deleted —
+        // both eras use the 772 idle `Strategy[]` acquisition above.
+        let _ = (has_opponents, follow, fleeing, pos);
 
         if !self
             .creatures
             .get(cid)
             .is_some_and(|k| {
                 k.base().health > 0
-                    && (k.base().walk_timer_idle(self.beat_driven_loop)
+                    && (k.base().walk_timer_idle(true)
                         || k.base().force_update_follow_path)
             })
         {
@@ -1422,9 +1378,6 @@ impl GameWorld {
 
     /// Set `chase_mode` from posture/target band — no JSONL side effect.
     fn monster_idle_set_combat_chase_mode(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
         // Keep follow/attack dest aligned for close-chase repath (`SetAttackDest`).
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             if matches!(m.state, MonsterState::Attacking | MonsterState::Panic) {
@@ -1468,9 +1421,6 @@ impl GameWorld {
 
     /// Emit `combat_state` JSONL when posture/chase_mode changed this idle pass.
     fn monster_idle_emit_combat_state(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let combat_log = self.creatures.get_mut(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -1627,9 +1577,6 @@ impl GameWorld {
         attack_id: CreatureId,
         target_pos: Position,
     ) -> bool {
-        if !self.beat_driven_loop {
-            return self.monster_can_use_attack(cid, pos, attack_id);
-        }
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return false;
         };
@@ -1653,9 +1600,6 @@ impl GameWorld {
     /// Phase 8 approach) caused a visible "turn on the spot" because the 0x6B fired in a
     /// separate beat from any move packet (audit: turn-on-spot defect).
     pub(crate) fn monster_idle_rotate_toward_attack_target(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let target_id = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -1808,9 +1752,6 @@ impl GameWorld {
     /// `ToDoWait(1000)` when at-goal dance could not arm (`crnonpl.cc:2791` dist band).
     /// Melee `ATTACKING` tail gets `ToDoAttack` only — no trailing wait (`crnonpl.cc:2795–2807`).
     fn monster_idle_maybe_enqueue_at_goal_wait(&mut self, cid: CreatureId, attack_enqueued: bool) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let branch = self.monster_idle_classify_walk_branch(cid);
         match branch {
             MonsterIdleWalkBranch::DistDance => {}
@@ -2187,10 +2128,8 @@ impl GameWorld {
     ///
     /// C++ walking section — `crnonpl.cc:2676`.
     fn monster_idle_prepare_and_enqueue_go(&mut self, cid: CreatureId) {
-        if self.beat_driven_loop {
-            self.monster_idle_maybe_enter_attacking(cid);
-            self.monster_idle_set_combat_chase_mode(cid);
-        }
+        self.monster_idle_maybe_enter_attacking(cid);
+        self.monster_idle_set_combat_chase_mode(cid);
         let branch = self.monster_idle_classify_walk_branch(cid);
         let mut outcome = self.monster_idle_execute_walk_branch(cid, branch);
 
@@ -2199,10 +2138,8 @@ impl GameWorld {
             outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
         }
 
-        if self.beat_driven_loop {
-            // C++ logs `combat_state` after PANIC melee-dance promotion (`crnonpl.cc:2830`).
-            self.monster_idle_emit_combat_state(cid);
-        }
+        // C++ logs `combat_state` after PANIC melee-dance promotion (`crnonpl.cc:2830`).
+        self.monster_idle_emit_combat_state(cid);
 
         match outcome {
             MonsterIdleWalkOutcome::QueuedGo { via, wait_after } => {
@@ -2218,9 +2155,7 @@ impl GameWorld {
             }
             MonsterIdleWalkOutcome::Hold => {
                 // 772 idle drain owns dance pacing — no TFS `getNextStep` poll (X5).
-                if !self.beat_driven_loop && self.monster_should_keep_dance_walk_alive(cid) {
-                    self.idle_enqueue_go_and_start(cid, true, None);
-                }
+                // Phase 3: 1098 `getNextStep` dance poll deleted — both eras use idle drain.
             }
             MonsterIdleWalkOutcome::Noway => {}
         }

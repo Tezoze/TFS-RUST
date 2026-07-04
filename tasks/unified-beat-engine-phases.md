@@ -1,7 +1,7 @@
 # Unified Beat Engine — Phased Implementation Plan
 
 **Date:** 2026-07-02
-**Status:** 🟨 IN PROGRESS — Phase 0 (F1 done).
+**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done.
 **Strategy / rationale:** `tasks/unified-beat-engine-plan.md` (read first).
 **Engine parity gaps to close first:** `docs/GAME_LOOP_772_AUDIT.md`.
 **Walk sub-effort (subsumed here):** `tasks/walk-engine-unification.md` Phase 2.

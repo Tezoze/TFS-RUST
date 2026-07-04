@@ -395,41 +395,6 @@
         );
     }
 
-    /// 1098 regression — think still arms walk when not beat-driven.
-    #[test]
-    fn think_arm_still_runs_on_1098() {
-        let mut world = minimal_world();
-        assert!(!world.beat_driven_loop);
-
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
-        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
-        for x in 101..=104 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
-        }
-
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_at(ppos, player);
-        let monster = insert_monster(&mut world, "Rat", mpos, 200);
-
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.is_idle = false;
-            m.opponent_ids.push(player);
-            m.base.attack_target = Some(player);
-        }
-        world.add_creature_think_check(monster);
-        assert!(world.monster_set_follow_creature(monster, Some(player)));
-
-        world.monster_native_on_think(monster, EVENT_CREATURE_THINK_INTERVAL_MS);
-
-        let armed = world
-            .creatures
-            .get(monster)
-            .is_some_and(|k| k.base().next_walk_check.is_some() || !k.base().walk_queue.is_empty());
-        assert!(armed, "1098 think must still arm monster walk");
-    }
-
     #[test]
     fn test_772_classify_roam_without_follow() {
         let mut world = beat_driven_test_world();

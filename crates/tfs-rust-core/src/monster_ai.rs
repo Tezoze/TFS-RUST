@@ -9,10 +9,11 @@
 //!
 //! Target list / search: [`crate::monster_targets`]. Move/appear fan-out: [`crate::monster_events`].
 
+#[allow(unused_imports)]
 pub use crate::monster_targets::TargetSearchType;
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 use tfs_rust_common::Position;
@@ -30,8 +31,7 @@ use crate::creature::{CreatureKind, MonsterAiPhase, ChaseMode, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
-    distance_x, distance_y, get_dance_step, get_distance_step, get_random_step, offset_x, offset_y,
-    search_flight_field, DistanceStepOutcome,
+    distance_x, distance_y, offset_x, offset_y, search_flight_field,
 };
 use crate::pathfinding::{
     scan_min_terrain_waypoints, uses_reverse_terrain_path, FindPathParams, CHASE_PATH_MAX_STEPS,
@@ -39,12 +39,13 @@ use crate::pathfinding::{
 };
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
 use crate::tile::{flags as tilestate, MapStackEntry};
-use crate::walk::{creature_turn_with_broadcast, tile_query_add_creature, PATHFIND_WALK_FLAGS};
+use crate::walk::creature_turn_with_broadcast;
 
 /// C++ `Map::maxViewportX` (`map.h`).
 pub(crate) const MAP_MAX_VIEWPORT: u16 = 11;
 
 /// All map directions for brute-force chase steps when A* / `getDistanceStep` fail.
+#[allow(dead_code)]
 const CHASE_STEP_DIRECTIONS: [Direction; 8] = [
     Direction::North,
     Direction::East,
@@ -151,6 +152,7 @@ pub fn is_in_spawn_range(
 }
 
 /// TFS `Position::areInRange` for walk-back — `position.h` ~38, `monster.cpp` ~510.
+#[allow(dead_code)]
 pub fn is_within_walk_to_spawn_range(pos: Position, spawn: Position, radius: i32) -> bool {
     if radius <= 0 {
         return true;
@@ -226,16 +228,11 @@ impl GameWorld {
         target_distance > 1 && self.monster_throw_possible(cid, pos, follow_id)
     }
 
-    /// After walk steps finish, re-check keep-distance / melee band (772 rush-then-kite fix).
-    fn monster_reconcile_follow_position(&mut self, cid: CreatureId, follow_id: CreatureId) {
-        let _ = follow_id;
-        self.monster_ensure_follow_band(cid, "walk_complete");
-    }
-
     /// True when a **non-empty** `walk_queue` no longer reaches the follow band or sight is blocked.
     ///
     /// Empty queue is not stale here — 772 batch replan runs from idle segment drain / `off_band`,
     /// not from every target tile (`crnonpl.cc` `ToDoGo` after drain).
+    #[allow(dead_code)]
     pub(crate) fn monster_chase_queue_stale(
         &self,
         monster_id: CreatureId,
@@ -267,6 +264,7 @@ impl GameWorld {
     /// when [`Self::monster_chase_queue_stale`] is false. 1098: sync [`Self::monster_follow_repath_now`].
     ///
     /// Returns true when a repath was scheduled or invoked.
+    #[allow(dead_code)]
     pub(crate) fn monster_ensure_follow_band(&mut self, cid: CreatureId, _reason: &str) -> bool {
         let follow_id = match self.creatures.get(cid).and_then(|k| k.base().follow_target) {
             Some(id) => id,
@@ -299,45 +297,26 @@ impl GameWorld {
             return false;
         }
 
-        if self.beat_driven_loop {
-            let stale = self.monster_chase_queue_stale(cid, target_pos);
-            if !queue_empty && !stale {
-                return false;
-            }
-            if let Some(k) = self.creatures.get_mut(cid) {
-                let base = k.base_mut();
-                if stale && !queue_empty {
-                    base.walk_queue.clear();
-                }
-                base.has_follow_path = false;
-                base.force_update_follow_path = true;
-            }
-            return true;
+        let stale = self.monster_chase_queue_stale(cid, target_pos);
+        if !queue_empty && !stale {
+            return false;
         }
-
-        if !queue_empty {
-            // C++ `onCreatureMove` clears `listWalkDir` when the target leaves the band — abort a
-            // stale in-flight A* queue that no longer matches the keep-distance goal.
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().walk_queue.clear();
-                k.base_mut().has_follow_path = false;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            if stale && !queue_empty {
+                base.walk_queue.clear();
             }
-            self.stop_event_walk(cid);
+            base.has_follow_path = false;
+            base.force_update_follow_path = true;
         }
-        if has_path {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().has_follow_path = false;
-            }
-        }
-        self.monster_follow_repath_now(cid, Some("ensure_band"));
         true
     }
 
     /// True when the monster is already in the desired follow/attack band (C++ empty `listWalkDir` at goal).
     pub(crate) fn monster_at_follow_goal(
         &self,
-        cid: CreatureId,
-        follow_id: CreatureId,
+        _cid: CreatureId,
+        _follow_id: CreatureId,
         pos: Position,
         target_pos: Position,
         fleeing: bool,
@@ -350,16 +329,8 @@ impl GameWorld {
         if target_distance <= 1 {
             return dist <= 1;
         }
-        if self.beat_driven_loop {
-            // 772 keep-distance — per-type band from monsters.xml (`crnonpl.cc` dist branches).
-            return dist == target_distance;
-        }
-        if self.monster_can_use_attack(cid, pos, follow_id) {
-            // TFS `getDistanceStep` — `AtTargetDistance` when `distance == targetDistance`.
-            return dist == target_distance;
-        }
-        // Keep-distance types off-band without a usable attack are not "at goal" — movement continues.
-        false
+        // 772 keep-distance — per-type band from monsters.xml (`crnonpl.cc` dist branches).
+        dist == target_distance
     }
 
     /// Mark chase path satisfied at the current follow goal — no walk queue needed.
@@ -376,27 +347,6 @@ impl GameWorld {
         }
     }
 
-    /// Used by [`crate::creature_think::GameWorld::creature_on_think`] to skip redundant repaths.
-    pub(crate) fn monster_should_skip_follow_repath(
-        &self,
-        cid: CreatureId,
-        follow_id: CreatureId,
-    ) -> bool {
-        let (pos, fleeing, target_distance) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (
-                m.base.position,
-                m.is_fleeing(),
-                self.monster_effective_target_distance(m.target_distance),
-            ),
-            _ => return false,
-        };
-        let target_pos = match self.creatures.get(follow_id) {
-            Some(k) => k.position(),
-            None => return false,
-        };
-        self.monster_at_follow_goal(cid, follow_id, pos, target_pos, fleeing, target_distance)
-    }
-
     /// B3.1 — lowest-health opponent from `candidates`, using the profile's [`WeakestTargetMetric`]
     /// (current HP for 772, max HP for TFS). Ties keep the first candidate.
     ///
@@ -405,10 +355,6 @@ impl GameWorld {
     /// C++ `TCombat::Attack` / `CloseAttack` / `DistanceAttack` — `crcombat.cc:530`, `:609`, `:647`.
     pub fn monster_do_attacking(&mut self, cid: CreatureId, _interval_ms: u32) {
         self.monster_update_look_direction(cid);
-
-        if !self.beat_driven_loop {
-            return;
-        }
 
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
@@ -585,25 +531,7 @@ impl GameWorld {
         // C++ `ResyncHarnessRng` at appear + one lose/talk prelude per idle (`crnonpl.cc:2429`, `:2440`).
         // Rust harness drains can run extra idle preambles before the first strike — realign probes.
         // Dual-monster real-map bowl: C++ draw order differs from one_real; skip global realign (T5).
-        #[cfg(any(test, feature = "sim"))]
-        {
-            let melee_realign = std::env::var("TFS_SIM_MELEE_REALIGN")
-                .map(|v| !v.is_empty() && v != "0")
-                .unwrap_or(true);
-            if melee_realign
-                && !self.beat_driven_loop
-                && crate::sim_glibc_rand::sim_glibc_rng_enabled()
-                && crate::sim_glibc_rand::sim_rng_call_count() > 2
-                && !crate::sim_glibc_rand::harness_melee_realign_done()
-            {
-                crate::sim_glibc_rand::resync_harness_glibc_rng_from_env();
-                let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_lose");
-                let _ = crate::sim_glibc_rand::parity_random(0, 99);
-                let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_realign_talk");
-                let _ = crate::sim_glibc_rand::parity_rand_mod(50);
-                crate::sim_glibc_rand::mark_harness_melee_realign_done();
-            }
-        }
+        // 1098-only realign removed (beat_driven_loop gating eliminated).
 
         let _trace_atk = crate::sim_glibc_rand::sim_rng_trace_site("melee_attack_probe");
 
@@ -730,7 +658,7 @@ impl GameWorld {
     }
 
     /// TFS `Monster::onThink` native body — `monster.cpp` ~732.
-    pub fn monster_native_on_think(&mut self, cid: CreatureId, interval_ms: u32) {
+    pub fn monster_native_on_think(&mut self, cid: CreatureId, _interval_ms: u32) {
         if !self.creatures.contains_key(cid) {
             return;
         }
@@ -744,7 +672,7 @@ impl GameWorld {
 
         self.monster_update_target_list(cid);
 
-        let (pos, in_range) = {
+        let (_pos, in_range) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
@@ -768,7 +696,7 @@ impl GameWorld {
 
         self.monster_update_idle_status(cid);
 
-        let (is_idle, is_summon, has_opponents, follow, _has_path, fleeing) = {
+        let (is_idle, _is_summon, _has_opponents, follow, _has_path, fleeing) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
@@ -783,36 +711,10 @@ impl GameWorld {
         };
 
         if !is_idle {
-            if self.beat_driven_loop {
-                // 772 `ProcessCreatures` ~1 Hz — stall rescue only; no TFS `onThinkTarget`
-                // (`changeTargetSpeed` / `changeTargetChance` — `monster.cpp` ~923, absent in `crnonpl.cc`).
-                if self.monster_combat_scheduler_needs_refresh(cid) {
-                    self.monster_combat_reschedule_if_stalled(cid);
-                }
-            } else {
-                self.monster_arm_event_walk(cid);
-
-                if is_summon {
-                    self.monster_think_summon_stub(cid);
-                } else if has_opponents {
-                    if follow.is_none() {
-                        let _ = self.monster_search_target(cid, TargetSearchType::Default);
-                    } else {
-                        self.monster_ensure_follow_band(cid, "think");
-                    }
-                    if fleeing {
-                        let attack = self.creatures.get(cid).and_then(|k| k.base().attack_target);
-                        if let Some(target_id) = attack {
-                            if !self.monster_can_use_attack(cid, pos, target_id) {
-                                let _ =
-                                    self.monster_search_target(cid, TargetSearchType::AttackRange);
-                            }
-                        }
-                    }
-                }
-
-                self.monster_on_think_target(cid, interval_ms);
-                self.monster_update_look_direction(cid);
+            // 772 `ProcessCreatures` ~1 Hz — stall rescue only; no TFS `onThinkTarget`
+            // (`changeTargetSpeed` / `changeTargetChance` — `monster.cpp` ~923, absent in `crnonpl.cc`).
+            if self.monster_combat_scheduler_needs_refresh(cid) {
+                self.monster_combat_reschedule_if_stalled(cid);
             }
         }
 
@@ -847,7 +749,6 @@ impl GameWorld {
         max_steps: usize,
         must_reach: bool,
     ) -> MonsterIdleChaseRepathOutcome {
-        debug_assert!(self.beat_driven_loop, "772-only entry point");
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().force_update_follow_path = false;
         }
@@ -1038,9 +939,6 @@ impl GameWorld {
     ///
     /// Close walk at distance comes from `ToDoAttack` → `CanToDoAttack` (`crcombat.cc:496`), not idle chase.
     pub(crate) fn monster_idle_skip_idle_melee_chase(&self, cid: CreatureId) -> bool {
-        if !self.beat_driven_loop {
-            return false;
-        }
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return false;
         };
@@ -1058,7 +956,7 @@ impl GameWorld {
         cid: CreatureId,
         target_distance: i32,
     ) -> bool {
-        if !self.beat_driven_loop || target_distance > 1 {
+        if target_distance > 1 {
             return false;
         }
         self.monster_idle_skip_idle_melee_chase(cid)
@@ -1070,9 +968,6 @@ impl GameWorld {
         monster_id: CreatureId,
         target_pos: Position,
     ) -> bool {
-        if !self.beat_driven_loop {
-            return false;
-        }
         let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) else {
             return false;
         };
@@ -1104,9 +999,6 @@ impl GameWorld {
         &mut self,
         cid: CreatureId,
     ) -> MonsterCombatCloseChaseEnqueue {
-        if !self.beat_driven_loop {
-            return MonsterCombatCloseChaseEnqueue::Skipped;
-        }
         let (chase_mode, attack_id, pos, fleeing) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return MonsterCombatCloseChaseEnqueue::Skipped;
@@ -1210,9 +1102,6 @@ impl GameWorld {
 
     /// Follower stalled with no todo/walk/wakeup while still off the follow band.
     pub(crate) fn monster_chase_stalled_without_wakeup(&self, cid: CreatureId) -> bool {
-        if !self.beat_driven_loop {
-            return false;
-        }
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return false;
         };
@@ -1249,9 +1138,6 @@ impl GameWorld {
 
     /// Combat monster lost its self-refresh cadence — dead todo queue or parked on target.
     pub(crate) fn monster_combat_scheduler_needs_refresh(&self, cid: CreatureId) -> bool {
-        if !self.beat_driven_loop {
-            return false;
-        }
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return false;
         };
@@ -1465,198 +1351,44 @@ impl GameWorld {
         self.monster_idle_chase_repath(cid, repath_reason, CHASE_PATH_MAX_STEPS, false)
     }
 
-    /// TFS `Creature::goToFollowCreature` — `creature.cpp` ~1011 (1098 only).
+    /// TFS `Creature::goToFollowCreature` — `creature.cpp` ~1011.
     pub fn go_to_follow_creature(&mut self, cid: CreatureId, repath_reason: Option<&str>) {
-        if self.beat_driven_loop {
-            let branch = self.monster_idle_classify_walk_branch(cid);
-            let cheb = self
-                .creatures
-                .get(cid)
-                .and_then(|k| {
-                    let follow_id = k.base().follow_target?;
-                    let target_pos = self.creatures.get(follow_id)?.position();
-                    Some(chebyshev(k.position(), target_pos))
-                })
-                .unwrap_or(0);
-            let is_melee_chase = branch == crate::idle_stimulus::MonsterIdleWalkBranch::MeleeChase;
-            let is_dist_chase = branch == crate::idle_stimulus::MonsterIdleWalkBranch::DistChase;
-            let target_distance = self
-                .creatures
-                .get(cid)
-                .map(|k| match k {
-                    CreatureKind::Monster(m) => {
-                        self.monster_effective_target_distance(m.target_distance)
-                    }
-                    _ => 1,
-                })
-                .unwrap_or(1);
-            let (max_steps, must_reach) = monster_idle_chase_step_budget(
-                is_melee_chase,
-                is_dist_chase,
-                cheb,
-                target_distance,
-            );
-            if self.monster_idle_chase_repath(cid, repath_reason, max_steps, must_reach)
-                == MonsterIdleChaseRepathOutcome::PathQueued
-            {
-                self.idle_enqueue_go_and_start(cid, true, repath_reason);
-            }
-            return;
-        }
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().force_update_follow_path = false;
-        }
-        let follow_id = match self.creatures.get(cid).and_then(|k| k.base().follow_target) {
-            Some(id) => id,
-            None => return,
-        };
-        let target_pos = match self.creatures.get(follow_id) {
-            Some(k) => k.position(),
-            None => return,
-        };
-        let (target_distance, fleeing, is_summon, has_follow_path) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (
-                self.monster_effective_target_distance(m.target_distance),
-                m.is_fleeing(),
-                m.base.is_summon(),
-                m.base.has_follow_path,
-            ),
-            _ => return,
-        };
-
-        let fpp = self.monster_path_search_params(
-            cid,
-            follow_id,
-            fleeing,
-            target_distance,
-            is_summon,
-            has_follow_path,
-        );
-
-        let pos = match self.creatures.get(cid) {
-            Some(k) => k.position(),
-            None => return,
-        };
-        if self.monster_at_follow_goal(cid, follow_id, pos, target_pos, fleeing, target_distance) {
-            self.monster_mark_at_follow_goal(cid, follow_id);
-            return;
-        }
-
-        // TFS `Creature::goToFollowCreature` — getDistanceStep when fleeing or maxTargetDist > 1
-        // (`creature.cpp` ~1018–1034); not gated on `canUseAttack`.
-        // Gated to 1098 only (!self.beat_driven_loop).
-        let use_distance_step =
-            !self.beat_driven_loop && !is_summon && (fleeing || target_distance > 1);
-
-        if use_distance_step {
-            let sight = self.map.is_sight_clear(pos, target_pos);
-            let mut rng = rand::thread_rng();
-            let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-            match get_distance_step(
-                pos,
-                target_pos,
-                target_distance,
-                fleeing,
-                sight,
-                can_walk,
-                &mut rng,
-            ) {
-                DistanceStepOutcome::Step(dir) => {
-                    self.monster_start_follow_step(cid, dir);
-                    if self
-                        .creatures
-                        .get(cid)
-                        .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-                    {
-                        self.monster_on_follow_creature_complete(cid, follow_id);
-                    }
-                    return;
-                }
-                DistanceStepOutcome::AtTargetDistance => {
-                    // C++ `hasFollowPath` stays true at keep-distance so `onCreatureMove` repaths
-                    // when the target leaves the band (`creature.cpp` ~619–637).
-                    self.monster_mark_at_follow_goal(cid, follow_id);
-                    return;
-                }
-                DistanceStepOutcome::NeedPathfinding => {
-                    if fleeing {
-                        if let Some(k) = self.creatures.get_mut(cid) {
-                            k.base_mut().has_follow_path = false;
-                        }
-                        if self
-                            .creatures
-                            .get(cid)
-                            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-                        {
-                            self.monster_on_follow_creature_complete(cid, follow_id);
-                        }
-                        return;
-                    }
-                    // keep-distance: fall through to A* when getDistanceStep fails.
-                }
-            }
-        }
-
-        if self.monster_try_apply_chase_path(
-            cid,
-            target_pos,
-            fleeing,
-            target_distance,
-            &fpp,
-            CHASE_PATH_MAX_STEPS,
-            false,
-        ) {
-            if self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-            {
-                self.monster_on_follow_creature_complete(cid, follow_id);
-            }
-            return;
-        }
-        if fleeing {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().has_follow_path = false;
-            }
-            if self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-            {
-                self.monster_on_follow_creature_complete(cid, follow_id);
-            }
-            return;
-        }
-
-        let pos = match self.creatures.get(cid) {
-            Some(k) => k.position(),
-            None => return,
-        };
-        if self.monster_at_follow_goal(cid, follow_id, pos, target_pos, fleeing, target_distance) {
-            self.monster_mark_at_follow_goal(cid, follow_id);
-            return;
-        }
-        if self.monster_try_any_closer_step(cid, pos, target_pos, follow_id)
-            || self.monster_try_greedy_chase_step(cid, pos, target_pos, follow_id, fleeing)
-        {
-            return;
-        }
-
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().has_follow_path = false;
-        }
-
-        if self
+        let branch = self.monster_idle_classify_walk_branch(cid);
+        let cheb = self
             .creatures
             .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+            .and_then(|k| {
+                let follow_id = k.base().follow_target?;
+                let target_pos = self.creatures.get(follow_id)?.position();
+                Some(chebyshev(k.position(), target_pos))
+            })
+            .unwrap_or(0);
+        let is_melee_chase = branch == crate::idle_stimulus::MonsterIdleWalkBranch::MeleeChase;
+        let is_dist_chase = branch == crate::idle_stimulus::MonsterIdleWalkBranch::DistChase;
+        let target_distance = self
+            .creatures
+            .get(cid)
+            .map(|k| match k {
+                CreatureKind::Monster(m) => {
+                    self.monster_effective_target_distance(m.target_distance)
+                }
+                _ => 1,
+            })
+            .unwrap_or(1);
+        let (max_steps, must_reach) = monster_idle_chase_step_budget(
+            is_melee_chase,
+            is_dist_chase,
+            cheb,
+            target_distance,
+        );
+        if self.monster_idle_chase_repath(cid, repath_reason, max_steps, must_reach)
+            == MonsterIdleChaseRepathOutcome::PathQueued
         {
-            self.monster_on_follow_creature_complete(cid, follow_id);
+            self.idle_enqueue_go_and_start(cid, true, repath_reason);
         }
     }
 
-    /// Apply A* (primary + relaxed) or return false so caller can try one-tile fallbacks.
+    /// Apply A* path or return false so caller can try one-tile fallbacks.
     #[allow(clippy::too_many_arguments)]
     fn monster_try_apply_chase_path(
         &mut self,
@@ -1672,23 +1404,7 @@ impl GameWorld {
             Some(k) => k.position(),
             None => return false,
         };
-        let relaxed = FindPathParams {
-            min_target_dist: 1,
-            max_target_dist: if fleeing {
-                i32::from(MAP_MAX_VIEWPORT)
-            } else {
-                1
-            },
-            clear_sight: false,
-            allow_diagonal: true,
-            full_path_search: true,
-            max_search_dist: 0,
-        };
-        let tries: &[&FindPathParams] = if self.beat_driven_loop {
-            &[fpp]
-        } else {
-            &[fpp, &relaxed]
-        };
+        let tries: &[&FindPathParams] = &[fpp];
         for &try_fpp in tries {
             let Some(mut steps) = self.get_creature_path_to_with_fpp(cid, target_pos, try_fpp)
             else {
@@ -1699,7 +1415,7 @@ impl GameWorld {
                 if dist > 1.max(target_distance) {
                     continue;
                 }
-            } else if self.beat_driven_loop {
+            } else {
                 // 772 `ToDoGo` trim — `cract.cc:241-258`; melee adjacent uses `must:1` max 1.
                 // `get_creature_path_to_with_fpp` returns C++ predecessor-chain order (first hop first).
                 let stop_at_cheb = if fleeing || target_distance <= 1 {
@@ -1717,7 +1433,7 @@ impl GameWorld {
                 );
                 // `truncate_cipsoft_chase_queue` returns execution order (first step first).
             }
-            if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
+            if chase_debug::chase_path_debug_enabled() {
                 if let Some(k) = self.creatures.get(cid) {
                     let name = k.base().name.clone();
                     let mut path_positions = Vec::with_capacity(steps.len());
@@ -1749,7 +1465,7 @@ impl GameWorld {
                     );
                 }
             }
-            if self.beat_driven_loop && steps.is_empty() {
+            if steps.is_empty() {
                 continue;
             }
             if let Some(k) = self.creatures.get_mut(cid) {
@@ -1762,12 +1478,9 @@ impl GameWorld {
                 base.has_follow_path = true;
             }
             // 772 idle executor owns `Go` enqueue via `monster_idle_prepare_and_enqueue_go`.
-            if !self.beat_driven_loop {
-                self.monster_start_chase_walk(cid, true);
-            }
             return true;
         }
-        if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
+        if chase_debug::chase_path_debug_enabled() {
             if let Some(k) = self.creatures.get(cid) {
                 let name = k.base().name.clone();
                 chase_debug::log_shortway(
@@ -1794,99 +1507,8 @@ impl GameWorld {
         false
     }
 
-    /// Pick any legal step that reduces Chebyshev distance (obstacle / corridor sidestep).
-    fn monster_try_any_closer_step(
-        &mut self,
-        cid: CreatureId,
-        pos: Position,
-        target_pos: Position,
-        follow_id: CreatureId,
-    ) -> bool {
-        let current = chebyshev(pos, target_pos);
-        let mut best: Option<(Direction, i32)> = None;
-        let dirs = if self.beat_driven_loop {
-            &[
-                Direction::North,
-                Direction::East,
-                Direction::South,
-                Direction::West,
-            ][..]
-        } else {
-            &CHASE_STEP_DIRECTIONS[..]
-        };
-        for &dir in dirs {
-            if !self.monster_can_walk_to(cid, pos, dir) {
-                continue;
-            }
-            let to = pos.offset(dir);
-            let d = chebyshev(to, target_pos);
-            if d < current && best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                best = Some((dir, d));
-            }
-        }
-        let Some((dir, _)) = best else {
-            return false;
-        };
-        self.monster_start_follow_step(cid, dir);
-        if self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-        {
-            self.monster_on_follow_creature_complete(cid, follow_id);
-        }
-        true
-    }
-
-    /// One-step chase when A* fails or returns empty while still out of melee reach — TFS
-    /// `getDistanceStep` before `getPathTo` (`creature.cpp` ~1011–1046).
-    fn monster_try_greedy_chase_step(
-        &mut self,
-        cid: CreatureId,
-        pos: Position,
-        target_pos: Position,
-        follow_id: CreatureId,
-        fleeing: bool,
-    ) -> bool {
-        let sight = self.map.is_sight_clear(pos, target_pos);
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
-        let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-        let stepped =
-            match get_distance_step(pos, target_pos, 1, fleeing, sight, can_walk, &mut rng) {
-                DistanceStepOutcome::Step(dir) => {
-                    self.monster_start_follow_step(cid, dir);
-                    if self
-                        .creatures
-                        .get(cid)
-                        .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-                    {
-                        self.monster_on_follow_creature_complete(cid, follow_id);
-                    }
-                    true
-                }
-                _ => false,
-            };
-        self.ai_rng = rng;
-        stepped
-    }
-
     fn monster_start_chase_walk(&mut self, cid: CreatureId, first_step: bool) {
-        if self.beat_driven_loop {
-            self.idle_enqueue_go_and_start(cid, first_step, None);
-        } else {
-            self.creature_start_chase_auto_walk(cid);
-        }
-    }
-
-    fn monster_start_follow_step(&mut self, cid: CreatureId, dir: Direction) {
-        if let Some(k) = self.creatures.get_mut(cid) {
-            let base = k.base_mut();
-            base.walk_queue.clear();
-            base.walk_queue.push_back(dir);
-            base.has_follow_path = true;
-        }
-        // Let the active walk timer continue naturally rather than cancelling/restarting
-        self.monster_start_chase_walk(cid, true);
+        self.idle_enqueue_go_and_start(cid, first_step, None);
     }
 
     fn monster_path_search_params(
@@ -1913,7 +1535,7 @@ impl GameWorld {
             allow_diagonal: true,
             full_path_search: !has_follow_path,
             // 772: `TShortway` uses VisibleX/Y=10 internally — not TFS `maxSearchDist=12` (`creature.cpp`).
-            max_search_dist: if self.beat_driven_loop { 0 } else { 12 },
+            max_search_dist: 0,
         };
 
         if is_summon {
@@ -1923,11 +1545,9 @@ impl GameWorld {
                 fpp.full_path_search = true;
             } else if target_distance <= 1 {
                 fpp.full_path_search = true;
-            } else if self.beat_driven_loop {
+            } else {
                 fpp.full_path_search =
                     target_pos.is_some_and(|tp| chebyshev(pos, tp) != target_distance);
-            } else {
-                fpp.full_path_search = !self.monster_can_use_attack(cid, pos, follow_id);
             }
         } else if fleeing {
             fpp.max_target_dist = i32::from(MAP_MAX_VIEWPORT);
@@ -1935,14 +1555,10 @@ impl GameWorld {
             fpp.full_path_search = false;
         } else if target_distance <= 1 {
             fpp.full_path_search = true;
-        } else if self.beat_driven_loop {
+        } else {
             // 772 `DistanceFighting` — cheb band, not TFS `canUseAttack` (`crnonpl.cc:2723`).
             fpp.full_path_search =
                 target_pos.is_some_and(|tp| chebyshev(pos, tp) != target_distance);
-        } else {
-            // TFS `Monster::getPathSearchParams` — `maxTargetDist` stays at targetDistance;
-            // only `fullPathSearch` toggles on `canUseAttack` (`monster.cpp` ~2111–2115).
-            fpp.full_path_search = !self.monster_can_use_attack(cid, pos, follow_id);
         }
 
         fpp
@@ -1967,11 +1583,11 @@ impl GameWorld {
             self.mechanics.profile.path_search,
         );
         debug_assert!(
-            !self.beat_driven_loop || uses_reverse_terrain,
+            uses_reverse_terrain,
             "772 monster chase requires reverse TShortway + terrain costs (check MechanicsProfile / formulas lua)"
         );
         let fill_walkable = |pos: Position| {
-            if uses_reverse_terrain && self.beat_driven_loop {
+            if uses_reverse_terrain {
                 ctx.world
                     .monster_tshortway_fill_walkable(ctx.cid, pos, target)
             } else {
@@ -2017,6 +1633,7 @@ impl GameWorld {
     /// (`creature.cpp` ~619–637) and avoids waiting for `onThink` (1 s bucket).
     /// Walk execution stays in `creature_start_chase_auto_walk` / scheduler — do not call
     /// `check_creature_walk` here (would deepen the `onWalk` stack and risk recursion on blocked tiles).
+    #[allow(dead_code)]
     pub(crate) fn monster_follow_repath_now(
         &mut self,
         cid: CreatureId,
@@ -2035,105 +1652,9 @@ impl GameWorld {
         }
     }
 
-    pub(crate) fn monster_think_summon_stub(&mut self, cid: CreatureId) {
-        let (master, attack) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (m.base.master, m.base.attack_target),
-            _ => return,
-        };
-        if attack.is_none() {
-            if let Some(master_id) = master {
-                if let Some(master_attack) = self
-                    .creatures
-                    .get(master_id)
-                    .and_then(|k| k.base().attack_target)
-                {
-                    let _ = self.monster_select_target(cid, master_attack);
-                } else if self.creatures.get(cid).map(|k| k.base().follow_target) != Some(master) {
-                    let _ = self.monster_set_follow_creature(cid, master);
-                }
-            }
-        } else if attack == Some(cid) {
-            let _ = self.monster_set_follow_creature(cid, None);
-        } else if let Some(attack_id) = attack {
-            if self.creatures.get(cid).map(|k| k.base().follow_target) != Some(Some(attack_id)) {
-                let _ = self.monster_set_follow_creature(cid, Some(attack_id));
-            }
-        }
-    }
-
-    /// TFS `Monster::onThinkTarget` — `monster.cpp` ~923 (1098 only).
-    ///
-    /// 772 target pick / retarget runs from [`crate::idle_stimulus`] `Strategy[]`
-    /// (`crnonpl.cc:2468`), not `changeTargetSpeed` rolls.
-    pub(crate) fn monster_on_think_target(&mut self, cid: CreatureId, interval_ms: u32) {
-        if self.beat_driven_loop {
-            return;
-        }
-        let (
-            change_speed,
-            change_chance,
-            target_distance,
-            is_summon,
-            mut target_change_ticks,
-            mut target_change_cooldown,
-            mut challenge_focus_duration,
-        ) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (
-                m.change_target_speed,
-                m.change_target_chance,
-                self.monster_effective_target_distance(m.target_distance),
-                m.base.is_summon(),
-                m.target_change_ticks,
-                m.target_change_cooldown,
-                m.challenge_focus_duration,
-            ),
-            _ => return,
-        };
-
-        if is_summon || change_speed == 0 {
-            return;
-        }
-
-        let mut can_change_target = true;
-
-        if challenge_focus_duration > 0 {
-            challenge_focus_duration = challenge_focus_duration.saturating_sub(interval_ms);
-        }
-
-        if target_change_cooldown > 0 {
-            target_change_cooldown = target_change_cooldown.saturating_sub(interval_ms);
-            if target_change_cooldown == 0 {
-                target_change_ticks = change_speed;
-            } else {
-                can_change_target = false;
-            }
-        }
-
-        if can_change_target {
-            target_change_ticks = target_change_ticks.saturating_add(interval_ms);
-            if target_change_ticks >= change_speed {
-                target_change_ticks = 0;
-                target_change_cooldown = change_speed;
-                if challenge_focus_duration > 0 {
-                    challenge_focus_duration = 0;
-                }
-                let roll = i32::try_from(rand::random::<u32>() % 100 + 1).unwrap_or(100);
-                if change_chance >= roll {
-                    if target_distance <= 1 {
-                        let _ = self.monster_search_target(cid, TargetSearchType::Random);
-                    } else {
-                        let _ = self.monster_search_target(cid, TargetSearchType::Nearest);
-                    }
-                }
-            }
-        }
-
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            m.target_change_ticks = target_change_ticks;
-            m.target_change_cooldown = target_change_cooldown;
-            m.challenge_focus_duration = challenge_focus_duration;
-        }
-    }
+    /// TFS `Monster::onThinkTarget` — `monster.cpp` ~923 (1098 only, dead after Phase 3).
+    #[allow(dead_code)]
+    pub(crate) fn monster_on_think_target(&mut self, _cid: CreatureId, _interval_ms: u32) {}
 
     /// Re-arm walk timer while actively chasing with an empty queue so `getNextStep` can repath.
     pub(crate) fn monster_should_keep_chase_walk_alive(&self, cid: CreatureId) -> bool {
@@ -2162,13 +1683,14 @@ impl GameWorld {
     /// C++ `Monster::onThink` `addEventWalk()` — `monster.cpp` ~772.
     /// Unlike players, monsters arm walk while active even with an empty queue so
     /// `Monster::getNextStep` can random-roam or wait for the next flee/chase step.
+    #[allow(dead_code)]
     fn monster_arm_event_walk(&mut self, cid: CreatureId) {
         let (should_arm, chasing) = self
             .creatures
             .get(cid)
             .map(|k| {
                 (
-                    k.base().health > 0 && k.base().walk_timer_idle(self.beat_driven_loop),
+                    k.base().health > 0 && k.base().walk_timer_idle(true),
                     k.base().follow_target.is_some(),
                 )
             })
@@ -2197,7 +1719,7 @@ impl GameWorld {
                 m.base.position,
                 m.base.attack_target,
                 m.base.direction,
-                m.base.walk_timer_idle(self.beat_driven_loop),
+                m.base.walk_timer_idle(true),
             ),
             _ => return,
         };
@@ -2265,29 +1787,9 @@ impl GameWorld {
     }
 
     /// TFS `Monster::onCreatureLeave` walk-back trigger — `monster.cpp` ~508–512.
-    pub fn monster_maybe_walk_to_spawn(&mut self, cid: CreatureId) {
-        if self.beat_driven_loop {
-            return;
-        }
-        let (walking, is_summon, opponents_empty, pos, spawn) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (
-                m.walking_to_spawn,
-                m.base.is_summon(),
-                m.opponent_ids.is_empty(),
-                m.base.position,
-                m.spawn_position,
-            ),
-            _ => return,
-        };
-        if walking || is_summon || !opponents_empty {
-            return;
-        }
-        let radius = self.monster_world_config.walk_to_spawn_radius;
-        if radius <= 0 || is_within_walk_to_spawn_range(pos, spawn, radius) {
-            return;
-        }
-        self.monster_walk_to_spawn(cid);
-    }
+    ///
+    /// Stub retained — still called from `monster_targets.rs` (to be cleaned up separately).
+    pub fn monster_maybe_walk_to_spawn(&mut self, _cid: CreatureId) {}
 
     /// Out-of-despawn-range handling — `monster.cpp` ~760–767.
     fn monster_handle_out_of_spawn_range(&mut self, cid: CreatureId) {
@@ -2324,16 +1826,8 @@ impl GameWorld {
 
         if queue_empty {
             if let Some(target_id) = follow {
-                let had_follow_path = self
-                    .creatures
-                    .get(cid)
-                    .is_some_and(|k| k.base().has_follow_path);
                 self.monster_on_follow_creature_complete(cid, target_id);
-                // 772: band reconcile + look runs from idle; 1098: reconcile after follow walk.
-                if had_follow_path && !self.beat_driven_loop {
-                    self.monster_reconcile_follow_position(cid, target_id);
-                    self.monster_update_look_direction(cid);
-                }
+                // 772: band reconcile + look runs from idle.
             }
         }
     }
@@ -2342,7 +1836,7 @@ impl GameWorld {
     pub(crate) fn monster_next_walk_step(
         &mut self,
         cid: CreatureId,
-        now: std::time::Instant,
+        _now: std::time::Instant,
     ) -> Option<Direction> {
         let (
             walking_to_spawn,
@@ -2354,9 +1848,9 @@ impl GameWorld {
             is_summon,
             master,
             pos,
-            fleeing,
-            static_attack_chance,
-            target_distance,
+            _fleeing,
+            _static_attack_chance,
+            _target_distance,
         ) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
                 m.walking_to_spawn,
@@ -2386,30 +1880,10 @@ impl GameWorld {
                     master_kind.position(),
                     i32::from(MAP_MAX_VIEWPORT),
                     i32::from(MAP_MAX_VIEWPORT),
-                    self.beat_driven_loop,
+                    true,
                 )
             })
         });
-
-        // 772: roam step picked in idle + `ToDoWait` pacing only (X6).
-        if !walking_to_spawn
-            && follow.is_none()
-            && (!is_summon || !master_in_range)
-            && !self.beat_driven_loop
-        {
-            let elapsed_ms = self
-                .creatures
-                .get(cid)
-                .and_then(|k| k.base().last_step)
-                .map(|last| now.duration_since(last).as_millis())
-                .unwrap_or(u128::MAX);
-            if elapsed_ms < 1000 {
-                return None;
-            }
-            let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-            let mut rng = rand::thread_rng();
-            return get_random_step(can_walk, &mut rng);
-        }
 
         if (is_summon && master_in_range) || follow.is_some() || walking_to_spawn {
             if let Some(k) = self.creatures.get_mut(cid) {
@@ -2423,55 +1897,9 @@ impl GameWorld {
 
             // C++ target dancing when follow queue empty — `monster.cpp` ~1244–1256.
             if follow == attack {
-                if let Some(target_id) = follow {
-                    let target_pos = self.creatures.get(target_id).map(|k| k.position())?;
-                    let dist = chebyshev(pos, target_pos);
-                    if self.beat_driven_loop {
-                        // 772 idle drain owns flee/dance/chase — no TFS getNextStep poll (X4).
-                        return None;
-                    }
-
-                    // C++ dance at attack distance (`monster.cpp` ~1249); melee uses 1 tile, not keep-distance 4.
-                    let dance_range = if target_distance > 1
-                        && self.monster_can_use_attack(cid, pos, target_id)
-                    {
-                        target_distance
-                    } else {
-                        1
-                    };
-                    if dist > dance_range {
-                        return None;
-                    }
-                    let can_walk = |dir: Direction| self.monster_can_walk_to(cid, pos, dir);
-                    let can_use_now = self.monster_can_use_attack(cid, pos, target_id);
-                    let can_use_from =
-                        |from: Position| self.monster_can_use_attack(cid, from, target_id);
-                    let mut rng = rand::thread_rng();
-                    if fleeing {
-                        let step = get_dance_step(
-                            pos,
-                            target_pos,
-                            false,
-                            false,
-                            can_walk,
-                            can_use_from,
-                            can_use_now,
-                            &mut rng,
-                        );
-                        return step;
-                    }
-                    if static_attack_chance < rng.gen_range(1..=100) {
-                        return get_dance_step(
-                            pos,
-                            target_pos,
-                            true,
-                            true,
-                            can_walk,
-                            can_use_from,
-                            can_use_now,
-                            &mut rng,
-                        );
-                    }
+                if follow.is_some() {
+                    // 772 idle drain owns flee/dance/chase — no TFS getNextStep poll (X4).
+                    return None;
                 }
             }
         }
@@ -2781,43 +2209,20 @@ impl GameWorld {
 
     /// Spawn leash + pathfinding tile check — shared by A* and step selection (`monster.cpp` `canWalkTo`).
     ///
-    /// On 772 (`beat_driven_loop`), delegates to [`Self::monster_tshortway_fill_walkable`] which
-    /// mirrors `MovePossible(Execute=false)` (`crnonpl.cc:2141–2293`): the 772 creature/item gate
-    /// with per-damage-type hazard immunity, invisibility, house, and player-plannable-through
-    /// semantics. On 1098, uses the TFS `Tile::queryAdd` model (`tile_query_add_monster`).
+    /// Delegates to [`Self::monster_tshortway_fill_walkable`] which mirrors `MovePossible(Execute=false)`
+    /// (`crnonpl.cc:2141–2293`): the 772 creature/item gate with per-damage-type hazard immunity,
+    /// invisibility, house, and player-plannable-through semantics.
     fn monster_can_occupy_chase_tile(&self, cid: CreatureId, pos: Position) -> bool {
-        if self.beat_driven_loop {
-            // P1-A3: route single-step gates (dance/roam/flee/chase) through the 772 `MovePossible`
-            // planning model, not the 1098 `tile_query_add_monster`. Uses
-            // `monster_move_possible_planning_772` (no TShortway terrain checks).
-            return self.monster_move_possible_planning_772(cid, pos);
-        }
-        let (spawn, home_radius, state) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (m.spawn_position, m.home_radius, m.state),
-            _ => return false,
-        };
-        // C++ `MovePossible` applies the home-radius leash **only when not** ATTACKING/PANIC
-        // (`crnonpl.cc:2148-2157`): a chasing monster follows its target out of range and despawns
-        // later via the out-of-range check, rather than pinning at the radius edge (audit Finding 17).
-        if state != MonsterState::Attacking && state != MonsterState::Panic {
-            let cfg = self.monster_world_config;
-            let radius = self.monster_roam_leash_radius(home_radius);
-            if !is_in_spawn_range(pos, spawn, radius, cfg.despawn_z_range) {
-                return false;
-            }
-        }
-        let Some(tile) = self.map.get_tile(pos) else {
-            return false;
-        };
-        tile_query_add_creature(self, tile, cid, PATHFIND_WALK_FLAGS)
-            == crate::return_value::ReturnValue::NoError
+        // P1-A3: route single-step gates (dance/roam/flee/chase) through the 772 `MovePossible`
+        // planning model. Uses `monster_move_possible_planning_772` (no TShortway terrain checks).
+        self.monster_move_possible_planning_772(cid, pos)
     }
 
-    /// Effective per-home roam leash radius (axis-box, non-attacking). 772 uses the monster's
-    /// `home_radius` (CipSoft `MonsterhomeInRange`, `crnonpl.cc:2157`); 1098 or an unset home
+    /// Effective per-home roam leash radius (axis-box, non-attacking). Uses the monster's
+    /// `home_radius` (CipSoft `MonsterhomeInRange`, `crnonpl.cc:2157`); an unset home
     /// (`home_radius <= 0`) falls back to the global despawn radius (audit Finding 17b).
     fn monster_roam_leash_radius(&self, home_radius: i32) -> i32 {
-        if self.beat_driven_loop && home_radius > 0 {
+        if home_radius > 0 {
             home_radius
         } else {
             self.monster_world_config.despawn_radius

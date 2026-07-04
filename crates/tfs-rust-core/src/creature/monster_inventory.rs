@@ -259,9 +259,6 @@ impl GameWorld {
     ///
     /// C++ reference: `TMonster::TMonster` — `crnonpl.cc:2050`.
     pub(crate) fn roll_monster_spawn_loot(&mut self, monster_id: CreatureId, mtype: &MonsterType) {
-        if !self.beat_driven_loop {
-            return;
-        }
         if self
             .creatures
             .get(monster_id)
@@ -275,7 +272,8 @@ impl GameWorld {
 
         let mut rolled: Vec<(LootDestination, ItemId)> = Vec::new();
 
-        if self.beat_driven_loop || crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+        // Phase 3: both eras use the glibc parity loot path (772 monster AI is the single system).
+        {
             let mut registry = std::mem::take(&mut self.container_registry);
             for block in &mtype.loot {
                 let Some(item_id) = roll_loot_block_glibc(self, block, &mut registry, monster_id)
@@ -291,25 +289,6 @@ impl GameWorld {
                 rolled.push((dest, item_id));
             }
             self.container_registry = registry;
-        } else {
-            self.with_ai_rng(|rng, world| {
-                let mut registry = std::mem::take(&mut world.container_registry);
-                for block in &mtype.loot {
-                    let Some(item_id) =
-                        roll_loot_block(world, rng, block, &mut registry, monster_id)
-                    else {
-                        continue;
-                    };
-                    let dest = world
-                        .items_db
-                        .items
-                        .get(&(block.id as u16))
-                        .map(loot_destination)
-                        .unwrap_or(LootDestination::Bag);
-                    rolled.push((dest, item_id));
-                }
-                world.container_registry = registry;
-            });
         }
 
         let mut bag_items: Vec<ItemId> = Vec::new();
@@ -370,9 +349,6 @@ impl GameWorld {
 
     /// Recompute melee/armor from spawn inventory — `CheckCombatValues` (`crcombat.cc:128`).
     pub(crate) fn recompute_monster_combat_from_equipment(&mut self, monster_id: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let snapshot = self.creatures.get(monster_id).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -421,9 +397,6 @@ impl GameWorld {
         blood: BloodType,
         inventory: &MonsterInventory,
     ) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let corpse_type = if corpse_type > 0 {
             corpse_type
         } else {
@@ -447,12 +420,9 @@ impl GameWorld {
             self.create_liquid_splash_772(pos, ITEM_FULLSPLASH, fluid);
         }
 
-        let decay_clock = if self.beat_driven_loop {
-            self.now_ms()
-        } else {
-            self.tick_counter
-        };
-        let decay_unit_ms = if self.beat_driven_loop { 50 } else { 1 };
+        // Phase 3: both eras use the 772 `server_ms` decay clock.
+        let decay_clock = self.now_ms();
+        let decay_unit_ms = 50;
         let (deadline, replace_with) =
             item_decay_schedule(&self.items_db, corpse_type, decay_clock, decay_unit_ms);
         self.decay.schedule(corpse_id, deadline, replace_with);
@@ -491,9 +461,6 @@ impl GameWorld {
         splash_item_id: u16,
         fluid_subtype: u16,
     ) {
-        if !self.beat_driven_loop {
-            return;
-        }
         // C++ `Tile::addThing` removes any existing splash before adding a new one
         // (`tile.cpp:881-894`) — a tile holds at most ONE splash. Without this, sustained combat
         // (e.g. a bear meleeing the player each beat) piles splash items onto the victim's tile,
@@ -539,9 +506,6 @@ impl GameWorld {
     /// small-splash on the victim's tile. C++ `TCreature::Damage` physical branch
     /// (`crmain.cc:762-775`). No PZ gate in 772 (unlike 1098). Call on physical damage that lands.
     pub(crate) fn apply_physical_hit_blood_772(&mut self, target: CreatureId, pos: Position) {
-        if !self.beat_driven_loop {
-            return;
-        }
         let blood = self.creature_blood_type(target);
         self.broadcast_magic_effect(pos, physical_hit_effect_772(blood));
         if let Some(fluid) = splash_fluid_772(blood) {
