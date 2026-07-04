@@ -159,6 +159,11 @@ pub struct CreatureBase {
     /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
     /// Shared by players and monsters on the unified ToDo/`CanToDoAttack` path.
     pub chase_mode: ChaseMode,
+    /// OTClient auto-walk workaround: server_ms when the last `CGoPath` was armed.
+    /// OTClient sends `0x69` (StopAutoWalk) 2–200 ms after each `0x64` (AutoWalk) on map-click;
+    /// the stop is meant for the *previous* walk, not the fresh one. If a `StopAutoWalk`
+    /// arrives within 400 ms of a freshly-armed walk, ignore it.
+    pub last_auto_walk_armed_ms: u64,
 }
 
 impl CreatureBase {

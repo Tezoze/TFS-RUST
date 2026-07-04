@@ -151,6 +151,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             last_defend_ms: 0,
             todo: Default::default(),
             chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
         },
         account_id: 1,
         guid: 1,
@@ -920,6 +921,7 @@ pub fn insert_monster_with_config(
         last_defend_ms: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
     };
     let cid = world
         .creatures
@@ -983,6 +985,7 @@ pub fn insert_monster_from_type(
         last_defend_ms: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
     };
     let cid = world
         .creatures
@@ -1078,6 +1081,7 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         last_defend_ms: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
     };
     let cid = world.creatures.insert(CreatureKind::Npc(Npc {
         base,

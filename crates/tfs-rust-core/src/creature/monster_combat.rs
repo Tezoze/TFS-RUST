@@ -640,6 +640,7 @@ mod tests {
             last_defend_ms: 0,
             todo: Default::default(),
             chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
         }
     }
 

@@ -428,7 +428,6 @@ impl GameWorld {
                 server_ms = self.server_ms,
                 next_wakeup = ?next_wakeup_snap,
                 due,
-                "autowalk_772: drain_todo_queue — heap entry popped"
             );
             if due {
                 self.process_creature_todo(entry.creature_id);
@@ -443,7 +442,6 @@ impl GameWorld {
     pub fn process_creature_todo(&mut self, cid: CreatureId) {
         let health_ok = self.creatures.get(cid).is_some_and(|k| k.base().health > 0);
         if !health_ok {
-            tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — SKIP (health_ok=false)");
             return;
         }
         let had_wakeup = self
@@ -451,7 +449,6 @@ impl GameWorld {
             .get_mut(cid)
             .and_then(|k| k.base_mut().next_wakeup.take());
         if had_wakeup.is_none() {
-            tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — SKIP (had_wakeup=None)");
             return;
         }
         let now = Instant::now();
@@ -465,12 +462,10 @@ impl GameWorld {
                 server_ms = self.server_ms,
                 todo_queue_len = self.creatures.get(cid).map(|k| k.base().todo.queue.len()).unwrap_or(0),
                 walk_queue_len = self.creatures.get(cid).map(|k| k.base().walk_queue.len()).unwrap_or(0),
-                "autowalk_772: process_creature_todo — entering todo_execute path"
             );
             trace_creature_todo(self, cid, "process_creature_todo");
             let mut ran_idle = false;
             if self.creature_todo_queue_empty(cid) {
-                tracing::debug!(?cid, server_ms = self.server_ms, "autowalk_772: process_creature_todo — todo queue empty, calling idle stimulus");
                 self.maybe_idle_stimulus_after_go_complete(cid);
                 ran_idle = true;
             }
@@ -567,7 +562,6 @@ impl GameWorld {
                 server_ms,
                 calc_delay,
                 delay,
-                "autowalk_772: CalculateDelay(TDGo) + ToDoStart arm"
             );
             self.todo_start_from_action(cid, delay);
             return false;
@@ -869,26 +863,18 @@ impl GameWorld {
                     acc = acc.offset(*d);
                     pl.base.walk_destinations.push_front(acc);
                 }
-                tracing::debug!(
-                    ?cid,
-                    start_pos = ?pos,
-                    path_len = path.len(),
-                    ?path,
-                    earliest_walk_ms = pl.base.earliest_walk_server_ms,
-                    server_ms = self.server_ms,
-                    "autowalk_772: CGoPath enqueue"
-                );
             }
             // `CGoPath` builds N entries then a single `ToDoStart` — one `Go` action drains the
             // whole `walk_queue` via `finish_creature_todo_execute` re-arm (`cract.cc:1050-1107`).
-            let _ = self.enqueue_creature_go(cid);
+            let _go_enqueued = self.enqueue_creature_go(cid);
             let immediate = self.todo_start_go_delay(cid, true);
-            tracing::debug!(
-                ?cid,
-                immediate,
-                server_ms = self.server_ms,
-                "autowalk_772: ToDoStart decision"
-            );
+            // OTClient auto-walk workaround: record the beat when this walk was armed.
+            // OTClient sends `0x69` (StopAutoWalk) 2–200 ms after each `0x64` (AutoWalk) on
+            // map-click; the stop is meant for the *previous* walk, not the fresh one.
+            // `player_stop_auto_walk` ignores stops that arrive within 400 ms of a fresh arm.
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().last_auto_walk_armed_ms = self.server_ms;
+            }
             if immediate {
                 self.schedule_immediate_todo_wakeup(cid);
             }
@@ -976,6 +962,23 @@ impl GameWorld {
     /// 1098 sets `cancel_next_walk` which is processed in `onWalk`.
     pub fn player_stop_auto_walk(&mut self, cid: CreatureId) {
         if self.beat_driven_loop {
+            // OTClient auto-walk workaround: OTClient sends `0x69` (StopAutoWalk) 2–200 ms
+            // after each `0x64` (AutoWalk) on map-click. The stop is meant for the *previous*
+            // walk, not the fresh one — `player_auto_walk_path` already cleared the previous
+            // walk via `player_todo_clear_with_snapback`. If the new walk was armed within
+            // a short window, ignore the stop entirely.
+            let last_armed = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().last_auto_walk_armed_ms)
+                .unwrap_or(u64::MAX);
+            if last_armed != u64::MAX {
+                let since_armed = self.server_ms.saturating_sub(last_armed);
+                if since_armed <= 400 {
+                    return;
+                }
+            }
+
             // C++ `LockToDo` is true from `ToDoStart` until `ToDoClear` — i.e. any pending or
             // active ToDo. In Rust, `todo.locked` is only true during `execute_creature_todo_action`
             // (narrow window). The equivalent "walk in progress" check is: a wakeup is armed, a
@@ -1565,7 +1568,6 @@ impl GameWorld {
                         server_ms = self.server_ms,
                         walk_delay = d,
                         queue_len = k.base().walk_queue.len(),
-                        "autowalk_772: on_walk gate (EarliestWalkTime - ServerMs)"
                     );
                     d
                 } else {
@@ -1617,7 +1619,6 @@ impl GameWorld {
                     ?dir,
                     ?pop_dest,
                     server_ms = self.server_ms,
-                    "autowalk_772: on_walk step popped"
                 );
                 // 772 absolute-destination adjacency check — `cract.cc:386-389`:
                 // `Distance = max(abs(OrigX - DestX), abs(OrigY - DestY)); if(Distance > 1 || OrigZ != DestZ) throw NOTACCESSIBLE`.
@@ -1695,7 +1696,6 @@ impl GameWorld {
                             ?dir,
                             ?ret,
                             server_ms = self.server_ms,
-                            "autowalk_772: step REJECTED"
                         );
                         self.on_walk_step_rejected(cid, ret);
                     }
@@ -1813,7 +1813,6 @@ impl GameWorld {
                                         step_ms,
                                         server_ms = self.server_ms,
                                         new_earliest_walk_ms = new_earliest,
-                                        "autowalk_772: NotifyGo — EarliestWalkTime set"
                                     );
                                     base.earliest_walk_server_ms = new_earliest;
                                 }

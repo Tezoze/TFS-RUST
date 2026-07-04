@@ -44,7 +44,7 @@ formulas = {
 
   spell = { levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 },
-  playerSpeed = "772",      -- "772" | "retail" | "balanced" (loaded once at startup)
+  playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
 }
 
 -- Player speed model selector ------------------------------------------------------------

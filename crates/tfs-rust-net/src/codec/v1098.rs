@@ -291,7 +291,13 @@ impl Codec1098 {
         m
     }
 
+    /// 10.98 `RemoveTileThing` opcode `0x6C` (`protocolgame.cpp:3340`): position + `u8` stackpos.
+    /// Silently returns an empty message when `stackpos >= 10` — C++ gates on
+    /// `stackpos < 10`; items beyond the 10-slot client tile stack are invisible.
     pub fn encode_remove_tile_thing(&self, pos: Position, stackpos: u8) -> NetworkMessage {
+        if stackpos >= 10 {
+            return NetworkMessage::new();
+        }
         let mut m = NetworkMessage::new();
         m.write_u8(0x6C);
         m.write_position(&pos);

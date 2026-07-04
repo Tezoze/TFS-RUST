@@ -373,3 +373,27 @@ and LOW #7 (dual creature-list desync).
 - [x] `cargo check`/`clippy`/`test -p tfs-rust-core --lib` → 533 passed, 2 ignored
       (was 530); clippy clean on changed files (1 pre-existing warning in
       `game_world_player_throw.rs:197`, unrelated).
+
+## 772 Splash/Pool Layer Mismatch — Runtime override (Option A) — done
+- [x] **Phase 1: OTB loader override.** `crates/tfs-rust-content/src/otb.rs` `parse_node`:
+      before `db.insert`, if `item.group == ItemType::GROUP_SPLASH`, clear
+      `FLAG_ALWAYSONTOP` from `item.flags`. Unconditional (correct for both eras).
+- [x] **Phase 2: Rewrite `create_liquid_splash_772`.** Scan `down_items` (the pool's
+      layer, mirroring decompile `CreatePool` `BOTTOM` scan): existing splash → collect
+      for replacement; non-splash down item (corpse/drop) → silent abort (NOROOM). Delete
+      old pools, then `internal_add_item_to_tile` places new splash → routes to
+      `down_items`. `top_items` (ladders/signs/borders) not scanned → blood on ladders
+      works.
+- [x] **Phase 3: Remove the "no splash in ladders" guard.** Delete the
+      `splash_order` / `alwaysOnTopOrder` conflict check (dead code with splashes in
+      `down_items`).
+- [x] **Phase 4: Verify tile description / stackpos.** `get_item_stack_pos` already
+      counts `top_items` before `down_items`; `map_description.rs` iterates top →
+      creatures → down. Splashes moving to `down_items` renders them after creatures =
+      772 `BOTTOM` order. No code change needed — confirm by reading.
+- [x] **Phase 5: Tests.** Blood-on-ladder, pool replacement, NOROOM on corpse,
+      death-pool-before-corpse coexistence.
+- [x] **Phase 6: Audit call sites.** Confirm no regression in `top_items` iterators
+      expecting splashes (`login_out.rs`, `monster_push.rs`).
+- [x] **Verify:** `cargo check`/`clippy`/`test -p tfs-rust-core --lib`.
+- [x] **Lessons:** append to `tasks/lessons.md`.
