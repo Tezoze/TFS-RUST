@@ -117,30 +117,9 @@
         }
     }
 
-    #[test]
-    fn can_cast_instant_blocks_while_next_action_in_future() {
-        let spell = SpellDefinition {
-            id: 1,
-            level: 1,
-            mana: 0,
-            soul: 0,
-            cooldown_ticks: 0,
-            group_id: 0,
-            group_cooldown_ticks: 0,
-            vocation_mask: 0xFFFF_FFFF,
-        };
-        // nextAction is now on the logical ms clock (audit Findings 1/2, Phase 4).
-        let now_tick: u64 = 1_000;
-        let p = minimal_player(Some(now_tick + 60_000));
-        assert_eq!(
-            can_cast_instant(&p, &spell, now_tick, false),
-            Err(SpellFailReason::NextAction)
-        );
-        let p2 = minimal_player(Some(now_tick - 1));
-        assert!(can_cast_instant(&p2, &spell, now_tick, false).is_ok());
-        let p3 = minimal_player(None);
-        assert!(can_cast_instant(&p3, &spell, now_tick, false).is_ok());
-    }
+    // Phase 4: `can_cast_instant_blocks_while_next_action_in_future` deleted — the 1098
+    // `nextAction` gate was removed; both eras use `EarliestSpellTime` (covered by the 772
+    // test below).
 
     #[test]
     fn can_cast_instant_772_blocks_on_earliest_spell_time() {

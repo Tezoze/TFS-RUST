@@ -90,8 +90,9 @@ impl GameWorld {
     /// Phase 1 walk-engine unification: widened to dispatch **players** to
     /// [`player_idle_stimulus`] (`crplayer.cc:388-405`) in addition to monsters
     /// (`crnonpl.cc:2386`). NPCs remain excluded.
-    /// Phase 3: monsters run on the ToDo/IdleStimulus engine for **both** eras. Players remain
-    /// gated on `beat_driven_loop` until Phase 4.
+    /// Phase 3: monsters run on the ToDo/IdleStimulus engine for **both** eras.
+    /// Phase 4: players also run on the ToDo/IdleStimulus engine for both eras (1098
+    /// player logic deleted). `TFS_FORCE_BEAT_LOOP=1` forces `beat_driven_loop=true` for 1098.
     pub(crate) fn idle_stimulus(&mut self, cid: CreatureId) {
         let is_monster = self
             .creatures

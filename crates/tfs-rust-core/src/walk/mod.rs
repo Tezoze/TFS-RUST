@@ -150,7 +150,7 @@ use walk_tile::{
     tile_query_add_player,
 };
 use walk_timing::{
-    get_event_step_ticks, get_step_duration_ms_with_direction, get_walk_delay,
+    get_event_step_ticks, get_step_duration_ms_with_direction,
     last_step_cost_for_move, peek_next_walk_direction, walk_timing_speed_kind,
 };
 pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole};
@@ -531,55 +531,8 @@ impl GameWorld {
     /// `ServerMilliseconds + 1` and lands on the next beat drain — **not** a full step duration.
     /// Subsequent steps wait out `EarliestWalkTime` set by `NotifyGo` (`on_walk`).
     pub(crate) fn todo_start_go_delay(&mut self, cid: CreatureId, first_step: bool) -> bool {
-        if self.beat_driven_loop {
-            if !self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| k.base().walk_timer_idle(self.beat_driven_loop))
-            {
-                return false;
-            }
-            let server_ms = self.server_ms;
-            let earliest = self
-                .creatures
-                .get(cid)
-                .map(|k| k.base().earliest_walk_server_ms)
-                .unwrap_or(0);
-            // C++ `CalculateDelay(TDGo)`: `Delay = EarliestWalkTime - ServerMilliseconds` only when
-            // the cooldown is still active; otherwise `Delay` stays `0` and `ToDoStart` clamps it to
-            // `1` (`cract.cc:918–923`, `:1016–1018`). Arming a full step duration here added up to
-            // one extra step of input latency to every walk started from rest (audit #1).
-            let calc_delay = if earliest > server_ms {
-                earliest - server_ms
-            } else {
-                1
-            };
-            let delay = calc_delay.max(1);
-            tracing::debug!(
-                ?cid,
-                first_step,
-                earliest_walk_ms = earliest,
-                server_ms,
-                calc_delay,
-                delay,
-            );
-            self.todo_start_from_action(cid, delay);
-            return false;
-        }
-
-        let wall_now = Instant::now();
-        let (pos, timing_speed) = {
-            let Some(k) = self.creatures.get(cid) else {
-                return false;
-            };
-            (
-                k.position(),
-                walk_timing_speed_kind(k, k.base(), &self.mechanics),
-            )
-        };
-        if timing_speed <= 0 {
-            return false;
-        }
+        // Phase 4: 1098 wall-clock `get_event_step_ticks` path deleted — both eras use the
+        // 772 `CalculateDelay` + `ToDoStart` beat path.
         if !self
             .creatures
             .get(cid)
@@ -587,34 +540,31 @@ impl GameWorld {
         {
             return false;
         }
-        let ground_speed = self
-            .map
-            .get_tile(pos)
-            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
-            .unwrap_or(150);
-        let only_delay = first_step && !self.beat_driven_loop;
-        let ticks = {
-            let Some(k) = self.creatures.get(cid) else {
-                return false;
-            };
-            get_event_step_ticks(
-                k,
-                k.base(),
-                only_delay,
-                ground_speed,
-                peek_next_walk_direction(k.base()),
-                wall_now,
-                &self.mechanics,
-                None,
-            )
+        let server_ms = self.server_ms;
+        let earliest = self
+            .creatures
+            .get(cid)
+            .map(|k| k.base().earliest_walk_server_ms)
+            .unwrap_or(0);
+        // C++ `CalculateDelay(TDGo)`: `Delay = EarliestWalkTime - ServerMilliseconds` only when
+        // the cooldown is still active; otherwise `Delay` stays `0` and `ToDoStart` clamps it to
+        // `1` (`cract.cc:918–923`, `:1016–1018`). Arming a full step duration here added up to
+        // one extra step of input latency to every walk started from rest (audit #1).
+        let calc_delay = if earliest > server_ms {
+            earliest - server_ms
+        } else {
+            1
         };
-        if ticks <= 0 {
-            return false;
-        }
-        if ticks == 1 {
-            return true;
-        }
-        self.todo_start_from_action(cid, ticks.max(1) as u64);
+        let delay = calc_delay.max(1);
+        tracing::debug!(
+            ?cid,
+            first_step,
+            earliest_walk_ms = earliest,
+            server_ms,
+            calc_delay,
+            delay,
+        );
+        self.todo_start_from_action(cid, delay);
         false
     }
 
@@ -735,9 +685,7 @@ impl GameWorld {
     /// C++ ref: `receiving.cc:120-199` (`if (ToDoClear()) SendSnapback;`),
     /// `cract.cc:953-989` (`ToDoClear` clears the whole queue).
     pub(crate) fn player_todo_clear_with_snapback(&mut self, conn_id: ConnId, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras use ToDoClear + SendSnapback.
         let had_pending = self.player_todo_clear(cid);
         if had_pending {
             let dir_byte = self
@@ -800,16 +748,7 @@ impl GameWorld {
             }
             return;
         }
-
-        // 1098 TFS path — `addEventWalk` timer (`game.cpp` ~1880–1895).
-        self.clear_player_walk_action(cid);
-        if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
-            pl.last_activity = now;
-            pl.base.walk_queue.clear();
-            pl.base.walk_queue.push_back(direction);
-        }
-        let walk_sched_base = Instant::now();
-        self.add_event_walk(cid, true, walk_sched_base);
+        // Phase 4: 1098 `addEventWalk` path deleted — both eras use the ToDo `CGoDirection` path.
     }
 
     /// TFS `Game::playerAutoWalk` (`game.cpp` ~2075–2084).
@@ -880,18 +819,7 @@ impl GameWorld {
             }
             return;
         }
-
-        // 1098 TFS path — `addEventWalk` timer (`game.cpp` ~2075–2084).
-        let first_only = path.len() == 1;
-        if let Some(CreatureKind::Player(pl)) = self.creatures.get_mut(cid) {
-            pl.last_activity = now;
-            pl.base.walk_queue.clear();
-            for d in path {
-                pl.base.walk_queue.push_back(d);
-            }
-        }
-        let walk_sched_base = Instant::now();
-        self.add_event_walk(cid, first_only, walk_sched_base);
+        // Phase 4: 1098 `addEventWalk` path deleted — both eras use the ToDo `CGoPath` path.
     }
 
     /// TFS `Game::playerTurn` + `internalCreatureTurn` (`game.cpp` ~3354–3366, ~3703–3720).
@@ -1012,10 +940,7 @@ impl GameWorld {
             }
             return;
         }
-        // 1098 TFS `stopWalk` — `cancel_next_walk` processed in `onWalk` (`player.cpp` ~3398).
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.base.cancel_next_walk = true;
-        }
+        // Phase 4: 1098 `cancel_next_walk` path deleted — both eras use `ToDoStop`.
     }
 
     /// 1098 self-move (`ProtocolGame::sendMoveCreature`, `creature == player`, non-teleport).
@@ -1547,32 +1472,29 @@ impl GameWorld {
         cid: CreatureId,
         reschedule_after: bool,
         now: Instant,
-        fired_deadline: Option<Instant>,
+        _fired_deadline: Option<Instant>,
     ) {
         let walk_delay = self
             .creatures
             .get(cid)
             .map(|k| {
-                if self.beat_driven_loop {
-                    // C++ has a single source of truth: `EarliestWalkTime`, fixed by `NotifyGo`
-                    // at step-completion and consumed by `CalculateDelay` (`cract.cc:918-923`,
-                    // `:1515-1525`). Derive the gate from `earliest_walk_server_ms` directly
-                    // instead of recomputing `completed_step_duration_ms` from **current**
-                    // speed/conditions (audit #5/#6 — the recomputation applied `last_step_cost
-                    // = 2` on z-change and re-read speed, both diverging from C++ which fixes
-                    // the delay at step-completion time).
-                    let d = k.base().earliest_walk_server_ms.saturating_sub(self.server_ms) as i64;
-                    tracing::debug!(
-                        ?cid,
-                        earliest_walk_ms = k.base().earliest_walk_server_ms,
-                        server_ms = self.server_ms,
-                        walk_delay = d,
-                        queue_len = k.base().walk_queue.len(),
-                    );
-                    d
-                } else {
-                    get_walk_delay(k, k.base(), now, &self.mechanics)
-                }
+                // Phase 4: 1098 `get_walk_delay` path deleted — both eras use `EarliestWalkTime`.
+                // C++ has a single source of truth: `EarliestWalkTime`, fixed by `NotifyGo`
+                // at step-completion and consumed by `CalculateDelay` (`cract.cc:918-923`,
+                // `:1515-1525`). Derive the gate from `earliest_walk_server_ms` directly
+                // instead of recomputing `completed_step_duration_ms` from **current**
+                // speed/conditions (audit #5/#6 — the recomputation applied `last_step_cost
+                // = 2` on z-change and re-read speed, both diverging from C++ which fixes
+                // the delay at step-completion time).
+                let d = k.base().earliest_walk_server_ms.saturating_sub(self.server_ms) as i64;
+                tracing::debug!(
+                    ?cid,
+                    earliest_walk_ms = k.base().earliest_walk_server_ms,
+                    server_ms = self.server_ms,
+                    walk_delay = d,
+                    queue_len = k.base().walk_queue.len(),
+                );
+                d
             })
             .unwrap_or(0);
 
@@ -1605,7 +1527,8 @@ impl GameWorld {
                 let dir = self.creatures.get_mut(cid).and_then(|k| {
                     let base = k.base_mut();
                     let d = base.walk_queue.pop_back();
-                    if d.is_some() && self.beat_driven_loop {
+                    // Phase 4: both eras pop walk_destinations (772 absolute-destination tracking).
+                    if d.is_some() {
                         dest = base.walk_destinations.pop_back();
                     }
                     d
@@ -1779,43 +1702,38 @@ impl GameWorld {
                             .get_tile(new_pos)
                             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
                             .unwrap_or(150);
-                        let notify_go_ms = self
-                            .beat_driven_loop
-                            .then(|| {
-                                self.creatures.get(cid).map(|k| {
-                                    get_step_duration_ms_with_direction(
-                                        k,
-                                        k.base(),
-                                        dir,
-                                        gs_dest,
-                                        &self.mechanics,
-                                    )
-                                })
-                            })
-                            .flatten();
+                        // Phase 4: both eras compute `notify_go_ms` (772 `NotifyGo` path).
+                        let notify_go_ms = self.creatures.get(cid).map(|k| {
+                            get_step_duration_ms_with_direction(
+                                k,
+                                k.base(),
+                                dir,
+                                gs_dest,
+                                &self.mechanics,
+                            )
+                        });
                         if let Some(k) = self.creatures.get_mut(cid) {
                             let base = k.base_mut();
                             base.last_step = Some(Instant::now());
                             base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
                             base.last_step_ground_speed = gs_dest;
-                            if self.beat_driven_loop {
-                                base.last_step_server_ms = Some(self.server_ms);
-                                if let Some(step_ms) = notify_go_ms {
-                                    // C++ `NotifyGo` — `EarliestWalkTime` (`cract.cc:1515–1525`).
-                                    let new_earliest =
-                                        self.server_ms.saturating_add(step_ms.max(1) as u64);
-                                    tracing::debug!(
-                                        ?cid,
-                                        ?dir,
-                                        ?old_pos,
-                                        ?new_pos,
-                                        ground_speed = gs_dest,
-                                        step_ms,
-                                        server_ms = self.server_ms,
-                                        new_earliest_walk_ms = new_earliest,
-                                    );
-                                    base.earliest_walk_server_ms = new_earliest;
-                                }
+                            // Phase 4: both eras set `last_step_server_ms` + `EarliestWalkTime`.
+                            base.last_step_server_ms = Some(self.server_ms);
+                            if let Some(step_ms) = notify_go_ms {
+                                // C++ `NotifyGo` — `EarliestWalkTime` (`cract.cc:1515–1525`).
+                                let new_earliest =
+                                    self.server_ms.saturating_add(step_ms.max(1) as u64);
+                                tracing::debug!(
+                                    ?cid,
+                                    ?dir,
+                                    ?old_pos,
+                                    ?new_pos,
+                                    ground_speed = gs_dest,
+                                    step_ms,
+                                    server_ms = self.server_ms,
+                                    new_earliest_walk_ms = new_earliest,
+                                );
+                                base.earliest_walk_server_ms = new_earliest;
                             }
                         }
                     }
@@ -1892,15 +1810,12 @@ impl GameWorld {
         }
 
         if !stopped_without_reschedule && reschedule_after {
-            if self.beat_driven_loop {
-                if self.creature_uses_todo_execute(cid) {
-                    // Step chain owned by the per-creature action queue.
-                } else {
-                    self.add_event_walk(cid, false, now);
-                }
-            } else if let Some(logical) = fired_deadline {
-                self.commit_next_walk_deadline(cid, None);
-                self.add_event_walk(cid, false, logical);
+            // Phase 4: 1098 `commit_next_walk_deadline` + `add_event_walk` reschedule deleted —
+            // both eras use the ToDo queue for step chaining.
+            if self.creature_uses_todo_execute(cid) {
+                // Step chain owned by the per-creature action queue.
+            } else {
+                self.add_event_walk(cid, false, now);
             }
         }
     }
@@ -1972,12 +1887,8 @@ impl GameWorld {
         }
 
         let old_pos = current_pos;
-        // `Player::onWalk(Direction&)` — `getStepDuration` reads **source** tile ground speed.
-        let gs_next_action = self
-            .map
-            .get_tile(old_pos)
-            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
-            .unwrap_or(150);
+        // Phase 4: `gs_next_action` (source tile ground speed for 1098 `nextAction` lockout)
+        // is no longer needed — both eras use `EarliestWalkTime` ToDo delay.
 
         let mut segments: Vec<MoveSegment> = Vec::new();
 
@@ -2077,22 +1988,10 @@ impl GameWorld {
         // Set the authoritative position FIRST — must happen before any broadcast so that
         // `can_see_position(viewer=self, pos=final_pos)` reads the correct z-level and
         // includes the moving player themselves in the `0x6B` spectator set.
-        let now_ms = self.now_ms();
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(final_pos);
-            let dur_ms = get_step_duration_ms_with_direction(
-                k,
-                k.base(),
-                direction,
-                gs_next_action,
-                &self.mechanics,
-            );
-            if let CreatureKind::Player(p) = k {
-                if !self.beat_driven_loop {
-                    // 1098 unified `nextAction` lockout (`player.cpp` `onWalk`).
-                    p.next_action_until = Some(now_ms.saturating_add(dur_ms.max(1) as u64));
-                }
-            }
+            // Phase 4: 1098 `nextAction` lockout deleted (P9 dissolves) — both eras use
+            // `EarliestWalkTime` ToDo delay for walk step gating.
         }
 
         if self.beat_driven_loop

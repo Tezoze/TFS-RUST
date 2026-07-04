@@ -37,74 +37,36 @@ impl GameWorld {
     }
 
     /// TFS `Player::onWalkComplete` — schedule stored `walkTask` on the logical clock.
-    /// **1098 only** — sets `walk_action_due` for `process_walk_action_tasks` to drain.
-    /// F8 S7: the 772 `schedule_creature_wakeup` path was removed because `walk_action` is
-    /// never set for 772 players after S6 (all player actions route through ToDo builders);
-    /// the old `try_run_player_walk_action_from_todo` hook that consumed it is gone.
-    pub(crate) fn on_player_walk_complete(&mut self, cid: CreatureId) {
-        if self.beat_driven_loop {
-            return;
-        }
-        let should_schedule = self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.walk_action.is_some()));
-        if !should_schedule {
-            return;
-        }
-        let due = self.now_ms().saturating_add(WALK_ACTION_DELAY_MS);
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.walk_action_due = Some(due);
-        }
+    ///
+    /// Phase 4: the 1098 reactive `walk_action_due` path is deleted — both eras route
+    /// player actions through the ToDo engine (`enqueue_player_use`/`move`/`turn` +
+    /// `Go`-prepend). `walk_action` is never set for 772 players (F8 S6); 1098 no longer
+    /// sets it either. This is now a no-op for both eras.
+    pub(crate) fn on_player_walk_complete(&mut self, _cid: CreatureId) {
+        // Phase 4: 1098 reactive walk-action path deleted — both eras use ToDo.
     }
 
-    /// Drain due walk-action tasks — **1098 only** (`on_tick`). 772 uses `ToDoQueue` drain.
+    /// Drain due walk-action tasks — **deleted in Phase 4**.
+    ///
+    /// 1098's reactive `walk_action_due` drain is gone; both eras use the `ToDoQueue` drain.
+    /// Kept as a no-op because `game_world_tick.rs` still calls it from `on_tick`.
     pub(crate) fn process_walk_action_tasks(&mut self) {
-        if self.beat_driven_loop {
-            return;
-        }
-        let now_ms = self.now_ms();
-        let due: Vec<(CreatureId, PlayerWalkAction)> = self
-            .creatures
-            .iter()
-            .filter_map(|(cid, k)| {
-                let CreatureKind::Player(p) = k else {
-                    return None;
-                };
-                let action = p.walk_action.clone()?;
-                let due_at = p.walk_action_due?;
-                (now_ms >= due_at).then_some((cid, action))
-            })
-            .collect();
-
-        let now = Instant::now();
-        for (cid, action) in due {
-            self.run_player_walk_action(cid, action, now);
-        }
+        // Phase 4: 1098 reactive walk-action path deleted — both eras use ToDo.
     }
 
     /// Reschedule a deferred walk-action while per-action timers are still active.
     pub(crate) fn defer_player_walk_action(&mut self, cid: CreatureId, action: PlayerWalkAction) {
         let now_ms = self.now_ms();
-        let due = if self.beat_driven_loop {
-            self.creatures
-                .get(cid)
-                .and_then(|k| k.base().earliest_action_block_ms(now_ms))
-                .unwrap_or(now_ms)
-        } else {
-            match self.creatures.get(cid) {
-                Some(CreatureKind::Player(p)) => p.next_action_until.filter(|t| *t > now_ms),
-                _ => None,
-            }
-            .unwrap_or(now_ms)
-        };
+        let due = self
+            .creatures
+            .get(cid)
+            .and_then(|k| k.base().earliest_action_block_ms(now_ms))
+            .unwrap_or(now_ms);
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.walk_action = Some(action);
             p.walk_action_due = Some(due);
         }
-        if self.beat_driven_loop {
-            self.schedule_creature_wakeup(cid, due);
-        }
+        self.schedule_creature_wakeup(cid, due);
     }
 
     /// Start auto-walk toward `target` (within 1 tile) and defer `action` until walk completes.

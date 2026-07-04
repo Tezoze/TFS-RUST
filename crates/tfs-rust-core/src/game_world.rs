@@ -173,16 +173,14 @@ impl GameWorld {
         }
     }
 
-    /// Per-packet action gate — 772 uses `Earliest*Time`; 1098 uses unified `nextAction`.
+    /// Per-packet action gate — 772 `Earliest*Time` (Phase 4: both eras).
     /// C++ ref: `cract.cc:906–940` `CalculateDelay`; `crmain.cc:924` combat gates.
     pub fn player_packet_action_ready(&self, cid: CreatureId, packet: &GamePacket) -> bool {
         let now_ms = self.now_ms();
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return true;
         };
-        if !self.beat_driven_loop {
-            return p.timed_action_ready(now_ms);
-        }
+        // Phase 4: 1098 `nextAction` gate deleted — both eras use `Earliest*Time`.
         let base = &p.base;
         match packet {
             GamePacket::Attack { .. } => {
@@ -196,7 +194,7 @@ impl GameWorld {
         }
     }
 
-    /// Whether a deferred walk-action may run (772 per-action timers; 1098 `nextAction`).
+    /// Whether a deferred walk-action may run (772 per-action timers; Phase 4: both eras).
     pub(crate) fn player_walk_action_ready(
         &self,
         cid: CreatureId,
@@ -206,9 +204,7 @@ impl GameWorld {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return false;
         };
-        if !self.beat_driven_loop {
-            return p.timed_action_ready(now_ms);
-        }
+        // Phase 4: 1098 `nextAction` gate deleted — both eras use per-action timers.
         let base = &p.base;
         match action {
             crate::creature::PlayerWalkAction::UseItemEx(_) => base.multiuse_ready_at(now_ms),
@@ -218,35 +214,27 @@ impl GameWorld {
         }
     }
 
-    /// `UseItem` gate — 772 walk timer only; 1098 unified `nextAction`.
+    /// `UseItem` gate — 772 walk timer (Phase 4: both eras).
     pub(crate) fn player_use_item_ready(&self, cid: CreatureId) -> bool {
         let now_ms = self.now_ms();
         match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) if self.beat_driven_loop => {
-                p.base.walk_action_ready_at(now_ms)
-            }
-            Some(CreatureKind::Player(p)) => p.timed_action_ready(now_ms),
+            Some(CreatureKind::Player(p)) => p.base.walk_action_ready_at(now_ms),
             _ => true,
         }
     }
 
-    /// `UseItemEx` gate — 772 `EarliestMultiuseTime`; 1098 `nextAction`.
+    /// `UseItemEx` gate — 772 `EarliestMultiuseTime` (Phase 4: both eras).
     pub(crate) fn player_use_item_ex_ready(&self, cid: CreatureId) -> bool {
         let now_ms = self.now_ms();
         match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) if self.beat_driven_loop => {
-                p.base.multiuse_ready_at(now_ms)
-            }
-            Some(CreatureKind::Player(p)) => p.timed_action_ready(now_ms),
+            Some(CreatureKind::Player(p)) => p.base.multiuse_ready_at(now_ms),
             _ => true,
         }
     }
 
     /// C++ `Use` two-object exhaustion — `cract.cc:765`.
     pub(crate) fn player_apply_multiuse_exhaust(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras apply multiuse exhaust.
         let now_ms = self.now_ms();
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.base
@@ -257,9 +245,7 @@ impl GameWorld {
     /// C++ `CheckMana` spell exhaustion — `magic.cc:770–772` (2000 ms default world).
     #[allow(dead_code)]
     pub(crate) fn player_apply_spell_exhaust(&mut self, cid: CreatureId, delay_ms: u64) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras apply spell exhaust.
         let now_ms = self.now_ms();
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.base.delay_spell_ms(now_ms, delay_ms);

@@ -38,13 +38,10 @@ pub fn can_cast_instant(
     player: &Player,
     spell: &SpellDefinition,
     now_tick: u64,
-    beat_driven_loop: bool,
+    _beat_driven_loop: bool,
 ) -> Result<(), SpellFailReason> {
-    if beat_driven_loop {
-        if !player.base.spell_ready_at(now_tick) {
-            return Err(SpellFailReason::NextAction);
-        }
-    } else if !player.timed_action_ready(now_tick) {
+    // Phase 4: 1098 `nextAction` gate deleted — both eras use `EarliestSpellTime`.
+    if !player.base.spell_ready_at(now_tick) {
         return Err(SpellFailReason::NextAction);
     }
     if (player.level as u16) < spell.level {

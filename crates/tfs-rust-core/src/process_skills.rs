@@ -25,9 +25,8 @@ impl GameWorld {
 
         for cid in ids {
             self.process_creature_skills_772(cid);
-            if self.beat_driven_loop {
-                self.process_player_fed_regen_772(cid);
-            }
+            // Phase 4: 1098 defer deleted — both eras run fed regen.
+            self.process_player_fed_regen_772(cid);
         }
     }
 

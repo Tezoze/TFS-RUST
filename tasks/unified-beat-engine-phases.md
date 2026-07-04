@@ -1,7 +1,7 @@
 # Unified Beat Engine — Phased Implementation Plan
 
 **Date:** 2026-07-02
-**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done.
+**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done.
 **Strategy / rationale:** `tasks/unified-beat-engine-plan.md` (read first).
 **Engine parity gaps to close first:** `docs/GAME_LOOP_772_AUDIT.md`.
 **Walk sub-effort (subsumed here):** `tasks/walk-engine-unification.md` Phase 2.
@@ -165,7 +165,7 @@ single ToDo/`IdleStimulus` path; `772_MONSTER_AI_AUDIT`-style spot checks pass f
 
 ---
 
-## Phase 4 — Delete 1098 player logic; 1098 reuses the 772 player logic
+## Phase 4 — Delete 1098 player logic; 1098 reuses the 772 player logic ✅ DONE
 
 Mirror the completed 772 player work (`player_combat.rs`, `walk/mod.rs`, `player_move_request`).
 
@@ -181,25 +181,47 @@ player code** and routes 1098 players onto the existing 772 path **unchanged**. 
 differs from 772, the difference goes into `MechanicsProfile` — never back into the 772 player
 code. 772 player tests must stay byte-stable.
 
-- [ ] Delete the 1098 player walk/autowalk/stop path; 1098 players take the 772
+- [x] Delete the 1098 player walk/autowalk/stop path; 1098 players take the 772
       `ToDoClear`(+snapback) → `TDGo` → `ToDoStart` path unconditionally.
-- [ ] Delete the 1098 attack/follow/cancel path; 1098 players take the 772 `SetAttackDest` +
+- [x] Delete the 1098 attack/follow/cancel path; 1098 players take the 772 `SetAttackDest` +
       `CanToDoAttack` chase path unconditionally.
-- [ ] Delete the 1098 `nextAction` lockout on failed move; the 772 `EarliestWalkTime` ToDo delay
+- [x] Delete the 1098 `nextAction` lockout on failed move; the 772 `EarliestWalkTime` ToDo delay
       applies to both eras. **P9 dissolves.**
-- [ ] Audit player code for any `if version == 1098` / era-branched outcome; genuine era
+- [x] Audit player code for any `if version == 1098` / era-branched outcome; genuine era
       differences move to `MechanicsProfile` (re-classify per Phase 1 as **K** rows), everything
       else collapses to the single 772 path.
-- [ ] Player non-walk actions already unified in Phase 0/F8 — verify they run for 1098 too
+- [x] Player non-walk actions already unified in Phase 0/F8 — verify they run for 1098 too
       (single path, no 1098 fork).
-- [ ] Keep `beat_driven_loop` *temporarily forced true for 1098* behind `TFS_FORCE_BEAT_LOOP=1`
+- [x] Keep `beat_driven_loop` *temporarily forced true for 1098* behind `TFS_FORCE_BEAT_LOOP=1`
       dev flag so the deletion is A/B-comparable until Phase 9 signs off.
-- [ ] Verify the 772 player test suite is byte-stable before and after this phase
+- [x] Verify the 772 player test suite is byte-stable before and after this phase
       (`rtk cargo test -p tfs-rust-core` walk/player_combat suites).
 
 **Exit:** no 1098-specific player code remains; a 1098 player walks/attacks/follows/uses via the
 single 772 ToDo path in a harness; single-beat move latency verified; differences only via
-`MechanicsProfile`; 772 player tests byte-stable.
+`MechanicsProfile`; 772 player tests byte-stable. 567 core tests pass, 0 failures.
+
+**Files changed:**
+- `player_combat.rs` — deleted 1098 defer guards in `player_set_attack_dest` / `player_cancel_attack_and_follow`.
+- `walk/mod.rs` — deleted 1098 arms in `player_move_request`, `player_auto_walk_path`,
+  `player_stop_auto_walk`, `player_todo_clear_with_snapback`, `todo_start_go_delay`,
+  `on_walk` (walk_delay, walk_destinations pop, notify_go_ms, last_step_server_ms, reschedule,
+  nextAction lockout).
+- `walk_action.rs` — `on_player_walk_complete` + `process_walk_action_tasks` → no-ops;
+  `defer_player_walk_action` 1098 arm deleted.
+- `game_loop.rs` — deleted 1098 reactive `else` arms for Throw/UseItem/UseItemEx/RotateItem;
+  `process_walk_deadlines` call deleted; `player_reset_connection_rounds` made unconditional.
+- `game_world.rs` — deleted 1098 `nextAction` arms in `player_packet_action_ready`,
+  `player_walk_action_ready`, `player_use_item_ready`, `player_use_item_ex_ready`,
+  `player_apply_multiuse_exhaust`, `player_apply_spell_exhaust`.
+- `connections_772.rs` — deleted 1098 defer guards in `player_reset_connection_rounds`,
+  `process_connections_772`, `tick_ambiente_light_772`.
+- `spell.rs` — deleted 1098 `nextAction` arm in `can_cast_instant`.
+- `process_skills.rs` — `process_player_fed_regen_772` made unconditional.
+- `creature_todo.rs` — `creature_todo_yield` 1098 guard deleted; `idle_enqueue_paced_go` 1098 arm deleted.
+- `idle_stimulus.rs` — updated Phase 4 comment (player gating unchanged, env var drives it).
+- Tests: `rotate_item_no_op_when_not_beat_driven` → `rotate_item_enqueues_even_when_not_beat_driven`;
+  `can_cast_instant_blocks_while_next_action_in_future` deleted (1098 `nextAction` path gone).
 
 ---
 

@@ -652,11 +652,8 @@ impl GameWorld {
             }
         }
         trace_creature_todo(self, cid, "idle_enqueue_go");
-        if self.beat_driven_loop {
-            let _ = self.todo_start_go_delay(cid, first_step);
-        } else if self.todo_start_go_delay(cid, first_step) {
-            self.schedule_immediate_todo_wakeup(cid);
-        }
+        // Phase 4: 1098 arm deleted — both eras use the beat `todo_start_go_delay` path.
+        let _ = self.todo_start_go_delay(cid, first_step);
     }
 
     /// Enqueue Go and schedule its wakeup when idle decides movement is needed.
@@ -676,9 +673,7 @@ impl GameWorld {
 
     /// C++ `TCreature::ToDoYield` — `cract.cc:1001` (`ToDoWait(0)` + `ToDoStart` when not `LockToDo`).
     pub(crate) fn creature_todo_yield(&mut self, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras use ToDo yield.
         let locked = self
             .creatures
             .get(cid)

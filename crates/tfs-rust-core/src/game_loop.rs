@@ -274,12 +274,12 @@ fn handle_game_packet(
     let now = Instant::now();
     let immediate_flush = needs_immediate_flush(&packet, flush_policy);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-        if world.beat_driven_loop {
-            world.player_reset_connection_rounds(
-                cid,
-                crate::connections_772::packet_counts_as_action_772(&packet),
-            );
-        }
+        // Phase 4: 1098 no longer resets rounds differently — both eras use the 772
+        // `ProcessConnections` round tracking.
+        world.player_reset_connection_rounds(
+            cid,
+            crate::connections_772::packet_counts_as_action_772(&packet),
+        );
         if game_packet_requires_timed_action(&packet)
             && !world.player_packet_action_ready(cid, &packet)
         {
@@ -413,33 +413,20 @@ fn handle_game_packet(
                 // unified ToDo engine instead of the reactive executor. `TDMove` delay = 0
                 // (`cract.cc:946-948` default), clamped to 1 for forward progress
                 // (`cract.cc:1016`). `ToDoAdd` preamble clears any pending armed action +
-                // snapback (`cract.cc:993-1000`). 1098 keeps the reactive
-                // `player_move_thing` path until Phase 2/3 unification.
-                if world.beat_driven_loop {
-                    let obj = ActionObjectRef {
-                        pos: payload.from_pos,
-                        stack_pos: payload.from_stack_pos,
-                        sprite_id: payload.sprite_id,
-                    };
-                    world.player_todo_clear_with_snapback(conn_id, cid);
-                    if let Err(rv) =
-                        world.enqueue_player_move(cid, obj, payload.to_pos, payload.count)
-                    {
-                        world.send_cancel_message(conn_id, rv);
-                    } else {
-                        world.todo_start_from_action(cid, 1);
-                    }
-                } else if let Err(rv) = world.player_move_thing(
-                    conn_id,
-                    cid,
-                    payload.from_pos,
-                    payload.sprite_id,
-                    payload.from_stack_pos,
-                    payload.to_pos,
-                    payload.count,
-                    now,
-                ) {
+                // snapback (`cract.cc:993-1000`). Phase 4: 1098 reactive `player_move_thing`
+                // path deleted — both eras use the ToDo `TDMove` builder.
+                let obj = ActionObjectRef {
+                    pos: payload.from_pos,
+                    stack_pos: payload.from_stack_pos,
+                    sprite_id: payload.sprite_id,
+                };
+                world.player_todo_clear_with_snapback(conn_id, cid);
+                if let Err(rv) =
+                    world.enqueue_player_move(cid, obj, payload.to_pos, payload.count)
+                {
                     world.send_cancel_message(conn_id, rv);
+                } else {
+                    world.todo_start_from_action(cid, 1);
                 }
             }
         }
@@ -449,22 +436,18 @@ fn handle_game_packet(
                 // + `ToDoStart`. Route through the unified ToDo engine; the `Wait{100}` entry
                 // drives the 100ms floor and the execute arm applies the multiuse gate (S3,
                 // single-object use is ungated). `ToDoAdd` preamble clears any pending armed
-                // action + snapback (`cract.cc:993-1000`). 1098 keeps the reactive
-                // `player_use_item` path until Phase 2/3 unification.
-                if world.beat_driven_loop {
-                    let obj = ActionObjectRef {
-                        pos: payload.pos,
-                        stack_pos: payload.stack_pos,
-                        sprite_id: payload.sprite_id,
-                    };
-                    world.player_todo_clear_with_snapback(conn_id, cid);
-                    if let Err(rv) = world.enqueue_player_use(cid, obj, None, payload.index) {
-                        world.send_cancel_message(conn_id, rv);
-                    } else {
-                        world.todo_start_from_action(cid, 1);
-                    }
-                } else if let Err(rv) = world.player_use_item(conn_id, cid, payload, now) {
+                // action + snapback (`cract.cc:993-1000`). Phase 4: 1098 reactive
+                // `player_use_item` path deleted — both eras use the ToDo `TDUse` builder.
+                let obj = ActionObjectRef {
+                    pos: payload.pos,
+                    stack_pos: payload.stack_pos,
+                    sprite_id: payload.sprite_id,
+                };
+                world.player_todo_clear_with_snapback(conn_id, cid);
+                if let Err(rv) = world.enqueue_player_use(cid, obj, None, payload.index) {
                     world.send_cancel_message(conn_id, rv);
+                } else {
+                    world.todo_start_from_action(cid, 1);
                 }
             }
         }
@@ -473,26 +456,22 @@ fn handle_game_packet(
                 // F8 S6 — 772 `CUseTwoObjects` (`receiving.cc:430`): `ToDoWait(100)` +
                 // `ToDoUse(2,…)` + `ToDoStart`. Same ToDo routing as `UseItem`; the execute
                 // arm gates two-object use on `EarliestMultiuseTime` (S3). `open_index` = 0
-                // (`UseItemEx` has no index byte). 1098 keeps the reactive path.
-                if world.beat_driven_loop {
-                    let obj1 = ActionObjectRef {
-                        pos: payload.from_pos,
-                        stack_pos: payload.from_stack_pos,
-                        sprite_id: payload.from_sprite_id,
-                    };
-                    let obj2 = ActionObjectRef {
-                        pos: payload.to_pos,
-                        stack_pos: payload.to_stack_pos,
-                        sprite_id: payload.to_sprite_id,
-                    };
-                    world.player_todo_clear_with_snapback(conn_id, cid);
-                    if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {
-                        world.send_cancel_message(conn_id, rv);
-                    } else {
-                        world.todo_start_from_action(cid, 1);
-                    }
-                } else if let Err(rv) = world.player_use_item_ex(conn_id, cid, payload, now) {
+                // (`UseItemEx` has no index byte). Phase 4: 1098 reactive path deleted.
+                let obj1 = ActionObjectRef {
+                    pos: payload.from_pos,
+                    stack_pos: payload.from_stack_pos,
+                    sprite_id: payload.from_sprite_id,
+                };
+                let obj2 = ActionObjectRef {
+                    pos: payload.to_pos,
+                    stack_pos: payload.to_stack_pos,
+                    sprite_id: payload.to_sprite_id,
+                };
+                world.player_todo_clear_with_snapback(conn_id, cid);
+                if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {
                     world.send_cancel_message(conn_id, rv);
+                } else {
+                    world.todo_start_from_action(cid, 1);
                 }
             }
         }
@@ -500,33 +479,26 @@ fn handle_game_packet(
         // `ToDoStart`. Rotates a rotatable *item* (wall torch/rope) — **not** `CRotate` (player
         // facing, `receiving.cc:213`, already immediate via `GamePacket::Turn`). This arm is
         // new in S6: `RotateItem` previously fell through to the catch-all `_ => trace!`
-        // (§0.1 F2). The executor (`player_rotate_item`) was built in S4. 1098 has no
-        // reactive executor either — deferred to Phase 2/3.
+        // (§0.1 F2). The executor (`player_rotate_item`) was built in S4. Phase 4: 1098
+        // reactive path deleted — both eras use the ToDo `TDTurn` builder.
         GamePacket::RotateItem {
             pos,
             sprite_id,
             stack_pos,
         } => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-                if world.beat_driven_loop {
-                    let obj = ActionObjectRef {
-                        pos,
-                        stack_pos,
-                        sprite_id,
-                    };
-                    world.player_todo_clear_with_snapback(conn_id, cid);
-                    if let Err(rv) = world.enqueue_player_turn(cid, obj) {
-                        world.send_cancel_message(conn_id, rv);
-                    } else {
-                        // `TDTurn` delay = 0 (`cract.cc:946-948` default); the `Wait{100}`
-                        // prefix drives the 100ms floor. Clamp to 1 for forward progress.
-                        world.todo_start_from_action(cid, 1);
-                    }
+                let obj = ActionObjectRef {
+                    pos,
+                    stack_pos,
+                    sprite_id,
+                };
+                world.player_todo_clear_with_snapback(conn_id, cid);
+                if let Err(rv) = world.enqueue_player_turn(cid, obj) {
+                    world.send_cancel_message(conn_id, rv);
                 } else {
-                    trace!(
-                        conn_id = conn_id.0,
-                        "RotateItem — 1098 reactive path deferred to Phase 2"
-                    );
+                    // `TDTurn` delay = 0 (`cract.cc:946-948` default); the `Wait{100}`
+                    // prefix drives the 100ms floor. Clamp to 1 for forward progress.
+                    world.todo_start_from_action(cid, 1);
                 }
             }
         }
@@ -575,9 +547,7 @@ fn handle_game_packet(
             "game packet — simulation Phase 9+"
         ),
     }
-    if !world.beat_driven_loop {
-        world.process_walk_deadlines();
-    }
+    // Phase 4: 1098 `process_walk_deadlines` call deleted — both eras use the ToDo queue.
     let _ = immediate_flush;
 }
 
@@ -1140,10 +1110,11 @@ mod f8_s6_handler_routing_tests {
         assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
     }
 
-    /// `RotateItem` in a non-beat-driven (1098) world must not enqueue a ToDo entry —
-    /// there is no reactive executor either, so it stays a no-op trace until Phase 2/3.
+    /// Phase 4: `RotateItem` now always uses the ToDo `TDTurn` builder for both eras —
+    /// the 1098 no-op trace arm was deleted. Verify it enqueues even when
+    /// `beat_driven_loop = false` (1098 without `TFS_FORCE_BEAT_LOOP`).
     #[test]
-    fn rotate_item_no_op_when_not_beat_driven() {
+    fn rotate_item_enqueues_even_when_not_beat_driven() {
         let mut world = beat_driven_test_world();
         world.beat_driven_loop = false;
         let player_pos = Position::new(100, 100, 7);
@@ -1162,8 +1133,9 @@ mod f8_s6_handler_routing_tests {
         );
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert!(base.todo.is_empty(), "1098 RotateItem must not enqueue");
-        assert!(base.next_wakeup.is_none());
+        assert_eq!(base.todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
+        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert!(matches!(base.todo.queue[1], CreatureAction::Turn { .. }));
     }
 
     /// Builder failure (absent object) → `send_cancel_message`, no ToDo entry, no wakeup.

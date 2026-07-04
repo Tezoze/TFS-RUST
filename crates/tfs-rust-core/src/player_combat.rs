@@ -84,10 +84,7 @@ impl GameWorld {
         target_wire_id: u32,
         follow: bool,
     ) -> CombatResult {
-        if !self.beat_driven_loop {
-            // 1098 path is not part of Phase 1 — defer to Phase 2 unification.
-            return CombatResult::NoError;
-        }
+        // Phase 4: 1098 defer deleted — both eras use the 772 `SetAttackDest` ToDo path.
         // `SetAttackDest` early-out: same target + same follow → no-op (`crcombat.cc:358-360`).
         let resolved_target = target_wire_id_to_creature(self, target_wire_id);
         let already = self.creatures.get(cid).is_some_and(|k| {
@@ -195,9 +192,7 @@ impl GameWorld {
     /// `ToDoStop` (used by `CGoStop`), `CCancelAttack` calls `ToDoClear` directly — immediate
     /// clear + conditional snapback, no deferred `Stop` flag.
     pub(crate) fn player_cancel_attack_and_follow(&mut self, conn_id: ConnId, cid: CreatureId) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras use the 772 `CCancelAttack` ToDo path.
         self.player_stop_attack(conn_id, cid);
         // `ToDoClear` + `SendSnapback` if pending Go (`receiving.cc:1339-1341`).
         self.player_todo_clear_with_snapback(conn_id, cid);

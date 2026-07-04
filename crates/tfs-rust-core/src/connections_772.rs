@@ -34,9 +34,7 @@ impl GameWorld {
         cid: CreatureId,
         counts_as_action: bool,
     ) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras use 772 round tracking.
         let round = self.round_nr_772;
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.last_command_round = round;
@@ -53,9 +51,7 @@ impl GameWorld {
     /// (`config.lua`): warning at `N*60` rounds, kick at `(N+1)*60` rounds. The proactive
     /// ping cadence (30/60) and dead-connection timeout (90) are 772 engine constants.
     pub(crate) fn process_connections_772(&mut self) -> Vec<ConnId> {
-        if !self.beat_driven_loop {
-            return Vec::new();
-        }
+        // Phase 4: 1098 defer deleted — both eras use 772 ProcessConnections.
         let round = self.round_nr_772;
         let idle_warn_rounds = self.connection_config.idle_warn_rounds();
         let idle_kick_rounds = self.connection_config.idle_kick_rounds();
@@ -102,9 +98,7 @@ impl GameWorld {
 
     /// C++ `SendAmbiente` on brightness change (`main.cc:361-372`).
     pub(crate) fn tick_ambiente_light_772(&mut self) {
-        if !self.beat_driven_loop {
-            return;
-        }
+        // Phase 4: 1098 defer deleted — both eras use 772 ambient light.
         let wt = crate::world_light::world_time_from_local_clock();
         let brightness = crate::world_light::light_level_from_world_time(wt) as i8;
         if brightness == self.last_ambiente_brightness {
