@@ -10,7 +10,7 @@ use crate::ids::CreatureId;
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
 
-/// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (`beat_driven_loop` gates use).
+/// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (era gating via profile).
 ///
 /// Lives on [`CreatureBase`] so both players and monsters share the unified ToDo/`CanToDoAttack`
 /// chase path (Phase 0 walk-engine unification). 772 players use `Close` when following.

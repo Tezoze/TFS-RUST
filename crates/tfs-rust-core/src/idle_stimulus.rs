@@ -4,7 +4,7 @@
 //! - `TMonster::IdleStimulus` — `crnonpl.cc:2386`.
 //!
 //! Phase 3: monsters run on this engine for **both** eras (1098 monster AI deleted).
-//! Players remain gated on `GameWorld::beat_driven_loop` until Phase 4.
+//! Phase 6: the `beat_driven_loop` flag is collapsed — both eras run on this engine.
 
 use std::time::Instant;
 
@@ -91,16 +91,9 @@ impl GameWorld {
     /// (`crnonpl.cc:2386`). NPCs remain excluded.
     /// Phase 3: monsters run on the ToDo/IdleStimulus engine for **both** eras.
     /// Phase 4: players also run on the ToDo/IdleStimulus engine for both eras (1098
-    /// player logic deleted). Phase 5 deleted `TFS_FORCE_BEAT_LOOP` — both eras
+    /// player logic deleted). Phase 6 collapsed `beat_driven_loop` — both eras
     /// unconditionally use the beat-driven ToDo engine.
     pub(crate) fn idle_stimulus(&mut self, cid: CreatureId) {
-        let is_monster = self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)));
-        if !is_monster && !self.beat_driven_loop {
-            return;
-        }
         if !self.creatures.contains_key(cid) {
             return;
         }
@@ -158,8 +151,8 @@ impl GameWorld {
     ///
     /// Phase 1: widened from monster-only to all creatures on the unified ToDo path
     /// (players + monsters) via [`creature_uses_todo_execute`](Self::creature_uses_todo_execute).
-    /// Phase 3: monsters use the ToDo path for both eras; `creature_uses_todo_execute` now
-    /// returns true for monsters regardless of `beat_driven_loop`.
+    /// Phase 3: monsters use the ToDo path for both eras; `creature_uses_todo_execute`
+    /// returns true for monsters unconditionally.
     pub(crate) fn request_idle_stimulus(&mut self, cid: CreatureId) {
         if !self.creature_uses_todo_execute(cid) {
             return;

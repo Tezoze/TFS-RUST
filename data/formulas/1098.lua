@@ -8,10 +8,12 @@
 -- fixed 10/25, weapons.cpp, condition.cpp, vocation.cpp).
 
 formulas = {
-  beatMs = 50,                  -- scheduler quantization (creature.cpp getStepDuration ceil to 50)
+  beatMs = 50,                   -- scheduler quantization (creature.cpp getStepDuration ceil to 50)
   defenseGateMs = 2000,
-  armor = "full",               -- subtract full armor value
-  pathCost = "fixed",           -- A* 10 normal / 25 diagonal
+  armor = "full",                -- subtract full armor value
+  pathCost = "fixed",            -- A* 10 normal / 25 diagonal
+  pathSearch = "forward",        -- TFS forward A* (getPathMatching)
+  distanceKeep = "perType",
   weakestTargetMetric = "maxHp",
   damageFormula = "modern",
   damageTuning = {
@@ -24,10 +26,15 @@ formulas = {
     divisor = 2,
   },
   spawnNearPlayer = "block",
+  spawnPlacement = "tfs",        -- TFS Spawn::shuffle
   respawnModel = "fixed",        -- TFS Spawn::checkSpawn: fixed per-slot spawntime_ms
   expAttributionRounds = 60,
   followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
-  pathForwardFallback = true,      -- TFS falls back to forward search if reverse fails
+  pathForwardFallback = true,       -- TFS falls back to forward search if reverse fails
+  parityRngSource = "env",          -- env/global or ai_rng (not per-world glibc)
+  corpseDecayOffsetMs = 600,        -- generic corpse decay +600ms
+  undergroundSeesSurface = false,   -- TFS canSee: underground cannot see surface (tz < 8 rejects)
+  damageTextFormat = "simpleLoss",  -- "You lose N hitpoints." (no attacker attribution)
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.80,

@@ -6,7 +6,7 @@
 use std::time::{Duration, Instant};
 
 use tfs_rust_common::{ConnId, CLIENTOS_OTCLIENT_LINUX};
-use tfs_rust_net::outgoing::{send_ping, send_ping_back};
+use tfs_rust_net::outgoing::send_ping_back;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
@@ -62,11 +62,8 @@ impl GameWorld {
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.last_ping_sent = now;
             }
-            let pkt = if self.beat_driven_loop && !is_otclient {
-                send_ping_back() // 0x1E — server-initiated ping for non-OTClient
-            } else {
-                send_ping() // 0x1D — OTClient (both eras) + 1098 always
-            };
+            // X1: opcode selection pushed to the codec — core only signals "send periodic ping".
+            let pkt = self.codec.periodic_ping_packet(is_otclient);
             self.enqueue_outgoing(conn_id, pkt.into_bytes());
         }
     }

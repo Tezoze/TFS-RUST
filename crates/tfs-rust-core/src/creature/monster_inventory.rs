@@ -585,7 +585,6 @@ mod tests {
         let mut world = minimal_world();
         world.mechanics =
             crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
-        world.beat_driven_loop = true;
         world.items_db = Arc::new(ItemDatabase {
             items: items,
             client_to_server: HashMap::new(),

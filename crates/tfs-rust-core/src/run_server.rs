@@ -226,11 +226,10 @@ pub async fn run() -> anyhow::Result<()> {
     };
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
     info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
-    // Phase 5: both eras run on the unified 772 beat loop (`run_game_loop_772`).
+    // Phase 6: both eras run on the unified beat loop (`run_game_loop_772`).
     // The 1098 reactive loop (`run_game_loop_1098`) + `walk_wake_tx`/`sleep_until` walk
-    // scheduling are deleted. `beat_driven_loop` is forced true so all remaining
-    // `if beat_driven_loop` sites take the beat arm for both eras; Phase 6 collapses
-    // the flag entirely.
+    // scheduling are deleted. The `beat_driven_loop` flag is collapsed — era differences
+    // live in `MechanicsProfile` / `ProtocolCodec` only.
     let mut world = GameWorld::new(
         map,
         items,
@@ -246,7 +245,6 @@ pub async fn run() -> anyhow::Result<()> {
         mechanics,
     );
     world.scheduler = Some(scheduler.clone());
-    world.beat_driven_loop = true;
     world.startup_spawns();
     info!(
         map_chunks = world.map.grid.chunk_count(),

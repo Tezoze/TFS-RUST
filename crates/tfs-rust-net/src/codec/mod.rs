@@ -179,6 +179,12 @@ pub trait ProtocolCodec {
     ///   `SendMessage(TALK_FAILURE_MESSAGE, ...)`. The 772 TVP `const.h` names this
     ///   `MESSAGE_STATUS_SMALL = 0x17 = 23` — same wire byte, different name than 1098.
     fn failure_message_type(&self) -> u8;
+
+    /// Periodic keepalive ping packet — X1 (K1 inventory §X1).
+    /// - **772** (`protocolgame.cpp:1516`): `0x1E` (`send_ping_back`) for non-OTClient,
+    ///   `0x1D` (`send_ping`) for OTClient.
+    /// - **1098** (`src/protocolgame.cpp:2530`): always `0x1D` (`send_ping`).
+    fn periodic_ping_packet(&self, is_otclient: bool) -> NetworkMessage;
 }
 
 impl ProtocolCodec for Codec1098 {
@@ -402,6 +408,11 @@ impl ProtocolCodec for Codec1098 {
     fn failure_message_type(&self) -> u8 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
+
+    fn periodic_ping_packet(&self, _is_otclient: bool) -> NetworkMessage {
+        // 1098: always 0x1D (`send_ping`) — `src/protocolgame.cpp:2530`.
+        crate::outgoing::send_ping()
+    }
 }
 
 impl ProtocolCodec for Codec772 {
@@ -624,6 +635,15 @@ impl ProtocolCodec for Codec772 {
     fn failure_message_type(&self) -> u8 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
+
+    fn periodic_ping_packet(&self, is_otclient: bool) -> NetworkMessage {
+        // TVP 772 (`protocolgame.cpp:1516`): 0x1E for non-OTClient, 0x1D for OTClient.
+        if is_otclient {
+            crate::outgoing::send_ping()
+        } else {
+            crate::outgoing::send_ping_back()
+        }
+    }
 }
 
 /// Zero-cost dispatcher for the active wire codec (A5: `V1098` + `V772`).
@@ -773,6 +793,8 @@ impl Codec {
         encode_creature_say(statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
 
         failure_message_type() -> u8;
+
+        periodic_ping_packet(is_otclient: bool) -> NetworkMessage;
     }
 }
 
@@ -993,5 +1015,9 @@ impl ProtocolCodec for Codec {
 
     fn failure_message_type(&self) -> u8 {
         Codec::failure_message_type(self)
+    }
+
+    fn periodic_ping_packet(&self, is_otclient: bool) -> NetworkMessage {
+        Codec::periodic_ping_packet(self, is_otclient)
     }
 }

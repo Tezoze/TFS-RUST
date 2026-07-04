@@ -108,10 +108,8 @@ pub struct GameWorld {
     pub next_statement_id: u32,
     /// 772 global action scheduler (`crmain.cc` `MoveCreatures`).
     pub(crate) todo_queue: crate::todo_queue::ToDoQueue,
-    /// Logical game clock — advanced in `beat_ms` steps on the 772 loop (`crmain.cc` `ServerMilliseconds`).
+    /// Logical game clock — advanced in `beat_ms` steps on the beat loop (`crmain.cc` `ServerMilliseconds`).
     pub(crate) server_ms: u64,
-    /// True when `StepSpeedModel::LinearGo` — beat-driven loop + ToDoQueue walk scheduling.
-    pub(crate) beat_driven_loop: bool,
     /// TFS `Game::ReleaseCreature` → `ToReleaseCreatures` (`src/game.cpp` ~4766–4768), drained in [`Self::cleanup`].
     pub(crate) creatures_pending_release: Vec<CreatureId>,
     /// TFS `Game::ReleaseItem` → `ToReleaseItems` (`src/game.cpp` ~4771–4773).
@@ -151,15 +149,10 @@ pub struct GameWorld {
 }
 
 impl GameWorld {
-    /// Logical millisecond clock for subsystem scheduling. 772 uses `server_ms` (the beat clock);
-    /// 1098 derives a monotonic ms from the ~50 ms `tick_counter`. Used by respawn timing so it
-    /// no longer rides the wall clock (audit Finding 13).
+    /// Logical millisecond clock for subsystem scheduling — always `server_ms` (the beat clock).
+    /// Phase 6: the `beat_driven_loop` fork is collapsed; both eras run on the unified beat engine.
     pub(crate) fn now_ms(&self) -> u64 {
-        if self.beat_driven_loop {
-            self.server_ms
-        } else {
-            self.tick_counter.saturating_mul(50)
-        }
+        self.server_ms
     }
 
     pub fn player_timed_action_ready(&self, cid: CreatureId) -> bool {
@@ -267,8 +260,6 @@ impl GameWorld {
             .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
         let connection_config = crate::config::ConnectionConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::ConnectionConfig::defaults());
-        let beat_driven_loop =
-            mechanics.profile.step_speed == crate::formulas::StepSpeedModel::LinearGo;
         Self {
             creatures: SlotMap::with_key(),
             items,
@@ -304,7 +295,6 @@ impl GameWorld {
             next_statement_id: 0,
             todo_queue: crate::todo_queue::ToDoQueue::default(),
             server_ms: 0,
-            beat_driven_loop,
             creatures_pending_release: Vec::new(),
             items_pending_release: Vec::new(),
             container_registry: ContainerRegistry::new(),
@@ -362,37 +352,46 @@ impl GameWorld {
         self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed);
     }
 
-    /// Inclusive random on the era-appropriate stream — 772 uses per-world glibc state.
+    /// Inclusive random on the era-appropriate stream — K1 profile knob.
+    /// 772 (`PerWorldGlibc`) uses per-world glibc state; 1098 (`EnvGlobal`) uses env/global.
     pub(crate) fn parity_random(&self, min: i32, max: i32) -> i32 {
-        if self.beat_driven_loop {
+        if self.mechanics.profile.parity_rng_source
+            == crate::formulas::ParityRngSource::PerWorldGlibc
+        {
             self.parity_rng.random(min, max)
         } else {
             crate::sim_glibc_rand::parity_random(min, max)
         }
     }
 
-    /// Modulo roll on the era-appropriate stream.
+    /// Modulo roll on the era-appropriate stream — K1 profile knob.
     pub(crate) fn parity_rand_mod(&self, modulus: u32) -> u32 {
-        if self.beat_driven_loop {
+        if self.mechanics.profile.parity_rng_source
+            == crate::formulas::ParityRngSource::PerWorldGlibc
+        {
             self.parity_rng.rand_mod(modulus)
         } else {
             crate::sim_glibc_rand::parity_rand_mod(modulus)
         }
     }
 
-    /// Forward Fisher-Yates shuffle on the era-appropriate parity stream.
+    /// Forward Fisher-Yates shuffle on the era-appropriate parity stream — K1 profile knob.
     #[allow(dead_code)]
     pub(crate) fn parity_random_shuffle<T>(&self, buf: &mut [T]) {
-        if self.beat_driven_loop {
+        if self.mechanics.profile.parity_rng_source
+            == crate::formulas::ParityRngSource::PerWorldGlibc
+        {
             self.parity_rng.random_shuffle(buf);
         } else {
             crate::sim_glibc_rand::parity_random_shuffle(buf);
         }
     }
 
-    /// Dance / harness rolls — per-world glibc on 772; env/global or [`Self::ai_rng`] on 1098.
+    /// Dance / harness rolls — K1: per-world glibc on 772; env/global or [`Self::ai_rng`] on 1098.
     pub(crate) fn sim_dance_choice(&mut self) -> u32 {
-        if self.beat_driven_loop {
+        if self.mechanics.profile.parity_rng_source
+            == crate::formulas::ParityRngSource::PerWorldGlibc
+        {
             self.parity_rand_mod(5)
         } else {
             #[cfg(any(test, feature = "sim"))]

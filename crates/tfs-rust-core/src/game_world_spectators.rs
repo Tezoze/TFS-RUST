@@ -48,7 +48,7 @@ pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
 /// C++ `Creature::canSee(myPos, pos, viewRangeX, viewRangeY)` — `creature.cpp` ~45–66.
 /// Monster target list / follow use `Map::maxViewportX` / `maxViewportY` (11), not client viewport.
 ///
-/// `beat_driven_loop` selects the era's underground Z-rule:
+/// `underground_sees_surface` selects the era's underground Z-rule (K3 profile knob):
 /// - **false (1098 / TFS `canSee`):** underground viewers cannot see surface (`tz < 8` rejects).
 /// - **true (772 `TConnection::IsVisible`, `connections.cc:357-378`):** underground viewers CAN see
 ///   surface within 2 floors — only `abs(dz) > 2` rejects (audit M5).
@@ -57,7 +57,7 @@ pub fn creature_can_see(
     target: Position,
     view_range_x: i32,
     view_range_y: i32,
-    beat_driven_loop: bool,
+    underground_sees_surface: bool,
 ) -> bool {
     let my_z = i32::from(viewer_pos.z);
     let tz = i32::from(target.z);
@@ -69,7 +69,7 @@ pub fn creature_can_see(
     } else if my_z >= 8 {
         // 772 `IsVisible` (`connections.cc:363-366`) has no `tz < 8` rejection — underground CAN
         // see surface within ±2 floors. 1098/TFS `canSee` keeps the surface rejection.
-        if !beat_driven_loop && tz < 8 {
+        if !underground_sees_surface && tz < 8 {
             return false;
         }
         if (my_z - tz).abs() > 2 {
@@ -301,12 +301,10 @@ impl GameWorld {
             .map(|k| k.base().name.clone());
 
         const TEXTCOLOR_RED: u8 = 180;
-        const CONST_ME_DRAWBLOOD: u8 = 1;
 
         // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood_772` in the
         // combat apply path (`crmain.cc:762-775`), so no duplicate draw-blood here. Phase 3: both
         // eras use the 772 blood path now (1098 monster AI deleted).
-        let _ = CONST_ME_DRAWBLOOD;
 
         use tfs_rust_net::codec::wire::{
             AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire,
@@ -323,21 +321,27 @@ impl GameWorld {
 
         if let Some(conn) = self.conn_for_creature(target_id) {
             let dmg = damage_done as u32;
-            let text = if self.beat_driven_loop {
-                let damage_string = if dmg == 1 {
-                    "1 hitpoint".to_string()
-                } else {
-                    format!("{dmg} hitpoints")
-                };
-                if let Some(attacker) = attacker_desc {
-                    format!("You lose {damage_string} due to an attack by {attacker}.")
-                } else {
-                    format!("You lose {damage_string}.")
+            // K10: damage text format — 772 attributes attacker, 1098 uses simple loss text.
+            let text = match self.mechanics.profile.damage_text_format {
+                crate::formulas::DamageTextFormat::AttackerAttribution => {
+                    let damage_string = if dmg == 1 {
+                        "1 hitpoint".to_string()
+                    } else {
+                        format!("{dmg} hitpoints")
+                    };
+                    if let Some(attacker) = attacker_desc {
+                        format!("You lose {damage_string} due to an attack by {attacker}.")
+                    } else {
+                        format!("You lose {damage_string}.")
+                    }
                 }
-            } else if dmg == 1 {
-                "You lose 1 hitpoint.".to_string()
-            } else {
-                format!("You lose {dmg} hitpoints.")
+                crate::formulas::DamageTextFormat::SimpleLoss => {
+                    if dmg == 1 {
+                        "You lose 1 hitpoint.".to_string()
+                    } else {
+                        format!("You lose {dmg} hitpoints.")
+                    }
+                }
             };
             self.enqueue_encoded(
                 conn,
@@ -814,7 +818,7 @@ mod creature_can_see_tests {
     }
 
     /// M5: 772 `TConnection::IsVisible` (`connections.cc:357-378`) — underground viewers CAN see
-    /// surface within 2 floors (no `tz < 8` rejection). `beat_driven_loop = true`.
+    /// surface within 2 floors (no `tz < 8` rejection). `underground_sees_surface = true`.
     #[test]
     fn creature_can_see_underground_to_surface() {
         let viewer = Position::new(100, 100, 9);

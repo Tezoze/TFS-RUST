@@ -36,13 +36,12 @@ impl GameWorld {
         // and runs alongside the round-based `ProcessConnections` idle ping — both eras use it.
         self.tick_player_pings(now);
 
-        if self.beat_driven_loop {
-            self.round_nr_772 = self.round_nr_772.saturating_add(1);
-            let kick = self.process_connections_772();
-            self.tick_ambiente_light_772();
-            for conn_id in kick {
-                self.pending_idle_kick_772.push(conn_id);
-            }
+        // Phase 6: `beat_driven_loop` collapsed — both eras run the 772 round-based subsystems.
+        self.round_nr_772 = self.round_nr_772.saturating_add(1);
+        let kick = self.process_connections_772();
+        self.tick_ambiente_light_772();
+        for conn_id in kick {
+            self.pending_idle_kick_772.push(conn_id);
         }
     }
 

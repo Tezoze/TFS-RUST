@@ -164,7 +164,7 @@ impl GameWorld {
     }
 
     /// Poll respawn timers — C++ `Spawn::checkSpawn`. Driven on the **logical** clock (`now_ms`):
-    /// `server_ms` on 772, `tick_counter*50` on 1098 (audit Finding 13).
+    /// `server_ms` for both eras (Phase 6 collapse — audit Finding 13).
     pub fn poll_spawn_respawns(&mut self, now_ms: u64) {
         if !self.spawns.should_run_check(now_ms) {
             return;
@@ -969,9 +969,9 @@ mod tests {
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
 
-        // Respawn now runs on the logical clock (audit Finding 13): advance `now_ms` (= tick_counter*50
-        // on the 1098 on_tick path) past the slot's respawn deadline + check interval.
-        world.tick_counter = 1_000_000;
+        // Respawn runs on `server_ms` (Phase 6: both eras use the unified beat clock).
+        // Advance `server_ms` past the slot's respawn deadline + check interval.
+        world.server_ms = 50_000_000;
         let later = Instant::now() + std::time::Duration::from_secs(6);
         world.on_tick(later);
 
@@ -998,8 +998,8 @@ mod tests {
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
 
-        // Respawn on the logical clock (audit Finding 13) — advance `now_ms` past the deadline.
-        world.tick_counter = 1_000_000;
+        // Respawn on `server_ms` (Phase 6: unified beat clock) — advance past the deadline.
+        world.server_ms = 50_000_000;
         let later = Instant::now() + std::time::Duration::from_secs(6);
         world.on_tick(later);
         let monsters = world

@@ -139,7 +139,7 @@ impl GameWorld {
             op,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
-            true,
+            self.mechanics.profile.underground_sees_surface,
         )
     }
 
@@ -169,7 +169,7 @@ impl GameWorld {
             creature_pos,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
-            true,
+            self.mechanics.profile.underground_sees_surface,
         ) {
             return;
         }
@@ -668,7 +668,7 @@ impl GameWorld {
                 target_pos,
                 i32::from(MAP_MAX_VIEWPORT),
                 i32::from(MAP_MAX_VIEWPORT),
-                true,
+                self.mechanics.profile.underground_sees_surface,
             )
         {
             if let Some(k) = self.creatures.get_mut(monster_id) {

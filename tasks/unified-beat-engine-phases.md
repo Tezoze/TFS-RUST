@@ -38,7 +38,7 @@ The 772 test suite must stay byte-stable throughout.
 | 3 | Delete 1098 **monster** AI; 1098 reuses 772 monster AI | med | 1098 harness spot-checks |
 | 4 | Delete 1098 **player** logic; 1098 reuses 772 player logic | high | 1098 harness spot-checks |
 | 5 | Retire 1098 reactive machinery (delete) | med | grep-clean + green |
-| 6 | Collapse `beat_driven_loop` flag | mechanical | zero prod hits |
+| 6 | Collapse `beat_driven_loop` flag ✅ | mechanical | zero prod hits |
 | 7 | Single `run_game_loop` entry | low | one loop fn |
 | 8 | Naming reconciliation (`_772` → canonical) | mechanical | audit P3 exit |
 | 9 | **Parity QA gate** (772 stable + live 1098) | — | sign-off |
@@ -305,24 +305,33 @@ single 772-based engine. 564 core tests pass, 0 failures. Workspace `cargo check
   removed unused `TargetSearchType` import.
 - `monster_ai.rs` — `walk_timer_idle()` calls updated.
 - Tests (`monster_ai_world_tests`, `monster_ai_tests`, `monster_push_tests`,
-  `creature_think_tests`, `idle_stimulus_tests`, `arena.rs`) — removed `walk_wake_tx = None`,
+  `creature_think_tests`, `idle_stimulus_tests`, `arena.rs`) — Premoved `walk_wake_tx = None`,
   `next_walk_check`/`walk_timer`/`walk_action_due` field initializations, `process_walk_deadlines`
   calls, F8 S7 `on_player_walk_complete` tests.
 
 ---
 
-## Phase 6 — Collapse the `beat_driven_loop` flag
+## Phase 6 — Collapse the `beat_driven_loop` flag ✅ DONE
 
 Walk the Phase 1 inventory:
 
-- [ ] **U** rows: delete `else`, keep beat arm unconditionally.
-- [ ] **K** rows: replace boolean with the profile read.
-- [ ] **C** rows: route through the clock seam.
-- [ ] **X** rows: push to codec.
-- [ ] Remove `GameWorld::beat_driven_loop` + constructor wiring.
-- [ ] `now_ms()` unconditionally returns `server_ms`.
+- [x] **U** rows: delete `else`, keep beat arm unconditionally.
+- [x] **K** rows: replace boolean with the profile read.
+  - K1 `parity_rng_source` (`ParityRngSource` enum — `PerWorldGlibc` / `EnvGlobal`).
+  - K2 `corpse_decay_offset_ms` (772 30 000 ms, 1098 600 ms).
+  - K3 `underground_sees_surface` (772 true, 1098 false) — `creature_can_see` param renamed.
+  - K10 `damage_text_format` (`DamageTextFormat` enum — `AttackerAttribution` / `SimpleLoss`).
+- [x] **C** rows: route through the clock seam — `now_ms()` unconditionally returns `server_ms`.
+- [x] **X** rows: push to codec — `ProtocolCodec::periodic_ping_packet(is_otclient)`.
+- [x] Remove `GameWorld::beat_driven_loop` + constructor wiring.
+- [x] `now_ms()` unconditionally returns `server_ms`.
+- [x] Restore `data/formulas/1098.lua` to 1098-era defaults (Phase 5 had forced 772 values).
+- [x] Update tests: `sim_harness`, `game_loop`, `monster_inventory`, `monster_ai_world_tests`,
+      `spell_tests`, `mechanics_formulas` integration test.
+- [x] Remove `run_server.rs` forced `beat_driven_loop = true`.
 
-**Exit:** `grep -rn "beat_driven_loop" crates/tfs-rust-core/src` → **zero** production hits.
+**Exit:** `grep -rn "beat_driven_loop" crates/tfs-rust-core/src` → **zero** production hits
+(only doc comments explaining the Phase 6 collapse remain). `cargo test`: 564 passed, 0 failed.
 
 ---
 

@@ -62,7 +62,6 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
         next_wakeup = ?base.next_wakeup,
         heap_len = world.todo_queue.len(),
         follow,
-        beat_driven = world.beat_driven_loop,
         "idle_todo"
     );
     if chase_debug::chase_path_debug_enabled() {
@@ -614,7 +613,7 @@ impl GameWorld {
         if let Some(ms) = wait_after_ms {
             self.enqueue_creature_wait(cid, ms);
         }
-        if self.beat_driven_loop && chase_debug::chase_path_debug_enabled() {
+        if chase_debug::chase_path_debug_enabled() {
             if let Some(k) = self.creatures.get(cid) {
                 let follow_id = k.base().follow_target;
                 let is_dance = todo_via == Some("idle_dance");
@@ -695,11 +694,11 @@ impl GameWorld {
     /// Phase 0 walk-engine unification: widened from monster-only to include **players** so both
     /// share `Execute` → `Go`/`Attack` → `IdleStimulus` → `Combat.CanToDoAttack`
     /// (`cract.cc:783`, `crplayer.cc:388`). NPCs remain excluded (no ToDo-driven behavior).
+    /// Phase 6: `beat_driven_loop` collapsed — both eras unconditionally use the ToDo path.
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {
-        self.beat_driven_loop
-            && self.creatures.get(cid).is_some_and(|k| {
-                matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_))
-            })
+        self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_))
+        })
     }
 
     /// F8 S4 — C++ `Execute` `RESULT` catch — `cract.cc:870-889`.

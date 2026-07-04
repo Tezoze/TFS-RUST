@@ -50,7 +50,7 @@ pub fn handle_creature_death(
     step_speed_model: StepSpeedModel,
     config: &ConfigManager,
     schedule_generic_corpse: bool,
-    beat_driven_loop: bool,
+    corpse_decay_offset_ms: u64,
 ) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return;
@@ -105,7 +105,7 @@ pub fn handle_creature_death(
 
     if schedule_generic_corpse {
         let corpse_id = items.insert(Item::new(3058, 1));
-        let decay_offset = if beat_driven_loop { 30_000 } else { 600 };
-        decay.schedule(corpse_id, decay_now.saturating_add(decay_offset), None);
+        // K2: era-tuned corpse decay offset (772 30 000 ms, 1098 600 ms) from MechanicsProfile.
+        decay.schedule(corpse_id, decay_now.saturating_add(corpse_decay_offset_ms), None);
     }
 }

@@ -30,6 +30,10 @@ formulas = {
   expAttributionRounds = 60,
   followRepathWithoutPath = true,  -- target-move repath without hasFollowPath gate (not idle drain)
   pathForwardFallback = false,     -- NOWAY when reverse search fails
+  parityRngSource = "perWorld",    -- per-world glibc-parity stream (Finding 8/15)
+  corpseDecayOffsetMs = 30000,     -- generic corpse decay +30s (crmain.cc decay scheduler)
+  undergroundSeesSurface = true,   -- IsVisible: underground CAN see surface ±2 floors
+  damageTextFormat = "attackerAttribution", -- "You lose N hp due to an attack by X."
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.60,
@@ -44,7 +48,7 @@ formulas = {
 
   spell = { levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 },
-  playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
+  playerSpeed = "772",      -- "772" | "retail" | "balanced" (loaded once at startup)
 }
 
 -- Player speed model selector ------------------------------------------------------------

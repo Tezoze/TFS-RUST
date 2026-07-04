@@ -170,16 +170,12 @@ impl GameWorld {
             return;
         }
 
-        let corpse_snapshot = if self.beat_driven_loop {
-            self.creatures.get(victim).and_then(|k| {
-                let CreatureKind::Monster(m) = k else {
-                    return None;
-                };
-                Some((m.base.position, m.corpse_id, m.blood, m.inventory.clone()))
-            })
-        } else {
-            None
-        };
+        let corpse_snapshot = self.creatures.get(victim).and_then(|k| {
+            let CreatureKind::Monster(m) = k else {
+                return None;
+            };
+            Some((m.base.position, m.corpse_id, m.blood, m.inventory.clone()))
+        });
 
         if let Some((pos, corpse_id, blood, inventory)) = corpse_snapshot {
             self.drop_monster_corpse_772(pos, corpse_id, blood, &inventory);
@@ -206,6 +202,8 @@ impl GameWorld {
         }
 
         let decay_now = self.now_ms();
+        // K2: corpse decay offset from profile (772 30 000 ms, 1098 600 ms).
+        // `schedule_generic_corpse` is always true — the 1098 no-corpse arm was deleted in Phase 5.
         crate::death::handle_creature_death(
             &mut self.creatures,
             &mut self.items,
@@ -216,8 +214,8 @@ impl GameWorld {
             None,
             self.mechanics.profile.step_speed,
             self.config.as_ref(),
-            !self.beat_driven_loop,
-            self.beat_driven_loop,
+            true,
+            self.mechanics.profile.corpse_decay_offset_ms,
         );
         self.remove_creature(victim);
     }

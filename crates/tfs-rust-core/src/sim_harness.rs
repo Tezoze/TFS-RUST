@@ -462,7 +462,6 @@ fn init_beat_driven_world(
             .expect("772 codec"),
         mechanics,
     );
-    world.beat_driven_loop = true;
     world.server_ms = 0;
     reset_harness_scenario_clock();
     world.init_sim_rng_from_env();
@@ -981,17 +980,15 @@ pub fn insert_monster_from_type(
         .insert(CreatureKind::Monster(Monster::with_config(
             base, pos, config,
         )));
-    if world.beat_driven_loop {
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
-            m.experience = mtype.experience;
-            m.corpse_id = mtype.outfit.corpse_id;
-            m.blood = mtype.blood_type();
-            m.state = initial_state;
-            m.is_idle = true;
-        }
-        world.roll_monster_spawn_loot(cid, mtype);
-        world.recompute_monster_combat_from_equipment(cid);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
+        m.experience = mtype.experience;
+        m.corpse_id = mtype.outfit.corpse_id;
+        m.blood = mtype.blood_type();
+        m.state = initial_state;
+        m.is_idle = true;
     }
+    world.roll_monster_spawn_loot(cid, mtype);
+    world.recompute_monster_combat_from_equipment(cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid
@@ -1191,17 +1188,15 @@ fn appear_monster_without_idle(world: &mut GameWorld, monster_id: CreatureId) {
         }
     }
     world.monster_update_target_list(monster_id);
-    if world.beat_driven_loop {
-        if let Some(opponent) = world.creatures.get(monster_id).and_then(|k| {
-            let CreatureKind::Monster(m) = k else {
-                return None;
-            };
-            m.opponent_ids.first().copied()
-        }) {
-            harness_acquire_chase_target_without_idle(world, monster_id, opponent);
-        }
-        appear_face_target_for_debug(world, monster_id);
+    if let Some(opponent) = world.creatures.get(monster_id).and_then(|k| {
+        let CreatureKind::Monster(m) = k else {
+            return None;
+        };
+        m.opponent_ids.first().copied()
+    }) {
+        harness_acquire_chase_target_without_idle(world, monster_id, opponent);
     }
+    appear_face_target_for_debug(world, monster_id);
 }
 
 /// Set follow/attack without `request_idle_stimulus` — harness batch appear only.
@@ -1238,7 +1233,7 @@ fn harness_acquire_chase_target_without_idle(
 
 /// Chase JSONL rotate @ tick 0 — harness-only; bypasses `walk_timer_idle` gate on appear.
 fn appear_face_target_for_debug(world: &mut GameWorld, cid: CreatureId) {
-    if !world.beat_driven_loop || !crate::chase_debug::chase_path_debug_enabled() {
+    if !crate::chase_debug::chase_path_debug_enabled() {
         return;
     }
     let (pos, target_id, current) = match world.creatures.get(cid) {

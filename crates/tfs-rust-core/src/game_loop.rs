@@ -764,13 +764,12 @@ mod timed_action_gate_tests {
     }
 
     #[test]
-    fn beat_driven_loop_flag_follows_linear_go_profile() {
+    fn step_speed_model_follows_profile() {
         use crate::formulas::StepSpeedModel;
-        let mut world = crate::test_world::support::minimal_world();
-        assert!(!world.beat_driven_loop);
-        world.mechanics.profile.step_speed = StepSpeedModel::LinearGo;
-        world.beat_driven_loop = world.mechanics.profile.step_speed == StepSpeedModel::LinearGo;
-        assert!(world.beat_driven_loop);
+        let world = crate::test_world::support::minimal_world();
+        // Phase 6: `beat_driven_loop` field is removed; `step_speed` is the profile knob.
+        // `minimal_world()` uses V1098 → TfsLog.
+        assert_eq!(world.mechanics.profile.step_speed, StepSpeedModel::TfsLog);
     }
 }
 
@@ -778,7 +777,7 @@ mod timed_action_gate_tests {
 ///
 /// Verifies `handle_game_packet` routes `UseItem`/`UseItemEx`/`Throw`/`RotateItem` through
 /// the ToDo builders (`enqueue_player_use`/`enqueue_player_move`/`enqueue_player_turn`) +
-/// `todo_start_from_action` when `beat_driven_loop`, instead of the reactive executors.
+/// `todo_start_from_action` on the unified beat engine, instead of the reactive executors.
 /// C++ ref: `receiving.cc:384/430/233/549` (`CUseObject`/`CUseTwoObjects`/`CMoveObject`/
 /// `CTurnObject`) → `ToDo*` builder + `ToDoStart` (`cract.cc:955-1024`).
 #[cfg(test)]
@@ -991,12 +990,11 @@ mod f8_s6_handler_routing_tests {
     }
 
     /// Phase 4: `RotateItem` now always uses the ToDo `TDTurn` builder for both eras —
-    /// the 1098 no-op trace arm was deleted. Verify it enqueues even when
-    /// `beat_driven_loop = false` (1098 without `TFS_FORCE_BEAT_LOOP`).
+    /// the 1098 no-op trace arm was deleted. Phase 6: `beat_driven_loop` is collapsed;
+    /// verify it enqueues on the unified beat engine.
     #[test]
-    fn rotate_item_enqueues_even_when_not_beat_driven() {
+    fn rotate_item_enqueues_on_beat_engine() {
         let mut world = beat_driven_test_world();
-        world.beat_driven_loop = false;
         let player_pos = Position::new(100, 100, 7);
         let item_pos = Position::new(101, 100, 7);
         let (conn_id, cid) = insert_player(&mut world, player_pos);

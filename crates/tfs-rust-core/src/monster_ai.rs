@@ -531,7 +531,7 @@ impl GameWorld {
         // C++ `ResyncHarnessRng` at appear + one lose/talk prelude per idle (`crnonpl.cc:2429`, `:2440`).
         // Rust harness drains can run extra idle preambles before the first strike — realign probes.
         // Dual-monster real-map bowl: C++ draw order differs from one_real; skip global realign (T5).
-        // 1098-only realign removed (beat_driven_loop gating eliminated).
+        // 1098-only realign removed (era gating eliminated in Phase 5).
 
         let _trace_atk = crate::sim_glibc_rand::sim_rng_trace_site("melee_attack_probe");
 
@@ -1880,7 +1880,7 @@ impl GameWorld {
                     master_kind.position(),
                     i32::from(MAP_MAX_VIEWPORT),
                     i32::from(MAP_MAX_VIEWPORT),
-                    true,
+                    self.mechanics.profile.underground_sees_surface,
                 )
             })
         });

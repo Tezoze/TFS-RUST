@@ -20,11 +20,10 @@
 
     /// Fist monsters skip idle `MeleeChase` while ATTACKING; seed a queue for hysteresis tests.
     fn seed_idle_chase_queue_for_test(world: &mut GameWorld, monster: CreatureId) {
-        if world.beat_driven_loop
-            && world
-                .creatures
-                .get(monster)
-                .is_some_and(|k| k.base().follow_target.is_none())
+        if world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().follow_target.is_none())
         {
             // 772 appear defers target pick to idle `Strategy[]` — run one drain for fixtures.
             world.monster_idle_stimulus(monster);

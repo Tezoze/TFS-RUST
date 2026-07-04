@@ -38,7 +38,6 @@ pub fn can_cast_instant(
     player: &Player,
     spell: &SpellDefinition,
     now_tick: u64,
-    _beat_driven_loop: bool,
 ) -> Result<(), SpellFailReason> {
     // Phase 4: 1098 `nextAction` gate deleted — both eras use `EarliestSpellTime`.
     if !player.base.spell_ready_at(now_tick) {

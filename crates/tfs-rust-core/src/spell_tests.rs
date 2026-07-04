@@ -134,9 +134,9 @@
         let mut p = minimal_player(None);
         p.base.earliest_spell_server_ms = now_tick + 500;
         assert_eq!(
-            can_cast_instant(&p, &spell, now_tick, true),
+            can_cast_instant(&p, &spell, now_tick),
             Err(SpellFailReason::NextAction)
         );
         p.base.earliest_spell_server_ms = now_tick;
-        assert!(can_cast_instant(&p, &spell, now_tick, true).is_ok());
+        assert!(can_cast_instant(&p, &spell, now_tick).is_ok());
     }
