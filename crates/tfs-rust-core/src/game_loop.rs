@@ -1,8 +1,9 @@
 //! Tokio-driven game loop: command drain + `GameWorld::tick`.
 //!
-//! - **Both eras:** 772 beat-driven loop + ToDoQueue — [`run_game_loop_772`].
-//!   Phase 5 deleted the 1098 reactive loop (`run_game_loop_1098`); 1098 now runs on the
-//!   unified beat loop. Per-era differences live in `MechanicsProfile` / `ProtocolCodec`.
+//! - **Single engine, both eras:** beat-driven loop + ToDoQueue — [`run_game_loop`].
+//!   Phase 5 deleted the 1098 reactive loop (`run_game_loop_1098`); Phase 7 collapsed the
+//!   last `*_772` loop-entry alias into the canonical `run_game_loop`. Per-era differences
+//!   live in `MechanicsProfile` / `ProtocolCodec` only.
 //!
 // C++ reference: `Game::gameLoop`, `ServiceManager::threadFunc` (1098);
 // `tibia-game-master/src/main.cc` `LaunchGame` / `AdvanceGame` (772).
@@ -612,8 +613,13 @@ fn drain_burst_beats(interval: &mut tokio::time::Interval) -> u64 {
     beats
 }
 
-/// 772 beat-driven loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
-pub async fn run_game_loop_772(
+/// Unified beat-driven game loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
+///
+/// Both eras run on this single engine. Beat size, think cadence, condition/skill tick
+/// interval, and flush policy are read from `MechanicsProfile` — no era fork here.
+// C++ ref: `tibia-game-master/src/main.cc` `LaunchGame` (477-492) + `AdvanceGame` (312-449);
+// 1098 observable behavior per `src/game.cpp` `Game::gameLoop` / `checkCreatures`.
+pub async fn run_game_loop(
     mut world: GameWorld,
     mut cmd_rx: UnboundedReceiver<GameCommand>,
     out_registry: Option<OutRegistry>,

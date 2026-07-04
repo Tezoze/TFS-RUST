@@ -1,7 +1,7 @@
 # Unified Beat Engine — Phased Implementation Plan
 
 **Date:** 2026-07-02
-**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done.
+**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done, Phase 6 done, Phase 7 done.
 **Strategy / rationale:** `tasks/unified-beat-engine-plan.md` (read first).
 **Engine parity gaps to close first:** `docs/GAME_LOOP_772_AUDIT.md`.
 **Walk sub-effort (subsumed here):** `tasks/walk-engine-unification.md` Phase 2.
@@ -39,7 +39,7 @@ The 772 test suite must stay byte-stable throughout.
 | 4 | Delete 1098 **player** logic; 1098 reuses 772 player logic | high | 1098 harness spot-checks |
 | 5 | Retire 1098 reactive machinery (delete) | med | grep-clean + green |
 | 6 | Collapse `beat_driven_loop` flag ✅ | mechanical | zero prod hits |
-| 7 | Single `run_game_loop` entry | low | one loop fn |
+| 7 | Single `run_game_loop` entry ✅ | low | one loop fn |
 | 8 | Naming reconciliation (`_772` → canonical) | mechanical | audit P3 exit |
 | 9 | **Parity QA gate** (772 stable + live 1098) | — | sign-off |
 
@@ -335,15 +335,15 @@ Walk the Phase 1 inventory:
 
 ---
 
-## Phase 7 — Single loop entry point
+## Phase 7 — Single loop entry point ✅ DONE
 
-- [ ] Merge `run_game_loop_772` into `run_game_loop` (Phase 5 already deleted
+- [x] Merge `run_game_loop_772` into `run_game_loop` (Phase 5 already deleted
       `run_game_loop_1098` + the back-compat alias). `run_server.rs` reads beat/cadence/flush
       from the profile — no `if beat_driven` fork.
-- [ ] Rewrite `docs/GAME_LOOP_ARCHITECTURE.md`: one beat engine, per-era beat size + cadence via
+- [x] Rewrite `docs/GAME_LOOP_ARCHITECTURE.md`: one beat engine, per-era beat size + cadence via
       profile; keep the C++ reference index (both eras still cite sources).
 
-**Exit:** one loop function; no loop-selection branch in `run_server.rs`.
+**Exit:** one loop function; no loop-selection branch in `run_server.rs`. `cargo test`: green.
 
 ---
 

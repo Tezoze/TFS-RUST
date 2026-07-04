@@ -114,7 +114,7 @@ pub use formulas::{
     FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, PathCostModel, PathSearchModel,
     SpawnNearPlayer, SpellCoeff, TickSpec, WeakestTargetMetric,
 };
-pub use game_loop::{graceful_shutdown, run_game_loop_772, wait_for_shutdown_signal};
+pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
 pub use game_world::GameWorld;
 pub use guild::{Guild, GuildRank, GuildRegistry, GuildWarTracker};
 pub use ids::{CreatureId, ItemId};

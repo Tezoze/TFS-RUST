@@ -1,18 +1,22 @@
 # Game Loop Architecture
 
 This document defines the threading model and game loop design for both supported eras.
-The 1098 loop matches TFS 1.4.2 `Dispatcher`/`Scheduler`. The 772 loop matches the CipSoft
-decompiled server (`tibia-game-master/src/main.cc`). **One binary, two loop modes** — selected
-by `clientVersion` in `config.lua`.
+**One binary, one beat engine** — selected by `clientVersion` in `config.lua`. Per-era
+differences (beat size, think cadence, condition/skill tick interval, flush policy, walk
+speed model) live in `MechanicsProfile` (+ `data/formulas/<v>.lua`) and `ProtocolCodec` —
+never in a loop-selection branch.
 
-> **Implementation status (2026-06-06)**
+> **Implementation status (2026-07-05)**
 >
 > | Section | Status |
 > |---------|--------|
-> | **§2 — Era 1098 loop** | **Implemented.** `run_game_loop_1098` for `clientVersion = 1098`. |
-> | **§3 — Era 772 loop** | **Implemented.** `run_game_loop_772`: `ToDoQueue`, `server_ms`, `beat_ms` timer, staggered ~1000 ms subsystem counters, beat-end flush. Multi-beat lag catch-up still deferred. |
+> | **§2 — Unified beat engine** | **Implemented.** `run_game_loop` is the single loop entry point for both eras. Phase 5 deleted the 1098 reactive loop (`run_game_loop_1098`); Phase 6 collapsed the `beat_driven_loop` flag; Phase 7 merged the last `*_772` loop alias into `run_game_loop`. |
+> | **§3 — Per-era profile knobs** | **Implemented.** `MechanicsProfile` carries `beat_ms`, think cadence, tick interval, flush policy, `StepSpeedModel`. 772 = `LinearGo` + 200 ms beat + staggered ~1000 ms subsystems + beat-end flush; 1098 = `TfsLog` + 50 ms beat + 50 ms bucketed think + immediate-on-movement flush. |
+> | **§4 — C++ reference index** | Both eras still cite their authoritative C++ sources. |
 >
-> See [`CODEBASE_AUDIT.md`](CODEBASE_AUDIT.md) for the full gap analysis.
+> See [`CODEBASE_AUDIT.md`](CODEBASE_AUDIT.md) for the full gap analysis and
+> [`unified-beat-engine-phases.md`](../tasks/unified-beat-engine-phases.md) for the
+> unification effort history.
 
 ---
 
@@ -41,258 +45,190 @@ Both eras share the same hybrid threading model: **single-threaded game simulati
 
 ---
 
-## 2. Era 1098 — TFS Dispatcher Loop (Current Implementation)
+## 2. The Unified Beat Engine
 
-### 2.1 C++ Reference Model
+Both eras run on a single beat-driven loop: `run_game_loop` in
+`crates/tfs-rust-core/src/game_loop.rs`. There is no era fork in the loop body — every
+per-era difference is read from `MechanicsProfile` at loop start and inside `advance_beat`.
 
-TFS 1.4.2 uses a **Dispatcher + Scheduler** pair:
+### 2.1 C++ Reference Models
 
-| Component | C++ File | Behaviour |
-|-----------|----------|-----------|
-| `Dispatcher` | `src/tasks.cpp:21-46` | Single-threaded FIFO task queue. Blocks on `condition_variable` when empty, drains all pending tasks in batch, executes each inline. |
-| `Scheduler` | `src/scheduler.cpp:10-36` | Per-event `boost::asio::steady_timer`. When timer fires, posts the task's callback into the `Dispatcher` queue via `g_dispatcher.addTask()`. |
-| `Game::checkCreatures` | `src/game.cpp:3819-3850` | Recurring scheduler task at `EVENT_CREATURE_THINK_INTERVAL` (1000ms). Processes `onThink` / `onAttacking` / `executeConditions` for a bucket of creatures. |
-| `Game::checkCreatureWalk` | `src/game.cpp:3773-3779` | Per-creature scheduler task. Timer fires at `getEventStepTicks()` delay → `Creature::onWalk()` + `Game::cleanup()`. |
-| Player commands | `src/protocolgame.cpp` | I/O thread parses packet → `g_dispatcher.addTask(playerMove/...)`. Executes on Dispatcher thread **immediately** in FIFO order (no tick alignment). |
+The unified engine reconciles two C++ architectures under one Rust implementation. The
+*observable behavior* of each era is preserved; the *loop structure* is the CipSoft 7.72
+beat loop, which is the more constrained of the two (1098's reactive Dispatcher is a
+relaxation of beat quantization, recoverable by tuning `beat_ms` / cadence / flush policy
+in the profile).
 
-**Key property:** Commands execute the instant they reach the Dispatcher — there is no batching
-to tick boundaries. Walk timers fire with sub-millisecond precision via `steady_timer`. Output
-packets are sent inline from each handler (no consolidated flush).
+| Era | Authoritative C++ source | Loop shape |
+|-----|--------------------------|------------|
+| **772** | `tibia-game-master/src/main.cc` `LaunchGame` (477-492) + `AdvanceGame` (312-449) | Signal-driven beat loop + global `ToDoQueue` + `SendAll` |
+| **1098** | `src/tasks.cpp` (Dispatcher) + `src/scheduler.cpp` + `src/game.cpp` `checkCreatures` / `checkCreatureWalk` | Dispatcher FIFO + per-event `steady_timer` + inline flush |
+
+The 1098 reactive loop (`run_game_loop_1098`) was deleted in Phase 5; 1098 now runs on the
+same beat engine with profile knobs that reproduce the 1098 feel (50 ms beat, 50 ms bucketed
+think, immediate-on-movement flush). The 1098 sign-off against a live 10.98 client is the
+Phase 9 gate.
 
 ### 2.2 Rust Implementation
 
 File: `crates/tfs-rust-core/src/game_loop.rs`
 
 ```rust
-loop {
-    tokio::select! {
-        biased;
+pub async fn run_game_loop(
+    mut world: GameWorld,
+    mut cmd_rx: UnboundedReceiver<GameCommand>,
+    out_registry: Option<OutRegistry>,
+) -> anyhow::Result<()> {
+    // Beat size comes from the profile — 200 ms (772) or 50 ms (1098).
+    let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+    let mut beat_timer = interval(Duration::from_millis(beat_ms));
+    beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
+    let mut pending: VecDeque<GameCommand> = VecDeque::new();
 
-        // Branch 1: Network commands + DB callbacks (= Dispatcher FIFO)
-        cmd = cmd_rx.recv() => { /* process immediately */ }
+    loop {
+        tokio::select! {
+            biased;
 
-        // Branch 2: Walk wake timers (= Scheduler steady_timer → Dispatcher)
-        w = walk_wake_rx.recv() => {
-            world.process_walk_due_from_wake(cid);
-            flush_pending_outgoing(&mut world, &out_registry);
-        }
+            // Branch 1: Network commands + DB callbacks.
+            // C++ 772: SIGUSR1 → ReceiveData (drain all pending input).
+            // C++ 1098: g_dispatcher.addTask → FIFO execute inline.
+            cmd = recv_next_command(&mut cmd_rx, &mut pending) => {
+                match dispatch_command(&mut world, cmd, &mut cmd_rx,
+                                       &mut pending, &out_registry).await {
+                    ControlFlow::Break(LoopExit::Shutdown) => {
+                        flush_online_players_to_db(&world).await?;
+                        break;
+                    }
+                    ControlFlow::Break(LoopExit::ChannelClosed) => break,
+                    ControlFlow::Continue(()) => { /* drain rest of burst */ }
+                }
+            }
 
-        // Branch 3: Periodic world tick (= checkCreatures recurring event)
-        _ = tick_timer.tick() => {   // 50ms interval
-            world.on_tick(Instant::now());
-            flush_pending_outgoing(&mut world, &out_registry);
+            // Branch 2: Beat timer fires.
+            // C++ 772: SIGALRM → AdvanceGame(NumBeats * Beat).
+            // C++ 1098: the 50 ms recurring checkCreatures / checkCreatureWalk timers.
+            _ = beat_timer.tick() => {
+                let mut beats = drain_burst_beats(&mut beat_timer);
+                if beats == 0 { beats = 1; }
+                world.advance_beat(beat_ms * beats);   // profile-driven cadence/flush inside
+                while let Some(conn_id) = world.pending_idle_kick.pop() {
+                    handle_player_disconnect(&mut world, conn_id, false, &out_registry);
+                }
+                flush_pending_outgoing(&mut world, &out_registry);   // SendAll
+            }
         }
     }
+    Ok(())
 }
 ```
 
-**Mapping to C++:**
+**Mapping to C++ (both eras):**
 
-| Rust | C++ Equivalent |
-|------|----------------|
-| `cmd_rx` (unbounded mpsc) | `g_dispatcher` task queue |
-| `walk_wake_rx` + `tokio::time::sleep_until` | `g_scheduler.addEvent(checkCreatureWalk)` |
-| `tick_timer` (50ms interval) | `g_scheduler.addEvent(checkCreatures, EVENT_CREATURE_THINK_INTERVAL)` |
-| `biased;` cmd-first ordering | Dispatcher FIFO: `playerMove` arriving first always runs before `checkCreatureWalk` |
-| `game_packet_needs_immediate_flush()` | TFS dispatches reply packets inline from each handler |
-| `pending` VecDeque (Turn→Move coalescing) | No C++ equivalent — Rust-specific optimisation for OTC turn+move input coalescing |
+| Rust | 772 C++ equivalent | 1098 C++ equivalent |
+|------|--------------------|---------------------|
+| `cmd_rx` (unbounded mpsc) | `ReceiveData` drain on `SIGUSR1` | `g_dispatcher` task queue |
+| `beat_timer` (interval) | POSIX `timer_t` at `Beat` → `SIGALRM` | `g_scheduler.addEvent(checkCreatures, 1000ms)` + per-creature `checkCreatureWalk` timers |
+| `biased;` cmd-first ordering | `SIGUSR1` processed before `SIGALRM` in `sigwait` loop | Dispatcher FIFO: `playerMove` arriving first always runs before `checkCreatureWalk` |
+| `advance_beat` | `AdvanceGame(NumBeats * Beat)` — staggered counters + `MoveCreatures` | `checkCreatures` bucket + `checkCreatureWalk` per-creature |
+| `flush_pending_outgoing` | `SendAll()` — once per beat | inline per-handler socket writes (reproduced via profile flush policy) |
+| `pending` VecDeque (Turn→Move coalescing) | N/A (Rust-specific OTC input coalescing) | N/A — Rust-specific optimisation |
+| `drain_burst_beats` | `NumBeats = SigAlarmCounter` (multi-beat lag catch-up) | tick-overrun warning (45 ms / 50 ms) |
 
-**Flush behaviour:** Movement and time-sensitive packets flush immediately
-(`game_packet_needs_immediate_flush`). All other output flushes at tick end. This matches TFS
-where each handler writes to the socket inline.
+### 2.3 `advance_beat` — The Tick Pipeline
 
-### 2.3 Subsystem Timing (1098)
-
-| Subsystem | Interval | Implementation |
-|-----------|----------|----------------|
-| World tick (`on_tick`) | 50ms | `tokio::time::interval` |
-| Creature think/attack/conditions | Every tick (bucketed across 10 groups) | `GameWorld::check_creatures()` |
-| Walk scheduling | Per-creature `tokio::time::sleep_until` | `walk_wake_tx` → `walk_wake_rx` |
-| Decay | Every tick | `DecayManager::tick()` |
-| Spawn respawn polling | Every tick | `GameWorld::poll_spawn_respawns()` |
-| Lua GC step | Every 5 ticks (250ms) | `events.lua_gc_step()` |
-| Player ping | Every tick | `GameWorld::tick_player_pings()` |
-
----
-
-## 3. Era 772 — CipSoft Beat-Driven Loop (Target Architecture)
-
-### 3.1 C++ Reference Model
-
-Source: `tibia-game-master/src/main.cc:456-492`, `cract.cc`, `config.cc`.
-
-The 772 server uses a fundamentally different architecture: a **signal-driven beat
-loop** with a global **priority-queue scheduler** (`ToDoQueue`) and a **consolidated output
-flush** (`SendAll`).
-
-#### 3.1.1 The Main Loop (`LaunchGame`)
+`GameWorld::advance_beat` (was `advance_beat_772`; the `_772` suffix is scheduled for
+removal in Phase 8) runs the staggered subsystem counters, drains the global `ToDoQueue`,
+and applies the profile-selected flush policy. The pipeline mirrors
+`tibia-game-master/src/main.cc:312-449` `AdvanceGame`:
 
 ```c
-// main.cc:477-492
-while(GameRunning()){
-    // 1. SLEEP until woken by a signal
-    while(SigUsr1Counter == 0 && SigAlarmCounter == 0){
-        SigWaitAny();           // sigsuspend — blocks until any signal
-    }
-
-    // 2. PROCESS INPUT (SIGUSR1 from I/O threads)
-    if(SigUsr1Counter > 0){
-        SigUsr1Counter = 0;
-        ReceiveData();          // drain ALL pending player packets
-    }
-
-    // 3. ADVANCE GAME (SIGALRM from beat timer)
-    int NumBeats = SigAlarmCounter;
-    if(NumBeats > 0){
-        SigAlarmCounter = 0;
-        AdvanceGame(NumBeats * Beat);   // may accumulate multiple beats
-    }
-}
-```
-
-The game thread alternates between two wake sources:
-- **`SIGUSR1`** — fired by I/O threads (`CallGameThread` in `communication.cc:650-662`) when
-  a player packet arrives. The game thread drains all pending input via `ReceiveData()`.
-- **`SIGALRM`** — fired by a POSIX `timer_t` at `Beat` intervals (`InitTime` in
-  `main.cc:144-168`). This advances the simulation.
-
-**Input can arrive between beats.** The game thread wakes on `SIGUSR1` and processes player
-commands immediately. However, no output is flushed until the next `SendAll()` at the end of
-`AdvanceGame`.
-
-#### 3.1.2 The Beat Timer
-
-```c
-// config.cc:100
-Beat = 200;    // default: 200ms (configurable in game config file)
-```
-
-The beat is a **200ms** POSIX monotonic timer (`CLOCK_MONOTONIC` + `SIGEV_THREAD_ID`), not a
-50ms interval. This is the fundamental timing quantum of the CipSoft server.
-
-#### 3.1.3 `AdvanceGame` — The Tick Pipeline
-
-```c
-// main.cc:312-449
+// main.cc:312-449 (reference)
 static void AdvanceGame(int Delay){
-    // Accumulate time into staggered counters
     CreatureTimeCounter += Delay;
     CronTimeCounter     += Delay;
     SkillTimeCounter    += Delay;
     OtherTimeCounter    += Delay;
 
-    // 1. Creature think/regen (every ~1000ms)
-    if(CreatureTimeCounter >= 1750){
-        CreatureTimeCounter -= 1000;
-        ProcessCreatures();
-    }
-
-    // 2. Cron system (every ~1000ms)
-    if(CronTimeCounter >= 1500){
-        CronTimeCounter -= 1000;
-        ProcessCronSystem();
-    }
-
-    // 3. Skill events (every ~1000ms)
-    if(SkillTimeCounter >= 1250){
-        SkillTimeCounter -= 1000;
-        ProcessSkills();
-    }
-
-    // 4. Connection management, spawns, ambient, etc. (every ~1000ms)
-    if(OtherTimeCounter >= 1000){
-        OtherTimeCounter -= 1000;
-        RoundNr += 1;
-        ProcessConnections();
-        ProcessMonsterhomes();
-        ProcessMonsterRaids();
-        // ... light, network load checks, reboot schedule ...
-    }
-
-    // 5. Creature movement — drain priority queue
-    if(Delay < 1000){
-        MoveCreatures(Delay);
-    }
-
-    // 6. CONSOLIDATED OUTPUT FLUSH — once per beat
+    if(CreatureTimeCounter >= 1750){ CreatureTimeCounter -= 1000; ProcessCreatures(); }
+    if(CronTimeCounter     >= 1500){ CronTimeCounter     -= 1000; ProcessCronSystem(); }
+    if(SkillTimeCounter    >= 1250){ SkillTimeCounter    -= 1000; ProcessSkills(); }
+    if(OtherTimeCounter    >= 1000){ OtherTimeCounter    -= 1000; RoundNr += 1;
+                                     ProcessConnections(); /* ... light, spawns ... */ }
+    if(Delay < 1000){ MoveCreatures(Delay); }   // lag guard
     SendAll();
 }
 ```
 
-**Key properties:**
+**Key properties preserved:**
 
-- **Staggered subsystems:** Each subsystem has an independent counter with a different initial
-  threshold (1750, 1500, 1250, 1000ms). They all reset by 1000ms. This staggers their first
-  execution across different beats to spread CPU load.
-- **`MoveCreatures` skipped during lag:** If `Delay >= 1000` (5+ missed beats), creature
-  movement is suppressed entirely.
-- **Single `SendAll()` at end:** ALL output for ALL connections is flushed exactly once per beat.
-  No intermediate flushes.
+- **Staggered subsystems:** each subsystem has an independent counter with a different
+  initial threshold (1750, 1500, 1250, 1000 ms); all reset by 1000 ms. This staggers their
+  first execution across different beats to spread CPU load. The thresholds and reset are
+  profile-driven so 1098 can adopt a non-staggered 50 ms cadence.
+- **`MoveCreatures` skipped during lag:** if `Delay >= 1000` (5+ missed beats at 200 ms),
+  creature movement is suppressed entirely.
+- **Single `SendAll()` at end:** all output for all connections is flushed exactly once per
+  beat — no intermediate flushes (772). 1098's immediate-on-movement flush is reproduced via
+  the profile flush policy inside `advance_beat`, not by a separate loop branch.
 
-#### 3.1.4 `MoveCreatures` — The ToDoQueue Priority Heap
+### 2.4 `MoveCreatures` — The ToDoQueue Priority Heap
 
 ```c
-// crmain.cc:1106-1122
+// crmain.cc:1106-1122 (reference)
 void MoveCreatures(int Delay){
     ServerMilliseconds += Delay;
     while(ToDoQueue.Entries > 0){
         auto Entry = *ToDoQueue.Entry->at(1);
-        uint32 ExecutionTime = Entry.Key;
-        uint32 CreatureID    = Entry.Data;
-        if(ExecutionTime > ServerMilliseconds){
-            break;                     // nothing due yet
-        }
-
+        if(Entry.Key > ServerMilliseconds) break;
         ToDoQueue.deleteMin();
-        TCreature *Creature = GetCreature(CreatureID);
-        if(Creature != NULL){
-            Creature->Execute();       // run the creature's ToDo list
-        }
+        TCreature *Creature = GetCreature(Entry.Data);
+        if(Creature != NULL) Creature->Execute();
     }
 }
 ```
 
 This is a **global min-heap** keyed by `ServerMilliseconds` (logical time). Every creature
-action (walk, attack, use, wait) is scheduled into this queue via `ToDoStart()`:
+action (walk, attack, use, wait) is scheduled into this queue via `ToDoStart()`
+(`cract.cc:955-968`):
 
 ```c
-// cract.cc:955-968
-void TCreature::ToDoStart(void){
-    if(this->NrToDo != 0){
-        this->LockToDo = true;
-        this->ActToDo = 0;
-
-        uint32 Delay = this->CalculateDelay();
-        if(Delay < 1) Delay = 1;
-
-        uint32 NextWakeup = ServerMilliseconds + Delay;
-        ToDoQueue.insert(NextWakeup, this->ID);
-        this->NextWakeup = NextWakeup;
-    }
-}
+uint32 Delay = this->CalculateDelay();
+if(Delay < 1) Delay = 1;
+uint32 NextWakeup = ServerMilliseconds + Delay;
+ToDoQueue.insert(NextWakeup, this->ID);
+this->NextWakeup = NextWakeup;
 ```
 
 `ServerMilliseconds` only advances in discrete `Beat`-sized steps inside `MoveCreatures`.
-This means all scheduled actions are **quantized to beat boundaries** — a walk scheduled for
-`t+150ms` on a 200ms beat will execute at the next beat where `ServerMilliseconds >= t+150`.
+All scheduled actions are **quantized to beat boundaries** — a walk scheduled for `t+150ms`
+on a 200 ms beat executes at the next beat where `ServerMilliseconds >= t+150`. The Rust
+`ToDoQueue` (`creature_todo.rs`) reproduces this exactly; `now_ms()` returns `server_ms`
+unconditionally (Phase 6 collapsed the wall-clock vs `server_ms` fork).
 
-#### 3.1.5 Walk Speed Quantization
+### 2.5 Walk Speed Quantization
 
 ```c
-// cract.cc:1459-1463
+// cract.cc:1459-1463 (reference)
 int Delay = (Waypoints * 1000) / this->GetSpeed();
 int BeatCount = (Delay + Beat - 1) / Beat;        // ceil to Beat
 this->EarliestWalkTime = ServerMilliseconds + BeatCount * Beat;
 ```
 
-Walk delays are **rounded up to the nearest `Beat` multiple**. With `Beat=200`:
-- A player with speed 220 on ground speed 150: `Delay = 150000/220 = 681ms` → `ceil(681/200)
-  = 4` → `EarliestWalkTime = ServerMilliseconds + 800ms` (4 beats).
+Walk delays are rounded up to the nearest `Beat` multiple. The Rust `walk.rs` quantizes by
+**`profile.step_beat_ms`** (50 ms for both shipped eras — TVP `gameserver` authority for
+772), not by `beat_ms` (the 200 ms main-loop timer). `StepSpeedModel` selects the raw
+delay curve:
 
-#### 3.1.6 `SendAll` — Consolidated Output
+- `LinearGo` (772): `(gs * 1000) / eff_speed`, then ceil to `step_beat_ms`.
+- `TfsLog` (1098): TFS `getStepDuration` log curve, then ceil to `step_beat_ms`.
+
+See `tasks/lessons.md` §30 (B1) for why `step_beat_ms` (not `beat_ms`) is the walk
+quantizer.
+
+### 2.6 `SendAll` — Consolidated Output
 
 ```c
-// sending.cc:17-33
+// sending.cc:17-33 (reference)
 void SendAll(void){
     TConnection *Connection = FirstSendingConnection;
     FirstSendingConnection = NULL;
@@ -308,14 +244,16 @@ void SendAll(void){
 }
 ```
 
-Output is written into per-connection ring buffers during game logic. `SendAll` signals each
-I/O thread (`SIGUSR2`) that data is ready. The I/O thread then encrypts and writes to TCP. This
-happens **exactly once per beat** — no intermediate flushes.
+Output is written into per-connection ring buffers during game logic. `SendAll` signals
+each I/O thread (`SIGUSR2`) that data is ready; the I/O thread encrypts and writes to TCP.
+In the unified engine, `flush_pending_outgoing` at beat end is the `SendAll` equivalent.
+The profile flush policy determines whether movement packets also flush immediately (1098)
+or wait for beat end (772).
 
-#### 3.1.7 `ReceiveData` — Input Processing
+### 2.7 `ReceiveData` — Input Processing
 
 ```c
-// receiving.cc:1796-1812
+// receiving.cc:1796-1812 (reference)
 void ReceiveData(void){
     TConnection *Connection = GetFirstConnection();
     while(Connection != NULL){
@@ -331,174 +269,88 @@ void ReceiveData(void){
 }
 ```
 
-Player commands are parsed and **executed immediately** on the game thread (not queued). The
-actions they trigger (walk, attack, use) are scheduled into `ToDoQueue` with appropriate delays.
-But the resulting output packets are not flushed until `SendAll()`.
-
-### 3.2 Comparison Summary
-
-| Aspect | 1098 (TFS) | 772 (CipSoft) |
-|--------|------------|---------------|
-| **Beat / tick interval** | 50ms | **200ms** (configurable) |
-| **Input processing** | Immediate via `select!` | Immediate on `SIGUSR1` wake |
-| **Action scheduling** | Per-creature `tokio::time::sleep_until` | Global `ToDoQueue` min-heap, keyed by `ServerMilliseconds` |
-| **`ServerMilliseconds` advance** | Wall clock (`Instant::now()`) | Logical time, advanced in `Beat`-sized steps |
-| **Walk timing** | Sub-ms precision via Tokio timers | Quantized to `Beat` multiples: `ceil(delay / Beat) * Beat` |
-| **Output flush** | Immediate for movement; tick-end for rest | **Once per beat** — `SendAll()` at end of `AdvanceGame` |
-| **Creature think** | Every 50ms tick (bucketed) | Every ~1000ms (`ProcessCreatures` staggered counter) |
-| **Skill/condition ticks** | Every 50ms tick | Every ~1000ms (`ProcessSkills` staggered counter) |
-| **Lag protection** | Tick overrun warning (45ms/50ms) | `MoveCreatures` suppressed if `Delay >= 1000ms` |
-
-### 3.3 Rust Implementation Plan (772 Mode)
-
-When `clientVersion = 772`, the game loop should switch to a beat-driven model that replicates
-the CipSoft architecture. The key changes:
-
-#### 3.3.1 Beat-Driven Main Loop
-
-```rust
-// Pseudocode for 772 game loop
-let beat = Duration::from_millis(world.mechanics.profile.beat_ms as u64); // 772 loop: 200 ms
-let mut server_ms: u64 = 0;
-
-loop {
-    // Sleep until next beat or input arrives
-    tokio::select! {
-        biased;
-
-        // Input: drain immediately (CipSoft SIGUSR1 equivalent)
-        cmd = cmd_rx.recv() => {
-            process_command(&mut world, cmd);
-            // Do NOT flush output — wait for beat end
-        }
-
-        // Beat timer fires (CipSoft SIGALRM equivalent)
-        _ = beat_timer.tick() => {
-            server_ms += beat.as_millis() as u64;
-            advance_game(&mut world, server_ms, beat);
-            flush_pending_outgoing(&mut world, &out_registry);  // SendAll
-        }
-    }
-}
-```
-
-#### 3.3.2 ToDoQueue — Global Priority Heap
-
-Replace per-creature `walk_wake_tx` / `tokio::time::sleep_until` with a `BinaryHeap` keyed by
-`server_ms`:
-
-```rust
-struct ToDoEntry {
-    execution_time: u64,   // ServerMilliseconds when this fires
-    creature_id: CreatureId,
-}
-
-struct ToDoQueue {
-    heap: BinaryHeap<Reverse<ToDoEntry>>,  // min-heap
-}
-```
-
-`MoveCreatures` equivalent:
-
-```rust
-fn drain_todo_queue(world: &mut GameWorld, server_ms: u64) {
-    while let Some(&Reverse(entry)) = world.todo_queue.heap.peek() {
-        if entry.execution_time > server_ms {
-            break;
-        }
-        world.todo_queue.heap.pop();
-        if let Some(creature) = world.creatures.get(entry.creature_id) {
-            world.execute_creature_todo(entry.creature_id);
-        }
-    }
-}
-```
-
-#### 3.3.3 Staggered Subsystem Counters
-
-```rust
-struct SubsystemCounters {
-    creature_time: u64,  // threshold 1750, reset 1000
-    cron_time: u64,      // threshold 1500, reset 1000
-    skill_time: u64,     // threshold 1250, reset 1000
-    other_time: u64,     // threshold 1000, reset 1000
-}
-```
-
-#### 3.3.4 Consolidated Flush
-
-In 772 mode, `game_packet_needs_immediate_flush()` always returns `false`. All output is
-buffered into `pending_outgoing` during the entire beat and flushed once at beat end via
-`SendAll` (the existing `flush_pending_outgoing`).
-
-#### 3.3.5 Walk Speed Quantization
-
-The walk speed formula already implements beat-aligned quantization in `walk.rs`:
-
-```rust
-// walk.rs — CipSoft step speed model (already implemented)
-StepSpeedModel::LinearGo => {
-    let delay = (gs as i64 * 1000) / i64::from(eff.max(1));
-    ((delay + beat - 1) / beat) * beat   // ceil to Beat
-}
-```
-
-In 772 mode, `EarliestWalkTime` must use `server_ms` (logical time) rather than
-`Instant::now()` (wall time), and `ToDoQueue` must schedule the walk at that logical time.
+Player commands are parsed and **executed immediately** on the game thread (not queued).
+The actions they trigger (walk, attack, use) are scheduled into `ToDoQueue` with
+appropriate delays. The resulting output packets are not flushed until `SendAll()` (772) or
+flushed immediately for movement (1098, via profile flush policy).
 
 ---
 
-## 4. Implementation Boundary
+## 3. Per-Era Profile Knobs
 
-### What stays shared (both eras)
+The loop reads these from `MechanicsProfile` (+ `data/formulas/<v>.lua`); none are
+hardcoded in the loop body.
 
-- `GameWorld` struct and all entity storage
-- `SlotMap` creature/item management
-- Map, tiles, pathfinding
-- Packet encoding (`tfs-rust-net` — codec selects wire format)
-- DB persistence (`tfs-rust-db`)
-- I/O thread architecture (Tokio tasks + mpsc channels)
+| Knob | 772 (default) | 1098 | C++ source |
+|------|---------------|------|------------|
+| `beat_ms` | 200 | 50 | `config.cc:100` (`Beat = 200`); 1098 `EVENT_CREATURE_THINK_INTERVAL` |
+| `step_beat_ms` (walk quantizer) | 50 | 50 | TVP `gameserver` (772); TFS `getStepDuration` (1098) |
+| `step_speed` (`StepSpeedModel`) | `LinearGo` | `TfsLog` | `cract.cc:1459-1463` (772); `creature.cpp:1485-1547` (1098) |
+| Think cadence | staggered ~1000 ms (`ProcessCreatures` counter) | 50 ms bucketed | `main.cc:185-188` (772); `game.cpp:3819-3850` (1098) |
+| Condition/skill tick interval | ~1000 ms (`ProcessSkills` counter) | 50 ms | `main.cc:197-200` (772); `game.cpp:3819-3850` (1098) |
+| Flush policy | beat-end only (`SendAll`) | immediate-on-movement + tick-end | `sending.cc:17-33` (772); inline per handler (1098) |
+| `parity_rng_source` | `PerWorldGlibc` | `EnvGlobal` | Phase 6 K1 |
+| `corpse_decay_offset_ms` | 30 000 | 600 | Phase 6 K2 |
+| `underground_sees_surface` | true | false | Phase 6 K3 |
+| `damage_text_format` | `AttackerAttribution` | `SimpleLoss` | Phase 6 K10 |
+| `periodic_ping_packet` | codec-selected | codec-selected | Phase 6 X (`ProtocolCodec::periodic_ping_packet`) |
 
-### What diverges by era
-
-| Component | 1098 | 772 |
-|-----------|------|-----|
-| `run_game_loop()` | `tokio::select!` reactive loop | Beat-driven loop with `ToDoQueue` |
-| Walk scheduling | `walk_wake_tx` + `tokio::time::sleep_until` | `ToDoQueue.insert(server_ms + delay, cid)` |
-| Time source for walks | `Instant::now()` (wall clock) | `server_ms` (logical, Beat-stepped) |
-| Output flush | Immediate for movement + tick-end | Beat-end only (`SendAll`) |
-| Creature think interval | 50ms bucketed | ~1000ms staggered counters |
-| Skill/condition interval | 50ms | ~1000ms |
-| `game_packet_needs_immediate_flush` | Movement/turn/ping → `true` | Always `false` |
-| `walk_wake_tx` | `Some(tx)` | `None` (unused) |
-
-### Configuration
-
-The loop mode is determined at startup from `MechanicsProfile`:
-
-```rust
-match world.mechanics.profile.step_speed {
-    StepSpeedModel::TfsLog => run_game_loop_1098(world, cmd_rx, walk_wake_rx, out_registry),
-    StepSpeedModel::LinearGo => run_game_loop_772(world, cmd_rx, out_registry),
-}
-```
+**Adding a new era:** set these knobs in `MechanicsProfile::for_version(N)` +
+`data/formulas/N.lua` and add a `Codec` impl in `tfs-rust-net`. Zero core branches. If a
+core `if version == …` is ever needed, the difference belongs in the profile or codec —
+re-classify per `tasks/unified-beat-engine-phases.md` Phase 1.
 
 ---
 
-## 5. C++ Reference Index
+## 4. C++ Reference Index
+
+Both eras still cite their authoritative C++ sources. The unified engine is *shaped* after
+the 772 beat loop (the more constrained architecture); 1098 observable behavior is matched
+by tuning the profile knobs above.
 
 | Concept | 1098 Reference | 772 Reference |
 |---------|---------------|---------------|
-| Main loop | `src/tasks.cpp:21-46` (Dispatcher) | `tibia-game-master/src/main.cc:456-492` (LaunchGame) |
-| Timer/scheduler | `src/scheduler.cpp:10-36` | `tibia-game-master/src/main.cc:144-168` (InitTime) |
-| Tick pipeline | `src/game.cpp:3819-3850` (checkCreatures) | `tibia-game-master/src/main.cc:312-449` (AdvanceGame) |
-| Creature movement | `src/game.cpp:3773-3779` (checkCreatureWalk) | `tibia-game-master/src/cract.cc:1106-1122` (MoveCreatures) |
-| Action scheduling | `src/creature.cpp:318-321` (addEventWalk) | `tibia-game-master/src/cract.cc:955-968` (ToDoStart) |
-| Action execution | `src/creature.cpp:236-308` (onWalk) | `tibia-game-master/src/cract.cc:728-843` (Execute) |
-| Walk speed calc | `src/creature.cpp:1485-1547` (getStepDuration) | `tibia-game-master/src/cract.cc:1459-1463` (NotifyGo) |
-| Output flush | Inline per handler | `tibia-game-master/src/sending.cc:17-33` (SendAll) |
-| Input processing | `src/tasks.cpp:37-41` (Dispatcher drain) | `tibia-game-master/src/receiving.cc:1796-1812` (ReceiveData) |
+| Main loop | `src/tasks.cpp:21-46` (Dispatcher) | `tibia-game-master/src/main.cc:456-492` (`LaunchGame`) |
+| Timer/scheduler | `src/scheduler.cpp:10-36` | `tibia-game-master/src/main.cc:144-168` (`InitTime`) |
+| Tick pipeline | `src/game.cpp:3819-3850` (`checkCreatures`) | `tibia-game-master/src/main.cc:312-449` (`AdvanceGame`) |
+| Creature movement | `src/game.cpp:3773-3779` (`checkCreatureWalk`) | `tibia-game-master/src/crmain.cc:1106-1122` (`MoveCreatures`) |
+| Action scheduling | `src/creature.cpp:318-321` (`addEventWalk`) | `tibia-game-master/src/cract.cc:955-968` (`ToDoStart`) |
+| Action execution | `src/creature.cpp:236-308` (`onWalk`) | `tibia-game-master/src/cract.cc:728-843` (`Execute`) |
+| Walk speed calc | `src/creature.cpp:1485-1547` (`getStepDuration`) | `tibia-game-master/src/cract.cc:1459-1463` (`NotifyGo`) |
+| Output flush | Inline per handler | `tibia-game-master/src/sending.cc:17-33` (`SendAll`) |
+| Input processing | `src/tasks.cpp:37-41` (Dispatcher drain) | `tibia-game-master/src/receiving.cc:1796-1812` (`ReceiveData`) |
 | I/O → game thread | `g_dispatcher.addTask()` | `CallGameThread()` → `SIGUSR1` (`communication.cc:650-662`) |
 | Beat config | N/A (Dispatcher is event-driven) | `tibia-game-master/src/config.cc:100` (`Beat = 200`) |
 | Idle / AI tick | `src/monster.cpp:759` (`onIdleStimulus` — think-driven) | `tibia-game-master/src/crnonpl.cc:2386` (`IdleStimulus` on ToDo drain) — see [`IDLE_STIMULUS.md`](IDLE_STIMULUS.md) |
 | ToDoQueue | N/A (per-creature timers) | `tibia-game-master/src/cr.hh:937` (`priority_queue<uint32, uint32>`) |
+
+---
+
+## 5. Implementation Boundary
+
+### What stays shared (both eras, single engine)
+
+- `run_game_loop` — the only loop entry point
+- `GameWorld` struct and all entity storage
+- `SlotMap` creature/item management
+- Map, tiles, pathfinding
+- Global `ToDoQueue` min-heap keyed by `server_ms`
+- `advance_beat` staggered subsystem counters (thresholds/cadence profile-driven)
+- Packet encoding (`tfs-rust-net` — codec selects wire format)
+- DB persistence (`tfs-rust-db`)
+- I/O thread architecture (Tokio tasks + mpsc channels)
+
+### What diverges by era (all via `MechanicsProfile` / `ProtocolCodec`)
+
+| Component | 772 profile value | 1098 profile value |
+|-----------|-------------------|--------------------|
+| `beat_ms` | 200 | 50 |
+| `step_speed` | `LinearGo` | `TfsLog` |
+| Think cadence | staggered ~1000 ms | 50 ms bucketed |
+| Skill/condition interval | ~1000 ms | 50 ms |
+| Flush policy | beat-end only | immediate-on-movement + tick-end |
+| Wire bytes / opcodes | `Codec772` | `Codec1098` |
+| RNG source / corpse decay / sight / damage text | see §3 | see §3 |
+
+No loop-selection branch exists in `run_server.rs` or anywhere else in core. The loop is
+selected once at startup: `run_game_loop(world, cmd_rx, out_registry)`.

@@ -20,7 +20,7 @@ use crate::config::{
     NetConfig,
 };
 use crate::event_dispatcher::NullEventDispatcher;
-use crate::game_loop::{run_game_loop_772, wait_for_shutdown_signal};
+use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
 use crate::lua_event_dispatcher::LuaEventDispatcher;
 use crate::lua_scope::register_lua_mutation_hooks;
@@ -226,7 +226,7 @@ pub async fn run() -> anyhow::Result<()> {
     };
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
     info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
-    // Phase 6: both eras run on the unified beat loop (`run_game_loop_772`).
+    // Phase 7: both eras run on the single unified beat loop (`run_game_loop`).
     // The 1098 reactive loop (`run_game_loop_1098`) + `walk_wake_tx`/`sleep_until` walk
     // scheduling are deleted. The `beat_driven_loop` flag is collapsed — era differences
     // live in `MechanicsProfile` / `ProtocolCodec` only.
@@ -356,8 +356,8 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             });
             let game_jh = tokio::task::spawn_local(async move {
-                // Phase 5: both eras run on the unified 772 beat loop.
-                let loop_result = run_game_loop_772(world, cmd_rx, Some(out_for_loop)).await;
+                // Phase 7: both eras run on the single unified beat loop.
+                let loop_result = run_game_loop(world, cmd_rx, Some(out_for_loop)).await;
                 if let Err(e) = loop_result {
                     tracing::error!(?e, "game loop exited with error");
                 } else {
