@@ -20,10 +20,8 @@ use crate::config::{
     NetConfig,
 };
 use crate::event_dispatcher::NullEventDispatcher;
-use crate::formulas::StepSpeedModel;
-use crate::game_loop::{run_game_loop_1098, run_game_loop_772, wait_for_shutdown_signal};
+use crate::game_loop::{run_game_loop_772, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
 use crate::lua_event_dispatcher::LuaEventDispatcher;
 use crate::lua_scope::register_lua_mutation_hooks;
 use crate::map::Map;
@@ -226,20 +224,13 @@ pub async fn run() -> anyhow::Result<()> {
             Box::new(NullEventDispatcher)
         }
     };
-    let (walk_wake_tx, walk_wake_rx) = tokio::sync::mpsc::unbounded_channel::<CreatureId>();
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
     info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
-    let beat_driven = mechanics.profile.step_speed == StepSpeedModel::LinearGo;
-    // Phase 3 A/B dev flag: force the 772 beat loop for 1098 to compare loop mechanics
-    // (beat vs tick cadence) while monster AI is already unified. Set `TFS_FORCE_BEAT_LOOP=1`
-    // to run 1098 on `run_game_loop_772` instead of `run_game_loop_1098`.
-    let beat_driven = beat_driven
-        || std::env::var("TFS_FORCE_BEAT_LOOP").ok().as_deref() == Some("1");
-    let walk_wake_tx = if beat_driven {
-        None
-    } else {
-        Some(walk_wake_tx)
-    };
+    // Phase 5: both eras run on the unified 772 beat loop (`run_game_loop_772`).
+    // The 1098 reactive loop (`run_game_loop_1098`) + `walk_wake_tx`/`sleep_until` walk
+    // scheduling are deleted. `beat_driven_loop` is forced true so all remaining
+    // `if beat_driven_loop` sites take the beat arm for both eras; Phase 6 collapses
+    // the flag entirely.
     let mut world = GameWorld::new(
         map,
         items,
@@ -251,13 +242,11 @@ pub async fn run() -> anyhow::Result<()> {
         monsters_db,
         groups,
         vocations,
-        walk_wake_tx,
         codec,
         mechanics,
     );
     world.scheduler = Some(scheduler.clone());
-    // Phase 3 A/B: override `beat_driven_loop` if the dev flag forced the 772 loop for 1098.
-    world.beat_driven_loop = beat_driven;
+    world.beat_driven_loop = true;
     world.startup_spawns();
     info!(
         map_chunks = world.map.grid.chunk_count(),
@@ -369,11 +358,8 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             });
             let game_jh = tokio::task::spawn_local(async move {
-                let loop_result = if beat_driven {
-                    run_game_loop_772(world, cmd_rx, Some(out_for_loop)).await
-                } else {
-                    run_game_loop_1098(world, cmd_rx, walk_wake_rx, Some(out_for_loop)).await
-                };
+                // Phase 5: both eras run on the unified 772 beat loop.
+                let loop_result = run_game_loop_772(world, cmd_rx, Some(out_for_loop)).await;
                 if let Err(e) = loop_result {
                     tracing::error!(?e, "game loop exited with error");
                 } else {

@@ -152,10 +152,9 @@ pub struct Player {
     /// (audit Findings 1/2, Phase 4). C++ `player.cpp` ~1343.
     pub next_action_until: Option<u64>,
     /// Pending action stored by `setNextWalkActionTask` — fired from `onWalkComplete` (`player.cpp` ~3390).
+    /// Phase 5: the 1098 reactive `walk_action_due` deadline is deleted; both eras use the ToDoQueue.
+    /// `walk_action` remains as a deferred-action marker cleared by `ToDoClear` (audit #3).
     pub walk_action: Option<PlayerWalkAction>,
-    /// When `walk_action` should run, in **logical ms** (`createSchedulerTask(400, ...)` in `game.cpp`;
-    /// audit Finding 1, Phase 4). **1098 only** — 772 uses `ToDoQueue` wakeup + this as due marker.
-    pub walk_action_due: Option<u64>,
     /// Town id → live depot chest root — C++ `Player::depotChests` (`player.h`).
     pub depot_chests: HashMap<u32, ItemId>,
     /// Map locker town id → virtual locker item — C++ `depotLockerMap`.

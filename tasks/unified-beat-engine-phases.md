@@ -1,7 +1,7 @@
 # Unified Beat Engine — Phased Implementation Plan
 
 **Date:** 2026-07-02
-**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done.
+**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done.
 **Strategy / rationale:** `tasks/unified-beat-engine-plan.md` (read first).
 **Engine parity gaps to close first:** `docs/GAME_LOOP_772_AUDIT.md`.
 **Walk sub-effort (subsumed here):** `tasks/walk-engine-unification.md` Phase 2.
@@ -225,7 +225,7 @@ single 772 ToDo path in a harness; single-beat move latency verified; difference
 
 ---
 
-## Phase 5 — Retire 1098 reactive machinery (delete, don't gate)
+## Phase 5 — Retire 1098 reactive machinery (delete, don't gate) ✅ DONE
 
 After Phases 3–4 the 1098 AI and player logic is gone; 1098 runs on the 772 paths. This phase
 deletes the **reactive machinery** those paths used to dispatch on 1098 — the walk-wake /
@@ -237,19 +237,77 @@ sign-off.**
 would touch a shared function, stop and escalate — do not refactor the 772 side to "make it
 work" for 1098.
 
-- [ ] `run_game_loop_1098` walk-wake branch; `walk_wake_tx`/`walk_wake_rx`; `sleep_until` walk
-      scheduling; `GameWorld::walk_wake_tx` field.
-- [ ] `process_walk_deadlines`, `schedule_walk_followup_deadline`, `commit_next_walk_deadline`.
-- [ ] `walk_action_due` dual path → single ToDo path.
-- [ ] `Instant`-based `walk_timer` / `next_walk_check` on `CreatureBase` → `next_wakeup` only.
-- [ ] `FlushPolicy::ImmediateOnMovement` → profile-driven flush (Phase 2 knob).
-- [ ] Migrate tests off `walk_wake_tx = None` / `process_walk_deadlines()` to the ToDo path
-      (rewrite assertions, don't tweak to pass).
-- [ ] Confirm the monster follow machinery (`go_to_follow_creature` + `onThink` follow poll +
-      `onCreatureMove` re-path) deleted in Phase 3 has no remaining references.
+- [x] `run_game_loop_1098` walk-wake branch; `walk_wake_tx`/`walk_wake_rx`; `sleep_until` walk
+      scheduling; `GameWorld::walk_wake_tx` field. Also deleted the `run_game_loop` back-compat
+      alias and the `TFS_FORCE_BEAT_LOOP=1` dev flag — `run_server.rs` unconditionally calls
+      `run_game_loop_772` and forces `beat_driven_loop = true`.
+- [x] `process_walk_deadlines`, `schedule_walk_followup_deadline` (collapsed to ToDo-only),
+      `commit_next_walk_deadline`, `sync_walk_timer_arm`, `process_walk_due_from_wake`,
+      `check_creature_walk` (wake-from-deadline entry). The `schedule_walk_followup_deadline`
+      name is retained but its body is now ToDo-only (no `Instant`/`commit` arm).
+- [x] `walk_action_due` dual path → single ToDo path. Deleted the `walk_action_due` field from
+      `Player`, plus `process_walk_action_tasks`, `on_player_walk_complete`, and
+      `run_player_walk_action` (all dead no-ops / unreachable after Phase 4). `walk_action`
+      remains as a deferred-action marker cleared by `ToDoClear` (audit #3).
+- [x] `Instant`-based `walk_timer` / `next_walk_check` on `CreatureBase` → `next_wakeup` only.
+      Deleted the `WalkTimer` newtype + its `Deref`/`DerefMut`/`Clone` impls and the
+      `WALK_DEADLINE_GRACE` constant. `walk_timer_idle()` simplified to `&self` (no
+      `beat_driven_loop` arg).
+- [x] `FlushPolicy::ImmediateOnMovement` → profile-driven flush (Phase 2 knob). Deleted the
+      `FlushPolicy` enum, `needs_immediate_flush`, `packet_would_immediate_flush`, and the
+      `flush_policy` parameter from `handle_game_packet` / `dispatch_command` /
+      `run_game_loop_772`. Both eras use beat-end `SendAll`.
+- [x] Migrate tests off `walk_wake_tx = None` / `process_walk_deadlines()` to the ToDo path
+      (rewrite assertions, don't tweak to pass). ~40 `world.walk_wake_tx = None;` lines removed
+      across 5 test files; `process_walk_deadlines()` calls replaced with
+      `schedule_creature_wakeup` + `drain_todo_queue`; `next_walk_check`/`walk_timer`/
+      `walk_action_due` field initializations removed; F8 S7 tests for `on_player_walk_complete`
+      deleted (function gone); `beat_driven_walk_schedules_todo_queue_not_tokio` now checks
+      `next_wakeup` instead of `walk_timer`.
+- [x] Confirm the monster follow machinery (`go_to_follow_creature` + `onThink` follow poll +
+      `onCreatureMove` re-path) deleted in Phase 3 has no remaining references. `grep` for
+      `walk_wake_tx`/`process_walk_deadlines`/`commit_next_walk_deadline`/`next_walk_check`/
+      `walk_timer`/`check_creature_walk`/`process_walk_due_from_wake` in `monster_ai.rs` returns
+      only comment references — no live code.
 
-**Exit:** `grep` for the above symbols returns only removed/renamed results; both eras run on the
-single 772-based engine.
+**Exit:** `grep` for the above symbols returns only comment/doc references; both eras run on the
+single 772-based engine. 564 core tests pass, 0 failures. Workspace `cargo check` clean.
+
+**Files changed:**
+- `game_loop.rs` — deleted `FlushPolicy`, `needs_immediate_flush`, `packet_would_immediate_flush`,
+  `run_game_loop_1098`, `run_game_loop` alias; dropped `flush_policy` param from `handle_game_packet` /
+  `dispatch_command` / `run_game_loop_772`; deleted `movement_packets_flush_immediately_on_1098` test.
+- `game_world.rs` — removed `walk_wake_tx` field + `UnboundedSender` import; `GameWorld::new` no
+  longer takes the `walk_wake_tx` param.
+- `run_server.rs` — unconditional `run_game_loop_772`; `beat_driven_loop = true` forced; deleted
+  `TFS_FORCE_BEAT_LOOP` env-var read + `walk_wake_tx`/`walk_wake_rx` channel setup.
+- `game_world_tick.rs` — `on_tick` no longer calls `process_walk_deadlines` /
+  `process_walk_action_tasks`.
+- `walk/mod.rs` — deleted `commit_next_walk_deadline`, `sync_walk_timer_arm`,
+  `process_walk_due_from_wake`, `check_creature_walk`, `process_walk_deadlines`,
+  `WALK_DEADLINE_GRACE`; collapsed `add_event_walk` / `schedule_walk_followup_deadline` /
+  `player_move_request` / `player_auto_walk_path` / `player_stop_auto_walk` / `on_walk` chase
+  branch to ToDo-only (removed `if beat_driven_loop` guards + 1098 `commit` else-arms);
+  `add_event_walk` lost the `scheduling_base: Instant` param; `stop_event_walk` clears
+  `next_wakeup` only; `schedule_creature_wakeup` no longer touches `next_walk_check`.
+- `walk_action.rs` — deleted `process_walk_action_tasks`, `on_player_walk_complete`,
+  `run_player_walk_action`; `clear_player_walk_action` / `defer_player_walk_action` /
+  `set_next_walk_action_task` no longer touch `walk_action_due`.
+- `creature/base.rs` — deleted `WalkTimer` newtype (+ `Deref`/`DerefMut`/`Clone`),
+  `next_walk_check` field, `walk_timer` field; `walk_timer_idle()` takes no args.
+- `creature/player.rs` — deleted `walk_action_due` field.
+- `creature/mod.rs` — removed `WalkTimer` re-export.
+- `lib.rs` — `pub use game_loop::{graceful_shutdown, run_game_loop_772, wait_for_shutdown_signal}`
+  (dropped `run_game_loop`, `run_game_loop_1098`).
+- `sim_harness.rs` — `GameWorld::new` callers updated; `beat_driven_walk_schedules_todo_queue_not_tokio`
+  test checks `next_wakeup`; `process_walk_deadlines()` call replaced with `drain_todo_queue`.
+- `idle_stimulus.rs` — `walk_timer_idle()` calls updated; `TFS_FORCE_BEAT_LOOP` comment updated;
+  removed unused `TargetSearchType` import.
+- `monster_ai.rs` — `walk_timer_idle()` calls updated.
+- Tests (`monster_ai_world_tests`, `monster_ai_tests`, `monster_push_tests`,
+  `creature_think_tests`, `idle_stimulus_tests`, `arena.rs`) — removed `walk_wake_tx = None`,
+  `next_walk_check`/`walk_timer`/`walk_action_due` field initializations, `process_walk_deadlines`
+  calls, F8 S7 `on_player_walk_complete` tests.
 
 ---
 
@@ -270,9 +328,9 @@ Walk the Phase 1 inventory:
 
 ## Phase 7 — Single loop entry point
 
-- [ ] Merge `run_game_loop_772` into `run_game_loop`; delete `run_game_loop_1098` + the
-      back-compat alias. `run_server.rs` reads beat/cadence/flush from the profile — no
-      `if beat_driven` fork.
+- [ ] Merge `run_game_loop_772` into `run_game_loop` (Phase 5 already deleted
+      `run_game_loop_1098` + the back-compat alias). `run_server.rs` reads beat/cadence/flush
+      from the profile — no `if beat_driven` fork.
 - [ ] Rewrite `docs/GAME_LOOP_ARCHITECTURE.md`: one beat engine, per-era beat size + cadence via
       profile; keep the C++ reference index (both eras still cite sources).
 

@@ -127,13 +127,11 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             last_step: None,
             last_step_cost: 1,
             last_step_ground_speed: 150,
-            next_walk_check: None,
             next_wakeup: None,
             last_step_server_ms: None,
             earliest_walk_server_ms: 0,
             earliest_spell_server_ms: 0,
             earliest_multiuse_server_ms: 0,
-            walk_timer: Default::default(),
             cancel_next_walk: false,
             force_update_follow_path: false,
             walk_update_ticks: 0,
@@ -204,7 +202,6 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         last_pong_at: Instant::now(),
         next_action_until: None,
         walk_action: None,
-        walk_action_due: None,
         depot_chests: HashMap::new(),
         depot_lockers: HashMap::new(),
         inbox_root: None,
@@ -369,7 +366,6 @@ pub fn minimal_world() -> GameWorld {
         Arc::new(VocationDatabase {
             vocations: HashMap::new(),
         }),
-        None,
         tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V1098)
             .expect("1098 codec"),
         crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V1098),
@@ -406,7 +402,6 @@ pub const TEST_SYNTHETIC_GROUND_WP: u16 = 150;
 /// 772 beat-driven world with synthetic terrain registered for `TShortway::FillMap`.
 pub fn beat_driven_test_world() -> GameWorld {
     let mut world = beat_driven_world_with_synthetic_ground(Some(TEST_SYNTHETIC_GROUND_WP));
-    world.walk_wake_tx = None;
     world.server_ms = 0;
     world.seed_parity_rng(42);
     world
@@ -463,13 +458,11 @@ fn init_beat_driven_world(
         Arc::new(VocationDatabase {
             vocations: HashMap::new(),
         }),
-        None,
         tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V772)
             .expect("772 codec"),
         mechanics,
     );
     world.beat_driven_loop = true;
-    world.walk_wake_tx = None;
     world.server_ms = 0;
     reset_harness_scenario_clock();
     world.init_sim_rng_from_env();
@@ -897,13 +890,11 @@ pub fn insert_monster_with_config(
         last_step: None,
         last_step_cost: 1,
         last_step_ground_speed: 150,
-        next_walk_check: None,
         next_wakeup: None,
         last_step_server_ms: None,
         earliest_walk_server_ms: 0,
         earliest_spell_server_ms: 0,
         earliest_multiuse_server_ms: 0,
-        walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
         walk_update_ticks: 0,
@@ -961,13 +952,11 @@ pub fn insert_monster_from_type(
         last_step: None,
         last_step_cost: 1,
         last_step_ground_speed: 150,
-        next_walk_check: None,
         next_wakeup: None,
         last_step_server_ms: None,
         earliest_walk_server_ms: 0,
         earliest_spell_server_ms: 0,
         earliest_multiuse_server_ms: 0,
-        walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
         walk_update_ticks: 0,
@@ -1057,13 +1046,11 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         last_step: None,
         last_step_cost: 1,
         last_step_ground_speed: 150,
-        next_walk_check: None,
         next_wakeup: None,
         last_step_server_ms: None,
         earliest_walk_server_ms: 0,
         earliest_spell_server_ms: 0,
         earliest_multiuse_server_ms: 0,
-        walk_timer: Default::default(),
         cancel_next_walk: false,
         force_update_follow_path: false,
         walk_update_ticks: 0,
@@ -1758,9 +1745,6 @@ fn move_creatures_impl(world: &mut GameWorld, delay_ms: u64, respect_wall: bool)
     world.server_ms = world.server_ms.saturating_add(delay_ms);
     world.tick_counter = world.tick_counter.saturating_add(delay_ms / 50);
     world.drain_todo_queue();
-    if world.walk_wake_tx.is_none() {
-        world.process_walk_deadlines();
-    }
 }
 
 /// Max ms this drain round may advance — `None` means uncapped (production paths).

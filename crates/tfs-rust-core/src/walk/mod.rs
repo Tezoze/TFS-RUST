@@ -20,18 +20,14 @@
 //! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
 //! (`tasks/walk-audit.md` Issue 3).
 //!
-//! **Scheduling:** When the world has `walk_wake_tx` set, each
-//! `next_walk_check` arms a one-shot `tokio::time::sleep_until` (`src/scheduler.cpp` `steady_timer` +
-//! `async_wait` → `g_dispatcher.addTask`). Without it, [`Self::process_walk_deadlines`] polls deadlines
-//! (tests / fallback).
+//! **Scheduling (Phase 5):** the 1098 reactive walk-wake machinery (`walk_wake_tx`,
+//! `tokio::time::sleep_until` one-shots, `process_walk_deadlines` polling fallback) is deleted.
+//! Both eras now schedule steps through the 772 ToDo queue (`schedule_creature_wakeup` +
+//! `next_wakeup`). The `Instant`-based `next_walk_check` / `walk_timer` fields are gone.
 //!
 //! Speed/timing: [`walk_timing`]. Tile traversal: [`walk_tile`].
 
-use std::time::{Duration, Instant};
-
-/// TFS has no grace: timer fires → `onWalk` runs. Tokio may wake a hair early; 0ms avoids re-queue loops
-/// (`tasks/walk-audit.md` Issue 4).
-const WALK_DEADLINE_GRACE: Duration = Duration::ZERO;
+use std::time::Instant;
 
 use rand::thread_rng;
 use tfs_rust_common::enums::{ConditionType, Direction};
@@ -452,10 +448,10 @@ impl GameWorld {
             return;
         }
         let now = Instant::now();
-        // F8 S7 — the `walk_action` deferral branch is removed. After S6, all 772
+        // F8 S7 / Phase 5 — the `walk_action` deferral branch is removed. After S6, all 772
         // player actions (Use/Move/Turn) route through ToDo builders at packet receipt;
-        // `walk_action` is never set for 772 players, so `try_run_player_walk_action_from_todo`
-        // was dead code. The 1098 walk-action path (`process_walk_action_tasks`) is unaffected.
+        // `walk_action` is never set for 772 players. Phase 5 deleted the 1098 reactive
+        // `process_walk_action_tasks` drain — both eras use the ToDoQueue.
         if self.creature_uses_todo_execute(cid) {
             tracing::debug!(
                 ?cid,
@@ -470,7 +466,7 @@ impl GameWorld {
                 ran_idle = true;
             }
             if !self.creature_todo_queue_empty(cid) {
-                if self.beat_driven_loop && ran_idle {
+                if ran_idle {
                     let (front_is_go, next_wakeup) = self
                         .creatures
                         .get(cid)
@@ -515,7 +511,6 @@ impl GameWorld {
     /// structural heap order — **no** per-scenario tie; see `todo_queue.rs` / audit Finding 6.
     pub(crate) fn schedule_creature_wakeup(&mut self, cid: CreatureId, execution_time: u64) {
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().next_walk_check = None;
             k.base_mut().next_wakeup = Some(execution_time);
         }
         self.todo_queue.insert(execution_time, cid);
@@ -536,7 +531,7 @@ impl GameWorld {
         if !self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().walk_timer_idle(self.beat_driven_loop))
+            .is_some_and(|k| k.base().walk_timer_idle())
         {
             return false;
         }
@@ -566,56 +561,6 @@ impl GameWorld {
         );
         self.todo_start_from_action(cid, delay);
         false
-    }
-
-    /// TFS `scheduler.cpp`: `steady_timer` + `stopEvent`; wake game thread like `g_dispatcher.addTask`.
-    fn commit_next_walk_deadline(&mut self, cid: CreatureId, deadline: Option<Instant>) {
-        if self.beat_driven_loop {
-            return;
-        }
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().next_walk_check = deadline;
-        }
-        self.sync_walk_timer_arm(cid);
-    }
-
-    /// Arm or cancel the Tokio one-shot for `next_walk_check` (no-op when `walk_wake_tx` is `None`).
-    fn sync_walk_timer_arm(&mut self, cid: CreatureId) {
-        if self.beat_driven_loop {
-            return;
-        }
-        let (deadline, tx_opt) = {
-            let Some(k) = self.creatures.get_mut(cid) else {
-                return;
-            };
-            if let Some(h) = k.base_mut().walk_timer.take() {
-                h.abort();
-            }
-            (k.base().next_walk_check, self.walk_wake_tx.clone())
-        };
-        let Some(tx) = tx_opt else {
-            return;
-        };
-        let Some(deadline) = deadline else {
-            return;
-        };
-        let now = Instant::now();
-        if deadline <= now {
-            self.check_creature_walk(cid, Instant::now());
-            return;
-        }
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep_until(deadline.into()).await;
-            let _ = tx.send(cid);
-        });
-        if let Some(k) = self.creatures.get_mut(cid) {
-            *k.base_mut().walk_timer = Some(handle);
-        }
-    }
-
-    /// Wake from [`tokio::time::sleep_until`] — one `Game::checkCreatureWalk` (`game.cpp` ~3773).
-    pub fn process_walk_due_from_wake(&mut self, cid: CreatureId) {
-        self.check_creature_walk(cid, Instant::now());
     }
 
     /// O(1) reverse lookup via `creature_to_conn` (audit #4). Replaces the previous
@@ -727,28 +672,24 @@ impl GameWorld {
             return;
         }
 
-        if self.beat_driven_loop {
-            // 772 unified ToDo path — `CGoDirection` (`receiving.cc:120-199`).
-            self.player_todo_clear_with_snapback(conn_id, cid);
-            let cur_pos = self.creatures.get(cid).map(|k| k.position());
-            if let (Some(CreatureKind::Player(pl)), Some(pos)) =
-                (self.creatures.get_mut(cid), cur_pos)
-            {
-                pl.last_activity = now;
-                pl.base.walk_queue.push_back(direction);
-                // C++ `TDGo` stores absolute coordinates (`receiving.cc:189-192`); Rust stores
-                // `Direction`s. Track the absolute destination alongside so `on_walk` can verify
-                // adjacency after a mid-walk push (audit #4 — `cract.cc:386-389`).
-                pl.base.walk_destinations.push_back(pos.offset(direction));
-            }
-            // `ToDoGo` → `ToDoStart` (`cract.cc:1050-1107`, `:991-1024`).
-            let _ = self.enqueue_creature_go(cid);
-            if self.todo_start_go_delay(cid, true) {
-                self.schedule_immediate_todo_wakeup(cid);
-            }
-            return;
+        // 772 unified ToDo path — `CGoDirection` (`receiving.cc:120-199`).
+        self.player_todo_clear_with_snapback(conn_id, cid);
+        let cur_pos = self.creatures.get(cid).map(|k| k.position());
+        if let (Some(CreatureKind::Player(pl)), Some(pos)) =
+            (self.creatures.get_mut(cid), cur_pos)
+        {
+            pl.last_activity = now;
+            pl.base.walk_queue.push_back(direction);
+            // C++ `TDGo` stores absolute coordinates (`receiving.cc:189-192`); Rust stores
+            // `Direction`s. Track the absolute destination alongside so `on_walk` can verify
+            // adjacency after a mid-walk push (audit #4 — `cract.cc:386-389`).
+            pl.base.walk_destinations.push_back(pos.offset(direction));
         }
-        // Phase 4: 1098 `addEventWalk` path deleted — both eras use the ToDo `CGoDirection` path.
+        // `ToDoGo` → `ToDoStart` (`cract.cc:1050-1107`, `:991-1024`).
+        let _ = self.enqueue_creature_go(cid);
+        if self.todo_start_go_delay(cid, true) {
+            self.schedule_immediate_todo_wakeup(cid);
+        }
     }
 
     /// TFS `Game::playerAutoWalk` (`game.cpp` ~2075–2084).
@@ -777,49 +718,45 @@ impl GameWorld {
             return;
         }
 
-        if self.beat_driven_loop {
-            // 772 unified ToDo path — `CGoPath` (`receiving.cc:120-199`).
-            self.player_todo_clear_with_snapback(conn_id, cid);
-            let cur_pos = self.creatures.get(cid).map(|k| k.position());
-            if let (Some(CreatureKind::Player(pl)), Some(pos)) =
-                (self.creatures.get_mut(cid), cur_pos)
-            {
-                pl.last_activity = now;
-                // C++ `CGoPath` accumulates absolute coordinates from `Player->posx/y/z`
-                // (`receiving.cc:141-160`); Rust stores `Direction`s. Track the absolute
-                // destination of each step alongside so `on_walk` can verify adjacency after a
-                // mid-walk push (audit #4 — `cract.cc:386-389`).
-                //
-                // `path` is in reverse execution order (packet parser `.rev()`), and
-                // `walk_queue` uses `push_back` + `pop_back` (LIFO), so `pop_back` yields the
-                // first-to-execute step. Accumulate destinations in execution order (rev of
-                // `path`) and `push_front` so `pop_back` on both queues stays in sync.
-                for d in &path {
-                    pl.base.walk_queue.push_back(*d);
-                }
-                let mut acc = pos;
-                for d in path.iter().rev() {
-                    acc = acc.offset(*d);
-                    pl.base.walk_destinations.push_front(acc);
-                }
+        // 772 unified ToDo path — `CGoPath` (`receiving.cc:120-199`).
+        self.player_todo_clear_with_snapback(conn_id, cid);
+        let cur_pos = self.creatures.get(cid).map(|k| k.position());
+        if let (Some(CreatureKind::Player(pl)), Some(pos)) =
+            (self.creatures.get_mut(cid), cur_pos)
+        {
+            pl.last_activity = now;
+            // C++ `CGoPath` accumulates absolute coordinates from `Player->posx/y/z`
+            // (`receiving.cc:141-160`); Rust stores `Direction`s. Track the absolute
+            // destination of each step alongside so `on_walk` can verify adjacency after a
+            // mid-walk push (audit #4 — `cract.cc:386-389`).
+            //
+            // `path` is in reverse execution order (packet parser `.rev()`), and
+            // `walk_queue` uses `push_back` + `pop_back` (LIFO), so `pop_back` yields the
+            // first-to-execute step. Accumulate destinations in execution order (rev of
+            // `path`) and `push_front` so `pop_back` on both queues stays in sync.
+            for d in &path {
+                pl.base.walk_queue.push_back(*d);
             }
-            // `CGoPath` builds N entries then a single `ToDoStart` — one `Go` action drains the
-            // whole `walk_queue` via `finish_creature_todo_execute` re-arm (`cract.cc:1050-1107`).
-            let _go_enqueued = self.enqueue_creature_go(cid);
-            let immediate = self.todo_start_go_delay(cid, true);
-            // OTClient auto-walk workaround: record the beat when this walk was armed.
-            // OTClient sends `0x69` (StopAutoWalk) 2–200 ms after each `0x64` (AutoWalk) on
-            // map-click; the stop is meant for the *previous* walk, not the fresh one.
-            // `player_stop_auto_walk` ignores stops that arrive within 400 ms of a fresh arm.
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().last_auto_walk_armed_ms = self.server_ms;
+            let mut acc = pos;
+            for d in path.iter().rev() {
+                acc = acc.offset(*d);
+                pl.base.walk_destinations.push_front(acc);
             }
-            if immediate {
-                self.schedule_immediate_todo_wakeup(cid);
-            }
-            return;
         }
-        // Phase 4: 1098 `addEventWalk` path deleted — both eras use the ToDo `CGoPath` path.
+        // `CGoPath` builds N entries then a single `ToDoStart` — one `Go` action drains the
+        // whole `walk_queue` via `finish_creature_todo_execute` re-arm (`cract.cc:1050-1107`).
+        let _go_enqueued = self.enqueue_creature_go(cid);
+        let immediate = self.todo_start_go_delay(cid, true);
+        // OTClient auto-walk workaround: record the beat when this walk was armed.
+        // OTClient sends `0x69` (StopAutoWalk) 2–200 ms after each `0x64` (AutoWalk) on
+        // map-click; the stop is meant for the *previous* walk, not the fresh one.
+        // `player_stop_auto_walk` ignores stops that arrive within 400 ms of a fresh arm.
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().last_auto_walk_armed_ms = self.server_ms;
+        }
+        if immediate {
+            self.schedule_immediate_todo_wakeup(cid);
+        }
     }
 
     /// TFS `Game::playerTurn` + `internalCreatureTurn` (`game.cpp` ~3354–3366, ~3703–3720).
@@ -889,58 +826,54 @@ impl GameWorld {
     ///
     /// 1098 sets `cancel_next_walk` which is processed in `onWalk`.
     pub fn player_stop_auto_walk(&mut self, cid: CreatureId) {
-        if self.beat_driven_loop {
-            // OTClient auto-walk workaround: OTClient sends `0x69` (StopAutoWalk) 2–200 ms
-            // after each `0x64` (AutoWalk) on map-click. The stop is meant for the *previous*
-            // walk, not the fresh one — `player_auto_walk_path` already cleared the previous
-            // walk via `player_todo_clear_with_snapback`. If the new walk was armed within
-            // a short window, ignore the stop entirely.
-            let last_armed = self
-                .creatures
-                .get(cid)
-                .map(|k| k.base().last_auto_walk_armed_ms)
-                .unwrap_or(u64::MAX);
-            if last_armed != u64::MAX {
-                let since_armed = self.server_ms.saturating_sub(last_armed);
-                if since_armed <= 400 {
-                    return;
-                }
+        // OTClient auto-walk workaround: OTClient sends `0x69` (StopAutoWalk) 2–200 ms
+        // after each `0x64` (AutoWalk) on map-click. The stop is meant for the *previous*
+        // walk, not the fresh one — `player_auto_walk_path` already cleared the previous
+        // walk via `player_todo_clear_with_snapback`. If the new walk was armed within
+        // a short window, ignore the stop entirely.
+        let last_armed = self
+            .creatures
+            .get(cid)
+            .map(|k| k.base().last_auto_walk_armed_ms)
+            .unwrap_or(u64::MAX);
+        if last_armed != u64::MAX {
+            let since_armed = self.server_ms.saturating_sub(last_armed);
+            if since_armed <= 400 {
+                return;
             }
-
-            // C++ `LockToDo` is true from `ToDoStart` until `ToDoClear` — i.e. any pending or
-            // active ToDo. In Rust, `todo.locked` is only true during `execute_creature_todo_action`
-            // (narrow window). The equivalent "walk in progress" check is: a wakeup is armed, a
-            // `Go` is queued, or steps remain in `walk_queue` (`cract.cc:1003`).
-            let walk_in_progress = self.creatures.get(cid).is_some_and(|k| {
-                let b = k.base();
-                b.todo.locked
-                    || b.next_wakeup.is_some()
-                    || b.todo.has_go()
-                    || !b.walk_queue.is_empty()
-            });
-            if walk_in_progress {
-                // C++ `ToDoStop` locked branch: `this->Stop = true` (`cract.cc:1003-1004`).
-                // The in-flight step lands on the next beat; `finish_creature_todo_execute`
-                // checks `todo_stop` and does `ToDoClear + SendSnapback` (`cract.cc:891-897`).
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().todo.todo_stop = true;
-                }
-            } else {
-                // C++ `ToDoStop` not-locked branch: immediate `SendSnapback` (`cract.cc:1005-1006`).
-                // Queue is empty; `player_todo_clear` is a harmless no-op that also resets flags.
-                if let Some(conn) = self.conn_for_creature(cid) {
-                    let dir_byte = self
-                        .creatures
-                        .get(cid)
-                        .map(|k| k.base().direction as u8)
-                        .unwrap_or(0);
-                    self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
-                }
-                self.player_todo_clear(cid);
-            }
-            return;
         }
-        // Phase 4: 1098 `cancel_next_walk` path deleted — both eras use `ToDoStop`.
+
+        // C++ `LockToDo` is true from `ToDoStart` until `ToDoClear` — i.e. any pending or
+        // active ToDo. In Rust, `todo.locked` is only true during `execute_creature_todo_action`
+        // (narrow window). The equivalent "walk in progress" check is: a wakeup is armed, a
+        // `Go` is queued, or steps remain in `walk_queue` (`cract.cc:1003`).
+        let walk_in_progress = self.creatures.get(cid).is_some_and(|k| {
+            let b = k.base();
+            b.todo.locked
+                || b.next_wakeup.is_some()
+                || b.todo.has_go()
+                || !b.walk_queue.is_empty()
+        });
+        if walk_in_progress {
+            // C++ `ToDoStop` locked branch: `this->Stop = true` (`cract.cc:1003-1004`).
+            // The in-flight step lands on the next beat; `finish_creature_todo_execute`
+            // checks `todo_stop` and does `ToDoClear + SendSnapback` (`cract.cc:891-897`).
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().todo.todo_stop = true;
+            }
+        } else {
+            // C++ `ToDoStop` not-locked branch: immediate `SendSnapback` (`cract.cc:1005-1006`).
+            // Queue is empty; `player_todo_clear` is a harmless no-op that also resets flags.
+            if let Some(conn) = self.conn_for_creature(cid) {
+                let dir_byte = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().direction as u8)
+                    .unwrap_or(0);
+                self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
+            }
+            self.player_todo_clear(cid);
+        }
     }
 
     /// 1098 self-move (`ProtocolGame::sendMoveCreature`, `creature == player`, non-teleport).
@@ -1188,7 +1121,7 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| !k.base().walk_timer_idle(self.beat_driven_loop))
+            .is_some_and(|k| !k.base().walk_timer_idle())
         {
             return;
         }
@@ -1197,7 +1130,7 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
-        let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
+        let server_ms_opt = Some(self.server_ms);
         let ticks = {
             let Some(k) = self.creatures.get(cid) else {
                 return;
@@ -1217,12 +1150,7 @@ impl GameWorld {
             return;
         }
         let delay_ms = ticks.max(1) as u64;
-        if self.beat_driven_loop {
-            self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
-        } else {
-            let anchor = Instant::now();
-            self.commit_next_walk_deadline(cid, Some(anchor + Duration::from_millis(delay_ms)));
-        }
+        self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay_ms));
     }
 
     /// Queue one step and arm the walk timer (monster/NPC AI and tests).
@@ -1233,7 +1161,7 @@ impl GameWorld {
             k.base_mut().walk_queue.clear();
             k.base_mut().walk_queue.push_back(direction);
         }
-        self.add_event_walk(cid, true, Instant::now());
+        self.add_event_walk(cid, true);
     }
 
     /// TFS `Creature::startAutoWalk` + `addEventWalk` — all creature kinds (`creature.cpp` ~274–297).
@@ -1244,20 +1172,19 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| k.base().walk_queue.len() == 1);
-        let walk_sched_base = Instant::now();
-        self.add_event_walk(cid, first_only, walk_sched_base);
+        self.add_event_walk(cid, first_only);
     }
 
     /// Monster chase — first queued step runs immediately (`addEventWalk(true)` / `ticks == 1`).
     pub(crate) fn creature_start_chase_auto_walk(&mut self, cid: CreatureId) {
-        self.add_event_walk(cid, true, Instant::now());
+        self.add_event_walk(cid, true);
     }
 
     /// TFS `Creature::addEventWalk` (`creature.cpp` ~299–322).
     ///
-    /// `scheduling_base`: anchor for the **initial** timer when `first_step` is true and `ticks > 1`
-    /// (new move / long first delay). Reschedules (`first_step == false`) use `Instant::now()` instead.
-    fn add_event_walk(&mut self, cid: CreatureId, first_step: bool, scheduling_base: Instant) {
+    /// Phase 5: the 1098 `scheduling_base` anchor (for the `Instant`-based initial timer) is gone;
+    /// both eras schedule via `schedule_creature_wakeup` on the logical `server_ms` clock.
+    fn add_event_walk(&mut self, cid: CreatureId, first_step: bool) {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().cancel_next_walk = false;
         }
@@ -1276,13 +1203,13 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| !k.base().walk_timer_idle(self.beat_driven_loop))
+            .is_some_and(|k| !k.base().walk_timer_idle())
         {
             return;
         }
 
         let wall_now = Instant::now();
-        let server_ms_opt = self.beat_driven_loop.then_some(self.server_ms);
+        let server_ms_opt = Some(self.server_ms);
 
         let ground_speed = self
             .map
@@ -1314,74 +1241,35 @@ impl GameWorld {
             self.check_creature_walk_from_add_event_walk(cid, wall_now);
             if first_step {
                 self.schedule_walk_followup_deadline(cid);
-            } else if self.beat_driven_loop {
-                self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
             } else {
-                let anchor = Instant::now();
-                self.commit_next_walk_deadline(cid, Some(anchor + Duration::from_millis(1)));
+                self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
             }
             return;
         }
 
         let delay_ms = ticks.max(1) as u64;
-        if self.beat_driven_loop {
-            let execution_time = self.server_ms.saturating_add(delay_ms);
-            self.schedule_creature_wakeup(cid, execution_time);
-        } else if first_step {
-            self.commit_next_walk_deadline(
-                cid,
-                Some(scheduling_base + Duration::from_millis(delay_ms)),
-            );
-        } else {
-            let anchor = Instant::now();
-            self.commit_next_walk_deadline(cid, Some(anchor + Duration::from_millis(delay_ms)));
-        }
+        let execution_time = self.server_ms.saturating_add(delay_ms);
+        self.schedule_creature_wakeup(cid, execution_time);
     }
 
     pub(crate) fn stop_event_walk(&mut self, cid: CreatureId) {
         if let Some(k) = self.creatures.get_mut(cid) {
-            if let Some(h) = k.base_mut().walk_timer.take() {
-                h.abort();
-            }
-            k.base_mut().next_walk_check = None;
             k.base_mut().next_wakeup = None;
         }
     }
 
-    /// TFS `Game::checkCreatureWalk` (`game.cpp` ~3773–3779).
-    pub fn check_creature_walk(&mut self, cid: CreatureId, now: Instant) {
-        let health_ok = self.creatures.get(cid).is_some_and(|k| k.base().health > 0);
-        if !health_ok {
-            return;
-        }
-
-        let fired_deadline = self
-            .creatures
-            .get_mut(cid)
-            .and_then(|k| k.base_mut().next_walk_check.take());
-        let Some(fired_deadline) = fired_deadline else {
-            return;
-        };
-
-        // Logical deadline still in the future — re-arm (timer coalescing / ordering).
-        if fired_deadline > now + WALK_DEADLINE_GRACE {
-            self.commit_next_walk_deadline(cid, Some(fired_deadline));
-            return;
-        }
-
-        self.on_walk(cid, true, now, Some(fired_deadline));
-        self.cleanup();
-    }
-
-    /// Same as [`check_creature_walk`], but the walk was **not** triggered by a prior `next_walk_check`
-    /// (sync branch inside `add_event_walk` when `ticks == 1`). Matches `eventWalk == 0` at `onWalk` exit in C++.
+    /// Same as the old `check_creature_walk`, but the walk was **not** triggered by a prior
+    /// `next_walk_check` (sync branch inside `add_event_walk` when `ticks == 1`). Matches
+    /// `eventWalk == 0` at `onWalk` exit in C++.
+    ///
+    /// Phase 5: the 1098 `check_creature_walk` (wake from `next_walk_check` deadline) is deleted —
+    /// both eras schedule steps via the ToDo queue. This sync entry point remains for the
+    /// `ticks == 1` fast path inside `add_event_walk`.
     fn check_creature_walk_from_add_event_walk(&mut self, cid: CreatureId, now: Instant) {
         let health_ok = self.creatures.get(cid).is_some_and(|k| k.base().health > 0);
         if !health_ok {
             return;
         }
-
-        self.commit_next_walk_deadline(cid, None);
 
         self.on_walk(cid, false, now, None);
         self.cleanup();
@@ -1741,11 +1629,10 @@ impl GameWorld {
             } else {
                 // TFS: `getNextStep` false → `stopEventWalk`, `onWalkComplete` if queue empty (`src/creature.cpp` ~215–219).
                 self.stop_event_walk(cid);
-                if self.beat_driven_loop
-                    && self
-                        .creatures
-                        .get(cid)
-                        .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+                if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
                 {
                     // 772 idle drain owns chase repath — no TFS walk-timer poll (X5).
                     // When inside todo execute, `finish_creature_todo_execute` calls `idle_stimulus`;
@@ -1760,23 +1647,10 @@ impl GameWorld {
                     {
                         self.request_idle_stimulus(cid);
                     }
-                } else if self.monster_should_keep_chase_walk_alive(cid)
-                    || self.monster_should_keep_dance_walk_alive(cid)
-                {
-                    // C++ keeps polling `getNextStep` while chasing; re-arm when the queue is empty
-                    // but `followCreature` is still set (including `chase_fully_blocked` repaths).
-                    self.schedule_walk_followup_deadline(cid);
                 } else {
                     stopped_without_reschedule = true;
                 }
                 self.events.on_walk_complete(cid);
-                if self
-                    .creatures
-                    .get(cid)
-                    .is_some_and(|k| matches!(k, CreatureKind::Player(_)))
-                {
-                    self.on_player_walk_complete(cid);
-                }
                 if self
                     .creatures
                     .get(cid)
@@ -1815,7 +1689,7 @@ impl GameWorld {
             if self.creature_uses_todo_execute(cid) {
                 // Step chain owned by the per-creature action queue.
             } else {
-                self.add_event_walk(cid, false, now);
+                self.add_event_walk(cid, false);
             }
         }
     }
@@ -1994,8 +1868,7 @@ impl GameWorld {
             // `EarliestWalkTime` ToDo delay for walk step gating.
         }
 
-        if self.beat_driven_loop
-            && chase_debug::chase_path_debug_enabled()
+        if chase_debug::chase_path_debug_enabled()
             && self
                 .creatures
                 .get(cid)
@@ -2150,33 +2023,6 @@ impl GameWorld {
             k.set_position(to);
         }
         self.monster_dispatch_creature_move(cid, from, to);
-    }
-
-    pub fn process_walk_deadlines(&mut self) {
-        if self.walk_wake_tx.is_some() {
-            return;
-        }
-        // Chain: nested `addEventWalk` / same-deadline walks should drain in one wake (scheduler coalesces).
-        // Sample `Instant::now()` each pass — do not use a snapshot from the game-loop branch (Bug 4).
-        const MAX_CHAIN: usize = 64;
-        for _ in 0..MAX_CHAIN {
-            let now = Instant::now();
-            let mut due: Vec<CreatureId> = Vec::new();
-            for (cid, k) in self.creatures.iter() {
-                if let Some(deadline) = k.base().next_walk_check {
-                    if now >= deadline {
-                        due.push(cid);
-                    }
-                }
-            }
-            if due.is_empty() {
-                break;
-            }
-            for cid in due {
-                let step_now = Instant::now();
-                self.check_creature_walk(cid, step_now);
-            }
-        }
     }
 
     /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).
@@ -2560,11 +2406,14 @@ mod monster_walk_tests {
 
         world.creature_queue_walk_step(monster, Direction::East);
 
+        // Phase 5: both eras schedule steps via the ToDoQueue (`schedule_creature_wakeup`).
+        // Advance the logical clock + drain to fire the armed wakeup.
         for _ in 0..32 {
             if world.creatures.get(monster).map(|k| k.position()) == Some(monster_end) {
                 break;
             }
-            world.process_walk_deadlines();
+            world.server_ms = world.server_ms.saturating_add(200);
+            world.drain_todo_queue();
         }
 
         assert_eq!(
@@ -2588,7 +2437,6 @@ mod monster_walk_tests {
     #[test]
     fn beat_driven_walk_schedules_todo_queue_not_tokio() {
         let mut world = support::beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
         let pos = Position::new(100, 100, 7);
         support::ensure_walkable_tile(&mut world.map, pos, 2148);
@@ -2605,9 +2453,9 @@ mod monster_walk_tests {
                 .get(cid)
                 .unwrap()
                 .base()
-                .walk_timer
-                .is_none(),
-            "772 must not spawn Tokio walk timers"
+                .next_wakeup
+                .is_some(),
+            "Phase 5: walk arms next_wakeup on the ToDoQueue (no Tokio timers)"
         );
     }
 
@@ -2615,7 +2463,6 @@ mod monster_walk_tests {
     #[test]
     fn beat_driven_stale_todo_entry_is_skipped() {
         let mut world = support::beat_driven_world();
-        world.walk_wake_tx = None;
         let pos = Position::new(100, 100, 7);
         support::ensure_walkable_tile(&mut world.map, pos, 2148);
         let cid = support::insert_monster(&mut world, "Rat", pos, 200);
@@ -2640,7 +2487,6 @@ mod monster_walk_tests {
         use crate::creature_todo::CreatureAction;
 
         let mut world = support::beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 100;
 
         let pos = Position::new(100, 100, 7);
@@ -2700,7 +2546,6 @@ mod monster_walk_tests {
         use crate::creature_todo::CreatureAction;
 
         let mut world = support::beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 100;
 
         let pos = Position::new(100, 100, 7);

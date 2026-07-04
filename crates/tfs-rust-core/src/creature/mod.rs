@@ -11,7 +11,7 @@ mod npc;
 mod player;
 pub mod vocation;
 
-pub use base::{ChaseMode, CreatureBase, DamageMap, Outfit, WalkTimer};
+pub use base::{ChaseMode, CreatureBase, DamageMap, Outfit};
 pub use kind::CreatureKind;
 pub use light::LightInfo;
 pub use monster::{Monster, MonsterAiConfig, MonsterAiPhase, MonsterState};

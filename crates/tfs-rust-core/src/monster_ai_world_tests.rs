@@ -52,7 +52,6 @@
     #[test]
     fn monster_acquires_target_and_steps_toward_player() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
         for x in 100..=106 {
@@ -110,7 +109,6 @@
     #[test]
     fn monster_repaths_when_follow_target_moves() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(106, 100, 7);
         let ppos_moved = Position::new(105, 100, 7);
@@ -198,7 +196,6 @@
     #[test]
     fn monster_acquires_target_when_player_walks_into_viewport() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let far = Position::new(112, 100, 7);
         let near = Position::new(110, 100, 7);
@@ -231,7 +228,6 @@
     #[test]
     fn fleeing_monster_steps_away_from_player() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
         for x in 99..=102 {
@@ -371,7 +367,6 @@
     #[test]
     fn test_772_skips_walk_to_spawn_on_opponent_leave() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let spawn = Position::new(100, 100, 7);
         let far = Position::new(120, 100, 7);
         for x in 100..=120 {
@@ -402,7 +397,6 @@
     #[test]
     fn idle_monster_does_not_random_walk() {
         let mut world = minimal_world();
-        world.walk_wake_tx = None;
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
 
@@ -416,9 +410,10 @@
         let now = Instant::now();
         if let Some(k) = world.creatures.get_mut(monster) {
             k.base_mut().last_step = Some(now - Duration::from_secs(2));
-            k.base_mut().next_walk_check = Some(now);
         }
-        world.process_walk_deadlines();
+        // Phase 5: both eras schedule steps via the ToDoQueue — arm a wakeup and drain.
+        world.schedule_creature_wakeup(monster, world.server_ms);
+        world.drain_todo_queue();
 
         assert_eq!(world.creatures.get(monster).unwrap().position(), pos);
     }
@@ -463,7 +458,6 @@
     #[test]
     fn ranged_monster_steps_away_when_adjacent() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
         for x in 99..=102 {
@@ -563,7 +557,6 @@
     #[test]
     fn beat_driven_arm_event_walk_skips_when_wakeup_set() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
 
         let pos = Position::new(100, 100, 7);
@@ -641,7 +634,6 @@
     #[test]
     fn test_772_walk_queue_hysteresis() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
         let ppos_moved = Position::new(104, 100, 7);
@@ -692,7 +684,6 @@
     #[test]
     fn test_772_ensure_follow_band_keeps_queue_when_not_stale() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
         let ppos_moved = Position::new(104, 100, 7);
@@ -736,7 +727,6 @@
     #[test]
     fn test_772_target_move_empty_queue_defers_to_idle() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(105, 100, 7);
         let ppos_moved = Position::new(104, 100, 7);
@@ -777,7 +767,6 @@
     #[test]
     fn test_772_ensure_follow_band_defers_repath_via_force_update() {
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(108, 100, 7);
         for x in 100..=109 {

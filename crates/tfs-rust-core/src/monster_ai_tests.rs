@@ -109,7 +109,6 @@
         use crate::sim_harness::{beat_driven_world, ensure_walkable_tile, insert_monster_with_config};
 
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         // Global despawn radius is large (50); the per-home radius is small (3).
         world.monster_world_config.despawn_radius = 50;
 
@@ -146,7 +145,6 @@
         use crate::sim_harness::{beat_driven_world, ensure_walkable_tile, insert_monster_with_config};
 
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         world.monster_world_config.despawn_radius = 50;
 
         let spawn = Position::new(100, 100, 7);

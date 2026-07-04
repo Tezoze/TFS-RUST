@@ -20,7 +20,6 @@
     #[test]
     fn kicker_onto_player_tile_is_exhausted() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -50,7 +49,6 @@
     #[test]
     fn non_kicker_onto_player_tile_proceeds() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -81,7 +79,6 @@
     #[test]
     fn kicker_onto_own_target_tile_proceeds() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -109,7 +106,6 @@
     #[test]
     fn exhausted_wait_clears_target_and_waits_1000() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
 
         let mpos = Position::new(100, 100, 7);
@@ -147,7 +143,6 @@
     #[test]
     fn can_kick_boxes_inherits_from_master() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let p = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, p, 1);
@@ -195,7 +190,6 @@
         use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
 
         let mut world = beat_driven_test_world();
-        world.walk_wake_tx = None;
         // 1-wide corridor: cyclops(100,100) → bear(101,100) → player(103,100).
         // Walls (no tile) above/below the bear so it can't be pushed aside → kill on execute.
         let mpos = Position::new(100, 100, 7);
@@ -247,7 +241,6 @@
     #[test]
     fn boxed_in_blocker_is_killed_and_step_exhausted() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
         let now = std::time::Instant::now();
 
@@ -287,7 +280,6 @@
         use crate::creature::ChaseMode;
 
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
         let now = std::time::Instant::now();
 
@@ -340,7 +332,6 @@
     #[test]
     fn summon_kicks_blocking_monster() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -386,7 +377,6 @@
     #[test]
     fn ignored_player_tile_is_hard_block_not_exhausted() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -421,7 +411,6 @@
         use tfs_rust_common::enums::ConditionType as CondType;
 
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let mpos = Position::new(100, 100, 7);
         let bpos = Position::new(101, 100, 7);
@@ -472,7 +461,6 @@
     #[test]
     fn kick_and_retry_clears_two_deep_blockers() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -522,7 +510,6 @@
     #[test]
     fn player_tile_is_plannable_through_in_move_possible() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(101, 100, 7);
@@ -555,7 +542,6 @@
         use crate::tile::{HouseTile, Tile, TileBody};
 
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let mpos = Position::new(100, 100, 7);
         let hpos = Position::new(101, 100, 7);
@@ -595,7 +581,6 @@
     #[test]
     fn f3_kick_kill_preserves_target() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
         let now = std::time::Instant::now();
 
@@ -657,7 +642,6 @@
     #[test]
     fn f3_player_tile_clears_target() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         world.server_ms = 0;
         let now = std::time::Instant::now();
 
@@ -793,7 +777,6 @@
     #[test]
     fn f2_chain_push_three_monsters() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -842,7 +825,6 @@
     #[test]
     fn f2_chain_push_no_stacking() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -878,7 +860,6 @@
     #[test]
     fn f2_chain_push_boxed_in_kills() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         let mpos = Position::new(100, 100, 7);
@@ -911,7 +892,6 @@
     #[test]
     fn f2_chain_push_cycle_guard() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         // 2×2 cluster: A(100,100), B(101,100), C(101,101), D(100,101).
@@ -954,7 +934,6 @@
     #[test]
     fn f2_dense_convoy_fluid() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
         let now = std::time::Instant::now();
 
         // Corridor: A(100,100)→B(101,100)→C(101,101)→D(101,102)→E(101,103)→escape(101,104).

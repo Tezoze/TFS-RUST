@@ -1690,7 +1690,7 @@ impl GameWorld {
             .get(cid)
             .map(|k| {
                 (
-                    k.base().health > 0 && k.base().walk_timer_idle(true),
+                    k.base().health > 0 && k.base().walk_timer_idle(),
                     k.base().follow_target.is_some(),
                 )
             })
@@ -1719,7 +1719,7 @@ impl GameWorld {
                 m.base.position,
                 m.base.attack_target,
                 m.base.direction,
-                m.base.walk_timer_idle(true),
+                m.base.walk_timer_idle(),
             ),
             _ => return,
         };

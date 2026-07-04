@@ -25,31 +25,6 @@ pub enum ChaseMode {
     Range,
 }
 
-/// Tokio one-shot aligned with `Creature::eventWalk` (`creature.cpp`) — **not** carried across `Clone`
-/// of [`CreatureBase`] (mirrors dropping the scheduler event when copying state).
-#[derive(Debug, Default)]
-pub struct WalkTimer(Option<tokio::task::JoinHandle<()>>);
-
-impl Clone for WalkTimer {
-    fn clone(&self) -> Self {
-        Self(None)
-    }
-}
-
-impl std::ops::Deref for WalkTimer {
-    type Target = Option<tokio::task::JoinHandle<()>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for WalkTimer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /// Outfit mirrors TFS `Outfit_t` / player look fields.
 #[derive(Debug, Clone)]
 pub struct Outfit {
@@ -110,9 +85,9 @@ pub struct CreatureBase {
     /// OTClient v8 `Creature::getStepDuration` uses `m_lastStepToPosition` = step **destination**
     /// (`tasks/OTClientv8movement.md`); TFS `Creature::getWalkDelay` also uses **current** tile after move.
     pub last_step_ground_speed: u32,
-    /// TFS scheduler: next `Game::checkCreatureWalk` — `None` if `eventWalk == 0`.
-    pub next_walk_check: Option<Instant>,
     /// 772 `NextWakeup` — logical `ServerMilliseconds` deadline (`cract.cc:968`).
+    /// Phase 5: the 1098 `Instant`-based `next_walk_check` + `walk_timer` are deleted; both
+    /// eras schedule steps via the ToDoQueue on this logical deadline.
     pub next_wakeup: Option<u64>,
     /// 772 step anchor in logical time (paired with `last_step`).
     pub last_step_server_ms: Option<u64>,
@@ -122,9 +97,6 @@ pub struct CreatureBase {
     pub earliest_spell_server_ms: u64,
     /// 772 `EarliestMultiuseTime` — two-object use gate (`cr.hh:630`, `cract.cc:765`, `927–928`).
     pub earliest_multiuse_server_ms: u64,
-    /// When [`GameWorld`](crate::game_world::GameWorld) has `walk_wake_tx`, one-shot `tokio::time::sleep_until`
-    /// tasks (`src/scheduler.cpp` Boost.Asio `steady_timer` + `stopEvent`).
-    pub walk_timer: WalkTimer,
     /// TFS `Creature::cancelNextWalk` — cleared in `addEventWalk`, processed in `onWalk` (`creature.cpp`).
     pub cancel_next_walk: bool,
     /// TFS `Creature::forceUpdateFollowPath` — set when `internalMoveCreature` fails (`src/creature.cpp` ~213);
@@ -192,13 +164,10 @@ impl CreatureBase {
 
     /// True when no walk deadline is armed — safe to call `addEventWalk` / `monster_arm_event_walk`.
     ///
-    /// 1098: `next_walk_check` + Tokio timer. 772: `next_wakeup` + [`ToDoQueue`](crate::todo_queue::ToDoQueue).
-    pub fn walk_timer_idle(&self, beat_driven_loop: bool) -> bool {
-        if beat_driven_loop {
-            self.next_wakeup.is_none()
-        } else {
-            self.next_walk_check.is_none()
-        }
+    /// Phase 5: both eras use `next_wakeup` + [`ToDoQueue`](crate::todo_queue::ToDoQueue); the
+    /// 1098 `next_walk_check` + Tokio timer path is deleted.
+    pub fn walk_timer_idle(&self) -> bool {
+        self.next_wakeup.is_none()
     }
 
     /// C++ `TCombat::DelayAttack` — `crcombat.cc:523`.

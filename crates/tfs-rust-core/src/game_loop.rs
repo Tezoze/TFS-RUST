@@ -1,7 +1,8 @@
 //! Tokio-driven game loop: command drain + `GameWorld::tick`.
 //!
-//! - **1098:** TFS Dispatcher + per-creature walk timers — [`run_game_loop_1098`].
-//! - **772:** 772 beat-driven loop + ToDoQueue — [`run_game_loop_772`].
+//! - **Both eras:** 772 beat-driven loop + ToDoQueue — [`run_game_loop_772`].
+//!   Phase 5 deleted the 1098 reactive loop (`run_game_loop_1098`); 1098 now runs on the
+//!   unified beat loop. Per-era differences live in `MechanicsProfile` / `ProtocolCodec`.
 //!
 // C++ reference: `Game::gameLoop`, `ServiceManager::threadFunc` (1098);
 // `tibia-game-master/src/main.cc` `LaunchGame` / `AdvanceGame` (772).
@@ -15,26 +16,15 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinSet;
 use tokio::time::{interval, MissedTickBehavior};
 
-use crate::ids::CreatureId;
-
 use tfs_rust_common::{GameCommand, GamePacket};
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{error, info, trace, warn};
 
 use crate::creature_todo::ActionObjectRef;
 use crate::game_world::GameWorld;
-use crate::stability::ErrorCategory;
+use crate::ids::CreatureId;
 use tfs_rust_db::player::PlayerStore;
 use tfs_rust_net::OutRegistry;
-
-/// When outgoing packets may be flushed to TCP during command handling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlushPolicy {
-    /// TFS 1098 — movement / turn / ping flush inline from the dispatcher.
-    ImmediateOnMovement,
-    /// 772 — buffer until beat-end `SendAll`.
-    BeatEndOnly,
-}
 
 /// Persist every player still tied to a live game connection. Used for SIGINT / graceful shutdown
 /// (awaited; not fire-and-forget). Bounded concurrency to limit DB load.
@@ -169,28 +159,6 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
     )
 }
 
-fn packet_would_immediate_flush(packet: &GamePacket) -> bool {
-    matches!(
-        packet,
-        GamePacket::Move(_)
-            | GamePacket::AutoWalk { .. }
-            | GamePacket::StopAutoWalk
-            | GamePacket::Turn(_)
-            | GamePacket::Ping
-            | GamePacket::PingBack
-            | GamePacket::UseItem(_)
-            | GamePacket::UseItemEx(_)
-    )
-}
-
-/// Movement / facing packets that must hit the wire before the next 50ms tick (1098 only).
-fn needs_immediate_flush(packet: &GamePacket, policy: FlushPolicy) -> bool {
-    match policy {
-        FlushPolicy::BeatEndOnly => false,
-        FlushPolicy::ImmediateOnMovement => packet_would_immediate_flush(packet),
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoopExit {
     Shutdown,
@@ -269,10 +237,8 @@ fn handle_game_packet(
     packet: GamePacket,
     cmd_rx: &mut UnboundedReceiver<GameCommand>,
     pending: &mut VecDeque<GameCommand>,
-    flush_policy: FlushPolicy,
 ) {
     let now = Instant::now();
-    let immediate_flush = needs_immediate_flush(&packet, flush_policy);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         // Phase 4: 1098 no longer resets rounds differently — both eras use the 772
         // `ProcessConnections` round tracking.
@@ -548,7 +514,6 @@ fn handle_game_packet(
         ),
     }
     // Phase 4: 1098 `process_walk_deadlines` call deleted — both eras use the ToDo queue.
-    let _ = immediate_flush;
 }
 
 async fn dispatch_command(
@@ -557,7 +522,6 @@ async fn dispatch_command(
     cmd_rx: &mut UnboundedReceiver<GameCommand>,
     pending: &mut VecDeque<GameCommand>,
     out_registry: &Option<OutRegistry>,
-    flush_policy: FlushPolicy,
 ) -> ControlFlow<LoopExit> {
     let Some(cmd) = cmd else {
         return ControlFlow::Break(LoopExit::ChannelClosed);
@@ -610,11 +574,7 @@ async fn dispatch_command(
             ControlFlow::Continue(())
         }
         GameCommand::Game { conn_id, packet } => {
-            let immediate_flush = needs_immediate_flush(&packet, flush_policy);
-            handle_game_packet(world, conn_id, packet, cmd_rx, pending, flush_policy);
-            if immediate_flush {
-                flush_pending_outgoing(world, out_registry);
-            }
+            handle_game_packet(world, conn_id, packet, cmd_rx, pending);
             ControlFlow::Continue(())
         }
     }
@@ -632,62 +592,6 @@ async fn recv_next_command(
 
 /// TFS 1098 reactive loop — Dispatcher + Scheduler walk timers.
 ///
-/// `walk_wake_rx`: one-shot walk wakes from `tokio::time::sleep_until` (`src/scheduler.cpp`); pairs with
-/// [`GameWorld::walk_wake_tx`].
-pub async fn run_game_loop_1098(
-    mut world: GameWorld,
-    mut cmd_rx: UnboundedReceiver<GameCommand>,
-    mut walk_wake_rx: UnboundedReceiver<CreatureId>,
-    out_registry: Option<OutRegistry>,
-) -> anyhow::Result<()> {
-    let mut tick_timer = interval(Duration::from_millis(50));
-    tick_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let mut pending: VecDeque<GameCommand> = VecDeque::new();
-    loop {
-        tokio::select! {
-            biased;
-
-            cmd = recv_next_command(&mut cmd_rx, &mut pending) => {
-                match dispatch_command(
-                    &mut world,
-                    cmd,
-                    &mut cmd_rx,
-                    &mut pending,
-                    &out_registry,
-                    FlushPolicy::ImmediateOnMovement,
-                ).await {
-                    ControlFlow::Break(LoopExit::Shutdown) => {
-                        flush_online_players_to_db(&world).await?;
-                        break;
-                    }
-                    ControlFlow::Break(LoopExit::ChannelClosed) => break,
-                    ControlFlow::Continue(()) => {}
-                }
-            }
-            w = walk_wake_rx.recv() => {
-                let Some(cid) = w else {
-                    break;
-                };
-                world.process_walk_due_from_wake(cid);
-                flush_pending_outgoing(&mut world, &out_registry);
-            }
-            _ = tick_timer.tick() => {
-                let t0 = Instant::now();
-                world.on_tick(Instant::now());
-                flush_pending_outgoing(&mut world, &out_registry);
-                let elapsed = t0.elapsed();
-                if elapsed > Duration::from_millis(45) {
-                    warn!(?elapsed, "game tick exceeded 45ms budget");
-                }
-                if elapsed > Duration::from_millis(50) {
-                    world.stability.record_error(ErrorCategory::TickOverrun);
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Count additional burst ticks already pending on `interval` after one `tick().await` fired.
 fn drain_burst_beats(interval: &mut tokio::time::Interval) -> u64 {
     use std::future::Future;
@@ -730,7 +634,6 @@ pub async fn run_game_loop_772(
                     &mut cmd_rx,
                     &mut pending,
                     &out_registry,
-                    FlushPolicy::BeatEndOnly,
                 ).await {
                     ControlFlow::Break(LoopExit::Shutdown) => {
                         flush_online_players_to_db(&world).await?;
@@ -745,7 +648,6 @@ pub async fn run_game_loop_772(
                                 &mut cmd_rx,
                                 &mut pending,
                                 &out_registry,
-                                FlushPolicy::BeatEndOnly,
                             ).await {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
                                     flush_online_players_to_db(&world).await?;
@@ -774,16 +676,6 @@ pub async fn run_game_loop_772(
     Ok(())
 }
 
-/// Back-compat alias — 1098 reactive loop.
-pub async fn run_game_loop(
-    world: GameWorld,
-    cmd_rx: UnboundedReceiver<GameCommand>,
-    walk_wake_rx: UnboundedReceiver<CreatureId>,
-    out_registry: Option<OutRegistry>,
-) -> anyhow::Result<()> {
-    run_game_loop_1098(world, cmd_rx, walk_wake_rx, out_registry).await
-}
-
 /// Wait for Ctrl+C (SIGINT) — SIGTERM requires more setup on some platforms.
 pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
     signal::ctrl_c().await?;
@@ -801,7 +693,7 @@ mod timed_action_gate_tests {
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::game_packet::GamePacket;
 
-    use super::{game_packet_requires_timed_action, needs_immediate_flush, FlushPolicy};
+    use super::game_packet_requires_timed_action;
 
     #[test]
     fn walk_ping_and_extended_are_never_gated() {
@@ -872,18 +764,6 @@ mod timed_action_gate_tests {
     }
 
     #[test]
-    fn movement_packets_flush_immediately_on_1098() {
-        assert!(needs_immediate_flush(
-            &GamePacket::Move(Direction::North),
-            FlushPolicy::ImmediateOnMovement
-        ));
-        assert!(needs_immediate_flush(
-            &GamePacket::Turn(Direction::West),
-            FlushPolicy::ImmediateOnMovement
-        ));
-    }
-
-    #[test]
     fn beat_driven_loop_flag_follows_linear_go_profile() {
         use crate::formulas::StepSpeedModel;
         let mut world = crate::test_world::support::minimal_world();
@@ -916,7 +796,7 @@ mod f8_s6_handler_routing_tests {
         beat_driven_test_world, ensure_walkable_tile, test_player, TEST_SYNTHETIC_GROUND_WP,
     };
 
-    use super::{handle_game_packet, FlushPolicy};
+    use super::handle_game_packet;
 
     /// Place a bag (container, client_id=0 in the test items_db) on a tile and return its
     /// `ActionObjectRef`. Mirrors `creature_todo` tests' `place_bag_on_tile`.
@@ -964,7 +844,7 @@ mod f8_s6_handler_routing_tests {
     fn dispatch(world: &mut crate::game_world::GameWorld, conn_id: ConnId, packet: GamePacket) {
         let (_tx, mut rx) = mpsc::unbounded_channel::<GameCommand>();
         let mut pending = VecDeque::new();
-        handle_game_packet(world, conn_id, packet, &mut rx, &mut pending, FlushPolicy::BeatEndOnly);
+        handle_game_packet(world, conn_id, packet, &mut rx, &mut pending);
         // None of the rerouted opcodes push to pending (only Logout does).
         assert!(pending.is_empty(), "Use/Throw/RotateItem must not push commands");
     }

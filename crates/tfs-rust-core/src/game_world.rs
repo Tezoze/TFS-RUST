@@ -19,7 +19,6 @@ use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::vocations::VocationDatabase;
-use tokio::sync::mpsc::UnboundedSender;
 
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::ConnId;
@@ -107,8 +106,6 @@ pub struct GameWorld {
     pub vocations: Arc<VocationDatabase>,
     /// C++ `ProtocolGame::sendCreatureSay` static `statementId` (`src/protocolgame.cpp` ~2432).
     pub next_statement_id: u32,
-    /// When set, walk wake uses Tokio one-shot timers (`src/scheduler.cpp`); `None` falls back to polling in `process_walk_deadlines`.
-    pub(crate) walk_wake_tx: Option<UnboundedSender<CreatureId>>,
     /// 772 global action scheduler (`crmain.cc` `MoveCreatures`).
     pub(crate) todo_queue: crate::todo_queue::ToDoQueue,
     /// Logical game clock — advanced in `beat_ms` steps on the 772 loop (`crmain.cc` `ServerMilliseconds`).
@@ -263,7 +260,6 @@ impl GameWorld {
         monsters_db: Arc<MonsterDatabase>,
         groups: Arc<GroupDatabase>,
         vocations: Arc<VocationDatabase>,
-        walk_wake_tx: Option<UnboundedSender<CreatureId>>,
         codec: Codec,
         mechanics: crate::formulas::Mechanics,
     ) -> Self {
@@ -306,7 +302,6 @@ impl GameWorld {
             groups,
             vocations,
             next_statement_id: 0,
-            walk_wake_tx,
             todo_queue: crate::todo_queue::ToDoQueue::default(),
             server_ms: 0,
             beat_driven_loop,

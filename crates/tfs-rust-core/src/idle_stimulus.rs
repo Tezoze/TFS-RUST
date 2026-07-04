@@ -34,7 +34,6 @@ use crate::monster_ai::{
     monster_master_follow_in_wait_band, MonsterCombatCloseChaseEnqueue,
     MonsterEnqueueAttackResult, MonsterIdleChaseRepathOutcome,
 };
-use crate::monster_targets::TargetSearchType;
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
 use crate::walk::creature_turn_with_broadcast;
 
@@ -92,7 +91,8 @@ impl GameWorld {
     /// (`crnonpl.cc:2386`). NPCs remain excluded.
     /// Phase 3: monsters run on the ToDo/IdleStimulus engine for **both** eras.
     /// Phase 4: players also run on the ToDo/IdleStimulus engine for both eras (1098
-    /// player logic deleted). `TFS_FORCE_BEAT_LOOP=1` forces `beat_driven_loop=true` for 1098.
+    /// player logic deleted). Phase 5 deleted `TFS_FORCE_BEAT_LOOP` — both eras
+    /// unconditionally use the beat-driven ToDo engine.
     pub(crate) fn idle_stimulus(&mut self, cid: CreatureId) {
         let is_monster = self
             .creatures
@@ -167,7 +167,7 @@ impl GameWorld {
         if !self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().walk_timer_idle(true))
+            .is_some_and(|k| k.base().walk_timer_idle())
         {
             return;
         }
@@ -1183,7 +1183,7 @@ impl GameWorld {
             .get(cid)
             .is_some_and(|k| {
                 k.base().health > 0
-                    && (k.base().walk_timer_idle(true)
+                    && (k.base().walk_timer_idle()
                         || k.base().force_update_follow_path)
             })
         {

@@ -25,33 +25,13 @@ impl GameWorld {
     pub(crate) fn clear_player_walk_action(&mut self, cid: CreatureId) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.walk_action = None;
-            p.walk_action_due = None;
         }
     }
 
     fn set_next_walk_action_task(&mut self, cid: CreatureId, action: PlayerWalkAction) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.walk_action = Some(action);
-            p.walk_action_due = None;
         }
-    }
-
-    /// TFS `Player::onWalkComplete` — schedule stored `walkTask` on the logical clock.
-    ///
-    /// Phase 4: the 1098 reactive `walk_action_due` path is deleted — both eras route
-    /// player actions through the ToDo engine (`enqueue_player_use`/`move`/`turn` +
-    /// `Go`-prepend). `walk_action` is never set for 772 players (F8 S6); 1098 no longer
-    /// sets it either. This is now a no-op for both eras.
-    pub(crate) fn on_player_walk_complete(&mut self, _cid: CreatureId) {
-        // Phase 4: 1098 reactive walk-action path deleted — both eras use ToDo.
-    }
-
-    /// Drain due walk-action tasks — **deleted in Phase 4**.
-    ///
-    /// 1098's reactive `walk_action_due` drain is gone; both eras use the `ToDoQueue` drain.
-    /// Kept as a no-op because `game_world_tick.rs` still calls it from `on_tick`.
-    pub(crate) fn process_walk_action_tasks(&mut self) {
-        // Phase 4: 1098 reactive walk-action path deleted — both eras use ToDo.
     }
 
     /// Reschedule a deferred walk-action while per-action timers are still active.
@@ -64,7 +44,6 @@ impl GameWorld {
             .unwrap_or(now_ms);
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.walk_action = Some(action);
-            p.walk_action_due = Some(due);
         }
         self.schedule_creature_wakeup(cid, due);
     }
@@ -84,7 +63,6 @@ impl GameWorld {
         };
         if path.is_empty() {
             self.set_next_walk_action_task(cid, action);
-            self.on_player_walk_complete(cid);
             return true;
         }
         // `player_auto_walk_path` → `player_todo_clear_with_snapback` → `player_todo_clear`
@@ -147,48 +125,5 @@ impl GameWorld {
             }
         }
         Ok(())
-    }
-
-    pub(crate) fn run_player_walk_action(
-        &mut self,
-        cid: CreatureId,
-        action: PlayerWalkAction,
-        now: Instant,
-    ) {
-        if !self.player_walk_action_ready(cid, &action) {
-            self.defer_player_walk_action(cid, action);
-            return;
-        }
-        self.clear_player_walk_action(cid);
-        let Some(conn_id) = self.conn_for_creature(cid) else {
-            return;
-        };
-        let result = match action {
-            PlayerWalkAction::MoveItem {
-                from_pos,
-                sprite_id,
-                from_stack_pos,
-                to_pos,
-                count,
-            } => self.player_move_thing(
-                conn_id,
-                cid,
-                from_pos,
-                sprite_id,
-                from_stack_pos,
-                to_pos,
-                count,
-                now,
-            ),
-            PlayerWalkAction::UseItem(payload) => {
-                self.player_use_item(conn_id, cid, payload, now)
-            }
-            PlayerWalkAction::UseItemEx(payload) => {
-                self.player_use_item_ex(conn_id, cid, payload, now)
-            }
-        };
-        if let Err(rv) = result {
-            self.send_cancel_message(conn_id, rv);
-        }
     }
 }

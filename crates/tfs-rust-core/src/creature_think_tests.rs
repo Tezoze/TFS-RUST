@@ -168,7 +168,6 @@
             let counter = std::sync::Arc::new(CountingEventDispatcher::default());
             let mut world = beat_driven_world();
             world.events = Box::new(CountingEventDispatcherProxy(counter.clone()));
-            world.walk_wake_tx = None;
             (world, counter)
         };
 
@@ -206,7 +205,6 @@
     #[test]
     fn process_creatures_772_applies_death_safety() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
@@ -234,7 +232,6 @@
         use crate::test_world::support::{insert_player, test_player};
 
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(115, 100, 7); // beyond 10-tile targeting range
@@ -267,7 +264,6 @@
     #[test]
     fn decay_advances_on_server_ms_772() {
         let mut world = beat_driven_world();
-        world.walk_wake_tx = None;
 
         let corpse_id = world.items.insert(crate::item::Item::new(3058, 1));
         world.decay.schedule(corpse_id, 1_000, None);

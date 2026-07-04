@@ -13,11 +13,6 @@ const LAG_SKIP_MOVEMENT_MS: u64 = 1000;
 impl GameWorld {
     /// One simulation tick (~50 ms target) — 1098 loop only.
     pub fn on_tick(&mut self, now: std::time::Instant) {
-        if self.walk_wake_tx.is_none() && !self.beat_driven_loop {
-            self.process_walk_deadlines();
-        }
-        self.process_walk_action_tasks();
-
         self.tick_counter = self.tick_counter.wrapping_add(1);
 
         self.check_creatures(now);
