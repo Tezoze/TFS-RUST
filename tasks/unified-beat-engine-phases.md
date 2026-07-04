@@ -9,12 +9,22 @@
 ## Objective
 
 Make the beat-driven CipSoft ToDo engine the **single simulation engine** for every era. 772
-runs on it today; this plan hardens it, then moves 1098 (and any future codec) onto it. Per-era
-differences live **only** in `MechanicsProfile` (+ `data/formulas/<v>.lua`) and `ProtocolCodec`.
-The `GameWorld::beat_driven_loop` boolean is removed.
+runs on it today; this plan hardens it, then **deletes the separate 1098 AI/player logic** so 1098
+runs on the **same 772 AI and player logic** (the uniform system). Per-era differences live
+**only** in `MechanicsProfile` (+ `data/formulas/<v>.lua`) and `ProtocolCodec`. The
+`GameWorld::beat_driven_loop` boolean is removed.
 
-**Not behavior-preserving for 1098** — gated by the live-client parity check in Phase 9. Every
-step still gates on `rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test`.
+**Not behavior-preserving for 1098** — 1098 inherits the 772 AI/player behavior wholesale, gated
+by the live-client parity check in Phase 9. Every step still gates on
+`rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test`.
+
+**Hard constraint — do not edit the 772 system.** The 772 AI, player logic, ToDo engine,
+`IdleStimulus`, walk/combat paths, etc. that are already built are **frozen**. Phases 3–5 only
+**delete 1098-specific code** and **route 1098 onto the existing 772 paths unchanged**. No
+refactor, rename, behavior tweak, or "improvement" to the 772 paths is permitted in this effort —
+not even changes that look like cleanups. If a 1098-era outcome genuinely differs from 772, the
+difference goes into `MechanicsProfile` / `data/formulas/<v>.lua`, never back into the 772 code.
+The 772 test suite must stay byte-stable throughout.
 
 ---
 
@@ -25,8 +35,8 @@ step still gates on `rtk cargo check && rtk cargo clippy --all-targets && rtk ca
 | 0 | Harden the canonical (772) engine | low/med | test-frozen (772 parity) |
 | 1 | Branch inventory (classify all 186 sites) | ~zero | doc only, no code |
 | 2 | Decouple beat-size + cadence + flush from era | low | test-frozen |
-| 3 | Route 1098 **monsters** onto ToDo/`IdleStimulus` | med | 1098 harness spot-checks |
-| 4 | Route 1098 **players** onto ToDo | high | 1098 harness spot-checks |
+| 3 | Delete 1098 **monster** AI; 1098 reuses 772 monster AI | med | 1098 harness spot-checks |
+| 4 | Delete 1098 **player** logic; 1098 reuses 772 player logic | high | 1098 harness spot-checks |
 | 5 | Retire 1098 reactive machinery (delete) | med | grep-clean + green |
 | 6 | Collapse `beat_driven_loop` flag | mechanical | zero prod hits |
 | 7 | Single `run_game_loop` entry | low | one loop fn |
@@ -83,13 +93,13 @@ that blocks "all mechanics run through ToDo."
 **Deliverable:** `tasks/beat-unify-branch-inventory.md` — every `beat_driven_loop` site
 (186 prod hits / 25 files) tagged with a fate. **No code changes.**
 
-- [ ] Generate the raw site list (`grep -rn beat_driven_loop crates/tfs-rust-core/src`).
-- [ ] Tag each site:
+- [x] Generate the raw site list (`grep -rn beat_driven_loop crates/tfs-rust-core/src`).
+- [x] Tag each site:
       - **U (Unify):** 1098 arm is dead post-migration → will delete `else`, keep beat arm.
       - **K (Profile knob):** genuine era-different *outcome* → move to `MechanicsProfile`.
       - **C (Clock adapter):** only wall-clock vs `server_ms` → route through the clock seam.
       - **X (Codec/transport):** belongs in `tfs-rust-net`.
-- [ ] Review all **K** rows with the user — these are the only real era differences that survive.
+- [x] Review all **K** rows with the user — these are the only real era differences that survive.
 
 **Exit:** every site has a fate + target; K rows signed off.
 
@@ -100,69 +110,124 @@ that blocks "all mechanics run through ToDo."
 **Goal:** the beat engine runs at *any* beat, cadence, and flush policy so 1098 can adopt it
 without inheriting 200 ms / staggered-1000 ms think / beat-end-only flush.
 
-- [ ] Confirm `beat_ms` / `step_beat_ms` / `step_speed` remain independent (already true).
-- [ ] Add explicit profile fields for the era splits Phase 1 surfaced as **K**:
+- [x] Confirm `beat_ms` / `step_beat_ms` / `step_speed` remain independent (already true).
+- [x] Add explicit profile fields for the era splits Phase 1 surfaced as **K**:
       - **think cadence** (772 staggered ~1000 ms vs 1098 50 ms bucketed),
       - **condition/skill tick interval**,
       - **flush policy** (beat-end vs immediate-on-movement).
-- [ ] Have the loop + `advance_beat` read cadence/flush/beat from the profile, not from
+- [x] Have the loop + `advance_beat` read cadence/flush/beat from the profile, not from
       `beat_driven_loop`.
-- [ ] 772 and 1098 behavior unchanged this phase (pure plumbing).
+- [x] 772 and 1098 behavior unchanged this phase (pure plumbing).
 
 **Exit:** instantiating the beat loop with `beat_ms=50` + immediate-ish flush + 50 ms think
 produces a "1098-flavored" run in a dev harness (not yet the default).
 
 ---
 
-## Phase 3 — Route 1098 monsters onto ToDo/`IdleStimulus`
+## Phase 3 — Delete 1098 monster AI; 1098 reuses the 772 monster AI ✅ DONE
 
 Do monsters before players (lower visibility, easier rollback).
 
-- [ ] Implement the small-beat side of the Phase 0 clock seam so `server_ms` drives 1098
-      scheduling.
-- [ ] Flip the `creature_uses_todo_execute` / `request_idle_stimulus` / idle-stimulus arms that
-      are `beat_driven_loop`-gated to include 1098 (many are already
-      `creature_uses_todo_execute`-based — they just need the flag true for 1098).
-- [ ] Replace 1098 monster follow (`go_to_follow_creature` + `onThink` follow poll +
-      `onCreatureMove` re-path) with `CanToDoAttack` on the attack beat. **P8 dissolves.**
-- [ ] Keep `beat_driven_loop` *temporarily forced true for 1098* behind a dev flag so both paths
-      remain A/B-comparable.
+**Decision:** there is no separate 1098 monster AI to migrate. The 1098 monster AI is **deleted**;
+1098 monsters run on the **same 772 monster AI** (already ToDo/`IdleStimulus`-based). Per-era AI
+knobs (chase radius, flee thresholds, kite cadence, etc.) live in `MechanicsProfile` /
+`data/formulas/<v>.lua` — not in a parallel AI path.
 
-**Exit:** 1098 monsters walk/chase/kite/flee via ToDo in a harness; `772_MONSTER_AI_AUDIT`-style
-spot checks pass.
+**Hard constraint:** the 772 monster AI is **frozen**. This phase only **deletes 1098-specific
+monster code** and routes 1098 monsters onto the existing 772 path **unchanged**. No edits to the
+772 AI functions, no renames, no cleanups. If a 1098 monster outcome genuinely differs from 772,
+the difference goes into `MechanicsProfile` — never back into the 772 AI code. 772 monster tests
+must stay byte-stable.
+
+- [x] Implement the small-beat side of the Phase 0 clock seam so `server_ms` drives 1098
+      scheduling. (`on_tick` now advances `server_ms` by `beat_ms` + drains ToDo queue;
+      `now_ms()` returns `server_ms` unconditionally.)
+- [x] Delete the 1098 monster AI code path: `go_to_follow_creature` 1098 fallthrough +
+      `onThink` follow poll + `onCreatureMove` re-path + `monster_on_think_target` +
+      `monster_maybe_walk_to_spawn` + 1098 distance-step/dance/reconcile + 1098 push +
+      1098 `ai_rng` spell path + 1098 synchronous target search + 1098 Z-change clear +
+      1098 drawblood duplicate. **P8 dissolves.** ~700 lines deleted.
+- [x] Remove `beat_driven_loop`-gated `creature_uses_todo_execute` / `request_idle_stimulus` /
+      idle-stimulus arms that special-case 1098 monsters — `creature_uses_todo_execute` returns
+      `true` for monsters regardless of `beat_driven_loop`; 1098 monsters take the same ToDo path
+      as 772 monsters unconditionally.
+- [x] Audit monster AI for any `if version == 1098` / era-branched outcome — none found; genuine
+      era differences already in `MechanicsProfile` (`beat_ms`, `step_speed`, `target_distance`).
+- [x] Keep `beat_driven_loop` *temporarily forced true for 1098* behind `TFS_FORCE_BEAT_LOOP=1`
+      env var in `run_server.rs` so the deletion is A/B-comparable until Phase 9 signs off.
+- [x] Verify the 772 monster test suite is byte-stable — 568 core tests pass, 0 failures.
+      7 1098-specific tests deleted, 6 rewritten to 772 setup (`beat_driven_test_world` +
+      `advance_beat_772`/`drain_todo_queue`).
+
+**Exit:** no 1098-specific monster AI code remains; 1098 monsters walk/chase/kite/flee via the
+single ToDo/`IdleStimulus` path; `772_MONSTER_AI_AUDIT`-style spot checks pass for both eras
+(differences only via `MechanicsProfile`). Committed as `1472f02`.
 
 ---
 
-## Phase 4 — Route 1098 players onto ToDo
+## Phase 4 — Delete 1098 player logic; 1098 reuses the 772 player logic
 
 Mirror the completed 772 player work (`player_combat.rs`, `walk/mod.rs`, `player_move_request`).
 
-- [ ] 1098 walk/autowalk/stop → `ToDoClear`(+snapback) → `TDGo` → `ToDoStart` (same as 772).
-- [ ] 1098 attack/follow/cancel → `SetAttackDest` + `CanToDoAttack` chase.
-- [ ] `nextAction` lockout on failed move → `EarliestWalkTime` in the ToDo delay. **P9 dissolves.**
-- [ ] Player non-walk actions already unified in Phase 0/F8 — verify they run for 1098 too.
+**Decision:** there is no separate 1098 player path to migrate. The 1098 player logic is
+**deleted**; 1098 players run on the **same 772 player logic** (already ToDo-based:
+`ToDoClear`(+snapback) → `TDGo` → `ToDoStart`, `SetAttackDest` + `CanToDoAttack` chase,
+`EarliestWalkTime` lockout). Per-era player knobs (walk beat, step curve, attack cadence, etc.)
+live in `MechanicsProfile` / `data/formulas/<v>.lua` — not in a parallel player path.
 
-**Exit:** a 1098 player walks/attacks/follows/uses via ToDo in a harness; single-beat move
-latency verified.
+**Hard constraint:** the 772 player logic is **frozen**. This phase only **deletes 1098-specific
+player code** and routes 1098 players onto the existing 772 path **unchanged**. No edits to the
+772 player/walk/combat functions, no renames, no cleanups. If a 1098 player outcome genuinely
+differs from 772, the difference goes into `MechanicsProfile` — never back into the 772 player
+code. 772 player tests must stay byte-stable.
+
+- [ ] Delete the 1098 player walk/autowalk/stop path; 1098 players take the 772
+      `ToDoClear`(+snapback) → `TDGo` → `ToDoStart` path unconditionally.
+- [ ] Delete the 1098 attack/follow/cancel path; 1098 players take the 772 `SetAttackDest` +
+      `CanToDoAttack` chase path unconditionally.
+- [ ] Delete the 1098 `nextAction` lockout on failed move; the 772 `EarliestWalkTime` ToDo delay
+      applies to both eras. **P9 dissolves.**
+- [ ] Audit player code for any `if version == 1098` / era-branched outcome; genuine era
+      differences move to `MechanicsProfile` (re-classify per Phase 1 as **K** rows), everything
+      else collapses to the single 772 path.
+- [ ] Player non-walk actions already unified in Phase 0/F8 — verify they run for 1098 too
+      (single path, no 1098 fork).
+- [ ] Keep `beat_driven_loop` *temporarily forced true for 1098* behind `TFS_FORCE_BEAT_LOOP=1`
+      dev flag so the deletion is A/B-comparable until Phase 9 signs off.
+- [ ] Verify the 772 player test suite is byte-stable before and after this phase
+      (`rtk cargo test -p tfs-rust-core` walk/player_combat suites).
+
+**Exit:** no 1098-specific player code remains; a 1098 player walks/attacks/follows/uses via the
+single 772 ToDo path in a harness; single-beat move latency verified; differences only via
+`MechanicsProfile`; 772 player tests byte-stable.
 
 ---
 
 ## Phase 5 — Retire 1098 reactive machinery (delete, don't gate)
 
-After Phases 3–4 nothing should call these on 1098. **Ship-gated by Phase 9 sign-off.**
+After Phases 3–4 the 1098 AI and player logic is gone; 1098 runs on the 772 paths. This phase
+deletes the **reactive machinery** those paths used to dispatch on 1098 — the walk-wake /
+deadline / dual-path plumbing that the uniform ToDo engine replaces. **Ship-gated by Phase 9
+sign-off.**
+
+**Hard constraint (same as Phases 3–4):** the 772 paths are **frozen**. This phase only deletes
+1098-only reactive plumbing. No edits to the 772 ToDo/walk/combat/AI functions. If a deletion
+would touch a shared function, stop and escalate — do not refactor the 772 side to "make it
+work" for 1098.
 
 - [ ] `run_game_loop_1098` walk-wake branch; `walk_wake_tx`/`walk_wake_rx`; `sleep_until` walk
       scheduling; `GameWorld::walk_wake_tx` field.
 - [ ] `process_walk_deadlines`, `schedule_walk_followup_deadline`, `commit_next_walk_deadline`.
-- [ ] `go_to_follow_creature` + `onThink` follow poll + `onCreatureMove` re-path.
 - [ ] `walk_action_due` dual path → single ToDo path.
 - [ ] `Instant`-based `walk_timer` / `next_walk_check` on `CreatureBase` → `next_wakeup` only.
 - [ ] `FlushPolicy::ImmediateOnMovement` → profile-driven flush (Phase 2 knob).
-- [ ] Migrate tests off `walk_wake_tx = None` / `process_walk_deadlines()` /
-      `go_to_follow_creature()` to the ToDo path (rewrite assertions, don't tweak to pass).
+- [ ] Migrate tests off `walk_wake_tx = None` / `process_walk_deadlines()` to the ToDo path
+      (rewrite assertions, don't tweak to pass).
+- [ ] Confirm the monster follow machinery (`go_to_follow_creature` + `onThink` follow poll +
+      `onCreatureMove` re-path) deleted in Phase 3 has no remaining references.
 
 **Exit:** `grep` for the above symbols returns only removed/renamed results; both eras run on the
-shared engine.
+single 772-based engine.
 
 ---
 
