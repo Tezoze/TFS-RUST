@@ -239,6 +239,10 @@ DEFENSIVE: MaxValue -= (MaxValue*4)/10      # -40%
 Result = Skill[SkillNr].ProbeValue(MaxValue, LearningPoints>0)
 if LearningPoints>0: LearningPoints -= 1
 ```
+The fight-mode percentages (`+20%`/`-40%` attack, `-40%`/`+80%` defense) are era-tunable via
+`data/formulas/772.lua` `fightModes` (`offensiveAtk`/`defensiveAtk`/`offensiveDef`/`defensiveDef`),
+loaded into `MechanicsProfile.fight_modes` and applied by `combat::math::apply_attack_mode`/
+`apply_defense_mode`. Do not hardcode these in new Rust — pass `&MechanicsProfile` through.
 
 ### 2.3 ProbeValue — `crskill.cc:535` `TSkillProbe::ProbeValue`
 ```
@@ -262,6 +266,10 @@ Increase only if (Shield!=NONE && LearningPoints>0)
 Result = Skill[SkillNr].ProbeValue(MaxValue, Increase)
 + shield WEAROUT decrement
 ```
+Same era-tuning note as §2.2: the `−40%`/`+80%` defense multipliers are `772.lua` `fightModes`
+(`offensiveDef`/`defensiveDef`), and the `2000` ms gate is `772.lua` `defenseGateMs` →
+`MechanicsProfile.defense_gate_ms`. Both already consumed by `combat::math::defense_value` /
+`roll_target_defense`.
 Gate + roll already in `monster_combat.rs::roll_target_defense`. Extend the player `GetDefendValue`
 side (shield/weapon defend value, shielding skill, wearout).
 
@@ -421,6 +429,26 @@ module-directory layout — this replaces the crate-root `player_combat_values.r
    pieces (uses `ItemType.armor` + body-position check via `slot_type_for_item_type`).
 4. Fight-mode source: `Player.attack_mode` (new field; default `Balanced`).
    All cite `crcombat.cc` GetAttackValue/GetDefendValue/GetArmorStrength.
+
+**Era-tuning boundary:** these three functions return **raw unscaled** values — the item/skill
+number before fight-mode scaling and probe rolls, matching `GetAttackValue`/`GetDefendValue`/
+`GetArmorStrength` in the C++ reference (which return `WEAPONATTACKVALUE`/`SHIELDDEFENDVALUE`/
+`ARMORVALUE` before `GetAttackDamage`/`GetDefendDamage`/`Damage(PHYSICAL)` apply mode + probe).
+The downstream consumers that apply era-tunable multipliers already exist and read from
+`MechanicsProfile` / `data/formulas/772.lua`:
+
+| Consumer | `772.lua` key | `MechanicsProfile` field | Applied where |
+|---|---|---|---|
+| `weapon_damage` | `fightModes` | `fight_modes` | `apply_attack_mode` scales PC-1's raw attack value |
+| `weapon_damage` | `damageTuning` | `damage_probe` | `probe_value` triangular roll over the scaled value |
+| `defense_value` | `fightModes` | `fight_modes` | `apply_defense_mode` scales PC-1's raw defense value |
+| `defense_value` / `roll_target_defense` | `defenseGateMs` | `defense_gate_ms` | 2000 ms re-roll gate |
+| `armor_reduction` | `armor` / `armorTuning` | `armor` / `armor_random` | Randomized `(A/2)+rand%(A/2)` over PC-1's raw armor sum |
+
+**PC-1 adds no new `772.lua` keys.** `Player.attack_mode` is the *selector* (offensive/balanced/
+defensive) that PC-2's `weapon_damage`/`defense_value` consume via `apply_attack_mode`/
+`apply_defense_mode` — PC-1 wires the field, PC-2 uses it. No fight-mode multipliers or probe
+constants are hardcoded in PC-1's value-resolution functions.
 
 ### Phase PC-2 — The strike (`CloseAttack`) — melee first
 **Files:** `player/combat/mod.rs` (the moved `player_combat.rs` — replace the `Adjacent` stub; strike
