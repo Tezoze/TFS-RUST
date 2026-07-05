@@ -9,6 +9,7 @@ use crate::condition::{dot_tick_for_condition, ConditionData};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::player::flags::PLAYER_FLAG_CANNOT_BE_MUTED;
 
 /// Poison strength decay per round — `TSkillPoison::FactorPercent` default `0x32` (`crskill.cc:1052`).
 const POISON_DECAY_PERCENT: i32 = 50;
@@ -27,6 +28,8 @@ impl GameWorld {
             self.process_creature_skills(cid);
             // Phase 4: 1098 defer deleted — both eras run fed regen.
             self.process_player_fed_regen(cid);
+            // CH-5: flood protection message buffer decrement (1500ms interval).
+            self.process_player_message_buffer(cid);
         }
     }
 
@@ -148,8 +151,8 @@ impl GameWorld {
                     // max(0, ticks - interval)`. `ProcessSkills` fires every ~1000 ms
                     // (`SkillTimeCounter`, `subsystem_counters.rs`), so we decrement by
                     // 1000 ms per tick. `YellTicks` (30 000 ms = 30 s) expires after ~30
-                    // ticks. CH-5 will add `Muted`/`ChannelMutedTicks` ticking the same way.
-                    ConditionType::YellTicks => {
+                    // ticks. CH-5 adds `Muted`/`ChannelMutedTicks` ticking the same way.
+                    ConditionType::YellTicks | ConditionType::Muted | ConditionType::ChannelMutedTicks => {
                         if let ConditionData::Generic { ticks } = &mut cond.data {
                             *ticks = (*ticks).saturating_sub(1000);
                         }
@@ -157,10 +160,12 @@ impl GameWorld {
                     _ => {}
                 }
             }
-            // Remove expired `ConditionGeneric` (YellTicks) conditions after tick-down.
+            // Remove expired `ConditionGeneric` (YellTicks, Muted, ChannelMutedTicks) conditions after tick-down.
             base.active_conditions.retain(|c| {
-                !(c.ctype == ConditionType::YellTicks
-                    && matches!(c.data, ConditionData::Generic { ticks: 0 }))
+                !matches!(
+                    (c.ctype, &c.data),
+                    (ConditionType::YellTicks | ConditionType::Muted | ConditionType::ChannelMutedTicks, ConditionData::Generic { ticks: 0 })
+                )
             });
             if speed_expired {
                 Self::recompute_speed_from_conditions(base);
@@ -197,6 +202,35 @@ impl GameWorld {
     /// (`crskill.cc:186-191`), so the modulo is taken on the post-decrement value —
     /// regen fires when the remaining-food counter hits a multiple of the vocation's
     /// tick interval (counting down to 0).
+
+    /// C++ `Player::onThink` message buffer tick — `player.cpp:1314-1318`.
+    ///
+    /// Accumulates the `ProcessSkills` interval (1000ms) and calls `addMessageBuffer`
+    /// every 1500ms to decrement the flood protection buffer count.
+    fn process_player_message_buffer(&mut self, cid: CreatureId) {
+        let has_cannot_be_muted_flag = self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED);
+
+        // C++ `MessageBufferTicks += interval;` — `player.cpp:1314`.
+        // `ProcessSkills` fires every ~1000ms, so we add 1000ms per tick.
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.message_buffer_ticks += 1000;
+
+            // C++ `if (MessageBufferTicks >= 1500) { MessageBufferTicks = 0; addMessageBuffer(); }`
+            // — `player.cpp:1315-1318`.
+            if p.message_buffer_ticks >= 1500 {
+                p.message_buffer_ticks = 0;
+                let max_buffer = self.chat_config.max_message_buffer as i32;
+
+                // C++ `if (MessageBufferCount > 0 && g_config.getNumber(ConfigManager::MAX_MESSAGEBUFFER) != 0 && !hasFlag(PlayerFlag_CannotBeMuted))`
+                // — `player.cpp:1352`.
+                if !has_cannot_be_muted_flag && max_buffer != 0 {
+                    if p.message_buffer_count > 0 {
+                        p.message_buffer_count -= 1;
+                    }
+                }
+            }
+        }
+    }
     fn process_player_fed_regen(&mut self, cid: CreatureId) {
         let (food_remaining, voc_id, pos) = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => {

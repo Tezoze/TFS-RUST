@@ -360,6 +360,9 @@ pub struct ChatConfig {
     /// C++ `yellAlwaysAllowPremium` (default false) — `configmanager.cpp:196`.
     /// When true, premium players may yell below `yell_minimum_level`.
     pub yell_allow_premium: bool,
+    /// C++ `maxMessageBuffer` (default 4) — `configmanager.cpp:255`.
+    /// Flood protection: number of messages allowed before mute escalation.
+    pub max_message_buffer: u32,
 }
 
 impl ChatConfig {
@@ -368,6 +371,7 @@ impl ChatConfig {
         Self {
             yell_minimum_level: 2,
             yell_allow_premium: false,
+            max_message_buffer: 4,
         }
     }
 
@@ -375,6 +379,7 @@ impl ChatConfig {
         Ok(Self {
             yell_minimum_level: get_i64_or(cfg, "yellMinimumLevel", 2)?.max(0) as u32,
             yell_allow_premium: get_bool_or(cfg, "yellAlwaysAllowPremium", false)?,
+            max_message_buffer: get_i64_or(cfg, "maxMessageBuffer", 4)?.max(0) as u32,
         })
     }
 }

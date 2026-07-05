@@ -647,16 +647,16 @@ Resolve §4's open questions inline in the phase that hits them — do not defer
 - [x] **Lua script compatibility** — commented out unavailable Condition API calls with TODO markers for CH-5
 
 ### CH-5 — Flood protection (mute-on-spam)
-- [ ] Resolve per-player tick cadence question (§4.4) — reuse existing `onThink`-equivalent, don't add
+- [x] Resolve per-player tick cadence question (§4.4) — reuse existing `onThink`-equivalent, don't add
       a second timer
-- [ ] `message_buffer_count` field on `Player`/`PlayerSocial`
-- [ ] `mute_count_map: HashMap<u32, u32>` on `GameWorld`
-- [ ] `player_remove_message_buffer` — escalating `5 * n²`s `ConditionType::Muted` application, called
+- [x] `message_buffer_count` field on `Player`/`PlayerSocial`
+- [x] `mute_count_map: HashMap<u32, u32>` on `GameWorld`
+- [x] `player_remove_message_buffer` — escalating `5 * n²`s `ConditionType::Muted` application, called
       from `player_say`'s top (after spell check, before type switch)
-- [ ] `player_add_message_buffer` — 1500ms decrement tick hook
-- [ ] Mute-check read at `player_say` entry using existing `condition.rs` active-condition query
+- [x] `player_add_message_buffer` — 1500ms decrement tick hook
+- [x] Mute-check read at `player_say` entry using existing `condition.rs` active-condition query
       surface (add one only if it doesn't already exist)
-- [ ] `CannotBeMuted` bypass wired to the CH-3 flags decision
+- [x] `CannotBeMuted` bypass wired to the CH-3 flags decision
 
 ### CH-6 — Talkactions/spell integration seam (stub only)
 - [ ] Confirm CH-1's `playerSaySpell` stub is the single integration point (no duplicate call sites)

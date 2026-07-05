@@ -21,7 +21,7 @@ use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::player::flags::{PLAYER_FLAG_CAN_TALK_RED_PRIVATE};
+use crate::player::flags::{PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CAN_BROADCAST, PLAYER_FLAG_CAN_TALK_RED_PRIVATE};
 use crate::return_value::ReturnValue;
 use tfs_rust_net::ChannelOpenWire;
 use tfs_rust_net::CreatePrivateChannelWire;
@@ -86,10 +86,26 @@ impl GameWorld {
         }
 
         // C++ `uint32_t muteTime = player->isMuted();` — `game.cpp:3223-3227`.
-        // TODO(chat CH-5): wire `ConditionType::Muted` active-condition query + the
-        // "You are still muted for N seconds." `MESSAGE_STATUS_SMALL` send. No
-        // mute/flood system exists yet (`ConditionType::Muted` is in the enum but
-        // has zero call sites, §0.4). Until CH-5 lands, mute is never active.
+        let mute_seconds = self.player_is_muted(cid);
+        if mute_seconds > 0 {
+            if let Some(conn) = self.conn_for_creature(cid) {
+                use tfs_rust_net::outgoing_extra::send_text_message_simple;
+                self.enqueue_outgoing(
+                    conn,
+                    send_text_message_simple(
+                        self.codec.failure_message_type(),
+                        &format!("You are still muted for {} seconds.", mute_seconds),
+                    )
+                    .into_bytes(),
+                );
+            }
+            return;
+        }
+
+        // C++ `player->removeMessageBuffer();` — `game.cpp:3233`.
+        // Called after mute check, before type switch. Increments buffer count and
+        // applies escalating mute when exceeding `maxMessageBuffer`.
+        self.player_remove_message_buffer(cid);
 
         // C++ `if (!text.empty() && text.front() == '/' && player->isAccessPlayer()) return;`
         // — `game.cpp:3229-3231`. GM `/`-prefix commands are handled by the talkaction
@@ -663,8 +679,6 @@ impl GameWorld {
     /// GM broadcast to all online players. Requires `PlayerFlag_CanBroadcast`. Sends
     /// `TALKTYPE_BROADCAST` to every online player via `sendPrivateMessage`.
     fn player_broadcast_message(&mut self, cid: CreatureId, text: &str) {
-        use crate::player::flags::PLAYER_FLAG_CAN_BROADCAST;
-
         // C++ `if (!player->hasFlag(PlayerFlag_CanBroadcast))` — `game.cpp:1900-1902`.
         if !self.player_has_flag(cid, PLAYER_FLAG_CAN_BROADCAST) {
             if let Some(conn) = self.conn_for_creature(cid) {
@@ -710,6 +724,101 @@ impl GameWorld {
     /// (GMs) can always see ghosts; regular players cannot.
     fn player_can_see_ghost_mode(&self, viewer_cid: CreatureId, _target_cid: CreatureId) -> bool {
         self.player_is_access_player(viewer_cid)
+    }
+
+    /// C++ `Player::removeMessageBuffer` — `player.cpp:1357-1380`.
+    ///
+    /// Called at the top of every successful `player_say` dispatch. Increments the
+    /// message buffer count and applies escalating mute when exceeding `maxMessageBuffer`.
+    /// Mute duration follows the `5 * n²` formula where n is the escalation count.
+    fn player_remove_message_buffer(&mut self, cid: CreatureId) {
+        let (guid, has_cannot_be_muted) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => (p.guid, self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED)),
+            _ => return,
+        };
+
+        // C++ `if (hasFlag(PlayerFlag_CannotBeMuted)) return;` — `player.cpp:1359-1361`.
+        if has_cannot_be_muted {
+            return;
+        }
+
+        let max_buffer = self.chat_config.max_message_buffer as i32;
+        if max_buffer == 0 {
+            return;
+        }
+
+        let (buffer_count, player_name) = match self.creatures.get_mut(cid) {
+            Some(CreatureKind::Player(p)) => {
+                p.message_buffer_count += 1;
+                (p.message_buffer_count, p.base.name.clone())
+            }
+            _ => return,
+        };
+
+        // C++ `if (++MessageBufferCount > maxMessageBuffer)` — `player.cpp:1364-1378`.
+        if buffer_count > max_buffer {
+            let mute_count = self.mute_count_map.get(&guid).copied().unwrap_or(1);
+            let mute_time = 5 * mute_count * mute_count;
+            self.mute_count_map.insert(guid, mute_count + 1);
+
+            // C++ `Condition* condition = Condition::createCondition(CONDITIONID_DEFAULT, CONDITION_MUTED, muteTime * 1000, 0);`
+            // — `player.cpp:1374`. Add `ConditionType::Muted` with the calculated duration.
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                use tfs_rust_common::enums::ConditionType;
+                p.base.active_conditions.push(ActiveCondition {
+                    id: 0,
+                    sub_id: 0,
+                    ctype: ConditionType::Muted,
+                    data: ConditionData::Generic { ticks: (mute_time * 1000) as i32 },
+                    timer_rounds_left: None,
+                });
+            }
+
+            // C++ `sendTextMessage(MESSAGE_STATUS_SMALL, fmt::format("You are muted for {:d} seconds.", muteTime));`
+            // — `player.cpp:1377`.
+            if let Some(conn) = self.conn_for_creature(cid) {
+                use tfs_rust_net::outgoing_extra::send_text_message_simple;
+                self.enqueue_outgoing(
+                    conn,
+                    send_text_message_simple(
+                        self.codec.failure_message_type(),
+                        &format!("You are muted for {} seconds.", mute_time),
+                    )
+                    .into_bytes(),
+                );
+            }
+
+            tracing::warn!(player = %player_name, mute_time, "flood mute applied");
+        }
+    }
+
+    /// C++ `Player::isMuted` — `player.cpp:1335-1348`.
+    ///
+    /// Returns the remaining mute time in seconds, or 0 if not muted.
+    /// Checks all active `ConditionType::Muted` conditions and returns the maximum
+    /// remaining ticks (converted to seconds).
+    fn player_is_muted(&self, cid: CreatureId) -> u32 {
+        // C++ `if (hasFlag(PlayerFlag_CannotBeMuted)) return 0;` — `player.cpp:1337-1339`.
+        if self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED) {
+            return 0;
+        }
+
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return 0;
+        };
+
+        use tfs_rust_common::enums::ConditionType;
+        let mut max_ticks = 0i32;
+        for cond in &p.base.active_conditions {
+            if cond.ctype == ConditionType::Muted {
+                if let ConditionData::Generic { ticks } = cond.data {
+                    if ticks > max_ticks {
+                        max_ticks = ticks;
+                    }
+                }
+            }
+        }
+        (max_ticks / 1000) as u32
     }
 }
 

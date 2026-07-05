@@ -150,6 +150,14 @@ pub struct Player {
     /// is zeroed. **Stub**: full PK-mark clearing (attacked-players list, aggressor
     /// flag, skull broadcast) is deferred until the PvP aggressor subsystem exists.
     pub earliest_logout_round: u32,
+    /// C++ `MessageBufferCount` — flood protection message count (`player.cpp:1064`).
+    /// Incremented by `removeMessageBuffer` per say, decremented by `addMessageBuffer`
+    /// every 1500ms. Triggers mute escalation when exceeding `maxMessageBuffer`.
+    pub message_buffer_count: i32,
+    /// C++ `MessageBufferTicks` — accumulator for 1500ms tick interval (`player.cpp:1051`).
+    /// Accumulates `onThink` interval; when >= 1500ms, `addMessageBuffer` decrements
+    /// `message_buffer_count` and ticks are reset to 0.
+    pub message_buffer_ticks: u32,
     /// Last server `sendPing` (`0x1D`) — `Player::lastPing` (`player.cpp`).
     pub last_ping_sent: Instant,
     /// Last client pong — `Player::lastPong` / `receivePing` (`player.cpp`).
