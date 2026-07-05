@@ -659,8 +659,8 @@ Resolve §4's open questions inline in the phase that hits them — do not defer
 - [x] `CannotBeMuted` bypass wired to the CH-3 flags decision
 
 ### CH-6 — Talkactions/spell integration seam (stub only)
-- [ ] Confirm CH-1's `playerSaySpell` stub is the single integration point (no duplicate call sites)
-- [ ] Module doc comment in `chat.rs` documenting the `TALKACTION_CONTINUE`/`BREAK`/`FAILED` contract
+- [x] Confirm CH-1's `playerSaySpell` stub is the single integration point (no duplicate call sites)
+- [x] Module doc comment in `chat.rs` documenting the `TALKACTION_CONTINUE`/`BREAK`/`FAILED` contract
       for the future Lua replacement
 
 ### CH-7 — Tests

@@ -17,6 +17,23 @@
 //! against `Chat::createChannel` in CH-4). Static public/GM/tutor channels
 //! (Tutor=3, Game-Chat=4, RL-Chat=5, Trade=6, Help=7, Gamemaster=8) are seeded from
 //! `data/scripts/chatchannels/*.lua` in CH-4.
+//!
+//! ## Talkactions/Spell Integration Contract (CH-6 stub)
+//!
+//! The future Lua talkactions runtime must replace the `player_say_spell` stub in
+//! `game_world_chat.rs` with the C++ `TalkActionResult_t` contract from
+//! `talkaction.h:14-18`:
+//!
+//! - `TALKACTION_CONTINUE` (false): Text is plain chat, proceed to normal talk-type
+//!   dispatch (say/whisper/yell/channel/private/broadcast).
+//! - `TALKACTION_BREAK` (true): Text was consumed by a spell/talkaction. Re-broadcast
+//!   as `TALKTYPE_SAY` or `TALKTYPE_MONSTER_SAY` unless the spell has the
+//!   `EMOTE_SPELLS` flag (silent consumption).
+//! - `TALKACTION_FAILED` (true): Text was consumed but execution failed (e.g., cooldown,
+//!   insufficient mana). Do not re-broadcast; send failure feedback to player.
+//!
+//! The stub is the **single integration point** — do not add duplicate spell-words
+//! call sites elsewhere. See `game_world_chat.rs:172-190` for the stub and TODO.
 // C++ reference: `chat.h` `ChatChannel`, `PrivateChatChannel`, `Chat`; `chat.cpp`.
 
 use std::collections::{HashMap, HashSet};
