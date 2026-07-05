@@ -469,6 +469,23 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     globals.set("nextUseStaminaTime", lua.create_table()?)?;
     globals.set("APPLY_SKILL_MULTIPLIER", true)?;
 
+    // TALKTYPE constants for channel scripts (C++ const.h:163-178)
+    globals.set("TALKTYPE_CHANNEL_Y", 7i32)?;
+    globals.set("TALKTYPE_CHANNEL_O", 8i32)?;
+    globals.set("TALKTYPE_CHANNEL_R1", 14i32)?;
+
+    // ACCOUNT_TYPE constants (C++ enums.h:79-85)
+    globals.set("ACCOUNT_TYPE_NORMAL", 1i32)?;
+    globals.set("ACCOUNT_TYPE_TUTOR", 2i32)?;
+    globals.set("ACCOUNT_TYPE_SENIORTUTOR", 3i32)?;
+    globals.set("ACCOUNT_TYPE_GAMEMASTER", 4i32)?;
+    globals.set("ACCOUNT_TYPE_COMMUNITYMANAGER", 5i32)?;
+    globals.set("ACCOUNT_TYPE_GOD", 6i32)?;
+
+    // PlayerFlag constants (C++ const.h:264-266)
+    globals.set("PlayerFlag_CanTalkRedChannel", 1i32 << 21)?;
+    globals.set("PlayerFlag_TalkOrangeHelpChannel", 1i32 << 23)?;
+
     globals.set(
         "hasEventCallback",
         lua.create_function(|_, _: i32| Ok(false))?,
