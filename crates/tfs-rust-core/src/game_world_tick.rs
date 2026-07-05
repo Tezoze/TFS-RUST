@@ -37,27 +37,27 @@ impl GameWorld {
         self.tick_player_pings(now);
 
         // Phase 6: `beat_driven_loop` collapsed — both eras run the 772 round-based subsystems.
-        self.round_nr_772 = self.round_nr_772.saturating_add(1);
-        let kick = self.process_connections_772();
-        self.tick_ambiente_light_772();
+        self.round_nr = self.round_nr.saturating_add(1);
+        let kick = self.process_connections();
+        self.tick_ambient_light();
         for conn_id in kick {
-            self.pending_idle_kick_772.push(conn_id);
+            self.pending_idle_kick.push(conn_id);
         }
     }
 
     /// 772 `AdvanceGame` beat step — staggered subsystems + logical clock + ToDoQueue drain.
     /// C++ ref: `tibia-game-master/src/main.cc` `AdvanceGame`, `crmain.cc` `MoveCreatures`.
-    pub fn advance_beat_772(&mut self, delay_ms: u64) {
-        let fired = self.subsystem_counters_772.accumulate(delay_ms);
+    pub fn advance_beat(&mut self, delay_ms: u64) {
+        let fired = self.subsystem_counters.accumulate(delay_ms);
 
         if fired.creatures {
-            self.process_creatures_772();
+            self.process_creatures();
         }
         if fired.cron {
             let _ = self.decay.tick(self.server_ms);
         }
         if fired.skills {
-            self.process_skills_772();
+            self.process_skills();
         }
         if fired.other {
             let now = Instant::now();
@@ -69,10 +69,10 @@ impl GameWorld {
         if delay_ms < LAG_SKIP_MOVEMENT_MS {
             self.server_ms = self.server_ms.saturating_add(delay_ms);
             self.drain_todo_queue();
-            self.lag_772 = false;
+            self.lag = false;
         } else {
-            self.lag_772 = true;
-            if self.round_nr_772 > 10 {
+            self.lag = true;
+            if self.round_nr > 10 {
                 tracing::error!(
                     delay_ms,
                     "772 beat advance skipped MoveCreatures due to lag (Delay >= 1000)"
@@ -90,18 +90,18 @@ mod tests {
     fn lag_guard_skips_move_creatures_at_1000ms() {
         let mut world = beat_driven_test_world();
         world.server_ms = 500;
-        world.advance_beat_772(1000);
+        world.advance_beat(1000);
         assert_eq!(world.server_ms, 500, "server_ms must not advance under lag guard");
-        assert!(world.lag_772);
+        assert!(world.lag);
     }
 
     #[test]
     fn subsystems_still_run_under_lag_guard() {
         let mut world = beat_driven_test_world();
         // Cross all subsystem thresholds in one coalesced step.
-        world.advance_beat_772(2000);
-        assert!(world.lag_772);
+        world.advance_beat(2000);
+        assert!(world.lag);
         assert_eq!(world.server_ms, 0);
-        assert!(world.round_nr_772 > 0, "Other subsystem should have fired");
+        assert!(world.round_nr > 0, "Other subsystem should have fired");
     }
 }

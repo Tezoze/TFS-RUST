@@ -121,7 +121,7 @@
             m.base.todo.queue.push_back(CreatureAction::Go);
         }
 
-        world.monster_exhausted_wait_772(mover, true);
+        world.monster_exhausted_wait(mover, true);
 
         let base = world.creatures.get(mover).unwrap().base();
         assert_eq!(base.attack_target, None);
@@ -152,7 +152,7 @@
         let master = insert_monster_with_config(&mut world, "Boxer", p, 200, boxer);
 
         // Direct race flag.
-        assert!(world.monster_can_kick_boxes_772(master));
+        assert!(world.monster_can_kick_boxes(master));
 
         // No flag, no master → false.
         let lone = insert_monster_with_config(
@@ -162,7 +162,7 @@
             200,
             MonsterAiConfig::default(),
         );
-        assert!(!world.monster_can_kick_boxes_772(lone));
+        assert!(!world.monster_can_kick_boxes(lone));
 
         // No flag, but master can kick → inherits true.
         let summon = insert_monster_with_config(
@@ -175,7 +175,7 @@
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
             m.base.master = Some(master);
         }
-        assert!(world.monster_can_kick_boxes_772(summon));
+        assert!(world.monster_can_kick_boxes(summon));
     }
 
     /// Regression: a `KickCreatures` cyclops facing a pushable bear blocking a 1-wide corridor
@@ -308,7 +308,7 @@
 
         // Step 1: planning must route through the pushable rat.
         assert!(
-            world.monster_move_possible_planning_772(cyclops, bpos),
+            world.monster_move_possible_planning(cyclops, bpos),
             "planning gate must allow routing through pushable rat"
         );
 
@@ -373,7 +373,7 @@
     /// P1-B2: a player with `IGNORED_BY_MONSTERS` on the destination tile is a hard block
     /// (Proceed), not `EXHAUSTED` — C++ `crnonpl.cc:2230`. This test verifies the baseline
     /// (non-ignored player → EXHAUSTED); the IGNORED case requires group DB setup and is
-    /// verified by the code path in `monster_kick_before_step_772`.
+    /// verified by the code path in `monster_kick_before_step`.
     #[test]
     fn ignored_player_tile_is_hard_block_not_exhausted() {
         let mut world = beat_driven_world();
@@ -404,7 +404,7 @@
     }
 
     /// P1-B3: an invisible blocker (when the mover lacks SeeInvisible) is a hard block in the
-    /// planning gate — `monster_move_possible_planning_772` returns false for invisible creatures.
+    /// planning gate — `monster_move_possible_planning` returns false for invisible creatures.
     #[test]
     fn invisible_blocker_is_hard_block_in_planning() {
         use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
@@ -441,7 +441,7 @@
 
         // Planning gate: invisible blocker is a hard block (no SeeInvisible).
         assert!(
-            !world.monster_move_possible_planning_772(mover, bpos),
+            !world.monster_move_possible_planning(mover, bpos),
             "invisible blocker must be a hard block when mover lacks SeeInvisible"
         );
 
@@ -450,7 +450,7 @@
             m.see_invisible = true;
         }
         assert!(
-            world.monster_move_possible_planning_772(mover, bpos),
+            world.monster_move_possible_planning(mover, bpos),
             "invisible blocker is plannable when mover has SeeInvisible"
         );
     }
@@ -530,7 +530,7 @@
 
         // Player tile is plannable-through (non-summon, non-IGNORED, has KickCreatures + target).
         assert!(
-            world.monster_move_possible_planning_772(mover, ppos),
+            world.monster_move_possible_planning(mover, ppos),
             "player tile must be plannable-through for non-summon kicker with target"
         );
     }
@@ -568,7 +568,7 @@
         }
 
         assert!(
-            !world.monster_move_possible_planning_772(mover, hpos),
+            !world.monster_move_possible_planning(mover, hpos),
             "house tile must be a hard block in MovePossible planning"
         );
     }
@@ -612,7 +612,7 @@
         );
 
         // F3: kick-kill recovery preserves the target (`clear_target = false`).
-        world.monster_exhausted_wait_772(mover, false);
+        world.monster_exhausted_wait(mover, false);
 
         let base = world.creatures.get(mover).unwrap().base();
         assert_eq!(
@@ -671,7 +671,7 @@
         );
 
         // F3: player-tile recovery clears the target (`clear_target = true`).
-        world.monster_exhausted_wait_772(mover, true);
+        world.monster_exhausted_wait(mover, true);
 
         let base = world.creatures.get(mover).unwrap().base();
         assert_eq!(
@@ -727,7 +727,7 @@
         // Kick-kill the blocker → Exhausted (target preserved).
         let outcome = world.monster_push_before_step(mover, bpos, now);
         assert_eq!(outcome, MonsterKickOutcome::Exhausted);
-        world.monster_exhausted_wait_772(mover, false);
+        world.monster_exhausted_wait(mover, false);
 
         // Target preserved after the exhausted wait.
         let base = world.creatures.get(mover).unwrap().base();

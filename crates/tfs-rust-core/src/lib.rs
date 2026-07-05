@@ -65,7 +65,7 @@ mod player_inventory_query_add;
 mod player_inventory_util;
 mod player_lua_context;
 mod player_ping;
-mod connections_772;
+mod connections;
 mod process_skills;
 pub mod protocol_hooks;
 pub mod return_value;
@@ -80,7 +80,7 @@ pub mod spawn;
 mod spawn_lifecycle;
 pub mod spell;
 pub mod stability;
-mod subsystem_counters_772;
+mod subsystem_counters;
 #[cfg(test)]
 mod test_world;
 pub mod thing;

@@ -178,7 +178,7 @@ impl GameWorld {
         });
 
         if let Some((pos, corpse_id, blood, inventory)) = corpse_snapshot {
-            self.drop_monster_corpse_772(pos, corpse_id, blood, &inventory);
+            self.drop_monster_corpse(pos, corpse_id, blood, &inventory);
         }
 
         if crate::chase_debug::chase_path_debug_enabled() {

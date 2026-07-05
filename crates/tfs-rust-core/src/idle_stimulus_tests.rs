@@ -131,7 +131,7 @@
         let monster = insert_monster(&mut world, "Rat", pos, 200);
 
         // A second non-summon monster on the same floor prevents sleep
-        // (`should_sleep = false` in `monster_idle_772_acquire_target`) but is NOT a valid
+        // (`should_sleep = false` in `monster_idle_acquire_target`) but is NOT a valid
         // target (filtered out in the target selection loop), so the monster falls through
         // to the idle-wandering catch-all with no target and no Go queued.
         let bystander_pos = Position::new(102, 100, 7);
@@ -1647,7 +1647,7 @@
         );
 
         world.add_creature_think_check(monster);
-        world.process_creatures_772();
+        world.process_creatures();
         let ticks_after_think = match world.creatures.get(monster) {
             Some(CreatureKind::Monster(m)) => m.target_change_ticks,
             _ => 0,
@@ -1731,7 +1731,7 @@
         }
         world.add_creature_think_check(monster);
 
-        world.process_creatures_772();
+        world.process_creatures();
 
         assert!(
             !world
@@ -3718,7 +3718,7 @@
 
     // AI#25: monster loses target when the target stands on a house tile — C++
     // `crnonpl.cc:2427` `IsHouse(Target->posx, …)`. Uses a non-summon monster target so
-    // the acquire path (`monster_idle_772_acquire_target`) skips it (non-summon monsters
+    // the acquire path (`monster_idle_acquire_target`) skips it (non-summon monsters
     // are filtered at `crnonpl.cc:2500`) and doesn't re-acquire after the lose-target clear.
     #[test]
     fn test_phase9_772_loses_target_entering_house() {
@@ -3991,7 +3991,7 @@
 
         // Advance one beat — the in-flight step lands, then `ToDoClear + SendSnapback`.
         world.pending_outgoing.clear();
-        world.advance_beat_772(200);
+        world.advance_beat(200);
         let base = world.creatures.get(player).unwrap().base();
         assert!(
             !base.todo.has_go(),
@@ -4650,7 +4650,7 @@
 
         // First step fires at server_ms = 1 (C++ ToDoStart clamp). After it lands,
         // `earliest_walk_server_ms = 1 + 400 = 401`.
-        world.advance_beat_772(1);
+        world.advance_beat(1);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(101, 100, 7)),
@@ -4667,7 +4667,7 @@
         }
 
         // Advance to `earliest_walk_server_ms` — the second step must fire.
-        world.advance_beat_772(400);
+        world.advance_beat(400);
         assert_eq!(
             world.server_ms, 401,
             "server_ms must reach earliest_walk_server_ms"
@@ -4730,7 +4730,7 @@
         );
 
         // First step fires at server_ms = 1 (C++ ToDoStart clamp) → lands at (101,100,7).
-        world.advance_beat_772(1);
+        world.advance_beat(1);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(101, 100, 7)),
@@ -4747,7 +4747,7 @@
         let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
         let advance = earliest.saturating_sub(world.server_ms);
         world.pending_outgoing.clear();
-        world.advance_beat_772(advance);
+        world.advance_beat(advance);
 
         // The adjacency check must abort: player stays at the pushed position.
         assert_eq!(
@@ -4788,7 +4788,7 @@
         world.player_auto_walk_path(conn, player, vec![Direction::East, Direction::East], now);
 
         // First step at server_ms = 1 → (101,100,7).
-        world.advance_beat_772(1);
+        world.advance_beat(1);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(101, 100, 7)),
@@ -4797,7 +4797,7 @@
         // Second step at earliest_walk_server_ms → (102,100,7).
         let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
         let advance = earliest.saturating_sub(world.server_ms);
-        world.advance_beat_772(advance);
+        world.advance_beat(advance);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(102, 100, 7)),
@@ -4842,7 +4842,7 @@
         );
 
         // 2) First step fires at server_ms = 1 → (101,100,7).
-        world.advance_beat_772(1);
+        world.advance_beat(1);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(101, 100, 7)),
@@ -4855,7 +4855,7 @@
         // 4) Advance to let the arrow step fire.
         let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
         let advance = earliest.saturating_sub(world.server_ms).max(1);
-        world.advance_beat_772(advance);
+        world.advance_beat(advance);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(101, 101, 7)),
@@ -4884,7 +4884,7 @@
         for step in 1..=3u32 {
             let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
             let advance = earliest.saturating_sub(world.server_ms).max(1);
-            world.advance_beat_772(advance);
+            world.advance_beat(advance);
             let pos = world.creatures.get(player).map(|k| k.position()).unwrap();
             assert_eq!(
                 pos,
@@ -4947,7 +4947,7 @@
         // 3) First step fires at server_ms = 1 → tries to step to (101,100,7).
         //    This step succeeds (101 is walkable). The second step would try
         //    (102,100,7) which is blocked by the monster.
-        world.advance_beat_772(1);
+        world.advance_beat(1);
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
             Some(Position::new(101, 100, 7)),
@@ -4957,7 +4957,7 @@
         // 4) Advance to the second step — it should be REJECTED (blocked by monster).
         let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
         let advance = earliest.saturating_sub(world.server_ms).max(1);
-        world.advance_beat_772(advance);
+        world.advance_beat(advance);
         // Player stays at (101,100,7) — the step was rejected.
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
@@ -4992,7 +4992,7 @@
         for step in 1..=3u32 {
             let earliest = world.creatures.get(player).unwrap().base().earliest_walk_server_ms;
             let advance = earliest.saturating_sub(world.server_ms).max(1);
-            world.advance_beat_772(advance);
+            world.advance_beat(advance);
             let pos = world.creatures.get(player).map(|k| k.position()).unwrap();
             assert_eq!(
                 pos,
@@ -5242,7 +5242,7 @@
                 .base()
                 .earliest_walk_server_ms;
             let advance = earliest.saturating_sub(world.server_ms).max(1);
-            world.advance_beat_772(advance);
+            world.advance_beat(advance);
         }
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
@@ -5304,7 +5304,7 @@
                 .base()
                 .earliest_walk_server_ms;
             let advance = earliest.saturating_sub(world.server_ms).max(1);
-            world.advance_beat_772(advance);
+            world.advance_beat(advance);
         }
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
@@ -5386,7 +5386,7 @@
                 .base()
                 .earliest_walk_server_ms;
             let advance = earliest.saturating_sub(world.server_ms).max(1);
-            world.advance_beat_772(advance);
+            world.advance_beat(advance);
         }
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),
@@ -5439,7 +5439,7 @@
                 .base()
                 .earliest_walk_server_ms;
             let advance = earliest.saturating_sub(world.server_ms).max(1);
-            world.advance_beat_772(advance);
+            world.advance_beat(advance);
         }
         assert_eq!(
             world.creatures.get(player).map(|k| k.position()),

@@ -1489,12 +1489,12 @@ impl GameWorld {
                 match kick_outcome {
                     crate::monster_push::MonsterKickOutcome::Exhausted => {
                         // Kick-kill: Target preserved (C++ Execute catch + `crnonpl.cc:2241-2242`).
-                        self.monster_exhausted_wait_772(cid, false);
+                        self.monster_exhausted_wait(cid, false);
                         return;
                     }
                     crate::monster_push::MonsterKickOutcome::ExhaustedDropTarget => {
                         // Player-tile: Target cleared (C++ `crnonpl.cc:2237`).
-                        self.monster_exhausted_wait_772(cid, true);
+                        self.monster_exhausted_wait(cid, true);
                         return;
                     }
                     crate::monster_push::MonsterKickOutcome::Proceed => {}
@@ -2468,7 +2468,7 @@ mod monster_walk_tests {
         let cid = support::insert_monster(&mut world, "Rat", pos, 200);
         world.todo_queue.insert(200, cid);
         world.stop_event_walk(cid);
-        world.advance_beat_772(200);
+        world.advance_beat(200);
         assert!(world.todo_queue.is_empty());
         assert_eq!(world.creatures.get(cid).unwrap().position(), pos);
     }

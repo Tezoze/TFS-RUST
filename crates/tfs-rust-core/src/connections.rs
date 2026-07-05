@@ -35,7 +35,7 @@ impl GameWorld {
         counts_as_action: bool,
     ) {
         // Phase 4: 1098 defer deleted — both eras use 772 round tracking.
-        let round = self.round_nr_772;
+        let round = self.round_nr;
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.last_command_round = round;
             if counts_as_action {
@@ -50,9 +50,9 @@ impl GameWorld {
     /// Idle warn/kick rounds are config-driven via `kickIdlePlayerAfterMinutes`
     /// (`config.lua`): warning at `N*60` rounds, kick at `(N+1)*60` rounds. The proactive
     /// ping cadence (30/60) and dead-connection timeout (90) are 772 engine constants.
-    pub(crate) fn process_connections_772(&mut self) -> Vec<ConnId> {
+    pub(crate) fn process_connections(&mut self) -> Vec<ConnId> {
         // Phase 4: 1098 defer deleted — both eras use 772 ProcessConnections.
-        let round = self.round_nr_772;
+        let round = self.round_nr;
         let idle_warn_rounds = self.connection_config.idle_warn_rounds();
         let idle_kick_rounds = self.connection_config.idle_kick_rounds();
         let mut kick: Vec<ConnId> = Vec::new();
@@ -97,7 +97,7 @@ impl GameWorld {
     }
 
     /// C++ `SendAmbiente` on brightness change (`main.cc:361-372`).
-    pub(crate) fn tick_ambiente_light_772(&mut self) {
+    pub(crate) fn tick_ambient_light(&mut self) {
         // Phase 4: 1098 defer deleted — both eras use 772 ambient light.
         let wt = crate::world_light::world_time_from_local_clock();
         let brightness = crate::world_light::light_level_from_world_time(wt) as i8;
@@ -125,7 +125,7 @@ impl GameWorld {
 ///
 /// `Turn` (0x6F–0x72) and `PingBack` (0x1D, OTClient-only) are **not** in the C++ exemption list
 /// and therefore do count as actions — turning to dodge the idle kick is not 772-faithful.
-pub(crate) fn packet_counts_as_action_772(packet: &GamePacket) -> bool {
+pub(crate) fn packet_counts_as_action(packet: &GamePacket) -> bool {
     !matches!(
         packet,
         GamePacket::Ping
@@ -158,8 +158,8 @@ mod tests {
             p.last_action_round = 0;
             p.last_command_round = 960;
         }
-        world.round_nr_772 = 960;
-        let kick = world.process_connections_772();
+        world.round_nr = 960;
+        let kick = world.process_connections();
         assert_eq!(kick.len(), 1);
         assert_eq!(kick[0].0, 1);
     }
@@ -181,20 +181,20 @@ mod tests {
             p.last_command_round = 0;
         }
         // 600 rounds = 10 min → warning, not kick yet (command still recent).
-        world.round_nr_772 = 600;
+        world.round_nr = 600;
         // Refresh command round so connection-timeout (>=90) doesn't fire.
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.last_command_round = 600;
         }
-        let kick = world.process_connections_772();
+        let kick = world.process_connections();
         assert!(kick.is_empty(), "warn at 600 must not kick");
 
         // 660 rounds = 11 min → kick (command still recent).
-        world.round_nr_772 = 660;
+        world.round_nr = 660;
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.last_command_round = 660;
         }
-        let kick = world.process_connections_772();
+        let kick = world.process_connections();
         assert_eq!(kick.len(), 1, "kick at 660 (10+1 min)");
     }
 
@@ -212,8 +212,8 @@ mod tests {
             p.last_command_round = 0;
             p.last_action_round = 0;
         }
-        world.round_nr_772 = 30;
-        let kick = world.process_connections_772();
+        world.round_nr = 30;
+        let kick = world.process_connections();
         assert!(kick.is_empty(), "ping round must not kick");
         let outgoing = world.pending_outgoing.get(&conn);
         assert!(outgoing.is_some_and(|q| !q.is_empty()), "ping must be enqueued");
@@ -232,12 +232,12 @@ mod tests {
             p.last_command_round = 0;
             p.last_action_round = 0;
         }
-        world.round_nr_772 = 90;
-        let kick = world.process_connections_772();
+        world.round_nr = 90;
+        let kick = world.process_connections();
         assert_eq!(kick.len(), 1, "LastCommand >= 90 must trigger connection timeout");
     }
 
-    /// `packet_counts_as_action_772` mirrors `TConnection::ResetTimer` (`connections.cc:53-63`):
+    /// `packet_counts_as_action` mirrors `TConnection::ResetTimer` (`connections.cc:53-63`):
     /// the five 772 exempt opcodes do **not** refresh `TimeStampAction`; everything else (including
     /// `Turn` and `PingBack`, which were previously mis-exempted) does.
     #[test]
@@ -246,7 +246,7 @@ mod tests {
         use tfs_rust_common::game_packet::SayPayload;
         use tfs_rust_common::GamePacket;
 
-        use super::packet_counts_as_action_772;
+        use super::packet_counts_as_action;
 
         // Exempt — must NOT count as action (matches C++ exemption list).
         let exempt = [
@@ -258,7 +258,7 @@ mod tests {
         ];
         for p in exempt {
             assert!(
-                !packet_counts_as_action_772(&p),
+                !packet_counts_as_action(&p),
                 "exempt packet {p:?} must not count as action"
             );
         }
@@ -279,7 +279,7 @@ mod tests {
         ];
         for p in actionable {
             assert!(
-                packet_counts_as_action_772(&p),
+                packet_counts_as_action(&p),
                 "action packet {p:?} must count as action"
             );
         }

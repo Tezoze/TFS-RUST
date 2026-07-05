@@ -302,7 +302,7 @@ impl GameWorld {
 
         const TEXTCOLOR_RED: u8 = 180;
 
-        // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood_772` in the
+        // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood` in the
         // combat apply path (`crmain.cc:762-775`), so no duplicate draw-blood here. Phase 3: both
         // eras use the 772 blood path now (1098 monster AI deleted).
 

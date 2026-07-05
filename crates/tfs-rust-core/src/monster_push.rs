@@ -29,7 +29,7 @@ use crate::tile::flags as tilestate;
 
 /// 772 `TMonster::KickCreature` / `KickBoxes` shove order — `crnonpl.cc:3057-3058`, `:3014-3015`
 /// (`OffsetX={0,0,-1,1}, OffsetY={-1,1,0,0}` = North, South, West, East). Deterministic, no RNG.
-const KICK_DIRS_772: [Direction; 4] = [
+const KICK_DIRS: [Direction; 4] = [
     Direction::North,
     Direction::South,
     Direction::West,
@@ -77,14 +77,14 @@ impl GameWorld {
         dest: Position,
         now: Instant,
     ) -> MonsterKickOutcome {
-        self.monster_kick_before_step_772(mover, dest, now)
+        self.monster_kick_before_step(mover, dest, now)
     }
 
     // ───────────────────────── 772 (`MovePossible` / `KickCreature`) ─────────────────────────
 
     /// 772 `CanKickBoxes()` — race `KickBoxes` flag, or inherited from a monster master
     /// (`crnonpl.cc:2984-2992`).
-    fn monster_can_kick_boxes_772(&self, mover: CreatureId) -> bool {
+    fn monster_can_kick_boxes(&self, mover: CreatureId) -> bool {
         let mut current = mover;
         // Bounded walk up the master chain to avoid cycles (summon-of-summon is shallow in 772).
         for _ in 0..8 {
@@ -111,7 +111,7 @@ impl GameWorld {
     /// the loop kicks again. This lets a monster step through a multi-deep creature wall on the
     /// same beat. After 100 attempts or a non-recoverable block (player, IGNORED, invisible,
     /// forced kill), returns `Exhausted`.
-    fn monster_kick_before_step_772(
+    fn monster_kick_before_step(
         &mut self,
         mover: CreatureId,
         dest: Position,
@@ -143,7 +143,7 @@ impl GameWorld {
         let creature_kicker = can_push_creatures && posture && has_target;
 
         // C++ box-block gate (`CanKickBoxes`) is independent of attack posture.
-        let can_kick_boxes = self.monster_can_kick_boxes_772(mover);
+        let can_kick_boxes = self.monster_can_kick_boxes(mover);
 
         // C++ kick-and-retry loop (`crnonpl.cc:2185` `for Attempt 0..100`): after each kick,
         // re-check the destination. If still blocked, kick again. Up to 100 attempts.
@@ -205,7 +205,7 @@ impl GameWorld {
                         // `ExhaustedDropTarget`) — the kick-kill throw site does NOT clear
                         // `Target` (`crnonpl.cc:2241-2242`); the `Execute` catch preserves it
                         // (`cract.cc:870-877`).
-                        if !self.monster_kick_creature_772(mover, blocker, mover_pos, now) {
+                        if !self.monster_kick_creature(mover, blocker, mover_pos, now) {
                             return MonsterKickOutcome::Exhausted;
                         }
                         // Kick succeeded — loop re-checks the destination tile for more blockers.
@@ -217,7 +217,7 @@ impl GameWorld {
 
         // Boxes / hazard fields — `MovePossible` `UNPASS`/`AVOID` branches (`crnonpl.cc:2249-2287`).
         if can_kick_boxes {
-            self.monster_kick_boxes_772(mover, dest, state);
+            self.monster_kick_boxes(mover, dest, state);
         }
 
         MonsterKickOutcome::Proceed
@@ -229,7 +229,7 @@ impl GameWorld {
     /// adjacent `BANK && !UNPASS` tile in fixed N,S,W,E order (skipping the mover's own tile),
     /// deleting it (with `EFFECT_BLOCK_HIT`) when no destination is free. Immovable (`UNMOVE`)
     /// items are hard blocks and left in place (handled by the `MovePossible` planning gate).
-    fn monster_kick_boxes_772(&mut self, mover: CreatureId, dest: Position, state: MonsterState) {
+    fn monster_kick_boxes(&mut self, mover: CreatureId, dest: Position, state: MonsterState) {
         let mover_pos = match self.creatures.get(mover) {
             Some(k) => k.position(),
             None => return,
@@ -253,7 +253,7 @@ impl GameWorld {
                     .chain(t.body().top_items.iter())
                     .copied()
                     .filter(|&iid| {
-                        self.item_is_kickable_box_772(
+                        self.item_is_kickable_box(
                             iid,
                             state,
                             immunity_poison,
@@ -266,7 +266,7 @@ impl GameWorld {
             .unwrap_or_default();
 
         for item_id in to_kick {
-            self.monster_kick_single_box_772(mover, item_id, dest, mover_pos);
+            self.monster_kick_single_box(mover, item_id, dest, mover_pos);
         }
     }
 
@@ -274,7 +274,7 @@ impl GameWorld {
     /// (`MovePossible` `UNPASS`/`AVOID` branches, `crnonpl.cc:2250-2284`). Hazard `AVOID` fields
     /// are ignored while `PANIC` or when the mover is immune to the field's damage type
     /// (`crnonpl.cc:2264-2267`).
-    fn item_is_kickable_box_772(
+    fn item_is_kickable_box(
         &self,
         item_id: ItemId,
         state: MonsterState,
@@ -305,7 +305,7 @@ impl GameWorld {
     }
 
     /// Move one box to an adjacent `BANK && !UNPASS` tile, or delete it (`crnonpl.cc:3001-3027`).
-    fn monster_kick_single_box_772(
+    fn monster_kick_single_box(
         &mut self,
         mover: CreatureId,
         item_id: ItemId,
@@ -313,13 +313,13 @@ impl GameWorld {
         mover_pos: Position,
     ) {
         let count = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
-        for dir in KICK_DIRS_772 {
+        for dir in KICK_DIRS {
             let target = item_pos.offset(dir);
             // C++: skip the tile the mover itself stands on.
             if target.x == mover_pos.x && target.y == mover_pos.y && target.z == mover_pos.z {
                 continue;
             }
-            if !self.tile_is_bank_and_passable_772(target) {
+            if !self.tile_is_bank_and_passable(target) {
                 continue;
             }
             if self
@@ -344,7 +344,7 @@ impl GameWorld {
 
     /// 772 `CoordinateFlag(Dest, BANK) && !CoordinateFlag(Dest, UNPASS)` — a walkable terrain tile
     /// with no solid blocker (`crnonpl.cc:3018-3019`).
-    fn tile_is_bank_and_passable_772(&self, pos: Position) -> bool {
+    fn tile_is_bank_and_passable(&self, pos: Position) -> bool {
         let Some(tile) = self.map.get_tile(pos) else {
             return false;
         };
@@ -379,26 +379,26 @@ impl GameWorld {
     /// pipeline (corpse + loot drop + exp distribution). Returns `true` if moved, `false` if killed.
     ///
     /// F2: destination validation uses the execute-mode `MovePossible` gate
-    /// ([`Self::monster_move_possible_execute_for_kick_772`]) — the blocker's own
+    /// ([`Self::monster_move_possible_execute_for_kick`]) — the blocker's own
     /// `MovePossible(Execute=true)` (`crnonpl.cc:3066`) — which recursively kicks pushable
     /// creatures on the escape tile (chain-push). Was: planning gate (`Execute=false`) which
     /// skipped the recursive kick and caused stacking + spurious kills in dense convoys.
-    fn monster_kick_creature_772(
+    fn monster_kick_creature(
         &mut self,
         kicker: CreatureId,
         blocker: CreatureId,
         mover_pos: Position,
         now: Instant,
     ) -> bool {
-        self.monster_kick_creature_772_inner(kicker, blocker, mover_pos, now, 0)
+        self.monster_kick_creature_inner(kicker, blocker, mover_pos, now, 0)
     }
 
-    /// F2: depth-threaded inner variant of [`Self::monster_kick_creature_772`].
+    /// F2: depth-threaded inner variant of [`Self::monster_kick_creature`].
     ///
     /// `depth` bounds the recursive chain-push (A→B→C→…). C++ has no explicit guard — it relies
     /// on the fixed N,S,W,E offset order + `skip kicker's tile` check (`crnonpl.cc:3062-3064`).
     /// Rust is explicit via [`MAX_KICK_DEPTH`].
-    fn monster_kick_creature_772_inner(
+    fn monster_kick_creature_inner(
         &mut self,
         kicker: CreatureId,
         blocker: CreatureId,
@@ -425,7 +425,7 @@ impl GameWorld {
             None => return false,
         };
 
-        for dir in KICK_DIRS_772 {
+        for dir in KICK_DIRS {
             let try_pos = blocker_pos.offset(dir);
             // C++: skip the tile the kicker itself stands on.
             if try_pos.x == mover_pos.x && try_pos.y == mover_pos.y && try_pos.z == mover_pos.z {
@@ -442,7 +442,7 @@ impl GameWorld {
             // creatures on the escape tile (chain-push). Was: planning gate (`Execute=false`)
             // which treated pushable monsters as plannable-through and skipped the recursive
             // kick, causing stacking + spurious kills in dense convoys (audit F2).
-            let can_occupy = self.monster_move_possible_execute_for_kick_772(
+            let can_occupy = self.monster_move_possible_execute_for_kick(
                 blocker,
                 try_pos,
                 blocker_pos,
@@ -504,14 +504,14 @@ impl GameWorld {
     }
 
     /// F2: 772 `TMonster::MovePossible(Execute=true)` for `KickCreature` dest validation
-    /// (`crnonpl.cc:3066`). Unlike [`Self::monster_move_possible_planning_772`] (Execute=false),
+    /// (`crnonpl.cc:3066`). Unlike [`Self::monster_move_possible_planning`] (Execute=false),
     /// this recursively kicks pushable creatures on the escape tile (chain-push) before declaring
     /// it passable. Returns `true` if the blocker can occupy `try_pos` (after any chain-kick
     /// side-effects), `false` on a hard block or a failed chain-kick.
     ///
     /// `kicker_pos` is the blocker's current position (the blocker is the "kicker" in the
     /// recursive call) — used to skip the blocker's own tile in the recursive kick.
-    fn monster_move_possible_execute_for_kick_772(
+    fn monster_move_possible_execute_for_kick(
         &mut self,
         blocker: CreatureId,
         try_pos: Position,
@@ -522,7 +522,7 @@ impl GameWorld {
         // Reuse the planning gate for non-creature blocks (leash, PZ, house, items, terrain).
         // Hard blocks (unpushable, target, master, invisible, NPC, summon-player, IGNORED) return
         // false here. Pushable monsters and players are plannable-through (planning `continue`s).
-        if !self.monster_move_possible_planning_772(blocker, try_pos) {
+        if !self.monster_move_possible_planning(blocker, try_pos) {
             return false;
         }
         // Planning passed — but if a pushable creature is on `try_pos`, planning treated it as
@@ -543,9 +543,9 @@ impl GameWorld {
                 break; // tile clear → passable
             };
             // Only pushable monsters reach here (hard blocks returned false via planning;
-            // non-monsters cause `monster_kick_creature_772_inner` to return false). Recursively
+            // non-monsters cause `monster_kick_creature_inner` to return false). Recursively
             // kick — C++ `Creature->MovePossible(Execute=true)` (`crnonpl.cc:3066`).
-            if !self.monster_kick_creature_772_inner(blocker, other, kicker_pos, now, depth + 1) {
+            if !self.monster_kick_creature_inner(blocker, other, kicker_pos, now, depth + 1) {
                 return false; // kick failed (kill or no escape) → tile not passable
             }
         }

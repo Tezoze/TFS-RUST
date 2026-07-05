@@ -32,7 +32,7 @@ pub const ITEM_SMALLSPLASH: u16 = 2019;
 /// 772 physical-hit graphical effect keyed on blood family (raw client wire effect byte).
 /// C++ `TCreature::Damage` physical switch — `tibia-game-master/src/crmain.cc:709-745`; matches
 /// tvp-772 `gameserver/src/game.cpp` `combatGetTypeInfo`. Values are shared 772/1098 `CONST_ME_*`.
-pub(crate) fn physical_hit_effect_772(blood: BloodType) -> u8 {
+pub(crate) fn physical_hit_effect(blood: BloodType) -> u8 {
     match blood {
         BloodType::Blood => 1,   // CONST_ME_DRAWBLOOD / EFFECT_BLOOD_HIT
         BloodType::Slime => 17,  // CONST_ME_HITBYPOISON / EFFECT_POISON_HIT
@@ -45,7 +45,7 @@ pub(crate) fn physical_hit_effect_772(blood: BloodType) -> u8 {
 /// Splash liquid subtype for a blood family — only BLOOD/SLIME leave a ground splash
 /// (`crmain.cc:711-722`). tvp-772 `FluidTypes_t` (`gameserver/src/const.h:94`): `FLUID_BLOOD = 5`,
 /// `FLUID_SLIME = 6`. The 772 codec maps these via `getLiquidColor` (5→2, 6→4).
-pub(crate) fn splash_fluid_772(blood: BloodType) -> Option<u16> {
+pub(crate) fn splash_fluid(blood: BloodType) -> Option<u16> {
     match blood {
         BloodType::Blood => Some(5),
         BloodType::Slime => Some(6),
@@ -390,7 +390,7 @@ impl GameWorld {
     /// Drop race corpse with bag + equipped loot on the death tile (772 only).
     ///
     /// C++ reference: `~TCreature` — `crmain.cc:204-290`.
-    pub(crate) fn drop_monster_corpse_772(
+    pub(crate) fn drop_monster_corpse(
         &mut self,
         pos: tfs_rust_common::Position,
         corpse_type: u16,
@@ -416,8 +416,8 @@ impl GameWorld {
         // C++ `~TCreature` creates the blood/slime pool BEFORE the corpse (`crmain.cc:210-226`),
         // keyed on the race blood family — NOT on the corpse item's `fluidsource` attribute
         // (audit finding #14). Only BLOOD/SLIME races pool.
-        if let Some(fluid) = splash_fluid_772(blood) {
-            self.create_liquid_splash_772(pos, ITEM_FULLSPLASH, fluid);
+        if let Some(fluid) = splash_fluid(blood) {
+            self.create_liquid_splash(pos, ITEM_FULLSPLASH, fluid);
         }
 
         // Phase 3: both eras use the 772 `server_ms` decay clock.
@@ -455,7 +455,7 @@ impl GameWorld {
     /// `Item::client_count()`, and the codec runs it through 772 `getLiquidColor` / 1098 `fluidMap`),
     /// so the fluid subtype is stored in `count`. The `fluid_type` attribute is mirrored for
     /// `Item::get_sub_type` parity on the container/query paths.
-    pub(crate) fn create_liquid_splash_772(
+    pub(crate) fn create_liquid_splash(
         &mut self,
         pos: Position,
         splash_item_id: u16,
@@ -505,11 +505,11 @@ impl GameWorld {
     /// Emit the 772 physical-hit blood visual: the race-keyed hit effect plus a blood/slime
     /// small-splash on the victim's tile. C++ `TCreature::Damage` physical branch
     /// (`crmain.cc:762-775`). No PZ gate in 772 (unlike 1098). Call on physical damage that lands.
-    pub(crate) fn apply_physical_hit_blood_772(&mut self, target: CreatureId, pos: Position) {
+    pub(crate) fn apply_physical_hit_blood(&mut self, target: CreatureId, pos: Position) {
         let blood = self.creature_blood_type(target);
-        self.broadcast_magic_effect(pos, physical_hit_effect_772(blood));
-        if let Some(fluid) = splash_fluid_772(blood) {
-            self.create_liquid_splash_772(pos, ITEM_SMALLSPLASH, fluid);
+        self.broadcast_magic_effect(pos, physical_hit_effect(blood));
+        if let Some(fluid) = splash_fluid(blood) {
+            self.create_liquid_splash(pos, ITEM_SMALLSPLASH, fluid);
         }
     }
 }
@@ -721,7 +721,7 @@ mod tests {
             })
             .expect("monster");
 
-        world.drop_monster_corpse_772(
+        world.drop_monster_corpse(
             pos,
             2813,
             tfs_rust_common::enums::BloodType::Blood,

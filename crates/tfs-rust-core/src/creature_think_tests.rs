@@ -160,10 +160,10 @@
         step_ticks(&mut world, start, 25, 50);
     }
 
-    /// RC1: `process_creatures_772` must NOT call `onThink` — C++ `ProcessCreatures`
+    /// RC1: `process_creatures` must NOT call `onThink` — C++ `ProcessCreatures`
     /// (`crmain.cc:1075–1138`) is regen + death safety only. AI is ToDoQueue-driven.
     #[test]
-    fn process_creatures_772_does_not_call_on_think() {
+    fn process_creatures_does_not_call_on_think() {
         let (mut world, counter) = {
             let counter = std::sync::Arc::new(CountingEventDispatcher::default());
             let mut world = beat_driven_world();
@@ -179,18 +179,18 @@
         const BEAT_MS: u64 = 200;
         // 9 beats = 1800 ms → creature counter fires once at 1750 ms threshold.
         for _ in 0..9 {
-            world.advance_beat_772(BEAT_MS);
+            world.advance_beat(BEAT_MS);
         }
 
         assert_eq!(
             counter.total_think_calls(),
             0,
-            "RC1: process_creatures_772 must not call onThink — AI is ToDoQueue-driven"
+            "RC1: process_creatures must not call onThink — AI is ToDoQueue-driven"
         );
 
         // 5 more beats = 2800 ms cumulative → second ProcessCreatures fire.
         for _ in 0..5 {
-            world.advance_beat_772(BEAT_MS);
+            world.advance_beat(BEAT_MS);
         }
 
         assert_eq!(
@@ -200,10 +200,10 @@
         );
     }
 
-    /// RC1: `process_creatures_772` retains the C++ death safety net
+    /// RC1: `process_creatures` retains the C++ death safety net
     /// (`crmain.cc:1113–1117`: `HP <= 0 && !IsDead → Death()`).
     #[test]
-    fn process_creatures_772_applies_death_safety() {
+    fn process_creatures_applies_death_safety() {
         let mut world = beat_driven_world();
 
         let pos = Position::new(100, 100, 7);
@@ -216,19 +216,19 @@
         }
         assert!(world.creatures.contains_key(monster));
 
-        world.process_creatures_772();
+        world.process_creatures();
 
         assert!(
             !world.creatures.contains_key(monster),
-            "RC1: process_creatures_772 death safety must kill creatures with HP <= 0"
+            "RC1: process_creatures death safety must kill creatures with HP <= 0"
         );
     }
 
-    /// RC1: `process_creatures_772` must not clear follow/attack targets.
+    /// RC1: `process_creatures` must not clear follow/attack targets.
     /// Previously `monster_on_think` → `creature_on_think` cleared targets out of view
     /// on a 1 Hz timer; C++ 772 only clears targets inside `IdleStimulus`.
     #[test]
-    fn process_creatures_772_does_not_clear_targets() {
+    fn process_creatures_does_not_clear_targets() {
         use crate::test_world::support::{insert_player, test_player};
 
         let mut world = beat_driven_world();
@@ -249,7 +249,7 @@
         }
         world.add_creature_think_check(monster);
 
-        world.process_creatures_772();
+        world.process_creatures();
 
         let still_has_target = world
             .creatures
@@ -257,7 +257,7 @@
             .is_some_and(|k| k.base().follow_target == Some(player));
         assert!(
             still_has_target,
-            "RC1: process_creatures_772 must not clear targets — only IdleStimulus does (crnonpl.cc:2418)"
+            "RC1: process_creatures must not clear targets — only IdleStimulus does (crnonpl.cc:2418)"
         );
     }
 
@@ -270,7 +270,7 @@
 
         assert_eq!(world.server_ms, 0);
         for _ in 0..5 {
-            world.advance_beat_772(200);
+            world.advance_beat(200);
         }
         assert_eq!(world.server_ms, 1_000);
         let expired = world.decay.tick(world.server_ms);
@@ -319,8 +319,8 @@
         let pid = insert_player(&mut world, player);
 
         // round_nr starts at 0; 0 % 12 == 0, so first call fires.
-        world.round_nr_772 = 0;
-        world.process_creatures_772();
+        world.round_nr = 0;
+        world.process_creatures();
 
         let p = world.creatures.get(pid).unwrap();
         let CreatureKind::Player(p) = p else { panic!("not a player") };
@@ -343,8 +343,8 @@
         player.food_level = 0;
         let pid = insert_player(&mut world, player);
 
-        world.round_nr_772 = 0;
-        world.process_creatures_772();
+        world.round_nr = 0;
+        world.process_creatures();
 
         let p = world.creatures.get(pid).unwrap();
         let CreatureKind::Player(p) = p else { panic!("not a player") };
@@ -367,8 +367,8 @@
         player.food_level = 12;
         let pid = insert_player(&mut world, player);
 
-        world.round_nr_772 = 0;
-        world.process_creatures_772();
+        world.round_nr = 0;
+        world.process_creatures();
 
         let p = world.creatures.get(pid).unwrap();
         let CreatureKind::Player(p) = p else { panic!("not a player") };
@@ -391,8 +391,8 @@
         player.food_level = 12;
         let pid = insert_player(&mut world, player);
 
-        world.round_nr_772 = 0;
-        world.process_creatures_772();
+        world.round_nr = 0;
+        world.process_creatures();
 
         // Player should be processed by death safety, not regen.
         // HP stays 0 (or creature is dead/removed by apply_creature_death).
@@ -420,8 +420,8 @@
         let pid = insert_player(&mut world, player);
 
         // round_nr = 5; 5 % 12 != 0, so no regen.
-        world.round_nr_772 = 5;
-        world.process_creatures_772();
+        world.round_nr = 5;
+        world.process_creatures();
 
         let p = world.creatures.get(pid).unwrap();
         let CreatureKind::Player(p) = p else { panic!("not a player") };
@@ -442,8 +442,8 @@
         let pid = insert_player(&mut world, player);
 
         // round_nr = 10; 10 <= 10, so timer expires.
-        world.round_nr_772 = 10;
-        world.process_creatures_772();
+        world.round_nr = 10;
+        world.process_creatures();
 
         let p = world.creatures.get(pid).unwrap();
         let CreatureKind::Player(p) = p else { panic!("not a player") };
@@ -461,8 +461,8 @@
         player.earliest_logout_round = 10;
         let pid = insert_player(&mut world, player);
 
-        world.round_nr_772 = 5;
-        world.process_creatures_772();
+        world.round_nr = 5;
+        world.process_creatures();
 
         let p = world.creatures.get(pid).unwrap();
         let CreatureKind::Player(p) = p else { panic!("not a player") };

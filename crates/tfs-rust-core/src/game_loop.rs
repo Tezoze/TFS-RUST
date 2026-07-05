@@ -245,7 +245,7 @@ fn handle_game_packet(
         // `ProcessConnections` round tracking.
         world.player_reset_connection_rounds(
             cid,
-            crate::connections_772::packet_counts_as_action_772(&packet),
+            crate::connections::packet_counts_as_action(&packet),
         );
         if game_packet_requires_timed_action(&packet)
             && !world.player_packet_action_ready(cid, &packet)
@@ -671,8 +671,8 @@ pub async fn run_game_loop(
                 if beats == 0 {
                     beats = 1;
                 }
-                world.advance_beat_772(beat_ms * beats);
-                while let Some(conn_id) = world.pending_idle_kick_772.pop() {
+                world.advance_beat(beat_ms * beats);
+                while let Some(conn_id) = world.pending_idle_kick.pop() {
                     handle_player_disconnect(&mut world, conn_id, false, &out_registry);
                 }
                 flush_pending_outgoing(&mut world, &out_registry);

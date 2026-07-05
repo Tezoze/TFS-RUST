@@ -123,7 +123,7 @@ pub struct GameWorld {
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
     /// 772 `AdvanceGame` staggered ~1000 ms subsystem counters (772 loop only).
-    pub(crate) subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772,
+    pub(crate) subsystem_counters: crate::subsystem_counters::SubsystemCounters,
     /// Monster despawn / walk-back radii from `config.lua` (`configmanager.cpp`).
     pub monster_world_config: crate::config::MonsterWorldConfig,
     /// Connection idle/timeout settings from `config.lua` (`kickIdlePlayerAfterMinutes`).
@@ -136,13 +136,13 @@ pub struct GameWorld {
     /// Per-world glibc parity stream for 772 — avoids process-global `libc::srand` (Finding 8/15).
     pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
     /// 772 `RoundNr` — incremented each `Other` subsystem tick (`main.cc:350`).
-    pub(crate) round_nr_772: u32,
+    pub(crate) round_nr: u32,
     /// Last broadcast ambiente brightness — `AdvanceGame` `OldAmbiente` (`main.cc:323`).
     pub(crate) last_ambiente_brightness: i8,
     /// True when last beat advance skipped `MoveCreatures` due to lag (`main.cc:449`).
-    pub(crate) lag_772: bool,
-    /// Idle-kick disconnects queued from `process_connections_772` — drained by the 772 game loop.
-    pub(crate) pending_idle_kick_772: Vec<ConnId>,
+    pub(crate) lag: bool,
+    /// Idle-kick disconnects queued from `process_connections` — drained by the 772 game loop.
+    pub(crate) pending_idle_kick: Vec<ConnId>,
     /// `addEvent` / `stopEvent` scheduler — `None` in tests / when Lua is unavailable.
     /// Game-thread only (`Rc` → `!Send`); used by the game loop to `forget` fired timers.
     pub(crate) scheduler: Option<std::rc::Rc<crate::scheduler::Scheduler>>,
@@ -301,16 +301,16 @@ impl GameWorld {
             check_creature_bucket_index: 0,
             last_creature_bucket_tick: None,
             spawn_slot_by_creature: HashMap::new(),
-            subsystem_counters_772: crate::subsystem_counters_772::SubsystemCounters772::default(),
+            subsystem_counters: crate::subsystem_counters::SubsystemCounters::default(),
             monster_world_config,
             connection_config,
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
-            round_nr_772: 0,
+            round_nr: 0,
             last_ambiente_brightness: -1,
-            lag_772: false,
-            pending_idle_kick_772: Vec::new(),
+            lag: false,
+            pending_idle_kick: Vec::new(),
             scheduler: None,
         }
     }

@@ -15,7 +15,7 @@ const POISON_DECAY_PERCENT: i32 = 50;
 
 impl GameWorld {
     /// C++ `ProcessSkills` — tick timer-skills for every creature (`crmain.cc:1130-1139`).
-    pub(crate) fn process_skills_772(&mut self) {
+    pub(crate) fn process_skills(&mut self) {
         let ids: Vec<CreatureId> = self
             .creatures
             .iter()
@@ -24,13 +24,13 @@ impl GameWorld {
             .collect();
 
         for cid in ids {
-            self.process_creature_skills_772(cid);
+            self.process_creature_skills(cid);
             // Phase 4: 1098 defer deleted — both eras run fed regen.
-            self.process_player_fed_regen_772(cid);
+            self.process_player_fed_regen(cid);
         }
     }
 
-    fn process_creature_skills_772(&mut self, cid: CreatureId) {
+    fn process_creature_skills(&mut self, cid: CreatureId) {
         let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32)> = Vec::new();
         let mut remove_indices: Vec<usize> = Vec::new();
         let mut speed_expired = false;
@@ -176,7 +176,7 @@ impl GameWorld {
     /// (`crskill.cc:186-191`), so the modulo is taken on the post-decrement value —
     /// regen fires when the remaining-food counter hits a multiple of the vocation's
     /// tick interval (counting down to 0).
-    fn process_player_fed_regen_772(&mut self, cid: CreatureId) {
+    fn process_player_fed_regen(&mut self, cid: CreatureId) {
         let (food_remaining, voc_id, pos) = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => {
                 (p.food_remaining, p.vocation_id, p.base.position)
@@ -260,15 +260,15 @@ mod tests {
             },
         );
 
-        world.process_skills_772();
+        world.process_skills();
         let hp1 = world.creatures.get(player).unwrap().base().health;
         assert!(hp1 < 150, "fire tick should deal damage");
 
-        world.process_skills_772();
+        world.process_skills();
         let hp2 = world.creatures.get(player).unwrap().base().health;
         assert!(hp2 < hp1, "second fire tick should deal more damage");
 
-        world.process_skills_772();
+        world.process_skills();
         let has_fire = world.creatures.get(player).is_some_and(|k| {
             k.base()
                 .active_conditions
@@ -306,7 +306,7 @@ mod tests {
             p.base.active_conditions = conds;
         }
 
-        world.process_skills_772();
+        world.process_skills();
         let rank = world
             .creatures
             .get(player)
@@ -387,7 +387,7 @@ mod tests {
         // 12 ticks: regen fires at food_remaining=6 and =0 (knight 6/6 cadence),
         // giving +2 HP / +4 mana, and the food counter drains to 0.
         for _ in 0..12 {
-            world.process_skills_772();
+            world.process_skills();
         }
         let p = world.creatures.get(pid).unwrap();
         assert_eq!(p.base().health, 92, "knight should gain 2 HP over 12 fed ticks");
@@ -399,7 +399,7 @@ mod tests {
 
         // Food exhausted ⇒ `SKILL_FED` inactive ⇒ no further regen (`crskill.cc:180`).
         for _ in 0..6 {
-            world.process_skills_772();
+            world.process_skills();
         }
         let p = world.creatures.get(pid).unwrap();
         assert_eq!(p.base().health, 92, "no regen after food runs out");
@@ -424,7 +424,7 @@ mod tests {
         let pid = insert_player(&mut world, player);
 
         for _ in 0..12 {
-            world.process_skills_772();
+            world.process_skills();
         }
         let p = world.creatures.get(pid).unwrap();
         assert_eq!(p.base().health, 90, "no HP regen inside a protection zone");
@@ -458,7 +458,7 @@ mod tests {
         let pid = insert_player(&mut world, player);
 
         for _ in 0..12 {
-            world.process_skills_772();
+            world.process_skills();
         }
         let p = world.creatures.get(pid).unwrap();
         assert_eq!(p.base().health, 90, "no regen with food_remaining = 0");

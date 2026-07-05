@@ -413,7 +413,7 @@ pub fn load_sim_content_dbs(
     data_dir: &Path,
     synthetic_ground_wp: Option<u16>,
 ) -> Result<(Arc<ItemDatabase>, Arc<MonsterDatabase>), String> {
-    let mut items_db = load_items_db_for_772(data_dir)?;
+    let mut items_db = load_items_db_for(data_dir)?;
     if let Some(wp) = synthetic_ground_wp {
         register_synthetic_ground(&mut items_db.items, wp);
     }
@@ -569,7 +569,7 @@ pub fn default_sim_map_config() -> SimMapConfig {
     }
 }
 
-fn load_items_db_for_772(data_dir: &Path) -> Result<ItemDatabase, String> {
+fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
     let otb = data_dir.join("items/items.otb");
     let xml = data_dir.join("items/items.xml");
     if !otb.is_file() {
@@ -600,7 +600,7 @@ pub fn beat_driven_world_from_map(data_dir: &Path, map_rel: &str) -> Result<Game
         ));
     }
 
-    let items_db = Arc::new(load_items_db_for_772(data_dir)?);
+    let items_db = Arc::new(load_items_db_for(data_dir)?);
     let map_data = OtbmLoader::load_from_file(&map_path).map_err(|e| e.to_string())?;
     let mut items = SlotMap::default();
     let map = Map::from_map_data(map_data, items_db.as_ref(), &mut items);
@@ -1711,7 +1711,7 @@ pub fn write_fill_walkable_dump_json(
 
 /// Full 772 beat advance including subsystem semantics — use for ProcessSkills/oracle tests.
 pub fn advance_scenario_beat(world: &mut GameWorld, delay_ms: u64) {
-    world.advance_beat_772(delay_ms);
+    world.advance_beat(delay_ms);
 }
 
 /// C++ `MoveCreatures` — `crmain.cc:1106` (harness clock + due todo drain).

@@ -200,7 +200,7 @@ impl GameWorld {
     /// `clear_target` mirrors this distinction. The previous implementation unconditionally
     /// cleared the target, citing the `IdleStimulus` catch (`crnonpl.cc:2890-2898`) — wrong catch
     /// block (audit F3).
-    pub(crate) fn monster_exhausted_wait_772(&mut self, cid: CreatureId, clear_target: bool) {
+    pub(crate) fn monster_exhausted_wait(&mut self, cid: CreatureId, clear_target: bool) {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             if clear_target {
@@ -247,7 +247,7 @@ impl GameWorld {
             // full-blood pool is added afterwards by the death path.
             if stimulus_damage > 0 && damage.primary.0 == CombatType::Physical {
                 if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
-                    self.apply_physical_hit_blood_772(target, pos);
+                    self.apply_physical_hit_blood(target, pos);
                 }
             }
 
@@ -418,7 +418,7 @@ impl GameWorld {
     /// falling back to `Target=Master` when that clears or points at self.
     ///
     /// Returns `true` when the summon was despawned (caller must early-return — the creature is gone).
-    fn monster_idle_summon_lifecycle_772(&mut self, cid: CreatureId) -> bool {
+    fn monster_idle_summon_lifecycle(&mut self, cid: CreatureId) -> bool {
         let (master_id, master_is_player, summon_pos) = match self.creatures.get(cid) {
             Some(k) => match k.base().master {
                 Some(m) => (
@@ -517,19 +517,19 @@ impl GameWorld {
         false
     }
 
-    fn monster_idle_772_lose_existing_target(&mut self, cid: CreatureId) {
+    fn monster_idle_lose_existing_target(&mut self, cid: CreatureId) {
         let target_id = self.creatures.get(cid).and_then(|k| k.base().follow_target);
         let Some(target_id) = target_id else {
             return;
         };
-        if self.monster_idle_772_should_lose_target(cid, target_id) {
+        if self.monster_idle_should_lose_target(cid, target_id) {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().clear_targets();
             }
         }
     }
 
-    fn monster_idle_772_should_lose_target(&self, cid: CreatureId, target_id: CreatureId) -> bool {
+    fn monster_idle_should_lose_target(&self, cid: CreatureId, target_id: CreatureId) -> bool {
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return true;
         };
@@ -580,7 +580,7 @@ impl GameWorld {
     /// C++ `TFindCreatures` + `Strategy[]` target pick — `crnonpl.cc:2420-2516`.
     ///
     /// Returns `true` when idle should stop (monster entered sleep).
-    fn monster_idle_772_acquire_target(&mut self, cid: CreatureId) -> bool {
+    fn monster_idle_acquire_target(&mut self, cid: CreatureId) -> bool {
         let snapshot = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -1119,7 +1119,7 @@ impl GameWorld {
             return;
         }
 
-        let (is_idle, is_summon, has_opponents, follow, fleeing, pos, sleeping_772) = {
+        let (is_idle, is_summon, has_opponents, follow, fleeing, pos, sleeping) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
@@ -1137,11 +1137,11 @@ impl GameWorld {
         // C++ summon despawn / re-bind block — runs at the very top of `IdleStimulus`
         // (`crnonpl.cc:2359–2405`), BEFORE the sleeping/idle checks. A sleeping summon still
         // gets despawned if its master is gone / too far / on a different floor.
-        if is_summon && self.monster_idle_summon_lifecycle_772(cid) {
+        if is_summon && self.monster_idle_summon_lifecycle(cid) {
             return;
         }
 
-        if sleeping_772 {
+        if sleeping {
             if is_idle {
                 return;
             }
@@ -1152,7 +1152,7 @@ impl GameWorld {
         }
 
         // Phase 3: 772 idle path runs unconditionally for both eras.
-        self.monster_idle_772_lose_existing_target(cid);
+        self.monster_idle_lose_existing_target(cid);
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             if !m.is_fleeing() {
                 m.flee_opening_melee_dance_done = false;
@@ -1160,7 +1160,7 @@ impl GameWorld {
         }
         self.monster_idle_reset_combat_state(cid);
         self.monster_idle_try_talk(cid);
-        if self.monster_idle_772_acquire_target(cid) {
+        if self.monster_idle_acquire_target(cid) {
             return;
         }
         if !skip_casting {
@@ -1643,7 +1643,7 @@ impl GameWorld {
     /// `ToDoGo` (via `CanToDoAttack`) throws NOWAY because `TShortway::Calculate` found no path,
     /// C++ clears `Target`, `ToDoClear()`, and — for NOWAY (non-EXHAUSTED) — falls through to the
     /// idle-wandering roam tail (`crnonpl.cc:2900-2939`). EXHAUSTED (kick-kill / player-tile) is
-    /// handled separately by the walk executor (`monster_exhausted_wait_772`).
+    /// handled separately by the walk executor (`monster_exhausted_wait`).
     ///
     /// Used by the attack-tail NOWAY arm ([`Self::monster_idle_maybe_enqueue_attack`]) so an
     /// ATTACKING melee monster with no path to the target clears its target and roams instead of
@@ -1651,7 +1651,7 @@ impl GameWorld {
     /// ([`Self::monster_idle_prepare_and_enqueue_go`]) inlines the same clear+roam via its own
     /// `match outcome` block.
     pub(crate) fn monster_idle_noway_clear_and_roam(&mut self, cid: CreatureId) {
-        self.monster_on_chase_noway_772(cid);
+        self.monster_on_chase_noway(cid);
         let outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
         match outcome {
             MonsterIdleWalkOutcome::QueuedGo { via, wait_after } => {
@@ -2128,7 +2128,7 @@ impl GameWorld {
         let mut outcome = self.monster_idle_execute_walk_branch(cid, branch);
 
         if matches!(outcome, MonsterIdleWalkOutcome::Noway) {
-            self.monster_on_chase_noway_772(cid);
+            self.monster_on_chase_noway(cid);
             outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
         }
 

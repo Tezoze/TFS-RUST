@@ -1,7 +1,7 @@
 # Unified Beat Engine — Phased Implementation Plan
 
 **Date:** 2026-07-02
-**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done, Phase 6 done, Phase 7 done.
+**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done, Phase 6 done, Phase 7 done, Phase 8 done.
 **Strategy / rationale:** `tasks/unified-beat-engine-plan.md` (read first).
 **Engine parity gaps to close first:** `docs/GAME_LOOP_772_AUDIT.md`.
 **Walk sub-effort (subsumed here):** `tasks/walk-engine-unification.md` Phase 2.
@@ -40,7 +40,7 @@ The 772 test suite must stay byte-stable throughout.
 | 5 | Retire 1098 reactive machinery (delete) | med | grep-clean + green |
 | 6 | Collapse `beat_driven_loop` flag ✅ | mechanical | zero prod hits |
 | 7 | Single `run_game_loop` entry ✅ | low | one loop fn |
-| 8 | Naming reconciliation (`_772` → canonical) | mechanical | audit P3 exit |
+| 8 | Naming reconciliation (`_772` → canonical) ✅ | mechanical | audit P3 exit |
 | 9 | **Parity QA gate** (772 stable + live 1098) | — | sign-off |
 
 Do not start a phase until the prior one is green. Phase 9's 1098 sign-off blocks Phase 5's
@@ -347,14 +347,21 @@ Walk the Phase 1 inventory:
 
 ---
 
-## Phase 8 — Naming reconciliation (REFACTOR_AUDIT Phase 3)
+## Phase 8 — Naming reconciliation (REFACTOR_AUDIT Phase 3) ✅ DONE
 
 Under unification these are the *canonical* functions, not a "772 variant."
 
-- [ ] `advance_beat_772` → `advance`, `process_creatures_772` → `process_creatures`,
+- [x] `advance_beat_772` → `advance_beat`, `process_creatures_772` → `process_creatures`,
       `process_connections_772` → `process_connections`, `tick_ambiente_light_772` →
       `tick_ambient_light`, `subsystem_counters_772` → `subsystem_counters`, etc.
-- [ ] Recommended sequence: **unification (Phases 0–7) first, then this rename**, so names reflect
+- [x] Module files renamed: `connections_772.rs` → `connections.rs`,
+      `subsystem_counters_772.rs` → `subsystem_counters.rs`.
+- [x] Struct/field/const renames: `SubsystemCounters772` → `SubsystemCounters`,
+      `round_nr_772` → `round_nr`, `lag_772` → `lag`, `pending_idle_kick_772` →
+      `pending_idle_kick`, `KICK_DIRS_772` → `KICK_DIRS`, `sleeping_772` → `sleeping`.
+- [x] `enqueue_initial_login_packets_772` → `enqueue_initial_login_packets_classic` (dispatcher
+      `enqueue_initial_login_packets` already owned the canonical name).
+- [x] Recommended sequence: **unification (Phases 0–7) first, then this rename**, so names reflect
       the final single-engine reality. If REFACTOR_AUDIT Phase 3 already ran with `*_beat`
       suffixes, re-simplify here.
 

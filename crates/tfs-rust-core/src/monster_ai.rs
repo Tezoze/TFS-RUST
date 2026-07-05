@@ -825,7 +825,7 @@ impl GameWorld {
     }
 
     /// 772 NOWAY handler — clear chase target and fall through to roam (`crnonpl.cc:2813`).
-    pub(crate) fn monster_on_chase_noway_772(&mut self, cid: CreatureId) {
+    pub(crate) fn monster_on_chase_noway(&mut self, cid: CreatureId) {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.clear_targets();
@@ -2021,7 +2021,7 @@ impl GameWorld {
     /// It does **not** include the `TShortway::FillMap` terrain checks (`BANK`, waypoint chain) —
     /// those are [`Self::monster_tshortway_fill_walkable`]'s responsibility. Used by
     /// [`Self::monster_can_occupy_chase_tile`] for single-step gates (dance/roam/flee/chase).
-    pub(crate) fn monster_move_possible_planning_772(&self, cid: CreatureId, pos: Position) -> bool {
+    pub(crate) fn monster_move_possible_planning(&self, cid: CreatureId, pos: Position) -> bool {
         let (
             spawn,
             cfg,
@@ -2181,7 +2181,7 @@ impl GameWorld {
     /// 772 `TShortway::FillMap` walkable gate — `cract.cc` `FillMap` + `MovePossible(Execute=false)`.
     ///
     /// Adds the TShortway-specific terrain checks (`BANK` ground, waypoint chain) on top of
-    /// [`Self::monster_move_possible_planning_772`]. Used by the A*/TShortway pathfinder only.
+    /// [`Self::monster_move_possible_planning`]. Used by the A*/TShortway pathfinder only.
     pub(crate) fn monster_tshortway_fill_walkable(
         &self,
         cid: CreatureId,
@@ -2189,7 +2189,7 @@ impl GameWorld {
         _target: Position,
     ) -> bool {
         // `MovePossible` creature/item gate (PZ, house, leash, creatures, items).
-        if !self.monster_move_possible_planning_772(cid, pos) {
+        if !self.monster_move_possible_planning(cid, pos) {
             return false;
         }
         // TShortway `FillMap` terrain gate — `BANK` ground required for waypoint overlay.
@@ -2214,8 +2214,8 @@ impl GameWorld {
     /// invisibility, house, and player-plannable-through semantics.
     fn monster_can_occupy_chase_tile(&self, cid: CreatureId, pos: Position) -> bool {
         // P1-A3: route single-step gates (dance/roam/flee/chase) through the 772 `MovePossible`
-        // planning model. Uses `monster_move_possible_planning_772` (no TShortway terrain checks).
-        self.monster_move_possible_planning_772(cid, pos)
+        // planning model. Uses `monster_move_possible_planning` (no TShortway terrain checks).
+        self.monster_move_possible_planning(cid, pos)
     }
 
     /// Effective per-home roam leash radius (axis-box, non-attacking). Uses the monster's

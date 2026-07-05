@@ -89,7 +89,7 @@ impl GameWorld {
 
             match self.creatures.get(cid) {
                 // Phase 3: monsters now run on the 772 ToDo/IdleStimulus engine (drained in
-                // `on_tick` / `advance_beat_772`). Skip the 1098 `monster_on_think` +
+                // `on_tick` / `advance_beat`). Skip the 1098 `monster_on_think` +
                 // `creature_on_attacking` bucket-think path — NPC bucket think still runs.
                 Some(CreatureKind::Monster(_)) => continue,
                 Some(CreatureKind::Npc(_)) => self.npc_on_think(cid, interval_ms),
@@ -111,13 +111,13 @@ impl GameWorld {
     /// `DamageStimulus`. Calling `monster_on_think` here caused premature target loss and sleep
     /// transitions (audit RC1 — `docs/TFS-RUST_772_Monster_AI_Transition_Audit.md`).
     ///
-    /// Vocation regen (HP/mana from `TSkillFed::Event`) is handled by `process_skills_772` →
-    /// `process_player_fed_regen_772` (`process_skills.rs:29`). Logout is handled by
-    /// `process_connections_772` / `pending_idle_kick_772`.
-    pub fn process_creatures_772(&mut self) {
+    /// Vocation regen (HP/mana from `TSkillFed::Event`) is handled by `process_skills` →
+    /// `process_player_fed_regen` (`process_skills.rs:29`). Logout is handled by
+    /// `process_connections` / `pending_idle_kick`.
+    pub fn process_creatures(&mut self) {
         // C++ iterates all creatures (`FirstFreeCreature`), not just think-bucketed ones.
         let ids: Vec<CreatureId> = self.creatures.iter().map(|(id, _)| id).collect();
-        let round_nr = self.round_nr_772;
+        let round_nr = self.round_nr;
 
         // Collect players that need a stats packet after regen (deferred to avoid
         // borrowing `self` during iteration).

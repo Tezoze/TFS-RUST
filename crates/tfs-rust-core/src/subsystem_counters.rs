@@ -13,7 +13,7 @@ pub struct Subsystem772Fired {
 
 /// Independent ~1000 ms counters with staggered first-fire thresholds.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SubsystemCounters772 {
+pub struct SubsystemCounters {
     creature_time: u64,
     cron_time: u64,
     skill_time: u64,
@@ -31,7 +31,7 @@ const OTHER_THRESHOLD: u64 = 1000;
 /// All counters subtract this on fire (CipSoft ~1000 ms period).
 const RESET_MS: u64 = 1000;
 
-impl SubsystemCounters772 {
+impl SubsystemCounters {
     /// Accumulate `delay_ms` and return which subsystems should run this beat.
     pub fn accumulate(&mut self, delay_ms: u64) -> Subsystem772Fired {
         self.creature_time = self.creature_time.saturating_add(delay_ms);
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn counters_fire_at_beat_driven_thresholds() {
-        let mut counters = SubsystemCounters772::default();
+        let mut counters = SubsystemCounters::default();
 
         // 1000 ms — only `other` (threshold 1000).
         let f = counters.accumulate(1000);
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn counters_can_fire_multiple_subsystems_one_beat() {
-        let mut counters = SubsystemCounters772::default();
+        let mut counters = SubsystemCounters::default();
         // Large lag step — all thresholds crossed in one AdvanceGame call.
         let f = counters.accumulate(2000);
         assert!(f.creatures);

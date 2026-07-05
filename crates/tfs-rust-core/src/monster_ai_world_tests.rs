@@ -84,7 +84,7 @@
         );
 
         // Advance one beat to fire the queued Go — monster steps toward player.
-        world.advance_beat_772(200);
+        world.advance_beat(200);
 
         let new_pos = world.creatures.get(monster).unwrap().position();
         assert!(
@@ -217,7 +217,7 @@
         // 772: target acquisition is deferred to the idle drain — `CreatureMoveStimulus`
         // calls `request_idle_stimulus`, not synchronous `searchTarget`. Drain the todo
         // queue to let the idle stimulus pick the target via `Strategy[]`.
-        world.advance_beat_772(200);
+        world.advance_beat(200);
         assert!(
             world.creatures.get(monster).unwrap().base().follow_target == Some(player),
             "monster should target player as soon as they enter viewport"
@@ -253,7 +253,7 @@
         // 772: flee is classified and enqueued by the idle drain.
         world.monster_idle_stimulus(monster);
         // Advance one beat to fire the queued Go — monster steps away from player.
-        world.advance_beat_772(200);
+        world.advance_beat(200);
 
         let new_pos = world.creatures.get(monster).unwrap().position();
         assert!(
@@ -491,7 +491,7 @@
         }
 
         // Advance one beat to fire the queued Go.
-        world.advance_beat_772(200);
+        world.advance_beat(200);
 
         let final_pos = world.creatures.get(monster).unwrap().position();
         assert!(

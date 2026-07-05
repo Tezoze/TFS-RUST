@@ -416,7 +416,7 @@ pub fn enqueue_initial_login_packets(
 ) {
     match world.codec {
         tfs_rust_net::Codec::V772(_) => {
-            enqueue_initial_login_packets_772(world, conn_id, creature_id)
+            enqueue_initial_login_packets_classic(world, conn_id, creature_id)
         }
         tfs_rust_net::Codec::V1098(_) => {
             enqueue_initial_login_packets_1098(world, conn_id, creature_id)
@@ -430,7 +430,7 @@ pub fn enqueue_initial_login_packets(
 /// → `0xA0` stats → `0xA1` skills → `0x82` world light → `0x8D` creature light → VIP → `0xA2` icons.
 /// No `0x17`/`0x43`/`0x0F`/pending-state/enter-world/magic-teleport/unjustified/basic-data/fight-modes
 /// (all 10.98-only).
-fn enqueue_initial_login_packets_772(
+fn enqueue_initial_login_packets_classic(
     world: &mut GameWorld,
     conn_id: ConnId,
     creature_id: CreatureId,
