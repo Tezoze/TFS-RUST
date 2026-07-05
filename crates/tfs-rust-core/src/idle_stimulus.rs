@@ -365,7 +365,6 @@ impl GameWorld {
                 m.state = MonsterState::Idle;
                 m.is_idle = false;
             }
-            self.add_creature_think_check(monster_id);
             self.creature_todo_yield(monster_id);
             return;
         }
@@ -388,7 +387,6 @@ impl GameWorld {
             m.state = MonsterState::Idle;
             m.is_idle = false;
         }
-        self.add_creature_think_check(monster_id);
         self.creature_todo_yield(monster_id);
     }
 
@@ -699,7 +697,6 @@ impl GameWorld {
                 m.is_idle = true;
                 m.base.clear_targets();
             }
-            self.remove_creature_think_check(cid);
             return true;
         }
 

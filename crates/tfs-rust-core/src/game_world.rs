@@ -115,8 +115,6 @@ pub struct GameWorld {
     pub(crate) items_pending_release: Vec<ItemId>,
     /// Open bags / loaded `player_items` containers — `container.h` / `player.cpp`.
     pub container_registry: ContainerRegistry,
-    /// Next bucket index for TFS staggered `Game::checkCreatures` (`game.cpp` ~3819).
-    pub(crate) check_creature_bucket_index: u32,
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
     /// 772 `AdvanceGame` staggered ~1000 ms subsystem counters (772 loop only).
@@ -295,7 +293,6 @@ impl GameWorld {
             creatures_pending_release: Vec::new(),
             items_pending_release: Vec::new(),
             container_registry: ContainerRegistry::new(),
-            check_creature_bucket_index: 0,
             spawn_slot_by_creature: HashMap::new(),
             subsystem_counters: crate::subsystem_counters::SubsystemCounters::default(),
             monster_world_config,

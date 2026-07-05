@@ -583,7 +583,7 @@ Incremental strategy (each sub-step is its own PR):
    | `players`  | `player_by_name`, `player_by_guid`, `conn_to_creature` |
    | `net_state`| `pending_outgoing`, `known_creatures_by_conn`, `creature_fully_sent_by_conn`, `deferred_turn_broadcast`, `codec`, `protocol_hooks`, `next_statement_id`, `pending_idle_kick_772` |
    | `social`   | `guilds`, `parties`, `party_invites`, `next_party_id` |
-   | `world_sys`| `decay`, `spawns`, `houses`, `wildcards`, `stability`, `spawn_slot_by_creature`, `check_creature_bucket_index`, `last_creature_bucket_tick`, `creatures_pending_release`, `items_pending_release` |
+   | `world_sys`| `decay`, `spawns`, `houses`, `wildcards`, `stability`, `spawn_slot_by_creature`, `last_creature_bucket_tick`, `creatures_pending_release`, `items_pending_release` |
    | `static_db`| `items_db`, `monsters_db`, `groups`, `vocations`, `mechanics`, `config`, `db`, `monster_world_config`, `connection_config` |
    | `beat_loop`| `tick_counter`, `server_ms`, `beat_driven_loop`, `todo_queue`, `walk_wake_tx`, `subsystem_counters_772`, `round_nr_772`, `last_ambiente_brightness`, `lag_772`, `monster_viewport_notify_depth` |
    | `rng`      | `ai_rng`, `parity_rng` |

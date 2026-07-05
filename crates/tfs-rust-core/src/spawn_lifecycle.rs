@@ -291,7 +291,6 @@ impl GameWorld {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
-            think_check_bucket: None,
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
@@ -414,7 +413,6 @@ impl GameWorld {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
-            think_check_bucket: None,
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
@@ -450,7 +448,6 @@ impl GameWorld {
 
         self.spawns.on_creature_spawned(slot_index, cid);
         self.spawn_slot_by_creature.insert(cid, slot_index);
-        self.add_creature_think_check(cid);
 
         if !startup {
             let pos = self

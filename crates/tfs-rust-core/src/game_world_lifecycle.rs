@@ -84,7 +84,6 @@ impl GameWorld {
 
         self.deferred_turn_broadcast.remove(&id);
         self.stop_event_walk(id);
-        self.remove_creature_think_check(id);
         self.creatures.remove(id);
     }
 

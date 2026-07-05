@@ -216,19 +216,10 @@ impl GameWorld {
         if !should {
             return;
         }
-        if self.monster_viewport_notify_depth > 0 {
-            let bucket = self.check_creature_bucket_index as u8;
-            if self
-                .creatures
-                .get(monster_id)
-                .is_some_and(|k| k.base().think_check_bucket.is_none())
-            {
-                self.add_creature_think_check(monster_id);
-            }
-            if let Some(k) = self.creatures.get_mut(monster_id) {
-                k.base_mut().think_check_bucket = Some(bucket);
-            }
-        } else {
+        // Suppress synchronous chase acquire during login fan-out: running A* for every
+        // viewport monster took ~4s on Forgotten. The monster will be woken by a later
+        // `IdleStimulus` once the fan-out completes (`monster_viewport_notify_depth == 0`).
+        if self.monster_viewport_notify_depth == 0 {
             self.request_idle_stimulus(monster_id);
         }
     }
@@ -357,10 +348,7 @@ impl GameWorld {
             }
             idle
         };
-        if became_idle {
-            self.remove_creature_think_check(cid);
-        } else {
-            self.add_creature_think_check(cid);
+        if !became_idle {
             self.request_idle_stimulus(cid);
         }
     }

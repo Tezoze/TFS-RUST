@@ -118,8 +118,6 @@ pub struct CreatureBase {
     pub attack_target: Option<CreatureId>,
     pub master: Option<CreatureId>,
     pub damage_map: DamageMap,
-    /// C++ `inCheckCreaturesVector` bucket (`game.cpp` `addCreatureCheck`); `None` = not scheduled.
-    pub think_check_bucket: Option<u8>,
     /// C++ `TCombat::EarliestAttackTime` — `crcombat.cc:523` `DelayAttack`.
     pub earliest_attack_ms: u64,
     /// C++ `TCombat::EarliestDefendTime` — `crcombat.cc:236` `GetDefendDamage` gate.

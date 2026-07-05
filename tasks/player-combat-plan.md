@@ -295,6 +295,43 @@ polynomial** — consolidate onto one). Vitals per level from `data/vocations.lu
 
 ## 3. Work breakdown
 
+### Phase PM — Player module consolidation (pure moves, very low risk — do first)
+**Goal:** stand up the `player/` directory (§4.0) so the combat phases add files into a real module
+instead of scattering more `player_*.rs` at the crate root. This is the same behavior-preserving,
+cut/paste move as `REFACTOR_AUDIT.md` Phase 4 (`monster_ai.rs` → `monster_ai/`) and discharges the
+audit's §6 `player/inventory/` recommendation.
+
+**Files moved (no logic edits):**
+- `player_inventory_query_add.rs` → `player/inventory/query_add.rs`
+- `player_inventory_load.rs` → `player/inventory/load.rs`
+- `player_inventory_notifications.rs` → `player/inventory/notifications.rs`
+- `player_inventory_util.rs` → `player/inventory/util.rs`
+- `game_world_player.rs` → `player/stats.rs`
+- `player_flags.rs` → `player/flags.rs`
+- `player_depot.rs` → `player/depot.rs`
+- `player_ping.rs` → `player/ping.rs`
+- `player_combat.rs` → `player/combat/mod.rs` (may defer to PC-2 step 0 if PC-2 lands first)
+
+**Process (one file per commit, compile between each):**
+1. Create `player/mod.rs` with `pub mod` declarations for each sub-item + `inventory/mod.rs` and
+   `combat/mod.rs` surfaces. Replace the flat `mod player_*;` / `mod game_world_player;` lines in
+   `lib.rs` with a single `mod player;`.
+2. Move one file at a time; keep visibility unchanged. Add `pub use` compatibility re-exports in
+   `player/mod.rs` (e.g. `pub use flags::*;`) so existing `crate::player_flags::…`,
+   `crate::player_inventory_util::…`, `crate::game_world_player::…` call sites resolve unchanged —
+   repoint them to `crate::player::…` opportunistically, not in this phase.
+3. Preserve each file's `//!` C++ reference header verbatim.
+4. Do **not** split `player_inventory_query_add.rs` (1184 LOC) here — that decomposition is Phase 5
+   / audit §5 work; PM only relocates it into `player/inventory/`.
+
+**Leave in place** (audited — see §4.0 table): `player_lua_context.rs`,
+`game_world_player_rotate.rs`, `game_world_player_throw.rs`, `walk_action.rs`, `floor_change_use.rs`,
+`creature/player.rs`, `creature/vocation.rs`, `login*.rs`, `process_skills.rs`.
+
+**Exit criteria:** `crate::player::…` paths compile; `lib.rs` has one `mod player;` for the moved
+set; `rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test` — identical test count
+and no new clippy warning vs. the pre-PM baseline (pure move, per `REFACTOR_AUDIT.md` verify gate).
+
 ### Phase PC-0 — Vocation combat data (Lua-as-data, per `DATA_FORMAT_MIGRATION.md` Phase 0 + Phase 1)
 **Files:** `tfs-rust-content/src/vocations.rs` (rewritten, not extended), new
 `data/vocations.lua` (replaces `data/XML/vocations.xml` as the source of truth),
@@ -361,9 +398,10 @@ body extracted into `player/combat/strike.rs` per §4.0), reuse
 `combat::math::{weapon_damage, defense_value, armor_reduction}` +
 `combat_execute_with_stimulus`.
 
-**Step 0 (pre-req):** perform the `player_combat.rs → player/combat/mod.rs` file move from §4.0 first
-(pure move + `player/mod.rs` re-exports + `lib.rs` `mod player;`), verify green, then land the strike
-logic. Keeps the behavior-preserving move isolated from the logic change.
+**Step 0 (pre-req):** ensure the `player_combat.rs → player/combat/mod.rs` move (Phase PM / §4.0) has
+landed and is green. If PC-2 runs before Phase PM completes, do just that one file move here as an
+isolated pure-move commit first, then land the strike logic — keep the move separate from the logic
+change.
 
 1. On `PlayerChaseOutcome::Adjacent` with melee range (`GetDistance()==1`):
    - `attack = weapon_damage(profile, hooks, rng, skill, atk_value, mode, level)` × vocation
@@ -576,33 +614,56 @@ This plan lands its new/rewritten combat code inside a **`player/` module direct
 Phase 4 move that carves `idle_stimulus.rs` → `monster_idle/` and `monster_ai.rs` → `monster_ai/`
 (`REFACTOR_AUDIT.md` §1/§4). It also seeds the §6 "module fragmentation" recommendation, which names
 `player/inventory/` as the target for the flat `player_inventory_*` / `player_*` cluster. Rather than
-adding two more crate-root `player_*.rs` files, the combat work introduces the directory:
+adding two more crate-root `player_*.rs` files, this plan owns the full consolidation (the §6
+"module fragmentation" recommendation), pulling the whole player subsystem into one directory:
 
 ```
 crates/tfs-rust-core/src/player/
-  mod.rs                # module surface doc + re-exports (keeps `crate::player::…` paths stable)
+  mod.rs                # module surface doc + re-exports (keeps call-site paths stable)
   combat/
     mod.rs              # player_execute_attack strike dispatch (was crate-root player_combat.rs)
     values.rs           # player_get_attack_value / _defend_value / _armor_strength (PC-1)
     strike.rs           # CloseAttack melee strike body (PC-2) — extracted so mod.rs stays a dispatch surface
     ranged.rs           # DistanceAttack + WandAttack (PC-3)
     fight_mode.rs       # attack/chase/secure-mode setters + PVP gating (PC-4)
+  inventory/
+    mod.rs              # inventory surface (§6 explicitly names `player/inventory/`)
+    query_add.rs        # was player_inventory_query_add.rs (1184 LOC — audit §1 second-tier)
+    load.rs             # was player_inventory_load.rs
+    notifications.rs    # was player_inventory_notifications.rs
+    util.rs             # was player_inventory_util.rs  (player_get_weapon* — reused by PC-1, §0.9)
+  stats.rs              # was game_world_player.rs (sendStats / capacity / group-flag helpers)
+  flags.rs              # was player_flags.rs (PlayerFlag bits)
+  depot.rs              # was player_depot.rs (depot chest / inbox / locker)
+  ping.rs               # was player_ping.rs (keepalive)
 ```
 
-Rules for the move (behavior-preserving, same as Phase 4's split process):
-- **`player_combat.rs` → `player/combat/mod.rs`** is a pure file move done as the first step of PC-2
-  (or a standalone pre-step). Keep every item's visibility (`pub(crate)`) unchanged and add
-  `pub use` re-exports in `player/mod.rs` so existing `crate::player_combat::…` call sites resolve
-  via a compatibility re-export until they're repointed to `crate::player::combat::…`. Convert
-  `mod player_combat;` in `lib.rs` to `mod player;`.
+Rules for the moves (behavior-preserving, same as Phase 4's split process):
+- Each move is a **pure file relocation** — no logic edits. Keep every item's visibility
+  (`pub(crate)`) unchanged. Convert the flat `mod player_*;` lines in `lib.rs` to a single
+  `mod player;`, and have `player/mod.rs` `pub use` the sub-items so existing
+  `crate::player_flags::…` / `crate::player_inventory_util::…` call sites keep resolving via a
+  compatibility re-export until they're repointed to `crate::player::…`. (`send_player_stats` and
+  friends already cross-reference `crate::player_flags::` — moving both keeps them together.)
 - **New PC-1/PC-3/PC-4 code goes straight into `player/combat/`** — do **not** create crate-root
   `player_combat_values.rs`; it becomes `player/combat/values.rs`.
-- Existing flat `player_*.rs` files (`player_inventory_*`, `player_depot`, `player_ping`, …) are
-  **not** moved by this plan — that wholesale migration into `player/` (incl. `player/inventory/`)
-  stays §6/Phase 4 backlog in `REFACTOR_AUDIT.md`. This plan only establishes the directory and puts
-  the new combat subsystem in it, so the two efforts converge instead of adding more root files.
+- Do the consolidation as **Phase PM** (§3, before the combat phases add `player/combat/`) so the
+  directory exists first; PC-2 step 0 then only moves `player_combat.rs` into it.
 - Each new file carries its own C++ reference header (`crcombat.cc`/`crskill.cc` + TFS structure
   cite) per `TFS-cpp-references`.
+
+**Audited — files that look player-ish but stay put (with rationale):**
+
+| File | Verdict | Why |
+|------|---------|-----|
+| `player_lua_context.rs` | **Leave** (misnamed) | Generic Lua/item/container **read** helpers (`script_item_parent`, `script_container_*`, `resolve_item_u64`) — not player state. Belongs with script-context infra, not `player/`. Rename/rehome is a separate `script/` task. |
+| `game_world_player_rotate.rs` | **Leave** | Despite the name it's the `TDTurn` executor that rotates an **item** (`cract.cc TCreature::Turn(Object)`), an action executor — not player state. |
+| `game_world_player_throw.rs` | **Leave** | `playerMoveThing`/`playerMoveItem` item-move path — belongs with `game_world_item_move.rs`, not the player module. |
+| `walk_action.rs` | **Leave** | Deferred walk-action pairs with the `walk/` subsystem (`Player::walkTask` + `on_walk`); moving it would split the walk state machine. Optional future `walk/` merge, not here. |
+| `floor_change_use.rs` | **Leave** | Item-use action executor (up/down-floor teleport items), not player state. |
+| `creature/player.rs`, `creature/vocation.rs` | **Leave** | Entity **data model** — the entity-storage rule keeps creature types in `creature/`. This plan edits their contents (PC-0/PC-2/PC-5 fields) but not their location. |
+| `login.rs`, `login_out.rs` | **Leave** | Distinct login/logout subsystem (812 LOC in `login_out`); its own `login/` dir is separate backlog. |
+| `process_skills.rs` | **Leave** | Timer-skill tick for **all** creatures (`ProcessSkills`); PC-5 edits its contents, not its home. |
 
 - **Formulas & flow** live in `tfs-rust-core` combat modules; **no** `NetworkMessage`/opcode bytes
   in core (`0xA0` parse stays in `tfs-rust-net`). (`tfs-packets.md`, `tfs-wire-codec.md`.)

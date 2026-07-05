@@ -47,7 +47,6 @@
             m.opponent_ids.push(player);
             m.base.attack_target = Some(player);
         }
-        world.add_creature_think_check(monster);
         assert!(
             world.monster_set_follow_creature(monster, Some(player)),
             "set_follow must succeed in view"
@@ -281,7 +280,6 @@
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
         }
-        world.add_creature_think_check(monster);
 
         world.schedule_creature_wakeup(monster, 0);
         world.process_creature_todo(monster);
@@ -1646,7 +1644,6 @@
             "idle drain must not advance change-target ticks on 772"
         );
 
-        world.add_creature_think_check(monster);
         world.process_creatures();
         let ticks_after_think = match world.creatures.get(monster) {
             Some(CreatureKind::Monster(m)) => m.target_change_ticks,
@@ -1729,7 +1726,6 @@
             m.base.attack_target = Some(player);
             m.base.follow_target = Some(player);
         }
-        world.add_creature_think_check(monster);
 
         world.process_creatures();
 
@@ -3434,7 +3430,6 @@
 
         // 772 rescue now flows through `process_creatures` (death safety only) + the
         // IdleStimulus ToDo drain — no per-creature `monster_on_think` sweep.
-        world.add_creature_think_check(monster);
         world.process_creatures();
         world.request_idle_stimulus(monster);
 

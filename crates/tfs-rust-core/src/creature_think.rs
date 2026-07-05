@@ -6,9 +6,10 @@
 //!
 //! The TFS 1098 `checkCreatures` bucket sweep, `Creature::onThink`, `Creature::onAttacking`,
 //! `Monster::onThink`, and `Npc::onThink` were deleted in Phase 3–5 of the unified beat
-//! engine effort. Both eras now run on the 772 ToDo engine.
-
-use rand::Rng;
+//! engine effort. Both eras now run on the 772 ToDo engine. The accompanying
+//! `addCreatureCheck` / `removeCreatureCheck` bucket accounting (`game.cpp` ~3798–3828)
+//! was removed alongside — the bucket index was never incremented after the sweep
+//! deletion, so the per-creature `think_check_bucket` field and helpers were dead.
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
@@ -17,29 +18,7 @@ use crate::ids::CreatureId;
 /// TFS `creature.h` `EVENT_CREATURE_THINK_INTERVAL` — used by the ToDo attack cadence.
 pub const EVENT_CREATURE_THINK_INTERVAL_MS: u32 = 1000;
 
-/// TFS `creature.h` `EVENT_CREATURECOUNT` — bucket count for staggered checks.
-pub const EVENT_CREATURECOUNT: u32 = 10;
-
 impl GameWorld {
-    /// TFS `Game::addCreatureCheck` — random bucket assignment (`game.cpp` ~3798).
-    pub(crate) fn add_creature_think_check(&mut self, cid: CreatureId) {
-        let Some(k) = self.creatures.get_mut(cid) else {
-            return;
-        };
-        if k.base().health <= 0 {
-            return;
-        }
-        let bucket = rand::thread_rng().gen_range(0..EVENT_CREATURECOUNT) as u8;
-        k.base_mut().think_check_bucket = Some(bucket);
-    }
-
-    /// TFS `Game::removeCreatureCheck` — idle / removed creatures skip think sweeps.
-    pub(crate) fn remove_creature_think_check(&mut self, cid: CreatureId) {
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().think_check_bucket = None;
-        }
-    }
-
     /// 772 `ProcessCreatures` — item regen + PK-mark clearing + death safety (`crmain.cc:1075–1138`).
     ///
     /// **Not** an AI think sweep. C++ `ProcessCreatures` does:

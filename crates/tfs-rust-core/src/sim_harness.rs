@@ -143,7 +143,6 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
-            think_check_bucket: None,
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
@@ -905,7 +904,6 @@ pub fn insert_monster_with_config(
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-        think_check_bucket: None,
         earliest_attack_ms: 0,
         earliest_defend_ms: 0,
         last_defend_ms: 0,
@@ -967,7 +965,6 @@ pub fn insert_monster_from_type(
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-        think_check_bucket: None,
         earliest_attack_ms: 0,
         earliest_defend_ms: 0,
         last_defend_ms: 0,
@@ -1059,7 +1056,6 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-        think_check_bucket: None,
         earliest_attack_ms: 0,
         earliest_defend_ms: 0,
         last_defend_ms: 0,
@@ -1073,7 +1069,6 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
     }));
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
-    world.add_creature_think_check(cid);
     cid
 }
 
@@ -1292,7 +1287,6 @@ pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[Creature
     world.resync_sim_glibc_rng();
     for &monster_id in monster_ids {
         appear_monster_without_idle(world, monster_id);
-        world.add_creature_think_check(monster_id);
     }
     for &monster_id in monster_ids {
         world.creature_todo_yield(monster_id);
@@ -1307,7 +1301,6 @@ pub fn kite_monster_appear(world: &mut GameWorld, monster_id: CreatureId) {
         }
     }
     world.monster_on_creature_appear_self(monster_id);
-    world.add_creature_think_check(monster_id);
 }
 
 /// Truncate chase JSONL at scenario start — C++ `ChasePathResetLog`.

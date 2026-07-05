@@ -30,7 +30,6 @@
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
         let npc = crate::test_world::support::insert_npc(&mut world, "Tom", pos, 100);
-        world.add_creature_think_check(npc);
 
         const BEAT_MS: u64 = 200;
         // 9 beats = 1800 ms → creature counter fires once at 1750 ms threshold.
@@ -103,7 +102,6 @@
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
         }
-        world.add_creature_think_check(monster);
 
         world.process_creatures();
 
