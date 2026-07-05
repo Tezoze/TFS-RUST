@@ -203,7 +203,7 @@ impl GameWorld {
         let decay_now = self.now_ms();
         // K2: corpse decay offset from profile (772 30 000 ms, 1098 600 ms).
         // `schedule_generic_corpse` is always true — the 1098 no-corpse arm was deleted in Phase 5.
-        crate::death::handle_creature_death(
+        let leveled = crate::death::handle_creature_death(
             &mut self.creatures,
             &mut self.items,
             &mut self.decay,
@@ -216,6 +216,11 @@ impl GameWorld {
             true,
             self.mechanics.profile.corpse_decay_offset_ms,
         );
+        // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
+        // for any killer (or victim) whose level changed via experience gain/loss.
+        for cid in leveled {
+            self.announce_creature_speed(cid);
+        }
         self.remove_creature(victim);
     }
 }

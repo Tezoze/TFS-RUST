@@ -264,6 +264,19 @@ pub async fn login_player(
     let mut player = player_from_loaded(loaded, world.mechanics.profile.step_speed, &world.vocations);
     player.operating_system = operating_system;
     player.otclient_v8 = otclient_v8;
+    // Debug aid: confirm vocation/level/speed wiring (PC-0 base_speed + level scaling).
+    // 772: base_speed/speed store GoStrength `Act` (decompile `crskill.cc:19` `Get()`);
+    //      effective_speed = 2*Act + 80 (`crmain.cc:484` `GetSpeed()`), computed on demand.
+    tracing::info!(
+        vocation_id = player.vocation_id,
+        vocation_base_speed = player.vocation_profile.base_speed,
+        level = player.level,
+        base_speed = player.base.base_speed,
+        speed = player.base.speed,
+        effective_speed = crate::formulas::linear_go_effective_speed(player.base.speed),
+        step_speed_model = ?world.mechanics.profile.step_speed,
+        "player login speed snapshot"
+    );
     let cid = world.creatures.insert(CreatureKind::Player(player));
 
     world.hydrate_player_inventory_from_db(

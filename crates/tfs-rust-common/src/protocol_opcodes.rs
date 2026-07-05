@@ -272,6 +272,10 @@ pub mod server {
     /// repo-root `src/protocolgame.cpp` ~2544 (shared opcode + layout).
     pub const DISTANCE_SHOOT: u8 = 0x85;
     pub const CREATURE_HEALTH: u8 = 0x8C;
+    /// `SV_CMD_CREATURE_SPEED` — `sending.cc:1039` `SendCreatureSpeed` (772) /
+    /// `src/protocolgame.cpp` `sendChangeSpeed` (1098). 772 sends one `u16` (`GetSpeed()`),
+    /// 1098 sends two halved `u16`s (`baseSpeed/2`, `speed/2`).
+    pub const CREATURE_SPEED: u8 = 0x8F;
     pub const SEND_PING: u8 = 0x1D;
     pub const SEND_PING_BACK: u8 = 0x1E;
     pub const TEXT_MESSAGE: u8 = 0xB4;

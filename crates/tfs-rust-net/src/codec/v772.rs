@@ -20,8 +20,8 @@ use crate::creature_encode::{AddCreatureWire, OutfitWire};
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, DistanceShootWire,
-    ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
+    DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
 /// Zero-sized 7.72 codec (stateless; caps from `ProtocolVersion::V772`).
@@ -435,6 +435,16 @@ impl Codec772 {
         m.write_u8(server::CREATURE_HEALTH);
         m.write_u32(w.creature_id);
         m.write_u8(w.health_percent);
+        m
+    }
+
+    /// 7.72 `SendCreatureSpeed` — `sending.cc:1028-1043`. Single `u16` `GetSpeed()` value.
+    /// C++ reference: `sending.cc:1039-1041` `SendByte(SV_CMD_CREATURE_SPEED) + SendQuad(id) + SendWord(GetSpeed())`.
+    pub fn encode_creature_speed(&self, w: &CreatureSpeedWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATURE_SPEED);
+        m.write_u32(w.creature_id);
+        m.write_u16(w.speed);
         m
     }
 

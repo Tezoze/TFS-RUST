@@ -150,6 +150,11 @@ impl GameWorld {
                 Self::recompute_speed_from_conditions(base);
             }
         }
+        // C++ `crskill.cc:366,741,761` `CREATURE_SPEED_CHANGED` — announce when a speed
+        // condition expires and `base.speed` is recomputed.
+        if speed_expired {
+            self.announce_creature_speed(cid);
+        }
     }
 
     fn recompute_speed_from_conditions(base: &mut crate::creature::CreatureBase) {

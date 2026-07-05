@@ -108,6 +108,19 @@ pub struct CreatureHealthWire {
     pub health_percent: u8,
 }
 
+/// `SendCreatureSpeed` (772 `sending.cc:1028`) / `sendChangeSpeed` (1098 `src/protocolgame.cpp`).
+///
+/// - **772**: `0x8F + u32 creature_id + u16 speed` (single full `GetSpeed()`).
+/// - **1098**: `0x8F + u32 creature_id + u16 base_speed/2 + u16 speed/2` (two halved values).
+#[derive(Debug, Clone, Copy)]
+pub struct CreatureSpeedWire {
+    pub creature_id: u32,
+    /// Full `GetSpeed()` value (`2*go+80` for 772). 1098 halves on the wire.
+    pub speed: u16,
+    /// 1098-only second field (`baseSpeed/2`); ignored by 772 encoder.
+    pub base_speed: u16,
+}
+
 /// `Game::combatChangeHealth` player damage caption — layout differs by era.
 /// 772: simple `sendTextMessage` (`gameserver/src/game.cpp` ~3918).
 /// 1098: damage branch with position + color block (`src/game.cpp` ~4340).

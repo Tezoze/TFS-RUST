@@ -55,8 +55,10 @@ formulas = {
 --
 -- Controls how walk speed scales with level. Set formulas.playerSpeed to one of:
 --
---   "772"      classic 772 linear formula (base = 220 + level, eff = 2*base + 80).
---              Gets very fast at high levels — breakpoints: 250ms@39, 200ms@114, 150ms@237.
+--   "772"      classic 772 linear formula (base = vocation_base + (level-1),
+--              eff = 2*base + 80). vocation_base=70 from `human.mon` GoStrength
+--              (decompile `crskill.cc:667` `TSkillAdd::Advance`, AddLevel=1).
+--              Breakpoints at base=70: 250ms@190, 200ms@265, 150ms@390.
 --
 --   "retail"   1098/TFS logarithmic formula (floor(857.36 * ln(base/2 + 261.29) - 4795.01)).
 --              Slower at low levels, never reaches 150ms in normal level ranges.

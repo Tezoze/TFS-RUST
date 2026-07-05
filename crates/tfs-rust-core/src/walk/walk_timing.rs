@@ -39,6 +39,15 @@ pub(crate) enum WalkSpeedRole {
     MonsterOrNpc,
 }
 
+/// Public alias for hot-path callers outside this module (debug logging).
+pub(crate) fn go_strength_for_walk_pub(
+    role: WalkSpeedRole,
+    base: &crate::creature::CreatureBase,
+    mech: &crate::formulas::Mechanics,
+) -> i32 {
+    go_strength_for_walk(role, base, mech)
+}
+
 fn go_strength_for_walk(
     role: WalkSpeedRole,
     base: &crate::creature::CreatureBase,
@@ -132,24 +141,19 @@ pub(crate) fn walk_timing_speed_kind(
 /// Protocol `AddCreature` speed byte(s).
 ///
 /// - **1098** — clamped GoStrength; codec halves on wire (`getStepSpeed()/2`, `protocolgame.cpp`).
-/// - **772 players** — GoStrength on wire (220 at level 1); OTC animates from this, not `2×go+80`.
-/// - **772 monsters/NPCs** — full `getStepSpeed()` / `getSpeed()` (`gameserver` `AddCreature`), e.g. wolf
-///   GoStrength 42 → wire **164**.
+/// - **772** — `GetSpeed()` = `2*GoStrength+80` for ALL creatures (`sending.cc:265` AddCreature,
+///   `sending.cc:1041` SendCreatureSpeed). No player-vs-monster distinction in the decompile.
+///   e.g. player GoStrength 369 → wire **818**; wolf GoStrength 42 → wire **164**.
 ///
-/// Server walk timers always use [`walk_timing_speed`] (effective speed on 772).
+/// Server walk timers also use [`walk_timing_speed`] (same effective speed on 772).
 pub(crate) fn wire_step_speed(
     role: WalkSpeedRole,
     base: &crate::creature::CreatureBase,
     mech: &crate::formulas::Mechanics,
 ) -> u16 {
-    let wire = match (mech.profile.step_speed, role) {
-        (crate::formulas::StepSpeedModel::LinearGo, WalkSpeedRole::Player) => {
-            go_strength_for_walk(role, base, mech)
-        }
-        (crate::formulas::StepSpeedModel::LinearGo, WalkSpeedRole::MonsterOrNpc) => {
-            walk_timing_speed(role, base, mech)
-        }
-        (crate::formulas::StepSpeedModel::TfsLog, _) => go_strength_for_walk(role, base, mech),
+    let wire = match mech.profile.step_speed {
+        crate::formulas::StepSpeedModel::LinearGo => walk_timing_speed(role, base, mech),
+        crate::formulas::StepSpeedModel::TfsLog => go_strength_for_walk(role, base, mech),
     };
     wire.max(0).min(u16::MAX as i32) as u16
 }

@@ -10,8 +10,8 @@ use crate::item_encode::{item_template_wire_len, write_item_live, write_item_tem
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, DistanceShootWire,
-    ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
+    DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
 /// Zero-sized 10.98 codec (stateless; caps from `ProtocolVersion::V1098`).
@@ -424,6 +424,17 @@ impl Codec1098 {
         m.write_u8(server::CREATURE_HEALTH);
         m.write_u32(w.creature_id);
         m.write_u8(w.health_percent);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendChangeSpeed` — `src/protocolgame.cpp` ~2505.
+    /// Two halved `u16` values: `baseSpeed/2` then `speed/2`.
+    pub fn encode_creature_speed(&self, w: &CreatureSpeedWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATURE_SPEED);
+        m.write_u32(w.creature_id);
+        m.write_u16(w.base_speed / 2);
+        m.write_u16(w.speed / 2);
         m
     }
 

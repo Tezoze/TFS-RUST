@@ -159,7 +159,11 @@ use crate::formulas::StepSpeedModel;
 /// Stored `Creature::baseSpeed` (GoStrength) before `GetSpeed = 2*base+80`.
 ///
 /// - **1098** — TFS `vocation->getBaseSpeed() + 2*(level-1)` (`src/player.h` `updateBaseSpeed`).
-/// - **772** — TVP `vocation->getBaseSpeed() + (level > 1 ? level : 0)` (`gameserver/src/player.h`).
+/// - **772** — decompile `TSkillAdd::Advance` with `AddLevel=1` (`crskill.cc:667`,
+///   `human.mon:27` GoStrength `AddLevel=1`): level 1 starts at `Act=base_speed`,
+///   each of the `level-1` level-ups adds `AddLevel` → `base_speed + (level-1)`.
+///   TVP `gameserver/src/player.h:1102` uses `base + (level>1?level:0)` (off-by-one
+///   vs the decompile); we follow the decompile as 772 mechanics authority.
 ///
 /// Reads `base_speed` from the cached [`VocationProfile`] snapshot — no
 /// `&VocationRegistry` borrow needed in hot paths.
@@ -167,7 +171,8 @@ pub fn base_walk_speed(model: StepSpeedModel, profile: &VocationProfile, level: 
     let voc_base = profile.base_speed;
     let l = level.max(1);
     match model {
-        StepSpeedModel::LinearGo => voc_base + if l > 1 { l } else { 0 },
+        // 772 decompile: `Act + (level-1)*AddLevel` with AddLevel=1 (`crskill.cc:667`).
+        StepSpeedModel::LinearGo => voc_base + (l - 1),
         StepSpeedModel::TfsLog => (voc_base + 2 * (l - 1)).clamp(10, 1500),
     }
 }
@@ -178,22 +183,28 @@ mod tests {
     use crate::formulas::StepSpeedModel;
 
     #[test]
-    fn base_walk_speed_matches_gameserver_player_update() {
-        // voc base_speed=220 (old hardcoded), level 8 → base 228, GetSpeed 536.
-        // With the new profile (base_speed=70 from vocations.lua), level 8 → 78.
+    fn base_walk_speed_matches_decompile_advance() {
+        // Decompile `TSkillAdd::Advance` (`crskill.cc:667`): Act = base + (level-1)*AddLevel,
+        // AddLevel=1 from `human.mon:27`. base_speed=220 (test fixture), level 8 → 220+7=227,
+        // GetSpeed = 2*227+80 = 534.
         let profile = VocationProfile {
             base_speed: 220,
             ..VocationProfile::none_vocation()
         };
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8), 228);
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8), 227);
         assert_eq!(
             crate::formulas::linear_go_effective_speed(base_walk_speed(
                 StepSpeedModel::LinearGo,
                 &profile,
                 8
             )),
-            536
+            534
         );
+        // Shipped vocations.lua base_speed=70, level 8 → 70+7=77, GetSpeed=234.
+        let shipped = VocationProfile::none_vocation();
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 8), 77);
+        // Level 1 → base unchanged (no level-ups yet).
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 1), 70);
         // TFS 1098: 220 + 2*7 = 234
         assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, &profile, 8), 234);
     }

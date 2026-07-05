@@ -149,7 +149,7 @@ use walk_timing::{
     get_event_step_ticks, get_step_duration_ms_with_direction,
     last_step_cost_for_move, peek_next_walk_direction, walk_timing_speed_kind,
 };
-pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole};
+pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole, go_strength_for_walk_pub};
 
 #[inline]
 fn is_diagonal(direction: Direction) -> bool {
@@ -1586,15 +1586,20 @@ impl GameWorld {
                             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
                             .unwrap_or(150);
                         // Phase 4: both eras compute `notify_go_ms` (772 `NotifyGo` path).
-                        let notify_go_ms = self.creatures.get(cid).map(|k| {
-                            get_step_duration_ms_with_direction(
-                                k,
-                                k.base(),
-                                dir,
-                                gs_dest,
-                                &self.mechanics,
-                            )
-                        });
+                        let (notify_go_ms, go_strength, eff_speed) = self.creatures.get(cid)
+                            .map(|k| {
+                                let ms = get_step_duration_ms_with_direction(
+                                    k, k.base(), dir, gs_dest, &self.mechanics,
+                                );
+                                let go = crate::walk::walk_timing::go_strength_for_walk_pub(
+                                    crate::walk::walk_timing::WalkSpeedRole::Player,
+                                    k.base(),
+                                    &self.mechanics,
+                                );
+                                let eff = crate::formulas::linear_go_effective_speed(go);
+                                (ms, go, eff)
+                            })
+                            .unwrap_or((0, 0, 0));
                         if let Some(k) = self.creatures.get_mut(cid) {
                             let base = k.base_mut();
                             base.last_step = Some(Instant::now());
@@ -1602,16 +1607,19 @@ impl GameWorld {
                             base.last_step_ground_speed = gs_dest;
                             // Phase 4: both eras set `last_step_server_ms` + `EarliestWalkTime`.
                             base.last_step_server_ms = Some(self.server_ms);
-                            if let Some(step_ms) = notify_go_ms {
+                            if notify_go_ms > 0 {
                                 // C++ `NotifyGo` — `EarliestWalkTime` (`cract.cc:1515–1525`).
+                                let step_ms = notify_go_ms;
                                 let new_earliest =
                                     self.server_ms.saturating_add(step_ms.max(1) as u64);
-                                tracing::debug!(
+                                tracing::info!(
                                     ?cid,
                                     ?dir,
                                     ?old_pos,
                                     ?new_pos,
                                     ground_speed = gs_dest,
+                                    go_strength,
+                                    effective_speed = eff_speed,
                                     step_ms,
                                     server_ms = self.server_ms,
                                     new_earliest_walk_ms = new_earliest,
@@ -2105,18 +2113,21 @@ mod step_speed_tests {
         assert_eq!(calculated_step_speed_tfs(1500), 1137);
     }
 
-    /// 772 player wire uses GoStrength (220 at level 1), not `2*go+80` (520).
+    /// 772 wire sends `GetSpeed()` = `2*GoStrength+80` for ALL creatures (`sending.cc:265`).
     #[test]
-    fn wire_step_speed_772_player_is_go_strength() {
+    fn wire_step_speed_772_player_is_effective_get_speed() {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
-        assert_eq!(wire_step_speed(WalkSpeedRole::Player, &base, &mech), 220);
+        // Decompile `sending.cc:265`: SendWord(GetSpeed()) = 2*220+80 = 520.
+        assert_eq!(wire_step_speed(WalkSpeedRole::Player, &base, &mech), 520);
         assert_eq!(walk_timing_speed(WalkSpeedRole::Player, &base, &mech), 520);
     }
 
-    /// 772 player GoStrength scales with level (`gameserver/src/player.h` `updateBaseSpeed`).
+    /// 772 player GoStrength scales with level (decompile `TSkillAdd::Advance`,
+    /// `crskill.cc:667` with `AddLevel=1` from `human.mon:27`): `base + (level-1)`.
+    /// Wire sends `GetSpeed()` = `2*go+80` (`sending.cc:265`).
     #[test]
     fn wire_step_speed_772_player_scales_with_level() {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
@@ -2127,7 +2138,8 @@ mod step_speed_tests {
             base_speed: 220,
             ..crate::creature::vocation::VocationProfile::none_vocation()
         };
-        for (level, expected_go) in [(1, 220), (2, 222), (8, 228), (50, 270)] {
+        // Decompile shape: GoStrength = 220 + (level-1); wire = 2*go+80.
+        for (level, expected_go) in [(1, 220), (2, 221), (8, 227), (50, 269)] {
             let go = crate::creature::vocation::base_walk_speed(
                 crate::formulas::StepSpeedModel::LinearGo,
                 &profile,
@@ -2137,9 +2149,10 @@ mod step_speed_tests {
             let mut base = test_player("Walker", Position::new(100, 100, 7)).base;
             base.speed = go;
             base.base_speed = go;
+            let expected_wire = (2 * go + 80) as u16;
             assert_eq!(
                 wire_step_speed(WalkSpeedRole::Player, &base, &mech),
-                expected_go as u16,
+                expected_wire,
                 "level {level}"
             );
         }

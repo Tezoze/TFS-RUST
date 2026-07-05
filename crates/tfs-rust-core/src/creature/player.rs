@@ -194,11 +194,15 @@ impl Player {
         self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
     }
 
+    /// C++ `Player::addExperience` — level-up loop updates HP/mana/cap/speed
+    /// (`crskill.cc` `Event`). Returns `true` if any level changed (caller should
+    /// `announce_creature_speed` — C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED`).
     pub fn add_experience(
         &mut self,
         amount: u64,
         step_speed_model: crate::formulas::StepSpeedModel,
-    ) {
+    ) -> bool {
+        let old_level = self.level;
         self.experience = self.experience.saturating_add(amount);
         while self.level < 2000
             && self.experience >= total_experience_for_level((self.level + 1) as u32)
@@ -214,14 +218,17 @@ impl Player {
             self.base.speed = sp;
             self.base.base_speed = sp;
         }
+        self.level != old_level
     }
 
     /// Remove experience and apply level-down recalculation (`Player::removeExperience`-style outcome).
+    /// C++ `Player::removeExperience` — level-down loop. Returns `true` if level changed.
     pub fn remove_experience(
         &mut self,
         amount: u64,
         step_speed_model: crate::formulas::StepSpeedModel,
-    ) {
+    ) -> bool {
+        let old_level = self.level;
         self.experience = self.experience.saturating_sub(amount);
         while self.level > 1 && self.experience < total_experience_for_level(self.level as u32) {
             self.level -= 1;
@@ -235,6 +242,7 @@ impl Player {
             self.base.speed = sp;
             self.base.base_speed = sp;
         }
+        self.level != old_level
     }
 
     pub fn exp_to_next_level(&self) -> u64 {

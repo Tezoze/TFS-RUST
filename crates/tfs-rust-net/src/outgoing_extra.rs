@@ -228,16 +228,6 @@ pub fn send_cancel_target() -> NetworkMessage {
     m
 }
 
-/// C++ `ProtocolGame::sendChangeSpeed` (`src/protocolgame.cpp` ~2505).
-pub fn send_change_speed(creature_id: u32, base_speed: u32, speed: u32) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x8F);
-    m.write_u32(creature_id);
-    m.write_u16((base_speed / 2) as u16);
-    m.write_u16((speed / 2) as u16);
-    m
-}
-
 /// C++ `ProtocolGame::sendCancelWalk` (`src/protocolgame.cpp` ~2515).
 #[deprecated(note = "use Codec::encode_cancel_walk")]
 pub fn send_cancel_walk(direction: u8) -> NetworkMessage {

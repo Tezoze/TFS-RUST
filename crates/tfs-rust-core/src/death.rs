@@ -51,23 +51,25 @@ pub fn handle_creature_death(
     config: &ConfigManager,
     schedule_generic_corpse: bool,
     corpse_decay_offset_ms: u64,
-) {
+) -> Vec<CreatureId> {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
-        return;
+        return Vec::new();
     }
 
     let damage_map = match creatures.get(victim) {
         Some(CreatureKind::Player(p)) => p.base.damage_map.clone(),
         Some(CreatureKind::Monster(m)) => m.base.damage_map.clone(),
-        Some(CreatureKind::Npc(_)) | None => return,
+        Some(CreatureKind::Npc(_)) | None => return Vec::new(),
     };
 
     // Apply victim death loss (separate from gain rates / stages).
+    let mut leveled_killers: Vec<CreatureId> = Vec::new();
+
     if let Some(CreatureKind::Player(v)) = creatures.get_mut(victim) {
         let frac = death_loss_fraction(config, v.level, v.experience).clamp(0.0, 1.0);
         let lose = ((v.experience as f64) * frac).floor() as u64;
-        if lose > 0 {
-            v.remove_experience(lose, step_speed_model);
+        if lose > 0 && v.remove_experience(lose, step_speed_model) {
+            leveled_killers.push(victim);
         }
     }
 
@@ -96,7 +98,9 @@ pub fn handle_creature_death(
                 .unwrap_or(1.0)
                 .max(0.0);
             let share = ((share as f64) * rate_exp).floor() as u64;
-            k.add_experience(share, step_speed_model);
+            if k.add_experience(share, step_speed_model) {
+                leveled_killers.push(*killer_id);
+            }
         }
         events.on_kill(*killer_id, victim);
     }
@@ -108,4 +112,8 @@ pub fn handle_creature_death(
         // K2: era-tuned corpse decay offset (772 30 000 ms, 1098 600 ms) from MechanicsProfile.
         decay.schedule(corpse_id, decay_now.saturating_add(corpse_decay_offset_ms), None);
     }
+
+    // Return killers whose level (and thus speed) changed so the caller can
+    // `announce_creature_speed` — C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED`.
+    leveled_killers
 }

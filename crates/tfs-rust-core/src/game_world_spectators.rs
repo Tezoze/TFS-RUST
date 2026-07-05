@@ -170,6 +170,35 @@ impl GameWorld {
         }
     }
 
+    /// C++ `AnnounceChangedCreature(CREATURE_SPEED_CHANGED)` → `SendCreatureSpeed`
+    /// (`operate.cc:82`, `sending.cc:1028`). Broadcasts the creature's current `GetSpeed()`
+    /// to all spectators who can see the creature's tile.
+    pub(crate) fn announce_creature_speed(&mut self, cid: CreatureId) {
+        use tfs_rust_net::codec::wire::CreatureSpeedWire;
+        let (pos, wire_speed, base_speed) = match self.creatures.get(cid) {
+            Some(k) => {
+                let base = k.base();
+                let role = match k {
+                    CreatureKind::Player(_) => crate::walk::WalkSpeedRole::Player,
+                    _ => crate::walk::WalkSpeedRole::MonsterOrNpc,
+                };
+                let wire = crate::walk::wire_step_speed(role, base, &self.mechanics);
+                (base.position, wire, base.base_speed.max(0) as u16)
+            }
+            None => return,
+        };
+        let creature_id = cid.data().as_ffi() as u32;
+        let packet = self
+            .codec
+            .encode_creature_speed(&CreatureSpeedWire {
+                creature_id,
+                speed: wire_speed,
+                base_speed,
+            })
+            .into_bytes();
+        self.broadcast_to_spectators(pos, packet);
+    }
+
     /// C++ `++statementId` before each `sendCreatureSay` / related speech packet.
     pub fn alloc_statement_id(&mut self) -> u32 {
         self.next_statement_id = self.next_statement_id.wrapping_add(1);

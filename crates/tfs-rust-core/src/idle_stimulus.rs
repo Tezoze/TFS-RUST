@@ -235,6 +235,13 @@ impl GameWorld {
         }
         let applied = crate::combat::execute(&mut self.creatures, attacker, target, damage, params);
         if applied {
+            // C++ `magic.cc:1512` `CREATURE_SPEED_CHANGED` — announce when a speed-altering
+            // condition (haste/paralyze) is applied via spell cast.
+            if let Some(ref cond) = params.apply_condition {
+                if matches!(cond.ctype, ConditionType::Haste | ConditionType::Paralyze) {
+                    self.announce_creature_speed(target);
+                }
+            }
             let hp_after = self
                 .creatures
                 .get(target)

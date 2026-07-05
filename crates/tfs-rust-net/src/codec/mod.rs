@@ -10,8 +10,8 @@ pub use v1098::Codec1098;
 pub use v772::Codec772;
 pub use wire::{
     AddCreatureWire, AnimatedTextWire, CombatDamageNotifyWire, ContainerOpenWire,
-    CreatureHealthWire, DistanceShootWire, ItemStack, ItemTemplateArgs, ItemWire, MagicEffectWire,
-    OutfitWire, PlayerSkillsWire, PlayerStatsWire,
+    CreatureHealthWire, CreatureSpeedWire, DistanceShootWire, ItemStack, ItemTemplateArgs,
+    ItemWire, MagicEffectWire, OutfitWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
@@ -163,6 +163,10 @@ pub trait ProtocolCodec {
     fn encode_distance_shoot(&self, w: &wire::DistanceShootWire) -> NetworkMessage;
 
     fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage;
+
+    /// `SendCreatureSpeed` (772 `sending.cc:1028`) / `sendChangeSpeed` (1098).
+    /// 772: `0x8F + u32 id + u16 speed`. 1098: `0x8F + u32 id + u16 base/2 + u16 speed/2`.
+    fn encode_creature_speed(&self, w: &wire::CreatureSpeedWire) -> NetworkMessage;
 
     /// Player damage caption — simple text (772) vs damage block (1098).
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
@@ -397,6 +401,10 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_creature_health(self, w)
     }
 
+    fn encode_creature_speed(&self, w: &wire::CreatureSpeedWire) -> NetworkMessage {
+        Codec1098::encode_creature_speed(self, w)
+    }
+
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
         Codec1098::encode_combat_damage_text_message(self, w)
     }
@@ -624,6 +632,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_creature_health(self, w)
     }
 
+    fn encode_creature_speed(&self, w: &wire::CreatureSpeedWire) -> NetworkMessage {
+        Codec772::encode_creature_speed(self, w)
+    }
+
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
         Codec772::encode_combat_damage_text_message(self, w)
     }
@@ -787,6 +799,8 @@ impl Codec {
         encode_distance_shoot(w: &wire::DistanceShootWire) -> NetworkMessage;
 
         encode_creature_health(w: &wire::CreatureHealthWire) -> NetworkMessage;
+
+        encode_creature_speed(w: &wire::CreatureSpeedWire) -> NetworkMessage;
 
         encode_combat_damage_text_message(w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
 
@@ -1003,6 +1017,13 @@ impl ProtocolCodec for Codec {
 
     fn encode_creature_health(&self, w: &wire::CreatureHealthWire) -> NetworkMessage {
         Codec::encode_creature_health(self, w)
+    }
+
+    fn encode_creature_speed(&self, w: &wire::CreatureSpeedWire) -> NetworkMessage {
+        match self {
+            Self::V1098(c) => ProtocolCodec::encode_creature_speed(c, w),
+            Self::V772(c) => ProtocolCodec::encode_creature_speed(c, w),
+        }
     }
 
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {

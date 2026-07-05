@@ -5,8 +5,8 @@
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::codec::{
     AddCreatureWire, AnimatedTextWire, Codec, Codec1098, CombatDamageNotifyWire,
-    ContainerOpenWire, CreatureHealthWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire,
-    OutfitWire, PlayerSkillsWire, PlayerStatsWire,
+    ContainerOpenWire, CreatureHealthWire, CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs,
+    MagicEffectWire, OutfitWire, PlayerSkillsWire, PlayerStatsWire,
 };
 use std::collections::HashSet;
 
@@ -125,6 +125,37 @@ fn creature_health_codec_matches_outgoing() {
 fn creature_health_encoding() {
     let m = send_creature_health(0x11223344, 88);
     assert_eq!(m.as_bytes(), &[0x8C, 0x44, 0x33, 0x22, 0x11, 0x58]);
+}
+
+/// 7.72 `SendCreatureSpeed` — `sending.cc:1028-1043`.
+/// Wire: `0x8F + u32 creature_id + u16 GetSpeed()` (single full speed, no halving).
+#[test]
+fn creature_speed_encoding_772() {
+    let codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
+    let m = codec.encode_creature_speed(&CreatureSpeedWire {
+        creature_id: 0x11223344,
+        speed: 818,
+        base_speed: 818, // ignored by 772 encoder
+    });
+    // 0x8F + little-endian u32 + little-endian u16(818 = 0x0332)
+    assert_eq!(m.as_bytes(), &[0x8F, 0x44, 0x33, 0x22, 0x11, 0x32, 0x03]);
+}
+
+/// 10.98 `sendChangeSpeed` — `src/protocolgame.cpp` ~2505.
+/// Wire: `0x8F + u32 creature_id + u16 baseSpeed/2 + u16 speed/2` (two halved values).
+#[test]
+fn creature_speed_encoding_1098() {
+    let codec = Codec::from_version(ProtocolVersion::V1098).expect("1098 codec");
+    let m = codec.encode_creature_speed(&CreatureSpeedWire {
+        creature_id: 0x11223344,
+        speed: 818,
+        base_speed: 220,
+    });
+    // 0x8F + u32 LE + u16(220/2=110=0x006E) + u16(818/2=409=0x0199)
+    assert_eq!(
+        m.as_bytes(),
+        &[0x8F, 0x44, 0x33, 0x22, 0x11, 0x6E, 0x00, 0x99, 0x01]
+    );
 }
 
 #[test]
