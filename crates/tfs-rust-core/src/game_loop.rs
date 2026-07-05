@@ -522,7 +522,6 @@ fn handle_game_packet(
                     payload.channel_id,
                     &payload.receiver,
                     &payload.text,
-                    now,
                 );
             }
         }

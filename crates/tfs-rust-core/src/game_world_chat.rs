@@ -21,6 +21,7 @@ use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::player::flags::{PLAYER_FLAG_CAN_TALK_RED_PRIVATE};
 use crate::return_value::ReturnValue;
 
 /// `SpeakClasses` byte values — `gameserver/src/const.h:61-77`.
@@ -32,6 +33,7 @@ const TALKTYPE_SAY: u8 = 1;
 const TALKTYPE_WHISPER: u8 = 2;
 const TALKTYPE_YELL: u8 = 3;
 const TALKTYPE_PRIVATE: u8 = 4;
+const TALKTYPE_PRIVATE_FROM: u8 = 4; // Outgoing private message (to receiver)
 const TALKTYPE_CHANNEL_Y: u8 = 5;
 const TALKTYPE_RVR_CHANNEL: u8 = 6;
 const TALKTYPE_RVR_ANSWER: u8 = 7;
@@ -39,6 +41,8 @@ const TALKTYPE_RVR_CONTINUE: u8 = 8;
 const TALKTYPE_BROADCAST: u8 = 9;
 const TALKTYPE_CHANNEL_R1: u8 = 10;
 const TALKTYPE_PRIVATE_RED: u8 = 11;
+const TALKTYPE_PRIVATE_RED_TO: u8 = 11; // Incoming red private
+const TALKTYPE_PRIVATE_RED_FROM: u8 = 11; // Outgoing red private (to receiver)
 const TALKTYPE_CHANNEL_O: u8 = 12;
 const TALKTYPE_CHANNEL_R2: u8 = 14;
 
@@ -58,7 +62,6 @@ impl GameWorld {
         channel_id: u16,
         receiver: &str,
         text: &str,
-        now: Instant,
     ) {
         // C++ `Player* player = getPlayerByID(playerId); if (!player) return;`
         let is_player = matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)));
@@ -68,7 +71,7 @@ impl GameWorld {
 
         // C++ `player->resetIdleTime();` — `player.cpp`. Mirrors `walk/mod.rs` inline reset.
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.last_activity = now;
+            p.last_activity = Instant::now();
         }
 
         // C++ `if (playerSaySpell(player, type, text)) return;` — `game.cpp:3219`.
@@ -115,12 +118,15 @@ impl GameWorld {
                 self.player_yell(cid, text);
             }
             TALKTYPE_PRIVATE | TALKTYPE_PRIVATE_RED | TALKTYPE_RVR_ANSWER => {
-                // CH-3: `player_speak_to` — `game.cpp:3455-3479` (name resolution,
-                // `PRIVATE_RED` downgrade rule, ghost-mode visibility, confirmation text).
+                // C++ `playerSpeakTo(player, type, receiver, text)` — `game.cpp:3557`.
                 // `TALKTYPE_RVR_ANSWER` is the RVR tell path — non-goal per §1, but the
-                // C++ switch folds it into `playerSpeakTo`; leave the arm stubbed until
+                // C++ switch folds it into `playerSpeakTo`; leave it stubbed until
                 // the RVR sign-off decision (§4.6).
-                tracing::warn!(conn_id = conn_id.0, cid = ?cid, ?speak_class, "player_say PRIVATE/RED/RVR_ANSWER — CH-3 stub");
+                if speak_class == TALKTYPE_RVR_ANSWER {
+                    tracing::warn!(conn_id = conn_id.0, cid = ?cid, "player_say RVR_ANSWER — non-goal (§1)");
+                    return;
+                }
+                self.player_speak_to(cid, speak_class, receiver, text);
             }
             TALKTYPE_CHANNEL_O | TALKTYPE_CHANNEL_Y | TALKTYPE_CHANNEL_R1 | TALKTYPE_CHANNEL_R2 => {
                 // CH-4: `g_chat->talkToChannel(*player, type, text, channelId)` —
@@ -131,9 +137,8 @@ impl GameWorld {
                 tracing::warn!(conn_id = conn_id.0, cid = ?cid, ?speak_class, channel_id, "player_say CHANNEL_* — CH-4 stub");
             }
             TALKTYPE_BROADCAST => {
-                // CH-3: `player_broadcast_message` — `game.cpp:2005-2018` (`PlayerFlag_CanBroadcast`
-                // gate + all-online-players fan-out).
-                tracing::warn!(conn_id = conn_id.0, cid = ?cid, "player_say TALKTYPE_BROADCAST — CH-3 stub");
+                // C++ `playerBroadcastMessage(player, text)` — `game.cpp:3567`.
+                self.player_broadcast_message(cid, text);
             }
             TALKTYPE_RVR_CHANNEL | TALKTYPE_RVR_CONTINUE => {
                 // RVR (Rule Violation Report) GM system — explicit non-goal (§1).
@@ -144,7 +149,6 @@ impl GameWorld {
                 tracing::warn!(conn_id = conn_id.0, cid = ?cid, speak_class = other, "player_say unknown speak class");
             }
         }
-        let _ = receiver; // consumed by CH-3 `player_speak_to` / CH-4 private channels.
     }
 
     /// TFS `Game::playerSaySpell` — `gameserver/src/game.cpp:3375-3398`.
@@ -270,6 +274,136 @@ impl GameWorld {
         // — `game.cpp:3451`.
         let upper = ascii_uppercase(text);
         self.broadcast_creature_yell(cid, TALKTYPE_YELL, &upper);
+    }
+
+    /// TFS `Game::playerSpeakTo` — `src/game.cpp:3654-3678`.
+    ///
+    /// Private message (tell) to another player by name. Resolves target via
+    /// `player_by_name`, downgrades `TALKTYPE_PRIVATE_RED_TO` to `TALKTYPE_PRIVATE_FROM`
+    /// unless the sender has `PlayerFlag_CanTalkRedPrivate` or is a GM, checks ghost-mode
+    /// visibility, and sends confirmation/failure via `MESSAGE_STATUS_SMALL`.
+    fn player_speak_to(&mut self, cid: CreatureId, speak_class: u8, receiver: &str, text: &str) {
+        let Some(speaker_conn) = self.conn_for_creature(cid) else {
+            return;
+        };
+
+        // C++ `Player* toPlayer = getPlayerByName(receiver);` — `game.cpp:3657-3661`.
+        let Some(target_cid) = self.player_by_name.get(receiver).copied() else {
+            use tfs_rust_net::outgoing_extra::send_text_message_simple;
+            self.enqueue_outgoing(
+                speaker_conn,
+                send_text_message_simple(self.codec.failure_message_type(), "A player with this name is not online.").into_bytes(),
+            );
+            return;
+        };
+
+        let (target_ghost_mode, speaker_name, speaker_level) = match (
+            self.creatures.get(target_cid),
+            self.creatures.get(cid),
+        ) {
+            (Some(CreatureKind::Player(target)), Some(CreatureKind::Player(speaker))) => {
+                (target.ghost_mode, speaker.base.name.clone(), speaker.level)
+            }
+            _ => return,
+        };
+
+        // C++ `if (type == TALKTYPE_PRIVATE_RED_TO && (player->hasFlag(PlayerFlag_CanTalkRedPrivate) || player->getAccountType() >= ACCOUNT_TYPE_GAMEMASTER))`
+        // — `game.cpp:3663-3667`. Downgrade to normal private unless sender has flag or is GM.
+        let actual_speak_class = if speak_class == TALKTYPE_PRIVATE_RED_TO
+            && (self.player_has_flag(cid, PLAYER_FLAG_CAN_TALK_RED_PRIVATE) || self.player_is_access_player(cid))
+        {
+            TALKTYPE_PRIVATE_RED_FROM
+        } else {
+            TALKTYPE_PRIVATE_FROM
+        };
+
+        // C++ `toPlayer->sendPrivateMessage(player, type, text);` — `game.cpp:3669`.
+        if let Some(target_conn) = self.conn_for_creature(target_cid) {
+            use tfs_rust_net::outgoing_extra::send_private_message_speech;
+            let statement_id = self.alloc_statement_id();
+            let msg = send_private_message_speech(
+                statement_id,
+                Some(&speaker_name),
+                speaker_level as u16,
+                actual_speak_class,
+                text,
+            );
+            self.enqueue_outgoing(target_conn, msg.into_bytes());
+
+            // C++ `toPlayer->onCreatureSay(player, type, text);` — `game.cpp:3670`.
+            // Event hook for future talkactions/creaturescripts (CH-6).
+            self.events.on_creature_say(cid, target_cid, actual_speak_class, text);
+        }
+
+        // C++ ghost-mode visibility check — `game.cpp:3672-3676`.
+        // If target is in ghost mode and sender cannot see ghosts, report "not online".
+        if target_ghost_mode && !self.player_can_see_ghost_mode(cid, target_cid) {
+            use tfs_rust_net::outgoing_extra::send_text_message_simple;
+            self.enqueue_outgoing(
+                speaker_conn,
+                send_text_message_simple(self.codec.failure_message_type(), "A player with this name is not online.").into_bytes(),
+            );
+        } else {
+            use tfs_rust_net::outgoing_extra::send_text_message_simple;
+            self.enqueue_outgoing(
+                speaker_conn,
+                send_text_message_simple(self.codec.failure_message_type(), &format!("Message sent to {}.", receiver)).into_bytes(),
+            );
+        }
+    }
+
+    /// TFS `Game::playerBroadcastMessage` — `src/game.cpp:1898-1910`.
+    ///
+    /// GM broadcast to all online players. Requires `PlayerFlag_CanBroadcast`. Sends
+    /// `TALKTYPE_BROADCAST` to every online player via `sendPrivateMessage`.
+    fn player_broadcast_message(&mut self, cid: CreatureId, text: &str) {
+        use crate::player::flags::PLAYER_FLAG_CAN_BROADCAST;
+
+        // C++ `if (!player->hasFlag(PlayerFlag_CanBroadcast))` — `game.cpp:1900-1902`.
+        if !self.player_has_flag(cid, PLAYER_FLAG_CAN_BROADCAST) {
+            if let Some(conn) = self.conn_for_creature(cid) {
+                use tfs_rust_net::outgoing_extra::send_text_message_simple;
+                self.enqueue_outgoing(
+                    conn,
+                    send_text_message_simple(self.codec.failure_message_type(), "You are not allowed to broadcast.").into_bytes(),
+                );
+            }
+            return;
+        }
+
+        let (speaker_name, speaker_level) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(speaker)) => (speaker.base.name.clone(), speaker.level),
+            _ => return,
+        };
+
+        // C++ `std::cout << "> " << player->getName() << " broadcasted: \"" << text << "\"." << std::endl;`
+        // — `game.cpp:1904`. Console log for audit trail.
+        tracing::info!(player = %speaker_name, "broadcasted: \"{}\"", text);
+
+        // C++ `for (const auto& it : players) { it.second->sendPrivateMessage(player, TALKTYPE_BROADCAST, text); }`
+        // — `game.cpp:1906-1908`. Fan-out to all online players.
+        use tfs_rust_net::outgoing_extra::send_private_message_speech;
+        let statement_id = self.alloc_statement_id();
+        let target_conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
+
+        for target_conn in target_conns {
+            let msg = send_private_message_speech(
+                statement_id,
+                Some(&speaker_name),
+                speaker_level as u16,
+                TALKTYPE_BROADCAST,
+                text,
+            );
+            self.enqueue_outgoing(target_conn, msg.into_bytes());
+        }
+    }
+
+    /// C++ `Player::canSeeGhostMode` — `src/player.cpp:729-732`.
+    ///
+    /// Returns `true` if the viewer can see the target in ghost mode. Access players
+    /// (GMs) can always see ghosts; regular players cannot.
+    fn player_can_see_ghost_mode(&self, viewer_cid: CreatureId, _target_cid: CreatureId) -> bool {
+        self.player_is_access_player(viewer_cid)
     }
 }
 

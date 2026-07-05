@@ -9,6 +9,12 @@ pub const PLAYER_FLAG_CANNOT_PICKUP_ITEM: u64 = 1 << 14;
 pub const PLAYER_FLAG_HAS_INFINITE_CAPACITY: u64 = 1 << 20;
 /// C++ `PlayerFlag_IgnoredByMonsters` — `src/const.h`
 pub const PLAYER_FLAG_IGNORED_BY_MONSTERS: u64 = 1 << 8;
+/// C++ `PlayerFlag_CanBroadcast` — `src/const.h`
+pub const PLAYER_FLAG_CAN_BROADCAST: u64 = 1 << 16;
+/// C++ `PlayerFlag_CanTalkRedPrivate` — `src/const.h`
+pub const PLAYER_FLAG_CAN_TALK_RED_PRIVATE: u64 = 1 << 22;
+/// C++ `PlayerFlag_CannotBeMuted` — `src/const.h`
+pub const PLAYER_FLAG_CANNOT_BE_MUTED: u64 = 1 << 36;
 
 /// Map `groups.xml` `<flag name="..." value="1"/>` keys to `PlayerFlags` bits (subset used by inventory).
 fn flag_name_to_bit(name: &str) -> Option<u64> {
@@ -16,6 +22,9 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),
         "ignoredbymonsters" => Some(PLAYER_FLAG_IGNORED_BY_MONSTERS),
+        "canbroadcast" => Some(PLAYER_FLAG_CAN_BROADCAST),
+        "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
+        "cannotbemuted" => Some(PLAYER_FLAG_CANNOT_BE_MUTED),
         _ => None,
     }
 }
