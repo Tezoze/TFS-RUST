@@ -56,7 +56,7 @@ let defs: Vec<VocationDef> = lua.from_value(value)?; // needs mlua "serde"
 ### Data file (pure data — returns a table, no side effects)
 
 ```lua
--- data/vocations.lua
+-- data/defs/vocations.lua
 local HP, MANA = 1, 2  -- shared constants; loops / era conditionals allowed here
 return {
   schema = 1,
@@ -148,15 +148,22 @@ Current XML surface (loaders in `crates/tfs-rust-content/src/`):
 
 | XML file(s) | Loader | Target | Notes |
 |---|---|---|---|
-| `data/XML/vocations.xml` | `vocations.rs` | `data/vocations.lua` | **First mover** (drives Finding 3). |
-| `data/XML/outfits.xml` | `outfits.rs` | `data/outfits.lua` | Flat table; could be TOML. |
-| `data/XML/mounts.xml` | `mounts.rs` | `data/mounts.lua` | Flat table. |
-| `data/XML/groups.xml` | `groups.rs` | `data/groups.lua` | Flat; TOML candidate. |
-| `data/XML/quests.xml` | (quest system) | `data/quests.lua` | Verify loader exists before migrating. |
-| `data/XML/stages.xml` | (exp stages) | `data/stages.lua` | Flat; TOML candidate. |
+| `data/XML/vocations.xml` | `vocations.rs` | `data/defs/vocations.lua` | **First mover** (drives Finding 3). Done in Phase PC-0. |
+| `data/XML/outfits.xml` | `outfits.rs` | `data/defs/outfits.lua` | Flat table; could be TOML. |
+| `data/XML/mounts.xml` | `mounts.rs` | `data/defs/mounts.lua` | Flat table. |
+| `data/XML/groups.xml` | `groups.rs` | `data/defs/groups.lua` | Flat; TOML candidate. |
+| `data/XML/quests.xml` | (quest system) | `data/defs/quests.lua` | Verify loader exists before migrating. |
+| `data/XML/stages.xml` | (exp stages) | `data/defs/stages.lua` | Flat; TOML candidate. |
 | `data/items/items.xml` | `items.rs`, `item_abilities.rs`, `items_xml_keys.rs` | `data/items.lua` | **Largest / highest-risk.** Pairs with binary `items.otb` (keep). Do last. |
 | `data/monster/monsters.xml` + `data/monster/*.xml` | `monsters.rs` | `data/monster/*.lua` + index | Many files; spells parsed as nested nodes — nontrivial schema. |
 | `data/world/*-spawn.xml` (+ house files) | `spawns.rs`, `otbm.rs` | `data/world/*-spawn.lua` | Referenced by OTBM `EXT_SPAWN_FILE`/`EXT_HOUSE_FILE`; keep OTBM binary, migrate the sidecar. |
+
+**`data/defs/`** holds the static sidecar definitions (vocations, outfits, mounts,
+groups, quests, stages) — loaded once into Rust structs via the sandboxed data-Lua
+loader, never executed on the game thread. Distinct from `data/formulas/` (era
+Tier-2 override *functions*) and the executable-script dirs (`actions/`, `spells/`,
+`npc/`, …). `data/items.lua` and `data/monster/*.lua` stay co-located with their
+binary companions (`items.otb`, monster assets) rather than under `defs/`.
 
 Out of scope (not XML): `items.otb`, `*.otbm`, `objects.srv`, sprite assets. Executable Lua under
 `data/{actions,spells,npc,creaturescripts,globalevents,movements,talkactions,weapons,lib}` already
@@ -168,10 +175,10 @@ Out of scope (not XML): `items.otb`, `*.otbm`, `objects.srv`, sprite assets. Exe
    - Add `"serde"` to the mlua workspace feature set.
    - Add `sandboxed_data_lua()`, a `require_schema` helper, and a shared `DataLoadError`.
    - Establish the loader location (`tfs-rust-content` for pure data; keep it off the game thread).
-2. **Phase 1 — vocations (pilot).** Migrate `vocations.xml` → `data/vocations.lua`, define
+2. **Phase 1 — vocations (pilot).** Migrate `vocations.xml` → `data/defs/vocations.lua`, define
    `VocationDef`, build a `VocationRegistry`, and switch `TSkillFed` regen + `recalculate_vitals` +
    base speed to read it. This also closes Finding 3 (regen values come from the vocation
-   definition, not a hardcoded table) and the neighboring `vocation.rs` stubs.
+   definition, not a hardcoded table) and the neighboring `vocation.rs` stubs. **Done in Phase PC-0.**
 3. **Phase 2 — small flat tables.** outfits, mounts, groups, stages, quests. Low risk, builds the
    pattern and the `xml → lua` converter.
 4. **Phase 3 — monsters.** Per-file defs + index; design the nested spell/loot schema carefully.

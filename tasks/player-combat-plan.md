@@ -2,11 +2,11 @@
 
 **Goal.** Wire the player weapon-combat *strike* into the unified ToDo engine so that
 **formulas and flow match the CipSoft 7.72 decompile** (`tibia-game-master/src/`), while all
-**tunable data lives in TVP-shaped files** (vocation combat block — migrated to `data/vocations.lua`
+**tunable data lives in TVP-shaped files** (vocation combat block — migrated to `data/defs/vocations.lua`
 per §0.10/PC-0, superseding `data/XML/vocations.xml`; weapon attack/defense/armor from
 `items.otb`/`items.xml`). No CipSoft source is transcribed — we replicate observable outcomes in
 idiomatic Rust (`tfs-core.md` porting model). Era knobs stay in `MechanicsProfile` /
-`data/formulas/772.lua`; per-vocation balance stays in `data/vocations.lua`.
+`data/formulas/772.lua`; per-vocation balance stays in `data/defs/vocations.lua`.
 
 **Active target:** `clientVersion = 772` (`config.lua:17`). 1098 shares the same code paths through
 `MechanicsProfile`; this plan does not add version branches to core. Architecture reference for the
@@ -129,7 +129,7 @@ note in PC-1 step 1 so the implementer doesn't duplicate it.
 ### 0.10 Vocations are the pilot migration in `docs/DATA_FORMAT_MIGRATION.md` — PC-0 should target that path, not extend the XML parser
 `docs/DATA_FORMAT_MIGRATION.md` (read this pass, real doc, exists) proposes moving all static game
 data off XML onto Lua-as-data (`data/*.lua` tables → `serde::Deserialize` into immutable Rust
-structs, materialized once at startup, zero runtime Lua cost). **`vocations.xml` → `data/vocations.lua`
+structs, materialized once at startup, zero runtime Lua cost). **`vocations.xml` → `data/defs/vocations.lua`
 is explicitly called out as "Phase 1 — vocations (pilot)"** in that doc, and it names the *exact*
 same gap this combat plan is fixing: `TSkillFed` regen (`process_skills.rs::fed_regen_cadence`) and
 `recalculate_vitals`/`per_level_gains` (`creature/vocation.rs`) reading hardcoded stub tables instead
@@ -138,7 +138,7 @@ existing `quick-xml` parser in `tfs-rust-content/src/vocations.rs`** to pick up 
 `<skill>` children. That would work, but it directly contradicts the migration doc's own guidance —
 we'd be teaching the XML loader more schema the week before that loader is slated for deletion, and
 `vocations.xml` is the one file the migration doc says to move *first*. Rewritten PC-0 below targets
-`data/vocations.lua` + a `VocationDef`/`VocationRegistry` instead of deepening the XML path. Two
+`data/defs/vocations.lua` + a `VocationDef`/`VocationRegistry` instead of deepening the XML path. Two
 prerequisites this pulls forward from `DATA_FORMAT_MIGRATION.md` §"Phase 0 — infrastructure" (not yet
 done anywhere in the tree — confirmed no `sandboxed_data_lua`/`require_schema`/`VocationDef` symbols
 exist today):
@@ -174,7 +174,7 @@ later phases instead of three bespoke loaders.
 | Attack targeting / chase routing (`SetAttackDest`/`CanToDoAttack`/`StopAttack`/cancel) | `player_combat.rs` | Routes attack/follow/cancel packets; **strike deferred** (see below). |
 | Monster melee strike (attack roll, defense gate, armor, poison-on-hit) | `creature/monster_combat.rs` | The shape the player strike should mirror. |
 | Player weapon accessors (`getWeapon`/`getWeaponType`/`getWeaponSkill`) | `player_inventory_util.rs` | Slot resolution + ammo pairing done. |
-| Condition ticks + fed regen tick loop | `process_skills.rs` | Regen cadence **hardcoded**, not from vocation data — becomes `data/vocations.lua`-sourced in PC-0/PC-5 (§0.10; `DATA_FORMAT_MIGRATION.md` "Finding 3"). |
+| Condition ticks + fed regen tick loop | `process_skills.rs` | Regen cadence **hardcoded**, not from vocation data — becomes `data/defs/vocations.lua`-sourced in PC-0/PC-5 (§0.10; `DATA_FORMAT_MIGRATION.md` "Finding 3"). |
 | Item weapon attributes (`weapon_type`, `attack`, `defense`, `extra_defense`, `armor`, `ammo_type`, `attack_speed`, `shoot_range`, `hit_chance`) | `tfs-rust-content/src/otb.rs` `ItemType` | Data source for `GetAttackValue`/`GetDefendValue`/`GetArmorStrength`. |
 | Fight-mode enum + modifiers | `combat/math.rs` `FightMode`, `formulas.rs` `FightModes` | 772 `+20/−40` atk, `−40/+80` def already tuned. |
 
@@ -190,7 +190,7 @@ active `data/XML/vocations.xml` already carries the full TVP block (`gaincap`, `
 `gainhpticks`, `gainhpamount`, `gainmanaticks`, `gainmanaamount`, `manamultiplier`, `attackspeed`,
 `basespeed`, `soulmax`, `gainsoulticks`, `<formula meleeDamage/distDamage/defense/armor>`,
 `<skill id multiplier>`). All of it is discarded today. **Migrating this file to
-`data/vocations.lua` is Phase PC-0 below, per `DATA_FORMAT_MIGRATION.md` (§0.10) — the XML file is
+`data/defs/vocations.lua` is Phase PC-0 below, per `DATA_FORMAT_MIGRATION.md` (§0.10) — the XML file is
 the interim source only until PC-0 lands, not the long-term target.**
 
 `creature/vocation.rs` is stubbed as a result: `vocation_base_speed()` returns a hardcoded `220`,
@@ -273,7 +273,7 @@ not in `CloseAttack`.
 `ActivateLearning()` sets `LearningPoints = 30`. Each `ProbeValue`/`Probe` with `LearningPoints>0`
 calls `Increase(1)` then decrements. `Increase` adds to skill exp and levels when
 `Exp >= NextLevel`; `NextLevel = GetExpForLevel(Act+1)` geometric with `FactorPercent`/`Delta`.
-Maps to `combat/math.rs::req_skill_tries` — **fed by `data/vocations.lua` `skill_multipliers`**
+Maps to `combat/math.rs::req_skill_tries` — **fed by `data/defs/vocations.lua` `skill_multipliers`**
 (post-PC-0; today only in `vocations.xml` `<skill multiplier>`, discarded) (→ `FactorPercent`, i.e.
 `1000 * multiplier` shape) rather than TFS `skillBase`.
 
@@ -284,10 +284,10 @@ SecureMode stored on `TCombat`. **Parse + chase-mode storage already exist** (`g
 storing `raw_fight_mode`/`raw_secure_mode` into new `Player` fields (`CombatResult::SecureMode` is
 reserved in `player_combat.rs` for this). See §0.2.
 
-### 2.9 Level / vitals — `data/vocations.lua` gains + `crskill.cc:352` `GetExpForLevel`
+### 2.9 Level / vitals — `data/defs/vocations.lua` gains + `crskill.cc:352` `GetExpForLevel`
 Level exp `(((L-6)*L+17)*L-12)/6 * Delta` already in `combat/math.rs::experience_for_level`
 (and `creature/vocation.rs::total_experience_for_level`, which uses an **equivalent expanded
-polynomial** — consolidate onto one). Vitals per level from `data/vocations.lua` `gain_hp`/
+polynomial** — consolidate onto one). Vitals per level from `data/defs/vocations.lua` `gain_hp`/
 `gain_mana`/`gain_cap` (post-PC-0), base speed from `base_speed` + level rule (772: `+level`; 1098:
 `+2*(level-1)`).
 
@@ -341,7 +341,7 @@ and no new clippy warning vs. the pre-PM baseline (pure move, per `REFACTOR_AUDI
 
 ### Phase PC-0 — Vocation combat data (Lua-as-data, per `DATA_FORMAT_MIGRATION.md` Phase 0 + Phase 1)
 **Files:** `tfs-rust-content/src/vocations.rs` (rewritten, not extended), new
-`data/vocations.lua` (replaces `data/XML/vocations.xml` as the source of truth),
+`data/defs/vocations.lua` (replaces `data/XML/vocations.xml` as the source of truth),
 `crates/tfs-rust-core/src/creature/vocation.rs`, `config.rs`/wiring where `VocationDatabase` is
 threaded. See §0.10 — this phase is also `DATA_FORMAT_MIGRATION.md`'s named "Phase 1 — vocations
 (pilot)"; do it once, here, rather than deepening the XML loader first and migrating later.
@@ -352,7 +352,7 @@ threaded. See §0.10 — this phase is also `DATA_FORMAT_MIGRATION.md`'s named "
    stripped) + `require_schema(&table, expected_version)` helper in `tfs-rust-content` (new
    `data_lua.rs` or similar). Reuses the `Lua::new()` + table-load pattern already proven in
    `formulas.rs::load_mechanics`, just sandboxed and schema-gated.
-1. Author `data/vocations.lua` — one file, `schema = 1`, a `vocations` array — carrying the full
+1. Author `data/defs/vocations.lua` — one file, `schema = 1`, a `vocations` array — carrying the full
    TVP block already present in `data/XML/vocations.xml` today: `gain_cap`, `gain_hp`, `gain_mana`,
    `gain_hp_ticks`, `gain_hp_amount`, `gain_mana_ticks`, `gain_mana_amount`, `mana_multiplier`,
    `attack_speed_ms`, `base_speed`, `soul_max`, `gain_soul_ticks`, `allow_pvp`,
@@ -383,7 +383,7 @@ threaded. See §0.10 — this phase is also `DATA_FORMAT_MIGRATION.md`'s named "
    `VocationDef`s) satisfies that doc's "golden equivalence" verification step before the XML loader
    is deleted.
 
-**Test:** golden parse of `data/vocations.lua` (knight skill[4]=1.4, sorcerer gainmana=30,
+**Test:** golden parse of `data/defs/vocations.lua` (knight skill[4]=1.4, sorcerer gainmana=30,
 attackspeed=2000, basespeed=70) — plus the temporary dual-load-vs-XML equivalence test from step 6;
 base-speed + vitals per level vs known 772 values.
 
@@ -460,13 +460,13 @@ change.
 ### Phase PC-5 — Skill/exp gain + regen from vocation data
 **Files:** `process_skills.rs`, kill/death path (`death.rs`/`idle_stimulus.rs`).
 
-1. Replace `process_skills.rs::fed_regen_cadence` hardcoded table with `data/vocations.lua`
+1. Replace `process_skills.rs::fed_regen_cadence` hardcoded table with `data/defs/vocations.lua`
    (post-PC-0) `gain_hp_ticks/gain_hp_amount/gain_mana_ticks/gain_mana_amount` — this is the exact
    bug `DATA_FORMAT_MIGRATION.md` calls "Finding 3" and names as the driver for the vocation
    migration; PC-0 and this step close it together.
 2. On kill: `distribute_experience` + `pvp_exp_cap` (already present) → `add_experience`; skill
    `Increase` already handled inline via learning during strikes.
-3. Skill tries curve: feed `data/vocations.lua` `skill_multipliers` into `req_skill_tries`
+3. Skill tries curve: feed `data/defs/vocations.lua` `skill_multipliers` into `req_skill_tries`
    (`FactorPercent = 1000 * multiplier` shape per `crskill.cc:497`), not TFS `skillBase`. Per §0.5,
    `req_skill_tries` exists and is tested but has no caller and `PlayerSkills` has no tries counters
    yet — this step also needs the `_tries` fields added, not just the data source swapped.
@@ -676,7 +676,7 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
   in core (`0xA0` parse stays in `tfs-rust-net`). (`tfs-packets.md`, `tfs-wire-codec.md`.)
 - **Era knobs** (fight-mode %, armor mode, defense gate, probe tuning, condition ticks) stay in
   `MechanicsProfile` / `data/formulas/772.lua`. **Per-vocation balance** stays in
-  `data/vocations.lua` (post-PC-0; `DATA_FORMAT_MIGRATION.md`-aligned, supersedes `vocations.xml`).
+  `data/defs/vocations.lua` (post-PC-0; `DATA_FORMAT_MIGRATION.md`-aligned, supersedes `vocations.xml`).
   No new balance literals in Rust (`tfs-mechanics-profile.md` R11).
 - **No `if version == 772`** in core — melee/dist/wand paths are shared; only profile fields differ.
 - **Reuse** `probe_value`, `armor_reduction`, `defense_value`, `roll_target_defense`,
@@ -695,7 +695,7 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
 | `learning_points: i32` | `CreatureBase` (or `Player`) | `ActivateLearning`/`ProbeValue` |
 | `skill_*_tries: u64` per skill (§0.5 — new, not in original plan) | `PlayerSkills` | DB `skill_*_tries` columns (already round-tripped, never loaded into runtime `Player`) |
 | `attack_mode: FightMode`, `chase_mode` (exists), `secure_mode: bool` | `Player`/`CreatureBase` | `0xA7` packet (fixed from `0xA0`, see §0.2) |
-| `VocationDef` (full combat block, incl. level-1 vitals floor) | `tfs-rust-content` (new type) | `data/vocations.lua` (Phase PC-0, §0.10 — supersedes `vocations.xml`) |
+| `VocationDef` (full combat block, incl. level-1 vitals floor) | `tfs-rust-content` (new type) | `data/defs/vocations.lua` (Phase PC-0, §0.10 — supersedes `vocations.xml`) |
 | Cached per-vocation snapshot | `Player` at login (or `GameWorld` map) | `VocationRegistry` |
 | Wand attributes (`wand_damage_type`, `wand_attack_strength`, `wand_variation`, `wand_range`, `wand_mana`) | `content::ItemType` fields **or** a `data/772_wands.lua` era-data table (§0.7/§0.10 — same Lua-as-data pattern as vocations; no source currently wired either way) | `items.xml`/`objects.srv` (verify — see §0.7, gap is bigger than "which source") |
 | `CIRCLE_RINGS` baked const + `disc_offsets` | `combat/circles.rs` | generated from `circles.dat` (`InitCircles`) |
@@ -709,7 +709,7 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
 ## 6. Test plan
 - **Formula goldens** (extend `combat/math.rs` tests): melee `max(0,atk−def)` then randomized armor;
   distance hit-probe bounds; wand fixed±variation; skill-tries curve from vocation multipliers.
-- **Vocation parse golden**: `data/vocations.lua` full block (plus the temporary dual-load
+- **Vocation parse golden**: `data/defs/vocations.lua` full block (plus the temporary dual-load
   equivalence test against the outgoing `vocations.xml` loader, per PC-0 step 6).
 - **Circles parity** (`combat/circles.rs`): re-derive rings from `reference/.../circles.dat`
   (`InitCircles` scan) and assert equality with `CIRCLE_RINGS`; spot-check `disc_offsets(6)` (UE)

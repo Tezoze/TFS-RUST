@@ -1,22 +1,3 @@
--- data/vocations.lua
--- Vocation combat data — Lua-as-data pilot (DATA_FORMAT_MIGRATION.md Phase 1).
--- Replaces data/XML/vocations.xml as the source of truth for the full TVP
--- combat block: per-level gains, regen cadence, formulas, skill multipliers,
--- soul, attack/base speed, and the level-1 vitals floor.
---
--- C++ reference (772 outcomes — tibia-game-master/src/):
---   * Per-vocation AddLevel for HP/mana/cap — crplayer.cc:1050-1093 SetProfession.
---   * Regen cadence (gain_hp_ticks/gain_hp_amount/…) — crskill.cc:828-885 TSkillFed::Event.
---   * Level-1 vitals floor (base_hp=150, base_mana=0, base_cap=400) —
---     runtime/mon/human.mon Skills = { (HitPoints, 150, 0, 150, …),
---     (Mana, 0, 0, 0, …), (CarryStrength, 400, 0, 400, …) } (race data;
---     AddLevel overrides only the per-level gain, not the floor).
---   * Skill multipliers feed TSkillProbe::GetExpForLevel FactorPercent
---     (crskill.cc:472-512).
---
--- skill_multipliers indices: 0=fist, 1=club, 2=sword, 3=axe, 4=distance,
--- 5=shielding, 6=fishing (matches SKILL_FIST..SKILL_FISHING in enums.hh).
-
 local SKILL_FIST, SKILL_CLUB, SKILL_SWORD, SKILL_AXE = 0, 1, 2, 3
 local SKILL_DISTANCE, SKILL_SHIELDING, SKILL_FISHING = 4, 5, 6
 

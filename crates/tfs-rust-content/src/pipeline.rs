@@ -29,7 +29,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
     let otb_path = data_dir.join("items/items.otb");
     let xml_path = data_dir.join("items/items.xml");
     let monsters_dir = data_dir.join("monster");
-    let voc_path = data_dir.join("vocations.lua");
+    let voc_path = data_dir.join("defs/vocations.lua");
     let out_path = data_dir.join("XML/outfits.xml");
     let mounts_path = data_dir.join("XML/mounts.xml");
     let groups_path = data_dir.join("XML/groups.xml");

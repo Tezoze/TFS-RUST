@@ -1,10 +1,10 @@
-//! Vocation combat data — Lua-as-data pilot (`data/vocations.lua`).
+//! Vocation combat data — Lua-as-data pilot (`data/defs/vocations.lua`).
 //!
 //! Replaces the outgoing `quick-xml` `Vocation`/`VocationDatabase` per
 //! `docs/DATA_FORMAT_MIGRATION.md` Phase 1 (vocations pilot). The full TVP
 //! combat block (gains, regen cadence, formulas, skill multipliers, soul,
 //! attack/base speed) plus the level-1 vitals floor now live in
-//! `data/vocations.lua` and deserialize into [`VocationDef`] via `mlua`'s
+//! `data/defs/vocations.lua` and deserialize into [`VocationDef`] via `mlua`'s
 //! `serde` feature. [`VocationRegistry`] indexes them by id for game-thread
 //! lookups; a `Copy` hot-path snapshot (`VocationProfile`) lives in
 //! `tfs-rust-core::creature::vocation` for level-up/regen/speed reads without
@@ -31,10 +31,10 @@ use tracing::info;
 
 use crate::data_lua::{load_data_table, require_schema, sandboxed_data_lua};
 
-/// Expected `schema` version for `data/vocations.lua`.
+/// Expected `schema` version for `data/defs/vocations.lua`.
 pub const VOCATIONS_SCHEMA: u32 = 1;
 
-/// Full vocation combat block — mirrors `data/vocations.lua` 1:1.
+/// Full vocation combat block — mirrors `data/defs/vocations.lua` 1:1.
 ///
 /// Fields are `snake_case` to match the Lua keys directly (no `serde(rename)`
 /// noise). Numeric types are widened where the C++/Lua value fits but the
@@ -183,7 +183,7 @@ impl VocationRegistry {
         self.vocations.get(&(vocation_id as u16))
     }
 
-    /// Load `data/vocations.lua` via the sandboxed data-Lua loader, deserialize
+    /// Load `data/defs/vocations.lua` via the sandboxed data-Lua loader, deserialize
     /// into `Vec<VocationDef>`, validate, and index by id.
     pub fn load(path: &Path) -> Result<Self> {
         info!("Loading vocations from {:?}", path);
@@ -397,7 +397,7 @@ where
 mod tests {
     use super::*;
 
-    /// Golden parse: `data/vocations.lua` carries the full TVP block with
+    /// Golden parse: `data/defs/vocations.lua` carries the full TVP block with
     /// known 772 values (knight skill[4]=1.4, sorcerer gainmana=30,
     /// attackspeed=2000, basespeed=70).
     #[test]
@@ -406,6 +406,7 @@ mod tests {
             .join("..")
             .join("..")
             .join("data")
+            .join("defs")
             .join("vocations.lua");
         if !path.is_file() {
             eprintln!("skipping golden_parse_vocations_lua — {} not found", path.display());
@@ -438,7 +439,7 @@ mod tests {
         assert!((knight.formula.melee_damage - 1.0).abs() < 1e-4);
     }
 
-    /// Dual-load golden equivalence: the new `data/vocations.lua` loader
+    /// Dual-load golden equivalence: the new `data/defs/vocations.lua` loader
     /// produces the same `VocationDef`s as the outgoing `vocations.xml` parser
     /// (PC-0 step 6 / `DATA_FORMAT_MIGRATION.md` "golden equivalence").
     #[test]
@@ -446,7 +447,7 @@ mod tests {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..");
-        let lua_path = manifest.join("data").join("vocations.lua");
+        let lua_path = manifest.join("data").join("defs").join("vocations.lua");
         let xml_path = manifest.join("data").join("XML").join("vocations.xml");
         if !lua_path.is_file() || !xml_path.is_file() {
             eprintln!(
