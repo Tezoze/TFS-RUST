@@ -295,7 +295,14 @@ polynomial** — consolidate onto one). Vitals per level from `data/vocations.lu
 
 ## 3. Work breakdown
 
-### Phase PM — Player module consolidation (pure moves, very low risk — do first)
+### Phase PM — Player module consolidation (pure moves, very low risk — do first) — DONE
+**Status:** ✅ Complete. All 9 files relocated via `git mv` (history preserved); `lib.rs` has a
+single `mod player;` + crate-root `pub(crate) use player::… as <old_name>` aliases; `player/mod.rs`
+and `player/inventory/mod.rs` declare submodules with `#[allow(unused_imports)]` glob re-exports for
+future `crate::player::…` call sites. Verification: `cargo check` = 6 warnings (same as baseline),
+`cargo clippy --all-targets` = 9 warnings (same as baseline), `cargo test -p tfs-rust-core` = 523
+passed / 2 ignored (identical to pre-PM baseline). No logic edits — pure file relocation.
+
 **Goal:** stand up the `player/` directory (§4.0) so the combat phases add files into a real module
 instead of scattering more `player_*.rs` at the crate root. This is the same behavior-preserving,
 cut/paste move as `REFACTOR_AUDIT.md` Phase 4 (`monster_ai.rs` → `monster_ai/`) and discharges the

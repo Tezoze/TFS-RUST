@@ -23,7 +23,6 @@ mod game_world_inventory;
 mod game_world_item_cylinder;
 mod game_world_item_move;
 mod game_world_lifecycle;
-mod game_world_player;
 mod game_world_player_rotate;
 mod game_world_player_throw;
 mod game_world_save;
@@ -56,15 +55,8 @@ mod monster_targets;
 pub mod output_queue;
 pub mod party;
 pub mod pathfinding;
-mod player_combat;
-mod player_depot;
-mod player_flags;
-mod player_inventory_load;
-mod player_inventory_notifications;
-mod player_inventory_query_add;
-mod player_inventory_util;
+mod player;
 mod player_lua_context;
-mod player_ping;
 mod connections;
 mod process_skills;
 pub mod protocol_hooks;
@@ -91,6 +83,33 @@ pub mod walk_action;
 pub mod weapon;
 pub mod wildcard;
 pub mod world_light;
+
+// Phase PM — player module consolidation. The formerly flat `player_*.rs` /
+// `game_world_player.rs` files moved into `player/` (see `player/mod.rs`).
+// These crate-root aliases keep legacy `crate::player_flags::…` /
+// `crate::player_inventory_util::…` / `crate::game_world_player::…` / etc. call
+// sites resolving unchanged until they are repointed to `crate::player::…`
+// opportunistically. Pure move — no logic edits (`tasks/player-combat-plan.md` PM).
+// `#[allow(unused_imports)]` — not every alias has a live `crate::<old_name>::…`
+// reference today; all are kept for migration stability.
+#[allow(unused_imports)]
+pub(crate) use player::combat as player_combat;
+#[allow(unused_imports)]
+pub(crate) use player::depot as player_depot;
+#[allow(unused_imports)]
+pub(crate) use player::flags as player_flags;
+#[allow(unused_imports)]
+pub(crate) use player::inventory::load as player_inventory_load;
+#[allow(unused_imports)]
+pub(crate) use player::inventory::notifications as player_inventory_notifications;
+#[allow(unused_imports)]
+pub(crate) use player::inventory::query_add as player_inventory_query_add;
+#[allow(unused_imports)]
+pub(crate) use player::inventory::util as player_inventory_util;
+#[allow(unused_imports)]
+pub(crate) use player::ping as player_ping;
+#[allow(unused_imports)]
+pub(crate) use player::stats as game_world_player;
 
 pub use combat::{
     apply_condition, can_player_attack_player, execute, is_in_pvp_zone, is_protected, CombatDamage,
