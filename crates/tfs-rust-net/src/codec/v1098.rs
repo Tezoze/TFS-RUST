@@ -11,8 +11,9 @@ use crate::NetworkMessage;
 
 use super::wire::{
     AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
-    CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
-    DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+    ChannelMessageWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
+    CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire,
+    PlayerStatsWire, PrivateMessageWire, ToChannelWire,
 };
 
 /// Zero-sized 10.98 codec (stateless; caps from `ProtocolVersion::V1098`).
@@ -464,6 +465,63 @@ impl Codec1098 {
         m.write_u16(w.level);
         m.write_u8(w.speak_type);
         m.write_position(&w.pos);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendToChannel` — opcode `0xAA` (`src/protocolgame.cpp` ~1730):
+    /// `u32 statementId + name + u16 level + u8 speakType + u16 channelId + text`.
+    /// Anonymous (`speaker_name = None`) writes `u32 0` in place of `name + level`.
+    pub fn encode_to_channel(&self, statement_id: u32, w: &ToChannelWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(statement_id);
+        match &w.speaker_name {
+            Some(name) => {
+                m.write_string(name);
+                m.write_u16(w.level);
+            }
+            None => m.write_u32(0),
+        }
+        m.write_u8(w.speak_type);
+        m.write_u16(w.channel_id);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendPrivateMessage` — opcode `0xAA` (`src/protocolgame.cpp` ~2480):
+    /// `u32 statementId + name + u16 level + u8 speakType + text`.
+    /// Anonymous (`speaker_name = None`) writes `u32 0` in place of `name + level`.
+    pub fn encode_private_message(
+        &self,
+        statement_id: u32,
+        w: &PrivateMessageWire,
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(statement_id);
+        match &w.speaker_name {
+            Some(name) => {
+                m.write_string(name);
+                m.write_u16(w.level);
+            }
+            None => m.write_u32(0),
+        }
+        m.write_u8(w.speak_type);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendChannelMessage` — opcode `0xAA` (`src/protocolgame.cpp:1730`):
+    /// `u32 0 + author + u16 0 + u8 speakType + u16 channel + text`.
+    pub fn encode_channel_message(&self, w: &ChannelMessageWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(0);
+        m.write_string(&w.author);
+        m.write_u16(0);
+        m.write_u8(w.speak_type);
+        m.write_u16(w.channel_id);
         m.write_string(&w.text);
         m
     }

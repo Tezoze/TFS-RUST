@@ -20,9 +20,10 @@ use crate::creature_encode::{AddCreatureWire, OutfitWire};
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
-    CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
-    DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
+    AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
+    CombatDamageNotifyWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
+    CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire,
+    PlayerStatsWire, PrivateMessageWire, ToChannelWire,
 };
 
 /// Zero-sized 7.72 codec (stateless; caps from `ProtocolVersion::V772`).
@@ -468,6 +469,58 @@ impl Codec772 {
         m.write_string(&w.speaker_name);
         m.write_u8(w.speak_type);
         m.write_position(&w.pos);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendToChannel` — opcode `0xAA` (`gameserver/src/protocolgame.cpp:1442`):
+    /// `u32 statementId + name + u8 speakType + u16 channelId + text`. **No `level` field** (10.98
+    /// adds it after the name; writing it desyncs the 772 client's message-mode byte read).
+    /// Anonymous (`speaker_name = None`) writes `u32 0` in place of the name.
+    pub fn encode_to_channel(&self, statement_id: u32, w: &ToChannelWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(statement_id);
+        match &w.speaker_name {
+            Some(name) => m.write_string(name),
+            None => m.write_u32(0),
+        }
+        m.write_u8(w.speak_type);
+        m.write_u16(w.channel_id);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendPrivateMessage` — opcode `0xAA`
+    /// (`gameserver/src/protocolgame.cpp:1465`): `u32 statementId + name + u8 speakType + text`.
+    /// **No `level` field** (10.98 adds it). Anonymous (`speaker_name = None`) writes `u32 0`.
+    pub fn encode_private_message(
+        &self,
+        statement_id: u32,
+        w: &PrivateMessageWire,
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(statement_id);
+        match &w.speaker_name {
+            Some(name) => m.write_string(name),
+            None => m.write_u32(0),
+        }
+        m.write_u8(w.speak_type);
+        m.write_string(&w.text);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendChannelMessage` — opcode `0xAA`
+    /// (`gameserver/src/protocolgame.cpp:1306`): `u32 0 + author + u8 speakType + u16 channel + text`.
+    /// **No author-`level` field** (10.98 writes a `u16 0` after the author).
+    pub fn encode_channel_message(&self, w: &ChannelMessageWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0xAA);
+        m.write_u32(0);
+        m.write_string(&w.author);
+        m.write_u8(w.speak_type);
+        m.write_u16(w.channel_id);
         m.write_string(&w.text);
         m
     }

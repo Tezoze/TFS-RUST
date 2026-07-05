@@ -134,7 +134,7 @@ pub fn parse_game_opcode(
             creature_id: msg.read_u32()?,
         }),
         C::JOIN_AGGRESSION => Ok(GamePacket::JoinAggression),
-        C::SAY => parse_say(msg),
+        C::SAY => parse_say(msg, version),
         C::REQUEST_CHANNELS => Ok(GamePacket::RequestChannels),
         C::OPEN_CHANNEL => Ok(GamePacket::OpenChannel {
             channel_id: msg.read_u16()?,
@@ -361,34 +361,72 @@ fn parse_set_outfit(msg: &mut NetworkMessage) -> Result<GamePacket> {
     }))
 }
 
-fn parse_say(msg: &mut NetworkMessage) -> Result<GamePacket> {
-    const TALKTYPE_PRIVATE_TO: u8 = 5;
-    const TALKTYPE_PRIVATE_RED_TO: u8 = 16;
-    const TALKTYPE_CHANNEL_Y: u8 = 7;
-    const TALKTYPE_CHANNEL_R1: u8 = 14;
+/// Trailing field a `parseSay` packet carries after its speak-class byte.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SayField {
+    /// Private message: a length-prefixed receiver name (`msg.getString()`).
+    Receiver,
+    /// Channel talk: a `uint16_t` channel id (`msg.get<uint16_t>()`).
+    Channel,
+    /// Local speech (say/whisper/yell/broadcast/unknown): no field before the text.
+    None,
+}
 
+/// Which trailing field `ProtocolGame::parseSay` reads for `speak_class` under `version`.
+///
+/// **The `SpeakClasses` enum values differ by era**, so this MUST be version-keyed — the byte
+/// that means "channel talk" in 772 (`5`) means "private message" in 1098, and reading the wrong
+/// trailing field (string vs. `u16`) desyncs the stream (observed as `EOF reading u16`).
+///
+/// C++ reference:
+/// - 772  `gameserver/src/protocolgame.cpp:919-943` (`parseSay` switch) + `const.h:61-77`:
+///   `TALKTYPE_PRIVATE=4`, `TALKTYPE_PRIVATE_RED=11`, `TALKTYPE_RVR_ANSWER=7` → receiver;
+///   `TALKTYPE_CHANNEL_Y=5`, `TALKTYPE_CHANNEL_R1=10`, `TALKTYPE_CHANNEL_R2=14` → channel id.
+/// - 1098 repo-root `src/protocolgame.cpp:984-1005` + `const.h:163-178`:
+///   `TALKTYPE_PRIVATE_TO=5`, `TALKTYPE_PRIVATE_RED_TO=16` → receiver;
+///   `TALKTYPE_CHANNEL_Y=7`, `TALKTYPE_CHANNEL_R1=14` → channel id.
+fn say_field(speak_class: u8, version: ProtocolVersion) -> SayField {
+    match version.raw() {
+        772 => match speak_class {
+            4 | 11 | 7 => SayField::Receiver, // PRIVATE, PRIVATE_RED, RVR_ANSWER
+            5 | 10 | 14 => SayField::Channel, // CHANNEL_Y, CHANNEL_R1, CHANNEL_R2
+            _ => SayField::None,
+        },
+        1098 => match speak_class {
+            5 | 16 => SayField::Receiver, // PRIVATE_TO, PRIVATE_RED_TO
+            7 | 14 => SayField::Channel,  // CHANNEL_Y, CHANNEL_R1
+            _ => SayField::None,
+        },
+        _ => SayField::None,
+    }
+}
+
+fn parse_say(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result<GamePacket> {
     let speak_class = msg.read_u8()?;
     let mut channel_id = 0u16;
     let mut receiver = String::new();
-    match speak_class {
-        TALKTYPE_PRIVATE_TO | TALKTYPE_PRIVATE_RED_TO => {
-            receiver = msg.read_string()?;
-        }
-        TALKTYPE_CHANNEL_Y | TALKTYPE_CHANNEL_R1 => {
-            channel_id = msg.read_u16()?;
-        }
-        _ => {}
+
+    // The trailing field depends on both the speak class AND the protocol era (see `say_field`).
+    match say_field(speak_class, version) {
+        SayField::Receiver => receiver = msg.read_string()?,
+        SayField::Channel => channel_id = msg.read_u16()?,
+        SayField::None => {}
     }
+
     let text = msg.read_string()?;
     // C++ `parseSay` drops texts longer than 255 bytes at the wire layer
-    // (`gameserver/src/protocolgame.cpp:945-947`). The packet is discarded but the
-    // connection stays open — returning `Err` here mirrors that: the caller logs a
-    // warn and continues reading the next packet (`protocol_game.rs:130-133`).
+    // (772 `gameserver/src/protocolgame.cpp:944-946`, 1098 `src/protocolgame.cpp:1007-1009`).
+    // The packet is discarded but the connection stays open — returning `Err` here mirrors that:
+    // the caller logs a warn and continues reading the next packet (`protocol_game.rs:130-133`).
     if text.len() > 255 {
         return Err(TfsRustError::Protocol(
             "parseSay: text exceeds 255-byte limit".into(),
         ));
     }
+    // `speak_class` is passed through as the raw wire byte. The active target is 772, whose
+    // `SpeakClasses` values are the canonical set `tfs-rust-core::game_world_chat` switches on,
+    // so 772 is correct end to end. 1098 chat dispatch needs a wire→core speak-class translation
+    // (both directions) — tracked as the CH-8 follow-up in `tasks/chat-system-plan.md`.
     Ok(GamePacket::Say(SayPayload {
         speak_class,
         channel_id,

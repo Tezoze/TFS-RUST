@@ -25,6 +25,7 @@ use crate::player::flags::{PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CAN_BROADCAS
 use crate::return_value::ReturnValue;
 use tfs_rust_net::ChannelOpenWire;
 use tfs_rust_net::CreatePrivateChannelWire;
+use tfs_rust_net::{PrivateMessageWire, ToChannelWire};
 use tfs_rust_net::outgoing_extra;
 
 /// `SpeakClasses` byte values — `gameserver/src/const.h:61-77`.
@@ -306,23 +307,31 @@ impl GameWorld {
         }
 
         // TODO(chat CH-4): Run Lua `onSpeak` hook if present, may modify speak_class or reject
+        let _ = speaker_guid;
 
-        // Fan out to all channel members
-        for member_id in channel.users.iter() {
-            if let Some(conn_id) = self.creature_to_conn.get(member_id) {
-                let msg = tfs_rust_net::outgoing_extra::send_to_channel(
-                    speaker_guid,
-                    Some(&speaker_name),
-                    speaker_level as u16,
-                    speak_class,
-                    channel_id,
-                    text,
-                );
-                self.pending_outgoing
-                    .entry(*conn_id)
-                    .or_default()
-                    .push(msg.into_bytes());
-            }
+        // Collect recipient connections first so the `self.chat` borrow (from `channel`) is
+        // released before we touch `self.codec` / `alloc_statement_id` / the outgoing queue.
+        let recipients: Vec<ConnId> = channel
+            .users
+            .iter()
+            .filter_map(|m| self.creature_to_conn.get(m).copied())
+            .collect();
+
+        // Fan out to all channel members through the era-aware codec. `sendToChannel` differs by
+        // era: 1098 writes `name + u16 level + type + …`, 772 omits the `level` field
+        // (`gameserver/src/protocolgame.cpp:1442`). Writing the 1098 layout to a 772 client shifts
+        // the speak-type byte, which the client reads as an invalid message mode.
+        for conn_id in recipients {
+            let statement_id = self.alloc_statement_id();
+            let wire = ToChannelWire {
+                speaker_name: Some(speaker_name.clone()),
+                level: speaker_level as u16,
+                speak_type: speak_class,
+                channel_id,
+                text: text.to_string(),
+            };
+            let msg = self.codec.encode_to_channel(statement_id, &wire);
+            self.enqueue_outgoing(conn_id, msg.into_bytes());
         }
     }
 
@@ -640,16 +649,17 @@ impl GameWorld {
         };
 
         // C++ `toPlayer->sendPrivateMessage(player, type, text);` — `game.cpp:3669`.
+        // Era-aware codec: 772 `sendPrivateMessage` omits the `u16 level` field that 1098 writes
+        // after the name (`gameserver/src/protocolgame.cpp:1465`).
         if let Some(target_conn) = self.conn_for_creature(target_cid) {
-            use tfs_rust_net::outgoing_extra::send_private_message_speech;
             let statement_id = self.alloc_statement_id();
-            let msg = send_private_message_speech(
-                statement_id,
-                Some(&speaker_name),
-                speaker_level as u16,
-                actual_speak_class,
-                text,
-            );
+            let wire = PrivateMessageWire {
+                speaker_name: Some(speaker_name.clone()),
+                level: speaker_level as u16,
+                speak_type: actual_speak_class,
+                text: text.to_string(),
+            };
+            let msg = self.codec.encode_private_message(statement_id, &wire);
             self.enqueue_outgoing(target_conn, msg.into_bytes());
 
             // C++ `toPlayer->onCreatureSay(player, type, text);` — `game.cpp:3670`.
@@ -701,19 +711,19 @@ impl GameWorld {
         tracing::info!(player = %speaker_name, "broadcasted: \"{}\"", text);
 
         // C++ `for (const auto& it : players) { it.second->sendPrivateMessage(player, TALKTYPE_BROADCAST, text); }`
-        // — `game.cpp:1906-1908`. Fan-out to all online players.
-        use tfs_rust_net::outgoing_extra::send_private_message_speech;
-        let statement_id = self.alloc_statement_id();
+        // — `game.cpp:1906-1908`. Fan-out to all online players via the era-aware codec (772 omits
+        // the `u16 level` field, `gameserver/src/protocolgame.cpp:1465`).
         let target_conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
 
         for target_conn in target_conns {
-            let msg = send_private_message_speech(
-                statement_id,
-                Some(&speaker_name),
-                speaker_level as u16,
-                TALKTYPE_BROADCAST,
-                text,
-            );
+            let statement_id = self.alloc_statement_id();
+            let wire = PrivateMessageWire {
+                speaker_name: Some(speaker_name.clone()),
+                level: speaker_level as u16,
+                speak_type: TALKTYPE_BROADCAST,
+                text: text.to_string(),
+            };
+            let msg = self.codec.encode_private_message(statement_id, &wire);
             self.enqueue_outgoing(target_conn, msg.into_bytes());
         }
     }

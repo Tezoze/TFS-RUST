@@ -13,7 +13,7 @@ use crate::context::{CreatureRef, ItemRef};
 use crate::timer_events::{
     execute_timer_event, register_add_event_stop_event, TimerEvents,
 };
-use crate::userdata::{register_channel_metatable, register_container_metatable, register_creature_metatable, register_item_metatable, ChannelHandle};
+use crate::userdata::{register_container_metatable, register_creature_metatable, register_item_metatable};
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
 #[derive(Debug)]
@@ -60,7 +60,6 @@ impl LuaRuntime {
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
-        register_channel_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
 
         // Initialize pending channel buffer for Channel:register()
@@ -135,7 +134,9 @@ impl LuaRuntime {
             if let Ok(channel_table) = pending.get::<mlua::Table>(i) {
                 let id: u16 = channel_table.get("id")?;
                 let name: String = channel_table.get("name")?;
-                let public: bool = channel_table.get("public")?;
+                // `_public` (not `public`) — `public` is the fluent-setter method on the
+                // channel table; the flag it toggles is stored under `_public`.
+                let public: bool = channel_table.get("_public")?;
 
                 let on_speak = channel_table
                     .get::<Option<mlua::Function>>("onSpeak")?
@@ -406,17 +407,44 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
         globals.set(name, lua.create_table()?)?;
     }
 
-    // Channel constructor for self-registering chat channels
+    // `Channel(id, name)` — self-registering chat-channel constructor.
+    //
+    // Returns a plain Lua **table** (not userdata). Scripts attach hooks as table fields
+    // (`function channel.onSpeak(...)`, `function channel.canJoin(...)`), which is a
+    // `__newindex` write. Lua userdata rejects `__newindex` for arbitrary keys, so the
+    // earlier `ChannelHandle` userdata raised "attempt to index a userdata value" the
+    // moment a script defined its first hook. A table has no such restriction.
+    //
+    // C++ reference: `chat.cpp` `Chat::load` — channel registration (adapted from XML to
+    // this self-registering Lua convention, mirroring the `Action`/`TalkAction` shape).
     let channel_constructor = lua.create_function(|lua, (id, name): (u16, String)| {
-        let channel = ChannelHandle::new(id, name);
-        let ud = lua.create_userdata(channel)?;
-        Ok(ud)
+        let ch = lua.create_table()?;
+        ch.set("id", id)?;
+        ch.set("name", name)?;
+        // Public flag stored under `_public`; the `public` key is the setter method below.
+        ch.set("_public", false)?;
+        // `channel:public(bool)` fluent setter (mirrors `talkaction:separator(...)`).
+        ch.set(
+            "public",
+            lua.create_function(|_, (this, is_public): (mlua::Table, bool)| {
+                this.set("_public", is_public)?;
+                Ok(())
+            })?,
+        )?;
+        // `channel:register()` — push the channel table into the loader's pending buffer;
+        // `load_channel_script` drains it and reads id/name/_public + hook fields.
+        ch.set(
+            "register",
+            lua.create_function(|lua, this: mlua::Table| {
+                let pending: mlua::Table = lua.globals().get("_pending_channels")?;
+                let len = pending.len()?;
+                pending.set(len + 1, this)?;
+                Ok(())
+            })?,
+        )?;
+        Ok(ch)
     })?;
     globals.set("Channel", channel_constructor)?;
-
-    // Initialize channel hook storage
-    let channel_hooks = lua.create_table()?;
-    globals.set("_channel_hooks", channel_hooks)?;
 
     // `player.lua` constructs `soulCondition` at load time (lines 100–102).
     let condition = lua.create_function(|lua, (_kind, _id): (i32, i32)| {

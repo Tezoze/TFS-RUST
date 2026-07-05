@@ -6,7 +6,7 @@ channel:public(true)
 -- muted:setParameter(CONDITION_PARAM_SUBID, 6)
 -- muted:setParameter(CONDITION_PARAM_TICKS, 120000)
 
-function onSpeak(player, type, message)
+function channel.onSpeak(player, type, message)
 	if player:getAccountType() >= ACCOUNT_TYPE_GAMEMASTER then
 		if type == TALKTYPE_CHANNEL_Y then
 			return TALKTYPE_CHANNEL_O

@@ -693,7 +693,11 @@ pub fn send_creature_say(
     m
 }
 
-/// C++ `ProtocolGame::sendToChannel` (`src/protocolgame.cpp` ~2455).
+/// C++ `ProtocolGame::sendToChannel` (`src/protocolgame.cpp` ~2455). **Era-divergent** — writes the
+/// 1098 layout (`u16 level` after the name). Use
+/// [`Codec::encode_to_channel`](crate::codec::ProtocolCodec::encode_to_channel) instead; 772 omits
+/// the `level` field (`gameserver/src/protocolgame.cpp:1442`) and writing it desyncs a 772 client.
+#[deprecated(note = "era-divergent — use Codec::encode_to_channel")]
 pub fn send_to_channel(
     statement_id: u32,
     speaker_name: Option<&str>,
@@ -717,7 +721,11 @@ pub fn send_to_channel(
     m
 }
 
-/// C++ `ProtocolGame::sendPrivateMessage` (`src/protocolgame.cpp` ~2480).
+/// C++ `ProtocolGame::sendPrivateMessage` (`src/protocolgame.cpp` ~2480). **Era-divergent** — writes
+/// the 1098 layout (`u16 level` after the name). Use
+/// [`Codec::encode_private_message`](crate::codec::ProtocolCodec::encode_private_message) instead;
+/// 772 omits the `level` field (`gameserver/src/protocolgame.cpp:1465`).
+#[deprecated(note = "era-divergent — use Codec::encode_private_message")]
 pub fn send_private_message_speech(
     statement_id: u32,
     speaker_name: Option<&str>,
@@ -739,7 +747,11 @@ pub fn send_private_message_speech(
     m
 }
 
-/// C++ `ProtocolGame::sendChannelMessage` (`src/protocolgame.cpp` ~1730).
+/// C++ `ProtocolGame::sendChannelMessage` (`src/protocolgame.cpp` ~1730). **Era-divergent** — writes
+/// the 1098 layout (`u16 0` author-level after the author). Use
+/// [`Codec::encode_channel_message`](crate::codec::ProtocolCodec::encode_channel_message) instead;
+/// 772 omits that field (`gameserver/src/protocolgame.cpp:1306`).
+#[deprecated(note = "era-divergent — use Codec::encode_channel_message")]
 pub fn send_channel_message(author: &str, text: &str, speak: u8, channel: u16) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0xAA);

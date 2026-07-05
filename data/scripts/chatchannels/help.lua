@@ -6,7 +6,7 @@ channel:public(true)
 -- muted:setParameter(CONDITION_PARAM_SUBID, 7)
 -- muted:setParameter(CONDITION_PARAM_TICKS, 3600000)
 
-function onSpeak(player, type, message)
+function channel.onSpeak(player, type, message)
 	local playerAccountType = player:getAccountType()
 	if player:getLevel() == 1 and playerAccountType == ACCOUNT_TYPE_NORMAL then
 		player:sendCancelMessage("You may not speak into channels as long as you are on level 1.")

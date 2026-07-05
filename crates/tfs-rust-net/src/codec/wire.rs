@@ -147,6 +147,47 @@ pub struct CreatureSayWire {
     pub text: String,
 }
 
+/// `ProtocolGame::sendToChannel` — `0xAA` channel speech.
+/// 1098 (`src/protocolgame.cpp` ~1730): `u32 stmt + name + u16 level + u8 speak_type + u16 channelId + text`.
+/// 772 (`gameserver/src/protocolgame.cpp:1442`): `u32 stmt + name + u8 speak_type + u16 channelId + text`
+/// — **no `level` field** (10.98 adds it, which desyncs a 772 client's message-mode read if written).
+/// `speaker_name = None` → anonymous branch (C++ `!creature`): a `u32 0` is written in place of the name.
+#[derive(Debug, Clone)]
+pub struct ToChannelWire {
+    pub speaker_name: Option<String>,
+    /// 1098 only — 772 omits this field.
+    pub level: u16,
+    pub speak_type: u8,
+    pub channel_id: u16,
+    pub text: String,
+}
+
+/// `ProtocolGame::sendPrivateMessage` — `0xAA` private message (tell / broadcast).
+/// 1098 (`src/protocolgame.cpp` ~2480): `u32 stmt + name + u16 level + u8 speak_type + text`.
+/// 772 (`gameserver/src/protocolgame.cpp:1465`): `u32 stmt + name + u8 speak_type + text` — **no `level`**.
+/// `speaker_name = None` → anonymous branch (`u32 0` in place of the name).
+#[derive(Debug, Clone)]
+pub struct PrivateMessageWire {
+    pub speaker_name: Option<String>,
+    /// 1098 only — 772 omits this field.
+    pub level: u16,
+    pub speak_type: u8,
+    pub text: String,
+}
+
+/// `ProtocolGame::sendChannelMessage` — `0xAA` anonymous channel message (statement id + author level
+/// always zero). Used for server-originated channel text (e.g. Help `!mute` broadcast).
+/// 1098 (`src/protocolgame.cpp:1730`): `u32 0 + author + u16 0 + u8 speak_type + u16 channel + text`.
+/// 772 (`gameserver/src/protocolgame.cpp:1306`): `u32 0 + author + u8 speak_type + u16 channel + text`
+/// — **no `level` field**.
+#[derive(Debug, Clone)]
+pub struct ChannelMessageWire {
+    pub author: String,
+    pub speak_type: u8,
+    pub channel_id: u16,
+    pub text: String,
+}
+
 /// `ProtocolGame::sendChannelsDialog` — `0xAB` channel list dialog.
 /// Era-identical layout (`gameserver/src/protocolgame.cpp:1282` == `src/protocolgame.cpp:1687`):
 /// `byte + u8 count + [u16 id + string name]*`. Both codecs emit the same bytes; the struct is shared

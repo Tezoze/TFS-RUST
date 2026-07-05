@@ -32,6 +32,6 @@ pub use timer_events::{
     TimerEvents, TimerScheduler,
 };
 pub use userdata::{
-    register_channel_metatable, register_container_metatable, register_creature_metatable,
-    register_item_metatable, ChannelHandle, ContainerRef,
+    register_container_metatable, register_creature_metatable, register_item_metatable,
+    ContainerRef,
 };
