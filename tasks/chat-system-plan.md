@@ -611,35 +611,40 @@ Resolve §4's open questions inline in the phase that hits them — do not defer
 - [x] `player_yell` + `player_whisper` wired into `player_say`'s `TALKTYPE_YELL`/`WHISPER` arms
 
 ### CH-3 — Private message (tell) + Broadcast
-- [ ] Resolve player-flags open question (§4.3) — reuse existing account-type gate or add
-      `PlayerFlags` bitset
-- [ ] `player_speak_to` — name resolution, `PRIVATE_RED` downgrade rule, ghost-mode visibility check,
+- [x] Resolve player-flags open question (§4.3) — reuse existing account-type gate or add
+      `PlayerFlags` bitset (resolved: added `PLAYER_FLAG_CAN_BROADCAST`, `PLAYER_FLAG_CAN_TALK_RED_PRIVATE`,
+      `PLAYER_FLAG_CANNOT_BE_MUTED` to `player/flags.rs`; reused existing `player_has_flag` method)
+- [x] `player_speak_to` — name resolution, `PRIVATE_RED` downgrade rule, ghost-mode visibility check,
       confirmation/failure `MESSAGE_STATUS_SMALL` text
-- [ ] `player_broadcast_message` — `CanBroadcast` gate + all-online-players fan-out
-- [ ] Wired into `player_say`'s `PRIVATE`/`PRIVATE_RED`/`BROADCAST` arms
+- [x] `player_broadcast_message` — `CanBroadcast` gate + all-online-players fan-out
+- [x] Wired into `player_say`'s `PRIVATE`/`PRIVATE_RED`/`BROADCAST` arms
 
 ### CH-4 — Channels (`tfs-rust-lua` pilot + registry + dispatch)
-- [ ] Resolve `advertising.lua`/`advertising-rook.lua` identity (§4.7) before assigning ids
-- [ ] `crates/tfs-rust-lua/src/userdata/channel.rs::ChannelHandle` (`Channel(id,name)`, `:public()`,
+- [x] Resolve `advertising.lua`/`advertising-rook.lua` identity (§4.7) before assigning ids — resolved as separate channels (9 and 10)
+- [x] `crates/tfs-rust-lua/src/userdata/channel.rs::ChannelHandle` (`Channel(id,name)`, `:public()`,
       `:register()`)
-- [ ] `crates/tfs-rust-lua/src/chat_channels.rs` — directory-scan loader +
+- [x] `crates/tfs-rust-lua/src/chat_channels.rs` — directory-scan loader +
       `ChatChannelDef`/`load_chat_channel_scripts`
-- [ ] Rewrite `data/scripts/chatchannels/{gamechat,realchat,trade,help,tutor,gamemaster}.lua` to the
-      `Channel(...)`/`:register()` convention (§2.1); resolve/rewrite `advertising*.lua` per the item
-      above; leave `ruleviolations.lua` un-rewritten and unloaded (§1); decide on
-      `worldchat.lua`/`englishchat.lua` (currently unreferenced) with the user before enabling
-- [ ] `ChatRegistry` methods: `add_user_to_channel`, `remove_user_from_channel`,
+- [x] Rewrite `data/scripts/chatchannels/{gamechat,realchat,trade,help,tutor,gamemaster}.lua` to the
+      `Channel(...)`/`:register()` convention (§2.1); resolved `advertising*.lua` as separate channels;
+      left `ruleviolations.lua` un-rewritten and unloaded (§1); left `worldchat.lua`/`englishchat.lua`
+      as-is (currently unreferenced, not enabled)
+- [x] `ChatRegistry` methods: `add_user_to_channel`, `remove_user_from_channel`,
       `remove_user_from_all_channels` (hook logout path), `get_channel`, `get_channel_list`
       (per-player visibility incl. guild/party membership)
-- [ ] Resolve `CHANNEL_PRIVATE` dynamic id allocation scheme (§4.1) against `Chat::createChannel`
-- [ ] `player_request_channels` → `send_channels_dialog`
-- [ ] `player_open_channel` → `canJoin` → `add_user_to_channel` → `onJoin` → `send_channel`
-- [ ] `player_close_channel` → `onLeave` → `remove_user_from_channel`
-- [ ] `player_talk_to_channel` → membership check → `onSpeak` → `send_to_channel` fan-out
-- [ ] `player_create_private_channel` — premium gate via `premium_ends_at`
-- [ ] `player_channel_invite` / `player_channel_exclude` (+ `send_close_private` on exclude)
-- [ ] `player_open_private_channel` — name validation + self-channel rejection
-- [ ] Wire all 8 `GamePacket::*` channel variants in `handle_game_packet`
+- [x] Resolve `CHANNEL_PRIVATE` dynamic id allocation scheme (§4.1) against `Chat::createChannel` —
+      implemented `create_channel` method with guild/party/private channel creation
+- [x] `player_request_channels` → `send_channels_dialog`
+- [x] `player_open_channel` → `canJoin` → `add_user_to_channel` → `onJoin` → `send_channel`
+- [x] `player_close_channel` → `onLeave` → `remove_user_from_channel`
+- [x] `player_talk_to_channel` → membership check → `onSpeak` → `send_to_channel` fan-out
+- [x] `player_create_private_channel` — premium gate via `premium_ends_at`
+- [x] `player_channel_invite` / `player_channel_exclude` (+ `send_close_private` on exclude)
+- [x] `player_open_private_channel` — name validation + self-channel rejection
+- [x] Wire all 8 `GamePacket::*` channel variants in `handle_game_packet`
+- [x] **Fixed client desync** — implemented dynamic guild/party channel creation per C++ `Chat::createChannel` pattern
+- [x] **Removed walk debugging** — cleaned up verbose walk timing logs
+- [x] **Lua script compatibility** — commented out unavailable Condition API calls with TODO markers for CH-5
 
 ### CH-5 — Flood protection (mute-on-spam)
 - [ ] Resolve per-player tick cadence question (§4.4) — reuse existing `onThink`-equivalent, don't add
