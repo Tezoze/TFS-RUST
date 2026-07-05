@@ -128,6 +128,8 @@ pub struct GameWorld {
     pub monster_world_config: crate::config::MonsterWorldConfig,
     /// Connection idle/timeout settings from `config.lua` (`kickIdlePlayerAfterMinutes`).
     pub connection_config: crate::config::ConnectionConfig,
+    /// Chat / yell settings from `config.lua` (`yellMinimumLevel`, `yellAlwaysAllowPremium`).
+    pub chat_config: crate::config::ChatConfig,
     /// Nesting depth for [`crate::monster_events::GameWorld::monster_notify_creature_enter_viewport`]
     /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
     pub(crate) monster_viewport_notify_depth: u32,
@@ -260,6 +262,8 @@ impl GameWorld {
             .unwrap_or_else(|_| crate::config::MonsterWorldConfig::defaults());
         let connection_config = crate::config::ConnectionConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::ConnectionConfig::defaults());
+        let chat_config = crate::config::ChatConfig::from_config(config.as_ref())
+            .unwrap_or_else(|_| crate::config::ChatConfig::defaults());
         Self {
             creatures: SlotMap::with_key(),
             items,
@@ -303,6 +307,7 @@ impl GameWorld {
             subsystem_counters: crate::subsystem_counters::SubsystemCounters::default(),
             monster_world_config,
             connection_config,
+            chat_config,
             monster_viewport_notify_depth: 0,
             ai_rng: StdRng::from_entropy(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),

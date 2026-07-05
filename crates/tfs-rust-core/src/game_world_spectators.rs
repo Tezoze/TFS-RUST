@@ -161,6 +161,47 @@ impl GameWorld {
         conns
     }
 
+    /// Wide-range spectator connection resolution for yell — `Game::internalCreatureSay`
+    /// yell path (`gameserver/src/game.cpp:3522-3523`): `map.getSpectators(pos, true,
+    /// false, 18, 18, 14, 14)`. Unlike [`Self::spectator_conns_via_grid`], this does
+    /// **not** apply `ProtocolGame::canSee` filtering — the C++ yell path sends to every
+    /// creature in the wider `(±18 X, ±14 Y, multifloor)` box, with only `ghostMode`
+    /// gating at the send site. Returns `(ConnId, CreatureId, viewer_pos)` tuples so the
+    /// caller can do per-viewer distance checks (whisper) or ghost-mode filtering (yell).
+    pub(crate) fn spectator_players_in_box(
+        &self,
+        pos: Position,
+        range_x: u16,
+        range_y: u16,
+        multifloor: bool,
+    ) -> Vec<(ConnId, CreatureId, Position)> {
+        let mut creature_ids: Vec<CreatureId> = Vec::new();
+        for z in Self::spectator_z_range(pos.z, multifloor) {
+            self.map.grid.collect_spectators(
+                pos.x,
+                pos.y,
+                z,
+                range_x,
+                range_y,
+                &mut creature_ids,
+            );
+        }
+        creature_ids.sort_by_key(|id| id.data().as_ffi());
+        creature_ids.dedup();
+
+        let mut out: Vec<(ConnId, CreatureId, Position)> = Vec::with_capacity(creature_ids.len());
+        for cid in creature_ids {
+            let Some(&viewer_conn) = self.creature_to_conn.get(&cid) else {
+                continue;
+            };
+            let Some(viewer_pos) = self.creatures.get(cid).map(|k| k.position()) else {
+                continue;
+            };
+            out.push((viewer_conn, cid, viewer_pos));
+        }
+        out
+    }
+
     /// Enqueue the same packet bytes for every connection that can see `pos` (clone per viewer).
     // C++ ref: repeated `ProtocolGame` fan-out in `game.cpp` / `protocolgame.cpp`.
     pub(crate) fn broadcast_to_spectators(&mut self, pos: Position, packet: Vec<u8>) {
@@ -260,6 +301,109 @@ impl GameWorld {
             if *viewer != speaker {
                 self.events
                     .on_hear(*viewer, speaker, text, speak_type);
+            }
+        }
+    }
+
+    /// TFS `Game::playerWhisper` — `gameserver/src/game.cpp:3400-3422`.
+    ///
+    /// Per-viewer distance check: spectators within 1 tile (Chebyshev ≤1 in X **and** Y,
+    /// `Position::areInRange<1,1>`) receive the real text; beyond that they receive
+    /// `"pspsps"`. Uses the same viewport range as SAY (`Map::maxClientViewportX/Y`).
+    /// Two-pass loop: send-to-client then event-method, matching `internalCreatureSay`.
+    pub fn broadcast_creature_whisper(
+        &mut self,
+        speaker: CreatureId,
+        speak_type: u8,
+        text: &str,
+    ) {
+        use tfs_rust_net::codec::wire::CreatureSayWire;
+        let (pos, name, level) = match self.creatures.get(speaker) {
+            Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
+            _ => return, // whisper is player-only
+        };
+        // C++ `map.getSpectators(spectators, pos, false, false, maxClientViewportX,
+        // maxClientViewportX, maxClientViewportY, maxClientViewportY)` — same-floor,
+        // ±8 X / ±6 Y box. `spectator_players_in_box` collects without `canSee` filter,
+        // matching the C++ whisper path (no per-viewer `canSee` check).
+        let viewers = self.spectator_players_in_box(
+            pos,
+            MAX_CLIENT_VIEWPORT_X as u16,
+            MAX_CLIENT_VIEWPORT_Y as u16,
+            false,
+        );
+        // Pass 1: per-viewer `sendCreatureSay` with distance-based text selection.
+        for (conn, _viewer, viewer_pos) in &viewers {
+            let within_one = pos.z == viewer_pos.z
+                && (pos.x as i32 - viewer_pos.x as i32).unsigned_abs() <= 1
+                && (pos.y as i32 - viewer_pos.y as i32).unsigned_abs() <= 1;
+            let viewer_text = if within_one { text } else { "pspsps" };
+            let sid = self.alloc_statement_id();
+            let pkt = self.codec.encode_creature_say(
+                sid,
+                &CreatureSayWire {
+                    speaker_name: name.clone(),
+                    level,
+                    speak_type,
+                    pos,
+                    text: viewer_text.into(),
+                },
+            );
+            self.enqueue_outgoing(*conn, pkt.into_bytes());
+        }
+        // Pass 2: event-method loop — `onCreatureSay` + `on_hear` (excludes speaker).
+        // C++ fires `onCreatureSay` with the **real** text for all spectators
+        // (`game.cpp:3420`), not the garbled "pspsps".
+        for (_conn, viewer, _viewer_pos) in &viewers {
+            self.events.on_creature_say(*viewer, speaker, speak_type, text);
+            if *viewer != speaker {
+                self.events.on_hear(*viewer, speaker, text, speak_type);
+            }
+        }
+    }
+
+    /// TFS `Game::internalCreatureSay` yell path — `gameserver/src/game.cpp:3518-3544`.
+    ///
+    /// Wide-range fan-out: `map.getSpectators(pos, true, false, 18, 18, 14, 14)` —
+    /// multifloor, ±18 X / ±14 Y box, **no `canSee` filtering** (the wider range IS the
+    /// filter). Ghost-mode gating is handled by the caller (C++ checks `!ghostMode ||
+    /// tmpPlayer->canSeeCreature(creature)` at the send site). Two-pass loop matching
+    /// `internalCreatureSay`.
+    pub fn broadcast_creature_yell(
+        &mut self,
+        speaker: CreatureId,
+        speak_type: u8,
+        text: &str,
+    ) {
+        use tfs_rust_net::codec::wire::CreatureSayWire;
+        let (pos, name, level) = match self.creatures.get(speaker) {
+            Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
+            _ => return,
+        };
+        // C++ yell range: `(18, 18, 14, 14)` with `multifloor=true`.
+        let viewers = self.spectator_players_in_box(pos, 18, 14, true);
+        // Pass 1: per-viewer `sendCreatureSay`. C++ ghost-mode check:
+        // `if (!ghostMode || tmpPlayer->canSeeCreature(creature))` — for non-ghost
+        // speakers (the common case) all viewers receive the packet.
+        for (conn, _viewer, _viewer_pos) in &viewers {
+            let sid = self.alloc_statement_id();
+            let pkt = self.codec.encode_creature_say(
+                sid,
+                &CreatureSayWire {
+                    speaker_name: name.clone(),
+                    level,
+                    speak_type,
+                    pos,
+                    text: text.into(),
+                },
+            );
+            self.enqueue_outgoing(*conn, pkt.into_bytes());
+        }
+        // Pass 2: event-method loop.
+        for (_conn, viewer, _viewer_pos) in &viewers {
+            self.events.on_creature_say(*viewer, speaker, speak_type, text);
+            if *viewer != speaker {
+                self.events.on_hear(*viewer, speaker, text, speak_type);
             }
         }
     }

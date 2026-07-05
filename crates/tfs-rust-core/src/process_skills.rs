@@ -143,9 +143,25 @@ impl GameWorld {
                             *left -= 1;
                         }
                     }
+                    // C++ `ConditionGeneric::executeCondition` — `condition.cpp:315-317` →
+                    // `Condition::executeCondition` (`condition.cpp:154-163`): `ticks =
+                    // max(0, ticks - interval)`. `ProcessSkills` fires every ~1000 ms
+                    // (`SkillTimeCounter`, `subsystem_counters.rs`), so we decrement by
+                    // 1000 ms per tick. `YellTicks` (30 000 ms = 30 s) expires after ~30
+                    // ticks. CH-5 will add `Muted`/`ChannelMutedTicks` ticking the same way.
+                    ConditionType::YellTicks => {
+                        if let ConditionData::Generic { ticks } = &mut cond.data {
+                            *ticks = (*ticks).saturating_sub(1000);
+                        }
+                    }
                     _ => {}
                 }
             }
+            // Remove expired `ConditionGeneric` (YellTicks) conditions after tick-down.
+            base.active_conditions.retain(|c| {
+                !(c.ctype == ConditionType::YellTicks
+                    && matches!(c.data, ConditionData::Generic { ticks: 0 }))
+            });
             if speed_expired {
                 Self::recompute_speed_from_conditions(base);
             }

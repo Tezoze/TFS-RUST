@@ -13,11 +13,15 @@
 
 use std::time::Instant;
 
+use tfs_rust_common::enums::ConditionType;
 use tfs_rust_common::ConnId;
 
+use crate::combat::apply_condition;
+use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use crate::return_value::ReturnValue;
 
 /// `SpeakClasses` byte values — `gameserver/src/const.h:61-77`.
 ///
@@ -103,14 +107,12 @@ impl GameWorld {
                 self.broadcast_creature_say_viewport(cid, TALKTYPE_SAY, text);
             }
             TALKTYPE_WHISPER => {
-                // CH-2: `player_whisper` — `game.cpp:3400-3422` (per-viewer 1-tile distance
-                // check, `"pspsps"` garbling beyond range).
-                tracing::warn!(conn_id = conn_id.0, cid = ?cid, "player_say TALKTYPE_WHISPER — CH-2 stub");
+                // C++ `playerWhisper(player, text)` — `game.cpp:3240-3241, 3400-3422`.
+                self.player_whisper(cid, text);
             }
             TALKTYPE_YELL => {
-                // CH-2: `player_yell` — `game.cpp:3424-3453` (level gate, `CONDITION_YELLTICKS`
-                // 30s exhaust, ASCII uppercase, wide `(18,18,14,14,chebyshev=true)` viewport).
-                tracing::warn!(conn_id = conn_id.0, cid = ?cid, "player_say TALKTYPE_YELL — CH-2 stub");
+                // C++ `playerYell(player, text)` — `game.cpp:3244-3245, 3424-3453`.
+                self.player_yell(cid, text);
             }
             TALKTYPE_PRIVATE | TALKTYPE_PRIVATE_RED | TALKTYPE_RVR_ANSWER => {
                 // CH-3: `player_speak_to` — `game.cpp:3455-3479` (name resolution,
@@ -164,4 +166,119 @@ impl GameWorld {
     fn player_say_spell(&self, _cid: CreatureId, _speak_class: u8, _text: &str) -> bool {
         false
     }
+
+    /// TFS `Game::playerWhisper` — `gameserver/src/game.cpp:3400-3422`.
+    ///
+    /// Spectators within 1 tile (Chebyshev ≤1 in X **and** Y) receive the real text;
+    /// beyond that they receive `"pspsps"`. The fan-out + per-viewer distance garbling
+    /// is delegated to [`Self::broadcast_creature_whisper`].
+    fn player_whisper(&mut self, cid: CreatureId, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.broadcast_creature_whisper(cid, TALKTYPE_WHISPER, text);
+    }
+
+    /// TFS `Game::playerYell` — `gameserver/src/game.cpp:3424-3453`.
+    ///
+    /// Gates (matching the reference):
+    /// 1. `CONDITION_YELLTICKS` active → `RETURNVALUE_YOUAREEXHAUSTED` cancel, return.
+    /// 2. Level < `yellMinimumLevel`:
+    ///    - If `yellAlwaysAllowPremium` && player is premium → allow (uppercase + broadcast).
+    ///    - Else → `MESSAGE_STATUS_SMALL` "You may not yell..." text, return.
+    /// 3. Non-GM players get `CONDITION_YELLTICKS` 30s applied after a successful yell.
+    /// 4. Text is ASCII-uppercased (`asUpperCaseString`, `tools.cpp:257`) then broadcast
+    ///    via the wide-range yell viewport (`broadcast_creature_yell`).
+    fn player_yell(&mut self, cid: CreatureId, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+
+        // C++ `if (player->hasCondition(CONDITION_YELLTICKS))` — `game.cpp:3426-3429`.
+        let has_yell_ticks = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p
+                .base
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::YellTicks),
+            _ => return,
+        };
+        if has_yell_ticks {
+            if let Some(conn) = self.conn_for_creature(cid) {
+                self.send_cancel_message(conn, ReturnValue::YouAreExhausted);
+            }
+            return;
+        }
+
+        // C++ level gate — `game.cpp:3431-3444`.
+        let (level, is_premium, is_access) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => {
+                let free_premium = self.config.get_bool("freePremium").unwrap_or(false);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as u32;
+                let premium = free_premium || p.premium_ends_at > now;
+                (p.level, premium, self.player_is_access_player(cid))
+            }
+            _ => return,
+        };
+
+        let min_level = self.chat_config.yell_minimum_level as i32;
+        if level < min_level {
+            if self.chat_config.yell_allow_premium && is_premium {
+                // C++ premium bypass — `game.cpp:3433-3436`.
+                let upper = ascii_uppercase(text);
+                self.broadcast_creature_yell(cid, TALKTYPE_YELL, &upper);
+                return;
+            }
+            if let Some(conn) = self.conn_for_creature(cid) {
+                use tfs_rust_net::outgoing_extra::send_text_message_simple;
+                let msg = if self.chat_config.yell_allow_premium {
+                    format!(
+                        "You may not yell unless you have reached level {min_level} or have a premium account."
+                    )
+                } else {
+                    format!("You may not yell unless you have reached level {min_level}.")
+                };
+                self.enqueue_outgoing(
+                    conn,
+                    send_text_message_simple(self.codec.failure_message_type(), &msg).into_bytes(),
+                );
+            }
+            return;
+        }
+
+        // C++ `if (player->getAccountType() < ACCOUNT_TYPE_GAMEMASTER)` — `game.cpp:3446-3449`.
+        // GM/access players bypass the 30s exhaust. `player_is_access_player` mirrors
+        // `Group::access` which maps to the same GM bypass semantics.
+        if !is_access {
+            apply_condition(
+                &mut self.creatures,
+                cid,
+                ActiveCondition::new(
+                    0,
+                    0,
+                    ConditionType::YellTicks,
+                    ConditionData::Generic { ticks: 30_000 },
+                    None,
+                ),
+            );
+        }
+
+        // C++ `internalCreatureSay(player, TALKTYPE_YELL, asUpperCaseString(text), false)`
+        // — `game.cpp:3451`.
+        let upper = ascii_uppercase(text);
+        self.broadcast_creature_yell(cid, TALKTYPE_YELL, &upper);
+    }
+}
+
+/// C++ `asUpperCaseString` — `gameserver/src/tools.cpp:257-261`.
+///
+/// Uses `std::transform(..., toupper)` which is ASCII-only for the 772 Latin-1 client
+/// charset. Rust `.to_uppercase()` is Unicode-aware and would produce different bytes
+/// for non-ASCII characters (e.g. accented letters), so this helper mirrors the C++
+/// byte-level `toupper` behavior exactly.
+fn ascii_uppercase(s: &str) -> String {
+    s.bytes().map(|b| b.to_ascii_uppercase() as char).collect()
 }

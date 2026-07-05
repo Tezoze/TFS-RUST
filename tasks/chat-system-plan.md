@@ -592,13 +592,23 @@ Resolve §4's open questions inline in the phase that hits them — do not defer
       `broadcast_creature_say_viewport` (two-pass loop mirroring `game.cpp:3529-3544`)
 
 ### CH-2 — Whisper + Yell
-- [ ] `player_whisper` — dedicated per-viewer distance loop (real text ≤1 tile, `"pspsps"` beyond)
-- [ ] `ConditionType::YellTicks` 30s exhaust condition application + GM bypass
-- [ ] `YELL_MINIMUM_LEVEL` / `YELL_ALLOW_PREMIUM` config keys added + read
-- [ ] ASCII-safe uppercase transform for yell text
-- [ ] Wide-viewport spectator variant (`broadcast_creature_say_range` or param on the existing fn) for
-      yell's `(18,18,14,14,chebyshev=true)` range — confirm `Map::maxClientViewportX/Y` values first
-- [ ] `player_yell` wired into `player_say`'s `TALKTYPE_YELL` arm
+- [x] `player_whisper` — `broadcast_creature_whisper` with per-viewer 1-tile Chebyshev distance
+      check (real text ≤1 tile, `"pspsps"` beyond); two-pass send+event loop matching
+      `game.cpp:3400-3422`
+- [x] `ConditionType::YellTicks` 30s exhaust condition application (`ConditionData::Generic {
+      ticks: 30_000 }`) + GM/access bypass via `player_is_access_player` (maps C++
+      `getAccountType() < ACCOUNT_TYPE_GAMEMASTER` to `Group::access`)
+- [x] `YELL_MINIMUM_LEVEL` / `YELL_ALLOW_PREMIUM` config keys added to `config.lua` +
+      `ChatConfig` struct in `config.rs` (defaults: 2 / false, matching `configmanager.cpp:264,196`)
+- [x] ASCII-safe uppercase transform — `ascii_uppercase` helper mirrors C++ `asUpperCaseString`
+      (`tools.cpp:257`, byte-level `toupper`), not Unicode `.to_uppercase()`
+- [x] Wide-viewport spectator variant — `spectator_players_in_box(pos, range_x, range_y,
+      multifloor)` + `broadcast_creature_yell` for yell's `(18,18,14,14,multifloor=true)` range
+      with **no `canSee` filtering** (matching C++ `getSpectators` yell path). `Map::maxClientViewportX/Y`
+      confirmed as 8/6 (`map.h:183-184`); whisper reuses the same ±8/±6 range
+- [x] `YellTicks` condition ticking in `process_skills` — decrements `ticks` by 1000 ms per
+      `ProcessSkills` tick (~1s), removes at 0 (mirrors `ConditionGeneric::executeCondition`)
+- [x] `player_yell` + `player_whisper` wired into `player_say`'s `TALKTYPE_YELL`/`WHISPER` arms
 
 ### CH-3 — Private message (tell) + Broadcast
 - [ ] Resolve player-flags open question (§4.3) — reuse existing account-type gate or add

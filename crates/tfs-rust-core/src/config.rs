@@ -352,6 +352,33 @@ impl ConnectionConfig {
     }
 }
 
+/// Chat / yell settings — C++ `configmanager.cpp` `YELL_MINIMUM_LEVEL` / `YELL_ALLOW_PREMIUM`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChatConfig {
+    /// C++ `yellMinimumLevel` (default 2) — `configmanager.cpp:264`.
+    pub yell_minimum_level: u32,
+    /// C++ `yellAlwaysAllowPremium` (default false) — `configmanager.cpp:196`.
+    /// When true, premium players may yell below `yell_minimum_level`.
+    pub yell_allow_premium: bool,
+}
+
+impl ChatConfig {
+    /// C++ `configmanager.cpp` defaults when keys are absent.
+    pub fn defaults() -> Self {
+        Self {
+            yell_minimum_level: 2,
+            yell_allow_premium: false,
+        }
+    }
+
+    pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
+        Ok(Self {
+            yell_minimum_level: get_i64_or(cfg, "yellMinimumLevel", 2)?.max(0) as u32,
+            yell_allow_premium: get_bool_or(cfg, "yellAlwaysAllowPremium", false)?,
+        })
+    }
+}
+
 /// Monster despawn / walk-back settings — C++ `configmanager.cpp` ~232–251.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonsterWorldConfig {
