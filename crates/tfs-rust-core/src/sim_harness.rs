@@ -21,7 +21,7 @@ use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::otb::ItemType;
 use tfs_rust_content::otbm::{OtbmLoader, TownData};
-use tfs_rust_content::vocations::VocationDatabase;
+use tfs_rust_content::vocations::VocationRegistry;
 use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::DbPool;
 
@@ -154,6 +154,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         guid: 1,
         group_id: 1,
         vocation_id: 0,
+        vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),
         level: 8,
         experience: 0,
         mana: 50,
@@ -362,7 +363,7 @@ pub fn minimal_world() -> GameWorld {
         Arc::new(GroupDatabase {
             groups: HashMap::new(),
         }),
-        Arc::new(VocationDatabase {
+        Arc::new(VocationRegistry {
             vocations: HashMap::new(),
         }),
         tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V1098)
@@ -454,7 +455,7 @@ fn init_beat_driven_world(
         Arc::new(GroupDatabase {
             groups: HashMap::new(),
         }),
-        Arc::new(VocationDatabase {
+        Arc::new(VocationRegistry {
             vocations: HashMap::new(),
         }),
         tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V772)

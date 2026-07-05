@@ -57,6 +57,7 @@
             guid: 1,
             group_id: 1,
             vocation_id: 1,
+            vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),
             level: 50,
             experience: 0,
             mana: 100,

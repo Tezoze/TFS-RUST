@@ -413,6 +413,7 @@ mod tests {
             guid: 1,
             group_id: 1,
             vocation_id: 0,
+            vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),
             level: 1,
             experience: 0,
             mana: 0,

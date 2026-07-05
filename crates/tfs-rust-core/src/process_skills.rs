@@ -171,7 +171,7 @@ impl GameWorld {
     ///   (`crskill.cc:180`, `crskill.cc:877`).
     ///
     /// Cadence comes from `vocations.xml` (`gainhpticks`/`gainhpamount`/
-    /// `gainmanaticks`/`gainmanaamount`) via `VocationDatabase::fed_regen_params`, not a
+    /// `gainmanaticks`/`gainmanaamount`) via `VocationRegistry::fed_regen_params`, not a
     /// hardcoded table. `TSkill::Process` decrements `Cycle` *before* `Event` runs
     /// (`crskill.cc:186-191`), so the modulo is taken on the post-decrement value —
     /// regen fires when the remaining-food counter hits a multiple of the vocation's
@@ -230,7 +230,7 @@ mod tests {
     use tfs_rust_common::enums::ConditionType;
     use tfs_rust_common::{Position, ZoneType};
 
-    use tfs_rust_content::vocations::{Vocation, VocationDatabase};
+    use tfs_rust_content::vocations::{VocationDef, VocationRegistry};
 
     use crate::combat::{apply_condition, CombatParams};
     use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
@@ -327,25 +327,39 @@ mod tests {
         assert_eq!(rank, 10, "poison strength should decay 50% per round");
     }
 
-    /// Build a `VocationDatabase` with a single knight vocation (id=4) matching
+    /// Build a `VocationRegistry` with a single knight vocation (id=4) matching
     /// `data/XML/vocations.xml`: `gainhpticks=6 gainhpamount=1 gainmanaticks=6 gainmanaamount=2`.
-    fn knight_vocation_db() -> Arc<VocationDatabase> {
+    fn knight_vocation_db() -> Arc<VocationRegistry> {
         let mut vocations = HashMap::new();
         vocations.insert(
             4u16,
-            Vocation {
+            VocationDef {
                 id: 4,
                 client_id: 1,
                 name: "Knight".into(),
                 description: "a knight".into(),
                 from_vocation: 4,
+                gain_cap: 25,
+                gain_hp: 15,
+                gain_mana: 5,
                 gain_hp_ticks: 6,
                 gain_hp_amount: 1,
                 gain_mana_ticks: 6,
                 gain_mana_amount: 2,
+                mana_multiplier: 3.0,
+                attack_speed_ms: 2000,
+                base_speed: 70,
+                soul_max: 100,
+                gain_soul_ticks: 120,
+                allow_pvp: false,
+                base_hp: 150,
+                base_mana: 0,
+                base_cap: 400,
+                formula: tfs_rust_content::vocations::VocationFormula::default(),
+                skill_multipliers: [1.1, 1.1, 1.1, 1.1, 1.4, 1.1, 1.1],
             },
         );
-        Arc::new(VocationDatabase { vocations })
+        Arc::new(VocationRegistry { vocations })
     }
 
     /// Insert a protection-zone ground tile at `pos` (mirrors `ensure_walkable_tile`
@@ -365,7 +379,7 @@ mod tests {
     }
 
     /// F3: `TSkillFed::Event` regen reads `gainhpticks`/`gainmanaticks`/amounts from
-    /// `vocations.xml` (via `VocationDatabase`), keys the modulo off the decrementing
+    /// `vocations.lua` (via `VocationRegistry`), keys the modulo off the decrementing
     /// food counter, and regenerates HP/mana while food remains (`crskill.cc:812-885`).
     #[test]
     fn fed_regen_uses_vocation_xml_params_and_food_counter() {

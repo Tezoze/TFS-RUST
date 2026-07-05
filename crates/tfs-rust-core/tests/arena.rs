@@ -55,6 +55,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         guid,
         group_id: 1,
         vocation_id: 0,
+        vocation_profile: tfs_rust_core::creature::vocation::VocationProfile::none_vocation(),
         level: 1,
         experience: 0,
         mana: 0,

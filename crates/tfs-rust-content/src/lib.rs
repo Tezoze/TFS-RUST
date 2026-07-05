@@ -1,3 +1,4 @@
+pub mod data_lua;
 pub mod objects_srv;
 pub mod otb_patch;
 pub mod groups;

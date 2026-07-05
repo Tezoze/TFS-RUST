@@ -2120,10 +2120,17 @@ mod step_speed_tests {
     #[test]
     fn wire_step_speed_772_player_scales_with_level() {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
+        // Use base_speed=220 to match the pre-PC-0 hardcoded constant; the
+        // shipped vocations.lua has base_speed=70, but the level-scaling shape
+        // is what this test verifies.
+        let profile = crate::creature::vocation::VocationProfile {
+            base_speed: 220,
+            ..crate::creature::vocation::VocationProfile::none_vocation()
+        };
         for (level, expected_go) in [(1, 220), (2, 222), (8, 228), (50, 270)] {
             let go = crate::creature::vocation::base_walk_speed(
                 crate::formulas::StepSpeedModel::LinearGo,
-                1,
+                &profile,
                 level,
             );
             assert_eq!(go, expected_go, "level {level}");

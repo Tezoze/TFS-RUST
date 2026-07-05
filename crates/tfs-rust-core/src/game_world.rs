@@ -17,7 +17,7 @@ use slotmap::SlotMap;
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::monsters::MonsterDatabase;
-use tfs_rust_content::vocations::VocationDatabase;
+use tfs_rust_content::vocations::VocationRegistry;
 
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::ConnId;
@@ -102,7 +102,7 @@ pub struct GameWorld {
     pub monsters_db: Arc<MonsterDatabase>,
     /// `data/XML/groups.xml` — player GM flags (`src/groups.cpp`).
     pub groups: Arc<GroupDatabase>,
-    pub vocations: Arc<VocationDatabase>,
+    pub vocations: Arc<VocationRegistry>,
     /// C++ `ProtocolGame::sendCreatureSay` static `statementId` (`src/protocolgame.cpp` ~2432).
     pub next_statement_id: u32,
     /// 772 global action scheduler (`crmain.cc` `MoveCreatures`).
@@ -247,7 +247,7 @@ impl GameWorld {
         items_db: Arc<ItemDatabase>,
         monsters_db: Arc<MonsterDatabase>,
         groups: Arc<GroupDatabase>,
-        vocations: Arc<VocationDatabase>,
+        vocations: Arc<VocationRegistry>,
         codec: Codec,
         mechanics: crate::formulas::Mechanics,
     ) -> Self {

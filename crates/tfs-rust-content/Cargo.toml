@@ -11,6 +11,8 @@ thiserror = { workspace = true }
 byteorder = { workspace = true }
 quick-xml = { workspace = true }
 roxmltree = "0.20"
+mlua = { workspace = true }
+serde = { version = "1", features = ["derive"] }
 
 [[bin]]
 name = "patch-otb-waypoints"

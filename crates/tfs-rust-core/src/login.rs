@@ -8,7 +8,7 @@ use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::Position;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
-use crate::creature::vocation::base_walk_speed;
+use crate::creature::vocation::{base_walk_speed, VocationProfile};
 use crate::creature::CreatureKind;
 use crate::creature::{
     CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
@@ -18,6 +18,7 @@ use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_scope::fire_on_login;
+use tfs_rust_content::vocations::VocationRegistry;
 
 fn direction_from_u8(d: u8) -> Direction {
     match d {
@@ -42,7 +43,11 @@ fn skull_from_i32(s: i32) -> SkullType {
 }
 
 /// Build runtime `Player` from SQL load result.
-pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpeedModel) -> Player {
+pub fn player_from_loaded(
+    mut data: LoadedPlayerData,
+    step_speed_model: StepSpeedModel,
+    vocations: &VocationRegistry,
+) -> Player {
     let persist = PlayerPersistBaseline {
         player_row: data.player.clone(),
         spells: std::mem::take(&mut data.spells),
@@ -64,7 +69,13 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
     // C++ `iologindata.cpp` ~275: `player->capacity = result->getNumber("cap") * 100;`
     // TFS stores capacity internally in 1/100 oz; the DB column is in oz.
     let cap = p.cap * 100;
-    let walk_speed = base_walk_speed(step_speed_model, p.vocation, p.level);
+    // Build the vocation hot-path snapshot from the registry. Falls back to the
+    // "None" vocation profile when the id is absent (matches C++ race defaults).
+    let vocation_profile = vocations
+        .get(p.vocation)
+        .map(VocationProfile::from_def)
+        .unwrap_or_else(VocationProfile::none_vocation);
+    let walk_speed = base_walk_speed(step_speed_model, &vocation_profile, p.level);
     let outfit = Outfit {
         look_type: p.looktype,
         look_head: p.lookhead,
@@ -126,6 +137,7 @@ pub fn player_from_loaded(mut data: LoadedPlayerData, step_speed_model: StepSpee
         guid,
         group_id,
         vocation_id: p.vocation,
+        vocation_profile,
         level: p.level,
         experience: p.experience,
         mana: p.mana,
@@ -249,7 +261,7 @@ pub async fn login_player(
         )
     };
 
-    let mut player = player_from_loaded(loaded, world.mechanics.profile.step_speed);
+    let mut player = player_from_loaded(loaded, world.mechanics.profile.step_speed, &world.vocations);
     player.operating_system = operating_system;
     player.otclient_v8 = otclient_v8;
     let cid = world.creatures.insert(CreatureKind::Player(player));

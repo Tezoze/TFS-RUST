@@ -5,7 +5,7 @@ use crate::mounts::MountDatabase;
 use crate::otbm::{MapData, OtbmLoader};
 use crate::outfits::OutfitDatabase;
 use crate::spawns::load_spawn_xml;
-use crate::vocations::VocationDatabase;
+use crate::vocations::VocationRegistry;
 use std::path::Path;
 use tfs_rust_common::error::Result;
 use tracing::info;
@@ -13,7 +13,7 @@ use tracing::info;
 pub struct Content {
     pub items: ItemDatabase,
     pub monsters: MonsterDatabase,
-    pub vocations: VocationDatabase,
+    pub vocations: VocationRegistry,
     pub outfits: OutfitDatabase,
     pub mounts: MountDatabase,
     pub groups: GroupDatabase,
@@ -29,7 +29,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
     let otb_path = data_dir.join("items/items.otb");
     let xml_path = data_dir.join("items/items.xml");
     let monsters_dir = data_dir.join("monster");
-    let voc_path = data_dir.join("XML/vocations.xml");
+    let voc_path = data_dir.join("vocations.lua");
     let out_path = data_dir.join("XML/outfits.xml");
     let mounts_path = data_dir.join("XML/mounts.xml");
     let groups_path = data_dir.join("XML/groups.xml");
@@ -40,7 +40,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
     let items_future =
         tokio::task::spawn_blocking(move || ItemDatabase::load(&otb_path, &xml_path));
 
-    let vocs_future = tokio::task::spawn_blocking(move || VocationDatabase::load(&voc_path));
+    let vocs_future = tokio::task::spawn_blocking(move || VocationRegistry::load(&voc_path));
 
     let out_future = tokio::task::spawn_blocking(move || OutfitDatabase::load(&out_path));
 

@@ -14,7 +14,7 @@ use crate::ids::ItemId;
 use crate::creature::base::CreatureBase;
 use crate::creature::light::LightInfo;
 use crate::creature::vocation::{
-    base_walk_speed, experience_to_next_level, recalculate_vitals, total_experience_for_level,
+    base_walk_speed, experience_to_next_level, total_experience_for_level, VocationProfile,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -83,6 +83,10 @@ pub struct Player {
     /// `players.group_id` — `groups.xml` flags (`player.h` `Group`).
     pub group_id: u16,
     pub vocation_id: i32,
+    /// Cached vocation combat block (gains, base_speed, formula, skill multipliers).
+    /// Built from `VocationRegistry` at login — `Copy` snapshot for hot-path reads
+    /// without threading `&VocationRegistry` through level-up/regen/speed calls.
+    pub vocation_profile: VocationProfile,
     pub level: i32,
     pub experience: u64,
     pub mana: i32,
@@ -200,13 +204,13 @@ impl Player {
             && self.experience >= total_experience_for_level((self.level + 1) as u32)
         {
             self.level += 1;
-            let (max_hp, max_mana, cap) = recalculate_vitals(self.vocation_id, self.level);
+            let (max_hp, max_mana, cap) = self.vocation_profile.recalculate_vitals(self.level);
             self.base.max_health = max_hp;
             self.base.health = self.base.health.min(max_hp).max(1);
             self.max_mana = max_mana;
             self.mana = self.mana.min(max_mana);
             self.capacity = cap;
-            let sp = base_walk_speed(step_speed_model, self.vocation_id, self.level);
+            let sp = base_walk_speed(step_speed_model, &self.vocation_profile, self.level);
             self.base.speed = sp;
             self.base.base_speed = sp;
         }
@@ -221,13 +225,13 @@ impl Player {
         self.experience = self.experience.saturating_sub(amount);
         while self.level > 1 && self.experience < total_experience_for_level(self.level as u32) {
             self.level -= 1;
-            let (max_hp, max_mana, cap) = recalculate_vitals(self.vocation_id, self.level);
+            let (max_hp, max_mana, cap) = self.vocation_profile.recalculate_vitals(self.level);
             self.base.max_health = max_hp;
             self.base.health = self.base.health.min(max_hp).max(1);
             self.max_mana = max_mana;
             self.mana = self.mana.min(max_mana);
             self.capacity = cap;
-            let sp = base_walk_speed(step_speed_model, self.vocation_id, self.level);
+            let sp = base_walk_speed(step_speed_model, &self.vocation_profile, self.level);
             self.base.speed = sp;
             self.base.base_speed = sp;
         }
