@@ -26,6 +26,7 @@ use tfs_rust_common::Position;
 use tfs_rust_db::DbPool;
 use tfs_rust_net::Codec;
 
+use crate::chat::ChatRegistry;
 use crate::config::ConfigManager;
 use crate::container::ContainerRegistry;
 use crate::creature::CreatureKind;
@@ -68,6 +69,10 @@ pub struct GameWorld {
     pub parties: HashMap<u32, Party>,
     pub party_invites: PartyInviteState,
     pub next_party_id: u32,
+    /// TFS `Chat` (`chat.h:105`) — static + private channel registry. Game-thread only.
+    /// CH-1: skeleton only (SAY does not touch channels); CH-4 seeds static channels
+    /// from `data/scripts/chatchannels/*.lua` and adds membership/lookup methods.
+    pub chat: ChatRegistry,
     pub decay: DecayManager,
     pub spawns: SpawnManager,
     pub houses: HouseManager,
@@ -269,6 +274,7 @@ impl GameWorld {
             party_invites: PartyInviteState::default(),
             next_party_id: 1,
             decay: DecayManager::default(),
+            chat: ChatRegistry::new(),
             spawns,
             houses: HouseManager::default(),
             wildcards: WildcardTree::default(),

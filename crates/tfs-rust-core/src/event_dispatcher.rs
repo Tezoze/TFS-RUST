@@ -69,6 +69,34 @@ pub trait EventDispatcher {
     ) {
     }
 
+    /// TFS `Creature::onCreatureSay` — per-creature hear callback (e.g. NPC dialog,
+    /// creaturescript). C++ fires this for **every** spectator including the speaker
+    /// (`game.cpp:3540`). Default no-op until the NPC/creaturescript Lua runtime lands.
+    // C++ reference: `Creature::onCreatureSay` — `creature.cpp`; `Game::internalCreatureSay`
+    // event-method loop — `gameserver/src/game.cpp:3538-3544`.
+    fn on_creature_say(
+        &self,
+        _hearer: CreatureId,
+        _speaker: CreatureId,
+        _speak_type: u8,
+        _text: &str,
+    ) {
+    }
+
+    /// TFS `Events::eventCreatureOnHear` — script-side hear hook, **excludes self**
+    /// (`creature != spectator`, `game.cpp:3541-3543`). Default no-op; the Lua
+    /// creaturescript body is out of scope for the chat plan (§1 non-goals) but the
+    /// call site is wired now so it doesn't need revisiting later.
+    // C++ reference: `Events::eventCreatureOnHear` — `gameserver/src/game.cpp:3542`.
+    fn on_hear(
+        &self,
+        _hearer: CreatureId,
+        _speaker: CreatureId,
+        _text: &str,
+        _speak_type: u8,
+    ) {
+    }
+
     /// Execute a fired `addEvent` timer callback.
     ///
     /// C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).

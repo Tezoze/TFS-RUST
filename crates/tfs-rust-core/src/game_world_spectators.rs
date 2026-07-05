@@ -235,7 +235,9 @@ impl GameWorld {
                     .map(|viewer| (conn, viewer))
             })
             .collect();
-        for (conn, _viewer) in viewers {
+        // C++ `internalCreatureSay` two-pass loop — "send to client" then "event method"
+        // (`gameserver/src/game.cpp:3529-3544`). Pass 1: per-viewer `sendCreatureSay`.
+        for (conn, _viewer) in &viewers {
             let sid = self.alloc_statement_id();
             let pkt = self.codec.encode_creature_say(
                 sid,
@@ -247,7 +249,18 @@ impl GameWorld {
                     text: text.into(),
                 },
             );
-            self.enqueue_outgoing(conn, pkt.into_bytes());
+            self.enqueue_outgoing(*conn, pkt.into_bytes());
+        }
+        // Pass 2: `Creature::onCreatureSay` (all spectators incl. speaker) +
+        // `Events::eventCreatureOnHear` (excludes speaker). Both default to no-ops
+        // until the NPC/creaturescript Lua runtime lands (chat plan §2.5); the call
+        // sites are wired now so the trait dispatch doesn't need revisiting later.
+        for (_conn, viewer) in &viewers {
+            self.events.on_creature_say(*viewer, speaker, speak_type, text);
+            if *viewer != speaker {
+                self.events
+                    .on_hear(*viewer, speaker, text, speak_type);
+            }
         }
     }
 

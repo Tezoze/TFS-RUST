@@ -3,6 +3,7 @@
 
 mod chase_debug;
 pub mod combat;
+pub mod chat;
 pub mod condition;
 pub mod config;
 pub mod container;
@@ -19,6 +20,7 @@ mod floor_change_use;
 pub mod formulas;
 pub mod game_loop;
 pub mod game_world;
+mod game_world_chat;
 mod game_world_inventory;
 mod game_world_item_cylinder;
 mod game_world_item_move;

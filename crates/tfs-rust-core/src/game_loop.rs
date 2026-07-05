@@ -508,6 +508,24 @@ fn handle_game_packet(
                 display_effect: true,
             });
         }
+        GamePacket::Say(payload) => {
+            // CH-1: `Game::playerSay` dispatch — `gameserver/src/game.cpp:3208-3281`.
+            // Only `TALKTYPE_SAY` is wired (viewport broadcast); other arms stubbed
+            // pending CH-2/CH-3/CH-4/CH-5. Text length is already capped at 255 bytes
+            // by the wire parser (`game_parse.rs::parse_say`, mirroring
+            // `protocolgame.cpp:945-947`).
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_say(
+                    conn_id,
+                    cid,
+                    payload.speak_class,
+                    payload.channel_id,
+                    &payload.receiver,
+                    &payload.text,
+                    now,
+                );
+            }
+        }
         _ => trace!(
             conn_id = conn_id.0,
             ?packet,

@@ -577,17 +577,19 @@ Resolve §4's open questions inline in the phase that hits them — do not defer
 - [x] Wire-snapshot tests in `tfs-rust-net/tests/protocol_compat.rs` — 6 new (3 per era), 74 total pass
 
 ### CH-1 — `player_say` dispatch skeleton + plain SAY
-- [ ] `crates/tfs-rust-core/src/chat.rs` — module skeleton (`ChatChannel`/`PrivateChatChannel`/
+- [x] `crates/tfs-rust-core/src/chat.rs` — module skeleton (`ChatChannel`/`PrivateChatChannel`/
       `ChatRegistry`, empty registry ok for this phase)
-- [ ] `GameWorld::chat: ChatRegistry` field + startup init in `run_server.rs`
-- [ ] `game_world_chat.rs::player_say` — `TALKTYPE_SAY` arm only, calls
-      `broadcast_creature_say_viewport`; other arms stubbed
-- [ ] `playerSaySpell` call-site stub (returns "not handled", documented TODO per CH-6)
-- [ ] Wire `GamePacket::Say` in `handle_game_packet` (`game_loop.rs`), remove from `_ => trace!`
-- [ ] Confirm 255-char text length is already enforced in the wire parser (`game_parse.rs`), not just
-      here
-- [ ] `EventDispatcher::on_creature_say` / `on_hear` no-op default methods added; called from
-      `broadcast_creature_say_viewport`
+- [x] `GameWorld::chat: ChatRegistry` field + startup init in `run_server.rs`
+      (init in `GameWorld::new` — `run_server.rs` calls `GameWorld::new`, no separate init needed)
+- [x] `game_world_chat.rs::player_say` — `TALKTYPE_SAY` arm only, calls
+      `broadcast_creature_say_viewport`; other arms stubbed (`warn!`-logged)
+- [x] `playerSaySpell` call-site stub (returns `false` = "not handled", documented TODO per CH-6)
+- [x] Wire `GamePacket::Say` in `handle_game_packet` (`game_loop.rs`), remove from `_ => trace!`
+- [x] Confirm 255-char text length is already enforced in the wire parser (`game_parse.rs`), not just
+      here — **added:** `parse_say` now returns `Err` for texts > 255 bytes, matching
+      `protocolgame.cpp:945-947`'s silent drop (caller logs + continues)
+- [x] `EventDispatcher::on_creature_say` / `on_hear` no-op default methods added; called from
+      `broadcast_creature_say_viewport` (two-pass loop mirroring `game.cpp:3529-3544`)
 
 ### CH-2 — Whisper + Yell
 - [ ] `player_whisper` — dedicated per-viewer distance loop (real text ≤1 tile, `"pspsps"` beyond)

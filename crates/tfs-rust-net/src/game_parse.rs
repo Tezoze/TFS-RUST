@@ -380,6 +380,15 @@ fn parse_say(msg: &mut NetworkMessage) -> Result<GamePacket> {
         _ => {}
     }
     let text = msg.read_string()?;
+    // C++ `parseSay` drops texts longer than 255 bytes at the wire layer
+    // (`gameserver/src/protocolgame.cpp:945-947`). The packet is discarded but the
+    // connection stays open — returning `Err` here mirrors that: the caller logs a
+    // warn and continues reading the next packet (`protocol_game.rs:130-133`).
+    if text.len() > 255 {
+        return Err(TfsRustError::Protocol(
+            "parseSay: text exceeds 255-byte limit".into(),
+        ));
+    }
     Ok(GamePacket::Say(SayPayload {
         speak_class,
         channel_id,
