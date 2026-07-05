@@ -1,8 +1,10 @@
-function canJoin(player)
+local channel = Channel(3, "Tutor")
+
+function channel.canJoin(player)
 	return player:getAccountType() >= ACCOUNT_TYPE_TUTOR
 end
 
-function onSpeak(player, type, message)
+function channel.onSpeak(player, type, message)
 	local playerAccountType = player:getAccountType()
 	if type == TALKTYPE_CHANNEL_Y then
 		if playerAccountType >= ACCOUNT_TYPE_SENIORTUTOR then
@@ -19,3 +21,5 @@ function onSpeak(player, type, message)
 	end
 	return type
 end
+
+channel:register()

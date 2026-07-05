@@ -1,3 +1,6 @@
+local channel = Channel(6, "RL-Chat")
+channel:public(true)
+
 function onSpeak(player, type, message)
 	local playerAccountType = player:getAccountType()
 	if player:getLevel() == 1 and playerAccountType < ACCOUNT_TYPE_GAMEMASTER then
@@ -20,3 +23,5 @@ function onSpeak(player, type, message)
 	end
 	return type
 end
+
+channel:register()

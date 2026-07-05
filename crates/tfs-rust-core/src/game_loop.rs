@@ -525,6 +525,48 @@ fn handle_game_packet(
                 );
             }
         }
+        GamePacket::RequestChannels => {
+            // CH-4: `Game::playerRequestChannels` — `game.cpp:3490-3502`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_request_channels(conn_id, cid);
+            }
+        }
+        GamePacket::OpenChannel { channel_id } => {
+            // CH-4: `Game::playerOpenChannel` — `game.cpp:3490-3502`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_open_channel(conn_id, cid, channel_id);
+            }
+        }
+        GamePacket::CloseChannel { channel_id } => {
+            // CH-4: `Game::playerCloseChannel` — `game.cpp:3490-3502`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_close_channel(cid, channel_id);
+            }
+        }
+        GamePacket::OpenPrivateChannel { receiver } => {
+            // CH-4: `Game::playerOpenPrivateChannel` — `game.cpp:3490-3502`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_open_private_channel(conn_id, cid, &receiver);
+            }
+        }
+        GamePacket::CreatePrivateChannel => {
+            // CH-4: `Game::playerCreatePrivateChannel` — `game.cpp:2023`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_create_private_channel(conn_id, cid);
+            }
+        }
+        GamePacket::ChannelInvite { name } => {
+            // CH-4: `Game::playerChannelInvite` — `chat.cpp:29-52`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_channel_invite(cid, &name);
+            }
+        }
+        GamePacket::ChannelExclude { name } => {
+            // CH-4: `Game::playerChannelExclude` — `chat.cpp:29-52`.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_channel_exclude(cid, &name);
+            }
+        }
         _ => trace!(
             conn_id = conn_id.0,
             ?packet,

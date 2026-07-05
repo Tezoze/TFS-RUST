@@ -23,6 +23,9 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player::flags::{PLAYER_FLAG_CAN_TALK_RED_PRIVATE};
 use crate::return_value::ReturnValue;
+use tfs_rust_net::ChannelOpenWire;
+use tfs_rust_net::CreatePrivateChannelWire;
+use tfs_rust_net::outgoing_extra;
 
 /// `SpeakClasses` byte values — `gameserver/src/const.h:61-77`.
 ///
@@ -129,12 +132,11 @@ impl GameWorld {
                 self.player_speak_to(cid, speak_class, receiver, text);
             }
             TALKTYPE_CHANNEL_O | TALKTYPE_CHANNEL_Y | TALKTYPE_CHANNEL_R1 | TALKTYPE_CHANNEL_R2 => {
-                // CH-4: `g_chat->talkToChannel(*player, type, text, channelId)` —
+                // C++ `g_chat->talkToChannel(*player, type, text, channelId)` —
                 // `game.cpp:3261`, `chat.cpp:107-117` (membership check → `onSpeak` →
                 // `send_to_channel` fan-out). `CHANNEL_RULE_REP` special-case
                 // (→ `internalCreatureSay`) is an RVR non-goal (§1).
-                let _ = channel_id;
-                tracing::warn!(conn_id = conn_id.0, cid = ?cid, ?speak_class, channel_id, "player_say CHANNEL_* — CH-4 stub");
+                self.player_talk_to_channel(cid, speak_class, channel_id, text);
             }
             TALKTYPE_BROADCAST => {
                 // C++ `playerBroadcastMessage(player, text)` — `game.cpp:3567`.
@@ -169,6 +171,310 @@ impl GameWorld {
     //   `TALKACTION_FAILED` (true, consumed silently).
     fn player_say_spell(&self, _cid: CreatureId, _speak_class: u8, _text: &str) -> bool {
         false
+    }
+
+    /// TFS `Game::playerRequestChannels` — `game.cpp:3490-3502`.
+    ///
+    /// Sends the channel list dialog to the player. Includes guild/party channels
+    /// if the player has membership, and private channels where they are owner/invited.
+    ///
+    /// C++ reference: `src/game.cpp` `Game::playerRequestChannels`.
+    pub fn player_request_channels(&mut self, conn_id: ConnId, cid: CreatureId) {
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        let player_guid = player.guid;
+        let guild_id = self.guilds.player_guild.get(&cid).copied();
+        let party_leader = self.parties.values()
+            .find(|p| p.leader == cid || p.members.contains(&cid))
+            .map(|p| p.leader);
+
+        let channel_list = self.chat.get_channel_list(cid, Some(player_guid), guild_id, party_leader);
+        let msg = outgoing_extra::send_channels_dialog_full(&channel_list);
+
+        self.pending_outgoing
+            .entry(conn_id)
+            .or_default()
+            .push(msg.into_bytes());
+    }
+
+    /// TFS `Game::playerOpenChannel` — `game.cpp:3490-3502`.
+    ///
+    /// Opens a channel: runs `canJoin` hook (if present), adds user to channel,
+    /// runs `onJoin` hook (if present), and sends the channel ack.
+    ///
+    /// C++ reference: `src/game.cpp` `Game::playerOpenChannel`; `chat.cpp` `ChatChannel::executeCanJoinEvent`.
+    pub fn player_open_channel(&mut self, conn_id: ConnId, cid: CreatureId, channel_id: u16) {
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        // Check if channel exists
+        let Some(channel) = self.chat.get_channel(channel_id) else {
+            return;
+        };
+
+        let channel_name = channel.name.clone();
+        let is_public = channel.public_channel;
+
+        // TODO(chat CH-4): Run Lua `canJoin` hook if present
+        // For now, all public channels are joinable, private channels require ownership/invitation
+        if !is_public {
+            // Private channel: check if player is owner or invited
+            let is_owner = self.chat.get_private_channel(channel_id)
+                .map(|pc| pc.owner == cid)
+                .unwrap_or(false);
+            let is_invited = self.chat.get_private_channel(channel_id)
+                .map(|pc| pc.invited.contains(&player.guid))
+                .unwrap_or(false);
+
+            if !is_owner && !is_invited {
+                return;
+            }
+        }
+
+        // Add user to channel
+        self.chat.add_user_to_channel(channel_id, cid);
+
+        // TODO(chat CH-4): Run Lua `onJoin` hook if present
+
+        // Send channel ack (use codec version for era correctness)
+        let wire = ChannelOpenWire {
+            channel_id,
+            name: channel_name,
+            users: Vec::new(),     // 772 ignores this
+            invited: Vec::new(),   // 772 ignores this
+        };
+        let msg = self.codec.encode_channel_open(&wire);
+        self.pending_outgoing
+            .entry(conn_id)
+            .or_default()
+            .push(msg.into_bytes());
+    }
+
+    /// TFS `Game::playerCloseChannel` — `game.cpp:3490-3502`.
+    ///
+    /// Closes a channel: runs `onLeave` hook (if present) and removes user from channel.
+    ///
+    /// C++ reference: `src/game.cpp` `Game::playerCloseChannel`; `chat.cpp` `ChatChannel::executeOnLeaveEvent`.
+    pub fn player_close_channel(&mut self, cid: CreatureId, channel_id: u16) {
+        // TODO(chat CH-4): Run Lua `onLeave` hook if present
+
+        // Remove user from channel
+        self.chat.remove_user_from_channel(channel_id, cid);
+    }
+
+    /// TFS `Chat::talkToChannel` — `chat.cpp:107-117`.
+    ///
+    /// Talks to a channel: checks membership, runs `onSpeak` hook (if present),
+    /// and fans out the message to all channel members.
+    ///
+    /// C++ reference: `src/chat.cpp` `Chat::talkToChannel`; `chat.cpp` `ChatChannel::executeOnSpeakEvent`.
+    pub fn player_talk_to_channel(&mut self, cid: CreatureId, speak_class: u8, channel_id: u16, text: &str) {
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        let speaker_guid = player.guid;
+        let speaker_level = player.level;
+        let speaker_name = player.base.name.clone();
+
+        // Check if channel exists and player is a member
+        let Some(channel) = self.chat.get_channel(channel_id) else {
+            return;
+        };
+
+        if !self.chat.is_user_in_channel(channel_id, cid) {
+            return;
+        }
+
+        // TODO(chat CH-4): Run Lua `onSpeak` hook if present, may modify speak_class or reject
+
+        // Fan out to all channel members
+        for member_id in channel.users.iter() {
+            if let Some(conn_id) = self.creature_to_conn.get(member_id) {
+                let msg = tfs_rust_net::outgoing_extra::send_to_channel(
+                    speaker_guid,
+                    Some(&speaker_name),
+                    speaker_level as u16,
+                    speak_class,
+                    channel_id,
+                    text,
+                );
+                self.pending_outgoing
+                    .entry(*conn_id)
+                    .or_default()
+                    .push(msg.into_bytes());
+            }
+        }
+    }
+
+    /// TFS `Game::playerCreatePrivateChannel` — `game.cpp:2023`.
+    ///
+    /// Creates a new private channel (premium-only gate). The channel name is
+    /// server-generated as "Private Channel <id>".
+    ///
+    /// C++ reference: `src/game.cpp` `Game::playerCreatePrivateChannel`; `chat.cpp` `Chat::createChannel`.
+    pub fn player_create_private_channel(&mut self, conn_id: ConnId, cid: CreatureId) {
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        // Premium-only gate
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as u32;
+        let free_premium = self.config.get_bool("freePremium").unwrap_or(false);
+        let has_premium = free_premium || player.premium_ends_at > now;
+        if !has_premium {
+            // TODO(chat CH-4): Send "You need a premium account to create private channels." message
+            return;
+        }
+
+        // Generate channel name (server-generated)
+        let channel_id = self.chat.next_private_channel_id;
+        let channel_name = format!("Private Channel {}", channel_id);
+
+        // Create private channel
+        let channel_id = self.chat.create_private_channel(channel_name.clone(), cid);
+
+        // Add owner to channel
+        self.chat.add_user_to_channel(channel_id, cid);
+
+        // Send creation ack (use codec version - 772 omits owner/invited)
+        let wire = CreatePrivateChannelWire {
+            channel_id,
+            name: channel_name.clone(),
+            owner_name: String::new(),  // 772 ignores this
+            invited: Vec::new(),         // 772 ignores this
+        };
+        let msg = self.codec.encode_create_private_channel(&wire);
+        self.pending_outgoing
+            .entry(conn_id)
+            .or_default()
+            .push(msg.into_bytes());
+    }
+
+    /// TFS `PrivateChatChannel::invitePlayer` — `chat.cpp:29-52`.
+    ///
+    /// Invites a player to a private channel. Sends info text to both parties.
+    ///
+    /// C++ reference: `src/chat.cpp` `PrivateChatChannel::invitePlayer`.
+    pub fn player_channel_invite(&mut self, cid: CreatureId, target_name: &str) {
+        let Some(CreatureKind::Player(_player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        // Find a private channel owned by this player
+        let (channel_id, _private_channel) = match self.chat.private_channels.iter()
+            .find(|(_, pc)| pc.owner == cid) {
+            Some((id, pc)) => (*id, pc),
+            None => {
+                // TODO(chat CH-4): Send "You do not own a private channel." message
+                return;
+            }
+        };
+
+        // Resolve target player by name
+        let Some(target_id) = self.player_by_name.get(target_name) else {
+            // TODO(chat CH-4): Send "Player not found." message
+            return;
+        };
+
+        let Some(CreatureKind::Player(target_player)) = self.creatures.get(*target_id) else {
+            return;
+        };
+
+        // Add to invited list
+        self.chat.invite_to_private_channel(channel_id, target_player.guid);
+
+        // TODO(chat CH-4): Send info text to both parties
+    }
+
+    /// TFS `PrivateChatChannel::excludePlayer` — `chat.cpp:29-52`.
+    ///
+    /// Excludes a player from a private channel. Sends info text to both parties
+    /// and sends `send_close_private` to the excluded player.
+    ///
+    /// C++ reference: `src/chat.cpp` `PrivateChatChannel::excludePlayer`.
+    pub fn player_channel_exclude(&mut self, cid: CreatureId, target_name: &str) {
+        let Some(CreatureKind::Player(_player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        // Find a private channel owned by this player
+        let (channel_id, _private_channel) = match self.chat.private_channels.iter()
+            .find(|(_, pc)| pc.owner == cid) {
+            Some((id, pc)) => (*id, pc),
+            None => {
+                // TODO(chat CH-4): Send "You do not own a private channel." message
+                return;
+            }
+        };
+
+        // Resolve target player by name
+        let Some(target_id) = self.player_by_name.get(target_name) else {
+            // TODO(chat CH-4): Send "Player not found." message
+            return;
+        };
+
+        let Some(CreatureKind::Player(target_player)) = self.creatures.get(*target_id) else {
+            return;
+        };
+
+        // Remove from invited list
+        if self.chat.exclude_from_private_channel(channel_id, target_player.guid) {
+            // Remove from channel if they were in it
+            self.chat.remove_user_from_channel(channel_id, *target_id);
+
+            // Send close private to excluded player (use existing function)
+            if let Some(conn_id) = self.creature_to_conn.get(target_id) {
+                let msg = outgoing_extra::send_close_private(channel_id);
+                self.pending_outgoing
+                    .entry(*conn_id)
+                    .or_default()
+                    .push(msg.into_bytes());
+            }
+        }
+
+        // TODO(chat CH-4): Send info text to both parties
+    }
+
+    /// TFS `Game::playerOpenPrivateChannel` — `game.cpp:3490-3502`.
+    ///
+    /// Opens a private channel dialog by name. Validates the name and rejects
+    /// self-channel.
+    ///
+    /// C++ reference: `src/game.cpp` `Game::playerOpenPrivateChannel`.
+    pub fn player_open_private_channel(&mut self, conn_id: ConnId, cid: CreatureId, receiver_name: &str) {
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
+
+        // Reject self-channel
+        if receiver_name == player.base.name {
+            // TODO(chat CH-4): Send "You cannot create a private channel with yourself." message
+            return;
+        }
+
+        // TODO(chat CH-4): Validate name format (IOLoginData::formatPlayerName equivalent)
+
+        // Find private channel by name (owned by this player)
+        let private_channel = self.chat.private_channels.values()
+            .find(|pc| pc.owner == cid && pc.base.name == receiver_name);
+
+        if let Some(_pc) = private_channel {
+            // Use existing send_open_private_channel (takes receiver name only)
+            let msg = outgoing_extra::send_open_private_channel(receiver_name);
+            self.pending_outgoing
+                .entry(conn_id)
+                .or_default()
+                .push(msg.into_bytes());
+        } else {
+            // TODO(chat CH-4): Send "Private channel not found." message
+        }
     }
 
     /// TFS `Game::playerWhisper` — `gameserver/src/game.cpp:3400-3422`.

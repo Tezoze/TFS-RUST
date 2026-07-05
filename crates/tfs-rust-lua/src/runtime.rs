@@ -13,7 +13,7 @@ use crate::context::{CreatureRef, ItemRef};
 use crate::timer_events::{
     execute_timer_event, register_add_event_stop_event, TimerEvents,
 };
-use crate::userdata::{register_container_metatable, register_creature_metatable, register_item_metatable};
+use crate::userdata::{register_channel_metatable, register_container_metatable, register_creature_metatable, register_item_metatable, ChannelHandle};
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
 #[derive(Debug)]
@@ -28,6 +28,20 @@ pub struct LuaRuntime {
     /// `addEvent` / `stopEvent` timer-event registry (C++ `g_luaEnvironment.timerEvents`).
     /// `Rc<RefCell<…>>` so the Lua closures and `execute_timer_event` share access.
     timer_events: TimerEvents,
+    /// Pending chat channels from Channel:register() calls (drained after directory scan).
+    pending_chat_channels: Vec<PendingChatChannel>,
+}
+
+/// Pending channel definition from Lua Channel:register().
+#[derive(Debug)]
+pub struct PendingChatChannel {
+    pub id: u16,
+    pub name: String,
+    pub public: bool,
+    pub on_speak: Option<mlua::RegistryKey>,
+    pub can_join: Option<mlua::RegistryKey>,
+    pub on_join: Option<mlua::RegistryKey>,
+    pub on_leave: Option<mlua::RegistryKey>,
 }
 
 impl LuaRuntime {
@@ -46,7 +60,12 @@ impl LuaRuntime {
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
+        register_channel_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
+
+        // Initialize pending channel buffer for Channel:register()
+        let pending_channels = lua.create_table()?;
+        lua.globals().set("_pending_channels", pending_channels)?;
 
         // `addEvent` / `stopEvent` globals (C++ `luascript.cpp:1126-1130`).
         // The `TimerScheduler` thread-local is set later from `run_server.rs`;
@@ -63,6 +82,7 @@ impl LuaRuntime {
             lua,
             script_registry: HashMap::new(),
             timer_events,
+            pending_chat_channels: Vec::new(),
         })
     }
 
@@ -83,6 +103,84 @@ impl LuaRuntime {
 
         let key = self.lua.create_registry_value(true)?;
         Ok(CallbackRef(key))
+    }
+
+    /// Load a Lua script file with channel registration support.
+    ///
+    /// This is used for chat channel scripts that call `Channel(...):register()`.
+    /// The script is executed, and any channels registered via `Channel:register()` are
+    /// captured in the pending buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on syntax failure (non-fatal for script loading).
+    pub fn load_channel_script(&mut self, path: &str) -> Result<(), LuaError> {
+        let full_path = Path::new(path);
+        let chunk = std::fs::read_to_string(full_path)
+            .map_err(|e| LuaError::ScriptIo(full_path.display().to_string(), e.to_string()))?;
+
+        // Clear pending buffer before loading
+        self.lua.globals().set("_pending_channels", self.lua.create_table()?)?;
+
+        // Execute the script
+        self.lua
+            .load(&chunk)
+            .set_name(path)
+            .exec()
+            .map_err(LuaError::Init)?;
+
+        // Drain pending channels into our buffer
+        let pending: mlua::Table = self.lua.globals().get("_pending_channels")?;
+        for i in 1..=pending.len()? {
+            if let Ok(channel_table) = pending.get::<mlua::Table>(i) {
+                let id: u16 = channel_table.get("id")?;
+                let name: String = channel_table.get("name")?;
+                let public: bool = channel_table.get("public")?;
+
+                let on_speak = channel_table
+                    .get::<Option<mlua::Function>>("onSpeak")?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                let can_join = channel_table
+                    .get::<Option<mlua::Function>>("canJoin")?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                let on_join = channel_table
+                    .get::<Option<mlua::Function>>("onJoin")?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                let on_leave = channel_table
+                    .get::<Option<mlua::Function>>("onLeave")?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                self.pending_chat_channels.push(PendingChatChannel {
+                    id,
+                    name,
+                    public,
+                    on_speak,
+                    can_join,
+                    on_join,
+                    on_leave,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drain pending chat channels accumulated from `load_channel_script` calls.
+    ///
+    /// This should be called after all channel scripts in a directory have been loaded.
+    pub fn drain_pending_chat_channels(&mut self) -> Vec<PendingChatChannel> {
+        std::mem::take(&mut self.pending_chat_channels)
     }
 
     /// Execute a Lua chunk (bootstrap globals, compat stubs).
@@ -207,6 +305,86 @@ impl LuaRuntime {
             .call::<bool>((player_ud, item_ud, slot, is_check))
             .map_err(LuaError::Init)
     }
+
+    /// Call a channel `canJoin` hook — `(player) -> bool`.
+    ///
+    /// C++ reference: `chat.cpp` `ChatChannel::executeCanJoinEvent` — `canJoinEvent` callback.
+    pub fn call_channel_can_join(
+        &self,
+        callback: &mlua::RegistryKey,
+        player: crate::context::CreatureId,
+    ) -> Result<bool, LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(callback)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        function.call::<bool>(player_ud).map_err(LuaError::Init)
+    }
+
+    /// Call a channel `onSpeak` hook — `(player, type, message) -> type|bool`.
+    ///
+    /// C++ reference: `chat.cpp` `ChatChannel::executeOnSpeakEvent` — `onSpeakEvent` callback.
+    pub fn call_channel_on_speak(
+        &self,
+        callback: &mlua::RegistryKey,
+        player: crate::context::CreatureId,
+        speak_type: i32,
+        message: &str,
+    ) -> Result<mlua::Value, LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(callback)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        function
+            .call::<mlua::Value>((player_ud, speak_type, message))
+            .map_err(LuaError::Init)
+    }
+
+    /// Call a channel `onJoin` hook — `(player)`.
+    ///
+    /// C++ reference: `chat.cpp` `ChatChannel::executeOnJoinEvent` — `onJoinEvent` callback.
+    pub fn call_channel_on_join(
+        &self,
+        callback: &mlua::RegistryKey,
+        player: crate::context::CreatureId,
+    ) -> Result<(), LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(callback)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        function.call::<()>(player_ud).map_err(LuaError::Init)
+    }
+
+    /// Call a channel `onLeave` hook — `(player)`.
+    ///
+    /// C++ reference: `chat.cpp` `ChatChannel::executeOnLeaveEvent` — `onLeaveEvent` callback.
+    pub fn call_channel_on_leave(
+        &self,
+        callback: &mlua::RegistryKey,
+        player: crate::context::CreatureId,
+    ) -> Result<(), LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(callback)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        function.call::<()>(player_ud).map_err(LuaError::Init)
+    }
 }
 
 /// Trait for incremental global function registration.
@@ -227,6 +405,18 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     ] {
         globals.set(name, lua.create_table()?)?;
     }
+
+    // Channel constructor for self-registering chat channels
+    let channel_constructor = lua.create_function(|lua, (id, name): (u16, String)| {
+        let channel = ChannelHandle::new(id, name);
+        let ud = lua.create_userdata(channel)?;
+        Ok(ud)
+    })?;
+    globals.set("Channel", channel_constructor)?;
+
+    // Initialize channel hook storage
+    let channel_hooks = lua.create_table()?;
+    globals.set("_channel_hooks", channel_hooks)?;
 
     // `player.lua` constructs `soulCondition` at load time (lines 100–102).
     let condition = lua.create_function(|lua, (_kind, _id): (i32, i32)| {

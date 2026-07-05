@@ -24,6 +24,7 @@ pub mod xtea_tfs;
 pub use codec::{
     Codec, Codec1098, ItemTemplateArgs, ItemWire, PlayerSkillsWire, PlayerStatsWire, ProtocolCodec,
 };
+pub use codec::wire::{ChannelOpenWire, CreatePrivateChannelWire};
 pub use game_command::GameCommand;
 pub use message::*;
 pub use outgoing::*;

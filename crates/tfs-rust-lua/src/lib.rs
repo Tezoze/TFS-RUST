@@ -3,6 +3,7 @@
 //! This crate provides the Lua VM, script loading, and userdata bindings
 //! for game scripts. It maintains TFS compatibility while using idiomatic Rust.
 
+pub mod chat_channels;
 pub mod context;
 pub mod lua_mutation;
 pub mod move_events;
@@ -12,6 +13,7 @@ pub mod timer_events;
 pub mod userdata;
 
 // Re-export commonly used types
+pub use chat_channels::{load_chat_channel_scripts, ChatChannelDef};
 pub use context::{
     CreatureData, CreatureId, ItemData, ItemId, ItemRef, LuaContext, with_lua_context,
 };
@@ -23,12 +25,13 @@ pub use lua_mutation::{
     with_lua_mutation_scope, LuaMoveDestination, LuaMutation,
 };
 pub use move_events::{MoveEventEntry, MoveEventKind, MoveEventsRegistry};
-pub use runtime::{CallbackRef, LuaError, LuaRuntime, RegisterLuaFunctions};
+pub use runtime::{CallbackRef, LuaError, LuaRuntime, PendingChatChannel, RegisterLuaFunctions};
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
 pub use timer_events::{
     execute_timer_event, register_add_event_stop_event, set_timer_scheduler, TimerEventDesc,
     TimerEvents, TimerScheduler,
 };
 pub use userdata::{
-    register_container_metatable, register_creature_metatable, register_item_metatable, ContainerRef,
+    register_channel_metatable, register_container_metatable, register_creature_metatable,
+    register_item_metatable, ChannelHandle, ContainerRef,
 };

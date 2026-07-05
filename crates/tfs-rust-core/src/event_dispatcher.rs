@@ -8,6 +8,7 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_common::Position;
 use tfs_rust_common::ScriptContext;
+use std::any::Any;
 
 /// Script and engine events. Default bodies are no-ops until `tfs-rust-lua` implements dispatch.
 pub trait EventDispatcher {
@@ -105,10 +106,19 @@ pub trait EventDispatcher {
     fn execute_timer_event(&self, _event_id: u64) -> bool {
         false
     }
+
+    /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).
+    fn as_any(&self) -> &dyn Any
+    where
+        Self: Sized;
 }
 
 /// Default no-op dispatcher for tests and early wiring.
 #[derive(Debug, Default)]
 pub struct NullEventDispatcher;
 
-impl EventDispatcher for NullEventDispatcher {}
+impl EventDispatcher for NullEventDispatcher {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}

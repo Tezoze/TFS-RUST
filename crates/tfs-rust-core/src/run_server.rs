@@ -26,7 +26,7 @@ use crate::lua_event_dispatcher::LuaEventDispatcher;
 use crate::lua_scope::register_lua_mutation_hooks;
 use crate::map::Map;
 use crate::spawn::SpawnManager;
-use tfs_rust_lua::{LuaRuntime, ScriptLoader};
+use tfs_rust_lua::{load_chat_channel_scripts, LuaRuntime, ScriptLoader};
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
 fn resolve_pem_path() -> anyhow::Result<PathBuf> {
@@ -177,8 +177,20 @@ pub async fn run() -> anyhow::Result<()> {
     // can reach it. Set once for the game thread's lifetime.
     tfs_rust_lua::set_timer_scheduler(scheduler.clone());
 
-    let events: Box<dyn crate::event_dispatcher::EventDispatcher> = match LuaRuntime::new() {
+    let (events, chat_channels): (Box<dyn crate::event_dispatcher::EventDispatcher>, Vec<tfs_rust_lua::ChatChannelDef>) = match LuaRuntime::new() {
         Ok(mut lua_runtime) => {
+            // Load chat channels from Lua scripts (CH-4)
+            let chat_channels = match load_chat_channel_scripts(&mut lua_runtime, &data_path) {
+                Ok(channels) => {
+                    tracing::info!("Loaded {} chat channels from Lua scripts", channels.len());
+                    channels
+                }
+                Err(e) => {
+                    tracing::warn!("Chat channel loading failed: {}", e);
+                    Vec::new()
+                }
+            };
+
             let mut move_events = tfs_rust_lua::MoveEventsRegistry::default();
             if let Err(e) = move_events.load_from_xml(&mut lua_runtime, &data_path) {
                 tracing::warn!("Lua movements loading failed: {}", e);
@@ -203,25 +215,26 @@ pub async fn run() -> anyhow::Result<()> {
                             .map_or(0, |v| v.len()),
                         move_events.len(),
                     );
-                    Box::new(LuaEventDispatcher::new(
+                    let dispatcher = Box::new(LuaEventDispatcher::new(
                         lua_runtime,
                         creature_events,
                         player_events,
                         move_events,
-                    ))
+                    ));
+                    (dispatcher, chat_channels)
                 }
                 Err(e) => {
                     tracing::warn!(
                         "Lua creaturescript loading failed, using NullEventDispatcher: {}",
                         e
                     );
-                    Box::new(NullEventDispatcher)
+                    (Box::new(NullEventDispatcher), chat_channels)
                 }
             }
         }
         Err(e) => {
             tracing::warn!("Lua runtime init failed, using NullEventDispatcher: {}", e);
-            Box::new(NullEventDispatcher)
+            (Box::new(NullEventDispatcher), Vec::new())
         }
     };
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
@@ -245,6 +258,19 @@ pub async fn run() -> anyhow::Result<()> {
         mechanics,
     );
     world.scheduler = Some(scheduler.clone());
+
+    // Seed chat channels from Lua scripts (CH-4)
+    for channel_def in chat_channels {
+        use crate::chat::ChatChannel;
+        let channel = ChatChannel {
+            id: channel_def.id,
+            name: channel_def.name,
+            public_channel: channel_def.public,
+            users: std::collections::HashSet::new(),
+        };
+        world.chat.add_normal_channel(channel);
+    }
+
     world.startup_spawns();
     info!(
         map_chunks = world.map.grid.chunk_count(),

@@ -1,8 +1,10 @@
-local CHANNEL_TRADE = 5
+local channel = Channel(6, "Trade")
+channel:public(true)
 
-local muted = Condition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT)
-muted:setParameter(CONDITION_PARAM_SUBID, CHANNEL_TRADE)
-muted:setParameter(CONDITION_PARAM_TICKS, 120000)
+-- TODO(chat CH-5): Uncomment when Condition API is available
+-- local muted = Condition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT)
+-- muted:setParameter(CONDITION_PARAM_SUBID, 6)
+-- muted:setParameter(CONDITION_PARAM_TICKS, 120000)
 
 function onSpeak(player, type, message)
 	if player:getAccountType() >= ACCOUNT_TYPE_GAMEMASTER then
@@ -17,11 +19,12 @@ function onSpeak(player, type, message)
 		return false
 	end
 
-	if player:getCondition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT, CHANNEL_TRADE) then
-		player:sendCancelMessage("You may only place one offer in two minutes.")
-		return false
-	end
-	player:addCondition(muted)
+	-- TODO(chat CH-5): Uncomment when Condition API is available
+	-- if player:getCondition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT, 6) then
+	--     player:sendCancelMessage("You may only place one offer in two minutes.")
+	--     return false
+	-- end
+	-- player:addCondition(muted)
 
 	if type == TALKTYPE_CHANNEL_O then
 		if player:getAccountType() < ACCOUNT_TYPE_GAMEMASTER then
@@ -34,3 +37,5 @@ function onSpeak(player, type, message)
 	end
 	return type
 end
+
+channel:register()

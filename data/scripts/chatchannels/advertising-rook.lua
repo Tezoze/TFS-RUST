@@ -1,14 +1,16 @@
-function canJoin(player)
+local channel = Channel(10, "Advertising-Rook")
+channel:public(true)
+
+-- TODO(chat CH-5): Uncomment when Condition API is available
+-- local muted = Condition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT)
+-- muted:setParameter(CONDITION_PARAM_SUBID, 10)
+-- muted:setParameter(CONDITION_PARAM_TICKS, 120000)
+
+function channel.canJoin(player)
 	return player:getVocation():getId() == VOCATION_NONE or player:getAccountType() >= ACCOUNT_TYPE_SENIORTUTOR
 end
 
-local CHANNEL_ADVERTISING_ROOK = 6
-
-local muted = Condition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT)
-muted:setParameter(CONDITION_PARAM_SUBID, CHANNEL_ADVERTISING_ROOK)
-muted:setParameter(CONDITION_PARAM_TICKS, 120000)
-
-function onSpeak(player, type, message)
+function channel.onSpeak(player, type, message)
 	if player:getAccountType() >= ACCOUNT_TYPE_GAMEMASTER then
 		if type == TALKTYPE_CHANNEL_Y then
 			return TALKTYPE_CHANNEL_O
@@ -21,11 +23,12 @@ function onSpeak(player, type, message)
 		return false
 	end
 
-	if player:getCondition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT, CHANNEL_ADVERTISING_ROOK) then
-		player:sendCancelMessage("You may only place one offer in two minutes.")
-		return false
-	end
-	player:addCondition(muted)
+	-- TODO(chat CH-5): Uncomment when Condition API is available
+	-- if player:getCondition(CONDITION_CHANNELMUTEDTICKS, CONDITIONID_DEFAULT, 10) then
+	--     player:sendCancelMessage("You may only place one offer in two minutes.")
+	--     return false
+	-- end
+	-- player:addCondition(muted)
 
 	if type == TALKTYPE_CHANNEL_O then
 		if player:getAccountType() < ACCOUNT_TYPE_GAMEMASTER then
@@ -38,3 +41,5 @@ function onSpeak(player, type, message)
 	end
 	return type
 end
+
+channel:register()

@@ -2,6 +2,7 @@
 //!
 //! C++ reference: `src/movement.cpp` `MoveEvents::onPlayerEquip`, `MoveEvent::fireEquip`.
 
+use std::any::Any;
 use std::collections::HashMap;
 
 use crate::event_dispatcher::EventDispatcher;
@@ -34,6 +35,11 @@ impl LuaEventDispatcher {
             player_events,
             move_events,
         }
+    }
+
+    /// Get mutable access to the Lua runtime (for loading chat channels, etc.).
+    pub fn runtime_mut(&mut self) -> &mut LuaRuntime {
+        &mut self.runtime
     }
 
     fn slot_mask_for_slot(slot: u8) -> u32 {
@@ -250,5 +256,9 @@ impl EventDispatcher for LuaEventDispatcher {
                 false
             }
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

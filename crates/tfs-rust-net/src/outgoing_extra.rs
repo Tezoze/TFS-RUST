@@ -7,6 +7,22 @@ use crate::codec::{Codec1098, ItemTemplateArgs, PlayerSkillsWire, PlayerStatsWir
 use crate::creature_encode::OutfitWire;
 use crate::NetworkMessage;
 
+/// `ProtocolGame::sendChannelsDialog` — channel list dialog (`protocolgame.cpp:1282`), `0xAB`.
+///
+/// C++ reference: `src/protocolgame.cpp` `ProtocolGame::sendChannelsDialog`.
+/// 772 uses u8 for count, 1098 uses u16. This is the 772 version.
+pub fn send_channels_dialog_full(channels: &[(u16, String)]) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0xAB);
+    let n = channels.len().min(u8::MAX as usize) as u8;
+    m.write_u8(n);
+    for (id, name) in channels.iter().take(n as usize) {
+        m.write_u16(*id);
+        m.write_string(name);
+    }
+    m
+}
+
 #[allow(deprecated)]
 pub use crate::codec::wire::PlayerStats1098;
 

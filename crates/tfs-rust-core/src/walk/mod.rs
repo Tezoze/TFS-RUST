@@ -1612,18 +1612,6 @@ impl GameWorld {
                                 let step_ms = notify_go_ms;
                                 let new_earliest =
                                     self.server_ms.saturating_add(step_ms.max(1) as u64);
-                                tracing::info!(
-                                    ?cid,
-                                    ?dir,
-                                    ?old_pos,
-                                    ?new_pos,
-                                    ground_speed = gs_dest,
-                                    go_strength,
-                                    effective_speed = eff_speed,
-                                    step_ms,
-                                    server_ms = self.server_ms,
-                                    new_earliest_walk_ms = new_earliest,
-                                );
                                 base.earliest_walk_server_ms = new_earliest;
                             }
                         }
