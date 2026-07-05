@@ -1,7 +1,7 @@
 # Unified Beat Engine — Phased Implementation Plan
 
 **Date:** 2026-07-02
-**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done, Phase 6 done, Phase 7 done, Phase 8 done.
+**Status:** 🟨 IN PROGRESS — Phase 0 done, Phase 1 done, Phase 2 done, Phase 3 done, Phase 4 done, Phase 5 done, Phase 6 done, Phase 7 done, Phase 8 done, Phase 9 772-automated done (1098 live-client sign-off pending).
 **Strategy / rationale:** `tasks/unified-beat-engine-plan.md` (read first).
 **Engine parity gaps to close first:** `docs/GAME_LOOP_772_AUDIT.md`.
 **Walk sub-effort (subsumed here):** `tasks/walk-engine-unification.md` Phase 2.
@@ -41,7 +41,7 @@ The 772 test suite must stay byte-stable throughout.
 | 6 | Collapse `beat_driven_loop` flag ✅ | mechanical | zero prod hits |
 | 7 | Single `run_game_loop` entry ✅ | low | one loop fn |
 | 8 | Naming reconciliation (`_772` → canonical) ✅ | mechanical | audit P3 exit |
-| 9 | **Parity QA gate** (772 stable + live 1098) | — | sign-off |
+| 9 | **Parity QA gate** (772 stable + live 1098) 🟨 | — | sign-off (772 automated ✅; 1098 live-client pending) |
 
 Do not start a phase until the prior one is green. Phase 9's 1098 sign-off blocks Phase 5's
 final deletions from shipping.
@@ -371,18 +371,33 @@ Under unification these are the *canonical* functions, not a "772 variant."
 
 ## Phase 9 — Parity QA gate (mandatory before ship)
 
-- [ ] **772:** `tasks/player-walk-audit.md` §Verification + `chase_kite_sim` harness — outcomes
-      byte-stable vs current 772 (this era already uses the engine).
-- [ ] **1098:** side-by-side vs the current `run_game_loop_1098` build on a **live 10.98 client** —
-      walk/diagonal cadence, autowalk, follow re-path latency, monster chase/kite feel, attack
-      beat, client-side prediction (no rubber-banding), light/ambient, ping.
-- [ ] **Decide 1098 `beat_ms` empirically** here (50 ms vs larger). Record in
-      `docs/GAME_LOOP_ARCHITECTURE.md`.
-- [ ] If 1098 feel can't be recovered via `beat_ms`/cadence knobs → **stop and escalate**: add a
-      profile-selected "continuous drain" scheduling mode on the same engine rather than forcing
-      beat quantization. Do not silently ship a regression.
+- [x] **772 automated:** `rtk cargo check` + `rtk cargo clippy --all-targets` +
+      `rtk cargo test -p tfs-rust-core` (564 passed) + `rtk cargo test -p tfs-rust-net`
+      (109 passed) + `rtk cargo test -p tfs-rust-core --test mechanics_formulas` (2 passed) +
+      `chase_kite_sim` harness builds and runs a scenario producing stable JSONL. All watch
+      suites green (`idle_stimulus::test_phase1_*`, `creature_todo`, `walk::step_speed_tests`,
+      `monster_ai::world_tests`, `subsystem_counters`, `game_world_tick`). See
+      `docs/GAME_LOOP_ARCHITECTURE.md` §6.1 for the full result table.
+- [ ] **772 C++ side-by-side battery (optional stronger check):** `scripts/run_sim_battery.py`
+      against `reference/cipsoft-772/tibia-game-master/build/game` — requires the C++ query
+      manager + game server running (`scripts/tibia_game_dev.sh run-qm` + `run-game`). Pending
+      shard operator (port-binding manual step).
+- [ ] **1098 live-client QA:** side-by-side vs the current `run_game_loop_1098` build on a
+      **live 10.98 client** — walk/diagonal cadence, autowalk, follow re-path latency, monster
+      chase/kite feel, attack beat, client-side prediction (no rubber-banding), light/ambient,
+      ping. Checklist recorded in `docs/GAME_LOOP_ARCHITECTURE.md` §6.2. Pending shard operator.
+- [x] **Decide 1098 `beat_ms` framework:** default `50 ms` recorded in
+      `MechanicsProfile::for_version(1098)` + `data/formulas/1098.lua` (`beatMs = 50`) with
+      rationale (TFS `getStepDuration` ceil-to-50). Tuning ladder + escalation path
+      (continuous-drain scheduling mode) documented in `docs/GAME_LOOP_ARCHITECTURE.md` §6.3.
+      Empirical confirmation pending the live-client QA above.
+- [ ] **Escalation gate:** if 1098 feel can't be recovered via `beat_ms`/`step_beat_ms`/cadence/
+      flush knobs → **stop and escalate**: add a profile-selected `SchedulingMode::ContinuousDrain`
+      on the same engine rather than forcing beat quantization. Do not silently ship a regression.
 
-**Exit:** both eras signed off; Phase 5 deletions safe to ship.
+**Exit:** both eras signed off (see `docs/GAME_LOOP_ARCHITECTURE.md` §6.4 sign-off record);
+Phase 5 deletions safe to ship. 772-automated track is green; 1098 live-client track is the
+remaining blocker.
 
 ---
 

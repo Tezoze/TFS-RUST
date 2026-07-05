@@ -96,7 +96,6 @@ impl GameWorld {
             m.friend_ids.retain(|&id| id != creature_id);
         }
         self.monster_update_idle_status(monster_id);
-        self.monster_maybe_walk_to_spawn(monster_id);
     }
 
     pub(crate) fn monster_prune_creature_lists(&mut self, cid: CreatureId) {

@@ -179,7 +179,8 @@ later phases instead of three bespoke loaders.
 | Fight-mode enum + modifiers | `combat/math.rs` `FightMode`, `formulas.rs` `FightModes` | 772 `+20/−40` atk, `−40/+80` def already tuned. |
 
 ### 1.2 The gap — player strike is a stub
-`player_combat.rs::player_execute_attack` → `PlayerChaseOutcome::Adjacent` currently only
+`player_combat.rs::player_execute_attack` (moves to `player/combat/mod.rs` in PC-2 — §4.0) →
+`PlayerChaseOutcome::Adjacent` currently only
 `DelayAttack(200)` + re-arms. The doc comment states plainly: *"The melee strike … is deferred — no
 player weapon-combat system exists yet."* This plan fills that hole.
 
@@ -343,7 +344,8 @@ attackspeed=2000, basespeed=70) — plus the temporary dual-load-vs-XML equivale
 base-speed + vitals per level vs known 772 values.
 
 ### Phase PC-1 — Player attack/defend/armor value resolution
-**File:** new `crates/tfs-rust-core/src/player_combat_values.rs` (core).
+**File:** new `crates/tfs-rust-core/src/player/combat/values.rs` (core; see §4.0 for the `player/`
+module-directory layout — this replaces the crate-root `player_combat_values.rs` originally planned).
 
 1. `player_get_attack_value(cid) -> (max_value, SkillNr)` — `GetAttackValue` from equipped
    weapon/ammo/throw/wand/fist via existing `player_get_weapon*` + `ItemType.attack`.
@@ -354,9 +356,14 @@ base-speed + vitals per level vs known 772 values.
    All cite `crcombat.cc` GetAttackValue/GetDefendValue/GetArmorStrength.
 
 ### Phase PC-2 — The strike (`CloseAttack`) — melee first
-**Files:** `player_combat.rs` (replace the `Adjacent` stub), reuse
+**Files:** `player/combat/mod.rs` (the moved `player_combat.rs` — replace the `Adjacent` stub; strike
+body extracted into `player/combat/strike.rs` per §4.0), reuse
 `combat::math::{weapon_damage, defense_value, armor_reduction}` +
 `combat_execute_with_stimulus`.
+
+**Step 0 (pre-req):** perform the `player_combat.rs → player/combat/mod.rs` file move from §4.0 first
+(pure move + `player/mod.rs` re-exports + `lib.rs` `mod player;`), verify green, then land the strike
+logic. Keeps the behavior-preserving move isolated from the logic change.
 
 1. On `PlayerChaseOutcome::Adjacent` with melee range (`GetDistance()==1`):
    - `attack = weapon_damage(profile, hooks, rng, skill, atk_value, mode, level)` × vocation
@@ -375,7 +382,7 @@ base-speed + vitals per level vs known 772 values.
    learning is active — matches `GetAttackDamage`/`ProbeValue`.
 
 ### Phase PC-3 — Distance + wand strikes
-**File:** `player_combat.rs` / `player_combat_values.rs`.
+**File:** `player/combat/ranged.rs` (new), reusing `player/combat/values.rs` (§4.0).
 
 1. `DistanceAttack`: ammo resolution (already in `player_get_weapon`), range vs `shoot_range`,
    `HitChance` (bow 90 / throw 75), `Probe(Difficulty*15, HitChance, learning)` — add
@@ -389,7 +396,8 @@ base-speed + vitals per level vs known 772 values.
    `items.xml` wand entries + `objects.srv`).
 
 ### Phase PC-4 — Fight/chase/secure mode + PVP gating
-**Files:** `player_combat.rs`, `game_loop.rs` (`FightModes` arm — parse already exists, see §0.2).
+**Files:** `player/combat/fight_mode.rs` (new — setters + PVP gating; §4.0), `game_loop.rs`
+(`FightModes` arm — parse already exists, see §0.2).
 
 1. ~~Parse `0xA7` → `{ attack_mode, chase_mode, secure_mode }`~~ — **already done**
    (`GamePacket::FightModes { raw_fight_mode, raw_chase_mode, raw_secure_mode, raw_pvp_mode }`).
@@ -561,6 +569,40 @@ the ported spell metadata) for the handful of spells where exact CipSoft radius 
 100% of TFS Lua scripts unchanged while the actual tile set comes from `circles.dat`.
 
 ## 4. Architecture / placement rules (steering compliance)
+
+### 4.0 Module placement — the `player/` directory (aligns with `REFACTOR_AUDIT.md` Phase 4 + §6)
+
+This plan lands its new/rewritten combat code inside a **`player/` module directory**, mirroring the
+Phase 4 move that carves `idle_stimulus.rs` → `monster_idle/` and `monster_ai.rs` → `monster_ai/`
+(`REFACTOR_AUDIT.md` §1/§4). It also seeds the §6 "module fragmentation" recommendation, which names
+`player/inventory/` as the target for the flat `player_inventory_*` / `player_*` cluster. Rather than
+adding two more crate-root `player_*.rs` files, the combat work introduces the directory:
+
+```
+crates/tfs-rust-core/src/player/
+  mod.rs                # module surface doc + re-exports (keeps `crate::player::…` paths stable)
+  combat/
+    mod.rs              # player_execute_attack strike dispatch (was crate-root player_combat.rs)
+    values.rs           # player_get_attack_value / _defend_value / _armor_strength (PC-1)
+    strike.rs           # CloseAttack melee strike body (PC-2) — extracted so mod.rs stays a dispatch surface
+    ranged.rs           # DistanceAttack + WandAttack (PC-3)
+    fight_mode.rs       # attack/chase/secure-mode setters + PVP gating (PC-4)
+```
+
+Rules for the move (behavior-preserving, same as Phase 4's split process):
+- **`player_combat.rs` → `player/combat/mod.rs`** is a pure file move done as the first step of PC-2
+  (or a standalone pre-step). Keep every item's visibility (`pub(crate)`) unchanged and add
+  `pub use` re-exports in `player/mod.rs` so existing `crate::player_combat::…` call sites resolve
+  via a compatibility re-export until they're repointed to `crate::player::combat::…`. Convert
+  `mod player_combat;` in `lib.rs` to `mod player;`.
+- **New PC-1/PC-3/PC-4 code goes straight into `player/combat/`** — do **not** create crate-root
+  `player_combat_values.rs`; it becomes `player/combat/values.rs`.
+- Existing flat `player_*.rs` files (`player_inventory_*`, `player_depot`, `player_ping`, …) are
+  **not** moved by this plan — that wholesale migration into `player/` (incl. `player/inventory/`)
+  stays §6/Phase 4 backlog in `REFACTOR_AUDIT.md`. This plan only establishes the directory and puts
+  the new combat subsystem in it, so the two efforts converge instead of adding more root files.
+- Each new file carries its own C++ reference header (`crcombat.cc`/`crskill.cc` + TFS structure
+  cite) per `TFS-cpp-references`.
 
 - **Formulas & flow** live in `tfs-rust-core` combat modules; **no** `NetworkMessage`/opcode bytes
   in core (`0xA0` parse stays in `tfs-rust-net`). (`tfs-packets.md`, `tfs-wire-codec.md`.)

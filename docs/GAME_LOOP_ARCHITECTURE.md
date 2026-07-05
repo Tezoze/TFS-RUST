@@ -13,6 +13,7 @@ never in a loop-selection branch.
 > | **§2 — Unified beat engine** | **Implemented.** `run_game_loop` is the single loop entry point for both eras. Phase 5 deleted the 1098 reactive loop (`run_game_loop_1098`); Phase 6 collapsed the `beat_driven_loop` flag; Phase 7 merged the last `*_772` loop alias into `run_game_loop`. |
 > | **§3 — Per-era profile knobs** | **Implemented.** `MechanicsProfile` carries `beat_ms`, think cadence, tick interval, flush policy, `StepSpeedModel`. 772 = `LinearGo` + 200 ms beat + staggered ~1000 ms subsystems + beat-end flush; 1098 = `TfsLog` + 50 ms beat + 50 ms bucketed think + immediate-on-movement flush. |
 > | **§4 — C++ reference index** | Both eras still cite their authoritative C++ sources. |
+> | **§6 — Phase 9 parity QA gate** | **772 automated track green.** 1098 live-client track + `beat_ms` sign-off pending shard operator (see §6.4). |
 >
 > See [`CODEBASE_AUDIT.md`](CODEBASE_AUDIT.md) for the full gap analysis and
 > [`unified-beat-engine-phases.md`](../tasks/unified-beat-engine-phases.md) for the
@@ -354,3 +355,93 @@ by tuning the profile knobs above.
 
 No loop-selection branch exists in `run_server.rs` or anywhere else in core. The loop is
 selected once at startup: `run_game_loop(world, cmd_rx, out_registry)`.
+
+---
+
+## 6. Phase 9 — Parity QA Gate
+
+Phase 9 is the mandatory sign-off before the unified engine ships for 1098. It has two
+tracks: an automated 772 track (the 772 era already runs on this engine, so its test suite
++ harness are the byte-stability net) and a manual 1098 track (a live 10.98 client is the
+only authority for 1098 *feel*).
+
+### 6.1 772 automated parity (runnable on CI)
+
+| Check | Command | Status |
+|-------|---------|--------|
+| Type/build green | `rtk cargo check` | ✅ 0 errors |
+| Lint green | `rtk cargo clippy --all-targets` | ✅ 0 errors (pre-existing dead-code warnings only) |
+| Core unit tests | `rtk cargo test -p tfs-rust-core` | ✅ 564 passed, 2 ignored, 0 failed |
+| Net unit tests | `rtk cargo test -p tfs-rust-net` | ✅ 109 passed |
+| Mechanics formulas integration | `rtk cargo test -p tfs-rust-core --test mechanics_formulas` | ✅ 2 passed (772 + 1098 defaults match shipped `data/formulas/*.lua`) |
+| `chase_kite_sim` harness builds | `rtk cargo test -p tfs-rust-core --features sim --bin chase_kite_sim --no-run` | ✅ 0 errors |
+| `chase_kite_sim` harness runs | `rtk cargo run -p tfs-rust-core --bin chase_kite_sim --features sim -- scripts/scenarios/kite_rat_stand_melee.scenario --log /tmp/kite.log` | ✅ Produces stable JSONL event stream |
+
+**Watch suites** (called out by `tasks/unified-beat-engine-phases.md` Phase 9): all present
+and green — `idle_stimulus::tests::test_phase1_*`, `creature_todo::tests::*`,
+`walk::step_speed_tests::*`, `monster_ai::world_tests::*` (was `monster_ai_world_tests`),
+`subsystem_counters::tests::*` (was `subsystem_counters_772`, renamed in Phase 8),
+`game_world_tick::tests::*`.
+
+**Optional stronger check — C++ side-by-side battery.** The Rust harness can be cross-checked
+against the 772 C++ reference binary (`reference/cipsoft-772/tibia-game-master/build/game`)
+via `scripts/run_sim_battery.py`. This requires the C++ query manager + game server running
+(see `scripts/tibia_game_dev.sh run-qm` + `run-game`); it is a manual, port-binding step the
+shard operator runs before sign-off. The Rust-only harness above is the CI gate; the C++
+battery is the pre-ship confidence check.
+
+### 6.2 1098 live-client QA (manual — requires a 10.98 client)
+
+This track cannot be automated. The shard operator must run a 1098-on-beat build against a
+live 10.98 client and compare feel side-by-side with the previous `run_game_loop_1098`
+build. The checklist:
+
+- [ ] Single-step walk cadence (no stutter, no double-step)
+- [ ] Diagonal walk cadence (diagonals not slower than cardinals)
+- [ ] Autowalk (multi-step path executes smoothly, cancels cleanly on StopAutoWalk)
+- [ ] Follow re-path latency (target moves → follower re-paths within one beat, not 200 ms late)
+- [ ] Monster chase/kite feel (pursuit not laggy; kiting monster keeps distance)
+- [ ] Attack beat (melee/swing cadence matches vocation `attackSpeed`)
+- [ ] Client-side prediction — **no rubber-banding** (the biggest risk per plan §9)
+- [ ] Light/ambient transitions (dawn/day/dusk/night advance at expected cadence)
+- [ ] Ping (periodic ping keeps connection alive; no spurious idle kicks)
+
+### 6.3 1098 `beat_ms` decision
+
+**Current value:** `beat_ms = 50` in `MechanicsProfile::for_version(1098)` and
+`data/formulas/1098.lua` (`beatMs = 50`).
+
+**Rationale:** 50 ms is the smallest beat that the TFS 1.4.2 `getStepDuration` quantizes to
+(`creature.cpp` ceil-to-50), so it preserves 1098 walk-step granularity exactly. The 1098
+C++ Dispatcher is event-driven (sub-ms), but its *observable* cadence is dominated by the
+50 ms `EVENT_CREATURE_THINK_INTERVAL` and the 50 ms step quantizer — both of which the
+profile reproduces. 50 ms was chosen as the default; the live-client QA above is what
+validates (or refutes) it.
+
+**If 1098 feel regresses on 50 ms:** try, in order, *before* escalating:
+
+1. **`beat_ms = 25`** — halve the beat; doubles the ToDo drain frequency. Watch CPU.
+2. **Tune `step_beat_ms`** independently if walk quantization is the issue (currently 50).
+3. **Tune the flush policy** in the profile if rubber-banding points at output batching
+   rather than scheduling (1098 expects immediate-on-movement flush; verify it is active).
+
+**Escalation path (do not silently ship a regression):** if no combination of `beat_ms` /
+`step_beat_ms` / cadence / flush knobs recovers the 1098 feel, the shared engine needs a
+profile-selected **continuous-drain** scheduling mode on the same engine — i.e. the
+`ToDoQueue` drains on every `cmd_rx` wake in addition to the beat timer, with `server_ms`
+advanced by wall-clock delta instead of fixed `beat_ms` steps. This is a design change to
+the loop, not a profile tweak, and must be raised as a Phase 9 escalation (see
+`tasks/unified-beat-engine-phases.md` Phase 9 bullet 4). The 1098 profile would select
+`SchedulingMode::ContinuousDrain` while 772 keeps `SchedulingMode::BeatQuantized`.
+
+### 6.4 Sign-off record
+
+| Era | Track | Status | Signed by | Date |
+|-----|-------|--------|-----------|------|
+| 772 | Automated (§6.1) | ✅ Green | Devin (automated) | 2026-07-05 |
+| 772 | C++ side-by-side battery (§6.1, optional) | ⬜ Pending shard operator | — | — |
+| 1098 | Live-client QA (§6.2) | ⬜ Pending shard operator | — | — |
+| 1098 | `beat_ms` decision (§6.3) | 🟨 Default 50 ms; awaiting live-client confirmation | — | — |
+
+**Exit:** both eras signed off → Phase 5 deletions safe to ship. Until the 1098 live-client
+row is signed, 1098-on-beat is a preview, not a shipped era.

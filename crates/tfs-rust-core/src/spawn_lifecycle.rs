@@ -826,7 +826,6 @@ mod tests {
     use std::collections::HashMap;
     use std::collections::HashSet;
     use std::sync::Arc;
-    use std::time::Instant;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::ProtocolVersion;
     use tfs_rust_content::monsters::{
@@ -972,8 +971,11 @@ mod tests {
         // Respawn runs on `server_ms` (Phase 6: both eras use the unified beat clock).
         // Advance `server_ms` past the slot's respawn deadline + check interval.
         world.server_ms = 50_000_000;
-        let later = Instant::now() + std::time::Duration::from_secs(6);
-        world.on_tick(later);
+        // `advance_beat` drains `poll_spawn_respawns` via `run_other_subsystems`.
+        // 5 beats × 200 ms = 1000 ms → `other` subsystem fires once.
+        for _ in 0..5 {
+            world.advance_beat(200);
+        }
 
         let packets = world.pending_outgoing.get(&conn);
         assert!(packets.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0x6A)));
@@ -1000,8 +1002,11 @@ mod tests {
 
         // Respawn on `server_ms` (Phase 6: unified beat clock) — advance past the deadline.
         world.server_ms = 50_000_000;
-        let later = Instant::now() + std::time::Duration::from_secs(6);
-        world.on_tick(later);
+        // `advance_beat` drains `poll_spawn_respawns` via `run_other_subsystems`.
+        // 5 beats × 200 ms = 1000 ms → `other` subsystem fires once.
+        for _ in 0..5 {
+            world.advance_beat(200);
+        }
         let monsters = world
             .creatures
             .iter()

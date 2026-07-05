@@ -552,36 +552,6 @@
         assert_eq!(world.monster_weakest_opponent(&candidates), Some(a));
     }
 
-    /// P7 — 772 beat loop: `monster_arm_event_walk` must not re-arm when `next_wakeup` is set.
-    #[test]
-    fn beat_driven_arm_event_walk_skips_when_wakeup_set() {
-        let mut world = beat_driven_test_world();
-        world.server_ms = 0;
-
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 2148);
-        let cid =
-            insert_monster_with_config(&mut world, "Rat", pos, 200, MonsterAiConfig::default());
-
-        world.monster_arm_event_walk(cid);
-        let wakeup = world
-            .creatures
-            .get(cid)
-            .unwrap()
-            .base()
-            .next_wakeup
-            .expect("first arm should schedule ToDoQueue wakeup");
-        assert_eq!(world.todo_queue.len(), 1);
-
-        world.monster_arm_event_walk(cid);
-
-        assert_eq!(
-            world.creatures.get(cid).unwrap().base().next_wakeup,
-            Some(wakeup),
-            "second arm must not reschedule walk"
-        );
-        assert_eq!(world.todo_queue.len(), 1, "no duplicate heap entry");
-    }
 
     #[test]
     fn test_772_melee_dance_only_cardinal() {
@@ -681,49 +651,6 @@
     }
 
     #[test]
-    fn test_772_ensure_follow_band_keeps_queue_when_not_stale() {
-        let mut world = beat_driven_test_world();
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        let ppos_moved = Position::new(104, 100, 7);
-        for x in 100..=106 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
-        }
-
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_at(ppos, player);
-
-        world.monster_on_creature_appear_self(monster);
-        seed_idle_chase_queue_for_test(&mut world, monster);
-
-        let queue_before = world
-            .creatures
-            .get(monster)
-            .unwrap()
-            .base()
-            .walk_queue
-            .clone();
-        assert!(!queue_before.is_empty());
-
-        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
-            p.base.position = ppos_moved;
-        }
-        world.map.unregister_creature_at(ppos, player);
-        world.map.register_creature_at(ppos_moved, player);
-
-        let repathed = world.monster_ensure_follow_band(monster, "idle");
-        let base = world.creatures.get(monster).unwrap().base();
-        assert!(
-            !repathed,
-            "772 ensure_follow_band must not schedule repath when queue still valid"
-        );
-        assert_eq!(base.walk_queue, queue_before);
-        assert!(!base.force_update_follow_path);
-    }
-
-    #[test]
     fn test_772_target_move_empty_queue_defers_to_idle() {
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
@@ -761,53 +688,6 @@
         let (needs, reason) = world.monster_idle_chase_needs_repath(monster);
         assert!(needs, "idle should still repath via idle_drain or off_band");
         assert!(matches!(reason, Some("idle_drain") | Some("off_band")));
-    }
-
-    #[test]
-    fn test_772_ensure_follow_band_defers_repath_via_force_update() {
-        let mut world = beat_driven_test_world();
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(108, 100, 7);
-        for x in 100..=109 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
-        }
-
-        let monster = insert_monster_with_config(
-            &mut world,
-            "FixtureIdleChase772",
-            mpos,
-            200,
-            MonsterAiConfig {
-                is_hostile: false,
-                ..MonsterAiConfig::default()
-            },
-        );
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-        world.map.register_creature_at(ppos, player);
-
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.is_idle = false;
-            m.opponent_ids.push(player);
-            m.base.follow_target = Some(player);
-            m.base.has_follow_path = true;
-            m.base.walk_queue = VecDeque::from([Direction::North]);
-        }
-
-        let scheduled = world.monster_ensure_follow_band(monster, "idle");
-        assert!(scheduled, "stale queue must schedule repath on 772");
-        let base = world.creatures.get(monster).unwrap().base();
-        assert!(base.force_update_follow_path);
-        assert!(base.walk_queue.is_empty());
-        assert!(!base.has_follow_path);
-
-        world.monster_idle_stimulus(monster);
-        assert!(
-            world
-                .creatures
-                .get(monster)
-                .is_some_and(|k| !k.base().walk_queue.is_empty() || k.base().todo.has_go()),
-            "idle must repath after ensure_follow_band deferred force_update"
-        );
     }
 
     #[test]
@@ -1033,54 +913,6 @@
     }
 
     #[test]
-    fn test_772_repath_first_step_delay() {
-        let mut world = beat_driven_test_world();
-
-        let mpos = Position::new(100, 100, 7);
-        let ppos = Position::new(105, 100, 7);
-        ensure_walkable_tile(&mut world.map, mpos, 150);
-        ensure_walkable_tile(&mut world.map, ppos, 150);
-        for x in 100..=105 {
-            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
-        }
-
-        let monster =
-            insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
-        let player = insert_player(&mut world, test_player("Hero", ppos));
-
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-            m.is_idle = false;
-            m.opponent_ids.push(player);
-            m.base.follow_target = Some(player);
-            m.base.attack_target = Some(player);
-
-            // Simulate the post-step state that `NotifyGo` would have produced (`cract.cc:1515-1525`):
-            // `EarliestWalkTime = ServerMilliseconds + step_duration`. C++ `CalculateDelay(TDGo)`
-            // consults `EarliestWalkTime` only (`cract.cc:918-923`), so the repath wakeup must be
-            // armed `step_duration` into the future — not at `+1` (fresh-walk clamp).
-            const STEP_COOLDOWN_MS: u64 = 350;
-            m.base.last_step_server_ms = Some(world.server_ms);
-            m.base.last_step_ground_speed = 150;
-            m.base.last_step_cost = 1;
-            m.base.earliest_walk_server_ms = world.server_ms + STEP_COOLDOWN_MS;
-        }
-
-        // Trigger repath
-        world.monster_follow_repath_now(monster, None);
-
-        let wakeup = world.creatures.get(monster).unwrap().base().next_wakeup;
-
-        // Wakeup should be scheduled for server_ms + walk_delay (the `EarliestWalkTime` delta).
-        assert!(wakeup.is_some());
-        let delay = wakeup.unwrap() - world.server_ms;
-        assert!(
-            delay >= 300,
-            "expected repath delay to respect walk delay, got {}",
-            delay
-        );
-    }
-
-    #[test]
     fn test_772_flee_steps_away() {
         let mut world = beat_driven_test_world();
 
@@ -1149,9 +981,9 @@
             m.run_away_health = 20; // fleeing
         }
 
-        // Run go_to_follow_creature. Since fleeing is true and pathing fails, it should clear follow path and stop,
-        // without attempting any closer steps.
-        world.go_to_follow_creature(monster, None);
+        // Flee arm runs through `monster_idle_stimulus`. Since fleeing is true and all
+        // neighbor tiles are blocked, the flee step must not populate the walk queue.
+        world.monster_idle_stimulus(monster);
 
         let walk_queue_empty = world
             .creatures

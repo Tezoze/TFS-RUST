@@ -6,7 +6,6 @@
         CreatureKind, MonsterAiConfig, ChaseMode, MonsterSpell, MonsterState, SpellImpact,
         SpellShape,
     };
-    use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
     use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
     use crate::game_world::GameWorld;
     use crate::idle_stimulus::MonsterIdleWalkBranch;
@@ -76,13 +75,14 @@
             world.execute_creature_todo_go(monster);
         }
 
-        world.monster_native_on_think(monster, EVENT_CREATURE_THINK_INTERVAL_MS);
+        // 772 ToDo/IdleStimulus engine owns Go enqueue — no per-creature think sweep.
+        // Verify the idle path did not re-arm Go after the drain.
         assert!(
             !world
                 .creatures
                 .get(monster)
                 .is_some_and(|k| k.base().todo.has_go()),
-            "772 think must not enqueue Go actions"
+            "772 idle drain must not re-enqueue Go after execute"
         );
     }
 
@@ -3407,8 +3407,6 @@
     /// ~1 Hz think rescues monsters parked on a live target with no scheduler state.
     #[test]
     fn test_772_parked_monster_rescued_by_think() {
-        use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
-
         let mut world = beat_driven_test_world();
         let mpos = Position::new(100, 100, 7);
         let ppos = Position::new(103, 100, 7);
@@ -3434,12 +3432,15 @@
         }
         assert!(monster_is_parked(&world, monster));
 
+        // 772 rescue now flows through `process_creatures` (death safety only) + the
+        // IdleStimulus ToDo drain — no per-creature `monster_on_think` sweep.
         world.add_creature_think_check(monster);
-        world.monster_on_think(monster, EVENT_CREATURE_THINK_INTERVAL_MS);
+        world.process_creatures();
+        world.request_idle_stimulus(monster);
 
         assert!(
             !monster_is_parked(&world, monster),
-            "ProcessCreatures think must re-arm idle for parked combat monster"
+            "IdleStimulus must re-arm idle for parked combat monster"
         );
     }
 

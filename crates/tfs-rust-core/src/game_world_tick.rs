@@ -1,7 +1,8 @@
-//! Game loop tick orchestration — 1098 `on_tick` and 772 beat advance.
+//! Game loop tick orchestration — unified beat advance.
 //!
-//! - `Game::checkCreatures` / subsystem polling — `game.cpp`.
 //! - 772 `AdvanceGame` — `tibia-game-master/src/main.cc`.
+//! - 1098 observable behavior per `src/game.cpp` `Game::checkCreatures` (reproduced via
+//!   profile knobs, not a separate loop).
 
 use std::time::Instant;
 
@@ -11,17 +12,7 @@ use crate::game_world::GameWorld;
 const LAG_SKIP_MOVEMENT_MS: u64 = 1000;
 
 impl GameWorld {
-    /// One simulation tick (~50 ms target) — 1098 loop only.
-    pub fn on_tick(&mut self, now: std::time::Instant) {
-        self.tick_counter = self.tick_counter.wrapping_add(1);
-
-        self.check_creatures(now);
-
-        let _ = self.decay.tick(self.tick_counter);
-        self.run_other_subsystems(now, true);
-    }
-
-    /// Spawns, player pings, Lua GC — shared by 1098 `on_tick` and 772 other counter.
+    /// Spawns, player pings, Lua GC — shared by `advance_beat` other counter.
     pub(crate) fn run_other_subsystems(&mut self, now: Instant, lua_gc_every_five_ticks: bool) {
         self.poll_spawn_respawns(self.now_ms());
         if lua_gc_every_five_ticks {

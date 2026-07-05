@@ -655,16 +655,6 @@ impl GameWorld {
         let _ = self.todo_start_go_delay(cid, first_step);
     }
 
-    /// Enqueue Go and schedule its wakeup when idle decides movement is needed.
-    pub(crate) fn idle_enqueue_go_and_start(
-        &mut self,
-        cid: CreatureId,
-        first_step: bool,
-        todo_via: Option<&str>,
-    ) {
-        self.idle_enqueue_paced_go(cid, first_step, todo_via, None);
-    }
-
     /// Arm the next todo step on the heap without synchronous re-entry (avoids stack overflow).
     pub(crate) fn schedule_immediate_todo_wakeup(&mut self, cid: CreatureId) {
         self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));

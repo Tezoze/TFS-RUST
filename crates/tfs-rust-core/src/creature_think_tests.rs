@@ -1,36 +1,11 @@
-    use std::time::{Duration, Instant};
-
     use tfs_rust_common::{Position, ZoneType};
 
     use crate::test_world::support::{
-        beat_driven_world, ensure_walkable_tile, insert_npc, minimal_world, CountingEventDispatcher,
+        beat_driven_test_world, beat_driven_world, ensure_walkable_tile, insert_player,
+        test_player, CountingEventDispatcher,
     };
 
     use super::*;
-
-    fn step_ticks(
-        world: &mut crate::game_world::GameWorld,
-        start: Instant,
-        count: u32,
-        step_ms: u64,
-    ) -> Instant {
-        let mut now = start;
-        for _ in 0..count {
-            world.on_tick(now);
-            now += Duration::from_millis(step_ms);
-        }
-        now
-    }
-
-    fn world_with_counter() -> (
-        crate::game_world::GameWorld,
-        std::sync::Arc<CountingEventDispatcher>,
-    ) {
-        let counter = std::sync::Arc::new(CountingEventDispatcher::default());
-        let mut world = minimal_world();
-        world.events = Box::new(CountingEventDispatcherProxy(counter.clone()));
-        (world, counter)
-    }
 
     /// Proxy so tests can share the counter via `Arc`.
     struct CountingEventDispatcherProxy(std::sync::Arc<CountingEventDispatcher>);
@@ -39,125 +14,6 @@
         fn on_think(&self, creature: CreatureId, interval_ms: u32) {
             self.0.on_think(creature, interval_ms);
         }
-    }
-
-    #[test]
-    fn think_sweep_fires_at_1hz_per_bucket() {
-        let (mut world, counter) = world_with_counter();
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 100);
-
-        let npc = insert_npc(&mut world, "Tom", pos, 100);
-        world.set_creature_think_check_bucket(npc, 0);
-
-        let start = Instant::now();
-        step_ticks(&mut world, start, 50, 50);
-
-        assert_eq!(
-            counter.total_think_calls(),
-            3,
-            "NPC in bucket 0 should think at 100 ms, 1100 ms, and 2100 ms within 2.5 s"
-        );
-    }
-
-    #[test]
-    fn idle_monster_not_in_think_sweep() {
-        let (mut world, counter) = world_with_counter();
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 100);
-
-        let cid = crate::test_world::support::insert_monster(&mut world, "rat", pos, 200);
-        assert!(
-            world
-                .creatures
-                .get(cid)
-                .is_some_and(|k| k.base().think_check_bucket.is_none()),
-            "idle monster must not be registered for think checks"
-        );
-
-        let start = Instant::now();
-        step_ticks(&mut world, start, 50, 50);
-
-        assert_eq!(
-            counter.total_think_calls(),
-            0,
-            "idle monsters must not receive onThink"
-        );
-    }
-
-    #[test]
-    fn npc_included_in_sweep() {
-        let (mut world, counter) = world_with_counter();
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 100);
-
-        let npc = insert_npc(&mut world, "Tom", pos, 100);
-        world.set_creature_think_check_bucket(npc, 0);
-
-        let start = Instant::now();
-        step_ticks(&mut world, start, 20, 50);
-
-        assert_eq!(
-            counter.total_think_calls(),
-            1,
-            "NPC in bucket 0 should think once after first bucket cycle (~1 s)"
-        );
-    }
-
-    #[test]
-    fn interval_is_fixed_1000() {
-        let (mut world, counter) = world_with_counter();
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 100);
-
-        let npc = insert_npc(&mut world, "Tom", pos, 100);
-        world.set_creature_think_check_bucket(npc, 0);
-
-        let start = Instant::now();
-        step_ticks(&mut world, start, 25, 50);
-
-        assert!(
-            counter
-                .intervals()
-                .iter()
-                .all(|&ms| ms == EVENT_CREATURE_THINK_INTERVAL_MS),
-            "onThink interval must be fixed 1000 ms for C++ parity"
-        );
-    }
-
-    #[test]
-    fn staggered_buckets_spread_thinks() {
-        let (mut world, counter) = world_with_counter();
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 100);
-
-        let npc0 = insert_npc(&mut world, "Tom", pos, 100);
-        let npc5 = insert_npc(&mut world, "Tim", Position::new(101, 100, 7), 100);
-        world.set_creature_think_check_bucket(npc0, 0);
-        world.set_creature_think_check_bucket(npc5, 5);
-
-        let start = Instant::now();
-        step_ticks(&mut world, start, 10, 100);
-
-        assert_eq!(
-            counter.total_think_calls(),
-            2,
-            "buckets 0 and 5 each fire once within the first 1 s cycle"
-        );
-    }
-
-    #[test]
-    fn creature_removed_during_think_safe() {
-        let mut world = minimal_world();
-        let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, 100);
-        let cid = crate::test_world::support::insert_monster(&mut world, "rat", pos, 200);
-
-        world.monster_on_think(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
-        world.remove_creature(cid);
-
-        let start = Instant::now();
-        step_ticks(&mut world, start, 25, 50);
     }
 
     /// RC1: `process_creatures` must NOT call `onThink` — C++ `ProcessCreatures`
@@ -173,8 +29,8 @@
 
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
-        let npc = insert_npc(&mut world, "Tom", pos, 100);
-        world.set_creature_think_check_bucket(npc, 0);
+        let npc = crate::test_world::support::insert_npc(&mut world, "Tom", pos, 100);
+        world.add_creature_think_check(npc);
 
         const BEAT_MS: u64 = 200;
         // 9 beats = 1800 ms → creature counter fires once at 1750 ms threshold.
@@ -242,7 +98,7 @@
         let monster = crate::test_world::support::insert_monster(&mut world, "Rat", mpos, 200);
 
         // Manually set a target (simulating a chase that went out of view).
-        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        if let Some(crate::creature::CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.is_idle = false;
             m.base.follow_target = Some(player);
             m.base.attack_target = Some(player);
@@ -282,7 +138,6 @@
     // C++ reference: `crmain.cc:1087-1095` `ProcessCreatures` item regen.
 
     use crate::creature::CreatureKind;
-    use crate::test_world::support::{beat_driven_test_world, insert_player, test_player};
     use crate::tile::{Tile, TileBody};
     use slotmap::Key;
 

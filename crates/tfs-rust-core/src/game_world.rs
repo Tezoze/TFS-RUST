@@ -10,7 +10,6 @@ pub use crate::game_world_spectators::{creature_can_see, protocol_can_see};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
 
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -118,8 +117,6 @@ pub struct GameWorld {
     pub container_registry: ContainerRegistry,
     /// Next bucket index for TFS staggered `Game::checkCreatures` (`game.cpp` ~3819).
     pub(crate) check_creature_bucket_index: u32,
-    /// Wall-clock of last per-bucket think tick (`EVENT_CHECK_CREATURE_INTERVAL`).
-    pub(crate) last_creature_bucket_tick: Option<Instant>,
     /// Reverse link spawn slot ↔ creature for respawn scheduling.
     pub(crate) spawn_slot_by_creature: HashMap<CreatureId, usize>,
     /// 772 `AdvanceGame` staggered ~1000 ms subsystem counters (772 loop only).
@@ -299,7 +296,6 @@ impl GameWorld {
             items_pending_release: Vec::new(),
             container_registry: ContainerRegistry::new(),
             check_creature_bucket_index: 0,
-            last_creature_bucket_tick: None,
             spawn_slot_by_creature: HashMap::new(),
             subsystem_counters: crate::subsystem_counters::SubsystemCounters::default(),
             monster_world_config,

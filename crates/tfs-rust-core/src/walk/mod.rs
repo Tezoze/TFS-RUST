@@ -1175,11 +1175,6 @@ impl GameWorld {
         self.add_event_walk(cid, first_only);
     }
 
-    /// Monster chase — first queued step runs immediately (`addEventWalk(true)` / `ticks == 1`).
-    pub(crate) fn creature_start_chase_auto_walk(&mut self, cid: CreatureId) {
-        self.add_event_walk(cid, true);
-    }
-
     /// TFS `Creature::addEventWalk` (`creature.cpp` ~299–322).
     ///
     /// Phase 5: the 1098 `scheduling_base` anchor (for the `Instant`-based initial timer) is gone;

@@ -304,37 +304,6 @@ pub const DANCE_DIR_ORDER: [Option<Direction>; 5] = [
     None,
 ];
 
-/// glibc-backed RNG for combat/idle parity when `TFS_SIM_SEED` is set.
-#[cfg(any(test, feature = "sim"))]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SimGlibcRng;
-
-#[cfg(any(test, feature = "sim"))]
-impl rand::RngCore for SimGlibcRng {
-    fn next_u32(&mut self) -> u32 {
-        if sim_glibc_rng_enabled() {
-            draw_rand() as u32
-        } else {
-            0
-        }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        (self.next_u32() as u64) << 32 | self.next_u32() as u64
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for byte in dest.iter_mut() {
-            *byte = self.next_u32() as u8;
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
