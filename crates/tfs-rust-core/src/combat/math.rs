@@ -30,15 +30,18 @@ use crate::formulas::{
 };
 
 /// Player fight stance (`ATTACK_MODE_*` in CipSoft, `fightMode_t` in TFS).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FightMode {
     Offensive,
+    #[default]
     Balanced,
     Defensive,
 }
 
 impl FightMode {
-    /// Wire byte from `0xA0` `parseFightModes` (`raw_fight_mode`): 1 = offensive, 2 = balanced, 3 = defensive.
+    /// Wire byte from `0xA7` `FIGHT_MODES` (`raw_fight_mode`): 1 = offensive, 2 = balanced, 3 = defensive.
+    /// Opcode is `0xA7` client→server (`receiving.cc` `FIGHT_MODES`); `0xA0` is the *server→client*
+    /// `AddPlayerStats` opcode (see `tasks/player-combat-plan.md` §0.2).
     pub fn from_wire(raw: u8) -> Self {
         match raw {
             1 => FightMode::Offensive,

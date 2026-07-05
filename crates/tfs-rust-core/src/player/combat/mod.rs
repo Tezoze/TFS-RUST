@@ -17,6 +17,14 @@
 //! `follow_target` so the shared `Go`/pathfinding arms (which key off `follow_target`) repath
 //! toward the target on the attack beat.
 
+pub(crate) mod values;
+
+// Re-export `SkillNr` so downstream phases (PC-2+) can reference it as
+// `crate::player::combat::SkillNr` without reaching into the `values` submodule.
+// `#[allow(unused_imports)]` — no consumer until PC-2 wires `weapon_damage`/`defense_value`.
+#[allow(unused_imports)]
+pub(crate) use values::SkillNr;
+
 use slotmap::Key;
 use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::ConnId;

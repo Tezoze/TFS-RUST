@@ -87,11 +87,13 @@ path must call `req_skill_tries` + `Increase`-equivalent leveling, not just gate
 `learning_points`. Without this, "skill advances only while learning is active" (PC-2 step 2) has
 no counter to advance.
 
-### 0.6 `Player.attack_mode` field doesn't exist yet — PC-1 step 4 correctly calls this out, confirmed
-Checked `creature/player.rs` fully: no `attack_mode`, `secure_mode`, or `learning_points` field
-exists on `Player` or `CreatureBase` today. §5's "New/changed data model" table already lists these
-as new — no correction, just confirming the gap is real and none of the three exist under a
-different name (`chase_mode` does exist on `CreatureBase` and is unrelated to `attack_mode`).
+### 0.6 `Player.attack_mode` field doesn't exist yet — PC-1 step 4 correctly called this out — ✅ resolved
+~~Checked `creature/player.rs` fully: no `attack_mode`, `secure_mode`, or `learning_points` field
+exists on `Player` or `CreatureBase` today.~~ **PC-1 landed:** `Player.attack_mode: FightMode`
+(default `Balanced`) is now on `Player`; `defend_fight_mode_for_target` reads it for players.
+`secure_mode` and `learning_points` are still PC-4/PC-2 scope respectively. `sim_melee_attack: i32`
+(human.mon `Attack=7`) was also added alongside `sim_melee_defense` for the fist fallback in
+`GetAttackValue`.
 
 ### 0.7 Wand item attributes — confirmed fully absent, and 1098 `items.xml`/OTB has none either
 Grepped `otb.rs` `ItemType` and `data/XML/items.xml` — no `wand_*` fields/attributes anywhere in the
@@ -418,7 +420,17 @@ gainmana=30, attackspeed=2000, basespeed=70) + dual-load XML↔Lua equivalence t
 vs known 772 values. All passing (`cargo test -p tfs-rust-content vocations` → 2 passed;
 `cargo test -p tfs-rust-core -- vocation process_skills` → 5 passed).
 
-### Phase PC-1 — Player attack/defend/armor value resolution
+### Phase PC-1 — Player attack/defend/armor value resolution — ✅ LANDED
+**Status:** Complete. New `crates/tfs-rust-core/src/player/combat/values.rs` with `SkillNr` enum +
+`player_get_attack_value` / `player_get_defend_value` / `player_get_armor_strength` (all returning
+raw unscaled values per the era-tuning boundary below). `Player.attack_mode: FightMode` (default
+`Balanced`) wired on `Player`; `defend_fight_mode_for_target` updated to read it for players.
+`sim_melee_attack: i32` (human.mon `Attack=7`) added alongside `sim_melee_defense` for the fist
+fallback. `FightMode` gained `#[derive(Default)]` + `#[default]` on `Balanced`; `from_wire` opcode
+comment fixed `0xA0`→`0xA7` (§0.2). Verification: `cargo check` = 0 errors / 9 warnings (same
+baseline), `cargo clippy --all-targets` = 0 errors / 66 warnings (all pre-existing, none from new
+code), `cargo test -p tfs-rust-core` = 574 passed / 2 ignored (13 new PC-1 tests, all green).
+
 **File:** new `crates/tfs-rust-core/src/player/combat/values.rs` (core; see §4.0 for the `player/`
 module-directory layout — this replaces the crate-root `player_combat_values.rs` originally planned).
 
@@ -746,7 +758,7 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
 |-------|-------|--------|
 | `learning_points: i32` | `CreatureBase` (or `Player`) | `ActivateLearning`/`ProbeValue` |
 | `skill_*_tries: u64` per skill (§0.5 — new, not in original plan) | `PlayerSkills` | DB `skill_*_tries` columns (already round-tripped, never loaded into runtime `Player`) |
-| `attack_mode: FightMode`, `chase_mode` (exists), `secure_mode: bool` | `Player`/`CreatureBase` | `0xA7` packet (fixed from `0xA0`, see §0.2) |
+| `attack_mode: FightMode`, `chase_mode` (exists), `secure_mode: bool` | `Player`/`CreatureBase` | `0xA7` packet (fixed from `0xA0`, see §0.2) — **✅ `attack_mode` PC-1 landed**; `secure_mode` still PC-4 |
 | `VocationDef` (full combat block, incl. level-1 vitals floor) | `tfs-rust-content` (new type) | `data/defs/vocations.lua` — **✅ PC-0 landed** |
 | `VocationProfile` (`Copy`) cached per-vocation snapshot | `Player.vocation_profile` | `VocationRegistry` at login — **✅ PC-0 landed** |
 | Wand attributes (`wand_damage_type`, `wand_attack_strength`, `wand_variation`, `wand_range`, `wand_mana`) | `content::ItemType` fields **or** a `data/772_wands.lua` era-data table (§0.7/§0.10 — same Lua-as-data pattern as vocations; no source currently wired either way) | `items.xml`/`objects.srv` (verify — see §0.7, gap is bigger than "which source") |

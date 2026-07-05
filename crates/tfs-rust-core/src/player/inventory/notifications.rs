@@ -468,6 +468,8 @@ mod tests {
             last_depot_id: -1,
             persist: None,
             sim_melee_defense: 0,
+            sim_melee_attack: 0,
+            attack_mode: Default::default(),
         }
     }
 }

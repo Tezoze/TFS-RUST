@@ -105,6 +105,7 @@ pub fn sim_hero_player(name: &str, pos: Position) -> Player {
     p.base.health = 150;
     p.base.max_health = 150;
     p.sim_melee_defense = 5;
+    p.sim_melee_attack = 7;
     p
 }
 
@@ -216,6 +217,8 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             last_depot_id: -1,
         }),
         sim_melee_defense: 0,
+        sim_melee_attack: 0,
+        attack_mode: Default::default(),
     }
 }
 

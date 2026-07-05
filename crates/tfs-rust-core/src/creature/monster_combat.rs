@@ -201,9 +201,10 @@ pub fn defend_fight_mode_for_target(kind: &CreatureKind) -> FightMode {
     if base.attack_target.is_none() {
         return FightMode::Defensive;
     }
-    // Player fight-mode packet not wired yet; monsters default to BALANCED (`crcombat.cc:13`).
+    // Player fight-mode from `0xA7` packet (PC-1 wired `Player.attack_mode`); monsters default to
+    // BALANCED (`crcombat.cc:13`).
     match kind {
-        CreatureKind::Player(_) => FightMode::Balanced,
+        CreatureKind::Player(p) => p.attack_mode,
         _ => FightMode::Balanced,
     }
 }

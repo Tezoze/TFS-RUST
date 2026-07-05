@@ -122,7 +122,7 @@ pub fn player_from_loaded(
         last_defend_ms: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
-            last_auto_walk_armed_ms: u64::MAX,
+        last_auto_walk_armed_ms: u64::MAX,
     };
 
     let account_id =
@@ -208,6 +208,8 @@ pub fn player_from_loaded(
         last_depot_id: -1,
         persist: Some(persist),
         sim_melee_defense: 0,
+        sim_melee_attack: 0,
+        attack_mode: Default::default(),
     }
 }
 

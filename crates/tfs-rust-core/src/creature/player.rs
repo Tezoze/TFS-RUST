@@ -174,6 +174,13 @@ pub struct Player {
     pub persist: Option<PlayerPersistBaseline>,
     /// Chase harness — `human.mon` `Defend=5` (`crcombat.cc` `GetDefendValue`).
     pub sim_melee_defense: i32,
+    /// `human.mon` `Attack=7` — race-data fist fallback for `GetAttackValue`
+    /// (`crcombat.cc:183` `RaceData[Race].Attack`). Mirrors `sim_melee_defense`.
+    pub sim_melee_attack: i32,
+    /// 772 `TCombat::AttackMode` — fight stance selector (`crcombat.cc:325` `SetAttackMode`).
+    /// Default `Balanced`; set by the `0xA7` `FIGHT_MODES` packet (PC-4). PC-1 wires the field;
+    /// PC-2's `weapon_damage`/`defense_value` consume it via `apply_attack_mode`/`apply_defense_mode`.
+    pub attack_mode: crate::combat::math::FightMode,
 }
 
 impl Player {
