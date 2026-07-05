@@ -17,7 +17,9 @@ comment — **not** `docs/PROTOCOL_VERSIONING.md`, which does not exist in this 
 > (`crates/tfs-rust-core`, `tfs-rust-content`, `tfs-rust-net`, `tfs-rust-lua`); corrections/gaps live
 > in §0.1–§0.9. Pass 3 (this revision) cross-referenced `docs/DATA_FORMAT_MIGRATION.md` and aligned
 > Phase PC-0 (vocation data) onto that doc's Lua-as-data pilot instead of extending the outgoing XML
-> parser — see §0.10. Nothing in §1–§8 was re-derived from stale assumptions beyond what §0 calls out.
+> parser — see §0.10. Pass 4 marks Phase PC-0 as **landed** (commits `cd6ba50` + `a462d54`) and
+> updates downstream phase references accordingly. Nothing in §1–§8 was re-derived from stale
+> assumptions beyond what §0 calls out.
 
 ---
 
@@ -54,16 +56,21 @@ for a nonexistent path is a footgun for whoever implements PC-3a).
 Verified: the variant exists with `#[allow(dead_code)]` and a comment pointing at this exact plan.
 No correction needed here — just confirming PC-4 step 3 has a real anchor to wire into.
 
-### 0.4 Vocation gains anchors — plan's "150/0/400" constants are already wrong vs the shipped XML
-§3 Phase PC-0 step 3 says to replace `recalculate_vitals` with `vocations.xml` gains and floats
+### 0.4 Vocation gains anchors — level-1 vitals floor now sourced from vocation data (PC-0 landed)
+~~§3 Phase PC-0 step 3 says to replace `recalculate_vitals` with `vocations.xml` gains and floats
 "150 hp / 0 mana / 400 cap anchors ... verify". The shipped `data/XML/vocations.xml` (read this
 pass) has explicit **per-vocation** `gaincap`/`gainhp`/`gainmana` attributes (e.g. vocation 0 "None"
 already carries `gaincap="10" gainhp="5" gainmana="5"`), so there's no need to "confirm" a base
 constant — the anchor values (base HP/mana/cap at level 1) still need a source since the XML only
-gives *gain per level*, not the level-1 floor. Open question 1 (§8) already flags this but should
-also note: **`creature/vocation.rs::recalculate_vitals` currently hardcodes `150`/`0`/`400`** as the
-level-1 floor for *every* vocation — this needs to become data too (or at minimum a documented
-772-wide constant with a citation), since nothing in `vocations.xml` supplies it.
+gives *gain per level*, not the level-1 floor.~~
+
+**Resolved in PC-0:** `data/defs/vocations.lua` now carries `base_hp`/`base_mana`/`base_cap` per
+vocation (sourced from `runtime/mon/human.mon` race data — `HitPoints` `Actual=150`, `Mana`
+`Actual=0`, `CarryStrength` `Actual=400`). `VocationProfile::recalculate_vitals` reads these from
+the cached snapshot — no more shared `150`/`0`/`400` hardcoded constant. Open question 1 (§8) is
+updated accordingly. The `TSkillLevel::Jump` advance path (§8 Q1) is still an open question for
+whether the level-1 floor should come from race data vs the `TSkill` advance path, but the
+immediate gap — "no source for the floor at all" — is closed.
 
 ### 0.5 Skill-tries counters have nowhere to live at runtime (new gap, not in original plan)
 `crskill.cc` `Increase`/`ProbeValue` need per-skill **tries** counters (`LearningPoints`-adjacent but
@@ -126,34 +133,49 @@ that already maps `WEAPON_SWORD/CLUB/AXE/DISTANCE` → the right `PlayerSkills` 
 fist. PC-1 can reuse this directly instead of re-deriving `SkillNr` selection — worth an explicit
 note in PC-1 step 1 so the implementer doesn't duplicate it.
 
-### 0.10 Vocations are the pilot migration in `docs/DATA_FORMAT_MIGRATION.md` — PC-0 should target that path, not extend the XML parser
+### 0.10 Vocations are the pilot migration in `docs/DATA_FORMAT_MIGRATION.md` — PC-0 landed
 `docs/DATA_FORMAT_MIGRATION.md` (read this pass, real doc, exists) proposes moving all static game
 data off XML onto Lua-as-data (`data/*.lua` tables → `serde::Deserialize` into immutable Rust
 structs, materialized once at startup, zero runtime Lua cost). **`vocations.xml` → `data/defs/vocations.lua`
 is explicitly called out as "Phase 1 — vocations (pilot)"** in that doc, and it names the *exact*
 same gap this combat plan is fixing: `TSkillFed` regen (`process_skills.rs::fed_regen_cadence`) and
 `recalculate_vitals`/`per_level_gains` (`creature/vocation.rs`) reading hardcoded stub tables instead
-of the vocation definition (their "Finding 3"). **Phase PC-0 as originally written extends the
-existing `quick-xml` parser in `tfs-rust-content/src/vocations.rs`** to pick up the `<formula>`/
-`<skill>` children. That would work, but it directly contradicts the migration doc's own guidance —
-we'd be teaching the XML loader more schema the week before that loader is slated for deletion, and
-`vocations.xml` is the one file the migration doc says to move *first*. Rewritten PC-0 below targets
-`data/defs/vocations.lua` + a `VocationDef`/`VocationRegistry` instead of deepening the XML path. Two
-prerequisites this pulls forward from `DATA_FORMAT_MIGRATION.md` §"Phase 0 — infrastructure" (not yet
-done anywhere in the tree — confirmed no `sandboxed_data_lua`/`require_schema`/`VocationDef` symbols
-exist today):
-- Add mlua's `"serde"` feature to the workspace (`Cargo.toml:47` currently
-  `features = ["luajit", "vendored"]`, no `"serde"`) so `LuaSerdeExt`/`lua.from_value` works.
-  `serde` itself is already a dependency (currently only pulled into `tfs-rust-lua` for
-  `quick-xml`'s `serialize` feature) — add it to `tfs-rust-content` too.
-- A minimal `sandboxed_data_lua()` (fresh `Lua::new()` with `io`/`os`/`package`/`require`/`dofile`/
-  `loadfile` stripped) + `require_schema(&table, expected)` helper, living in `tfs-rust-content`
-  (the migration doc's suggested location) since that's the natural home for pure-data loaders,
-  reusing the pattern already proven in `formulas.rs::load_mechanics` (which loads
-  `data/formulas/772.lua`/`1098.lua` with a plain `Lua::new()` today — same shape, just needs the
-  sandboxing + schema gate + `serde` deserialize added).
-- This is genuinely new infra work not accounted for anywhere in the original PC-0 estimate — call
-  it out as a sub-step rather than assuming `vocations.rs` only needs a bigger XML parser.
+of the vocation definition (their "Finding 3").
+
+**Phase PC-0 is done** (commits `cd6ba50` + `a462d54`). What landed:
+- mlua `"serialize"` feature added to the workspace `Cargo.toml`; `serde` (with `derive`) added to
+  `tfs-rust-content/Cargo.toml`.
+- `sandboxed_data_lua()` + `require_schema()` + `load_data_table()` in new
+  `tfs-rust-content/src/data_lua.rs` — fresh `Lua::new()` with `io`/`os`/`package`/`require`/`dofile`/
+  `loadfile` stripped, schema-gated, reusing the `formulas.rs::load_mechanics` pattern.
+- `VocationDef` (`#[derive(serde::Deserialize)]`) + `VocationRegistry` (`HashMap<u16, VocationDef>`)
+  in rewritten `vocations.rs`, replacing the outgoing `quick-xml` `Vocation`/`VocationDatabase`.
+  Consumer methods `client_id_u8()` and `fed_regen_params()` preserved; `get()` accessor added.
+- `data/defs/vocations.lua` authored with all 9 vocations carrying the full TVP combat block
+  (gains, regen cadence, `mana_multiplier`, `attack_speed_ms`, `base_speed`, `soul_max`,
+  `gain_soul_ticks`, `allow_pvp`, `formula` block, `skill_multipliers[7]`) plus the level-1 vitals
+  floor (`base_hp`/`base_mana`/`base_cap` sourced from `runtime/mon/human.mon` race data).
+- `VocationProfile` (`Copy`) hot-path snapshot added to `creature/vocation.rs` — cached on `Player`
+  at login via `VocationProfile::from_def()`, with `none_vocation()` fallback for test harnesses.
+  `recalculate_vitals()` and `base_walk_speed()` now read from the snapshot, not hardcoded constants.
+- `Player.vocation_profile` field added; `add_experience`/`remove_experience` updated to use it.
+- `VocationDatabase` → `VocationRegistry` rename across `game_world.rs`, `sim_harness.rs`,
+  `process_skills.rs`, `pipeline.rs`, `login.rs`.
+- Golden parse test + dual-load XML↔Lua equivalence test (roxmltree-based XML parser, test-only).
+- `data/defs/` directory convention established for future XML→Lua sidecar migrations (outfits,
+  mounts, groups, quests, stages) per the updated `DATA_FORMAT_MIGRATION.md` path table.
+
+**Still open from PC-0's scope** (carried forward):
+- The `xml → lua` one-shot converter (PC-0 step 6) was **not** shipped — the dual-load golden test
+  covers equivalence verification, but the standalone converter tool for re-importing upstream
+  TFS/TVP packs is deferred. Add when the next XML file is migrated (Phase 2 of the migration doc).
+- `total_experience_for_level` in `creature/vocation.rs` is **not** consolidated onto
+  `combat::math::experience_for_level` yet — both exist with equivalent expanded polynomials.
+  Consolidation is a PC-5 / cleanup task.
+- `process_skills.rs::fed_regen_cadence` still uses the hardcoded fallback table for the
+  `VocationRegistry`-absent case — the registry is now loaded from Lua, but the `fed_regen_params`
+  method on `VocationRegistry` is the wired path and the hardcoded fallback is only for
+  test-harness worlds with an empty registry. Full regen-from-vocation-data wiring is PC-5 step 1.
 
 The other TVP-flavored era-data tables this combat plan proposes — 772 per-spell radius overrides
 (§3.6.2, `data/formulas/772_spell_areas.lua`) and wand attributes (§0.7/§8 Q3, if resolved as a small
@@ -174,7 +196,7 @@ later phases instead of three bespoke loaders.
 | Attack targeting / chase routing (`SetAttackDest`/`CanToDoAttack`/`StopAttack`/cancel) | `player_combat.rs` | Routes attack/follow/cancel packets; **strike deferred** (see below). |
 | Monster melee strike (attack roll, defense gate, armor, poison-on-hit) | `creature/monster_combat.rs` | The shape the player strike should mirror. |
 | Player weapon accessors (`getWeapon`/`getWeaponType`/`getWeaponSkill`) | `player_inventory_util.rs` | Slot resolution + ammo pairing done. |
-| Condition ticks + fed regen tick loop | `process_skills.rs` | Regen cadence **hardcoded**, not from vocation data — becomes `data/defs/vocations.lua`-sourced in PC-0/PC-5 (§0.10; `DATA_FORMAT_MIGRATION.md` "Finding 3"). |
+| Condition ticks + fed regen tick loop | `process_skills.rs` | `VocationRegistry::fed_regen_params` wired (PC-0); hardcoded fallback only for empty-registry test worlds. Full regen-from-vocation-data is PC-5 step 1. |
 | Item weapon attributes (`weapon_type`, `attack`, `defense`, `extra_defense`, `armor`, `ammo_type`, `attack_speed`, `shoot_range`, `hit_chance`) | `tfs-rust-content/src/otb.rs` `ItemType` | Data source for `GetAttackValue`/`GetDefendValue`/`GetArmorStrength`. |
 | Fight-mode enum + modifiers | `combat/math.rs` `FightMode`, `formulas.rs` `FightModes` | 772 `+20/−40` atk, `−40/+80` def already tuned. |
 
@@ -184,18 +206,19 @@ later phases instead of three bespoke loaders.
 `DelayAttack(200)` + re-arms. The doc comment states plainly: *"The melee strike … is deferred — no
 player weapon-combat system exists yet."* This plan fills that hole.
 
-### 1.3 The gap — vocation combat data is dropped on load
-`tfs-rust-content/src/vocations.rs` parses only `id`/`clientid`/`name`/`description`/`fromvoc`. The
+### 1.3 ~~The gap — vocation combat data is dropped on load~~ Closed in PC-0
+~~`tfs-rust-content/src/vocations.rs` parses only `id`/`clientid`/`name`/`description`/`fromvoc`. The
 active `data/XML/vocations.xml` already carries the full TVP block (`gaincap`, `gainhp`, `gainmana`,
 `gainhpticks`, `gainhpamount`, `gainmanaticks`, `gainmanaamount`, `manamultiplier`, `attackspeed`,
 `basespeed`, `soulmax`, `gainsoulticks`, `<formula meleeDamage/distDamage/defense/armor>`,
-`<skill id multiplier>`). All of it is discarded today. **Migrating this file to
-`data/defs/vocations.lua` is Phase PC-0 below, per `DATA_FORMAT_MIGRATION.md` (§0.10) — the XML file is
-the interim source only until PC-0 lands, not the long-term target.**
+`<skill id multiplier>`). All of it is discarded today.~~
 
-`creature/vocation.rs` is stubbed as a result: `vocation_base_speed()` returns a hardcoded `220`,
-`per_level_gains()` uses "example" numbers, `recalculate_vitals()` uses `150 + hp_gain*(l-1)`
-constants. These must read the loaded vocation registry (`VocationRegistry` post-PC-0).
+**PC-0 landed:** `vocations.rs` is rewritten with `VocationDef` (`serde::Deserialize`) mirroring the
+full TVP block from `data/defs/vocations.lua`. `VocationRegistry::load()` deserializes via sandboxed
+mlua + `from_value`, validates, and indexes by id. `creature/vocation.rs` has a `Copy`
+`VocationProfile` snapshot cached on `Player` at login — `recalculate_vitals()`, `base_walk_speed()`,
+and `per_level_gains()` all read from it. No more hardcoded `220` base speed or `150`/`0`/`400` vitals
+constants. See §0.10 for the full inventory of what landed.
 
 ---
 
@@ -274,8 +297,9 @@ not in `CloseAttack`.
 calls `Increase(1)` then decrements. `Increase` adds to skill exp and levels when
 `Exp >= NextLevel`; `NextLevel = GetExpForLevel(Act+1)` geometric with `FactorPercent`/`Delta`.
 Maps to `combat/math.rs::req_skill_tries` — **fed by `data/defs/vocations.lua` `skill_multipliers`**
-(post-PC-0; today only in `vocations.xml` `<skill multiplier>`, discarded) (→ `FactorPercent`, i.e.
-`1000 * multiplier` shape) rather than TFS `skillBase`.
+(PC-0 landed; loaded into `VocationProfile.skill_multipliers` on `Player`) (→ `FactorPercent`, i.e.
+`1000 * multiplier` shape) rather than TFS `skillBase`. The `req_skill_tries` call site + per-skill
+tries counters are still unwired (PC-5 step 3 / §0.5).
 
 ### 2.8 Fight/chase/secure mode packet — `receiving.cc` `0xA7`, `crcombat.cc:333/354` `SetAttackMode`/`SetChaseMode`
 `SetAttackMode` mode change → `DelayAttack(2000)`. `SetChaseMode` only NONE/CLOSE for players.
@@ -287,9 +311,10 @@ reserved in `player_combat.rs` for this). See §0.2.
 ### 2.9 Level / vitals — `data/defs/vocations.lua` gains + `crskill.cc:352` `GetExpForLevel`
 Level exp `(((L-6)*L+17)*L-12)/6 * Delta` already in `combat/math.rs::experience_for_level`
 (and `creature/vocation.rs::total_experience_for_level`, which uses an **equivalent expanded
-polynomial** — consolidate onto one). Vitals per level from `data/defs/vocations.lua` `gain_hp`/
-`gain_mana`/`gain_cap` (post-PC-0), base speed from `base_speed` + level rule (772: `+level`; 1098:
-`+2*(level-1)`).
+polynomial** — consolidate onto one; deferred to PC-5 cleanup). Vitals per level from
+`data/defs/vocations.lua` `gain_hp`/`gain_mana`/`gain_cap` via `VocationProfile::recalculate_vitals`
+(PC-0 landed), base speed from `base_speed` + level rule (772: `+level`; 1098: `+2*(level-1)`) via
+`base_walk_speed(model, &profile, level)`.
 
 ---
 
@@ -339,12 +364,9 @@ audit's §6 `player/inventory/` recommendation.
 set; `rtk cargo check && rtk cargo clippy --all-targets && rtk cargo test` — identical test count
 and no new clippy warning vs. the pre-PM baseline (pure move, per `REFACTOR_AUDIT.md` verify gate).
 
-### Phase PC-0 — Vocation combat data (Lua-as-data, per `DATA_FORMAT_MIGRATION.md` Phase 0 + Phase 1)
-**Files:** `tfs-rust-content/src/vocations.rs` (rewritten, not extended), new
-`data/defs/vocations.lua` (replaces `data/XML/vocations.xml` as the source of truth),
-`crates/tfs-rust-core/src/creature/vocation.rs`, `config.rs`/wiring where `VocationDatabase` is
-threaded. See §0.10 — this phase is also `DATA_FORMAT_MIGRATION.md`'s named "Phase 1 — vocations
-(pilot)"; do it once, here, rather than deepening the XML loader first and migrating later.
+### Phase PC-0 — Vocation combat data (Lua-as-data) — ✅ LANDED
+**Status:** Complete (commits `cd6ba50` + `a462d54`). See §0.10 for the full inventory of what landed
+and what's still open. The steps below are retained as the implementation record.
 
 0. **Infra (shared with §3.6.2 / wand data, do once):** add mlua `"serde"` feature to the workspace
    `Cargo.toml`; add `serde` (with `derive`) to `tfs-rust-content`; add a small
@@ -383,9 +405,10 @@ threaded. See §0.10 — this phase is also `DATA_FORMAT_MIGRATION.md`'s named "
    `VocationDef`s) satisfies that doc's "golden equivalence" verification step before the XML loader
    is deleted.
 
-**Test:** golden parse of `data/defs/vocations.lua` (knight skill[4]=1.4, sorcerer gainmana=30,
-attackspeed=2000, basespeed=70) — plus the temporary dual-load-vs-XML equivalence test from step 6;
-base-speed + vitals per level vs known 772 values.
+**Test (landed):** golden parse of `data/defs/vocations.lua` (knight skill[4]=1.4, sorcerer
+gainmana=30, attackspeed=2000, basespeed=70) + dual-load XML↔Lua equivalence test + vitals per level
+vs known 772 values. All passing (`cargo test -p tfs-rust-content vocations` → 2 passed;
+`cargo test -p tfs-rust-core -- vocation process_skills` → 5 passed).
 
 ### Phase PC-1 — Player attack/defend/armor value resolution
 **File:** new `crates/tfs-rust-core/src/player/combat/values.rs` (core; see §4.0 for the `player/`
@@ -460,10 +483,11 @@ change.
 ### Phase PC-5 — Skill/exp gain + regen from vocation data
 **Files:** `process_skills.rs`, kill/death path (`death.rs`/`idle_stimulus.rs`).
 
-1. Replace `process_skills.rs::fed_regen_cadence` hardcoded table with `data/defs/vocations.lua`
-   (post-PC-0) `gain_hp_ticks/gain_hp_amount/gain_mana_ticks/gain_mana_amount` — this is the exact
-   bug `DATA_FORMAT_MIGRATION.md` calls "Finding 3" and names as the driver for the vocation
-   migration; PC-0 and this step close it together.
+1. `process_skills.rs` already calls `VocationRegistry::fed_regen_params` (PC-0 wired the registry
+   load + the method). The remaining work: remove the hardcoded fallback table in `fed_regen_params`
+   (currently returns `(12, 1, 6, 2)` when the vocation is absent — only hit by empty-registry test
+   worlds) and ensure all test harnesses populate the registry from `data/defs/vocations.lua`. This
+   closes `DATA_FORMAT_MIGRATION.md` "Finding 3" fully.
 2. On kill: `distribute_experience` + `pvp_exp_cap` (already present) → `add_experience`; skill
    `Increase` already handled inline via learning during strikes.
 3. Skill tries curve: feed `data/defs/vocations.lua` `skill_multipliers` into `req_skill_tries`
@@ -676,7 +700,7 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
   in core (`0xA0` parse stays in `tfs-rust-net`). (`tfs-packets.md`, `tfs-wire-codec.md`.)
 - **Era knobs** (fight-mode %, armor mode, defense gate, probe tuning, condition ticks) stay in
   `MechanicsProfile` / `data/formulas/772.lua`. **Per-vocation balance** stays in
-  `data/defs/vocations.lua` (post-PC-0; `DATA_FORMAT_MIGRATION.md`-aligned, supersedes `vocations.xml`).
+  `data/defs/vocations.lua` (PC-0 landed; `DATA_FORMAT_MIGRATION.md`-aligned, supersedes `vocations.xml`).
   No new balance literals in Rust (`tfs-mechanics-profile.md` R11).
 - **No `if version == 772`** in core — melee/dist/wand paths are shared; only profile fields differ.
 - **Reuse** `probe_value`, `armor_reduction`, `defense_value`, `roll_target_defense`,
@@ -695,8 +719,8 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
 | `learning_points: i32` | `CreatureBase` (or `Player`) | `ActivateLearning`/`ProbeValue` |
 | `skill_*_tries: u64` per skill (§0.5 — new, not in original plan) | `PlayerSkills` | DB `skill_*_tries` columns (already round-tripped, never loaded into runtime `Player`) |
 | `attack_mode: FightMode`, `chase_mode` (exists), `secure_mode: bool` | `Player`/`CreatureBase` | `0xA7` packet (fixed from `0xA0`, see §0.2) |
-| `VocationDef` (full combat block, incl. level-1 vitals floor) | `tfs-rust-content` (new type) | `data/defs/vocations.lua` (Phase PC-0, §0.10 — supersedes `vocations.xml`) |
-| Cached per-vocation snapshot | `Player` at login (or `GameWorld` map) | `VocationRegistry` |
+| `VocationDef` (full combat block, incl. level-1 vitals floor) | `tfs-rust-content` (new type) | `data/defs/vocations.lua` — **✅ PC-0 landed** |
+| `VocationProfile` (`Copy`) cached per-vocation snapshot | `Player.vocation_profile` | `VocationRegistry` at login — **✅ PC-0 landed** |
 | Wand attributes (`wand_damage_type`, `wand_attack_strength`, `wand_variation`, `wand_range`, `wand_mana`) | `content::ItemType` fields **or** a `data/772_wands.lua` era-data table (§0.7/§0.10 — same Lua-as-data pattern as vocations; no source currently wired either way) | `items.xml`/`objects.srv` (verify — see §0.7, gap is bigger than "which source") |
 | `CIRCLE_RINGS` baked const + `disc_offsets` | `combat/circles.rs` | generated from `circles.dat` (`InitCircles`) |
 | `area_shape: AreaShapeModel` (`Circles772`\|`Matrix1098`) | `MechanicsProfile` | era / `772.lua` |
@@ -709,8 +733,8 @@ Rules for the moves (behavior-preserving, same as Phase 4's split process):
 ## 6. Test plan
 - **Formula goldens** (extend `combat/math.rs` tests): melee `max(0,atk−def)` then randomized armor;
   distance hit-probe bounds; wand fixed±variation; skill-tries curve from vocation multipliers.
-- **Vocation parse golden**: `data/defs/vocations.lua` full block (plus the temporary dual-load
-  equivalence test against the outgoing `vocations.xml` loader, per PC-0 step 6).
+- **Vocation parse golden** (✅ PC-0 landed): `data/defs/vocations.lua` full block + dual-load
+  equivalence test against the outgoing `vocations.xml` loader. Both passing.
 - **Circles parity** (`combat/circles.rs`): re-derive rings from `reference/.../circles.dat`
   (`InitCircles` scan) and assert equality with `CIRCLE_RINGS`; spot-check `disc_offsets(6)` (UE)
   and `disc_offsets(8)` (poison storm) tile sets + ring-0-outward order.
@@ -731,13 +755,15 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
 ---
 
 ## 8. Open questions / confirm against C++ before coding
-1. **772 starting vitals anchors** — confirm base HP/mana/cap and per-level application against
-   `crmain.cc` skill init + `crskill.cc` `Jump`/`Advance` (vitals are `TSkill` advances, not a flat
-   `150 + gain*(l-1)` — may need the `TSkillLevel::Jump` advance path instead of the current
-   `recalculate_vitals` shortcut). **Confirmed gap (§0.4):** today `recalculate_vitals` hardcodes
-   `150`/`0`/`400` as the level-1 floor for every vocation regardless of `vocations.xml`'s per-voc
-   `gaincap`/`gainhp`/`gainmana` — those attributes are gain-per-level only, so the level-1 floor
-   still needs its own source/citation even after PC-0 wires the per-level gains.
+1. **772 starting vitals anchors** — ~~confirm base HP/mana/cap and per-level application against
+   `crmain.cc` skill init + `crskill.cc` `Jump`/`Advance`~~ **Partially resolved in PC-0:** the
+   level-1 floor (`base_hp=150`, `base_mana=0`, `base_cap=400`) is now sourced from
+   `data/defs/vocations.lua` (citing `runtime/mon/human.mon` race data) and read via
+   `VocationProfile::recalculate_vitals`. The remaining open question: whether the floor should come
+   from race data (current approach) vs the `TSkillLevel::Jump` advance path — the current
+   `base + gain*(level-1)` shortcut matches observable outcomes for level ≥ 1 but may diverge for
+   the `Jump`/`Advance` edge cases (e.g. vocation change at level > 1). Verify against
+   `crskill.cc` `Jump`/`Advance` before PC-5 finalizes the vitals path.
 2. **Skill-tries mapping** — `vocations.xml` `multiplier` (e.g. 1.1) vs `crskill.cc` `FactorPercent`
    (1100) and `Delta`: confirm `FactorPercent = 1000*multiplier` and the `Delta` source per skill.
    **Confirmed gap (§0.5):** beyond the formula mapping, there is currently no runtime storage for
