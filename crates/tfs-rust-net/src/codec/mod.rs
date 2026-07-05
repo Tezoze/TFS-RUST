@@ -9,9 +9,10 @@ pub mod wire;
 pub use v1098::Codec1098;
 pub use v772::Codec772;
 pub use wire::{
-    AddCreatureWire, AnimatedTextWire, CombatDamageNotifyWire, ContainerOpenWire,
-    CreatureHealthWire, CreatureSpeedWire, DistanceShootWire, ItemStack, ItemTemplateArgs,
-    ItemWire, MagicEffectWire, OutfitWire, PlayerSkillsWire, PlayerStatsWire,
+    AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
+    ContainerOpenWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSpeedWire,
+    DistanceShootWire, ItemStack, ItemTemplateArgs, ItemWire, MagicEffectWire, OutfitWire,
+    PlayerSkillsWire, PlayerStatsWire,
 };
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
@@ -173,6 +174,21 @@ pub trait ProtocolCodec {
 
     /// `ProtocolGame::sendCreatureSay` — `0xAA` speech packet (1098 with `level`, 772 without).
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
+
+    /// `ProtocolGame::sendChannelsDialog` — `0xAB` channel list dialog.
+    /// Era-identical layout; both codecs emit `byte + u8 count + [u16 id + string name]*`.
+    /// 772: `gameserver/src/protocolgame.cpp:1282`; 1098: `src/protocolgame.cpp:1687`.
+    fn encode_channels_dialog(&self, w: &wire::ChannelsDialogWire) -> NetworkMessage;
+
+    /// `ProtocolGame::sendChannel` — `0xAC` open-channel ack.
+    /// 1098 appends `users` / `invited` name lists; 772 omits them.
+    /// 772: `gameserver/src/protocolgame.cpp:1297`; 1098: `src/protocolgame.cpp:1702`.
+    fn encode_channel_open(&self, w: &wire::ChannelOpenWire) -> NetworkMessage;
+
+    /// `ProtocolGame::sendCreatePrivateChannel` — `0xB2` ack for a new private channel.
+    /// 1098 appends `owner_name` + `invited` name list; 772 omits them.
+    /// 772: `gameserver/src/protocolgame.cpp:1273`; 1098: `src/protocolgame.cpp:1675`.
+    fn encode_create_private_channel(&self, w: &wire::CreatePrivateChannelWire) -> NetworkMessage;
 
     /// Era-correct wire value for the "cancel / failure" text-message channel used by
     /// `sendCancelMessage` (1098) / `SendResult` (772).
@@ -413,6 +429,18 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_creature_say(self, statement_id, w)
     }
 
+    fn encode_channels_dialog(&self, w: &wire::ChannelsDialogWire) -> NetworkMessage {
+        Codec1098::encode_channels_dialog(self, w)
+    }
+
+    fn encode_channel_open(&self, w: &wire::ChannelOpenWire) -> NetworkMessage {
+        Codec1098::encode_channel_open(self, w)
+    }
+
+    fn encode_create_private_channel(&self, w: &wire::CreatePrivateChannelWire) -> NetworkMessage {
+        Codec1098::encode_create_private_channel(self, w)
+    }
+
     fn failure_message_type(&self) -> u8 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
@@ -644,6 +672,18 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_creature_say(self, statement_id, w)
     }
 
+    fn encode_channels_dialog(&self, w: &wire::ChannelsDialogWire) -> NetworkMessage {
+        Codec772::encode_channels_dialog(self, w)
+    }
+
+    fn encode_channel_open(&self, w: &wire::ChannelOpenWire) -> NetworkMessage {
+        Codec772::encode_channel_open(self, w)
+    }
+
+    fn encode_create_private_channel(&self, w: &wire::CreatePrivateChannelWire) -> NetworkMessage {
+        Codec772::encode_create_private_channel(self, w)
+    }
+
     fn failure_message_type(&self) -> u8 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
@@ -805,6 +845,12 @@ impl Codec {
         encode_combat_damage_text_message(w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
 
         encode_creature_say(statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
+
+        encode_channels_dialog(w: &wire::ChannelsDialogWire) -> NetworkMessage;
+
+        encode_channel_open(w: &wire::ChannelOpenWire) -> NetworkMessage;
+
+        encode_create_private_channel(w: &wire::CreatePrivateChannelWire) -> NetworkMessage;
 
         failure_message_type() -> u8;
 
@@ -1032,6 +1078,18 @@ impl ProtocolCodec for Codec {
 
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage {
         Codec::encode_creature_say(self, statement_id, w)
+    }
+
+    fn encode_channels_dialog(&self, w: &wire::ChannelsDialogWire) -> NetworkMessage {
+        Codec::encode_channels_dialog(self, w)
+    }
+
+    fn encode_channel_open(&self, w: &wire::ChannelOpenWire) -> NetworkMessage {
+        Codec::encode_channel_open(self, w)
+    }
+
+    fn encode_create_private_channel(&self, w: &wire::CreatePrivateChannelWire) -> NetworkMessage {
+        Codec::encode_create_private_channel(self, w)
     }
 
     fn failure_message_type(&self) -> u8 {

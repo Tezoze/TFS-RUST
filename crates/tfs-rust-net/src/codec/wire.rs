@@ -147,5 +147,49 @@ pub struct CreatureSayWire {
     pub text: String,
 }
 
+/// `ProtocolGame::sendChannelsDialog` — `0xAB` channel list dialog.
+/// Era-identical layout (`gameserver/src/protocolgame.cpp:1282` == `src/protocolgame.cpp:1687`):
+/// `byte + u8 count + [u16 id + string name]*`. Both codecs emit the same bytes; the struct is shared
+/// for uniform call-site shape across the `ProtocolCodec` seam.
+#[derive(Debug, Clone, Default)]
+pub struct ChannelsDialogWire {
+    /// `(channel_id, channel_name)` pairs — the per-player visible channel list from `Chat::getChannelList`.
+    pub channels: Vec<(u16, String)>,
+}
+
+/// `ProtocolGame::sendChannel` — `0xAC` open-channel ack.
+///
+/// - **1098** (`src/protocolgame.cpp:1702`): `byte + u16 id + string name + u16 usersCount +
+///   `[string userName]*` + `u16 invitedCount` + `[string invitedName]*`.
+/// - **772** (`gameserver/src/protocolgame.cpp:1297`): `byte + u16 id + string name` — no user lists.
+///
+/// The 772 codec ignores `users` / `invited`; the 1098 codec emits them.
+#[derive(Debug, Clone, Default)]
+pub struct ChannelOpenWire {
+    pub channel_id: u16,
+    pub name: String,
+    /// Member names currently in the channel (1098 only).
+    pub users: Vec<String>,
+    /// Invited-but-not-yet-joined names (1098 only; private channels).
+    pub invited: Vec<String>,
+}
+
+/// `ProtocolGame::sendCreatePrivateChannel` — `0xB2` ack for a newly-created private channel.
+///
+/// - **1098** (`src/protocolgame.cpp:1675`): `byte + u16 id + string name + `u16(1)` +
+///   `string ownerName` + `u16 invitedCount` + `[string invitedName]*`.
+/// - **772** (`gameserver/src/protocolgame.cpp:1273`): `byte + u16 id + string name` — no owner/invited lists.
+///
+/// The 772 codec ignores `owner_name` / `invited`; the 1098 codec emits them.
+#[derive(Debug, Clone, Default)]
+pub struct CreatePrivateChannelWire {
+    pub channel_id: u16,
+    pub name: String,
+    /// Creator's player name (1098 only — C++ writes `player->getName()`).
+    pub owner_name: String,
+    /// Invited player names (1098 only).
+    pub invited: Vec<String>,
+}
+
 #[deprecated(note = "use PlayerStatsWire")]
 pub type PlayerStats1098 = PlayerStatsWire;

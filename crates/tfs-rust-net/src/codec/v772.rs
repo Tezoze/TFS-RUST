@@ -20,7 +20,8 @@ use crate::creature_encode::{AddCreatureWire, OutfitWire};
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
+    AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
+    CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
     DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
@@ -468,6 +469,42 @@ impl Codec772 {
         m.write_u8(w.speak_type);
         m.write_position(&w.pos);
         m.write_string(&w.text);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendChannelsDialog` — opcode `0xAB`
+    /// (`gameserver/src/protocolgame.cpp:1282`): `byte + u8 count + [u16 id + string name]*`.
+    /// Era-identical to 1098 (`src/protocolgame.cpp:1687`); both codecs emit the same bytes.
+    pub fn encode_channels_dialog(&self, w: &ChannelsDialogWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CHANNELS_DIALOG);
+        let n = w.channels.len().min(u8::MAX as usize) as u8;
+        m.write_u8(n);
+        for &(id, ref name) in w.channels.iter().take(n as usize) {
+            m.write_u16(id);
+            m.write_string(name);
+        }
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendChannel` — opcode `0xAC` (`gameserver/src/protocolgame.cpp:1297`):
+    /// `byte + u16 channelId + string channelName`. **No user/invited lists** (10.98 adds them).
+    pub fn encode_channel_open(&self, w: &ChannelOpenWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CHANNEL_OPEN);
+        m.write_u16(w.channel_id);
+        m.write_string(&w.name);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendCreatePrivateChannel` — opcode `0xB2`
+    /// (`gameserver/src/protocolgame.cpp:1273`): `byte + u16 channelId + string channelName`.
+    /// **No owner/invited lists** (10.98 adds them).
+    pub fn encode_create_private_channel(&self, w: &CreatePrivateChannelWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATE_PRIVATE_CHANNEL);
+        m.write_u16(w.channel_id);
+        m.write_string(&w.name);
         m
     }
 }

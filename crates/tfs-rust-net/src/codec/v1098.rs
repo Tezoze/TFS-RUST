@@ -10,7 +10,8 @@ use crate::item_encode::{item_template_wire_len, write_item_live, write_item_tem
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
+    AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
+    CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire, CreatureSpeedWire,
     DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire, PlayerStatsWire,
 };
 
@@ -464,6 +465,57 @@ impl Codec1098 {
         m.write_u8(w.speak_type);
         m.write_position(&w.pos);
         m.write_string(&w.text);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendChannelsDialog` — opcode `0xAB` (`src/protocolgame.cpp:1687`):
+    /// `byte + u8 count + [u16 id + string name]*`. Era-identical to 772.
+    pub fn encode_channels_dialog(&self, w: &ChannelsDialogWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CHANNELS_DIALOG);
+        let n = w.channels.len().min(u8::MAX as usize) as u8;
+        m.write_u8(n);
+        for &(id, ref name) in w.channels.iter().take(n as usize) {
+            m.write_u16(id);
+            m.write_string(name);
+        }
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendChannel` — opcode `0xAC` (`src/protocolgame.cpp:1702`):
+    /// `byte + u16 id + string name + u16 usersCount + [string userName]* +
+    /// u16 invitedCount + [string invitedName]*`.
+    pub fn encode_channel_open(&self, w: &ChannelOpenWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CHANNEL_OPEN);
+        m.write_u16(w.channel_id);
+        m.write_string(&w.name);
+        m.write_u16(w.users.len().min(u16::MAX as usize) as u16);
+        for name in &w.users {
+            m.write_string(name);
+        }
+        m.write_u16(w.invited.len().min(u16::MAX as usize) as u16);
+        for name in &w.invited {
+            m.write_string(name);
+        }
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendCreatePrivateChannel` — opcode `0xB2`
+    /// (`src/protocolgame.cpp:1675`): `byte + u16 id + string name + u16(1) + string ownerName +
+    /// u16 invitedCount + [string invitedName]*`. C++ writes `player->getName()` as the single owner.
+    pub fn encode_create_private_channel(&self, w: &CreatePrivateChannelWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATE_PRIVATE_CHANNEL);
+        m.write_u16(w.channel_id);
+        m.write_string(&w.name);
+        // C++ always emits exactly one owner entry (`add<uint16_t>(0x01)` + `player->getName()`).
+        m.write_u16(0x01);
+        m.write_string(&w.owner_name);
+        m.write_u16(w.invited.len().min(u16::MAX as usize) as u16);
+        for name in &w.invited {
+            m.write_string(name);
+        }
         m
     }
 }

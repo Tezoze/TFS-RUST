@@ -283,6 +283,24 @@ pub mod server {
     /// OTCv8 feature list (`ProtocolGame::sendFeatures` / `sendOTCFeatures` — opcode 0x43).
     pub const OTCV8_FEATURES: u8 = 0x43;
 
+    // Chat-channel server→client opcodes (CH-0). Byte values are shared across 772 and 1098;
+    // only the *layouts* diverge for `CHANNEL_OPEN` / `CREATE_PRIVATE_CHANNEL` (handled per-codec).
+    // 772: `gameserver/src/protocolgame.cpp` `sendChannelsDialog` (~1282), `sendChannel` (~1297),
+    //      `sendCreatePrivateChannel` (~1273), `sendClosePrivate` (~1265), `sendOpenPrivateChannel` (~1111).
+    // 1098: repo-root `src/protocolgame.cpp` `sendChannelsDialog` (~1687), `sendChannel` (~1702),
+    //       `sendCreatePrivateChannel` (~1675), `sendClosePrivate` (~1667), `sendOpenPrivateChannel` (~1296).
+    /// `sendChannelsDialog` — channel list dialog. Era-identical layout.
+    pub const CHANNELS_DIALOG: u8 = 0xAB;
+    /// `sendChannel` — open-channel ack. 1098 appends user/invited name lists; 772 stops after name.
+    pub const CHANNEL_OPEN: u8 = 0xAC;
+    /// `sendOpenPrivateChannel` — open a private (tell) channel with `receiver`. Era-identical layout.
+    pub const OPEN_PRIVATE_CHANNEL: u8 = 0xAD;
+    /// `sendCreatePrivateChannel` — ack a newly-created private channel. 1098 appends owner + invited
+    /// name lists; 772 stops after the channel name.
+    pub const CREATE_PRIVATE_CHANNEL: u8 = 0xB2;
+    /// `sendClosePrivate` — close a private channel by id. Era-identical layout.
+    pub const CLOSE_PRIVATE: u8 = 0xB3;
+
     /// Self-appear opcode (`ProtocolGame::sendAddCreature` self branch). Version-keyed:
     /// 772 = `0x0A` (`gameserver/src/protocolgame.cpp`), 1098 = `0x17` (repo-root `src/protocolgame.cpp`).
     /// Sourced from [`ProtocolCaps::self_appear_opcode`](crate::ProtocolCaps) — single source of truth.

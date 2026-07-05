@@ -397,3 +397,26 @@ and LOW #7 (dual creature-list desync).
       expecting splashes (`login_out.rs`, `monster_push.rs`).
 - [x] **Verify:** `cargo check`/`clippy`/`test -p tfs-rust-core --lib`.
 - [x] **Lessons:** append to `tasks/lessons.md`.
+
+## Chat system CH-0 — missing outgoing wire (prerequisite) — done
+- [x] Server opcodes added to `protocol_opcodes.rs::server`: `CHANNELS_DIALOG=0xAB`,
+      `CHANNEL_OPEN=0xAC`, `OPEN_PRIVATE_CHANNEL=0xAD`, `CREATE_PRIVATE_CHANNEL=0xB2`,
+      `CLOSE_PRIVATE=0xB3`.
+- [x] Neutral wire structs in `codec/wire.rs`: `ChannelsDialogWire`, `ChannelOpenWire`,
+      `CreatePrivateChannelWire` (max-width fields; 772 ignores user/invited lists).
+- [x] `ProtocolCodec` trait methods: `encode_channels_dialog`, `encode_channel_open`,
+      `encode_create_private_channel` + `Codec772`/`Codec1098` impls.
+- [x] Wired through `Codec` enum `delegate_codec!` + `ProtocolCodec for Codec` impl.
+- [x] `outgoing_extra.rs`: `send_open_private_channel`/`send_close_private` now use opcode
+      constants (era-identical, kept as free fns); `send_channel_open`/`send_create_private_channel`
+      marked `#[deprecated]` (1098-shaped, retained for legacy test pinning); full
+      `send_channels_dialog` available via `Codec::encode_channels_dialog`.
+- [x] §4.5 resolved: 1098 parity confirmed — `sendChannelsDialog`/`sendClosePrivate`/
+      `sendOpenPrivateChannel` are era-identical; `sendChannel`/`sendCreatePrivateChannel`
+      diverge (1098 appends user/invited name lists, 772 omits them). Divergence isolated to
+      `codec::v772`/`codec::v1098` — no `if version == 772` in core.
+- [x] Golden-byte tests in `tests/protocol_compat.rs`: 6 new (3 per era) covering all 5
+      functions; 74 total pass.
+- [x] **Verify:** `cargo check --workspace` (0 errors), `cargo clippy -p tfs-rust-net -p
+      tfs-rust-common` (clean), `cargo test -p tfs-rust-net` (123 passed).
+- [x] **Lessons:** append to `tasks/lessons.md`.

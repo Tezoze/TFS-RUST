@@ -4,9 +4,10 @@
 
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::codec::{
-    AddCreatureWire, AnimatedTextWire, Codec, Codec1098, CombatDamageNotifyWire,
-    ContainerOpenWire, CreatureHealthWire, CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs,
-    MagicEffectWire, OutfitWire, PlayerSkillsWire, PlayerStatsWire,
+    AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, Codec, Codec1098,
+    CombatDamageNotifyWire, ContainerOpenWire, CreatePrivateChannelWire, CreatureHealthWire,
+    CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, OutfitWire,
+    PlayerSkillsWire, PlayerStatsWire,
 };
 use std::collections::HashSet;
 
@@ -384,6 +385,125 @@ fn container_open_1098_layout() {
             0x00, 0x0C, 0xFF, 5, // child item: clientId + MARK + count
         ]
     );
+}
+
+// ---------------------------------------------------------------------------
+// CH-0 — chat-channel outgoing wire golden bytes.
+// 1098 reference: `src/protocolgame.cpp` `sendChannelsDialog` (~1687),
+//   `sendChannel` (~1702), `sendCreatePrivateChannel` (~1675),
+//   `sendClosePrivate` (~1667), `sendOpenPrivateChannel` (~1296).
+// 772  reference: `gameserver/src/protocolgame.cpp` `sendChannelsDialog` (~1282),
+//   `sendChannel` (~1297), `sendCreatePrivateChannel` (~1273),
+//   `sendClosePrivate` (~1265), `sendOpenPrivateChannel` (~1111).
+// ---------------------------------------------------------------------------
+
+/// 1098 `sendChannelsDialog` — `0xAB + u8 count + [u16 id + string name]*`. Era-identical.
+#[test]
+fn channels_dialog_1098_layout() {
+    let b = codec()
+        .encode_channels_dialog(&ChannelsDialogWire {
+            channels: vec![
+                (4, "Game-Chat".to_string()),
+                (7, "Help".to_string()),
+            ],
+        })
+        .into_bytes();
+    assert_eq!(
+        b,
+        vec![
+            0xAB, 2, // opcode + count
+            4, 0, // channel id 4
+            9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't', // name (9 chars)
+            7, 0, // channel id 7
+            4, 0, b'H', b'e', b'l', b'p', // name
+        ]
+    );
+}
+
+/// 1098 `sendChannel` — `0xAC + u16 id + string name + u16 usersCount + [string]* +
+/// u16 invitedCount + [string]*`. Diverges from 772 (which omits both lists).
+#[test]
+fn channel_open_1098_with_user_lists() {
+    let b = codec()
+        .encode_channel_open(&ChannelOpenWire {
+            channel_id: 4,
+            name: "Game-Chat".to_string(),
+            users: vec!["Alice".to_string(), "Bob".to_string()],
+            invited: vec!["Carol".to_string()],
+        })
+        .into_bytes();
+    assert_eq!(
+        b,
+        vec![
+            0xAC, 4, 0, // opcode + channel id
+            9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't', // name (9 chars)
+            2, 0, // users count
+            5, 0, b'A', b'l', b'i', b'c', b'e', // Alice
+            3, 0, b'B', b'o', b'b', // Bob
+            1, 0, // invited count
+            5, 0, b'C', b'a', b'r', b'o', b'l', // Carol
+        ]
+    );
+}
+
+/// 1098 `sendChannel` with no user/invited lists — trailing `u16(0) + u16(0)`.
+#[test]
+fn channel_open_1098_empty_lists() {
+    let b = codec()
+        .encode_channel_open(&ChannelOpenWire {
+            channel_id: 0xFFFF,
+            name: "Private".to_string(),
+            ..Default::default()
+        })
+        .into_bytes();
+    assert_eq!(
+        b,
+        vec![
+            0xAC, 0xFF, 0xFF, // opcode + channel id
+            7, 0, b'P', b'r', b'i', b'v', b'a', b't', b'e', // name
+            0, 0, // users count
+            0, 0, // invited count
+        ]
+    );
+}
+
+/// 1098 `sendCreatePrivateChannel` — `0xB2 + u16 id + string name + u16(1) + string owner +
+/// u16 invitedCount + [string]*`. Diverges from 772 (which omits owner + invited).
+#[test]
+fn create_private_channel_1098_layout() {
+    let b = codec()
+        .encode_create_private_channel(&CreatePrivateChannelWire {
+            channel_id: 0x0100,
+            name: "My Channel".to_string(),
+            owner_name: "Alice".to_string(),
+            invited: vec!["Bob".to_string()],
+        })
+        .into_bytes();
+    assert_eq!(
+        b,
+        vec![
+            0xB2, 0x00, 0x01, // opcode + channel id
+            10, 0, b'M', b'y', b' ', b'C', b'h', b'a', b'n', b'n', b'e', b'l', // name (10 chars)
+            1, 0, // owner count (always 1)
+            5, 0, b'A', b'l', b'i', b'c', b'e', // owner name
+            1, 0, // invited count
+            3, 0, b'B', b'o', b'b', // invited name
+        ]
+    );
+}
+
+/// 1098 `sendClosePrivate` — `0xB3 + u16 channelId`. Era-identical.
+#[test]
+fn close_private_1098_layout() {
+    let b = tfs_rust_net::outgoing_extra::send_close_private(0x1234).into_bytes();
+    assert_eq!(b, vec![0xB3, 0x34, 0x12]);
+}
+
+/// 1098 `sendOpenPrivateChannel` — `0xAD + string receiver`. Era-identical.
+#[test]
+fn open_private_channel_1098_layout() {
+    let b = tfs_rust_net::outgoing_extra::send_open_private_channel("Bob").into_bytes();
+    assert_eq!(b, vec![0xAD, 3, 0, b'B', b'o', b'b']);
 }
 
 /// 7.72 golden bytes (Phase A5). Reference: `gameserver/src/` ONLY — `protocolgame.cpp`,
@@ -964,6 +1084,100 @@ mod v772 {
                 b'5', b' ', b'h', b'i', b't', b'p', b'o', b'i', b'n', b't', b's', b'.'
             ]
         );
+    }
+
+    // CH-0 — 772 chat-channel outgoing wire golden bytes.
+    // Reference: `gameserver/src/protocolgame.cpp` ONLY.
+
+    /// 772 `sendChannelsDialog` — `0xAB + u8 count + [u16 id + string name]*`. Era-identical to 1098.
+    /// (`gameserver/src/protocolgame.cpp:1282`)
+    #[test]
+    fn channels_dialog_772_layout() {
+        let b = codec()
+            .encode_channels_dialog(&ChannelsDialogWire {
+                channels: vec![
+                    (4, "Game-Chat".to_string()),
+                    (7, "Help".to_string()),
+                ],
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xAB, 2, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',
+                7, 0, 4, 0, b'H', b'e', b'l', b'p',
+            ]
+        );
+    }
+
+    /// 772 `sendChannelsDialog` with an empty list — `0xAB + u8(0)`. Matches the legacy
+    /// `send_channels_dialog_count` helper byte-for-byte.
+    #[test]
+    fn channels_dialog_772_empty_matches_legacy_count_helper() {
+        let via_codec = codec()
+            .encode_channels_dialog(&ChannelsDialogWire::default())
+            .into_bytes();
+        let via_legacy =
+            tfs_rust_net::outgoing_extra::send_channels_dialog_count().into_bytes();
+        assert_eq!(via_codec, vec![0xAB, 0]);
+        assert_eq!(via_codec, via_legacy);
+    }
+
+    /// 772 `sendChannel` — `0xAC + u16 id + string name`. **No user/invited lists**
+    /// (`gameserver/src/protocolgame.cpp:1297`). The `users` / `invited` fields are ignored.
+    #[test]
+    fn channel_open_772_omits_user_lists() {
+        let b = codec()
+            .encode_channel_open(&ChannelOpenWire {
+                channel_id: 4,
+                name: "Game-Chat".to_string(),
+                users: vec!["Alice".to_string(), "Bob".to_string()],
+                invited: vec!["Carol".to_string()],
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xAC, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',
+            ]
+        );
+    }
+
+    /// 772 `sendCreatePrivateChannel` — `0xB2 + u16 id + string name`. **No owner/invited lists**
+    /// (`gameserver/src/protocolgame.cpp:1273`). The `owner_name` / `invited` fields are ignored.
+    #[test]
+    fn create_private_channel_772_omits_owner_and_invited() {
+        let b = codec()
+            .encode_create_private_channel(&CreatePrivateChannelWire {
+                channel_id: 0x0100,
+                name: "My Channel".to_string(),
+                owner_name: "Alice".to_string(),
+                invited: vec!["Bob".to_string()],
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xB2, 0x00, 0x01, 10, 0, b'M', b'y', b' ', b'C', b'h', b'a', b'n', b'n', b'e',
+                b'l',
+            ]
+        );
+    }
+
+    /// 772 `sendClosePrivate` — `0xB3 + u16 channelId`. Era-identical.
+    /// (`gameserver/src/protocolgame.cpp:1265`)
+    #[test]
+    fn close_private_772_layout() {
+        let b = tfs_rust_net::outgoing_extra::send_close_private(0x1234).into_bytes();
+        assert_eq!(b, vec![0xB3, 0x34, 0x12]);
+    }
+
+    /// 772 `sendOpenPrivateChannel` — `0xAD + string receiver`. Era-identical.
+    /// (`gameserver/src/protocolgame.cpp:1111`)
+    #[test]
+    fn open_private_channel_772_layout() {
+        let b = tfs_rust_net::outgoing_extra::send_open_private_channel("Bob").into_bytes();
+        assert_eq!(b, vec![0xAD, 3, 0, b'B', b'o', b'b']);
     }
 }
 

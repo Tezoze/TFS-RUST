@@ -98,9 +98,11 @@ pub fn send_creature_light(
     Codec1098.encode_creature_light(creature_id, level, color, access_player)
 }
 
+/// `ProtocolGame::sendOpenPrivateChannel` — opcode `0xAD` (`gameserver/src/protocolgame.cpp:1111` /
+/// `src/protocolgame.cpp:1296`). Era-identical layout: `byte + string receiver`.
 pub fn send_open_private_channel(receiver: &str) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xAD);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::OPEN_PRIVATE_CHANNEL);
     m.write_string(receiver);
     m
 }
@@ -195,16 +197,23 @@ pub fn send_relogin_window(unfair_fight_reduction: u8) -> NetworkMessage {
     m
 }
 
+/// `ProtocolGame::sendClosePrivate` — opcode `0xB3` (`gameserver/src/protocolgame.cpp:1265` /
+/// `src/protocolgame.cpp:1667`). Era-identical layout: `byte + u16 channelId`.
 pub fn send_close_private(channel_id: u16) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xB3);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::CLOSE_PRIVATE);
     m.write_u16(channel_id);
     m
 }
 
+/// `ProtocolGame::sendCreatePrivateChannel` — opcode `0xB2`. **Era-divergent** — use
+/// [`Codec::encode_create_private_channel`](crate::codec::Codec::encode_create_private_channel)
+/// instead. This 1098-shaped helper is retained only for tests that pin the legacy byte layout; it
+/// hardcodes `"self"` as the owner name (the real 1098 path writes `player->getName()`).
+#[deprecated(note = "era-divergent — use Codec::encode_create_private_channel")]
 pub fn send_create_private_channel(channel_id: u16, name: &str) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xB2);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::CREATE_PRIVATE_CHANNEL);
     m.write_u16(channel_id);
     m.write_string(name);
     m.write_u16(0x01);
@@ -213,9 +222,13 @@ pub fn send_create_private_channel(channel_id: u16, name: &str) -> NetworkMessag
     m
 }
 
+/// `ProtocolGame::sendChannelsDialog` with an empty channel list — opcode `0xAB`, count = 0.
+/// Era-identical layout. For the full dialog with a channel list, use
+/// [`Codec::encode_channels_dialog`](crate::codec::Codec::encode_channels_dialog) with a
+/// populated [`ChannelsDialogWire`](crate::codec::ChannelsDialogWire).
 pub fn send_channels_dialog_count() -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xAB);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::CHANNELS_DIALOG);
     m.write_u8(0);
     m
 }
@@ -944,10 +957,14 @@ pub fn send_inventory_item_live(
     m
 }
 
-/// C++ `sendChannel` with no user lists (`src/protocolgame.cpp` ~1702).
+/// C++ `sendChannel` with no user lists — opcode `0xAC`. **Era-divergent** — use
+/// [`Codec::encode_channel_open`](crate::codec::Codec::encode_channel_open) instead. This
+/// 1098-shaped helper (empty `users` / `invited` counts) is retained only for tests; the 772 codec
+/// omits the trailing user-list counts entirely.
+#[deprecated(note = "era-divergent — use Codec::encode_channel_open")]
 pub fn send_channel_open(channel_id: u16, channel_name: &str) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xAC);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::CHANNEL_OPEN);
     m.write_u16(channel_id);
     m.write_string(channel_name);
     m.write_u16(0);
