@@ -29,3 +29,4 @@ pub use player::{
     Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
     PlayerWalkAction,
 };
+pub use tfs_rust_common::PlayerSex;

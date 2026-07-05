@@ -412,6 +412,7 @@ mod tests {
             account_id: 0,
             guid: 1,
             group_id: 1,
+            sex: crate::creature::PlayerSex::Male,
             vocation_id: 0,
             vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),
             level: 1,

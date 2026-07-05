@@ -56,6 +56,7 @@
             account_id: 1,
             guid: 1,
             group_id: 1,
+            sex: crate::creature::PlayerSex::Male,
             vocation_id: 1,
             vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),
             level: 50,

@@ -956,7 +956,7 @@ impl GameWorld {
         let look_d = look_distance_tfs(player_pos, thing_pos);
 
         let msg = match target {
-            LookTarget::Creature(_) => "You see nothing special.".to_string(),
+            LookTarget::Creature(target_cid) => self.player_look_description(cid, target_cid),
             LookTarget::Ground(ground_type) => {
                 let ephemeral = Item::new_single(ground_type);
                 if let Some(it) = self.items_db.items.get(&ground_type) {
@@ -988,11 +988,293 @@ impl GameWorld {
         };
         self.enqueue_outgoing(conn_id, send_text_message_simple(22, &msg).into_bytes());
     }
+
+    /// `Player::getDescription` for the creature-look branch of `playerLookAt`.
+    ///
+    /// C++ reference (772 outcomes): `reference/cipsoft-772/tibia-game-master/src/operate.cc:1849-1916`
+    /// — builds `"You see %s. %s."` with `Name`/`Vocation` split by self-vs-other and sex pronoun.
+    /// TFS 1.4.2 `src/player.cpp:91-125` `Player::getDescription` confirms the same shape; the
+    /// `default_onLook.lua` callback prepends `"You see "` to the returned description, yielding
+    /// identical wire text for both eras in the no-guild case.
+    ///
+    /// - Self:  `You see yourself. You are a sorcerer.` (or `You have no vocation.`)
+    /// - Other: `You see <Name> (Level <N>). He is a sorcerer.` (or `She` / `has no vocation`)
+    ///
+    /// Non-player creatures (monsters/npcs) fall back to `You see <Name>.` — matches the
+    /// decompile `else` branch at `operate.cc:1917-1918` (`"You see %s.", Target->Name`).
+    fn player_look_description(&self, viewer_cid: CreatureId, target_cid: CreatureId) -> String {
+        let Some(target) = self.creatures.get(target_cid) else {
+            return "You see nothing special.".to_string();
+        };
+        match target {
+            CreatureKind::Player(p) => {
+                // C++ `lookDistance == -1` ⇔ `thing == player` (`game.cpp:3178-3184`).
+                let looking_at_self = target_cid == viewer_cid;
+                // `vocation->getVocDescription()` (`vocation.h:18-20`); id 0 ⇒ "no vocation".
+                let voc_desc = self
+                    .vocations
+                    .get(p.vocation_id)
+                    .filter(|v| v.id != 0)
+                    .map(|v| v.description.as_str());
+                if looking_at_self {
+                    let vocation_clause = match voc_desc {
+                        Some(d) => format!("You are {d}."),
+                        None => "You have no vocation.".to_string(),
+                    };
+                    format!("You see yourself. {vocation_clause}")
+                } else {
+                    // C++ pronoun: `PLAYERSEX_FEMALE` ⇒ "She", else "He" (`player.cpp:112-116`).
+                    let pronoun = if p.sex == crate::creature::PlayerSex::Female {
+                        "She"
+                    } else {
+                        "He"
+                    };
+                    let vocation_clause = match voc_desc {
+                        Some(d) => format!("{pronoun} is {d}."),
+                        None => format!("{pronoun} has no vocation."),
+                    };
+                    format!(
+                        "You see {} (Level {}). {vocation_clause}",
+                        p.base.name, p.level
+                    )
+                }
+            }
+            // Monster: TFS `Monster::getDescription` returns `nameDescription + '.'`
+            // (`monster.h:62-64`); `nameDescription` defaults to `"a " + lowercase(name)`
+            // (`monsters.cpp:860`). The 772 decompile uses `Target->Name` directly
+            // (`operate.cc:1918`) which is already lowercase in `.mon` files — both
+            // produce lowercase output. We look up `name_description` from `MonsterType`
+            // for the article + lowercase form, falling back to lowercased `base.name`.
+            CreatureKind::Monster(m) => {
+                let desc = self
+                    .monsters_db
+                    .monsters
+                    .get(&m.base.name.to_lowercase())
+                    .map(|t| t.name_description.as_str())
+                    .filter(|d| !d.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| m.base.name.to_lowercase());
+                format!("You see {desc}.")
+            }
+            // Npc: TFS `Npc::getDescription` returns `name + '.'` (`npc.cpp:365-371`);
+            // 772 decompile uses `Target->Name` (`operate.cc:1918`). Both use the name
+            // as-is (NPC names are proper nouns — "Leeland", not "leeland").
+            CreatureKind::Npc(_) => format!("You see {}.", target.base().name),
+        }
+    }
 }
 
 fn dest_player_creature(dest: &tfs_rust_lua::LuaMoveDestination) -> Option<u64> {
     match dest {
         tfs_rust_lua::LuaMoveDestination::Player { creature_id } => Some(*creature_id),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod look_tests {
+    use super::*;
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use std::sync::Arc;
+    use tfs_rust_common::Position;
+    use tfs_rust_content::vocations::{VocationDef, VocationFormula, VocationRegistry};
+
+    /// `data/defs/vocations.lua` sorcerer (id=1) — only the fields `player_look_description`
+    /// reads (`id`, `description`) need to be accurate; the rest are zeros for the test.
+    fn sorcerer_vocation_db() -> Arc<VocationRegistry> {
+        let mut vocations = std::collections::HashMap::new();
+        vocations.insert(
+            1u16,
+            VocationDef {
+                id: 1,
+                client_id: 3,
+                name: "Sorcerer".into(),
+                description: "a sorcerer".into(),
+                from_vocation: 1,
+                gain_cap: 0,
+                gain_hp: 0,
+                gain_mana: 0,
+                gain_hp_ticks: 0,
+                gain_hp_amount: 0,
+                gain_mana_ticks: 0,
+                gain_mana_amount: 0,
+                mana_multiplier: 0.0,
+                attack_speed_ms: 0,
+                base_speed: 0,
+                soul_max: 0,
+                gain_soul_ticks: 0,
+                allow_pvp: false,
+                base_hp: 0,
+                base_mana: 0,
+                base_cap: 0,
+                formula: VocationFormula::default(),
+                skill_multipliers: [0.0; 7],
+            },
+        );
+        Arc::new(VocationRegistry { vocations })
+    }
+
+    /// 772 decompile `operate.cc:1863-1872` — self look yields
+    /// `"You see yourself. You are a sorcerer."`.
+    #[test]
+    fn self_look_includes_vocation() {
+        let mut world = minimal_world();
+        world.vocations = sorcerer_vocation_db();
+        let pos = Position::new(100, 100, 7);
+        let mut viewer = test_player("Sorcerer Sample", pos);
+        viewer.vocation_id = 1;
+        viewer.level = 100;
+        let viewer_cid = insert_player(&mut world, viewer);
+        let msg = world.player_look_description(viewer_cid, viewer_cid);
+        assert_eq!(msg, "You see yourself. You are a sorcerer.");
+    }
+
+    /// Self look with vocation 0 ⇒ `"You have no vocation."` (`player.cpp:103`).
+    #[test]
+    fn self_look_no_vocation() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let viewer_cid = insert_player(&mut world, test_player("Nobody", pos));
+        let msg = world.player_look_description(viewer_cid, viewer_cid);
+        assert_eq!(msg, "You see yourself. You have no vocation.");
+    }
+
+    /// 772 decompile `operate.cc:1873-1886` — other-player look yields
+    /// `"You see <Name> (Level <N>). He is a sorcerer."` for a male target.
+    #[test]
+    fn other_player_look_male() {
+        let mut world = minimal_world();
+        world.vocations = sorcerer_vocation_db();
+        let pos = Position::new(100, 100, 7);
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let mut target = test_player("Sorcerer Sample", pos);
+        target.vocation_id = 1;
+        target.level = 100;
+        // `test_player` defaults to `PlayerSex::Male` (sim_harness).
+        let target_cid = insert_player(&mut world, target);
+        let msg = world.player_look_description(viewer_cid, target_cid);
+        assert_eq!(
+            msg,
+            "You see Sorcerer Sample (Level 100). He is a sorcerer."
+        );
+    }
+
+    /// `PLAYERSEX_FEMALE` ⇒ "She" pronoun (`player.cpp:112-113`).
+    #[test]
+    fn other_player_look_female() {
+        let mut world = minimal_world();
+        world.vocations = sorcerer_vocation_db();
+        let pos = Position::new(100, 100, 7);
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let mut target = test_player("Sorceress Sample", pos);
+        target.vocation_id = 1;
+        target.level = 100;
+        target.sex = crate::creature::PlayerSex::Female;
+        let target_cid = insert_player(&mut world, target);
+        let msg = world.player_look_description(viewer_cid, target_cid);
+        assert_eq!(
+            msg,
+            "You see Sorceress Sample (Level 100). She is a sorcerer."
+        );
+    }
+
+    /// Other player with no vocation ⇒ `"<Pronoun> has no vocation."` (`player.cpp:123`).
+    #[test]
+    fn other_player_look_no_vocation() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let target_cid = insert_player(&mut world, test_player("RookSample", pos));
+        let msg = world.player_look_description(viewer_cid, target_cid);
+        assert_eq!(msg, "You see RookSample (Level 8). He has no vocation.");
+    }
+
+    /// Helper: build a minimal `CreatureBase` for monster/npc look tests.
+    /// Reuses `test_player`'s `base` (fully constructed) and overrides the name.
+    fn creature_base_named(name: &str, pos: Position) -> crate::CreatureBase {
+        let mut base = test_player("x", pos).base;
+        base.name = name.into();
+        base
+    }
+
+    /// Monster look uses `MonsterType::name_description` (TFS `Monster::getDescription`
+    /// `monster.h:62-64`; default `"a " + lowercase(name)` `monsters.cpp:860`).
+    /// `base.name` is "Dog" (capitalized from TFS XML) but `name_description` is "a dog".
+    #[test]
+    fn monster_look_uses_name_description() {
+        use tfs_rust_content::monsters::{
+            MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags,
+        };
+
+        let mut world = minimal_world();
+        // Register "Dog" in the monster DB with `name_description = "a dog"`.
+        let mut monsters = std::collections::HashMap::new();
+        monsters.insert(
+            "dog".into(),
+            MonsterType {
+                name: "Dog".into(),
+                filename: "dog.xml".into(),
+                name_description: "a dog".into(),
+                race: "blood".into(),
+                experience: 0,
+                speed: 22,
+                health_now: 20,
+                health_max: 20,
+                outfit: MonsterOutfit::default(),
+                flags: MonsterTypeFlags::default(),
+                loot: Vec::new(),
+                attack_spells: Vec::new(),
+                defenses: MonsterDefenses {
+                    armor: None,
+                    defense: None,
+                    spells: Vec::new(),
+                    immunity_poison: false,
+                    immunity_fire: false,
+                    immunity_energy: false,
+                    see_invisible: false,
+                },
+                talk_texts: Vec::new(),
+            },
+        );
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+
+        // Insert a monster with `base.name = "Dog"` (as `spawn_monster` would set).
+        let pos = Position::new(100, 100, 7);
+        let monster_cid = world.creatures.insert(CreatureKind::Monster(
+            crate::creature::Monster::new(creature_base_named("Dog", pos), pos),
+        ));
+
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let msg = world.player_look_description(viewer_cid, monster_cid);
+        assert_eq!(msg, "You see a dog.");
+    }
+
+    /// Monster not in `monsters_db` falls back to lowercased `base.name`
+    /// (matches 772 decompile `Target->Name` which is lowercase in `.mon` files).
+    #[test]
+    fn monster_look_falls_back_to_lowercase_name() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let monster_cid = world.creatures.insert(CreatureKind::Monster(
+            crate::creature::Monster::new(creature_base_named("Cyclops", pos), pos),
+        ));
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let msg = world.player_look_description(viewer_cid, monster_cid);
+        assert_eq!(msg, "You see cyclops.");
+    }
+
+    /// NPC look uses `base.name` as-is (proper noun) — TFS `Npc::getDescription`
+    /// (`npc.cpp:365-371`); 772 decompile `operate.cc:1918`.
+    #[test]
+    fn npc_look_uses_name_as_is() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let npc_cid = world.creatures.insert(CreatureKind::Npc(crate::creature::Npc {
+            base: creature_base_named("Leeland", pos),
+            npc_type_id: 0,
+        }));
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let msg = world.player_look_description(viewer_cid, npc_cid);
+        assert_eq!(msg, "You see Leeland.");
     }
 }

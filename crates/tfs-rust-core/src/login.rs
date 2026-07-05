@@ -131,11 +131,20 @@ pub fn player_from_loaded(
 
     let group_id = u16::try_from(p.group_id.max(0)).unwrap_or(1);
 
+    // C++ `Player::sex` — `PLAYERSEX_FEMALE` (0) / `PLAYERSEX_MALE` (1) (`enums.h:379-380`).
+    // DB column `players.sex` is `i32`; treat any non-1 value as female (matches C++ default).
+    let sex = if p.sex == 1 {
+        tfs_rust_common::PlayerSex::Male
+    } else {
+        tfs_rust_common::PlayerSex::Female
+    };
+
     Player {
         base,
         account_id,
         guid,
         group_id,
+        sex,
         vocation_id: p.vocation,
         vocation_profile,
         level: p.level,

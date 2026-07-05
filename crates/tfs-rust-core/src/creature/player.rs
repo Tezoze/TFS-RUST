@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
-use tfs_rust_common::{Position, CLIENTOS_OTCLIENT_LINUX};
+use tfs_rust_common::{Position, PlayerSex, CLIENTOS_OTCLIENT_LINUX};
 use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::{ItemRecord, VipEntry};
 
@@ -82,6 +82,9 @@ pub struct Player {
     pub guid: u32,
     /// `players.group_id` — `groups.xml` flags (`player.h` `Group`).
     pub group_id: u16,
+    /// `players.sex` — `PLAYERSEX_FEMALE` (0) / `PLAYERSEX_MALE` (1) (`player.h`).
+    /// Drives pronoun selection in `Player::getDescription` (`player.cpp:112-116`).
+    pub sex: PlayerSex,
     pub vocation_id: i32,
     /// Cached vocation combat block (gains, base_speed, formula, skill multipliers).
     /// Built from `VocationRegistry` at login — `Copy` snapshot for hot-path reads
