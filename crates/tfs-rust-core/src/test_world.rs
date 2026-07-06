@@ -61,5 +61,8 @@ pub mod support {
                 .entry(creature)
                 .or_insert(0) += 1;
         }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 }

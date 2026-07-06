@@ -47,6 +47,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
+            learning_points: 0,
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
@@ -112,6 +113,8 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         sim_melee_defense: 0,
         sim_melee_attack: 0,
         attack_mode: Default::default(),
+        message_buffer_count: 0,
+        message_buffer_ticks: 0,
     }
 }
 

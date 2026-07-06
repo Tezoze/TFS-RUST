@@ -188,10 +188,15 @@ impl SpawnManager {
         self.last_check = Some(now_ms);
     }
 
-    /// C++ resets `lastSpawn` while player blocks tile.
+    /// C++ `StartMonsterhomeTimer` — resets the spawn timer to a fresh `spawntime` cycle
+    /// (`crnonpl.cc:1296-1323`). Called when placement fails (player nearby, blocked tile) or
+    /// when a player stands on the spawn tile (TFS `Block` mode). The C++ uses
+    /// `random(spawntime/2, spawntime)`; we use the full `spawntime` as the base (the random
+    /// jitter is a minor detail — the key is NOT retrying immediately, which caused the
+    /// per-second WARN spam when a player stood near a spawn point after killing the monster).
     pub fn stall_respawn(&mut self, slot_index: usize, now_ms: u64) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.respawn_at = Some(now_ms);
+            slot.respawn_at = Some(now_ms.saturating_add(slot.spawntime_ms));
         }
     }
 

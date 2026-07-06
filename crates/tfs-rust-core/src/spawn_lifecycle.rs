@@ -9,7 +9,7 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterOutfit;
 use tfs_rust_net::creature_known::check_creature_known;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::creature::CreatureBase;
 use crate::creature::CreatureKind;
@@ -294,6 +294,7 @@ impl GameWorld {
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
+            learning_points: 0,
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
@@ -321,7 +322,11 @@ impl GameWorld {
             extended_pos,
         );
         if !placed {
-            warn!(
+            // C++ `ProcessMonsterhomes` silently skips when `MaxRadius < 0` (player nearby) or
+            // `SearchSpawnField` finds no valid tile (`crnonpl.cc:1457-1483`). No warning is
+            // emitted — the timer is simply reset via `StartMonsterhomeTimer`. Use `debug` to
+            // avoid log spam when a player stands near a spawn point after killing the monster.
+            debug!(
                 monster = %name,
                 ?center,
                 spawn_radius,
@@ -416,6 +421,7 @@ impl GameWorld {
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
+            learning_points: 0,
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,

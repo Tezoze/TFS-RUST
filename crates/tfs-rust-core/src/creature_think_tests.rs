@@ -14,6 +14,9 @@
         fn on_think(&self, creature: CreatureId, interval_ms: u32) {
             self.0.on_think(creature, interval_ms);
         }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     /// RC1: `process_creatures` must NOT call `onThink` — C++ `ProcessCreatures`

@@ -420,3 +420,35 @@ and LOW #7 (dual creature-list desync).
 - [x] **Verify:** `cargo check --workspace` (0 errors), `cargo clippy -p tfs-rust-net -p
       tfs-rust-common` (clean), `cargo test -p tfs-rust-net` (123 passed).
 - [x] **Lessons:** append to `tasks/lessons.md`.
+
+
+## Player combat PC-2 — The strike (`CloseAttack`) — melee first
+**Plan:** `tasks/player-combat-plan.md` §3 Phase PC-2. 772 mechanics, TVP data shape. Reuses
+`combat::math::{weapon_damage, defense_value, armor_reduction, melee_damage_after_defense_and_armor}`
++ `roll_target_defense` + `combat_execute_with_stimulus` — no parallel player combat math module.
+
+- [x] `creature/base.rs`: add `learning_points: i32` to `CreatureBase` (C++ `TCombat::LearningPoints`,
+      `crcombat.cc:526` `ActivateLearning` sets 30; `ProbeValue` decrements + `Increase(1)`).
+- [x] `creature/monster_combat.rs`: add `GameWorld::melee_defense_snapshot_for(target_id)` — for
+      player targets use `player_get_defend_value` (shield/weapon defend + shielding skill) +
+      `player_get_armor_strength`; monsters/NPCs delegate to existing `melee_defense_snapshot`.
+- [x] `monster_ai.rs`: switch both strike call sites to `melee_defense_snapshot_for` so player
+      targets defend with shield/weapon/armor (was fist-only stub).
+- [x] `player/combat/strike.rs` (new): `CloseAttack` body —
+      `attack = weapon_damage(...) × vocation formula.melee_damage (floor)`;
+      `defense = roll_target_defense(target, snapshot)`;
+      `armor = armor_reduction(profile, hooks, rng, snap.armor)`;
+      `dmg = melee_damage_after_defense_and_armor(attack, defense, armor)`;
+      `combat_execute_with_stimulus(Some(cid), target, PHYSICAL, -dmg)`;
+      `if damage_done>0: ActivateLearning (learning_points=30)`;
+      `ProbeValue` side-effects: `if learning_points>0 { learning_points-=1; Increase(1) }`;
+      weapon wearout (`ItemType.charges>0` → decrement);
+      cadence `DelayAttack(200)` before, `DelayAttack(attack_speed_ms)` after, re-arm `TDAttack`;
+      `if target dead: StopAttack`.
+- [x] `player/combat/mod.rs`: `mod strike;` + replace `Adjacent`/`NoPath` re-arm arm with
+      `player_close_attack_strike` dispatch (melee range `GetDistance()==1`).
+- [x] `sim_harness.rs`: init `learning_points: 0` in `test_player_base`.
+- [x] Tests: strike damage range, learning activation on damage_done>0, defense gate 2000ms,
+      vocation `melee_damage` multiplier, target death → StopAttack, fist fallback.
+- [x] **Verify:** `cargo check -p tfs-rust-core`, `cargo clippy -p tfs-rust-core --all-targets`,
+      `cargo test -p tfs-rust-core`. **Lessons:** append to `tasks/lessons.md`.

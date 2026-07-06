@@ -17,6 +17,7 @@
 //! `follow_target` so the shared `Go`/pathfinding arms (which key off `follow_target`) repath
 //! toward the target on the attack beat.
 
+pub(crate) mod strike;
 pub(crate) mod values;
 
 // Re-export `SkillNr` so downstream phases (PC-2+) can reference it as
@@ -291,8 +292,16 @@ impl GameWorld {
             PlayerChaseOutcome::Adjacent
         } else {
             // `CHASE_MODE_NONE` (or RANGE, which 772 players cannot set via `SetChaseMode`): no
-            // chase walk. Stand still and re-arm on the attack beat.
-            PlayerChaseOutcome::Adjacent
+            // chase walk. C++ `CanToDoAttack` does nothing, then `Attack()` checks
+            // `Range == 1 && Distance > 1` → `throw TARGETOUTOFRANGE` (`crcombat.cc:611-614`).
+            // The `Execute` catch does `ToDoYield` (re-arm) — no `SendResult` (TARGETOUTOFRANGE
+            // falls through to `default: break` in `sending.cc:348`). `DelayAttack(200)` was
+            // already applied in `Attack()` before the range check (`crcombat.cc:608`).
+            if cheb > 1 {
+                PlayerChaseOutcome::OutOfRange
+            } else {
+                PlayerChaseOutcome::Adjacent
+            }
         }
     }
 
@@ -338,10 +347,30 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "player_attack_chase_armed");
                 TodoExecuteKind::AttackDeferred
             }
-            PlayerChaseOutcome::NoPath | PlayerChaseOutcome::Adjacent => {
-                // Strike deferred — re-arm on the attack beat. `DelayAttack(200)` matches the
-                // C++ post-strike `DelayAttack(200)` cadence (`crcombat.cc:608`); the actual
-                // strike will replace this once player weapon combat exists.
+            PlayerChaseOutcome::Adjacent => {
+                // `CloseAttack` melee strike — `crcombat.cc:647`. `GetDistance()==1` (adjacent
+                // under `CHASE_MODE_CLOSE`, or `CHASE_MODE_NONE` standing still). The strike
+                // body lives in `player/combat/strike.rs` (extracted per §4.0); it handles
+                // `DelayAttack(200)` before + `DelayAttack(attackspeed)` after, damage/defense/
+                // armor, `ActivateLearning`, weapon wearout, and `StopAttack` on target death.
+                if let Some(target_id) = self
+                    .creatures
+                    .get(cid)
+                    .and_then(|k| k.base().attack_target)
+                {
+                    self.player_close_attack_strike(cid, target_id);
+                }
+                // Re-arm `TDAttack` on the attack beat (post-strike `attackspeed` cadence is
+                // already set by the strike; `todo_attack_delay_ms` reads `earliest_attack_ms`).
+                let _ = self.enqueue_creature_attack(cid);
+                let delay = self.todo_attack_delay_ms(cid).max(1);
+                self.todo_start_from_action(cid, delay);
+                trace_creature_todo(self, cid, "player_attack_strike");
+                TodoExecuteKind::AttackDeferred
+            }
+            PlayerChaseOutcome::NoPath => {
+                // Target reachable but no path found this beat — re-arm on the attack beat.
+                // `DelayAttack(200)` matches the C++ pre-strike cadence (`crcombat.cc:608`).
                 let _ = self.enqueue_creature_attack(cid);
                 let server_ms = self.server_ms;
                 if let Some(k) = self.creatures.get_mut(cid) {
@@ -350,6 +379,21 @@ impl GameWorld {
                 let delay = self.todo_attack_delay_ms(cid).max(1);
                 self.todo_start_from_action(cid, delay);
                 trace_creature_todo(self, cid, "player_attack_rearm");
+                TodoExecuteKind::AttackDeferred
+            }
+            PlayerChaseOutcome::OutOfRange => {
+                // `CHASE_MODE_NONE` + target not adjacent — C++ `Attack()` calls
+                // `DelayAttack(200)` then `throw TARGETOUTOFRANGE` (`crcombat.cc:608,613-614`).
+                // The `Execute` catch does `ToDoYield` (re-arm); no `SendResult` —
+                // `TARGETOUTOFRANGE` falls through to `default: break` in `sending.cc:348`.
+                let _ = self.enqueue_creature_attack(cid);
+                let server_ms = self.server_ms;
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().delay_attack_ms(server_ms, 200);
+                }
+                let delay = self.todo_attack_delay_ms(cid).max(1);
+                self.todo_start_from_action(cid, delay);
+                trace_creature_todo(self, cid, "player_attack_out_of_range");
                 TodoExecuteKind::AttackDeferred
             }
         }
@@ -440,6 +484,9 @@ pub(crate) enum PlayerChaseOutcome {
     ChaseArmed,
     /// Target reachable but no path found this beat — re-arm on the attack beat.
     NoPath,
+    /// `CHASE_MODE_NONE` + target not adjacent — C++ `Attack()` throws `TARGETOUTOFRANGE`
+    /// (`crcombat.cc:611-614`). Re-arm without striking; `DelayAttack(200)` already applied.
+    OutOfRange,
     /// Adjacent (cheb ≤ 1) — strike range. Strike deferred; re-arm on the attack beat.
     Adjacent,
 }

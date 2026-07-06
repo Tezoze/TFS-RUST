@@ -24,7 +24,7 @@ use crate::combat::{
     CombatParams, FightMode,
 };
 use crate::creature::{
-    creature_immune_poison, melee_defense_snapshot, melee_poison_on_hit,
+    creature_immune_poison, melee_poison_on_hit,
     monster_weapon_attack_distance, roll_target_defense,
 };
 use crate::creature::{CreatureKind, ChaseMode, MonsterState};
@@ -393,7 +393,7 @@ impl GameWorld {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
 
-            let defense_snap = melee_defense_snapshot(self.creatures.get(target_id).unwrap());
+            let defense_snap = self.melee_defense_snapshot_for(target_id);
             let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
             let attack_roll = weapon_damage(
                 &profile,
@@ -421,10 +421,19 @@ impl GameWorld {
             let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
             let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
+            // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
+            if dmg <= 0 {
+                if let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position) {
+                    let effect = if attack_roll <= defense_roll { 3u8 } else { 4u8 };
+                    self.broadcast_magic_effect(pos, effect);
+                }
+            }
+
             if let Some(shoot) = shoot_effect {
                 self.broadcast_distance_shoot(monster_pos, target_pos, shoot);
             }
 
+            let notify_snap = self.combat_notify_snapshot(target_id);
             let hp_before = self.creatures.get(target_id).unwrap().base().health;
             let _ = self.combat_execute_with_stimulus(
                 Some(cid),
@@ -458,7 +467,14 @@ impl GameWorld {
                         .unwrap_or(0),
                 );
             }
-            self.notify_player_combat_damage(Some(cid), target_id, (hp_before - hp_after).max(0));
+            if let Some(snap) = notify_snap {
+                self.notify_player_combat_damage(
+                    Some(cid),
+                    target_id,
+                    (hp_before - hp_after).max(0),
+                    snap,
+                );
+            }
             self.ai_rng = rng;
 
             if let Some(k) = self.creatures.get_mut(cid) {
@@ -481,7 +497,7 @@ impl GameWorld {
 
         let _trace_atk = crate::sim_glibc_rand::sim_rng_trace_site("melee_attack_probe");
 
-        let defense_snap = melee_defense_snapshot(self.creatures.get(target_id).unwrap());
+        let defense_snap = self.melee_defense_snapshot_for(target_id);
         let target_immune_poison = creature_immune_poison(self.creatures.get(target_id).unwrap());
 
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -519,6 +535,15 @@ impl GameWorld {
         let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
+        // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
+        if dmg <= 0 {
+            if let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position) {
+                let effect = if attack_roll <= defense_roll { 3u8 } else { 4u8 };
+                self.broadcast_magic_effect(pos, effect);
+            }
+        }
+
+        let notify_snap = self.combat_notify_snapshot(target_id);
         let hp_before = self.creatures.get(target_id).unwrap().base().health;
         let damage = CombatDamage {
             primary: (CombatType::Physical, -dmg),
@@ -536,7 +561,9 @@ impl GameWorld {
             .map(|k| k.base().health)
             .unwrap_or(hp_before);
         let damage_done = (hp_before - hp_after).max(0);
-        self.notify_player_combat_damage(Some(cid), target_id, damage_done);
+        if let Some(snap) = notify_snap {
+            self.notify_player_combat_damage(Some(cid), target_id, damage_done, snap);
+        }
 
         if !target_immune_poison {
             if let Some(cond) = melee_poison_on_hit(

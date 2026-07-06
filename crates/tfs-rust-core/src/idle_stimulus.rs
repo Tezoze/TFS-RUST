@@ -2756,8 +2756,15 @@ impl GameWorld {
 
     /// Gate harness idle re-entry after todo drain — shared by [`finish_creature_todo_execute`]
     /// and [`GameWorld::process_creature_todo`].
+    ///
+    /// Dispatches to `idle_stimulus` (not `monster_idle_stimulus` directly) so players also get
+    /// their `IdleStimulus` — `player_idle_stimulus` re-arms `ToDoAttack` when `attack_target`
+    /// is set (`crplayer.cc:392-395`). Without this, a player who walks while attacking loses
+    /// the attack re-arm: `player_move_request` clears the ToDo queue (removing the queued
+    /// `Attack`), and after the `Go` completes the monster-only `monster_idle_stimulus` returns
+    /// early for players, leaving the attack dead.
     pub(crate) fn maybe_idle_stimulus_after_go_complete(&mut self, cid: CreatureId) {
-        self.monster_idle_stimulus(cid);
+        self.idle_stimulus(cid);
     }
 
     /// Run one queued action (772 monsters).

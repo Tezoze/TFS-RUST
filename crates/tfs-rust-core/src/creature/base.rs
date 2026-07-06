@@ -124,6 +124,12 @@ pub struct CreatureBase {
     pub earliest_defend_ms: u64,
     /// C++ `TCombat::LastDefendTime` — paired with `EarliestDefendTime` (`crcombat.cc:241-242`).
     pub last_defend_ms: u64,
+    /// C++ `TCombat::LearningPoints` — 772 skill-learning window (`crcombat.cc:526`
+    /// `ActivateLearning` sets 30; `crskill.cc:549` `Probe`/`ProbeValue` decrement + call
+    /// `Increase(1)` while > 0). PC-2 wires the field + `ActivateLearning` on a damaging
+    /// strike; the `Increase(1)` skill-exp side-effect (per-skill tries counters +
+    /// `req_skill_tries` leveling) is PC-5 scope (§0.5).
+    pub learning_points: i32,
     /// 772 per-creature ToDo action list (772 idle-driven AI).
     pub todo: CreatureTodo,
     /// 772 combat chase mode — `TCombat::ChaseMode` (`crcombat.cc:338`); 1098 ignores.
@@ -218,6 +224,12 @@ impl CreatureBase {
         .into_iter()
         .filter(|&t| t > server_ms)
         .max()
+    }
+
+    /// C++ `TCombat::ActivateLearning` — `crcombat.cc:526`: `LearningPoints = 30`.
+    /// Called by `CloseAttack` when `DamageDone > 0` (`crcombat.cc:655`).
+    pub fn activate_learning(&mut self) {
+        self.learning_points = 30;
     }
 
     /// C++ `TCreature::IsInvisible()` — true while an `Invisible` condition is active

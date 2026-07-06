@@ -4118,6 +4118,110 @@
         assert!(base.todo.has_attack(), "player ToDo must have Attack enqueued");
     }
 
+    /// Bug fix: target swap must work even while the player is mid-attack cooldown.
+    /// C++ `CAttack` (`receiving.cc:1133-1155`) has no `EarliestAttackTime` gate —
+    /// `SetAttackDest` runs unconditionally. The Rust `game_packet_requires_timed_action` gate
+    /// was incorrectly dropping `Attack` packets when `earliest_attack_ms` was in the future.
+    #[test]
+    fn test_player_swap_target_mid_attack_cooldown() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos_a = Position::new(101, 100, 7);
+        let tpos_b = Position::new(100, 101, 7);
+        ensure_walkable_tile(&mut world.map, tpos_a, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, tpos_b, TEST_SYNTHETIC_GROUND_WP);
+        let target_a = insert_monster(&mut world, "RatA", tpos_a, 200);
+        let target_b = insert_monster(&mut world, "RatB", tpos_b, 200);
+
+        let wire_id_a = {
+            use slotmap::Key;
+            (target_a.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+        let wire_id_b = {
+            use slotmap::Key;
+            (target_b.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        // Start attacking target A.
+        world.player_set_attack_dest(conn, player, wire_id_a, false);
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().attack_target,
+            Some(target_a)
+        );
+
+        // Simulate mid-attack cooldown: set `earliest_attack_ms` far into the future.
+        // This is the state after a strike lands and `DelayAttack(attackspeed)` fires.
+        world.server_ms = 1000;
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_attack_ms = 5000; // 4 seconds in the future
+        }
+
+        // Swap to target B — must NOT be blocked by the attack cooldown.
+        world.player_set_attack_dest(conn, player, wire_id_b, false);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(
+            base.attack_target,
+            Some(target_b),
+            "attack_target must swap to target B even mid-attack cooldown"
+        );
+        assert!(
+            base.todo.has_attack(),
+            "Attack must be enqueued for the new target"
+        );
+    }
+
+    /// Bug fix: walking while attacking must NOT stop the attack. After the walk `Go` completes,
+    /// `maybe_idle_stimulus_after_go_complete` must re-arm `ToDoAttack` via `player_idle_stimulus`
+    /// (`crplayer.cc:392-395`). The bug was that it called `monster_idle_stimulus` which returns
+    /// early for players.
+    #[test]
+    fn test_player_walk_while_attacking_re_arms_attack() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+        let wire_id = {
+            use slotmap::Key;
+            (target.data().as_ffi() & 0xFFFF_FFFF) as u32
+        };
+
+        // Start attacking.
+        world.player_set_attack_dest(conn, player, wire_id, false);
+        assert!(world.creatures.get(player).unwrap().base().attack_target.is_some());
+        assert!(world.creatures.get(player).unwrap().base().todo.has_attack());
+
+        // Take a step — `player_move_request` clears the ToDo queue (removing Attack) + enqueues Go.
+        let now = std::time::Instant::now();
+        world.player_move_request(conn, player, Direction::South, now);
+        // Attack was cleared by the ToDoClear preamble.
+        assert!(
+            !world.creatures.get(player).unwrap().base().todo.has_attack(),
+            "ToDoClear must remove the queued Attack before the Go"
+        );
+        // attack_target must survive the ToDoClear.
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().attack_target,
+            Some(target),
+            "attack_target must survive ToDoClear"
+        );
+
+        // Advance time + drain the Go. The step should land and the attack should re-arm.
+        world.server_ms += 1000;
+        // Clear walk cooldown so the Go executes immediately.
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_walk_server_ms = 0;
+        }
+        crate::sim_harness::drain_todo_queue_once(&mut world);
+
+        // After the walk completes, the attack must be re-armed by `player_idle_stimulus`.
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.attack_target, Some(target), "attack_target must still be set");
+        assert!(
+            base.todo.has_attack() || base.next_wakeup.is_some(),
+            "attack must be re-armed after walk completes (ToDoAttack or wakeup scheduled)"
+        );
+    }
+
     /// Phase 1.4: `player_set_attack_dest` (Follow) sets `follow_target` + `ChaseMode::Close`.
     #[test]
     fn test_phase1_player_follow_sets_follow_and_close_chase() {
@@ -4236,6 +4340,77 @@
             outcome,
             crate::player_combat::PlayerChaseOutcome::TargetLost,
             "cheb>8 must be TargetLost"
+        );
+    }
+
+    /// Bug fix: `CHASE_MODE_NONE` with target not adjacent must return `OutOfRange`, NOT
+    /// `Adjacent` — otherwise the player strikes from across the screen.
+    /// C++ `CanToDoAttack` does nothing for `CHASE_MODE_NONE`, then `Attack()` checks
+    /// `Range == 1 && Distance > 1` → `throw TARGETOUTOFRANGE` (`crcombat.cc:611-614`).
+    #[test]
+    fn test_player_chase_mode_none_out_of_range_when_not_adjacent() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        // Target at cheb=3 — within 8 (not TargetLost) but not adjacent.
+        let tpos = Position::new(103, 100, 7);
+        for x in 101..=103 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        }
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(target);
+            k.base_mut().chase_mode = ChaseMode::None;
+        }
+
+        let outcome = world.player_can_to_do_attack_chase(player);
+        assert_eq!(
+            outcome,
+            crate::player_combat::PlayerChaseOutcome::OutOfRange,
+            "CHASE_MODE_NONE + cheb>1 must be OutOfRange (no strike from distance)"
+        );
+    }
+
+    /// `CHASE_MODE_NONE` with target adjacent (cheb=1) must still return `Adjacent` —
+    /// the player can strike when standing next to the target without chasing.
+    #[test]
+    fn test_player_chase_mode_none_adjacent_when_close() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        let tpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(target);
+            k.base_mut().chase_mode = ChaseMode::None;
+        }
+
+        let outcome = world.player_can_to_do_attack_chase(player);
+        assert_eq!(
+            outcome,
+            crate::player_combat::PlayerChaseOutcome::Adjacent,
+            "CHASE_MODE_NONE + cheb=1 must be Adjacent (strike)"
+        );
+    }
+
+    /// `CHASE_MODE_NONE` + cross-floor (z change) must return `TargetLost` —
+    /// `ObjectDistance` returns INT_MAX across Z (`info.cc:313`).
+    #[test]
+    fn test_player_chase_mode_none_target_lost_on_z_change() {
+        let (mut world, player, _conn) = setup_player_world_with_conn();
+        let tpos = Position::new(100, 100, 6);
+        ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster(&mut world, "Rat", tpos, 200);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(target);
+            k.base_mut().chase_mode = ChaseMode::None;
+        }
+
+        let outcome = world.player_can_to_do_attack_chase(player);
+        assert_eq!(
+            outcome,
+            crate::player_combat::PlayerChaseOutcome::TargetLost,
+            "cross-floor must be TargetLost regardless of chase mode"
         );
     }
 

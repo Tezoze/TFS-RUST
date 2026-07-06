@@ -89,6 +89,19 @@ pub fn creature_can_see(
         && ty <= my_y + view_range_y + offsetz
 }
 
+/// Pre-captured target info for `notify_player_combat_damage`.
+///
+/// Must be captured **before** `combat_execute_with_stimulus` because that path may kill the
+/// target (`apply_creature_death` → `remove_creature`), making `self.creatures.get(target_id)`
+/// return `None`. Without this snapshot, the killing-blow damage text + health bar are never
+/// sent (`crmain.cc:765` `TextualEffect`, `crmain.cc:777-784` status message).
+pub(crate) struct CombatNotifySnapshot {
+    pub pos: Position,
+    pub wire_id: u32,
+    pub is_player: bool,
+    pub max_hp: i32,
+}
+
 impl GameWorld {
     /// TFS `ProtocolGame::canSee(Position)` — multi-floor viewport (`protocolgame.cpp` ~796–823).
     pub fn can_see_position(&self, viewer: CreatureId, pos: Position) -> bool {
@@ -454,33 +467,56 @@ impl GameWorld {
         self.broadcast_to_spectators(from, pkt);
     }
 
+    /// Capture a [`CombatNotifySnapshot`] for `target_id` — call before `combat_execute_with_stimulus`.
+    pub(crate) fn combat_notify_snapshot(&self, target_id: CreatureId) -> Option<CombatNotifySnapshot> {
+        let kind = self.creatures.get(target_id)?;
+        let base = kind.base();
+        Some(CombatNotifySnapshot {
+            pos: base.position,
+            wire_id: crate::login_out::creature_wire_id(target_id, kind),
+            is_player: matches!(kind, CreatureKind::Player(_)),
+            max_hp: base.max_health,
+        })
+    }
+
     /// C++ `Game::combatChangeHealth` — stats + damage message + health bar fan-out.
+    ///
+    /// Handles **all creature types** (players, monsters, NPCs). For player targets, also sends
+    /// the private "You lose X hitpoints" status message + stats update. For all targets,
+    /// broadcasts the animated damage text + health bar to spectators.
+    ///
+    /// `snapshot` must be captured before `combat_execute_with_stimulus` — the target may be dead
+    /// (removed from `world.creatures`) by the time this runs, so we cannot read pos/wire_id from
+    /// `self.creatures` here. HP percent is re-read if the target is still alive; 0 if dead.
     pub(crate) fn notify_player_combat_damage(
         &mut self,
         attacker_id: Option<CreatureId>,
         target_id: CreatureId,
         damage_done: i32,
+        snapshot: CombatNotifySnapshot,
     ) {
         if damage_done <= 0 {
             return;
         }
-        let (pos, wire_id, hp_pct) = {
-            let Some(CreatureKind::Player(p)) = self.creatures.get(target_id) else {
-                return;
-            };
-            let max_hp = p.base.max_health.max(1);
-            let pct = ((p.base.health.max(0) as u64 * 100) / max_hp as u64).min(100) as u8;
-            (
-                p.base.position,
-                crate::login_out::creature_wire_id(
-                    target_id,
-                    self.creatures.get(target_id).unwrap(),
-                ),
-                pct,
-            )
-        };
+        let CombatNotifySnapshot {
+            pos,
+            wire_id,
+            is_player,
+            max_hp,
+        } = snapshot;
+        let max_hp = max_hp.max(1);
+        // Re-read current HP if the target is still alive; 0 if dead (removed by
+        // `apply_creature_death`). A dead creature shows 0% health (red bar).
+        let hp_pct = self
+            .creatures
+            .get(target_id)
+            .map(|k| ((k.base().health.max(0) as u64 * 100) / max_hp as u64).min(100) as u8)
+            .unwrap_or(0);
 
-        self.send_player_stats(target_id);
+        // Player-only: stats update + private "You lose X" status message.
+        if is_player {
+            self.send_player_stats(target_id);
+        }
 
         let attacker_desc = attacker_id
             .and_then(|aid| self.creatures.get(aid))
@@ -496,6 +532,8 @@ impl GameWorld {
             AnimatedTextWire, CombatDamageNotifyWire, CreatureHealthWire,
         };
 
+        // Animated damage text — broadcast to all spectators (C++ `TextualEffect`,
+        // `crmain.cc:765`). Applies to ALL creature types, not just players.
         let animated = self.codec.encode_animated_text(&AnimatedTextWire {
             pos,
             color: TEXTCOLOR_RED,
@@ -505,42 +543,47 @@ impl GameWorld {
             self.broadcast_to_spectators(pos, animated.into_bytes());
         }
 
-        if let Some(conn) = self.conn_for_creature(target_id) {
-            let dmg = damage_done as u32;
-            // K10: damage text format — 772 attributes attacker, 1098 uses simple loss text.
-            let text = match self.mechanics.profile.damage_text_format {
-                crate::formulas::DamageTextFormat::AttackerAttribution => {
-                    let damage_string = if dmg == 1 {
-                        "1 hitpoint".to_string()
-                    } else {
-                        format!("{dmg} hitpoints")
-                    };
-                    if let Some(attacker) = attacker_desc {
-                        format!("You lose {damage_string} due to an attack by {attacker}.")
-                    } else {
-                        format!("You lose {damage_string}.")
+        // Player-only: private status message ("You lose X hitpoints due to an attack by Y").
+        if is_player {
+            if let Some(conn) = self.conn_for_creature(target_id) {
+                let dmg = damage_done as u32;
+                // K10: damage text format — 772 attributes attacker, 1098 uses simple loss text.
+                let text = match self.mechanics.profile.damage_text_format {
+                    crate::formulas::DamageTextFormat::AttackerAttribution => {
+                        let damage_string = if dmg == 1 {
+                            "1 hitpoint".to_string()
+                        } else {
+                            format!("{dmg} hitpoints")
+                        };
+                        if let Some(attacker) = attacker_desc {
+                            format!("You lose {damage_string} due to an attack by {attacker}.")
+                        } else {
+                            format!("You lose {damage_string}.")
+                        }
                     }
-                }
-                crate::formulas::DamageTextFormat::SimpleLoss => {
-                    if dmg == 1 {
-                        "You lose 1 hitpoint.".to_string()
-                    } else {
-                        format!("You lose {dmg} hitpoints.")
+                    crate::formulas::DamageTextFormat::SimpleLoss => {
+                        if dmg == 1 {
+                            "You lose 1 hitpoint.".to_string()
+                        } else {
+                            format!("You lose {dmg} hitpoints.")
+                        }
                     }
-                }
-            };
-            self.enqueue_encoded(
-                conn,
-                self.codec
-                    .encode_combat_damage_text_message(&CombatDamageNotifyWire {
-                        pos,
-                        damage: dmg,
-                        damage_color: TEXTCOLOR_RED,
-                        text,
-                    }),
-            );
+                };
+                self.enqueue_encoded(
+                    conn,
+                    self.codec
+                        .encode_combat_damage_text_message(&CombatDamageNotifyWire {
+                            pos,
+                            damage: dmg,
+                            damage_color: TEXTCOLOR_RED,
+                            text,
+                        }),
+                );
+            }
         }
 
+        // Health bar fan-out — broadcast to all spectators (C++ `sendCreatureHealth`).
+        // Applies to ALL creature types so the client updates the health bar overlay.
         self.broadcast_to_spectators(
             pos,
             self.codec

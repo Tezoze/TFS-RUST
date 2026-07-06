@@ -124,6 +124,13 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::Move(_)
             | GamePacket::AutoWalk { .. }
             | GamePacket::StopAutoWalk
+            // C++ `CAttack` (`receiving.cc:1133-1155`) has NO `EarliestAttackTime` gate —
+            // `SetAttackDest` + `ToDoAttack` + `ToDoStart` run unconditionally at packet receipt.
+            // The attack cooldown is only checked in `CanToDoAttack` (`crcombat.cc:442-511`) when
+            // the `TDAttack` executes, not at packet receipt. Gating `Attack`/`Follow` here
+            // silently drops target-swap packets while the player is mid-attack cooldown.
+            | GamePacket::Attack { .. }
+            | GamePacket::Follow { .. }
             | GamePacket::ExtendedOpcode { .. }
             | GamePacket::Turn(_)
             | GamePacket::CancelAttackAndFollow
@@ -789,8 +796,14 @@ mod timed_action_gate_tests {
     }
 
     #[test]
-    fn attack_is_gated() {
-        assert!(game_packet_requires_timed_action(&GamePacket::Attack {
+    fn attack_is_not_gated() {
+        // C++ `CAttack` (`receiving.cc:1133-1155`) has no `EarliestAttackTime` check —
+        // `SetAttackDest` runs unconditionally. The attack cooldown lives in `CanToDoAttack`
+        // (`crcombat.cc:442-511`) at `TDAttack` execute time, not at packet receipt.
+        assert!(!game_packet_requires_timed_action(&GamePacket::Attack {
+            creature_id: 1
+        }));
+        assert!(!game_packet_requires_timed_action(&GamePacket::Follow {
             creature_id: 1
         }));
     }

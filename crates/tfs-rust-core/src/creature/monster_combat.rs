@@ -222,7 +222,11 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
     let defend_mode = defend_fight_mode_for_target(kind);
     match kind {
         CreatureKind::Monster(m) => MeleeDefenseSnapshot {
-            defense_skill: 0,
+            // C++ `GetDefendValue` with no shield/weapon → `WEAPON_NONE` → `SKILL_FIST`
+            // (`crcombat.cc:213,153`); `ProbeValue` uses `Skills[SKILL_FIST]->Get()` which for
+            // monsters is their `FistFighting` skill (= `melee_skill` in our data model,
+            // `rat.mon` `FistFighting=15`). Was `0` — nerfed monster defense to near-zero.
+            defense_skill: m.melee_skill,
             defense_value: m.defense,
             armor: m.armor,
             defend_mode,
@@ -240,6 +244,43 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
             armor: 0,
             defend_mode,
         },
+    }
+}
+
+impl crate::game_world::GameWorld {
+    /// World-aware target defense/armor snapshot for melee strikes — PC-2.
+    ///
+    /// For **player targets**, uses [`Self::player_get_defend_value`] (shield/weapon defend +
+    /// shielding skill per `GetDefendValue` priority) and [`Self::player_get_armor_strength`]
+    /// (full equipped armor sum). For monster/NPC targets, delegates to the `&CreatureKind`
+    /// [`melee_defense_snapshot`] (unchanged). This closes the PC-1 fist-only stub for player
+    /// targets so a monster or player striking a player resolves defense/armor through the
+    /// real `GetDefendValue`/`GetArmorStrength` paths (`crcombat.cc:191`, `:286`).
+    pub(crate) fn melee_defense_snapshot_for(
+        &self,
+        target_id: crate::ids::CreatureId,
+    ) -> MeleeDefenseSnapshot {
+        let Some(kind) = self.creatures.get(target_id) else {
+            return MeleeDefenseSnapshot {
+                defense_skill: 0,
+                defense_value: 0,
+                armor: 0,
+                defend_mode: FightMode::Defensive,
+            };
+        };
+        match kind {
+            crate::creature::CreatureKind::Player(p) => {
+                let (def_value, skill_nr) = self.player_get_defend_value(target_id);
+                let armor = self.player_get_armor_strength(target_id);
+                MeleeDefenseSnapshot {
+                    defense_skill: skill_nr.level(&p.skills),
+                    defense_value: def_value,
+                    armor,
+                    defend_mode: defend_fight_mode_for_target(kind),
+                }
+            }
+            _ => melee_defense_snapshot(kind),
+        }
     }
 }
 
@@ -636,6 +677,7 @@ mod tests {
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
+            learning_points: 0,
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,

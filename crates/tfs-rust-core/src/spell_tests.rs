@@ -49,6 +49,7 @@
                 earliest_attack_ms: 0,
                 earliest_defend_ms: 0,
                 last_defend_ms: 0,
+                learning_points: 0,
                 todo: Default::default(),
                 chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
