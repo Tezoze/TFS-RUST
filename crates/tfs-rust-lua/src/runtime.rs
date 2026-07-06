@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
+use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
 use crate::timer_events::{
     execute_timer_event, register_add_event_stop_event, TimerEvents,
@@ -61,6 +62,12 @@ impl LuaRuntime {
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
+        // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
+        // VOCATION_NONE, CONDITION_*, RETURNVALUE_*, …). Mirrors
+        // `luascript.cpp` `registerConstants`; 772 values from
+        // `reference/tvp-772/gameserver/src/{const.h,enums.h}`. See
+        // `constants.rs` and `tasks/lua-api-plan.md` LUA-1.
+        register_constants(&lua).map_err(LuaError::Registration)?;
 
         // Initialize pending channel buffer for Channel:register()
         let pending_channels = lua.create_table()?;
@@ -461,30 +468,13 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     })?;
     globals.set("Condition", condition)?;
 
-    globals.set("CONDITION_SOUL", 0i32)?;
-    globals.set("CONDITIONID_DEFAULT", 0i32)?;
-    globals.set("CONDITION_PARAM_SOULGAIN", 0i32)?;
-    globals.set("CONDITION_PARAM_SOULTICKS", 0i32)?;
-    globals.set("RETURNVALUE_NOERROR", 0i32)?;
+    // `nextUseStaminaTime` — a mutable per-player stamina gate table read by
+    // `data/events/scripts/player.lua` `onGainSkillTries`. Not a constant;
+    // stays here alongside the other bootstrap state. The bare enum/flag
+    // constants (CONDITION_SOUL, TALKTYPE_*, ACCOUNT_TYPE_*, PlayerFlag_*,
+    // RETURNVALUE_*, APPLY_SKILL_MULTIPLIER, …) now live in `constants.rs`
+    // (`register_constants`), called from `LuaRuntime::new` after this fn.
     globals.set("nextUseStaminaTime", lua.create_table()?)?;
-    globals.set("APPLY_SKILL_MULTIPLIER", true)?;
-
-    // TALKTYPE constants for channel scripts (C++ const.h:163-178)
-    globals.set("TALKTYPE_CHANNEL_Y", 7i32)?;
-    globals.set("TALKTYPE_CHANNEL_O", 8i32)?;
-    globals.set("TALKTYPE_CHANNEL_R1", 14i32)?;
-
-    // ACCOUNT_TYPE constants (C++ enums.h:79-85)
-    globals.set("ACCOUNT_TYPE_NORMAL", 1i32)?;
-    globals.set("ACCOUNT_TYPE_TUTOR", 2i32)?;
-    globals.set("ACCOUNT_TYPE_SENIORTUTOR", 3i32)?;
-    globals.set("ACCOUNT_TYPE_GAMEMASTER", 4i32)?;
-    globals.set("ACCOUNT_TYPE_COMMUNITYMANAGER", 5i32)?;
-    globals.set("ACCOUNT_TYPE_GOD", 6i32)?;
-
-    // PlayerFlag constants (C++ const.h:264-266)
-    globals.set("PlayerFlag_CanTalkRedChannel", 1i32 << 21)?;
-    globals.set("PlayerFlag_TalkOrangeHelpChannel", 1i32 << 23)?;
 
     globals.set(
         "hasEventCallback",
@@ -578,6 +568,10 @@ mod tests {
             .join("../../data/events/scripts/player.lua")
     }
 
+    fn workspace_data_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data")
+    }
+
     #[test]
     fn player_events_script_loads_with_bootstrap() {
         let path = workspace_data_path();
@@ -595,5 +589,50 @@ mod tests {
                 "onInventoryUpdate",
             )
             .expect("onInventoryUpdate registered");
+    }
+
+    /// LUA-1 smoke test: every chat-channel script loads without
+    /// `nil`-method / `nil`-constant failures, and the constants the active
+    /// hook bodies compare against resolve to their 772 reference values.
+    ///
+    /// `ruleviolations.lua` is skipped by `load_chat_channel_scripts` (RVR
+    /// non-goal), so we expect the remaining 8 channel scripts to register.
+    #[test]
+    fn channel_scripts_load_with_constants() {
+        let data_root = workspace_data_root();
+        let channels_dir = data_root.join("scripts/chatchannels");
+        if !channels_dir.exists() {
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+
+        // Spot-check the enum values the active hook bodies compare against.
+        // Mirrors `constants.rs` tests; duplicated here so a regression in
+        // either the registration call site or the values is caught.
+        let globals = runtime.lua.globals();
+        let get = |name: &str| globals.get::<i32>(name).expect(name);
+        assert_eq!(get("ACCOUNT_TYPE_GOD"), 6);
+        assert_eq!(get("TALKTYPE_CHANNEL_Y"), 5);
+        assert_eq!(get("TALKTYPE_CHANNEL_O"), 12);
+        assert_eq!(get("TALKTYPE_CHANNEL_R1"), 10);
+        assert_eq!(get("PlayerFlag_CanTalkRedChannel"), 1 << 22);
+        assert_eq!(get("PlayerFlag_TalkOrangeHelpChannel"), 1 << 23);
+        assert_eq!(get("VOCATION_NONE"), 0);
+        // §4.3 fix: CONDITIONID_DEFAULT must be -1, not the old wrong 0.
+        assert_eq!(get("CONDITIONID_DEFAULT"), -1);
+
+        // Load every channel script — each must compile and self-register
+        // without referencing a nil constant/method.
+        let channels =
+            crate::chat_channels::load_chat_channel_scripts(&mut runtime, &data_root)
+                .expect("channel scripts load");
+        // 8 active channels (ruleviolations.lua is skipped by the loader).
+        assert_eq!(
+            channels.len(),
+            8,
+            "expected 8 registered channels, got {}: {channels:?}",
+            channels.len()
+        );
     }
 }

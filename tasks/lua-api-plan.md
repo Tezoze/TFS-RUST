@@ -168,7 +168,7 @@ the active gating logic), then outbound cancel (unblocks the level-1 / mute canc
 full CH-5 condition/mute surface (unblocks the commented-out blocks). Each phase leaves the tree
 building and the channel scripts loading.
 
-### LUA-1 — Constants registration (unblocks active hook comparisons)
+### LUA-1 — Constants registration (unblocks active hook comparisons) — ✅ DONE
 1. New `constants.rs` + `register_constants` called from `LuaRuntime::new`.
 2. Register: `ACCOUNT_TYPE_*` (`enums.h:79-85`), `TALKTYPE_*` **772 values** (`const.h:61-77` — same
    set `game_world_chat.rs` uses; source from `tfs_rust_common::enums` if a `SpeakClasses` enum is
@@ -177,6 +177,19 @@ building and the channel scripts loading.
 3. Move the existing scattered constant `globals.set` lines out of `register_event_script_bootstrap`
    into `constants.rs`; fix `CONDITIONID_DEFAULT` to `-1` (§4.3).
 4. Verify: all 8 channel scripts load; a smoke test evaluating `ACCOUNT_TYPE_GOD == 6` etc. passes.
+
+**Done.** `crates/tfs-rust-lua/src/constants.rs` centralizes all bare enum/flag constants with
+772-correct values and `const.h`/`enums.h` cites. Also fixed three pre-existing wrong values
+uncovered while moving: `TALKTYPE_CHANNEL_Y/O/R1` (were 7/8/14 → 5/12/10),
+`PlayerFlag_CanTalkRedChannel` (was `1<<21` → `1<<22`; `1<<21` is `CanTalkRedPrivate`, now also
+registered), `CONDITION_SOUL` (was 0 → `1<<13`), `CONDITION_PARAM_SOULGAIN/SOULTICKS` (were 0 →
+12/13). `TALKTYPE_*` are hardcoded with cites rather than sourced from `tfs_rust_common::enums`
+because the existing `SpeakType` enum carries 1098 numbering, not 772 — adding a 772-correct
+`SpeakClasses` enum is deferred (it would touch `idle_stimulus.rs` callers). Tests:
+`constants::tests::register_constants_sets_expected_values`,
+`runtime::tests::channel_scripts_load_with_constants` (loads all 8 channel scripts + spot-checks
+values). NOTE: pre-existing `player_events_script_loads_with_bootstrap` test was already failing
+on `main` (missing `Player:onInventoryUpdate`) — unrelated to LUA-1.
 
 ### LUA-2 — Player read methods + account-type backing + `Vocation` object
 1. `ScriptContext`: add `get_player_level`, `get_player_account_type`, `get_player_vocation_id`,

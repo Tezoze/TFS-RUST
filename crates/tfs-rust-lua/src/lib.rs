@@ -4,6 +4,7 @@
 //! for game scripts. It maintains TFS compatibility while using idiomatic Rust.
 
 pub mod chat_channels;
+pub mod constants;
 pub mod context;
 pub mod lua_mutation;
 pub mod move_events;
@@ -14,6 +15,7 @@ pub mod userdata;
 
 // Re-export commonly used types
 pub use chat_channels::{load_chat_channel_scripts, ChatChannelDef};
+pub use constants::register_constants;
 pub use context::{
     CreatureData, CreatureId, ItemData, ItemId, ItemRef, LuaContext, with_lua_context,
 };
