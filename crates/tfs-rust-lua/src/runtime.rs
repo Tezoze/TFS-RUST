@@ -15,8 +15,8 @@ use crate::timer_events::{
     execute_timer_event, register_add_event_stop_event, TimerEvents,
 };
 use crate::userdata::{
-    register_container_metatable, register_creature_metatable, register_item_metatable,
-    register_vocation_metatable,
+    register_condition_metatable, register_container_metatable, register_creature_metatable,
+    register_item_metatable, register_vocation_metatable,
 };
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
@@ -65,6 +65,7 @@ impl LuaRuntime {
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
         register_vocation_metatable(&lua).map_err(LuaError::Registration)?;
+        register_condition_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
         // VOCATION_NONE, CONDITION_*, RETURNVALUE_*, …). Mirrors
@@ -457,20 +458,54 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     })?;
     globals.set("Channel", channel_constructor)?;
 
-    // `player.lua` constructs `soulCondition` at load time (lines 100–102).
-    let condition = lua.create_function(|lua, (_kind, _id): (i32, i32)| {
-        let condition_obj = lua.create_table()?;
-        condition_obj.set(
-            "setTicks",
-            lua.create_function(|_, _: mlua::MultiValue| Ok(()))?,
-        )?;
-        condition_obj.set(
-            "setParameter",
-            lua.create_function(|_, _: mlua::MultiValue| Ok(()))?,
-        )?;
-        Ok(condition_obj)
+    // `Condition(type, id)` — real `ConditionBuilder` userdata (LUA-4 §1.6).
+    // Replaces the no-op soul stub. `player.lua`'s `soulCondition` build
+    // (`Condition(CONDITION_SOUL, CONDITIONID_DEFAULT):setTicks(...)` /
+    // `:setParameter(...)`) still loads unchanged — the builder supports both
+    // `setTicks` and `setParameter` (regression guard, §4.1).
+    // C++ reference: `luascript.cpp` `luaCreateCondition` — `condition.cpp`.
+    let condition = lua.create_function(|lua, (ctype, cond_id): (i32, i32)| {
+        let builder = crate::userdata::condition::ConditionBuilder::new(ctype, cond_id);
+        let ud = lua.create_userdata(builder)?;
+        Ok(mlua::Value::UserData(ud))
     })?;
     globals.set("Condition", condition)?;
+
+    // `Player(name)` — resolve an online player by name → `CreatureRef` userdata
+    // or `nil`. LUA-4 §0.3 / `luascript.cpp` `luaPlayerCreate`.
+    // Uses the scoped `ScriptContext::get_player_by_name` read.
+    //
+    // `Player` is already a class table (set above) for `function Player:method`
+    // definitions. We set a `__call` metamethod on it so `Player(name)` works
+    // as a constructor without losing the table semantics for method registration.
+    let player_table: mlua::Table = globals.get("Player")?;
+    let player_meta = lua.create_table()?;
+    player_meta.set(
+        "__call",
+        lua.create_function(|lua, (_self, name): (mlua::Value, String)| {
+            let id_opt = crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
+            match id_opt {
+                Some(id) => {
+                    let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+                    Ok(mlua::Value::UserData(ud))
+                }
+                None => Ok(mlua::Value::Nil),
+            }
+        })?,
+    )?;
+    player_table.set_metatable(Some(player_meta));
+
+    // `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
+    // Server-originated channel broadcast (anonymous speaker). Routes to
+    // `LuaMutation::SendChannelMessage` via the mutation scope.
+    // C++ reference: `chat.cpp` `sendChannelMessage` / `protocolgame.cpp`
+    // `sendChannelMessage` (`0xAA` anonymous branch).
+    let send_channel = lua.create_function(|_, (channel_id, speak_type, text): (u16, u8, String)| {
+        crate::lua_mutation::call_lua_send_channel_message(channel_id, speak_type, text)
+            .map_err(mlua::Error::runtime)?;
+        Ok(())
+    })?;
+    globals.set("sendChannelMessage", send_channel)?;
 
     // `nextUseStaminaTime` — a mutable per-player stamina gate table read by
     // `data/events/scripts/player.lua` `onGainSkillTries`. Not a constant;
@@ -625,6 +660,11 @@ mod tests {
         assert_eq!(get("VOCATION_NONE"), 0);
         // §4.3 fix: CONDITIONID_DEFAULT must be -1, not the old wrong 0.
         assert_eq!(get("CONDITIONID_DEFAULT"), -1);
+        // LUA-4: CONDITION_CHANNELMUTEDTICKS + CONDITION_PARAM_SUBID/TICKS.
+        assert_eq!(get("CONDITION_CHANNELMUTEDTICKS"), 1 << 15);
+        assert_eq!(get("CONDITION_PARAM_SUBID"), 45);
+        assert_eq!(get("CONDITION_PARAM_TICKS"), 2);
+        assert_eq!(get("RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE"), 27);
 
         // Load every channel script — each must compile and self-register
         // without referencing a nil constant/method.

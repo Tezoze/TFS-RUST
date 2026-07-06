@@ -830,9 +830,149 @@ impl GameWorld {
         }
         (max_ticks / 1000) as u32
     }
+    // ---- LUA-3 / LUA-4: Lua mutation applier helpers ----
+
+    /// `player:sendCancelMessage(text)` — LUA-3. Enqueues a
+    /// `MESSAGE_STATUS_SMALL` text message to the player's connection.
+    /// C++ reference: `protocolgame.cpp` `sendTextMessage(MESSAGE_STATUS_SMALL, text)`.
+    pub fn lua_script_player_send_cancel_message(
+        &mut self,
+        creature_u64: u64,
+        text: String,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let msg = outgoing_extra::send_text_message_simple(
+                self.codec.failure_message_type(),
+                &text,
+            );
+            self.enqueue_outgoing(conn, msg.into_bytes());
+        }
+        Ok(())
+    }
+
+    /// `player:addCondition(condition)` — LUA-4. Immediate-apply condition add.
+    /// C++ reference: `luascript.cpp:2117` `Creature::addCondition`;
+    /// `condition.cpp` `Condition::addCondition` merge rules.
+    ///
+    /// `ctype` is the Lua-facing 772 bit-flag value (e.g.
+    /// `CONDITION_CHANNELMUTEDTICKS = 1<<15 = 32768`); mapped to the Rust
+    /// `ConditionType` enum via `condition_type_from_lua_772`.
+    pub fn lua_script_player_add_condition(
+        &mut self,
+        creature_u64: u64,
+        ctype: i32,
+        _cond_id: i32,
+        sub_id: u32,
+        ticks: i32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let rust_ctype = condition_type_from_lua_772(ctype);
+        let cond = ActiveCondition {
+            id: 0,
+            sub_id,
+            ctype: rust_ctype,
+            data: ConditionData::Generic { ticks },
+            timer_rounds_left: None,
+        };
+        apply_condition(&mut self.creatures, cid, cond);
+        Ok(())
+    }
+
+    /// `player:removeCondition(type, id, subId)` — LUA-4. Immediate-apply
+    /// condition removal. C++ reference: `luascript.cpp:2118`
+    /// `Creature::removeCondition`; `condition.cpp` `Condition::endCondition`.
+    pub fn lua_script_player_remove_condition(
+        &mut self,
+        creature_u64: u64,
+        ctype: i32,
+        _cond_id: i32,
+        sub_id: u32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let rust_ctype = condition_type_from_lua_772(ctype);
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.base
+                .active_conditions
+                .retain(|c| !(c.ctype == rust_ctype && c.sub_id == sub_id));
+        }
+        Ok(())
+    }
+
+    /// `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
+    /// Server-originated channel broadcast (anonymous speaker). Fans out to all
+    /// channel members via the era-aware codec's `encode_channel_message`.
+    /// C++ reference: `chat.cpp` `sendChannelMessage` / `protocolgame.cpp`
+    /// `sendChannelMessage` (`0xAA` anonymous branch).
+    pub fn lua_script_send_channel_message(
+        &mut self,
+        channel_id: u16,
+        speak_type: u8,
+        text: String,
+    ) -> Result<(), String> {
+        use tfs_rust_net::ChannelMessageWire;
+        let Some(channel) = self.chat.get_channel(channel_id) else {
+            return Err("channel not found".into());
+        };
+        let recipients: Vec<ConnId> = channel
+            .users
+            .iter()
+            .filter_map(|m| self.creature_to_conn.get(m).copied())
+            .collect();
+        let wire = ChannelMessageWire {
+            author: String::new(),
+            speak_type,
+            channel_id,
+            text,
+        };
+        let msg_bytes = self.codec.encode_channel_message(&wire).into_bytes();
+        for conn_id in recipients {
+            self.enqueue_outgoing(conn_id, msg_bytes.clone());
+        }
+        Ok(())
+    }
 }
 
-/// C++ `asUpperCaseString` — `gameserver/src/tools.cpp:257-261`.
+/// Map a Lua-facing 772 bit-flag `ConditionType_t` value to the Rust
+/// `ConditionType` enum (TFS 1.4.2 sequential numbering).
+///
+/// The 772 enum (`enums.h:249-269`) uses `1 << N` bit flags; the Rust enum
+/// (`tfs_rust_common::enums::ConditionType`) uses sequential `0..=24`. Only the
+/// variants used by the channel scripts are mapped here; unknown values log a
+/// warning and return `ConditionType::None` (no-op).
+///
+/// C++ reference: `enums.h:249-269` `ConditionType_t` (772 bit flags).
+pub(crate) fn condition_type_from_lua_772(ctype: i32) -> ConditionType {
+    match ctype {
+        0 => ConditionType::None,
+        1 => ConditionType::Poison,       // 1 << 0
+        2 => ConditionType::Fire,         // 1 << 1
+        4 => ConditionType::Energy,       // 1 << 2
+        8 => ConditionType::Bleeding,     // 1 << 3
+        16 => ConditionType::Haste,       // 1 << 4
+        32 => ConditionType::Paralyze,    // 1 << 5
+        64 => ConditionType::Outfit,      // 1 << 6
+        128 => ConditionType::Invisible,  // 1 << 7
+        256 => ConditionType::Light,      // 1 << 8
+        512 => ConditionType::ManaShield, // 1 << 9
+        1024 => ConditionType::Infight,   // 1 << 10
+        2048 => ConditionType::Drunk,     // 1 << 11
+        16384 => ConditionType::Muted,           // 1 << 14
+        32768 => ConditionType::ChannelMutedTicks, // 1 << 15
+        65536 => ConditionType::YellTicks,       // 1 << 16
+        131072 => ConditionType::Attributes,     // 1 << 17
+        other => {
+            tracing::warn!(ctype = other, "unknown 772 ConditionType bit-flag; mapping to None");
+            ConditionType::None
+        }
+    }
+}
 ///
 /// Uses `std::transform(..., toupper)` which is ASCII-only for the 772 Latin-1 client
 /// charset. Rust `.to_uppercase()` is Unicode-aware and would produce different bytes

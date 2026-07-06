@@ -7,8 +7,9 @@ use std::cell::RefCell;
 
 use crate::context::{CreatureData, CreatureRef, ItemRef, CURRENT_CTX, LuaContext};
 use crate::lua_mutation::{
-    call_lua_add_item, call_lua_add_item_full, call_lua_feed, call_lua_get_depot_chest,
-    call_lua_get_inbox, call_lua_remove_item,
+    call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_feed,
+    call_lua_get_depot_chest, call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
+    call_lua_send_cancel_message,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::vocation::VocationRef;
@@ -293,6 +294,114 @@ impl UserData for CreatureRef {
         methods.add_method("getFood", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_player_food(this.0).unwrap_or(0)))
         });
+
+        // `player:sendCancelMessage(text)` — LUA-3. Sends a
+        // `MESSAGE_STATUS_SMALL` cancel text to the player's client. Accepts
+        // both a `string` (active scripts) and an integer `RETURNVALUE_*`
+        // code (CH-5 commented blocks); integer codes are mapped to their
+        // `getReturnMessage` description (`tools.cpp`).
+        // C++ reference: `protocolgame.cpp` `sendTextMessage`.
+        methods.add_method("sendCancelMessage", |_, this, value: mlua::Value| {
+            let text = resolve_cancel_message_text(value)?;
+            call_lua_send_cancel_message(this.0, text).map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
+
+        // `player:getCondition(type, id, subId)` — LUA-4. Returns `true` if an
+        // active condition matching `(ctype, cond_id, sub_id)` exists, `nil`
+        // otherwise. Scripts use this for truthiness only
+        // (`if player:getCondition(...) then`).
+        // C++ reference: `luascript.cpp:2116` `Creature::getCondition`.
+        methods.add_method(
+            "getCondition",
+            |_, this, (ctype, cond_id, sub_id): (i32, i32, u32)| {
+                with_ctx(|ctx| {
+                    Ok(if ctx
+                        .get_creature_condition(this.0, ctype, cond_id, sub_id)
+                        .is_some()
+                    {
+                        mlua::Value::Boolean(true)
+                    } else {
+                        mlua::Value::Nil
+                    })
+                })
+            },
+        );
+
+        // `player:addCondition(condition)` — LUA-4. Immediate-apply condition
+        // add. `condition` is a `ConditionBuilder` userdata constructed via
+        // `Condition(type, id)`.
+        // C++ reference: `luascript.cpp:2117` `Creature::addCondition`.
+        methods.add_method(
+            "addCondition",
+            |_, this, condition: mlua::AnyUserData| {
+                let builder = condition
+                    .borrow::<crate::userdata::condition::ConditionBuilder>()
+                    .map_err(mlua::Error::runtime)?;
+                call_lua_add_condition(
+                    this.0,
+                    builder.ctype,
+                    builder.cond_id,
+                    builder.sub_id,
+                    builder.ticks,
+                )
+                .map_err(mlua::Error::runtime)?;
+                Ok(())
+            },
+        );
+
+        // `player:removeCondition(type, id, subId)` — LUA-4. Immediate-apply
+        // condition removal.
+        // C++ reference: `luascript.cpp:2118` `Creature::removeCondition`.
+        methods.add_method(
+            "removeCondition",
+            |_, this, (ctype, cond_id, sub_id): (i32, i32, u32)| {
+                call_lua_remove_condition(this.0, ctype, cond_id, sub_id)
+                    .map_err(mlua::Error::runtime)?;
+                Ok(())
+            },
+        );
+    }
+}
+
+/// Resolve a `sendCancelMessage` argument to the player-visible text string.
+///
+/// Accepts:
+/// - `string` — used directly (active scripts pass literal messages).
+/// - `integer` — a `RETURNVALUE_*` enum code; mapped to its `getReturnMessage`
+///   description (`tools.cpp`). Only the codes the channel scripts reference
+///   are mapped; unknown codes fall back to the numeric string.
+///
+/// C++ reference: `enums.h:301-370` `ReturnValue_t` (772 numbering, 0-56 match
+/// the Rust `ReturnValue` enum; codes > 56 diverge and are TODO for era-aware
+/// mapping).
+fn resolve_cancel_message_text(value: mlua::Value) -> Result<String, mlua::Error> {
+    match value {
+        mlua::Value::String(s) => Ok(s.to_str()?.to_string()),
+        mlua::Value::Integer(n) => Ok(return_value_message_772(n as i32)),
+        mlua::Value::Number(n) => Ok(return_value_message_772(n as i32)),
+        _ => Err(mlua::Error::runtime("sendCancelMessage: expected string or integer")),
+    }
+}
+
+/// Map a 772 `RETURNVALUE_*` integer code to its `getReturnMessage` text
+/// (`tools.cpp`). Only codes referenced by the channel scripts are mapped
+/// here; unknown codes fall back to the numeric string. This is a lightweight
+/// inline table — the full `ReturnValue` enum lives in `tfs-rust-core` and
+/// can't be referenced from this crate (no dependency).
+fn return_value_message_772(code: i32) -> String {
+    match code {
+        0 => "No error.".to_string(),
+        27 => "A player with this name is not online.".to_string(),
+        36 => "You are exhausted.".to_string(),
+        35 => "You do not have enough soul.".to_string(),
+        34 => "You do not have enough mana.".to_string(),
+        33 => "You do not have enough magic level.".to_string(),
+        32 => "Your level is too low.".to_string(),
+        21 => "This object is too heavy for you to carry.".to_string(),
+        20 => "You cannot put more objects in this container.".to_string(),
+        17 => "You are too far away.".to_string(),
+        n => format!("Return code: {n}"),
     }
 }
 
@@ -474,6 +583,141 @@ mod tests {
                 .eval()
                 .expect("getVocation");
             assert!(matches!(v, mlua::Value::Nil), "expected nil vocation");
+        });
+    }
+
+    // ---- LUA-3 / LUA-4 tests ----
+
+    /// `getCondition` returns nil when no condition exists (default
+    /// `ScriptContext::get_creature_condition` returns `None`).
+    #[test]
+    fn get_condition_returns_nil_when_absent() {
+        let lua = Lua::new();
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+        crate::userdata::register_vocation_metatable(&lua).expect("vocation metatable");
+
+        let ctx = NullCtx;
+        with_lua_context(&ctx, || {
+            let globals = lua.globals();
+            let ud = lua.create_userdata(CreatureRef(1)).expect("userdata");
+            globals.set("player", ud).expect("set player");
+
+            // CONDITION_CHANNELMUTEDTICKS = 1<<15 = 32768, CONDITIONID_DEFAULT = -1
+            let v: mlua::Value = lua
+                .load("return player:getCondition(32768, -1, 7)")
+                .eval()
+                .expect("getCondition");
+            assert!(matches!(v, mlua::Value::Nil), "expected nil for absent condition");
+        });
+    }
+
+    /// `ConditionBuilder` userdata — `setTicks` / `setParameter` accumulate
+    /// fields correctly. This is the regression guard for `player.lua`'s
+    /// `soulCondition` build (§4.1).
+    #[test]
+    fn condition_builder_set_ticks_and_params() {
+        use crate::userdata::condition::ConditionBuilder;
+
+        let mut builder = ConditionBuilder::new(32768, -1); // CHANNELMUTEDTICKS, DEFAULT
+        assert_eq!(builder.ctype, 32768);
+        assert_eq!(builder.cond_id, -1);
+        assert_eq!(builder.sub_id, 0);
+        assert_eq!(builder.ticks, 0);
+
+        // Simulate `:setParameter(CONDITION_PARAM_SUBID, 7)` + `:setParameter(CONDITION_PARAM_TICKS, 3600000)`.
+        builder.set_parameter(45, 7); // CONDITION_PARAM_SUBID
+        builder.set_parameter(2, 3600000); // CONDITION_PARAM_TICKS
+        assert_eq!(builder.sub_id, 7);
+        assert_eq!(builder.ticks, 3600000);
+
+        // `:setTicks` overrides ticks.
+        builder.set_ticks(120000);
+        assert_eq!(builder.ticks, 120000);
+
+        // Unknown params are silently ignored (matching C++ `default: break`).
+        builder.set_parameter(999, 42);
+        assert_eq!(builder.sub_id, 7); // unchanged
+    }
+
+    /// `return_value_message_772` maps the codes the channel scripts reference.
+    #[test]
+    fn return_value_message_maps_known_codes() {
+        use super::return_value_message_772;
+        assert_eq!(
+            return_value_message_772(27),
+            "A player with this name is not online."
+        );
+        assert_eq!(return_value_message_772(0), "No error.");
+        assert_eq!(return_value_message_772(36), "You are exhausted.");
+        // Unknown codes fall back to the numeric string.
+        assert_eq!(return_value_message_772(999), "Return code: 999");
+    }
+
+    /// `Player(name)` constructor with a fake context that resolves one name.
+    /// Verifies the `__call` metamethod on the `Player` table produces a
+    /// `CreatureRef` userdata, and unknown names produce `nil`.
+    #[test]
+    fn player_constructor_resolves_by_name() {
+        let lua = Lua::new();
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+        crate::userdata::register_vocation_metatable(&lua).expect("vocation metatable");
+        crate::userdata::register_condition_metatable(&lua).expect("condition metatable");
+
+        // Register the Player table + __call metamethod (mirrors runtime.rs).
+        let player_table = lua.create_table().expect("player table");
+        let player_meta = lua.create_table().expect("player meta");
+        let meta_fn = lua
+            .create_function(|lua, (_self, name): (mlua::Value, String)| {
+                let id_opt =
+                    crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
+                match id_opt {
+                    Some(id) => {
+                        let ud = lua.create_userdata(CreatureRef(id))?;
+                        Ok(mlua::Value::UserData(ud))
+                    }
+                    None => Ok(mlua::Value::Nil),
+                }
+            })
+            .expect("meta fn");
+        player_meta.set("__call", meta_fn).expect("set __call");
+        player_table.set_metatable(Some(player_meta));
+        lua.globals().set("Player", player_table).expect("set Player");
+
+        struct NameCtx;
+        impl ScriptContext for NameCtx {
+            fn get_creature(&self, _: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                None
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_by_name(&self, name: &str) -> Option<ScriptCreatureId> {
+                if name == "OnlinePlayer" {
+                    Some(42)
+                } else {
+                    None
+                }
+            }
+        }
+
+        let ctx = NameCtx;
+        with_lua_context(&ctx, || {
+            // Known player → CreatureRef userdata with the right id.
+            let id: u64 = lua
+                .load("return Player('OnlinePlayer'):getId()")
+                .eval()
+                .expect("Player('OnlinePlayer')");
+            assert_eq!(id, 42);
+
+            // Unknown player → nil.
+            let v: mlua::Value = lua
+                .load("return Player('Nobody')")
+                .eval()
+                .expect("Player('Nobody')");
+            assert!(matches!(v, mlua::Value::Nil), "expected nil for unknown player");
         });
     }
 }

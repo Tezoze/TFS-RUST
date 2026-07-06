@@ -226,4 +226,28 @@ pub trait ScriptContext {
         let _ = (creature_id, flag);
         false
     }
+
+    /// `player:getCondition(type, id, subId)` — `luascript.cpp:2116`
+    /// `Creature::getCondition`. LUA-4 read; returns remaining ticks if an
+    /// active condition matching `(ctype, cond_id, sub_id)` exists, `None`
+    /// otherwise. `ctype` is the Lua-facing 772 bit-flag value; the `GameWorld`
+    /// impl maps it to the Rust `ConditionType` enum. Defaults to `None`.
+    fn get_creature_condition(
+        &self,
+        creature_id: ScriptCreatureId,
+        ctype: i32,
+        cond_id: i32,
+        sub_id: u32,
+    ) -> Option<i32> {
+        let _ = (creature_id, ctype, cond_id, sub_id);
+        None
+    }
+
+    /// `Player(name)` constructor — `luascript.cpp` `luaPlayerCreate`. LUA-4
+    /// read; resolves an online player by name to their `ScriptCreatureId`.
+    /// Defaults to `None` (player not found → Lua `nil`).
+    fn get_player_by_name(&self, name: &str) -> Option<ScriptCreatureId> {
+        let _ = name;
+        None
+    }
 }

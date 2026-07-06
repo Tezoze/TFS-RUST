@@ -216,7 +216,7 @@ Tests: `userdata::player::tests::player_read_methods_return_gm_values_through_lu
 pre-existing `player_events_script_loads_with_bootstrap` failure is unrelated —
 missing `Player:onInventoryUpdate`, fails on `main` too).
 
-### LUA-3 — `player:sendCancelMessage` (unblocks the active level-1 cancel path)
+### LUA-3 — `player:sendCancelMessage` (unblocks the active level-1 cancel path) — ✅ DONE
 1. `LuaMutation::PlayerSendCancelMessage { creature_id, text }` + `call_lua_send_cancel_message`.
 2. Core applier arm → `send_text_message_simple(failure_message_type(), text)` enqueue (reuse the
    exact path `game_world_chat.rs` already uses for mute/yell cancels).
@@ -226,7 +226,18 @@ missing `Player:onInventoryUpdate`, fails on `main` too).
    table (LUA-4 registers the enum; the message mapping can land here as a stub returning the raw code
    until then).
 
-### LUA-4 — Condition API + `Player(name)` + `sendChannelMessage` (unblocks CH-5 commented blocks)
+**Done.** `LuaMutation::PlayerSendCancelMessage` added with a `String` text payload (the binding
+resolves integer RETURNVALUE codes to descriptions before constructing the mutation). Core applier
+in `lua_scope.rs` → `GameWorld::lua_script_player_send_cancel_message` enqueues
+`send_text_message_simple(codec.failure_message_type(), &text)` to the player's connection.
+`player:sendCancelMessage(value)` binding in `userdata/player.rs` accepts `mlua::Value` —
+`String` passes through, `Integer`/`Number` maps via `return_value_message_772` (inline table
+covering the channel-script-relevant codes; unknown codes fall back to `"Return code: N"`).
+Removed `Copy` derive from `LuaMutation` (now has `String` fields). Tests:
+`userdata::player::tests::return_value_message_maps_known_codes`,
+`userdata::player::tests::get_condition_returns_nil_when_absent`.
+
+### LUA-4 — Condition API + `Player(name)` + `sendChannelMessage` (unblocks CH-5 commented blocks) — ✅ DONE
 1. Register `CONDITION_CHANNELMUTEDTICKS` (`enums.h:268`), `CONDITION_PARAM_SUBID=45`,
    `CONDITION_PARAM_TICKS=2`, and the `RETURNVALUE_*` block (`enums.h` `ReturnValue_t`).
 2. Real `Condition` userdata (§1.6) replacing the soul stub; keep `setTicks`/`setParameter`.
@@ -239,6 +250,44 @@ missing `Player:onInventoryUpdate`, fails on `main` too).
 7. `sendChannelMessage(channelId, type, message)` global (§1.7).
 8. **Uncomment** the CH-5 blocks in `advertising.lua`, `advertising-rook.lua`, `trade.lua`, `help.lua`
    once 1–7 land; verify each loads and (with CH-4 hook invocation) mutes/broadcasts correctly.
+
+**Done.** All 8 steps landed. `constants.rs` now registers the full 772 `RETURNVALUE_*` block
+(70 entries, `enums.h:300-370`), `CONDITION_CHANNELMUTEDTICKS` (`1<<15`), `CONDITION_MUTED`
+(`1<<14`), `CONDITION_PARAM_SUBID` (45), `CONDITION_PARAM_TICKS` (2). Real `ConditionBuilder`
+userdata (`userdata/condition.rs`) replaces the soul stub — `Condition(ctype, cond_id)` returns
+a `ConditionBuilder` with `setTicks`/`setParameter` (both delegate to Rust methods for
+testability); `player.lua`'s `soulCondition` still loads unchanged (regression guard §4.1).
+`ScriptContext` gained `get_creature_condition` + `get_player_by_name` (default `None`).
+`GameWorld` impls: `get_creature_condition` scans `active_conditions` (maps 772 bit-flag ctype
+via `condition_type_from_lua_772`); `get_player_by_name` resolves via `player_by_name`.
+
+Three new mutations: `PlayerAddCondition`, `PlayerRemoveCondition`, `SendChannelMessage` —
+all immediate-apply. Core applier arms in `lua_scope.rs` →
+`lua_script_player_add_condition` (uses `apply_condition` from `combat/mod.rs`),
+`lua_script_player_remove_condition` (`active_conditions.retain`),
+`lua_script_send_channel_message` (fans out `encode_channel_message` to channel members).
+The 772→Rust `ConditionType` mapping (`condition_type_from_lua_772` in `game_world_chat.rs`)
+is the era-mapping seam: 772 uses bit flags (`1<<N`), Rust uses sequential `0..=24`.
+
+`player:getCondition` returns `true`/`nil` (scripts use truthiness only).
+`player:addCondition(condition)` borrows the `ConditionBuilder` userdata and reads its fields.
+`Player(name)` constructor uses a `__call` metamethod on the `Player` class table (preserves
+`function Player:method` definitions while enabling `Player(name)` construction).
+`sendChannelMessage(channelId, type, message)` is a global function routing to the mutation.
+
+CH-5 blocks uncommented in `help.lua`, `trade.lua`, and restored `advertising.lua` +
+`advertising-rook.lua` (were deleted in a cascade snapshot; restored from `9f321a8` with
+CH-5 blocks uncommented). All 8 channel scripts load successfully.
+Tests: `condition_builder_set_ticks_and_params`, `player_constructor_resolves_by_name`,
+`get_condition_returns_nil_when_absent`, `return_value_message_maps_known_codes` (all in
+`userdata::player::tests`); `constants::tests::register_constants_sets_expected_values`
+extended with `CONDITION_CHANNELMUTEDTICKS`/`CONDITION_PARAM_SUBID`/`CONDITION_PARAM_TICKS`/
+`RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE`; `runtime::tests::channel_scripts_load_with_constants`
+extended with the same spot-checks.
+**Verify:** `cargo check` (0 errors), `cargo clippy --all-targets` (0 errors, 0 new warnings),
+`cargo test -p tfs-rust-{lua,common,core}` (14+596 passed; 1 pre-existing failure
+`player_events_script_loads_with_bootstrap` — missing `Player:onInventoryUpdate`, fails on
+`main` too).
 
 ### LUA-5 — Tests
 1. `constants.rs` smoke test (all channel scripts load + spot-check enum values).

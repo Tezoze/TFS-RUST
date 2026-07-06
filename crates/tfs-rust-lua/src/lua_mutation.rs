@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::sync::OnceLock;
 
 /// Game-state mutation requested from Lua userdata methods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LuaMutation {
     PlayerAddItem {
         creature_id: u64,
@@ -69,6 +69,40 @@ pub enum LuaMutation {
     PlayerFeed {
         creature_id: u64,
         amount: u32,
+    },
+    /// `player:sendCancelMessage(text)` — `protocolgame.cpp` `sendTextMessage(
+    /// MESSAGE_STATUS_SMALL, text)`. LUA-3; outbound-only, immediate apply.
+    /// `text` is the already-resolved player-visible message string (the binding
+    /// maps integer RETURNVALUE codes to descriptions before constructing this).
+    PlayerSendCancelMessage {
+        creature_id: u64,
+        text: String,
+    },
+    /// `player:addCondition(condition)` — `luascript.cpp:2117`
+    /// `Creature::addCondition`. LUA-4; immediate apply. `ctype` is the
+    /// Lua-facing 772 bit-flag value (e.g. `CONDITION_CHANNELMUTEDTICKS = 1<<15`);
+    /// the core applier maps it to the Rust `ConditionType` enum.
+    PlayerAddCondition {
+        creature_id: u64,
+        ctype: i32,
+        cond_id: i32,
+        sub_id: u32,
+        ticks: i32,
+    },
+    /// `player:removeCondition(type, id, subId)` — `luascript.cpp:2118`
+    /// `Creature::removeCondition`. LUA-4; immediate apply.
+    PlayerRemoveCondition {
+        creature_id: u64,
+        ctype: i32,
+        cond_id: i32,
+        sub_id: u32,
+    },
+    /// `sendChannelMessage(channelId, type, message)` — `chat.cpp` channel
+    /// broadcast (server-originated, anonymous speaker). LUA-4 §1.7.
+    SendChannelMessage {
+        channel_id: u16,
+        speak_type: u8,
+        text: String,
     },
 }
 
@@ -256,5 +290,63 @@ pub fn call_lua_feed(creature_id: u64, amount: u32) -> Result<(), String> {
     apply_mutation(LuaMutation::PlayerFeed {
         creature_id,
         amount,
+    })
+}
+
+/// `player:sendCancelMessage(text)` — LUA-3. Enqueues a
+/// `MESSAGE_STATUS_SMALL` text message to the player's connection.
+/// `text` is the already-resolved player-visible message.
+pub fn call_lua_send_cancel_message(creature_id: u64, text: String) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSendCancelMessage {
+        creature_id,
+        text,
+    })
+}
+
+/// `player:addCondition(condition)` — LUA-4. Immediate-apply condition add.
+/// `ctype` is the Lua-facing 772 bit-flag value; the core applier maps it.
+pub fn call_lua_add_condition(
+    creature_id: u64,
+    ctype: i32,
+    cond_id: i32,
+    sub_id: u32,
+    ticks: i32,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerAddCondition {
+        creature_id,
+        ctype,
+        cond_id,
+        sub_id,
+        ticks,
+    })
+}
+
+/// `player:removeCondition(type, id, subId)` — LUA-4. Immediate-apply
+/// condition removal.
+pub fn call_lua_remove_condition(
+    creature_id: u64,
+    ctype: i32,
+    cond_id: i32,
+    sub_id: u32,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerRemoveCondition {
+        creature_id,
+        ctype,
+        cond_id,
+        sub_id,
+    })
+}
+
+/// `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
+/// Server-originated channel broadcast (anonymous speaker).
+pub fn call_lua_send_channel_message(
+    channel_id: u16,
+    speak_type: u8,
+    text: String,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::SendChannelMessage {
+        channel_id,
+        speak_type,
+        text,
     })
 }

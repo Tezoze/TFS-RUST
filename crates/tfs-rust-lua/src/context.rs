@@ -53,3 +53,24 @@ where
         result
     })
 }
+
+/// Access the currently scoped [`LuaContext`] from a Lua callback (global
+/// function, not a userdata method). Returns `None` if no context is set.
+///
+/// Used by global functions like `Player(name)` that need read access to game
+/// state but aren't attached to a userdata receiver. The context must have been
+/// set by `with_lua_context` earlier in the call stack (game thread only).
+pub fn current_ctx<R>(f: impl FnOnce(&dyn LuaContext) -> R) -> Option<R> {
+    CURRENT_CTX.with(|slot| {
+        let borrow = slot.borrow();
+        let ptr = (*borrow)?;
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: The pointer is valid for the duration of the scoped Lua call,
+        // set by `with_lua_context` on the game thread. It is never stored
+        // beyond the call.
+        let ctx = unsafe { &*ptr };
+        Some(f(ctx))
+    })
+}

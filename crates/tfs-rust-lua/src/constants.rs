@@ -102,25 +102,105 @@ fn register_vocations(globals: &mlua::Table) -> Result<(), mlua::Error> {
 fn register_conditions(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // enums.h:266 — `Condition(CONDITION_SOUL, CONDITIONID_DEFAULT)` in player.lua.
     globals.set("CONDITION_SOUL", 1i32 << 13)?; // enums.h:266
+    // enums.h:267 — global flood mute (CH-5 `player_remove_message_buffer`).
+    globals.set("CONDITION_MUTED", 1i32 << 14)?; // enums.h:267
+    // enums.h:268 — per-channel offer-throttle mute (CH-5 commented blocks).
+    globals.set("CONDITION_CHANNELMUTEDTICKS", 1i32 << 15)?; // enums.h:268
     // enums.h:275 — was previously registered as `0` (wrong); fixed to `-1`.
     // See lua-api-plan.md §4.3.
     globals.set("CONDITIONID_DEFAULT", -1i32)?; // enums.h:275
-    // enums.h:146-147 — soul regen params set on the (currently no-op) stub.
+    // enums.h:136 — condition duration in ms; set via `:setParameter` or `setTicks`.
+    globals.set("CONDITION_PARAM_TICKS", 2i32)?; // enums.h:136
+    // enums.h:146-147 — soul regen params set on the soul condition.
     globals.set("CONDITION_PARAM_SOULGAIN", 12i32)?; // enums.h:146
     globals.set("CONDITION_PARAM_SOULTICKS", 13i32)?; // enums.h:147
+    // enums.h:179 — per-channel sub-id (channel id); used by CH-5 mute blocks.
+    globals.set("CONDITION_PARAM_SUBID", 45i32)?; // enums.h:179
     Ok(())
 }
 
-// --- RETURNVALUE_* (enums.h ReturnValue_t) ---
+// --- RETURNVALUE_* (enums.h:300-370 ReturnValue_t, 772 numbering) ---
 //
-// Only `RETURNVALUE_NOERROR` is referenced by active scripts today; the full
-// enum block (including `RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE` for the
-// CH-5 `!mute`/`!unmute` cancel path) lands in LUA-4.
+// The full 772 `ReturnValue` enum block. The 772 numbering diverges from TFS
+// 1.4.2 (1098) after position 56 (`YouNeedAMagicItemToCastSpell`): 772 omits
+// `CannotConjureItemHere` and `YouNeedToSplitYourSpears`, so codes 57+ shift
+// down by 2. Only `RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE` (27) is
+// referenced by the channel scripts today, but the full block is registered
+// for API completeness and future script compatibility.
 
 fn register_return_values(globals: &mlua::Table) -> Result<(), mlua::Error> {
-    // enums.h ReturnValue_t — `RETURNVALUE_NOERROR` is the success sentinel
-    // returned by `data/events/scripts/player.lua` `onLogout`.
+    // enums.h:300-370 — `ReturnValue` enum (772 era, 0-indexed sequential).
     globals.set("RETURNVALUE_NOERROR", 0i32)?;
+    globals.set("RETURNVALUE_NOTPOSSIBLE", 1i32)?;
+    globals.set("RETURNVALUE_NOTENOUGHROOM", 2i32)?;
+    globals.set("RETURNVALUE_PLAYERISPZLOCKED", 3i32)?;
+    globals.set("RETURNVALUE_PLAYERISNOTINVITED", 4i32)?;
+    globals.set("RETURNVALUE_CANNOTTHROW", 5i32)?;
+    globals.set("RETURNVALUE_THEREISNOWAY", 6i32)?;
+    globals.set("RETURNVALUE_DESTINATIONOUTOFREACH", 7i32)?;
+    globals.set("RETURNVALUE_CREATUREBLOCK", 8i32)?;
+    globals.set("RETURNVALUE_NOTMOVEABLE", 9i32)?;
+    globals.set("RETURNVALUE_DROPTWOHANDEDITEM", 10i32)?;
+    globals.set("RETURNVALUE_BOTHHANDSNEEDTOBEFREE", 11i32)?;
+    globals.set("RETURNVALUE_CANONLYUSEONEWEAPON", 12i32)?;
+    globals.set("RETURNVALUE_NEEDEXCHANGE", 13i32)?;
+    globals.set("RETURNVALUE_CANNOTBEDRESSED", 14i32)?;
+    globals.set("RETURNVALUE_PUTTHISOBJECTINYOURHAND", 15i32)?;
+    globals.set("RETURNVALUE_PUTTHISOBJECTINBOTHHANDS", 16i32)?;
+    globals.set("RETURNVALUE_TOOFARAWAY", 17i32)?;
+    globals.set("RETURNVALUE_FIRSTGODOWNSTAIRS", 18i32)?;
+    globals.set("RETURNVALUE_FIRSTGOUPSTAIRS", 19i32)?;
+    globals.set("RETURNVALUE_CONTAINERNOTENOUGHROOM", 20i32)?;
+    globals.set("RETURNVALUE_NOTENOUGHCAPACITY", 21i32)?;
+    globals.set("RETURNVALUE_CANNOTPICKUP", 22i32)?;
+    globals.set("RETURNVALUE_THISISIMPOSSIBLE", 23i32)?;
+    globals.set("RETURNVALUE_DEPOTISFULL", 24i32)?;
+    globals.set("RETURNVALUE_CREATUREDOESNOTEXIST", 25i32)?;
+    globals.set("RETURNVALUE_CANNOTUSETHISOBJECT", 26i32)?;
+    // 27 — referenced by help.lua `!mute`/`!unmute` cancel path.
+    globals.set("RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE", 27i32)?;
+    globals.set("RETURNVALUE_YOUAREALREADYTRADING", 28i32)?;
+    globals.set("RETURNVALUE_THISPLAYERISALREADYTRADING", 29i32)?;
+    globals.set("RETURNVALUE_YOUMAYNOTLOGOUTDURINGAFIGHT", 30i32)?;
+    globals.set("RETURNVALUE_DIRECTPLAYERSHOOT", 31i32)?;
+    globals.set("RETURNVALUE_NOTENOUGHLEVEL", 32i32)?;
+    globals.set("RETURNVALUE_NOTENOUGHMAGICLEVEL", 33i32)?;
+    globals.set("RETURNVALUE_NOTENOUGHMANA", 34i32)?;
+    globals.set("RETURNVALUE_NOTENOUGHSOUL", 35i32)?;
+    globals.set("RETURNVALUE_YOUAREEXHAUSTED", 36i32)?;
+    globals.set("RETURNVALUE_YOUCANNOTUSEOBJECTSTHATFAST", 37i32)?;
+    globals.set("RETURNVALUE_PLAYERISNOTREACHABLE", 38i32)?;
+    globals.set("RETURNVALUE_CANONLYUSETHISRUNEONCREATURES", 39i32)?;
+    globals.set("RETURNVALUE_ACTIONNOTPERMITTEDINPROTECTIONZONE", 40i32)?;
+    globals.set("RETURNVALUE_YOUMAYNOTATTACKTHISPLAYER", 41i32)?;
+    globals.set("RETURNVALUE_YOUMAYNOTATTACKAPERSONINPROTECTIONZONE", 42i32)?;
+    globals.set("RETURNVALUE_YOUMAYNOTATTACKAPERSONWHILEINPROTECTIONZONE", 43i32)?;
+    globals.set("RETURNVALUE_YOUMAYNOTATTACKTHISCREATURE", 44i32)?;
+    globals.set("RETURNVALUE_YOUCANONLYUSEITONCREATURES", 45i32)?;
+    globals.set("RETURNVALUE_CREATUREISNOTREACHABLE", 46i32)?;
+    globals.set("RETURNVALUE_TURNSECUREMODETOATTACKUNMARKEDPLAYERS", 47i32)?;
+    globals.set("RETURNVALUE_YOUNEEDPREMIUMACCOUNT", 48i32)?;
+    globals.set("RETURNVALUE_YOUNEEDTOLEARNTHISSPELL", 49i32)?;
+    globals.set("RETURNVALUE_YOURVOCATIONCANNOTUSETHISSPELL", 50i32)?;
+    globals.set("RETURNVALUE_YOUNEEDAWEAPONTOUSETHISSPELL", 51i32)?;
+    globals.set("RETURNVALUE_PLAYERISPZLOCKEDLEAVEPVPZONE", 52i32)?;
+    globals.set("RETURNVALUE_PLAYERISPZLOCKEDENTERPVPZONE", 53i32)?;
+    globals.set("RETURNVALUE_ACTIONNOTPERMITTEDINANOPVPZONE", 54i32)?;
+    globals.set("RETURNVALUE_YOUCANNOTLOGOUTHERE", 55i32)?;
+    globals.set("RETURNVALUE_YOUNEEDAMAGICITEMTOCASTSPELL", 56i32)?;
+    globals.set("RETURNVALUE_NAMEISTOOAMBIGUOUS", 57i32)?;
+    globals.set("RETURNVALUE_CANONLYUSEONESHIELD", 58i32)?;
+    globals.set("RETURNVALUE_NOPARTYMEMBERSINRANGE", 59i32)?;
+    globals.set("RETURNVALUE_YOUARENOTTHEOWNER", 60i32)?;
+    globals.set("RETURNVALUE_NOSUCHRAIDEXISTS", 61i32)?;
+    globals.set("RETURNVALUE_ANOTHERRAIDISALREADYEXECUTING", 62i32)?;
+    globals.set("RETURNVALUE_TRADEPLAYERFARAWAY", 63i32)?;
+    globals.set("RETURNVALUE_YOUDONTOWNTHISHOUSE", 64i32)?;
+    globals.set("RETURNVALUE_TRADEPLAYERALREADYOWNSAHOUSE", 65i32)?;
+    globals.set("RETURNVALUE_TRADEPLAYERHIGHESTBIDDER", 66i32)?;
+    globals.set("RETURNVALUE_YOUCANNOTTRADETHISHOUSE", 67i32)?;
+    globals.set("RETURNVALUE_YOUDONTHAVEREQUIREDPROFESSION", 68i32)?;
+    globals.set("RETURNVALUE_ITEMCANNOTBEMOVEDTHERE", 69i32)?;
     Ok(())
 }
 
@@ -168,14 +248,21 @@ mod tests {
         // VOCATION_NONE (enums.h:297)
         assert_eq!(get("VOCATION_NONE"), 0);
 
-        // CONDITION_* (enums.h:266,275,146,147) — incl. the CONDITIONID_DEFAULT fix.
+        // CONDITION_* (enums.h:266-268,275,136,146,147,179)
         assert_eq!(get("CONDITION_SOUL"), 1 << 13);
+        assert_eq!(get("CONDITION_MUTED"), 1 << 14);
+        assert_eq!(get("CONDITION_CHANNELMUTEDTICKS"), 1 << 15);
         assert_eq!(get("CONDITIONID_DEFAULT"), -1);
+        assert_eq!(get("CONDITION_PARAM_TICKS"), 2);
         assert_eq!(get("CONDITION_PARAM_SOULGAIN"), 12);
         assert_eq!(get("CONDITION_PARAM_SOULTICKS"), 13);
+        assert_eq!(get("CONDITION_PARAM_SUBID"), 45);
 
-        // RETURNVALUE_NOERROR
+        // RETURNVALUE_* (enums.h:300-370, 772 numbering)
         assert_eq!(get("RETURNVALUE_NOERROR"), 0);
+        assert_eq!(get("RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE"), 27);
+        assert_eq!(get("RETURNVALUE_YOUAREEXHAUSTED"), 36);
+        assert_eq!(get("RETURNVALUE_ITEMCANNOTBEMOVEDTHERE"), 69);
 
         // APPLY_SKILL_MULTIPLIER
         assert!(globals

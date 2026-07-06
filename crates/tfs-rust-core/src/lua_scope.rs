@@ -125,6 +125,39 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             amount,
         } => unsafe { &mut *world }.lua_script_player_feed(creature_id, amount),
+        LuaMutation::PlayerSendCancelMessage {
+            creature_id,
+            text,
+        } => unsafe { &mut *world }.lua_script_player_send_cancel_message(creature_id, text),
+        LuaMutation::PlayerAddCondition {
+            creature_id,
+            ctype,
+            cond_id,
+            sub_id,
+            ticks,
+        } => unsafe { &mut *world }.lua_script_player_add_condition(
+            creature_id,
+            ctype,
+            cond_id,
+            sub_id,
+            ticks,
+        ),
+        LuaMutation::PlayerRemoveCondition {
+            creature_id,
+            ctype,
+            cond_id,
+            sub_id,
+        } => unsafe { &mut *world }.lua_script_player_remove_condition(
+            creature_id,
+            ctype,
+            cond_id,
+            sub_id,
+        ),
+        LuaMutation::SendChannelMessage {
+            channel_id,
+            speak_type,
+            text,
+        } => unsafe { &mut *world }.lua_script_send_channel_message(channel_id, speak_type, text),
     }
 }
 

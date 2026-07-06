@@ -315,4 +315,41 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         };
         GameWorld::player_has_flag(self, cid, flag)
     }
+
+    /// `player:getCondition(type, id, subId)` — `luascript.cpp:2116`
+    /// `Creature::getCondition`. LUA-4 read; scans active conditions for a
+    /// match on `(ctype, sub_id)` and returns remaining ticks. `ctype` is the
+    /// Lua-facing 772 bit-flag value, mapped via
+    /// `condition_type_from_lua_772`.
+    fn get_creature_condition(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        ctype: i32,
+        _cond_id: i32,
+        sub_id: u32,
+    ) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        let rust_ctype = crate::game_world_chat::condition_type_from_lua_772(ctype);
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => {
+                for cond in &p.base.active_conditions {
+                    if cond.ctype == rust_ctype && cond.sub_id == sub_id {
+                        if let crate::condition::ConditionData::Generic { ticks } = cond.data {
+                            return Some(ticks);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        })
+    }
+
+    /// `Player(name)` constructor — `luascript.cpp` `luaPlayerCreate`. LUA-4
+    /// read; resolves an online player by name via `player_by_name`.
+    fn get_player_by_name(&self, name: &str) -> Option<tfs_rust_common::ScriptCreatureId> {
+        self.player_by_name
+            .get(name)
+            .map(|cid| Self::creature_to_script_id(*cid))
+    }
 }
