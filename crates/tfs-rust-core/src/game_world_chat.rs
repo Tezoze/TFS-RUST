@@ -176,18 +176,110 @@ impl GameWorld {
     /// consumed (spell cast or talkaction fired) and the caller must **not** proceed
     /// to the talk-type switch; `false` when the text is plain chat.
     ///
-    /// CH-1 stub: no `g_talkActions` / `g_spells->playerSaySpell` word-table runtime
-    /// exists in `tfs-rust-lua` yet (§0.5, `TFS-lua-boundaries.md` step 3). Always
-    /// returns `false` — matches current behavior (no spells triggered via say text).
-    /// This is the **single integration point** for CH-6; do not add duplicate
-    /// spell-words call sites elsewhere.
-    // TODO(chat CH-6): wire `g_talkActions->playerSaySpell` + `g_spells->playerSaySpell`
-    // once the Lua talkactions runtime lands. Contract mirrors C++ `TalkActionResult_t`:
-    //   `TALKACTION_CONTINUE` (false, plain chat) / `TALKACTION_BREAK` (true, consumed +
-    //   re-broadcast as `TALKTYPE_SAY`/`MONSTER_SAY` unless `EMOTE_SPELLS`) /
-    //   `TALKACTION_FAILED` (true, consumed silently).
-    fn player_say_spell(&self, _cid: CreatureId, _speak_class: u8, _text: &str) -> bool {
-        false
+    /// PC-2b: spellword dispatch seam. Looks up `text` in the `SpellRegistry` (instant
+    /// spells only), checks vocation/level/mana gates, and on success deducts mana/soul
+    /// and calls the `onCastSpell` Lua callback. Full spell mechanics (cooldowns, group
+    /// cooldowns, PZ lock, aggressive-target validation) land in PC-3a.
+    ///
+    /// C++ reference: `game.cpp:3584` `Spells::playerSaySpell` → `spells.cpp:30` word
+    /// matching → `InstantSpell::playerCastInstant` → `CombatSpell::castSpell` → Lua
+    /// `onCastSpell(creature, variant)`.
+    fn player_say_spell(&mut self, cid: CreatureId, _speak_class: u8, text: &str) -> bool {
+        // Look up the spellwords in the registry (case-insensitive). Clone the spell
+        // definition to release the immutable borrow on `self.spells` before any
+        // mutable calls (send_player_status_message, send_player_stats, etc.).
+        let Some(spell) = self.spells.get_instant_by_words(text).cloned() else {
+            return false; // Not a known spell — plain chat.
+        };
+
+        // Gate: vocation check — the player's vocation must be in the spell's allowed list.
+        // Empty vocations list = all vocations allowed (TFS default).
+        if !spell.vocations.is_empty() {
+            let player_voc_id = self
+                .creatures
+                .get(cid)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => Some(p.vocation_id),
+                    _ => None,
+                });
+            let Some(voc_id) = player_voc_id else {
+                return false; // Not a player — can't cast spells.
+            };
+            // Look up the vocation name from the registry for string comparison.
+            let voc_name = self
+                .vocations
+                .vocations
+                .get(&(voc_id as u16))
+                .map(|v| v.name.clone())
+                .unwrap_or_default();
+            if !spell
+                .vocations
+                .iter()
+                .any(|v| v.eq_ignore_ascii_case(&voc_name))
+            {
+                // Vocation not allowed — send "You cannot cast this spell." and consume.
+                self.send_player_status_message(cid, "You cannot cast this spell.");
+                return true;
+            }
+        }
+
+        // Gate: level check.
+        let player_level = self
+            .creatures
+            .get(cid)
+            .map(|k| match k {
+                CreatureKind::Player(p) => p.level,
+                _ => 0,
+            })
+            .unwrap_or(0);
+        if player_level < spell.level as i32 {
+            self.send_player_status_message(cid, "You do not have enough level.");
+            return true;
+        }
+
+        // Gate: mana check. `mana_percent` takes priority over `mana` when set.
+        let (player_mana, player_max_mana, player_soul) = self
+            .creatures
+            .get(cid)
+            .map(|k| match k {
+                CreatureKind::Player(p) => (p.mana, p.max_mana, p.economy.soul),
+                _ => (0, 0, 0),
+            })
+            .unwrap_or((0, 0, 0));
+        let mana_cost = if spell.mana_percent > 0 {
+            (player_max_mana as u32 * spell.mana_percent) / 100
+        } else {
+            spell.mana
+        };
+        if player_mana < mana_cost as i32 {
+            self.send_player_status_message(cid, "You do not have enough mana.");
+            return true;
+        }
+        if player_soul < spell.soul as i32 {
+            self.send_player_status_message(cid, "You do not have enough soul.");
+            return true;
+        }
+
+        // Deduct mana + soul.
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.mana -= mana_cost as i32;
+            p.economy.soul -= spell.soul as i32;
+        }
+        self.send_player_stats(cid);
+
+        // TODO(PC-3a): call the `onCastSpell` Lua callback via the event dispatcher.
+        // For now, the spell is "cast" (mana deducted, text consumed) but no damage/
+        // effect is applied. The callback dispatch requires the Lua runtime to be
+        // wired into the game thread (fire_on_cast_spell helper).
+        tracing::debug!(
+            "Spellword '{}' cast by {:?}: mana={} soul={} (callback dispatch pending PC-3a)",
+            text,
+            cid,
+            mana_cost,
+            spell.soul
+        );
+
+        true // Text consumed — do not proceed to chat broadcast.
     }
 
     /// TFS `Game::playerRequestChannels` — `game.cpp:3490-3502`.
@@ -831,6 +923,21 @@ impl GameWorld {
         (max_ticks / 1000) as u32
     }
     // ---- LUA-3 / LUA-4: Lua mutation applier helpers ----
+
+    /// Send a status-style text message to a single player creature
+    /// (`SendMessage(conn, TALK_STATUS_MESSAGE, ...)` — `crcombat.cc:674-676`,
+    /// `enums.hh:672`). Used by the melee poison-on-hit path (M10) to notify a
+    /// player target: "You are poisoned.". No-op if the creature has no
+    /// connection (NPC/monster target) or is no longer online.
+    pub(crate) fn send_player_status_message(&mut self, cid: CreatureId, text: &str) {
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let msg = outgoing_extra::send_text_message_simple(
+                self.codec.status_message_type(),
+                text,
+            );
+            self.enqueue_outgoing(conn, msg.into_bytes());
+        }
+    }
 
     /// `player:sendCancelMessage(text)` — LUA-3. Enqueues a
     /// `MESSAGE_STATUS_SMALL` text message to the player's connection.

@@ -515,6 +515,13 @@ impl GameWorld {
             0,
         );
 
+        // M11 — shield wearout gate check: capture whether the defense gate will pass before
+        // `roll_target_defense` updates the timestamps. Shield wearout happens only when the
+        // gate passes (`crcombat.cc:265-281`). Player targets only (monsters have no shields).
+        let defense_gate_passed = self
+            .creatures
+            .get(target_id)
+            .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
         let defense_roll = {
             let Some(kind) = self.creatures.get_mut(target_id) else {
                 self.ai_rng = rng;
@@ -533,6 +540,14 @@ impl GameWorld {
 
         let _trace_armor = crate::sim_glibc_rand::sim_rng_trace_site("melee_armor_probe");
         let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+        // M11 — Shield wearout: decrement the player defender's shield `REMAININGUSES` when the
+        // defense gate passed (`crcombat.cc:265-281`). Player-only. Called after `hooks` is last
+        // used to avoid borrow conflict with `&mut self`.
+        if defense_gate_passed
+            && matches!(self.creatures.get(target_id), Some(CreatureKind::Player(_)))
+        {
+            self.player_shield_wearout(target_id);
+        }
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
         // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
@@ -565,6 +580,16 @@ impl GameWorld {
             self.notify_player_combat_damage(Some(cid), target_id, damage_done, snap);
         }
 
+        // A2 — `if (DamageDone > 0) ActivateLearning()` (`crcombat.cc:664-666`). Mirrors the
+        // player strike path; monsters rarely live long enough to level, but the C++ `CloseAttack`
+        // fires `ActivateLearning` for all attacker types. The `LearningPoints = 30` window gates
+        // the (PC-5) per-skill `Increase(1)` accumulation in `ProbeValue`.
+        if damage_done > 0 {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().activate_learning();
+            }
+        }
+
         if !target_immune_poison {
             if let Some(cond) = melee_poison_on_hit(
                 &mut rng,
@@ -587,12 +612,31 @@ impl GameWorld {
                     },
                     &params,
                 );
+                // M10 — `SendMessage(Target->Connection, TALK_STATUS_MESSAGE, "You are poisoned.")`
+                // (`crcombat.cc:674-676`). Sent to a player target after the poison condition lands.
+                if let Some(CreatureKind::Player(_)) = self.creatures.get(target_id) {
+                    self.send_player_status_message(target_id, "You are poisoned.");
+                }
             }
         }
         self.ai_rng = rng;
 
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 2000);
+        }
+
+        // A1 — `if (Target->IsDead) this->StopAttack(0)` (`crcombat.cc:643-645`). C++ `CloseAttack`
+        // clears the attacker's combat targets after the strike when the victim died. Our melee
+        // arm early-returns when `target_alive` is false at entry, but the strike itself can kill
+        // the target (HP ≤ 0 → `apply_creature_death` removes it from `world.creatures`). Without
+        // this, a monster keeps swinging at a removed target id until the next `target_alive` gate.
+        let target_dead = !self.creatures.contains_key(target_id);
+        if target_dead {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                let base = k.base_mut();
+                base.attack_target = None;
+                base.follow_target = None;
+            }
         }
 
         // C++ panic melee at band 1 — observable `combat_state` logs `attacking` after first hit.

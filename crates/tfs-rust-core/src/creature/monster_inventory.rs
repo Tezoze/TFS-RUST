@@ -42,6 +42,21 @@ pub(crate) fn physical_hit_effect(blood: BloodType) -> u8 {
     }
 }
 
+/// 772 `TextualEffect` color keyed on blood family — `crmain.cc:710-737`.
+/// Blood→RED(180), Slime→LIGHTGREEN(30), Bones→LIGHTGRAY(129), Fire→ORANGE(198),
+/// Energy→LIGHTBLUE(35). Values from `enums.hh:119-125` `COLOR_*`. Used by the
+/// animated damage text broadcast (`notify_player_combat_damage`) so non-blood
+/// races show their race-keyed color instead of the hardcoded 772 red.
+pub fn damage_text_color(blood: BloodType) -> u8 {
+    match blood {
+        BloodType::Blood => 180,    // COLOR_RED — `enums.hh:124`
+        BloodType::Slime => 30,     // COLOR_LIGHTGREEN — `enums.hh:121`
+        BloodType::Bones => 129,    // COLOR_LIGHTGRAY — `enums.hh:123`
+        BloodType::Fire => 198,     // COLOR_ORANGE — `enums.hh:125`
+        BloodType::Energy => 35,    // COLOR_LIGHTBLUE — `enums.hh:122`
+    }
+}
+
 /// Splash liquid subtype for a blood family — only BLOOD/SLIME leave a ground splash
 /// (`crmain.cc:711-722`). tvp-772 `FluidTypes_t` (`gameserver/src/const.h:94`): `FLUID_BLOOD = 5`,
 /// `FLUID_SLIME = 6`. The 772 codec maps these via `getLiquidColor` (5→2, 6→4).
@@ -668,6 +683,7 @@ mod tests {
                 immunity_fire: false,
                 immunity_energy: false,
                 see_invisible: false,
+                immunity_physical: false,
             },
             talk_texts: Vec::new(),
         }

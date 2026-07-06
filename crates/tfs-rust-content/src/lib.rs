@@ -3,6 +3,8 @@ pub mod objects_srv;
 pub mod otb_patch;
 pub mod groups;
 pub mod item_abilities;
+pub mod spells;
+pub mod weapons;
 mod items_xml_keys;
 pub mod items;
 pub mod monsters;

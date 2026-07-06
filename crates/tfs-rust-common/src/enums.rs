@@ -14,9 +14,10 @@ pub enum Direction {
 }
 
 /// Order matches TFS `CombatType_t` (`combat.h`) 0..=11.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
 pub enum CombatType {
+    #[default]
     Physical = 0,
     Energy = 1,
     Earth = 2,

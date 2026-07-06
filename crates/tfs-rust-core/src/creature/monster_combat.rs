@@ -89,6 +89,8 @@ pub struct MonsterCombatSnapshot {
     pub immunity_energy: bool,
     /// `<immunity invisible="1"/>` — `crmain.cc:1493` `RaceData[Race].SeeInvisible`.
     pub see_invisible: bool,
+    /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`.
+    pub immunity_physical: bool,
     pub spells: Vec<MonsterSpell>,
 }
 
@@ -139,6 +141,7 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
         immunity_fire: mtype.defenses.immunity_fire,
         immunity_energy: mtype.defenses.immunity_energy,
         see_invisible: mtype.defenses.see_invisible,
+        immunity_physical: mtype.defenses.immunity_physical,
         ..MonsterCombatSnapshot::default()
     };
 

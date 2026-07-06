@@ -522,7 +522,11 @@ impl GameWorld {
             .and_then(|aid| self.creatures.get(aid))
             .map(|k| k.base().name.clone());
 
-        const TEXTCOLOR_RED: u8 = 180;
+        // A3 — race-keyed `TextualEffect` color (`crmain.cc:710-737`). The animated damage text
+        // color follows the victim's blood family: Blood→RED(180), Slime→LIGHTGREEN(30),
+        // Bones→LIGHTGRAY(129), Fire→ORANGE(198), Energy→LIGHTBLUE(35). Players/NPCs default to
+        // `Blood` (RED). Previously hardcoded `TEXTCOLOR_RED` (180) for all creatures.
+        let text_color = crate::creature::damage_text_color(self.creature_blood_type(target_id));
 
         // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood` in the
         // combat apply path (`crmain.cc:762-775`), so no duplicate draw-blood here. Phase 3: both
@@ -536,7 +540,7 @@ impl GameWorld {
         // `crmain.cc:765`). Applies to ALL creature types, not just players.
         let animated = self.codec.encode_animated_text(&AnimatedTextWire {
             pos,
-            color: TEXTCOLOR_RED,
+            color: text_color,
             text: damage_done.to_string(),
         });
         if !animated.as_bytes().is_empty() {
@@ -575,7 +579,7 @@ impl GameWorld {
                         .encode_combat_damage_text_message(&CombatDamageNotifyWire {
                             pos,
                             damage: dmg,
-                            damage_color: TEXTCOLOR_RED,
+                            damage_color: text_color,
                             text,
                         }),
                 );

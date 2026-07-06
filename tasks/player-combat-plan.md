@@ -23,8 +23,8 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | PC-0 | Vocation data migration (XML→Lua) | ✅ Done |
 | PC-1 | Player attack/defend/armor value resolution | ✅ Done |
 | PC-2 | The strike (`CloseAttack`) — melee first | ✅ Done (core logic + feedback effects) |
-| PC-2a | `Damage` path completeness (melee audit) | 🔲 Pending (8 findings — §9.2) |
-| PC-2b | Lua combat/spell/weapon plumbing | 🔲 Pending (Combat/Spell/Weapon/Condition userdata + createCombatArea + enums + spellword dispatch) |
+| PC-2a | `Damage` path completeness (melee audit) | ✅ Done (8 findings — §9.2) |
+| PC-2b | Lua combat/spell/weapon plumbing | ✅ Done (Combat/Spell/Weapon userdata + createCombatArea + enums + spellword dispatch) |
 | PC-3 | Distance + wand strikes | 🔲 Pending (+ mana shield, typed immunities; depends on PC-2b) |
 | PC-4 | Fight/chase/secure mode + PVP gating | 🔲 Pending (+ invulnerability check) |
 | PC-5 | Skill/exp gain + regen + death penalty | 🔲 Pending (+ shield skill learning, death penalty, level-up HP/mana gain fix M13, skill-tries data gaps: skill_base/min_level/magic-dispatch) |

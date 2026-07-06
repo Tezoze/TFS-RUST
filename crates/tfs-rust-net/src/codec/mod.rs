@@ -217,6 +217,15 @@ pub trait ProtocolCodec {
     ///   `MESSAGE_STATUS_SMALL = 0x17 = 23` — same wire byte, different name than 1098.
     fn failure_message_type(&self) -> u8;
 
+    /// Era-correct wire value for status-style text messages sent to a single player
+    /// (e.g. "You are poisoned." — `crcombat.cc:674-676` `SendMessage(TALK_STATUS_MESSAGE, ...)`).
+    ///
+    /// - **772** (`enums.hh:672`): `TALK_STATUS_MESSAGE = 21` — distinct from
+    ///   `TALK_FAILURE_MESSAGE = 23` (see [`failure_message_type`]).
+    /// - **1098** (`src/const.h:189`): `MESSAGE_STATUS_DEFAULT = 21` — same wire byte;
+    ///   `MESSAGE_STATUS_SMALL` (also 21) is used by `sendCancelMessage`.
+    fn status_message_type(&self) -> u8;
+
     /// Periodic keepalive ping packet — X1 (K1 inventory §X1).
     /// - **772** (`protocolgame.cpp:1516`): `0x1E` (`send_ping_back`) for non-OTClient,
     ///   `0x1D` (`send_ping`) for OTClient.
@@ -478,6 +487,10 @@ impl ProtocolCodec for Codec1098 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
 
+    fn status_message_type(&self) -> u8 {
+        21 // MESSAGE_STATUS_DEFAULT — `src/const.h:189`
+    }
+
     fn periodic_ping_packet(&self, _is_otclient: bool) -> NetworkMessage {
         // 1098: always 0x1D (`send_ping`) — `src/protocolgame.cpp:2530`.
         crate::outgoing::send_ping()
@@ -737,6 +750,10 @@ impl ProtocolCodec for Codec772 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
 
+    fn status_message_type(&self) -> u8 {
+        21 // TALK_STATUS_MESSAGE — `enums.hh:672`
+    }
+
     fn periodic_ping_packet(&self, is_otclient: bool) -> NetworkMessage {
         // TVP 772 (`protocolgame.cpp:1516`): 0x1E for non-OTClient, 0x1D for OTClient.
         if is_otclient {
@@ -908,6 +925,8 @@ impl Codec {
         encode_create_private_channel(w: &wire::CreatePrivateChannelWire) -> NetworkMessage;
 
         failure_message_type() -> u8;
+
+        status_message_type() -> u8;
 
         periodic_ping_packet(is_otclient: bool) -> NetworkMessage;
     }
@@ -1165,6 +1184,10 @@ impl ProtocolCodec for Codec {
 
     fn failure_message_type(&self) -> u8 {
         Codec::failure_message_type(self)
+    }
+
+    fn status_message_type(&self) -> u8 {
+        Codec::status_message_type(self)
     }
 
     fn periodic_ping_packet(&self, is_otclient: bool) -> NetworkMessage {

@@ -219,6 +219,8 @@ impl GameWorld {
     /// Apply combat damage and fire 772 `DamageStimulus` when a monster loses HP.
     ///
     /// C++ reference: `Game::combatChangeHealth` → `TMonster::DamageStimulus` — `crnonpl.cc:2278`.
+    /// PC-2a M2/M3/M4: physical immunity, equipment damage reduction, and invisibility removal
+    /// are handled here (the shared `Damage` path) before the HP delta is applied.
     pub(crate) fn combat_execute_with_stimulus(
         &mut self,
         attacker: Option<CreatureId>,
@@ -226,14 +228,48 @@ impl GameWorld {
         damage: &CombatDamage,
         params: &CombatParams,
     ) -> bool {
-        let stimulus_damage = (-(damage.primary.1 + damage.secondary.1)).max(0);
+        // M3 — Physical immunity (`NoHit`): C++ `Damage` checks
+        // `RaceData[Race].NoHit` for `DAMAGE_PHYSICAL` and emits `EFFECT_BLOCK_HIT` + returns 0
+        // (`crmain.cc:615-622`). Monster-only; players don't have `NoHit`. Non-physical
+        // immunities (`NoPoison`/`NoBurning`/`NoEnergy`/`NoLifeDrain`) are PC-3 scope.
+        if damage.primary.0 == CombatType::Physical && params.apply_condition.is_none() {
+            let is_immune = self
+                .creatures
+                .get(target)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.immunity_physical));
+            if is_immune {
+                if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                    // C++ `EFFECT_BLOCK_HIT` (wire byte 4) — `crmain.cc:620`.
+                    self.broadcast_magic_effect(pos, 4u8);
+                }
+                return false;
+            }
+        }
+
+        // M2 — Equipment damage reduction: C++ `Damage` iterates equipped `PROTECTION`+`CLOTHES`
+        // items and reduces incoming damage by `DAMAGEREDUCTION%` per item (`crmain.cc:540-574`).
+        // The TFS 1.4.2 equivalent is `absorb_percent[combat_type]` on `ItemAbilities`, summed
+        // across all equipped items. Player targets only (monsters/NPCs have no inventory).
+        // Applied before the poff check, matching C++ order.
+        let mut reduced_damage = *damage;
+        if reduced_damage.primary.1 < 0 || reduced_damage.secondary.1 < 0 {
+            let absorb_pct = self.player_absorb_percent(target, reduced_damage.primary.0);
+            if absorb_pct > 0 {
+                let factor = 100 - absorb_pct;
+                reduced_damage.primary.1 = (reduced_damage.primary.1 * factor) / 100;
+                reduced_damage.secondary.1 = (reduced_damage.secondary.1 * factor) / 100;
+            }
+        }
+
+        let stimulus_damage = (-(reduced_damage.primary.1 + reduced_damage.secondary.1)).max(0);
         if let Some(attacker_id) = attacker {
             if stimulus_damage > 0 {
                 // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
                 self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
             }
         }
-        let applied = crate::combat::execute(&mut self.creatures, attacker, target, damage, params);
+        let applied =
+            crate::combat::execute(&mut self.creatures, attacker, target, &reduced_damage, params);
         if applied {
             // C++ `magic.cc:1512` `CREATURE_SPEED_CHANGED` — announce when a speed-altering
             // condition (haste/paralyze) is applied via spell cast.
@@ -252,9 +288,18 @@ impl GameWorld {
             // (`TCreature::Damage`, `crmain.cc:762-775`). Emitted for any physical damage that
             // landed, including the killing blow (C++ emits the effect before `Kill()`); the
             // full-blood pool is added afterwards by the death path.
-            if stimulus_damage > 0 && damage.primary.0 == CombatType::Physical {
+            if stimulus_damage > 0 && reduced_damage.primary.0 == CombatType::Physical {
                 if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
                     self.apply_physical_hit_blood(target, pos);
+                }
+
+                // M4 — Invisibility removal on hit: C++ `Damage` clears non-player invisibility
+                // (`SKILL_ILLUSION` timer → restore original outfit + announce) when damage lands
+                // (`crmain.cc:636-641`). Players keep invisibility through damage (C++ gates on
+                // `this->Type != PLAYER`). Removes any `ConditionType::Invisible` condition and
+                // broadcasts the outfit change so spectators see the creature reappear.
+                if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
+                    self.clear_nonplayer_invisibility(target);
                 }
             }
 
@@ -263,6 +308,76 @@ impl GameWorld {
             }
         }
         applied
+    }
+
+    /// M2 — Sum `absorb_percent[combat_type]` across all equipped items for a player target.
+    /// C++ `Damage` iterates equipped `PROTECTION`+`CLOTHES` items (`crmain.cc:540-574`);
+    /// the TFS 1.4.2 equivalent is `ItemAbilities.absorb_percent` keyed by `CombatType`.
+    /// Returns 0 for non-players or when no items have absorb for the given type.
+    fn player_absorb_percent(&self, cid: CreatureId, combat_type: CombatType) -> i32 {
+        let slots = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.equipment_slots,
+            _ => return 0,
+        };
+        let absorb_idx = tfs_rust_content::item_abilities::combat_absorb_index(combat_type);
+        let mut total: i32 = 0;
+        for slot_iid in slots.iter().flatten().copied() {
+            let Some(item) = self.items.get(slot_iid) else {
+                continue;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            total += it.abilities.absorb_percent[absorb_idx] as i32;
+        }
+        total
+    }
+
+    /// M4 — Clear `ConditionType::Invisible` from a non-player creature and announce the outfit
+    /// change. C++ `Damage` sets `SKILL_ILLUSION` timer to 0 (clearing invisibility), restores
+    /// `OrgOutfit`, and calls `AnnounceChangedCreature(CREATURE_OUTFIT_CHANGED)` +
+    /// `NotifyAllCreatures(OBJECT_CHANGED)` (`crmain.cc:636-641`). No-op if the creature has no
+    /// invisible condition. Player targets are excluded by the caller (C++ gates on
+    /// `this->Type != PLAYER`).
+    fn clear_nonplayer_invisibility(&mut self, cid: CreatureId) {
+        let had_invisible = self.creatures.get(cid).is_some_and(|k| {
+            k.base()
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::Invisible)
+        });
+        if !had_invisible {
+            return;
+        }
+        // Snapshot the outfit + position + wire id before mutation (avoid holding borrows).
+        let (pos, wire_id, outfit_wire) = match self.creatures.get(cid) {
+            Some(kind) => {
+                let pos = kind.position();
+                let wire_id = crate::login_out::creature_wire_id(cid, kind);
+                let outfit = kind.base().outfit.clone();
+                let wire = tfs_rust_net::creature_encode::OutfitWire {
+                    look_type: outfit.look_type.max(0) as u16,
+                    look_head: outfit.look_head.clamp(0, 255) as u8,
+                    look_body: outfit.look_body.clamp(0, 255) as u8,
+                    look_legs: outfit.look_legs.clamp(0, 255) as u8,
+                    look_feet: outfit.look_feet.clamp(0, 255) as u8,
+                    look_addons: outfit.look_addons.clamp(0, 255) as u8,
+                    look_mount: 0,
+                    look_type_ex: 0,
+                };
+                (pos, wire_id, wire)
+            }
+            None => return,
+        };
+        if let Some(kind) = self.creatures.get_mut(cid) {
+            kind.base_mut()
+                .active_conditions
+                .retain(|c| c.ctype != ConditionType::Invisible);
+        }
+        // Announce the outfit change so spectators see the creature reappear.
+        // Mirrors C++ `AnnounceChangedCreature(CREATURE_OUTFIT_CHANGED)`.
+        let msg = tfs_rust_net::outgoing_extra::send_creature_outfit(wire_id, &outfit_wire);
+        self.broadcast_to_spectators(pos, msg.into_bytes());
     }
 
     /// C++ `TMonster::DamageStimulus` — `crnonpl.cc:2278`.

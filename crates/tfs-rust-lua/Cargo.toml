@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 tfs-rust-common = { workspace = true }
+tfs-rust-content = { workspace = true }
 mlua = { workspace = true }
 thiserror = "2.0"
 tracing = "0.1"

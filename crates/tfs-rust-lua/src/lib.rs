@@ -4,6 +4,8 @@
 //! for game scripts. It maintains TFS compatibility while using idiomatic Rust.
 
 pub mod chat_channels;
+pub mod combat_enums;
+pub mod combat_scripts;
 pub mod constants;
 pub mod context;
 pub mod lua_mutation;

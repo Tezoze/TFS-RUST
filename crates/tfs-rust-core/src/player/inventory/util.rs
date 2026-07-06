@@ -312,6 +312,27 @@ impl GameWorld {
             })
     }
 
+    /// Returns the equipped shield `ItemId` (the hand-slot item with `weapon_type == WEAPON_SHIELD`).
+    /// C++ `TCombat::Shield` — `crcombat.cc:265`. Used by shield wearout (M11, `crcombat.cc:265-281`).
+    /// Scans Left then Right (matching `player_get_defend_value` shield priority).
+    pub fn player_get_shield(&self, cid: CreatureId) -> Option<ItemId> {
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
+                continue;
+            };
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            if it.weapon_type == WEAPON_SHIELD {
+                return Some(iid);
+            }
+        }
+        None
+    }
+
     /// TFS `Player::getWeaponType()` — `player.cpp` ~234–240.
     pub fn player_get_weapon_type(&self, cid: CreatureId) -> u8 {
         let Some(iid) = self.player_get_weapon(cid, false) else {

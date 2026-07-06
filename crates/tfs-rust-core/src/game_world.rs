@@ -111,6 +111,13 @@ pub struct GameWorld {
     /// `data/XML/groups.xml` — player GM flags (`src/groups.cpp`).
     pub groups: Arc<GroupDatabase>,
     pub vocations: Arc<VocationRegistry>,
+    /// PC-2b: spell definitions loaded from `data/scripts/spells/**/*.lua` via the
+    /// TFS Lua `Spell(SPELL_INSTANT|SPELL_RUNE)` API. Used by `player_say_spell`
+    /// for spellword dispatch (`Say` → `onCastSpell`).
+    pub spells: Arc<tfs_rust_content::spells::SpellRegistry>,
+    /// PC-2b: weapon definitions loaded from `data/scripts/weapons/*.lua` via the
+    /// TFS Lua `Weapon(WEAPON_*)` API. Used by PC-3 (wand/distance strikes).
+    pub weapons: Arc<tfs_rust_content::weapons::WeaponRegistry>,
     /// C++ `ProtocolGame::sendCreatureSay` static `statementId` (`src/protocolgame.cpp` ~2432).
     pub next_statement_id: u32,
     /// 772 global action scheduler (`crmain.cc` `MoveCreatures`).
@@ -301,6 +308,8 @@ impl GameWorld {
             monsters_db,
             groups,
             vocations,
+            spells: Arc::new(tfs_rust_content::spells::SpellRegistry::default()),
+            weapons: Arc::new(tfs_rust_content::weapons::WeaponRegistry::default()),
             next_statement_id: 0,
             todo_queue: crate::todo_queue::ToDoQueue::default(),
             server_ms: 0,

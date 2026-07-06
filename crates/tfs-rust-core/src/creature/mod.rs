@@ -22,7 +22,8 @@ pub use monster_combat::{
     MeleeDefenseSnapshot, MonsterCombatSnapshot, MonsterSpell, SpellImpact, SpellShape,
 };
 pub use monster_inventory::{
-    effective_monster_combat_stats, MonsterInventory, DEFAULT_MONSTER_BAG_TYPE,
+    damage_text_color, effective_monster_combat_stats, MonsterInventory,
+    DEFAULT_MONSTER_BAG_TYPE,
 };
 pub use npc::{Npc, NpcEventsHandler, NullNpcHandler};
 pub use player::{

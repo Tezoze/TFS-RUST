@@ -90,6 +90,13 @@ impl GameWorld {
         }
 
         // `target.GetDefendDamage` — gate + probe (`crcombat.cc:236`).
+        // M11 — shield wearout happens after the defense probe, only when the gate passes
+        // (`crcombat.cc:265-281`). Capture the gate state before the probe so we know whether
+        // `roll_target_defense` actually ran the defense (gate pass → timestamps updated).
+        let defense_gate_passed = self
+            .creatures
+            .get(target_id)
+            .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
         let defense_roll = match self.creatures.get_mut(target_id) {
             Some(kind) => roll_target_defense(
                 kind.base_mut(),
@@ -109,6 +116,13 @@ impl GameWorld {
         // here it feeds `melee_damage_after_defense_and_armor` so the shared physical path
         // (`combat_execute_with_stimulus`) receives the post-armor HP delta.
         let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+        // M11 — Shield wearout: decrement the defender's shield `REMAININGUSES` when the defense
+        // gate passed and the defender has a chargeable shield equipped (`crcombat.cc:265-281`).
+        // Player-only (monsters don't have shields). Called after `hooks` is last used to avoid
+        // borrow conflict with `&mut self`.
+        if defense_gate_passed {
+            self.player_shield_wearout(target_id);
+        }
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
         // Poff / spark effects — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`):
@@ -218,6 +232,37 @@ impl GameWorld {
             return;
         }
         if let Some(item) = self.items.get_mut(weapon_iid) {
+            if item.count > 1 {
+                item.count -= 1;
+            }
+        }
+    }
+
+    /// M11 — Shield wearout for the defender — `crcombat.cc:265-281` `RemainingUses--`.
+    ///
+    /// Decrements the defender's shield `count` when `ItemType.charges > 0` (chargeable
+    /// shields model remaining uses via `count`). No-op for standard shields (`charges == 0`)
+    /// or when no shield is equipped. Player-only — monsters don't have shields. Called after
+    /// `roll_target_defense` when the defense gate passed (the C++ `GetDefendDamage` decrements
+    /// after the probe, inside the gate-passed block).
+    pub(crate) fn player_shield_wearout(&mut self, cid: CreatureId) {
+        let shield_iid = match self.player_get_shield(cid) {
+            Some(iid) => iid,
+            None => return,
+        };
+        let has_charges = {
+            let Some(item) = self.items.get(shield_iid) else {
+                return;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                return;
+            };
+            it.charges > 0
+        };
+        if !has_charges {
+            return;
+        }
+        if let Some(item) = self.items.get_mut(shield_iid) {
             if item.count > 1 {
                 item.count -= 1;
             }

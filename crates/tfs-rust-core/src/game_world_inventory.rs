@@ -1232,6 +1232,7 @@ mod look_tests {
                     immunity_fire: false,
                     immunity_energy: false,
                     see_invisible: false,
+                    immunity_physical: false,
                 },
                 talk_texts: Vec::new(),
             },

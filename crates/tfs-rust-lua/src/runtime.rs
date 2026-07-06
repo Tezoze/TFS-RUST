@@ -15,8 +15,9 @@ use crate::timer_events::{
     execute_timer_event, register_add_event_stop_event, TimerEvents,
 };
 use crate::userdata::{
-    register_condition_metatable, register_container_metatable, register_creature_metatable,
-    register_item_metatable, register_vocation_metatable,
+    register_combat_metatable, register_condition_metatable, register_container_metatable,
+    register_creature_metatable, register_item_metatable, register_spell_metatable,
+    register_vocation_metatable, register_weapon_metatable,
 };
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
@@ -27,7 +28,7 @@ pub struct CallbackRef(mlua::RegistryKey);
 ///
 /// This is !Send by design and must live exclusively on the game thread.
 pub struct LuaRuntime {
-    lua: Lua,
+    pub(crate) lua: Lua,
     script_registry: HashMap<String, ()>,
     /// `addEvent` / `stopEvent` timer-event registry (C++ `g_luaEnvironment.timerEvents`).
     /// `Rc<RefCell<…>>` so the Lua closures and `execute_timer_event` share access.
@@ -73,6 +74,14 @@ impl LuaRuntime {
         // `reference/tvp-772/gameserver/src/{const.h,enums.h}`. See
         // `constants.rs` and `tasks/lua-api-plan.md` LUA-1.
         register_constants(&lua).map_err(LuaError::Registration)?;
+
+        // PC-2b: Combat / Spell / Weapon / Condition userdata + createCombatArea +
+        // ~860 combat/spell/weapon/condition enums. Mirrors `luascript.cpp`
+        // `registerClass("Combat"/"Spell"/"Weapon"/"Condition")` + `registerEnum` block.
+        register_combat_metatable(&lua).map_err(LuaError::Registration)?;
+        register_weapon_metatable(&lua).map_err(LuaError::Registration)?;
+        register_spell_metatable(&lua).map_err(LuaError::Registration)?;
+        crate::combat_enums::register_combat_enums(&lua).map_err(LuaError::Registration)?;
 
         // Initialize pending channel buffer for Channel:register()
         let pending_channels = lua.create_table()?;

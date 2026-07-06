@@ -47,6 +47,9 @@ pub struct MonsterDefenses {
     pub immunity_energy: bool,
     /// `<immunity invisible="1"/>` — `crmain.cc:1493` `RaceData[Race].SeeInvisible`.
     pub see_invisible: bool,
+    /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
+    /// immunity: `Damage(PHYSICAL)` emits `EFFECT_BLOCK_HIT` and returns 0.
+    pub immunity_physical: bool,
 }
 
 /// Monster `<look>` block — C++ `MonsterType` look fields (`monsters.cpp` `loadMonster`).
@@ -483,6 +486,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         immunity_fire: false,
         immunity_energy: false,
         see_invisible: false,
+        immunity_physical: false,
     };
     let mut talk_texts = Vec::new();
 
@@ -535,6 +539,10 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                     // C++ `RaceData[Race].SeeInvisible` — `crmain.cc:1493`.
                     if imm.attribute("invisible").is_some_and(parse_bool_flag) {
                         defenses.see_invisible = true;
+                    }
+                    // C++ `RaceData[Race].NoHit` — `crmain.cc:615`. Physical damage immunity.
+                    if imm.attribute("physical").is_some_and(parse_bool_flag) {
+                        defenses.immunity_physical = true;
                     }
                 }
             }
