@@ -154,6 +154,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         },
         account_id: 1,
         guid: 1,
+        account_type: 1,
         group_id: 1,
         sex: crate::creature::PlayerSex::Male,
         vocation_id: 0,

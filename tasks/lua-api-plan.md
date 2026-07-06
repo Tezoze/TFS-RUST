@@ -191,7 +191,7 @@ because the existing `SpeakType` enum carries 1098 numbering, not 772 — adding
 values). NOTE: pre-existing `player_events_script_loads_with_bootstrap` test was already failing
 on `main` (missing `Player:onInventoryUpdate`) — unrelated to LUA-1.
 
-### LUA-2 — Player read methods + account-type backing + `Vocation` object
+### LUA-2 — Player read methods + account-type backing + `Vocation` object — ✅ DONE
 1. `ScriptContext`: add `get_player_level`, `get_player_account_type`, `get_player_vocation_id`,
    `player_has_flag`; `GameWorld` impls.
 2. **Account-type plumb (§1.3):** add `Player.account_type`, carry `accounts.type` through login.
@@ -199,6 +199,22 @@ on `main` (missing `Player:onInventoryUpdate`) — unrelated to LUA-1.
 4. `userdata/player.rs` bindings: `getLevel`, `getAccountType`, `getVocation`, `hasFlag`.
 5. Verify: unit test a `ScriptContext` fake returning a GM player; assert `getAccountType`/`hasFlag`/
    `getLevel`/`getVocation():getId()` read through.
+
+**Done.** `Player.account_type: u8` plumbed from `accounts.type` (folded into the existing
+`premium_ends_at` `SELECT` — one query, no extra round-trip; defaults to
+`ACCOUNT_TYPE_NORMAL` (1) on NULL). `ScriptContext` gained four default-`None`/`false`
+read methods; `GameWorld` impls reuse `player_has_flag` (`stats.rs`) and the new
+`account_type` field. `VocationRef(i32)` userdata (`userdata/vocation.rs`) wraps the raw
+`players.vocation` id with `getId()` — extensible for `getName`/`getPromotion` later.
+Bindings `getLevel`/`getAccountType`/`getVocation`/`hasFlag` added to `CreatureRef`.
+Tests: `userdata::player::tests::player_read_methods_return_gm_values_through_lua`
+(fake GM ctx → Lua round-trip) + `player_read_methods_default_none_does_not_panic`
+(null ctx degrades gracefully). All 5 `Player { … }` construction sites updated
+(login.rs, sim_harness.rs, spell_tests.rs, tests/arena.rs, notifications.rs).
+**Verify:** `cargo check` (0 errors), `cargo clippy --all-targets` (0 new warnings),
+`cargo test -p tfs-rust-{common,db,core,lua}` (606 + 10 lua tests pass; the one
+pre-existing `player_events_script_loads_with_bootstrap` failure is unrelated —
+missing `Player:onInventoryUpdate`, fails on `main` too).
 
 ### LUA-3 — `player:sendCancelMessage` (unblocks the active level-1 cancel path)
 1. `LuaMutation::PlayerSendCancelMessage { creature_id, text }` + `call_lua_send_cancel_message`.

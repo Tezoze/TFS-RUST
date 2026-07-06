@@ -144,6 +144,7 @@ pub fn player_from_loaded(
         base,
         account_id,
         guid,
+        account_type: data.account_type,
         group_id,
         sex,
         vocation_id: p.vocation,

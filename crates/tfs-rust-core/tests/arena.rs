@@ -54,6 +54,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         },
         account_id: 0,
         guid,
+        account_type: 1,
         group_id: 1,
         sex: tfs_rust_core::creature::PlayerSex::Male,
         vocation_id: 0,

@@ -195,4 +195,35 @@ pub trait ScriptContext {
         let _ = creature_id;
         None
     }
+
+    /// `player:getLevel()` — `Player::getLevel` (`player.h`). LUA-2 read used by
+    /// channel `onSpeak` gating (e.g. advertising.lua level-1 cancel).
+    fn get_player_level(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getAccountType()` — `accounts.type` tier (`enums.h:80-85`,
+    /// `ACCOUNT_TYPE_NORMAL=1` … `ACCOUNT_TYPE_GOD=6`). LUA-2 read; the backing
+    /// field is plumbed from `accounts.type` at login (`iologindata.cpp`).
+    fn get_player_account_type(&self, creature_id: ScriptCreatureId) -> Option<u8> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getVocation():getId()` backing read — `players.vocation`
+    /// (`player.h` `Vocation`). LUA-2 returns the raw vocation id; the Lua
+    /// `Vocation` userdata wraps it (§1.4 option a).
+    fn get_player_vocation_id(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:hasFlag(flag)` — `Player::hasFlag` (`player.h`) over the resolved
+    /// `groups.xml` flag bits for `players.group_id`. LUA-2 read; defaults to
+    /// `false` so `NullEventDispatcher`/tests need no change.
+    fn player_has_flag(&self, creature_id: ScriptCreatureId, flag: u64) -> bool {
+        let _ = (creature_id, flag);
+        false
+    }
 }

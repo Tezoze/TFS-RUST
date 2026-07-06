@@ -80,6 +80,12 @@ pub struct Player {
     pub base: CreatureBase,
     pub account_id: u32,
     pub guid: u32,
+    /// `accounts.type` — account-level access tier (`enums.h:80-85`
+    /// `ACCOUNT_TYPE_NORMAL=1` … `ACCOUNT_TYPE_GOD=6`). Distinct from `group_id`
+    /// (which carries `groups.xml` per-character flags). Loaded at login from
+    /// `accounts.type` (C++ `iologindata.cpp` `gameworldAuthentication`
+    /// `SELECT … type … FROM accounts`). Default `ACCOUNT_TYPE_NORMAL` (1).
+    pub account_type: u8,
     /// `players.group_id` — `groups.xml` flags (`player.h` `Group`).
     pub group_id: u16,
     /// `players.sex` — `PLAYERSEX_FEMALE` (0) / `PLAYERSEX_MALE` (1) (`player.h`).

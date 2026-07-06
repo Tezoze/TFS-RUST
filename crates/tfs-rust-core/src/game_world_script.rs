@@ -265,4 +265,54 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             _ => None,
         })
     }
+
+    /// `player:getLevel()` — `Player::getLevel` (`player.h`).
+    fn get_player_level(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.level),
+            _ => None,
+        })
+    }
+
+    /// `player:getAccountType()` — `accounts.type` tier (`enums.h:80-85`).
+    fn get_player_account_type(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<u8> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.account_type),
+            _ => None,
+        })
+    }
+
+    /// `player:getVocation():getId()` backing read — `players.vocation`.
+    fn get_player_vocation_id(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.vocation_id),
+            _ => None,
+        })
+    }
+
+    /// `player:hasFlag(flag)` — resolved `groups.xml` flag bits for `group_id`.
+    /// Reuses `GameWorld::player_has_flag` (`player/stats.rs`), which resolves
+    /// `groups.xml` via `flags_for_group` and tests the bit.
+    fn player_has_flag(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        flag: u64,
+    ) -> bool {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return false;
+        };
+        GameWorld::player_has_flag(self, cid, flag)
+    }
 }

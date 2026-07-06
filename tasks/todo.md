@@ -452,3 +452,30 @@ and LOW #7 (dual creature-list desync).
       vocation `melee_damage` multiplier, target death → StopAttack, fist fallback.
 - [x] **Verify:** `cargo check -p tfs-rust-core`, `cargo clippy -p tfs-rust-core --all-targets`,
       `cargo test -p tfs-rust-core`. **Lessons:** append to `tasks/lessons.md`.
+
+## LUA-2 — Player read methods + account-type backing + Vocation object
+Plan: `tasks/lua-api-plan.md` §LUA-2. Unblocks the active (uncommented) channel-hook
+gating logic (`getAccountType`/`getLevel`/`getVocation():getId()`/`hasFlag`).
+
+- [ ] `Player.account_type: u8` field (default `ACCOUNT_TYPE_NORMAL = 1`, `enums.h:80`).
+      Update all 5 `Player { … }` construction sites (login.rs, sim_harness.rs,
+      spell_tests.rs, tests/arena.rs, player/inventory/notifications.rs).
+- [ ] DB plumb: add `account_type: u8` to `LoadedPlayerData`; load `accounts.type` in
+      `load_player_full` (single extra `SELECT type FROM accounts WHERE id = ?` — fold
+      into the existing `premium_ends_at` query to avoid a second round-trip); set in
+      `player_from_loaded`. C++ ref: `iologindata.cpp` `gameworldAuthentication`
+      `SELECT … type … FROM accounts`.
+- [ ] `ScriptContext` trait: add `get_player_level`, `get_player_account_type`,
+      `get_player_vocation_id`, `player_has_flag` — all default-`None`/`false` so
+      `NullEventDispatcher`/tests need no change.
+- [ ] `GameWorld` impl in `game_world_script.rs`: reuse `player_has_flag` (stats.rs),
+      `Player.level`, `Player.vocation_id`, new `Player.account_type`.
+- [ ] `Vocation` userdata (`userdata/vocation.rs`) wrapping `vocation_id: i32`, method
+      `getId()` (§1.4 option a — extensible for `getName`/`getPromotion` later).
+      Register metatable from `LuaRuntime::new`.
+- [ ] `userdata/player.rs` bindings: `getLevel`, `getAccountType`, `getVocation`,
+      `hasFlag`.
+- [ ] Tests: `ScriptContext` fake-backed unit test (GM player) asserting
+      `getAccountType`/`hasFlag`/`getLevel`/`getVocation():getId()` read through.
+- [ ] **Verify:** `cargo check`, `cargo clippy --all-targets`, `cargo test -p tfs-rust-lua
+      -p tfs-rust-core -p tfs-rust-db`. **Lessons:** append to `tasks/lessons.md`.

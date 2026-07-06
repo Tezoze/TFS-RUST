@@ -107,6 +107,12 @@ pub struct LoadedPlayerData {
     pub player: PlayerRecord,
     /// `accounts.premium_ends_at` (unix seconds); used for `0x9F` basic data / premium checks.
     pub premium_ends_at: u32,
+    /// `accounts.type` — account-level access tier (`enums.h:80-85`
+    /// `ACCOUNT_TYPE_NORMAL=1` … `ACCOUNT_TYPE_GOD=6`). Loaded alongside
+    /// `premium_ends_at` from the same `accounts` row (C++ `iologindata.cpp`
+    /// `gameworldAuthentication` `SELECT … type … FROM accounts`).
+    /// Defaults to `ACCOUNT_TYPE_NORMAL` (1) when the column is absent/NULL.
+    pub account_type: u8,
     pub spells: Vec<String>,
     pub storage: Vec<(u32, i32)>,
     /// VIP list for `sendVIPEntries` / opcode `0xD2`.
@@ -169,19 +175,29 @@ impl<'a> PlayerStore<'a> {
         let pid = player.id;
         let account_id = player.account_id;
 
-        let premium_ends_at: u32 = self
+        let (premium_ends_at, account_type): (u32, u8) = self
             .pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
                 async move {
                     // `accounts.premium_ends_at` is `INT UNSIGNED` in TFS 1.4.2 — not `BIGINT`.
-                    let v: Option<u32> = sqlx::query_scalar(
-                        "SELECT premium_ends_at FROM accounts WHERE id = ?",
+                    // `accounts.type` is the account-level access tier (`enums.h:80-85`).
+                    // C++ `iologindata.cpp` `gameworldAuthentication` selects both from the
+                    // same `accounts` row — fold into one query to avoid a second round-trip.
+                    let row: (Option<u32>, Option<i32>) = sqlx::query_as(
+                        "SELECT premium_ends_at, type FROM accounts WHERE id = ?",
                     )
                     .bind(account_id)
                     .fetch_one(&pool)
                     .await?;
-                    Ok(v.unwrap_or(0))
+                    let prem = row.0.unwrap_or(0);
+                    // `accounts.type` defaults to `ACCOUNT_TYPE_NORMAL` (1) when NULL/absent
+                    // (matches C++ `account_type_t::ACCOUNT_TYPE_NORMAL` fallback).
+                    let atype = row
+                        .1
+                        .unwrap_or(1)
+                        .clamp(0, i32::from(u8::MAX)) as u8;
+                    Ok((prem, atype))
                 }
             })
             .await?;
@@ -209,6 +225,7 @@ impl<'a> PlayerStore<'a> {
         Ok(Some(LoadedPlayerData {
             player,
             premium_ends_at,
+            account_type,
             spells,
             storage,
             vip_list,

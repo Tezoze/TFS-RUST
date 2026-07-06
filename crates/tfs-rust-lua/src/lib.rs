@@ -35,5 +35,5 @@ pub use timer_events::{
 };
 pub use userdata::{
     register_container_metatable, register_creature_metatable, register_item_metatable,
-    ContainerRef,
+    register_vocation_metatable, ContainerRef, VocationRef,
 };

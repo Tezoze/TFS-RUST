@@ -14,7 +14,10 @@ use crate::context::{CreatureRef, ItemRef};
 use crate::timer_events::{
     execute_timer_event, register_add_event_stop_event, TimerEvents,
 };
-use crate::userdata::{register_container_metatable, register_creature_metatable, register_item_metatable};
+use crate::userdata::{
+    register_container_metatable, register_creature_metatable, register_item_metatable,
+    register_vocation_metatable,
+};
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
 #[derive(Debug)]
@@ -61,6 +64,7 @@ impl LuaRuntime {
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
+        register_vocation_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
         // VOCATION_NONE, CONDITION_*, RETURNVALUE_*, …). Mirrors
