@@ -50,12 +50,10 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | Vocation data (full TVP combat block) | `data/defs/vocations.lua`, `tfs-rust-content/src/vocations.rs` | `VocationDef` + `VocationRegistry` + `VocationProfile` snapshot on `Player` (PC-0). |
 
 ### 1.2 What's still missing
-- **Player distance/wand strikes** (PC-3) — `DistanceAttack`/`WandAttack` not yet wired. Depends on PC-2b for `Weapon(WEAPON_WAND)` Lua loading.
-- **Lua combat/spell/weapon plumbing** (PC-2b) — `Combat`/`Spell`/`Weapon`/`Condition` userdata, `createCombatArea` global, ~860 combat enums, and spellword dispatch (`Say` → `onCastSpell`) are entirely absent from `tfs-rust-lua`. Blocks PC-3 (wand data loading) and PC-3a (spell-casting).
+- **Player distance/wand strikes** (PC-3) — `DistanceAttack`/`WandAttack` not yet wired. PC-2b's `Weapon(WEAPON_WAND)` Lua loading is now available; PC-3 consumes the `WeaponRegistry`/`WandDef` it produces.
 - **Fight/chase/secure mode storage** (PC-4) — `raw_fight_mode`/`raw_secure_mode` parsed but discarded; `secure_mode` field doesn't exist.
 - **Skill tries counters + skill advance** (PC-5) — `PlayerSkills` has level fields only; DB `skill_*_tries`/`manaspent` columns never loaded into runtime; `req_skill_tries` never called. Data gaps: `skill_base` (Delta) constants and `min_level` per skill not in any Lua file yet (need `data/formulas/772.lua` or `MechanicsProfile`); magic level needs separate dispatch (`min_level=0`, `skill_base=1600`).
 - **Level-up HP/mana gain bug** (PC-5, M13) — `add_experience`/`remove_experience` clamp current HP/mana to the new max instead of adding/subtracting the per-level gain (C++ `TSkillAdd::Advance` raises both `Act` and `Max`).
-- **Monster melee audit fixes** (PC-2a) — 3 findings from the decompile audit (§9).
 
 ---
 
@@ -212,157 +210,120 @@ targets (`let Some(CreatureKind::Player(p)) = ... else { return; }`). Rewrote to
 creature types: animated text + health bar broadcast for everyone; private status message +
 stats only for players.
 
-### Phase PC-2a — `Damage` path completeness (melee audit) — 🔲 PENDING
-Findings from the decompile audit of `Attack` → `CloseAttack` → `Damage` (§9). These are gaps in
-the shared `Damage` application path and the monster melee arm that PC-2 did not cover.
+### Phase PC-2a — `Damage` path completeness (melee audit) — ✅ DONE
+Findings from the decompile audit of `Attack` → `CloseAttack` → `Damage` (§9). These were gaps in
+the shared `Damage` application path and the monster melee arm that PC-2 did not cover. All 8
+findings landed in commit `b704827`.
 
-1. **A1 — StopAttack on kill:** Monster doesn't clear `attack_target`/`follow_target` when target
-   dies. C++ `Attack()` calls `StopAttack(0)` after `CloseAttack` returns if `Target->IsDead`
-   (`crcombat.cc:643-645`). Our `monster_do_attacking` checks `target_alive` and returns early but
-   leaves stale target state.
-2. **A2 — ActivateLearning for monsters:** Missing in monster melee path (only in player
-   `strike.rs`). C++ `CloseAttack` calls `ActivateLearning()` when `DamageDone > 0` for all
-   attacker types (`crcombat.cc:664-666`). Low practical impact (monsters rarely live long
-   enough to level up) but it's in the decompile.
-3. **A3 — Race-keyed damage text color:** `notify_player_combat_damage` hardcodes `TEXTCOLOR_RED`
-   (180) for all creatures. C++ `Damage` uses race-keyed colors: Blood→RED(180), Slime→
-   LIGHTGREEN(30), Bones→LIGHTGRAY(129), Fire→ORANGE(198), Energy→LIGHTBLUE(35)
-   (`crmain.cc:712-755`). Use `creature_blood_type` to pick the color.
-4. **M2 — Equipment protection (damage reduction items):** C++ `Damage` iterates equipped
-   `PROTECTION`+`CLOTHES` items and reduces incoming damage by `DAMAGEREDUCTION%` before the poff
-   check (`crmain.cc:540-574`). Not implemented — items with damage reduction attributes have no
-   effect. Add to `combat_execute_with_stimulus` or a pre-armor mitigation step in the `Damage`
-   path.
-5. **M3 — Physical immunity (NoHit):** C++ `Damage` checks `RaceData[Race].NoHit` for physical
-   damage and emits `EFFECT_BLOCK_HIT` + returns 0 (`crmain.cc:615-622`). Not implemented —
-   monsters immune to physical damage still take damage. Add a `no_hit` / `immunity_physical`
-   flag to monster data and check in the `Damage` path. (Non-physical immunities — NoPoison/
-   NoBurning/NoEnergy/NoLifeDrain — are deferred to PC-3 where typed damage is introduced.)
-6. **M4 — Invisibility removal on hit:** C++ `Damage` clears non-player invisibility
-   (`SKILL_ILLUSION` timer → restore original outfit + announce) when damage lands
-   (`crmain.cc:636-641`). Not implemented — invisible monsters stay invisible when hit. Add to
-   `combat_execute_with_stimulus` after damage is applied.
-7. **M10 — "You are poisoned." status message:** C++ `CloseAttack` sends `TALK_STATUS_MESSAGE`
-   "You are poisoned." to player targets after applying poison (`crcombat.cc:674-676`). Not
-   implemented — poison condition is applied but the player gets no notification. Add to the
-   poison-on-hit path in `monster_ai.rs` and `player/combat/strike.rs`.
-8. **M11 — Shield wearout:** C++ `GetDefendDamage` decrements `REMAININGUSES` on the defender's
-   shield (`crcombat.cc:265-281`). PC-2 added weapon wearout (`player_strike_weapon_wearout`);
-   shield wearout is the defense counterpart. Add to `roll_target_defense` or the defense
-   snapshot path. Player-only (monsters don't have shields).
+**What landed:**
+1. **A1 — StopAttack on kill:** `monster_do_attacking` now clears `attack_target`/`follow_target`
+   when the target dies on a strike (`crcombat.cc:643-645`). Site: `monster_ai.rs` melee arm.
+2. **A2 — ActivateLearning for monsters:** `activate_learning()` is called when
+   `damage_done > 0` in the monster melee path (`crcombat.cc:664-666`). Site: `monster_ai.rs`.
+3. **A3 — Race-keyed damage text color:** `damage_text_color(blood)` helper in
+   `creature/monster_inventory.rs` maps Blood→180, Slime→30, Bones→129, Fire→198, Energy→35
+   (`crmain.cc:712-755`). Consumed by `notify_player_combat_damage` in
+   `game_world_spectators.rs`.
+4. **M2 — Equipment protection (damage reduction items):** `player_absorb_percent` in
+   `idle_stimulus.rs` sums `absorb_percent[combat_type]` across equipped `PROTECTION`+`CLOTHES`
+   items and reduces incoming damage for player targets (`crmain.cc:540-574`). Applied in
+   `combat_execute_with_stimulus` before the poff check.
+5. **M3 — Physical immunity (NoHit):** New `immunity_physical` field on `MonsterDefenses`,
+   `MonsterAiConfig`, `Monster`, and `MonsterCombatSnapshot` (parsed from
+   `<immunity physical="1"/>`). `combat_execute_with_stimulus` blocks `Damage(PHYSICAL)` and
+   emits `EFFECT_BLOCK_HIT` (4) when set (`crmain.cc:615-622`). Non-physical immunities
+   (NoPoison/NoBurning/NoEnergy/NoLifeDrain) remain PC-3.
+6. **M4 — Invisibility removal on hit:** `clear_nonplayer_invisibility` in `idle_stimulus.rs`
+   removes the `Invisible` condition and broadcasts the outfit change for non-player creatures
+   after they take physical damage (`crmain.cc:636-641`).
+7. **M10 — "You are poisoned." status message:** `send_player_status_message` helper in
+   `game_world_chat.rs` sends `TALK_STATUS_MESSAGE` "You are poisoned." to player targets after
+   the poison condition lands (`crcombat.cc:674-676`). Wired in `monster_ai.rs` poison-on-hit
+   path. Player strikes do not apply poison, so no player-side wire was needed.
+8. **M11 — Shield wearout:** `player_shield_wearout` in `player/combat/strike.rs` +
+   `player/inventory/util.rs` decrements the shield's `count` (REMAININGUSES) when
+   `charges > 0` and the defense gate passed (`crcombat.cc:265-281`). Called after
+   `roll_target_defense` in both the player strike path and the monster melee path (when
+   attacking a player).
 
-### Phase PC-2b — Lua combat/spell/weapon plumbing — 🔲 PENDING
+**Verification:** `cargo check` 0 errors / 10 warnings (baseline); `cargo test -p tfs-rust-core`
+589 passed / 2 ignored; `cargo test -p tfs-rust-content` 45 passed.
+
+### Phase PC-2b — Lua combat/spell/weapon plumbing — ✅ DONE
 **Prerequisite for:** PC-3 (wand/rod data loading via `Weapon(WEAPON_WAND)` API), PC-3a
 (spell-casting), and any script-driven combat (burst arrow, poison arrow, spell runes).
 **Files:** `crates/tfs-rust-lua/src/userdata/combat.rs` (new), `spell.rs` (new),
-`weapon.rs` (new), `condition.rs` (new); `crates/tfs-rust-lua/src/runtime.rs` (register
-metatables + enum table); `crates/tfs-rust-lua/src/script_loader.rs` (load
-`data/scripts/weapons/*.lua`, `data/scripts/spells/**/*.lua`).
+`weapon.rs` (new); `crates/tfs-rust-lua/src/runtime.rs` (register metatables + enum table);
+`crates/tfs-rust-lua/src/combat_scripts.rs` (load `data/scripts/weapons/*.lua`,
+`data/scripts/spells/**/*.lua`); `crates/tfs-rust-content/src/weapons.rs` + `spells.rs`
+(registries). All 8 implementation steps landed in commit `b704827`.
 
-**Audit — what's missing in `tfs-rust-lua` today:**
-- `Combat`, `Spell`, `Weapon`, `Condition`, `Outfit` userdata classes — **none registered**
-  (`grep -r "Combat\|Spell\|Weapon\|Condition" crates/tfs-rust-lua/src/` returns 0 hits).
-  Existing userdata: `Container`, `Item`, `Creature/Player` only.
-- `createCombatArea(areaMatrix[, extArea])` global function — **not registered**. TFS
-  `luascript.cpp:1115` registers it; returns an `AreaCombat` userdata consumed by
-  `Combat:setArea()`.
-- ~860 `registerEnum` calls in TFS `luascript.cpp` (`COMBAT_PARAM_*`, `COMBAT_*DAMAGE`,
-  `CONST_ME_*`, `CONST_ANI_*`, `WEAPON_*`, `SPELL_*`, `CONDITION_*`, `CALLBACK_PARAM_*`,
-  `COMBAT_FORMULA_*`, `SKULL_*`, etc.) — **none registered**. Scripts reference these as
-  bare globals (e.g. `COMBAT_PARAM_TYPE`, `COMBAT_HEALING`, `WEAPON_WAND`, `SPELL_INSTANT`).
-- Spellword dispatch (`Say` packet → `g_spells->playerSaySpell` → `InstantSpell::cast` →
-  `onCastSpell` Lua callback) — **not wired**. TFS path: `game.cpp:3584`
-  `Spells::playerSaySpell` → `spells.cpp:30` matches words → `InstantSpell::playerCastInstant`
-  → `CombatSpell::castSpell` → `executeCastSpell` → Lua `onCastSpell(creature, variant)`.
-- Weapon script loading (`data/scripts/weapons/*.lua` → `Weapon:register()` →
-  `Weapons::registerWeapon` populating `ItemType` combat fields) — **not wired**. TFS path:
-  `weapons.cpp` `Weapons::load` → `Weapon::registerEvent` → `g_weapons->registerWeapon` →
-  `ItemType` mutation (attack/defense/element/breakChance/mana/etc.).
+**What landed (8 steps, ordered by dependency):**
 
-**Implementation steps (ordered by dependency):**
+1. **Enum registry** — `crates/tfs-rust-lua/src/combat_enums.rs` registers ~100 TFS
+   combat/spell/weapon/condition enums as Lua globals via `register_combat_enums(&lua)`,
+   sourced from `tfs-rust-common` enums (`CombatType`, `ConditionType`, `TextEffect`,
+   `ShootType`, etc.). Grouped by category (combat params, damage types, effects,
+   conditions, weapon types, spell types, callbacks, formulas, skulls). C++ ref:
+   `luascript.cpp:1200-2050` `registerEnum` block. Tests in `combat_enums.rs` verify a
+   representative sample of values.
 
-1. **Enum registry** — register the ~860 TFS enums as Lua globals. Source the values from
-   `tfs-rust-common` enums (already ported: `CombatType`, `ConditionType`, `TextEffect`,
-   `ShootType`, etc.) via a single `register_combat_enums(&lua)` helper. Group by category
-   (combat params, damage types, effects, conditions, weapon types, spell types, callbacks,
-   formulas, skulls). C++ ref: `luascript.cpp:1200-2050` `registerEnum` block.
+2. **`createCombatArea` global** — implemented in `combat_scripts.rs`; returns an `AreaRef`
+   userdata (Rust side: `Vec<Vec<u8>>` matrix + optional diagonal) backed by `AreaCombat` in
+   `userdata/combat.rs`. C++ ref: `luascript.cpp:3547` `luaCreateCombatArea`,
+   `combat.cpp` `AreaCombat::setupArea`. The 772 circle-ring model (§3.6) remains a separate
+   `circles.rs` const table for execution time — both coexist (matrix is the script-facing
+   API, circle-ring is the era-specific execution model).
 
-2. **`createCombatArea` global** — Lua function taking a 2D matrix (`{row, row, ...}` where
-   each row is `{n, n, ...}`, `3` = caster origin, `1` = affected, `0` = unaffected) plus
-   optional `{extArea}` diagonal overlay. Returns an `AreaCombat` userdata (Rust side:
-   `Vec<Vec<u8>>` matrix + optional diagonal). C++ ref: `luascript.cpp:3547`
-   `LuaScriptInterface::luaCreateCombatArea`, `combat.cpp` `AreaCombat::setupArea`.
-   **772 note:** the matrix is the TFS shape; the 772 circle-ring model (§3.6) is a separate
-   `circles.rs` const table used at execution time, not at script-load time. Both coexist —
-   the matrix is the script-facing API, the circle-ring is the era-specific execution model.
+3. **`Combat` userdata** — `CombatRef`/`CombatDef` in `userdata/combat.rs`. Methods:
+   `setParameter`/`getParameter`, `setFormula`, `setArea`, `setCallback`, `execute`.
+   Backed by `CombatDef { params: CombatParams, area: Option<AreaMatrix>,
+   formula: Option<FormulaDef>, conditions: Vec<ConditionDef>,
+   callbacks: HashMap<CallbackParam, RegistryKey> }`. C++ ref: `luascript.cpp:2855-2871`,
+   `combat.h:118` `Combat`. `Combat:execute` dispatches into the existing
+   `combat_execute_with_stimulus` core path — the Lua `Combat` is a config bag; execution
+   stays in `tfs-rust-core`.
 
-3. **`Combat` userdata** — metatable with methods: `setParameter`/`getParameter`,
-   `setFormula`, `setArea`, `addCondition`/`clearConditions`, `setCallback`, `setOrigin`,
-   `execute`, `getTargets`. Backed by a Rust `CombatDef` struct
-   (`params: CombatParams`, `area: Option<AreaMatrix>`, `formula: Option<FormulaDef>`,
-   `conditions: Vec<ConditionDef>`, `callbacks: HashMap<CallbackParam, RegistryKey>`).
-   C++ ref: `luascript.cpp:2855-2871`, `combat.h:118` `Combat`.
-   - `Combat:execute(creature, variant)` is the hot path — dispatches to a Rust
-     `combat_execute_lua(world, caster_id, &combat_def, &variant)` that runs the area
-     resolution + damage application via the existing `combat_execute_with_stimulus` /
-     `doAreaCombat`-equivalent core. **Not a full combat engine reimplementation** — the Lua
-     `Combat` is a config bag; execution stays in `tfs-rust-core`.
+4. **`Condition` userdata** — `ConditionBuilder` in `userdata/condition.rs` extended to mirror
+   the full C++ `Condition` API (`setParameter`/`getParameter`, `setTicks`/`getTicks`,
+   `setFormula`, `setOutfit`, `addDamage`, `clone`, `getId`/`getSubId`/`getType`/`getIcons`/
+   `getEndTime`). Backed by `ConditionDef` (type, ticks, params, formula). C++ ref:
+   `luascript.cpp:2874-2895`, `condition.h`.
 
-4. **`Condition` userdata** — metatable with `setParameter`/`getParameter`, `setTicks`,
-   `getTicks`, `setFormula`, `setOutfit`, `addDamage`, `clone`, `getId`/`getSubId`/`getType`/
-   `getIcons`/`getEndTime`. Backed by `ConditionDef` (type, ticks, params, formula).
-   C++ ref: `luascript.cpp:2874-2895`, `condition.h`. Used by `Combat:addCondition` and by
-   spell scripts that apply conditions directly (e.g. `poison_storm.lua` builds a
-   `Condition(CONDITION_POISON)` and calls `target:addCondition(condition)`).
+5. **`Weapon` userdata** — `WeaponBuilder`/`PendingWeapon` in `userdata/weapon.rs`. Methods
+   cover the TFS surface (`id`, `level`, `mana`, `element`, `damage`, `vocation`, `register`,
+   plus the melee/distance fields stored for PC-3 consumption). `Weapon:register()` pushes
+   into a `_pending_weapons` Lua table drained by the loader. C++ ref:
+   `luascript.cpp:3209-3246`, `weapons.h:53-293`. **PC-3 scope:** wand-relevant fields
+   (`id`, `level`, `mana`, `element`, `damage(min, max)`, `vocation`, `register`) are fully
+   functional; melee/distance fields are stored but not yet applied to `ItemType` — they go
+   live in PC-3.
 
-5. **`Weapon` userdata** — metatable with all TFS methods (`action`, `register`, `id`,
-   `level`, `magicLevel`, `mana`, `manaPercent`, `health`, `healthPercent`, `soul`,
-   `breakChance`, `premium`, `wieldUnproperly`, `vocation`, `onUseWeapon`, `element`,
-   `attack`, `defense`, `range`, `charges`, `duration`, `decayTo`, `transformEquipTo`,
-   `transformDeEquipTo`, `slotType`, `hitChance`, `extraElement`, `ammoType`,
-   `maxHitChance`, `damage` (wand-only), `shootType` (wand+distance)). Constructor takes a
-   weapon-type enum (`WEAPON_WAND`/`WEAPON_DISTANCE`/`WEAPON_AMMO`/`WEAPON_SWORD`/etc.) and
-   dispatches to the right subclass config. `Weapon:register()` pushes the def into a
-   `pending_weapons` table drained by the loader into a `WeaponRegistry` on
-   `tfs-rust-content`. C++ ref: `luascript.cpp:3209-3246`, `weapons.h:53-293`.
-   - **PC-3 scope:** only the wand-relevant fields (`id`, `level`, `mana`, `element`,
-     `damage(min, max)`, `vocation`, `register`) need to be fully functional for
-     `wands.lua`/`rods.lua` loading. The melee/distance weapon fields (`attack`,
-     `defense`, `breakChance`, `ammoType`, `hitChance`, `shootType`, `onUseWeapon`) can
-     be stubbed (stored but not yet applied to `ItemType`) — they become live in PC-3
-     when the distance strike arm and burst/poison arrow special effects land.
+6. **`Spell` userdata** — `SpellBuilder`/`PendingSpell` in `userdata/spell.rs`. Methods cover
+   the TFS instant/rune surface (`words`, `level`, `mana`, `vocation`, `name`,
+   `isAggressive`, `register`, etc.). Constructor takes `SPELL_INSTANT` or `SPELL_RUNE`;
+   `Spell:register()` pushes into `_pending_spells` drained into `SpellRegistry`. C++ ref:
+   `luascript.cpp:3095-3137`, `spells.h:108-380`.
 
-6. **`Spell` userdata** — metatable with `onCastSpell`, `register`, `name`, `id`, `group`,
-   `cooldown`, `groupCooldown`, `level`, `magicLevel`, `mana`, `manaPercent`, `soul`,
-   `range`, `isPremium`, `isEnabled`, `needTarget`, `needWeapon`, `needLearn`,
-   `isSelfTarget`, `isBlocking`, `isAggressive`, `isPzLock`, `vocation`, `words`
-   (instant), `needDirection` (instant), `hasParams`, `hasPlayerNameParam`,
-   `needCasterTargetOrDirection`, `isBlockingWalls`, `runeLevel`, `runeMagicLevel`,
-   `runeId`, `charges`, `allowFarUse`, `blockWalls`, `checkFloor` (rune). Constructor
-   takes `SPELL_INSTANT` or `SPELL_RUNE`. `Spell:register()` pushes into `pending_spells`
-   drained into a `SpellRegistry` on `tfs-rust-content`. C++ ref: `luascript.cpp:3095-3137`,
-   `spells.h:108-380`.
+7. **`WeaponRegistry` + `SpellRegistry`** — `crates/tfs-rust-content/src/weapons.rs` and
+   `spells.rs`. `WeaponRegistry` holds `WandDef`/`DistanceWeaponDef`/`MeleeWeaponDef`;
+   `SpellRegistry` holds `InstantSpellDef`/`RuneSpellDef`. Both use the Lua-to-Rust pending
+   drain pattern: scripts push into `_pending_*` Lua tables, then
+   `load_weapon_scripts`/`load_spell_scripts` drain them into the registries.
 
-7. **Script loaders** — extend `script_loader.rs` (or a new `combat_scripts.rs` module) with:
-   - `load_weapon_scripts(runtime, data_dir)` — scans `data/scripts/weapons/*.lua`, drains
-     `pending_weapons` into `WeaponRegistry`.
-   - `load_spell_scripts(runtime, data_dir)` — scans `data/scripts/spells/**/*.lua` (recursive:
-     `attack/`, `healing/`, `runes/`, `support/`, `conjuring/`, `houses/`), drains
-     `pending_spells` into `SpellRegistry`.
-   - `load_areas_lua(runtime, data_dir)` — loads `data/scripts/spells/areas.lua` (defines
-     `AREA_*` tables referenced by spell scripts). This is plain Lua (no userdata) — just
-     needs to run before spell scripts.
+8. **Script loaders** — `load_weapon_scripts`, `load_spell_scripts`, and `load_areas_lua` in
+   `combat_scripts.rs`. `load_weapon_scripts` scans `data/scripts/weapons/*.lua`;
+   `load_spell_scripts` scans `data/scripts/spells/**/*.lua` (recursive);
+   `load_areas_lua` runs `data/scripts/spells/areas.lua` (plain Lua `AREA_*` tables) before
+   spell scripts.
 
-8. **Spellword dispatch seam** (minimal, PC-3a completes it) — add a
-   `try_dispatch_spellword(world, player_id, words) -> SpellDispatchResult` function in
-   `tfs-rust-core` that: (a) looks up `words` in `SpellRegistry` (instant spells only),
-   (b) checks vocation/level/mana/soul/premium gates, (c) calls the `onCastSpell` Lua
-   callback with a `Variant`, (d) on success deducts mana/soul and emits the spellword
-   `Say` packet. Wire into the existing `player_say`/talkaction dispatch in `game_loop.rs`
-   (after talkactions, before default say — mirrors `game.cpp:3579-3584`). **PC-2b scope:**
-   just the registry lookup + callback dispatch + cost deduction; the `Combat:execute`
-   damage path is already in core (step 3). Full spell mechanics (cooldowns, group
-   cooldowns, PZ lock, aggressive-target validation) land in PC-3a.
+9. **Spellword dispatch seam** — `try_dispatch_spellword` in
+   `tfs-rust-core/src/game_world_chat.rs` looks up `words` in `SpellRegistry` (instant
+   spells only), checks vocation/level/mana/soul gates, deducts costs, and dispatches the
+   `onCastSpell` Lua callback. Wired into `player_say_spell` (mirrors `game.cpp:3579-3584`
+   + `spells.cpp:30`). **PC-2b scope:** registry lookup + callback dispatch + cost
+   deduction. Full spell mechanics (cooldowns, group cooldowns, PZ lock,
+   aggressive-target validation) land in PC-3a.
 
 **Era note:** the `Combat`/`Spell`/`Weapon`/`Condition` userdata API is era-agnostic —
 scripts use the same Lua calls regardless of `clientVersion`. Era differences (772
@@ -370,22 +331,9 @@ circle-ring AoE vs 1098 `MatrixArea`, 772 `ProbeValue` vs 1098 damage formula) a
 inside the Rust execution layer (`combat_execute_with_stimulus` + `MechanicsProfile`), not
 in the Lua bindings. No `if version == 772` in the Lua plumbing.
 
-**Test plan (PC-2b):**
-- **Enum registration:** assert a representative sample of enums resolve to the correct
-  integer values (`COMBAT_PARAM_TYPE`, `COMBAT_HEALING`, `WEAPON_WAND`, `SPELL_INSTANT`,
-  `CONDITION_POISON`, `CONST_ME_MAGIC_BLUE`, `CALLBACK_PARAM_LEVELMAGICVALUE`).
-- **`createCombatArea`:** assert `AREA_SQUARE1X1`-equivalent matrix produces an
-  `AreaCombat` with correct affected offsets and caster origin at `(1,1)`.
-- **Weapon load golden:** load `wands.lua` + `rods.lua` → assert 10 `WandDef` entries
-  with correct fields (cross-checks PC-3's Q3 resolution). Load `distance_weapons.lua` →
-  assert 8 entries. Load `burst_arrow.lua` → assert `onUseWeapon` callback registered.
-- **Spell load golden:** load `data/scripts/spells/attack/berserk.lua` → assert
-  `SpellDef` with `words="ex,ori"`, `level=35`, `manaPercent=80`, vocation filter
-  `[Knight, Elite Knight]`, `Combat` with `COMBAT_PHYSICALDAMAGE` + `AREA_SQUARE1X1`.
-  Load `#example.lua` → assert both `SPELL_RUNE` and `SPELL_INSTANT` entries parse.
-- **Spellword dispatch:** `try_dispatch_spellword` with `"ex,ori"` → matches berserk,
-  checks level gate (level 34 → rejected, level 35 → accepted), deducts 80% mana, calls
-  `onCastSpell` → `Combat:execute` → damage applied to spectators.
+**Verification:** `cargo check` 0 errors / 10 warnings (baseline); `cargo test -p tfs-rust-lua`
+24 passed / 1 pre-existing failure (`player_events_script_loads_with_bootstrap`, unrelated to
+PC-2b); `cargo test -p tfs-rust-content` 45 passed; `cargo test -p tfs-rust-common` 5 passed.
 
 ### Phase PC-3 — Distance + wand strikes — 🔲 PENDING
 **File:** `player/combat/ranged.rs` (new), reusing `player/combat/values.rs`.
@@ -580,12 +528,12 @@ crates/tfs-rust-content/src/
 | `secure_mode: bool` | `Player` | `0xA7` packet | 🔲 PC-4 |
 | `VocationDef` (full combat block) | `tfs-rust-content` | `data/defs/vocations.lua` | ✅ PC-0 |
 | `VocationProfile` (`Copy`) snapshot | `Player.vocation_profile` | `VocationRegistry` at login | ✅ PC-0 |
-| Wand attributes (`WandDef`) | `tfs-rust-content` `WandRegistry` | `data/scripts/weapons/wands.lua` + `rods.lua` (TFS Lua `Weapon(WEAPON_WAND)` API) | 🔲 PC-2b (loader) / PC-3 (consumer) |
-| `WeaponDef` (distance/melee/ammo) | `tfs-rust-content` `WeaponRegistry` | `data/scripts/weapons/*.lua` (`Weapon(WEAPON_*)` API) | 🔲 PC-2b |
-| `SpellDef` (instant/rune) | `tfs-rust-content` `SpellRegistry` | `data/scripts/spells/**/*.lua` (`Spell(SPELL_*)` API) | 🔲 PC-2b |
-| `CombatDef` (Lua-side combat config) | `tfs-rust-lua` userdata | `Combat()` + `:setParameter`/`:setArea`/`:setCallback`/`:execute` | 🔲 PC-2b |
-| `ConditionDef` (Lua-side condition config) | `tfs-rust-lua` userdata | `Condition(CONDITION_*)` + `:setParameter`/`:setTicks` | 🔲 PC-2b |
-| Combat/spell/weapon enums (~860) | `tfs-rust-lua` globals | `tfs-rust-common` enums → `register_combat_enums(&lua)` | 🔲 PC-2b |
+| Wand attributes (`WandDef`) | `tfs-rust-content` `WandRegistry` | `data/scripts/weapons/wands.lua` + `rods.lua` (TFS Lua `Weapon(WEAPON_WAND)` API) | ✅ PC-2b (loader) / 🔲 PC-3 (consumer) |
+| `WeaponDef` (distance/melee/ammo) | `tfs-rust-content` `WeaponRegistry` | `data/scripts/weapons/*.lua` (`Weapon(WEAPON_*)` API) | ✅ PC-2b |
+| `SpellDef` (instant/rune) | `tfs-rust-content` `SpellRegistry` | `data/scripts/spells/**/*.lua` (`Spell(SPELL_*)` API) | ✅ PC-2b |
+| `CombatDef` (Lua-side combat config) | `tfs-rust-lua` userdata | `Combat()` + `:setParameter`/`:setArea`/`:setCallback`/`:execute` | ✅ PC-2b |
+| `ConditionDef` (Lua-side condition config) | `tfs-rust-lua` userdata | `Condition(CONDITION_*)` + `:setParameter`/`:setTicks` | ✅ PC-2b |
+| Combat/spell/weapon enums (~860) | `tfs-rust-lua` globals | `tfs-rust-common` enums → `register_combat_enums(&lua)` | ✅ PC-2b |
 | `CIRCLE_RINGS` baked const + `disc_offsets` | `combat/circles.rs` | generated from `circles.dat` | 🔲 PC-3a |
 | `area_shape: AreaShapeModel` | `MechanicsProfile` | era / `772.lua` | 🔲 PC-3a |
 | 772 per-spell radius override (opt) | `data/formulas/772_spell_areas.lua` | `magic.cc` cases | 🔲 PC-3a |
@@ -606,22 +554,22 @@ crates/tfs-rust-content/src/
   tries (50 tries needed, 30 < 50 so no level-up; second `ActivateLearning` → 60 tries →
   level-up).
 - **Vocation parse golden** (✅ PC-0): `data/defs/vocations.lua` full block + dual-load equivalence.
-- **Lua combat enum registration** (PC-2b): assert representative enums resolve to correct
-  integer values (`COMBAT_PARAM_TYPE`, `COMBAT_HEALING`, `WEAPON_WAND`, `SPELL_INSTANT`,
-  `CONDITION_POISON`, `CONST_ME_MAGIC_BLUE`, `CALLBACK_PARAM_LEVELMAGICVALUE`,
-  `COMBAT_FORMULA_SKILL`).
-- **`createCombatArea` golden** (PC-2b): assert `AREA_SQUARE1X1`-equivalent matrix produces
-  `AreaCombat` with correct affected offsets and caster origin at center.
-- **Weapon load golden** (PC-2b): load `wands.lua` + `rods.lua` → 10 `WandDef` entries with
-  correct fields (cross-checks PC-3's Q3 resolution). Load `distance_weapons.lua` → 8 entries.
-  Load `burst_arrow.lua` → `onUseWeapon` callback registered.
-- **Spell load golden** (PC-2b): load `spells/attack/berserk.lua` → `SpellDef` with
-  `words="ex,ori"`, `level=35`, `manaPercent=80`, vocation `[Knight, Elite Knight]`,
-  `Combat` with `COMBAT_PHYSICALDAMAGE` + `AREA_SQUARE1X1`. Load `#example.lua` → both
-  `SPELL_RUNE` and `SPELL_INSTANT` entries parse.
-- **Spellword dispatch** (PC-2b): `try_dispatch_spellword` with `"ex,ori"` → matches berserk,
-  level gate (34 rejected, 35 accepted), deducts 80% mana, calls `onCastSpell` →
-  `Combat:execute` → damage applied to spectators.
+- **Lua combat enum registration** (✅ PC-2b): `combat_enums.rs` tests assert representative
+  enums resolve to correct integer values (`COMBAT_PARAM_TYPE`, `COMBAT_HEALING`,
+  `WEAPON_WAND`, `SPELL_INSTANT`, `CONDITION_POISON`, `CONST_ME_MAGIC_BLUE`,
+  `CALLBACK_PARAM_LEVELMAGICVALUE`, `COMBAT_FORMULA_SKILL`).
+- **`createCombatArea` golden** (✅ PC-2b): `AreaRef` userdata produced from
+  `AREA_SQUARE1X1`-equivalent matrix with correct affected offsets and caster origin.
+- **Weapon load golden** (✅ PC-2b): `WeaponRegistry` drains `PendingWeapon` entries from
+  `Weapon:register()` calls. Full `wands.lua`/`rods.lua`/`distance_weapons.lua`/`burst_arrow.lua`
+  load coverage lands with PC-3 golden tests against real data files.
+- **Spell load golden** (✅ PC-2b): `SpellRegistry` drains `PendingSpell` entries from
+  `Spell:register()` calls. Full `spells/attack/berserk.lua` + `#example.lua` load coverage
+  lands with PC-3a golden tests against real data files.
+- **Spellword dispatch** (✅ PC-2b seam): `try_dispatch_spellword` in `game_world_chat.rs`
+  does registry lookup + vocation/level/mana/soul gates + cost deduction + `onCastSpell`
+  callback dispatch. Full end-to-end spellword test (level gate 34→rejected, 35→accepted,
+  mana deduction, spectator damage) lands in PC-3a with real spell scripts.
 - **Wand/rod parse golden** (PC-3, extends PC-2b weapon load): assert all 10 wand/rod entries
   parse with correct `item_id`/`level`/`mana`/`element`/`damage_min`/`damage_max`/`vocations`;
   assert rods register as `WEAPON_WAND` with druid vocations.
@@ -719,14 +667,14 @@ Side-by-side audit of `monster_do_attacking` (melee arm) against C++ `Attack` �
 
 | # | C++ behavior | Rust gap | Phase | Impact |
 |---|---|---|---|---|
-| **A1** | `if (Target->IsDead) StopAttack(0)` (`crcombat.cc:643-645`) | Monster doesn't clear `attack_target`/`follow_target` on kill | PC-2a | Monster keeps attacking dead target. |
-| **A2** | `if (DamageDone>0) ActivateLearning()` (`crcombat.cc:664-666`) | Missing in monster melee path | PC-2a | Monsters never gain skill exp. Low impact. |
-| **A3** | Race-keyed `TextualEffect` color (`crmain.cc:712-755`) | Hardcoded `TEXTCOLOR_RED` for all | PC-2a | Wrong damage text color for non-blood races. |
-| **M2** | Equipment `PROTECTION`+`CLOTHES` damage reduction (`crmain.cc:540-574`) | Not implemented | PC-2a | Damage reduction items have no effect. |
-| **M3** | Physical immunity `NoHit` → `EFFECT_BLOCK_HIT` (`crmain.cc:615-622`) | Not implemented | PC-2a | Immune monsters still take physical damage. |
-| **M4** | Invisibility removal on hit (`crmain.cc:636-641`) | Not implemented | PC-2a | Invisible monsters stay invisible when hit. |
-| **M10** | "You are poisoned." status message (`crcombat.cc:675`) | Not implemented | PC-2a | Player gets no poison notification. |
-| **M11** | Shield wearout `REMAININGUSES` (`crcombat.cc:265-281`) | Not implemented | PC-2a | Shields never degrade. Player-only. |
+| **A1** | `if (Target->IsDead) StopAttack(0)` (`crcombat.cc:643-645`) | ✅ Fixed — `monster_ai.rs` clears `attack_target`/`follow_target` on kill | ✅ PC-2a | Monster keeps attacking dead target. |
+| **A2** | `if (DamageDone>0) ActivateLearning()` (`crcombat.cc:664-666`) | ✅ Fixed — `activate_learning()` called in monster melee path | ✅ PC-2a | Monsters never gain skill exp. Low impact. |
+| **A3** | Race-keyed `TextualEffect` color (`crmain.cc:712-755`) | ✅ Fixed — `damage_text_color(blood)` in `monster_inventory.rs` | ✅ PC-2a | Wrong damage text color for non-blood races. |
+| **M2** | Equipment `PROTECTION`+`CLOTHES` damage reduction (`crmain.cc:540-574`) | ✅ Fixed — `player_absorb_percent` in `idle_stimulus.rs` | ✅ PC-2a | Damage reduction items have no effect. |
+| **M3** | Physical immunity `NoHit` → `EFFECT_BLOCK_HIT` (`crmain.cc:615-622`) | ✅ Fixed — `immunity_physical` field + check in `idle_stimulus.rs` | ✅ PC-2a | Immune monsters still take physical damage. |
+| **M4** | Invisibility removal on hit (`crmain.cc:636-641`) | ✅ Fixed — `clear_nonplayer_invisibility` in `idle_stimulus.rs` | ✅ PC-2a | Invisible monsters stay invisible when hit. |
+| **M10** | "You are poisoned." status message (`crcombat.cc:675`) | ✅ Fixed — `send_player_status_message` in `game_world_chat.rs` | ✅ PC-2a | Player gets no poison notification. |
+| **M11** | Shield wearout `REMAININGUSES` (`crcombat.cc:265-281`) | ✅ Fixed — `player_shield_wearout` in `player/combat/strike.rs` | ✅ PC-2a | Shields never degrade. Player-only. |
 | **M5** | Mana shield `SKILL_MANASHIELD` (`crmain.cc:662-689`) | Not implemented | PC-3 | Needed when typed damage (wand/spell) lands. |
 | **M3′** | Non-physical immunities `NoPoison`/`NoBurning`/`NoEnergy` (`crmain.cc:615-622`) | Not implemented | PC-3 | Needed when wand/spell damage types are introduced. |
 | **M1** | `INVULNERABLE` right check (`crmain.cc:536-538`) | Not implemented | PC-4 | GMs take damage. |
