@@ -87,6 +87,8 @@ pub struct MonsterCombatSnapshot {
     pub immunity_fire: bool,
     /// `<immunity energy="1"/>` — `crmain.cc:550` `RaceData[Race].NoEnergy`.
     pub immunity_energy: bool,
+    /// `<immunity lifedrain="1"/>` — `crmain.cc:619` `RaceData[Race].NoLifeDrain`. PC-3 (M3′).
+    pub immunity_life_drain: bool,
     /// `<immunity invisible="1"/>` — `crmain.cc:1493` `RaceData[Race].SeeInvisible`.
     pub see_invisible: bool,
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`.
@@ -140,6 +142,7 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
         immunity_poison: mtype.defenses.immunity_poison,
         immunity_fire: mtype.defenses.immunity_fire,
         immunity_energy: mtype.defenses.immunity_energy,
+        immunity_life_drain: mtype.defenses.immunity_life_drain,
         see_invisible: mtype.defenses.see_invisible,
         immunity_physical: mtype.defenses.immunity_physical,
         ..MonsterCombatSnapshot::default()

@@ -682,6 +682,7 @@ mod tests {
                 immunity_poison: false,
                 immunity_fire: false,
                 immunity_energy: false,
+                immunity_life_drain: false,
                 see_invisible: false,
                 immunity_physical: false,
             },

@@ -63,6 +63,10 @@ pub struct ItemType {
     pub attack_speed: u32,
     /// `range` — `ItemType::shootRange`; default `1` (`src/items.h` / `items.cpp` `parseItemNode`).
     pub shoot_range: i32,
+    /// `shoottype` — `ItemType::shootType` mapped to `ShootEffect` (`AMMOMISSILE`/`THROWMISSILE`/
+    /// `WANDMISSILE` in 772 `crcombat.cc:768,781,716`). `None` when unset. PC-3: ranged strike
+    /// projectile animation. Parsed from `items.xml` `shoottype` attribute.
+    pub shoot_effect: Option<u8>,
     /// `hitchance` — `ItemType::hitChance` (`int8_t`), clamped in C++ to `[-100, 100]` (`items.cpp`).
     pub hit_chance: i8,
     /// `maxhitchance` — `ItemType::maxHitChance` (`int32_t`), default `-1` (`src/items.h`).
@@ -135,6 +139,7 @@ impl Default for ItemType {
             armor: 0,
             attack_speed: 0,
             shoot_range: 1,
+            shoot_effect: None,
             hit_chance: 0,
             max_hit_chance: -1,
             moveable_override: None,

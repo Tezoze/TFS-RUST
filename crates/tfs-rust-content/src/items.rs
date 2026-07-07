@@ -620,6 +620,32 @@ fn parse_xml_bool(value: &str) -> Option<bool> {
     }
 }
 
+/// C++ `getShootType` — `src/items.cpp` ~846 (`ITEM_PARSE_SHOOTTYPE`).
+/// Maps `items.xml` `shoottype` string → `ShootEffect` byte (`const.h` `ShootType_t`).
+/// Returns `None` for unknown values (C++ warns and leaves `SHOOT_NONE`).
+fn parse_shoot_type(value: &str) -> Option<u8> {
+    use tfs_rust_common::enums::ShootEffect;
+    let v = value.to_ascii_lowercase();
+    Some(match v.as_str() {
+        "spear" => ShootEffect::Spear as u8,
+        "bolt" => ShootEffect::Bolt as u8,
+        "arrow" => ShootEffect::Arrow as u8,
+        "fire" => ShootEffect::Fire as u8,
+        "energy" => ShootEffect::Energy as u8,
+        "poisonarrow" | "poison_arrow" => ShootEffect::PoisonArrow as u8,
+        "burstarrow" | "burst_arrow" => ShootEffect::BurstArrow as u8,
+        "throwingstar" | "throwing_star" => ShootEffect::ThrowingStar as u8,
+        "throwingknife" | "throwing_knife" => ShootEffect::ThrowingKnife as u8,
+        "smallstone" | "small_stone" => ShootEffect::SmallStone as u8,
+        "death" => ShootEffect::Death as u8,
+        "largerock" | "large_rock" => ShootEffect::LargeRock as u8,
+        "snowball" => ShootEffect::Snowball as u8,
+        "powerbolt" | "power_bolt" => ShootEffect::PowerBolt as u8,
+        "poison" => ShootEffect::Poison as u8,
+        _ => return None,
+    })
+}
+
 fn apply_nested_xml_attribute(item: &mut ItemType, parent_key: &str, key: &str, value: &str) {
     let composite = format!("{}.{}", parent_key.to_ascii_lowercase(), key.to_ascii_lowercase());
     item.xml_attributes.insert(composite, value.to_string());
@@ -899,6 +925,12 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
             if let Ok(v) = value.parse::<i32>() {
                 item.shoot_range = v;
             }
+        }
+        // C++ `ITEM_PARSE_SHOOTTYPE` — `src/items.cpp` ~846 (`shootType` → `ShootType_t`).
+        // 772 `AMMOMISSILE`/`THROWMISSILE`/`WANDMISSILE` resolve to the same projectile enum
+        // (`crcombat.cc:768,781,716`). PC-3: ranged strike projectile animation.
+        "shoottype" => {
+            item.shoot_effect = parse_shoot_type(value);
         }
         // C++ `ITEM_PARSE_HITCHANCE` — `src/items.cpp` ~851 (`hitChance` clamped to `[-100, 100]`).
         "hitchance" => {

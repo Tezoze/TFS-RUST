@@ -14,8 +14,8 @@ use tfs_rust_common::enums::CombatType;
 
 pub use math::{
     armor_reduction, attack_speed_ms, condition_tick, defense_gate_ms, defense_value,
-    distribute_experience, experience_for_level, melee_damage_after_defense_and_armor, probe_value,
-    pvp_exp_cap, req_skill_tries, spell_damage, weapon_damage, DotElement, FightMode,
+    distribute_experience, experience_for_level, melee_damage_after_defense_and_armor, probe_hit,
+    probe_value, pvp_exp_cap, req_skill_tries, spell_damage, weapon_damage, DotElement, FightMode,
 };
 pub use pvp::{
     can_player_attack_player, is_in_pvp_zone, is_protected, CombatDenyReason, PlayerPvpSnapshot,

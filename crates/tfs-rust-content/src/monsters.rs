@@ -45,6 +45,10 @@ pub struct MonsterDefenses {
     pub immunity_fire: bool,
     /// `<immunity energy="1"/>` — `crmain.cc:550` `RaceData[Race].NoEnergy`.
     pub immunity_energy: bool,
+    /// `<immunity lifedrain="1"/>` — `crmain.cc:619` `RaceData[Race].NoLifeDrain`. PC-3 (M3′):
+    /// non-physical immunity for `DAMAGE_LIFEDRAIN`; `Damage(LIFEDRAIN)` emits `EFFECT_BLOCK_HIT`
+    /// and returns 0.
+    pub immunity_life_drain: bool,
     /// `<immunity invisible="1"/>` — `crmain.cc:1493` `RaceData[Race].SeeInvisible`.
     pub see_invisible: bool,
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
@@ -485,6 +489,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         immunity_poison: false,
         immunity_fire: false,
         immunity_energy: false,
+        immunity_life_drain: false,
         see_invisible: false,
         immunity_physical: false,
     };
@@ -535,6 +540,10 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                     // C++ `RaceData[Race].NoEnergy` — `crmain.cc:550`.
                     if imm.attribute("energy").is_some_and(parse_bool_flag) {
                         defenses.immunity_energy = true;
+                    }
+                    // C++ `RaceData[Race].NoLifeDrain` — `crmain.cc:619`. PC-3 (M3′).
+                    if imm.attribute("lifedrain").is_some_and(parse_bool_flag) {
+                        defenses.immunity_life_drain = true;
                     }
                     // C++ `RaceData[Race].SeeInvisible` — `crmain.cc:1493`.
                     if imm.attribute("invisible").is_some_and(parse_bool_flag) {

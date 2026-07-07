@@ -17,6 +17,7 @@
 //! `follow_target` so the shared `Go`/pathfinding arms (which key off `follow_target`) repath
 //! toward the target on the attack beat.
 
+pub(crate) mod ranged;
 pub(crate) mod strike;
 pub(crate) mod values;
 
@@ -57,6 +58,10 @@ pub(crate) enum CombatResult {
     /// player weapon-combat system (PVP `IsAttackJustified` check, `crcombat.cc:374-381`).
     #[allow(dead_code)]
     SecureMode,
+    /// `OUTOFAMMO` — no ammo for bow, or insufficient mana for wand (`crcombat.cc:725,757`).
+    /// 772 `sending.cc:348` `default: break` — no message sent; the catch path still does
+    /// `ToDoWait(1000)` + `ToDoStart` (`crplayer.cc:395-401`).
+    OutOfAmmo,
 }
 
 impl CombatResult {
@@ -67,6 +72,7 @@ impl CombatResult {
             CombatResult::ProtectionZone => ReturnValue::ActionNotPermittedInProtectionZone,
             CombatResult::AttackNotAllowed => ReturnValue::YouMayNotAttackThisCreature,
             CombatResult::SecureMode => ReturnValue::TurnSecureModeToAttackUnmarkedPlayers,
+            CombatResult::OutOfAmmo => ReturnValue::NotEnoughMana,
         }
     }
 
@@ -292,12 +298,25 @@ impl GameWorld {
             PlayerChaseOutcome::Adjacent
         } else {
             // `CHASE_MODE_NONE` (or RANGE, which 772 players cannot set via `SetChaseMode`): no
-            // chase walk. C++ `CanToDoAttack` does nothing, then `Attack()` checks
-            // `Range == 1 && Distance > 1` → `throw TARGETOUTOFRANGE` (`crcombat.cc:611-614`).
-            // The `Execute` catch does `ToDoYield` (re-arm) — no `SendResult` (TARGETOUTOFRANGE
-            // falls through to `default: break` in `sending.cc:348`). `DelayAttack(200)` was
-            // already applied in `Attack()` before the range check (`crcombat.cc:608`).
-            if cheb > 1 {
+            // chase walk. C++ `CanToDoAttack` does nothing, then `Attack()` checks the weapon
+            // `Range` vs `Distance` (`crcombat.cc:611-639`).
+            //
+            // Ranged weapon (range ≥ 2): `Attack()` dispatches to `DistanceAttack`/`WandAttack`
+            // when `Distance ≤ Range` and `abs(dx) ≤ 7 && abs(dy) ≤ 5` (`crcombat.cc:617-627`).
+            // Otherwise `TARGETOUTOFRANGE` (re-arm, no message).
+            //
+            // Melee weapon (range 1): `Distance > 1` → `TARGETOUTOFRANGE` (`crcombat.cc:613-614`).
+            let weapon_range = self.player_weapon_range(cid);
+            if weapon_range >= 2 {
+                // Ranged weapon — check the 7×5 visible window + weapon range.
+                let dx = (pos.x as i32 - target_pos.x as i32).abs();
+                let dy = (pos.y as i32 - target_pos.y as i32).abs();
+                if dx > 7 || dy > 5 || cheb > weapon_range {
+                    PlayerChaseOutcome::OutOfRange
+                } else {
+                    PlayerChaseOutcome::RangedStrike
+                }
+            } else if cheb > 1 {
                 PlayerChaseOutcome::OutOfRange
             } else {
                 PlayerChaseOutcome::Adjacent
@@ -348,17 +367,23 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::Adjacent => {
-                // `CloseAttack` melee strike — `crcombat.cc:647`. `GetDistance()==1` (adjacent
-                // under `CHASE_MODE_CLOSE`, or `CHASE_MODE_NONE` standing still). The strike
-                // body lives in `player/combat/strike.rs` (extracted per §4.0); it handles
-                // `DelayAttack(200)` before + `DelayAttack(attackspeed)` after, damage/defense/
-                // armor, `ActivateLearning`, weapon wearout, and `StopAttack` on target death.
+                // `cheb ≤ 1` — strike range for any weapon. C++ `Attack()` checks `GetDistance()`
+                // (`crcombat.cc:611-616`): range 1 → `CloseAttack`, range 2/3 → `DistanceAttack`/
+                // `WandAttack` (a ranged weapon at cheb=1 is still within its range). The strike
+                // bodies live in `player/combat/strike.rs` (melee) and `player/combat/ranged.rs`
+                // (ranged); both handle `DelayAttack(200)` before + `DelayAttack(attackspeed)`
+                // after, damage/defense/armor, `ActivateLearning`, and `StopAttack` on death.
                 if let Some(target_id) = self
                     .creatures
                     .get(cid)
                     .and_then(|k| k.base().attack_target)
                 {
-                    self.player_close_attack_strike(cid, target_id);
+                    let weapon_range = self.player_weapon_range(cid);
+                    if weapon_range >= 2 {
+                        self.player_ranged_attack_strike(cid, target_id);
+                    } else {
+                        self.player_close_attack_strike(cid, target_id);
+                    }
                 }
                 // Re-arm `TDAttack` on the attack beat (post-strike `attackspeed` cadence is
                 // already set by the strike; `todo_attack_delay_ms` reads `earliest_attack_ms`).
@@ -366,6 +391,25 @@ impl GameWorld {
                 let delay = self.todo_attack_delay_ms(cid).max(1);
                 self.todo_start_from_action(cid, delay);
                 trace_creature_todo(self, cid, "player_attack_strike");
+                TodoExecuteKind::AttackDeferred
+            }
+            PlayerChaseOutcome::RangedStrike => {
+                // Ranged weapon (bow/wand/throw) with target within weapon range and the 7×5
+                // visible window — `crcombat.cc:617-638` dispatches to `DistanceAttack`/
+                // `WandAttack`. The strike body lives in `player/combat/ranged.rs`; it handles
+                // range/LoS checks, mana/ammo consumption, damage, `ActivateLearning`, and
+                // `StopAttack` on target death.
+                if let Some(target_id) = self
+                    .creatures
+                    .get(cid)
+                    .and_then(|k| k.base().attack_target)
+                {
+                    self.player_ranged_attack_strike(cid, target_id);
+                }
+                let _ = self.enqueue_creature_attack(cid);
+                let delay = self.todo_attack_delay_ms(cid).max(1);
+                self.todo_start_from_action(cid, delay);
+                trace_creature_todo(self, cid, "player_attack_ranged_strike");
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::NoPath => {
@@ -450,6 +494,12 @@ impl GameWorld {
 
     /// `SendResult` — `sending.cc:285-357`: text via `SendMessage(TALK_FAILURE_MESSAGE, ...)`.
     fn send_combat_result(&mut self, conn_id: ConnId, result: CombatResult) {
+        // 772 `sending.cc:348` `default: break` — `OUTOFAMMO` (38) has no message case, so no
+        // text is sent. The catch path still does `ToDoWait(1000)` + `ToDoStart`
+        // (`crplayer.cc:395-401`), which the caller handles.
+        if matches!(result, CombatResult::OutOfAmmo) {
+            return;
+        }
         let msg = result.to_return_value().description();
         self.enqueue_outgoing(
             conn_id,
@@ -489,6 +539,10 @@ pub(crate) enum PlayerChaseOutcome {
     OutOfRange,
     /// Adjacent (cheb ≤ 1) — strike range. Strike deferred; re-arm on the attack beat.
     Adjacent,
+    /// Ranged weapon (bow/wand/throw) with target within weapon range and LoS —
+    /// `crcombat.cc:617-638` dispatches to `DistanceAttack`/`WandAttack`. The strike body lives
+    /// in `player/combat/ranged.rs`; this outcome re-arms on the attack beat after the strike.
+    RangedStrike,
 }
 
 /// Helper for the `SetAttackDest` early-out comparison without borrowing `self` mutably twice.

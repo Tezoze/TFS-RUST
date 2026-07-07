@@ -218,9 +218,13 @@ impl GameWorld {
 
     /// Apply combat damage and fire 772 `DamageStimulus` when a monster loses HP.
     ///
-    /// C++ reference: `Game::combatChangeHealth` → `TMonster::DamageStimulus` — `crnonpl.cc:2278`.
+    /// C++ reference: `Game::combatChangeHealth` → `TMonster::DamageStimulus` — `crnonpl.cc:2278`,
+    /// `TCreature::Damage` — `crmain.cc:486-760`.
+    ///
     /// PC-2a M2/M3/M4: physical immunity, equipment damage reduction, and invisibility removal
     /// are handled here (the shared `Damage` path) before the HP delta is applied.
+    /// PC-3 M3′/M5: non-physical immunities (`NoPoison`/`NoBurning`/`NoEnergy`/`NoLifeDrain`) and
+    /// mana shield (`SKILL_MANASHIELD`) are handled here as well.
     pub(crate) fn combat_execute_with_stimulus(
         &mut self,
         attacker: Option<CreatureId>,
@@ -228,16 +232,24 @@ impl GameWorld {
         damage: &CombatDamage,
         params: &CombatParams,
     ) -> bool {
-        // M3 — Physical immunity (`NoHit`): C++ `Damage` checks
-        // `RaceData[Race].NoHit` for `DAMAGE_PHYSICAL` and emits `EFFECT_BLOCK_HIT` + returns 0
-        // (`crmain.cc:615-622`). Monster-only; players don't have `NoHit`. Non-physical
-        // immunities (`NoPoison`/`NoBurning`/`NoEnergy`/`NoLifeDrain`) are PC-3 scope.
-        if damage.primary.0 == CombatType::Physical && params.apply_condition.is_none() {
-            let is_immune = self
-                .creatures
-                .get(target)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.immunity_physical));
-            if is_immune {
+        // M3 / M3′ — Typed immunities: C++ `Damage` checks `RaceData[Race].NoHit` (physical),
+        // `NoPoison`, `NoBurning`, `NoEnergy`, `NoLifeDrain` and emits `EFFECT_BLOCK_HIT` (4) +
+        // returns 0 for the matching `DamageType` (`crmain.cc:615-622`). Monster-only; players
+        // don't have race immunities. Skipped when a condition is being applied (DoT paths handle
+        // their own immunity check via `creature_immune_poison`).
+        if params.apply_condition.is_none() {
+            let immune = self.creatures.get(target).is_some_and(|k| match k {
+                CreatureKind::Monster(m) => match damage.primary.0 {
+                    CombatType::Physical => m.immunity_physical,
+                    CombatType::Earth => m.immunity_poison,
+                    CombatType::Fire => m.immunity_fire,
+                    CombatType::Energy => m.immunity_energy,
+                    CombatType::LifeDrain => m.immunity_life_drain,
+                    _ => false,
+                },
+                _ => false,
+            });
+            if immune {
                 if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
                     // C++ `EFFECT_BLOCK_HIT` (wire byte 4) — `crmain.cc:620`.
                     self.broadcast_magic_effect(pos, 4u8);
@@ -258,6 +270,22 @@ impl GameWorld {
                 let factor = 100 - absorb_pct;
                 reduced_damage.primary.1 = (reduced_damage.primary.1 * factor) / 100;
                 reduced_damage.secondary.1 = (reduced_damage.secondary.1 * factor) / 100;
+            }
+        }
+
+        // M5 — Mana shield: C++ `Damage` checks `SKILL_MANASHIELD` timer/value and absorbs
+        // damage to mana first, only spilling the remainder into HP (`crmain.cc:662-688`).
+        // TFS uses `CONDITION_MANASHIELD` (set by the "magic shield" spell / item ability). When
+        // the target has the condition, subtract incoming damage from mana; if mana covers it
+        // fully, emit the mana-hit effect + "You lose X mana" text and return without touching
+        // HP. Otherwise drain mana to 0 and let the remainder flow to HP. Skipped for
+        // `UNDEFINED` damage (C++ excludes it) and for healing/positive deltas.
+        if reduced_damage.primary.1 < 0 {
+            let absorbed = self.apply_mana_shield(target, -reduced_damage.primary.1);
+            if absorbed > 0 {
+                reduced_damage.primary.1 += absorbed;
+                // Clamp secondary as well? C++ only shields the primary `Damage` scalar, so we
+                // leave `secondary` untouched (it is 0 for wand/distance strikes and most spells).
             }
         }
 
@@ -308,6 +336,64 @@ impl GameWorld {
             }
         }
         applied
+    }
+
+    /// M5 — Mana shield absorb. C++ `Damage` checks `SKILL_MANASHIELD` timer/value
+    /// (`crmain.cc:662-688`); TFS uses `CONDITION_MANASHIELD`. Returns the amount of `incoming`
+    /// damage absorbed from mana (caller adds it back to the HP delta so the remainder flows to
+    /// HP). Emits the mana-hit graphical effect + "You lose X mana" status message when any
+    /// damage is absorbed. No-op for non-players or players without the condition.
+    pub(crate) fn apply_mana_shield(&mut self, target: CreatureId, incoming: i32) -> i32 {
+        if incoming <= 0 {
+            return 0;
+        }
+        let has_shield = self
+            .creatures
+            .get(target)
+            .is_some_and(|k| match k {
+                CreatureKind::Player(p) => p
+                    .base
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::ManaShield),
+                _ => false,
+            });
+        if !has_shield {
+            return 0;
+        }
+        // Borrow the player mutably to drain mana.
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(target) else {
+            return 0;
+        };
+        let mana_points = p.mana.max(0);
+        let absorbed = incoming.min(mana_points);
+        p.mana -= absorbed;
+        let pos = p.base.position;
+        let mana_after = p.mana;
+        drop(p);
+
+        if absorbed > 0 {
+            // C++ `EFFECT_MANA_HIT` — `crmain.cc:670`. The 772 client effect id for the blue
+            // mana-hit spark. TFS uses `CONST_ME_MAGIC_BLUE` (wire byte 13).
+            self.broadcast_magic_effect(pos, 13u8);
+            // Animated "X" damage text in blue (C++ `TextualEffect COLOR_BLUE` — `crmain.cc:671`).
+            use tfs_rust_net::codec::wire::AnimatedTextWire;
+            let animated = self.codec.encode_animated_text(&AnimatedTextWire {
+                pos,
+                color: 5, // COLOR_BLUE — `crmain.cc:671`.
+                text: absorbed.to_string(),
+            });
+            if !animated.as_bytes().is_empty() {
+                self.broadcast_to_spectators(pos, animated.into_bytes());
+            }
+            // Private "You lose X mana" status message + stats update (player-only by construction).
+            self.send_player_stats(target);
+            self.send_player_status_message(target, &format!("You lose {absorbed} mana."));
+            // If fully absorbed, the caller's `reduced_damage.primary.1` becomes 0 and HP is
+            // untouched. If partially absorbed, the remainder flows to HP below.
+            let _ = mana_after;
+        }
+        absorbed
     }
 
     /// M2 — Sum `absorb_percent[combat_type]` across all equipped items for a player target.

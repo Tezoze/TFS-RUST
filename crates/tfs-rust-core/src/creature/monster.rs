@@ -71,6 +71,8 @@ pub struct MonsterAiConfig {
     pub immunity_fire: bool,
     /// `<immunity energy="1"/>` — `crmain.cc:550` `NoEnergy`.
     pub immunity_energy: bool,
+    /// `<immunity lifedrain="1"/>` — `crmain.cc:619` `NoLifeDrain`. PC-3 (M3′).
+    pub immunity_life_drain: bool,
     /// `<immunity invisible="1"/>` — `crmain.cc:1493` `SeeInvisible`.
     pub see_invisible: bool,
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
@@ -109,6 +111,7 @@ impl Default for MonsterAiConfig {
             immunity_poison: false,
             immunity_fire: false,
             immunity_energy: false,
+            immunity_life_drain: false,
             see_invisible: false,
             immunity_physical: false,
             spells: Vec::new(),
@@ -142,6 +145,7 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             immunity_poison: false,
             immunity_fire: false,
             immunity_energy: false,
+            immunity_life_drain: false,
             see_invisible: false,
             immunity_physical: false,
             spells: Vec::new(),
@@ -224,6 +228,8 @@ pub struct Monster {
     pub immunity_fire: bool,
     /// `<immunity energy="1"/>` — `crmain.cc:550` `NoEnergy`.
     pub immunity_energy: bool,
+    /// `<immunity lifedrain="1"/>` — `crmain.cc:619` `NoLifeDrain`. PC-3 (M3′).
+    pub immunity_life_drain: bool,
     /// `<immunity invisible="1"/>` — `crmain.cc:1493` `SeeInvisible`.
     pub see_invisible: bool,
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
@@ -295,6 +301,7 @@ impl Monster {
             immunity_poison: config.immunity_poison,
             immunity_fire: config.immunity_fire,
             immunity_energy: config.immunity_energy,
+            immunity_life_drain: config.immunity_life_drain,
             see_invisible: config.see_invisible,
             immunity_physical: config.immunity_physical,
             spells: config.spells,

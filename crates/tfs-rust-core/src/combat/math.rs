@@ -233,6 +233,35 @@ pub fn melee_damage_after_defense_and_armor(attack: i32, defense: i32, armor: i3
 }
 
 // ---------------------------------------------------------------------------
+// B4.8 — distance hit probe (PC-3)
+// ---------------------------------------------------------------------------
+
+/// 772 `TSkillProbe::Probe` — `crskill.cc:549` hit-probe for distance attacks.
+///
+/// `Probe(Diff, Prob, Increase)`:
+/// - if `Increase`: `Increase(1)` (skill exp — PC-5 wires the tries counter; PC-3 only consumes
+///   the `LearningPoints` window the caller passes in).
+/// - default `Result = true`; if `Diff != 0`:
+///   - if `skill >= rand() % Diff`: `Result = (rand() % 100) <= Prob`
+///   - else: `Result = false`
+///
+/// `Diff` is the difficulty threshold (`Distance * 15` for distance attacks,
+/// `crcombat.cc:792-794`); `Prob` is the hit chance (bow 90 / throw 75). Returns whether the
+/// projectile hits. The caller handles `LearningPoints` decrement (`crcombat.cc:795-797`).
+pub fn probe_hit<R: Rng + ?Sized>(rng: &mut R, skill: i32, diff: i32, prob: i32) -> bool {
+    if diff == 0 {
+        return true;
+    }
+    let diff_roll = rng.gen_range(0..diff);
+    if skill < diff_roll {
+        return false;
+    }
+    // `(rand() % 100) <= Prob` — `Prob` is 0..=100 inclusive; a 100 always hits, a 0 never hits
+    // (the `<=` makes `Prob=0` hit only when `rand()%100 == 0`, matching C++).
+    rng.gen_range(0..100) <= prob
+}
+
+// ---------------------------------------------------------------------------
 // B4.7 — spell damage
 // ---------------------------------------------------------------------------
 

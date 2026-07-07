@@ -25,7 +25,7 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | PC-2 | The strike (`CloseAttack`) — melee first | ✅ Done (core logic + feedback effects) |
 | PC-2a | `Damage` path completeness (melee audit) | ✅ Done (8 findings — §9.2) |
 | PC-2b | Lua combat/spell/weapon plumbing | ✅ Done (Combat/Spell/Weapon userdata + createCombatArea + enums + spellword dispatch) |
-| PC-3 | Distance + wand strikes | 🔲 Pending (+ mana shield, typed immunities; depends on PC-2b) |
+| PC-3 | Distance + wand strikes | ✅ Done (DistanceAttack + WandAttack + mana shield + typed immunities + probe_hit) |
 | PC-4 | Fight/chase/secure mode + PVP gating | 🔲 Pending (+ invulnerability check) |
 | PC-5 | Skill/exp gain + regen + death penalty | 🔲 Pending (+ shield skill learning, death penalty, level-up HP/mana gain fix M13, skill-tries data gaps: skill_base/min_level/magic-dispatch) |
 
@@ -50,7 +50,7 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | Vocation data (full TVP combat block) | `data/defs/vocations.lua`, `tfs-rust-content/src/vocations.rs` | `VocationDef` + `VocationRegistry` + `VocationProfile` snapshot on `Player` (PC-0). |
 
 ### 1.2 What's still missing
-- **Player distance/wand strikes** (PC-3) — `DistanceAttack`/`WandAttack` not yet wired. PC-2b's `Weapon(WEAPON_WAND)` Lua loading is now available; PC-3 consumes the `WeaponRegistry`/`WandDef` it produces.
+- **Player distance/wand strikes** (PC-3) — ✅ Done. `DistanceAttack`/`WandAttack` wired in `player/combat/ranged.rs`; `player_execute_attack` dispatches via `player_weapon_range` + `RangedStrike` outcome. Mana shield (M5) + typed immunities (energy/fire/earth/life_drain) wired into `combat_execute_with_stimulus`. `probe_hit` in `combat/math.rs` mirrors `TSkillProbe::Probe`.
 - **Fight/chase/secure mode storage** (PC-4) — `raw_fight_mode`/`raw_secure_mode` parsed but discarded; `secure_mode` field doesn't exist.
 - **Skill tries counters + skill advance** (PC-5) — `PlayerSkills` has level fields only; DB `skill_*_tries`/`manaspent` columns never loaded into runtime; `req_skill_tries` never called. Data gaps: `skill_base` (Delta) constants and `min_level` per skill not in any Lua file yet (need `data/formulas/772.lua` or `MechanicsProfile`); magic level needs separate dispatch (`min_level=0`, `skill_base=1600`).
 - **Level-up HP/mana gain bug** (PC-5, M13) — `add_experience`/`remove_experience` clamp current HP/mana to the new max instead of adding/subtracting the per-level gain (C++ `TSkillAdd::Advance` raises both `Act` and `Max`).
@@ -335,7 +335,7 @@ in the Lua bindings. No `if version == 772` in the Lua plumbing.
 24 passed / 1 pre-existing failure (`player_events_script_loads_with_bootstrap`, unrelated to
 PC-2b); `cargo test -p tfs-rust-content` 45 passed; `cargo test -p tfs-rust-common` 5 passed.
 
-### Phase PC-3 — Distance + wand strikes — 🔲 PENDING
+### Phase PC-3 — Distance + wand strikes — ✅ DONE
 **File:** `player/combat/ranged.rs` (new), reusing `player/combat/values.rs`.
 **Prerequisite:** PC-2b (for `Weapon(WEAPON_WAND)` Lua loading of `wands.lua`/`rods.lua`
 into `WandRegistry`).
@@ -528,7 +528,7 @@ crates/tfs-rust-content/src/
 | `secure_mode: bool` | `Player` | `0xA7` packet | 🔲 PC-4 |
 | `VocationDef` (full combat block) | `tfs-rust-content` | `data/defs/vocations.lua` | ✅ PC-0 |
 | `VocationProfile` (`Copy`) snapshot | `Player.vocation_profile` | `VocationRegistry` at login | ✅ PC-0 |
-| Wand attributes (`WandDef`) | `tfs-rust-content` `WandRegistry` | `data/scripts/weapons/wands.lua` + `rods.lua` (TFS Lua `Weapon(WEAPON_WAND)` API) | ✅ PC-2b (loader) / 🔲 PC-3 (consumer) |
+| Wand attributes (`WandDef`) | `tfs-rust-content` `WandRegistry` | `data/scripts/weapons/wands.lua` + `rods.lua` (TFS Lua `Weapon(WEAPON_WAND)` API) | ✅ PC-2b (loader) / ✅ PC-3 (consumer) |
 | `WeaponDef` (distance/melee/ammo) | `tfs-rust-content` `WeaponRegistry` | `data/scripts/weapons/*.lua` (`Weapon(WEAPON_*)` API) | ✅ PC-2b |
 | `SpellDef` (instant/rune) | `tfs-rust-content` `SpellRegistry` | `data/scripts/spells/**/*.lua` (`Spell(SPELL_*)` API) | ✅ PC-2b |
 | `CombatDef` (Lua-side combat config) | `tfs-rust-lua` userdata | `Combat()` + `:setParameter`/`:setArea`/`:setCallback`/`:execute` | ✅ PC-2b |

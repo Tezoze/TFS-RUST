@@ -226,6 +226,37 @@ impl GameWorld {
         // `RaceData[human].Armor = 0` (`human.mon:15`).
         armor
     }
+
+    /// 772 `TCombat::GetDistance` — `crcombat.cc:611`. Returns the weapon's `Range` value:
+    /// `1` for melee (close weapons, fist), `2`/`3` for ranged (bow `shoot_range`, wand
+    /// `WANDRANGE=3`, throw `THROWRANGE`). The caller (`player_execute_attack`) uses this to
+    /// dispatch to `CloseAttack` (range 1) or `DistanceAttack`/`WandAttack` (range 2/3).
+    ///
+    /// Bow `shoot_range` comes from `items.xml` (`range` attribute → `ItemType.shoot_range`).
+    /// Wand range is hardcoded to 3 (`WANDRANGE`, `crcombat.cc:706`) — `WandDef` doesn't carry
+    /// range. Throwing weapon range comes from `items.xml` (`range` → `ItemType.shoot_range`).
+    pub fn player_weapon_range(&self, cid: CreatureId) -> i32 {
+        // Scan hand slots for a distance weapon or wand — `crcombat.cc:632-638` classification.
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
+                continue;
+            };
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            match it.weapon_type {
+                WEAPON_DISTANCE => return it.shoot_range.max(1),
+                // `WEAPON_WAND` — `WANDRANGE = 3` (`crcombat.cc:706`).
+                w if w == crate::inventory::WEAPON_WAND => return 3,
+                _ => {}
+            }
+        }
+        // Melee or fist — range 1 (`crcombat.cc:612`).
+        1
+    }
 }
 
 #[cfg(test)]
