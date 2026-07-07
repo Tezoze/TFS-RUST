@@ -352,4 +352,51 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .get(name)
             .map(|cid| Self::creature_to_script_id(*cid))
     }
+
+    /// `player:getGroup():getId()` backing read — `players.group_id`.
+    /// CH-6 talkaction access gating.
+    fn get_player_group_id(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<u16> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.group_id),
+            _ => None,
+        })
+    }
+
+    /// `group:getAccess()` backing read — `groups.xml` `access` flag.
+    /// CH-6 talkaction access gating.
+    fn get_group_access(&self, group_id: u16) -> bool {
+        self.groups
+            .groups
+            .get(&group_id)
+            .is_some_and(|g| g.access)
+    }
+
+    /// `player:getPosition()` backing read — `Creature::getPosition`.
+    /// CH-6 talkaction `sendMagicEffect` at player position.
+    fn get_player_position(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<tfs_rust_common::Position> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).map(|k| k.position())
+    }
+
+    /// `ItemType:isStackable()` backing read — `ItemType::stackable`.
+    /// CH-6 talkaction `/i` count clamping.
+    fn get_item_type_is_stackable(&self, item_type: u16) -> bool {
+        self.items_db.stackable_for_server(item_type)
+    }
+
+    /// `ItemType:isFluidContainer()` backing read — `ItemType::isFluidContainer`.
+    /// CH-6 talkaction `/i` count clamping.
+    fn get_item_type_is_fluid_container(&self, item_type: u16) -> bool {
+        self.items_db
+            .items
+            .get(&item_type)
+            .is_some_and(|t| t.is_fluid_container())
+    }
 }

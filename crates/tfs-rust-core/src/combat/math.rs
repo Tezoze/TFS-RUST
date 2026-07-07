@@ -256,7 +256,7 @@ pub fn probe_hit<R: Rng + ?Sized>(rng: &mut R, skill: i32, diff: i32, prob: i32)
     if skill < diff_roll {
         return false;
     }
-    // `(rand() % 100) <= Prob` — `Prob` is 0..=100 inclusive; a 100 always hits, a 0 never hits
+    // `(rand() % 100) <= Prob` — `Prob` is 0..=100 inclusive; a 100 always hits, a 0 rarely hits (1% chance)
     // (the `<=` makes `Prob=0` hit only when `rand()%100 == 0`, matching C++).
     rng.gen_range(0..100) <= prob
 }

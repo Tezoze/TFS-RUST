@@ -10,6 +10,21 @@ use tfs_rust_common::Position;
 use tfs_rust_common::ScriptContext;
 use std::any::Any;
 
+/// Talkaction dispatch result — mirrors C++ `TalkActionResult_t`
+/// (`talkaction.h:13-17`).
+///
+/// - `NotMatched` — no talkaction matched the text; continue to spell check.
+/// - `Continue` — talkaction matched, `onSay` returned `true` (C++
+///   `TALKACTION_CONTINUE`); fall through to spell check / normal chat.
+/// - `Break` — talkaction matched, `onSay` returned `false` (C++
+///   `TALKACTION_BREAK`); text is consumed, do not broadcast.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TalkActionResult {
+    NotMatched,
+    Continue,
+    Break,
+}
+
 /// Script and engine events. Default bodies are no-ops until `tfs-rust-lua` implements dispatch.
 pub trait EventDispatcher {
     fn on_login(&self, _creature: CreatureId, _ctx: &dyn ScriptContext) {}
@@ -107,8 +122,26 @@ pub trait EventDispatcher {
         false
     }
 
+    /// CH-6: Dispatch a talkaction (`/i`, `/a`, …) — `talkaction.cpp:84-134`
+    /// `TalkActions::playerSaySpell`. Looks up `text` in the talkaction
+    /// registry, and if matched, calls the `onSay` Lua callback. Returns
+    /// [`TalkActionResult::NotMatched`] if no talkaction matched,
+    /// [`TalkActionResult::Continue`] if `onSay` returned `true` (C++
+    /// `TALKACTION_CONTINUE` — fall through to spells), or
+    /// [`TalkActionResult::Break`] if `onSay` returned `false` (C++
+    /// `TALKACTION_BREAK` — consumed).
+    fn dispatch_talkaction(&self, _text: &str, _creature: CreatureId) -> TalkActionResult {
+        TalkActionResult::NotMatched
+    }
+
     /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).
     fn as_any(&self) -> &dyn Any
+    where
+        Self: Sized;
+
+    /// Downcast to `Any` for mutable runtime type checking (e.g., to inject
+    /// the talkaction registry into `LuaEventDispatcher` after construction).
+    fn as_any_mut(&mut self) -> &mut dyn Any
     where
         Self: Sized;
 }
@@ -119,6 +152,9 @@ pub struct NullEventDispatcher;
 
 impl EventDispatcher for NullEventDispatcher {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

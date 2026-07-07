@@ -12,6 +12,8 @@ use crate::lua_mutation::{
     call_lua_send_cancel_message,
 };
 use crate::userdata::container::ContainerRef;
+use crate::userdata::group::GroupRef;
+use crate::userdata::position::PositionRef;
 use crate::userdata::vocation::VocationRef;
 
 /// Register the Creature metatable in the Lua runtime.
@@ -70,6 +72,39 @@ impl UserData for CreatureRef {
                     .map(i32::from)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
+        });
+
+        // `player:getGroup()` — `Player::getGroup` (`player.h`). CH-6 talkaction
+        // access gating; returns a `GroupRef` userdata wrapping the player's
+        // `group_id`. `GroupRef:getAccess()` reads the `access` flag from the
+        // group database via `ScriptContext::get_group_access`.
+        methods.add_method("getGroup", |lua, this, ()| {
+            let group_id_opt = with_ctx(|ctx| Ok(ctx.get_player_group_id(this.0)))?;
+            match group_id_opt {
+                Some(gid) => {
+                    let ud = lua.create_userdata(GroupRef(gid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `player:getPosition()` — `Creature::getPosition` (`creature.h`).
+        // CH-6 talkaction `sendMagicEffect` at player position; returns a
+        // `PositionRef` userdata wrapping `(x, y, z)`.
+        methods.add_method("getPosition", |lua, this, ()| {
+            let pos_opt = with_ctx(|ctx| Ok(ctx.get_player_position(this.0)))?;
+            match pos_opt {
+                Some(pos) => {
+                    let ud = lua.create_userdata(PositionRef {
+                        x: pos.x,
+                        y: pos.y,
+                        z: pos.z,
+                    })?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
         });
 
         // `player:getVocation()` — returns a `Vocation` userdata whose `:getId()`
@@ -303,6 +338,7 @@ impl UserData for CreatureRef {
         // C++ reference: `protocolgame.cpp` `sendTextMessage`.
         methods.add_method("sendCancelMessage", |_, this, value: mlua::Value| {
             let text = resolve_cancel_message_text(value)?;
+            tracing::info!(creature = this.0, %text, "Lua player:sendCancelMessage()");
             call_lua_send_cancel_message(this.0, text).map_err(mlua::Error::runtime)?;
             Ok(())
         });

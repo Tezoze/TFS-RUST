@@ -30,9 +30,9 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
     let xml_path = data_dir.join("items/items.xml");
     let monsters_dir = data_dir.join("monster");
     let voc_path = data_dir.join("defs/vocations.lua");
+    let groups_path = data_dir.join("defs/groups.lua");
     let out_path = data_dir.join("XML/outfits.xml");
     let mounts_path = data_dir.join("XML/mounts.xml");
-    let groups_path = data_dir.join("XML/groups.xml");
     let map_rel = map_otbm_relative.unwrap_or("world/forgotten.otbm");
     let map_path = data_dir.join(map_rel);
     let map_path_for_task = map_path.clone();

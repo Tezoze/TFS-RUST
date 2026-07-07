@@ -250,4 +250,44 @@ pub trait ScriptContext {
         let _ = name;
         None
     }
+
+    /// `player:getGroup():getId()` backing read — `players.group_id`
+    /// (`player.h` `Group`). CH-6 talkaction access gating; defaults to
+    /// `None` (player not found).
+    fn get_player_group_id(&self, creature_id: ScriptCreatureId) -> Option<u16> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `group:getAccess()` backing read — `groups.xml` `access` flag for the
+    /// given group id (`src/groups.cpp`). CH-6 talkaction access gating;
+    /// defaults to `false`.
+    fn get_group_access(&self, group_id: u16) -> bool {
+        let _ = group_id;
+        false
+    }
+
+    /// `player:getPosition()` backing read — `Creature::getPosition`
+    /// (`creature.h`). CH-6 talkaction `sendMagicEffect` at player position;
+    /// defaults to `None`.
+    fn get_player_position(&self, creature_id: ScriptCreatureId) -> Option<Position> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `ItemType:isStackable()` backing read — `ItemType::stackable`
+    /// (`src/items.h`). CH-6 talkaction `/i` count clamping; defaults to
+    /// `false`.
+    fn get_item_type_is_stackable(&self, item_type: u16) -> bool {
+        let _ = item_type;
+        false
+    }
+
+    /// `ItemType:isFluidContainer()` backing read — `ItemType::isFluidContainer`
+    /// (`src/items.h`). CH-6 talkaction `/i` count clamping; defaults to
+    /// `false`.
+    fn get_item_type_is_fluid_container(&self, item_type: u16) -> bool {
+        let _ = item_type;
+        false
+    }
 }

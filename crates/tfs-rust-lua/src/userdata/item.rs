@@ -7,8 +7,8 @@ use std::cell::RefCell;
 
 use crate::context::{CreatureRef, CURRENT_CTX, ItemData, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    call_lua_item_move_to, call_lua_item_remove, call_lua_set_action_id, call_lua_set_store_item,
-    call_lua_set_unique_id, LuaMoveDestination,
+    call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove, call_lua_set_action_id,
+    call_lua_set_store_item, call_lua_set_unique_id, LuaMoveDestination,
 };
 use crate::userdata::container::ContainerRef;
 
@@ -192,6 +192,13 @@ impl UserData for ItemRef {
         methods.add_method("remove", |_, this, count: Option<i32>| {
             let count = count.unwrap_or(-1);
             call_lua_item_remove(this.0, count).map_err(mlua::Error::runtime)
+        });
+
+        // `item:decay()` — `items.cpp` `startDecay` / `Game::checkDecay`.
+        // CH-6 talkaction `/i` item decay scheduling. Schedules the item for
+        // decay transformation after its `decayTime` elapses.
+        methods.add_method("decay", |_, this, ()| {
+            call_lua_item_decay(this.0).map_err(mlua::Error::runtime)
         });
     }
 }

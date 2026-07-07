@@ -77,6 +77,7 @@ pub mod stability;
 mod subsystem_counters;
 #[cfg(test)]
 mod test_world;
+pub mod talkactions;
 pub mod thing;
 pub mod tile;
 mod todo_queue;
@@ -129,7 +130,7 @@ pub use cylinder::{
     Cylinder, CylinderFlags, CylinderLink, CylinderType, VirtualCylinder, INDEX_ADD_WHEREVER,
     INDEX_MOVE_UP, INDEX_WHEREEVER,
 };
-pub use event_dispatcher::{EventDispatcher, NullEventDispatcher};
+pub use event_dispatcher::{EventDispatcher, NullEventDispatcher, TalkActionResult};
 pub use formulas::{
     load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DistanceKeep, FightModes,
     FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, PathCostModel, PathSearchModel,

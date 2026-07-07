@@ -16,8 +16,9 @@ use crate::timer_events::{
 };
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
-    register_creature_metatable, register_item_metatable, register_spell_metatable,
-    register_vocation_metatable, register_weapon_metatable,
+    register_creature_metatable, register_group_metatable, register_item_metatable,
+    register_item_type_constructor, register_item_type_metatable, register_position_metatable,
+    register_spell_metatable, register_vocation_metatable, register_weapon_metatable,
 };
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
@@ -35,6 +36,8 @@ pub struct LuaRuntime {
     timer_events: TimerEvents,
     /// Pending chat channels from Channel:register() calls (drained after directory scan).
     pending_chat_channels: Vec<PendingChatChannel>,
+    /// Pending talkactions from TalkAction:register() calls (drained after directory scan).
+    pending_talkactions: Vec<PendingTalkAction>,
 }
 
 /// Pending channel definition from Lua Channel:register().
@@ -47,6 +50,17 @@ pub struct PendingChatChannel {
     pub can_join: Option<mlua::RegistryKey>,
     pub on_join: Option<mlua::RegistryKey>,
     pub on_leave: Option<mlua::RegistryKey>,
+}
+
+/// Pending talkaction definition from Lua TalkAction:register().
+///
+/// C++ reference: `talkaction.h` `TalkAction` — words, separator, onSay callback.
+/// `words` may be `;`-separated for multi-word registration (C++ `explodeString`).
+#[derive(Debug)]
+pub struct PendingTalkAction {
+    pub words: String,
+    pub separator: String,
+    pub on_say: Option<mlua::RegistryKey>,
 }
 
 impl LuaRuntime {
@@ -67,6 +81,9 @@ impl LuaRuntime {
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
         register_vocation_metatable(&lua).map_err(LuaError::Registration)?;
         register_condition_metatable(&lua).map_err(LuaError::Registration)?;
+        register_group_metatable(&lua).map_err(LuaError::Registration)?;
+        register_position_metatable(&lua).map_err(LuaError::Registration)?;
+        register_item_type_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
         // VOCATION_NONE, CONDITION_*, RETURNVALUE_*, …). Mirrors
@@ -87,6 +104,10 @@ impl LuaRuntime {
         let pending_channels = lua.create_table()?;
         lua.globals().set("_pending_channels", pending_channels)?;
 
+        // Initialize pending talkaction buffer for TalkAction:register()
+        let pending_talkactions = lua.create_table()?;
+        lua.globals().set("_pending_talkactions", pending_talkactions)?;
+
         // `addEvent` / `stopEvent` globals (C++ `luascript.cpp:1126-1130`).
         // The `TimerScheduler` thread-local is set later from `run_server.rs`;
         // the closures read it at call time, not registration time.
@@ -103,6 +124,7 @@ impl LuaRuntime {
             script_registry: HashMap::new(),
             timer_events,
             pending_chat_channels: Vec::new(),
+            pending_talkactions: Vec::new(),
         })
     }
 
@@ -203,6 +225,95 @@ impl LuaRuntime {
     /// This should be called after all channel scripts in a directory have been loaded.
     pub fn drain_pending_chat_channels(&mut self) -> Vec<PendingChatChannel> {
         std::mem::take(&mut self.pending_chat_channels)
+    }
+
+    /// Load a Lua script file with talkaction registration support.
+    ///
+    /// This is used for talkaction scripts that call `TalkAction(...):register()`.
+    /// The script is executed, and any talkactions registered via
+    /// `TalkAction:register()` are captured in the pending buffer.
+    ///
+    /// C++ reference: `talkaction.cpp` `TalkActions::registerLuaEvent`.
+    pub fn load_talkaction_script(&mut self, path: &str) -> Result<(), LuaError> {
+        let full_path = Path::new(path);
+        let chunk = std::fs::read_to_string(full_path)
+            .map_err(|e| LuaError::ScriptIo(full_path.display().to_string(), e.to_string()))?;
+
+        // Clear pending buffer before loading
+        self.lua
+            .globals()
+            .set("_pending_talkactions", self.lua.create_table()?)?;
+
+        // Execute the script
+        self.lua
+            .load(&chunk)
+            .set_name(path)
+            .exec()
+            .map_err(LuaError::Init)?;
+
+        // Drain pending talkactions into our buffer
+        let pending: mlua::Table = self.lua.globals().get("_pending_talkactions")?;
+        for i in 1..=pending.len()? {
+            if let Ok(ta_table) = pending.get::<mlua::Table>(i) {
+                let words: String = ta_table.get("words")?;
+                // `_separator` (not `separator`) — `separator` is the fluent-setter
+                // method on the talkaction table; the flag it toggles is stored
+                // under `_separator`.
+                let separator: String = ta_table.get("_separator")?;
+
+                let on_say = ta_table
+                    .get::<Option<mlua::Function>>("onSay")?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                self.pending_talkactions.push(PendingTalkAction {
+                    words,
+                    separator,
+                    on_say,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drain pending talkactions accumulated from `load_talkaction_script` calls.
+    ///
+    /// This should be called after all talkaction scripts in a directory have been loaded.
+    pub fn drain_pending_talkactions(&mut self) -> Vec<PendingTalkAction> {
+        std::mem::take(&mut self.pending_talkactions)
+    }
+
+    /// Call a talkaction `onSay` hook — `(player, words, param) -> bool`.
+    ///
+    /// Returns `true` = TALKACTION_CONTINUE (broadcast as normal chat),
+    /// `false` = TALKACTION_BREAK (consumed, do not broadcast).
+    /// C++ reference: `talkaction.cpp` `TalkAction::executeSay`.
+    pub fn call_talkaction_on_say(
+        &self,
+        callback: &mlua::RegistryKey,
+        player: crate::context::CreatureId,
+        words: &str,
+        param: &str,
+    ) -> Result<bool, LuaError> {
+        tracing::info!(player, words, param, "call_talkaction_on_say: invoking Lua");
+        let function: mlua::Function = self
+            .lua
+            .registry_value(callback)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(crate::context::CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        // C++ `executeSay` pushes (player, words, param, type). The /i script
+        // only uses (player, words, param) — `type` is ignored by all active
+        // scripts. Pass 0 (TALKTYPE_SAY) as the type.
+        let result = function
+            .call::<bool>((player_ud, words, param, 0i32))
+            .map_err(LuaError::Init);
+        tracing::info!(player, words, ?result, "call_talkaction_on_say: Lua returned");
+        result
     }
 
     /// Execute a Lua chunk (bootstrap globals, compat stubs).
@@ -479,6 +590,80 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
         Ok(mlua::Value::UserData(ud))
     })?;
     globals.set("Condition", condition)?;
+
+    // `ItemType(nameOrId)` — real `ItemTypeRef` userdata (CH-6). Resolves a
+    // name string to a server item type id via `ScriptContext`, or wraps a
+    // numeric id directly. `getId()` returns `0` if not found.
+    // C++ reference: `luascript.cpp` `luaItemTypeCreate` — `items.h`.
+    register_item_type_constructor(lua)?;
+
+    // `string.splitTrimmed(sep)` and `string.trim()` — TFS Lua extensions
+    // normally defined in `data/global.lua`. Defined here in the bootstrap so
+    // talkaction scripts can use them without loading `global.lua` (which has
+    // `dofile`/`os.time` dependencies not yet wired).
+    // C++ reference: `data/global.lua:111-129` (TFS data pack).
+    lua.load(
+        r#"
+        string.trim = function(str)
+            return str:match'^()%s*$' and '' or str:match'^%s*(.*%S)'
+        end
+        string.splitTrimmed = function(str, sep)
+            local res = {}
+            for v in str:gmatch("([^" .. sep .. "]+)") do
+                res[#res + 1] = v:trim()
+            end
+            return res
+        end
+        string.split = function(str, sep)
+            local res = {}
+            for v in str:gmatch("([^" .. sep .. "]+)") do
+                res[#res + 1] = v
+            end
+            return res
+        end
+        "#,
+    )
+    .set_name("string_extensions")
+    .exec()?;
+
+    // `TalkAction(words)` — self-registering talkaction constructor (CH-6).
+    //
+    // Returns a plain Lua **table** (not userdata), mirroring the `Channel`
+    // constructor pattern. Scripts attach `onSay` as a table field
+    // (`function talkaction.onSay(player, words, param) ... end`), then call
+    // `talkaction:register()` to push into the loader's pending buffer.
+    //
+    // C++ reference: `talkaction.h` `TalkAction` / `talkaction.cpp`
+    // `TalkActions::registerLuaEvent`. Default separator is `" "` (space),
+    // matching C++ `TalkAction::separator = "\""` → TFS data pack uses `" "`.
+    let talkaction_constructor = lua.create_function(|lua, words: String| {
+        let ta = lua.create_table()?;
+        ta.set("words", words)?;
+        ta.set("_separator", " ")?;
+        // `talkaction:separator(sep)` fluent setter (mirrors C++
+        // `TalkAction::setSeparator`).
+        ta.set(
+            "separator",
+            lua.create_function(|_, (this, sep): (mlua::Table, String)| {
+                this.set("_separator", sep)?;
+                Ok(())
+            })?,
+        )?;
+        // `talkaction:register()` — push the talkaction table into the loader's
+        // pending buffer; `load_talkaction_script` drains it and reads
+        // words/_separator + onSay.
+        ta.set(
+            "register",
+            lua.create_function(|lua, this: mlua::Table| {
+                let pending: mlua::Table = lua.globals().get("_pending_talkactions")?;
+                let len = pending.len()?;
+                pending.set(len + 1, this)?;
+                Ok(())
+            })?,
+        )?;
+        Ok(ta)
+    })?;
+    globals.set("TalkAction", talkaction_constructor)?;
 
     // `Player(name)` — resolve an online player by name → `CreatureRef` userdata
     // or `nil`. LUA-4 §0.3 / `luascript.cpp` `luaPlayerCreate`.

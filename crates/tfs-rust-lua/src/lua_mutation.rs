@@ -104,6 +104,21 @@ pub enum LuaMutation {
         speak_type: u8,
         text: String,
     },
+    /// `Position:sendMagicEffect(effect)` — `game.cpp:4816` `addMagicEffect`.
+    /// CH-6 talkaction `/i` green-sparkle at player position. Broadcasts the
+    /// effect to all spectators at `(x, y, z)`.
+    PositionSendMagicEffect {
+        x: u16,
+        y: u16,
+        z: u8,
+        effect: u8,
+    },
+    /// `item:decay()` — `items.cpp` `startDecay` / `Game::checkDecay`.
+    /// CH-6 talkaction `/i` item decay scheduling. Schedules the item for
+    /// decay transformation after its `decayTime` elapses.
+    ItemDecay {
+        item_id: u64,
+    },
 }
 
 /// Destination for `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
@@ -349,4 +364,16 @@ pub fn call_lua_send_channel_message(
         speak_type,
         text,
     })
+}
+
+/// `Position:sendMagicEffect(effect)` — CH-6. Broadcasts a magic effect to
+/// all spectators at `(x, y, z)`. C++ `Game::addMagicEffect`.
+pub fn call_lua_send_magic_effect(x: u16, y: u16, z: u8, effect: u8) -> Result<(), String> {
+    apply_mutation(LuaMutation::PositionSendMagicEffect { x, y, z, effect })
+}
+
+/// `item:decay()` — CH-6. Schedules the item for decay transformation.
+/// C++ `items.cpp` `startDecay` / `Game::checkDecay`.
+pub fn call_lua_item_decay(item_id: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::ItemDecay { item_id })
 }

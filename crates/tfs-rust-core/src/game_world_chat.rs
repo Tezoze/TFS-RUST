@@ -185,10 +185,27 @@ impl GameWorld {
     /// matching → `InstantSpell::playerCastInstant` → `CombatSpell::castSpell` → Lua
     /// `onCastSpell(creature, variant)`.
     fn player_say_spell(&mut self, cid: CreatureId, _speak_class: u8, text: &str) -> bool {
+        // CH-6: Talkaction dispatch — `talkaction.cpp:84-134`
+        // `TalkActions::playerSaySpell`. Checked BEFORE spell words, matching
+        // C++ `Game::playerSaySpell` order (`game.cpp:3379` talkactions first,
+        // then `g_spells->playerSaySpell` at `:3385`).
+        //
+        // `TALKACTION_BREAK` (onSay returned false) → consumed, return true.
+        // `TALKACTION_CONTINUE` (onSay returned true) → fall through to spell
+        // check, matching C++ behavior.
+        let talkaction_result = crate::lua_scope::fire_talkaction(self, cid, text);
+        tracing::info!(?cid, text, ?talkaction_result, "CH-6 talkaction dispatch");
+        if matches!(talkaction_result, crate::event_dispatcher::TalkActionResult::Break) {
+            return true;
+        }
+
         // Look up the spellwords in the registry (case-insensitive). Clone the spell
         // definition to release the immutable borrow on `self.spells` before any
         // mutable calls (send_player_status_message, send_player_stats, etc.).
         let Some(spell) = self.spells.get_instant_by_words(text).cloned() else {
+            // If a talkaction matched but returned `Continue`, the text is not a
+            // spell — return `false` so the caller proceeds to the `/`-prefix
+            // access-player drop (line 3229 in C++).
             return false; // Not a known spell — plain chat.
         };
 

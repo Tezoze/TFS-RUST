@@ -5,6 +5,7 @@
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
+use crate::event_dispatcher::TalkActionResult;
 use tfs_rust_lua::{
     self, set_mutation_bool_result, set_mutation_item_result, with_lua_context,
     with_lua_mutation_scope, LuaMutation,
@@ -158,6 +159,19 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             speak_type,
             text,
         } => unsafe { &mut *world }.lua_script_send_channel_message(channel_id, speak_type, text),
+        LuaMutation::PositionSendMagicEffect { x, y, z, effect } => {
+            let pos = tfs_rust_common::Position { x, y, z };
+            unsafe { &mut *world }.broadcast_magic_effect(pos, effect);
+            Ok(())
+        }
+        LuaMutation::ItemDecay { item_id } => {
+            // CH-6: `item:decay()` — schedule the item for decay. For now this
+            // is a logged no-op since the per-item decay-to-transformType wiring
+            // isn't loaded from items.xml yet. The item is still created; decay
+            // just won't tick. C++ `items.cpp` `startDecay`.
+            tracing::debug!(item_id, "item:decay() called (decay scheduling is a no-op pending items.xml decayTo wiring)");
+            Ok(())
+        }
     }
 }
 
@@ -202,6 +216,24 @@ pub fn fire_on_timer_event(world: &mut GameWorld, event_id: u64) {
             world.events.execute_timer_event(event_id);
         });
     });
+}
+
+/// CH-6: Dispatch a talkaction with read context and mutation scope active.
+///
+/// C++ reference: `talkaction.cpp:84-134` `TalkActions::playerSaySpell` →
+/// `TalkAction::executeSay`. The `onSay` Lua callback may trigger mutations
+/// (`addItem`, `sendMagicEffect`, …) so the mutation scope must be active.
+pub fn fire_talkaction(world: &mut GameWorld, cid: CreatureId, text: &str) -> TalkActionResult {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            let result = world.events.dispatch_talkaction(text, cid);
+            tracing::info!(?cid, text, ?result, "fire_talkaction result");
+            result
+        })
+    })
 }
 
 /// TFS `Events::eventPlayerOnInventoryUpdate` with read/mutation scope for userdata.

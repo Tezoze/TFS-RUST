@@ -5,9 +5,10 @@
 use std::any::Any;
 use std::collections::HashMap;
 
-use crate::event_dispatcher::EventDispatcher;
+use crate::event_dispatcher::{EventDispatcher, TalkActionResult};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
+use crate::talkactions::TalkActionRegistry;
 use slotmap::Key;
 use tfs_rust_lua::{
     with_lua_context, CallbackRef, CreatureEventType, LuaRuntime, MoveEventKind,
@@ -20,6 +21,9 @@ pub struct LuaEventDispatcher {
     creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
     player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
     move_events: MoveEventsRegistry,
+    /// CH-6: talkaction registry — `/i`, `/a`, … GM commands. The
+    /// `mlua::RegistryKey`s are tied to `runtime`'s `Lua` instance.
+    talkactions: TalkActionRegistry,
 }
 
 impl LuaEventDispatcher {
@@ -34,7 +38,18 @@ impl LuaEventDispatcher {
             creature_events,
             player_events,
             move_events,
+            talkactions: TalkActionRegistry::default(),
         }
+    }
+
+    /// CH-6: Set the talkaction registry (called after loading talkaction scripts).
+    pub fn set_talkactions(&mut self, talkactions: TalkActionRegistry) {
+        self.talkactions = talkactions;
+    }
+
+    /// CH-6: Number of registered talkactions (for startup diagnostics).
+    pub fn talkactions_count(&self) -> usize {
+        self.talkactions.entries.len()
     }
 
     /// Get mutable access to the Lua runtime (for loading chat channels, etc.).
@@ -258,7 +273,38 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn dispatch_talkaction(&self, text: &str, creature: CreatureId) -> TalkActionResult {
+        // C++ reference: `talkaction.cpp:84-134` `TalkActions::playerSaySpell`.
+        let Some((entry, param)) = self.talkactions.find_match(text) else {
+            return TalkActionResult::NotMatched;
+        };
+        match self
+            .runtime
+            .call_talkaction_on_say(
+                &entry.on_say,
+                creature.data().as_ffi(),
+                &entry.words,
+                &param,
+            )
+        {
+            Ok(true) => TalkActionResult::Continue,
+            Ok(false) => TalkActionResult::Break,
+            Err(e) => {
+                tracing::error!(
+                    ?creature,
+                    words = %entry.words,
+                    "Lua talkaction onSay failed: {e}"
+                );
+                TalkActionResult::Break
+            }
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }
