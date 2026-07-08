@@ -2132,6 +2132,7 @@ mod step_speed_tests {
                 crate::formulas::StepSpeedModel::LinearGo,
                 &profile,
                 level,
+                false,
             );
             assert_eq!(go, expected_go, "level {level}");
             let mut base = test_player("Walker", Position::new(100, 100, 7)).base;
@@ -2144,6 +2145,30 @@ mod step_speed_tests {
                 "level {level}"
             );
         }
+    }
+
+    /// GM `PlayerFlag_SetMaxSpeed` pins base speed to 1500. With the shipped 772
+    /// `playerSpeed = "772"` profile, wire sends `2*1500+80 = 3080`.
+    #[test]
+    fn wire_step_speed_772_set_max_speed() {
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 1500;
+        base.base_speed = 1500;
+        let mut mech = Mechanics::for_version(ProtocolVersion::V772);
+        mech.profile.player_speed_model = crate::formulas::PlayerSpeedModel::Classic772;
+        assert_eq!(wire_step_speed(WalkSpeedRole::Player, &base, &mech), 3080);
+    }
+
+    /// 1098 GM `PlayerFlag_SetMaxSpeed` wire holds the clamped GoStrength (codec halves it).
+    #[test]
+    fn wire_step_speed_1098_set_max_speed() {
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 1500;
+        base.base_speed = 1500;
+        let mech = Mechanics::for_version(ProtocolVersion::V1098);
+        assert_eq!(wire_step_speed(WalkSpeedRole::Player, &base, &mech), 1500);
     }
 
     /// 772 monster wire matches TVP `getStepSpeed()` — wolf GoStrength 42 → 164 on wire.

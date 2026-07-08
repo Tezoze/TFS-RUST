@@ -88,6 +88,9 @@ pub struct Player {
     pub account_type: u8,
     /// `players.group_id` — `groups.xml` flags (`player.h` `Group`).
     pub group_id: u16,
+    /// Cached `PlayerFlag_SetMaxSpeed` from the character's group. When true,
+    /// base walk speed is pinned to 1500 (TFS `PLAYER_MAX_SPEED`).
+    pub set_max_speed: bool,
     /// `players.sex` — `PLAYERSEX_FEMALE` (0) / `PLAYERSEX_MALE` (1) (`player.h`).
     /// Drives pronoun selection in `Player::getDescription` (`player.cpp:112-116`).
     pub sex: PlayerSex,
@@ -238,7 +241,12 @@ impl Player {
             self.max_mana = max_mana;
             self.mana = self.mana.min(max_mana);
             self.capacity = cap;
-            let sp = base_walk_speed(step_speed_model, &self.vocation_profile, self.level);
+            let sp = base_walk_speed(
+                step_speed_model,
+                &self.vocation_profile,
+                self.level,
+                self.set_max_speed,
+            );
             self.base.speed = sp;
             self.base.base_speed = sp;
         }
@@ -262,7 +270,12 @@ impl Player {
             self.max_mana = max_mana;
             self.mana = self.mana.min(max_mana);
             self.capacity = cap;
-            let sp = base_walk_speed(step_speed_model, &self.vocation_profile, self.level);
+            let sp = base_walk_speed(
+                step_speed_model,
+                &self.vocation_profile,
+                self.level,
+                self.set_max_speed,
+            );
             self.base.speed = sp;
             self.base.base_speed = sp;
         }

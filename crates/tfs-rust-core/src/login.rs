@@ -18,6 +18,10 @@ use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_scope::fire_on_login;
+use crate::player_flags::{
+    flags_for_group, has_player_flag, PLAYER_FLAG_SET_MAX_SPEED,
+};
+use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::vocations::VocationRegistry;
 
 fn direction_from_u8(d: u8) -> Direction {
@@ -47,6 +51,7 @@ pub fn player_from_loaded(
     mut data: LoadedPlayerData,
     step_speed_model: StepSpeedModel,
     vocations: &VocationRegistry,
+    groups: &GroupDatabase,
 ) -> Player {
     let persist = PlayerPersistBaseline {
         player_row: data.player.clone(),
@@ -75,7 +80,15 @@ pub fn player_from_loaded(
         .get(p.vocation)
         .map(VocationProfile::from_def)
         .unwrap_or_else(VocationProfile::none_vocation);
-    let walk_speed = base_walk_speed(step_speed_model, &vocation_profile, p.level);
+    let group_id = u16::try_from(p.group_id.max(0)).unwrap_or(1);
+    let group_flags = flags_for_group(groups, group_id);
+    let set_max_speed = has_player_flag(group_flags, PLAYER_FLAG_SET_MAX_SPEED);
+    let walk_speed = base_walk_speed(
+        step_speed_model,
+        &vocation_profile,
+        p.level,
+        set_max_speed,
+    );
     let outfit = Outfit {
         look_type: p.looktype,
         look_head: p.lookhead,
@@ -130,8 +143,6 @@ pub fn player_from_loaded(
         u32::try_from(p.account_id).expect("players.account_id must fit u32 for runtime Player");
     let guid = u32::try_from(p.id).expect("players.id must fit u32 for runtime Player");
 
-    let group_id = u16::try_from(p.group_id.max(0)).unwrap_or(1);
-
     // C++ `Player::sex` — `PLAYERSEX_FEMALE` (0) / `PLAYERSEX_MALE` (1) (`enums.h:379-380`).
     // DB column `players.sex` is `i32`; treat any non-1 value as female (matches C++ default).
     let sex = if p.sex == 1 {
@@ -146,6 +157,7 @@ pub fn player_from_loaded(
         guid,
         account_type: data.account_type,
         group_id,
+        set_max_speed,
         sex,
         vocation_id: p.vocation,
         vocation_profile,
@@ -276,7 +288,12 @@ pub async fn login_player(
         )
     };
 
-    let mut player = player_from_loaded(loaded, world.mechanics.profile.step_speed, &world.vocations);
+    let mut player = player_from_loaded(
+        loaded,
+        world.mechanics.profile.step_speed,
+        &world.vocations,
+        &world.groups,
+    );
     player.operating_system = operating_system;
     player.otclient_v8 = otclient_v8;
     // Debug aid: confirm vocation/level/speed wiring (PC-0 base_speed + level scaling).

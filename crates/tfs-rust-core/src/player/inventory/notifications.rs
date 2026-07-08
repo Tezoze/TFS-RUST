@@ -414,6 +414,7 @@ mod tests {
             guid: 1,
             account_type: 1,
             group_id: 1,
+            set_max_speed: false,
             sex: crate::creature::PlayerSex::Male,
             vocation_id: 0,
             vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),

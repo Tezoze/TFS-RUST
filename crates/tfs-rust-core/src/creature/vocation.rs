@@ -167,7 +167,19 @@ use crate::formulas::StepSpeedModel;
 ///
 /// Reads `base_speed` from the cached [`VocationProfile`] snapshot — no
 /// `&VocationRegistry` borrow needed in hot paths.
-pub fn base_walk_speed(model: StepSpeedModel, profile: &VocationProfile, level: i32) -> i32 {
+///
+/// `set_max_speed` mirrors TFS `Player::updateBaseSpeed()`: when the player's
+/// group has `PlayerFlag_SetMaxSpeed`, base speed is pinned to `PLAYER_MAX_SPEED`
+/// (1500) instead of the vocation-derived value (`src/player.h`).
+pub fn base_walk_speed(
+    model: StepSpeedModel,
+    profile: &VocationProfile,
+    level: i32,
+    set_max_speed: bool,
+) -> i32 {
+    if set_max_speed {
+        return 1500;
+    }
     let voc_base = profile.base_speed;
     let l = level.max(1);
     match model {
@@ -191,22 +203,26 @@ mod tests {
             base_speed: 220,
             ..VocationProfile::none_vocation()
         };
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8), 227);
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8, false), 227);
         assert_eq!(
             crate::formulas::linear_go_effective_speed(base_walk_speed(
                 StepSpeedModel::LinearGo,
                 &profile,
-                8
+                8,
+                false
             )),
             534
         );
         // Shipped vocations.lua base_speed=70, level 8 → 70+7=77, GetSpeed=234.
         let shipped = VocationProfile::none_vocation();
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 8), 77);
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 8, false), 77);
         // Level 1 → base unchanged (no level-ups yet).
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 1), 70);
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 1, false), 70);
         // TFS 1098: 220 + 2*7 = 234
-        assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, &profile, 8), 234);
+        assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, &profile, 8, false), 234);
+        // GM max speed flag pins to 1500 regardless of vocation/level.
+        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8, true), 1500);
+        assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, &shipped, 1, true), 1500);
     }
 
     #[test]
