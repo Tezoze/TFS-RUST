@@ -141,3 +141,22 @@ pub fn apply_condition(
     };
     add_condition_merge(&mut kind.base_mut().active_conditions, cond);
 }
+
+/// TFS `Game::combatGetTypeInfo` non-physical hit-effect mapping.
+///
+/// Returns the raw client wire effect byte for a typed damage hit. Physical hits
+/// are handled separately by `physical_hit_effect` keyed on the victim's blood
+/// family (`creature/monster_inventory.rs`).
+///
+/// C++ reference:
+/// - 1098 `Game::combatGetTypeInfo` — `src/game.cpp:3999-4065`.
+/// - 772 `TCreature::Damage` typed branch — `tibia-game-master/src/crmain.cc:744-754`.
+pub fn combat_type_hit_effect(combat_type: CombatType) -> Option<u8> {
+    match combat_type {
+        CombatType::Energy => Some(12),    // CONST_ME_ENERGYHIT / EFFECT_ENERGY_HIT
+        CombatType::Earth => Some(9),      // CONST_ME_GREEN_RINGS / EFFECT_POISON
+        CombatType::Fire => Some(16),     // CONST_ME_HITBYFIRE / EFFECT_FIRE
+        CombatType::LifeDrain => Some(14), // CONST_ME_MAGIC_RED / EFFECT_MAGIC_RED
+        _ => None,
+    }
+}

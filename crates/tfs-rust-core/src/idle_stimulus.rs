@@ -312,22 +312,38 @@ impl GameWorld {
                 .map(|k| k.base().health)
                 .unwrap_or(0);
 
-            // 772 physical-hit blood: race-keyed effect + blood/slime splash on the victim's tile
-            // (`TCreature::Damage`, `crmain.cc:762-775`). Emitted for any physical damage that
-            // landed, including the killing blow (C++ emits the effect before `Kill()`); the
-            // full-blood pool is added afterwards by the death path.
-            if stimulus_damage > 0 && reduced_damage.primary.0 == CombatType::Physical {
+            // Hit graphical effect: physical uses blood family, typed damage uses the combat-type
+            // effect (`TCreature::Damage`, `crmain.cc:706-765`; TFS `Game::combatGetTypeInfo`,
+            // `game.cpp:3999`). Emitted for any damage that landed, including the killing blow
+            // (C++ emits the effect before `Kill()`); the full-blood pool is added afterwards by
+            // the death path.
+            if stimulus_damage > 0 {
                 if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
-                    self.apply_physical_hit_blood(target, pos);
-                }
+                    if reduced_damage.primary.0 == CombatType::Physical {
+                        self.apply_physical_hit_blood(target, pos);
 
-                // M4 — Invisibility removal on hit: C++ `Damage` clears non-player invisibility
-                // (`SKILL_ILLUSION` timer → restore original outfit + announce) when damage lands
-                // (`crmain.cc:636-641`). Players keep invisibility through damage (C++ gates on
-                // `this->Type != PLAYER`). Removes any `ConditionType::Invisible` condition and
-                // broadcasts the outfit change so spectators see the creature reappear.
-                if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
-                    self.clear_nonplayer_invisibility(target);
+                        // M4 — Invisibility removal on hit: C++ `Damage` clears non-player
+                        // invisibility (`SKILL_ILLUSION` timer → restore original outfit +
+                        // announce) when damage lands (`crmain.cc:636-641`). Players keep
+                        // invisibility through damage (C++ gates on `this->Type != PLAYER`).
+                        if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
+                            self.clear_nonplayer_invisibility(target);
+                        }
+                    } else if let Some(effect) =
+                        crate::combat::combat_type_hit_effect(reduced_damage.primary.0)
+                    {
+                        self.broadcast_magic_effect(pos, effect);
+                    }
+
+                    if reduced_damage.secondary.1 < 0
+                        && reduced_damage.secondary.0 != CombatType::Physical
+                    {
+                        if let Some(effect) =
+                            crate::combat::combat_type_hit_effect(reduced_damage.secondary.0)
+                        {
+                            self.broadcast_magic_effect(pos, effect);
+                        }
+                    }
                 }
             }
 

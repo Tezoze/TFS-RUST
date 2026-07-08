@@ -2014,6 +2014,41 @@
         );
     }
 
+    /// PC-3: non-physical damage must broadcast the typed hit magic effect.
+    /// C++ `TCreature::Damage` typed branch (`crmain.cc:744-754`) and TFS
+    /// `Game::combatGetTypeInfo` (`game.cpp:3999-4065`) emit `EFFECT_FIRE` (16),
+    /// `EFFECT_ENERGY_HIT` (12), `EFFECT_POISON` (9), or `EFFECT_MAGIC_RED` (14).
+    #[test]
+    fn test_combat_execute_typed_damage_broadcasts_hit_effect() {
+        let (mut world, player, conn) = setup_player_world_with_conn();
+        let mpos = Position::new(101, 100, 7);
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+        world.pending_outgoing.clear();
+        let applied = world.combat_execute_with_stimulus(
+            Some(player),
+            monster,
+            &CombatDamage {
+                primary: (CombatType::Fire, -10),
+                secondary: (CombatType::Fire, 0),
+            },
+            &CombatParams::default(),
+        );
+        assert!(applied, "fire damage must apply");
+
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("spectator must receive packets");
+        assert!(
+            pkts.iter().any(|p| {
+                // 772 `sendMagicEffect` opcode is 0x83, then position, then effect byte.
+                p.len() >= 7 && p[0] == 0x83 && p[p.len() - 1] == 16
+            }),
+            "fire damage must broadcast magic effect 0x83 with EFFECT_FIRE (16)"
+        );
+    }
+
     /// C++ `%5` case 2/3 map to North/South dest tiles — `crnonpl.cc:2817-2818`.
     #[test]
     fn test_772_dance_dir_order_matches_cpp() {
