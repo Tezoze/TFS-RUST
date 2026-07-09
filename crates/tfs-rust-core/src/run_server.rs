@@ -177,7 +177,12 @@ pub async fn run() -> anyhow::Result<()> {
     // can reach it. Set once for the game thread's lifetime.
     tfs_rust_lua::set_timer_scheduler(scheduler.clone());
 
-    let (events, chat_channels): (Box<dyn crate::event_dispatcher::EventDispatcher>, Vec<tfs_rust_lua::ChatChannelDef>) = match LuaRuntime::new() {
+    let (events, chat_channels, weapon_registry, spell_registry): (
+        Box<dyn crate::event_dispatcher::EventDispatcher>,
+        Vec<tfs_rust_lua::ChatChannelDef>,
+        tfs_rust_content::weapons::WeaponRegistry,
+        tfs_rust_content::spells::SpellRegistry,
+    ) = match LuaRuntime::new() {
         Ok(mut lua_runtime) => {
             // Load chat channels from Lua scripts (CH-4)
             let chat_channels = match load_chat_channel_scripts(&mut lua_runtime, &data_path) {
@@ -209,6 +214,42 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             };
             let talkactions = crate::talkactions::TalkActionRegistry::from_defs(talkaction_defs);
+
+            // PC-2b/PC-3: Load weapon + spell scripts from `data/scripts/weapons/*.lua`
+            // and `data/scripts/spells/**/*.lua`. These drain `_pending_weapons` /
+            // `_pending_spells` into `WeaponRegistry` / `SpellRegistry`. Without this,
+            // `world.weapons` stays empty and `player_wand_attack` silently no-ops on
+            // every wand (the `get_wand()` lookup returns `None` → re-arm without
+            // striking). Must run before the runtime is moved into `LuaEventDispatcher`.
+            let weapon_registry = match lua_runtime.load_weapon_scripts(&data_path) {
+                Ok(reg) => {
+                    tracing::info!(
+                        wands = reg.wands.len(),
+                        distance = reg.distance.len(),
+                        melee = reg.melee.len(),
+                        "Loaded weapon scripts"
+                    );
+                    reg
+                }
+                Err(e) => {
+                    tracing::warn!("Weapon script loading failed: {}", e);
+                    tfs_rust_content::weapons::WeaponRegistry::default()
+                }
+            };
+            let spell_registry = match lua_runtime.load_spell_scripts(&data_path) {
+                Ok(reg) => {
+                    tracing::info!(
+                        instant = reg.instant_by_words.len(),
+                        runes = reg.runes_by_id.len(),
+                        "Loaded spell scripts"
+                    );
+                    reg
+                }
+                Err(e) => {
+                    tracing::warn!("Spell script loading failed: {}", e);
+                    tfs_rust_content::spells::SpellRegistry::default()
+                }
+            };
 
             let mut loader = ScriptLoader::new(&mut lua_runtime);
             let creature_events = match loader.load_creaturescripts(&data_path) {
@@ -245,11 +286,16 @@ pub async fn run() -> anyhow::Result<()> {
             // Must be done after `LuaEventDispatcher::new` since the
             // registry holds `mlua::RegistryKey`s tied to the runtime.
             dispatcher.set_talkactions(talkactions);
-            (dispatcher, chat_channels)
+            (dispatcher, chat_channels, weapon_registry, spell_registry)
         }
         Err(e) => {
             tracing::warn!("Lua runtime init failed, using NullEventDispatcher: {}", e);
-            (Box::new(NullEventDispatcher), Vec::new())
+            (
+                Box::new(NullEventDispatcher),
+                Vec::new(),
+                tfs_rust_content::weapons::WeaponRegistry::default(),
+                tfs_rust_content::spells::SpellRegistry::default(),
+            )
         }
     };
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
@@ -273,6 +319,13 @@ pub async fn run() -> anyhow::Result<()> {
         mechanics,
     );
     world.scheduler = Some(scheduler.clone());
+
+    // PC-2b/PC-3: Inject the weapon + spell registries drained from Lua scripts.
+    // `GameWorld::new` initializes these as empty `Arc<WeaponRegistry::default()>` /
+    // `Arc<SpellRegistry::default()>`; replace them with the populated registries so
+    // `player_wand_attack` (`get_wand`) and spell dispatch (`instant_by_words`) resolve.
+    world.weapons = Arc::new(weapon_registry);
+    world.spells = Arc::new(spell_registry);
 
     // Seed chat channels from Lua scripts (CH-4)
     for channel_def in chat_channels {
