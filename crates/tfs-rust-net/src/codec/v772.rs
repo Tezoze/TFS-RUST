@@ -290,6 +290,16 @@ impl Codec772 {
         m
     }
 
+    /// 7.72 `sendRemoveContainerItem` opcode `0x72` (~L1890): cid + `u8` slot.
+    /// TVP uses a single byte slot; 10.98 widens the slot to `u16` and appends an item.
+    pub fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x72);
+        m.write_u8(cid);
+        m.write_u8(slot as u8);
+        m
+    }
+
     /// 7.72 `sendAddCreature` non-self branch opcode `0x6A` (~L1717).
     pub fn encode_add_tile_creature(
         &self,

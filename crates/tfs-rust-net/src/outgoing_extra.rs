@@ -921,16 +921,6 @@ pub fn send_update_tile_item_template(
     )
 }
 
-/// C++ `sendRemoveContainerItem` when `lastItem == nullptr` (`src/protocolgame.cpp` ~2952).
-pub fn send_remove_container_item_empty(cid: u8, slot: u16) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x72);
-    m.write_u8(cid);
-    m.write_u16(slot);
-    m.write_u16(0);
-    m
-}
-
 /// C++ `sendInventoryItem` with item (`src/protocolgame.cpp` ~2896).
 #[deprecated(note = "use Codec::encode_inventory_item")]
 pub fn send_inventory_item_template(

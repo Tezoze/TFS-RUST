@@ -85,7 +85,7 @@ struct PendingChainTurn {
 }
 
 /// C++ `Position::areInRange<1,1,0>` — dx<=1, dy<=1, dz==0.
-fn are_in_range_1_1_0(a: Position, b: Position) -> bool {
+pub(crate) fn are_in_range_1_1_0(a: Position, b: Position) -> bool {
     let dx = (a.x as i32 - b.x as i32).unsigned_abs();
     let dy = (a.y as i32 - b.y as i32).unsigned_abs();
     let dz = (a.z as i32 - b.z as i32).unsigned_abs();

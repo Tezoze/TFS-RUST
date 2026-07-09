@@ -279,6 +279,18 @@ impl Codec1098 {
         m
     }
 
+    /// 10.98 `sendRemoveContainerItem` opcode `0x72` (`src/protocolgame.cpp` ~2952): cid + `u16`
+    /// slot + optional `lastItem` (written as `0x00` when absent).
+    pub fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x72);
+        m.write_u8(cid);
+        m.write_u16(slot);
+        m.write_u16(0);
+        m
+    }
+
+
     pub fn encode_add_tile_creature(
         &self,
         pos: Position,

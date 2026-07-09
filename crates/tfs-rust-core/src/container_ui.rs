@@ -9,7 +9,7 @@ use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
-use tfs_rust_net::outgoing_extra::{send_close_container, send_remove_container_item_empty};
+use tfs_rust_net::outgoing_extra::send_close_container;
 
 use crate::creature::CreatureKind;
 use crate::creature::PlayerWalkAction;
@@ -17,6 +17,7 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::item_look::look_distance_tfs;
 use crate::return_value::ReturnValue;
+use crate::walk::are_in_range_1_1_0;
 
 /// How to sync the client container window — `Player::onAddContainerItem` / full refresh (`player.cpp`).
 #[derive(Clone, Copy, Debug, Default)]
@@ -111,7 +112,7 @@ impl GameWorld {
         match change {
             ContainerContentChange::FullRefresh => {}
             ContainerContentChange::Remove { slot } => {
-                let pkt = send_remove_container_item_empty(client_cid, slot).into_bytes();
+                let pkt = self.codec.encode_remove_container_item(client_cid, slot).into_bytes();
                 self.enqueue_outgoing(conn_id, pkt);
             }
             ContainerContentChange::Add { slot } => {
@@ -237,8 +238,8 @@ impl GameWorld {
         }
     }
 
-    /// Whether `viewer` may keep a window open on `container_root` (held in inventory or sees map tile).
-    // C++ ref: `Player::autoCloseContainers`, `Thing::getTile` (`player.cpp`, `thing.h`).
+    /// Whether `viewer` may keep a window open on `container_root` (held in inventory or adjacent map tile).
+    // C++ ref: `Player::autoCloseContainers`, `Position::areInRange<1,1,0>` (`player.cpp` ~3119).
     fn player_may_view_open_container_window(
         &self,
         viewer: CreatureId,
@@ -251,8 +252,11 @@ impl GameWorld {
         if self.player_owns_depot_container_tree(viewer, top) {
             return true;
         }
+        let Some(viewer_pos) = self.creatures.get(viewer).map(|k| k.position()) else {
+            return false;
+        };
         if let Some(pos) = self.map.find_item_position(top) {
-            return self.can_see_position(viewer, pos);
+            return are_in_range_1_1_0(viewer_pos, pos);
         }
         false
     }
@@ -866,5 +870,99 @@ impl GameWorld {
             };
             self.send_container_open_to_player(conn_id, cid, ccid, slot_item, 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::container::Container;
+    use crate::item::Item;
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::tile::{Tile, TileBody};
+    use tfs_rust_common::{ConnId, Position};
+
+    /// 772/TVP `operate.cc` and TFS 1.4.2 `player.cpp` ~3119 close a ground container when the
+    /// viewer is no longer adjacent (`Position::areInRange<1,1,0>`). The viewport visibility
+    /// check (`can_see_position`) was too permissive and kept windows open across the map.
+    #[test]
+    fn ground_container_closes_when_player_moves_away() {
+        let mut world = minimal_world();
+        let container_pos = Position::new(100, 100, 7);
+        let adjacent_pos = Position::new(101, 100, 7);
+        let far_pos = Position::new(103, 100, 7);
+
+        // Place a walkable tile with a ground container.
+        let container_item_id = world.items.insert(Item::new(1987, 1));
+        world.container_registry.register(Container::new(container_item_id, 20));
+        world.map.insert_tile(
+            container_pos,
+            Tile::Normal(TileBody {
+                ground: Some(100),
+                down_items: vec![container_item_id],
+                ..TileBody::new()
+            }),
+        );
+
+        // Insert a player next to the container and open it.
+        let cid = insert_player(&mut world, test_player("Hero", adjacent_pos));
+        let conn = ConnId(0);
+        world.register_conn_mapping(conn, cid);
+        let ccid = world
+            .container_registry
+            .add_container(cid, container_item_id, Some(0), 0)
+            .expect("open container");
+        assert!(world
+            .container_registry
+            .open_container_entries(cid)
+            .iter()
+            .any(|(open_cid, root)| *open_cid == ccid && *root == container_item_id));
+
+        // Move two tiles away and run the auto-close sweep.
+        world.creatures.get_mut(cid).unwrap().set_position(far_pos);
+        world.auto_close_containers_for_player(cid);
+
+        // The window should be closed.
+        assert!(
+            world.container_registry.open_container_entries(cid).is_empty(),
+            "ground container must close when player leaves adjacency"
+        );
+    }
+
+    /// A ground container that is right under the player stays open.
+    #[test]
+    fn ground_container_stays_open_when_player_adjacent() {
+        let mut world = minimal_world();
+        let container_pos = Position::new(100, 100, 7);
+        let adjacent_pos = Position::new(101, 100, 7);
+
+        let container_item_id = world.items.insert(Item::new(1987, 1));
+        world.container_registry.register(Container::new(container_item_id, 20));
+        world.map.insert_tile(
+            container_pos,
+            Tile::Normal(TileBody {
+                ground: Some(100),
+                down_items: vec![container_item_id],
+                ..TileBody::new()
+            }),
+        );
+
+        let cid = insert_player(&mut world, test_player("Hero", adjacent_pos));
+        let conn = ConnId(0);
+        world.register_conn_mapping(conn, cid);
+        let ccid = world
+            .container_registry
+            .add_container(cid, container_item_id, Some(0), 0)
+            .expect("open container");
+
+        world.auto_close_containers_for_player(cid);
+
+        assert!(
+            world
+                .container_registry
+                .open_container_entries(cid)
+                .iter()
+                .any(|(open_cid, root)| *open_cid == ccid && *root == container_item_id),
+            "ground container must stay open while player is adjacent"
+        );
     }
 }

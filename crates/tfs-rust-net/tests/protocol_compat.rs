@@ -387,6 +387,14 @@ fn container_open_1098_layout() {
     );
 }
 
+/// 1098 `sendRemoveContainerItem` (`0x72`): cid + `u16` slot + `u16` 0 when no `lastItem`.
+/// C++ ref: `src/protocolgame.cpp` ~2952.
+#[test]
+fn remove_container_item_1098_layout() {
+    let b = codec().encode_remove_container_item(4, 0x0201).into_bytes();
+    assert_eq!(b, vec![0x72, 4, 0x01, 0x02, 0x00, 0x00]);
+}
+
 // ---------------------------------------------------------------------------
 // CH-0 — chat-channel outgoing wire golden bytes.
 // 1098 reference: `src/protocolgame.cpp` `sendChannelsDialog` (~1687),
@@ -802,6 +810,15 @@ mod v772 {
         let b = codec().encode_update_container_item(2, 6, args).into_bytes();
         assert_eq!(b, vec![0x71, 2, 6, 0x34, 0x12]);
     }
+
+    /// 7.72 `sendRemoveContainerItem` (`0x72`): cid + `u8` slot. TVP sends no item id.
+    /// C++ ref: `gameserver/src/protocolgame.cpp` ~1890.
+    #[test]
+    fn remove_container_item_772_u8_slot() {
+        let b = codec().encode_remove_container_item(2, 6).into_bytes();
+        assert_eq!(b, vec![0x72, 2, 6]);
+    }
+
 
     /// `sendInventoryItem` (`0x78`): slot + item.
     #[test]

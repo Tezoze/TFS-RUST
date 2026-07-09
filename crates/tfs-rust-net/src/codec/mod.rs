@@ -117,6 +117,9 @@ pub trait ProtocolCodec {
         args: ItemTemplateArgs,
     ) -> NetworkMessage;
 
+    /// `0x72` remove container item. 7.72 sends a `u8` slot; 10.98 sends a `u16` slot + optional item.
+    fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage;
+
     /// Standalone `0x6A` tile creature. 10.98 always includes `stackpos`; 7.72 omits it (OTCv8
     /// `GameTileAddThingWithStackpos` is 8.41+ only — `otclient_stackpos` is ignored on 772).
     fn encode_add_tile_creature(
@@ -367,6 +370,10 @@ impl ProtocolCodec for Codec1098 {
         args: ItemTemplateArgs,
     ) -> NetworkMessage {
         Codec1098::encode_update_container_item(self, cid, slot, args)
+    }
+
+    fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
+        Codec1098::encode_remove_container_item(self, cid, slot)
     }
 
     fn encode_add_tile_creature(
@@ -632,6 +639,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_update_container_item(self, cid, slot, args)
     }
 
+    fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
+        Codec772::encode_remove_container_item(self, cid, slot)
+    }
+
     fn encode_add_tile_creature(
         &self,
         pos: Position,
@@ -866,6 +877,8 @@ impl Codec {
 
         encode_update_container_item(cid: u8, slot: u16, args: ItemTemplateArgs) -> NetworkMessage;
 
+        encode_remove_container_item(cid: u8, slot: u16) -> NetworkMessage;
+
         encode_add_tile_creature(
             pos: Position,
             stack_pos: u8,
@@ -1065,6 +1078,10 @@ impl ProtocolCodec for Codec {
         Codec::encode_update_container_item(self, cid, slot, args)
     }
 
+    fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
+        Codec::encode_remove_container_item(self, cid, slot)
+    }
+
     fn encode_add_tile_creature(
         &self,
         pos: Position,
@@ -1145,6 +1162,7 @@ impl ProtocolCodec for Codec {
             Self::V772(c) => ProtocolCodec::encode_creature_speed(c, w),
         }
     }
+
 
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
         Codec::encode_combat_damage_text_message(self, w)
