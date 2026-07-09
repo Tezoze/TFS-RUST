@@ -68,35 +68,44 @@ pub(crate) fn splash_fluid(blood: BloodType) -> Option<u16> {
     }
 }
 
-/// Spawn-rolled body items — mirror player equip + optional bag.
+/// Spawn-rolled body items — mirror player equip + optional bag + loose body slots.
 #[derive(Debug, Clone, Default)]
 pub struct MonsterInventory {
     /// Player-style slots 1..=10 (`equipment[0]` = slot 1).
     pub equipment: [Option<ItemId>; 11],
     /// Internal bag item when any loot goes to bag; empty bag omitted (`crnonpl.cc:2100`).
     pub bag: Option<ItemId>,
+    /// Non-bag items that filled a free body slot (`CreateAtCreature` in `crnonpl.cc:2081`).
+    /// These are moved directly into the corpse on death, not wrapped in a bag.
+    pub body: Vec<ItemId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LootDestination {
     Bag,
     Equip(u8),
+    Body,
 }
 
-/// Whether rolled loot goes to internal bag or an equip slot (`crnonpl.cc:2050-2103`).
+/// Whether rolled loot goes to internal bag, an equip slot, or a loose body slot.
+///
+/// C++ `TMonster::TMonster` only puts items into the internal bag if they are
+/// weapons/shields/bows/throwables/wands or wearout/expire items (`crnonpl.cc:2071-2082`).
+/// Everything else is placed on the creature via `CreateAtCreature` and later moved
+/// into the corpse by `~TCreature` (`crmain.cc:267-282`).
 fn loot_destination(item_type: &ItemType) -> LootDestination {
+    // Weapons, shields, distance weapons, wands and ammunition go into the bag.
     if item_type.weapon_type != WEAPON_NONE {
         return LootDestination::Bag;
     }
-    if item_type.stackable() {
-        return LootDestination::Bag;
-    }
+    // Armor/accessories that fit an equipment slot are equipped.
     for slot in [1u8, 2, 4, 5, 6, 7, 8, 9, 10] {
         if item_fits_equipment_slot(slot, item_type) {
             return LootDestination::Equip(slot);
         }
     }
-    LootDestination::Bag
+    // Stackable gold/worms, food, containers, etc. take a free body slot, not the bag.
+    LootDestination::Body
 }
 
 fn roll_loot_count<R: Rng + ?Sized>(rng: &mut R, countmax: i32) -> u16 {
@@ -308,11 +317,13 @@ impl GameWorld {
 
         let mut bag_items: Vec<ItemId> = Vec::new();
         let mut equip_placements: Vec<(u8, ItemId)> = Vec::new();
+        let mut body_items: Vec<ItemId> = Vec::new();
 
         for (dest, item_id) in rolled {
             match dest {
                 LootDestination::Bag => bag_items.push(item_id),
                 LootDestination::Equip(slot) => equip_placements.push((slot, item_id)),
+                LootDestination::Body => body_items.push(item_id),
             }
         }
 
@@ -336,27 +347,18 @@ impl GameWorld {
 
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
             m.inventory.bag = bag_id;
+            m.inventory.body = body_items;
             for (slot, item_id) in equip_placements {
                 let Some(idx) = slot_to_array_index(slot) else {
-                    if let Some(bag) = bag_id {
-                        if let Some(cont) = self.container_registry.get_mut(bag) {
-                            let _ = cont.add_item(item_id);
-                            if let Some(ch) = self.container_registry.get_mut(item_id) {
-                                ch.parent_container = Some(bag);
-                            }
-                        }
-                    }
+                    // No valid equipment slot — treat as a loose body item, not a bag item.
+                    m.inventory.body.push(item_id);
                     continue;
                 };
                 if m.inventory.equipment[idx].is_none() {
                     m.inventory.equipment[idx] = Some(item_id);
-                } else if let Some(bag) = bag_id {
-                    if let Some(cont) = self.container_registry.get_mut(bag) {
-                        let _ = cont.add_item(item_id);
-                        if let Some(ch) = self.container_registry.get_mut(item_id) {
-                            ch.parent_container = Some(bag);
-                        }
-                    }
+                } else {
+                    // Slot already occupied by another rolled item; fall back to a body slot.
+                    m.inventory.body.push(item_id);
                 }
             }
         }
@@ -402,7 +404,7 @@ impl GameWorld {
         self.refresh_container_chain(corpse_id);
     }
 
-    /// Drop race corpse with bag + equipped loot on the death tile (772 only).
+    /// Drop race corpse with bag + equipped + body-slot loot on the death tile (772 only).
     ///
     /// C++ reference: `~TCreature` — `crmain.cc:204-290`.
     pub(crate) fn drop_monster_corpse(
@@ -426,6 +428,9 @@ impl GameWorld {
         }
         for slot_item in inventory.equipment.iter().flatten() {
             self.move_body_item_into_corpse(corpse_id, *slot_item);
+        }
+        for body_item in &inventory.body {
+            self.move_body_item_into_corpse(corpse_id, *body_item);
         }
 
         // C++ `~TCreature` creates the blood/slime pool BEFORE the corpse (`crmain.cc:210-226`),
@@ -717,18 +722,6 @@ mod tests {
 
         world.roll_monster_spawn_loot(monster, &rat_with_loot());
 
-        assert!(
-            world
-                .creatures
-                .get(monster)
-                .and_then(|k| match k {
-                    CreatureKind::Monster(m) => m.inventory.bag,
-                    _ => None,
-                })
-                .is_some(),
-            "guaranteed gold loot must create a bag"
-        );
-
         let inventory = world
             .creatures
             .get(monster)
@@ -737,6 +730,17 @@ mod tests {
                 _ => None,
             })
             .expect("monster");
+
+        // Gold coins are stackable, not weapons — they must not create a bag.
+        // In the decompile they would fill an empty hand slot via `CreateAtCreature`
+        // (`crnonpl.cc:2081`) and then be moved into the corpse.
+        assert!(
+            inventory.bag.is_none(),
+            "stackable gold loot must not create a bag"
+        );
+        let has_gold = inventory.equipment.iter().any(|s| s.is_some())
+            || !inventory.body.is_empty();
+        assert!(has_gold, "guaranteed gold loot must be stored on the monster");
 
         world.drop_monster_corpse(
             pos,
@@ -761,7 +765,7 @@ mod tests {
             .expect("corpse container");
         assert!(
             !cont.items.is_empty(),
-            "corpse must contain spawn-rolled bag/loot"
+            "corpse must contain spawn-rolled loot"
         );
     }
 
@@ -788,6 +792,7 @@ mod tests {
         };
         assert!(m.inventory.bag.is_none());
         assert!(m.inventory.equipment.iter().all(|s| s.is_none()));
+        assert!(m.inventory.body.is_empty());
     }
 
     #[test]
