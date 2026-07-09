@@ -1,7 +1,6 @@
 //! TFS `Player` inventory cylinder queries — `player.cpp` ~2397–2841.
 // C++ reference: `Player::queryAdd`, `queryMaxCount`, `queryRemove`, `queryDestination`, `hasCapacity`.
 
-use crate::config::ConfigManager;
 use crate::container::ContainerIterator;
 use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
@@ -40,10 +39,6 @@ pub(crate) struct OccupiedSlot {
     count: u16,
 }
 
-/// C++ `ConfigManager::CLASSIC_EQUIPMENT_SLOTS` — `config.lua` `classicEquipmentSlots`.
-pub fn classic_equipment_slots_from_config(config: &ConfigManager) -> bool {
-    crate::config::get_bool_or(config, "classicEquipmentSlots", false).unwrap_or(false)
-}
 
 /// Default `ReturnValue` before the per-slot `switch` — `player.cpp` ~2422–2438.
 fn player_query_add_default_ret(classic_equipment_slots: bool, slot_position: u32) -> ReturnValue {
@@ -268,7 +263,7 @@ impl GameWorld {
             return ReturnValue::ItemCannotBeMovedThere;
         }
 
-        let classic = classic_equipment_slots_from_config(&self.config);
+        let classic = self.mechanics.profile.classic_equipment_slots;
         let left = self.occupied_slot(cid, InventorySlot::Left as u8);
         let right = self.occupied_slot(cid, InventorySlot::Right as u8);
 
@@ -924,8 +919,12 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inventory::SLOTP_HAND;
+    use crate::inventory::{SLOTP_HAND, WEAPON_SWORD, WEAPON_WAND};
+    use crate::item::Item;
+    use crate::sim_harness::{beat_driven_test_world, insert_player, test_player};
     use slotmap::SlotMap;
+    use std::sync::Arc;
+    use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
 
     fn sword_type() -> ItemType {
@@ -965,16 +964,6 @@ mod tests {
             weapon_type: WEAPON_NONE,
             ..Default::default()
         }
-    }
-
-    fn test_config(lua_source: &str, tag: &str) -> ConfigManager {
-        let path = std::env::temp_dir().join(format!(
-            "tfs_classic_equipment_slots_test_{}_{}.lua",
-            std::process::id(),
-            tag,
-        ));
-        std::fs::write(&path, lua_source).expect("write temp config.lua");
-        ConfigManager::load(&path).expect("load temp config.lua")
     }
 
     #[test]
@@ -1156,18 +1145,6 @@ mod tests {
     }
 
     #[test]
-    fn classic_equipment_slots_config_default() {
-        let cfg = test_config("", "default");
-        assert!(!classic_equipment_slots_from_config(&cfg));
-    }
-
-    #[test]
-    fn classic_equipment_slots_config_reads_key() {
-        let cfg = test_config("classicEquipmentSlots = true", "enabled");
-        assert!(classic_equipment_slots_from_config(&cfg));
-    }
-
-    #[test]
     fn player_max_count_index_maps_wherever() {
         assert_eq!(
             GameWorld::player_max_count_index(InventorySlot::Wherever as u8),
@@ -1180,5 +1157,119 @@ mod tests {
     fn player_inventory_slot_range_matches_creature_h() {
         assert_eq!(PLAYER_INVENTORY_SLOT_FIRST, 1);
         assert_eq!(PLAYER_INVENTORY_SLOT_LAST, 10);
+    }
+
+    /// 772 hand slots must accept any pickupable item (TVP `operate.cc:675-732`)
+    /// — the old TFS `classicEquipmentSlots` gate was off by default on 772.
+    #[test]
+    fn classic_hand_slots_accept_tools_in_772_world() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        let cid = insert_player(&mut world, test_player("Hero", pos));
+        let item_id = world.items.insert(Item::new(2148, 1));
+
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let rv = world.player_query_add(cid, slot, item_id, 1, CylinderFlags::NONE);
+            assert_eq!(
+                rv,
+                ReturnValue::NoError,
+                "772 hand slot {slot} must accept a generic pickupable item"
+            );
+        }
+    }
+
+    fn wand_type() -> ItemType {
+        ItemType {
+            slot_position: SLOTP_HAND,
+            weapon_type: WEAPON_WAND,
+            allow_pickupable: true,
+            ..Default::default()
+        }
+    }
+
+    /// 772 classic hand slots allow a wand (weapon) in either hand when the opposite hand is empty.
+    #[test]
+    fn classic_hand_slots_accept_wand_when_other_hand_empty() {
+        let wand = wand_type();
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let ret = evaluate_player_inventory_slot_query(
+                slot, true, &wand, ItemId::default(), 1, None, None,
+            );
+            assert_eq!(
+                ret,
+                ReturnValue::NoError,
+                "772 hand slot {slot} must accept a wand when the other hand is empty"
+            );
+        }
+    }
+
+    /// 772 classic hand slots reject a second weapon (e.g. sword + wand).
+    #[test]
+    fn classic_hand_slots_reject_two_weapons() {
+        let mut sm: SlotMap<ItemId, ()> = SlotMap::with_key();
+        let left_id = sm.insert(());
+        let move_id = sm.insert(());
+        let left = OccupiedSlot {
+            item_id: left_id,
+            slot_position: SLOTP_LEFT,
+            weapon_type: WEAPON_SWORD,
+            count: 1,
+        };
+        let ret = evaluate_player_inventory_slot_query(
+            InventorySlot::Right as u8,
+            true,
+            &wand_type(),
+            move_id,
+            1,
+            Some(left),
+            None,
+        );
+        assert_eq!(ret, ReturnValue::CanOnlyUseOneWeapon);
+    }
+
+    /// 772 classic hand slots allow a wand opposite a shield.
+    #[test]
+    fn classic_hand_slots_allow_wand_with_shield() {
+        let mut sm: SlotMap<ItemId, ()> = SlotMap::with_key();
+        let left_id = sm.insert(());
+        let move_id = sm.insert(());
+        let left = OccupiedSlot {
+            item_id: left_id,
+            slot_position: SLOTP_LEFT,
+            weapon_type: WEAPON_SHIELD,
+            count: 1,
+        };
+        let ret = evaluate_player_inventory_slot_query(
+            InventorySlot::Right as u8,
+            true,
+            &wand_type(),
+            move_id,
+            1,
+            Some(left),
+            None,
+        );
+        assert_eq!(ret, ReturnValue::NoError);
+    }
+
+    /// Full 772 world: a fresh player can query-add a wand into either empty hand.
+    #[test]
+    fn wand_query_adds_to_empty_hand_in_772_world() {
+        let mut world = beat_driven_test_world();
+        let mut items_db = (*world.items_db).clone();
+        items_db.items.insert(1234, wand_type());
+        world.items_db = Arc::new(items_db);
+
+        let pos = Position::new(100, 100, 7);
+        let cid = insert_player(&mut world, test_player("Mage", pos));
+        let item_id = world.items.insert(Item::new(1234, 1));
+
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let rv = world.player_query_add(cid, slot, item_id, 1, CylinderFlags::NONE);
+            assert_eq!(
+                rv,
+                ReturnValue::NoError,
+                "772 hand slot {slot} must accept a wand when both hands are empty"
+            );
+        }
     }
 }

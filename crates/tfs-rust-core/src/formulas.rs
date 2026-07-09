@@ -297,6 +297,10 @@ pub struct MechanicsProfile {
     pub underground_sees_surface: bool,
     /// K10 — combat damage text format (772 attacker attribution, 1098 simple loss).
     pub damage_text_format: DamageTextFormat,
+    /// Whether hand/ammo slots accept any item (true) or enforce 1098 restrictions (false).
+    /// 772/TVP `CheckInventoryDestination` lets any pickupable item occupy a hand slot; TFS 1.4.2
+    /// gated this behind `classicEquipmentSlots` (`player.cpp` ~2516–2552).
+    pub classic_equipment_slots: bool,
 }
 
 impl MechanicsProfile {
@@ -356,6 +360,7 @@ impl MechanicsProfile {
                 corpse_decay_offset_ms: 30_000,
                 underground_sees_surface: true,
                 damage_text_format: DamageTextFormat::AttackerAttribution,
+                classic_equipment_slots: true,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -408,6 +413,7 @@ impl MechanicsProfile {
                 corpse_decay_offset_ms: 600,
                 underground_sees_surface: false,
                 damage_text_format: DamageTextFormat::SimpleLoss,
+                classic_equipment_slots: false,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -738,6 +744,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "simpleLoss" | "1098" => DamageTextFormat::SimpleLoss,
         _ => p.damage_text_format,
     };
+    p.classic_equipment_slots =
+        bool_or(&formulas, "classicEquipmentSlots", p.classic_equipment_slots);
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {
@@ -838,6 +846,7 @@ mod tests {
         assert_eq!(p.corpse_decay_offset_ms, 600);
         assert!(!p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::SimpleLoss);
+        assert!(!p.classic_equipment_slots);
     }
 
     #[test]
@@ -871,6 +880,7 @@ mod tests {
         assert_eq!(p.corpse_decay_offset_ms, 30_000);
         assert!(p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::AttackerAttribution);
+        assert!(p.classic_equipment_slots);
     }
 
     #[test]
@@ -896,6 +906,16 @@ mod tests {
         // Untouched fields keep their 1098 default.
         assert_eq!(p.path_cost, PathCostModel::Fixed);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
+    }
+
+    #[test]
+    fn classic_equipment_slots_can_be_overridden_by_formulas() {
+        let lua = Lua::new();
+        lua.load(r#"formulas = { classicEquipmentSlots = false }"#)
+            .exec()
+            .unwrap();
+        let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V772));
+        assert!(!p.classic_equipment_slots);
     }
 
     #[test]

@@ -33,6 +33,7 @@ formulas = {
   pathForwardFallback = true,       -- TFS falls back to forward search if reverse fails
   parityRngSource = "env",          -- env/global or ai_rng (not per-world glibc)
   corpseDecayOffsetMs = 600,        -- generic corpse decay +600ms
+  classicEquipmentSlots = false,     -- 10.98 hand slots enforce weapon/shield restrictions
   undergroundSeesSurface = false,   -- TFS canSee: underground cannot see surface (tz < 8 rejects)
   damageTextFormat = "simpleLoss",  -- "You lose N hitpoints." (no attacker attribution)
 

@@ -32,6 +32,7 @@ formulas = {
   pathForwardFallback = false,     -- NOWAY when reverse search fails
   parityRngSource = "perWorld",    -- per-world glibc-parity stream (Finding 8/15)
   corpseDecayOffsetMs = 30000,     -- generic corpse decay +30s (crmain.cc decay scheduler)
+  classicEquipmentSlots = true,      -- 772 hand slots accept any pickupable item
   undergroundSeesSurface = true,   -- IsVisible: underground CAN see surface ±2 floors
   damageTextFormat = "attackerAttribution", -- "You lose N hp due to an attack by X."
 
