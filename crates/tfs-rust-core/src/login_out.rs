@@ -196,8 +196,8 @@ fn npc_to_add_creature_wire(
 
 /// One tile for `GetMapDescription` / move strips (`player_pos` = tile where the local player stands).
 ///
-/// Map tiles hold **server** item ids; this resolves them with `ItemDatabase::client_id_for_server`
-/// before building `TileContent` (every `ItemStack.client_id` is a client/sprite id on the wire).
+/// Map tiles hold **server** item ids; this resolves them with `GameWorld::wire_item_id`
+/// before building `TileContent` (every `ItemStack.client_id` is the wire id for the active era).
 pub(crate) fn map_tile_content(
     world: &GameWorld,
     self_cid: CreatureId,
