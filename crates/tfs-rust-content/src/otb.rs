@@ -1,9 +1,9 @@
 //! OTB item loader and item metadata model.
 //! C++ reference: `src/items.cpp` (`Items::loadFromOtb`), `src/itemloader.h` (`itemattrib_t`, `itemflags_t`).
 
+use crate::item_abilities::ItemAbilities;
 use std::collections::HashMap;
 use std::path::Path;
-use crate::item_abilities::ItemAbilities;
 use tfs_rust_common::error::{Result, TfsRustError};
 use tracing::warn;
 
@@ -289,7 +289,9 @@ fn validate_items_otb_root_version(data: &[u8], path: &Path) -> Result<()> {
     if data.len() < MIN_ROOT {
         return Err(TfsRustError::Content {
             file: path.to_string_lossy().into_owned(),
-            message: format!("items.otb too small for OTBI root + VERSIONINFO (need >= {MIN_ROOT} bytes)"),
+            message: format!(
+                "items.otb too small for OTBI root + VERSIONINFO (need >= {MIN_ROOT} bytes)"
+            ),
         });
     }
     if data[..4] != *OTBI && data[..4] != WILDCARD_ID {
@@ -597,31 +599,31 @@ impl ItemType {
 
     /// 772 `objects.srv` `BANK` — OTB `ITEM_GROUP_GROUND` (`docs/772_OTB_OBJECTS_SRV_FLAG_MAPPING.md`).
     #[inline]
-    pub fn is_terrain_bank_772(&self) -> bool {
+    pub fn is_terrain_bank(&self) -> bool {
         self.is_ground_tile()
     }
 
     /// 772 `UNPASS` — OTB `blockSolid` after `items.xml` `blocking`.
     #[inline]
-    pub fn is_unpass_772(&self) -> bool {
+    pub fn is_unpassable(&self) -> bool {
         self.block_solid()
     }
 
     /// 772 `UNMOVE` — `!moveable` after XML overrides.
     #[inline]
-    pub fn is_unmove_772(&self) -> bool {
+    pub fn is_immovable(&self) -> bool {
         !self.moveable()
     }
 
     /// 772 `WAYPOINTS` — raw OTB `ITEM_ATTR_SPEED` (`cract.cc` `TShortway::FillMap`).
     #[inline]
-    pub fn waypoints_raw_772(&self) -> u16 {
+    pub fn waypoints_raw(&self) -> u16 {
         self.speed
     }
 
     /// 772 `AVOID` on magic fields — hazard tile unless ignored by race/state.
     #[inline]
-    pub fn is_avoid_hazard_772(&self) -> bool {
+    pub fn is_avoid_hazard(&self) -> bool {
         self.is_magic_field()
     }
 }
@@ -753,5 +755,4 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
 }

@@ -732,8 +732,13 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "env" | "envGlobal" | "1098" => ParityRngSource::EnvGlobal,
         _ => p.parity_rng_source,
     };
-    p.corpse_decay_offset_ms =
-        num_or(lua, &formulas, "corpseDecayOffsetMs", p.corpse_decay_offset_ms as i64).max(0) as u64;
+    p.corpse_decay_offset_ms = num_or(
+        lua,
+        &formulas,
+        "corpseDecayOffsetMs",
+        p.corpse_decay_offset_ms as i64,
+    )
+    .max(0) as u64;
     p.underground_sees_surface = bool_or(
         &formulas,
         "undergroundSeesSurface",
@@ -744,8 +749,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "simpleLoss" | "1098" => DamageTextFormat::SimpleLoss,
         _ => p.damage_text_format,
     };
-    p.classic_equipment_slots =
-        bool_or(&formulas, "classicEquipmentSlots", p.classic_equipment_slots);
+    p.classic_equipment_slots = bool_or(
+        &formulas,
+        "classicEquipmentSlots",
+        p.classic_equipment_slots,
+    );
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {

@@ -524,10 +524,7 @@ pub fn log_idle_stimulus(tick: u64, cid: CreatureId, name: &str) {
     if !chase_path_debug_enabled() {
         return;
     }
-    let line = format!(
-        "{}}}",
-        header(tick, cid, name, "idle_stimulus"),
-    );
+    let line = format!("{}}}", header(tick, cid, name, "idle_stimulus"),);
     write_line(&line);
 }
 

@@ -9,7 +9,7 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
-use crate::creature::{CreatureKind, ChaseMode, MonsterState};
+use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
@@ -38,7 +38,10 @@ impl GameWorld {
     ///
     /// `pub(crate)` so the player fan-out path (`game_world_spectators::spectator_conns_via_grid`,
     /// audit #4) reuses the same Z-span logic as the monster fan-out path.
-    pub(crate) fn spectator_z_range(center_z: u8, multifloor: bool) -> std::ops::RangeInclusive<u8> {
+    pub(crate) fn spectator_z_range(
+        center_z: u8,
+        multifloor: bool,
+    ) -> std::ops::RangeInclusive<u8> {
         if !multifloor {
             return center_z..=center_z;
         }
@@ -457,8 +460,7 @@ impl GameWorld {
                 m.base.todo.locked,
             ))
         });
-        let Some((chase_mode, _state, pos, target_pos, head_is_attack, todo_locked)) =
-            snapshot
+        let Some((chase_mode, _state, pos, target_pos, head_is_attack, todo_locked)) = snapshot
         else {
             return;
         };
@@ -587,11 +589,11 @@ mod tests {
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::Position;
 
-    use crate::creature::{CreatureKind, ChaseMode, MonsterState};
+    use crate::creature::{ChaseMode, CreatureKind, MonsterState};
     use crate::creature_todo::CreatureAction;
     use crate::test_world::support::{
-        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player,
-        test_player, TEST_SYNTHETIC_GROUND_WP,
+        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
+        TEST_SYNTHETIC_GROUND_WP,
     };
 
     #[test]
@@ -621,7 +623,13 @@ mod tests {
             m.base.todo.queue.push_back(CreatureAction::Attack);
         }
 
-        let queue_len_before = world.creatures.get(monster).unwrap().base().walk_queue.len();
+        let queue_len_before = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .len();
         let todo_go_before = world.creatures.get(monster).unwrap().base().todo.has_go();
 
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
@@ -631,11 +639,20 @@ mod tests {
         world.map.register_creature_at(ppos_new, player);
         world.monster_dispatch_creature_move(player, ppos, ppos_new);
 
-        let queue_len_after = world.creatures.get(monster).unwrap().base().walk_queue.len();
+        let queue_len_after = world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .len();
         let todo_go_after = world.creatures.get(monster).unwrap().base().todo.has_go();
 
         assert_eq!(queue_len_before, 2);
-        assert_eq!(queue_len_after, 2, "in-flight walk_queue must not be cleared");
+        assert_eq!(
+            queue_len_after, 2,
+            "in-flight walk_queue must not be cleared"
+        );
         assert!(todo_go_before);
         assert!(todo_go_after, "in-flight ToDoGo must not be cleared");
     }
@@ -728,9 +745,10 @@ mod tests {
             "772 must not sync selectTarget on opponent move"
         );
         assert!(
-            world.creatures.get(monster).is_some_and(|k| {
-                k.base().next_wakeup.is_some() || !k.base().todo.is_empty()
-            }),
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| { k.base().next_wakeup.is_some() || !k.base().todo.is_empty() }),
             "772 must defer target via idle yield, not sync select"
         );
     }

@@ -2,9 +2,7 @@
 //!
 //! C++ reference: `chat.cpp` `ChatChannel` methods; `game.cpp` `Game::playerSay`.
 
-use tfs_rust_core::{
-    chat::{ChatChannel, ChatRegistry},
-};
+use tfs_rust_core::chat::{ChatChannel, ChatRegistry};
 
 #[test]
 fn channel_registry_basic() {

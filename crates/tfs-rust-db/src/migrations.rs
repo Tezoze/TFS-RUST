@@ -88,11 +88,14 @@ async fn heal_and_adopt_existing_schema(pool: &DbPool, migrator: &Migrator) -> R
         return Ok(());
     }
 
-    let baseline = migrator.iter().find(|m| m.version == BASELINE_VERSION).ok_or_else(|| {
-        TfsRustError::Database(format!(
-            "baseline migration {BASELINE_VERSION} missing from migrator"
-        ))
-    })?;
+    let baseline = migrator
+        .iter()
+        .find(|m| m.version == BASELINE_VERSION)
+        .ok_or_else(|| {
+            TfsRustError::Database(format!(
+                "baseline migration {BASELINE_VERSION} missing from migrator"
+            ))
+        })?;
 
     sqlx::query(
         r#"

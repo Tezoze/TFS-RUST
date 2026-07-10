@@ -137,12 +137,8 @@ mod tests {
         assert!(matches!(res, Direction::North | Direction::South));
 
         // 3. East + North + South blocked -> diagonal.
-        let can_walk = |d: Direction| {
-            !matches!(
-                d,
-                Direction::East | Direction::North | Direction::South
-            )
-        };
+        let can_walk =
+            |d: Direction| !matches!(d, Direction::East | Direction::North | Direction::South);
         let res = search_flight_field(from, pursuer, can_walk, parity_random_shuffle).unwrap();
         assert!(matches!(res, Direction::NorthEast | Direction::SouthEast));
     }

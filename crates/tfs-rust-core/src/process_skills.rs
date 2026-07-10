@@ -152,7 +152,9 @@ impl GameWorld {
                     // (`SkillTimeCounter`, `subsystem_counters.rs`), so we decrement by
                     // 1000 ms per tick. `YellTicks` (30 000 ms = 30 s) expires after ~30
                     // ticks. CH-5 adds `Muted`/`ChannelMutedTicks` ticking the same way.
-                    ConditionType::YellTicks | ConditionType::Muted | ConditionType::ChannelMutedTicks => {
+                    ConditionType::YellTicks
+                    | ConditionType::Muted
+                    | ConditionType::ChannelMutedTicks => {
                         if let ConditionData::Generic { ticks } = &mut cond.data {
                             *ticks = (*ticks).saturating_sub(1000);
                         }
@@ -164,7 +166,12 @@ impl GameWorld {
             base.active_conditions.retain(|c| {
                 !matches!(
                     (c.ctype, &c.data),
-                    (ConditionType::YellTicks | ConditionType::Muted | ConditionType::ChannelMutedTicks, ConditionData::Generic { ticks: 0 })
+                    (
+                        ConditionType::YellTicks
+                            | ConditionType::Muted
+                            | ConditionType::ChannelMutedTicks,
+                        ConditionData::Generic { ticks: 0 }
+                    )
                 )
             });
             if speed_expired {
@@ -233,9 +240,7 @@ impl GameWorld {
     }
     fn process_player_fed_regen(&mut self, cid: CreatureId) {
         let (food_remaining, voc_id, pos) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => {
-                (p.food_remaining, p.vocation_id, p.base.position)
-            }
+            Some(CreatureKind::Player(p)) => (p.food_remaining, p.vocation_id, p.base.position),
             _ => return,
         };
 
@@ -459,7 +464,11 @@ mod tests {
             world.process_skills();
         }
         let p = world.creatures.get(pid).unwrap();
-        assert_eq!(p.base().health, 92, "knight should gain 2 HP over 12 fed ticks");
+        assert_eq!(
+            p.base().health,
+            92,
+            "knight should gain 2 HP over 12 fed ticks"
+        );
         let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
             panic!("not a player");
         };

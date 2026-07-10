@@ -53,19 +53,17 @@ impl GameWorld {
                 tracing::debug!("player_move_thing: creature move not yet wired");
                 Ok(())
             }
-            Thing::Item(item_id) => {
-                self.player_move_item(
-                    conn_id,
-                    cid,
-                    from_pos,
-                    sprite_id,
-                    from_stack_pos,
-                    to_pos,
-                    count,
-                    item_id,
-                    now,
-                )
-            }
+            Thing::Item(item_id) => self.player_move_item(
+                conn_id,
+                cid,
+                from_pos,
+                sprite_id,
+                from_stack_pos,
+                to_pos,
+                count,
+                item_id,
+                now,
+            ),
         }
     }
 

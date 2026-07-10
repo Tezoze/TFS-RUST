@@ -1,7 +1,6 @@
 //! Monster/NPC spawn scheduling from loaded spawn XML + OTBM references.
 // C++ reference: `spawn.cpp` `Spawn::checkSpawn`, `Spawn::spawnMonster`, `Spawn::startup`, `Spawn::findPlayer`.
 
-
 use rand::Rng;
 use tfs_rust_common::Position;
 use tfs_rust_content::spawns::{MonsterWeight, SpawnEntry, SpawnZone};

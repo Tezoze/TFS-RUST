@@ -255,10 +255,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.script_item_position(iid)
     }
 
-    fn get_player_food(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<u32> {
+    fn get_player_food(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u32> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => Some(p.food_remaining),
@@ -267,10 +264,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     }
 
     /// `player:getLevel()` — `Player::getLevel` (`player.h`).
-    fn get_player_level(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<i32> {
+    fn get_player_level(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<i32> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => Some(p.level),
@@ -305,11 +299,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     /// `player:hasFlag(flag)` — resolved `groups.xml` flag bits for `group_id`.
     /// Reuses `GameWorld::player_has_flag` (`player/stats.rs`), which resolves
     /// `groups.xml` via `flags_for_group` and tests the bit.
-    fn player_has_flag(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-        flag: u64,
-    ) -> bool {
+    fn player_has_flag(&self, creature_id: tfs_rust_common::ScriptCreatureId, flag: u64) -> bool {
         let Some(cid) = self.resolve_creature_from_script(creature_id) else {
             return false;
         };
@@ -320,7 +310,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     /// `Creature::getCondition`. LUA-4 read; scans active conditions for a
     /// match on `(ctype, sub_id)` and returns remaining ticks. `ctype` is the
     /// Lua-facing 772 bit-flag value, mapped via
-    /// `condition_type_from_lua_772`.
+    /// `condition_type_from_lua`.
     fn get_creature_condition(
         &self,
         creature_id: tfs_rust_common::ScriptCreatureId,
@@ -329,7 +319,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         sub_id: u32,
     ) -> Option<i32> {
         let cid = self.resolve_creature_from_script(creature_id)?;
-        let rust_ctype = crate::game_world_chat::condition_type_from_lua_772(ctype);
+        let rust_ctype = crate::game_world_chat::condition_type_from_lua(ctype);
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => {
                 for cond in &p.base.active_conditions {
@@ -355,10 +345,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     /// `player:getGroup():getId()` backing read — `players.group_id`.
     /// CH-6 talkaction access gating.
-    fn get_player_group_id(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<u16> {
+    fn get_player_group_id(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u16> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => Some(p.group_id),
@@ -369,10 +356,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     /// `group:getAccess()` backing read — `groups.xml` `access` flag.
     /// CH-6 talkaction access gating.
     fn get_group_access(&self, group_id: u16) -> bool {
-        self.groups
-            .groups
-            .get(&group_id)
-            .is_some_and(|g| g.access)
+        self.groups.groups.get(&group_id).is_some_and(|g| g.access)
     }
 
     /// `player:getPosition()` backing read — `Creature::getPosition`.

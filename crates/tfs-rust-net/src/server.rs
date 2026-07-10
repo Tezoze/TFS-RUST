@@ -278,22 +278,26 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     }
 
     let acc = match &game.identity {
-        LoginIdentity::AccountName(name) => tfs_rust_db::gameworld_authentication(
-            &wire.db,
-            &wire.password_hash,
-            name,
-            &game.password,
-            &game.character_name,
-        )
-        .await,
-        LoginIdentity::AccountNumber(number) => tfs_rust_db::gameworld_authentication_by_number(
-            &wire.db,
-            &wire.password_hash,
-            *number,
-            &game.password,
-            &game.character_name,
-        )
-        .await,
+        LoginIdentity::AccountName(name) => {
+            tfs_rust_db::gameworld_authentication(
+                &wire.db,
+                &wire.password_hash,
+                name,
+                &game.password,
+                &game.character_name,
+            )
+            .await
+        }
+        LoginIdentity::AccountNumber(number) => {
+            tfs_rust_db::gameworld_authentication_by_number(
+                &wire.db,
+                &wire.password_hash,
+                *number,
+                &game.password,
+                &game.character_name,
+            )
+            .await
+        }
     }
     .map_err(|e| anyhow::anyhow!(e))?;
     if acc.is_none() {

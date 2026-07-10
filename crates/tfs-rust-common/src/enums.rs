@@ -86,8 +86,6 @@ pub enum ZoneType {
     NoLogout,
 }
 
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ItemGroup {
     None,

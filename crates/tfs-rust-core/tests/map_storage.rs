@@ -72,10 +72,16 @@ fn register_creature_at_on_void_tile_is_noop() {
         "debug_assert! must fire when registering a creature on a void tile"
     );
     #[cfg(not(debug_assertions))]
-    assert!(result.is_ok(), "release build must not panic on void placement");
+    assert!(
+        result.is_ok(),
+        "release build must not panic on void placement"
+    );
 
     // No tile was created at the void position.
-    assert!(map.get_tile(void_pos).is_none(), "void tile must not be created");
+    assert!(
+        map.get_tile(void_pos).is_none(),
+        "void tile must not be created"
+    );
 
     // The creature is not in any chunk spatial list near the void position (chunk absent).
     let mut spectators = Vec::new();

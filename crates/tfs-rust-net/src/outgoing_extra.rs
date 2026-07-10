@@ -92,7 +92,11 @@ pub fn send_player_skills_1098(
 /// `ProtocolGame::sendBasicData` opcode `0x9F` — `0xFF` “known spells” + 255 bytes `0x00..=0xFE`.
 // C++ reference: `src/protocolgame.cpp` `ProtocolGame::sendBasicData` (~1564)
 #[deprecated(note = "use Codec::encode_basic_data")]
-pub fn send_basic_data_1098(is_premium: bool, premium_ends_at: u32, vocation_client_id: u8) -> NetworkMessage {
+pub fn send_basic_data_1098(
+    is_premium: bool,
+    premium_ends_at: u32,
+    vocation_client_id: u8,
+) -> NetworkMessage {
     Codec1098.encode_basic_data(is_premium, premium_ends_at, vocation_client_id)
 }
 
@@ -773,7 +777,7 @@ pub fn send_icons(icons: u16) -> NetworkMessage {
 
 /// 7.72 status icons — `gameserver/src/protocolgame.cpp` `sendIcons` (~L1318): `0xA2` + **`u8`**
 /// (`addByte(static_cast<uint8_t>(icons))`), vs 10.98's `u16`.
-pub fn send_icons_772(icons: u16) -> NetworkMessage {
+pub fn send_icons_classic(icons: u16) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0xA2);
     m.write_u8(icons as u8);

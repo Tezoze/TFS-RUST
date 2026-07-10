@@ -71,7 +71,7 @@ pub fn item_template_wire_len(
     with_description: bool,
 ) -> usize {
     let mut n = 2 + 1; // client id + MARK_UNMARKED
-    // Stackable writes a count byte; splash/fluid writes a liquid-color byte — both 1 byte.
+                       // Stackable writes a count byte; splash/fluid writes a liquid-color byte — both 1 byte.
     if stackable || is_splash_or_fluid {
         n += 1;
     }
@@ -186,17 +186,7 @@ mod tests {
     #[test]
     fn live_stackable_with_description_ends_with_duration_zero() {
         let mut m = NetworkMessage::new();
-        write_item_live(
-            &mut m,
-            0x1234,
-            7,
-            true,
-            false,
-            false,
-            true,
-            "desc",
-            None,
-        );
+        write_item_live(&mut m, 0x1234, 7, true, false, false, true, "desc", None);
         // client + 0xFF + count + string(desc) + 0x00 duration
         assert!(m.as_bytes().ends_with(&[0x00]));
     }

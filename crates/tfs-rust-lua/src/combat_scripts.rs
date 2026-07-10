@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use tfs_rust_content::spells::{InstantSpellDef, SpellRegistry};
 use tfs_rust_content::weapons::{WandDef, WeaponRegistry};
 
-use crate::userdata::{PendingSpell, PendingWeapon};
 use crate::LuaRuntime;
+use crate::userdata::{PendingSpell, PendingWeapon};
 
 impl LuaRuntime {
     /// Load all weapon scripts from `data/scripts/weapons/*.lua`.
@@ -28,7 +28,10 @@ impl LuaRuntime {
         // Initialize the pending buffer before loading scripts.
         self.lua
             .globals()
-            .set("_pending_weapons", self.lua.create_table().map_err(|e| e.to_string())?)
+            .set(
+                "_pending_weapons",
+                self.lua.create_table().map_err(|e| e.to_string())?,
+            )
             .map_err(|e| e.to_string())?;
 
         let mut lua_files: Vec<PathBuf> = std::fs::read_dir(&weapons_dir)
@@ -47,7 +50,9 @@ impl LuaRuntime {
 
         for path in &lua_files {
             let path_str = path.display().to_string();
-            if let Err(e) = self.lua.load(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
+            if let Err(e) = self
+                .lua
+                .load(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
                 .set_name(&path_str)
                 .exec()
             {
@@ -56,7 +61,10 @@ impl LuaRuntime {
         }
 
         // Drain pending weapons into the registry.
-        let pending = self.lua.globals().get::<mlua::Table>("_pending_weapons")
+        let pending = self
+            .lua
+            .globals()
+            .get::<mlua::Table>("_pending_weapons")
             .map_err(|e| e.to_string())?;
         let mut registry = WeaponRegistry::default();
         for pair in pending.pairs::<i64, mlua::AnyUserData>() {
@@ -80,20 +88,18 @@ impl LuaRuntime {
                 }
                 5 | 7 => {
                     // WEAPON_DISTANCE / WEAPON_AMMO — PC-3 scope; store minimally.
-                    tracing::debug!(
-                        "Distance/ammo weapon {} loaded (PC-3 scope)",
-                        pw.item_id
-                    );
+                    tracing::debug!("Distance/ammo weapon {} loaded (PC-3 scope)", pw.item_id);
                 }
                 1 | 2 | 3 => {
                     // WEAPON_SWORD / WEAPON_CLUB / WEAPON_AXE — melee; store minimally.
-                    tracing::debug!(
-                        "Melee weapon {} loaded (PC-2b struct only)",
-                        pw.item_id
-                    );
+                    tracing::debug!("Melee weapon {} loaded (PC-2b struct only)", pw.item_id);
                 }
                 _ => {
-                    tracing::warn!("Unknown weapon type {} for item {}", pw.weapon_type, pw.item_id);
+                    tracing::warn!(
+                        "Unknown weapon type {} for item {}",
+                        pw.weapon_type,
+                        pw.item_id
+                    );
                 }
             }
         }
@@ -107,7 +113,10 @@ impl LuaRuntime {
         );
 
         // Clear the pending buffer.
-        let _ = self.lua.globals().set("_pending_weapons", self.lua.create_table().unwrap());
+        let _ = self
+            .lua
+            .globals()
+            .set("_pending_weapons", self.lua.create_table().unwrap());
 
         Ok(registry)
     }
@@ -125,14 +134,18 @@ impl LuaRuntime {
         // Initialize the pending buffer.
         self.lua
             .globals()
-            .set("_pending_spells", self.lua.create_table().map_err(|e| e.to_string())?)
+            .set(
+                "_pending_spells",
+                self.lua.create_table().map_err(|e| e.to_string())?,
+            )
             .map_err(|e| e.to_string())?;
 
         // Load areas.lua first — it defines AREA_* tables referenced by spell scripts.
         let areas_path = spells_dir.join("areas.lua");
         if areas_path.exists() {
             let path_str = areas_path.display().to_string();
-            if let Err(e) = self.lua
+            if let Err(e) = self
+                .lua
                 .load(&std::fs::read_to_string(&areas_path).map_err(|e| e.to_string())?)
                 .set_name(&path_str)
                 .exec()
@@ -153,7 +166,9 @@ impl LuaRuntime {
 
         for path in &lua_files {
             let path_str = path.display().to_string();
-            if let Err(e) = self.lua.load(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
+            if let Err(e) = self
+                .lua
+                .load(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
                 .set_name(&path_str)
                 .exec()
             {
@@ -162,7 +177,10 @@ impl LuaRuntime {
         }
 
         // Drain pending spells into the registry.
-        let pending = self.lua.globals().get::<mlua::Table>("_pending_spells")
+        let pending = self
+            .lua
+            .globals()
+            .get::<mlua::Table>("_pending_spells")
             .map_err(|e| e.to_string())?;
         let mut registry = SpellRegistry::default();
         for pair in pending.pairs::<i64, mlua::AnyUserData>() {
@@ -189,7 +207,9 @@ impl LuaRuntime {
                     vocations: ps.vocations.clone(),
                     on_cast_callback: ps.on_cast_callback.clone(),
                 };
-                registry.instant_by_words.insert(ps.words.to_ascii_lowercase(), def.clone());
+                registry
+                    .instant_by_words
+                    .insert(ps.words.to_ascii_lowercase(), def.clone());
                 registry.instant_by_name.insert(ps.name.clone(), def);
             } else if ps.is_rune() {
                 let def = tfs_rust_content::spells::RuneSpellDef {
@@ -220,7 +240,10 @@ impl LuaRuntime {
         );
 
         // Clear the pending buffer.
-        let _ = self.lua.globals().set("_pending_spells", self.lua.create_table().unwrap());
+        let _ = self
+            .lua
+            .globals()
+            .set("_pending_spells", self.lua.create_table().unwrap());
 
         Ok(registry)
     }

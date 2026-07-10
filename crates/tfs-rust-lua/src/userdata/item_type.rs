@@ -24,7 +24,8 @@ impl UserData for ItemTypeRef {
         // CH-6 talkaction `/i` count clamping.
         methods.add_method("isStackable", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                 if ptr.is_null() {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }
@@ -37,7 +38,8 @@ impl UserData for ItemTypeRef {
         // (`src/items.h`). CH-6 talkaction `/i` count clamping.
         methods.add_method("isFluidContainer", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                 if ptr.is_null() {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }
@@ -50,7 +52,8 @@ impl UserData for ItemTypeRef {
         // the item name, or empty string if not found.
         methods.add_method("getName", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                 if ptr.is_null() {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }
@@ -75,7 +78,8 @@ pub fn register_item_type_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error
             Value::String(s) => {
                 let name = s.to_str()?.to_string();
                 CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                    let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                    let ptr =
+                        (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                     if ptr.is_null() {
                         return Err(mlua::Error::runtime("LuaContext not set"));
                     }

@@ -19,7 +19,8 @@ impl UserData for GroupRef {
         // database via `ScriptContext::get_group_access`.
         methods.add_method("getAccess", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                 if ptr.is_null() {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }
@@ -39,7 +40,8 @@ impl UserData for GroupRef {
         // group database in the lua crate.
         methods.add_method("getName", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                 if ptr.is_null() {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }

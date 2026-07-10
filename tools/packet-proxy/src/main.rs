@@ -20,7 +20,10 @@ use tracing::{error, info, warn};
 use crate::logger::PacketLogger;
 
 #[derive(Parser, Debug)]
-#[command(name = "packet-proxy", about = "OTClient ↔ server packet logger (raw + XTEA decode on game port)")]
+#[command(
+    name = "packet-proxy",
+    about = "OTClient ↔ server packet logger (raw + XTEA decode on game port)"
+)]
 struct Args {
     /// Listen address for login (OTClient connects here; forward to upstream).
     #[arg(long, default_value = "127.0.0.1:7171")]
@@ -62,8 +65,7 @@ async fn main() -> anyhow::Result<()> {
         )
     })?;
     let rsa: Arc<RsaPrivateKey> = Arc::new(
-        tfs_rust_net::rsa::private_key_from_pkcs1_pem(&pem)
-            .map_err(|e| anyhow::anyhow!("{e}"))?,
+        tfs_rust_net::rsa::private_key_from_pkcs1_pem(&pem).map_err(|e| anyhow::anyhow!("{e}"))?,
     );
 
     let log = PacketLogger::new(args.log.as_deref())?;
@@ -136,7 +138,12 @@ async fn run_login_listener(listen: String, upstream: String, log: PacketLogger)
     }
 }
 
-async fn run_game_listener(listen: String, upstream: String, log: PacketLogger, rsa: Arc<RsaPrivateKey>) {
+async fn run_game_listener(
+    listen: String,
+    upstream: String,
+    log: PacketLogger,
+    rsa: Arc<RsaPrivateKey>,
+) {
     let listener = match TcpListener::bind(&listen).await {
         Ok(l) => l,
         Err(e) => {

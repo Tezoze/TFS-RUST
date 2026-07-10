@@ -37,9 +37,7 @@ impl GameWorld {
 
         // Re-validate: resolve the item at the wire location + sprite match.
         // C++ `Obj.exists()` (`cract.cc:772`) + `ObjectAccessible` (`operate.cc:2568`).
-        let item_id = if let Some(id) =
-            self.resolve_item_at_position(cid, obj.pos, obj.stack_pos)
-        {
+        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj.pos, obj.stack_pos) {
             Some(id)
         } else if is_map_tile {
             self.find_tile_item_by_client_sprite(obj.pos, obj.sprite_id)
@@ -116,9 +114,7 @@ impl GameWorld {
         obj: ActionObjectRef,
     ) -> Option<crate::ids::ItemId> {
         let is_map_tile = obj.pos.x != 0xFFFF;
-        let item_id = if let Some(id) =
-            self.resolve_item_at_position(cid, obj.pos, obj.stack_pos)
-        {
+        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj.pos, obj.stack_pos) {
             Some(id)
         } else if is_map_tile {
             self.find_tile_item_by_client_sprite(obj.pos, obj.sprite_id)

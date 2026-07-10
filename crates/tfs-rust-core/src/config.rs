@@ -334,8 +334,8 @@ impl ConnectionConfig {
 
     pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
         Ok(Self {
-            kick_idle_after_minutes: get_i64_or(cfg, "kickIdlePlayerAfterMinutes", 15)?
-                .max(0) as u32,
+            kick_idle_after_minutes: get_i64_or(cfg, "kickIdlePlayerAfterMinutes", 15)?.max(0)
+                as u32,
         })
     }
 
@@ -348,7 +348,9 @@ impl ConnectionConfig {
     /// 772 round at which the forced idle kick fires — one minute after the warning
     /// (`connections.cc:35` — `LastAction >= (kick_minutes + 1) * 60`).
     pub fn idle_kick_rounds(&self) -> u32 {
-        self.kick_idle_after_minutes.saturating_add(1).saturating_mul(60)
+        self.kick_idle_after_minutes
+            .saturating_add(1)
+            .saturating_mul(60)
     }
 }
 

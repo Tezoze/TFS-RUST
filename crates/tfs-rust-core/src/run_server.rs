@@ -203,7 +203,8 @@ pub async fn run() -> anyhow::Result<()> {
 
             // CH-6: Load talkaction scripts from `data/scripts/talkactions/god/*.lua`.
             // Self-registering via `TalkAction(words):register()`.
-            let talkaction_defs = match load_talkaction_scripts(&mut lua_runtime, &data_path, "god") {
+            let talkaction_defs = match load_talkaction_scripts(&mut lua_runtime, &data_path, "god")
+            {
                 Ok(defs) => {
                     tracing::info!("Loaded {} talkaction definitions from god/", defs.len());
                     defs
@@ -255,7 +256,10 @@ pub async fn run() -> anyhow::Result<()> {
             let creature_events = match loader.load_creaturescripts(&data_path) {
                 Ok(events) => events,
                 Err(e) => {
-                    tracing::warn!("Lua creaturescript loading failed (continuing with empty events): {}", e);
+                    tracing::warn!(
+                        "Lua creaturescript loading failed (continuing with empty events): {}",
+                        e
+                    );
                     HashMap::new()
                 }
             };

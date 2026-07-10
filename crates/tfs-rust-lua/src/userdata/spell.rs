@@ -79,9 +79,9 @@ pub fn register_spell_metatable(lua: &Lua) -> Result<(), mlua::Error> {
     // `Spell(type)` constructor — C++ `luaSpellCreate` (`luascript.cpp:15775`).
     let spell_new = lua.create_function(|_, spell_type: i32| {
         if matches!(spell_type, SPELL_INSTANT | SPELL_RUNE) {
-            Ok(Some(SpellBuilder(Rc::new(RefCell::new(PendingSpell::new(
-                spell_type,
-            ))))))
+            Ok(Some(SpellBuilder(Rc::new(RefCell::new(
+                PendingSpell::new(spell_type),
+            )))))
         } else {
             Ok(None::<SpellBuilder>)
         }
@@ -264,7 +264,8 @@ mod tests {
             .unwrap();
 
         let result: mlua::AnyUserData = lua
-            .load(r#"
+            .load(
+                r#"
                 local spell = Spell(SPELL_INSTANT)
                 spell:manaPercent(80)
                 spell:level(35)
@@ -274,10 +275,14 @@ mod tests {
                 spell:vocation("Knight", "Elite Knight")
                 spell:words("ex,ori")
                 return spell
-            "#)
+            "#,
+            )
             .eval()
             .expect("spell setup must succeed");
-        let s_ref = result.borrow::<SpellBuilder>().expect("must be SpellBuilder"); let s = s_ref.0.borrow();
+        let s_ref = result
+            .borrow::<SpellBuilder>()
+            .expect("must be SpellBuilder");
+        let s = s_ref.0.borrow();
         assert!(s.is_instant());
         assert_eq!(s.name, "Berserk");
         assert_eq!(s.words, "ex,ori");
@@ -297,13 +302,15 @@ mod tests {
             .set("_pending_spells", lua.create_table().unwrap())
             .unwrap();
 
-        lua.load(r#"
+        lua.load(
+            r#"
             local spell = Spell(SPELL_INSTANT)
             spell:name("Berserk")
             spell:words("ex,ori")
             spell:level(35)
             spell:register()
-        "#)
+        "#,
+        )
         .exec()
         .expect("spell register must succeed");
 

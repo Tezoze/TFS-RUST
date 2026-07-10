@@ -14,7 +14,10 @@ use std::path::{Path, PathBuf};
 
 fn objects_srv_path(root: &Path) -> PathBuf {
     for name in ["classic-772", "cipsoft-772"] {
-        let path = root.join("reference").join(name).join("runtime/dat/objects.srv");
+        let path = root
+            .join("reference")
+            .join(name)
+            .join("runtime/dat/objects.srv");
         if path.is_file() {
             return path;
         }
@@ -137,7 +140,9 @@ fn audit_objects_srv_waypoints_vs_otb() {
             let (srv, spd) = otb.map(|it| (it.server_id, it.speed)).unwrap_or((0, 0));
             problems.push(format!(
                 "  TypeID {:5} {:20} srv_wp={:3} otb_srv={srv:5} otb_spd={spd:3} [{status:?}]",
-                g.type_id, format!("{:?}", g.name), g.waypoints
+                g.type_id,
+                format!("{:?}", g.name),
+                g.waypoints
             ));
         }
         *status_counts.entry(status).or_default() += 1;
@@ -151,7 +156,10 @@ fn audit_objects_srv_waypoints_vs_otb() {
     println!("=== objects.srv Waypoints vs items.otb ITEM_ATTR_SPEED ===\n");
     println!("OTB items loaded: {}", by_server.len());
     println!("OTB ground types with speed>0: {ground_with_speed}\n");
-    println!("Walkable BANK types audited: {}", status_counts.values().sum::<u32>());
+    println!(
+        "Walkable BANK types audited: {}",
+        status_counts.values().sum::<u32>()
+    );
     for (st, cnt) in [
         (Status::Match, "match"),
         (Status::Mismatch, "mismatch"),
@@ -165,7 +173,16 @@ fn audit_objects_srv_waypoints_vs_otb() {
         }
     }
     println!("\nExact OTB speed matches (patched items.otb): {matches}");
-    println!("Walkable BANK types (Bank, !Unpass, Waypoints>0): {}", matches + status_counts.get(&Status::Mismatch).copied().unwrap_or(0) + status_counts.get(&Status::MissingOtb).copied().unwrap_or(0) + status_counts.get(&Status::MissingOtbSpeed).copied().unwrap_or(0));
+    println!(
+        "Walkable BANK types (Bank, !Unpass, Waypoints>0): {}",
+        matches
+            + status_counts.get(&Status::Mismatch).copied().unwrap_or(0)
+            + status_counts.get(&Status::MissingOtb).copied().unwrap_or(0)
+            + status_counts
+                .get(&Status::MissingOtbSpeed)
+                .copied()
+                .unwrap_or(0)
+    );
     println!("Re-patch if needed: cargo run -p tfs-rust-content --bin patch-otb-waypoints");
     println!("\nSample problems:");
     for line in &problems {
@@ -173,8 +190,8 @@ fn audit_objects_srv_waypoints_vs_otb() {
     }
 
     // Canonical types from items.rs test
-    let db = tfs_rust_content::items::ItemDatabase::load(&otb_path, &items_xml)
-    .expect("items load");
+    let db =
+        tfs_rust_content::items::ItemDatabase::load(&otb_path, &items_xml).expect("items load");
     for (id, label) in [(102u16, "grass"), (103, "dirt"), (104, "sand")] {
         let wp = db.ground_speed_for_item(id);
         println!("  canonical {label} server {id} -> rust effective wp {wp}");

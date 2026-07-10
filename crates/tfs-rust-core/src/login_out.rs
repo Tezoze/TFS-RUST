@@ -24,7 +24,7 @@ use tfs_rust_net::map_description::{
 };
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
 use tfs_rust_net::outgoing_extra::{
-    send_enter_world, send_fight_modes, send_icons, send_icons_772, send_inventory_slot_empty,
+    send_enter_world, send_fight_modes, send_icons, send_icons_classic, send_inventory_slot_empty,
     send_otc_features_raw, send_pending_state_entered, send_unjustified_stats_stub, send_vip_entry,
     send_world_light,
 };
@@ -473,7 +473,10 @@ fn enqueue_initial_login_packets_classic(
     // 772 beat duration comes from `MechanicsProfile::beat_ms` (`data/formulas/772.lua` `beatMs`,
     // default 200 per `tibia-game-master/src/config.cc:102`) — the same value the game loop ticks at.
     let server_beat = world.mechanics.profile.beat_ms.min(u16::MAX as u32) as u16;
-    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid, server_beat));
+    world.enqueue_encoded(
+        conn_id,
+        world.codec.encode_self_appear_login(pid, server_beat),
+    );
 
     let mut known = world
         .known_creatures_by_conn
@@ -564,7 +567,7 @@ fn enqueue_initial_login_packets_classic(
             .into_bytes(),
         );
     }
-    world.enqueue_outgoing(conn_id, send_icons_772(0).into_bytes());
+    world.enqueue_outgoing(conn_id, send_icons_classic(0).into_bytes());
 
     world.auto_open_containers_on_login(conn_id, creature_id);
 

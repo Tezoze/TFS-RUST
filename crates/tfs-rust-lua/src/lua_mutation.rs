@@ -283,17 +283,11 @@ pub fn call_lua_container_add_item(
 }
 
 pub fn call_lua_set_action_id(item_id: u64, action_id: u16) -> Result<(), String> {
-    apply_mutation(LuaMutation::ItemSetActionId {
-        item_id,
-        action_id,
-    })
+    apply_mutation(LuaMutation::ItemSetActionId { item_id, action_id })
 }
 
 pub fn call_lua_set_unique_id(item_id: u64, unique_id: u16) -> Result<(), String> {
-    apply_mutation(LuaMutation::ItemSetUniqueId {
-        item_id,
-        unique_id,
-    })
+    apply_mutation(LuaMutation::ItemSetUniqueId { item_id, unique_id })
 }
 
 pub fn call_lua_set_store_item(item_id: u64, store: bool) -> Result<(), String> {
@@ -312,10 +306,7 @@ pub fn call_lua_feed(creature_id: u64, amount: u32) -> Result<(), String> {
 /// `MESSAGE_STATUS_SMALL` text message to the player's connection.
 /// `text` is the already-resolved player-visible message.
 pub fn call_lua_send_cancel_message(creature_id: u64, text: String) -> Result<(), String> {
-    apply_mutation(LuaMutation::PlayerSendCancelMessage {
-        creature_id,
-        text,
-    })
+    apply_mutation(LuaMutation::PlayerSendCancelMessage { creature_id, text })
 }
 
 /// `player:addCondition(condition)` — LUA-4. Immediate-apply condition add.

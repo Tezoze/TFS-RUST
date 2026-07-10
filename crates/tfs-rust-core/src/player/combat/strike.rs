@@ -19,9 +19,7 @@ use rand::SeedableRng;
 
 use tfs_rust_common::enums::CombatType;
 
-use crate::combat::math::{
-    armor_reduction, melee_damage_after_defense_and_armor, weapon_damage,
-};
+use crate::combat::math::{armor_reduction, melee_damage_after_defense_and_armor, weapon_damage};
 use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
@@ -130,12 +128,13 @@ impl GameWorld {
         // → `EFFECT_BLOCK_HIT` (4). Blood + animated text for `dmg > 0` is handled by
         // `combat_execute_with_stimulus` (`apply_physical_hit_blood`) + `notify_player_combat_damage`.
         if dmg <= 0 {
-            let target_pos = self
-                .creatures
-                .get(target_id)
-                .map(|k| k.base().position);
+            let target_pos = self.creatures.get(target_id).map(|k| k.base().position);
             if let Some(pos) = target_pos {
-                let effect = if attack_roll <= defense_roll { 3u8 } else { 4u8 };
+                let effect = if attack_roll <= defense_roll {
+                    3u8
+                } else {
+                    4u8
+                };
                 self.broadcast_magic_effect(pos, effect);
             }
         }
@@ -317,10 +316,9 @@ mod tests {
     fn strike_cadence_advances_earliest_attack() {
         let mut world = minimal_world();
         let pos = Position::new(100, 100, 7);
-        let player =
-            world
-                .creatures
-                .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
+        let player = world
+            .creatures
+            .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
         let cfg = MonsterAiConfig::default();
         let target = insert_monster_with_config(&mut world, "Rat", adjacent_pos(pos), 100, cfg);
         world.server_ms = 1000;
@@ -340,10 +338,9 @@ mod tests {
         let mut world = minimal_world();
         let pos = Position::new(100, 100, 7);
         // No weapon equipped → fist fallback (attack=7, SKILL_FIST).
-        let player =
-            world
-                .creatures
-                .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
+        let player = world
+            .creatures
+            .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
         let cfg = MonsterAiConfig::default();
         let target = insert_monster_with_config(&mut world, "Rat", adjacent_pos(pos), 100, cfg);
         world.server_ms = 500;
@@ -378,7 +375,10 @@ mod tests {
             world.player_close_attack_strike(pid, target);
         }
         let hp_after = world.creatures.get(target).unwrap().base().health;
-        assert_eq!(hp_after, hp_before, "zero melee_damage multiplier must deal no damage");
+        assert_eq!(
+            hp_after, hp_before,
+            "zero melee_damage multiplier must deal no damage"
+        );
         // No damage → ActivateLearning never fires → learning_points stays 0.
         let lp = world.creatures.get(pid).unwrap().base().learning_points;
         assert_eq!(lp, 0);
@@ -422,7 +422,10 @@ mod tests {
         assert!(died, "target should die within 20 strikes");
         // StopAttack cleared the attacker's attack_target on kill.
         let at = world.creatures.get(pid).unwrap().base().attack_target;
-        assert!(at.is_none(), "attack_target must be cleared after target death");
+        assert!(
+            at.is_none(),
+            "attack_target must be cleared after target death"
+        );
         // ActivateLearning fired on the killing blow (DamageDone > 0 → LearningPoints = 30).
         let lp = world.creatures.get(pid).unwrap().base().learning_points;
         assert_eq!(lp, 30);
@@ -440,7 +443,7 @@ mod tests {
         let snap = world.melee_defense_snapshot_for(defender_id);
         assert_eq!(snap.defense_value, 5);
         assert_eq!(snap.defense_skill, 10); // fist skill
-        // Equip a shield → shield defense takes priority + shielding skill is used.
+                                            // Equip a shield → shield defense takes priority + shielding skill is used.
         equip_shield(&mut world, defender_id);
         let snap2 = world.melee_defense_snapshot_for(defender_id);
         assert_eq!(snap2.defense_value, 22); // shield defense
@@ -476,7 +479,11 @@ mod tests {
     fn strike_killing_blow_sends_damage_text() {
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
-        ensure_walkable_tile(&mut world.map, pos, crate::sim_harness::TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(
+            &mut world.map,
+            pos,
+            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+        );
         ensure_walkable_tile(
             &mut world.map,
             adjacent_pos(pos),

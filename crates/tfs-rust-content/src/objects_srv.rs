@@ -22,7 +22,7 @@ pub struct ObjectsSrvGroundWaypoints {
 
 const REF_772_DIR_NAMES: &[&str] = &["classic-772", "cipsoft-772"];
 
-fn reference_772_objects_srv_under(base: PathBuf) -> Option<PathBuf> {
+fn reference_objects_srv_under(base: PathBuf) -> Option<PathBuf> {
     for name in REF_772_DIR_NAMES {
         let path = base.join(name).join("runtime/dat/objects.srv");
         if path.is_file() {
@@ -46,11 +46,11 @@ pub fn resolve_objects_srv_path() -> Option<PathBuf> {
         }
     }
     if let Ok(ref_dir) = std::env::var("TFS_REFERENCE_DIR") {
-        if let Some(path) = reference_772_objects_srv_under(PathBuf::from(ref_dir)) {
+        if let Some(path) = reference_objects_srv_under(PathBuf::from(ref_dir)) {
             return Some(path);
         }
     }
-    reference_772_objects_srv_under(PathBuf::from("reference"))
+    reference_objects_srv_under(PathBuf::from("reference"))
 }
 
 /// Parse walkable BANK entries with `Waypoints > 0` from 772 `objects.srv`.
@@ -194,7 +194,7 @@ mod tests {
 
     fn repo_objects_srv() -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        reference_772_objects_srv_under(root)
+        reference_objects_srv_under(root)
     }
 
     #[test]
@@ -213,7 +213,10 @@ mod tests {
         let items = crate::otb::OtbLoader::load_from_file(&otb).expect("otb");
         // TypeID 397 is server 397 in objects.srv; client_id 397 may also exist on another row.
         let sid = resolve_server_id_for_patch(397, &items).expect("397");
-        assert_eq!(sid, 397, "objects.srv TypeID must map to OTB server_id first");
+        assert_eq!(
+            sid, 397,
+            "objects.srv TypeID must map to OTB server_id first"
+        );
     }
 
     #[test]
@@ -237,7 +240,7 @@ mod tests {
     #[test]
     fn overlay_fixes_stairs_mismatch_when_present() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let Some(objects) = reference_772_objects_srv_under(root.clone()) else {
+        let Some(objects) = reference_objects_srv_under(root.clone()) else {
             return;
         };
         let otb = root.join("data/items/items.otb");
@@ -248,6 +251,10 @@ mod tests {
         let before = items.get(&434).map(|i| i.speed);
         overlay_otb_speeds_from_objects_srv(&mut items, &objects).expect("overlay");
         // TypeID 434 stairs — Waypoints=100 (`objects.srv`).
-        assert_eq!(items.get(&434).map(|i| i.speed), Some(100), "before was {before:?}");
+        assert_eq!(
+            items.get(&434).map(|i| i.speed),
+            Some(100),
+            "before was {before:?}"
+        );
     }
 }

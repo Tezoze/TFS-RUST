@@ -2,10 +2,10 @@
 //!
 //! C++ reference: `LuaScriptInterface::executeTimer` / creature event dispatch — single game thread.
 
+use crate::event_dispatcher::TalkActionResult;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
-use crate::event_dispatcher::TalkActionResult;
 use tfs_rust_lua::{
     self, set_mutation_bool_result, set_mutation_item_result, with_lua_context,
     with_lua_mutation_scope, LuaMutation,
@@ -126,10 +126,9 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             amount,
         } => unsafe { &mut *world }.lua_script_player_feed(creature_id, amount),
-        LuaMutation::PlayerSendCancelMessage {
-            creature_id,
-            text,
-        } => unsafe { &mut *world }.lua_script_player_send_cancel_message(creature_id, text),
+        LuaMutation::PlayerSendCancelMessage { creature_id, text } => {
+            unsafe { &mut *world }.lua_script_player_send_cancel_message(creature_id, text)
+        }
         LuaMutation::PlayerAddCondition {
             creature_id,
             ctype,

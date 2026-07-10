@@ -77,10 +77,7 @@ impl ItemDatabase {
     // C++: `Items::getItemType(serverId).clientId` — `src/items.cpp`
     #[inline]
     pub fn client_id_for_server(&self, server_id: u16) -> u16 {
-        self.items
-            .get(&server_id)
-            .map(|t| t.client_id)
-            .unwrap_or(0)
+        self.items.get(&server_id).map(|t| t.client_id).unwrap_or(0)
     }
 
     /// Reverse lookup: OT client sprite id → server item id (`Items::getServerId` patterns / `clientIdToServerIdMap`).
@@ -102,13 +99,14 @@ impl ItemDatabase {
                     || t.defense != 0
                     || t.extra_defense != 0
                     || t.armor != 0
-                    || (t.slot_position & (SLOTP_NECKLACE
-                        | SLOTP_RING
-                        | SLOTP_AMMO
-                        | SLOTP_FEET
-                        | SLOTP_HEAD
-                        | SLOTP_ARMOR
-                        | SLOTP_LEGS))
+                    || (t.slot_position
+                        & (SLOTP_NECKLACE
+                            | SLOTP_RING
+                            | SLOTP_AMMO
+                            | SLOTP_FEET
+                            | SLOTP_HEAD
+                            | SLOTP_ARMOR
+                            | SLOTP_LEGS))
                         != 0
             })
             .map(|t| t.client_id)
@@ -120,17 +118,13 @@ impl ItemDatabase {
     /// OTB `FLAG_ANIMATION` — extra `0xFE` before duration in `addItem` (`src/networkmessage.cpp`).
     #[inline]
     pub fn is_animation_for_server(&self, server_id: u16) -> bool {
-        self.items
-            .get(&server_id)
-            .is_some_and(|t| t.is_animation())
+        self.items.get(&server_id).is_some_and(|t| t.is_animation())
     }
 
     /// OTB `FLAG_STACKABLE` — `ItemType::stackable` (`src/items.cpp`).
     #[inline]
     pub fn stackable_for_server(&self, server_id: u16) -> bool {
-        self.items
-            .get(&server_id)
-            .is_some_and(|t| t.stackable())
+        self.items.get(&server_id).is_some_and(|t| t.stackable())
     }
 
     /// Splash / fluid container group — `NetworkMessage::addItem` fluid byte (`src/networkmessage.cpp`).
@@ -175,11 +169,7 @@ impl ItemDatabase {
     /// NOT `items.xml` `"speed"` (equipment bonus = `abilities.speed`).
     #[inline]
     pub fn ground_speed_for_item(&self, server_id: u16) -> u32 {
-        let raw = self
-            .items
-            .get(&server_id)
-            .map(|t| t.speed)
-            .unwrap_or(0);
+        let raw = self.items.get(&server_id).map(|t| t.speed).unwrap_or(0);
         if raw == 0 {
             150
         } else {
@@ -190,35 +180,33 @@ impl ItemDatabase {
     /// 772 `WAYPOINTS` for `TShortway::FillMap` — raw OTB speed; `0` is invalid (`cract.cc:95-98`).
     #[inline]
     pub fn waypoints_raw_for_item(&self, server_id: u16) -> Option<u16> {
-        self.items.get(&server_id).map(|t| t.waypoints_raw_772())
+        self.items.get(&server_id).map(|t| t.waypoints_raw())
     }
 
     #[inline]
-    pub fn is_terrain_bank_772(&self, server_id: u16) -> bool {
+    pub fn is_terrain_bank(&self, server_id: u16) -> bool {
         self.items
             .get(&server_id)
-            .is_some_and(|t| t.is_terrain_bank_772())
+            .is_some_and(|t| t.is_terrain_bank())
     }
 
     #[inline]
-    pub fn is_unpass_772(&self, server_id: u16) -> bool {
+    pub fn is_unpassable(&self, server_id: u16) -> bool {
         self.items
             .get(&server_id)
-            .is_some_and(|t| t.is_unpass_772())
+            .is_some_and(|t| t.is_unpassable())
     }
 
     #[inline]
-    pub fn is_unmove_772(&self, server_id: u16) -> bool {
-        self.items
-            .get(&server_id)
-            .is_some_and(|t| t.is_unmove_772())
+    pub fn is_immovable(&self, server_id: u16) -> bool {
+        self.items.get(&server_id).is_some_and(|t| t.is_immovable())
     }
 
     #[inline]
-    pub fn is_avoid_hazard_772(&self, server_id: u16) -> bool {
+    pub fn is_avoid_hazard(&self, server_id: u16) -> bool {
         self.items
             .get(&server_id)
-            .is_some_and(|t| t.is_avoid_hazard_772())
+            .is_some_and(|t| t.is_avoid_hazard())
     }
 
     /// 772 `ObjType.getAttribute(AVOIDDAMAGETYPES)` — the damage type a magic field inflicts
@@ -228,9 +216,9 @@ impl ItemDatabase {
     /// C++ `DamageType` values: `DAMAGE_POISON=0x2`, `DAMAGE_FIRE=0x4`, `DAMAGE_ENERGY=0x8`
     /// (`enums.hh:147`).
     #[inline]
-    pub fn avoid_damage_type_772(&self, server_id: u16) -> Option<FieldDamageType> {
+    pub fn avoid_damage_type(&self, server_id: u16) -> Option<FieldDamageType> {
         let t = self.items.get(&server_id)?;
-        if !t.is_avoid_hazard_772() {
+        if !t.is_avoid_hazard() {
             return None;
         }
         match t.xml_attributes.get("field").map(String::as_str) {
@@ -415,11 +403,12 @@ impl ItemDatabase {
                                         (&parent_key, child)
                                     {
                                         for id in &current_ids {
-                                            let entry = items.entry(*id).or_insert_with(|| ItemType {
-                                                id: *id,
-                                                server_id: *id,
-                                                ..ItemType::default()
-                                            });
+                                            let entry =
+                                                items.entry(*id).or_insert_with(|| ItemType {
+                                                    id: *id,
+                                                    server_id: *id,
+                                                    ..ItemType::default()
+                                                });
                                             apply_nested_xml_attribute(
                                                 entry,
                                                 parent_key,
@@ -437,11 +426,12 @@ impl ItemDatabase {
                                         (&parent_key, child)
                                     {
                                         for id in &current_ids {
-                                            let entry = items.entry(*id).or_insert_with(|| ItemType {
-                                                id: *id,
-                                                server_id: *id,
-                                                ..ItemType::default()
-                                            });
+                                            let entry =
+                                                items.entry(*id).or_insert_with(|| ItemType {
+                                                    id: *id,
+                                                    server_id: *id,
+                                                    ..ItemType::default()
+                                                });
                                             apply_nested_xml_attribute(
                                                 entry,
                                                 parent_key,
@@ -647,7 +637,11 @@ fn parse_shoot_type(value: &str) -> Option<u8> {
 }
 
 fn apply_nested_xml_attribute(item: &mut ItemType, parent_key: &str, key: &str, value: &str) {
-    let composite = format!("{}.{}", parent_key.to_ascii_lowercase(), key.to_ascii_lowercase());
+    let composite = format!(
+        "{}.{}",
+        parent_key.to_ascii_lowercase(),
+        key.to_ascii_lowercase()
+    );
     item.xml_attributes.insert(composite, value.to_string());
 }
 
@@ -963,9 +957,7 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
             }
         }
         "vocation" => {
-            item
-                .voc_equip_names
-                .push(value.trim().to_ascii_lowercase());
+            item.voc_equip_names.push(value.trim().to_ascii_lowercase());
         }
         // C++ `ITEM_PARSE_ALLOWDISTREAD` — `src/items.cpp` ~1351 (`it.allowDistRead`).
         "allowdistread" => {
@@ -1290,7 +1282,10 @@ mod tests {
     fn nested_attribute_is_stored_with_parent_prefix() {
         let mut item = ItemType::default();
         apply_nested_xml_attribute(&mut item, "field", "ticks", "2000");
-        assert_eq!(item.xml_attributes.get("field.ticks"), Some(&"2000".to_string()));
+        assert_eq!(
+            item.xml_attributes.get("field.ticks"),
+            Some(&"2000".to_string())
+        );
     }
 
     #[test]
@@ -1327,7 +1322,10 @@ mod tests {
         let it = items.get(&200).expect("item exists");
         assert_eq!(it.moveable_override, Some(false));
         assert_eq!(it.xml_attributes.get("field"), Some(&"fire".to_string()));
-        assert_eq!(it.xml_attributes.get("field.ticks"), Some(&"4000".to_string()));
+        assert_eq!(
+            it.xml_attributes.get("field.ticks"),
+            Some(&"4000".to_string())
+        );
         assert_eq!(it.xml_attributes.get("field.count"), Some(&"3".to_string()));
         assert!(it.is_magic_field());
     }
@@ -1393,10 +1391,18 @@ mod tests {
             assert_eq!(items.get(&id).map(|i| i.weight), Some(100), "id {id}");
         }
         for id in 102..=105 {
-            assert_eq!(items.get(&id).map(|i| i.weight), Some(100), "id {id} first range");
+            assert_eq!(
+                items.get(&id).map(|i| i.weight),
+                Some(100),
+                "id {id} first range"
+            );
         }
         for id in 106..=110 {
-            assert_eq!(items.get(&id).map(|i| i.weight), Some(999), "id {id} second only");
+            assert_eq!(
+                items.get(&id).map(|i| i.weight),
+                Some(999),
+                "id {id} second only"
+            );
         }
     }
 

@@ -210,7 +210,8 @@ impl GameWorld {
         let base = &p.base;
         match action {
             crate::creature::PlayerWalkAction::UseItemEx(_) => base.multiuse_ready_at(now_ms),
-            crate::creature::PlayerWalkAction::UseItem(_) | crate::creature::PlayerWalkAction::MoveItem { .. } => {
+            crate::creature::PlayerWalkAction::UseItem(_)
+            | crate::creature::PlayerWalkAction::MoveItem { .. } => {
                 base.walk_action_ready_at(now_ms)
             }
         }

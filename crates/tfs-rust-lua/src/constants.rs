@@ -174,7 +174,10 @@ fn register_return_values(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("RETURNVALUE_ACTIONNOTPERMITTEDINPROTECTIONZONE", 40i32)?;
     globals.set("RETURNVALUE_YOUMAYNOTATTACKTHISPLAYER", 41i32)?;
     globals.set("RETURNVALUE_YOUMAYNOTATTACKAPERSONINPROTECTIONZONE", 42i32)?;
-    globals.set("RETURNVALUE_YOUMAYNOTATTACKAPERSONWHILEINPROTECTIONZONE", 43i32)?;
+    globals.set(
+        "RETURNVALUE_YOUMAYNOTATTACKAPERSONWHILEINPROTECTIONZONE",
+        43i32,
+    )?;
     globals.set("RETURNVALUE_YOUMAYNOTATTACKTHISCREATURE", 44i32)?;
     globals.set("RETURNVALUE_YOUCANONLYUSEITONCREATURES", 45i32)?;
     globals.set("RETURNVALUE_CREATUREISNOTREACHABLE", 46i32)?;
@@ -265,8 +268,10 @@ mod tests {
         assert_eq!(get("RETURNVALUE_ITEMCANNOTBEMOVEDTHERE"), 69);
 
         // APPLY_SKILL_MULTIPLIER
-        assert!(globals
-            .get::<bool>("APPLY_SKILL_MULTIPLIER")
-            .expect("APPLY_SKILL_MULTIPLIER"));
+        assert!(
+            globals
+                .get::<bool>("APPLY_SKILL_MULTIPLIER")
+                .expect("APPLY_SKILL_MULTIPLIER")
+        );
     }
 }

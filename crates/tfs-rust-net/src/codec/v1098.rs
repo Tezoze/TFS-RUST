@@ -10,8 +10,8 @@ use crate::item_encode::{item_template_wire_len, write_item_live, write_item_tem
 use crate::NetworkMessage;
 
 use super::wire::{
-    AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
-    ChannelMessageWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
+    AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
+    CombatDamageNotifyWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
     CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire,
     PlayerStatsWire, PrivateMessageWire, ToChannelWire,
 };
@@ -289,7 +289,6 @@ impl Codec1098 {
         m.write_u16(0);
         m
     }
-
 
     pub fn encode_add_tile_creature(
         &self,

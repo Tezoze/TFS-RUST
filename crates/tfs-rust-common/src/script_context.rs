@@ -122,7 +122,11 @@ pub trait ScriptContext {
         None
     }
 
-    fn get_container_item_at(&self, container_id: ScriptItemId, index: u32) -> Option<ScriptItemId> {
+    fn get_container_item_at(
+        &self,
+        container_id: ScriptItemId,
+        index: u32,
+    ) -> Option<ScriptItemId> {
         let _ = (container_id, index);
         None
     }

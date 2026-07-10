@@ -71,7 +71,7 @@ pub fn build_login_success(caps: &ProtocolCaps, s: &LoginSuccess<'_>) -> Vec<u8>
     if caps.session_key_login {
         build_login_success_1098(s)
     } else {
-        build_login_success_772(s)
+        build_login_success_classic(s)
     }
 }
 
@@ -119,7 +119,7 @@ fn build_login_success_1098(s: &LoginSuccess<'_>) -> Vec<u8> {
 // C++ ref: `gameserver/src/protocollogin.cpp` `getCharacterList`. The IP is the resolved
 // little-endian `inet_addr` of the configured world IP; an unparseable string falls back to 0.
 // PROTOCOL: verify against a live 7.72 client capture in A6.
-fn build_login_success_772(s: &LoginSuccess<'_>) -> Vec<u8> {
+fn build_login_success_classic(s: &LoginSuccess<'_>) -> Vec<u8> {
     let mut m = NetworkMessage::new();
     if !s.motd.is_empty() {
         m.write_u8(LOGIN_MOTD);
@@ -135,7 +135,11 @@ fn build_login_success_772(s: &LoginSuccess<'_>) -> Vec<u8> {
         m.write_u32(ip_le);
         m.write_u16(s.game_port);
     }
-    m.write_u16(premium_days_left_772(s.free_premium, s.premium_ends_at, s.now_unix));
+    m.write_u16(premium_days_left(
+        s.free_premium,
+        s.premium_ends_at,
+        s.now_unix,
+    ));
     m.into_bytes()
 }
 
@@ -163,7 +167,7 @@ fn ipv4_inet_addr(ip: &str) -> u32 {
 
 /// 772 premium representation: `u16` days remaining (`getCharacterList`). Free-premium servers send
 /// `u16::MAX`; otherwise `ceil`-ish `++premiumDaysLeft` from the C++ (floor of seconds/day, +1).
-fn premium_days_left_772(free_premium: bool, premium_ends_at: i64, now_unix: i64) -> u16 {
+fn premium_days_left(free_premium: bool, premium_ends_at: i64, now_unix: i64) -> u16 {
     if free_premium {
         return u16::MAX;
     }
@@ -219,19 +223,22 @@ mod tests {
     fn inet_addr_le_bytes() {
         // 127.0.0.1 → octets in a.b.c.d order as LE u32.
         assert_eq!(ipv4_inet_addr("127.0.0.1").to_le_bytes(), [127, 0, 0, 1]);
-        assert_eq!(ipv4_inet_addr("192.168.1.50").to_le_bytes(), [192, 168, 1, 50]);
+        assert_eq!(
+            ipv4_inet_addr("192.168.1.50").to_le_bytes(),
+            [192, 168, 1, 50]
+        );
         assert_eq!(ipv4_inet_addr("not-an-ip"), 0);
         assert_eq!(ipv4_inet_addr("1.2.3"), 0);
     }
 
     #[test]
     fn premium_days_772() {
-        assert_eq!(premium_days_left_772(true, 0, 0), u16::MAX);
-        assert_eq!(premium_days_left_772(false, 0, 100), 0);
+        assert_eq!(premium_days_left(true, 0, 0), u16::MAX);
+        assert_eq!(premium_days_left(false, 0, 100), 0);
         // ~2 days remaining → floor(2d/1d)+1 = 3 (matches C++ `++premiumDaysLeft`).
         let now = 1_000_000;
         let ends = now + 2 * SECONDS_PER_DAY;
-        assert_eq!(premium_days_left_772(false, ends, now), 3);
+        assert_eq!(premium_days_left(false, ends, now), 3);
     }
 
     #[test]
@@ -246,7 +253,19 @@ mod tests {
     fn login_1098_success_byte_identical_to_legacy() {
         let chars = vec!["Alpha".to_string(), "Beta".to_string()];
         let legacy = build_login_success_packet(
-            7, "motd", "acc", "pw", "tok", 99, "World", "127.0.0.1", 7172, &chars, 0, true, 0,
+            7,
+            "motd",
+            "acc",
+            "pw",
+            "tok",
+            99,
+            "World",
+            "127.0.0.1",
+            7172,
+            &chars,
+            0,
+            true,
+            0,
         );
         let caps = ProtocolCaps::for_version(ProtocolVersion::V1098);
         let neu = build_login_success(

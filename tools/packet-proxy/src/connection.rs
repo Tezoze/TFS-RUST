@@ -102,7 +102,11 @@ async fn game_c2s(
             .context("game C->S forward")?;
         let ts = crate::logger::timestamp_rfc3339_ms();
         if idx == 0 {
-            match parse_first_game_packet(&body, &rsa, &ProtocolCaps::for_version(ProtocolVersion::V1098)) {
+            match parse_first_game_packet(
+                &body,
+                &rsa,
+                &ProtocolCaps::for_version(ProtocolVersion::V1098),
+            ) {
                 Ok(g) => {
                     *keys.lock().expect("keys") = Some(expand_key(&g.xtea_key));
                     log.line(&format!(

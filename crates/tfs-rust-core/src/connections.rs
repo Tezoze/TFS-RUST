@@ -216,7 +216,10 @@ mod tests {
         let kick = world.process_connections();
         assert!(kick.is_empty(), "ping round must not kick");
         let outgoing = world.pending_outgoing.get(&conn);
-        assert!(outgoing.is_some_and(|q| !q.is_empty()), "ping must be enqueued");
+        assert!(
+            outgoing.is_some_and(|q| !q.is_empty()),
+            "ping must be enqueued"
+        );
     }
 
     /// C++ `LastCommand >= 90` → logout (`connections.cc:37`).
@@ -234,7 +237,11 @@ mod tests {
         }
         world.round_nr = 90;
         let kick = world.process_connections();
-        assert_eq!(kick.len(), 1, "LastCommand >= 90 must trigger connection timeout");
+        assert_eq!(
+            kick.len(),
+            1,
+            "LastCommand >= 90 must trigger connection timeout"
+        );
     }
 
     /// `packet_counts_as_action` mirrors `TConnection::ResetTimer` (`connections.cc:53-63`):

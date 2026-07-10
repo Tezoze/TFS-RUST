@@ -21,8 +21,8 @@ pub use game_packet::GamePacket;
 pub use position::Position;
 pub use propstream::{PropStream, PropWriteStream};
 pub use protocol_constants::{
-    CLIENTOS_OTCLIENT_LINUX, MAP_MAX_LAYERS, MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y,
-    client_viewport_height, client_viewport_width,
+    client_viewport_height, client_viewport_width, CLIENTOS_OTCLIENT_LINUX, MAP_MAX_LAYERS,
+    MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y,
 };
 pub use protocol_version::{
     protocol_version_from_i64, protocol_version_from_raw, ProtocolCaps, ProtocolVersion,

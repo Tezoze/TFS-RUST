@@ -535,11 +535,7 @@ impl GameWorld {
     /// `Act` field controls the `ProcessCreatures` item-regen cadence
     /// (`crmain.cc:1087`). Eating sets `food_level = 12` (the decompile default
     /// `SecsPerHP` for `PROFESSION_NONE`, `crskill.cc:828-835`).
-    pub fn lua_script_player_feed(
-        &mut self,
-        creature_u64: u64,
-        amount: u32,
-    ) -> Result<(), String> {
+    pub fn lua_script_player_feed(&mut self, creature_u64: u64, amount: u32) -> Result<(), String> {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
@@ -1242,9 +1238,13 @@ mod look_tests {
 
         // Insert a monster with `base.name = "Dog"` (as `spawn_monster` would set).
         let pos = Position::new(100, 100, 7);
-        let monster_cid = world.creatures.insert(CreatureKind::Monster(
-            crate::creature::Monster::new(creature_base_named("Dog", pos), pos),
-        ));
+        let monster_cid =
+            world
+                .creatures
+                .insert(CreatureKind::Monster(crate::creature::Monster::new(
+                    creature_base_named("Dog", pos),
+                    pos,
+                )));
 
         let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
         let msg = world.player_look_description(viewer_cid, monster_cid);
@@ -1257,9 +1257,13 @@ mod look_tests {
     fn monster_look_falls_back_to_lowercase_name() {
         let mut world = minimal_world();
         let pos = Position::new(100, 100, 7);
-        let monster_cid = world.creatures.insert(CreatureKind::Monster(
-            crate::creature::Monster::new(creature_base_named("Cyclops", pos), pos),
-        ));
+        let monster_cid =
+            world
+                .creatures
+                .insert(CreatureKind::Monster(crate::creature::Monster::new(
+                    creature_base_named("Cyclops", pos),
+                    pos,
+                )));
         let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
         let msg = world.player_look_description(viewer_cid, monster_cid);
         assert_eq!(msg, "You see cyclops.");
@@ -1271,10 +1275,12 @@ mod look_tests {
     fn npc_look_uses_name_as_is() {
         let mut world = minimal_world();
         let pos = Position::new(100, 100, 7);
-        let npc_cid = world.creatures.insert(CreatureKind::Npc(crate::creature::Npc {
-            base: creature_base_named("Leeland", pos),
-            npc_type_id: 0,
-        }));
+        let npc_cid = world
+            .creatures
+            .insert(CreatureKind::Npc(crate::creature::Npc {
+                base: creature_base_named("Leeland", pos),
+                npc_type_id: 0,
+            }));
         let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
         let msg = world.player_look_description(viewer_cid, npc_cid);
         assert_eq!(msg, "You see Leeland.");

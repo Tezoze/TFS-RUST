@@ -20,8 +20,8 @@
 //! `shoot_effect`, `ammo_type`).
 
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use rand::Rng;
+use rand::SeedableRng;
 
 use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
@@ -155,11 +155,11 @@ impl GameWorld {
         };
 
         // Positions for range/LoS checks — read before mutation.
-        let (master_pos, target_pos) = match (self.creatures.get(cid), self.creatures.get(target_id))
-        {
-            (Some(a), Some(b)) => (a.base().position, b.base().position),
-            _ => return,
-        };
+        let (master_pos, target_pos) =
+            match (self.creatures.get(cid), self.creatures.get(target_id)) {
+                (Some(a), Some(b)) => (a.base().position, b.base().position),
+                _ => return,
+            };
         let cheb = chebyshev(master_pos, target_pos);
 
         // `WANDRANGE` — 772 wands have range 3. `WandDef` doesn't carry range; default to 3.
@@ -354,11 +354,11 @@ impl GameWorld {
         };
 
         // Positions for range/LoS — read before mutation.
-        let (master_pos, target_pos) = match (self.creatures.get(cid), self.creatures.get(target_id))
-        {
-            (Some(a), Some(b)) => (a.base().position, b.base().position),
-            _ => return,
-        };
+        let (master_pos, target_pos) =
+            match (self.creatures.get(cid), self.creatures.get(target_id)) {
+                (Some(a), Some(b)) => (a.base().position, b.base().position),
+                _ => return,
+            };
         let dist_x = (master_pos.x as i32 - target_pos.x as i32).abs();
         let dist_y = (master_pos.y as i32 - target_pos.y as i32).abs();
         let cheb = dist_x.max(dist_y);
@@ -424,7 +424,8 @@ impl GameWorld {
         let drop_pos; // Missile impact tile (target tile on hit, random adjacent on miss).
         if hit {
             // `GetAttackDamage` — fight-mode-scaled probe roll (`crcombat.cc:803`).
-            let attack_roll = weapon_damage(&profile, hooks, &mut rng, skill, attack_value, mode, level);
+            let attack_roll =
+                weapon_damage(&profile, hooks, &mut rng, skill, attack_value, mode, level);
             let attack_roll = ((attack_roll as f64) * dist_mult).floor() as i32;
 
             // `Target->Combat.GetDefendDamage()` — `crcombat.cc:809-811`. The C++ comment notes
@@ -451,7 +452,11 @@ impl GameWorld {
 
             // Poff / spark for `dmg <= 0` — same as melee (`crmain.cc:577-579, 624-628`).
             if dmg <= 0 {
-                let effect = if attack_roll <= defense_roll { 3u8 } else { 4u8 };
+                let effect = if attack_roll <= defense_roll {
+                    3u8
+                } else {
+                    4u8
+                };
                 self.broadcast_magic_effect(target_pos, effect);
             }
 
@@ -660,13 +665,7 @@ mod tests {
     use tfs_rust_content::weapons::{WandDef, WeaponRegistry};
 
     /// Equip an item into a player slot, registering the ItemType if needed.
-    fn equip_item(
-        world: &mut GameWorld,
-        cid: CreatureId,
-        slot: u8,
-        item_type: u16,
-        it: ItemType,
-    ) {
+    fn equip_item(world: &mut GameWorld, cid: CreatureId, slot: u8, item_type: u16, it: ItemType) {
         if !world.items_db.items.contains_key(&item_type) {
             let mut items = std::collections::HashMap::clone(&world.items_db.items);
             items.insert(item_type, it);
@@ -835,15 +834,13 @@ mod tests {
             .get(target)
             .map(|k| k.base().health)
             .unwrap_or(0);
-        assert!(hp_after < 100, "target should have taken damage, hp={hp_after}");
+        assert!(
+            hp_after < 100,
+            "target should have taken damage, hp={hp_after}"
+        );
 
         // `DelayAttack(2000)` — earliest attack advanced by 2s.
-        let earliest = world
-            .creatures
-            .get(cid)
-            .unwrap()
-            .base()
-            .earliest_attack_ms;
+        let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
         assert_eq!(earliest, 3000);
     }
 
@@ -890,7 +887,10 @@ mod tests {
             Some(CreatureKind::Player(p)) => p.mana,
             _ => 0,
         };
-        assert_eq!(mana_after, 1, "mana should not be drained on insufficient mana");
+        assert_eq!(
+            mana_after, 1,
+            "mana should not be drained on insufficient mana"
+        );
 
         // Target HP unchanged.
         let hp_after = world
@@ -898,7 +898,10 @@ mod tests {
             .get(target)
             .map(|k| k.base().health)
             .unwrap_or(0);
-        assert_eq!(hp_after, 100, "target should not take damage on insufficient mana");
+        assert_eq!(
+            hp_after, 100,
+            "target should not take damage on insufficient mana"
+        );
     }
 
     /// Bow + ammo strike consumes one ammo and deals physical damage.
@@ -928,12 +931,16 @@ mod tests {
         // Equip a stack of 10 arrows.
         let arrow_iid = world.items.insert(Item::new(2544, 10));
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
-            let idx =
-                crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
             p.equipment_slots[idx] = Some(arrow_iid);
         }
         // Register the arrow ItemType with shoot_effect=Arrow (3).
-        let arrow_it = make_ammo(2544, 1, 25, tfs_rust_common::enums::ShootEffect::Arrow as u8);
+        let arrow_it = make_ammo(
+            2544,
+            1,
+            25,
+            tfs_rust_common::enums::ShootEffect::Arrow as u8,
+        );
         if !world.items_db.items.contains_key(&2544) {
             let mut items = std::collections::HashMap::clone(&world.items_db.items);
             items.insert(2544, arrow_it);
@@ -952,12 +959,7 @@ mod tests {
         assert_eq!(arrow_count, 9, "ammo stack should decrement by 1");
 
         // `DelayAttack(2000)`.
-        let earliest = world
-            .creatures
-            .get(cid)
-            .unwrap()
-            .base()
-            .earliest_attack_ms;
+        let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
         assert_eq!(earliest, 3000);
     }
 
@@ -1019,7 +1021,12 @@ mod tests {
             let idx = crate::inventory::slot_to_array_index(InventorySlot::Left as u8).unwrap();
             p.equipment_slots[idx] = Some(spear_iid);
         }
-        let spear_it = make_throwing(2389, 25, 7, tfs_rust_common::enums::ShootEffect::Spear as u8);
+        let spear_it = make_throwing(
+            2389,
+            25,
+            7,
+            tfs_rust_common::enums::ShootEffect::Spear as u8,
+        );
         if !world.items_db.items.contains_key(&2389) {
             let mut items = std::collections::HashMap::clone(&world.items_db.items);
             items.insert(2389, spear_it);
@@ -1035,7 +1042,10 @@ mod tests {
 
         // Spear stack decremented from 5 to 4.
         let spear_count = world.items.get(spear_iid).map(|i| i.count).unwrap_or(0);
-        assert_eq!(spear_count, 4, "throwing weapon stack should decrement by 1");
+        assert_eq!(
+            spear_count, 4,
+            "throwing weapon stack should decrement by 1"
+        );
     }
 
     /// Mana shield absorbs damage to mana first, spilling remainder to HP.
@@ -1075,13 +1085,19 @@ mod tests {
 
         // Apply 50 damage — mana (20) absorbs 20, remainder 30 spills to HP via the caller.
         let absorbed = world.apply_mana_shield(cid, 50);
-        assert_eq!(absorbed, 20, "mana shield should absorb only remaining 20 mana");
+        assert_eq!(
+            absorbed, 20,
+            "mana shield should absorb only remaining 20 mana"
+        );
         let (mana, hp) = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => (p.mana, p.base.health),
             _ => (0, 0),
         };
         assert_eq!(mana, 0, "mana should be fully drained");
-        assert_eq!(hp, 100, "HP untouched by apply_mana_shield itself (caller spills)");
+        assert_eq!(
+            hp, 100,
+            "HP untouched by apply_mana_shield itself (caller spills)"
+        );
     }
 
     /// Mana shield is no-op for players without the condition.
@@ -1129,8 +1145,7 @@ mod tests {
         let target_pos = Position::new(102, 100, 7);
         let mut cfg = crate::creature::MonsterAiConfig::default();
         cfg.immunity_energy = true;
-        let target =
-            insert_monster_with_config(&mut world, "EnergyImmune", target_pos, 100, cfg);
+        let target = insert_monster_with_config(&mut world, "EnergyImmune", target_pos, 100, cfg);
         equip_item(
             &mut world,
             cid,
@@ -1158,7 +1173,10 @@ mod tests {
             Some(CreatureKind::Player(p)) => p.mana,
             _ => 0,
         };
-        assert_eq!(mana_after, 98, "mana should be drained even if target is immune");
+        assert_eq!(
+            mana_after, 98,
+            "mana should be drained even if target is immune"
+        );
 
         // Target HP unchanged (immunity blocks damage).
         let hp_after = world
@@ -1219,8 +1237,17 @@ mod tests {
     /// `AmmoSpecialEffect::from_item` detects poison arrows via `poisondamagecycles`.
     #[test]
     fn ammo_special_effect_poison_detection() {
-        assert_eq!(AmmoSpecialEffect::from_item(2545, 50), AmmoSpecialEffect::Poison);
-        assert_eq!(AmmoSpecialEffect::from_item(2546, 0), AmmoSpecialEffect::Burst);
-        assert_eq!(AmmoSpecialEffect::from_item(2544, 0), AmmoSpecialEffect::None);
+        assert_eq!(
+            AmmoSpecialEffect::from_item(2545, 50),
+            AmmoSpecialEffect::Poison
+        );
+        assert_eq!(
+            AmmoSpecialEffect::from_item(2546, 0),
+            AmmoSpecialEffect::Burst
+        );
+        assert_eq!(
+            AmmoSpecialEffect::from_item(2544, 0),
+            AmmoSpecialEffect::None
+        );
     }
 }

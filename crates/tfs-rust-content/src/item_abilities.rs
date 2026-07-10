@@ -269,7 +269,12 @@ pub fn apply_ability_attribute(a: &mut ItemAbilities, k: &str, value: &str) -> b
         }
         "absorbpercentelements" => {
             if let Ok(d) = value.parse::<i16>() {
-                for ct in [CombatType::Energy, CombatType::Fire, CombatType::Earth, CombatType::Ice] {
+                for ct in [
+                    CombatType::Energy,
+                    CombatType::Fire,
+                    CombatType::Earth,
+                    CombatType::Ice,
+                ] {
                     let i = combat_absorb_index(ct);
                     a.absorb_percent[i] = a.absorb_percent[i].wrapping_add(d);
                 }

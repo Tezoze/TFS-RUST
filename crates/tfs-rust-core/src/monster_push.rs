@@ -117,7 +117,15 @@ impl GameWorld {
         dest: Position,
         now: Instant,
     ) -> MonsterKickOutcome {
-        let Some((mover_pos, master, target_attack, target_follow, state, can_push_creatures, see_invisible)) = ({
+        let Some((
+            mover_pos,
+            master,
+            target_attack,
+            target_follow,
+            state,
+            can_push_creatures,
+            see_invisible,
+        )) = ({
             match self.creatures.get(mover) {
                 Some(CreatureKind::Monster(m)) => Some((
                     m.base.position,
@@ -130,7 +138,8 @@ impl GameWorld {
                 )),
                 _ => return MonsterKickOutcome::Proceed,
             }
-        }) else {
+        })
+        else {
             return MonsterKickOutcome::Proceed;
         };
 
@@ -195,7 +204,9 @@ impl GameWorld {
                     // C++ `crnonpl.cc:2236-2238`: player-tile `EXHAUSTED` — `Target = 0` before
                     // `throw EXHAUSTED`. The `Execute` catch (`cract.cc:870-877`) does NOT clear
                     // `Target` itself; the throw site does. F3: split from kick-kill `Exhausted`.
-                    Some(CreatureKind::Player(_)) => return MonsterKickOutcome::ExhaustedDropTarget,
+                    Some(CreatureKind::Player(_)) => {
+                        return MonsterKickOutcome::ExhaustedDropTarget
+                    }
                     // NPC / unpushable monster → hard block (`crnonpl.cc:2216,2228`), not kicked.
                     Some(CreatureKind::Npc(_)) => break,
                     Some(CreatureKind::Monster(m)) if !m.is_pushable() => break,
@@ -238,7 +249,9 @@ impl GameWorld {
         // immunity. PANIC ignores all hazards; NoPoison/NoBurning/NoEnergy ignore matching
         // fields only. Was poison-only, now per-type.
         let (immunity_poison, immunity_fire, immunity_energy) = match self.creatures.get(mover) {
-            Some(CreatureKind::Monster(m)) => (m.immunity_poison, m.immunity_fire, m.immunity_energy),
+            Some(CreatureKind::Monster(m)) => {
+                (m.immunity_poison, m.immunity_fire, m.immunity_energy)
+            }
             _ => (false, false, false),
         };
 
@@ -286,20 +299,20 @@ impl GameWorld {
             return false;
         };
         let server_id = item.item_type;
-        if self.items_db.is_unpass_772(server_id) {
-            return !self.items_db.is_unmove_772(server_id);
+        if self.items_db.is_unpassable(server_id) {
+            return !self.items_db.is_immovable(server_id);
         }
-        if self.items_db.is_avoid_hazard_772(server_id) {
+        if self.items_db.is_avoid_hazard(server_id) {
             // P1-B1: per-damage-type immunity — PANIC ignores all; type-specific immunity
             // ignores matching fields only.
             let ignore_hazard = state == MonsterState::Panic
-                || match self.items_db.avoid_damage_type_772(server_id) {
+                || match self.items_db.avoid_damage_type(server_id) {
                     Some(tfs_rust_content::items::FieldDamageType::Poison) => immunity_poison,
                     Some(tfs_rust_content::items::FieldDamageType::Fire) => immunity_fire,
                     Some(tfs_rust_content::items::FieldDamageType::Energy) => immunity_energy,
                     None => false,
                 };
-            return !ignore_hazard && !self.items_db.is_unmove_772(server_id);
+            return !ignore_hazard && !self.items_db.is_immovable(server_id);
         }
         false
     }
@@ -352,7 +365,7 @@ impl GameWorld {
         let Some(ground) = body.ground else {
             return false;
         };
-        if !self.items_db.is_terrain_bank_772(ground) {
+        if !self.items_db.is_terrain_bank(ground) {
             return false;
         }
         // Any UNPASS item (or a solid-blocking tile flag) makes the tile non-passable.
@@ -366,7 +379,7 @@ impl GameWorld {
             .any(|&iid| {
                 self.items
                     .get(iid)
-                    .is_some_and(|it| self.items_db.is_unpass_772(it.item_type))
+                    .is_some_and(|it| self.items_db.is_unpassable(it.item_type))
             })
     }
 
@@ -532,13 +545,7 @@ impl GameWorld {
             let other = self
                 .map
                 .get_tile(try_pos)
-                .and_then(|t| {
-                    t.body()
-                        .creatures
-                        .iter()
-                        .copied()
-                        .find(|&c| c != blocker)
-                });
+                .and_then(|t| t.body().creatures.iter().copied().find(|&c| c != blocker));
             let Some(other) = other else {
                 break; // tile clear → passable
             };

@@ -41,7 +41,13 @@ fn single_ground_tile_map(codec: &Codec, center: Position) -> Vec<u8> {
     };
     let mut can_see = |_id: u32| true;
     send_map_description_packet(
-        codec, center, center, &mut get_tile, &mut known, &mut can_see, false,
+        codec,
+        center,
+        center,
+        &mut get_tile,
+        &mut known,
+        &mut can_see,
+        false,
     )
     .into_bytes()
 }
@@ -115,7 +121,10 @@ fn move_creature_player_starts_with_6d_not_full_map_stub() {
         false,
     );
     let b = msg.as_bytes();
-    assert_eq!(b[0], 0x6D, "walk must use MoveCreature, not opcode 0x64 map stub");
+    assert_eq!(
+        b[0], 0x6D,
+        "walk must use MoveCreature, not opcode 0x64 map stub"
+    );
     assert_ne!(b[0], 0x64);
 }
 

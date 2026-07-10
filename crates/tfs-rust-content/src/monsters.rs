@@ -500,14 +500,38 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         if tag.eq_ignore_ascii_case("flags") {
             parse_monster_flags(child, &mut flags, file_str);
         } else if tag.eq_ignore_ascii_case("look") {
-            outfit.look_type = child.attribute("type").and_then(|a| a.parse().ok()).unwrap_or(136);
-            outfit.look_head = child.attribute("head").and_then(|a| a.parse().ok()).unwrap_or(0);
-            outfit.look_body = child.attribute("body").and_then(|a| a.parse().ok()).unwrap_or(0);
-            outfit.look_legs = child.attribute("legs").and_then(|a| a.parse().ok()).unwrap_or(0);
-            outfit.look_feet = child.attribute("feet").and_then(|a| a.parse().ok()).unwrap_or(0);
-            outfit.look_addons = child.attribute("addons").and_then(|a| a.parse().ok()).unwrap_or(0);
-            outfit.look_type_ex = child.attribute("typeex").and_then(|a| a.parse().ok()).unwrap_or(0);
-            outfit.look_mount = child.attribute("mount").and_then(|a| a.parse().ok()).unwrap_or(0);
+            outfit.look_type = child
+                .attribute("type")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(136);
+            outfit.look_head = child
+                .attribute("head")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            outfit.look_body = child
+                .attribute("body")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            outfit.look_legs = child
+                .attribute("legs")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            outfit.look_feet = child
+                .attribute("feet")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            outfit.look_addons = child
+                .attribute("addons")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            outfit.look_type_ex = child
+                .attribute("typeex")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            outfit.look_mount = child
+                .attribute("mount")
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
             outfit.corpse_id = child
                 .attribute("corpse")
                 .and_then(|a| a.parse().ok())
@@ -527,7 +551,8 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         } else if tag.eq_ignore_ascii_case("immunities") {
             for imm in child.children().filter(|n| n.is_element()) {
                 if imm.tag_name().name().eq_ignore_ascii_case("immunity") {
-                    if imm.attribute("poison")
+                    if imm
+                        .attribute("poison")
                         .or_else(|| imm.attribute("earth"))
                         .is_some_and(parse_bool_flag)
                     {
@@ -638,13 +663,19 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
 /// interval missing). TVP 7.72 / `gameserver` data often has `chance` only (`gameserver` ~945,
 /// leaves `changeTargetSpeed` at 0).
 fn parse_target_change(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFlags, file: &str) {
-    if let Some(a) = node.attribute("speed").or_else(|| node.attribute("interval")) {
+    if let Some(a) = node
+        .attribute("speed")
+        .or_else(|| node.attribute("interval"))
+    {
         flags.change_target_speed = a.parse().unwrap_or(0);
     }
     if let Some(a) = node.attribute("chance") {
         let mut chance: i32 = a.parse().unwrap_or(0);
         if chance > 100 {
-            warn!(file, chance, "targetchange chance out of bounds, clamping to 100");
+            warn!(
+                file,
+                chance, "targetchange chance out of bounds, clamping to 100"
+            );
             chance = 100;
         }
         flags.change_target_chance = chance;
@@ -696,8 +727,14 @@ mod tests {
             client_to_server: HashMap::new(),
         };
         let db = MonsterDatabase::load_dir(&data.join("monster"), &items).expect("load monsters");
-        let red = db.monsters.get("red butterfly").expect("index key red butterfly");
+        let red = db
+            .monsters
+            .get("red butterfly")
+            .expect("index key red butterfly");
         assert_eq!(red.name, "Butterfly", "display name comes from file XML");
-        assert!(!db.monsters.contains_key("butterfly"), "file name attr must not be the key");
+        assert!(
+            !db.monsters.contains_key("butterfly"),
+            "file name attr must not be the key"
+        );
     }
 }

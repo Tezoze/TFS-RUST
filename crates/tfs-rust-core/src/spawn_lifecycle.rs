@@ -780,7 +780,8 @@ impl GameWorld {
                 .map(|s| s.spawntime_ms)
                 .unwrap_or(0);
             let delay_ms = self.compute_respawn_delay_ms(regen_ms);
-            self.spawns.on_creature_removed(slot_index, now_ms, delay_ms);
+            self.spawns
+                .on_creature_removed(slot_index, now_ms, delay_ms);
         }
     }
 
@@ -967,7 +968,11 @@ mod tests {
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
         let conn = ConnId(1);
-        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
+        let viewer = insert_spectator_player(
+            &mut world,
+            conn,
+            test_player("Spec", Position::new(101, 100, 7)),
+        );
         world.known_creatures_by_conn.insert(conn, HashSet::new());
 
         world.remove_creature(monster_cid);
@@ -994,12 +999,15 @@ mod tests {
         world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
         // Spectator must see the spawn tile but stay off the home coord; radius-shrink
         // suppresses respawns when any player is within the C++ search window.
-        world.mechanics.profile.spawn_near_player =
-            crate::formulas::SpawnNearPlayer::Block;
+        world.mechanics.profile.spawn_near_player = crate::formulas::SpawnNearPlayer::Block;
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
         let conn = ConnId(3);
-        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
+        let viewer = insert_spectator_player(
+            &mut world,
+            conn,
+            test_player("Spec", Position::new(101, 100, 7)),
+        );
         world.known_creatures_by_conn.insert(conn, HashSet::new());
 
         world.remove_creature(monster_cid);
@@ -1100,7 +1108,11 @@ mod tests {
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
         let conn = ConnId(2);
-        let viewer = insert_spectator_player(&mut world, conn, test_player("Spec", Position::new(101, 100, 7)));
+        let viewer = insert_spectator_player(
+            &mut world,
+            conn,
+            test_player("Spec", Position::new(101, 100, 7)),
+        );
         world.known_creatures_by_conn.insert(conn, HashSet::new());
 
         world.remove_creature(monster_cid);
@@ -1115,8 +1127,7 @@ mod tests {
     #[test]
     fn respawn_772_randomized_in_regen_band() {
         let mut world = beat_driven_test_world();
-        world.mechanics.profile.respawn_model =
-            crate::formulas::RespawnModel::Monsterhome772;
+        world.mechanics.profile.respawn_model = crate::formulas::RespawnModel::Monsterhome772;
         // regen = 60s; no players → max_timer = 60s; draw ∈ [30s, 60s].
         let regen = 60_000u64;
         for _ in 0..50 {
@@ -1134,8 +1145,7 @@ mod tests {
     #[test]
     fn respawn_772_scales_down_above_200_players() {
         let mut world = beat_driven_test_world();
-        world.mechanics.profile.respawn_model =
-            crate::formulas::RespawnModel::Monsterhome772;
+        world.mechanics.profile.respawn_model = crate::formulas::RespawnModel::Monsterhome772;
         // Insert 300 fake players by name to drive `player_by_name.len()`.
         for i in 0..300 {
             world
@@ -1158,8 +1168,7 @@ mod tests {
     #[test]
     fn respawn_772_halves_above_800_players() {
         let mut world = beat_driven_test_world();
-        world.mechanics.profile.respawn_model =
-            crate::formulas::RespawnModel::Monsterhome772;
+        world.mechanics.profile.respawn_model = crate::formulas::RespawnModel::Monsterhome772;
         for i in 0..900 {
             world
                 .player_by_name

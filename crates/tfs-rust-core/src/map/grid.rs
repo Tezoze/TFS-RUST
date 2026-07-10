@@ -168,8 +168,7 @@ impl SparseGrid {
                 debug_assert!(
                     on_tile,
                     "creature {:?} in chunk {:?} spatial list but not on any tile",
-                    cid,
-                    key
+                    cid, key
                 );
             }
             // Every tile-list creature must be in the chunk spatial list.

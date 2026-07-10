@@ -21,9 +21,8 @@ impl PacketLogger {
         let file = if let Some(p) = log_path {
             if let Some(parent) = p.parent() {
                 if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!("create log directory `{}`", parent.display())
-                    })?;
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("create log directory `{}`", parent.display()))?;
                 }
             }
             let f = OpenOptions::new()

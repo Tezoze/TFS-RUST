@@ -41,9 +41,7 @@ pub fn require_schema(root: &Table, expected: u32) -> Result<()> {
             if i as u32 != expected {
                 return Err(TfsRustError::Content {
                     file: "(data-lua)".into(),
-                    message: format!(
-                        "schema version mismatch: expected {expected}, got {i}"
-                    ),
+                    message: format!("schema version mismatch: expected {expected}, got {i}"),
                 });
             }
         }
@@ -51,9 +49,7 @@ pub fn require_schema(root: &Table, expected: u32) -> Result<()> {
             if f as u32 != expected {
                 return Err(TfsRustError::Content {
                     file: "(data-lua)".into(),
-                    message: format!(
-                        "schema version mismatch: expected {expected}, got {f}"
-                    ),
+                    message: format!("schema version mismatch: expected {expected}, got {f}"),
                 });
             }
         }

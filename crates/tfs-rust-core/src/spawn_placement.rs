@@ -232,8 +232,7 @@ pub(crate) fn search_spawn_field(
                 if probe.login_possible {
                     // C++ `SearchSpawnField` tie-break `random(0, 99)` (`info.cc`) — glibc parity
                     // stream, not `thread_rng` (Finding 19).
-                    let tie = tie_roll()
-                        + if probe.login_clean { 100 } else { 0 };
+                    let tie = tie_roll() + if probe.login_clean { 100 } else { 0 };
                     if tie > best_tie {
                         best_tie = tie;
                         best_pos = Some(pos);
@@ -316,17 +315,13 @@ impl GameWorld {
                 let Some(slot) = self.spawns.slot(slot_index) else {
                     return false;
                 };
-                let home = self
-                    .spawns
-                    .zone_center(slot.zone_index)
-                    .unwrap_or(center);
+                let home = self.spawns.zone_center(slot.zone_index).unwrap_or(center);
                 let act = self.spawns.count_occupied_in_zone(slot.zone_index);
                 let mut effective_radius = home_radius;
                 if !startup
                     && self.mechanics.profile.spawn_near_player == SpawnNearPlayer::RadiusShrink
                 {
-                    effective_radius =
-                        shrink_spawn_radius_near_players(self, home, home_radius);
+                    effective_radius = shrink_spawn_radius_near_players(self, home, home_radius);
                     if effective_radius < 0 {
                         return false;
                     }
@@ -337,9 +332,12 @@ impl GameWorld {
                     .get_tile(home)
                     .map(|t| t.body().zone == ZoneType::Protection)
                     .unwrap_or(false);
-                let pos = search_spawn_field(signed_dist, home, |try_pos| {
-                    self.probe_spawn_tile(cid, try_pos, place_in_pz, forced)
-                }, || self.parity_random(0, 99));
+                let pos = search_spawn_field(
+                    signed_dist,
+                    home,
+                    |try_pos| self.probe_spawn_tile(cid, try_pos, place_in_pz, forced),
+                    || self.parity_random(0, 99),
+                );
                 let Some(pos) = pos else {
                     return false;
                 };
@@ -401,15 +399,20 @@ mod tests {
         walkable.insert((11, 10));
         walkable.insert((15, 15));
 
-        let pos = search_spawn_field(2, center, |p| {
-            let key = (p.x, p.y);
-            let ok = walkable.contains(&key);
-            SpawnTileProbe {
-                login_possible: ok,
-                login_clean: ok,
-                expansion_ok: ok,
-            }
-        }, || 0);
+        let pos = search_spawn_field(
+            2,
+            center,
+            |p| {
+                let key = (p.x, p.y);
+                let ok = walkable.contains(&key);
+                SpawnTileProbe {
+                    login_possible: ok,
+                    login_clean: ok,
+                    expansion_ok: ok,
+                }
+            },
+            || 0,
+        );
         assert_eq!(pos, Some(Position::new(10, 10, 7)));
     }
 
@@ -418,14 +421,19 @@ mod tests {
         let center = Position::new(10, 10, 7);
         let far = Position::new(13, 10, 7);
 
-        let pos = search_spawn_field(-3, center, |p| {
-            let ok = p == far;
-            SpawnTileProbe {
-                login_possible: ok,
-                login_clean: ok,
-                expansion_ok: true,
-            }
-        }, || 0);
+        let pos = search_spawn_field(
+            -3,
+            center,
+            |p| {
+                let ok = p == far;
+                SpawnTileProbe {
+                    login_possible: ok,
+                    login_clean: ok,
+                    expansion_ok: true,
+                }
+            },
+            || 0,
+        );
         assert_eq!(pos, Some(far));
     }
 

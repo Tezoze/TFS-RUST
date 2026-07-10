@@ -18,9 +18,7 @@ use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_scope::fire_on_login;
-use crate::player_flags::{
-    flags_for_group, has_player_flag, PLAYER_FLAG_SET_MAX_SPEED,
-};
+use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_SET_MAX_SPEED};
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::vocations::VocationRegistry;
 
@@ -83,12 +81,7 @@ pub fn player_from_loaded(
     let group_id = u16::try_from(p.group_id.max(0)).unwrap_or(1);
     let group_flags = flags_for_group(groups, group_id);
     let set_max_speed = has_player_flag(group_flags, PLAYER_FLAG_SET_MAX_SPEED);
-    let walk_speed = base_walk_speed(
-        step_speed_model,
-        &vocation_profile,
-        p.level,
-        set_max_speed,
-    );
+    let walk_speed = base_walk_speed(step_speed_model, &vocation_profile, p.level, set_max_speed);
     let outfit = Outfit {
         look_type: p.looktype,
         look_head: p.lookhead,

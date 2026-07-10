@@ -352,10 +352,7 @@ fn handle_game_packet(
                 world.player_cancel_attack_and_follow(conn_id, cid);
             }
         }
-        GamePacket::FightModes {
-            raw_chase_mode,
-            ..
-        } => {
+        GamePacket::FightModes { raw_chase_mode, .. } => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 // 772 `TCombat::SetChaseMode` — `crcombat.cc:339-345` (only NONE/CLOSE accepted).
                 // Fight mode / secure mode storage is deferred to the player weapon-combat system.
@@ -395,8 +392,7 @@ fn handle_game_packet(
                     sprite_id: payload.sprite_id,
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
-                if let Err(rv) =
-                    world.enqueue_player_move(cid, obj, payload.to_pos, payload.count)
+                if let Err(rv) = world.enqueue_player_move(cid, obj, payload.to_pos, payload.count)
                 {
                     world.send_cancel_message(conn_id, rv);
                 } else {
@@ -834,11 +830,13 @@ mod timed_action_gate_tests {
                 count: 1,
             }
         )));
-        assert!(!game_packet_requires_timed_action(&GamePacket::RotateItem {
-            pos: tfs_rust_common::Position::new(0, 0, 7),
-            sprite_id: 100,
-            stack_pos: 0,
-        }));
+        assert!(!game_packet_requires_timed_action(
+            &GamePacket::RotateItem {
+                pos: tfs_rust_common::Position::new(0, 0, 7),
+                sprite_id: 100,
+                stack_pos: 0,
+            }
+        ));
     }
 
     #[test]
@@ -877,7 +875,10 @@ mod f8_s6_handler_routing_tests {
 
     /// Place a bag (container, client_id=0 in the test items_db) on a tile and return its
     /// `ActionObjectRef`. Mirrors `creature_todo` tests' `place_bag_on_tile`.
-    fn place_bag_on_tile(world: &mut crate::game_world::GameWorld, pos: Position) -> ActionObjectRef {
+    fn place_bag_on_tile(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+    ) -> ActionObjectRef {
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let item_id = world.items.insert(Item::new_single(1987));
         world
@@ -893,7 +894,10 @@ mod f8_s6_handler_routing_tests {
     }
 
     /// Place a gold (pickupable + moveable) item on a tile for the Move/Throw test.
-    fn place_gold_on_tile(world: &mut crate::game_world::GameWorld, pos: Position) -> ActionObjectRef {
+    fn place_gold_on_tile(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+    ) -> ActionObjectRef {
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let item_id = world.items.insert(Item::new_single(2148));
         world
@@ -908,9 +912,14 @@ mod f8_s6_handler_routing_tests {
         }
     }
 
-    fn insert_player(world: &mut crate::game_world::GameWorld, pos: Position) -> (ConnId, crate::ids::CreatureId) {
+    fn insert_player(
+        world: &mut crate::game_world::GameWorld,
+        pos: Position,
+    ) -> (ConnId, crate::ids::CreatureId) {
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
-        let cid = world.creatures.insert(CreatureKind::Player(test_player("S6Hero", pos)));
+        let cid = world
+            .creatures
+            .insert(CreatureKind::Player(test_player("S6Hero", pos)));
         world.map.register_creature_at(pos, cid);
         let conn_id = ConnId(1);
         world.register_conn_mapping(conn_id, cid);
@@ -923,7 +932,10 @@ mod f8_s6_handler_routing_tests {
         let mut pending = VecDeque::new();
         handle_game_packet(world, conn_id, packet, &mut rx, &mut pending);
         // None of the rerouted opcodes push to pending (only Logout does).
-        assert!(pending.is_empty(), "Use/Throw/RotateItem must not push commands");
+        assert!(
+            pending.is_empty(),
+            "Use/Throw/RotateItem must not push commands"
+        );
     }
 
     /// `UseItem` (single-object) routes to `[Wait{100}, Use{obj2:None}]` + arms a wakeup.
@@ -948,9 +960,14 @@ mod f8_s6_handler_routing_tests {
 
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.todo.queue.len(), 2, "Use single → [Wait{{100}}, Use]");
-        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
         match base.todo.queue[1] {
-            CreatureAction::Use { obj2, open_index, .. } => {
+            CreatureAction::Use {
+                obj2, open_index, ..
+            } => {
                 assert!(obj2.is_none(), "single-object use has no obj2");
                 assert_eq!(open_index, 4, "open_index carries UseItemPayload.index");
             }
@@ -984,10 +1001,19 @@ mod f8_s6_handler_routing_tests {
         );
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(base.todo.queue.len(), 2, "Use two-object → [Wait{{100}}, Use]");
-        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert_eq!(
+            base.todo.queue.len(),
+            2,
+            "Use two-object → [Wait{{100}}, Use]"
+        );
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
         match base.todo.queue[1] {
-            CreatureAction::Use { obj2, open_index, .. } => {
+            CreatureAction::Use {
+                obj2, open_index, ..
+            } => {
                 assert!(obj2.is_some(), "two-object use carries obj2");
                 assert_eq!(open_index, 0, "UseItemEx has no index byte → 0");
             }
@@ -1062,7 +1088,10 @@ mod f8_s6_handler_routing_tests {
 
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
-        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
         assert!(matches!(base.todo.queue[1], CreatureAction::Turn { .. }));
         assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
     }
@@ -1090,7 +1119,10 @@ mod f8_s6_handler_routing_tests {
 
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
-        assert!(matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }));
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 100 }
+        ));
         assert!(matches!(base.todo.queue[1], CreatureAction::Turn { .. }));
     }
 
@@ -1116,7 +1148,10 @@ mod f8_s6_handler_routing_tests {
 
         let base = world.creatures.get(cid).unwrap().base();
         assert!(base.todo.is_empty(), "failed builder must not enqueue");
-        assert!(base.next_wakeup.is_none(), "failed builder must not arm a wakeup");
+        assert!(
+            base.next_wakeup.is_none(),
+            "failed builder must not arm a wakeup"
+        );
     }
 
     /// `LookAt` stays reactive — no ToDo entry created (regression, F8 §1).

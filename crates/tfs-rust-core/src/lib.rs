@@ -2,10 +2,11 @@
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
 mod chase_debug;
-pub mod combat;
 pub mod chat;
+pub mod combat;
 pub mod condition;
 pub mod config;
+mod connections;
 pub mod container;
 mod container_ops;
 mod container_ui;
@@ -50,7 +51,6 @@ pub mod map;
 pub mod matrix_area;
 mod monster_ai;
 mod monster_distance_step;
-mod spawn_placement;
 mod monster_events;
 mod monster_push;
 mod monster_targets;
@@ -59,7 +59,6 @@ pub mod party;
 pub mod pathfinding;
 mod player;
 mod player_lua_context;
-mod connections;
 mod process_skills;
 pub mod protocol_hooks;
 pub mod return_value;
@@ -72,12 +71,13 @@ mod sim_glibc_rand;
 pub mod sim_harness;
 pub mod spawn;
 mod spawn_lifecycle;
+mod spawn_placement;
 pub mod spell;
 pub mod stability;
 mod subsystem_counters;
+pub mod talkactions;
 #[cfg(test)]
 mod test_world;
-pub mod talkactions;
 pub mod thing;
 pub mod tile;
 mod todo_queue;

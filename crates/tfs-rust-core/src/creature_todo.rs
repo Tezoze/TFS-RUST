@@ -292,7 +292,10 @@ impl GameWorld {
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
-        k.base_mut().todo.queue.push_back(CreatureAction::Talk { text });
+        k.base_mut()
+            .todo
+            .queue
+            .push_back(CreatureAction::Talk { text });
         tracing::debug!(
             creature = k.base().name.as_str(),
             ?cid,
@@ -455,11 +458,10 @@ impl GameWorld {
         // pacing. Creature-container push (Delay = 1000) is D9, not yet ported.
         self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.push_back(CreatureAction::Move {
-                obj,
-                dest,
-                count,
-            });
+            k.base_mut()
+                .todo
+                .queue
+                .push_back(CreatureAction::Move { obj, dest, count });
         }
         trace_creature_todo(self, cid, "enqueue_player_move");
         Ok(())
@@ -487,7 +489,10 @@ impl GameWorld {
         // `ToDoWait(100)` then `ToDoTurn(...)` — `receiving.cc:549`.
         self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.push_back(CreatureAction::Turn { obj });
+            k.base_mut()
+                .todo
+                .queue
+                .push_back(CreatureAction::Turn { obj });
         }
         trace_creature_todo(self, cid, "enqueue_player_turn");
         Ok(())
@@ -528,7 +533,11 @@ impl GameWorld {
         }
         self.creatures
             .get(cid)
-            .map(|k| k.base().earliest_multiuse_server_ms.saturating_sub(self.server_ms))
+            .map(|k| {
+                k.base()
+                    .earliest_multiuse_server_ms
+                    .saturating_sub(self.server_ms)
+            })
             .unwrap_or(0)
     }
 
@@ -568,12 +577,8 @@ impl GameWorld {
                 Some(CreatureKind::Monster(m)) => {
                     let target_distance = self.monster_effective_target_distance(m.target_distance);
                     let cheb = chebyshev(from, dest);
-                    let uses_dist_branch = self.monster_idle_uses_dist_branch(
-                        cid,
-                        from,
-                        follow_id,
-                        target_distance,
-                    );
+                    let uses_dist_branch =
+                        self.monster_idle_uses_dist_branch(cid, from, follow_id, target_distance);
                     let is_dist_chase = uses_dist_branch && cheb > target_distance;
                     let is_melee_chase = !uses_dist_branch && cheb > 1;
                     let (budget, _) = monster_idle_chase_step_budget(
@@ -686,9 +691,9 @@ impl GameWorld {
     /// (`cract.cc:783`, `crplayer.cc:388`). NPCs remain excluded (no ToDo-driven behavior).
     /// Phase 6: `beat_driven_loop` collapsed — both eras unconditionally use the ToDo path.
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {
-        self.creatures.get(cid).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_))
-        })
+        self.creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_)))
     }
 
     /// F8 S4 — C++ `Execute` `RESULT` catch — `cract.cc:870-889`.
@@ -735,7 +740,13 @@ impl GameWorld {
 
     /// `SendResult` + conditional `SendSnapback` — the player tail of the `RESULT` catch
     /// (`cract.cc:879-886`). Split out so `apply_todo_result_catch` stays readable.
-    fn send_result_player(&mut self, conn: ConnId, cid: CreatureId, rv: ReturnValue, snapback: bool) {
+    fn send_result_player(
+        &mut self,
+        conn: ConnId,
+        cid: CreatureId,
+        rv: ReturnValue,
+        snapback: bool,
+    ) {
         // `SendResult` — `sending.cc:285-357`: text via `SendMessage(TALK_FAILURE_MESSAGE, ...)`.
         self.send_cancel_message(conn, rv);
         // `SendSnapback` — skip for `MOVENOTPOSSIBLE` / `NOTINVITED` / `ENTERPROTECTIONZONE`
@@ -744,7 +755,7 @@ impl GameWorld {
             rv,
             ReturnValue::PlayerIsNotInvited               // NOTINVITED (50)
                 | ReturnValue::ActionNotPermittedInProtectionZone // ENTERPROTECTIONZONE (48)
-                | ReturnValue::ThereIsNoWay               // MOVENOTPOSSIBLE (52) — closest
+                | ReturnValue::ThereIsNoWay // MOVENOTPOSSIBLE (52) — closest
         );
         if snapback && !snapback_exempt {
             let dir_byte = self
@@ -762,11 +773,13 @@ mod tests {
     use tfs_rust_common::Position;
 
     use crate::creature::CreatureKind;
-    use crate::creature_todo::{ActionObjectRef, CreatureAction, CreatureTodo, MONSTER_IDLE_WAIT_MS};
+    use crate::creature_todo::{
+        ActionObjectRef, CreatureAction, CreatureTodo, MONSTER_IDLE_WAIT_MS,
+    };
     use crate::ids::CreatureId;
     use crate::test_world::support::{
-        dist_idle_monster_config, beat_driven_test_world, ensure_walkable_tile,
-        insert_monster, insert_monster_with_config, insert_player, minimal_world, test_player,
+        beat_driven_test_world, dist_idle_monster_config, ensure_walkable_tile, insert_monster,
+        insert_monster_with_config, insert_player, minimal_world, test_player,
         TEST_SYNTHETIC_GROUND_WP,
     };
 
@@ -956,10 +969,7 @@ mod tests {
         }
     }
 
-    fn insert_test_player(
-        world: &mut crate::game_world::GameWorld,
-        pos: Position,
-    ) -> CreatureId {
+    fn insert_test_player(world: &mut crate::game_world::GameWorld, pos: Position) -> CreatureId {
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let cid = world
             .creatures
@@ -1192,9 +1202,7 @@ mod tests {
     ) -> ActionObjectRef {
         register_rotatable_item(world, server_id, rotate_to);
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
-        let item_id = world
-            .items
-            .insert(crate::item::Item::new_single(server_id));
+        let item_id = world.items.insert(crate::item::Item::new_single(server_id));
         world
             .map
             .get_tile_mut(pos)
@@ -1317,12 +1325,7 @@ mod tests {
         let player_pos = Position::new(100, 100, 7);
         let cid = insert_test_player(&mut world, player_pos);
         // Pre-populate the queue with a Turn so we can verify clear.
-        let obj = place_rotatable_on_tile(
-            &mut world,
-            Position::new(101, 100, 7),
-            5001,
-            5002,
-        );
+        let obj = place_rotatable_on_tile(&mut world, Position::new(101, 100, 7), 5001, 5002);
         world
             .enqueue_player_turn(cid, obj)
             .expect("rotatable resolves");
@@ -1355,12 +1358,7 @@ mod tests {
         let mut world = beat_driven_test_world_at(5000);
         let player_pos = Position::new(100, 100, 7);
         let cid = insert_test_player(&mut world, player_pos);
-        let obj = place_rotatable_on_tile(
-            &mut world,
-            Position::new(101, 100, 7),
-            5001,
-            5002,
-        );
+        let obj = place_rotatable_on_tile(&mut world, Position::new(101, 100, 7), 5001, 5002);
         world
             .enqueue_player_turn(cid, obj)
             .expect("rotatable resolves");
@@ -1461,7 +1459,11 @@ mod tests {
         z: u8,
     ) {
         for x in start_x..=end_x {
-            ensure_walkable_tile(&mut world.map, Position::new(x, y, z), TEST_SYNTHETIC_GROUND_WP);
+            ensure_walkable_tile(
+                &mut world.map,
+                Position::new(x, y, z),
+                TEST_SYNTHETIC_GROUND_WP,
+            );
         }
     }
 
@@ -1493,12 +1495,11 @@ mod tests {
         );
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(
-            base.todo.queue.len(),
-            2,
-            "queue → [Go, Use]"
+        assert_eq!(base.todo.queue.len(), 2, "queue → [Go, Use]");
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Go),
+            "front = Go"
         );
-        assert!(matches!(base.todo.queue[0], CreatureAction::Go), "front = Go");
         assert!(
             matches!(base.todo.queue[1], CreatureAction::Use { .. }),
             "second = Use"
@@ -1539,10 +1540,7 @@ mod tests {
             base.todo.queue.is_empty(),
             "queue drained after adjacent Use execute"
         );
-        assert!(
-            base.walk_queue.is_empty(),
-            "no walk_queue for adjacent Use"
-        );
+        assert!(base.walk_queue.is_empty(), "no walk_queue for adjacent Use");
     }
 
     /// S5: `Use` execute arm with an inventory source → no `Go`-prepend.
@@ -1581,7 +1579,11 @@ mod tests {
         );
         let base = world.creatures.get(cid).unwrap().base();
         assert!(
-            !base.todo.queue.iter().any(|a| matches!(a, CreatureAction::Go)),
+            !base
+                .todo
+                .queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Go)),
             "no Go enqueued for inventory source"
         );
         assert!(
@@ -1612,7 +1614,10 @@ mod tests {
         // D1: drain the builder's `Wait{100}` floor first.
         let drain_kind = world.execute_creature_todo_action(cid);
         assert!(
-            matches!(drain_kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            matches!(
+                drain_kind,
+                Some(crate::idle_stimulus::TodoExecuteKind::Wait)
+            ),
             "builder Wait{{100}} drains first"
         );
 
@@ -1624,12 +1629,11 @@ mod tests {
         );
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(
-            base.todo.queue.len(),
-            2,
-            "queue → [Go, Move]"
+        assert_eq!(base.todo.queue.len(), 2, "queue → [Go, Move]");
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Go),
+            "front = Go"
         );
-        assert!(matches!(base.todo.queue[0], CreatureAction::Go), "front = Go");
         assert!(
             matches!(base.todo.queue[1], CreatureAction::Move { .. }),
             "second = Move"
@@ -1704,10 +1708,7 @@ mod tests {
         assert!(result.is_ok(), "path to target exists");
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert!(
-            !base.walk_queue.is_empty(),
-            "walk_queue populated"
-        );
+        assert!(!base.walk_queue.is_empty(), "walk_queue populated");
         assert!(
             !base.walk_destinations.is_empty(),
             "walk_destinations populated"
@@ -1745,7 +1746,10 @@ mod tests {
         // Drain the builder's `Wait{100}` floor first (`cract.cc:1345`).
         let drain_kind = world.execute_creature_todo_action(cid);
         assert!(
-            matches!(drain_kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+            matches!(
+                drain_kind,
+                Some(crate::idle_stimulus::TodoExecuteKind::Wait)
+            ),
             "builder Wait{{100}} drains first"
         );
 
@@ -1757,12 +1761,11 @@ mod tests {
         );
 
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(
-            base.todo.queue.len(),
-            2,
-            "queue → [Go, Turn]"
+        assert_eq!(base.todo.queue.len(), 2, "queue → [Go, Turn]");
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Go),
+            "front = Go"
         );
-        assert!(matches!(base.todo.queue[0], CreatureAction::Go), "front = Go");
         assert!(
             matches!(base.todo.queue[1], CreatureAction::Turn { .. }),
             "second = Turn"

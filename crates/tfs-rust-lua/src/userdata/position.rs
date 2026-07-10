@@ -22,9 +22,14 @@ impl UserData for PositionRef {
         // CH-6 talkaction `/i` green-sparkle at player position. Broadcasts the
         // effect to all spectators at this position via the mutation scope.
         methods.add_method("sendMagicEffect", |_, this, effect: u8| {
-            tracing::info!(x = this.x, y = this.y, z = this.z, effect, "Lua Position:sendMagicEffect()");
-            call_lua_send_magic_effect(this.x, this.y, this.z, effect)
-                .map_err(mlua::Error::runtime)
+            tracing::info!(
+                x = this.x,
+                y = this.y,
+                z = this.z,
+                effect,
+                "Lua Position:sendMagicEffect()"
+            );
+            call_lua_send_magic_effect(this.x, this.y, this.z, effect).map_err(mlua::Error::runtime)
         });
 
         // Accessor fields — some scripts read `pos.x` / `pos.y` / `pos.z`.

@@ -920,7 +920,7 @@ pub fn insert_monster_with_config(
         learning_points: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
-            last_auto_walk_armed_ms: u64::MAX,
+        last_auto_walk_armed_ms: u64::MAX,
     };
     let cid = world
         .creatures
@@ -982,7 +982,7 @@ pub fn insert_monster_from_type(
         learning_points: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
-            last_auto_walk_armed_ms: u64::MAX,
+        last_auto_walk_armed_ms: u64::MAX,
     };
     let cid = world
         .creatures
@@ -1074,7 +1074,7 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         learning_points: 0,
         todo: Default::default(),
         chase_mode: Default::default(),
-            last_auto_walk_armed_ms: u64::MAX,
+        last_auto_walk_armed_ms: u64::MAX,
     };
     let cid = world.creatures.insert(CreatureKind::Npc(Npc {
         base,
@@ -1572,7 +1572,9 @@ pub fn setup_cyclops_bowl_real_dual_to_tick_400(
             MonsterState::Sleeping,
         );
         if harness_place_creature_login(world, mid, spawn_pos).is_none() {
-            return Err(format!("harness spawn: cannot place cyclops at {spawn_pos:?}"));
+            return Err(format!(
+                "harness spawn: cannot place cyclops at {spawn_pos:?}"
+            ));
         }
         monster_ids.push(mid);
     }

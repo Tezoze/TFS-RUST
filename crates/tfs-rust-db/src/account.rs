@@ -116,10 +116,7 @@ async fn load_account_premium(pool: &DbPool, account_id: i32) -> Result<i64> {
 
 /// Build the login-server result tuple `(account_id, characters, premium_ends_at)` for an
 /// already-authenticated account id. Shared between the name- and number-keyed entry points.
-async fn loginserver_result(
-    pool: &DbPool,
-    account_id: i32,
-) -> Result<(u32, Vec<String>, i64)> {
+async fn loginserver_result(pool: &DbPool, account_id: i32) -> Result<(u32, Vec<String>, i64)> {
     let premium_ends_at = load_account_premium(pool, account_id).await?;
     let chars = load_character_names(pool, account_id).await?;
     let id_u32 = u32::try_from(account_id)

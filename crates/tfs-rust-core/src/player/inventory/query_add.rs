@@ -39,7 +39,6 @@ pub(crate) struct OccupiedSlot {
     count: u16,
 }
 
-
 /// Default `ReturnValue` before the per-slot `switch` — `player.cpp` ~2422–2438.
 fn player_query_add_default_ret(classic_equipment_slots: bool, slot_position: u32) -> ReturnValue {
     if (slot_position & SLOTP_HEAD != 0)
@@ -1193,7 +1192,13 @@ mod tests {
         let wand = wand_type();
         for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
             let ret = evaluate_player_inventory_slot_query(
-                slot, true, &wand, ItemId::default(), 1, None, None,
+                slot,
+                true,
+                &wand,
+                ItemId::default(),
+                1,
+                None,
+                None,
             );
             assert_eq!(
                 ret,

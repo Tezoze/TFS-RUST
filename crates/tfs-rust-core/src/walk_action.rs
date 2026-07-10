@@ -101,9 +101,10 @@ impl GameWorld {
             return Ok(());
         }
         // Check movement_blocked — mirrors `player_auto_walk_path` (`walk/mod.rs:776`).
-        let blocked = self.creatures.get(cid).is_some_and(|k| {
-            matches!(k, CreatureKind::Player(p) if p.base.movement_blocked)
-        });
+        let blocked = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.base.movement_blocked));
         if blocked {
             return Err(ReturnValue::ThereIsNoWay);
         }
@@ -111,8 +112,7 @@ impl GameWorld {
         // Set up walk queue — mirrors `player_auto_walk_path` (`walk/mod.rs:803-810`)
         // but WITHOUT `player_todo_clear_with_snapback` (the ToDo queue is already correct).
         let cur_pos = self.creatures.get(cid).map(|k| k.position());
-        if let (Some(CreatureKind::Player(pl)), Some(pos)) =
-            (self.creatures.get_mut(cid), cur_pos)
+        if let (Some(CreatureKind::Player(pl)), Some(pos)) = (self.creatures.get_mut(cid), cur_pos)
         {
             pl.last_activity = now;
             for d in &path {

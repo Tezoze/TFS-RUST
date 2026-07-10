@@ -59,7 +59,9 @@ impl GameWorld {
                         p.base.health > 0,
                         p.base.position,
                     )),
-                    CreatureKind::Monster(m) => Some((0, m.base.health, m.base.health > 0, m.base.position)),
+                    CreatureKind::Monster(m) => {
+                        Some((0, m.base.health, m.base.health > 0, m.base.position))
+                    }
                     CreatureKind::Npc(_) => None,
                 });
 
@@ -110,7 +112,11 @@ impl GameWorld {
         //   }
         // `apply_creature_death` is idempotent (returns early if creature gone).
         for cid in ids {
-            let hp = self.creatures.get(cid).map(|k| k.base().health).unwrap_or(0);
+            let hp = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
             if hp <= 0 && self.creatures.contains_key(cid) {
                 self.apply_creature_death(cid);
             }

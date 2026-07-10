@@ -5,7 +5,7 @@
 use mlua::{UserData, UserDataMethods, Value};
 use std::cell::RefCell;
 
-use crate::context::{CreatureData, CreatureRef, ItemRef, CURRENT_CTX, LuaContext};
+use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_feed,
     call_lua_get_depot_chest, call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
@@ -165,8 +165,12 @@ impl UserData for CreatureRef {
                 Option<u8>,
             )| {
                 let (item_type, count, sub_type) = match item_type {
-                    mlua::Value::Integer(n) => (n as u16, count.unwrap_or(1), sub_type.unwrap_or(-1)),
-                    mlua::Value::Number(n) => (n as u16, count.unwrap_or(1), sub_type.unwrap_or(-1)),
+                    mlua::Value::Integer(n) => {
+                        (n as u16, count.unwrap_or(1), sub_type.unwrap_or(-1))
+                    }
+                    mlua::Value::Number(n) => {
+                        (n as u16, count.unwrap_or(1), sub_type.unwrap_or(-1))
+                    }
                     mlua::Value::String(s) => {
                         let name = s.to_str()?.to_string();
                         let ty = with_ctx(|ctx| {
@@ -181,15 +185,9 @@ impl UserData for CreatureRef {
                 let slot = slot.unwrap_or(0);
 
                 if can_drop || sub_type != -1 || slot != 0 {
-                    let id_opt = call_lua_add_item_full(
-                        this.0,
-                        item_type,
-                        count,
-                        sub_type,
-                        can_drop,
-                        slot,
-                    )
-                    .map_err(mlua::Error::runtime)?;
+                    let id_opt =
+                        call_lua_add_item_full(this.0, item_type, count, sub_type, can_drop, slot)
+                            .map_err(mlua::Error::runtime)?;
                     match id_opt {
                         Some(iid) => {
                             let ud = lua.create_userdata(ItemRef(iid))?;
@@ -205,19 +203,27 @@ impl UserData for CreatureRef {
             },
         );
 
-        methods.add_method("getItemCount", |_, this, (item_type, sub_type): (u16, Option<i32>)| {
-            let sub_type = sub_type.unwrap_or(-1);
-            with_ctx(|ctx| {
-                ctx.get_player_item_type_count(this.0, item_type, sub_type)
-                    .ok_or_else(|| mlua::Error::runtime("player not found"))
-            })
-        });
+        methods.add_method(
+            "getItemCount",
+            |_, this, (item_type, sub_type): (u16, Option<i32>)| {
+                let sub_type = sub_type.unwrap_or(-1);
+                with_ctx(|ctx| {
+                    ctx.get_player_item_type_count(this.0, item_type, sub_type)
+                        .ok_or_else(|| mlua::Error::runtime("player not found"))
+                })
+            },
+        );
 
         methods.add_method(
             "removeItem",
             |_,
              this,
-             (item_type, count, sub_type, ignore_equipped): (u16, u32, Option<i32>, Option<bool>)| {
+             (item_type, count, sub_type, ignore_equipped): (
+                u16,
+                u32,
+                Option<i32>,
+                Option<bool>,
+            )| {
                 let sub_type = sub_type.unwrap_or(-1);
                 let ignore_equipped = ignore_equipped.unwrap_or(false);
                 call_lua_remove_item(this.0, item_type, count, sub_type, ignore_equipped)
@@ -227,9 +233,7 @@ impl UserData for CreatureRef {
 
         methods.add_method(
             "getItemById",
-            |lua,
-             this,
-             (item_type, deep_search, sub_type): (mlua::Value, bool, Option<i32>)| {
+            |lua, this, (item_type, deep_search, sub_type): (mlua::Value, bool, Option<i32>)| {
                 let sub_type = sub_type.unwrap_or(-1);
                 let item_id = match item_type {
                     mlua::Value::Integer(n) => n as u16,
@@ -273,8 +277,7 @@ impl UserData for CreatureRef {
         );
 
         methods.add_method("getInbox", |lua, this, ()| {
-            let id_opt =
-                call_lua_get_inbox(this.0).map_err(mlua::Error::runtime)?;
+            let id_opt = call_lua_get_inbox(this.0).map_err(mlua::Error::runtime)?;
             match id_opt {
                 Some(iid) => {
                     let ud = lua.create_userdata(ContainerRef(iid))?;
@@ -352,14 +355,16 @@ impl UserData for CreatureRef {
             "getCondition",
             |_, this, (ctype, cond_id, sub_id): (i32, i32, u32)| {
                 with_ctx(|ctx| {
-                    Ok(if ctx
-                        .get_creature_condition(this.0, ctype, cond_id, sub_id)
-                        .is_some()
-                    {
-                        mlua::Value::Boolean(true)
-                    } else {
-                        mlua::Value::Nil
-                    })
+                    Ok(
+                        if ctx
+                            .get_creature_condition(this.0, ctype, cond_id, sub_id)
+                            .is_some()
+                        {
+                            mlua::Value::Boolean(true)
+                        } else {
+                            mlua::Value::Nil
+                        },
+                    )
                 })
             },
         );
@@ -368,23 +373,20 @@ impl UserData for CreatureRef {
         // add. `condition` is a `ConditionBuilder` userdata constructed via
         // `Condition(type, id)`.
         // C++ reference: `luascript.cpp:2117` `Creature::addCondition`.
-        methods.add_method(
-            "addCondition",
-            |_, this, condition: mlua::AnyUserData| {
-                let builder = condition
-                    .borrow::<crate::userdata::condition::ConditionBuilder>()
-                    .map_err(mlua::Error::runtime)?;
-                call_lua_add_condition(
-                    this.0,
-                    builder.ctype,
-                    builder.cond_id,
-                    builder.sub_id,
-                    builder.ticks,
-                )
+        methods.add_method("addCondition", |_, this, condition: mlua::AnyUserData| {
+            let builder = condition
+                .borrow::<crate::userdata::condition::ConditionBuilder>()
                 .map_err(mlua::Error::runtime)?;
-                Ok(())
-            },
-        );
+            call_lua_add_condition(
+                this.0,
+                builder.ctype,
+                builder.cond_id,
+                builder.sub_id,
+                builder.ticks,
+            )
+            .map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
 
         // `player:removeCondition(type, id, subId)` — LUA-4. Immediate-apply
         // condition removal.
@@ -414,9 +416,11 @@ impl UserData for CreatureRef {
 fn resolve_cancel_message_text(value: mlua::Value) -> Result<String, mlua::Error> {
     match value {
         mlua::Value::String(s) => Ok(s.to_str()?.to_string()),
-        mlua::Value::Integer(n) => Ok(return_value_message_772(n as i32)),
-        mlua::Value::Number(n) => Ok(return_value_message_772(n as i32)),
-        _ => Err(mlua::Error::runtime("sendCancelMessage: expected string or integer")),
+        mlua::Value::Integer(n) => Ok(return_value_message(n as i32)),
+        mlua::Value::Number(n) => Ok(return_value_message(n as i32)),
+        _ => Err(mlua::Error::runtime(
+            "sendCancelMessage: expected string or integer",
+        )),
     }
 }
 
@@ -425,7 +429,7 @@ fn resolve_cancel_message_text(value: mlua::Value) -> Result<String, mlua::Error
 /// here; unknown codes fall back to the numeric string. This is a lightweight
 /// inline table — the full `ReturnValue` enum lives in `tfs-rust-core` and
 /// can't be referenced from this crate (no dependency).
-fn return_value_message_772(code: i32) -> String {
+fn return_value_message(code: i32) -> String {
     match code {
         0 => "No error.".to_string(),
         27 => "A player with this name is not online.".to_string(),
@@ -449,7 +453,7 @@ mod tests {
     //! `with_lua_context`. This validates the read path end-to-end without
     //! spinning up a full `GameWorld`.
 
-    use crate::context::{with_lua_context, CreatureRef};
+    use crate::context::{CreatureRef, with_lua_context};
     use mlua::Lua;
     use tfs_rust_common::{
         ScriptContainerData, ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptCylinder,
@@ -505,11 +509,7 @@ mod tests {
         // The remaining trait methods keep their default-`None`/`false`/empty
         // implementations; the test only exercises the four overrides above.
         // Suppress unused-import warnings for the types the defaults reference.
-        fn get_player_slot_item_id(
-            &self,
-            _: ScriptCreatureId,
-            _: u8,
-        ) -> Option<ScriptItemId> {
+        fn get_player_slot_item_id(&self, _: ScriptCreatureId, _: u8) -> Option<ScriptItemId> {
             None
         }
         fn get_item_data(&self, _: ScriptItemId) -> Option<ScriptItemData> {
@@ -643,7 +643,10 @@ mod tests {
                 .load("return player:getCondition(32768, -1, 7)")
                 .eval()
                 .expect("getCondition");
-            assert!(matches!(v, mlua::Value::Nil), "expected nil for absent condition");
+            assert!(
+                matches!(v, mlua::Value::Nil),
+                "expected nil for absent condition"
+            );
         });
     }
 
@@ -675,18 +678,18 @@ mod tests {
         assert_eq!(builder.sub_id, 7); // unchanged
     }
 
-    /// `return_value_message_772` maps the codes the channel scripts reference.
+    /// `return_value_message` maps the codes the channel scripts reference.
     #[test]
     fn return_value_message_maps_known_codes() {
-        use super::return_value_message_772;
+        use super::return_value_message;
         assert_eq!(
-            return_value_message_772(27),
+            return_value_message(27),
             "A player with this name is not online."
         );
-        assert_eq!(return_value_message_772(0), "No error.");
-        assert_eq!(return_value_message_772(36), "You are exhausted.");
+        assert_eq!(return_value_message(0), "No error.");
+        assert_eq!(return_value_message(36), "You are exhausted.");
         // Unknown codes fall back to the numeric string.
-        assert_eq!(return_value_message_772(999), "Return code: 999");
+        assert_eq!(return_value_message(999), "Return code: 999");
     }
 
     /// `Player(name)` constructor with a fake context that resolves one name.
@@ -717,7 +720,9 @@ mod tests {
             .expect("meta fn");
         player_meta.set("__call", meta_fn).expect("set __call");
         player_table.set_metatable(Some(player_meta));
-        lua.globals().set("Player", player_table).expect("set Player");
+        lua.globals()
+            .set("Player", player_table)
+            .expect("set Player");
 
         struct NameCtx;
         impl ScriptContext for NameCtx {
@@ -753,7 +758,10 @@ mod tests {
                 .load("return Player('Nobody')")
                 .eval()
                 .expect("Player('Nobody')");
-            assert!(matches!(v, mlua::Value::Nil), "expected nil for unknown player");
+            assert!(
+                matches!(v, mlua::Value::Nil),
+                "expected nil for unknown player"
+            );
         });
     }
 }

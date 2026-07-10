@@ -82,7 +82,10 @@ mod tests {
         let mut world = beat_driven_test_world();
         world.server_ms = 500;
         world.advance_beat(1000);
-        assert_eq!(world.server_ms, 500, "server_ms must not advance under lag guard");
+        assert_eq!(
+            world.server_ms, 500,
+            "server_ms must not advance under lag guard"
+        );
         assert!(world.lag);
     }
 

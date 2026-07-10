@@ -112,7 +112,10 @@ impl GameWorld {
         match change {
             ContainerContentChange::FullRefresh => {}
             ContainerContentChange::Remove { slot } => {
-                let pkt = self.codec.encode_remove_container_item(client_cid, slot).into_bytes();
+                let pkt = self
+                    .codec
+                    .encode_remove_container_item(client_cid, slot)
+                    .into_bytes();
                 self.enqueue_outgoing(conn_id, pkt);
             }
             ContainerContentChange::Add { slot } => {
@@ -553,7 +556,14 @@ impl GameWorld {
         }
         let preferred_cid =
             (payload.index < crate::container::MAX_CONTAINER_WINDOWS).then_some(payload.index);
-        self.player_use_item_core(conn_id, cid, item_id, is_map_tile, payload.pos, preferred_cid)
+        self.player_use_item_core(
+            conn_id,
+            cid,
+            item_id,
+            is_map_tile,
+            payload.pos,
+            preferred_cid,
+        )
     }
 
     /// F8 S5 — core use-item logic shared by the reactive path ([`player_use_item`]) and
@@ -573,10 +583,7 @@ impl GameWorld {
         let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
         if is_map_tile && crate::floor_change_use::is_teleport_floor_use_item(item_type) {
             let dest = crate::floor_change_use::resolve_teleport_use_destination(
-                self,
-                cid,
-                item_type,
-                pos,
+                self, cid, item_type, pos,
             );
             let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
             if ret != ReturnValue::NoError {
@@ -893,7 +900,9 @@ mod tests {
 
         // Place a walkable tile with a ground container.
         let container_item_id = world.items.insert(Item::new(1987, 1));
-        world.container_registry.register(Container::new(container_item_id, 20));
+        world
+            .container_registry
+            .register(Container::new(container_item_id, 20));
         world.map.insert_tile(
             container_pos,
             Tile::Normal(TileBody {
@@ -923,7 +932,10 @@ mod tests {
 
         // The window should be closed.
         assert!(
-            world.container_registry.open_container_entries(cid).is_empty(),
+            world
+                .container_registry
+                .open_container_entries(cid)
+                .is_empty(),
             "ground container must close when player leaves adjacency"
         );
     }
@@ -936,7 +948,9 @@ mod tests {
         let adjacent_pos = Position::new(101, 100, 7);
 
         let container_item_id = world.items.insert(Item::new(1987, 1));
-        world.container_registry.register(Container::new(container_item_id, 20));
+        world
+            .container_registry
+            .register(Container::new(container_item_id, 20));
         world.map.insert_tile(
             container_pos,
             Tile::Normal(TileBody {

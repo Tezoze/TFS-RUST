@@ -67,9 +67,9 @@ pub fn register_weapon_metatable(lua: &Lua) -> Result<(), mlua::Error> {
         if matches!(weapon_type, WEAPON_NONE | WEAPON_SHIELD) {
             return Ok(None::<WeaponBuilder>);
         }
-        Ok(Some(WeaponBuilder(Rc::new(RefCell::new(PendingWeapon::new(
-            weapon_type,
-        ))))))
+        Ok(Some(WeaponBuilder(Rc::new(RefCell::new(
+            PendingWeapon::new(weapon_type),
+        )))))
     })?;
     lua.globals().set("Weapon", weapon_new)?;
 
@@ -178,7 +178,8 @@ mod tests {
             .unwrap();
 
         let result: mlua::AnyUserData = lua
-            .load(r#"
+            .load(
+                r#"
                 local weapon = Weapon(WEAPON_WAND)
                 weapon:level(7)
                 weapon:mana(2)
@@ -188,10 +189,14 @@ mod tests {
                 weapon:vocation("Master Sorcerer", false)
                 weapon:id(2190)
                 return weapon
-            "#)
+            "#,
+            )
             .eval()
             .expect("weapon setup must succeed");
-        let w_ref = result.borrow::<WeaponBuilder>().expect("must be WeaponBuilder"); let w = w_ref.0.borrow();
+        let w_ref = result
+            .borrow::<WeaponBuilder>()
+            .expect("must be WeaponBuilder");
+        let w = w_ref.0.borrow();
         assert_eq!(w.item_id, 2190);
         assert_eq!(w.level, 7);
         assert_eq!(w.mana_cost, 2);
@@ -211,7 +216,8 @@ mod tests {
             .set("_pending_weapons", lua.create_table().unwrap())
             .unwrap();
 
-        lua.load(r#"
+        lua.load(
+            r#"
             local weapon = Weapon(WEAPON_WAND)
             weapon:id(2190)
             weapon:level(7)
@@ -219,7 +225,8 @@ mod tests {
             weapon:element("energy")
             weapon:damage(8, 18)
             weapon:register()
-        "#)
+        "#,
+        )
         .exec()
         .expect("weapon register must succeed");
 

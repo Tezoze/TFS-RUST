@@ -191,18 +191,16 @@ impl VocationRegistry {
         let root = load_data_table(&lua, path)?;
         require_schema(&root, VOCATIONS_SCHEMA)?;
 
-        let vocs_value = root
-            .get("vocations")
-            .map_err(|e| TfsRustError::Content {
-                file: path.to_string_lossy().into_owned(),
-                message: format!("missing 'vocations' array: {e}"),
-            })?;
-        let defs: Vec<VocationDef> = lua
-            .from_value(vocs_value)
-            .map_err(|e| TfsRustError::Content {
-                file: path.to_string_lossy().into_owned(),
-                message: format!("deserialize vocations failed: {e}"),
-            })?;
+        let vocs_value = root.get("vocations").map_err(|e| TfsRustError::Content {
+            file: path.to_string_lossy().into_owned(),
+            message: format!("missing 'vocations' array: {e}"),
+        })?;
+        let defs: Vec<VocationDef> =
+            lua.from_value(vocs_value)
+                .map_err(|e| TfsRustError::Content {
+                    file: path.to_string_lossy().into_owned(),
+                    message: format!("deserialize vocations failed: {e}"),
+                })?;
 
         validate_vocations(&defs, path)?;
 
@@ -409,7 +407,10 @@ mod tests {
             .join("defs")
             .join("vocations.lua");
         if !path.is_file() {
-            eprintln!("skipping golden_parse_vocations_lua — {} not found", path.display());
+            eprintln!(
+                "skipping golden_parse_vocations_lua — {} not found",
+                path.display()
+            );
             return;
         }
         let reg = VocationRegistry::load(&path).expect("load vocations.lua");
@@ -444,9 +445,7 @@ mod tests {
     /// (PC-0 step 6 / `DATA_FORMAT_MIGRATION.md` "golden equivalence").
     #[test]
     fn dual_load_xml_lua_equivalence() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..");
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
         let lua_path = manifest.join("data").join("defs").join("vocations.lua");
         let xml_path = manifest.join("data").join("XML").join("vocations.xml");
         if !lua_path.is_file() || !xml_path.is_file() {
@@ -471,35 +470,78 @@ mod tests {
                 .get(&xml_def.id)
                 .unwrap_or_else(|| panic!("vocation {} missing from lua", xml_def.id));
             assert_eq!(lua_def.id, xml_def.id, "id mismatch");
-            assert_eq!(lua_def.client_id, xml_def.client_id, "client_id {}", xml_def.id);
+            assert_eq!(
+                lua_def.client_id, xml_def.client_id,
+                "client_id {}",
+                xml_def.id
+            );
             assert_eq!(lua_def.name, xml_def.name, "name {}", xml_def.id);
-            assert_eq!(lua_def.from_vocation, xml_def.from_vocation, "fromvoc {}", xml_def.id);
-            assert_eq!(lua_def.gain_cap, xml_def.gain_cap, "gain_cap {}", xml_def.id);
+            assert_eq!(
+                lua_def.from_vocation, xml_def.from_vocation,
+                "fromvoc {}",
+                xml_def.id
+            );
+            assert_eq!(
+                lua_def.gain_cap, xml_def.gain_cap,
+                "gain_cap {}",
+                xml_def.id
+            );
             assert_eq!(lua_def.gain_hp, xml_def.gain_hp, "gain_hp {}", xml_def.id);
-            assert_eq!(lua_def.gain_mana, xml_def.gain_mana, "gain_mana {}", xml_def.id);
-            assert_eq!(lua_def.gain_hp_ticks, xml_def.gain_hp_ticks, "gain_hp_ticks {}", xml_def.id);
-            assert_eq!(lua_def.gain_hp_amount, xml_def.gain_hp_amount, "gain_hp_amount {}", xml_def.id);
+            assert_eq!(
+                lua_def.gain_mana, xml_def.gain_mana,
+                "gain_mana {}",
+                xml_def.id
+            );
+            assert_eq!(
+                lua_def.gain_hp_ticks, xml_def.gain_hp_ticks,
+                "gain_hp_ticks {}",
+                xml_def.id
+            );
+            assert_eq!(
+                lua_def.gain_hp_amount, xml_def.gain_hp_amount,
+                "gain_hp_amount {}",
+                xml_def.id
+            );
             assert_eq!(
                 lua_def.gain_mana_ticks, xml_def.gain_mana_ticks,
-                "gain_mana_ticks {}", xml_def.id
+                "gain_mana_ticks {}",
+                xml_def.id
             );
             assert_eq!(
                 lua_def.gain_mana_amount, xml_def.gain_mana_amount,
-                "gain_mana_amount {}", xml_def.id
+                "gain_mana_amount {}",
+                xml_def.id
             );
             assert!(
                 (lua_def.mana_multiplier - xml_def.mana_multiplier).abs() < 1e-4,
                 "mana_multiplier {}",
                 xml_def.id
             );
-            assert_eq!(lua_def.attack_speed_ms, xml_def.attack_speed_ms, "attack_speed {}", xml_def.id);
-            assert_eq!(lua_def.base_speed, xml_def.base_speed, "base_speed {}", xml_def.id);
-            assert_eq!(lua_def.soul_max, xml_def.soul_max, "soul_max {}", xml_def.id);
+            assert_eq!(
+                lua_def.attack_speed_ms, xml_def.attack_speed_ms,
+                "attack_speed {}",
+                xml_def.id
+            );
+            assert_eq!(
+                lua_def.base_speed, xml_def.base_speed,
+                "base_speed {}",
+                xml_def.id
+            );
+            assert_eq!(
+                lua_def.soul_max, xml_def.soul_max,
+                "soul_max {}",
+                xml_def.id
+            );
             assert_eq!(
                 lua_def.gain_soul_ticks, xml_def.gain_soul_ticks,
-                "gain_soul_ticks {}", xml_def.id
+                "gain_soul_ticks {}",
+                xml_def.id
             );
-            assert_eq!(lua_def.allow_pvp, xml_def.allow_pvp, "allow_pvp {}", xml_def.id);
+            assert_eq!(
+                lua_def.allow_pvp, xml_def.allow_pvp,
+                "allow_pvp {}",
+                xml_def.id
+            );
             for i in 0..7 {
                 assert!(
                     (lua_def.skill_multipliers[i] - xml_def.skill_multipliers[i]).abs() < 1e-4,
@@ -515,6 +557,10 @@ mod tests {
         }
 
         // Lua must not carry vocations absent from the XML.
-        assert_eq!(reg.vocations.len(), xml_defs.len(), "vocation count mismatch");
+        assert_eq!(
+            reg.vocations.len(),
+            xml_defs.len(),
+            "vocation count mismatch"
+        );
     }
 }

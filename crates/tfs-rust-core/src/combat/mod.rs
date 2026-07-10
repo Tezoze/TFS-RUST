@@ -153,9 +153,9 @@ pub fn apply_condition(
 /// - 772 `TCreature::Damage` typed branch — `tibia-game-master/src/crmain.cc:744-754`.
 pub fn combat_type_hit_effect(combat_type: CombatType) -> Option<u8> {
     match combat_type {
-        CombatType::Energy => Some(12),    // CONST_ME_ENERGYHIT / EFFECT_ENERGY_HIT
-        CombatType::Earth => Some(9),      // CONST_ME_GREEN_RINGS / EFFECT_POISON
-        CombatType::Fire => Some(16),     // CONST_ME_HITBYFIRE / EFFECT_FIRE
+        CombatType::Energy => Some(12), // CONST_ME_ENERGYHIT / EFFECT_ENERGY_HIT
+        CombatType::Earth => Some(9),   // CONST_ME_GREEN_RINGS / EFFECT_POISON
+        CombatType::Fire => Some(16),   // CONST_ME_HITBYFIRE / EFFECT_FIRE
         CombatType::LifeDrain => Some(14), // CONST_ME_MAGIC_RED / EFFECT_MAGIC_RED
         _ => None,
     }

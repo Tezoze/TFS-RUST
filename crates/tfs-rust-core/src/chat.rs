@@ -134,7 +134,8 @@ impl ChatRegistry {
     ///
     /// C++ reference: `chat.cpp` `Chat::getChannel` — all channel map lookups.
     pub fn get_channel(&self, id: u16) -> Option<&ChatChannel> {
-        self.normal_channels.get(&id)
+        self.normal_channels
+            .get(&id)
             .or_else(|| self.private_channels.get(&id).map(|p| &p.base))
             .or_else(|| {
                 if id == CHANNEL_GUILD {
@@ -328,7 +329,8 @@ impl ChatRegistry {
             CHANNEL_PRIVATE => {
                 let id = self.next_private_channel_id;
                 self.next_private_channel_id += 1;
-                let channel = PrivateChatChannel::new(id, format!("Private Channel {}", id), player_id);
+                let channel =
+                    PrivateChatChannel::new(id, format!("Private Channel {}", id), player_id);
                 self.private_channels.insert(id, channel);
                 Some(id)
             }

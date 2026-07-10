@@ -13,10 +13,7 @@ const ITEM_ATTR_SERVERID: u8 = 0x10;
 const ITEM_ATTR_SPEED: u8 = 0x14;
 
 /// Build `server_id -> Waypoints` from `objects.srv` resolved against loaded OTB ids.
-pub fn build_speed_patches(
-    objects_srv: &Path,
-    otb_path: &Path,
-) -> Result<HashMap<u16, u16>> {
+pub fn build_speed_patches(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u16>> {
     let items = OtbLoader::load_from_file(otb_path)?;
     let entries = crate::objects_srv::parse_walkable_waypoints(objects_srv)?;
     let mut patches = HashMap::new();
@@ -44,8 +41,7 @@ pub fn patch_file(path: &Path, patches: &HashMap<u16, u16>) -> Result<u32> {
     let mut patched = 0u32;
     while pos < input.len() {
         if is_node_start(&input, pos) {
-            let (n, _, _) =
-                patch_or_copy_node(&input, &mut pos, &mut output, patches, path)?;
+            let (n, _, _) = patch_or_copy_node(&input, &mut pos, &mut output, patches, path)?;
             patched += n;
         } else {
             output.push(input[pos]);
@@ -287,11 +283,13 @@ mod tests {
         }
         let items = OtbLoader::load_from_file(&otb).expect("otb");
         let patches = build_speed_patches(&objects, &otb).expect("patches");
-        let overlap = items
-            .keys()
-            .filter(|sid| patches.contains_key(sid))
-            .count();
-        eprintln!("patch keys {} otb items {} overlap {}", patches.len(), items.len(), overlap);
+        let overlap = items.keys().filter(|sid| patches.contains_key(sid)).count();
+        eprintln!(
+            "patch keys {} otb items {} overlap {}",
+            patches.len(),
+            items.len(),
+            overlap
+        );
         assert!(overlap > 0, "expected patch server_ids to exist in OTB");
         assert!(patches.contains_key(&434), "stairs 434 expected in patches");
         assert!(items.contains_key(&434), "stairs 434 expected in OTB");

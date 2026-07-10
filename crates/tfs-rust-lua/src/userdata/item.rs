@@ -5,10 +5,10 @@
 use mlua::{Lua, UserData, UserDataMethods, Value};
 use std::cell::RefCell;
 
-use crate::context::{CreatureRef, CURRENT_CTX, ItemData, ItemRef, LuaContext};
+use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove, call_lua_set_action_id,
-    call_lua_set_store_item, call_lua_set_unique_id, LuaMoveDestination,
+    LuaMoveDestination, call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove,
+    call_lua_set_action_id, call_lua_set_store_item, call_lua_set_unique_id,
 };
 use crate::userdata::container::ContainerRef;
 
@@ -60,14 +60,10 @@ fn parse_move_destination(_lua: &Lua, value: Value) -> Result<LuaMoveDestination
                 });
             }
             if let Ok(cont) = ud.borrow::<ContainerRef>() {
-                return Ok(LuaMoveDestination::Container {
-                    item_id: cont.0,
-                });
+                return Ok(LuaMoveDestination::Container { item_id: cont.0 });
             }
             if let Ok(item) = ud.borrow::<ItemRef>() {
-                return Ok(LuaMoveDestination::Container {
-                    item_id: item.0,
-                });
+                return Ok(LuaMoveDestination::Container { item_id: item.0 });
             }
             Err(mlua::Error::runtime("invalid moveTo destination"))
         }
@@ -137,7 +133,12 @@ impl UserData for ItemRef {
         });
 
         methods.add_method("isStoreItem", |_, this, ()| {
-            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.is_store_item).unwrap_or(false)))
+            with_ctx(|ctx| {
+                Ok(ctx
+                    .get_item_data(this.0)
+                    .map(|d| d.is_store_item)
+                    .unwrap_or(false))
+            })
         });
 
         methods.add_method("setStoreItem", |_, this, store: bool| {
@@ -183,11 +184,14 @@ impl UserData for ItemRef {
             })
         });
 
-        methods.add_method("moveTo", |lua, this, (dest, flags): (Value, Option<u32>)| {
-            let dest = parse_move_destination(lua, dest)?;
-            let flags = flags.unwrap_or(0);
-            call_lua_item_move_to(this.0, dest, flags).map_err(mlua::Error::runtime)
-        });
+        methods.add_method(
+            "moveTo",
+            |lua, this, (dest, flags): (Value, Option<u32>)| {
+                let dest = parse_move_destination(lua, dest)?;
+                let flags = flags.unwrap_or(0);
+                call_lua_item_move_to(this.0, dest, flags).map_err(mlua::Error::runtime)
+            },
+        );
 
         methods.add_method("remove", |_, this, count: Option<i32>| {
             let count = count.unwrap_or(-1);

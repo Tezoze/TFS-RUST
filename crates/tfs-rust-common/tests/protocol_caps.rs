@@ -77,7 +77,10 @@ fn client_opcode_support_matrix() {
         client::SET_OUTFIT,
         client::USE_ITEM,
     ] {
-        assert!(client::is_supported(op, ProtocolVersion::V772), "772 {op:#x}");
+        assert!(
+            client::is_supported(op, ProtocolVersion::V772),
+            "772 {op:#x}"
+        );
         assert!(
             client::is_supported(op, ProtocolVersion::V1098),
             "1098 {op:#x}"

@@ -57,7 +57,8 @@ pub fn load_chat_channel_scripts(
         .map_err(|e| LuaError::ScriptIo(dir.display().to_string(), e.to_string()))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| LuaError::ScriptIo(dir.display().to_string(), e.to_string()))?;
+        let entry =
+            entry.map_err(|e| LuaError::ScriptIo(dir.display().to_string(), e.to_string()))?;
         let path = entry.path();
 
         // Skip non-Lua files and ruleviolations.lua (RVR non-goal per chat-system-plan.md §1)

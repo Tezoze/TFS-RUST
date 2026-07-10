@@ -106,7 +106,8 @@ fn parse_auto_walk_max_dirs_772() {
     assert!(game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V772).is_err());
 
     // 1098 allows > 128 directions if payload matches.
-    let cmd = game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V1098).expect("parse");
+    let cmd =
+        game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V1098).expect("parse");
     match cmd {
         GameCommand::Game { packet, .. } => match packet {
             GamePacket::AutoWalk { path } => {
@@ -117,4 +118,3 @@ fn parse_auto_walk_max_dirs_772() {
         _ => panic!("expected Game command"),
     }
 }
-

@@ -146,10 +146,10 @@ use walk_tile::{
     tile_query_add_player,
 };
 use walk_timing::{
-    get_event_step_ticks, get_step_duration_ms_with_direction,
-    last_step_cost_for_move, peek_next_walk_direction, walk_timing_speed_kind,
+    get_event_step_ticks, get_step_duration_ms_with_direction, last_step_cost_for_move,
+    peek_next_walk_direction, walk_timing_speed_kind,
 };
-pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole, go_strength_for_walk_pub};
+pub(crate) use walk_timing::{go_strength_for_walk_pub, wire_step_speed, WalkSpeedRole};
 
 #[inline]
 fn is_diagonal(direction: Direction) -> bool {
@@ -178,7 +178,11 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
     }
     let drunk_level = base.drunkenness as i32;
     let stagger_chance = (7 - drunk_level).max(1) as u32;
-    let r = uniform_random(&mut thread_rng(), 0, (stagger_chance as i32).saturating_sub(1)) as u32;
+    let r = uniform_random(
+        &mut thread_rng(),
+        0,
+        (stagger_chance as i32).saturating_sub(1),
+    ) as u32;
     if r != 0 {
         return None;
     }
@@ -456,8 +460,16 @@ impl GameWorld {
             tracing::debug!(
                 ?cid,
                 server_ms = self.server_ms,
-                todo_queue_len = self.creatures.get(cid).map(|k| k.base().todo.queue.len()).unwrap_or(0),
-                walk_queue_len = self.creatures.get(cid).map(|k| k.base().walk_queue.len()).unwrap_or(0),
+                todo_queue_len = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().todo.queue.len())
+                    .unwrap_or(0),
+                walk_queue_len = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().walk_queue.len())
+                    .unwrap_or(0),
             );
             trace_creature_todo(self, cid, "process_creature_todo");
             let mut ran_idle = false;
@@ -675,8 +687,7 @@ impl GameWorld {
         // 772 unified ToDo path — `CGoDirection` (`receiving.cc:120-199`).
         self.player_todo_clear_with_snapback(conn_id, cid);
         let cur_pos = self.creatures.get(cid).map(|k| k.position());
-        if let (Some(CreatureKind::Player(pl)), Some(pos)) =
-            (self.creatures.get_mut(cid), cur_pos)
+        if let (Some(CreatureKind::Player(pl)), Some(pos)) = (self.creatures.get_mut(cid), cur_pos)
         {
             pl.last_activity = now;
             pl.base.walk_queue.push_back(direction);
@@ -721,8 +732,7 @@ impl GameWorld {
         // 772 unified ToDo path — `CGoPath` (`receiving.cc:120-199`).
         self.player_todo_clear_with_snapback(conn_id, cid);
         let cur_pos = self.creatures.get(cid).map(|k| k.position());
-        if let (Some(CreatureKind::Player(pl)), Some(pos)) =
-            (self.creatures.get_mut(cid), cur_pos)
+        if let (Some(CreatureKind::Player(pl)), Some(pos)) = (self.creatures.get_mut(cid), cur_pos)
         {
             pl.last_activity = now;
             // C++ `CGoPath` accumulates absolute coordinates from `Player->posx/y/z`
@@ -849,10 +859,7 @@ impl GameWorld {
         // `Go` is queued, or steps remain in `walk_queue` (`cract.cc:1003`).
         let walk_in_progress = self.creatures.get(cid).is_some_and(|k| {
             let b = k.base();
-            b.todo.locked
-                || b.next_wakeup.is_some()
-                || b.todo.has_go()
-                || !b.walk_queue.is_empty()
+            b.todo.locked || b.next_wakeup.is_some() || b.todo.has_go() || !b.walk_queue.is_empty()
         });
         if walk_in_progress {
             // C++ `ToDoStop` locked branch: `this->Stop = true` (`cract.cc:1003-1004`).
@@ -1369,7 +1376,10 @@ impl GameWorld {
                 // speed/conditions (audit #5/#6 — the recomputation applied `last_step_cost
                 // = 2` on z-change and re-read speed, both diverging from C++ which fixes
                 // the delay at step-completion time).
-                let d = k.base().earliest_walk_server_ms.saturating_sub(self.server_ms) as i64;
+                let d = k
+                    .base()
+                    .earliest_walk_server_ms
+                    .saturating_sub(self.server_ms) as i64;
                 tracing::debug!(
                     ?cid,
                     earliest_walk_ms = k.base().earliest_walk_server_ms,
@@ -1420,12 +1430,7 @@ impl GameWorld {
             };
 
             if let Some(mut dir) = pop_dir {
-                tracing::debug!(
-                    ?cid,
-                    ?dir,
-                    ?pop_dest,
-                    server_ms = self.server_ms,
-                );
+                tracing::debug!(?cid, ?dir, ?pop_dest, server_ms = self.server_ms,);
                 // 772 absolute-destination adjacency check — `cract.cc:386-389`:
                 // `Distance = max(abs(OrigX - DestX), abs(OrigY - DestY)); if(Distance > 1 || OrigZ != DestZ) throw NOTACCESSIBLE`.
                 // C++ `TDGo` stores absolute coordinates; if the player was pushed mid-walk the
@@ -1497,12 +1502,7 @@ impl GameWorld {
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
-                        tracing::debug!(
-                            ?cid,
-                            ?dir,
-                            ?ret,
-                            server_ms = self.server_ms,
-                        );
+                        tracing::debug!(?cid, ?dir, ?ret, server_ms = self.server_ms,);
                         self.on_walk_step_rejected(cid, ret);
                     }
                     Ok((segments, pending_turn)) => {
@@ -1531,10 +1531,9 @@ impl GameWorld {
                         // 1098 (TVP `sendMoveCreature`): per-segment emission — each
                         //   `map.moveCreature` call sends its own packet (teleport for z-changes).
                         let is_772 = !self.codec.caps().move_creature_self_packet;
-                        let is_otclient = self
-                            .creatures
-                            .get(cid)
-                            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
+                        let is_otclient = self.creatures.get(cid).is_some_and(
+                            |k| matches!(k, CreatureKind::Player(p) if p.is_otclient()),
+                        );
                         let use_notify_go = is_772 && !is_otclient;
                         let overall_old_stack = segments.first().map(|s| s.old_stack).unwrap_or(1);
                         if let Some(conn) = self.conn_for_creature(cid) {
@@ -1586,10 +1585,16 @@ impl GameWorld {
                             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
                             .unwrap_or(150);
                         // Phase 4: both eras compute `notify_go_ms` (772 `NotifyGo` path).
-                        let (notify_go_ms, go_strength, eff_speed) = self.creatures.get(cid)
+                        let (notify_go_ms, go_strength, eff_speed) = self
+                            .creatures
+                            .get(cid)
                             .map(|k| {
                                 let ms = get_step_duration_ms_with_direction(
-                                    k, k.base(), dir, gs_dest, &self.mechanics,
+                                    k,
+                                    k.base(),
+                                    dir,
+                                    gs_dest,
+                                    &self.mechanics,
                                 );
                                 let go = crate::walk::walk_timing::go_strength_for_walk_pub(
                                     crate::walk::walk_timing::WalkSpeedRole::Player,
@@ -1777,7 +1782,8 @@ impl GameWorld {
             .get_tile(dest_pos)
             .map(|t| t.body().ground.is_some())
             .unwrap_or(false);
-        let initial_teleport = !has_ground || !is_adjacent_move(&self.codec, otclient, old_pos, dest_pos);
+        let initial_teleport =
+            !has_ground || !is_adjacent_move(&self.codec, otclient, old_pos, dest_pos);
         // Move creature to initial destination.
         self.move_creature_on_map(cid, old_pos, dest_pos);
 
@@ -1816,7 +1822,8 @@ impl GameWorld {
                 .get_tile(new_pos)
                 .map(|t| t.body().ground.is_some())
                 .unwrap_or(false);
-            let chain_teleport = !chain_has_ground || !is_adjacent_move(&self.codec, otclient, final_pos, new_pos);
+            let chain_teleport =
+                !chain_has_ground || !is_adjacent_move(&self.codec, otclient, final_pos, new_pos);
 
             // Move creature to the chained destination.
             self.move_creature_on_map(cid, final_pos, new_pos);
@@ -1948,8 +1955,7 @@ impl GameWorld {
             debug_assert!(
                 on_final,
                 "GHOST: creature {:?} not on final tile {:?} after move",
-                cid,
-                final_pos
+                cid, final_pos
             );
         }
 
@@ -2003,9 +2009,7 @@ impl GameWorld {
             debug_assert!(
                 on_from,
                 "move_creature_on_map: creature {:?} not on `from` tile {:?} (actual {:?})",
-                cid,
-                from,
-                actual
+                cid, from, actual
             );
         }
         self.map.unregister_creature_at(from, cid);
@@ -2332,7 +2336,10 @@ mod step_speed_tests {
             "z-change completed step must use ×1 waypoint cost, not ×2 (cract.cc:1526-1528)"
         );
         // Diagonal: 150×3×1000/520 = 865 → ceil 200 = 1000 ms (×3 before ceil).
-        assert_eq!(delay_diagonal, 1000, "diagonal completed step = ×3 = 1000 ms");
+        assert_eq!(
+            delay_diagonal, 1000,
+            "diagonal completed step = ×3 = 1000 ms"
+        );
         assert_ne!(
             delay_diagonal, delay_cardinal,
             "diagonal must differ from cardinal (×3 vs ×1)"
@@ -2354,8 +2361,8 @@ mod step_speed_tests {
     fn era_aware_teleport_detection_routes_z_changes_correctly() {
         use super::{are_in_range_1_1_0, are_in_range_1_1_1, is_adjacent_move};
         use tfs_rust_common::Position;
-        use tfs_rust_net::codec::Codec;
         use tfs_rust_common::ProtocolVersion;
+        use tfs_rust_net::codec::Codec;
 
         // 1098: dz==0 required — z-changes are teleports.
         assert!(are_in_range_1_1_0(
@@ -2393,9 +2400,18 @@ mod step_speed_tests {
         let codec_1098 = Codec::from_version(ProtocolVersion::V1098).unwrap();
         let codec_772 = Codec::from_version(ProtocolVersion::V772).unwrap();
         let z_change = (Position::new(100, 100, 7), Position::new(100, 100, 8));
-        assert!(!is_adjacent_move(&codec_1098, false, z_change.0, z_change.1), "1098: z-change is teleport");
-        assert!(is_adjacent_move(&codec_772, false, z_change.0, z_change.1), "772 real client: adjacent z-change is NOT teleport");
-        assert!(!is_adjacent_move(&codec_772, true, z_change.0, z_change.1), "772 OTClient: z-change is teleport (TVP contract)");
+        assert!(
+            !is_adjacent_move(&codec_1098, false, z_change.0, z_change.1),
+            "1098: z-change is teleport"
+        );
+        assert!(
+            is_adjacent_move(&codec_772, false, z_change.0, z_change.1),
+            "772 real client: adjacent z-change is NOT teleport"
+        );
+        assert!(
+            !is_adjacent_move(&codec_772, true, z_change.0, z_change.1),
+            "772 OTClient: z-change is teleport (TVP contract)"
+        );
     }
 }
 
@@ -2563,7 +2579,10 @@ mod monster_walk_tests {
             "hard-blocked monster must re-run IdleStimulus at server_ms + 1 (ToDoStart clamps Delay<1 to 1)"
         );
         // The blocked North step was consumed (popped before the failed move).
-        assert!(base.walk_queue.is_empty(), "blocked step direction must be popped");
+        assert!(
+            base.walk_queue.is_empty(),
+            "blocked step direction must be popped"
+        );
     }
 
     /// N2 / F1 regression (player analogue): a blocked player walk with no attack target stops
@@ -2610,9 +2629,15 @@ mod monster_walk_tests {
                 .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == 0)),
             "player Err arm must yield ToDoWait(0) (cract.cc:1001)"
         );
-        assert!(!base.todo.locked, "player Err arm must unlock the ToDo queue");
+        assert!(
+            !base.todo.locked,
+            "player Err arm must unlock the ToDo queue"
+        );
         // Player stops: no walk direction remains, no walk_action re-arm.
-        assert!(base.walk_queue.is_empty(), "blocked player step must be popped");
+        assert!(
+            base.walk_queue.is_empty(),
+            "blocked player step must be popped"
+        );
         if let crate::creature::CreatureKind::Player(pl) = world.creatures.get(cid).unwrap() {
             assert!(
                 pl.walk_action.is_none(),

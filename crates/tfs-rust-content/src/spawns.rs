@@ -68,7 +68,10 @@ pub fn load_spawn_xml(path: &Path) -> Result<Vec<SpawnZone>> {
     };
 
     let mut zones = Vec::new();
-    for spawn in spawns_el.children().filter(|n| n.is_element() && is_spawn_element(n)) {
+    for spawn in spawns_el
+        .children()
+        .filter(|n| n.is_element() && is_spawn_element(n))
+    {
         if spawn.attribute("amount").is_some() {
             if let Some(zone) = parse_tvp_spawn_element(spawn) {
                 zones.push(zone);
@@ -276,7 +279,8 @@ mod tests {
             label
         ));
         let mut file = std::fs::File::create(&path).expect("temp spawn xml");
-        file.write_all(contents.as_bytes()).expect("write spawn xml");
+        file.write_all(contents.as_bytes())
+            .expect("write spawn xml");
         path
     }
 

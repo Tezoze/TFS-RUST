@@ -11,9 +11,7 @@ use std::rc::Rc;
 
 use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
-use crate::timer_events::{
-    execute_timer_event, register_add_event_stop_event, TimerEvents,
-};
+use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
     register_creature_metatable, register_group_metatable, register_item_metatable,
@@ -74,7 +72,9 @@ impl LuaRuntime {
 
         // Register minimal global functions via RegisterLuaFunctions
         let registrar = MinimalGlobalFunctions;
-        registrar.register_functions(&lua).map_err(LuaError::Registration)?;
+        registrar
+            .register_functions(&lua)
+            .map_err(LuaError::Registration)?;
 
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
@@ -106,7 +106,8 @@ impl LuaRuntime {
 
         // Initialize pending talkaction buffer for TalkAction:register()
         let pending_talkactions = lua.create_table()?;
-        lua.globals().set("_pending_talkactions", pending_talkactions)?;
+        lua.globals()
+            .set("_pending_talkactions", pending_talkactions)?;
 
         // `addEvent` / `stopEvent` globals (C++ `luascript.cpp:1126-1130`).
         // The `TimerScheduler` thread-local is set later from `run_server.rs`;
@@ -162,7 +163,9 @@ impl LuaRuntime {
             .map_err(|e| LuaError::ScriptIo(full_path.display().to_string(), e.to_string()))?;
 
         // Clear pending buffer before loading
-        self.lua.globals().set("_pending_channels", self.lua.create_table()?)?;
+        self.lua
+            .globals()
+            .set("_pending_channels", self.lua.create_table()?)?;
 
         // Execute the script
         self.lua
@@ -298,10 +301,7 @@ impl LuaRuntime {
         param: &str,
     ) -> Result<bool, LuaError> {
         tracing::info!(player, words, param, "call_talkaction_on_say: invoking Lua");
-        let function: mlua::Function = self
-            .lua
-            .registry_value(callback)
-            .map_err(LuaError::Init)?;
+        let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
             .lua
             .create_userdata(crate::context::CreatureRef(player))
@@ -312,7 +312,12 @@ impl LuaRuntime {
         let result = function
             .call::<bool>((player_ud, words, param, 0i32))
             .map_err(LuaError::Init);
-        tracing::info!(player, words, ?result, "call_talkaction_on_say: Lua returned");
+        tracing::info!(
+            player,
+            words,
+            ?result,
+            "call_talkaction_on_say: Lua returned"
+        );
         result
     }
 
@@ -409,7 +414,7 @@ impl LuaRuntime {
             .create_userdata(ItemRef(item))
             .map_err(LuaError::Init)?;
         function
-            .call::<()>( (player_ud, item_ud, slot, equip) )
+            .call::<()>((player_ud, item_ud, slot, equip))
             .map_err(LuaError::Init)
     }
 
@@ -447,10 +452,7 @@ impl LuaRuntime {
         callback: &mlua::RegistryKey,
         player: crate::context::CreatureId,
     ) -> Result<bool, LuaError> {
-        let function: mlua::Function = self
-            .lua
-            .registry_value(callback)
-            .map_err(LuaError::Init)?;
+        let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
             .lua
             .create_userdata(CreatureRef(player))
@@ -468,10 +470,7 @@ impl LuaRuntime {
         speak_type: i32,
         message: &str,
     ) -> Result<mlua::Value, LuaError> {
-        let function: mlua::Function = self
-            .lua
-            .registry_value(callback)
-            .map_err(LuaError::Init)?;
+        let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
             .lua
             .create_userdata(CreatureRef(player))
@@ -489,10 +488,7 @@ impl LuaRuntime {
         callback: &mlua::RegistryKey,
         player: crate::context::CreatureId,
     ) -> Result<(), LuaError> {
-        let function: mlua::Function = self
-            .lua
-            .registry_value(callback)
-            .map_err(LuaError::Init)?;
+        let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
             .lua
             .create_userdata(CreatureRef(player))
@@ -508,10 +504,7 @@ impl LuaRuntime {
         callback: &mlua::RegistryKey,
         player: crate::context::CreatureId,
     ) -> Result<(), LuaError> {
-        let function: mlua::Function = self
-            .lua
-            .registry_value(callback)
-            .map_err(LuaError::Init)?;
+        let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
             .lua
             .create_userdata(CreatureRef(player))
@@ -534,7 +527,13 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     globals.set("Player", lua.create_table()?)?;
 
     for name in [
-        "Creature", "Monster", "Npc", "Game", "Tile", "Item", "Container",
+        "Creature",
+        "Monster",
+        "Npc",
+        "Game",
+        "Tile",
+        "Item",
+        "Container",
     ] {
         globals.set(name, lua.create_table()?)?;
     }
@@ -694,11 +693,12 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     // `LuaMutation::SendChannelMessage` via the mutation scope.
     // C++ reference: `chat.cpp` `sendChannelMessage` / `protocolgame.cpp`
     // `sendChannelMessage` (`0xAA` anonymous branch).
-    let send_channel = lua.create_function(|_, (channel_id, speak_type, text): (u16, u8, String)| {
-        crate::lua_mutation::call_lua_send_channel_message(channel_id, speak_type, text)
-            .map_err(mlua::Error::runtime)?;
-        Ok(())
-    })?;
+    let send_channel =
+        lua.create_function(|_, (channel_id, speak_type, text): (u16, u8, String)| {
+            crate::lua_mutation::call_lua_send_channel_message(channel_id, speak_type, text)
+                .map_err(mlua::Error::runtime)?;
+            Ok(())
+        })?;
     globals.set("sendChannelMessage", send_channel)?;
 
     // `nextUseStaminaTime` — a mutable per-player stamina gate table read by
@@ -797,8 +797,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn workspace_data_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../data/events/scripts/player.lua")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/events/scripts/player.lua")
     }
 
     fn workspace_data_root() -> PathBuf {
@@ -862,9 +861,8 @@ mod tests {
 
         // Load every channel script — each must compile and self-register
         // without referencing a nil constant/method.
-        let channels =
-            crate::chat_channels::load_chat_channel_scripts(&mut runtime, &data_root)
-                .expect("channel scripts load");
+        let channels = crate::chat_channels::load_chat_channel_scripts(&mut runtime, &data_root)
+            .expect("channel scripts load");
         // 8 active channels (ruleviolations.lua is skipped by the loader).
         assert_eq!(
             channels.len(),

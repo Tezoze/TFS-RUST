@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::runtime::{CallbackRef, LuaRuntime, LuaError};
+use crate::runtime::{CallbackRef, LuaError, LuaRuntime};
 
 /// Creature event types from XML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -77,7 +77,10 @@ impl<'a> ScriptLoader<'a> {
                 }
             };
 
-            if !matches!(event_type, CreatureEventType::Login | CreatureEventType::Logout) {
+            if !matches!(
+                event_type,
+                CreatureEventType::Login | CreatureEventType::Logout
+            ) {
                 continue;
             }
 
@@ -86,14 +89,20 @@ impl<'a> ScriptLoader<'a> {
             if lib_path.exists() {
                 let lib_path_string = lib_path.display().to_string();
                 if let Err(e) = self.runtime.load_script(&lib_path_string) {
-                    tracing::warn!("Failed to load creaturescripts lib {}: {}", lib_path.display(), e);
+                    tracing::warn!(
+                        "Failed to load creaturescripts lib {}: {}",
+                        lib_path.display(),
+                        e
+                    );
                 }
             } else {
                 tracing::warn!("Creaturescripts lib not found: {}", lib_path.display());
             }
 
             // Load script file (warn on failure, continue)
-            let script_path = data_dir.join("creaturescripts/scripts/").join(&event.script);
+            let script_path = data_dir
+                .join("creaturescripts/scripts/")
+                .join(&event.script);
             if !script_path.exists() {
                 tracing::warn!("Script file not found: {}", script_path.display());
                 continue;
@@ -158,10 +167,17 @@ impl<'a> ScriptLoader<'a> {
         if player_script.exists() {
             let path_string = player_script.display().to_string();
             if let Err(e) = self.runtime.load_script(&path_string) {
-                tracing::warn!("Failed to load player events script {}: {}", player_script.display(), e);
+                tracing::warn!(
+                    "Failed to load player events script {}: {}",
+                    player_script.display(),
+                    e
+                );
             }
         } else {
-            tracing::warn!("Player events script not found: {}", player_script.display());
+            tracing::warn!(
+                "Player events script not found: {}",
+                player_script.display()
+            );
             return Ok(HashMap::new());
         }
 

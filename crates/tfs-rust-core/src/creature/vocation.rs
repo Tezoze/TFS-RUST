@@ -203,7 +203,10 @@ mod tests {
             base_speed: 220,
             ..VocationProfile::none_vocation()
         };
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8, false), 227);
+        assert_eq!(
+            base_walk_speed(StepSpeedModel::LinearGo, &profile, 8, false),
+            227
+        );
         assert_eq!(
             crate::formulas::linear_go_effective_speed(base_walk_speed(
                 StepSpeedModel::LinearGo,
@@ -215,14 +218,29 @@ mod tests {
         );
         // Shipped vocations.lua base_speed=70, level 8 → 70+7=77, GetSpeed=234.
         let shipped = VocationProfile::none_vocation();
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 8, false), 77);
+        assert_eq!(
+            base_walk_speed(StepSpeedModel::LinearGo, &shipped, 8, false),
+            77
+        );
         // Level 1 → base unchanged (no level-ups yet).
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &shipped, 1, false), 70);
+        assert_eq!(
+            base_walk_speed(StepSpeedModel::LinearGo, &shipped, 1, false),
+            70
+        );
         // TFS 1098: 220 + 2*7 = 234
-        assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, &profile, 8, false), 234);
+        assert_eq!(
+            base_walk_speed(StepSpeedModel::TfsLog, &profile, 8, false),
+            234
+        );
         // GM max speed flag pins to 1500 regardless of vocation/level.
-        assert_eq!(base_walk_speed(StepSpeedModel::LinearGo, &profile, 8, true), 1500);
-        assert_eq!(base_walk_speed(StepSpeedModel::TfsLog, &shipped, 1, true), 1500);
+        assert_eq!(
+            base_walk_speed(StepSpeedModel::LinearGo, &profile, 8, true),
+            1500
+        );
+        assert_eq!(
+            base_walk_speed(StepSpeedModel::TfsLog, &shipped, 1, true),
+            1500
+        );
     }
 
     #[test]

@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 
 fn objects_srv_path(root: &Path) -> PathBuf {
     for name in ["classic-772", "cipsoft-772"] {
-        let path = root.join("reference").join(name).join("runtime/dat/objects.srv");
+        let path = root
+            .join("reference")
+            .join(name)
+            .join("runtime/dat/objects.srv");
         if path.is_file() {
             return path;
         }
@@ -64,8 +67,7 @@ fn lookup_otb<'a>(
     type_id: u16,
     by_server: &'a HashMap<u16, tfs_rust_content::otb::ItemType>,
 ) -> Option<&'a tfs_rust_content::otb::ItemType> {
-    let server_id =
-        tfs_rust_content::objects_srv::resolve_server_id_for_patch(type_id, by_server)?;
+    let server_id = tfs_rust_content::objects_srv::resolve_server_id_for_patch(type_id, by_server)?;
     by_server.get(&server_id)
 }
 
@@ -110,7 +112,9 @@ fn audit_objects_srv_flag_correlation() {
         }
 
         if has_flag(&entry.flags, "Unpass") {
-            let solid = db_type.map(|t| t.block_solid()).unwrap_or(otb.block_solid());
+            let solid = db_type
+                .map(|t| t.block_solid())
+                .unwrap_or(otb.block_solid());
             if solid {
                 unpass_solid_match += 1;
             } else {

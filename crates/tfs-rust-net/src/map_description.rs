@@ -48,11 +48,7 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
 ) {
     codec.write_tile_environment_prefix(msg);
 
-    let mut count: i32 = if tile.ground.is_some() {
-        1
-    } else {
-        0
-    };
+    let mut count: i32 = if tile.ground.is_some() { 1 } else { 0 };
 
     if let Some(ref g) = tile.ground {
         if g.client_id != 0 {
@@ -136,11 +132,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
 ) -> usize {
     let mut n = codec.tile_environment_prefix_len(); // environmental effects (2 for 1098, 0 for 772)
 
-    let mut count: i32 = if tile.ground.is_some() {
-        1
-    } else {
-        0
-    };
+    let mut count: i32 = if tile.ground.is_some() { 1 } else { 0 };
 
     if let Some(ref g) = tile.ground {
         if g.client_id != 0 {
@@ -278,12 +270,7 @@ fn count_floor_description<F: FnMut(u32) -> bool>(
                     n += 1 + 1;
                 }
                 *skip = 0;
-                n += count_tile_description(
-                    codec,
-                    &tile,
-                    known_creatures,
-                    can_see_creature,
-                );
+                n += count_tile_description(codec, &tile, known_creatures, can_see_creature);
             } else if *skip == 0xFE {
                 n += 1 + 1;
                 *skip = -1;
@@ -777,10 +764,10 @@ fn append_send_row<F: FnMut(u32) -> bool>(
     // Determine which row/column to send based on direction.
     // Decompile `SendRow`: NORTH → y=min_y, EAST → x=max_x, SOUTH → y=max_y, WEST → x=min_x.
     let (origin_x, origin_y, width, height) = match direction_opcode {
-        0x65 => (min_x, min_y, vw, 1),         // NORTH: full width, 1 row at min_y
+        0x65 => (min_x, min_y, vw, 1), // NORTH: full width, 1 row at min_y
         0x66 => (min_x + vw - 1, min_y, 1, vh), // EAST:  1 col at max_x, full height
         0x67 => (min_x, min_y + vh - 1, vw, 1), // SOUTH: full width, 1 row at max_y
-        0x68 => (min_x, min_y, 1, vh),          // WEST:  1 col at min_x, full height
+        0x68 => (min_x, min_y, 1, vh), // WEST:  1 col at min_x, full height
         _ => return,
     };
 
@@ -810,7 +797,6 @@ fn append_send_row<F: FnMut(u32) -> bool>(
         msg.write_u8(0xFF);
     }
 }
-
 
 //
 // Both eras emit the self-packet (`0x6D`/`0x6C`) — TVP works fine on the real 772 client.
@@ -1125,7 +1111,15 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
         pz += 1;
         msg.write_u8(0xBF);
         append_send_floors_body(
-            codec, &mut msg, px, py, pz, false, get_tile, known_creatures, can_see_creature,
+            codec,
+            &mut msg,
+            px,
+            py,
+            pz,
+            false,
+            get_tile,
+            known_creatures,
+            can_see_creature,
             with_description,
         );
     }
@@ -1135,7 +1129,15 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
         pz -= 1;
         msg.write_u8(0xBE);
         append_send_floors_body(
-            codec, &mut msg, px, py, pz, true, get_tile, known_creatures, can_see_creature,
+            codec,
+            &mut msg,
+            px,
+            py,
+            pz,
+            true,
+            get_tile,
+            known_creatures,
+            can_see_creature,
             with_description,
         );
     }
@@ -1144,14 +1146,30 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
     while px < dx {
         px += 1;
         append_send_row(
-            codec, &mut msg, px, py, pz, 0x66, get_tile, known_creatures, can_see_creature,
+            codec,
+            &mut msg,
+            px,
+            py,
+            pz,
+            0x66,
+            get_tile,
+            known_creatures,
+            can_see_creature,
             with_description,
         );
     }
     while px > dx {
         px -= 1;
         append_send_row(
-            codec, &mut msg, px, py, pz, 0x68, get_tile, known_creatures, can_see_creature,
+            codec,
+            &mut msg,
+            px,
+            py,
+            pz,
+            0x68,
+            get_tile,
+            known_creatures,
+            can_see_creature,
             with_description,
         );
     }
@@ -1160,14 +1178,30 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
     while py < dy {
         py += 1;
         append_send_row(
-            codec, &mut msg, px, py, pz, 0x67, get_tile, known_creatures, can_see_creature,
+            codec,
+            &mut msg,
+            px,
+            py,
+            pz,
+            0x67,
+            get_tile,
+            known_creatures,
+            can_see_creature,
             with_description,
         );
     }
     while py > dy {
         py -= 1;
         append_send_row(
-            codec, &mut msg, px, py, pz, 0x65, get_tile, known_creatures, can_see_creature,
+            codec,
+            &mut msg,
+            px,
+            py,
+            pz,
+            0x65,
+            get_tile,
+            known_creatures,
+            can_see_creature,
             with_description,
         );
     }

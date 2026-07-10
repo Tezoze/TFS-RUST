@@ -108,7 +108,9 @@ pub fn register_add_event_stop_event(
     let add_event = lua.create_function(move |lua, params: MultiValue| {
         let mut params = params.into_vec();
         if params.len() < 2 {
-            return Err(mlua::Error::runtime("addEvent: need at least (callback, delay)"));
+            return Err(mlua::Error::runtime(
+                "addEvent: need at least (callback, delay)",
+            ));
         }
         // delay is the second parameter (index 2 in C++ 1-based)
         let delay_val = params.remove(1); // 0-based index 1 = 2nd param
@@ -116,7 +118,11 @@ pub fn register_add_event_stop_event(
 
         let callback = match callback_val {
             Value::Function(_) => callback_val,
-            _ => return Err(mlua::Error::runtime("addEvent: callback must be a function")),
+            _ => {
+                return Err(mlua::Error::runtime(
+                    "addEvent: callback must be a function",
+                ));
+            }
         };
         let delay_ms: u64 = match delay_val {
             Value::Integer(n) => n.max(0) as u64,
@@ -142,15 +148,16 @@ pub fn register_add_event_stop_event(
         let timer_id = {
             let mut slot = id_clone.borrow_mut();
             let id = *slot;
-            *slot = id.checked_add(1).ok_or_else(|| {
-                mlua::Error::runtime("addEvent: timer id overflow")
-            })?;
+            *slot = id
+                .checked_add(1)
+                .ok_or_else(|| mlua::Error::runtime("addEvent: timer id overflow"))?;
             id
         };
 
         // Schedule the timer via the game-thread Scheduler.
         // C++: `g_scheduler.addEvent(createSchedulerTask(delay, bind(executeTimerEvent, id)))`.
-        let _scheduler_event_id = with_scheduler(|s| s.schedule_after(Duration::from_millis(delay_ms)));
+        let _scheduler_event_id =
+            with_scheduler(|s| s.schedule_after(Duration::from_millis(delay_ms)));
 
         // Insert into the timer-events map (C++ `timerEvents.emplace(id, eventDesc)`).
         te_clone.borrow_mut().insert(
@@ -236,8 +243,8 @@ pub fn execute_timer_event(
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// A test `TimerScheduler` that records scheduled ids and supports cancellation.
     struct TestScheduler {
@@ -314,7 +321,10 @@ mod tests {
         let found = execute_timer_event(&lua, &timer_events, id).expect("execute");
         assert!(found, "event should be found");
         assert!(ran.load(Ordering::SeqCst), "callback should have run");
-        assert!(!timer_events.borrow().contains_key(&id), "entry removed after fire");
+        assert!(
+            !timer_events.borrow().contains_key(&id),
+            "entry removed after fire"
+        );
 
         clear_test_scheduler();
     }
@@ -324,8 +334,7 @@ mod tests {
         let lua = Lua::new();
         let timer_events: TimerEvents = Rc::new(RefCell::new(HashMap::new()));
         let next_timer_id = Rc::new(RefCell::new(1u64));
-        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id)
-            .expect("register");
+        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id).expect("register");
 
         let scheduler = Rc::new(TestScheduler::new());
         set_test_scheduler(scheduler.clone());
@@ -357,13 +366,14 @@ mod tests {
         let lua = Lua::new();
         let timer_events: TimerEvents = Rc::new(RefCell::new(HashMap::new()));
         let next_timer_id = Rc::new(RefCell::new(1u64));
-        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id)
-            .expect("register");
+        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id).expect("register");
 
         let scheduler = Rc::new(TestScheduler::new());
         set_test_scheduler(scheduler.clone());
 
-        let callback = lua.create_function(|_, ()| Ok(())).expect("create callback");
+        let callback = lua
+            .create_function(|_, ()| Ok(()))
+            .expect("create callback");
         lua.globals().set("_test_cb3", callback).unwrap();
 
         let id: u64 = lua
@@ -405,15 +415,16 @@ mod tests {
         let lua = Lua::new();
         let timer_events: TimerEvents = Rc::new(RefCell::new(HashMap::new()));
         let next_timer_id = Rc::new(RefCell::new(1u64));
-        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id)
-            .expect("register");
+        register_add_event_stop_event(&lua, timer_events.clone(), next_timer_id).expect("register");
 
         // We can't directly observe the delay passed to the scheduler in this test
         // without extending TestScheduler, but we can verify the event is created.
         let scheduler = Rc::new(TestScheduler::new());
         set_test_scheduler(scheduler.clone());
 
-        let callback = lua.create_function(|_, ()| Ok(())).expect("create callback");
+        let callback = lua
+            .create_function(|_, ()| Ok(()))
+            .expect("create callback");
         lua.globals().set("_test_cb4", callback).unwrap();
 
         // delay of 1ms should be clamped to 100ms — event still created

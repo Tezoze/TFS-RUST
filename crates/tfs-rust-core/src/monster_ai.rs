@@ -24,10 +24,10 @@ use crate::combat::{
     CombatParams, FightMode,
 };
 use crate::creature::{
-    creature_immune_poison, melee_poison_on_hit,
-    monster_weapon_attack_distance, roll_target_defense,
+    creature_immune_poison, melee_poison_on_hit, monster_weapon_attack_distance,
+    roll_target_defense,
 };
-use crate::creature::{CreatureKind, ChaseMode, MonsterState};
+use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
@@ -424,7 +424,11 @@ impl GameWorld {
             // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
             if dmg <= 0 {
                 if let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position) {
-                    let effect = if attack_roll <= defense_roll { 3u8 } else { 4u8 };
+                    let effect = if attack_roll <= defense_roll {
+                        3u8
+                    } else {
+                        4u8
+                    };
                     self.broadcast_magic_effect(pos, effect);
                 }
             }
@@ -553,7 +557,11 @@ impl GameWorld {
         // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
         if dmg <= 0 {
             if let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position) {
-                let effect = if attack_roll <= defense_roll { 3u8 } else { 4u8 };
+                let effect = if attack_roll <= defense_roll {
+                    3u8
+                } else {
+                    4u8
+                };
                 self.broadcast_magic_effect(pos, effect);
             }
         }
@@ -839,9 +847,12 @@ impl GameWorld {
             None => return false,
         };
         // `SearchFlightField` shuffles on the glibc parity stream internally (Finding 9) — no `ai_rng`.
-        let Some(dir) = search_flight_field(pos, target_pos, |dir| {
-            self.monster_can_walk_to(cid, pos, dir)
-        }, |buf| self.parity_rng.random_shuffle(buf)) else {
+        let Some(dir) = search_flight_field(
+            pos,
+            target_pos,
+            |dir| self.monster_can_walk_to(cid, pos, dir),
+            |buf| self.parity_rng.random_shuffle(buf),
+        ) else {
             return false;
         };
         let dest = pos.offset(dir);
@@ -1175,7 +1186,8 @@ impl GameWorld {
         let dest = match dir {
             Some(step) => {
                 let dest = pos.offset(step);
-                if chebyshev(dest, target_pos) != band || !self.monster_can_walk_to(cid, pos, step) {
+                if chebyshev(dest, target_pos) != band || !self.monster_can_walk_to(cid, pos, step)
+                {
                     return false;
                 }
                 dest
@@ -1741,8 +1753,7 @@ impl GameWorld {
         let Some(MapStackEntry::Ground(server_id)) = chain.first() else {
             return -1;
         };
-        if !self.items_db.is_terrain_bank_772(*server_id) || self.items_db.is_unpass_772(*server_id)
-        {
+        if !self.items_db.is_terrain_bank(*server_id) || self.items_db.is_unpassable(*server_id) {
             return -1;
         }
         let wp = self
@@ -1947,18 +1958,18 @@ impl GameWorld {
                         return false;
                     };
                     let server_id = item.item_type;
-                    if self.items_db.is_unpass_772(server_id) {
-                        if self.items_db.is_unmove_772(server_id) || !can_push_items {
+                    if self.items_db.is_unpassable(server_id) {
+                        if self.items_db.is_immovable(server_id) || !can_push_items {
                             return false;
                         }
                         continue;
                     }
-                    if self.items_db.is_avoid_hazard_772(server_id) {
+                    if self.items_db.is_avoid_hazard(server_id) {
                         // C++ `MovePossible` AVOID branch (`crnonpl.cc:2264-2267`): per-damage-type
                         // immunity — PANIC ignores all hazards; NoPoison/NoBurning/NoEnergy ignore
                         // matching fields only. P1-B1: was poison-only, now per-type.
                         let ignore_hazard = state == MonsterState::Panic
-                            || match self.items_db.avoid_damage_type_772(server_id) {
+                            || match self.items_db.avoid_damage_type(server_id) {
                                 Some(tfs_rust_content::items::FieldDamageType::Poison) => {
                                     immunity_poison
                                 }
@@ -1971,7 +1982,7 @@ impl GameWorld {
                                 None => false,
                             };
                         if !ignore_hazard
-                            && (self.items_db.is_unmove_772(server_id) || !can_push_items)
+                            && (self.items_db.is_immovable(server_id) || !can_push_items)
                         {
                             return false;
                         }
@@ -2005,7 +2016,7 @@ impl GameWorld {
         let Some(MapStackEntry::Ground(head_id)) = chain.first() else {
             return false;
         };
-        if !self.items_db.is_terrain_bank_772(*head_id) {
+        if !self.items_db.is_terrain_bank(*head_id) {
             return false;
         }
         true
@@ -2037,7 +2048,6 @@ impl GameWorld {
         self.monster_can_occupy_chase_tile(cid, from.offset(dir))
     }
 }
-
 
 #[cfg(test)]
 #[path = "monster_ai_tests.rs"]

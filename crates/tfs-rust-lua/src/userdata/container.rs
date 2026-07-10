@@ -33,12 +33,7 @@ where
 impl UserData for ContainerRef {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("getSize", |_, this, ()| {
-            with_ctx(|ctx| {
-                Ok(ctx
-                    .get_container_data(this.0)
-                    .map(|d| d.size)
-                    .unwrap_or(0))
-            })
+            with_ctx(|ctx| Ok(ctx.get_container_data(this.0).map(|d| d.size).unwrap_or(0)))
         });
 
         methods.add_method("getCapacity", |_, this, ()| {
@@ -140,12 +135,7 @@ impl UserData for ContainerRef {
         // Item base methods — C++ `Container` extends `Item`.
         methods.add_method("getId", |_, this, ()| Ok(this.0));
         methods.add_method("getType", |_, this, ()| {
-            with_ctx(|ctx| {
-                Ok(ctx
-                    .get_item_data(this.0)
-                    .map(|d| d.item_type)
-                    .unwrap_or(0))
-            })
+            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.item_type).unwrap_or(0)))
         });
         methods.add_method("getCount", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.count).unwrap_or(0)))

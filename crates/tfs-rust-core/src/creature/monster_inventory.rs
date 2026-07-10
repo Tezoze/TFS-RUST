@@ -49,11 +49,11 @@ pub(crate) fn physical_hit_effect(blood: BloodType) -> u8 {
 /// races show their race-keyed color instead of the hardcoded 772 red.
 pub fn damage_text_color(blood: BloodType) -> u8 {
     match blood {
-        BloodType::Blood => 180,    // COLOR_RED — `enums.hh:124`
-        BloodType::Slime => 30,     // COLOR_LIGHTGREEN — `enums.hh:121`
-        BloodType::Bones => 129,    // COLOR_LIGHTGRAY — `enums.hh:123`
-        BloodType::Fire => 198,     // COLOR_ORANGE — `enums.hh:125`
-        BloodType::Energy => 35,    // COLOR_LIGHTBLUE — `enums.hh:122`
+        BloodType::Blood => 180, // COLOR_RED — `enums.hh:124`
+        BloodType::Slime => 30,  // COLOR_LIGHTGREEN — `enums.hh:121`
+        BloodType::Bones => 129, // COLOR_LIGHTGRAY — `enums.hh:123`
+        BloodType::Fire => 198,  // COLOR_ORANGE — `enums.hh:125`
+        BloodType::Energy => 35, // COLOR_LIGHTBLUE — `enums.hh:122`
     }
 }
 
@@ -738,9 +738,12 @@ mod tests {
             inventory.bag.is_none(),
             "stackable gold loot must not create a bag"
         );
-        let has_gold = inventory.equipment.iter().any(|s| s.is_some())
-            || !inventory.body.is_empty();
-        assert!(has_gold, "guaranteed gold loot must be stored on the monster");
+        let has_gold =
+            inventory.equipment.iter().any(|s| s.is_some()) || !inventory.body.is_empty();
+        assert!(
+            has_gold,
+            "guaranteed gold loot must be stored on the monster"
+        );
 
         world.drop_monster_corpse(
             pos,

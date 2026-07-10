@@ -174,7 +174,14 @@ impl CombatDef {
     }
 
     /// `Combat::setFormula` — `combat.cpp`.
-    pub fn set_formula(&mut self, formula_type: i32, min_a: f64, min_b: f64, max_a: f64, max_b: f64) {
+    pub fn set_formula(
+        &mut self,
+        formula_type: i32,
+        min_a: f64,
+        min_b: f64,
+        max_a: f64,
+        max_b: f64,
+    ) {
         let ft = match formula_type {
             1 => FormulaType::LevelMagic,
             2 => FormulaType::Skill,
@@ -245,19 +252,19 @@ pub fn register_combat_metatable(lua: &Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<AreaRef>(|_registry| {})?;
 
     // `Combat()` constructor — C++ `luaCombatCreate` (`luascript.cpp:13015`).
-    let combat_new = lua.create_function(|_, ()| {
-        Ok(CombatRef(Rc::new(RefCell::new(CombatDef::new()))))
-    })?;
+    let combat_new =
+        lua.create_function(|_, ()| Ok(CombatRef(Rc::new(RefCell::new(CombatDef::new())))))?;
     lua.globals().set("Combat", combat_new)?;
 
     // `createCombatArea(areaMatrix[, extArea])` — C++ `luaCreateCombatArea`
     // (`luascript.cpp:3545-3575`). Returns an `AreaRef` userdata. The optional `extArea`
     // diagonal overlay is accepted but not yet processed (PC-2b scope: matrix only).
-    let create_area = lua.create_function(|_, (area, _ext): (mlua::Value, Option<mlua::Value>)| {
-        let matrix = parse_area_matrix(&area)?;
-        let area_combat = AreaCombat::from_matrix(matrix);
-        Ok(AreaRef(Rc::new(RefCell::new(area_combat))))
-    })?;
+    let create_area =
+        lua.create_function(|_, (area, _ext): (mlua::Value, Option<mlua::Value>)| {
+            let matrix = parse_area_matrix(&area)?;
+            let area_combat = AreaCombat::from_matrix(matrix);
+            Ok(AreaRef(Rc::new(RefCell::new(area_combat))))
+        })?;
     lua.globals().set("createCombatArea", create_area)?;
 
     Ok(())
@@ -266,21 +273,21 @@ pub fn register_combat_metatable(lua: &Lua) -> Result<(), mlua::Error> {
 /// Parse a Lua 2D table (table of tables of numbers) into a `Vec<Vec<u8>>`.
 /// C++ `LuaScriptInterface::getArea` — `luascript.cpp`.
 fn parse_area_matrix(value: &mlua::Value) -> Result<Vec<Vec<u8>>, mlua::Error> {
-    let table = value.as_table().ok_or_else(|| {
-        mlua::Error::runtime("createCombatArea: area argument must be a table")
-    })?;
+    let table = value
+        .as_table()
+        .ok_or_else(|| mlua::Error::runtime("createCombatArea: area argument must be a table"))?;
     let mut matrix = Vec::new();
     for pair in table.pairs::<i64, mlua::Value>() {
         let (_, row_value) = pair?;
-        let row_table = row_value.as_table().ok_or_else(|| {
-            mlua::Error::runtime("createCombatArea: each row must be a table")
-        })?;
+        let row_table = row_value
+            .as_table()
+            .ok_or_else(|| mlua::Error::runtime("createCombatArea: each row must be a table"))?;
         let mut row = Vec::new();
         for cell_pair in row_table.pairs::<i64, mlua::Value>() {
             let (_, cell_value) = cell_pair?;
-            let cell: i64 = cell_value
-                .as_integer()
-                .ok_or_else(|| mlua::Error::runtime("createCombatArea: cell values must be integers"))?;
+            let cell: i64 = cell_value.as_integer().ok_or_else(|| {
+                mlua::Error::runtime("createCombatArea: cell values must be integers")
+            })?;
             row.push(cell as u8);
         }
         matrix.push(row);
@@ -292,15 +299,28 @@ impl UserData for CombatRef {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `combat:setParameter(key, value)` — `luascript.cpp:13032-13052`.
         // Accepts boolean or integer value (C++ coerces `true` → 1, `false` → 0).
-        methods.add_method_mut("setParameter", |_, this, (key, value): (i32, mlua::Value)| {
-            let v = match value {
-                mlua::Value::Boolean(b) => if b { 1 } else { 0 },
-                mlua::Value::Integer(n) => n as i32,
-                _ => return Err(mlua::Error::runtime("setParameter: value must be boolean or integer")),
-            };
-            this.0.borrow_mut().set_parameter(key, v);
-            Ok(true)
-        });
+        methods.add_method_mut(
+            "setParameter",
+            |_, this, (key, value): (i32, mlua::Value)| {
+                let v = match value {
+                    mlua::Value::Boolean(b) => {
+                        if b {
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    mlua::Value::Integer(n) => n as i32,
+                    _ => {
+                        return Err(mlua::Error::runtime(
+                            "setParameter: value must be boolean or integer",
+                        ));
+                    }
+                };
+                this.0.borrow_mut().set_parameter(key, v);
+                Ok(true)
+            },
+        );
 
         // `combat:setArea(areaId)` — `luascript.cpp:13093-13119`.
         // `areaId` is an `AreaRef` userdata returned by `createCombatArea`. We use
@@ -313,10 +333,13 @@ impl UserData for CombatRef {
         });
 
         // `combat:setFormula(type, mina, minb, maxa, maxb)` — `luascript.cpp:13073-13091`.
-        methods.add_method_mut("setFormula", |_, this, (ft, mina, minb, maxa, maxb): (i32, f64, f64, f64, f64)| {
-            this.0.borrow_mut().set_formula(ft, mina, minb, maxa, maxb);
-            Ok(true)
-        });
+        methods.add_method_mut(
+            "setFormula",
+            |_, this, (ft, mina, minb, maxa, maxb): (i32, f64, f64, f64, f64)| {
+                this.0.borrow_mut().set_formula(ft, mina, minb, maxa, maxb);
+                Ok(true)
+            },
+        );
 
         // `combat:setCallback(param, functionName)` — `luascript.cpp`.
         methods.add_method_mut("setCallback", |_, this, (param, name): (i32, String)| {
@@ -329,10 +352,13 @@ impl UserData for CombatRef {
         // returns `true` (success). Full combat execution (area resolution + damage
         // application via `combat_execute_with_stimulus`) is PC-3a scope. This stub
         // allows spell scripts to load without errors.
-        methods.add_method("execute", |_, _this, (_creature, _variant): (mlua::Value, mlua::Value)| {
-            // TODO(PC-3a): wire to `combat_execute_lua(world, caster_id, &combat_def, &variant)`.
-            Ok(true)
-        });
+        methods.add_method(
+            "execute",
+            |_, _this, (_creature, _variant): (mlua::Value, mlua::Value)| {
+                // TODO(PC-3a): wire to `combat_execute_lua(world, caster_id, &combat_def, &variant)`.
+                Ok(true)
+            },
+        );
     }
 }
 
@@ -343,11 +369,7 @@ mod tests {
     #[test]
     fn area_combat_parses_square1x1() {
         // AREA_SQUARE1X1 = { {1,1,1}, {1,3,1}, {1,1,1} }
-        let matrix = vec![
-            vec![1, 1, 1],
-            vec![1, 3, 1],
-            vec![1, 1, 1],
-        ];
+        let matrix = vec![vec![1, 1, 1], vec![1, 3, 1], vec![1, 1, 1]];
         let area = AreaCombat::from_matrix(matrix);
         assert_eq!(area.center_row, 1);
         assert_eq!(area.center_col, 1);
@@ -377,7 +399,10 @@ mod tests {
         let mut def = CombatDef::new();
         def.set_callback(CALLBACK_PARAM_SKILLVALUE, "onGetFormulaValues".to_string());
         assert_eq!(
-            def.callbacks.get(&CALLBACK_PARAM_SKILLVALUE).unwrap().function_name,
+            def.callbacks
+                .get(&CALLBACK_PARAM_SKILLVALUE)
+                .unwrap()
+                .function_name,
             "onGetFormulaValues"
         );
     }
@@ -390,14 +415,16 @@ mod tests {
 
         // Test createCombatArea with AREA_SQUARE1X1 equivalent.
         let result: mlua::AnyUserData = lua
-            .load(r#"
+            .load(
+                r#"
                 local area = createCombatArea({
                     {1, 1, 1},
                     {1, 3, 1},
                     {1, 1, 1}
                 })
                 return area
-            "#)
+            "#,
+            )
             .eval()
             .expect("createCombatArea must succeed");
         let area_ref = result.borrow::<AreaRef>().expect("must be AreaRef");
@@ -415,7 +442,8 @@ mod tests {
         crate::combat_enums::register_combat_enums(&lua).expect("enum registration must succeed");
 
         let result: mlua::AnyUserData = lua
-            .load(r#"
+            .load(
+                r#"
                 local combat = Combat()
                 combat:setParameter(COMBAT_PARAM_TYPE, COMBAT_PHYSICALDAMAGE)
                 combat:setParameter(COMBAT_PARAM_EFFECT, CONST_ME_HITAREA)
@@ -428,7 +456,8 @@ mod tests {
                 })
                 combat:setArea(area)
                 return combat
-            "#)
+            "#,
+            )
             .eval()
             .expect("combat setup must succeed");
         let combat_ref = result.borrow::<CombatRef>().expect("must be CombatRef");

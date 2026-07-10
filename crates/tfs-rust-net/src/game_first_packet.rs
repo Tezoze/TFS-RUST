@@ -180,16 +180,44 @@ pub fn parse_first_game_packet(
 fn frame_candidates(caps: &ProtocolCaps) -> Vec<FrameCandidate> {
     if caps.adler_checksum {
         vec![
-            FrameCandidate { rsa_off: 16, os_off: 5, kind: FirstKind::Game },
-            FrameCandidate { rsa_off: 26, os_off: 4, kind: FirstKind::Login },
-            FrameCandidate { rsa_off: 15, os_off: 5, kind: FirstKind::Game },
-            FrameCandidate { rsa_off: 25, os_off: 4, kind: FirstKind::Login },
-            FrameCandidate { rsa_off: 20, os_off: 4, kind: FirstKind::Login },
+            FrameCandidate {
+                rsa_off: 16,
+                os_off: 5,
+                kind: FirstKind::Game,
+            },
+            FrameCandidate {
+                rsa_off: 26,
+                os_off: 4,
+                kind: FirstKind::Login,
+            },
+            FrameCandidate {
+                rsa_off: 15,
+                os_off: 5,
+                kind: FirstKind::Game,
+            },
+            FrameCandidate {
+                rsa_off: 25,
+                os_off: 4,
+                kind: FirstKind::Login,
+            },
+            FrameCandidate {
+                rsa_off: 20,
+                os_off: 4,
+                kind: FirstKind::Login,
+            },
         ]
     } else {
         vec![
-            FrameCandidate { rsa_off: 5, os_off: 1, kind: FirstKind::Game },
-            FrameCandidate { rsa_off: 17, os_off: 1, kind: FirstKind::Login },
+            FrameCandidate {
+                rsa_off: 5,
+                os_off: 1,
+                kind: FirstKind::Game,
+            },
+            FrameCandidate {
+                rsa_off: 17,
+                os_off: 1,
+                kind: FirstKind::Login,
+            },
         ]
     }
 }
@@ -502,7 +530,10 @@ mod tests {
 
         let (identity, password, _) =
             parse_login_credentials(&stream, &caps).expect("parse 1098 login creds");
-        assert_eq!(identity, LoginIdentity::AccountName("account@example".into()));
+        assert_eq!(
+            identity,
+            LoginIdentity::AccountName("account@example".into())
+        );
         assert_eq!(password, "pw");
     }
 

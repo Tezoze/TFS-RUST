@@ -11,11 +11,12 @@ use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic, beat_driven_world_from_map,
-    default_sim_map_config, insert_monster_from_type, insert_monster_with_config, insert_player,
-    drain_todo_queue_once, harness_place_creature_login, kite_monsters_appear_batch,
-    log_harness_player_step, move_creatures_explicit, run_sim_tick, set_sim_harness_segment_ms,
-    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
-    validate_positions_walkable, walk_player_adjacent, write_audit_route_json, SimMapConfig,
+    default_sim_map_config, drain_todo_queue_once, harness_place_creature_login,
+    insert_monster_from_type, insert_monster_with_config, insert_player,
+    kite_monsters_appear_batch, log_harness_player_step, move_creatures_explicit, run_sim_tick,
+    set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
+    sim_player_damage_monster, teleport_player, validate_positions_walkable, walk_player_adjacent,
+    write_audit_route_json, SimMapConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -436,8 +437,7 @@ fn spawn_entities(
         };
 
         monster_ids.push(monster_id);
-        if harness_place_creature_login(world, monster_id, monster_pos).is_none()
-        {
+        if harness_place_creature_login(world, monster_id, monster_pos).is_none() {
             return Err(format!(
                 "harness spawn: cannot place monster at [{},{},{}]",
                 monster_pos.x, monster_pos.y, monster_pos.z

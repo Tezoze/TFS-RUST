@@ -21,7 +21,6 @@ use crate::creature_encode::AddCreatureWire as CreatureWire;
 use crate::creature_encode::OutfitWire as CreatureOutfitWire;
 use crate::NetworkMessage;
 
-
 /// Outgoing wire encoder — one impl per protocol family (A1: 1098 only).
 pub trait ProtocolCodec {
     fn caps(&self) -> ProtocolCaps;
@@ -173,7 +172,8 @@ pub trait ProtocolCodec {
     fn encode_creature_speed(&self, w: &wire::CreatureSpeedWire) -> NetworkMessage;
 
     /// Player damage caption — simple text (772) vs damage block (1098).
-    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
+    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire)
+        -> NetworkMessage;
 
     /// `ProtocolGame::sendCreatureSay` — `0xAA` speech packet (1098 with `level`, 772 without).
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;
@@ -454,7 +454,10 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_creature_speed(self, w)
     }
 
-    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
+    fn encode_combat_damage_text_message(
+        &self,
+        w: &wire::CombatDamageNotifyWire,
+    ) -> NetworkMessage {
         Codec1098::encode_combat_damage_text_message(self, w)
     }
 
@@ -721,7 +724,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_creature_speed(self, w)
     }
 
-    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
+    fn encode_combat_damage_text_message(
+        &self,
+        w: &wire::CombatDamageNotifyWire,
+    ) -> NetworkMessage {
         Codec772::encode_combat_damage_text_message(self, w)
     }
 
@@ -1163,8 +1169,10 @@ impl ProtocolCodec for Codec {
         }
     }
 
-
-    fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire) -> NetworkMessage {
+    fn encode_combat_damage_text_message(
+        &self,
+        w: &wire::CombatDamageNotifyWire,
+    ) -> NetworkMessage {
         Codec::encode_combat_damage_text_message(self, w)
     }
 

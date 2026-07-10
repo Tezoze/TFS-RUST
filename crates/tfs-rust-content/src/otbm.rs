@@ -506,5 +506,7 @@ pub fn item_id_from_otbm_item_props(raw: &[u8]) -> Option<u16> {
     if raw.len() < 2 {
         return None;
     }
-    Some(remap_create_item_stream_id(u16::from_le_bytes([raw[0], raw[1]])))
+    Some(remap_create_item_stream_id(u16::from_le_bytes([
+        raw[0], raw[1],
+    ])))
 }

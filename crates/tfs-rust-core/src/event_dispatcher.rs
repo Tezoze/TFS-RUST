@@ -6,9 +6,9 @@
 
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
+use std::any::Any;
 use tfs_rust_common::Position;
 use tfs_rust_common::ScriptContext;
-use std::any::Any;
 
 /// Talkaction dispatch result — mirrors C++ `TalkActionResult_t`
 /// (`talkaction.h:13-17`).
@@ -104,14 +104,7 @@ pub trait EventDispatcher {
     /// creaturescript body is out of scope for the chat plan (§1 non-goals) but the
     /// call site is wired now so it doesn't need revisiting later.
     // C++ reference: `Events::eventCreatureOnHear` — `gameserver/src/game.cpp:3542`.
-    fn on_hear(
-        &self,
-        _hearer: CreatureId,
-        _speaker: CreatureId,
-        _text: &str,
-        _speak_type: u8,
-    ) {
-    }
+    fn on_hear(&self, _hearer: CreatureId, _speaker: CreatureId, _text: &str, _speak_type: u8) {}
 
     /// Execute a fired `addEvent` timer callback.
     ///

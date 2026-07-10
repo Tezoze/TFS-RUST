@@ -21,12 +21,14 @@ use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::player::flags::{PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CAN_BROADCAST, PLAYER_FLAG_CAN_TALK_RED_PRIVATE};
+use crate::player::flags::{
+    PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CAN_BROADCAST, PLAYER_FLAG_CAN_TALK_RED_PRIVATE,
+};
 use crate::return_value::ReturnValue;
+use tfs_rust_net::outgoing_extra;
 use tfs_rust_net::ChannelOpenWire;
 use tfs_rust_net::CreatePrivateChannelWire;
 use tfs_rust_net::{PrivateMessageWire, ToChannelWire};
-use tfs_rust_net::outgoing_extra;
 
 /// `SpeakClasses` byte values — `gameserver/src/const.h:61-77`.
 ///
@@ -195,7 +197,10 @@ impl GameWorld {
         // check, matching C++ behavior.
         let talkaction_result = crate::lua_scope::fire_talkaction(self, cid, text);
         tracing::info!(?cid, text, ?talkaction_result, "CH-6 talkaction dispatch");
-        if matches!(talkaction_result, crate::event_dispatcher::TalkActionResult::Break) {
+        if matches!(
+            talkaction_result,
+            crate::event_dispatcher::TalkActionResult::Break
+        ) {
             return true;
         }
 
@@ -212,13 +217,10 @@ impl GameWorld {
         // Gate: vocation check — the player's vocation must be in the spell's allowed list.
         // Empty vocations list = all vocations allowed (TFS default).
         if !spell.vocations.is_empty() {
-            let player_voc_id = self
-                .creatures
-                .get(cid)
-                .and_then(|k| match k {
-                    CreatureKind::Player(p) => Some(p.vocation_id),
-                    _ => None,
-                });
+            let player_voc_id = self.creatures.get(cid).and_then(|k| match k {
+                CreatureKind::Player(p) => Some(p.vocation_id),
+                _ => None,
+            });
             let Some(voc_id) = player_voc_id else {
                 return false; // Not a player — can't cast spells.
             };
@@ -312,11 +314,15 @@ impl GameWorld {
 
         let player_guid = player.guid;
         let guild_id = self.guilds.player_guild.get(&cid).copied();
-        let party_leader = self.parties.values()
+        let party_leader = self
+            .parties
+            .values()
             .find(|p| p.leader == cid || p.members.contains(&cid))
             .map(|p| p.leader);
 
-        let channel_list = self.chat.get_channel_list(cid, Some(player_guid), guild_id, party_leader);
+        let channel_list =
+            self.chat
+                .get_channel_list(cid, Some(player_guid), guild_id, party_leader);
         let msg = outgoing_extra::send_channels_dialog_full(&channel_list);
 
         self.pending_outgoing
@@ -348,10 +354,14 @@ impl GameWorld {
         // For now, all public channels are joinable, private channels require ownership/invitation
         if !is_public {
             // Private channel: check if player is owner or invited
-            let is_owner = self.chat.get_private_channel(channel_id)
+            let is_owner = self
+                .chat
+                .get_private_channel(channel_id)
                 .map(|pc| pc.owner == cid)
                 .unwrap_or(false);
-            let is_invited = self.chat.get_private_channel(channel_id)
+            let is_invited = self
+                .chat
+                .get_private_channel(channel_id)
                 .map(|pc| pc.invited.contains(&player.guid))
                 .unwrap_or(false);
 
@@ -369,8 +379,8 @@ impl GameWorld {
         let wire = ChannelOpenWire {
             channel_id,
             name: channel_name,
-            users: Vec::new(),     // 772 ignores this
-            invited: Vec::new(),   // 772 ignores this
+            users: Vec::new(),   // 772 ignores this
+            invited: Vec::new(), // 772 ignores this
         };
         let msg = self.codec.encode_channel_open(&wire);
         self.pending_outgoing
@@ -397,7 +407,13 @@ impl GameWorld {
     /// and fans out the message to all channel members.
     ///
     /// C++ reference: `src/chat.cpp` `Chat::talkToChannel`; `chat.cpp` `ChatChannel::executeOnSpeakEvent`.
-    pub fn player_talk_to_channel(&mut self, cid: CreatureId, speak_class: u8, channel_id: u16, text: &str) {
+    pub fn player_talk_to_channel(
+        &mut self,
+        cid: CreatureId,
+        speak_class: u8,
+        channel_id: u16,
+        text: &str,
+    ) {
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
             return;
         };
@@ -481,8 +497,8 @@ impl GameWorld {
         let wire = CreatePrivateChannelWire {
             channel_id,
             name: channel_name.clone(),
-            owner_name: String::new(),  // 772 ignores this
-            invited: Vec::new(),         // 772 ignores this
+            owner_name: String::new(), // 772 ignores this
+            invited: Vec::new(),       // 772 ignores this
         };
         let msg = self.codec.encode_create_private_channel(&wire);
         self.pending_outgoing
@@ -502,8 +518,12 @@ impl GameWorld {
         };
 
         // Find a private channel owned by this player
-        let (channel_id, _private_channel) = match self.chat.private_channels.iter()
-            .find(|(_, pc)| pc.owner == cid) {
+        let (channel_id, _private_channel) = match self
+            .chat
+            .private_channels
+            .iter()
+            .find(|(_, pc)| pc.owner == cid)
+        {
             Some((id, pc)) => (*id, pc),
             None => {
                 // TODO(chat CH-4): Send "You do not own a private channel." message
@@ -522,7 +542,8 @@ impl GameWorld {
         };
 
         // Add to invited list
-        self.chat.invite_to_private_channel(channel_id, target_player.guid);
+        self.chat
+            .invite_to_private_channel(channel_id, target_player.guid);
 
         // TODO(chat CH-4): Send info text to both parties
     }
@@ -539,8 +560,12 @@ impl GameWorld {
         };
 
         // Find a private channel owned by this player
-        let (channel_id, _private_channel) = match self.chat.private_channels.iter()
-            .find(|(_, pc)| pc.owner == cid) {
+        let (channel_id, _private_channel) = match self
+            .chat
+            .private_channels
+            .iter()
+            .find(|(_, pc)| pc.owner == cid)
+        {
             Some((id, pc)) => (*id, pc),
             None => {
                 // TODO(chat CH-4): Send "You do not own a private channel." message
@@ -559,7 +584,10 @@ impl GameWorld {
         };
 
         // Remove from invited list
-        if self.chat.exclude_from_private_channel(channel_id, target_player.guid) {
+        if self
+            .chat
+            .exclude_from_private_channel(channel_id, target_player.guid)
+        {
             // Remove from channel if they were in it
             self.chat.remove_user_from_channel(channel_id, *target_id);
 
@@ -582,7 +610,12 @@ impl GameWorld {
     /// self-channel.
     ///
     /// C++ reference: `src/game.cpp` `Game::playerOpenPrivateChannel`.
-    pub fn player_open_private_channel(&mut self, conn_id: ConnId, cid: CreatureId, receiver_name: &str) {
+    pub fn player_open_private_channel(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        receiver_name: &str,
+    ) {
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
             return;
         };
@@ -596,7 +629,10 @@ impl GameWorld {
         // TODO(chat CH-4): Validate name format (IOLoginData::formatPlayerName equivalent)
 
         // Find private channel by name (owned by this player)
-        let private_channel = self.chat.private_channels.values()
+        let private_channel = self
+            .chat
+            .private_channels
+            .values()
             .find(|pc| pc.owner == cid && pc.base.name == receiver_name);
 
         if let Some(_pc) = private_channel {
@@ -732,25 +768,28 @@ impl GameWorld {
             use tfs_rust_net::outgoing_extra::send_text_message_simple;
             self.enqueue_outgoing(
                 speaker_conn,
-                send_text_message_simple(self.codec.failure_message_type(), "A player with this name is not online.").into_bytes(),
+                send_text_message_simple(
+                    self.codec.failure_message_type(),
+                    "A player with this name is not online.",
+                )
+                .into_bytes(),
             );
             return;
         };
 
-        let (target_ghost_mode, speaker_name, speaker_level) = match (
-            self.creatures.get(target_cid),
-            self.creatures.get(cid),
-        ) {
-            (Some(CreatureKind::Player(target)), Some(CreatureKind::Player(speaker))) => {
-                (target.ghost_mode, speaker.base.name.clone(), speaker.level)
-            }
-            _ => return,
-        };
+        let (target_ghost_mode, speaker_name, speaker_level) =
+            match (self.creatures.get(target_cid), self.creatures.get(cid)) {
+                (Some(CreatureKind::Player(target)), Some(CreatureKind::Player(speaker))) => {
+                    (target.ghost_mode, speaker.base.name.clone(), speaker.level)
+                }
+                _ => return,
+            };
 
         // C++ `if (type == TALKTYPE_PRIVATE_RED_TO && (player->hasFlag(PlayerFlag_CanTalkRedPrivate) || player->getAccountType() >= ACCOUNT_TYPE_GAMEMASTER))`
         // — `game.cpp:3663-3667`. Downgrade to normal private unless sender has flag or is GM.
         let actual_speak_class = if speak_class == TALKTYPE_PRIVATE_RED_TO
-            && (self.player_has_flag(cid, PLAYER_FLAG_CAN_TALK_RED_PRIVATE) || self.player_is_access_player(cid))
+            && (self.player_has_flag(cid, PLAYER_FLAG_CAN_TALK_RED_PRIVATE)
+                || self.player_is_access_player(cid))
         {
             TALKTYPE_PRIVATE_RED_FROM
         } else {
@@ -773,7 +812,8 @@ impl GameWorld {
 
             // C++ `toPlayer->onCreatureSay(player, type, text);` — `game.cpp:3670`.
             // Event hook for future talkactions/creaturescripts (CH-6).
-            self.events.on_creature_say(cid, target_cid, actual_speak_class, text);
+            self.events
+                .on_creature_say(cid, target_cid, actual_speak_class, text);
         }
 
         // C++ ghost-mode visibility check — `game.cpp:3672-3676`.
@@ -782,13 +822,21 @@ impl GameWorld {
             use tfs_rust_net::outgoing_extra::send_text_message_simple;
             self.enqueue_outgoing(
                 speaker_conn,
-                send_text_message_simple(self.codec.failure_message_type(), "A player with this name is not online.").into_bytes(),
+                send_text_message_simple(
+                    self.codec.failure_message_type(),
+                    "A player with this name is not online.",
+                )
+                .into_bytes(),
             );
         } else {
             use tfs_rust_net::outgoing_extra::send_text_message_simple;
             self.enqueue_outgoing(
                 speaker_conn,
-                send_text_message_simple(self.codec.failure_message_type(), &format!("Message sent to {}.", receiver)).into_bytes(),
+                send_text_message_simple(
+                    self.codec.failure_message_type(),
+                    &format!("Message sent to {}.", receiver),
+                )
+                .into_bytes(),
             );
         }
     }
@@ -804,7 +852,11 @@ impl GameWorld {
                 use tfs_rust_net::outgoing_extra::send_text_message_simple;
                 self.enqueue_outgoing(
                     conn,
-                    send_text_message_simple(self.codec.failure_message_type(), "You are not allowed to broadcast.").into_bytes(),
+                    send_text_message_simple(
+                        self.codec.failure_message_type(),
+                        "You are not allowed to broadcast.",
+                    )
+                    .into_bytes(),
                 );
             }
             return;
@@ -852,7 +904,10 @@ impl GameWorld {
     /// Mute duration follows the `5 * n²` formula where n is the escalation count.
     fn player_remove_message_buffer(&mut self, cid: CreatureId) {
         let (guid, has_cannot_be_muted) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => (p.guid, self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED)),
+            Some(CreatureKind::Player(p)) => (
+                p.guid,
+                self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED),
+            ),
             _ => return,
         };
 
@@ -888,7 +943,9 @@ impl GameWorld {
                     id: 0,
                     sub_id: 0,
                     ctype: ConditionType::Muted,
-                    data: ConditionData::Generic { ticks: (mute_time * 1000) as i32 },
+                    data: ConditionData::Generic {
+                        ticks: (mute_time * 1000) as i32,
+                    },
                     timer_rounds_left: None,
                 });
             }
@@ -948,10 +1005,8 @@ impl GameWorld {
     /// connection (NPC/monster target) or is no longer online.
     pub(crate) fn send_player_status_message(&mut self, cid: CreatureId, text: &str) {
         if let Some(conn) = self.conn_for_creature(cid) {
-            let msg = outgoing_extra::send_text_message_simple(
-                self.codec.status_message_type(),
-                text,
-            );
+            let msg =
+                outgoing_extra::send_text_message_simple(self.codec.status_message_type(), text);
             self.enqueue_outgoing(conn, msg.into_bytes());
         }
     }
@@ -968,10 +1023,8 @@ impl GameWorld {
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
         if let Some(conn) = self.conn_for_creature(cid) {
-            let msg = outgoing_extra::send_text_message_simple(
-                self.codec.failure_message_type(),
-                &text,
-            );
+            let msg =
+                outgoing_extra::send_text_message_simple(self.codec.failure_message_type(), &text);
             self.enqueue_outgoing(conn, msg.into_bytes());
         }
         Ok(())
@@ -983,7 +1036,7 @@ impl GameWorld {
     ///
     /// `ctype` is the Lua-facing 772 bit-flag value (e.g.
     /// `CONDITION_CHANNELMUTEDTICKS = 1<<15 = 32768`); mapped to the Rust
-    /// `ConditionType` enum via `condition_type_from_lua_772`.
+    /// `ConditionType` enum via `condition_type_from_lua`.
     pub fn lua_script_player_add_condition(
         &mut self,
         creature_u64: u64,
@@ -995,7 +1048,7 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
-        let rust_ctype = condition_type_from_lua_772(ctype);
+        let rust_ctype = condition_type_from_lua(ctype);
         let cond = ActiveCondition {
             id: 0,
             sub_id,
@@ -1020,7 +1073,7 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
-        let rust_ctype = condition_type_from_lua_772(ctype);
+        let rust_ctype = condition_type_from_lua(ctype);
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.base
                 .active_conditions
@@ -1072,27 +1125,30 @@ impl GameWorld {
 /// warning and return `ConditionType::None` (no-op).
 ///
 /// C++ reference: `enums.h:249-269` `ConditionType_t` (772 bit flags).
-pub(crate) fn condition_type_from_lua_772(ctype: i32) -> ConditionType {
+pub(crate) fn condition_type_from_lua(ctype: i32) -> ConditionType {
     match ctype {
         0 => ConditionType::None,
-        1 => ConditionType::Poison,       // 1 << 0
-        2 => ConditionType::Fire,         // 1 << 1
-        4 => ConditionType::Energy,       // 1 << 2
-        8 => ConditionType::Bleeding,     // 1 << 3
-        16 => ConditionType::Haste,       // 1 << 4
-        32 => ConditionType::Paralyze,    // 1 << 5
-        64 => ConditionType::Outfit,      // 1 << 6
-        128 => ConditionType::Invisible,  // 1 << 7
-        256 => ConditionType::Light,      // 1 << 8
-        512 => ConditionType::ManaShield, // 1 << 9
-        1024 => ConditionType::Infight,   // 1 << 10
-        2048 => ConditionType::Drunk,     // 1 << 11
-        16384 => ConditionType::Muted,           // 1 << 14
+        1 => ConditionType::Poison,                // 1 << 0
+        2 => ConditionType::Fire,                  // 1 << 1
+        4 => ConditionType::Energy,                // 1 << 2
+        8 => ConditionType::Bleeding,              // 1 << 3
+        16 => ConditionType::Haste,                // 1 << 4
+        32 => ConditionType::Paralyze,             // 1 << 5
+        64 => ConditionType::Outfit,               // 1 << 6
+        128 => ConditionType::Invisible,           // 1 << 7
+        256 => ConditionType::Light,               // 1 << 8
+        512 => ConditionType::ManaShield,          // 1 << 9
+        1024 => ConditionType::Infight,            // 1 << 10
+        2048 => ConditionType::Drunk,              // 1 << 11
+        16384 => ConditionType::Muted,             // 1 << 14
         32768 => ConditionType::ChannelMutedTicks, // 1 << 15
-        65536 => ConditionType::YellTicks,       // 1 << 16
-        131072 => ConditionType::Attributes,     // 1 << 17
+        65536 => ConditionType::YellTicks,         // 1 << 16
+        131072 => ConditionType::Attributes,       // 1 << 17
         other => {
-            tracing::warn!(ctype = other, "unknown 772 ConditionType bit-flag; mapping to None");
+            tracing::warn!(
+                ctype = other,
+                "unknown 772 ConditionType bit-flag; mapping to None"
+            );
             ConditionType::None
         }
     }

@@ -2,6 +2,7 @@
 //! Phase A1 regression gate — bytes must match pre-codec output.
 // C++ reference: `src/protocolgame.cpp` (`ProtocolGame::send*`).
 
+use std::collections::HashSet;
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::codec::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, Codec, Codec1098,
@@ -9,7 +10,6 @@ use tfs_rust_net::codec::{
     CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, OutfitWire,
     PlayerSkillsWire, PlayerStatsWire,
 };
-use std::collections::HashSet;
 
 use tfs_rust_net::creature_encode::write_add_creature;
 use tfs_rust_net::map_description::{
@@ -43,26 +43,21 @@ fn magic_effect_encoding() {
     let m = send_magic_effect(pos, 7);
     assert_eq!(m.as_bytes(), &[0x83, 0x02, 0x01, 0x04, 0x03, 0x05, 0x07]);
     let via_codec = codec()
-        .encode_magic_effect(&MagicEffectWire {
-            pos,
-            effect_id: 7,
-        })
+        .encode_magic_effect(&MagicEffectWire { pos, effect_id: 7 })
         .into_bytes();
     assert_eq!(via_codec, m.as_bytes());
 }
 
 #[test]
 fn animated_text_1098_has_no_equivalent() {
-    assert!(
-        codec()
-            .encode_animated_text(&AnimatedTextWire {
-                pos: Position::new(1, 2, 3),
-                color: 180,
-                text: "9".to_string(),
-            })
-            .into_bytes()
-            .is_empty()
-    );
+    assert!(codec()
+        .encode_animated_text(&AnimatedTextWire {
+            pos: Position::new(1, 2, 3),
+            color: 180,
+            text: "9".to_string(),
+        })
+        .into_bytes()
+        .is_empty());
 }
 
 #[test]
@@ -96,9 +91,7 @@ fn distance_shoot_encoding() {
     let m = send_distance_shoot(from, to, 6);
     assert_eq!(
         m.as_bytes(),
-        &[
-            0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 6
-        ]
+        &[0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 6]
     );
     let via_codec = codec()
         .encode_distance_shoot(&DistanceShootWire {
@@ -259,10 +252,7 @@ fn outfit_looktype_via_codec() {
     };
     let mut m = NetworkMessage::new();
     codec().write_outfit(&mut m, &o);
-    assert_eq!(
-        m.as_bytes(),
-        &[128, 0, 1, 2, 3, 4, 0, 0, 0]
-    );
+    assert_eq!(m.as_bytes(), &[128, 0, 1, 2, 3, 4, 0, 0, 0]);
 }
 
 #[test]
@@ -288,7 +278,33 @@ fn player_stats_packet_via_codec() {
     };
     let b = codec().encode_player_stats(&stats).as_bytes().to_vec();
     assert_eq!(b[0], 0xA0);
-    assert_eq!(b.len(), 1 + 2 + 2 + 4 + 4 + 8 + 2 + 1 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 1 + 2 + 2 + 2 + 2 + 2 + 1);
+    assert_eq!(
+        b.len(),
+        1 + 2
+            + 2
+            + 4
+            + 4
+            + 8
+            + 2
+            + 1
+            + 2
+            + 2
+            + 2
+            + 2
+            + 2
+            + 2
+            + 2
+            + 1
+            + 1
+            + 1
+            + 1
+            + 2
+            + 2
+            + 2
+            + 2
+            + 2
+            + 1
+    );
 }
 
 #[test]
@@ -331,9 +347,10 @@ fn encode_add_tile_item_matches_deprecated_helper() {
         is_animation: false,
         with_description: false,
     };
-    let via_codec = codec().encode_add_tile_item(pos, 2, args, false).into_bytes();
-    let via_legacy =
-        Codec1098.encode_add_tile_item(pos, 2, args).into_bytes();
+    let via_codec = codec()
+        .encode_add_tile_item(pos, 2, args, false)
+        .into_bytes();
+    let via_legacy = Codec1098.encode_add_tile_item(pos, 2, args).into_bytes();
     assert_eq!(via_codec, via_legacy);
     assert_eq!(via_codec[0], 0x6A);
 }
@@ -375,10 +392,10 @@ fn container_open_1098_layout() {
             0x6E, 3, // opcode + cid
             0xBE, 0x0B, 0xFF, // header item: clientId + MARK
             0x03, 0x00, b'b', b'a', b'g', // name
-            8, // capacity
-            0, // hasParent
-            1, // unlocked
-            0, // pagination
+            8,    // capacity
+            0,    // hasParent
+            1,    // unlocked
+            0,    // pagination
             1, 0, // total size
             0, 0, // first index
             1, // items to send
@@ -410,10 +427,7 @@ fn remove_container_item_1098_layout() {
 fn channels_dialog_1098_layout() {
     let b = codec()
         .encode_channels_dialog(&ChannelsDialogWire {
-            channels: vec![
-                (4, "Game-Chat".to_string()),
-                (7, "Help".to_string()),
-            ],
+            channels: vec![(4, "Game-Chat".to_string()), (7, "Help".to_string())],
         })
         .into_bytes();
     assert_eq!(
@@ -491,7 +505,8 @@ fn create_private_channel_1098_layout() {
         b,
         vec![
             0xB2, 0x00, 0x01, // opcode + channel id
-            10, 0, b'M', b'y', b' ', b'C', b'h', b'a', b'n', b'n', b'e', b'l', // name (10 chars)
+            10, 0, b'M', b'y', b' ', b'C', b'h', b'a', b'n', b'n', b'e',
+            b'l', // name (10 chars)
             1, 0, // owner count (always 1)
             5, 0, b'A', b'l', b'i', b'c', b'e', // owner name
             1, 0, // invited count
@@ -650,8 +665,8 @@ mod v772 {
                 21, 0, 1, 2, 3, 4, // outfit (no addons / mount)
                 7, 215, // light level + color (raw, no 0xFF substitution)
                 220, 0, // full step speed (not halved)
-                0,   // skull
-                0,   // party shield
+                0, // skull
+                0, // party shield
             ]
         );
         assert_eq!(
@@ -713,12 +728,12 @@ mod v772 {
                 150, 0, // max health
                 0x90, 0x01, // capacity 400 (40000/100)
                 0x68, 0x10, 0x00, 0x00, // experience 4200 u32
-                8, 0, // level
-                50,   // level %
+                8, 0,  // level
+                50, // level %
                 35, 0, // mana
-                35, 0, // max mana
-                3,  // magic level
-                25, // magic level %
+                35, 0,   // max mana
+                3,   // magic level
+                25,  // magic level %
                 100, // soul
             ]
         );
@@ -774,11 +789,10 @@ mod v772 {
     /// Self-appear (`0x0A`): id + `u16` beat (from `MechanicsProfile::beat_ms`, 200 for 772) + `u8` canReportBugs.
     #[test]
     fn self_appear_772_layout() {
-        let b = codec().encode_self_appear_login(0x11223344, 200).into_bytes();
-        assert_eq!(
-            b,
-            vec![0x0A, 0x44, 0x33, 0x22, 0x11, 0xC8, 0x00, 0x00]
-        );
+        let b = codec()
+            .encode_self_appear_login(0x11223344, 200)
+            .into_bytes();
+        assert_eq!(b, vec![0x0A, 0x44, 0x33, 0x22, 0x11, 0xC8, 0x00, 0x00]);
     }
 
     /// `sendAddContainerItem` (`0x70`): cid + item — no slot index (10.x adds `u16`).
@@ -807,7 +821,9 @@ mod v772 {
             is_animation: false,
             with_description: false,
         };
-        let b = codec().encode_update_container_item(2, 6, args).into_bytes();
+        let b = codec()
+            .encode_update_container_item(2, 6, args)
+            .into_bytes();
         assert_eq!(b, vec![0x71, 2, 6, 0x34, 0x12]);
     }
 
@@ -818,7 +834,6 @@ mod v772 {
         let b = codec().encode_remove_container_item(2, 6).into_bytes();
         assert_eq!(b, vec![0x72, 2, 6]);
     }
-
 
     /// `sendInventoryItem` (`0x78`): slot + item.
     #[test]
@@ -847,7 +862,9 @@ mod v772 {
             is_animation: false,
             with_description: false,
         };
-        let b = codec().encode_add_tile_item(pos, 2, args, false).into_bytes();
+        let b = codec()
+            .encode_add_tile_item(pos, 2, args, false)
+            .into_bytes();
         assert_eq!(b, vec![0x6A, 0x02, 0x01, 0x04, 0x03, 0x05, 0x34, 0x12, 3]);
     }
 
@@ -918,7 +935,10 @@ mod v772 {
             with_description: false,
         };
         let b = codec().encode_update_tile_item(pos, 2, args).into_bytes();
-        assert_eq!(b, vec![0x6B, 0x02, 0x01, 0x04, 0x03, 0x05, 0x02, 0x34, 0x12]);
+        assert_eq!(
+            b,
+            vec![0x6B, 0x02, 0x01, 0x04, 0x03, 0x05, 0x02, 0x34, 0x12]
+        );
     }
 
     /// `RemoveTileThing` (`0x6C`): position + `u8` stackpos.
@@ -997,9 +1017,9 @@ mod v772 {
                 0x6E, 3, // opcode + cid
                 0xBE, 0x0B, // header item: clientId only (no MARK in 7.72)
                 0x03, 0x00, b'b', b'a', b'g', // name
-                8, // capacity
-                0, // hasParent
-                1, // items to send
+                8,    // capacity
+                0,    // hasParent
+                1,    // items to send
                 0x00, 0x0C, 5, // child: clientId + count (stackable, no MARK)
             ]
         );
@@ -1039,7 +1059,10 @@ mod v772 {
     /// 7.72 has no `sendBasicData` / by-id tile removal — encoders return empty (skipped by core).
     #[test]
     fn no_equivalent_packets_are_empty() {
-        assert!(codec().encode_basic_data(true, 1234, 1).into_bytes().is_empty());
+        assert!(codec()
+            .encode_basic_data(true, 1234, 1)
+            .into_bytes()
+            .is_empty());
         assert!(codec()
             .encode_remove_tile_creature_by_id(42)
             .into_bytes()
@@ -1077,9 +1100,7 @@ mod v772 {
             .into_bytes();
         assert_eq!(
             b,
-            vec![
-                0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 11
-            ]
+            vec![0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 11]
         );
     }
 
@@ -1097,8 +1118,8 @@ mod v772 {
         assert_eq!(
             b,
             vec![
-                0xB4, 0x14, 0x15, 0x00, b'Y', b'o', b'u', b' ', b'l', b'o', b's', b'e', b' ',
-                b'5', b' ', b'h', b'i', b't', b'p', b'o', b'i', b'n', b't', b's', b'.'
+                0xB4, 0x14, 0x15, 0x00, b'Y', b'o', b'u', b' ', b'l', b'o', b's', b'e', b' ', b'5',
+                b' ', b'h', b'i', b't', b'p', b'o', b'i', b'n', b't', b's', b'.'
             ]
         );
     }
@@ -1112,17 +1133,14 @@ mod v772 {
     fn channels_dialog_772_layout() {
         let b = codec()
             .encode_channels_dialog(&ChannelsDialogWire {
-                channels: vec![
-                    (4, "Game-Chat".to_string()),
-                    (7, "Help".to_string()),
-                ],
+                channels: vec![(4, "Game-Chat".to_string()), (7, "Help".to_string())],
             })
             .into_bytes();
         assert_eq!(
             b,
             vec![
-                0xAB, 2, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',
-                7, 0, 4, 0, b'H', b'e', b'l', b'p',
+                0xAB, 2, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't', 7, 0, 4,
+                0, b'H', b'e', b'l', b'p',
             ]
         );
     }
@@ -1134,8 +1152,7 @@ mod v772 {
         let via_codec = codec()
             .encode_channels_dialog(&ChannelsDialogWire::default())
             .into_bytes();
-        let via_legacy =
-            tfs_rust_net::outgoing_extra::send_channels_dialog_count().into_bytes();
+        let via_legacy = tfs_rust_net::outgoing_extra::send_channels_dialog_count().into_bytes();
         assert_eq!(via_codec, vec![0xAB, 0]);
         assert_eq!(via_codec, via_legacy);
     }
@@ -1154,9 +1171,7 @@ mod v772 {
             .into_bytes();
         assert_eq!(
             b,
-            vec![
-                0xAC, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',
-            ]
+            vec![0xAC, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',]
         );
     }
 
@@ -1265,7 +1280,15 @@ fn notify_go_bytes(codec: &Codec, orig: Position, dest: Position) -> Vec<u8> {
     let mut get_tile = empty_get_tile;
     let mut can_see = empty_can_see_creature;
     send_notify_go(
-        codec, orig, dest, 0, NOTIFY_GO_CID, &mut get_tile, &mut known, &mut can_see, false,
+        codec,
+        orig,
+        dest,
+        0,
+        NOTIFY_GO_CID,
+        &mut get_tile,
+        &mut known,
+        &mut can_see,
+        false,
     )
     .into_bytes()
 }
@@ -1307,7 +1330,11 @@ mod v1098_floor_change {
         let b = move_creature_player_bytes(&codec(), old, new, 0, CID);
         assert_eq!(b[0], 0x6D, "1098 underground→surface must emit 0x6D move");
         // Self-packet is 12 bytes: 0x6D + old_pos(5) + stack(1) + new_pos(5).
-        assert_eq!(b.len(), 31, "1098 ladder-up: self-packet(12) + map body(19)");
+        assert_eq!(
+            b.len(),
+            31,
+            "1098 ladder-up: self-packet(12) + map body(19)"
+        );
         assert_eq!(b[12], 0xBE);
     }
 
@@ -1321,7 +1348,11 @@ mod v1098_floor_change {
         let b = move_creature_player_bytes(&codec(), old, new, 0, CID);
         assert_eq!(b[0], 0x6C);
         assert_eq!(b[7], 0xBF);
-        assert_eq!(b.len(), 23, "1098 stairs-down-diag: self-packet(7) + map body(16)");
+        assert_eq!(
+            b.len(),
+            23,
+            "1098 stairs-down-diag: self-packet(7) + map body(16)"
+        );
         // The outer loop adds one more 0x67 (south) for oy < ny.
         let map_body = &b[7..];
         let south_count = map_body.iter().filter(|&&x| x == 0x67).count();
@@ -1341,9 +1372,16 @@ mod v1098_floor_change {
         let new = Position::new(101, 100, 7);
         let b = move_creature_player_bytes(&codec(), old, new, 0, CID);
         assert_eq!(b[0], 0x6D);
-        assert_eq!(b.len(), 15, "1098 same-z east: self-packet(12) + 0x66 + col body(2)");
+        assert_eq!(
+            b.len(),
+            15,
+            "1098 same-z east: self-packet(12) + 0x66 + col body(2)"
+        );
         // Byte 12 is the first map opcode (0x66). Bytes 7-11 are new_pos in the self-packet.
-        assert_eq!(b[12], 0x66, "same-z east: after self-packet, first opcode is 0x66");
+        assert_eq!(
+            b[12], 0x66,
+            "same-z east: after self-packet, first opcode is 0x66"
+        );
     }
 
     /// Teleport (1098): remove + map description. Tested at the net level —
@@ -1408,7 +1446,11 @@ mod v772_floor_change {
     /// (SendFloors down), then `0x66` east + `0x67` south from the diagonal unwind.
     #[test]
     fn hole_down_self_packet_then_floors() {
-        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), Position::new(100, 100, 8));
+        let b = notify_go_bytes(
+            &codec_772(),
+            Position::new(100, 100, 7),
+            Position::new(100, 100, 8),
+        );
         let off = assert_self_packet_then_stream(&b);
         assert_eq!(b[off], 0xBF, "hole down leads with SendFloors down (0xBF)");
     }
@@ -1416,7 +1458,11 @@ mod v772_floor_change {
     /// Ladder straight up (100,100,8)→(100,100,7): 0x6D self-packet, then `0xBE`.
     #[test]
     fn ladder_up_self_packet_then_floors() {
-        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 8), Position::new(100, 100, 7));
+        let b = notify_go_bytes(
+            &codec_772(),
+            Position::new(100, 100, 8),
+            Position::new(100, 100, 7),
+        );
         let off = assert_self_packet_then_stream(&b);
         assert_eq!(b[off], 0xBE, "ladder up leads with SendFloors up (0xBE)");
     }
@@ -1424,7 +1470,11 @@ mod v772_floor_change {
     /// Same-z east step (100,100,7)→(101,100,7): 0x6D self-packet, then a lone `SendRow` east (0x66).
     #[test]
     fn same_z_east_self_packet_then_row() {
-        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), Position::new(101, 100, 7));
+        let b = notify_go_bytes(
+            &codec_772(),
+            Position::new(100, 100, 7),
+            Position::new(101, 100, 7),
+        );
         let off = assert_self_packet_then_stream(&b);
         assert_eq!(b[off], 0x66, "same-z east is a lone SendRow east (0x66)");
     }
@@ -1437,13 +1487,24 @@ mod v772_floor_change {
     #[test]
     fn west_vs_north_onto_south_stairs_differ() {
         // North approach: start south of the stair, overall (100,101,8)→(100,101,7) — pure vertical.
-        let north = notify_go_bytes(&codec_772(), Position::new(100, 101, 8), Position::new(100, 101, 7));
+        let north = notify_go_bytes(
+            &codec_772(),
+            Position::new(100, 101, 8),
+            Position::new(100, 101, 7),
+        );
         // West approach: start east of the stair, overall (101,100,8)→(100,101,7) — dx=1, dy=1, dz=1.
-        let west = notify_go_bytes(&codec_772(), Position::new(101, 100, 8), Position::new(100, 101, 7));
+        let west = notify_go_bytes(
+            &codec_772(),
+            Position::new(101, 100, 8),
+            Position::new(100, 101, 7),
+        );
 
         let n_off = assert_self_packet_then_stream(&north);
         let w_off = assert_self_packet_then_stream(&west);
-        assert_eq!(north[n_off], 0xBE, "north approach leads with SendFloors up");
+        assert_eq!(
+            north[n_off], 0xBE,
+            "north approach leads with SendFloors up"
+        );
         assert_eq!(west[w_off], 0xBE, "west approach leads with SendFloors up");
         assert_ne!(
             north, west,
@@ -1454,8 +1515,15 @@ mod v772_floor_change {
     /// Non-adjacent move (dz > 1): 0x6D self-packet, then `SendFullScreen` (0x64).
     #[test]
     fn non_adjacent_self_packet_then_full_screen() {
-        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), Position::new(100, 100, 9));
+        let b = notify_go_bytes(
+            &codec_772(),
+            Position::new(100, 100, 7),
+            Position::new(100, 100, 9),
+        );
         let off = assert_self_packet_then_stream(&b);
-        assert_eq!(b[off], 0x64, "non-adjacent NotifyGo uses SendFullScreen (0x64)");
+        assert_eq!(
+            b[off], 0x64,
+            "non-adjacent NotifyGo uses SendFullScreen (0x64)"
+        );
     }
 }

@@ -24,8 +24,8 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::inventory::{
     slot_type_for_item_type, InventorySlot, PLAYER_INVENTORY_SLOT_FIRST,
-    PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB, WEAPON_DISTANCE,
-    WEAPON_NONE, WEAPON_SHIELD, WEAPON_SWORD,
+    PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB, WEAPON_DISTANCE, WEAPON_NONE,
+    WEAPON_SHIELD, WEAPON_SWORD,
 };
 
 /// Skill index used by `ProbeValue` — C++ `SKILL_*` (`enums.hh:555-566`).
@@ -269,19 +269,14 @@ mod tests {
     use tfs_rust_content::otb::ItemType;
 
     /// Insert an item into the world + items_db, equip it in `slot`.
-    fn equip_item(
-        world: &mut GameWorld,
-        cid: CreatureId,
-        slot: u8,
-        item_type: u16,
-        it: ItemType,
-    ) {
+    fn equip_item(world: &mut GameWorld, cid: CreatureId, slot: u8, item_type: u16, it: ItemType) {
         // Register the ItemType if not already present.
         if !world.items_db.items.contains_key(&item_type) {
             let mut items = std::collections::HashMap::clone(&world.items_db.items);
             items.insert(item_type, it);
             // Rebuild the Arc — tests own the only reference.
-            let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
             world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
                 items,
                 client_to_server,
@@ -382,7 +377,13 @@ mod tests {
             Position::new(100, 100, 7),
         )));
         // Bow in Left slot, arrows in Ammo slot.
-        equip_item(&mut world, cid, InventorySlot::Left as u8, 2456, make_bow(2456, 2));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 2),
+        );
         equip_item(
             &mut world,
             cid,
@@ -430,7 +431,13 @@ mod tests {
             2377,
             make_weapon(2377, WEAPON_SWORD, 15, 8),
         );
-        equip_item(&mut world, cid, InventorySlot::Right as u8, 2513, make_shield(2513, 22));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Right as u8,
+            2513,
+            make_shield(2513, 22),
+        );
         let (value, skill) = world.player_get_defend_value(cid);
         assert_eq!(value, 22); // shield defense takes priority
         assert_eq!(skill, SkillNr::Shielding);
@@ -462,7 +469,13 @@ mod tests {
             "Hero",
             Position::new(100, 100, 7),
         )));
-        equip_item(&mut world, cid, InventorySlot::Left as u8, 2456, make_bow(2456, 2));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 2),
+        );
         let (value, skill) = world.player_get_defend_value(cid);
         assert_eq!(value, 0); // bow reduces defense to 0
         assert_eq!(skill, SkillNr::Distance);
@@ -487,7 +500,7 @@ mod tests {
             "Hero",
             Position::new(100, 100, 7),
         )));
-        use crate::inventory::{SLOTP_HEAD, SLOTP_ARMOR, SLOTP_LEGS};
+        use crate::inventory::{SLOTP_ARMOR, SLOTP_HEAD, SLOTP_LEGS};
         equip_item(
             &mut world,
             cid,
@@ -530,7 +543,10 @@ mod tests {
         assert_eq!(SkillNr::from_weapon_type(WEAPON_CLUB), SkillNr::Club);
         assert_eq!(SkillNr::from_weapon_type(WEAPON_AXE), SkillNr::Axe);
         assert_eq!(SkillNr::from_weapon_type(WEAPON_SHIELD), SkillNr::Shielding);
-        assert_eq!(SkillNr::from_weapon_type(WEAPON_DISTANCE), SkillNr::Distance);
+        assert_eq!(
+            SkillNr::from_weapon_type(WEAPON_DISTANCE),
+            SkillNr::Distance
+        );
         assert_eq!(SkillNr::from_weapon_type(WEAPON_AMMO), SkillNr::Distance);
         assert_eq!(SkillNr::from_weapon_type(WEAPON_NONE), SkillNr::Fist);
     }

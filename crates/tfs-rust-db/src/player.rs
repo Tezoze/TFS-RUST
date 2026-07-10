@@ -184,19 +184,15 @@ impl<'a> PlayerStore<'a> {
                     // `accounts.type` is the account-level access tier (`enums.h:80-85`).
                     // C++ `iologindata.cpp` `gameworldAuthentication` selects both from the
                     // same `accounts` row — fold into one query to avoid a second round-trip.
-                    let row: (Option<u32>, Option<i32>) = sqlx::query_as(
-                        "SELECT premium_ends_at, type FROM accounts WHERE id = ?",
-                    )
-                    .bind(account_id)
-                    .fetch_one(&pool)
-                    .await?;
+                    let row: (Option<u32>, Option<i32>) =
+                        sqlx::query_as("SELECT premium_ends_at, type FROM accounts WHERE id = ?")
+                            .bind(account_id)
+                            .fetch_one(&pool)
+                            .await?;
                     let prem = row.0.unwrap_or(0);
                     // `accounts.type` defaults to `ACCOUNT_TYPE_NORMAL` (1) when NULL/absent
                     // (matches C++ `account_type_t::ACCOUNT_TYPE_NORMAL` fallback).
-                    let atype = row
-                        .1
-                        .unwrap_or(1)
-                        .clamp(0, i32::from(u8::MAX)) as u8;
+                    let atype = row.1.unwrap_or(1).clamp(0, i32::from(u8::MAX)) as u8;
                     Ok((prem, atype))
                 }
             })

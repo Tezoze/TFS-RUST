@@ -13,7 +13,6 @@ pub use account::{
     gameworld_authentication, gameworld_authentication_by_number, loginserver_authentication,
     loginserver_authentication_by_number,
 };
-pub use password::{hash_bcrypt, hash_bcrypt_async, sha1_password_hex, PasswordHashConfig};
 pub use house::{HouseListRow, HouseStore, TileStoreRow};
 pub use items::{ItemRecord, ItemStore, ItemTable};
 pub use market::{
@@ -21,6 +20,7 @@ pub use market::{
     MarketStore,
 };
 pub use migrations::{default_migrations_dir, resolve_migrations_dir, run_migrations};
+pub use password::{hash_bcrypt, hash_bcrypt_async, sha1_password_hex, PasswordHashConfig};
 pub use player::{
     GuildMembershipRow, LoadedPlayerData, PlayerItemPayload, PlayerRecord, PlayerSaveData,
     PlayerStore, VipEntry,

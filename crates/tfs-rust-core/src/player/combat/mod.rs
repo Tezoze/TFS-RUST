@@ -32,7 +32,7 @@ use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::ConnId;
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
-use crate::creature::{CreatureKind, ChaseMode};
+use crate::creature::{ChaseMode, CreatureKind};
 use crate::creature_todo::{trace_creature_todo, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::GameWorld;
 use crate::idle_stimulus::TodoExecuteKind;
@@ -252,7 +252,11 @@ impl GameWorld {
         }
 
         // `Following ⇒ ChaseMode = CHASE_MODE_CLOSE` (`crcombat.cc:493-495`).
-        let effective_chase = if following { ChaseMode::Close } else { chase_mode };
+        let effective_chase = if following {
+            ChaseMode::Close
+        } else {
+            chase_mode
+        };
 
         if effective_chase == ChaseMode::Close {
             if cheb > 1 {
@@ -373,10 +377,8 @@ impl GameWorld {
                 // bodies live in `player/combat/strike.rs` (melee) and `player/combat/ranged.rs`
                 // (ranged); both handle `DelayAttack(200)` before + `DelayAttack(attackspeed)`
                 // after, damage/defense/armor, `ActivateLearning`, and `StopAttack` on death.
-                if let Some(target_id) = self
-                    .creatures
-                    .get(cid)
-                    .and_then(|k| k.base().attack_target)
+                if let Some(target_id) =
+                    self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
                     let weapon_range = self.player_weapon_range(cid);
                     if weapon_range >= 2 {
@@ -399,10 +401,8 @@ impl GameWorld {
                 // `WandAttack`. The strike body lives in `player/combat/ranged.rs`; it handles
                 // range/LoS checks, mana/ammo consumption, damage, `ActivateLearning`, and
                 // `StopAttack` on target death.
-                if let Some(target_id) = self
-                    .creatures
-                    .get(cid)
-                    .and_then(|k| k.base().attack_target)
+                if let Some(target_id) =
+                    self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
                     self.player_ranged_attack_strike(cid, target_id);
                 }
@@ -467,8 +467,8 @@ impl GameWorld {
             .get(cid)
             .map(|k| k.position())
             .unwrap_or(target_pos);
-        let in_pz = self.tile_in_protection_zone(master_pos)
-            || self.tile_in_protection_zone(target_pos);
+        let in_pz =
+            self.tile_in_protection_zone(master_pos) || self.tile_in_protection_zone(target_pos);
         if in_pz {
             return CombatResult::ProtectionZone;
         }
@@ -478,8 +478,7 @@ impl GameWorld {
         }
         // Invisible creature target — `crcombat.cc:417-422` (player vs non-player).
         if self.creatures.get(target_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
-                && k.base().is_invisible()
+            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_)) && k.base().is_invisible()
         }) {
             return CombatResult::TargetLost;
         }

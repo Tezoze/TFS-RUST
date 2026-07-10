@@ -278,15 +278,12 @@ impl EventDispatcher for LuaEventDispatcher {
         let Some((entry, param)) = self.talkactions.find_match(text) else {
             return TalkActionResult::NotMatched;
         };
-        match self
-            .runtime
-            .call_talkaction_on_say(
-                &entry.on_say,
-                creature.data().as_ffi(),
-                &entry.words,
-                &param,
-            )
-        {
+        match self.runtime.call_talkaction_on_say(
+            &entry.on_say,
+            creature.data().as_ffi(),
+            &entry.words,
+            &param,
+        ) {
             Ok(true) => TalkActionResult::Continue,
             Ok(false) => TalkActionResult::Break,
             Err(e) => {

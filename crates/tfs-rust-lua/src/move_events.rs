@@ -49,10 +49,7 @@ impl MoveEventsRegistry {
     /// Load `movements/lib/movements.lua` and ensure default equip globals exist.
     ///
     /// C++ ref: `MoveEvents::load` loads lib before XML callback registration.
-    fn ensure_movement_globals(
-        runtime: &mut LuaRuntime,
-        data_dir: &Path,
-    ) -> Result<(), LuaError> {
+    fn ensure_movement_globals(runtime: &mut LuaRuntime, data_dir: &Path) -> Result<(), LuaError> {
         let lib_path = data_dir.join("movements/lib/movements.lua");
         if lib_path.exists() {
             let path_string = lib_path.display().to_string();
@@ -116,8 +113,8 @@ end
             function: Option<String>,
         }
 
-        let parsed: MovementsXml = quick_xml::de::from_str(&xml)
-            .map_err(|e| LuaError::SyntaxError(e.to_string()))?;
+        let parsed: MovementsXml =
+            quick_xml::de::from_str(&xml).map_err(|e| LuaError::SyntaxError(e.to_string()))?;
 
         for mv in parsed.movevents {
             let Some(function) = mv.function else {

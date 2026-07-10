@@ -57,12 +57,10 @@ impl GroupDatabase {
         let root = load_data_table(&lua, path)?;
         require_schema(&root, GROUPS_SCHEMA)?;
 
-        let groups_value = root
-            .get("groups")
-            .map_err(|e| TfsRustError::Content {
-                file: path.to_string_lossy().into_owned(),
-                message: format!("missing 'groups' array: {e}"),
-            })?;
+        let groups_value = root.get("groups").map_err(|e| TfsRustError::Content {
+            file: path.to_string_lossy().into_owned(),
+            message: format!("missing 'groups' array: {e}"),
+        })?;
         let defs: Vec<Group> = lua
             .from_value(groups_value)
             .map_err(|e| TfsRustError::Content {
@@ -189,10 +187,7 @@ fn load_xml_for_golden_test(path: &Path) -> Result<Vec<Group>> {
 /// Returns `(id, Group)` so the caller can decide whether to set
 /// `current_group_id` (Start has `<flags>` children; Empty does not).
 #[cfg(test)]
-fn parse_group_attrs(
-    e: &quick_xml::events::BytesStart,
-    path: &Path,
-) -> Result<(u16, Group)> {
+fn parse_group_attrs(e: &quick_xml::events::BytesStart, path: &Path) -> Result<(u16, Group)> {
     let mut id = None;
     let mut name = String::new();
     let mut access = false;
@@ -254,13 +249,21 @@ mod tests {
             .join("defs")
             .join("groups.lua");
         if !path.is_file() {
-            eprintln!("skipping golden_parse_groups_lua — {} not found", path.display());
+            eprintln!(
+                "skipping golden_parse_groups_lua — {} not found",
+                path.display()
+            );
             return;
         }
         let reg = GroupDatabase::load(&path).expect("load groups.lua");
 
         // 6 groups shipped.
-        assert_eq!(reg.groups.len(), 6, "expected 6 groups, got {}", reg.groups.len());
+        assert_eq!(
+            reg.groups.len(),
+            6,
+            "expected 6 groups, got {}",
+            reg.groups.len()
+        );
 
         let player = reg.groups.get(&1).expect("player group");
         assert_eq!(player.name, "player");
@@ -296,9 +299,7 @@ mod tests {
     /// (`DATA_FORMAT_MIGRATION.md` "golden equivalence").
     #[test]
     fn dual_load_xml_lua_equivalence() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..");
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
         let lua_path = manifest.join("data").join("defs").join("groups.lua");
         let xml_path = manifest.join("data").join("XML").join("groups.xml");
         if !lua_path.is_file() || !xml_path.is_file() {
@@ -321,15 +322,25 @@ mod tests {
                 .get(&xml_def.id)
                 .unwrap_or_else(|| panic!("group {} missing from lua", xml_def.id));
             assert_eq!(lua_def.id, xml_def.id, "id mismatch");
-            assert_eq!(lua_def.name, xml_def.name, "name mismatch for id {}", xml_def.id);
-            assert_eq!(lua_def.access, xml_def.access, "access mismatch for id {}", xml_def.id);
+            assert_eq!(
+                lua_def.name, xml_def.name,
+                "name mismatch for id {}",
+                xml_def.id
+            );
+            assert_eq!(
+                lua_def.access, xml_def.access,
+                "access mismatch for id {}",
+                xml_def.id
+            );
             assert_eq!(
                 lua_def.max_depot_items, xml_def.max_depot_items,
-                "max_depot_items mismatch for id {}", xml_def.id
+                "max_depot_items mismatch for id {}",
+                xml_def.id
             );
             assert_eq!(
                 lua_def.max_vip_entries, xml_def.max_vip_entries,
-                "max_vip_entries mismatch for id {}", xml_def.id
+                "max_vip_entries mismatch for id {}",
+                xml_def.id
             );
             assert_eq!(
                 lua_def.flags, xml_def.flags,

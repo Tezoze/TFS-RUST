@@ -68,9 +68,9 @@ pub fn decrypt_xtea_game_body<'a>(
 
     // Inner length prefix sits at the start of the decrypted region.
     let v = u16::from_le_bytes([body[cipher_off], body[cipher_off + 1]]) as usize;
-    let total = v.checked_add(2).ok_or_else(|| {
-        TfsRustError::Protocol("inner length overflow (v + 2)".into())
-    })?;
+    let total = v
+        .checked_add(2)
+        .ok_or_else(|| TfsRustError::Protocol("inner length overflow (v + 2)".into()))?;
     if total > cipher_len {
         return Err(TfsRustError::Protocol(
             "inner length overflow vs cipher block".into(),
@@ -191,7 +191,10 @@ mod encrypt_tests {
         let frame = encrypt_xtea_game_frame(&payload, &keys, &caps);
         // 772 frame has no 4-byte Adler header: body == ciphertext only.
         let bl = u16::from_le_bytes([frame[0], frame[1]]) as usize;
-        assert!(bl.is_multiple_of(8), "772 body is pure XTEA blocks, no checksum");
+        assert!(
+            bl.is_multiple_of(8),
+            "772 body is pure XTEA blocks, no checksum"
+        );
         let mut body = frame[2..2 + bl].to_vec();
         let plain = decrypt_xtea_game_body(&mut body, &keys, &caps).expect("decrypt");
         assert_eq!(plain, payload);

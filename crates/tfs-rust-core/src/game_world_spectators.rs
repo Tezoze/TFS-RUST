@@ -190,14 +190,9 @@ impl GameWorld {
     ) -> Vec<(ConnId, CreatureId, Position)> {
         let mut creature_ids: Vec<CreatureId> = Vec::new();
         for z in Self::spectator_z_range(pos.z, multifloor) {
-            self.map.grid.collect_spectators(
-                pos.x,
-                pos.y,
-                z,
-                range_x,
-                range_y,
-                &mut creature_ids,
-            );
+            self.map
+                .grid
+                .collect_spectators(pos.x, pos.y, z, range_x, range_y, &mut creature_ids);
         }
         creature_ids.sort_by_key(|id| id.data().as_ffi());
         creature_ids.dedup();
@@ -310,10 +305,10 @@ impl GameWorld {
         // until the NPC/creaturescript Lua runtime lands (chat plan §2.5); the call
         // sites are wired now so the trait dispatch doesn't need revisiting later.
         for (_conn, viewer) in &viewers {
-            self.events.on_creature_say(*viewer, speaker, speak_type, text);
+            self.events
+                .on_creature_say(*viewer, speaker, speak_type, text);
             if *viewer != speaker {
-                self.events
-                    .on_hear(*viewer, speaker, text, speak_type);
+                self.events.on_hear(*viewer, speaker, text, speak_type);
             }
         }
     }
@@ -324,12 +319,7 @@ impl GameWorld {
     /// `Position::areInRange<1,1>`) receive the real text; beyond that they receive
     /// `"pspsps"`. Uses the same viewport range as SAY (`Map::maxClientViewportX/Y`).
     /// Two-pass loop: send-to-client then event-method, matching `internalCreatureSay`.
-    pub fn broadcast_creature_whisper(
-        &mut self,
-        speaker: CreatureId,
-        speak_type: u8,
-        text: &str,
-    ) {
+    pub fn broadcast_creature_whisper(&mut self, speaker: CreatureId, speak_type: u8, text: &str) {
         use tfs_rust_net::codec::wire::CreatureSayWire;
         let (pos, name, level) = match self.creatures.get(speaker) {
             Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
@@ -368,7 +358,8 @@ impl GameWorld {
         // C++ fires `onCreatureSay` with the **real** text for all spectators
         // (`game.cpp:3420`), not the garbled "pspsps".
         for (_conn, viewer, _viewer_pos) in &viewers {
-            self.events.on_creature_say(*viewer, speaker, speak_type, text);
+            self.events
+                .on_creature_say(*viewer, speaker, speak_type, text);
             if *viewer != speaker {
                 self.events.on_hear(*viewer, speaker, text, speak_type);
             }
@@ -382,12 +373,7 @@ impl GameWorld {
     /// filter). Ghost-mode gating is handled by the caller (C++ checks `!ghostMode ||
     /// tmpPlayer->canSeeCreature(creature)` at the send site). Two-pass loop matching
     /// `internalCreatureSay`.
-    pub fn broadcast_creature_yell(
-        &mut self,
-        speaker: CreatureId,
-        speak_type: u8,
-        text: &str,
-    ) {
+    pub fn broadcast_creature_yell(&mut self, speaker: CreatureId, speak_type: u8, text: &str) {
         use tfs_rust_net::codec::wire::CreatureSayWire;
         let (pos, name, level) = match self.creatures.get(speaker) {
             Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
@@ -414,7 +400,8 @@ impl GameWorld {
         }
         // Pass 2: event-method loop.
         for (_conn, viewer, _viewer_pos) in &viewers {
-            self.events.on_creature_say(*viewer, speaker, speak_type, text);
+            self.events
+                .on_creature_say(*viewer, speaker, speak_type, text);
             if *viewer != speaker {
                 self.events.on_hear(*viewer, speaker, text, speak_type);
             }
@@ -468,7 +455,10 @@ impl GameWorld {
     }
 
     /// Capture a [`CombatNotifySnapshot`] for `target_id` — call before `combat_execute_with_stimulus`.
-    pub(crate) fn combat_notify_snapshot(&self, target_id: CreatureId) -> Option<CombatNotifySnapshot> {
+    pub(crate) fn combat_notify_snapshot(
+        &self,
+        target_id: CreatureId,
+    ) -> Option<CombatNotifySnapshot> {
         let kind = self.creatures.get(target_id)?;
         let base = kind.base();
         Some(CombatNotifySnapshot {
@@ -876,7 +866,10 @@ mod spectator_fanout_grid_tests {
     fn grid_equals_full_scan_surface_center() {
         let world = seeded_world();
         let pos = Position::new(100, 100, 7);
-        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+        assert_eq!(
+            grid_set(&world, pos),
+            spectator_conns_full_scan(&world, pos)
+        );
     }
 
     #[test]
@@ -884,7 +877,10 @@ mod spectator_fanout_grid_tests {
         let world = seeded_world();
         // A position near the viewport edge of player D.
         let pos = Position::new(119, 119, 7);
-        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+        assert_eq!(
+            grid_set(&world, pos),
+            spectator_conns_full_scan(&world, pos)
+        );
     }
 
     #[test]
@@ -893,7 +889,10 @@ mod spectator_fanout_grid_tests {
         // Underground at z=8 — surface players (z<=7) cannot see this; underground
         // players within ±2 can.
         let pos = Position::new(100, 100, 8);
-        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+        assert_eq!(
+            grid_set(&world, pos),
+            spectator_conns_full_scan(&world, pos)
+        );
     }
 
     #[test]
@@ -901,7 +900,10 @@ mod spectator_fanout_grid_tests {
         let world = seeded_world();
         // z=9: visible from z=8 (|dz|=1) and z=10..11 (|dz|<=2), not from z=7 surface.
         let pos = Position::new(100, 100, 9);
-        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+        assert_eq!(
+            grid_set(&world, pos),
+            spectator_conns_full_scan(&world, pos)
+        );
     }
 
     #[test]
@@ -910,7 +912,10 @@ mod spectator_fanout_grid_tests {
         // Querying from surface (z=7) — underground players are never visible
         // (protocol_can_see: my_z<=7 && z>7 → false).
         let pos = Position::new(105, 103, 7);
-        assert_eq!(grid_set(&world, pos), spectator_conns_full_scan(&world, pos));
+        assert_eq!(
+            grid_set(&world, pos),
+            spectator_conns_full_scan(&world, pos)
+        );
     }
 
     #[test]
@@ -922,7 +927,10 @@ mod spectator_fanout_grid_tests {
         let full = spectator_conns_full_scan(&world, pos);
         assert_eq!(grid, full);
         // Sanity: the far-away player is the only spectator.
-        assert!(grid.contains(&ConnId(8)), "far-away player H must be a spectator of its own tile");
+        assert!(
+            grid.contains(&ConnId(8)),
+            "far-away player H must be a spectator of its own tile"
+        );
         assert_eq!(grid.len(), 1, "only H should see (200,200,7)");
     }
 
@@ -934,7 +942,10 @@ mod spectator_fanout_grid_tests {
         let grid = grid_set(&world, pos);
         let full = spectator_conns_full_scan(&world, pos);
         assert_eq!(grid, full);
-        assert!(grid.is_empty(), "no player should see an isolated void position");
+        assert!(
+            grid.is_empty(),
+            "no player should see an isolated void position"
+        );
     }
 
     /// The grid path must not return duplicate conns even when a creature's chunk
@@ -946,7 +957,11 @@ mod spectator_fanout_grid_tests {
         let pos = Position::new(100, 100, 8);
         let conns = world.spectator_conns_via_grid(pos);
         let unique: HashSet<ConnId> = conns.iter().copied().collect();
-        assert_eq!(conns.len(), unique.len(), "spectator_conns_via_grid must not produce duplicates");
+        assert_eq!(
+            conns.len(),
+            unique.len(),
+            "spectator_conns_via_grid must not produce duplicates"
+        );
     }
 
     /// `conn_for_creature` must agree with the reverse index for every online player.

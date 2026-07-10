@@ -32,7 +32,7 @@ pub struct Codec772;
 
 /// 7.72 `getLiquidColor` (`gameserver/src/tools.cpp` ~L20). **Not** the 10.x `FLUID_MAP` table — the
 /// 7.72 client uses a different liquid-color palette mapping.
-fn liquid_color_772(fluid_type: u8) -> u8 {
+fn liquid_color(fluid_type: u8) -> u8 {
     match fluid_type {
         1 => 1,
         0 => 0,
@@ -68,7 +68,7 @@ impl Codec772 {
         if stackable {
             msg.write_u8(count);
         } else if is_splash_or_fluid {
-            msg.write_u8(liquid_color_772(count));
+            msg.write_u8(liquid_color(count));
         }
     }
 
@@ -400,11 +400,7 @@ impl Codec772 {
         m.write_string(&c.name);
         m.write_u8(c.capacity);
         m.write_u8(u8::from(c.has_parent));
-        let n = c
-            .items
-            .len()
-            .min(c.capacity as usize)
-            .min(u8::MAX as usize) as u8;
+        let n = c.items.len().min(c.capacity as usize).min(u8::MAX as usize) as u8;
         m.write_u8(n);
         for args in c.items.iter().take(n as usize) {
             self.write_item_template_args(&mut m, *args);

@@ -60,14 +60,12 @@ async fn main() -> anyhow::Result<()> {
     let rsa_private_key = tfs_rust_net::rsa::private_key_from_pkcs1_pem(&pem)
         .context("load PKCS#1 RSA private key (BEGIN RSA PRIVATE KEY)")?;
 
-    let database_url = std::env::var("DATABASE_URL")
-        .context("set DATABASE_URL (MariaDB) for authentication")?;
-    let db = tfs_rust_db::DbPool::connect(
-        &database_url,
-        &tfs_rust_db::DbPoolConnectOptions::default(),
-    )
-    .await
-    .context("database connect")?;
+    let database_url =
+        std::env::var("DATABASE_URL").context("set DATABASE_URL (MariaDB) for authentication")?;
+    let db =
+        tfs_rust_db::DbPool::connect(&database_url, &tfs_rust_db::DbPoolConnectOptions::default())
+            .await
+            .context("database connect")?;
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
 
@@ -109,8 +107,7 @@ async fn main() -> anyhow::Result<()> {
     );
     eprintln!("Waiting for connections (Ctrl+C to stop)…");
 
-    let server_name =
-        std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| "Australis".to_string());
+    let server_name = std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| "Australis".to_string());
     let public_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| "127.0.0.1".to_string());
     let motd = std::env::var("TFS_MOTD").unwrap_or_default();
     let motd_num: u32 = std::env::var("TFS_MOTD_NUM")

@@ -110,7 +110,11 @@ pub fn handle_creature_death(
     if schedule_generic_corpse {
         let corpse_id = items.insert(Item::new(3058, 1));
         // K2: era-tuned corpse decay offset (772 30 000 ms, 1098 600 ms) from MechanicsProfile.
-        decay.schedule(corpse_id, decay_now.saturating_add(corpse_decay_offset_ms), None);
+        decay.schedule(
+            corpse_id,
+            decay_now.saturating_add(corpse_decay_offset_ms),
+            None,
+        );
     }
 
     // Return killers whose level (and thus speed) changed so the caller can
