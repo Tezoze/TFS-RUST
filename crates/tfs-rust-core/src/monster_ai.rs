@@ -1733,11 +1733,9 @@ impl GameWorld {
             // repath runs from `onThink` / target-move only, not synchronously from `getNextStep`.
 
             // C++ target dancing when follow queue empty — `monster.cpp` ~1244–1256.
-            if follow == attack {
-                if follow.is_some() {
-                    // 772 idle drain owns flee/dance/chase — no TFS getNextStep poll (X4).
-                    return None;
-                }
+            if follow == attack && follow.is_some() {
+                // 772 idle drain owns flee/dance/chase — no TFS getNextStep poll (X4).
+                return None;
             }
         }
 

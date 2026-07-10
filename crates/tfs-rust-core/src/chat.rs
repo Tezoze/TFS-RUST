@@ -243,11 +243,10 @@ impl ChatRegistry {
 
         // Add guild channel if player has a guild (create on-demand per C++ behavior)
         if let Some(guild_id) = guild_id {
-            if !self.guild_channels.contains_key(&guild_id) {
+            self.guild_channels.entry(guild_id).or_insert_with(|| {
                 // Create guild channel on-demand
-                let channel = ChatChannel::new(CHANNEL_GUILD, "Guild Channel".to_string());
-                self.guild_channels.insert(guild_id, channel);
-            }
+                ChatChannel::new(CHANNEL_GUILD, "Guild Channel".to_string())
+            });
             if let Some(guild_channel) = self.guild_channels.get(&guild_id) {
                 channels.push((CHANNEL_GUILD, guild_channel.name.clone()));
             }
@@ -255,11 +254,10 @@ impl ChatRegistry {
 
         // Add party channel if player is in a party (create on-demand per C++ behavior)
         if let Some(leader_id) = party_leader {
-            if !self.party_channels.contains_key(&leader_id) {
+            self.party_channels.entry(leader_id).or_insert_with(|| {
                 // Create party channel on-demand
-                let channel = ChatChannel::new(CHANNEL_PARTY, "Party".to_string());
-                self.party_channels.insert(leader_id, channel);
-            }
+                ChatChannel::new(CHANNEL_PARTY, "Party".to_string())
+            });
             if let Some(party_channel) = self.party_channels.get(&leader_id) {
                 channels.push((CHANNEL_PARTY, party_channel.name.clone()));
             }
@@ -305,11 +303,10 @@ impl ChatRegistry {
         match channel_id {
             CHANNEL_GUILD => {
                 if let Some(guild_id) = guild_id {
-                    if !self.guild_channels.contains_key(&guild_id) {
+                    self.guild_channels.entry(guild_id).or_insert_with(|| {
                         // Guild channel name would come from guild data; for now use placeholder
-                        let channel = ChatChannel::new(CHANNEL_GUILD, "Guild Channel".to_string());
-                        self.guild_channels.insert(guild_id, channel);
-                    }
+                        ChatChannel::new(CHANNEL_GUILD, "Guild Channel".to_string())
+                    });
                     Some(CHANNEL_GUILD)
                 } else {
                     None
@@ -317,10 +314,9 @@ impl ChatRegistry {
             }
             CHANNEL_PARTY => {
                 if let Some(leader_id) = party_leader {
-                    if !self.party_channels.contains_key(&leader_id) {
-                        let channel = ChatChannel::new(CHANNEL_PARTY, "Party".to_string());
-                        self.party_channels.insert(leader_id, channel);
-                    }
+                    self.party_channels
+                        .entry(leader_id)
+                        .or_insert_with(|| ChatChannel::new(CHANNEL_PARTY, "Party".to_string()));
                     Some(CHANNEL_PARTY)
                 } else {
                     None

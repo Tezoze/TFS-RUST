@@ -19,7 +19,7 @@ use crate::config::{
     password_hash_config_from, resolve_protocol_version, ConfigManager, DbConfig, MysqlPoolConfig,
     NetConfig,
 };
-use crate::event_dispatcher::{EventDispatcher, NullEventDispatcher};
+use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
 use crate::lua_event_dispatcher::LuaEventDispatcher;

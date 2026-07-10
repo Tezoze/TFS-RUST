@@ -151,11 +151,6 @@ pub fn sim_glibc_rng_enabled() -> bool {
     SIM_GLIBC_RNG.load(Ordering::Relaxed)
 }
 
-#[cfg(not(any(test, feature = "sim")))]
-pub fn sim_glibc_rng_enabled() -> bool {
-    false
-}
-
 #[cfg(any(test, feature = "sim"))]
 pub fn sim_rng_trace_enabled() -> bool {
     SIM_RNG_TRACE.load(Ordering::Relaxed)

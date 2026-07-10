@@ -3,8 +3,6 @@
 //! - `TMonster::TMonster` loot roll — `crnonpl.cc:2050-2103`.
 //! - `CheckCombatValues` / `GetWeapon` / `GetArmorStrength` — `crcombat.cc:128,36,286`.
 
-use rand::Rng;
-
 use tfs_rust_common::enums::BloodType;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::{LootBlock, MonsterType, MAX_LOOTCHANCE};
@@ -108,11 +106,6 @@ fn loot_destination(item_type: &ItemType) -> LootDestination {
     LootDestination::Body
 }
 
-fn roll_loot_count<R: Rng + ?Sized>(rng: &mut R, countmax: i32) -> u16 {
-    let max = countmax.max(1);
-    rng.gen_range(1..=max) as u16
-}
-
 fn roll_loot_count_glibc(world: &GameWorld, countmax: i32) -> u16 {
     let max = countmax.max(1);
     world.parity_random(1, max) as u16
@@ -161,55 +154,6 @@ fn roll_loot_block_glibc(
         let mut container = Container::new(item_id, cap);
         for child in &block.child_loot {
             if let Some(child_id) = roll_loot_block_glibc(world, child, registry, _owner) {
-                let _ = container.add_item(child_id);
-                if let Some(ch) = registry.get_mut(child_id) {
-                    ch.parent_container = Some(item_id);
-                }
-            }
-        }
-        registry.register(container);
-    }
-
-    Some(item_id)
-}
-
-fn roll_loot_block<R: Rng + ?Sized>(
-    world: &mut GameWorld,
-    rng: &mut R,
-    block: &LootBlock,
-    registry: &mut crate::container::ContainerRegistry,
-    _owner: CreatureId,
-) -> Option<ItemId> {
-    if block.chance > 0 && block.chance < MAX_LOOTCHANCE {
-        if rng.gen_range(0..MAX_LOOTCHANCE) >= block.chance {
-            return None;
-        }
-    } else if block.chance <= 0 {
-        return None;
-    }
-
-    let server_id = block.id as u16;
-    let _item_type = world.items_db.items.get(&server_id)?;
-    let count = roll_loot_count(rng, block.countmax);
-
-    let mut item = Item::new(server_id, count);
-    if block.sub_type != 0 {
-        item.set_duration(block.sub_type);
-    }
-    if block.action_id != 0 {
-        item.set_action_id(block.action_id as u16);
-    }
-    if !block.text.is_empty() {
-        item.set_text(block.text.clone());
-    }
-
-    let item_id = world.items.insert(item);
-
-    if !block.child_loot.is_empty() && world.items_db.is_container(server_id) {
-        let cap = world.container_capacity(server_id);
-        let mut container = Container::new(item_id, cap);
-        for child in &block.child_loot {
-            if let Some(child_id) = roll_loot_block(world, rng, child, registry, _owner) {
                 let _ = container.add_item(child_id);
                 if let Some(ch) = registry.get_mut(child_id) {
                     ch.parent_container = Some(item_id);

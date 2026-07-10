@@ -390,7 +390,7 @@ impl GameWorld {
         p.mana -= absorbed;
         let pos = p.base.position;
         let mana_after = p.mana;
-        drop(p);
+        let _ = p;
 
         if absorbed > 0 {
             // C++ `EFFECT_MANA_HIT` — `crmain.cc:670`. The 772 client effect id for the blue
@@ -1141,7 +1141,7 @@ impl GameWorld {
         caster_id: CreatureId,
         target_id: CreatureId,
         spell: &MonsterSpell,
-        rng: &mut impl Rng,
+        _rng: &mut impl Rng,
     ) {
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(caster_id) {

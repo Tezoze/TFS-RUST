@@ -209,7 +209,6 @@ impl GameWorld {
     /// (`crskill.cc:186-191`), so the modulo is taken on the post-decrement value —
     /// regen fires when the remaining-food counter hits a multiple of the vocation's
     /// tick interval (counting down to 0).
-
     /// C++ `Player::onThink` message buffer tick — `player.cpp:1314-1318`.
     ///
     /// Accumulates the `ProcessSkills` interval (1000ms) and calls `addMessageBuffer`
@@ -230,10 +229,8 @@ impl GameWorld {
 
                 // C++ `if (MessageBufferCount > 0 && g_config.getNumber(ConfigManager::MAX_MESSAGEBUFFER) != 0 && !hasFlag(PlayerFlag_CannotBeMuted))`
                 // — `player.cpp:1352`.
-                if !has_cannot_be_muted_flag && max_buffer != 0 {
-                    if p.message_buffer_count > 0 {
-                        p.message_buffer_count -= 1;
-                    }
+                if !has_cannot_be_muted_flag && max_buffer != 0 && p.message_buffer_count > 0 {
+                    p.message_buffer_count -= 1;
                 }
             }
         }

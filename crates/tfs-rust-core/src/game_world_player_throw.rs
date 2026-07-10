@@ -192,9 +192,7 @@ impl GameWorld {
             count as u16,
             CylinderFlags::NONE,
         );
-        if let Err(rv) = result {
-            return Err(rv);
-        }
+        result?;
         Ok(())
     }
 

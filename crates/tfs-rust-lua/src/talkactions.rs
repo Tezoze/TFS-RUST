@@ -4,7 +4,7 @@
 //! registration from XML (adapted to self-registering Lua convention, mirroring
 //! the `Channel` / `Action` pattern).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::runtime::{LuaError, LuaRuntime, PendingTalkAction};

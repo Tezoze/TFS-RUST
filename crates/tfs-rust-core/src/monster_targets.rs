@@ -612,8 +612,7 @@ impl GameWorld {
             }
         }
 
-        let ret = self.monster_set_follow_creature(monster_id, Some(target_id));
-        ret
+        self.monster_set_follow_creature(monster_id, Some(target_id))
     }
     /// TFS `Creature::setFollowCreature` — `creature.cpp` ~1058.
     pub(crate) fn monster_set_follow_creature(

@@ -196,27 +196,6 @@ impl GameWorld {
         }
     }
 
-    /// Whether a deferred walk-action may run (772 per-action timers; Phase 4: both eras).
-    pub(crate) fn player_walk_action_ready(
-        &self,
-        cid: CreatureId,
-        action: &crate::creature::PlayerWalkAction,
-    ) -> bool {
-        let now_ms = self.now_ms();
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return false;
-        };
-        // Phase 4: 1098 `nextAction` gate deleted — both eras use per-action timers.
-        let base = &p.base;
-        match action {
-            crate::creature::PlayerWalkAction::UseItemEx(_) => base.multiuse_ready_at(now_ms),
-            crate::creature::PlayerWalkAction::UseItem(_)
-            | crate::creature::PlayerWalkAction::MoveItem { .. } => {
-                base.walk_action_ready_at(now_ms)
-            }
-        }
-    }
-
     /// `UseItem` gate — 772 walk timer (Phase 4: both eras).
     pub(crate) fn player_use_item_ready(&self, cid: CreatureId) -> bool {
         let now_ms = self.now_ms();
@@ -419,14 +398,6 @@ impl GameWorld {
             use rand::Rng;
             self.ai_rng.gen_range(0..5)
         }
-    }
-
-    /// Scoped access to [`Self::ai_rng`] without conflicting with other `&mut self` borrows.
-    pub(crate) fn with_ai_rng<R>(&mut self, f: impl FnOnce(&mut StdRng, &mut Self) -> R) -> R {
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
-        let out = f(&mut rng, self);
-        self.ai_rng = rng;
-        out
     }
 
     pub(crate) fn tile_ground_speed(&self, body: &crate::tile::TileBody) -> u32 {

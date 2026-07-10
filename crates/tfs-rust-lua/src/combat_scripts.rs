@@ -90,7 +90,7 @@ impl LuaRuntime {
                     // WEAPON_DISTANCE / WEAPON_AMMO — PC-3 scope; store minimally.
                     tracing::debug!("Distance/ammo weapon {} loaded (PC-3 scope)", pw.item_id);
                 }
-                1 | 2 | 3 => {
+                1..=3 => {
                     // WEAPON_SWORD / WEAPON_CLUB / WEAPON_AXE — melee; store minimally.
                     tracing::debug!("Melee weapon {} loaded (PC-2b struct only)", pw.item_id);
                 }

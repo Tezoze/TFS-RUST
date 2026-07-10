@@ -149,7 +149,7 @@ use walk_timing::{
     get_event_step_ticks, get_step_duration_ms_with_direction, last_step_cost_for_move,
     peek_next_walk_direction, walk_timing_speed_kind,
 };
-pub(crate) use walk_timing::{go_strength_for_walk_pub, wire_step_speed, WalkSpeedRole};
+pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole};
 
 #[inline]
 fn is_diagonal(direction: Direction) -> bool {
@@ -1585,7 +1585,7 @@ impl GameWorld {
                             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
                             .unwrap_or(150);
                         // Phase 4: both eras compute `notify_go_ms` (772 `NotifyGo` path).
-                        let (notify_go_ms, go_strength, eff_speed) = self
+                        let (notify_go_ms, _go_strength, _eff_speed) = self
                             .creatures
                             .get(cid)
                             .map(|k| {
@@ -1965,6 +1965,7 @@ impl GameWorld {
     /// One walk step for push / auxiliary callers (discards segment payloads).
     /// Emits any pending chain turn `0x6B` immediately — push callers don't have
     /// a separate move-packet emission phase, so the deferred turn is flushed here.
+    #[cfg(any(test, feature = "sim"))]
     pub(crate) fn try_creature_walk_step(
         &mut self,
         cid: CreatureId,

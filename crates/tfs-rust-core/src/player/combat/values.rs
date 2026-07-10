@@ -24,7 +24,7 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::inventory::{
     slot_type_for_item_type, InventorySlot, PLAYER_INVENTORY_SLOT_FIRST,
-    PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB, WEAPON_DISTANCE, WEAPON_NONE,
+    PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB, WEAPON_DISTANCE,
     WEAPON_SHIELD, WEAPON_SWORD,
 };
 
@@ -200,7 +200,7 @@ impl GameWorld {
     /// `RaceData[Race].Armor`, and returns the **raw** sum (the `(A/2)+rand%(A/2)` randomization
     /// is applied by `combat::math::armor_reduction`, the downstream consumer).
     pub fn player_get_armor_strength(&self, cid: CreatureId) -> i32 {
-        let _ = match self.creatures.get(cid) {
+        match self.creatures.get(cid) {
             Some(CreatureKind::Player(_)) => (),
             _ => return 0,
         };
