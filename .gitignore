@@ -20,6 +20,8 @@
 x64/
 build/
 [Bb]in/
+!**/src/bin/
+!**/src/bin/**
 [Oo]bj/
 cmake-build-*/
 
