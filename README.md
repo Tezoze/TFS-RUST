@@ -2,11 +2,11 @@
 
 [![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml)
 
-Rust rewrite of **The Forgotten Server 1.4.2** (TFS C++ in repo-root `src/` is the behavioral reference). The goal is **1:1 parity** with TFS 1.4.2 mechanics, database schema, and Lua scripting, with a modern architecture: Tokio for I/O, a single-threaded game simulation, and generational entity storage via `slotmap`.
+Rust rewrite of the **7.72** reference server. The goal is exact observable parity with 7.72 wire protocol, mechanics, and outcomes, using a modern architecture: Tokio for I/O, a single-threaded game simulation, and generational entity storage via `slotmap`.
 
-**Default target today:** OTClient v8, Tibia protocol **10.98**. Multi-version wire support (e.g. 7.72) is in progress — see [Protocol versioning](docs/PROTOCOL_VERSIONING.md).
+**Default target today:** Tibia protocol **7.72**. TFS 1.4.2 / protocol **10.98** support is planned but not the current focus.
 
-Use a **custom OTClient v8** build aligned with this server’s protocol expectations.
+Use a **7.72-compatible client** (or a custom OTClient aligned with this server’s protocol expectations).
 
 ---
 
@@ -21,14 +21,14 @@ Use a **custom OTClient v8** build aligned with this server’s protocol expecta
 | Scripting | `tfs-rust-lua` | LuaJIT (`mlua`) bridge to TFS-style APIs |
 | Shared | `tfs-rust-common` | IDs, positions, opcodes, `ProtocolVersion` / `ProtocolCaps` |
 
-I/O threads parse packets and run DB queries; the game thread owns all world state and communicates over `mpsc` channels (`GameCommand` in, encoded packets out). See [Protocol versioning](docs/PROTOCOL_VERSIONING.md) for how wire format is separated from mechanics.
+I/O threads parse packets and run DB queries; the game thread owns all world state and communicates over `mpsc` channels (`GameCommand` in, encoded packets out). Wire format and mechanics are separated by `ProtocolVersion`/`ProtocolCodec` and `MechanicsProfile`; see `.devin/rules/TFS-protocol-versioning.md` for the full split.
 
 ---
 
 ## Quick start
 
 1. **Build and run** — follow [docs/COMPILING.md](docs/COMPILING.md) (requirements, `cargo build`, `config.lua`, MariaDB, `scripts/run_server.sh`).
-2. Copy `config.lua.dist` → `config.lua` and set `clientVersion = 1098` (and MySQL credentials).
+2. Copy `config.lua.dist` → `config.lua` and set `clientVersion = 772` (and MySQL credentials).
 3. Ensure `data/`, `key.pem`, and your OTBM map path (`TFS_DATA_DIR` / `TFS_MAP_OTBM`) are in place.
 
 ```bash
@@ -46,12 +46,13 @@ Login **7171**, game **7172** by default.
 | Doc | Contents |
 |-----|----------|
 | [docs/COMPILING.md](docs/COMPILING.md) | Build, test, first-time DB and server setup |
-| [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | What works today vs still open |
-| [docs/PROTOCOL_VERSIONING.md](docs/PROTOCOL_VERSIONING.md) | 7.72 vs 10.98 wire/mechanics plan (Track A/B) |
-| [docs/OTCLIENT_INFO.md](docs/OTCLIENT_INFO.md) | OTCv8 protocol quirks vs vanilla TFS |
+| [docs/772_OTCLIENT_PARITY.md](docs/772_OTCLIENT_PARITY.md) | 7.72 OTClient protocol parity notes |
+| [docs/WALK_772_PARITY_AUDIT.md](docs/WALK_772_PARITY_AUDIT.md) | 7.72 walk / movement parity |
+| [docs/772_MONSTER_AI_AUDIT.md](docs/772_MONSTER_AI_AUDIT.md) | 7.72 monster AI and chase parity |
+| [docs/OTCLIENT_INFO.md](docs/OTCLIENT_INFO.md) | OTClient protocol quirks (legacy reference) |
 | [reference/README.md](reference/README.md) | Local 772 C++ reference tree layout |
 
-Legacy C++ reference trees live under **`reference/`** (local-only via `.git/info/exclude`) for 7.72 porting — not required to run 10.98. See [reference/README.md](reference/README.md).
+Local C++ reference trees for 7.72 live under **`reference/`** (gitignored). See [reference/README.md](reference/README.md) for `tvp-772/gameserver/src/` (wire authority) and `classic-772/tibia-game-master/src/` (mechanics authority). The repo-root `src/` is the optional TFS 1.4.2 (1098) reference tree, not built by Cargo.
 
 ---
 
@@ -60,9 +61,10 @@ Legacy C++ reference trees live under **`reference/`** (local-only via `.git/inf
 ```
 crates/tfs-rust-{common,content,db,net,lua,core}/   # Rust server
 rust-src/main.rs                                    # `tfs-rust` binary entry
-data/                                               # Lua scripts, XML, map assets
-src/                                                # TFS 1.4.2 C++ (1098 reference, not built by Cargo)
-reference/                                          # Local 772 C++ trees (local exclude; see reference/README.md)
+data/                                               # 7.72 Lua scripts, XML, map assets
+data1098/                                           # 10.98 data (future target)
+src/                                                # Optional TFS 1.4.2 C++ (1098 reference, not built by Cargo)
+reference/                                          # Local 7.72 C++ reference trees (gitignored; see reference/README.md)
 tools/packet-proxy/                                 # Optional packet capture helper
 ```
 
@@ -70,7 +72,7 @@ tools/packet-proxy/                                 # Optional packet capture he
 
 ## Contributing
 
-- Match TFS 1.4.2 behavior unless explicitly documented; cite C++ file + function in ported Rust.
+- Match 7.72 reference behavior unless explicitly documented; cite C++ file + function in ported Rust.
 - Run before a PR: `SQLX_OFFLINE=true cargo test --workspace`, `cargo clippy --workspace -- -D warnings`, `cargo fmt --all`.
 - Use [GitHub Issues](https://github.com/Tezoze/TFS-RUST/issues) for bugs and features (not general support threads).
 
