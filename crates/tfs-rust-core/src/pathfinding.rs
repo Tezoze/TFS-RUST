@@ -21,10 +21,18 @@ const MAP_DIAGONAL_WALK_COST: u32 = 25;
 pub const CREATURE_ON_TILE_PATH_COST: u32 = MAP_NORMAL_WALK_COST * 3;
 /// TFS closed-node cap when `maxSearchDist == 0` (`map.cpp` ~680).
 const MAX_CLOSED_NODES: usize = 100;
-/// 772 monster path viewport half-extent — `VisibleX`/`VisibleY` (`cract.cc` `TShortway`).
+/// 772 monster path viewport half-extent — `VisibleX`/`VisibleY` = 10 (`cract.cc:1093` `TShortway`).
 pub const REVERSE_PATH_VIEW_RADIUS: i32 = 10;
-/// 772 ~21×21 monster viewport tile budget (`cract.cc` `TShortway`).
-const REVERSE_PATH_MAX_CLOSED_NODES: usize = 441;
+/// 772 player path viewport half-extent — `VisibleX`/`VisibleY` = 7 for `Type == PLAYER`
+/// (`cract.cc:1093-1094`: `int VisibleX = (this->Type == PLAYER) ? 7 : 10;`).
+pub const PLAYER_PATH_VIEW_RADIUS: i32 = 7;
+
+/// Closed-node cap for a 772 `TShortway` viewport — `(2*radius+1)^2` (`cract.cc` `TShortway`).
+/// 441 for monsters (radius 10), 225 for players (radius 7).
+fn viewport_closed_cap(radius: i32) -> usize {
+    let side = (2 * radius + 1).max(1) as usize;
+    side.saturating_mul(side)
+}
 /// 772 default BANK `Waypoints` when unset — matches `ground_speed_for_item` / `NotifyGo` default.
 pub const DEFAULT_TERRAIN_WAYPOINTS: u32 = 150;
 
@@ -167,6 +175,8 @@ const FILLMAP_MIN_WAYPOINTS_SEED: u32 = 1000;
 ///
 /// `search` selects expansion direction (1098 forward / 772 reverse). Edge costs come from
 /// `cost_model` (B2): fixed 10/25 for TFS, terrain waypoints + diagonal ×3 for CipSoft.
+/// `view_radius` is the 772 `TShortway` viewport half-extent — 7 for players, 10 for monsters
+/// (`cract.cc:1093-1094`). Ignored by 1098 forward search.
 #[allow(clippy::too_many_arguments)]
 pub fn get_path_matching<C, T, G>(
     map: &Map,
@@ -176,6 +186,7 @@ pub fn get_path_matching<C, T, G>(
     cost_model: PathCostModel,
     search: PathSearchModel,
     forward_fallback: bool,
+    view_radius: i32,
     can_walk_to: C,
     tile_walk_cost: T,
     ground_cost: G,
@@ -197,6 +208,7 @@ where
         cost_model,
         search,
         forward_fallback,
+        view_radius,
         can_walk_to,
         tile_walk_cost,
         move |pos| ground_for_cost(pos),
@@ -212,6 +224,9 @@ where
 }
 
 /// Like [`get_path_matching`] but supplies 772 `TShortway::FillMap` terrain weights (`cract.cc:89-103`).
+///
+/// `view_radius` is the 772 `TShortway` viewport half-extent — 7 for players, 10 for monsters
+/// (`cract.cc:1093-1094`). Ignored by 1098 forward search.
 #[allow(clippy::too_many_arguments)]
 pub fn get_path_matching_with_fill<C, T, G, F>(
     map: &Map,
@@ -221,6 +236,7 @@ pub fn get_path_matching_with_fill<C, T, G, F>(
     cost_model: PathCostModel,
     search: PathSearchModel,
     forward_fallback: bool,
+    view_radius: i32,
     can_walk_to: C,
     tile_walk_cost: T,
     ground_cost: G,
@@ -250,6 +266,7 @@ where
                 target,
                 fpp,
                 cost_model,
+                view_radius,
                 &can_walk_to,
                 &tile_walk_cost,
                 &ground_cost,
@@ -590,11 +607,15 @@ impl TShortwaySearch {
 }
 
 /// 772 `TShortway::Calculate` — linked-list expand sorted by heuristic (`cract.cc`, `scripts/compare_chase_pathfinding.py`).
+///
+/// `view_radius` is the `TShortway` viewport half-extent — 7 for players, 10 for monsters
+/// (`cract.cc:1093-1094`: `int VisibleX = (this->Type == PLAYER) ? 7 : 10;`).
 fn path_matching_tshortway<C, F>(
     _map: &Map,
     start: Position,
     target: Position,
     fpp: &FindPathParams,
+    view_radius: i32,
     can_walk_to: C,
     fill_waypoints: F,
 ) -> Option<Vec<Direction>>
@@ -602,7 +623,7 @@ where
     C: Fn(Position) -> bool,
     F: Fn(Position) -> i32,
 {
-    let radius = REVERSE_PATH_VIEW_RADIUS;
+    let radius = view_radius;
     if !in_path_viewport(start, target, radius) {
         return None;
     }
@@ -669,9 +690,11 @@ where
     search.expand_head = Some(target);
 
     // C++ runs until expand list is empty; cap is a safety guard only.
+    // 772 viewport tile budget scales with `VisibleX/Y` — 441 for monsters (10), 225 for players (7).
+    let closed_cap = viewport_closed_cap(radius);
     let mut expand_count = 0usize;
     while search.expand_head.is_some() {
-        if expand_count >= REVERSE_PATH_MAX_CLOSED_NODES.saturating_mul(2) {
+        if expand_count >= closed_cap.saturating_mul(2) {
             break;
         }
         let current = search.expand_head.unwrap();
@@ -710,6 +733,8 @@ where
 ///
 /// Terrain-weighted chase uses [`path_matching_tshortway`] (linked-list expand). Non-terrain
 /// reverse keeps the BinaryHeap implementation for TFS fallback paths.
+/// `view_radius` is the `TShortway` viewport half-extent — 7 for players, 10 for monsters
+/// (`cract.cc:1093-1094`).
 #[allow(clippy::too_many_arguments)]
 fn path_matching_reverse<C, T, G, F>(
     map: &Map,
@@ -717,6 +742,7 @@ fn path_matching_reverse<C, T, G, F>(
     target: Position,
     fpp: &FindPathParams,
     cost_model: PathCostModel,
+    view_radius: i32,
     can_walk_to: C,
     tile_walk_cost: T,
     ground_cost: G,
@@ -741,15 +767,21 @@ where
 
     let use_reverse_terrain_astar = matches!(cost_model, PathCostModel::TerrainWeighted);
     if use_reverse_terrain_astar {
-        return path_matching_tshortway(map, start, target, fpp, can_walk_to, fill_waypoints);
+        return path_matching_tshortway(
+            map,
+            start,
+            target,
+            fpp,
+            view_radius,
+            can_walk_to,
+            fill_waypoints,
+        );
     }
-    // 772 monster chase always uses VisibleX/Y = 10 and ~441 node cap — not TFS `maxSearchDist` 12.
-    let (viewport_radius, closed_cap) = if use_reverse_terrain_astar {
-        (REVERSE_PATH_VIEW_RADIUS, REVERSE_PATH_MAX_CLOSED_NODES)
-    } else if fpp.max_search_dist != 0 {
+    // 772 reverse viewport + tile budget scale with `VisibleX/Y` — 10/441 for monsters, 7/225 for players.
+    let (viewport_radius, closed_cap) = if fpp.max_search_dist != 0 {
         (fpp.max_search_dist as i32, usize::MAX)
     } else {
-        (REVERSE_PATH_VIEW_RADIUS, REVERSE_PATH_MAX_CLOSED_NODES)
+        (view_radius, viewport_closed_cap(view_radius))
     };
     let min_wp = if use_reverse_terrain_astar {
         scan_min_terrain_waypoints(map, start, viewport_radius, &ground_cost)

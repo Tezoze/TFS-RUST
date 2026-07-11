@@ -539,6 +539,7 @@ mod tests {
 
     #[test]
     fn skill_nr_from_weapon_type() {
+        use crate::inventory::WEAPON_NONE;
         assert_eq!(SkillNr::from_weapon_type(WEAPON_SWORD), SkillNr::Sword);
         assert_eq!(SkillNr::from_weapon_type(WEAPON_CLUB), SkillNr::Club);
         assert_eq!(SkillNr::from_weapon_type(WEAPON_AXE), SkillNr::Axe);

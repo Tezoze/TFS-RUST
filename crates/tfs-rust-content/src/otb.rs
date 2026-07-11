@@ -98,6 +98,10 @@ pub struct ItemType {
     pub voc_equip_names: Vec<String>,
     /// C++ `ItemTypes_t` from items.xml `type="..."` — `src/items.h` (`ITEM_TYPE_DEPOT`, etc.).
     pub type_tag: u8,
+    /// 772 `objects.srv` `DISTUSE` flag (bit 11, `enums.hh:215`) — item can be used on
+    /// objects up to 7 tiles away (fishing rod, rope on hole, etc.). Overlayed from
+    /// `objects.srv` at load time; `false` for items without the flag or non-772 eras.
+    pub distuse: bool,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -160,6 +164,7 @@ impl Default for ItemType {
             min_req_magic_level: 0,
             voc_equip_names: Vec::new(),
             type_tag: 0,
+            distuse: false,
         }
     }
 }
@@ -547,6 +552,13 @@ impl ItemType {
     #[inline]
     pub fn force_use(&self) -> bool {
         self.flags & Self::FLAG_FORCEUSE != 0
+    }
+
+    /// 772 `objects.srv` `DISTUSE` flag (bit 11, `enums.hh:215`). Set by `objects.srv`
+    /// overlay — not an OTB flag. Item can be used on objects up to 7 tiles away.
+    #[inline]
+    pub fn is_distuse(&self) -> bool {
+        self.distuse
     }
 
     // ── Group accessors ──

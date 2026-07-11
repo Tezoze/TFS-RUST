@@ -479,3 +479,33 @@ gating logic (`getAccountType`/`getLevel`/`getVocation():getId()`/`hasFlag`).
       `getAccountType`/`hasFlag`/`getLevel`/`getVocation():getId()` read through.
 - [ ] **Verify:** `cargo check`, `cargo clippy --all-targets`, `cargo test -p tfs-rust-lua
       -p tfs-rust-core -p tfs-rust-db`. **Lessons:** append to `tasks/lessons.md`.
+
+## Refactor Phase 3 — Rename `_772` core functions — DONE (2026-07-10)
+
+**Goal:** comply with the `TFS-Core` naming rule (no version suffix on core fns / public APIs).
+
+The audit's original 10 example functions (`advance_beat_772`, `process_creatures_772`, etc.)
+were already renamed in prior work. The remaining `_772`-suffixed production functions across
+all crates were renamed to behavior-based names:
+
+- [x] **core:** `condition_type_from_lua_772` → `condition_type_from_lua`
+      (`game_world_chat.rs`, `game_world_script.rs`)
+- [x] **content:** `is_terrain_bank_772` → `is_terrain_bank`, `is_unpass_772` → `is_unpassable`,
+      `is_unmove_772` → `is_immovable`, `is_avoid_hazard_772` → `is_avoid_hazard`,
+      `avoid_damage_type_772` → `avoid_damage_type`, `waypoints_raw_772` → `waypoints_raw`
+      (`otb.rs`, `items.rs`; call sites in `monster_ai.rs`, `monster_push.rs`)
+- [x] **content:** `reference_772_objects_srv_under` → `reference_objects_srv_under`
+      (`objects_srv.rs`)
+- [x] **lua:** `return_value_message_772` → `return_value_message` (`userdata/player.rs`)
+- [x] **net:** `send_icons_772` → `send_icons_classic` (`outgoing_extra.rs`, `login_out.rs`),
+      `liquid_color_772` → `liquid_color` (`codec/v772.rs`),
+      `build_login_success_772` → `build_login_success_classic` (`protocol_login_out.rs`),
+      `premium_days_left_772` → `premium_days_left` (`protocol_login_out.rs`)
+
+**Exceptions kept:** test fns (`test_772_*`, `*_reads_772`), config (`protocol_version_reads_772`),
+data constants (`OTB_MAJOR_772`, `LOGIN_ERR_772`, `REF_772_DIR_NAMES`), local variables
+(`is_772`, `codec_772`).
+
+**Verification:** `cargo test -p tfs-rust-core --lib` → 585 passed, 2 ignored (identical to
+baseline). Clippy 26 warnings (identical to baseline). `grep -rn "fn .*_772" crates/tfs-rust-core/src`
+returns only test/config items. **Lessons:** appended to `tasks/lessons.md`.

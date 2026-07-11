@@ -1477,7 +1477,9 @@ impl GameWorld {
         target: Position,
         fpp: &FindPathParams,
     ) -> Option<Vec<Direction>> {
-        use crate::pathfinding::{get_path_matching_with_fill, CREATURE_ON_TILE_PATH_COST};
+        use crate::pathfinding::{
+            get_path_matching_with_fill, CREATURE_ON_TILE_PATH_COST, REVERSE_PATH_VIEW_RADIUS,
+        };
 
         let start = self.creatures.get(cid)?.position();
         struct PathCtx<'a> {
@@ -1509,6 +1511,7 @@ impl GameWorld {
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
             self.mechanics.profile.path_forward_fallback,
+            REVERSE_PATH_VIEW_RADIUS,
             fill_walkable,
             |pos| {
                 if uses_reverse_terrain {
@@ -1625,7 +1628,7 @@ impl GameWorld {
             return;
         }
         let max_dist = 0_i32.max(dist - 5);
-        let path = self.get_creature_path_to(cid, spawn, 0, max_dist);
+        let path = self.get_creature_path_to(cid, spawn, 0, max_dist, usize::MAX);
         if path.is_none() {
             return;
         }

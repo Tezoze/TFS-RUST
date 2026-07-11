@@ -151,6 +151,15 @@ impl ItemDatabase {
             .is_some_and(|t| t.type_tag == ITEM_TYPE_DEPOT)
     }
 
+    /// 772 `objects.srv` `DISTUSE` flag — item can be used on objects up to 7 tiles
+    /// away (`cract.cc:761` `ObjectInRange(Obj2, 7)`). C++ ref: `enums.hh:215`.
+    #[inline]
+    pub fn is_distuse(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_distuse())
+    }
+
     /// Openable as a container window — normal bags or map depot lockers (`actions.cpp`).
     #[inline]
     pub fn is_openable_container(&self, id: u16) -> bool {

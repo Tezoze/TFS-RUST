@@ -3,19 +3,15 @@
 //          `sendRemoveContainerItem`, `sendCloseContainer`.
 
 use std::collections::VecDeque;
-use std::time::Instant;
 
-use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
 use tfs_rust_net::outgoing_extra::send_close_container;
 
 use crate::creature::CreatureKind;
-use crate::creature::PlayerWalkAction;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::item_look::look_distance_tfs;
 use crate::return_value::ReturnValue;
 use crate::walk::are_in_range_1_1_0;
 
@@ -506,71 +502,10 @@ impl GameWorld {
         self.item_id_for_inventory_use(cid, pos.y as u8)
     }
 
-    /// `Game::playerUseItem` — open container when item is a bag (`actions.cpp` container branch).
-    ///
-    /// F8 S4/S7 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
-    /// C++ `RESULT` catch (`cract.cc:870-889`). `Err(rv)` = hard failure (the reactive
-    /// caller wraps with `send_cancel_message`); `Ok(())` = success **or** walk-to-reach
-    /// deferral (1098 reactive path — `try_walk_to_and_action` sets `walk_action` and
-    /// returns; the 772 ToDo path uses `Go`-prepend via `execute_player_use` instead).
-    pub fn player_use_item(
-        &mut self,
-        conn_id: ConnId,
-        cid: CreatureId,
-        payload: UseItemPayload,
-        now: Instant,
-    ) -> Result<(), ReturnValue> {
-        // C++ `internalGetCylinder`: map tile when `pos.x != 0xFFFF` — `game.cpp` ~199.
-        // `pos.y & 0x40` is container encoding only when x is 0xFFFF, not a map-tile test.
-        let is_map_tile = payload.pos.x != 0xFFFF;
-        if !self.player_use_item_ready(cid) {
-            // C++ `createSchedulerTask(delay, playerUseItem)` when `!canDoAction` (`game.cpp` ~2246).
-            self.defer_player_walk_action(cid, PlayerWalkAction::UseItem(payload.clone()));
-            return Ok(());
-        }
-        let item_id =
-            if let Some(id) = self.resolve_item_at_position(cid, payload.pos, payload.stack_pos) {
-                Some(id)
-            } else if is_map_tile {
-                self.find_tile_item_by_client_sprite(payload.pos, payload.sprite_id)
-            } else {
-                None
-            };
-        let Some(item_id) = item_id else {
-            return Err(ReturnValue::NotPossible);
-        };
-        if !self.validate_item_sprite(item_id, payload.sprite_id) {
-            return Err(ReturnValue::NotPossible);
-        }
-        if is_map_tile {
-            let Some(pp) = self.creatures.get(cid).map(|k| k.position()) else {
-                return Err(ReturnValue::NotPossible);
-            };
-            if look_distance_tfs(pp, payload.pos) > 1 {
-                let action = PlayerWalkAction::UseItem(payload.clone());
-                if !self.try_walk_to_and_action(conn_id, cid, payload.pos, action, now) {
-                    return Err(ReturnValue::ThereIsNoWay);
-                }
-                return Ok(());
-            }
-        }
-        let preferred_cid =
-            (payload.index < crate::container::MAX_CONTAINER_WINDOWS).then_some(payload.index);
-        self.player_use_item_core(
-            conn_id,
-            cid,
-            item_id,
-            is_map_tile,
-            payload.pos,
-            preferred_cid,
-        )
-    }
-
-    /// F8 S5 — core use-item logic shared by the reactive path ([`player_use_item`]) and
-    /// the ToDo execute arm ([`execute_player_use`]). Skips the ready check + walk-to-reach
-    /// (those are reactive-path concerns; the ToDo arm handles adjacency via `Go`-prepend
-    /// and timing via `Wait{100}` + `CalculateDelay`). C++ ref: `actions.cpp` container
-    /// branch + `game.cpp` teleport-floor-use (`~2227`).
+    /// F8 S5 — core use-item logic for the ToDo execute arm ([`execute_player_use`]).
+    /// Skips the ready check + walk-to-reach (the ToDo arm handles adjacency via
+    /// `Go`-prepend and timing via `Wait{100}` + `CalculateDelay`). C++ ref:
+    /// `actions.cpp` container branch + `game.cpp` teleport-floor-use (`~2227`).
     pub(crate) fn player_use_item_core(
         &mut self,
         conn_id: ConnId,
@@ -595,56 +530,7 @@ impl GameWorld {
         Ok(())
     }
 
-    /// Use-with: if the source item is a container, open it (minimal parity until full use-with).
-    ///
-    /// F8 S4/S7 — returns `Result<(), ReturnValue>` so the ToDo `Execute` arm can apply the
-    /// C++ `RESULT` catch. On two-object success, multiuse exhaustion is set inside this
-    /// function via `player_apply_multiuse_exhaust` (`cract.cc:765`). `Ok(())` = success
-    /// **or** walk-to-reach deferral (1098 reactive path only; 772 uses `Go`-prepend).
-    pub fn player_use_item_ex(
-        &mut self,
-        conn_id: ConnId,
-        cid: CreatureId,
-        payload: UseItemExPayload,
-        now: Instant,
-    ) -> Result<(), ReturnValue> {
-        let is_map_tile = payload.from_pos.x != 0xFFFF;
-        if !self.player_use_item_ex_ready(cid) {
-            self.defer_player_walk_action(cid, PlayerWalkAction::UseItemEx(payload.clone()));
-            return Ok(());
-        }
-        let item_id = if let Some(id) =
-            self.resolve_item_at_position(cid, payload.from_pos, payload.from_stack_pos)
-        {
-            Some(id)
-        } else if is_map_tile {
-            self.find_tile_item_by_client_sprite(payload.from_pos, payload.from_sprite_id)
-        } else {
-            None
-        };
-        let Some(item_id) = item_id else {
-            return Err(ReturnValue::NotPossible);
-        };
-        if !self.validate_item_sprite(item_id, payload.from_sprite_id) {
-            return Err(ReturnValue::NotPossible);
-        }
-        if is_map_tile {
-            let Some(pp) = self.creatures.get(cid).map(|k| k.position()) else {
-                return Err(ReturnValue::NotPossible);
-            };
-            if look_distance_tfs(pp, payload.from_pos) > 1 {
-                let action = PlayerWalkAction::UseItemEx(payload.clone());
-                if !self.try_walk_to_and_action(conn_id, cid, payload.from_pos, action, now) {
-                    return Err(ReturnValue::ThereIsNoWay);
-                }
-                return Ok(());
-            }
-        }
-        self.player_use_item_ex_core(conn_id, cid, item_id)
-    }
-
-    /// F8 S5 — core two-object use logic shared by the reactive path
-    /// ([`player_use_item_ex`]) and the ToDo execute arm ([`execute_player_use`]).
+    /// F8 S5 — core two-object use logic for the ToDo execute arm ([`execute_player_use`]).
     /// Skips the ready check + walk-to-reach (ToDo arm handles those). On success,
     /// sets multiuse exhaustion via `player_apply_multiuse_exhaust` (`cract.cc:765`).
     pub(crate) fn player_use_item_ex_core(

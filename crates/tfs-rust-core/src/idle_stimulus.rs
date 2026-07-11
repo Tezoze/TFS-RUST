@@ -2644,6 +2644,104 @@ impl GameWorld {
                             }
                         }
                     } else {
+                        // F8 S4/D7 — `TDUse` execute (`cract.cc:833-836` + `Use` executor
+                        // `cract.cc:727-768`). After Obj1 adjacency is confirmed, check Obj2
+                        // range for two-object use — mirrors C++ `Use()` executor:
+                        //   `DistUse = Obj1.getFlag(DISTUSE)` (`cract.cc:737`)
+                        //   `!DistUse && !ObjectInRange(Obj2, 1)` → walk to Obj2 + re-enqueue
+                        //   `DistUse && !ObjectInRange(Obj2, 7)` → throw OUTOFRANGE
+                        // For non-DistUse with Obj1 on map + Obj2 far: C++ picks up Obj1
+                        // (`ToDoMove`) then walks to Obj2. Pickup is not yet ported, so this
+                        // returns `TooFarAway` for that edge case (both map tiles, far apart).
+                        // Common cases (Obj1 in inventory: key/rope/fishing rod) work fully.
+                        if let Some(o2) = obj2 {
+                            let obj2_far = o2.pos.x != 0xFFFF
+                                && self.creatures.get(cid).is_some_and(|k| {
+                                    let pp = k.position();
+                                    let dx = (pp.x as i32 - o2.pos.x as i32).unsigned_abs();
+                                    let dy = (pp.y as i32 - o2.pos.y as i32).unsigned_abs();
+                                    dx > 1 || dy > 1
+                                });
+                            if obj2_far {
+                                // Resolve Obj1 item_id to check the DISTUSE flag.
+                                let is_map_tile = obj1.pos.x != 0xFFFF;
+                                let item_id = if let Some(id) =
+                                    self.resolve_item_at_position(cid, obj1.pos, obj1.stack_pos)
+                                {
+                                    Some(id)
+                                } else if is_map_tile {
+                                    self.find_tile_item_by_client_sprite(obj1.pos, obj1.sprite_id)
+                                } else {
+                                    None
+                                };
+                                let distuse = item_id
+                                    .and_then(|id| self.items.get(id).map(|i| i.item_type))
+                                    .is_some_and(|t| self.items_db.is_distuse(t));
+                                if distuse {
+                                    // C++ `cract.cc:761`: `DistUse && !ObjectInRange(Obj2, 7)`
+                                    // → throw OUTOFRANGE. Chebyshev > 7 = out of range.
+                                    let too_far = self.creatures.get(cid).is_some_and(|k| {
+                                        let pp = k.position();
+                                        let dx = (pp.x as i32 - o2.pos.x as i32).unsigned_abs();
+                                        let dy = (pp.y as i32 - o2.pos.y as i32).unsigned_abs();
+                                        dx > 7 || dy > 7
+                                    });
+                                    if too_far {
+                                        self.apply_todo_result_catch(
+                                            cid,
+                                            ReturnValue::DestinationOutOfReach,
+                                        );
+                                        trace_creature_todo(self, cid, "execute_use_distuse_out_of_range");
+                                        return Some(TodoExecuteKind::Wait);
+                                    }
+                                    // DistUse + within 7 tiles → proceed (no walk needed).
+                                } else {
+                                    // Non-DistUse + Obj2 > 1 tile → walk to Obj2 + re-enqueue
+                                    // (C++ `cract.cc:738-758`). If Obj1 is in inventory, the
+                                    // player carries it to Obj2. If Obj1 is on the map, C++
+                                    // picks it up first (`ToDoMove`) — not yet ported, so fail
+                                    // with `TooFarAway` for the both-map-tiles-far-apart case.
+                                    if obj1.pos.x != 0xFFFF {
+                                        self.apply_todo_result_catch(
+                                            cid,
+                                            ReturnValue::TooFarAway,
+                                        );
+                                        trace_creature_todo(self, cid, "execute_use_obj2_far_obj1_on_map");
+                                        return Some(TodoExecuteKind::Wait);
+                                    }
+                                    // Obj1 in inventory — walk to Obj2 and re-enqueue.
+                                    let now = Instant::now();
+                                    match self.setup_player_walk_to_target(cid, o2.pos, now) {
+                                        Ok(()) => {
+                                            let has_steps = self.creatures.get(cid).is_some_and(
+                                                |k| !k.base().walk_queue.is_empty(),
+                                            );
+                                            if has_steps {
+                                                if let Some(k) = self.creatures.get_mut(cid) {
+                                                    k.base_mut().todo.queue.push_front(
+                                                        CreatureAction::Use {
+                                                            obj1,
+                                                            obj2,
+                                                            open_index,
+                                                        },
+                                                    );
+                                                    k.base_mut().todo.queue.push_front(CreatureAction::Go);
+                                                }
+                                                if self.todo_start_go_delay(cid, true) {
+                                                    self.schedule_immediate_todo_wakeup(cid);
+                                                }
+                                                trace_creature_todo(self, cid, "execute_use_walk_to_obj2");
+                                                return Some(TodoExecuteKind::Deferred);
+                                            }
+                                        }
+                                        Err(rv) => {
+                                            self.apply_todo_result_catch(cid, rv);
+                                            return Some(TodoExecuteKind::Wait);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         // F8 S4 — `TDUse` execute (`cract.cc:833-836`). Re-validate the
                         // object (mirrors C++ `Obj.exists()` in the executor), then dispatch
                         // to `player_use_item_core` / `player_use_item_ex_core` (S5: core

@@ -1,6 +1,6 @@
 # Local C++ reference trees
 
-Gitignored checkout area for **7.72 parity work**. The Rust server does not require these to build or run at `clientVersion = 1098`.
+Gitignored checkout area for **7.72 parity work**. The Rust server does not require these to build or run at `clientVersion = 772`.
 
 ## Layout
 
@@ -8,7 +8,7 @@ Gitignored checkout area for **7.72 parity work**. The Rust server does not requ
 reference/
 ├── classic-772/                 # 772 reference stack (preferred name)
 │   └── (same layout as legacy cipsoft-772/)
-├── cipsoft-772/                 # legacy path — still supported
+├── retro-772/                 # legacy path — still supported
 │   ├── tibia-game-master/       # Mechanics / AI / pathfinding (772 outcomes)
 │   ├── tibia-login/             # Login server (port 7171)
 │   ├── tibia-querymanager/      # Account / character DB (port 7173)

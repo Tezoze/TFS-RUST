@@ -20,6 +20,12 @@ pub struct ObjectsSrvGroundWaypoints {
     pub waypoints: u16,
 }
 
+/// One type from `objects.srv` with the `DistUse` flag (`enums.hh:215`).
+#[derive(Debug, Clone)]
+pub struct ObjectsSrvDistUse {
+    pub type_id: u16,
+}
+
 const REF_772_DIR_NAMES: &[&str] = &["classic-772", "cipsoft-772"];
 
 fn reference_objects_srv_under(base: PathBuf) -> Option<PathBuf> {
@@ -69,7 +75,10 @@ pub fn parse_walkable_waypoints(path: &Path) -> Result<Vec<ObjectsSrvGroundWaypo
         let Some(type_id) = parse_type_id(&block) else {
             continue;
         };
-        let (bank, unpass) = parse_flags(&block);
+        let (bank, unpass) = {
+            let f = parse_flags(&block);
+            (f.bank, f.unpass)
+        };
         if !bank || unpass {
             continue;
         }
@@ -82,6 +91,45 @@ pub fn parse_walkable_waypoints(path: &Path) -> Result<Vec<ObjectsSrvGroundWaypo
         out.push(ObjectsSrvGroundWaypoints {
             type_id,
             waypoints: waypoints as u16,
+        });
+    }
+    Ok(out)
+}
+
+/// Parse **all** BANK entries (including `Unpass`) with their `Waypoints` value from 772 `objects.srv`.
+///
+/// Unlike [`parse_walkable_waypoints`], this includes blocked (`Bank+Unpass`) tiles and entries
+/// with `Waypoints = 0`. Used by the comprehensive OTB speed patcher to ensure `ITEM_ATTR_SPEED`
+/// matches `objects.srv` exactly for every BANK ground type — including unwalkable tiles where
+/// 772 `FillMap` skips them but OTB should still store the correct value for parity.
+// C++ reference: `cract.cc` `TShortway::FillMap` (uses BANK && !UNPASS && Waypoints).
+pub fn parse_all_bank_waypoints(path: &Path) -> Result<Vec<ObjectsSrvGroundWaypoints>> {
+    let text = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
+        file: path.to_string_lossy().into_owned(),
+        message: e.to_string(),
+    })?;
+    let mut out = Vec::new();
+    for block in text.split("\nTypeID") {
+        let block = if block.starts_with("TypeID") {
+            block.to_string()
+        } else {
+            format!("TypeID{block}")
+        };
+        let Some(type_id) = parse_type_id(&block) else {
+            continue;
+        };
+        let (bank, _unpass) = {
+            let f = parse_flags(&block);
+            (f.bank, f.unpass)
+        };
+        if !bank {
+            continue;
+        }
+        // Waypoints defaults to 0 when absent (772 `objects.cc` `getAttribute` returns 0).
+        let waypoints = parse_waypoints(&block).unwrap_or(0);
+        out.push(ObjectsSrvGroundWaypoints {
+            type_id,
+            waypoints: waypoints.max(0) as u16,
         });
     }
     Ok(out)
@@ -144,7 +192,14 @@ fn parse_type_id(block: &str) -> Option<u16> {
     None
 }
 
-fn parse_flags(block: &str) -> (bool, bool) {
+/// Parsed `objects.srv` `Flags = {…}` for one type block.
+struct ObjectsSrvFlags {
+    bank: bool,
+    unpass: bool,
+    distuse: bool,
+}
+
+fn parse_flags(block: &str) -> ObjectsSrvFlags {
     let flags: Vec<&str> = block
         .lines()
         .find(|l| l.contains("Flags"))
@@ -152,9 +207,11 @@ fn parse_flags(block: &str) -> (bool, bool) {
         .and_then(|s| s.split('}').next())
         .map(|s| s.split(',').map(str::trim).collect())
         .unwrap_or_default();
-    let bank = flags.contains(&"Bank");
-    let unpass = flags.contains(&"Unpass");
-    (bank, unpass)
+    ObjectsSrvFlags {
+        bank: flags.contains(&"Bank"),
+        unpass: flags.contains(&"Unpass"),
+        distuse: flags.contains(&"DistUse"),
+    }
 }
 
 /// Parse `Waypoints=N` from one `objects.srv` type block (`Attributes = {Waypoints=150}`).
@@ -183,6 +240,72 @@ pub fn overlay_otb_speeds_from_objects_srv(
         patched,
         skipped_unknown = skipped,
         "applied objects.srv Waypoints to OTB ITEM_ATTR_SPEED"
+    );
+    Ok(())
+}
+
+/// Parse all `DistUse` entries from 772 `objects.srv` (`enums.hh:215`).
+pub fn parse_distuse_types(path: &Path) -> Result<Vec<ObjectsSrvDistUse>> {
+    let text = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
+        file: path.to_string_lossy().into_owned(),
+        message: e.to_string(),
+    })?;
+    let mut out = Vec::new();
+    for block in text.split("\nTypeID") {
+        let block = if block.starts_with("TypeID") {
+            block.to_string()
+        } else {
+            format!("TypeID{block}")
+        };
+        let Some(type_id) = parse_type_id(&block) else {
+            continue;
+        };
+        let flags = parse_flags(&block);
+        if flags.distuse {
+            out.push(ObjectsSrvDistUse { type_id });
+        }
+    }
+    Ok(out)
+}
+
+/// Apply 772 `DistUse` flag onto OTB `ItemType::distuse` for all matching types.
+/// Maps 772 `TypeID` → OTB `server_id` (direct id or `client_id` match). Skips unknown ids.
+pub fn apply_distuse_to_items(
+    items: &mut HashMap<u16, ItemType>,
+    entries: &[ObjectsSrvDistUse],
+) -> (u32, u32) {
+    let mut patched = 0u32;
+    let mut skipped = 0u32;
+    for entry in entries {
+        let Some(server_id) = resolve_server_id(entry.type_id, items) else {
+            skipped += 1;
+            continue;
+        };
+        let Some(item) = items.get_mut(&server_id) else {
+            skipped += 1;
+            continue;
+        };
+        if !item.distuse {
+            item.distuse = true;
+            patched += 1;
+        }
+    }
+    (patched, skipped)
+}
+
+/// Overlay `DistUse` flags from `objects.srv` onto `items`. Logs summary.
+pub fn overlay_distuse_from_objects_srv(
+    items: &mut HashMap<u16, ItemType>,
+    path: &Path,
+) -> Result<()> {
+    let entries = parse_distuse_types(path)?;
+    let (patched, skipped) = apply_distuse_to_items(items, &entries);
+    info!(
+        file = %path.display(),
+        distuse_types = entries.len(),
+        patched,
+        skipped_unknown = skipped,
+        "applied objects.srv DistUse flag to OTB ItemType"
     );
     Ok(())
 }

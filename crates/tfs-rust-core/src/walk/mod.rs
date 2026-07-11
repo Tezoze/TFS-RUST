@@ -58,7 +58,13 @@ const FLAG_PATHFINDING: u32 = 1 << 4;
 const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
 
 /// Pathfinding query flags — `Map::canWalkTo` (`map.cpp` ~638).
-pub(crate) const PATHFIND_WALK_FLAGS: u32 = FLAG_PATHFINDING | FLAG_IGNOREFIELDDAMAGE;
+///
+/// Does NOT include `FLAG_IGNOREFIELDDAMAGE` — the 772 `MovePossible(Execute=false)`
+/// (`crmain.cc:893`) blocks on `AVOID` (magic fields) during pathfinding. Actual walk
+/// execution (line ~1713) passes `FLAG_IGNOREFIELDDAMAGE` directly so the player can
+/// walk through fields but takes damage, matching `MovePossible(Execute=true)` which
+/// skips the `AVOID` check.
+pub(crate) const PATHFIND_WALK_FLAGS: u32 = FLAG_PATHFINDING;
 
 /// One movement segment emitted by `internal_move_creature_step`.
 /// C++ `map.moveCreature` emits a packet per call; we collect segments and emit afterwards.
@@ -266,18 +272,6 @@ pub(crate) fn internal_teleport_player(
 
     world.emit_teleport_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
     ReturnValue::NoError
-}
-
-/// Whether `cid` can stand on `pos` during pathfinding (`Map::canWalkTo` / `Tile::queryAdd`).
-pub(crate) fn creature_can_stand_for_pathfind(
-    world: &GameWorld,
-    cid: CreatureId,
-    pos: Position,
-) -> bool {
-    let Some(tile) = world.map.get_tile(pos) else {
-        return false;
-    };
-    tile_query_add_creature(world, tile, cid, PATHFIND_WALK_FLAGS) == ReturnValue::NoError
 }
 
 /// TFS `Tile::queryAdd` dispatch for creatures (`tile.cpp` ~484–628).
@@ -2022,14 +2016,32 @@ impl GameWorld {
     }
 
     /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).
+    ///
+    /// 772 player viewport is `VisibleX/Y = 7` (`cract.cc:1093-1094`), not the monster `10`.
+    /// Path is trimmed via `truncate_cipsoft_chase_queue` — matching C++ `TShortway::Calculate`
+    /// (`cract.cc:282-301`): `while(Node != NULL && MaxSteps > 0 && (MustReach || CurDistance > 1))`.
+    /// `path_matching_tshortway` returns the full predecessor chain; the trim here is the
+    /// equivalent of the C++ reconstruction loop's `MaxSteps` + `CurDistance` checks.
+    ///
+    /// `max_steps` maps to C++ `ToDoGo(..., MaxSteps)`:
+    /// - Walk-to-use: `INT_MAX` → `usize::MAX` (`cract.cc:1282`)
+    /// - Close chase: `3` (`crcombat.cc:499`)
+    /// - Range chase: `Distance - 4` (`crcombat.cc:503`)
+    ///
+    /// `max_target_dist = 0` → `MustReach = true` (walk to exact target).
+    /// `max_target_dist > 0` → `MustReach = false`, stop within `max_target_dist` tiles.
     pub(crate) fn get_creature_path_to(
         &self,
         cid: CreatureId,
         target: Position,
         min_target_dist: i32,
         max_target_dist: i32,
+        max_steps: usize,
     ) -> Option<Vec<Direction>> {
-        use crate::pathfinding::{get_path_matching, FindPathParams, CREATURE_ON_TILE_PATH_COST};
+        use crate::pathfinding::{
+            get_path_matching, truncate_cipsoft_chase_queue, FindPathParams,
+            CREATURE_ON_TILE_PATH_COST, PLAYER_PATH_VIEW_RADIUS,
+        };
 
         let start = self.creatures.get(cid)?.position();
         let fpp = FindPathParams {
@@ -2045,7 +2057,7 @@ impl GameWorld {
             cid: CreatureId,
         }
         let ctx = PathCtx { world: self, cid };
-        get_path_matching(
+        let path = get_path_matching(
             &self.map,
             start,
             target,
@@ -2053,6 +2065,7 @@ impl GameWorld {
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
             self.mechanics.profile.path_forward_fallback,
+            PLAYER_PATH_VIEW_RADIUS,
             |pos| {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {
                     return false;
@@ -2079,7 +2092,18 @@ impl GameWorld {
                     .map(|t| ctx.world.tile_ground_speed(t.body()))
                     .unwrap_or(150)
             },
-        )
+        )?;
+
+        let must_reach = max_target_dist == 0;
+        let trimmed = truncate_cipsoft_chase_queue(
+            start,
+            target,
+            path,
+            max_steps,
+            must_reach,
+            max_target_dist,
+        );
+        Some(trimmed)
     }
 }
 

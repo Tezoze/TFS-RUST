@@ -603,5 +603,13 @@ pub(crate) fn tile_query_add_player(
         }
     }
 
+    // 772 `MovePossible(Execute=false)` blocks on `AVOID` (`crmain.cc:893`).
+    // `AVOID` maps to `MAGICFIELD` tile-state. Gated on `!FLAG_IGNOREFIELDDAMAGE`
+    // so actual walk execution (which sets that flag) can still enter fields
+    // and take damage, matching `MovePossible(Execute=true)` skipping the AVOID check.
+    if (body.flags & tilestate::MAGICFIELD) != 0 && (flags & FLAG_IGNOREFIELDDAMAGE) == 0 {
+        return ReturnValue::NotPossible;
+    }
+
     ReturnValue::NoError
 }

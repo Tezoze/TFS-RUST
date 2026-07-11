@@ -593,6 +593,10 @@ fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
             &mut db.items,
             &objects_srv,
         );
+        let _ = tfs_rust_content::objects_srv::overlay_distuse_from_objects_srv(
+            &mut db.items,
+            &objects_srv,
+        );
     }
     Ok(db)
 }

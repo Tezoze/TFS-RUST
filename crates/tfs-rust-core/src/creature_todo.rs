@@ -21,6 +21,7 @@
 //! Beat quantization. The API contract (`schedule_at` / `now_beat`) does not change.
 
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use crate::chase_debug;
 use crate::creature::CreatureKind;
@@ -398,9 +399,10 @@ impl GameWorld {
 
     /// F8 S2 — `ToDoUse` builder (`cract.cc:1258-1296`). Resolves both objects now
     /// (mirroring `GetObject`'s `throw RESULT` on failure), applies the D2/D6
-    /// z-floor gate (`cract.cc:1272-1276`), prepends `Wait{100}`
-    /// (`receiving.cc:384/430`), and enqueues `Use`. `obj2.is_none()` = single-object
-    /// `CUseObject` (`receiving.cc:384`); `obj2.is_some()` = two-object
+    /// z-floor gate (`cract.cc:1272-1276`), enqueues walk-to-reach `Go` if the
+    /// player isn't adjacent (`cract.cc:1281-1283` `ObjectInRange(1)` → `ToDoGo`),
+    /// then `Wait{100}` (`receiving.cc:384/430`), then `Use`. `obj2.is_none()` =
+    /// single-object `CUseObject` (`receiving.cc:384`); `obj2.is_some()` = two-object
     /// `CUseTwoObjects` (`receiving.cc:430`). `open_index` is the client's preferred
     /// container cid (`UseItemPayload.index`); 0 for `UseItemEx` (no index byte).
     pub(crate) fn enqueue_player_use(
@@ -416,6 +418,35 @@ impl GameWorld {
         }
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1272-1276`).
         self.validate_action_object_z_floor(cid, obj1)?;
+        // D6 — `ObjectInRange(1)` enqueue-time range check (`cract.cc:1281-1283`).
+        // If the player isn't adjacent to the map-tile source, enqueue `Go` walk
+        // steps BEFORE `Wait{100}` + `Use` — matching the C++ `ToDoUse` builder which
+        // calls `ToDoGo(…, false, INT_MAX)` before `ToDoWait(100)`. The execute arm's
+        // `needs_walk` check remains as a fallback for edge cases (player pushed
+        // mid-walk, etc.). Inventory/container sources (`0xFFFF`) skip the check.
+        if obj1.pos.x != 0xFFFF {
+            let in_range = self.creatures.get(cid).is_some_and(|k| {
+                let pp = k.position();
+                let dx = (pp.x as i32 - obj1.pos.x as i32).unsigned_abs();
+                let dy = (pp.y as i32 - obj1.pos.y as i32).unsigned_abs();
+                dx <= 1 && dy <= 1
+            });
+            if !in_range {
+                let now = Instant::now();
+                self.setup_player_walk_to_target(cid, obj1.pos, now)?;
+                // Push `Go` only if the walk queue has steps — `finish_creature_todo_execute`
+                // re-arms `Go` for each subsequent step until the walk queue drains.
+                let has_steps = self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| !k.base().walk_queue.is_empty());
+                if has_steps {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().todo.queue.push_back(CreatureAction::Go);
+                    }
+                }
+            }
+        }
         // `ToDoWait(100)` then `ToDoUse(...)` — `receiving.cc:384/430`.
         self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -431,14 +462,15 @@ impl GameWorld {
 
     /// F8 S2 — `ToDoMove` builder (`cract.cc:1123-1172`, `CMoveObject`
     /// `receiving.cc:233`). Resolves the source object now, applies the D2/D6
-    /// z-floor gate (`cract.cc:1131-1135`), prepends `Wait{100}` (`cract.cc:1155`
-    /// `int Delay = 100;` → `this->ToDoWait(Delay)` at `cract.cc:1165`), and
-    /// enqueues `Move`. The `CMoveObject` handler itself adds no leading
-    /// `ToDoWait` — but `ToDoMove` **always** does, so the resulting queue for an
-    /// adjacent map item is `[Wait{100}, Move]`. The creature-container branch
-    /// (`Delay = 1000` + `BANK` dest check, `cract.cc:1156-1163`) is not ported
-    /// yet (D9 — creature push is out of scope); when it lands, the delay must
-    /// be selected per source kind. `dest` is the throw destination
+    /// z-floor gate (`cract.cc:1131-1135`), enqueues walk-to-reach `Go` if the
+    /// player isn't adjacent (`cract.cc:1138-1140` `ObjectInRange(1)` → `ToDoGo`),
+    /// then `Wait{100}` (`cract.cc:1155` `int Delay = 100;` → `this->ToDoWait(Delay)`
+    /// at `cract.cc:1165`), then `Move`. The `CMoveObject` handler itself adds no
+    /// leading `ToDoWait` — but `ToDoMove` **always** does, so the resulting queue
+    /// for an adjacent map item is `[Wait{100}, Move]`. The creature-container
+    /// branch (`Delay = 1000` + `BANK` dest check, `cract.cc:1156-1163`) is not
+    /// ported yet (D9 — creature push is out of scope); when it lands, the delay
+    /// must be selected per source kind. `dest` is the throw destination
     /// (map/inventory/container encoded in `Position`), `count` is the stack
     /// count. Maps to Rust `GamePacket::Throw` (not `MoveObject` — F8 §0.1 F5).
     pub(crate) fn enqueue_player_move(
@@ -451,6 +483,28 @@ impl GameWorld {
         self.validate_move_object_ref(cid, obj)?;
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1131-1135`).
         self.validate_action_object_z_floor(cid, obj)?;
+        // D6 — `ObjectInRange(1)` enqueue-time range check (`cract.cc:1138-1140`).
+        if obj.pos.x != 0xFFFF {
+            let in_range = self.creatures.get(cid).is_some_and(|k| {
+                let pp = k.position();
+                let dx = (pp.x as i32 - obj.pos.x as i32).unsigned_abs();
+                let dy = (pp.y as i32 - obj.pos.y as i32).unsigned_abs();
+                dx <= 1 && dy <= 1
+            });
+            if !in_range {
+                let now = Instant::now();
+                self.setup_player_walk_to_target(cid, obj.pos, now)?;
+                let has_steps = self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| !k.base().walk_queue.is_empty());
+                if has_steps {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().todo.queue.push_back(CreatureAction::Go);
+                    }
+                }
+            }
+        }
         // D1 — `ToDoMove` always calls `this->ToDoWait(Delay)` with `Delay = 100`
         // for the non-creature-container path (`cract.cc:1155,1165`). Without this
         // the throw executes on the next beat (~1 ms) instead of ~100 ms out, so
@@ -471,13 +525,10 @@ impl GameWorld {
     /// `receiving.cc:549`). Rotates a rotatable *item* (wall torch/rope) — **not**
     /// `CRotate` (player facing, `receiving.cc:213`, already immediate). Resolves
     /// the object now, applies the D2/D6 z-floor gate (`cract.cc:1334-1338`),
-    /// prepends `Wait{100}` (`receiving.cc:549`), enqueues `Turn`. The executor
-    /// is new code (S4 — nothing exists to reuse, F8 §0.1 F2).
-    ///
-    /// F8 D3 — the C++ builder's `ObjectInRange(1)` → `ToDoGo(...)` walk-to-reach
-    /// (`cract.cc:1340-1341`) is **not** enqueued here; it is deferred to the
-    /// `Turn` execute arm in `idle_stimulus.rs` (S5 `Go`-prepend pattern, same
-    /// shape as `Use`/`Move`).
+    /// enqueues walk-to-reach `Go` if the player isn't adjacent
+    /// (`cract.cc:1340-1341` `ObjectInRange(1)` → `ToDoGo`), then `Wait{100}`
+    /// (`receiving.cc:549`), then `Turn`. The executor is new code (S4 — nothing
+    /// exists to reuse, F8 §0.1 F2).
     pub(crate) fn enqueue_player_turn(
         &mut self,
         cid: CreatureId,
@@ -486,6 +537,28 @@ impl GameWorld {
         self.validate_action_object_ref(cid, obj)?;
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1334-1338`).
         self.validate_action_object_z_floor(cid, obj)?;
+        // D6 — `ObjectInRange(1)` enqueue-time range check (`cract.cc:1340-1341`).
+        if obj.pos.x != 0xFFFF {
+            let in_range = self.creatures.get(cid).is_some_and(|k| {
+                let pp = k.position();
+                let dx = (pp.x as i32 - obj.pos.x as i32).unsigned_abs();
+                let dy = (pp.y as i32 - obj.pos.y as i32).unsigned_abs();
+                dx <= 1 && dy <= 1
+            });
+            if !in_range {
+                let now = Instant::now();
+                self.setup_player_walk_to_target(cid, obj.pos, now)?;
+                let has_steps = self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| !k.base().walk_queue.is_empty());
+                if has_steps {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().todo.queue.push_back(CreatureAction::Go);
+                    }
+                }
+            }
+        }
         // `ToDoWait(100)` then `ToDoTurn(...)` — `receiving.cc:549`.
         self.enqueue_creature_wait(cid, 100);
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -1467,9 +1540,10 @@ mod tests {
         }
     }
 
-    /// S5: `Use` execute arm with a not-adjacent map tile → `Go`-prepend.
-    /// The queue becomes `[Go, Use]` and `walk_queue` is populated — mirroring the
-    /// C++ `Use` executor's `ToDoGo(dest)` + re-enqueue `ToDoUse` (`cract.cc:600-760`).
+    /// S5/D6: `enqueue_player_use` with a not-adjacent map tile → enqueues `Go`
+    /// walk-to-reach BEFORE `Wait{100}` + `Use`, matching the C++ `ToDoUse` builder
+    /// (`cract.cc:1281-1283` `ObjectInRange(1)` → `ToDoGo`). The queue becomes
+    /// `[Go, Wait{100}, Use]` and `walk_queue` is populated.
     #[test]
     fn s5_use_not_adjacent_prepends_go_and_re_enqueues_use() {
         let mut world = beat_driven_test_world();
@@ -1482,31 +1556,74 @@ mod tests {
         world
             .enqueue_player_use(cid, obj1, None, 0)
             .expect("bag on tile resolves");
-        // Pop the `Wait{100}` so the front is the `Use` action.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.pop_front();
-        }
 
-        // Execute the `Use` — should detect non-adjacency and Go-prepend.
-        let kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
-            "not-adjacent Use → Deferred (Go-prepend)"
-        );
-
+        // D6: builder enqueues `Go` before `Wait{100}` + `Use` when not adjacent.
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(base.todo.queue.len(), 2, "queue → [Go, Use]");
+        assert_eq!(
+            base.todo.queue.len(),
+            3,
+            "not-adjacent Use → [Go, Wait{{100}}, Use]"
+        );
         assert!(
             matches!(base.todo.queue[0], CreatureAction::Go),
-            "front = Go"
+            "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Use { .. }),
-            "second = Use"
+            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            "second = Wait{{100}}"
+        );
+        assert!(
+            matches!(base.todo.queue[2], CreatureAction::Use { .. }),
+            "third = Use"
         );
         assert!(
             !base.walk_queue.is_empty(),
             "walk_queue populated for walk-to-reach"
+        );
+    }
+
+    /// D6 regression: using a map-tile item from exactly 2 tiles away must enqueue
+    /// `Go` walk-to-reach — the player must walk to adjacency before the use fires.
+    /// This is the "sewer grate from 2 tiles away" bug: the enqueue-time
+    /// `ObjectInRange(1)` check was missing, allowing the use to execute without
+    /// walking. C++ ref: `cract.cc:1281-1283` `!ObjectInRange(1)` → `ToDoGo(…)`.
+    #[test]
+    fn d6_use_two_tiles_away_enqueues_go_walk_to_reach() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        // Item exactly 2 tiles east — Chebyshev distance 2, outside `ObjectInRange(1)`.
+        let item_pos = Position::new(102, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 102, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = place_bag_on_tile(&mut world, item_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("bag on tile resolves");
+
+        let base = world.creatures.get(cid).unwrap().base();
+        // Must be [Go, Wait{100}, Use] — Go walks the player 1 step east to (101,100),
+        // then Wait{100} fires, then Use executes from adjacency (distance 1).
+        assert_eq!(
+            base.todo.queue.len(),
+            3,
+            "2-tile-away Use → [Go, Wait{{100}}, Use]"
+        );
+        assert!(
+            matches!(base.todo.queue[0], CreatureAction::Go),
+            "front = Go (walk-to-reach)"
+        );
+        assert!(
+            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            "second = Wait{{100}}"
+        );
+        assert!(
+            matches!(base.todo.queue[2], CreatureAction::Use { .. }),
+            "third = Use"
+        );
+        assert!(
+            !base.walk_queue.is_empty(),
+            "walk_queue populated — player will walk before using"
         );
     }
 
@@ -1592,11 +1709,10 @@ mod tests {
         );
     }
 
-    /// S5: `Move` execute arm with a not-adjacent map tile → `Go`-prepend.
-    /// The queue becomes `[Go, Move]` and `walk_queue` is populated. D1 added a
-    /// `Wait{100}` prefix from the builder (`cract.cc:1165`), so the test drains
-    /// it first (one `execute_creature_todo_action` returning `Wait`) before the
-    /// `Move` arm runs the `Go`-prepend.
+    /// S5/D6: `enqueue_player_move` with a not-adjacent map tile → enqueues `Go`
+    /// walk-to-reach BEFORE `Wait{100}` + `Move`, matching the C++ `ToDoMove` builder
+    /// (`cract.cc:1138-1140` `ObjectInRange(1)` → `ToDoGo`). The queue becomes
+    /// `[Go, Wait{100}, Move]` and `walk_queue` is populated.
     #[test]
     fn s5_move_not_adjacent_prepends_go_and_re_enqueues_move() {
         let mut world = beat_driven_test_world();
@@ -1611,32 +1727,24 @@ mod tests {
             .enqueue_player_move(cid, obj, dest, 1)
             .expect("gold on tile resolves");
 
-        // D1: drain the builder's `Wait{100}` floor first.
-        let drain_kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(
-                drain_kind,
-                Some(crate::idle_stimulus::TodoExecuteKind::Wait)
-            ),
-            "builder Wait{{100}} drains first"
-        );
-
-        // Execute the `Move` — should detect non-adjacency and Go-prepend.
-        let kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
-            "not-adjacent Move → Deferred (Go-prepend)"
-        );
-
+        // D6: builder enqueues `Go` before `Wait{100}` + `Move` when not adjacent.
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(base.todo.queue.len(), 2, "queue → [Go, Move]");
+        assert_eq!(
+            base.todo.queue.len(),
+            3,
+            "not-adjacent Move → [Go, Wait{{100}}, Move]"
+        );
         assert!(
             matches!(base.todo.queue[0], CreatureAction::Go),
-            "front = Go"
+            "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Move { .. }),
-            "second = Move"
+            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            "second = Wait{{100}}"
+        );
+        assert!(
+            matches!(base.todo.queue[2], CreatureAction::Move { .. }),
+            "third = Move"
         );
         assert!(
             !base.walk_queue.is_empty(),
@@ -1644,8 +1752,11 @@ mod tests {
         );
     }
 
-    /// S5: `Use` execute arm with no path to target → `Err(ThereIsNoWay)` → RESULT catch.
-    /// The catch clears the queue and enqueues `Wait{0}` (ToDoYield).
+    /// S5/D6: `enqueue_player_use` with no path to target → `Err(ThereIsNoWay)`.
+    /// The C++ `ToDoUse` builder calls `ToDoGo(…)` which throws `NOWAY` when no path
+    /// exists (`cract.cc:1096-1104`); the `CUseObject` catch sends `SendResult` +
+    /// `ToDoClear` (`receiving.cc:423-427`). In Rust, the builder propagates the error
+    /// and the caller (`game_loop.rs`) sends the cancel message.
     #[test]
     fn s5_use_no_path_to_target_applies_result_catch() {
         let mut world = beat_driven_test_world();
@@ -1658,29 +1769,15 @@ mod tests {
         let cid = insert_test_player(&mut world, player_pos);
         let obj1 = place_bag_on_tile(&mut world, item_pos);
 
-        world
-            .enqueue_player_use(cid, obj1, None, 0)
-            .expect("bag on tile resolves");
-        // Pop the `Wait{100}`.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.pop_front();
-        }
-
-        let kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
-            "no-path Use → Wait (RESULT catch applied)"
-        );
-        let base = world.creatures.get(cid).unwrap().base();
-        // RESULT catch: ToDoClear + ToDoYield (Wait{0}).
+        let result = world.enqueue_player_use(cid, obj1, None, 0);
         assert_eq!(
-            base.todo.queue.len(),
-            1,
-            "RESULT catch → [Wait{{0}}] (ToDoYield)"
+            result,
+            Err(crate::return_value::ReturnValue::ThereIsNoWay),
+            "no path → ThereIsNoWay (C++ NOWAY)"
         );
         assert!(
-            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 0 }),
-            "yield enqueued Wait{{0}}"
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "failed builder must not enqueue anything"
         );
     }
 
@@ -1724,12 +1821,48 @@ mod tests {
         );
     }
 
-    /// S5/D3: `Turn` execute arm with a not-adjacent map tile → `Go`-prepend.
-    /// The queue becomes `[Go, Turn]` and `walk_queue` is populated. The builder
-    /// prepends `Wait{100}` (`cract.cc:1345`), so the test drains it first (one
-    /// `execute_creature_todo_action` returning `Wait`) before the `Turn` arm runs
-    /// the `Go`-prepend — same shape as `s5_move_not_adjacent_prepends_go_and_re_enqueues_move`.
-    /// C++ ref: `cract.cc:1340-1341` `ObjectInRange(1)` → `ToDoGo(...)`.
+    /// Regression: `get_creature_path_to` returns forward execution order (first step
+    /// first), but `walk_queue` uses `push_back` + `pop_back` (LIFO). The helper must
+    /// reverse the path so `pop_back` yields the first step — not the last. Without the
+    /// fix, the player walks the path backwards and clashes into obstacles.
+    /// C++ ref: `cract.cc:1050-1107` `ToDoGo` → `TShortway::Calculate` enqueues `TDGo`
+    /// entries in execution order (origin → destination); `Go` executor processes them
+    /// one at a time (`cract.cc:379-445`).
+    #[test]
+    fn s5_setup_player_walk_to_target_walk_queue_pop_order_matches_execution() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        // Target 3 tiles east — path should be [East, East, East] (forward order).
+        let target = Position::new(103, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 103, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+
+        let now = std::time::Instant::now();
+        let result = world.setup_player_walk_to_target(cid, target, now);
+        assert!(result.is_ok(), "path to target exists");
+
+        let base = world.creatures.get(cid).unwrap().base();
+        // pop_back yields the first step — East toward (101,100,7).
+        let first_step = base.walk_queue.iter().rev().next().copied();
+        assert_eq!(
+            first_step,
+            Some(tfs_rust_common::enums::Direction::East),
+            "pop_back must yield the first step (East), not the last — \
+             forward-order path must be reversed before push_back"
+        );
+        // walk_destinations pop_back must give the first destination (101,100,7).
+        let first_dest = base.walk_destinations.iter().rev().next().copied();
+        assert_eq!(
+            first_dest,
+            Some(Position::new(101, 100, 7)),
+            "walk_destinations pop_back must match the first step's destination"
+        );
+    }
+
+    /// S5/D6: `enqueue_player_turn` with a not-adjacent map tile → enqueues `Go`
+    /// walk-to-reach BEFORE `Wait{100}` + `Turn`, matching the C++ `ToDoTurn` builder
+    /// (`cract.cc:1340-1341` `ObjectInRange(1)` → `ToDoGo`). The queue becomes
+    /// `[Go, Wait{100}, Turn]` and `walk_queue` is populated.
     #[test]
     fn s5_turn_not_adjacent_prepends_go_and_re_enqueues_turn() {
         let mut world = beat_driven_test_world();
@@ -1743,32 +1876,24 @@ mod tests {
             .enqueue_player_turn(cid, obj)
             .expect("rotatable on tile resolves");
 
-        // Drain the builder's `Wait{100}` floor first (`cract.cc:1345`).
-        let drain_kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(
-                drain_kind,
-                Some(crate::idle_stimulus::TodoExecuteKind::Wait)
-            ),
-            "builder Wait{{100}} drains first"
-        );
-
-        // Execute the `Turn` — should detect non-adjacency and Go-prepend.
-        let kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
-            "not-adjacent Turn → Deferred (Go-prepend)"
-        );
-
+        // D6: builder enqueues `Go` before `Wait{100}` + `Turn` when not adjacent.
         let base = world.creatures.get(cid).unwrap().base();
-        assert_eq!(base.todo.queue.len(), 2, "queue → [Go, Turn]");
+        assert_eq!(
+            base.todo.queue.len(),
+            3,
+            "not-adjacent Turn → [Go, Wait{{100}}, Turn]"
+        );
         assert!(
             matches!(base.todo.queue[0], CreatureAction::Go),
-            "front = Go"
+            "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Turn { .. }),
-            "second = Turn"
+            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            "second = Wait{{100}}"
+        );
+        assert!(
+            matches!(base.todo.queue[2], CreatureAction::Turn { .. }),
+            "third = Turn"
         );
         assert!(
             !base.walk_queue.is_empty(),
@@ -1823,9 +1948,9 @@ mod tests {
         );
     }
 
-    /// S5/D3: `Turn` execute arm with no path to target → `Err(ThereIsNoWay)` →
-    /// RESULT catch. The catch clears the queue and enqueues `Wait{0}` (ToDoYield).
-    /// Mirrors `s5_use_no_path_to_target_applies_result_catch`.
+    /// S5/D6: `enqueue_player_turn` with no path to target → `Err(ThereIsNoWay)`.
+    /// Same as `s5_use_no_path_to_target_applies_result_catch` — the C++ `ToDoTurn`
+    /// builder calls `ToDoGo(…)` which throws `NOWAY` (`cract.cc:1096-1104`).
     #[test]
     fn s5_turn_no_path_to_target_applies_result_catch() {
         let mut world = beat_driven_test_world();
@@ -1838,29 +1963,15 @@ mod tests {
         let cid = insert_test_player(&mut world, player_pos);
         let obj = place_rotatable_on_tile(&mut world, item_pos, 5001, 5002);
 
-        world
-            .enqueue_player_turn(cid, obj)
-            .expect("rotatable on tile resolves");
-        // Drain the `Wait{100}`.
-        if let Some(k) = world.creatures.get_mut(cid) {
-            k.base_mut().todo.queue.pop_front();
-        }
-
-        let kind = world.execute_creature_todo_action(cid);
-        assert!(
-            matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
-            "no-path Turn → Wait (RESULT catch applied)"
-        );
-        let base = world.creatures.get(cid).unwrap().base();
-        // RESULT catch: ToDoClear + ToDoYield (Wait{0}).
+        let result = world.enqueue_player_turn(cid, obj);
         assert_eq!(
-            base.todo.queue.len(),
-            1,
-            "RESULT catch → [Wait{{0}}] (ToDoYield)"
+            result,
+            Err(crate::return_value::ReturnValue::ThereIsNoWay),
+            "no path → ThereIsNoWay (C++ NOWAY)"
         );
         assert!(
-            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 0 }),
-            "yield enqueued Wait{{0}}"
+            world.creatures.get(cid).unwrap().base().todo.is_empty(),
+            "failed builder must not enqueue anything"
         );
     }
 

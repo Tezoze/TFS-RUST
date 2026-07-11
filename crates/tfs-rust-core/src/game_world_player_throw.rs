@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use tfs_rust_common::{ConnId, Position};
 
-use crate::creature::PlayerWalkAction;
 use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -72,15 +71,15 @@ impl GameWorld {
     #[allow(clippy::too_many_arguments)]
     fn player_move_item(
         &mut self,
-        conn_id: ConnId,
+        _conn_id: ConnId,
         cid: CreatureId,
         from_pos: Position,
         sprite_id: u16,
-        from_stack_pos: u8,
+        _from_stack_pos: u8,
         to_pos: Position,
         count: u8,
         item_id: ItemId,
-        now: Instant,
+        _now: Instant,
     ) -> Result<(), ReturnValue> {
         let item_is_pickupable;
         let item_throw_range;
@@ -135,32 +134,10 @@ impl GameWorld {
                 };
                 return Err(rv);
             }
-            // Distance check — walk to item first if out of range (`game.cpp` ~970–983).
-            let dx = (player_pos.x as i32 - map_from_pos.x as i32).unsigned_abs();
-            let dy = (player_pos.y as i32 - map_from_pos.y as i32).unsigned_abs();
-            if dx > 1 || dy > 1 {
-                if to_pos.x != 0xFFFF
-                    && !self.throw_dest_reachable_after_walk_to_item(
-                        cid,
-                        map_from_pos,
-                        map_to_pos,
-                        item_throw_range,
-                    )
-                {
-                    return Err(ReturnValue::DestinationOutOfReach);
-                }
-                let action = PlayerWalkAction::MoveItem {
-                    from_pos,
-                    sprite_id,
-                    from_stack_pos,
-                    to_pos,
-                    count,
-                };
-                if !self.try_walk_to_and_action(conn_id, cid, map_from_pos, action, now) {
-                    return Err(ReturnValue::ThereIsNoWay);
-                }
-                return Ok(());
-            }
+            // Distance check — the ToDo `Move` execute arm handles walk-to-reach via
+            // `Go`-prepend before dispatching here. By this point the player is adjacent
+            // (dx <= 1 && dy <= 1). The C++ reactive walk path (`game.cpp` ~970–983) is
+            // handled by the enqueue-time `ObjectInRange(1)` check in `enqueue_player_move`.
         }
 
         // C++ ref: src/game.cpp:1046-1060 Game::playerMoveItem
@@ -219,58 +196,6 @@ impl GameWorld {
             }
         }
         true
-    }
-
-    /// Before walk-to-item: reject if no stand tile adjacent to the source can reach the destination.
-    /// Matches post-walk `playerPos`→`mapToPos` + `canThrowObjectTo` checks in `game.cpp` (~1051–1060).
-    ///
-    /// **Intentional deviation from C++**: TFS has no pre-check here — it walks the player
-    /// to the item then fails at `playerMoveItem` execution time. This early rejection avoids
-    /// the "walk all the way there, then get an error" UX failure.
-    /// Approved improvement — does not affect any observable packet sequence when the throw IS valid.
-    fn throw_dest_reachable_after_walk_to_item(
-        &self,
-        cid: CreatureId,
-        map_from: Position,
-        map_to: Position,
-        throw_range: u32,
-    ) -> bool {
-        if !self.can_throw_object_to(map_from, map_to, throw_range) {
-            return false;
-        }
-
-        const ADJACENT: [(i32, i32); 8] = [
-            (-1, 0),
-            (1, 0),
-            (0, -1),
-            (0, 1),
-            (-1, -1),
-            (1, -1),
-            (-1, 1),
-            (1, 1),
-        ];
-        for (ox, oy) in ADJACENT {
-            let nx = map_from.x as i32 + ox;
-            let ny = map_from.y as i32 + oy;
-            if nx < 0 || ny < 0 {
-                continue;
-            }
-            let stand = Position {
-                x: nx as u16,
-                y: ny as u16,
-                z: map_from.z,
-            };
-            let dx = (stand.x as i32 - map_to.x as i32).unsigned_abs();
-            let dy = (stand.y as i32 - map_to.y as i32).unsigned_abs();
-            if dx > throw_range || dy > throw_range {
-                continue;
-            }
-            if !crate::walk::creature_can_stand_for_pathfind(self, cid, stand) {
-                continue;
-            }
-            return true;
-        }
-        false
     }
 
     // Check if the destination tile can accept thrown items

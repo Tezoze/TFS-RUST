@@ -262,8 +262,9 @@ impl GameWorld {
             if cheb > 1 {
                 // `ToDoGo(target, false, 3)` — close chase (`crcombat.cc:498-499`). Reuse the generic
                 // player-aware pathfinder (`get_creature_path_to` dispatches to
-                // `tile_query_add_player` for the moving player).
-                let Some(steps) = self.get_creature_path_to(cid, target_pos, 1, 1) else {
+                // `tile_query_add_player` for the moving player). `MaxSteps=3` limits the
+                // walk to 3 steps before combat re-evaluates target position.
+                let Some(steps) = self.get_creature_path_to(cid, target_pos, 1, 1, 3) else {
                     // No path — re-arm on the attack beat; `CanToDoAttack` will retry next tick.
                     return PlayerChaseOutcome::NoPath;
                 };

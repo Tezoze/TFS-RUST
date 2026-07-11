@@ -196,24 +196,6 @@ impl GameWorld {
         }
     }
 
-    /// `UseItem` gate — 772 walk timer (Phase 4: both eras).
-    pub(crate) fn player_use_item_ready(&self, cid: CreatureId) -> bool {
-        let now_ms = self.now_ms();
-        match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.base.walk_action_ready_at(now_ms),
-            _ => true,
-        }
-    }
-
-    /// `UseItemEx` gate — 772 `EarliestMultiuseTime` (Phase 4: both eras).
-    pub(crate) fn player_use_item_ex_ready(&self, cid: CreatureId) -> bool {
-        let now_ms = self.now_ms();
-        match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.base.multiuse_ready_at(now_ms),
-            _ => true,
-        }
-    }
-
     /// C++ `Use` two-object exhaustion — `cract.cc:765`.
     pub(crate) fn player_apply_multiuse_exhaust(&mut self, cid: CreatureId) {
         // Phase 4: 1098 defer deleted — both eras apply multiuse exhaust.

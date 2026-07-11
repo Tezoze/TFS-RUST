@@ -98,7 +98,7 @@ fn distance_shoot_encoding() {
             shoot_type: 6,
         })
         .into_bytes();
-    assert_eq!(via_codec.as_slice(), expected);
+    assert_eq!(&via_codec, expected);
 }
 
 #[test]

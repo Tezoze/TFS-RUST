@@ -12,7 +12,7 @@ const ESCAPE: u8 = 0xFD;
 const ITEM_ATTR_SERVERID: u8 = 0x10;
 const ITEM_ATTR_SPEED: u8 = 0x14;
 
-/// Build `server_id -> Waypoints` from `objects.srv` resolved against loaded OTB ids.
+/// Build `server_id -> Waypoints` from walkable BANK entries in `objects.srv`.
 pub fn build_speed_patches(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u16>> {
     let items = OtbLoader::load_from_file(otb_path)?;
     let entries = crate::objects_srv::parse_walkable_waypoints(objects_srv)?;
@@ -25,6 +25,43 @@ pub fn build_speed_patches(objects_srv: &Path, otb_path: &Path) -> Result<HashMa
         };
         patches.insert(server_id, entry.waypoints);
     }
+    Ok(patches)
+}
+
+/// Build `server_id -> Waypoints` from **all** BANK entries (including `Unpass` and `Waypoints=0`).
+///
+/// Also zeroes OTB `speed` for non-BANK items that currently have `speed > 0` — ensuring
+/// `ITEM_ATTR_SPEED` matches `objects.srv` exactly for every item, not just walkable tiles.
+// C++ reference: `cract.cc` `TShortway::FillMap` (BANK && !UNPASS && Waypoints > 0).
+pub fn build_all_speed_patches(
+    objects_srv: &Path,
+    otb_path: &Path,
+) -> Result<HashMap<u16, u16>> {
+    let items = OtbLoader::load_from_file(otb_path)?;
+    let entries = crate::objects_srv::parse_all_bank_waypoints(objects_srv)?;
+    let mut patches = HashMap::new();
+
+    // All BANK items: set speed = Waypoints (including 0 for unwalkable/blocked tiles).
+    let bank_server_ids: std::collections::HashSet<u16> = entries
+        .iter()
+        .filter_map(|e| crate::objects_srv::resolve_server_id_for_patch(e.type_id, &items))
+        .collect();
+    for entry in &entries {
+        let Some(server_id) =
+            crate::objects_srv::resolve_server_id_for_patch(entry.type_id, &items)
+        else {
+            continue;
+        };
+        patches.insert(server_id, entry.waypoints);
+    }
+
+    // Non-BANK items that have OTB speed > 0: zero them out (no Waypoints in objects.srv).
+    for (&server_id, item) in &items {
+        if !patches.contains_key(&server_id) && item.speed > 0 && !bank_server_ids.contains(&server_id) {
+            patches.insert(server_id, 0);
+        }
+    }
+
     Ok(patches)
 }
 

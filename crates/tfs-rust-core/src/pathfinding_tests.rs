@@ -186,6 +186,7 @@ fn reverse_search_finds_path_to_origin() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         true,
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -257,6 +258,7 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         false,
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -326,6 +328,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         true,
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -405,6 +408,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Forward,
         true,
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -418,6 +422,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         true,
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -493,6 +498,7 @@ fn forward_pathfinder_obeys_allow_diagonal() {
         PathCostModel::Fixed,
         PathSearchModel::Forward,
         true,
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -566,6 +572,7 @@ fn reverse_noway_without_fallback() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         false, // no forward fallback
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -584,6 +591,7 @@ fn reverse_noway_without_fallback() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         true, // forward fallback enabled
+        REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
@@ -675,6 +683,7 @@ fn cyclops_quad_east_and_south_shortway_on_uniform_terrain() {
             PathCostModel::TerrainWeighted,
             PathSearchModel::Reverse,
             true,
+            REVERSE_PATH_VIEW_RADIUS,
             can_walk,
             |_| 0u32,
             ground,
@@ -747,6 +756,7 @@ fn get_path_matching_blocked_far_n_matches_path_compare_pipeline() {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         false,
+        REVERSE_PATH_VIEW_RADIUS,
         |pos| map.is_walkable(pos),
         |_| 0u32,
         |_| 150u32,
@@ -779,6 +789,7 @@ fn tshortway_blocked_missing_tile_routes_east_first() {
         start,
         target,
         &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
         |pos| map.is_walkable(pos),
         |_| 150,
     )
@@ -808,9 +819,16 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
     // Occupied sibling tile present on map (creature blocking) — `can_walk_to` rejects it.
     let map_with_tile = cyclops_quad_uniform_map(start, target);
     let can_walk = |pos: Position| pos != blocked;
-    let walk_order =
-        path_matching_tshortway(&map_with_tile, start, target, &fpp, can_walk, |_| 150)
-            .expect("path with occupied tile");
+    let walk_order = path_matching_tshortway(
+        &map_with_tile,
+        start,
+        target,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("path with occupied tile");
     let mut pos = start;
     for &dir in &walk_order {
         pos = pos.offset(dir);
@@ -837,6 +855,7 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
         start,
         target,
         &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
         |pos| map_without_tile.is_walkable(pos),
         |_| 150,
     )
@@ -906,7 +925,9 @@ fn cyclops_nw_shortway_matches_python_tshortway_port() {
         full_path_search: true,
         max_search_dist: 0,
     };
-    let dirs = path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150).expect("path");
+    let dirs =
+        path_matching_tshortway(&map, nw, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150)
+            .expect("path");
     let trimmed = truncate_cipsoft_chase_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
     let mut pos = nw;
     let got: Vec<Position> = trimmed
@@ -950,7 +971,7 @@ fn cyclops_far_n_shortway_matches_python_tshortway_port() {
         full_path_search: true,
         max_search_dist: 0,
     };
-    let dirs = path_matching_tshortway(&map, far_n, player, &fpp, can_walk, |_| 150).expect("path");
+    let dirs = path_matching_tshortway(&map, far_n, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150).expect("path");
     let trimmed = truncate_cipsoft_chase_queue(far_n, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
     let mut pos = far_n;
     let got: Vec<Position> = trimmed
@@ -993,7 +1014,7 @@ fn cyclops_nw_shortway_live_ref_with_blocked_dest_and_siblings() {
         full_path_search: true,
         max_search_dist: 0,
     };
-    let dirs = path_matching_tshortway(&map, nw, player, &fpp, can_walk, |_| 150).expect("path");
+    let dirs = path_matching_tshortway(&map, nw, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150).expect("path");
     let trimmed = truncate_cipsoft_chase_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
     let mut pos = nw;
     let got: Vec<Position> = trimmed

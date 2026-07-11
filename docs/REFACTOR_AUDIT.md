@@ -30,39 +30,47 @@ and one god-object (`GameWorld`) account for most of the mess.
 
 **Top 5 refactor priorities (highest impact first):**
 
-1. **Split `idle_stimulus.rs` (6,809→2,511 LOC) and `monster_ai.rs` (4,758→2,843 LOC).** ✅ Phase 1 done 2026-07-01 — inline tests extracted to `#[path]` sibling files; test pass count & clippy set byte-identical before/after. The remaining split into `monster_idle/` + `monster_ai/` module *directories* (per §1 recommendation) is Phase 4 work.
+1. **Split `idle_stimulus.rs` (now 3,060 LOC) and `monster_ai.rs` (now 2,056 LOC).** ✅ Phase 1 done 2026-07-01 — inline tests extracted to `#[path]` sibling files; test pass count & clippy set byte-identical before/after. The remaining split into `monster_idle/` + `monster_ai/` module *directories* (per §1 recommendation) is Phase 4 work — **re-audited 2026-07-11**, see Phase 4 for revised split plans.
 2. **Tame the `GameWorld` god-object** — `impl GameWorld` is spread across **34 files**.
 3. **Move simulation/debug harness code out of the production `core` library.** ✅ Phase 2 done 2026-07-02 — `sim_harness`, `chase_debug`, and `sim_glibc_rand` sim parts gated behind `#[cfg(any(test, feature = "sim"))]` with no-op stubs for production. `chase_kite_sim` bin requires `--features sim`.
-4. **Fix `_772` naming-rule violations on core functions** (259 identifiers, 110 on `fn`s).
+4. **Fix `_772` naming-rule violations on core functions** (259 identifiers, 110 on `fn`s). ✅ Phase 3 done 2026-07-10 — all production `_772`-suffixed functions renamed to behavior-based names across core, content, lua, and net crates. Remaining `_772` identifiers are test fns, config, data constants, and local variables (all allowed exceptions).
 5. **Decompose oversized functions** (20+ functions over 120 lines, longest is 317).
 
 ---
 
 ## 1. Mega-files: two files dominate
 
-| File | LOC | Prod LOC | Test LOC | `fn` count |
-|------|-----|----------|----------|-----------|
-| `idle_stimulus.rs` | 6,809 | ~2,415 | ~4,394 (65%) | 145 |
-| `monster_ai.rs` | 4,758 | ~2,835 | ~1,923 (40%) | 105 |
-| `sim_harness.rs` | 2,441 | ~1,782 | ~659 | — |
-| `pathfinding.rs` | 2,261 | ~1,228 | ~1,033 | — |
-| `walk/mod.rs` | 2,285 | — | — | 46 |
+**Re-measured 2026-07-11.** Phase 1 extracted inline tests to `#[path]` sibling files; the
+unified beat engine work deleted 1098 AI. Both mega-files are now test-free but still
+monolithic.
+
+| File | Current LOC | Orig LOC | `fn` count | Notes |
+|------|-------------|----------|-----------|-------|
+| `idle_stimulus.rs` | 3,060 | 6,809 | 52 | All `impl GameWorld`; tests in `idle_stimulus_tests.rs` (5,937) |
+| `monster_ai.rs` | 2,056 | 4,758 | 38 | 8 free + 30 `impl GameWorld`; tests in `monster_ai_tests.rs` + `monster_ai_world_tests.rs` |
+| `walk/mod.rs` | 2,655 | 2,285 | 46 | Grew since audit |
+| `creature_todo.rs` | 2,048 | — | — | **New** — not in original audit; 3rd largest in core |
+| `pathfinding.rs` | 1,231 | 2,261 | — | Shrank (tests extracted) |
+| `game_world_inventory.rs` | 1,288 | 964 | — | Grew +34% |
+| `player/inventory/query_add.rs` | 1,280 | 1,184 | — | In `player/` module (already refactored) |
+| `player/combat/ranged.rs` | 1,253 | — | — | **New** — in `player/` module |
+| `game_world_chat.rs` | 1,163 | — | — | **New** — created during CH phases |
+| `game_world_spectators.rs` | 1,089 | — | — | **New** — split from game_world.rs |
 
 ### Findings
 
-- `idle_stimulus.rs` is a **single ~270 KB file** holding 145 functions plus ~4,400 lines of
-  inline tests. It is effectively a sub-system, not a module. The IDE chokes on it and
-  reviewers cannot reason about it.
+- `idle_stimulus.rs` is still a **single ~133 KB file** holding 52 functions. It is effectively
+  a sub-system, not a module. The IDE chokes on it and reviewers cannot reason about it.
 - Both mega-files mix several concerns: idle/chase stepping, spell impact application,
-  walk-branch execution, and target selection all live together.
-- **The tail is short but real.** Beyond the top 5, only one more core file crosses 1,200 LOC
-  (`monster_push.rs`, 1,545). The next tier (800–1,200 LOC) is a further 9 files:
-  `player_inventory_query_add.rs` (1,184), `spawn_lifecycle.rs` (1,121),
-  `game_world_inventory.rs` (964), `monster_events.rs` (925), `bin/chase_kite_sim.rs` (888),
-  `formulas.rs` (870), `container_ui.rs` (833), `login_out.rs` (804),
-  `creature/monster_combat.rs` (803). So the "two mega-files" framing is fair — the bulk of the
-  pain is concentrated — but these ~10 second-tier files are the natural Phase 4/5 backlog once
-  the top two are split.
+  walk-branch execution, target selection, combat damage, and todo execution all live together.
+- **The tail has grown.** The original audit named `monster_push.rs` (then 1,545) as the only
+  other file over 1,200 LOC. It has since shrunk to 565. But **4 new files** now cross 1,200 LOC
+  (`creature_todo.rs`, `game_world_inventory.rs`, `player/inventory/query_add.rs`,
+  `player/combat/ranged.rs`), and **2 more** cross 1,000 (`game_world_chat.rs`,
+  `game_world_spectators.rs`). The player files are already in the `player/` module directory
+  (refactored separately) and are single-concern, so they're acceptable. The remaining
+  second-tier candidates for Phase 4/5 are `creature_todo.rs`, `game_world_inventory.rs`, and
+  `game_world_chat.rs` — see Phase 4c.
 
 ### Recommendation
 
@@ -251,7 +259,7 @@ each stage shrinks the surface the next has to move.
 | Stage | Phases | Effort | Risk | Outcome |
 |-------|--------|--------|------|---------|
 | **A — Clear the noise** | 0, 1 | ~2–3 d | ~zero | Backups/markers gone; inline tests pulled out — roughly halves the two mega-files by pure cut/paste. **Phase 1 ✅ done 2026-07-01** (Phase 0 still pending). |
-| **B — Shrink the surface** | 2, 3 | ~2–4 d | low | Sim/debug code behind a `sim` feature; `_772` core fns renamed by behavior (compiler-guided). **Phase 2 ✅ done 2026-07-02** |
+| **B — Shrink the surface** | 2, 3 | ~2–4 d | low | Sim/debug code behind a `sim` feature; `_772` core fns renamed by behavior (compiler-guided). **Phase 2 ✅ done 2026-07-02; Phase 3 ✅ done 2026-07-10** |
 | **C — Make monoliths legible** | 4, 5 | ~1–2 wk | low/med | `idle_stimulus.rs`/`monster_ai.rs` become module dirs; 20+ oversized fns split into per-stage helpers |
 | **D — Tame the god-object** | 6 | multi-wk | **high** | ~51 `GameWorld` fields grouped into sub-structs; `impl` methods become free fns on minimal borrows — kills `mem::take`/borrow-splitting |
 
@@ -462,7 +470,9 @@ and `parity_random_shuffle` method in `game_world.rs` (`#[allow(dead_code)]` —
 
 ---
 
-## Phase 3 — Rename `_772` core functions (1–2 days, low risk, mechanical)
+## Phase 3 — Rename `_772` core functions (1–2 days, low risk, mechanical) ✅ DONE 2026-07-10
+
+> **Status: COMPLETE.** All exit criteria met. See "Phase 3 results" below.
 
 **Goal:** comply with the always-on `TFS-Core` naming rule (no version suffix on core fns).
 
@@ -494,52 +504,187 @@ information. Rename by **behavior**, not version:
 **Exit criteria:** `grep -rn "fn .*_772" crates/tfs-rust-core/src` returns only test/config
 items; clippy clean.
 
+### Phase 3 results
+
+**Key discovery:** the audit's 10 example functions (`advance_beat_772`, `process_creatures_772`,
+`process_connections_772`, `tick_ambiente_light_772`, `monster_on_chase_noway_772`,
+`monster_move_possible_planning_772`, `monster_exhausted_wait_772`, `clear_todo_772`,
+`monster_can_kick_boxes_772`, `monster_idle_summon_lifecycle_772`) had **already been renamed**
+in prior work — they appear only in a stale comment at `walk/mod.rs:601`. The remaining
+production `_772` functions were spread across **four crates**, not just `tfs-rust-core`:
+
+| Crate | Renamed | Call sites updated |
+|-------|---------|--------------------|
+| core | `condition_type_from_lua_772` → `condition_type_from_lua` | `game_world_chat.rs` (2), `game_world_script.rs` (1) |
+| content | `is_terrain_bank_772` → `is_terrain_bank` | `monster_ai.rs` (2), `monster_push.rs` (1) |
+| content | `is_unpass_772` → `is_unpassable` | `monster_ai.rs` (2), `monster_push.rs` (2) |
+| content | `is_unmove_772` → `is_immovable` | `monster_ai.rs` (2), `monster_push.rs` (2) |
+| content | `is_avoid_hazard_772` → `is_avoid_hazard` | `monster_ai.rs` (1), `monster_push.rs` (1) |
+| content | `avoid_damage_type_772` → `avoid_damage_type` | `monster_ai.rs` (1), `monster_push.rs` (1) |
+| content | `waypoints_raw_772` → `waypoints_raw` | `items.rs` (1) |
+| content | `reference_772_objects_srv_under` → `reference_objects_srv_under` | `objects_srv.rs` (4) |
+| lua | `return_value_message_772` → `return_value_message` | `userdata/player.rs` (8) |
+| net | `send_icons_772` → `send_icons_classic` | `outgoing_extra.rs`, `login_out.rs` (2) |
+| net | `liquid_color_772` → `liquid_color` | `codec/v772.rs` (1) |
+| net | `build_login_success_772` → `build_login_success_classic` | `protocol_login_out.rs` (1) |
+| net | `premium_days_left_772` → `premium_days_left` | `protocol_login_out.rs` (4) |
+
+**Naming choices:**
+- `is_unpass` → `is_unpassable`, `is_unmove` → `is_immovable` — more idiomatic Rust adjectives.
+- `send_icons_772` → `send_icons_classic` — the 772 variant writes a `u8` icon field vs the
+  1098 `u16`; "classic" describes the narrow-field behavior, not the version number.
+- `build_login_success_772` → `build_login_success_classic` — paired with `_1098` (future
+  rename to `_modern` in a follow-up).
+
+**Exceptions kept (allowed by the rule):**
+- Test fns: `test_772_*`, `test_phase9_772_*`, `*_reads_772`, `place_bag_on_tile_772`,
+  `otclient_772_*`, `real_772_client_*`, `wire_step_speed_772_*`, etc.
+- Config: `protocol_version_reads_772` (`config.rs`).
+- Data constants: `OTB_MAJOR_772` (literal OTB version 2), `LOGIN_ERR_772` (literal wire
+  byte `0x0A`), `REF_772_DIR_NAMES` (literal directory path strings).
+- Local variables: `is_772`, `codec_772` (not public APIs).
+
+**Out of scope (follow-up):** `_1098`-suffixed production functions (`send_player_stats_1098`,
+`send_player_skills_1098`, `send_basic_data_1098`, `build_login_success_1098`,
+`enqueue_initial_login_packets_1098`) are also naming-rule violations but were not in Phase 3's
+scope as written.
+
+**Verification:**
+- `cargo test -p tfs-rust-core --lib` → **585 passed, 2 ignored** — identical to pre-Phase-3
+  baseline. ✅
+- `cargo clippy --all-targets 2>&1 | grep '^warning:' | sort | wc -l` → **26** — identical to
+  baseline. ✅
+- `grep -rn "fn .*_772" crates/tfs-rust-core/src` → 86 matches, **all test/config items**. ✅
+- `grep -rn "fn .*_772" crates/tfs-rust-{content,lua,net}/src` → all test items. ✅
+- `cargo check --all-targets` → 0 errors. ✅
+
 ---
 
 ## Phase 4 — Split the mega-files into modules (3–5 days, low/medium risk)
 
-**Goal:** turn two monoliths (now test-free after Phase 1) into legible module directories.
+**Re-audited 2026-07-11** against the current tree. Both files are now test-free (Phase 1
+extracted tests to `#[path]` sibling files). The unified beat engine work (Phases 3–10 in git
+log) deleted the 1098 reactive AI and `beat_driven_loop` flag, which removed several functions
+the original Phase 4 plan referenced. The split plans below reflect the **actual** current
+function inventory.
+
+**Current LOC:**
+| File | Audit LOC (orig) | Current LOC | `fn` count |
+|------|------------------|-------------|-----------|
+| `idle_stimulus.rs` | 6,809 | 3,060 | 52 (all `impl GameWorld`) |
+| `monster_ai.rs` | 4,758 | 2,056 | 38 (8 free + 30 `impl GameWorld`) |
 
 ### 4a. `idle_stimulus.rs` → `monster_idle/`
 
-Natural seams from the existing function inventory:
+The file holds 52 functions across 11 logical groups. The original plan placed only ~7 files
+and missed 3 entire groups (combat/damage, attack enqueue, utilities). Revised split:
 
 ```
 monster_idle/
-  mod.rs          # idle_stimulus dispatch + request_idle_stimulus + state trace
-  chase.rs        # monster_idle_chase_*, *_repath, step budget, prepare_combat_chase
-  walk_branch.rs  # monster_idle_classify/execute/log_walk_branch, dance/roam/flee arms
-  spell_impact.rs # monster_idle_apply_spell_impact, spell_tiles, try_casting, suppress_*
-  target.rs       # monster_idle_772_acquire/lose/should_lose_target, roll_strategy
-  summon.rs       # monster_idle_summon_lifecycle, summon stubs
-  todo_execute.rs # execute_creature_todo_*, run_monster_todo_execute, combat_execute_*
+  mod.rs          # dispatch: idle_stimulus, player_idle_stimulus, request_idle_stimulus
+                  #   + enums (MonsterIdleWalkBranch, MonsterIdleWalkOutcome, TodoExecuteKind)
+  combat.rs       # combat_execute_with_stimulus, apply_mana_shield, player_absorb_percent,
+                  #   clear_nonplayer_invisibility, monster_damage_stimulus  (~338 LOC)
+  summon.rs       # monster_idle_summon_lifecycle  (~115 LOC)
+  target.rs       # monster_idle_acquire_target, monster_idle_lose_existing_target,
+                  #   monster_idle_should_lose_target, monster_cast_target_id,
+                  #   monster_idle_roll_strategy_from_roll  (~203 LOC)
+  spell.rs        # monster_idle_apply_spell_impact, monster_idle_try_casting,
+                  #   monster_idle_spell_tiles, monster_idle_suppress_adjacent_melee_spell
+                  #   (~346 LOC)
+  core.rs         # monster_idle_stimulus, monster_idle_stimulus_after_creature_move,
+                  #   monster_idle_stimulus_inner, monster_idle_reschedule_target_bound_if_parked,
+                  #   monster_idle_reset_combat_state, monster_idle_try_talk  (~238 LOC)
+  chase.rs        # monster_idle_maybe_enter_attacking, prepare/set_combat_chase_mode,
+                  #   emit_combat_state, chase_needs_repath, classify/execute/log_walk_branch,
+                  #   master_follow_hold_or_wait, noway_clear_and_roam,
+                  #   prepare_and_enqueue_go  (~458 LOC)
+  attack.rs       # monster_enqueue_todo_attack_actions, monster_idle_can_enqueue_attack,
+                  #   monster_idle_rotate_toward_attack_target, monster_execute_rotate_toward,
+                  #   monster_idle_maybe_enqueue_attack, monster_combat_handle_close_chase_blocked
+                  #   (~258 LOC)
+  todo_execute.rs # execute_creature_todo_action, execute_player_use, execute_player_move,
+                  #   execute_creature_todo_go, finish_creature_todo_execute,
+                  #   run_monster_todo_execute, maybe_idle_stimulus_after_go_complete
+                  #   (~611 LOC)
+  utils.rs        # monster_state_trace_str, monster_sleep_wake_on_creature_move,
+                  #   monster_idle_maybe_enqueue_at_goal_wait, monster_exhausted_wait
+                  #   (~72 LOC)
 ```
+
+**Cross-group coupling notes** (affects move order):
+- `core.rs` (Group F) is the central hub — calls into target, spell, chase, attack, utils.
+  Move it last, after its callees are in place.
+- `todo_execute.rs` (Group J) calls back into `core.rs` and `spell.rs`. This bidirectional
+  dependency is fine within the same crate (separate `impl GameWorld` blocks).
+- `combat.rs` (Group B) is relatively isolated — safe to move first.
 
 ### 4b. `monster_ai.rs` → `monster_ai/`
 
+**Stale references removed:** the original plan referenced `monster_native_on_think`,
+`monster_on_think_target`, `go_to_follow_creature`, `start_follow_step`, `teleport_to_spawn`,
+and `out_of_spawn_range` — all deleted during the unified beat engine work. The `on_think.rs`
+and `follow.rs` files would be empty. Revised split against the actual 38-function inventory:
+
 ```
 monster_ai/
-  mod.rs        # re-exports + small helpers (chebyshev, manhattan, is_fleeing, spawn-range)
-  on_think.rs   # monster_native_on_think, monster_on_think_target, do_attacking
-  follow.rs     # go_to_follow_creature, follow band/repath/reconcile, start_follow_step
-  chase.rs      # monster_*_chase_*, greedy/closer step, apply_chase_path
-  look.rs       # compute_look_toward_target, monster_update_look_direction
-  move_plan.rs  # monster_move_possible_planning, can_walk_to/occupy, tshortway fill
-  spawn.rs      # walk_to_spawn, teleport_to_spawn, out_of_spawn_range, leash
+  mod.rs        # re-exports + free helpers: chebyshev, manhattan,
+                #   monster_idle_chase_step_budget, monster_master_follow_in_wait_band  (~22 LOC)
+  attack.rs     # monster_do_attacking (376 LOC — Phase 5 candidate), monster_tile_in_protection_zone
+                #   (~381 LOC)
+  chase.rs      # 18 chase/follow core fns: monster_idle_chase_repath, monster_on_chase_noway,
+                #   monster_idle_dance_step, monster_idle_master_follow,
+                #   monster_combat_enqueue_close_chase_go, monster_chase_stalled_without_wakeup,
+                #   monster_combat_reschedule_if_stalled, etc.  (~536 LOC)
+  move_plan.rs  # monster_try_apply_chase_path, monster_path_search_params,
+                #   get_creature_path_to_with_fpp, monster_move_possible_planning (156 LOC),
+                #   monster_tshortway_fill_walkable, monster_can_occupy_chase_tile,
+                #   monster_roam_leash_radius, monster_can_walk_to  (~429 LOC)
+  movement.rs   # monster_idle_roam_step, monster_idle_flee_step,
+                #   monster_should_keep_chase/dance_walk_alive, monster_walk_to_spawn,
+                #   monster_on_walk_complete, monster_next_walk_step  (~248 LOC)
+  look.rs       # compute_look_toward_target, monster_update_look_direction  (~36 LOC)
+  spawn.rs      # is_fleeing, is_in_spawn_range, is_within_walk_to_spawn_range  (~60 LOC)
+  debug.rs      # fillmap_terrain_waypoints_at, fillmap_waypoints_at,
+                #   dump_tshortway_fill_walkable_viewport — #[cfg(test)] or sim feature  (~67 LOC)
 ```
 
+**Cross-group coupling notes:**
+- `chase.rs` ↔ `move_plan.rs` have significant cross-calls (repath → path search → apply).
+- `chase.rs` → `movement.rs` interconnected through the chase lifecycle.
+- `attack.rs` is relatively independent (calls `look.rs` only).
+- External deps: `monster_events.rs` (`monster_on_follow_creature_complete`, called 4× from
+  this file), `monster_targets.rs` (`monster_sight_clear`, `monster_throw_possible`),
+  `idle_stimulus.rs` (`monster_execute_rotate_toward`).
+
+### 4c. New mega-files not in the original audit
+
+Three files have appeared or grown into the mega-file range since the audit was written:
+
+| File | Current LOC | Status | Recommendation |
+|------|-------------|--------|----------------|
+| `creature_todo.rs` | 2,048 | Not in audit — now 3rd largest in core | Single-concern (ToDo queue data structure). Likely stays as one file; if it must shrink, split by action variant (ToDoGo / ToDoAttack / ToDoSpell / ToDoTurn / ToDoWait). |
+| `game_world_inventory.rs` | 1,288 | Was 964 (+34%) | Multi-concern: inventory slot ops + Lua item hooks + depot + look-at. Candidate for split into `game_world_inventory_ops.rs` + `game_world_inventory_lua.rs`. |
+| `game_world_chat.rs` | 1,163 | Not in audit — created during CH phases | Multi-concern: SAY/WHISPER/YELL + PRIVATE + CHANNEL + BROADCAST. Candidate for split by talk-type groups. |
+
+**Scope decision needed:** include these in Phase 4, or defer to Phase 5? The two mega-file
+splits (4a/4b) are the priority; 4c can follow opportunistically.
+
 **Process for each split (keep behavior identical):**
-1. Create the directory + `mod.rs` re-exporting the same items; convert `mod monster_ai;` to a
-   directory module in `lib.rs`.
+1. Create the directory + `mod.rs` re-exporting the same items; convert `mod idle_stimulus;`
+   / `mod monster_ai;` to directory modules in `lib.rs`.
 2. Move function groups one file at a time, compiling between moves. Keep visibility
    (`pub(crate)`) unchanged so call sites elsewhere don't break.
 3. Keep all `impl GameWorld { … }` method *signatures* identical — they can live in split
    files as separate `impl GameWorld` blocks within the same crate.
 4. Preserve the `//!` C++ reference headers; copy the relevant references into each new file
    per the `TFS-cpp-references` rule.
+5. Move leaf/isolated groups first (combat, summon, utils, look, spawn); move the hub
+   (`core.rs` / `chase.rs`) last after its callees are in place.
 
 **Exit criteria:** no file in either subsystem >~1,200 LOC; `lib.rs` re-exports unchanged;
-full test suite green.
+full test suite green. (Note: `creature_todo.rs` at 2,048 LOC is single-concern and may
+remain — document the exception if it stays.)
 
 ---
 
@@ -551,13 +696,17 @@ duplication" guidance).
 
 Priority order (highest LOC / hottest path first):
 
-1. `monster_ai.rs::monster_do_attacking` (317) → split target-select / cooldown / cast / move.
+1. `monster_ai.rs::monster_do_attacking` (376) → split target-select / cooldown / cast / move.
 2. `walk/mod.rs::on_walk` (287) and `internal_move_creature_step` (206) → per-stage helpers.
-3. `monster_ai.rs::go_to_follow_creature` (191).
-4. `idle_stimulus.rs::monster_idle_apply_spell_impact` (187).
-5. `login_out.rs::enqueue_initial_login_packets_{1098,772}` (207/149) → shared packet-builder
+3. `idle_stimulus.rs::monster_idle_apply_spell_impact` (171).
+4. `idle_stimulus.rs::execute_creature_todo_action` (407) → split per ToDo action variant.
+5. `idle_stimulus.rs::monster_idle_stimulus_inner` (118) → extract target/spell/chase stages.
+6. `login_out.rs::enqueue_initial_login_packets_{1098,772}` (207/149) → shared packet-builder
    helpers (note: these legitimately differ by wire era — keep era split, share the common
    scaffolding).
+
+> **Removed from original list:** `monster_ai.rs::go_to_follow_creature` (191) — deleted during
+> the unified beat engine work. `monster_do_attacking` grew from 317 to 376 LOC.
 
 Do these opportunistically alongside Phase 4 when a function lands in a new file anyway.
 
@@ -616,6 +765,6 @@ need whole-world access; no functional change; full suite green.
 | 1 Extract tests | 1–2 d | very low | **very high** |
 | 2 Quarantine sim | 1 d | low | medium |
 | 3 Rename `_772` | 1–2 d | low | medium |
-| 4 Split mega-files | 3–5 d | low/med | high |
+| 4 Split mega-files | 4–6 d | low/med | high |
 | 5 Decompose fns | ongoing | medium | medium |
 | 6 `GameWorld` | multi-week | **high** | **very high** |

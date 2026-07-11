@@ -205,6 +205,7 @@ fn run() -> Result<(), String> {
         PathCostModel::TerrainWeighted,
         PathSearchModel::Reverse,
         false,
+        scenario.visible,
         |pos| map.is_walkable(pos),
         |_pos| 0u32,
         ground,

@@ -17,3 +17,7 @@ serde = { version = "1", features = ["derive"] }
 [[bin]]
 name = "patch-otb-waypoints"
 path = "src/bin/patch_otb_waypoints.rs"
+
+[[bin]]
+name = "dump-items-json"
+path = "src/bin/dump_items_json.rs"

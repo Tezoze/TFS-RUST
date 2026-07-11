@@ -4987,45 +4987,6 @@ fn test_audit3_stop_clears_stale_walk_action() {
     );
 }
 
-/// Audit #3: `try_walk_to_and_action` must preserve the newly-set `walk_action` —
-/// `player_auto_walk_path` clears stale state first, then `set_next_walk_action_task`
-/// sets the new action **after** the clear.
-#[test]
-fn test_audit3_walk_to_use_preserves_walk_action() {
-    let (mut world, player, conn) = setup_player_world_with_conn();
-    // Target 2 tiles east — needs (101,100,7) + (102,100,7) walkable.
-    let target = Position::new(102, 100, 7);
-    ensure_walkable_tile(&mut world.map, target, TEST_SYNTHETIC_GROUND_WP);
-    // Plant a stale action from a *prior* walk-to-use.
-    plant_stale_walk_action(&mut world, player);
-
-    use crate::creature::PlayerWalkAction;
-    use tfs_rust_common::game_packet::UseItemPayload;
-    let new_action = PlayerWalkAction::UseItem(UseItemPayload {
-        pos: target,
-        sprite_id: 200,
-        stack_pos: 0,
-        index: 0,
-    });
-    let now = std::time::Instant::now();
-    let ok = world.try_walk_to_and_action(conn, player, target, new_action.clone(), now);
-    assert!(ok, "try_walk_to_and_action must find a path to the target");
-
-    let preserved = player_walk_action(&world, player);
-    assert!(
-        preserved.is_some(),
-        "walk_to_use must preserve the new walk_action after the internal ToDoClear"
-    );
-    // The preserved action must be the NEW one, not the stale one.
-    match preserved {
-        Some(PlayerWalkAction::UseItem(u)) => {
-            assert_eq!(u.pos, target, "preserved walk_action must be the new one");
-            assert_eq!(u.sprite_id, 200);
-        }
-        other => panic!("expected UseItem walk_action, got {other:?}"),
-    }
-}
-
 // ===== F8 S7: walk_action deferral branch removed for 772 =====
 
 // ===== Phase 5: walk_action_due + on_player_walk_complete deleted =====
