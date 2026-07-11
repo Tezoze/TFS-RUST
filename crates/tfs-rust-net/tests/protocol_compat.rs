@@ -84,15 +84,13 @@ fn combat_damage_text_message_1098_layout() {
 #[test]
 fn distance_shoot_encoding() {
     use tfs_rust_net::codec::wire::DistanceShootWire;
-    use tfs_rust_net::outgoing_extra::send_distance_shoot;
 
     let from = Position::new(0x0102, 0x0304, 5);
     let to = Position::new(0x0506, 0x0708, 5);
-    let m = send_distance_shoot(from, to, 6);
-    assert_eq!(
-        m.as_bytes(),
-        &[0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 6]
-    );
+    // Golden bytes from the legacy `send_distance_shoot` encoder (now deprecated).
+    let expected = &[
+        0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 6,
+    ];
     let via_codec = codec()
         .encode_distance_shoot(&DistanceShootWire {
             from,
@@ -100,7 +98,7 @@ fn distance_shoot_encoding() {
             shoot_type: 6,
         })
         .into_bytes();
-    assert_eq!(via_codec, m.as_bytes());
+    assert_eq!(via_codec.as_slice(), expected);
 }
 
 #[test]
