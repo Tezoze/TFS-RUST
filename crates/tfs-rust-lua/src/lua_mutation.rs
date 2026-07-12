@@ -119,6 +119,42 @@ pub enum LuaMutation {
     ItemDecay {
         item_id: u64,
     },
+    /// `combat:execute(creature, variant)` — PC-3a. The Lua side resolves area
+    /// offsets + formula min/max, then the core applier iterates tiles, checks
+    /// `throw_possible`, and applies damage via `combat_execute_with_stimulus`.
+    /// C++ reference: `luascript.cpp:13198` `luaCombatExecute` → `Combat::doCombat`.
+    CombatExecute {
+        request: CombatExecuteRequest,
+    },
+}
+
+/// Parameters for `Combat:execute()` — PC-3a. Built by the Lua `Combat:execute()`
+/// method from `CombatDef` + variant resolution, passed to the core applier.
+///
+/// C++ reference: `Combat::doCombat` / `doAreaCombat` — `combat.cpp:683,737,929`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CombatExecuteRequest {
+    /// Caster creature ID (slotmap key bits as u64).
+    pub caster_id: u64,
+    /// Spell center position (target tile or caster position).
+    pub center_x: u16,
+    pub center_y: u16,
+    pub center_z: u8,
+    /// Combat damage type bit-flag (COMBAT_PHYSICALDAMAGE=1, etc.).
+    pub combat_type: i32,
+    /// Magic effect byte (CONST_ME_*).
+    pub effect: i32,
+    /// Whether the combat is aggressive (PZ lock / PVP gate).
+    pub aggressive: bool,
+    /// Whether armor is applied.
+    pub block_armor: bool,
+    /// Whether shield defense is applied.
+    pub block_shield: bool,
+    /// Resolved area offsets relative to center (from matrix or ring).
+    pub area_offsets: Vec<(i32, i32)>,
+    /// Pre-computed damage min/max (from formula + callback resolution).
+    pub damage_min: i32,
+    pub damage_max: i32,
 }
 
 /// Destination for `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
@@ -367,4 +403,12 @@ pub fn call_lua_send_magic_effect(x: u16, y: u16, z: u8, effect: u8) -> Result<(
 /// C++ `items.cpp` `startDecay` / `Game::checkDecay`.
 pub fn call_lua_item_decay(item_id: u64) -> Result<(), String> {
     apply_mutation(LuaMutation::ItemDecay { item_id })
+}
+
+/// `combat:execute(creature, variant)` — PC-3a. Synchronous AoE combat
+/// execution. C++ reference: `luascript.cpp:13198` `luaCombatExecute` →
+/// `Combat::doCombat` (`combat.cpp:683,737`). The core applier iterates
+/// `area_offsets`, checks `throw_possible` per tile, and applies damage.
+pub fn call_combat_execute(request: CombatExecuteRequest) -> Result<(), String> {
+    apply_mutation(LuaMutation::CombatExecute { request })
 }

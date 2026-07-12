@@ -127,6 +127,19 @@ pub trait EventDispatcher {
         TalkActionResult::NotMatched
     }
 
+    /// PC-3a: Dispatch a spell's `onCastSpell` Lua callback.
+    ///
+    /// C++ reference: `InstantSpell::castSpell` → `LuaEnvironment::callLuaFunction`
+    /// (`spells.cpp` / `luascript.cpp:363` `getEvent`). The callback receives
+    /// `(creature, variant)` and returns `true` on success.
+    ///
+    /// Returns `true` if the callback was found and executed successfully,
+    /// `false` if no callback is registered for `spell_words` or the callback
+    /// returned `false`.
+    fn dispatch_on_cast_spell(&self, _spell_words: &str, _creature: CreatureId) -> bool {
+        false
+    }
+
     /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).
     fn as_any(&self) -> &dyn Any
     where

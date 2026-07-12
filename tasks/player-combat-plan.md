@@ -26,8 +26,10 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | PC-2a | `Damage` path completeness (melee audit) | ✅ Done (8 findings — §9.2) |
 | PC-2b | Lua combat/spell/weapon plumbing | ✅ Done (Combat/Spell/Weapon userdata + createCombatArea + enums + spellword dispatch) |
 | PC-3 | Distance + wand strikes | ✅ Done (DistanceAttack + WandAttack + mana shield + typed immunities + probe_hit) |
+| PC-3a | AoE shape model + spell-casting | 🔲 Pending (unified circle-ring disc for both eras — 772: 21x21 from `circles.dat`, 1098: 13x13 from `combat.cpp`; `MatrixArea` for custom shapes; per-spell radius overrides; spell execution mechanics — cooldowns, group cooldowns, PZ lock, aggressive-target validation) |
 | PC-4 | Fight/chase/secure mode + PVP gating | ✅ Done (fight/secure mode storage + M1 INVULNERABLE + M6 BlockLogout + M8 SecureMode gate; skulls/RecordAttack deferred) |
 | PC-5 | Skill/exp gain + regen + death penalty | 🔲 Pending (+ shield skill learning, death penalty, level-up HP/mana gain fix M13, skill-tries data gaps: skill_base/min_level/magic-dispatch) |
+| PvP | Skulls / aggressor tracking / frags | ⏳ Deferred (RecordAttack, aggressor flag, AttackedPlayers, skull broadcast, RecordMurder, playerkiller timer, banishment, protectionLevel enforcement, PVP_ENFORCED damage boost, NON_PVP attack block) |
 
 ---
 
@@ -49,11 +51,13 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | Fight-mode enum + modifiers | `combat/math.rs` `FightMode`, `formulas.rs` `FightModes` | 772 `+20/−40` atk, `−40/+80` def; era-tunable via `772.lua`. |
 | Vocation data (full TVP combat block) | `data/defs/vocations.lua`, `tfs-rust-content/src/vocations.rs` | `VocationDef` + `VocationRegistry` + `VocationProfile` snapshot on `Player` (PC-0). |
 
-### 1.2 What's still missing
-- **Player distance/wand strikes** (PC-3) — ✅ Done. `DistanceAttack`/`WandAttack` wired in `player/combat/ranged.rs`; `player_execute_attack` dispatches via `player_weapon_range` + `RangedStrike` outcome. Mana shield (M5) + typed immunities (energy/fire/earth/life_drain) wired into `combat_execute_with_stimulus`. `probe_hit` in `combat/math.rs` mirrors `TSkillProbe::Probe`.
-- **Fight/chase/secure mode storage** (PC-4) — ✅ Done. `secure_mode: bool` on `Player`; `0xA7` `FightModes` arm writes `attack_mode` (with `DelayAttack(2000)` on change per `crcombat.cc:334`), `chase_mode`, and `secure_mode` via `player_set_fight_modes` in `player/combat/fight_mode.rs`. M1 (`INVULNERABLE` → `PLAYER_FLAG_CANNOT_BE_ATTACKED` group flag check in `combat_execute_with_stimulus`), M6 (`BlockLogout(60)` on attacker + target at strike + `SetAttackDest`), and M8 (SecureMode PVP gate in `validate_player_attack_target` + `player_execute_attack`) are wired. `PvpConfig` (`world_type` + `protection_level`) loaded from `config.lua` onto `GameWorld`. Skulls/`RecordAttack`/aggressor tracking deferred to a dedicated PvP phase (Q5 resolved: defer all skulls).
+### 1.2 Pending work
+- **AoE shape model + spell-casting** (PC-3a) — 772 circle-ring `circles.rs` (from `circles.dat`) not yet created; `AreaShapeModel` not on `MechanicsProfile`; per-spell radius overrides (`data/formulas/772_spell_areas.lua`) not yet written; spell execution mechanics (cooldowns, group cooldowns, PZ lock, aggressive-target validation) not yet wired. PC-2b landed the Lua plumbing (userdata + `createCombatArea` + spellword dispatch seam); PC-3a builds the execution layer on top.
 - **Skill tries counters + skill advance** (PC-5) — `PlayerSkills` has level fields only; DB `skill_*_tries`/`manaspent` columns never loaded into runtime; `req_skill_tries` never called. Data gaps: `skill_base` (Delta) constants and `min_level` per skill not in any Lua file yet (need `data/formulas/772.lua` or `MechanicsProfile`); magic level needs separate dispatch (`min_level=0`, `skill_base=1600`).
+- **Shield skill learning** (PC-5, M12) — `GetDefendDamage` decrements `LearningPoints` and passes `Increase=true` to `ProbeValue` when the defender has a shield and `LearningPoints > 0` (`crcombat.cc:259-263`). Not yet wired into `roll_target_defense`.
+- **Player death penalty** (PC-5, M7) — amulet of loss, inventory drop, bless reductions not yet implemented in `apply_creature_death` for player victims (`crmain.cc:790+`).
 - **Level-up HP/mana gain bug** (PC-5, M13) — `add_experience`/`remove_experience` clamp current HP/mana to the new max instead of adding/subtracting the per-level gain (C++ `TSkillAdd::Advance` raises both `Act` and `Max`).
+- **PvP skull system** (PvP phase, deferred) — `RecordAttack`, aggressor flag, `AttackedPlayers`, skull broadcast, `RecordMurder`, playerkiller timer, banishment, `protectionLevel` enforcement, `PVP_ENFORCED` damage boost, `NON_PVP` attack block. `PvpConfig` is loaded; secure-mode + `BlockLogout` + INVULNERABLE gate are wired; the skull/aggressor subsystem is not.
 
 ---
 
@@ -140,10 +144,10 @@ per-skill tries counters are still unwired (PC-5).
 
 ### 2.8 Fight/chase/secure mode packet — `receiving.cc` `0xA7`, `crcombat.cc:333/354` `SetAttackMode`/`SetChaseMode`
 `SetAttackMode` mode change → `DelayAttack(2000)`. `SetChaseMode` only NONE/CLOSE for players.
-SecureMode stored on `TCombat`. **Parse + chase-mode storage already exist** (`game_parse.rs`
-`C::FIGHT_MODES` → `GamePacket::FightModes`; `game_loop.rs` sets `chase_mode`) — what's missing is
-storing `raw_fight_mode`/`raw_secure_mode` into `Player` fields. `Player.attack_mode` was added
-in PC-1; `secure_mode` is still PC-4.
+SecureMode stored on `TCombat`. Parse + chase-mode storage already exist (`game_parse.rs`
+`C::FIGHT_MODES` → `GamePacket::FightModes`; `game_loop.rs` sets `chase_mode`). ✅ PC-4 wired
+`attack_mode` (PC-1), `chase_mode`, and `secure_mode` into `Player` fields via
+`player_set_fight_modes` in `player/combat/fight_mode.rs`.
 
 ### 2.9 Level / vitals — `data/defs/vocations.lua` gains + `crskill.cc:352` `GetExpForLevel`
 Level exp `(((L-6)*L+17)*L-12)/6 * Delta` in `combat/math.rs::experience_for_level`
@@ -367,6 +371,79 @@ into `WandRegistry`).
    non-physical immunities matter when wand damage types (fire/energy) and spell damage are
    introduced. Add `immunity_fire`/`immunity_energy`/`immunity_life_drain` flags to monster data.
 
+### Phase PC-3a — AoE shape model + spell-casting — 🔲 PENDING
+**Prerequisite:** PC-2b (Lua `Combat`/`Spell`/`createCombatArea`/`Weapon` userdata + spellword
+dispatch seam — ✅ done). Player weapon-combat (PC-2/PC-2a) does not depend on this; PC-3 (wand/rod
+data loading) does.
+
+**Decision: both eras use the circle-ring disc model for radius-based AoE.** The 772 decompile
+loads `circles.dat` (21x21 grid, rings 0-7) into `TCircle Circle[10]` — each ring is a list of
+`(x,y)` offsets (`magic.cc:4344` `InitCircles`, `magic.cc:459` `ExecuteCircleSpell`). TFS 1098
+hardcodes the same disc concept in `AreaCombat::setupArea(radius)` (`combat.cpp:1391`) — a 13x13
+grid with rings 1-8. Both are "which tiles can be hit, organized by ring distance from center."
+A spell with radius R hits all tiles in rings 0 through R.
+
+**Verified: the disc grids are identical.** 772 rings 0-7 == 1098 rings 1-8 (offset by 1), same
+101 tiles, same per-ring counts. Also verified: `AREA_CIRCLE5X5` (the TFS Lua matrix used by UE)
+produces exactly the same 73 tiles as `circles.dat` radius 6 — the Lua matrix path and the
+ring-offset path produce identical hit tiles for circular areas.
+
+**Two coexisting area input methods — both feed the same execution layer:**
+
+| Path | When | How | Output |
+|---|---|---|---|
+| **Matrix** (PC-2b, ✅ done) | Spell uses `createCombatArea(AREA_*)` | `AreaCombat::affected_offsets()` | `Vec<(i32,i32)>` |
+| **Ring offsets** (circles.rs, 🔲) | Spell specifies radius, no matrix | `disc_offsets(radius, &DISC_RINGS)` | `Vec<(i32,i32)>` |
+
+The matrix path covers all existing Lua spells (UE, berserk, fire wave, runes, etc.) — no spell
+changes needed. The ring-offset path covers radius-based AoE without a Lua matrix (burst arrow
+special effect, monster `setupArea(radius)` spells). Both produce offset lists consumed by the
+same damage application layer.
+
+**Line-of-sight is unified to the 772 `throw_possible` model for both eras:**
+
+The codebase already uses `throw_possible` (`info.cc:1154`) for all combat LoS — monster targeting
+(`monster_sight_clear` delegates to `throw_possible`), ranged strikes, and ammo drops. No era
+branch. PC-3a continues this: `Combat:execute()` checks `throw_possible(spell_center → tile)` per
+AoE tile, matching `ExecuteCircleSpell` (`magic.cc:479`). The spell expands from the target
+outward — walls around the target block tiles behind them. `is_sight_clear` (TFS Bresenham-style)
+only survives in pathfinding, not combat.
+
+**Era difference is just the disc grid:**
+- 772: 21x21 (max ring 7), from `circles.dat`
+- 1098: 13x13 (max ring 8), hardcoded
+
+**Custom non-circular shapes** (cones, waves, squares from Lua `createCombatArea`) use
+`MatrixArea` in both eras — the circle-ring model is only for radius-based AoE.
+
+**Per-spell radius override** (`data/formulas/<version>_spell_areas.lua`) is only needed if a
+matrix-based spell's tiles don't match the 772 decompile's radius for that spell. Verified cases
+(UE: `AREA_CIRCLE5X5` == R6) need no override. Cases where the Lua matrix differs from the
+decompile radius (if any) would use the override to route through circles.rs instead.
+
+**Scope:**
+1. `combat/circles.rs` — `DISC_RINGS` baked const + `disc_offsets(radius, &rings)` — generated from
+   `circles.dat` (772) and the TFS 13x13 grid (1098), unified into one ring-offset model.
+2. `AreaShapeModel` enum on `MechanicsProfile` (selects 772 vs 1098 disc grid; both use the same
+   ring-offset execution path).
+3. Per-spell radius overrides (`data/formulas/772_spell_areas.lua` + `1098_spell_areas.lua`) —
+   only for spells where the Lua matrix doesn't match the decompile radius.
+4. Wire `Combat:execute()` (currently a stub in `userdata/combat.rs:356`) to the core execution
+   layer: resolve area offsets (matrix via `affected_offsets()` or ring via `disc_offsets()`),
+   apply `throw_possible(spell_center → tile)` per AoE tile (unified 772 model, same as existing
+   combat LoS), apply damage via `combat_execute_with_stimulus` per tile.
+5. Spell execution mechanics: cooldowns, group cooldowns, PZ lock, aggressive-target validation
+   (the PC-2b spellword dispatch seam handles lookup + cost deduction + `onCastSpell` callback;
+   PC-3a adds the full execution layer).
+6. Burst arrow area physical via the circle-ring shape helpers (radius-based, no Lua matrix).
+7. `MatrixArea` for custom Lua-defined shapes (cones, waves, etc.) — both eras (matrix path
+   already implemented in PC-2b).
+
+**Era note:** the `Combat`/`Spell`/`Weapon`/`Condition` userdata API is era-agnostic — scripts use
+the same Lua calls regardless of `clientVersion`. Era differences (disc grid size, per-spell
+radius overrides, 772 `ProbeValue` vs 1098 damage formula) are handled inside the Rust execution
+layer (`combat_execute_with_stimulus` + `MechanicsProfile`), not in the Lua bindings.
+
 ### Phase PC-4 — Fight/chase/secure mode + PVP gating — ✅ DONE
 **Files:** `player/combat/fight_mode.rs` (new), `game_loop.rs` (`FightModes` arm),
 `player/combat/mod.rs` (`validate_player_attack_target` + `player_execute_attack`),
@@ -486,24 +563,6 @@ into `WandRegistry`).
 
 ---
 
-## 3.6 AoE shape model — baked `circles.rs` (772) vs `MatrixArea` (1098)
-
-**Decision: 772 area-of-effect uses the circle-ring model from the decompile — baked into a Rust
-const table (`circles.rs`), not loaded from `circles.dat` at runtime.** Required by PC-3 (burst
-arrow) and shared with spell-casting (PC-3a). 1098 keeps TFS `MatrixArea`.
-
-**Per-spell radius issue:** TFS scripts pass the same matrix (e.g. `AREA_CIRCLE5X5`) but the
-decompile uses different radii per spell (UE=6, poison storm=8). Resolution:
-1. Per-spell 772 radius override (`data/formulas/772_spell_areas.lua`) — exact parity.
-2. Else matrix-derived radius (max ring extent) — playable but not exact.
-
-**Lua scripting prerequisite:** `Combat`/`Spell`/`createCombatArea`/`Weapon` userdata and spellword
-dispatch (`Say` → `onCastSpell`) are implemented in **PC-2b** (§3 PC-2b). PC-3a depends on PC-2b
-being complete. Player weapon-combat (PC-2/PC-2a) does not depend on it; PC-3 (wand/rod data
-loading) does.
-
----
-
 ## 4. Architecture / placement rules
 
 ### 4.0 Module layout
@@ -571,9 +630,9 @@ crates/tfs-rust-content/src/
 | `CombatDef` (Lua-side combat config) | `tfs-rust-lua` userdata | `Combat()` + `:setParameter`/`:setArea`/`:setCallback`/`:execute` | ✅ PC-2b |
 | `ConditionDef` (Lua-side condition config) | `tfs-rust-lua` userdata | `Condition(CONDITION_*)` + `:setParameter`/`:setTicks` | ✅ PC-2b |
 | Combat/spell/weapon enums (~860) | `tfs-rust-lua` globals | `tfs-rust-common` enums → `register_combat_enums(&lua)` | ✅ PC-2b |
-| `CIRCLE_RINGS` baked const + `disc_offsets` | `combat/circles.rs` | generated from `circles.dat` | 🔲 PC-3a |
-| `area_shape: AreaShapeModel` | `MechanicsProfile` | era / `772.lua` | 🔲 PC-3a |
-| 772 per-spell radius override (opt) | `data/formulas/772_spell_areas.lua` | `magic.cc` cases | 🔲 PC-3a |
+| `CIRCLE_RINGS` baked const + `disc_offsets` | `combat/circles.rs` | 772: `circles.dat` (21x21); 1098: `combat.cpp:1393` 13x13 grid | 🔲 PC-3a |
+| `AreaShapeModel` (disc grid selector) | `MechanicsProfile` | era / `772.lua` / `1098.lua` | 🔲 PC-3a |
+| Per-spell radius overrides | `data/formulas/<version>_spell_areas.lua` | `magic.cc` cases (772); TFS spell scripts (1098) | 🔲 PC-3a |
 
 `earliest_attack_ms`/`earliest_defend_ms`/`last_defend_ms` already exist on `CreatureBase`.
 
@@ -630,6 +689,8 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
 
 ## 8. Open questions
 
+### 8.1 Resolved
+
 1. **772 starting vitals floor** — ✅ **Resolved for 772.** The 772 decompile has **no vocation
    change mechanic** — "vocation" is a display string only (`operate.cc:1854-1915`). Per-level
    gains (`AddLevel`) come from `RaceData[Race].Skill` via `TSkillBase::SetSkills(Race)`
@@ -637,7 +698,7 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
    `AddLevel` never changes mid-life, so `base + gain*(level-1)` is **always correct for 772**.
    The "vocation change at level > 1" divergence is a **1098-only concern** (TFS has
    `setVocation`/vocation change); defer to the 1098 era work. **However**, the audit surfaced a
-   real bug — see M13 (§3 PC-5 / §9.2): C++ `TSkillAdd::Advance` raises *current* HP/mana by the
+   real bug — see M13 (§3 PC-5 / §9.3): C++ `TSkillAdd::Advance` raises *current* HP/mana by the
    gain on level-up, but our Rust clamps to the new max. Fix queued in PC-5.
 2. **Skill-tries mapping** — ✅ **Resolved.** `FactorPercent = 1000 * multiplier` confirmed
    against `human.mon` race data; `skill_base = Delta` (NextLevel) matches TFS 1098 `skillBase`
@@ -655,11 +716,6 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
    `WEAPON_WAND` with druid vocations — one loader covers both files. No `items.xml` or
    `objects.srv` parsing required. PC-3 loads these into a `WandDef` registry on
    `tfs-rust-content` keyed by `item_id`; the `Weapon` userdata plumbing (Q7) is the prerequisite.
-4. **Ranged defense "bug"** (`crcombat.cc:766`) — replicate the outcome (no defense on ranged, but
-   still rolls target defense/wearout if attacker holds a shield). Confirm in PC-3.
-5. **Skulls / PVP frags** — scope: include in PC-4 or defer to a dedicated PVP phase.
-6. **AoE model for 1098** — confirm 1098 keeps TFS `MatrixArea` (default) vs migrating to circles;
-   772 is settled on the `circles.dat` disc.
 7. **Lua spell-scripting plumbing** — ✅ **Addressed by PC-2b.** Audit complete: `Combat`/
    `Spell`/`Weapon`/`Condition` userdata, `createCombatArea` global, ~860 combat enums, and
    spellword dispatch (`Say` → `onCastSpell`) are all absent from `tfs-rust-lua` (existing
@@ -670,6 +726,19 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
    (`createCombatArea`), `:2855-2871` (`Combat`), `:2874-2895` (`Condition`),
    `:3095-3137` (`Spell`), `:3209-3246` (`Weapon`), `:1200-2050` (enum block),
    `game.cpp:3579-3584` + `spells.cpp:30` (spellword dispatch).
+5. **Skulls / PVP frags** — ✅ **Resolved: defer all skulls to a dedicated PvP phase** (see phase
+   status summary). PC-4 wired the non-skull PvP gates (secure mode, BlockLogout, INVULNERABLE);
+   skulls/aggressor/RecordAttack/RecordMurder/banishment are all deferred.
+6. **AoE model for 1098** — ✅ **Resolved: 1098 uses circles too.** TFS `AreaCombat::setupArea(radius)`
+   (`combat.cpp:1391`) is the same disc concept as 772 `circles.dat` — a grid of tiles organized by
+   ring distance from center. Both eras use the circle-ring model for radius-based AoE; custom
+   non-circular shapes (cones, waves) use `MatrixArea` in both eras. Era difference is just the disc
+   grid size (772: 21x21 max ring 7; 1098: 13x13 max ring 8).
+
+### 8.2 Open
+
+4. **Ranged defense "bug"** (`crcombat.cc:766`) — replicate the outcome (no defense on ranged, but
+   still rolls target defense/wearout if attacker holds a shield). Confirm in PC-3.
 
 ---
 
@@ -700,23 +769,28 @@ Side-by-side audit of `monster_do_attacking` (melee arm) against C++ `Attack` �
 | Armor randomized `(A/2)+rand%(A/2)` when `A>=2` | `armor_reduction` Randomized arm | `combat/math.rs:204-224` |
 | Monster defense skill = `FistFighting` | `defense_skill: m.melee_skill` | `monster_combat.rs:227` (fixed this session) |
 
-### 9.2 Actionable gaps — all assigned to phases
+### 9.2 Resolved gaps
+
+| # | C++ behavior | Fix | Phase |
+|---|---|---|---|
+| **A1** | `if (Target->IsDead) StopAttack(0)` (`crcombat.cc:643-645`) | `monster_ai.rs` clears `attack_target`/`follow_target` on kill | ✅ PC-2a |
+| **A2** | `if (DamageDone>0) ActivateLearning()` (`crcombat.cc:664-666`) | `activate_learning()` called in monster melee path | ✅ PC-2a |
+| **A3** | Race-keyed `TextualEffect` color (`crmain.cc:712-755`) | `damage_text_color(blood)` in `monster_inventory.rs` | ✅ PC-2a |
+| **M2** | Equipment `PROTECTION`+`CLOTHES` damage reduction (`crmain.cc:540-574`) | `player_absorb_percent` in `idle_stimulus.rs` | ✅ PC-2a |
+| **M3** | Physical immunity `NoHit` → `EFFECT_BLOCK_HIT` (`crmain.cc:615-622`) | `immunity_physical` field + check in `idle_stimulus.rs` | ✅ PC-2a |
+| **M4** | Invisibility removal on hit (`crmain.cc:636-641`) | `clear_nonplayer_invisibility` in `idle_stimulus.rs` | ✅ PC-2a |
+| **M10** | "You are poisoned." status message (`crcombat.cc:675`) | `send_player_status_message` in `game_world_chat.rs` | ✅ PC-2a |
+| **M11** | Shield wearout `REMAININGUSES` (`crcombat.cc:265-281`) | `player_shield_wearout` in `player/combat/strike.rs` | ✅ PC-2a |
+| **M1** | `INVULNERABLE` right check (`crmain.cc:536-538`) | `PLAYER_FLAG_CANNOT_BE_ATTACKED` group flag check in `combat_execute_with_stimulus` | ✅ PC-4 |
+| **M6** | `BlockLogout(60)` (`crcombat.cc:601-602`) | `player_block_logout` in `fight_mode.rs`; called at strike + `SetAttackDest` | ✅ PC-4 |
+| **M8** | `SecureMode` PvP check (`crcombat.cc:563-568`) | `player_secure_mode_blocks_attack` gate in `validate_player_attack_target` + `player_execute_attack` | ✅ PC-4 |
+
+### 9.3 Pending gaps
 
 | # | C++ behavior | Rust gap | Phase | Impact |
 |---|---|---|---|---|
-| **A1** | `if (Target->IsDead) StopAttack(0)` (`crcombat.cc:643-645`) | ✅ Fixed — `monster_ai.rs` clears `attack_target`/`follow_target` on kill | ✅ PC-2a | Monster keeps attacking dead target. |
-| **A2** | `if (DamageDone>0) ActivateLearning()` (`crcombat.cc:664-666`) | ✅ Fixed — `activate_learning()` called in monster melee path | ✅ PC-2a | Monsters never gain skill exp. Low impact. |
-| **A3** | Race-keyed `TextualEffect` color (`crmain.cc:712-755`) | ✅ Fixed — `damage_text_color(blood)` in `monster_inventory.rs` | ✅ PC-2a | Wrong damage text color for non-blood races. |
-| **M2** | Equipment `PROTECTION`+`CLOTHES` damage reduction (`crmain.cc:540-574`) | ✅ Fixed — `player_absorb_percent` in `idle_stimulus.rs` | ✅ PC-2a | Damage reduction items have no effect. |
-| **M3** | Physical immunity `NoHit` → `EFFECT_BLOCK_HIT` (`crmain.cc:615-622`) | ✅ Fixed — `immunity_physical` field + check in `idle_stimulus.rs` | ✅ PC-2a | Immune monsters still take physical damage. |
-| **M4** | Invisibility removal on hit (`crmain.cc:636-641`) | ✅ Fixed — `clear_nonplayer_invisibility` in `idle_stimulus.rs` | ✅ PC-2a | Invisible monsters stay invisible when hit. |
-| **M10** | "You are poisoned." status message (`crcombat.cc:675`) | ✅ Fixed — `send_player_status_message` in `game_world_chat.rs` | ✅ PC-2a | Player gets no poison notification. |
-| **M11** | Shield wearout `REMAININGUSES` (`crcombat.cc:265-281`) | ✅ Fixed — `player_shield_wearout` in `player/combat/strike.rs` | ✅ PC-2a | Shields never degrade. Player-only. |
 | **M5** | Mana shield `SKILL_MANASHIELD` (`crmain.cc:662-689`) | Not implemented | PC-3 | Needed when typed damage (wand/spell) lands. |
 | **M3′** | Non-physical immunities `NoPoison`/`NoBurning`/`NoEnergy` (`crmain.cc:615-622`) | Not implemented | PC-3 | Needed when wand/spell damage types are introduced. |
-| **M1** | `INVULNERABLE` right check (`crmain.cc:536-538`) | ✅ Fixed — `PLAYER_FLAG_CANNOT_BE_ATTACKED` group flag check in `combat_execute_with_stimulus` | ✅ PC-4 | GMs take damage. |
-| **M6** | `BlockLogout(60)` (`crcombat.cc:601-602`) | ✅ Fixed — `player_block_logout` in `fight_mode.rs`; called at strike + `SetAttackDest` | ✅ PC-4 | No logout lock after combat. |
-| **M8** | `SecureMode` PvP check (`crcombat.cc:563-568`) | ✅ Fixed — `player_secure_mode_blocks_attack` gate in `validate_player_attack_target` + `player_execute_attack` | ✅ PC-4 | No PvP safety. |
 | **M9** | `RecordAttack` for PvP (`crcombat.cc:530-532,604-606`) | Not implemented — deferred to PvP skull phase (Q5: defer all skulls) | ⏳ PvP | No PvP skull system. |
 | **M7** | Player death penalty — amulet of loss, inventory drop (`crmain.cc:790+`) | Not implemented | PC-5 | No death penalty for player victims. |
 | **M12** | Defense `LearningPoints` for shield skill (`crcombat.cc:259-263`) | Not implemented | PC-5 | Shield skill never gains exp. Player-only. |

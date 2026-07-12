@@ -171,6 +171,14 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             tracing::debug!(item_id, "item:decay() called (decay scheduling is a no-op pending items.xml decayTo wiring)");
             Ok(())
         }
+        LuaMutation::CombatExecute { request } => {
+            // PC-3a: `combat:execute(creature, variant)` — synchronous AoE combat.
+            // C++ reference: `luascript.cpp:13198` `luaCombatExecute` →
+            // `Combat::doCombat` (`combat.cpp:683,737`). The Lua side resolved
+            // area offsets + formula min/max; the core iterates tiles, checks
+            // `throw_possible`, and applies damage per creature.
+            unsafe { &mut *world }.combat_execute_from_lua(&request)
+        }
     }
 }
 
@@ -231,6 +239,24 @@ pub fn fire_talkaction(world: &mut GameWorld, cid: CreatureId, text: &str) -> Ta
             let result = world.events.dispatch_talkaction(text, cid);
             tracing::info!(?cid, text, ?result, "fire_talkaction result");
             result
+        })
+    })
+}
+
+/// PC-3a: Dispatch a spell's `onCastSpell` Lua callback with read context and
+/// mutation scope active.
+///
+/// C++ reference: `InstantSpell::castSpell` → `LuaEnvironment::callLuaFunction`
+/// (`spells.cpp` / `luascript.cpp:363`). The callback may trigger mutations
+/// (`combat:execute`, `sendMagicEffect`, …) so the mutation scope must be active.
+/// Returns `true` if the callback was found and returned `true`.
+pub fn fire_on_cast_spell(world: &mut GameWorld, spell_words: &str, cid: CreatureId) -> bool {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.dispatch_on_cast_spell(spell_words, cid)
         })
     })
 }

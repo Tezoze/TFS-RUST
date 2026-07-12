@@ -549,3 +549,50 @@ not a 772 `CharacterRights` DB table.
       --all-targets` (0 errors), `cargo clippy -p tfs-rust-core --all-targets` (0 new warnings),
       `cargo test -p tfs-rust-core --lib` (600 passed, 2 ignored), `cargo test -p tfs-rust-core
       --test arena` (1 passed). **Lessons:** appended to `tasks/lessons.md` (#151–154).
+
+## PC-3a — AoE spell modeling + spell-casting mechanics — done
+- [x] `combat/circles.rs`: `DISC_RINGS` (rings 0–7, 101 tiles) + `disc_offsets(radius)` +
+      `disc_tile_count(radius)` from `circles.dat` (772 `magic.cc:InitCircles`) /
+      `combat.cpp:setupArea` (1098). Both eras share the same 772 disc-ring model —
+      no era variance. 8 unit tests (ring counts, radius clamping, 1098 grid parity).
+- [x] **Reverted** `AreaShapeModel` enum + `area_shape_model` field from `MechanicsProfile`
+      (both eras use the same model — no selector needed). Removed from `formulas.rs`,
+      `772.lua`, `1098.lua`, and all tests.
+- [x] `lua_mutation.rs`: `CombatExecuteRequest` struct + `LuaMutation::CombatExecute` variant
+      + `call_combat_execute` helper. Re-exported in `tfs-rust-lua/src/lib.rs`.
+- [x] `lua_scope.rs`: `apply_lua_mutation` handles `LuaMutation::CombatExecute` →
+      `combat_execute_from_lua`. Added `fire_on_cast_spell` helper (read context + mutation
+      scope → `dispatch_on_cast_spell`).
+- [x] `combat/aoe.rs`: `combat_execute_from_lua` — iterates area offsets, checks PZ per tile
+      (772 `magic.cc:475`), checks `throw_possible` per tile (772 `magic.cc:479`), collects
+      creatures, rolls damage via `uniform_random`, applies via `combat_execute_with_stimulus`.
+      Caster self-damage skip for aggressive spells.
+- [x] `userdata/combat.rs`: `Combat:execute()` method — resolves creature ID + variant
+      (POSITION/TARGETPOSITION → table x/y/z, NUMBER → ctx lookup, nil → caster pos),
+      builds `CombatExecuteRequest` with area offsets from `AreaCombat::affected_offsets`,
+      resolves damage min/max from formula (Damage literal, LevelMagic via
+      `level*2+magic*3`), dispatches via `call_combat_execute`.
+- [x] `userdata/spell.rs`: `SpellBuilder` now holds `on_cast_fn: Rc<RefCell<Option<RegistryKey>>>`
+      for `__newindex` callback capture. `__newindex` metamethod captures
+      `spell.onCastSpell = function(...)` (the `data/scripts/spells/` pattern).
+      `:register()` stores the callback in `_pending_spell_callbacks` at the same index.
+- [x] `runtime.rs`: `LuaRuntime` holds `spell_callbacks: HashMap<String, RegistryKey>` keyed
+      by spell words (lowercased). `call_on_cast_spell(words, creature)` looks up + invokes
+      the callback with `(creature, nil)`. `register_spell_callback` for population.
+- [x] `combat_scripts.rs`: `load_spell_scripts` initializes + drains
+      `_pending_spell_callbacks` in parallel with `_pending_spells`, storing each
+      callback's `RegistryKey` on the `LuaRuntime` via `register_spell_callback`.
+- [x] `event_dispatcher.rs`: `dispatch_on_cast_spell` trait method (default `false`).
+- [x] `lua_event_dispatcher.rs`: `dispatch_on_cast_spell` impl → `runtime.call_on_cast_spell`.
+- [x] `game_world_chat.rs`: `player_say_spell` now enforces:
+      - Exhaustion check (772 `magic.cc:3399` `EarliestSpellTime > ServerMilliseconds`)
+      - Aggressive spell in PZ block (772 `magic.cc:3403-3407`)
+      - Mana/soul deduction (772 `CheckMana` `magic.cc:762-763`)
+      - Spell exhaustion set (772 `magic.cc:770-773` `delay_spell_ms`)
+      - PZ lock for aggressive spells (772 `BlockLogout` `crmain.cc:433-457`, 50 rounds)
+      - `onCastSpell` Lua callback dispatch via `fire_on_cast_spell`
+- [x] **Tests:** 3 spell tests (constructor, register, `__newindex` callback capture),
+      8 circles tests (ring counts, offsets, 1098 parity, clamping).
+- [x] **Verify:** `cargo check` (0 errors), `cargo clippy` (0 warnings),
+      `cargo test --workspace` (617+ passed, 1 pre-existing failure unrelated to PC-3a).
+      **Lessons:** appended to `tasks/lessons.md`.

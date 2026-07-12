@@ -178,14 +178,17 @@ impl GameWorld {
     /// consumed (spell cast or talkaction fired) and the caller must **not** proceed
     /// to the talk-type switch; `false` when the text is plain chat.
     ///
-    /// PC-2b: spellword dispatch seam. Looks up `text` in the `SpellRegistry` (instant
-    /// spells only), checks vocation/level/mana gates, and on success deducts mana/soul
-    /// and calls the `onCastSpell` Lua callback. Full spell mechanics (cooldowns, group
-    /// cooldowns, PZ lock, aggressive-target validation) land in PC-3a.
+    /// PC-3a: spellword dispatch seam. Looks up `text` in the `SpellRegistry` (instant
+    /// spells only), checks vocation/level/mana gates, and on success deducts mana/soul,
+    /// applies spell exhaustion (`EarliestSpellTime`), blocks aggressive spells in PZ,
+    /// and dispatches the `onCastSpell` Lua callback via `fire_on_cast_spell`.
     ///
-    /// C++ reference: `game.cpp:3584` `Spells::playerSaySpell` → `spells.cpp:30` word
-    /// matching → `InstantSpell::playerCastInstant` → `CombatSpell::castSpell` → Lua
-    /// `onCastSpell(creature, variant)`.
+    /// C++ reference:
+    /// - 772 `CastSpell` — `magic.cc:3387-3407` (exhaustion + PZ check).
+    /// - 772 `CheckMana` — `magic.cc:731-774` (mana/soul deduction + exhaustion set).
+    /// - 772 `BlockLogout` — `crmain.cc:433-457` (PZ lock on aggressive cast).
+    /// - 772 `SendResult` — `sending.cc:325-336` (status messages).
+    /// - 1098 `InstantSpell::playerCastInstant` — `spells.cpp`.
     fn player_say_spell(&mut self, cid: CreatureId, _speak_class: u8, text: &str) -> bool {
         // CH-6: Talkaction dispatch — `talkaction.cpp:84-134`
         // `TalkActions::playerSaySpell`. Checked BEFORE spell words, matching
@@ -204,15 +207,18 @@ impl GameWorld {
             return true;
         }
 
-        // Look up the spellwords in the registry (case-insensitive). Clone the spell
-        // definition to release the immutable borrow on `self.spells` before any
-        // mutable calls (send_player_status_message, send_player_stats, etc.).
-        let Some(spell) = self.spells.get_instant_by_words(text).cloned() else {
+        // Look up the spell by matching player-typed text against registered
+        // spell words. C++ `Spells::getInstantSpell` — `spells.cpp:223-251`.
+        // This handles comma-separated registered words (e.g. `"ex,evo, vis, lux"`)
+        // matched against space-separated player input (e.g. `"exevo vis lux"`),
+        // plus parameter extraction for spells with `hasParam`/`hasPlayerNameParam`.
+        let Some((spell, _param)) = self.spells.get_instant_spell(text) else {
             // If a talkaction matched but returned `Continue`, the text is not a
             // spell — return `false` so the caller proceeds to the `/`-prefix
             // access-player drop (line 3229 in C++).
             return false; // Not a known spell — plain chat.
         };
+        let spell = spell.clone();
 
         // Gate: vocation check — the player's vocation must be in the spell's allowed list.
         // Empty vocations list = all vocations allowed (TFS default).
@@ -279,23 +285,85 @@ impl GameWorld {
             return true;
         }
 
-        // Deduct mana + soul.
+        // PC-3a: Exhaustion check — 772 `CastSpell` `magic.cc:3399-3401`.
+        // `EarliestSpellTime > ServerMilliseconds` → throw EXHAUSTED.
+        let server_ms = self.server_ms;
+        let spell_ready = self
+            .creatures
+            .get(cid)
+            .map(|k| k.base().spell_ready_at(server_ms))
+            .unwrap_or(true);
+        if !spell_ready {
+            // 772 `SendResult` — `sending.cc:336`: "You are exhausted."
+            self.send_player_status_message(cid, "You are exhausted.");
+            return true;
+        }
+
+        // PC-3a: Aggressive spell in PZ check — 772 `CastSpell` `magic.cc:3403-3407`.
+        // `IsAggressiveSpell(SpellNr) && Actor->Type == PLAYER
+        //  && !CheckRight(Actor->ID, ATTACK_EVERYWHERE)
+        //  && IsProtectionZone(Actor->posx, Actor->posy, Actor->posz)` → throw PROTECTIONZONE.
+        if spell.is_aggressive {
+            let player_pos = self
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or_default();
+            let in_pz = self
+                .map
+                .get_tile(player_pos)
+                .is_some_and(|t| t.body().zone == tfs_rust_common::enums::ZoneType::Protection);
+            if in_pz {
+                // 772 `SendResult` — `sending.cc:334`:
+                // "This action is not permitted in a protection zone."
+                self.send_player_status_message(
+                    cid,
+                    "This action is not permitted in a protection zone.",
+                );
+                return true;
+            }
+        }
+
+        // Deduct mana + soul — 772 `CheckMana` `magic.cc:762-763`.
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.mana -= mana_cost as i32;
             p.economy.soul -= spell.soul as i32;
         }
         self.send_player_stats(cid);
 
-        // TODO(PC-3a): call the `onCastSpell` Lua callback via the event dispatcher.
-        // For now, the spell is "cast" (mana deducted, text consumed) but no damage/
-        // effect is applied. The callback dispatch requires the Lua runtime to be
-        // wired into the game thread (fire_on_cast_spell helper).
-        tracing::debug!(
-            "Spellword '{}' cast by {:?}: mana={} soul={} (callback dispatch pending PC-3a)",
-            text,
-            cid,
+        // PC-3a: Set spell exhaustion — 772 `CheckMana` `magic.cc:770-773`.
+        // `EarliestSpellTime = max(., ServerMilliseconds + Delay)`.
+        // The delay is the spell's cooldown (ms). For 772, the delay was per-spell
+        // in `SpellList[SpellNr].Delay`; we use the TFS `cooldown` field.
+        let cooldown_ms = spell.cooldown;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().delay_spell_ms(server_ms, cooldown_ms as u64);
+        }
+
+        // PC-3a: PZ lock for aggressive spells — 772 `BlockLogout` `crmain.cc:433-457`.
+        // Aggressive spells block logout (and PZ entry) for a delay. The 772 delay
+        // is in rounds (10s = 50 rounds at 200ms/beat). We use a fixed 50-round
+        // delay matching the 772 combat block.
+        if spell.is_aggressive {
+            self.player_block_logout(cid, 50, true);
+        }
+
+        // PC-3a: Dispatch the `onCastSpell` Lua callback.
+        // C++ reference: 772 spell execution is hardcoded per `SpellNr` switch
+        // (`magic.cc:3411+`); 1098 uses `InstantSpell::castSpell` → Lua callback.
+        // We dispatch via `fire_on_cast_spell` which calls the Lua runtime's
+        // `call_on_cast_spell` → the spell's `onCastSpell(creature, variant)`
+        // function, which in turn calls `combat:execute(creature, variant)`.
+        let callback_success =
+            crate::lua_scope::fire_on_cast_spell(self, &spell.words, cid);
+        tracing::info!(
+            ?cid,
+            spell_words = %spell.words,
             mana_cost,
-            spell.soul
+            soul_cost = spell.soul,
+            cooldown_ms,
+            callback_success,
+            "PC-3a spell cast"
         );
 
         true // Text consumed — do not proceed to chat broadcast.

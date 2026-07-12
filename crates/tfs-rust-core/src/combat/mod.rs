@@ -1,6 +1,8 @@
 //! Combat dispatch: health / mana / conditions / dispel.
 // C++ reference: `combat.cpp` `Combat::doTargetCombat`, `Game::combatChangeHealth`.
 
+pub mod aoe;
+pub mod circles;
 pub mod math;
 pub mod pvp;
 pub mod rng;
@@ -12,6 +14,7 @@ use crate::creature::CreatureKind;
 use crate::ids::CreatureId;
 use tfs_rust_common::enums::CombatType;
 
+pub use circles::{disc_offsets, disc_tile_count, DISC_RINGS, MAX_DISC_RADIUS};
 pub use math::{
     armor_reduction, attack_speed_ms, condition_tick, defense_gate_ms, defense_value,
     distribute_experience, experience_for_level, melee_damage_after_defense_and_armor, probe_hit,

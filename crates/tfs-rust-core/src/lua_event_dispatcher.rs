@@ -297,6 +297,25 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn dispatch_on_cast_spell(&self, spell_words: &str, creature: CreatureId) -> bool {
+        // PC-3a: C++ reference: `InstantSpell::castSpell` →
+        // `LuaEnvironment::callLuaFunction` (`spells.cpp`).
+        match self
+            .runtime
+            .call_on_cast_spell(spell_words, creature.data().as_ffi())
+        {
+            Ok(success) => success,
+            Err(e) => {
+                tracing::error!(
+                    ?creature,
+                    spell_words,
+                    "Lua onCastSpell callback failed: {e}"
+                );
+                false
+            }
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

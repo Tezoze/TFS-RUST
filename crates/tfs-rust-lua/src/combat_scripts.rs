@@ -140,6 +140,16 @@ impl LuaRuntime {
             )
             .map_err(|e| e.to_string())?;
 
+        // PC-3a: Initialize the parallel callback buffer for `__newindex`-captured
+        // `onCastSpell` functions.
+        self.lua
+            .globals()
+            .set(
+                "_pending_spell_callbacks",
+                self.lua.create_table().map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+
         // Load areas.lua first — it defines AREA_* tables referenced by spell scripts.
         let areas_path = spells_dir.join("areas.lua");
         if areas_path.exists() {
@@ -182,10 +192,29 @@ impl LuaRuntime {
             .globals()
             .get::<mlua::Table>("_pending_spells")
             .map_err(|e| e.to_string())?;
+        // PC-3a: Drain the parallel callback table (functions captured via `__newindex`).
+        let callbacks_table = self
+            .lua
+            .globals()
+            .get::<mlua::Table>("_pending_spell_callbacks")
+            .map_err(|e| e.to_string())?;
         let mut registry = SpellRegistry::default();
         for pair in pending.pairs::<i64, mlua::AnyUserData>() {
-            let (_, ud) = pair.map_err(|e| e.to_string())?;
+            let (idx, ud) = pair.map_err(|e| e.to_string())?;
             let ps = ud.borrow::<PendingSpell>().map_err(|e| e.to_string())?;
+
+            // PC-3a: If a callback function was captured via `__newindex`,
+            // store its `RegistryKey` on the `LuaRuntime` keyed by spell words.
+            let callback_fn: Option<mlua::Function> = callbacks_table
+                .get::<mlua::Function>(idx)
+                .ok();
+            if let Some(func) = callback_fn {
+                let reg_key = self
+                    .lua
+                    .create_registry_value(func)
+                    .map_err(|e| e.to_string())?;
+                self.register_spell_callback(&ps.words, reg_key);
+            }
             if ps.is_instant() {
                 let def = InstantSpellDef {
                     name: ps.name.clone(),
@@ -204,6 +233,8 @@ impl LuaRuntime {
                     need_weapon: ps.need_weapon,
                     need_learn: ps.need_learn,
                     is_self_target: ps.is_self_target,
+                    has_param: ps.has_param,
+                    has_player_name_param: ps.has_player_name_param,
                     vocations: ps.vocations.clone(),
                     on_cast_callback: ps.on_cast_callback.clone(),
                 };
@@ -239,11 +270,15 @@ impl LuaRuntime {
             registry.runes_by_id.len()
         );
 
-        // Clear the pending buffer.
+        // Clear the pending buffers.
         let _ = self
             .lua
             .globals()
             .set("_pending_spells", self.lua.create_table().unwrap());
+        let _ = self
+            .lua
+            .globals()
+            .set("_pending_spell_callbacks", self.lua.create_table().unwrap());
 
         Ok(registry)
     }

@@ -3,7 +3,7 @@
 //! This module provides the LuaRuntime struct which owns the mlua::Lua VM
 //! and manages script registry and global function registration.
 
-use mlua::Lua;
+use mlua::{Lua, RegistryKey};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
@@ -36,6 +36,11 @@ pub struct LuaRuntime {
     pending_chat_channels: Vec<PendingChatChannel>,
     /// Pending talkactions from TalkAction:register() calls (drained after directory scan).
     pending_talkactions: Vec<PendingTalkAction>,
+    /// PC-3a: `onCastSpell` callback registry keys, keyed by spell words (lowercased).
+    /// Populated during `load_spell_scripts` from `_pending_spell_callbacks`.
+    /// C++ reference: `Event::loadCallback` / `getEvent` (`baseevents.cpp:136`,
+    /// `luascript.cpp:363`) — stores the Lua function reference for later invocation.
+    spell_callbacks: HashMap<String, RegistryKey>,
 }
 
 /// Pending channel definition from Lua Channel:register().
@@ -126,6 +131,7 @@ impl LuaRuntime {
             timer_events,
             pending_chat_channels: Vec::new(),
             pending_talkactions: Vec::new(),
+            spell_callbacks: HashMap::new(),
         })
     }
 
@@ -511,9 +517,47 @@ impl LuaRuntime {
             .map_err(LuaError::Init)?;
         function.call::<()>(player_ud).map_err(LuaError::Init)
     }
-}
 
-/// Trait for incremental global function registration.
+    /// PC-3a: Call a spell's `onCastSpell` callback.
+    ///
+    /// C++ reference: `InstantSpell::castSpell` → `LuaEnvironment::callLuaFunction`
+    /// (`spells.cpp` / `luascript.cpp`). The callback receives `(creature, variant)`
+    /// and returns `true` on success.
+    ///
+    /// Looks up the callback by spell words (lowercased) in the `spell_callbacks`
+    /// map populated during `load_spell_scripts`.
+    pub fn call_on_cast_spell(
+        &self,
+        spell_words: &str,
+        creature: crate::context::CreatureId,
+    ) -> Result<bool, LuaError> {
+        let key = self.spell_callbacks.get(spell_words.to_lowercase().as_str());
+        let Some(registry_key) = key else {
+            // No Lua callback registered — the spell has no script-side cast logic.
+            return Ok(false);
+        };
+        let function: mlua::Function = self
+            .lua
+            .registry_value(registry_key)
+            .map_err(LuaError::Init)?;
+        let creature_ud = self
+            .lua
+            .create_userdata(CreatureRef(creature))
+            .map_err(LuaError::Init)?;
+        // The variant is a Lua table — for now we pass nil (the combat:execute
+        // method resolves the variant from the caster position). Full variant
+        // construction (target position, target creature) is a follow-up.
+        function
+            .call::<bool>((creature_ud, mlua::Value::Nil))
+            .map_err(LuaError::Init)
+    }
+
+    /// PC-3a: Register a spell callback keyed by spell words.
+    /// Called from `load_spell_scripts` after draining `_pending_spell_callbacks`.
+    pub fn register_spell_callback(&mut self, words: &str, key: RegistryKey) {
+        self.spell_callbacks.insert(words.to_lowercase(), key);
+    }
+}
 pub trait RegisterLuaFunctions {
     fn register_functions(&self, lua: &Lua) -> Result<(), mlua::Error>;
 }
