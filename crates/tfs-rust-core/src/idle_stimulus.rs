@@ -2443,7 +2443,25 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "execute_wait");
                 // C++ chase trace logs `ToDoWait` enqueue only — not execute drain.
                 if delay_ms > 0 {
-                    self.todo_start_from_action(cid, delay_ms);
+                    // C++ `CalculateDelay(TDWait)` — `cract.cc:905-915`:
+                    // `WaitTime = max(TD->Wait.Time, EarliestWalkTime)`;
+                    // `Delay = WaitTime - ServerMilliseconds`.
+                    // `TD->Wait.Time` = `enqueue_server_ms + delay_ms` (absolute). Since
+                    // `Wait{N}` is always executed in the same beat as enqueued (via tail
+                    // recursion from `finish_creature_todo_execute`), `enqueue_server_ms ==
+                    // server_ms`, so `WaitTime = server_ms + delay_ms`. The `EarliestWalkTime`
+                    // floor ensures a `Wait{1000}` after a slow `Go` step doesn't fire before
+                    // the walk cooldown elapses.
+                    let earliest = self
+                        .creatures
+                        .get(cid)
+                        .map(|k| k.base().earliest_walk_server_ms)
+                        .unwrap_or(0);
+                    let wait_time = self.server_ms.saturating_add(delay_ms).max(earliest);
+                    self.schedule_creature_wakeup(
+                        cid,
+                        wait_time.max(self.server_ms.saturating_add(1)),
+                    );
                 }
                 trace_creature_todo(self, cid, "execute_wait_done");
                 TodoExecuteKind::Wait
@@ -3154,7 +3172,21 @@ impl GameWorld {
                         self.run_monster_todo_execute(cid);
                     }
                 } else {
-                    self.monster_combat_reschedule_if_stalled(cid);
+                    // C++ `Execute` is a `while(true)` loop — consecutive zero-delay entries
+                    // run in the same wakeup (`cract.cc:784`). `Wait{0}` doesn't arm a
+                    // wakeup (delay 0 → no `todo_start_from_action`), so chain same-beat.
+                    // `Wait{N>0}` arms a wakeup — let it fire on the future beat.
+                    let has_armed_wakeup = self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| k.base().next_wakeup.is_some());
+                    if has_armed_wakeup {
+                        self.monster_combat_reschedule_if_stalled(cid);
+                    } else {
+                        // Audit #14 fix: chain zero-delay Wait → next action same-beat
+                        // (C++ `Execute` `while(true)` continues, `cract.cc:784-807`).
+                        self.run_monster_todo_execute(cid);
+                    }
                 }
             }
             Some(TodoExecuteKind::AttackDeferred) => {

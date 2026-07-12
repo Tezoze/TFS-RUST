@@ -787,7 +787,8 @@ impl GameWorld {
     /// - `EXHAUSTED` (49) → `YouAreExhausted`
     /// - `NOTINVITED` (50) → `PlayerIsNotInvited`
     /// - `ENTERPROTECTIONZONE` (48) → `ActionNotPermittedInProtectionZone`
-    /// - `MOVENOTPOSSIBLE` (52) → `ThereIsNoWay` (closest — used when no path)
+    /// - `MOVENOTPOSSIBLE` (52) → `NotPossible` (Go arm only — `on_walk_step_rejected`)
+    /// - `NOWAY` → `ThereIsNoWay` (NOT `MOVENOTPOSSIBLE` — not in the 3-result snapback set)
     pub(crate) fn apply_todo_result_catch(&mut self, cid: CreatureId, rv: ReturnValue) {
         // `ToDoClear` — clear the queue. `player_todo_clear` also clears walk state
         // (broader than C++ `ToDoClear`, but correct for a failed action restart).
@@ -813,6 +814,18 @@ impl GameWorld {
 
     /// `SendResult` + conditional `SendSnapback` — the player tail of the `RESULT` catch
     /// (`cract.cc:879-886`). Split out so `apply_todo_result_catch` stays readable.
+    ///
+    /// C++ splits the snapback across two functions:
+    /// - **`SendResult`** (`sending.cc:351-356`) sends `SendSnapback` **unconditionally** for
+    ///   `ENTERPROTECTIONZONE` / `NOTINVITED` / `MOVENOTPOSSIBLE` (the "3-result set").
+    /// - **`Execute` catch** (`cract.cc:881-886`) sends `SendSnapback` for **other** results
+    ///   only when `SnapbackNecessary` (a pending `TDGo` was cleared). The 3-result exemption
+    ///   here exists only to avoid a double snapback.
+    ///
+    /// Net: 3-result set → 1 unconditional snapback; other results → 1 snapback iff
+    /// `SnapbackNecessary`. `MOVENOTPOSSIBLE` never reaches this path (the Go arm uses
+    /// `on_walk_step_rejected`), so only the first 2 are listed. `ThereIsNoWay` (C++ `NOWAY`)
+    /// is NOT in the 3-result set — it was wrongly exempt (S4/S6 fix).
     fn send_result_player(
         &mut self,
         conn: ConnId,
@@ -822,15 +835,18 @@ impl GameWorld {
     ) {
         // `SendResult` — `sending.cc:285-357`: text via `SendMessage(TALK_FAILURE_MESSAGE, ...)`.
         self.send_cancel_message(conn, rv);
-        // `SendSnapback` — skip for `MOVENOTPOSSIBLE` / `NOTINVITED` / `ENTERPROTECTIONZONE`
-        // (`cract.cc:882-884`). Only sent when `SnapbackNecessary` (a pending `TDGo` was cleared).
-        let snapback_exempt = matches!(
+        // `SendResult` sends `SendSnapback` unconditionally for the 3-result set
+        // (`sending.cc:353-355`). `MOVENOTPOSSIBLE` is in the C++ set but never reaches
+        // this path (Go arm → `on_walk_step_rejected`), so only 2 variants are listed.
+        let send_result_snapback = matches!(
             rv,
-            ReturnValue::PlayerIsNotInvited               // NOTINVITED (50)
+            ReturnValue::PlayerIsNotInvited // NOTINVITED (50)
                 | ReturnValue::ActionNotPermittedInProtectionZone // ENTERPROTECTIONZONE (48)
-                | ReturnValue::ThereIsNoWay // MOVENOTPOSSIBLE (52) — closest
         );
-        if snapback && !snapback_exempt {
+        // Explicit `SendSnapback` from the Execute catch — gated on `SnapbackNecessary`
+        // (`had_pending_go`). The 3-result exemption is already handled by
+        // `send_result_snapback` above (unconditional), so no exempt guard needed here.
+        if send_result_snapback || snapback {
             let dir_byte = self
                 .creatures
                 .get(cid)
@@ -1450,13 +1466,13 @@ mod tests {
         ));
     }
 
-    /// RESULT catch: `had_pending_go` is returned by `player_todo_clear` and would
-    /// trigger `SendSnapback` for non-exempt errors. This test verifies the
-    /// snapback-exempt set (`ThereIsNoWay` = `MOVENOTPOSSIBLE`) does **not** panic
-    /// and leaves the queue in the yield state — the actual snapback packet requires
-    /// a conn and is exercised in integration tests.
+    /// RESULT catch: `ThereIsNoWay` (C++ `NOWAY`) is NOT in the 3-result snapback set.
+    /// With `had_pending_go = true` (a Go was queued), the snapback fires via the
+    /// `SnapbackNecessary` gate. This test verifies the queue is cleared + yielded and
+    /// does not panic — the actual snapback packet requires a conn and is exercised in
+    /// integration tests.
     #[test]
-    fn apply_todo_result_catch_snapback_exempt_does_not_panic() {
+    fn apply_todo_result_catch_noway_with_pending_go_yields() {
         let mut world = beat_driven_test_world_at(5000);
         let player_pos = Position::new(100, 100, 7);
         let cid = insert_test_player(&mut world, player_pos);
@@ -1470,8 +1486,34 @@ mod tests {
             k.base_mut().todo.queue.push_back(CreatureAction::Go);
         }
 
-        // `ThereIsNoWay` is snapback-exempt (MOVENOTPOSSIBLE) — no panic, queue cleared.
+        // `ThereIsNoWay` (NOWAY) is NOT exempt — snapback fires when `had_pending_go`.
         world.apply_todo_result_catch(cid, crate::return_value::ReturnValue::ThereIsNoWay);
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { delay_ms: 0 }
+        ));
+    }
+
+    /// RESULT catch: the 2-result exempt set (`PlayerIsNotInvited` /
+    /// `ActionNotPermittedInProtectionZone`) sends an **unconditional** snapback
+    /// (matching C++ `SendResult`, `sending.cc:353-355`), regardless of
+    /// `had_pending_go`. Verify the queue state is correct even with no pending Go.
+    #[test]
+    fn apply_todo_result_catch_exempt_results_yield_without_pending_go() {
+        let mut world = beat_driven_test_world_at(5000);
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(102, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+        // No Go queued — `had_pending_go` is false. The exempt results still send
+        // snapback unconditionally (C++ `SendResult`), but the queue state is yield.
+        world.apply_todo_result_catch(cid, crate::return_value::ReturnValue::PlayerIsNotInvited);
 
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");

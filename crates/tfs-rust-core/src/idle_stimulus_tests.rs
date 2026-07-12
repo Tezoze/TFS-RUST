@@ -5173,6 +5173,224 @@ fn test_audit4_push_mid_auto_walk_aborts_remaining_path() {
     );
 }
 
+/// Snapback audit S2: `PlayerIsNotInvited` (C++ `NOTINVITED`) is in the 3-result
+/// snapback set — `SendResult` sends `SendSnapback` **unconditionally**
+/// (`sending.cc:353-355`), even with no pending Go. The Execute catch's explicit
+/// snapback skips it to avoid a double (`cract.cc:882-884`). Net: 1 snapback.
+/// Previously Rust exempted it entirely (0 snapback) — the inverted exempt set.
+#[test]
+fn test_snapback_audit_s2_notinvited_sends_unconditional_snapback() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    // No Go queued — `had_pending_go` is false. C++ `SendResult` still sends snapback.
+    world.pending_outgoing.clear();
+    world.apply_todo_result_catch(player, crate::return_value::ReturnValue::PlayerIsNotInvited);
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("must enqueue snapback + message");
+    assert!(
+        pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+        "NOTINVITED must send 0xB5 snapback unconditionally (SendResult sending.cc:353-355)"
+    );
+}
+
+/// Snapback audit S2: `ActionNotPermittedInProtectionZone` (C++ `ENTERPROTECTIONZONE`)
+/// is in the 3-result snapback set — same unconditional snapback as `NOTINVITED`.
+#[test]
+fn test_snapback_audit_s2_enterprotectionzone_sends_unconditional_snapback() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    world.pending_outgoing.clear();
+    world.apply_todo_result_catch(
+        player,
+        crate::return_value::ReturnValue::ActionNotPermittedInProtectionZone,
+    );
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("must enqueue snapback + message");
+    assert!(
+        pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+        "ENTERPROTECTIONZONE must send 0xB5 snapback unconditionally (SendResult sending.cc:353-355)"
+    );
+}
+
+/// Snapback audit S4: `ThereIsNoWay` (C++ `NOWAY`) is NOT in the 3-result snapback set.
+/// C++ `ToDoGo` sends its own unconditional `SendSnapback` before throwing `NOWAY`
+/// (`cract.cc:1100-1102`). In Rust, `setup_player_walk_to_target` returns `Err` without
+/// snapback, so the gated snapback in `apply_todo_result_catch` is the only one.
+/// With `had_pending_go = true` (a Go was queued), the snapback fires.
+#[test]
+fn test_snapback_audit_s4_noway_with_pending_go_sends_snapback() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    // Enqueue a Go so `had_pending_go` is true.
+    if let Some(k) = world.creatures.get_mut(player) {
+        k.base_mut().todo.queue.push_back(CreatureAction::Go);
+    }
+    world.pending_outgoing.clear();
+    world.apply_todo_result_catch(player, crate::return_value::ReturnValue::ThereIsNoWay);
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("must enqueue snapback + message");
+    assert!(
+        pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+        "NOWAY with pending Go must send 0xB5 snapback (ToDoGo cract.cc:1102 + Execute catch)"
+    );
+}
+
+/// Snapback audit S4: `ThereIsNoWay` (C++ `NOWAY`) without `had_pending_go` — no
+/// snapback (no remaining Gos to clear). C++ `ToDoGo` sends unconditional snapback,
+/// but in Rust the gated path is the best approximation without splitting ReturnValue.
+/// This is an accepted minor divergence (rare edge case).
+#[test]
+fn test_snapback_audit_s4_noway_without_pending_go_no_snapback() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    // No Go queued — `had_pending_go` is false.
+    world.pending_outgoing.clear();
+    world.apply_todo_result_catch(player, crate::return_value::ReturnValue::ThereIsNoWay);
+    let pkts = world.pending_outgoing.get(&conn);
+    // Message is sent, but no snapback (no pending Go to clear).
+    if let Some(pkts) = pkts {
+        assert!(
+            !pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "NOWAY without pending Go must NOT send 0xB5 snapback (no SnapbackNecessary)"
+        );
+    }
+}
+
+/// Snapback audit S2: a non-exempt result (e.g. `NotPossible` = `NOTACCESSIBLE`) with
+/// `had_pending_go = true` sends a snapback (Execute catch explicit snapback,
+/// `cract.cc:881-886`).
+#[test]
+fn test_snapback_audit_s2_nonexempt_with_pending_go_sends_snapback() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    if let Some(k) = world.creatures.get_mut(player) {
+        k.base_mut().todo.queue.push_back(CreatureAction::Go);
+    }
+    world.pending_outgoing.clear();
+    world.apply_todo_result_catch(player, crate::return_value::ReturnValue::NotPossible);
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("must enqueue snapback + message");
+    assert!(
+        pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+        "NOTACCESSIBLE with pending Go must send 0xB5 snapback (Execute catch cract.cc:885)"
+    );
+}
+
+/// Monster beat-loop audit: `Wait{N}` after a `Go` step must floor at
+/// `EarliestWalkTime` — C++ `CalculateDelay(TDWait)` uses
+/// `max(WaitTime, EarliestWalkTime)` (`cract.cc:906-910`). For a slow monster
+/// whose step duration > 1000ms, a `Wait{1000}` after the step must fire at
+/// `EarliestWalkTime`, not `server_ms + 1000`.
+#[test]
+fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
+
+    // Slow monster: GoStrength 0 → GetSpeed = 80, ground 150wp →
+    // step_duration = ceil(150*1000/80, 200) = ceil(1875, 200) = 2000ms.
+    let monster = insert_monster(&mut world, "Rat", mpos, 0);
+
+    // Manually enqueue Go + Wait{1000} (mimics IdleStimulus idle-roam tail:
+    // ToDoGo + ToDoWait(1000) + ToDoStart — `crnonpl.cc:2928-2930`).
+    if let Some(k) = world.creatures.get_mut(monster) {
+        let base = k.base_mut();
+        base.walk_queue.push_back(Direction::East);
+        base.walk_destinations.push_back(dest);
+        base.todo.queue.push_back(CreatureAction::Go);
+        base.todo
+            .queue
+            .push_back(CreatureAction::Wait { delay_ms: 1000 });
+    }
+    // Arm the Go — fresh walk, earliest = 0 → clamp 1.
+    let _ = world.todo_start_go_delay(monster, true);
+
+    // Advance to fire the Go step.
+    world.advance_beat(200);
+    assert_eq!(
+        world.creatures.get(monster).map(|k| k.position()),
+        Some(dest),
+        "Go step must execute"
+    );
+
+    // After Go, NotifyGo sets EarliestWalkTime = server_ms + 2000.
+    let earliest = world
+        .creatures
+        .get(monster)
+        .unwrap()
+        .base()
+        .earliest_walk_server_ms;
+    let server_ms_after_go = world.server_ms;
+    assert_eq!(
+        earliest,
+        server_ms_after_go + 2000,
+        "EarliestWalkTime must be 2000ms after Go (slow monster)"
+    );
+
+    // The Wait{1000} should have been armed in the same beat as the Go
+    // (tail recursion). Check the wakeup time — must be max(server_ms+1000,
+    // EarliestWalkTime) = EarliestWalkTime = server_ms + 2000.
+    let wakeup = world
+        .creatures
+        .get(monster)
+        .and_then(|k| k.base().next_wakeup)
+        .expect("Wait{1000} must arm a wakeup");
+    assert_eq!(
+        wakeup, earliest,
+        "Wait{{1000}} after slow Go must floor at EarliestWalkTime (CalculateDelay TDWait, cract.cc:908-910)"
+    );
+}
+
+/// Monster beat-loop audit #14: `Wait{0}` → non-empty queue must chain same-beat.
+/// C++ `Execute` is a `while(true)` loop — consecutive zero-delay entries run
+/// in the same wakeup (`cract.cc:784`). Rust previously re-armed at `+1` (next
+/// beat) via `monster_combat_reschedule_if_stalled`.
+#[test]
+fn test_monster_wait_zero_chains_same_beat_to_next_action() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+    // Enqueue Wait{0} + Talk — mimics a zero-delay chain. C++ `Execute` would
+    // process both in one wakeup.
+    if let Some(k) = world.creatures.get_mut(monster) {
+        let base = k.base_mut();
+        base.todo
+            .queue
+            .push_back(CreatureAction::Wait { delay_ms: 0 });
+        base.todo.queue.push_back(CreatureAction::Talk {
+            text: "Hicks!".into(),
+        });
+    }
+
+    // Arm the Wait{0} — clamp 1 → fires next beat.
+    world.todo_start_from_action(monster, 0);
+    let initial_server_ms = world.server_ms;
+
+    // Advance one beat — Wait{0} fires, then Talk should chain same-beat.
+    world.advance_beat(200);
+
+    // Both actions should be drained in the same beat — the Talk is gone.
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        base.todo.queue.is_empty() || !base.todo.has_wait(),
+        "Wait{{0}} → Talk must chain same-beat (C++ Execute while(true), cract.cc:784)"
+    );
+    // Server time should have advanced by only one beat.
+    assert_eq!(
+        world.server_ms,
+        initial_server_ms + 200,
+        "same-beat chain must not advance extra beats"
+    );
+}
+
 /// Audit #4: a normal (un-pushed) auto-walk must still complete — the adjacency check
 /// passes when the player is at the expected origin for each step.
 #[test]

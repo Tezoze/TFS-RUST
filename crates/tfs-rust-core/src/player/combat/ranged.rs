@@ -308,8 +308,10 @@ impl GameWorld {
         let hooks = &self.mechanics.hooks;
 
         // Resolve the weapon (bow vs throw) and ammo (for bows). `player_get_weapon(cid, false)`
-        // returns the ammo item for bows, the weapon itself for throwing weapons.
-        let (weapon_iid, ammo_iid, is_bow) = self.resolve_distance_weapon(cid);
+        // returns the ammo item for bows, the weapon itself for throwing weapons. `active_slot`
+        // is the inventory slot the consumed item lives in (Ammo for bows, hand for throwing) —
+        // needed to push the slot update to the client after consumption.
+        let (weapon_iid, ammo_iid, is_bow, active_slot) = self.resolve_distance_weapon(cid);
         // `HitChance` — bow=90, throw=75 (`crcombat.cc:766,779`). `Fragility` is always 100 for
         // PC-3 (bows always consume ammo; throwing weapons always consume a charge). The
         // `random(0, 99) < Fragility` roll is PC-3a script-wiring scope (Lua `breakChance`).
@@ -567,7 +569,7 @@ impl GameWorld {
         // always deletes to keep the ammo economy simple. The `is_bow` flag is preserved for
         // the PC-3a split (bow consumes from the ammo slot; throw consumes from the hand slot).
         let _ = is_bow;
-        self.decrement_inventory_item(active_iid);
+        self.decrement_inventory_item(cid, active_slot, active_iid);
 
         // `EFFECT_POFF` on miss (`crcombat.cc:858`).
         if !hit {
@@ -596,10 +598,12 @@ impl GameWorld {
     }
 
     /// Resolve the distance weapon (bow vs throw) and ammo item id.
-    /// Returns `(weapon_iid, ammo_iid, is_bow)`. For throwing weapons, `ammo_iid == weapon_iid`
-    /// and `is_bow == false`. For bows, `ammo_iid` is the ammo slot item and `is_bow == true`.
-    /// Returns `(None, None, false)` if no distance weapon is equipped.
-    fn resolve_distance_weapon(&self, cid: CreatureId) -> (Option<ItemId>, Option<ItemId>, bool) {
+    /// Returns `(weapon_iid, ammo_iid, is_bow, active_slot)`. For throwing weapons, `ammo_iid ==
+    /// weapon_iid` and `is_bow == false`. For bows, `ammo_iid` is the ammo slot item and
+    /// `is_bow == true`. `active_slot` is the inventory slot the consumed item (ammo for bows,
+    /// weapon for throwing) lives in — needed to push the slot update to the client after
+    /// consumption. Returns `(None, None, false, 0)` if no distance weapon is equipped.
+    fn resolve_distance_weapon(&self, cid: CreatureId) -> (Option<ItemId>, Option<ItemId>, bool, u8) {
         for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
             let Some(iid) = self.get_player_inventory_item(cid, slot) else {
                 continue;
@@ -612,22 +616,39 @@ impl GameWorld {
             };
             if it.weapon_type == WEAPON_DISTANCE {
                 if it.ammo_type != 0 {
-                    // Bow — resolve ammo from the ammo slot.
-                    let ammo_iid = self.get_player_inventory_item(cid, InventorySlot::Ammo as u8);
-                    return (Some(iid), ammo_iid, true);
+                    // Bow/crossbow — resolve ammo from the ammo slot. The ammo item's
+                    // `ammo_type` must match the weapon's `ammo_type` (`crcombat.cc:121`
+                    // `AMMOTYPE == BOWAMMOTYPE`; TFS `player.cpp:211`
+                    // `ammoItem->getAmmoType() != it.ammoType`). A mismatch (e.g. bolts in a
+                    // bow) returns `None` for ammo, which triggers the `OUTOFAMMO` arm —
+                    // matching the 772 `Ammo = NONE` → `OUTOFAMMO` flow.
+                    let ammo_iid = self
+                        .get_player_inventory_item(cid, InventorySlot::Ammo as u8)
+                        .filter(|&aid| {
+                            self.items.get(aid).is_some_and(|ammo| {
+                                self.items_db
+                                    .items
+                                    .get(&ammo.item_type)
+                                    .is_some_and(|ammo_it| ammo_it.ammo_type == it.ammo_type)
+                            })
+                        });
+                    return (Some(iid), ammo_iid, true, InventorySlot::Ammo as u8);
                 }
                 // Throwing weapon — the weapon itself is the projectile; `ammo_iid = None`
                 // signals "no separate ammo slot" (the match arm `(Some, None, false)` picks
                 // the weapon iid as the active item).
-                return (Some(iid), None, false);
+                return (Some(iid), None, false, slot);
             }
         }
-        (None, None, false)
+        (None, None, false, 0)
     }
 
-    /// Decrement an inventory item's `count` by 1, removing it when `count` reaches 0.
-    /// Used by the distance strike for ammo/throwing consumption (`crcombat.cc:846`).
-    fn decrement_inventory_item(&mut self, iid: ItemId) {
+    /// Decrement an inventory item's `count` by 1, removing it when `count` reaches 0, and push
+    /// the updated slot to the client so the ammo/throwing count refreshes immediately. Used by
+    /// the distance strike for ammo/throwing consumption (`crcombat.cc:846`). Without the
+    /// `broadcast_player_inventory_slot` call the server-side count drops but the client keeps
+    /// showing the stale count until a relog or full inventory resend.
+    fn decrement_inventory_item(&mut self, cid: CreatureId, slot: u8, iid: ItemId) {
         let remove = if let Some(item) = self.items.get_mut(iid) {
             if item.count > 1 {
                 item.count -= 1;
@@ -640,6 +661,11 @@ impl GameWorld {
         };
         if remove {
             self.items.remove(iid);
+            // Slot is now empty — send `sendInventoryItem` with no item.
+            self.broadcast_player_inventory_slot(cid, slot, None);
+        } else {
+            // Count decreased — resend the slot with the new count.
+            self.broadcast_player_inventory_slot(cid, slot, Some(iid));
         }
     }
 }
@@ -997,6 +1023,66 @@ mod tests {
             .map(|k| k.base().health)
             .unwrap_or(0);
         assert_eq!(hp_after, 100, "target should not take damage with no ammo");
+    }
+
+    /// Bow with mismatched ammo type (bolts in a bow) sends OUTOFAMMO and does not strike.
+    /// `crcombat.cc:121` `AMMOTYPE == BOWAMMOTYPE`; TFS `player.cpp:211`
+    /// `ammoItem->getAmmoType() != it.ammoType`.
+    #[test]
+    fn bow_strike_mismatched_ammo_type_sends_outofammo() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.dist = 100;
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        let target_pos = Position::new(102, 100, 7);
+        let target = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            target_pos,
+            100,
+            crate::creature::MonsterAiConfig::default(),
+        );
+        // Bow with ammo_type=1 (arrow). Equip in Left slot.
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 1, 6),
+        );
+        // Bolts with ammo_type=2 (bolt) — wrong type for this bow.
+        let bolt_iid = world.items.insert(Item::new(2543, 10));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+            p.equipment_slots[idx] = Some(bolt_iid);
+        }
+        // Register the bolt ItemType with ammo_type=2.
+        let bolt_it = make_ammo(2543, 2, 30, tfs_rust_common::enums::ShootEffect::Bolt as u8);
+        if !world.items_db.items.contains_key(&2543) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(2543, bolt_it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+        world.server_ms = 1000;
+        world.player_ranged_attack_strike(cid, target);
+
+        // Target HP unchanged — mismatched ammo should not fire.
+        let hp_after = world
+            .creatures
+            .get(target)
+            .map(|k| k.base().health)
+            .unwrap_or(0);
+        assert_eq!(hp_after, 100, "target should not take damage with mismatched ammo");
+
+        // Bolt stack unchanged — no consumption.
+        let bolt_count = world.items.get(bolt_iid).map(|i| i.count).unwrap_or(0);
+        assert_eq!(bolt_count, 10, "mismatched ammo should not be consumed");
     }
 
     /// Throwing weapon strike consumes one charge and deals physical damage.

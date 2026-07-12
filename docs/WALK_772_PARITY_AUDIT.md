@@ -33,7 +33,7 @@ edge cases or secondary mechanics, **L** = cosmetic / unlikely-to-observe / wire
 | 11 | L | Blocked-step message class | Failure text sent as message class 21 (`TALK_STATUS_MESSAGE`); C++ `SendResult` uses 23 (`TALK_FAILURE_MESSAGE`) |
 | 12 | L | AutoWalk parsing | Invalid direction byte rejects the whole packet; C++ `continue`s past the byte and keeps the rest of the path |
 | 13 | L | Drunk stagger | Rust staggers players only; C++ `TCreature::Go` staggers any drunk creature |
-| 14 | L | Same-beat chaining | C++ `Execute` drains consecutive zero-delay ToDo entries in one wakeup; Rust re-arms at `+1 ms` (lands next beat) in several paths |
+| 14 | L | Same-beat chaining | **FIXED** — C++ `Execute` drains consecutive zero-delay ToDo entries in one wakeup; Rust re-armed at `+1 ms` (lands next beat) in several paths. Fix: `run_monster_todo_execute` `Wait` arm now chains same-beat when no wakeup was armed (zero-delay `Wait{0}`), matching C++ `Execute` `while(true)` (`cract.cc:784`). Also fixed `CalculateDelay(TDWait)` `EarliestWalkTime` floor (`cract.cc:906-910`): `Wait{N}` after a slow `Go` step now arms at `max(server_ms+N, EarliestWalkTime)`, not `server_ms+N`. Tests: `test_monster_wait_after_go_floors_at_earliest_walk_time`, `test_monster_wait_zero_chains_same_beat_to_next_action`. |
 | 15 | L | ToDoGo dedup | C++ dedups a repeated identical trailing `TDGo` (`throw NOERROR`); Rust has no equivalent |
 | 16 | L | `NotifyGo` no-bank case | C++ leaves `EarliestWalkTime` untouched when the dest tile has no BANK item; Rust defaults ground speed to 150 |
 

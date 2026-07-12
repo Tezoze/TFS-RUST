@@ -1276,11 +1276,18 @@ impl GameWorld {
     /// ToDo/walk queue (`ToDoClear`), and request an idle stimulus (`ToDoYield`).
     ///
     /// Shared by the adjacency-abort path (audit #4 — `cract.cc:386-389` `NOTACCESSIBLE`)
-    /// and the `internal_move_creature_step` `Err` path. The snapback fires for players
-    /// here; the C++ `Execute` catch's own snapback exclusion for `MOVENOTPOSSIBLE` /
-    /// `NOTINVITED` / `ENTERPROTECTIONZONE` exists because `SendResult` already sent one
-    /// for those — here we always send both (message + snapback) which matches the
-    /// `NOTACCESSIBLE` case (excluded from `SendResult`'s snapback, included in `Execute`'s).
+    /// and the `internal_move_creature_step` `Err` path.
+    ///
+    /// **Snapback parity note (S3):** C++ splits the snapback across `SendResult` (sends
+    /// it unconditionally for `MOVENOTPOSSIBLE`, `sending.cc:353-355`) and the `Execute`
+    /// catch's explicit snapback (gated on `SnapbackNecessary` for non-exempt results like
+    /// `NOTACCESSIBLE`). Both `NOTACCESSIBLE` and `MOVENOTPOSSIBLE` map to
+    /// `ReturnValue::NotPossible` here, so they can't be distinguished. Always sending the
+    /// snapback is the safer divergence: an extra snapback for `NOTACCESSIBLE` without
+    /// remaining Gos is harmless (client resyncs to same position), while gating on
+    /// `SnapbackNecessary` would risk **missing** the unconditional snapback for
+    /// `MOVENOTPOSSIBLE` (client desync). The extra-snapback case only arises on a
+    /// mid-walk push (adjacency fail) with no remaining steps — rare and harmless.
     fn on_walk_step_rejected(&mut self, cid: CreatureId, ret: ReturnValue) {
         if let Some(conn) = self.conn_for_creature(cid) {
             let d = self

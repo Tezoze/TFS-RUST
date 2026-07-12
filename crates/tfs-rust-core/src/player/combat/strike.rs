@@ -211,7 +211,8 @@ impl GameWorld {
     /// weapons/shields model remaining uses via `count`). No-op for standard weapons
     /// (`charges == 0`). Full wearout — initializing `count = charges` at equip time and
     /// unequipping/destroying on `count == 0` — is a follow-up; PC-2 wires the per-strike
-    /// decrement hook so chargeable items tick down.
+    /// decrement hook so chargeable items tick down. Sends `sendInventoryItem` (0x78) so the
+    /// client refreshes the charge count immediately.
     fn player_strike_weapon_wearout(&mut self, cid: CreatureId) {
         let weapon_iid = match self.player_get_weapon(cid, true) {
             Some(iid) => iid,
@@ -230,9 +231,18 @@ impl GameWorld {
         if !has_charges {
             return;
         }
+        let mut decremented = false;
         if let Some(item) = self.items.get_mut(weapon_iid) {
             if item.count > 1 {
                 item.count -= 1;
+                decremented = true;
+            }
+        }
+        if decremented {
+            // Resolve the hand slot holding the weapon so the client refreshes the charge count.
+            let slot = self.equipment_slot_for_item(cid, weapon_iid);
+            if let Some(slot) = slot {
+                self.broadcast_player_inventory_slot(cid, slot, Some(weapon_iid));
             }
         }
     }
@@ -243,7 +253,8 @@ impl GameWorld {
     /// shields model remaining uses via `count`). No-op for standard shields (`charges == 0`)
     /// or when no shield is equipped. Player-only — monsters don't have shields. Called after
     /// `roll_target_defense` when the defense gate passed (the C++ `GetDefendDamage` decrements
-    /// after the probe, inside the gate-passed block).
+    /// after the probe, inside the gate-passed block). Sends `sendInventoryItem` (0x78) so the
+    /// client refreshes the charge count immediately.
     pub(crate) fn player_shield_wearout(&mut self, cid: CreatureId) {
         let shield_iid = match self.player_get_shield(cid) {
             Some(iid) => iid,
@@ -261,9 +272,17 @@ impl GameWorld {
         if !has_charges {
             return;
         }
+        let mut decremented = false;
         if let Some(item) = self.items.get_mut(shield_iid) {
             if item.count > 1 {
                 item.count -= 1;
+                decremented = true;
+            }
+        }
+        if decremented {
+            let slot = self.equipment_slot_for_item(cid, shield_iid);
+            if let Some(slot) = slot {
+                self.broadcast_player_inventory_slot(cid, slot, Some(shield_iid));
             }
         }
     }

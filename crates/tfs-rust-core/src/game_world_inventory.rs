@@ -174,16 +174,15 @@ impl GameWorld {
         let mut registry = std::mem::take(&mut self.container_registry);
         self.ensure_container_registered_simple(&mut registry, bp, cid);
         self.container_registry = registry;
-        let cont = self
-            .container_registry
-            .get_mut(bp)
-            .ok_or_else(|| "backpack container missing".to_string())?;
-        if cont.add_item(iid).is_err() {
+        // C++ `Container::addThing` does `push_front` + `onAddContainerItem`
+        // (`container.cpp:524-530`). `container_add_thing` mirrors both: insert at index 0 and
+        // notify all viewers (`0x70` addContainerItem) + owner carry-weight/stats. The previous
+        // `cont.add_item` (push to end) + `refresh_container_chain` (weights only) sent no
+        // client notification and used the wrong slot order.
+        if self.container_add_thing(bp, 0, iid).is_err() {
             self.items.remove(iid);
             return Err("backpack full".into());
         }
-        self.refresh_container_chain(bp);
-        self.recompute_player_inventory_weight(cid);
         Ok(())
     }
 
@@ -450,14 +449,16 @@ impl GameWorld {
                 let mut registry = std::mem::take(&mut self.container_registry);
                 self.ensure_container_registered_simple(&mut registry, bp, cid);
                 self.container_registry = registry;
-                if self
-                    .container_registry
-                    .get_mut(bp)
-                    .and_then(|c| c.add_item(iid).ok())
-                    .is_some()
-                {
-                    self.refresh_container_chain(bp);
-                    self.recompute_player_inventory_weight(cid);
+                // C++ `Container::addThing` does `push_front` (`container.cpp:524`) and calls
+                // `onAddContainerItem` which sends `sendAddContainerItem` to all viewers
+                // (`container.cpp:528-530`). `container_add_thing` mirrors both: it inserts at
+                // index 0 and calls `notify_container_content_changed` which enqueues the
+                // `0x70` addContainerItem packet to every player with the container open, plus
+                // `notify_container_owner_carry_weight` → `player_post_add_notification` which
+                // recomputes weight and sends `send_player_stats`. The previous code called
+                // `Container::add_item` (push to end) + `refresh_container_chain` (weights only)
+                // — no client notification, wrong slot order.
+                if self.container_add_thing(bp, 0, iid).is_ok() {
                     return Ok(Some(iid.data().as_ffi()));
                 }
             }

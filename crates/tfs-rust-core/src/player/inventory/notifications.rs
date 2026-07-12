@@ -22,6 +22,26 @@ pub(crate) enum NotificationParent {
 }
 
 impl GameWorld {
+    /// Equipment slot (1–11) directly holding `item_id`, if any. Used to resolve the slot for
+    /// `broadcast_player_inventory_slot` after a count mutation on an equipped item (e.g.
+    /// weapon/shield charge wearout). Only scans direct equipment slots — does not descend
+    /// into containers (use `equipment_slot_holding_container` for that).
+    pub(crate) fn equipment_slot_for_item(
+        &self,
+        player: CreatureId,
+        item_id: ItemId,
+    ) -> Option<u8> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(player) else {
+            return None;
+        };
+        for (idx, slot_item) in p.equipment_slots.iter().enumerate() {
+            if *slot_item == Some(item_id) {
+                return Some((idx + 1) as u8);
+            }
+        }
+        None
+    }
+
     /// Equipment slot (1–11) carrying `container_root`, if any.
     pub(crate) fn equipment_slot_holding_container(
         &self,
