@@ -352,28 +352,17 @@ fn handle_game_packet(
                 world.player_cancel_attack_and_follow(conn_id, cid);
             }
         }
-        GamePacket::FightModes { raw_chase_mode, .. } => {
+        GamePacket::FightModes {
+            raw_fight_mode,
+            raw_chase_mode,
+            raw_secure_mode,
+            ..
+        } => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-                // 772 `TCombat::SetChaseMode` — `crcombat.cc:339-345` (only NONE/CLOSE accepted).
-                // Fight mode / secure mode storage is deferred to the player weapon-combat system.
-                let chase = match raw_chase_mode {
-                    0 => crate::creature::ChaseMode::None,
-                    1 => crate::creature::ChaseMode::Close,
-                    other => {
-                        tracing::warn!(
-                            conn_id = conn_id.0,
-                            raw_chase_mode = other,
-                            "FightModes: 772 SetChaseMode only accepts NONE(0)/CLOSE(1); clamping to NONE"
-                        );
-                        crate::creature::ChaseMode::None
-                    }
-                };
-                if let Some(k) = world.creatures.get_mut(cid) {
-                    // Do not override `Close` forced by an active follow (`Following ⇒ CLOSE`).
-                    if k.base().follow_target.is_none() {
-                        k.base_mut().chase_mode = chase;
-                    }
-                }
+                // 772 `0xA7` `FIGHT_MODES` — `SetAttackMode` + `SetChaseMode` + `SetSecureMode`
+                // (`crcombat.cc:325-355`). PC-4 wires all three setters; the attack-mode change
+                // applies `DelayAttack(2000)` (`crcombat.cc:334`).
+                world.player_set_fight_modes(cid, raw_fight_mode, raw_chase_mode, raw_secure_mode);
             }
         }
         GamePacket::Throw(payload) => {

@@ -217,6 +217,8 @@ pub fn player_from_loaded(
         sim_melee_defense: 5,
         sim_melee_attack: 7,
         attack_mode: Default::default(),
+        secure_mode: false,
+        earliest_protection_zone_round: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
     }

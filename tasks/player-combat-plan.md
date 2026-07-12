@@ -26,7 +26,7 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | PC-2a | `Damage` path completeness (melee audit) | ✅ Done (8 findings — §9.2) |
 | PC-2b | Lua combat/spell/weapon plumbing | ✅ Done (Combat/Spell/Weapon userdata + createCombatArea + enums + spellword dispatch) |
 | PC-3 | Distance + wand strikes | ✅ Done (DistanceAttack + WandAttack + mana shield + typed immunities + probe_hit) |
-| PC-4 | Fight/chase/secure mode + PVP gating | 🔲 Pending (+ invulnerability check) |
+| PC-4 | Fight/chase/secure mode + PVP gating | ✅ Done (fight/secure mode storage + M1 INVULNERABLE + M6 BlockLogout + M8 SecureMode gate; skulls/RecordAttack deferred) |
 | PC-5 | Skill/exp gain + regen + death penalty | 🔲 Pending (+ shield skill learning, death penalty, level-up HP/mana gain fix M13, skill-tries data gaps: skill_base/min_level/magic-dispatch) |
 
 ---
@@ -51,7 +51,7 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 
 ### 1.2 What's still missing
 - **Player distance/wand strikes** (PC-3) — ✅ Done. `DistanceAttack`/`WandAttack` wired in `player/combat/ranged.rs`; `player_execute_attack` dispatches via `player_weapon_range` + `RangedStrike` outcome. Mana shield (M5) + typed immunities (energy/fire/earth/life_drain) wired into `combat_execute_with_stimulus`. `probe_hit` in `combat/math.rs` mirrors `TSkillProbe::Probe`.
-- **Fight/chase/secure mode storage** (PC-4) — `raw_fight_mode`/`raw_secure_mode` parsed but discarded; `secure_mode` field doesn't exist.
+- **Fight/chase/secure mode storage** (PC-4) — ✅ Done. `secure_mode: bool` on `Player`; `0xA7` `FightModes` arm writes `attack_mode` (with `DelayAttack(2000)` on change per `crcombat.cc:334`), `chase_mode`, and `secure_mode` via `player_set_fight_modes` in `player/combat/fight_mode.rs`. M1 (`INVULNERABLE` → `PLAYER_FLAG_CANNOT_BE_ATTACKED` group flag check in `combat_execute_with_stimulus`), M6 (`BlockLogout(60)` on attacker + target at strike + `SetAttackDest`), and M8 (SecureMode PVP gate in `validate_player_attack_target` + `player_execute_attack`) are wired. `PvpConfig` (`world_type` + `protection_level`) loaded from `config.lua` onto `GameWorld`. Skulls/`RecordAttack`/aggressor tracking deferred to a dedicated PvP phase (Q5 resolved: defer all skulls).
 - **Skill tries counters + skill advance** (PC-5) — `PlayerSkills` has level fields only; DB `skill_*_tries`/`manaspent` columns never loaded into runtime; `req_skill_tries` never called. Data gaps: `skill_base` (Delta) constants and `min_level` per skill not in any Lua file yet (need `data/formulas/772.lua` or `MechanicsProfile`); magic level needs separate dispatch (`min_level=0`, `skill_base=1600`).
 - **Level-up HP/mana gain bug** (PC-5, M13) — `add_experience`/`remove_experience` clamp current HP/mana to the new max instead of adding/subtracting the per-level gain (C++ `TSkillAdd::Advance` raises both `Act` and `Max`).
 
@@ -367,23 +367,60 @@ into `WandRegistry`).
    non-physical immunities matter when wand damage types (fire/energy) and spell damage are
    introduced. Add `immunity_fire`/`immunity_energy`/`immunity_life_drain` flags to monster data.
 
-### Phase PC-4 — Fight/chase/secure mode + PVP gating — 🔲 PENDING
-**Files:** `player/combat/fight_mode.rs` (new), `game_loop.rs` (`FightModes` arm).
+### Phase PC-4 — Fight/chase/secure mode + PVP gating — ✅ DONE
+**Files:** `player/combat/fight_mode.rs` (new), `game_loop.rs` (`FightModes` arm),
+`player/combat/mod.rs` (`validate_player_attack_target` + `player_execute_attack`),
+`idle_stimulus.rs` (`combat_execute_with_stimulus`), `player/flags.rs`,
+`creature/player.rs`, `config.rs` (`PvpConfig`), `game_world.rs`.
 
 1. ~~Parse `0xA7`~~ — **already done** (`GamePacket::FightModes`). No net-side work needed.
-2. Core setter: extend the existing `FightModes` arm in `game_loop.rs` — currently only sets
-   `chase_mode` and discards `raw_fight_mode`/`raw_secure_mode`. Add `SetAttackMode`
-   (change → `DelayAttack(2000)`) writing `Player.attack_mode` (field exists from PC-1), and
-   `SecureMode` writing `Player.secure_mode: bool` (new field). Enforce the reserved
-   `CombatResult::SecureMode` + `AttackNotAllowed` branches in `validate_player_attack_target`.
-3. PVP: `can_player_attack_player` / `is_protected` already in `combat/pvp.rs` — wire
-   `IsAttackJustified`, `RecordAttack`, `BlockLogout(60)`, skull/frag outcomes (scope-check
-   against 772 `cract.cc`/`crcombat.cc`; skulls may be a follow-up sub-phase).
-4. **M1 — INVULNERABLE right check:** C++ `Damage` checks `CheckRight(target, INVULNERABLE)` and
-   sets damage to 0 for GMs with the invulnerability right (`crmain.cc:536-538`). Not implemented —
-   GMs take damage. Add a `CheckRight`-equivalent flag check at the top of
-   `combat_execute_with_stimulus` (or `apply_health_delta`) that zeroes incoming damage when the
-   target has the invulnerability right. Fits PC-4 alongside the other rights/PVP gating.
+2. ✅ Core setter: `player_set_fight_modes` in `player/combat/fight_mode.rs` — writes
+   `attack_mode` (with `DelayAttack(2000)` on change per `crcombat.cc:334`), `chase_mode`
+   (does not override `Close` forced by active follow), and `secure_mode: bool` (new field on
+   `Player`). The `game_loop.rs` `FightModes` arm now calls this instead of only setting
+   `chase_mode`.
+3. ✅ PVP gating: `validate_player_attack_target` now enforces `CombatResult::SecureMode`
+   (secure-mode PVP gate, `crcombat.cc:374-381`) and `CombatResult::AttackNotAllowed`
+   (`CheckRight(NO_ATTACK)` → `PLAYER_FLAG_CANNOT_USE_COMBAT`, `crcombat.cc:391-394`).
+   `player_execute_attack` re-checks both at strike time (`crcombat.cc:563-593`) and calls
+   `BlockLogout(60)` on attacker + target (`crcombat.cc:601-602`). `SetAttackDest` `!Follow`
+   also calls `BlockLogout(60)` on the attacker (`crcombat.cc:434`).
+4. ✅ **M1 — INVULNERABLE right check:** `PLAYER_FLAG_CANNOT_BE_ATTACKED` (TFS `PlayerFlag` bit 3,
+   mapped from `groups.xml` `cannotbeattacked`) checked at the top of
+   `combat_execute_with_stimulus` — zeroes incoming damage + emits `EFFECT_POFF` (3) when the
+   target player has the flag (`crmain.cc:536-538`). Uses the existing group-flag system (same
+   model as `IGNORED_BY_MONSTERS`), not a separate 772 `CharacterRights` DB table.
+5. ✅ **M6 — BlockLogout(60):** `player_block_logout` in `fight_mode.rs` sets
+   `earliest_logout_round` + `earliest_protection_zone_round` (new field) per `crmain.cc:433-453`.
+   Called from `player_execute_attack` (attacker + target, every strike) and `player_set_attack_dest`
+   (attacker, `!Follow` only). `NON_PVP` worlds clear the PZ block (`crmain.cc:434-436`).
+6. **Deferred to PvP skull phase** (Q5 resolved: defer all skulls). The following 772
+   PvP subsystem pieces were **not** implemented in PC-4 and belong in a dedicated PvP phase:
+
+   | Item | C++ reference | Status | Notes |
+   |------|---------------|--------|-------|
+   | `IsAttackJustified` | `crplayer.cc:1438-1460` | **Stub** (`false`) | `player_is_attack_justified` in `fight_mode.rs` returns `false` — no aggressor/party/attacked-players tracking. Secure mode blocks **all** PvP in `WorldType::Pvp` until this lands. |
+   | `RecordAttack` | `crcombat.cc:530-532,604-606` | **Not implemented** | Aggressor flag + `AttackedPlayers` list + skull broadcast (`CREATURE_SKULL_CHANGED`). Would set `aggressor` on the attacker and add the victim to `attacked_players`. |
+   | Aggressor flag | `crplayer.cc` `Aggressor` field | **Not implemented** | New `Player` field needed (`aggressor: bool` or `aggressor_until_round: u32`). Drives `IsAttackJustified` + skull display. |
+   | `AttackedPlayers` list | `crplayer.cc` `AttackedPlayers` | **Not implemented** | New `Player` field needed (`attacked_players: Vec<CreatureId>` or similar). Drives `IsAttackJustified` party/attacker check. |
+   | Skull broadcast | `crmain.cc` `CREATURE_SKULL_CHANGED` | **Not implemented** | Wire `0x90` (or era-equivalent) skull-change broadcast when `RecordAttack` sets/clears a skull. |
+   | `RecordMurder` | `crplayer.cc` `RecordMurder` | **Not implemented** | On player kill: increment frag count, set skull to `Red`/`White`, start playerkiller timer. |
+   | Playerkiller timer (30 days) | `crplayer.cc` `PlayerkillerEnd` | **Not implemented** | New `Player` field (`playerkiller_end: u32` or `DateTime`). Drives skull expiry + banishment threshold. |
+   | Murder timestamps | `crplayer.cc` `MurderTimestamps` | **Not implemented** | New `Player` field (`murder_timestamps: Vec<u32>`). Drives banishment threshold (e.g. 5 murders in 30 days). |
+   | Banishment | `crplayer.cc` banishment logic | **Not implemented** | On threshold: kick + DB ban record. Requires DB schema + auth integration. |
+   | PK-mark clearing | `crmain.cc:1102-1105` `ClearPlayerkillingMarks` | **Stub exists** | `creature_think.rs` clears `earliest_logout_round` when the timer expires — but the actual skull-clear + `CREATURE_SKULL_CHANGED` broadcast is not wired (no skulls to clear yet). |
+   | `protectionLevel` enforcement | `crcombat.cc` level gate | **Not enforced** | `PvpConfig.protection_level` is loaded from `config.lua` and stored on `GameWorld`, but the actual "both players must be ≥ protection_level" check is not wired (deferred with skulls — it's part of the same PvP gate). |
+   | `PVP_ENFORCED` damage boost | `crcombat.cc` `WorldType == PVP_ENFORCED` | **Not implemented** | In `PvpEnforced` worlds, damage is boosted (1.5× in 772). No `MechanicsProfile` knob for this yet. |
+   | `NON_PVP` attack block | `crcombat.cc` `WorldType == NON_PVP` | **Not implemented** | In `NoPvp` worlds, player-vs-player attacks are blocked entirely (separate from secure mode). Currently only the PZ-block clearing in `BlockLogout` honors `NoPvp`. |
+
+   **What PC-4 *did* wire** (so the PvP phase can build on it):
+   - `PvpConfig { world_type, protection_level }` loaded from `config.lua` onto `GameWorld.pvp_config`.
+   - `secure_mode: bool` + `earliest_protection_zone_round: u32` fields on `Player`.
+   - `player_secure_mode_blocks_attack` gate (fires only when `WorldType == Pvp`).
+   - `player_block_logout` (honors `NoPvp` PZ-block clearing).
+   - `PLAYER_FLAG_CANNOT_USE_COMBAT` + `PLAYER_FLAG_CANNOT_BE_ATTACKED` group flags.
+   - `CombatResult::SecureMode` + `CombatResult::AttackNotAllowed` branches in
+     `validate_player_attack_target` + `player_execute_attack`.
 
 ### Phase PC-5 — Skill/exp gain + regen from vocation data — 🔲 PENDING
 **Files:** `process_skills.rs`, `death.rs`/`idle_stimulus.rs`, `creature/player.rs`.
@@ -525,7 +562,7 @@ crates/tfs-rust-content/src/
 | `skill_base` constants `{50,50,50,50,30,100,20}` | `MechanicsProfile` / `data/formulas/772.lua` | `human.mon` race data (Delta/NextLevel) | 🔲 PC-5 |
 | `min_level` per skill (10 combat, 0 magic) | `MechanicsProfile` / `data/formulas/772.lua` | `human.mon` race data (Min) | 🔲 PC-5 |
 | `attack_mode: FightMode` | `Player` | `0xA7` packet | ✅ PC-1 |
-| `secure_mode: bool` | `Player` | `0xA7` packet | 🔲 PC-4 |
+| `secure_mode: bool` | `Player` | `0xA7` packet | ✅ PC-4 |
 | `VocationDef` (full combat block) | `tfs-rust-content` | `data/defs/vocations.lua` | ✅ PC-0 |
 | `VocationProfile` (`Copy`) snapshot | `Player.vocation_profile` | `VocationRegistry` at login | ✅ PC-0 |
 | Wand attributes (`WandDef`) | `tfs-rust-content` `WandRegistry` | `data/scripts/weapons/wands.lua` + `rods.lua` (TFS Lua `Weapon(WEAPON_WAND)` API) | ✅ PC-2b (loader) / ✅ PC-3 (consumer) |
@@ -677,10 +714,10 @@ Side-by-side audit of `monster_do_attacking` (melee arm) against C++ `Attack` �
 | **M11** | Shield wearout `REMAININGUSES` (`crcombat.cc:265-281`) | ✅ Fixed — `player_shield_wearout` in `player/combat/strike.rs` | ✅ PC-2a | Shields never degrade. Player-only. |
 | **M5** | Mana shield `SKILL_MANASHIELD` (`crmain.cc:662-689`) | Not implemented | PC-3 | Needed when typed damage (wand/spell) lands. |
 | **M3′** | Non-physical immunities `NoPoison`/`NoBurning`/`NoEnergy` (`crmain.cc:615-622`) | Not implemented | PC-3 | Needed when wand/spell damage types are introduced. |
-| **M1** | `INVULNERABLE` right check (`crmain.cc:536-538`) | Not implemented | PC-4 | GMs take damage. |
-| **M6** | `BlockLogout(60)` (`crcombat.cc:601-602`) | Not implemented | PC-4 | No logout lock after combat. |
-| **M8** | `SecureMode` PvP check (`crcombat.cc:563-568`) | Not implemented | PC-4 | No PvP safety. |
-| **M9** | `RecordAttack` for PvP (`crcombat.cc:530-532,604-606`) | Not implemented | PC-4 | No PvP skull system. |
+| **M1** | `INVULNERABLE` right check (`crmain.cc:536-538`) | ✅ Fixed — `PLAYER_FLAG_CANNOT_BE_ATTACKED` group flag check in `combat_execute_with_stimulus` | ✅ PC-4 | GMs take damage. |
+| **M6** | `BlockLogout(60)` (`crcombat.cc:601-602`) | ✅ Fixed — `player_block_logout` in `fight_mode.rs`; called at strike + `SetAttackDest` | ✅ PC-4 | No logout lock after combat. |
+| **M8** | `SecureMode` PvP check (`crcombat.cc:563-568`) | ✅ Fixed — `player_secure_mode_blocks_attack` gate in `validate_player_attack_target` + `player_execute_attack` | ✅ PC-4 | No PvP safety. |
+| **M9** | `RecordAttack` for PvP (`crcombat.cc:530-532,604-606`) | Not implemented — deferred to PvP skull phase (Q5: defer all skulls) | ⏳ PvP | No PvP skull system. |
 | **M7** | Player death penalty — amulet of loss, inventory drop (`crmain.cc:790+`) | Not implemented | PC-5 | No death penalty for player victims. |
 | **M12** | Defense `LearningPoints` for shield skill (`crcombat.cc:259-263`) | Not implemented | PC-5 | Shield skill never gains exp. Player-only. |
 | **M13** | `TSkillAdd::Advance` raises *current* HP/mana by gain on level-up (`crskill.cc:667-678`, via `TSkillLevel::Jump:355-382`) | Our `add_experience`/`remove_experience` clamps to new max instead of adding the per-level gain | PC-5 | Player at full HP leveling up stays at old max — level-up HP/mana gain is lost. 1098 refills to full (`player.cpp:1800-1802`); 772 does not — era-gate the refill. |

@@ -198,6 +198,15 @@ pub struct Player {
     /// Default `Balanced`; set by the `0xA7` `FIGHT_MODES` packet (PC-4). PC-1 wires the field;
     /// PC-2's `weapon_damage`/`defense_value` consume it via `apply_attack_mode`/`apply_defense_mode`.
     pub attack_mode: crate::combat::math::FightMode,
+    /// 772 `TCombat::SecureMode` — PVP safety toggle (`crcombat.cc:348` `SetSecureMode`).
+    /// When `true` and `WorldType == Pvp`, attacking an unmarked player is blocked
+    /// (`crcombat.cc:374-381,563-568`). Set by the `0xA7` `FIGHT_MODES` packet (PC-4).
+    pub secure_mode: bool,
+    /// 772 `EarliestProtectionZoneRound` — PZ-entry block after combat (`crmain.cc:439-443`).
+    /// Set by `BlockLogout(Delay, BlockProtectionZone=true)`; when `> RoundNr`, the player
+    /// cannot enter a protection zone. Enforcement (walk/move PZ-entry check) is deferred;
+    /// PC-4 wires the field + setter so `BlockLogout` stores the round.
+    pub earliest_protection_zone_round: u32,
 }
 
 impl Player {

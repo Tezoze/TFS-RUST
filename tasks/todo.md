@@ -509,3 +509,43 @@ data constants (`OTB_MAJOR_772`, `LOGIN_ERR_772`, `REF_772_DIR_NAMES`), local va
 **Verification:** `cargo test -p tfs-rust-core --lib` → 585 passed, 2 ignored (identical to
 baseline). Clippy 26 warnings (identical to baseline). `grep -rn "fn .*_772" crates/tfs-rust-core/src`
 returns only test/config items. **Lessons:** appended to `tasks/lessons.md`.
+
+
+## Player combat PC-4 — Fight/chase/secure mode + PVP gating — done
+**Plan:** `tasks/player-combat-plan.md` §3 Phase PC-4. 772 mechanics (`crcombat.cc:325-593`,
+`crmain.cc:433-453,536-538`). Scope decision (Q5): defer all skulls/`RecordAttack`/aggressor to a
+dedicated PvP phase; implement M1 (INVULNERABLE) + M6 (BlockLogout) + M8 (SecureMode gate) +
+fight/secure mode storage. M1 uses the TFS group-flag system (`PlayerFlag_CannotBeAttacked` bit 3),
+not a 772 `CharacterRights` DB table.
+
+- [x] `config.rs`: `PvpConfig { world_type: WorldType, protection_level: u32 }` with
+      `from_config` parsing `config.lua` `worldType` (`pvp`/`no-pvp`/`pvp-enforced`) +
+      `protectionLevel` (default 1). Wired onto `GameWorld.pvp_config`.
+- [x] `creature/player.rs`: add `secure_mode: bool` + `earliest_protection_zone_round: u32`
+      fields (PC-4). Updated all 4 `Player` construction sites (login, sim_harness, spell_tests,
+      inventory/notifications) + `tests/arena.rs`.
+- [x] `player/flags.rs`: add `PLAYER_FLAG_CANNOT_USE_COMBAT = 1 << 0` (772 `NO_ATTACK` right) +
+      `PLAYER_FLAG_CANNOT_BE_ATTACKED = 1 << 3` (772 `INVULNERABLE` right); map in
+      `flag_name_to_bit` (`cannotusecombat`, `cannotbeattacked`).
+- [x] `player/combat/fight_mode.rs` (new): `player_set_fight_modes` (attack_mode with
+      `DelayAttack(2000)` on change, chase_mode without overriding follow-forced `Close`,
+      secure_mode), `player_block_logout` (EarliestLogoutRound + EarliestProtectionZoneRound,
+      NoPvp clears PZ block), `player_is_attack_justified` (stub `false`), 
+      `player_secure_mode_blocks_attack` (WorldType==Pvp + both players + secure + !justified),
+      `player_attack_blocked_by_right` (`NO_ATTACK` flag), `player_is_invulnerable`
+      (`CANNOT_BE_ATTACKED` flag). 16 unit tests.
+- [x] `game_loop.rs`: `FightModes` arm now calls `player_set_fight_modes` (was chase-only).
+- [x] `player/combat/mod.rs`: `validate_player_attack_target` now enforces `SecureMode` +
+      `AttackNotAllowed` branches (was NPC/PZ/distance/invis only). `player_execute_attack`
+      re-checks secure mode + NO_ATTACK at strike time + calls `BlockLogout(60)` on attacker +
+      target. `player_set_attack_dest` `!Follow` path calls `BlockLogout(60)` on attacker.
+      `CombatResult::SecureMode` no longer `#[allow(dead_code)]`.
+- [x] `idle_stimulus.rs`: M1 INVULNERABLE check at top of `combat_execute_with_stimulus` —
+      zeroes incoming damage + broadcasts `EFFECT_POFF` (3) when target has
+      `PLAYER_FLAG_CANNOT_BE_ATTACKED`. Gated on `primary.1 < 0 || secondary.1 < 0` to avoid
+      blocking heals.
+- [x] `sim_harness.rs`: added `minimal_player()` + `minimal_creature_base()` test helpers.
+- [x] **Verify:** `cargo check -p tfs-rust-core -p tfs-rust-content -p tfs-rust-net
+      --all-targets` (0 errors), `cargo clippy -p tfs-rust-core --all-targets` (0 new warnings),
+      `cargo test -p tfs-rust-core --lib` (600 passed, 2 ignored), `cargo test -p tfs-rust-core
+      --test arena` (1 passed). **Lessons:** appended to `tasks/lessons.md` (#151–154).

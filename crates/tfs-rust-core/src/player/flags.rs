@@ -3,6 +3,12 @@
 
 use tfs_rust_content::groups::GroupDatabase;
 
+/// C++ `PlayerFlag_CannotUseCombat` — `src/const.h`. 772 equivalent: `NO_ATTACK` right
+/// (`enums.hh:524`, `crcombat.cc:391,589`). Blocks all attack actions.
+pub const PLAYER_FLAG_CANNOT_USE_COMBAT: u64 = 1 << 0;
+/// C++ `PlayerFlag_CannotBeAttacked` — `src/const.h`. 772 equivalent: `INVULNERABLE` right
+/// (`enums.hh:517`, `crmain.cc:536-538`). Zeroes incoming damage to the target.
+pub const PLAYER_FLAG_CANNOT_BE_ATTACKED: u64 = 1 << 3;
 /// C++ `PlayerFlag_CannotPickupItem` — `src/const.h`
 pub const PLAYER_FLAG_CANNOT_PICKUP_ITEM: u64 = 1 << 14;
 /// C++ `PlayerFlag_HasInfiniteCapacity` — `src/const.h`
@@ -22,6 +28,8 @@ pub const PLAYER_FLAG_SET_MAX_SPEED: u64 = 1 << 29;
 /// Map `groups.xml` / `groups.lua` flag keys to `PlayerFlags` bits (subset used by core).
 fn flag_name_to_bit(name: &str) -> Option<u64> {
     match name.to_ascii_lowercase().as_str() {
+        "cannotusecombat" => Some(PLAYER_FLAG_CANNOT_USE_COMBAT),
+        "cannotbeattacked" => Some(PLAYER_FLAG_CANNOT_BE_ATTACKED),
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),
         "ignoredbymonsters" => Some(PLAYER_FLAG_IGNORED_BY_MONSTERS),

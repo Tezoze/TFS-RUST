@@ -222,8 +222,60 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         sim_melee_defense: 0,
         sim_melee_attack: 0,
         attack_mode: Default::default(),
+        secure_mode: false,
+        earliest_protection_zone_round: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
+    }
+}
+
+/// Helper for PC-4 fight-mode tests — a minimal `Player` with default vitals.
+pub fn minimal_player() -> Player {
+    test_player("test", Position::new(0, 0, 7))
+}
+
+/// Helper for PC-4 fight-mode tests — a minimal `CreatureBase` with default vitals.
+pub fn minimal_creature_base() -> CreatureBase {
+    CreatureBase {
+        name: "test".into(),
+        position: Position::new(0, 0, 7),
+        direction: Direction::North,
+        health: 100,
+        max_health: 100,
+        outfit: Outfit::default(),
+        speed: 220,
+        base_speed: 220,
+        skull: SkullType::None,
+        drunkenness: 0,
+        active_conditions: Vec::new(),
+        walk_queue: Default::default(),
+        walk_destinations: Default::default(),
+        last_step: None,
+        last_step_cost: 1,
+        last_step_ground_speed: 150,
+        next_wakeup: None,
+        last_step_server_ms: None,
+        earliest_walk_server_ms: 0,
+        earliest_spell_server_ms: 0,
+        earliest_multiuse_server_ms: 0,
+        cancel_next_walk: false,
+        force_update_follow_path: false,
+        walk_update_ticks: 0,
+        is_updating_path: false,
+        has_follow_path: false,
+        movement_blocked: false,
+        stairhop_blocked_until: None,
+        follow_target: None,
+        attack_target: None,
+        master: None,
+        damage_map: Default::default(),
+        earliest_attack_ms: 0,
+        earliest_defend_ms: 0,
+        last_defend_ms: 0,
+        learning_points: 0,
+        todo: Default::default(),
+        chase_mode: Default::default(),
+        last_auto_walk_armed_ms: u64::MAX,
     }
 }
 

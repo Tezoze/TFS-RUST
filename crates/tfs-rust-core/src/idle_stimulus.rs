@@ -234,6 +234,22 @@ impl GameWorld {
         damage: &CombatDamage,
         params: &CombatParams,
     ) -> bool {
+        // M1 — INVULNERABLE right check: C++ `Damage` checks `CheckRight(target, INVULNERABLE)`
+        // and zeroes incoming damage for GMs with the invulnerability right (`crmain.cc:536-538`).
+        // Maps to the TFS `PlayerFlag_CannotBeAttacked` group flag. Player targets only; monsters
+        // use race-data immunities (handled below). Skipped for healing/positive deltas and
+        // condition applications (C++ checks `Damage > 0` after the invulnerability gate, but the
+        // gate itself runs unconditionally — a heal through `Damage(UNDEFINED)` would also be
+        // zeroed. In practice `Damage` is only called with negative values for damage, so we gate
+        // on `primary.1 < 0 || secondary.1 < 0` to avoid blocking heals/condition applies).
+        if (damage.primary.1 < 0 || damage.secondary.1 < 0) && self.player_is_invulnerable(target) {
+            if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                // C++ `EFFECT_POFF` (wire byte 3) — `crmain.cc:578` (Damage <= 0 path).
+                self.broadcast_magic_effect(pos, 3u8);
+            }
+            return false;
+        }
+
         // M3 / M3′ — Typed immunities: C++ `Damage` checks `RaceData[Race].NoHit` (physical),
         // `NoPoison`, `NoBurning`, `NoEnergy`, `NoLifeDrain` and emits `EFFECT_BLOCK_HIT` (4) +
         // returns 0 for the matching `DamageType` (`crmain.cc:615-622`). Monster-only; players

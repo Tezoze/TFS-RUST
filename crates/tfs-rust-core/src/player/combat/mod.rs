@@ -17,6 +17,7 @@
 //! `follow_target` so the shared `Go`/pathfinding arms (which key off `follow_target`) repath
 //! toward the target on the attack beat.
 
+pub(crate) mod fight_mode;
 pub(crate) mod ranged;
 pub(crate) mod strike;
 pub(crate) mod values;
@@ -54,9 +55,9 @@ pub(crate) enum CombatResult {
     ProtectionZone,
     /// `ATTACKNOTALLOWED` — target is an NPC, or master lacks attack rights.
     AttackNotAllowed,
-    /// `SECUREMODE` — secure mode blocks attacking an unmarked player (PVP). Reserved for the
-    /// player weapon-combat system (PVP `IsAttackJustified` check, `crcombat.cc:374-381`).
-    #[allow(dead_code)]
+    /// `SECUREMODE` — secure mode blocks attacking an unmarked player (PVP). PC-4 wires the
+    /// gate in `validate_player_attack_target` + `player_execute_attack` (PVP `IsAttackJustified`
+    /// check, `crcombat.cc:374-381,563-568`). Skull/aggressor tracking is deferred.
     SecureMode,
     /// `OUTOFAMMO` — no ammo for bow, or insufficient mana for wand (`crcombat.cc:725,757`).
     /// 772 `sending.cc:348` `default: break` — no message sent; the catch path still does
@@ -152,6 +153,15 @@ impl GameWorld {
             // `LatestAttackTime = 0` so the first `Attack` execute isn't suppressed
             // (`crcombat.cc:438`).
             base.earliest_attack_ms = 0;
+        }
+
+        // PC-4 — `!Follow` path: `BlockLogout(60)` on attacker + `RecordAttack` (`crcombat.cc:433-437`).
+        // `RecordAttack` (skull/aggressor tracking) is deferred to the PvP phase; `BlockLogout`
+        // fires now so the logout lock is active from the moment the target is set.
+        if !follow {
+            let target_is_player =
+                self.creatures.get(target_id).is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+            self.player_block_logout(cid, 60, target_is_player);
         }
 
         // `ToDoAttack()` → `ToDoAdd(TDAttack)`. Every `ToDoAdd` runs the `LockToDo` preamble:
@@ -338,7 +348,63 @@ impl GameWorld {
     /// `ToDoWait(1000)` + `ToDoStart` recovery (`crcombat.cc:456`, `crplayer.cc:393-402`).
     pub(crate) fn player_execute_attack(&mut self, cid: CreatureId) -> TodoExecuteKind {
         let conn_id = self.conn_for_creature(cid);
-        match self.player_can_to_do_attack_chase(cid) {
+        let outcome = self.player_can_to_do_attack_chase(cid);
+
+        // PC-4 — `Attack()` re-validation for non-lost targets (`crcombat.cc:563-593`):
+        // secure-mode PVP gate + `NO_ATTACK` right check + `BlockLogout(60)`. These run after
+        // `CanToDoAttack` confirms the target is valid and within distance 8, but before the
+        // range check / strike. `NoTarget` / `TargetLost` skip this (no valid target).
+        if !matches!(outcome, PlayerChaseOutcome::NoTarget | PlayerChaseOutcome::TargetLost) {
+            if let Some(target_id) =
+                self.creatures.get(cid).and_then(|k| k.base().attack_target)
+            {
+                // Secure-mode PVP gate — `crcombat.cc:563-568`.
+                if self.player_secure_mode_blocks_attack(cid, target_id) {
+                    if let Some(conn) = conn_id {
+                        self.player_stop_attack(conn, cid);
+                    } else if let Some(k) = self.creatures.get_mut(cid) {
+                        let base = k.base_mut();
+                        base.attack_target = None;
+                        base.follow_target = None;
+                    }
+                    self.player_todo_clear(cid);
+                    if let Some(conn) = conn_id {
+                        self.send_combat_result(conn, CombatResult::SecureMode);
+                    }
+                    self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+                    trace_creature_todo(self, cid, "player_attack_secure_mode_blocked");
+                    return TodoExecuteKind::AttackDeferred;
+                }
+
+                // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:589-593`).
+                if self.player_attack_blocked_by_right(cid) {
+                    if let Some(conn) = conn_id {
+                        self.player_stop_attack(conn, cid);
+                    } else if let Some(k) = self.creatures.get_mut(cid) {
+                        let base = k.base_mut();
+                        base.attack_target = None;
+                        base.follow_target = None;
+                    }
+                    self.player_todo_clear(cid);
+                    if let Some(conn) = conn_id {
+                        self.send_combat_result(conn, CombatResult::AttackNotAllowed);
+                    }
+                    self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+                    trace_creature_todo(self, cid, "player_attack_right_blocked");
+                    return TodoExecuteKind::AttackDeferred;
+                }
+
+                // `BlockLogout(60)` on attacker + target — `crcombat.cc:601-602`.
+                // Attacker: `BlockLogout(60, Target->Type == PLAYER)`.
+                // Target: `BlockLogout(60, false)`.
+                let target_is_player =
+                    self.creatures.get(target_id).is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+                self.player_block_logout(cid, 60, target_is_player);
+                self.player_block_logout(target_id, 60, false);
+            }
+        }
+
+        match outcome {
             PlayerChaseOutcome::NoTarget => {
                 // No attack target — idle drain complete, no re-arm (`crplayer.cc:388-405`).
                 trace_creature_todo(self, cid, "player_attack_no_target");
@@ -446,20 +512,37 @@ impl GameWorld {
 
     /// Subset of `SetAttackDest` validation — `crcombat.cc:363-428`.
     ///
-    /// Implements: target-NPC → `ATTACKNOTALLOWED` (`:404-407`); PZ (master or target) →
-    /// `PROTECTIONZONE` (`:384-388`); `Distance > 8` → `TARGETLOST` (`:424-428`); invisible
-    /// target (vs creature) → `TARGETLOST` (`:417-422`). Secure-mode / PVP `IsAttackJustified`
-    /// (`:374-381`, `:468-474`) and `CheckRight(NO_ATTACK/ATTACK_EVERYWHERE)` are deferred to the
-    /// player weapon-combat system.
+    /// Implements: target-NPC → `ATTACKNOTALLOWED` (`:404-407`); secure-mode PVP gate →
+    /// `SECUREMODE` (`:374-381`); `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`:391-394`);
+    /// PZ (master or target) → `PROTECTIONZONE` (`:384-388`); `Distance > 8` → `TARGETLOST`
+    /// (`:424-428`); invisible target (vs creature) → `TARGETLOST` (`:417-422`).
+    /// `CheckRight(ATTACK_EVERYWHERE)` (PZ/profession bypass for GMs) and the full PVP skull
+    /// subsystem (`RecordAttack`/aggressor) are deferred to the PvP phase.
     fn validate_player_attack_target(
         &self,
         cid: CreatureId,
         target_id: CreatureId,
     ) -> CombatResult {
-        let (target_is_npc, target_pos) = match self.creatures.get(target_id) {
-            Some(k) => (matches!(k, CreatureKind::Npc(_)), k.position()),
+        let (target_is_npc, target_pos, target_is_player) = match self.creatures.get(target_id) {
+            Some(k) => (
+                matches!(k, CreatureKind::Npc(_)),
+                k.position(),
+                matches!(k, CreatureKind::Player(_)),
+            ),
             None => return CombatResult::TargetLost,
         };
+
+        // Secure-mode PVP gate — `crcombat.cc:374-381` (player vs player, `!Follow`).
+        // Fires before the NPC/PZ checks (matches C++ order in `SetAttackDest`).
+        if target_is_player && self.player_secure_mode_blocks_attack(cid, target_id) {
+            return CombatResult::SecureMode;
+        }
+
+        // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:391-394`).
+        if self.player_attack_blocked_by_right(cid) {
+            return CombatResult::AttackNotAllowed;
+        }
+
         if target_is_npc {
             return CombatResult::AttackNotAllowed;
         }

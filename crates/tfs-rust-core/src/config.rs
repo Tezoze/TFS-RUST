@@ -4,7 +4,7 @@
 use mlua::{Lua, Value};
 use std::path::Path;
 use tfs_rust_common::error::{Result, TfsRustError};
-use tfs_rust_common::{protocol_version_from_i64, ProtocolVersion};
+use tfs_rust_common::{protocol_version_from_i64, ProtocolVersion, WorldType};
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,6 +382,47 @@ impl ChatConfig {
             yell_minimum_level: get_i64_or(cfg, "yellMinimumLevel", 2)?.max(0) as u32,
             yell_allow_premium: get_bool_or(cfg, "yellAlwaysAllowPremium", false)?,
             max_message_buffer: get_i64_or(cfg, "maxMessageBuffer", 4)?.max(0) as u32,
+        })
+    }
+}
+
+/// PvP world settings — C++ `configmanager.cpp` `worldType` / `protectionLevel`.
+///
+/// `worldType` maps to the 772 decompile `WorldType` enum (`NORMAL` → [`WorldType::Pvp`],
+/// `NON_PVP` → [`WorldType::NoPvp`], `PVP_ENFORCED` → [`WorldType::PvpEnforced`]).
+/// `protectionLevel` is the minimum level for PvP (both players must be ≥ this level).
+// C++ reference: `config.cc` `WorldType` / `ProtectionLevel`, `crcombat.cc` secure-mode gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PvpConfig {
+    /// `config.lua` `worldType` (default `"pvp"` → [`WorldType::Pvp`]).
+    pub world_type: WorldType,
+    /// `config.lua` `protectionLevel` (default 1) — both players must be ≥ this level to fight.
+    pub protection_level: u32,
+}
+
+impl PvpConfig {
+    /// C++ `configmanager.cpp` defaults when keys are absent.
+    pub fn defaults() -> Self {
+        Self {
+            world_type: WorldType::Pvp,
+            protection_level: 1,
+        }
+    }
+
+    pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
+        let world_type = match get_string_or(cfg, "worldType", "pvp")?.to_ascii_lowercase().as_str() {
+            "pvp" => WorldType::Pvp,
+            "no-pvp" | "nopvp" => WorldType::NoPvp,
+            "pvp-enforced" | "pvpenforced" => WorldType::PvpEnforced,
+            other => {
+                return Err(TfsRustError::Config(format!(
+                    "config.lua `worldType` has invalid value `{other}` (expected pvp|no-pvp|pvp-enforced)"
+                )))
+            }
+        };
+        Ok(Self {
+            world_type,
+            protection_level: get_i64_or(cfg, "protectionLevel", 1)?.max(0) as u32,
         })
     }
 }
