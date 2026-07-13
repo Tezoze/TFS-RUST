@@ -354,8 +354,12 @@ impl GameWorld {
         // We dispatch via `fire_on_cast_spell` which calls the Lua runtime's
         // `call_on_cast_spell` → the spell's `onCastSpell(creature, variant)`
         // function, which in turn calls `combat:execute(creature, variant)`.
-        let callback_success =
-            crate::lua_scope::fire_on_cast_spell(self, &spell.words, cid);
+        let callback_success = crate::lua_scope::fire_on_cast_spell(
+            self,
+            &spell.words,
+            cid,
+            spell.need_direction,
+        );
         tracing::info!(
             ?cid,
             spell_words = %spell.words,
@@ -366,7 +370,15 @@ impl GameWorld {
             "PC-3a spell cast"
         );
 
-        true // Text consumed — do not proceed to chat broadcast.
+        // 772 `playerSaySpell` — `game.cpp:3388`: after a successful spell cast,
+        // the player's original input text is broadcast as a `TALKTYPE_SAY`
+        // message to nearby spectators (unless `EMOTE_SPELLS` config is on,
+        // which uses `TALKTYPE_MONSTER_SAY` instead). We broadcast the original
+        // `text` — not `spell.words` (which is comma-separated for matching) —
+        // so the chat shows exactly what the player typed.
+        self.broadcast_creature_say_viewport(cid, TALKTYPE_SAY, text);
+
+        true // Text consumed — chat broadcast already done above.
     }
 
     /// TFS `Game::playerRequestChannels` — `game.cpp:3490-3502`.

@@ -476,6 +476,7 @@ impl GameWorld {
                     Some(cid),
                     target_id,
                     (hp_before - hp_after).max(0),
+                    CombatType::Physical,
                     snap,
                 );
             }
@@ -585,7 +586,7 @@ impl GameWorld {
             .unwrap_or(hp_before);
         let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
-            self.notify_player_combat_damage(Some(cid), target_id, damage_done, snap);
+            self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
         }
 
         // A2 — `if (DamageDone > 0) ActivateLearning()` (`crcombat.cc:664-666`). Mirrors the

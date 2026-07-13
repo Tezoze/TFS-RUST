@@ -140,6 +140,13 @@ pub struct CombatExecuteRequest {
     pub center_x: u16,
     pub center_y: u16,
     pub center_z: u8,
+    /// Caster position — used for LoS checks on directional spells.
+    /// 772 `AngleShapeSpell` uses `ThrowPossible(ActorX, ActorY, ActorZ, ...)`
+    /// (from caster), while `ExecuteCircleSpell` uses `ThrowPossible(DestX, ...)`
+    /// (from center). When center == caster (non-directional), these are equal.
+    pub caster_x: u16,
+    pub caster_y: u16,
+    pub caster_z: u8,
     /// Combat damage type bit-flag (COMBAT_PHYSICALDAMAGE=1, etc.).
     pub combat_type: i32,
     /// Magic effect byte (CONST_ME_*).

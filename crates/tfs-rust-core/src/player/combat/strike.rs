@@ -172,7 +172,7 @@ impl GameWorld {
         };
         let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
-            self.notify_player_combat_damage(Some(cid), target_id, damage_done, snap);
+            self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
         }
         self.ai_rng = rng;
 

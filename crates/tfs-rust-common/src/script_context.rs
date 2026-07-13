@@ -279,6 +279,16 @@ pub trait ScriptContext {
         None
     }
 
+    /// `player:getDirection()` backing read — `Creature::getDirection`
+    /// (`creature.h`). PC-3a: spell variant construction offsets the center
+    /// position by one tile in the player's facing direction when
+    /// `needDirection(true)` is set (beam/wave/strike spells).
+    /// Returns `None` if the creature is not found; defaults to `None`.
+    fn get_player_direction(&self, creature_id: ScriptCreatureId) -> Option<u8> {
+        let _ = creature_id;
+        None
+    }
+
     /// `ItemType:isStackable()` backing read — `ItemType::stackable`
     /// (`src/items.h`). CH-6 talkaction `/i` count clamping; defaults to
     /// `false`.
@@ -294,4 +304,35 @@ pub trait ScriptContext {
         let _ = item_type;
         false
     }
+
+    /// `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
+    /// PC-3a Phase 1: value-callback spells (`computeDamage` / `computeHealing`)
+    /// call `self:getMagicLevel()` inside `functions.lua`. Defaults to `None`.
+    fn get_player_magic_level(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// Weapon combat parameters for the SKILL value callback
+    /// (`CALLBACK_PARAM_SKILLVALUE`). C++ `Combat::getCombatDamage` —
+    /// `combat.cpp:1155-1163` reads `player->getWeaponSkill()`,
+    /// `player->getWeapon()->getAttack()`, `player->getAttackFactor()`.
+    /// Returns `(skill, weapon_attack, attack_factor)`; defaults to
+    /// `(0, 0, 1.0)` (fist skill, no weapon, normal factor).
+    fn get_player_weapon_combat_params(&self, creature_id: ScriptCreatureId) -> WeaponCombatParams {
+        let _ = creature_id;
+        WeaponCombatParams::default()
+    }
+}
+
+/// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).
+/// Returned by `ScriptContext::get_player_weapon_combat_params`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WeaponCombatParams {
+    /// `Player::getWeaponSkill` — skill level matching the equipped weapon type.
+    pub skill: i32,
+    /// `Item::getAttack` — equipped weapon attack value.
+    pub attack: i32,
+    /// `Player::getAttackFactor` — attack factor (1.0 = normal).
+    pub attack_factor: f64,
 }

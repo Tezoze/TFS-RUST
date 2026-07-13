@@ -29,6 +29,11 @@ pub fn register_combat_enums(lua: &Lua) -> Result<(), mlua::Error> {
     register_shoot_types(&globals)?;
     register_skulls(&globals)?;
     register_inventory_slots(&globals)?;
+    register_item_constants(&globals)?;
+    register_directions(&globals)?;
+    register_tile_props(&globals)?;
+    register_tile_states(&globals)?;
+    register_message_types(&globals)?;
 
     Ok(())
 }
@@ -62,6 +67,9 @@ fn register_combat_params(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("COMBAT_PARAM_CREATEITEM", 6i32)?; // enums.h:119
     globals.set("COMBAT_PARAM_AGGRESSIVE", 7i32)?; // enums.h:120
     globals.set("COMBAT_PARAM_DISPEL", 8i32)?; // enums.h:121
+    globals.set("COMBAT_PARAM_USECHARGES", 9i32)?; // enums.h:122
+    globals.set("COMBAT_PARAM_NODAMAGE", 10i32)?; // enums.h:123
+    globals.set("COMBAT_PARAM_FORCEONTARGETEVENT", 11i32)?; // enums.h:124
     Ok(())
 }
 
@@ -165,6 +173,12 @@ fn register_condition_params(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("CONDITION_PARAM_SKILL_FISHINGPERCENT", 43i32)?; // enums.h:177
     globals.set("CONDITION_PARAM_BUFF_SPELL", 44i32)?; // enums.h:178
     globals.set("CONDITION_PARAM_SUBID", 45i32)?; // enums.h:179
+    // enums.h:190-195 — 772-specific condition params used by spell scripts
+    // (e.g. soulfire_rune.lua sets CONDITION_PARAM_CYCLE/COUNT/MAX_COUNT/OWNERGUID).
+    globals.set("CONDITION_PARAM_CYCLE", 56i32)?; // enums.h:190
+    globals.set("CONDITION_PARAM_COUNT", 58i32)?; // enums.h:192
+    globals.set("CONDITION_PARAM_MAX_COUNT", 59i32)?; // enums.h:193
+    globals.set("CONDITION_PARAM_OWNERGUID", 60i32)?; // enums.h:194
     Ok(())
 }
 
@@ -290,6 +304,109 @@ fn register_inventory_slots(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("CONST_SLOT_FEET", 8i32)?;
     globals.set("CONST_SLOT_RING", 9i32)?;
     globals.set("CONST_SLOT_AMMO", 10i32)?;
+    Ok(())
+}
+
+// --- ITEM_* field constants (const.h:196-216, 772 values) ---
+
+fn register_item_constants(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // const.h:196-216 — field/wall item ids used by `combat:setParameter(COMBAT_PARAM_CREATEITEM, ...)`.
+    globals.set("ITEM_FIREFIELD_PVP_FULL", 1487i32)?; // const.h:196
+    globals.set("ITEM_FIREFIELD_PVP_MEDIUM", 1488i32)?; // const.h:197
+    globals.set("ITEM_FIREFIELD_PVP_SMALL", 1489i32)?; // const.h:198
+    globals.set("ITEM_FIREFIELD_PERSISTENT_FULL", 1492i32)?; // const.h:199
+    globals.set("ITEM_FIREFIELD_PERSISTENT_MEDIUM", 1493i32)?; // const.h:200
+    globals.set("ITEM_FIREFIELD_PERSISTENT_SMALL", 1494i32)?; // const.h:201
+    globals.set("ITEM_FIREFIELD_NOPVP", 1500i32)?; // const.h:203
+    globals.set("ITEM_POISONFIELD_PVP", 1490i32)?; // const.h:204
+    globals.set("ITEM_POISONFIELD_PERSISTENT", 1496i32)?; // const.h:205
+    globals.set("ITEM_POISONFIELD_NOPVP", 1503i32)?; // const.h:207
+    globals.set("ITEM_ENERGYFIELD_PVP", 1491i32)?; // const.h:208
+    globals.set("ITEM_ENERGYFIELD_PERSISTENT", 1495i32)?; // const.h:209
+    globals.set("ITEM_MAGICWALL", 1497i32)?; // const.h:212
+    globals.set("ITEM_MAGICWALL_PERSISTENT", 1498i32)?; // const.h:213
+    globals.set("ITEM_WILDGROWTH", 1499i32)?; // const.h:215
+    globals.set("ITEM_WILDGROWTH_PERSISTENT", 2721i32)?; // const.h:216
+    Ok(())
+}
+
+// --- DIRECTION_* (position.h:6-16, 772 values) ---
+
+fn register_directions(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // position.h:6-16 — `Direction` enum. Used by find_person.lua's direction table.
+    globals.set("DIRECTION_NORTH", 0i32)?; // position.h:7
+    globals.set("DIRECTION_EAST", 1i32)?; // position.h:8
+    globals.set("DIRECTION_SOUTH", 2i32)?; // position.h:9
+    globals.set("DIRECTION_WEST", 3i32)?; // position.h:10
+    globals.set("DIRECTION_SOUTHWEST", 4i32)?; // position.h:13 (DIAGONAL_MASK|0)
+    globals.set("DIRECTION_SOUTHEAST", 5i32)?; // position.h:14 (DIAGONAL_MASK|1)
+    globals.set("DIRECTION_NORTHWEST", 6i32)?; // position.h:15 (DIAGONAL_MASK|2)
+    globals.set("DIRECTION_NORTHEAST", 7i32)?; // position.h:16 (DIAGONAL_MASK|3)
+    Ok(())
+}
+
+// --- CONST_PROP_* (item.h:28-40, 772 values) ---
+
+fn register_tile_props(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // item.h:28-40 — `ItemProperty_t` sequential enum. Used by
+    // `tile:hasProperty(CONST_PROP_BLOCKSOLID)` in rune scripts.
+    globals.set("CONST_PROP_BLOCKSOLID", 0i32)?; // item.h:28
+    globals.set("CONST_PROP_HASHEIGHT", 1i32)?; // item.h:29
+    globals.set("CONST_PROP_BLOCKPROJECTILE", 2i32)?; // item.h:30
+    globals.set("CONST_PROP_BLOCKPATH", 3i32)?; // item.h:31
+    globals.set("CONST_PROP_ISVERTICAL", 4i32)?; // item.h:32
+    globals.set("CONST_PROP_ISHORIZONTAL", 5i32)?; // item.h:33
+    globals.set("CONST_PROP_MOVEABLE", 6i32)?; // item.h:34
+    globals.set("CONST_PROP_IMMOVABLEBLOCKSOLID", 7i32)?; // item.h:35
+    globals.set("CONST_PROP_IMMOVABLEBLOCKPATH", 8i32)?; // item.h:36
+    globals.set("CONST_PROP_IMMOVABLENOFIELDBLOCKPATH", 9i32)?; // item.h:37
+    globals.set("CONST_PROP_NOFIELDBLOCKPATH", 10i32)?; // item.h:38
+    globals.set("CONST_PROP_SUPPORTHANGABLE", 11i32)?; // item.h:39
+    globals.set("CONST_PROP_SPECIALFIELDBLOCKPATH", 12i32)?; // item.h:40
+    Ok(())
+}
+
+// --- TILESTATE_* (tile.h:23-43, 772 values) ---
+
+fn register_tile_states(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // tile.h:23-43 — `TileFlags_t` bit-flag values. Used by
+    // `tile:hasFlag(TILESTATE_PROTECTIONZONE)` in spell scripts.
+    globals.set("TILESTATE_NONE", 0i32)?; // tile.h:23
+    globals.set("TILESTATE_FLOORCHANGE_DOWN", 1i32)?; // tile.h:25
+    globals.set("TILESTATE_FLOORCHANGE_NORTH", 2i32)?; // tile.h:26
+    globals.set("TILESTATE_FLOORCHANGE_SOUTH", 4i32)?; // tile.h:27
+    globals.set("TILESTATE_FLOORCHANGE_EAST", 8i32)?; // tile.h:28
+    globals.set("TILESTATE_FLOORCHANGE_WEST", 16i32)?; // tile.h:29
+    globals.set("TILESTATE_PROTECTIONZONE", 128i32)?; // tile.h:32 (1<<7)
+    globals.set("TILESTATE_NOPVPZONE", 256i32)?; // tile.h:33 (1<<8)
+    globals.set("TILESTATE_NOLOGOUT", 512i32)?; // tile.h:34 (1<<9)
+    globals.set("TILESTATE_PVPZONE", 1024i32)?; // tile.h:35 (1<<10)
+    globals.set("TILESTATE_REFRESH", 2048i32)?; // tile.h:36 (1<<11)
+    globals.set("TILESTATE_TELEPORT", 4096i32)?; // tile.h:37 (1<<12)
+    globals.set("TILESTATE_MAGICFIELD", 8192i32)?; // tile.h:38 (1<<13)
+    globals.set("TILESTATE_MAILBOX", 16384i32)?; // tile.h:39 (1<<14)
+    globals.set("TILESTATE_TRASHHOLDER", 32768i32)?; // tile.h:40 (1<<15)
+    globals.set("TILESTATE_BED", 65536i32)?; // tile.h:41 (1<<16)
+    globals.set("TILESTATE_DEPOT", 131072i32)?; // tile.h:42 (1<<17)
+    globals.set("TILESTATE_BLOCKSOLID", 262144i32)?; // tile.h:43 (1<<18)
+    Ok(())
+}
+
+// --- MESSAGE_* (const.h:80-90, 772 values) ---
+
+fn register_message_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // const.h:80-90 — `MessageClasses_t`. Used by `creature:sendTextMessage(...)` in spell scripts.
+    globals.set("MESSAGE_STATUS_CONSOLE_YELLOW", 0x01i32)?; // const.h:80
+    globals.set("MESSAGE_STATUS_CONSOLE_LBLUE", 0x04i32)?; // const.h:81
+    globals.set("MESSAGE_STATUS_CONSOLE_ORANGE", 0x11i32)?; // const.h:82
+    globals.set("MESSAGE_STATUS_WARNING", 0x12i32)?; // const.h:83
+    globals.set("MESSAGE_EVENT_ADVANCE", 0x13i32)?; // const.h:84
+    globals.set("MESSAGE_EVENT_DEFAULT", 0x14i32)?; // const.h:85
+    globals.set("MESSAGE_STATUS_DEFAULT", 0x15i32)?; // const.h:86
+    globals.set("MESSAGE_INFO_DESCR", 0x16i32)?; // const.h:87
+    globals.set("MESSAGE_STATUS_SMALL", 0x17i32)?; // const.h:88
+    globals.set("MESSAGE_STATUS_CONSOLE_BLUE", 0x18i32)?; // const.h:89
+    globals.set("MESSAGE_STATUS_CONSOLE_RED", 0x19i32)?; // const.h:90
     Ok(())
 }
 

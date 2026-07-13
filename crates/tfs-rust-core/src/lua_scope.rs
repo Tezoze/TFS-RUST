@@ -250,13 +250,20 @@ pub fn fire_talkaction(world: &mut GameWorld, cid: CreatureId, text: &str) -> Ta
 /// (`spells.cpp` / `luascript.cpp:363`). The callback may trigger mutations
 /// (`combat:execute`, `sendMagicEffect`, …) so the mutation scope must be active.
 /// Returns `true` if the callback was found and returned `true`.
-pub fn fire_on_cast_spell(world: &mut GameWorld, spell_words: &str, cid: CreatureId) -> bool {
+pub fn fire_on_cast_spell(
+    world: &mut GameWorld,
+    spell_words: &str,
+    cid: CreatureId,
+    need_direction: bool,
+) -> bool {
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
         with_lua_context(ctx, || {
             let world = unsafe { &mut *world_ptr };
-            world.events.dispatch_on_cast_spell(spell_words, cid)
+            world
+                .events
+                .dispatch_on_cast_spell(spell_words, cid, need_direction)
         })
     })
 }

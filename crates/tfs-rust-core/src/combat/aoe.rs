@@ -75,7 +75,22 @@ impl GameWorld {
         // Iterate area offsets — 772 `ExecuteCircleSpell` `magic.cc:468-500`.
         // Collect target creature IDs first to avoid borrow conflicts during
         // `combat_execute_with_stimulus` (which borrows `&mut self`).
+        //
+        // LoS origin: 772 `AngleShapeSpell` checks `ThrowPossible` from the
+        // **caster** position (`magic.cc:589`), while `ExecuteCircleSpell`
+        // checks from the **center** (`magic.cc:479`). When center == caster
+        // (non-directional spells), these are identical. For directional spells
+        // (beams/waves), the center is 1 tile in front of the caster, so LoS
+        // must be from the caster to correctly block tiles behind walls.
+        let caster_pos = Position {
+            x: request.caster_x,
+            y: request.caster_y,
+            z: request.caster_z,
+        };
+        let los_origin = if caster_pos == center { center } else { caster_pos };
+
         let mut targets: Vec<(CreatureId, Position)> = Vec::new();
+        let mut effect_tiles: Vec<Position> = Vec::new();
         for &(dx, dy) in &request.area_offsets {
             let tx = center.x as i32 + dx;
             let ty = center.y as i32 + dy;
@@ -98,10 +113,19 @@ impl GameWorld {
                 continue;
             }
 
-            // LoS check — 772 `ThrowPossible` (`magic.cc:479`). Power 0 = no
-            // extra height clearance (matching the 772 call sites).
-            if !self.map.throw_possible(center, tile_pos, 0) {
+            // LoS check — 772 `ThrowPossible` (`magic.cc:479/589`). Power 0.
+            // Directional spells (beams/waves) check from caster; circle spells
+            // check from center. `los_origin` picks the right one.
+            if !self.map.throw_possible(los_origin, tile_pos, 0) {
                 continue;
+            }
+
+            // Broadcast the magic effect at each affected tile — 772
+            // `ExecuteCircleSpell` applies the effect per-tile as it iterates
+            // the area (`magic.cc:468-500`). TFS `Combat::postCombatEffects`
+            // (`combat.cpp:643`) also broadcasts per-tile for area spells.
+            if request.effect > 0 {
+                effect_tiles.push(tile_pos);
             }
 
             // Collect creatures on this tile — 772 `GetFirstObject` loop (`magic.cc:485-494`).
@@ -112,11 +136,10 @@ impl GameWorld {
             }
         }
 
-        // Broadcast the impact effect at the center — 1098 `Combat::postCombatEffects`
-        // (`combat.cpp:643`). For area spells the effect is at the center; per-tile
-        // effects are handled by `combat_execute_with_stimulus` on hit.
-        if request.effect > 0 {
-            self.broadcast_magic_effect(center, request.effect as u8);
+        // Broadcast magic effects at all affected tiles — collected above to
+        // avoid borrowing `self` while iterating the map.
+        for pos in &effect_tiles {
+            self.broadcast_magic_effect(*pos, request.effect as u8);
         }
 
         // Apply damage to each target creature — 772 `Impact->handleCreature`
@@ -131,6 +154,17 @@ impl GameWorld {
             if request.aggressive && Some(target_id) == caster_id {
                 continue;
             }
+
+            // Capture the notify snapshot BEFORE `combat_execute_with_stimulus` —
+            // that path may kill the target (`apply_creature_death`), making
+            // `self.creatures.get` return `None`. Without this, the killing-blow
+            // damage text + health bar are never sent. Mirrors `strike.rs:145`.
+            let notify_snap = self.combat_notify_snapshot(target_id);
+            let hp_before = self
+                .creatures
+                .get(target_id)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
 
             // Roll damage — 1098 `getCombatDamage` (`combat.cpp:100`). For
             // `COMBAT_FORMULA_DAMAGE` the min/max are the literal range. For
@@ -160,6 +194,20 @@ impl GameWorld {
             // only need to gate on `block_armor` for the no-armor fast path.
             let _ = block_armor; // armor applied inside combat_execute_with_stimulus
             self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
+
+            // Broadcast animated damage text + health bar to spectators —
+            // `notify_player_combat_damage` (`game_world_spectators.rs:481`).
+            // Called by strike/ranged/monster_ai paths but was missing here,
+            // so spell damage was applied silently. Mirrors `strike.rs:173-176`.
+            let hp_after = self
+                .creatures
+                .get(target_id)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
+            let damage_done = (hp_before - hp_after).max(0);
+            if let Some(snap) = notify_snap {
+                self.notify_player_combat_damage(caster_id, target_id, damage_done, combat_type, snap);
+            }
         }
 
         Ok(())

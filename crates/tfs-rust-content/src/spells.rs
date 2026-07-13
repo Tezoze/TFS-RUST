@@ -65,6 +65,9 @@ pub struct InstantSpellDef {
     /// C++ `InstantSpell::hasPlayerNameParam` — `spells.h:157`.
     /// Set via `spell:hasPlayerNameParam(true)`.
     pub has_player_name_param: bool,
+    /// Whether the spell needs a direction (beam/wave spells).
+    /// C++ `InstantSpell::needDirection` — `spells.h:160`.
+    pub need_direction: bool,
     /// Lua callback registry key for `onCastSpell`.
     pub on_cast_callback: Option<String>,
 }
@@ -97,6 +100,30 @@ pub struct RuneSpellDef {
     pub vocations: Vec<String>,
     /// Whether the rune needs a target.
     pub need_target: bool,
+    /// Magic level required to use the rune.
+    /// C++ `RuneSpell::runeMagicLevel` — set via `rune:runeMagicLevel(n)`.
+    pub rune_magic_level: u32,
+    /// Allow casting at a distance from the target.
+    /// C++ `RuneSpell::allowFarUse` — `spells.h:290`.
+    pub allow_far_use: bool,
+    /// Blocked by walls between caster and target.
+    /// C++ `RuneSpell::blockWalls` — `spells.h:291`.
+    pub block_walls: bool,
+    /// Check floor difference between caster and target.
+    /// C++ `RuneSpell::checkFloor` — `spells.h:292`.
+    pub check_floor: bool,
+    /// Blocked by solid items on target tile.
+    /// C++ `RuneSpell::blockSolid` — `spells.h:293`.
+    pub block_solid: bool,
+    /// Blocked by creatures on target tile.
+    /// C++ `RuneSpell::blockCreature` — `spells.h:294`.
+    pub block_creature: bool,
+    /// Triggers PZ lock on aggressive use.
+    /// C++ `RuneSpell::isPzLock` — `spells.h:295`.
+    pub is_pz_lock: bool,
+    /// Whether the rune's cooldown counts as a spell cooldown.
+    /// C++ `RuneSpell::cooldownSpellTime` — `spells.h:296`.
+    pub cooldown_spell_time: bool,
     /// Lua callback registry key for `onCastSpell`.
     pub on_cast_callback: Option<String>,
 }

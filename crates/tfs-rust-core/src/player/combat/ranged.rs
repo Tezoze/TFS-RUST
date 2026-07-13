@@ -254,7 +254,7 @@ impl GameWorld {
         };
         let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
-            self.notify_player_combat_damage(Some(cid), target_id, damage_done, snap);
+            self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
         }
 
         // Missile animation — broadcast after the damage lands (C++ `::Missile` at `:736`).
@@ -489,7 +489,7 @@ impl GameWorld {
             };
             let damage_done = (hp_before - hp_after).max(0);
             if let Some(snap) = notify_snap {
-                self.notify_player_combat_damage(Some(cid), target_id, damage_done, snap);
+                self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
             }
 
             // `ActivateLearning` on `DamageDone > 0` (`crcombat.cc:814`).

@@ -2,7 +2,7 @@
 //!
 //! C++ reference: `src/luascript.cpp` — `Creature` / `Player` userdata methods.
 
-use mlua::{UserData, UserDataMethods, Value};
+use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
@@ -60,6 +60,17 @@ impl UserData for CreatureRef {
         methods.add_method("getLevel", |_, this, ()| {
             with_ctx(|ctx| {
                 ctx.get_player_level(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        // `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
+        // PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
+        // `data/scripts/functions.lua` (`computeDamage` / `computeHealing` /
+        // `computeSkillDamage` — all read `(3 * magicLevel) + 2 * level`).
+        methods.add_method("getMagicLevel", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_magic_level(this.0)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
         });
@@ -399,6 +410,24 @@ impl UserData for CreatureRef {
                 Ok(())
             },
         );
+
+        // `__index` fallback — bridges `function Player:method(...)` definitions
+        // from `data/scripts/functions.lua` (and event scripts) onto `CreatureRef`
+        // userdata. mlua 0.10 calls this metamethod only when the regular method
+        // lookup (registered above) fails, so native Rust methods take priority.
+        //
+        // Without this, `creature:conjureItem(...)` / `creature:computeDamage(...)`
+        // would error with "attempt to call nil value" — `functions.lua` defines
+        // them as `function Player:conjureItem(...)` (table fields on the `Player`
+        // global), not as `CreatureRef` userdata methods.
+        //
+        // C++ reference: TFS `LuaScriptInterface::registerClass` sets
+        // `Creature`/`Player` method tables so `self:method()` resolves via the
+        // class hierarchy. We mirror that by chaining `__index` → `Player` table.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::String| {
+            let player_table: mlua::Table = lua.globals().get("Player")?;
+            player_table.get::<mlua::Value>(key)
+        });
     }
 }
 

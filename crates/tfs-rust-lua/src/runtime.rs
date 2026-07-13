@@ -530,8 +530,11 @@ impl LuaRuntime {
         &self,
         spell_words: &str,
         creature: crate::context::CreatureId,
+        need_direction: bool,
     ) -> Result<bool, LuaError> {
-        let key = self.spell_callbacks.get(spell_words.to_lowercase().as_str());
+        let key = self
+            .spell_callbacks
+            .get(spell_words.to_lowercase().as_str());
         let Some(registry_key) = key else {
             // No Lua callback registered — the spell has no script-side cast logic.
             return Ok(false);
@@ -544,11 +547,20 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(creature))
             .map_err(LuaError::Init)?;
-        // The variant is a Lua table — for now we pass nil (the combat:execute
-        // method resolves the variant from the caster position). Full variant
-        // construction (target position, target creature) is a follow-up.
+
+        // Construct the variant table. C++ `InstantSpell::castSpell`
+        // (`spells.cpp`) builds a `LuaVariant` with `type = VARIANT_POSITION`
+        // and `pos = getCasterPosition(creature, direction)` when
+        // `needDirection` is true, or `pos = creature->getPosition()` otherwise.
+        //
+        // `getCasterPosition` offsets the position by one tile in the player's
+        // facing direction — this is the center tile for area spells (beams,
+        // waves, strikes). Without this, `exori vis` hits the player's tile
+        // instead of the tile in front, and `exevo gran mas vis` centers the
+        // beam on the player instead of extending it forward.
+        let variant = build_cast_variant(&self.lua, creature, need_direction)?;
         function
-            .call::<bool>((creature_ud, mlua::Value::Nil))
+            .call::<bool>((creature_ud, variant))
             .map_err(LuaError::Init)
     }
 
@@ -558,6 +570,80 @@ impl LuaRuntime {
         self.spell_callbacks.insert(words.to_lowercase(), key);
     }
 }
+
+/// Construct the `LuaVariant` table passed to `onCastSpell(creature, variant)`.
+///
+/// C++ reference: `InstantSpell::castSpell` (`spells.cpp`) builds a
+/// `LuaVariant` with `type = VARIANT_POSITION` (2) and:
+/// - `pos = getCasterPosition(creature, direction)` when `needDirection` is
+///   true — offsets the caster position by one tile in the facing direction.
+/// - `pos = creature->getPosition()` otherwise.
+///
+/// `getCasterPosition` (`spells.cpp`) is the key piece: without the direction
+/// offset, `exori vis` hits the player's tile instead of the tile in front,
+/// and `exevo gran mas vis` centers the beam on the player instead of
+/// extending it forward.
+fn build_cast_variant(
+    lua: &Lua,
+    caster: crate::context::CreatureId,
+    need_direction: bool,
+) -> Result<mlua::Value, LuaError> {
+    use crate::context::CURRENT_CTX;
+
+    let (x, y, z) = CURRENT_CTX.with(|c| {
+        let ptr = (*c.borrow()).ok_or_else(|| {
+            LuaError::Init(mlua::Error::runtime("build_cast_variant: LuaContext not set"))
+        })?;
+        if ptr.is_null() {
+            return Err(LuaError::Init(mlua::Error::runtime(
+                "build_cast_variant: LuaContext is null",
+            )));
+        }
+        let ctx = unsafe { &*ptr };
+
+        let pos = ctx
+            .get_player_position(caster)
+            .ok_or_else(|| mlua::Error::runtime("build_cast_variant: caster position not found"))?;
+
+        if !need_direction {
+            return Ok((pos.x, pos.y, pos.z));
+        }
+
+        // `Spells::getCasterPosition` — offset by one tile in facing direction.
+        let dir = ctx
+            .get_player_direction(caster)
+            .ok_or_else(|| mlua::Error::runtime("build_cast_variant: caster direction not found"))?;
+
+        // Direction enum: 0=N, 1=E, 2=S, 3=W, 4=SW, 5=SE, 6=NW, 7=NE.
+        let (dx, dy) = match dir {
+            0 => (0i16, -1i16), // North
+            1 => (1, 0),        // East
+            2 => (0, 1),        // South
+            3 => (-1, 0),       // West
+            4 => (-1, 1),       // SouthWest
+            5 => (1, 1),        // SouthEast
+            6 => (-1, -1),      // NorthWest
+            7 => (1, -1),       // NorthEast
+            _ => (0, 0),        // Unknown — no offset
+        };
+        Ok((
+            (pos.x as i16 + dx) as u16,
+            (pos.y as i16 + dy) as u16,
+            pos.z,
+        ))
+    })?;
+
+    // Build the variant table: { type = 2, pos = { x=.., y=.., z=.. } }
+    let table = lua.create_table()?;
+    table.set("type", 2i32)?; // VARIANT_POSITION
+    let pos = lua.create_table()?;
+    pos.set("x", x as i64)?;
+    pos.set("y", y as i64)?;
+    pos.set("z", z as i64)?;
+    table.set("pos", pos)?;
+    Ok(mlua::Value::Table(table))
+}
+
 pub trait RegisterLuaFunctions {
     fn register_functions(&self, lua: &Lua) -> Result<(), mlua::Error>;
 }
@@ -565,7 +651,7 @@ pub trait RegisterLuaFunctions {
 /// Class tables and stubs so `data/events/scripts/*.lua` can use `function Player:…`.
 ///
 /// C++ reference: `LuaScriptInterface::registerClass` — `src/luascript.cpp`.
-fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
+pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     let globals = lua.globals();
 
     globals.set("Player", lua.create_table()?)?;
@@ -621,14 +707,18 @@ fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     })?;
     globals.set("Channel", channel_constructor)?;
 
-    // `Condition(type, id)` — real `ConditionBuilder` userdata (LUA-4 §1.6).
+    // `Condition(type[, id])` — real `ConditionBuilder` userdata (LUA-4 §1.6).
     // Replaces the no-op soul stub. `player.lua`'s `soulCondition` build
     // (`Condition(CONDITION_SOUL, CONDITIONID_DEFAULT):setTicks(...)` /
     // `:setParameter(...)`) still loads unchanged — the builder supports both
     // `setTicks` and `setParameter` (regression guard, §4.1).
-    // C++ reference: `luascript.cpp` `luaCreateCondition` — `condition.cpp`.
-    let condition = lua.create_function(|lua, (ctype, cond_id): (i32, i32)| {
-        let builder = crate::userdata::condition::ConditionBuilder::new(ctype, cond_id);
+    // C++ reference: `luascript.cpp:11970-11984` `luaConditionCreate` —
+    // `Condition(conditionType[, conditionId = CONDITIONID_COMBAT])`.
+    // The second arg defaults to `CONDITIONID_COMBAT` (0) when omitted —
+    // spell scripts call `Condition(CONDITION_LIGHT)` with one arg.
+    let condition = lua.create_function(|lua, (ctype, cond_id): (i32, Option<i32>)| {
+        let builder =
+            crate::userdata::condition::ConditionBuilder::new(ctype, cond_id.unwrap_or(0));
         let ud = lua.create_userdata(builder)?;
         Ok(mlua::Value::UserData(ud))
     })?;

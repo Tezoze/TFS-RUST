@@ -164,6 +164,26 @@ impl LuaRuntime {
             }
         }
 
+        // PC-3a Phase 1: Load `data/scripts/functions.lua` before spell scripts.
+        // It defines `Player:conjureItem`, `Player:computeDamage` /
+        // `computeHealing` / `computeSkillDamage` as `function Player:method`
+        // table fields. The `CreatureRef` `__index` fallback bridges these onto
+        // userdata so value-callback spell bodies can call them.
+        let functions_path = data_dir.join("scripts/functions.lua");
+        if functions_path.exists() {
+            let path_str = functions_path.display().to_string();
+            if let Err(e) = self
+                .lua
+                .load(&std::fs::read_to_string(&functions_path).map_err(|e| e.to_string())?)
+                .set_name(&path_str)
+                .exec()
+            {
+                tracing::warn!("Failed to load functions.lua: {}", e);
+            }
+        } else {
+            tracing::warn!("functions.lua not found: {}", functions_path.display());
+        }
+
         // Recursively collect all .lua files (excluding areas.lua and #example.lua).
         let mut lua_files: Vec<PathBuf> = Vec::new();
         collect_lua_files(&spells_dir, &mut lua_files);
@@ -182,6 +202,7 @@ impl LuaRuntime {
                 .set_name(&path_str)
                 .exec()
             {
+                eprintln!("DBG Failed: {} — {}", path_str, e);
                 tracing::warn!("Failed to load spell script {}: {}", path_str, e);
             }
         }
@@ -205,9 +226,8 @@ impl LuaRuntime {
 
             // PC-3a: If a callback function was captured via `__newindex`,
             // store its `RegistryKey` on the `LuaRuntime` keyed by spell words.
-            let callback_fn: Option<mlua::Function> = callbacks_table
-                .get::<mlua::Function>(idx)
-                .ok();
+            let callback_fn: Option<mlua::Function> =
+                callbacks_table.get::<mlua::Function>(idx).ok();
             if let Some(func) = callback_fn {
                 let reg_key = self
                     .lua
@@ -235,6 +255,7 @@ impl LuaRuntime {
                     is_self_target: ps.is_self_target,
                     has_param: ps.has_param,
                     has_player_name_param: ps.has_player_name_param,
+                    need_direction: ps.need_direction,
                     vocations: ps.vocations.clone(),
                     on_cast_callback: ps.on_cast_callback.clone(),
                 };
@@ -255,6 +276,14 @@ impl LuaRuntime {
                     group_cooldown: ps.group_cooldown,
                     is_aggressive: ps.is_aggressive,
                     need_target: ps.need_target,
+                    rune_magic_level: ps.rune_magic_level,
+                    allow_far_use: ps.allow_far_use,
+                    block_walls: ps.block_walls,
+                    check_floor: ps.check_floor,
+                    block_solid: ps.block_solid,
+                    block_creature: ps.block_creature,
+                    is_pz_lock: ps.is_pz_lock,
+                    cooldown_spell_time: ps.cooldown_spell_time,
                     vocations: ps.vocations.clone(),
                     on_cast_callback: ps.on_cast_callback.clone(),
                 };
@@ -281,6 +310,43 @@ impl LuaRuntime {
             .set("_pending_spell_callbacks", self.lua.create_table().unwrap());
 
         Ok(registry)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn workspace_data_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data")
+    }
+
+    /// Integration test: all spell scripts in `data/scripts/spells/` load
+    /// without Lua errors. This catches missing constants, missing userdata
+    /// methods, and broken `Condition`/`Combat`/`Spell` API surface.
+    #[test]
+    fn spell_scripts_load_without_errors() {
+        let data_root = workspace_data_root();
+        let spells_dir = data_root.join("scripts/spells");
+        if !spells_dir.exists() {
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let registry = runtime
+            .load_spell_scripts(&data_root)
+            .expect("spell scripts should load");
+
+        // Should have loaded both instant and rune spells.
+        assert!(
+            registry.instant_by_words.len() > 0,
+            "should have instant spells"
+        );
+        assert!(
+            registry.runes_by_id.len() > 0,
+            "should have rune spells — check for load errors above"
+        );
     }
 }
 

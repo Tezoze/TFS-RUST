@@ -369,6 +369,17 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.creatures.get(cid).map(|k| k.position())
     }
 
+    /// `player:getDirection()` — `Creature::getDirection` (`creature.h`).
+    /// PC-3a: spell variant construction offsets the center position by one
+    /// tile in the player's facing direction when `needDirection(true)` is set.
+    fn get_player_direction(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<u8> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).map(|k| k.base().direction as u8)
+    }
+
     /// `ItemType:isStackable()` backing read — `ItemType::stackable`.
     /// CH-6 talkaction `/i` count clamping.
     fn get_item_type_is_stackable(&self, item_type: u16) -> bool {
@@ -382,5 +393,54 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .items
             .get(&item_type)
             .is_some_and(|t| t.is_fluid_container())
+    }
+
+    /// `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
+    /// PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
+    /// `functions.lua` (`computeDamage` / `computeHealing` / `computeSkillDamage`).
+    fn get_player_magic_level(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.skills.maglevel),
+            _ => None,
+        })
+    }
+
+    /// Weapon combat parameters for the SKILL value callback
+    /// (`CALLBACK_PARAM_SKILLVALUE`). C++ `Combat::getCombatDamage` —
+    /// `combat.cpp:1155-1163`: `player->getWeaponSkill()`,
+    /// `player->getWeapon()->getAttack()`, `player->getAttackFactor()`.
+    fn get_player_weapon_combat_params(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> tfs_rust_common::WeaponCombatParams {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return tfs_rust_common::WeaponCombatParams::default();
+        };
+        // TFS `Player::getAttackFactor` — `player.cpp`. Defaults to 1.0;
+        // modified by conditions (e.g. haste/slow affect attack frequency,
+        // not the factor itself in 772). We return 1.0 unless a condition
+        // override is wired (future work).
+        let attack_factor = 1.0;
+        let weapon = self.player_get_weapon(cid, false);
+        let skill = self.player_get_weapon_skill(cid, weapon);
+        let attack = weapon
+            .and_then(|iid| self.items.get(iid))
+            .and_then(|item| {
+                // C++ `Item::getAttack` — attribute overrides `ItemType::attack`.
+                item.attributes
+                    .as_ref()
+                    .and_then(|a| a.get_attack())
+                    .or_else(|| self.items_db.items.get(&item.item_type).map(|t| t.attack))
+            })
+            .unwrap_or(0);
+        tfs_rust_common::WeaponCombatParams {
+            skill,
+            attack,
+            attack_factor,
+        }
     }
 }

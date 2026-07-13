@@ -29,5 +29,5 @@ pub use protocol_version::{
 };
 pub use script_context::{
     ScriptContainerData, ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptCreatureRef,
-    ScriptCylinder, ScriptItemData, ScriptItemId, ScriptItemRef,
+    ScriptCylinder, ScriptItemData, ScriptItemId, ScriptItemRef, WeaponCombatParams,
 };

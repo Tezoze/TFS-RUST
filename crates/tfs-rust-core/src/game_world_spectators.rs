@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use slotmap::Key;
-use tfs_rust_common::enums::ConditionType;
+use tfs_rust_common::enums::{CombatType, ConditionType};
 use tfs_rust_common::protocol_constants::{MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y};
 use tfs_rust_common::{ConnId, Position};
 use tfs_rust_net::codec::ItemTemplateArgs;
@@ -483,6 +483,7 @@ impl GameWorld {
         attacker_id: Option<CreatureId>,
         target_id: CreatureId,
         damage_done: i32,
+        combat_type: CombatType,
         snapshot: CombatNotifySnapshot,
     ) {
         if damage_done <= 0 {
@@ -512,11 +513,23 @@ impl GameWorld {
             .and_then(|aid| self.creatures.get(aid))
             .map(|k| k.base().name.clone());
 
-        // A3 — race-keyed `TextualEffect` color (`crmain.cc:710-737`). The animated damage text
-        // color follows the victim's blood family: Blood→RED(180), Slime→LIGHTGREEN(30),
-        // Bones→LIGHTGRAY(129), Fire→ORANGE(198), Energy→LIGHTBLUE(35). Players/NPCs default to
-        // `Blood` (RED). Previously hardcoded `TEXTCOLOR_RED` (180) for all creatures.
-        let text_color = crate::creature::damage_text_color(self.creature_blood_type(target_id));
+        // 772 `TextualEffect` color — `crmain.cc:710-765`. For **physical** damage,
+        // the color follows the victim's blood family (Blood→RED, Slime→LIGHTGREEN,
+        // Bones→LIGHTGRAY, Fire→ORANGE, Energy→LIGHTBLUE). For **typed** damage
+        // (energy/fire/poison/lifedrain), the color is fixed by damage type
+        // regardless of the victim's blood family:
+        //   Poison → LIGHTGREEN(30), Fire → ORANGE(198),
+        //   Energy → LIGHTBLUE(35), LifeDrain → RED(180).
+        let text_color = match combat_type {
+            CombatType::Physical => {
+                crate::creature::damage_text_color(self.creature_blood_type(target_id))
+            }
+            CombatType::Earth => 30,   // COLOR_LIGHTGREEN — poison
+            CombatType::Fire => 198,   // COLOR_ORANGE
+            CombatType::Energy => 35,  // COLOR_LIGHTBLUE
+            CombatType::LifeDrain => 180, // COLOR_RED
+            _ => 180,                  // COLOR_RED (default)
+        };
 
         // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood` in the
         // combat apply path (`crmain.cc:762-775`), so no duplicate draw-blood here. Phase 3: both

@@ -596,3 +596,6 @@ not a 772 `CharacterRights` DB table.
 - [x] **Verify:** `cargo check` (0 errors), `cargo clippy` (0 warnings),
       `cargo test --workspace` (617+ passed, 1 pre-existing failure unrelated to PC-3a).
       **Lessons:** appended to `tasks/lessons.md`.
+
+## PC-3a spell-gaps doc audit — done
+- [x] Corrected `tasks/pc3a-spell-gaps.md` against tree (wild_growth, area names, DISPEL/CREATEITEM counts, conjureItem via functions.lua, direct addCondition vs callbacks, existing CreatureRef APIs).

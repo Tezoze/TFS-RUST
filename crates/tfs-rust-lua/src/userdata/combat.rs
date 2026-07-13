@@ -21,8 +21,8 @@ use mlua::{Lua, UserData, UserDataMethods, Value};
 
 use tfs_rust_common::enums::CombatType;
 
-use crate::context::{CreatureRef, CURRENT_CTX};
-use crate::lua_mutation::{call_combat_execute, CombatExecuteRequest};
+use crate::context::{CURRENT_CTX, CreatureRef};
+use crate::lua_mutation::{CombatExecuteRequest, call_combat_execute};
 
 /// Area combat matrix — the Rust side of `createCombatArea(areaMatrix)`.
 /// C++ `AreaCombat` — `combat.h`. The matrix is a 2D grid where each cell is:
@@ -62,14 +62,18 @@ impl AreaCombat {
 
     /// Returns the relative offsets of affected tiles (cell value `1` or `3`),
     /// relative to the caster origin.
+    ///
+    /// Returns `(dx, dy)` = `(col_delta, row_delta)` where `dx` maps to the
+    /// x-axis (east-west) and `dy` maps to the y-axis (north-south). The matrix
+    /// is row-major (`matrix[row][col]`), so row maps to y and col maps to x.
     pub fn affected_offsets(&self) -> Vec<(i32, i32)> {
         let mut offsets = Vec::new();
         for (r, row) in self.matrix.iter().enumerate() {
             for (c, &cell) in row.iter().enumerate() {
                 if cell != 0 {
-                    let dr = r as i32 - self.center_row as i32;
-                    let dc = c as i32 - self.center_col as i32;
-                    offsets.push((dr, dc));
+                    let dy = r as i32 - self.center_row as i32;
+                    let dx = c as i32 - self.center_col as i32;
+                    offsets.push((dx, dy));
                 }
             }
         }
@@ -84,7 +88,9 @@ const COMBAT_PARAM_EFFECT: i32 = 1;
 const COMBAT_PARAM_DISTANCEEFFECT: i32 = 2;
 const COMBAT_PARAM_BLOCKSHIELD: i32 = 3;
 const COMBAT_PARAM_BLOCKARMOR: i32 = 4;
+const COMBAT_PARAM_CREATEITEM: i32 = 6; // enums.h:119
 const COMBAT_PARAM_AGGRESSIVE: i32 = 7;
+const COMBAT_PARAM_NODAMAGE: i32 = 10; // enums.h:123
 
 /// Callback parameter keys — mirrors `CallbackParam_t` (`enums.h:128-131`).
 const CALLBACK_PARAM_LEVELMAGICVALUE: i32 = 0;
@@ -144,6 +150,15 @@ pub struct CombatDef {
     pub formula: Option<FormulaDef>,
     /// Callbacks keyed by `CallbackParam_t`.
     pub callbacks: HashMap<i32, CombatCallback>,
+    /// Conditions added via `combat:addCondition(condition)`.
+    /// C++ `Combat::conditionList` — `combat.h`.
+    pub conditions: Vec<crate::userdata::condition::ConditionBuilder>,
+    /// `COMBAT_PARAM_CREATEITEM` → item id to create on hit tiles.
+    /// C++ `Combat::createItem` — `combat.h`.
+    pub create_item: i32,
+    /// `COMBAT_PARAM_NODAMAGE` → whether combat applies no damage (e.g. soulfire).
+    /// C++ `Combat::noDamage` — `combat.h`.
+    pub no_damage: bool,
 }
 
 impl CombatDef {
@@ -160,7 +175,9 @@ impl CombatDef {
             k if k == COMBAT_PARAM_DISTANCEEFFECT => self.distance_effect = value,
             k if k == COMBAT_PARAM_BLOCKSHIELD => self.block_shield = value != 0,
             k if k == COMBAT_PARAM_BLOCKARMOR => self.block_armor = value != 0,
+            k if k == COMBAT_PARAM_CREATEITEM => self.create_item = value,
             k if k == COMBAT_PARAM_AGGRESSIVE => self.aggressive = value != 0,
+            k if k == COMBAT_PARAM_NODAMAGE => self.no_damage = value != 0,
             _ => {} // Unknown params silently ignored (C++ `default: break`).
         }
     }
@@ -350,45 +367,79 @@ impl UserData for CombatRef {
             Ok(true)
         });
 
+        // `combat:addCondition(condition)` — C++ `luaCombatAddCondition`
+        // (`luascript.cpp:11812`). Clones the `ConditionBuilder` from the Lua
+        // userdata and stores it in the combat's condition list.
+        methods.add_method_mut("addCondition", |_, this, condition: mlua::AnyUserData| {
+            let cond = condition
+                .borrow::<crate::userdata::condition::ConditionBuilder>()?
+                .clone();
+            this.0.borrow_mut().conditions.push(cond);
+            Ok(true)
+        });
+
         // `combat:execute(creature, variant)` — `luascript.cpp:13198+`.
         // PC-3a: resolves the variant (NUMBER → target position, POSITION →
         // area at position), builds a `CombatExecuteRequest` with area offsets
         // from the combat's `AreaCombat` matrix (or empty for single-target),
         // and dispatches to the core via `call_combat_execute`.
+        //
+        // PC-3a Phase 1: when `formula` is `None` but a value callback is
+        // registered (`CALLBACK_PARAM_LEVELMAGICVALUE` / `CALLBACK_PARAM_SKILLVALUE`),
+        // invoke the Lua global function and use its `(min, max)` return as the
+        // damage range. C++ `Combat::getCombatDamage` — `combat.cpp:100` →
+        // `ValueCallback::getMinMaxValues` — `combat.cpp:1111-1170`.
         methods.add_method(
             "execute",
-            |_, this, (creature, variant): (Value, Value)| {
+            |lua, this, (creature, variant): (Value, Value)| {
                 let combat = this.0.borrow();
                 let caster_id = resolve_creature_id(&creature)?;
-                let (center_x, center_y, center_z) =
-                    resolve_variant_center(&variant, caster_id)?;
+                let (center_x, center_y, center_z) = resolve_variant_center(&variant, caster_id)?;
+
+                // Resolve the caster's position — used for both area rotation
+                // (direction from caster → center) and LoS checks.
+                // 772 `AngleShapeSpell` uses `ThrowPossible(ActorX, ActorY, ...)`
+                // (from caster), while `ExecuteCircleSpell` uses
+                // `ThrowPossible(DestX, DestY, ...)` (from center). When center
+                // == caster (non-directional), these are identical.
+                let (caster_x, caster_y, caster_z) =
+                    resolve_caster_position(caster_id).unwrap_or((center_x, center_y, center_z));
 
                 // Resolve area offsets from the combat's area matrix.
                 // C++ `Combat::hasArea` — `combat.cpp:13227`. If no area is set,
                 // the combat is single-target (empty offsets → only the center
                 // tile is checked, but we add (0,0) so the center is included).
+                //
+                // For directional spells (needDirection), the area matrix is
+                // defined in "north-facing" orientation and must be rotated
+                // based on the direction from caster → variant center.
+                // C++ `AreaCombat::getArea` (`combat.cpp:1316-1345`) computes
+                // the direction from `centerPos → targetPos` and picks the
+                // pre-rotated area (N=original, E=rotate90, S=rotate180,
+                // W=rotate270).
                 let area_offsets: Vec<(i32, i32)> = match &combat.area {
                     Some(area_rc) => {
                         let area = area_rc.borrow();
-                        area.affected_offsets()
+                        let raw = area.affected_offsets();
+                        let dx = center_x as i32 - caster_x as i32;
+                        let dy = center_y as i32 - caster_y as i32;
+                        rotate_area_offsets(&raw, dx, dy)
                     }
                     None => vec![(0, 0)],
                 };
 
-                // Resolve damage min/max from the formula.
-                // C++ `Combat::getCombatDamage` — `combat.cpp:100`. For
-                // `COMBAT_FORMULA_DAMAGE` the min/max are literal. For
-                // `COMBAT_FORMULA_LEVELMAGIC` the values are
-                // `fma(level*2+magic*3, mina, minb)` etc. The level/magic
-                // resolution requires a player read; we defer to the core
-                // for the literal range and let the Lua callback resolve
-                // level/magic if set. For now, use the formula's minb/maxb
-                // as the literal range (matching COMBAT_FORMULA_DAMAGE).
+                // Resolve damage min/max.
+                // C++ `Combat::getCombatDamage` — `combat.cpp:100`. Three paths:
+                // 1. `setFormula` was called → use the formula (literal or
+                //    level/magic polynomial).
+                // 2. `setCallback(LEVELMAGICVALUE/SKILLVALUE, name)` was called
+                //    → invoke the Lua global `name(player, …)` and parse
+                //    `(min, max)`. This is the path all 22 value-callback spells
+                //    use (no spell in this pack calls `:setFormula`).
+                // 3. Neither → `(0, 0)` (e.g. condition-only combats).
                 let (damage_min, damage_max) = match &combat.formula {
                     Some(f) => match f.formula_type {
-                        FormulaType::Damage => {
-                            (f.min_a as i32, f.max_a as i32)
-                        }
+                        FormulaType::Damage => (f.min_a as i32, f.max_a as i32),
                         // For level/magic formulas, resolve via the caster's
                         // level + magic level if available. C++ `getCombatDamage`
                         // (`combat.cpp:117-119`): `fma(levelFormula, mina, minb)`.
@@ -405,7 +456,7 @@ impl UserData for CombatRef {
                             (f.min_b as i32, f.max_b as i32)
                         }
                     },
-                    None => (0, 0),
+                    None => invoke_value_callback(lua, &combat, caster_id)?,
                 };
 
                 let request = CombatExecuteRequest {
@@ -413,6 +464,9 @@ impl UserData for CombatRef {
                     center_x,
                     center_y,
                     center_z,
+                    caster_x,
+                    caster_y,
+                    caster_z,
                     combat_type: combat.combat_type,
                     effect: combat.effect,
                     aggressive: combat.aggressive,
@@ -422,8 +476,7 @@ impl UserData for CombatRef {
                     damage_min,
                     damage_max,
                 };
-                call_combat_execute(request)
-                    .map_err(mlua::Error::runtime)?;
+                call_combat_execute(request).map_err(mlua::Error::runtime)?;
                 Ok(true)
             },
         );
@@ -439,7 +492,9 @@ fn resolve_creature_id(value: &Value) -> Result<u64, mlua::Error> {
             Ok(cref.0)
         }
         Value::Nil => Ok(0),
-        _ => Err(mlua::Error::runtime("combat:execute: creature must be CreatureRef or nil")),
+        _ => Err(mlua::Error::runtime(
+            "combat:execute: creature must be CreatureRef or nil",
+        )),
     }
 }
 
@@ -451,10 +506,7 @@ fn resolve_creature_id(value: &Value) -> Result<u64, mlua::Error> {
 ///
 /// For now we support POSITION (table with x/y/z) and NUMBER (resolve via ctx).
 /// If the variant is nil, fall back to the caster's position (origin spell).
-fn resolve_variant_center(
-    variant: &Value,
-    caster_id: u64,
-) -> Result<(u16, u16, u8), mlua::Error> {
+fn resolve_variant_center(variant: &Value, caster_id: u64) -> Result<(u16, u16, u8), mlua::Error> {
     match variant {
         Value::Table(t) => {
             // Variant table: { type = N, pos = {x=.., y=.., z=..}, number = .. }
@@ -482,9 +534,8 @@ fn resolve_variant_center(
                     .get("number")
                     .map_err(|_| mlua::Error::runtime("variant: missing number field"))?;
                 let pos = CURRENT_CTX.with(|c| {
-                    let ptr = (*c.borrow()).ok_or_else(|| {
-                        mlua::Error::runtime("LuaContext not set")
-                    })?;
+                    let ptr =
+                        (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                     if ptr.is_null() {
                         return Err(mlua::Error::runtime("LuaContext not set"));
                     }
@@ -499,14 +550,18 @@ fn resolve_variant_center(
             }
         }
         Value::Nil => resolve_caster_position(caster_id),
-        _ => Err(mlua::Error::runtime("combat:execute: variant must be table or nil")),
+        _ => Err(mlua::Error::runtime(
+            "combat:execute: variant must be table or nil",
+        )),
     }
 }
 
 /// Resolve the caster's position via the ScriptContext.
 fn resolve_caster_position(caster_id: u64) -> Result<(u16, u16, u8), mlua::Error> {
     if caster_id == 0 {
-        return Err(mlua::Error::runtime("combat:execute: no caster and no variant position"));
+        return Err(mlua::Error::runtime(
+            "combat:execute: no caster and no variant position",
+        ));
     }
     CURRENT_CTX.with(|c| {
         let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
@@ -518,6 +573,40 @@ fn resolve_caster_position(caster_id: u64) -> Result<(u16, u16, u8), mlua::Error
             .map(|p| (p.x, p.y, p.z))
             .ok_or_else(|| mlua::Error::runtime("combat:execute: caster position not found"))
     })
+}
+
+/// Rotate area offsets based on the direction from caster to center.
+///
+/// C++ `AreaCombat::getArea` (`combat.cpp:1316-1345`) determines the direction
+/// from `centerPos → targetPos` and picks the pre-rotated area. The area matrix
+/// is defined in "north-facing" orientation; rotations are clockwise:
+///
+/// - North (dy<0): no rotation — `(dx, dy) → (dx, dy)`
+/// - East  (dx>0): rotate90   — `(dx, dy) → (-dy, dx)`
+/// - South (else): rotate180  — `(dx, dy) → (-dx, -dy)`
+/// - West  (dx<0): rotate270  — `(dx, dy) → (dy, -dx)`
+///
+/// `dx` is the x offset (negative=west, positive=east), `dy` is the y offset
+/// (negative=north, positive=south). When dx=dy=0 (non-directional spell,
+/// center == caster), direction defaults to South → rotate180, which is a
+/// no-op for symmetric areas and matches C++ behavior.
+fn rotate_area_offsets(offsets: &[(i32, i32)], dx_dir: i32, dy_dir: i32) -> Vec<(i32, i32)> {
+    let rotate = |(dx, dy): (i32, i32)| -> (i32, i32) {
+        if dx_dir < 0 {
+            // West — rotate270
+            (dy, -dx)
+        } else if dx_dir > 0 {
+            // East — rotate90
+            (-dy, dx)
+        } else if dy_dir < 0 {
+            // North — no rotation
+            (dx, dy)
+        } else {
+            // South (default) — rotate180
+            (-dx, -dy)
+        }
+    };
+    offsets.iter().copied().map(rotate).collect()
 }
 
 /// Read the caster's level and magic level via the ScriptContext.
@@ -533,11 +622,80 @@ fn read_caster_level_magic(caster_id: u64) -> Result<(i32, i32), mlua::Error> {
         }
         let ctx = unsafe { &*ptr };
         let level = ctx.get_player_level(caster_id).unwrap_or(0);
-        // Magic level — TODO: add `get_player_magic_level` to ScriptContext.
-        // For now, use 0 (the formula still produces minb/maxb as the base).
-        let magic = 0;
+        let magic = ctx.get_player_magic_level(caster_id).unwrap_or(0);
         Ok((level, magic))
     })
+}
+
+/// Invoke a value callback registered via `combat:setCallback` and return the
+/// `(min, max)` damage range. C++ `ValueCallback::getMinMaxValues` —
+/// `combat.cpp:1111-1170`.
+///
+/// Called when `combat.formula` is `None`. Looks up the callback function name
+/// in Lua globals and calls it with the appropriate arguments based on the
+/// callback param type:
+/// - `CALLBACK_PARAM_LEVELMAGICVALUE` (0) → `fn(player, level, magic) → (min, max)`
+/// - `CALLBACK_PARAM_SKILLVALUE` (1) → `fn(player, skill, attack, factor) → (min, max)`
+///
+/// The callback body typically calls `player:computeDamage(...)` /
+/// `player:computeHealing(...)` / `player:computeSkillDamage(...)` from
+/// `data/scripts/functions.lua`, which read `self:getMagicLevel()` and
+/// `self:getLevel()`.
+///
+/// Returns `(0, 0)` if no value callback is registered. Event callbacks
+/// (`TARGETTILE` / `TARGETCREATURE`) are handled separately (Phase 6) and
+/// do not produce damage values.
+fn invoke_value_callback(
+    lua: &Lua,
+    combat: &CombatDef,
+    caster_id: u64,
+) -> Result<(i32, i32), mlua::Error> {
+    // Try LEVELMAGIC first, then SKILL — a combat registers at most one.
+    let callback = combat
+        .callbacks
+        .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
+        .or_else(|| combat.callbacks.get(&CALLBACK_PARAM_SKILLVALUE));
+    let Some(callback) = callback else {
+        return Ok((0, 0));
+    };
+
+    let func: mlua::Function = lua
+        .globals()
+        .get::<mlua::Function>(callback.function_name.as_str())
+        .map_err(|_| {
+            mlua::Error::runtime(format!(
+                "combat:execute: callback function '{}' not found in Lua globals",
+                callback.function_name
+            ))
+        })?;
+
+    // Build the `player` CreatureRef userdata to pass as the first argument.
+    // The callback body calls `player:computeDamage(...)` etc., which are
+    // `Player:` methods bridged onto `CreatureRef` via the `__index` fallback.
+    let player_ud = lua.create_userdata(CreatureRef(caster_id))?;
+
+    let (min, max): (f64, f64) = if callback.param == CALLBACK_PARAM_LEVELMAGICVALUE {
+        // `fn(player, level, magic_level) → (min, max)`
+        // C++ `ValueCallback::getMinMaxValues` — `combat.cpp:1134-1147`.
+        let (level, magic) = read_caster_level_magic(caster_id)?;
+        func.call::<(f64, f64)>((player_ud, level, magic))
+    } else {
+        // `fn(player, skill, attack, factor) → (min, max)`
+        // C++ `ValueCallback::getMinMaxValues` — `combat.cpp:1155-1163`:
+        // `player->getWeaponSkill()`, `player->getWeapon()->getAttack()`,
+        // `player->getAttackFactor()`.
+        let params = CURRENT_CTX.with(|c| {
+            let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+            if ptr.is_null() {
+                return Err(mlua::Error::runtime("LuaContext not set"));
+            }
+            let ctx = unsafe { &*ptr };
+            Ok(ctx.get_player_weapon_combat_params(caster_id))
+        })?;
+        func.call::<(f64, f64)>((player_ud, params.skill, params.attack, params.attack_factor))
+    }?;
+
+    Ok((min as i32, max as i32))
 }
 
 #[cfg(test)]
@@ -645,5 +803,339 @@ mod tests {
         assert!(def.block_armor);
         assert!(def.aggressive);
         assert!(def.area.is_some());
+    }
+
+    /// PC-3a Phase 1: value callback invocation end-to-end.
+    ///
+    /// Sets up a `Combat` with `CALLBACK_PARAM_LEVELMAGICVALUE` pointing to a
+    /// Lua global that calls `player:computeDamage(...)` (from `functions.lua`),
+    /// then invokes `combat:execute()` and verifies the callback was called with
+    /// the correct `(level, magic_level)` args and produced non-zero damage.
+    ///
+    /// C++ reference: `ValueCallback::getMinMaxValues` — `combat.cpp:1111-1170`.
+    #[test]
+    fn value_callback_levelmagic_invokes_lua_global() {
+        use crate::context::with_lua_context;
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemRef, WeaponCombatParams,
+        };
+
+        const CID: ScriptCreatureId = 42;
+        const LEVEL: i32 = 20;
+        const MAGIC: i32 = 10;
+
+        struct Ctx;
+        impl ScriptContext for Ctx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == CID).then_some(ScriptCreatureData {
+                    name: "Test".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, _: ScriptCreatureId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(LEVEL)
+            }
+            fn get_player_magic_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(MAGIC)
+            }
+            fn get_player_position(
+                &self,
+                id: ScriptCreatureId,
+            ) -> Option<tfs_rust_common::Position> {
+                (id == CID).then_some(tfs_rust_common::Position {
+                    x: 100,
+                    y: 100,
+                    z: 7,
+                })
+            }
+            fn get_player_weapon_combat_params(&self, _: ScriptCreatureId) -> WeaponCombatParams {
+                WeaponCombatParams {
+                    skill: 30,
+                    attack: 50,
+                    attack_factor: 1.0,
+                }
+            }
+        }
+
+        let lua = Lua::new();
+        register_combat_metatable(&lua).expect("combat metatable");
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+        crate::combat_enums::register_combat_enums(&lua).expect("combat enums");
+        crate::constants::register_constants(&lua).expect("constants");
+        // Register the event script bootstrap so `Player` is a table and
+        // `function Player:method(...)` definitions in `functions.lua` work.
+        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+
+        // Load `functions.lua` so `Player:computeDamage` is available.
+        let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/scripts/functions.lua");
+        if !functions_path.exists() {
+            eprintln!(" Skipping — functions.lua not found");
+            return;
+        }
+        let src = std::fs::read_to_string(&functions_path).expect("read functions.lua");
+        lua.load(&src)
+            .set_name("functions.lua")
+            .exec()
+            .expect("functions.lua loads");
+
+        // Register the mutation applier so `call_combat_execute` doesn't panic.
+        // We use a no-op applier — the test only checks that the callback fires
+        // and produces non-zero damage, not that damage is applied to a target.
+        crate::lua_mutation::register_lua_mutation_applier(|_, _| Ok(()));
+
+        let ctx = Ctx;
+        with_lua_context(&ctx, || {
+            // Re-register applier that asserts non-zero damage from the callback.
+            crate::lua_mutation::register_lua_mutation_applier(|_, mutation| {
+                if let crate::lua_mutation::LuaMutation::CombatExecute { request } = mutation {
+                    assert!(
+                        request.damage_min != 0 || request.damage_max != 0,
+                        "value callback must produce non-zero damage: min={}, max={}",
+                        request.damage_min,
+                        request.damage_max
+                    );
+                }
+                Ok(())
+            });
+
+            let caster_ud = lua
+                .create_userdata(crate::context::CreatureRef(CID))
+                .expect("create caster userdata");
+            lua.globals().set("caster", caster_ud).expect("set caster");
+
+            let _: () = lua
+                .load(
+                    r#"
+                    combat = Combat()
+                    combat:setParameter(COMBAT_PARAM_TYPE, COMBAT_ENERGYDAMAGE)
+                    combat:setParameter(COMBAT_PARAM_AGGRESSIVE, true)
+
+                    function onGetFormulaValues(player, level, magicLevel)
+                        return player:computeDamage(45, 10)
+                    end
+
+                    combat:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")
+                "#,
+                )
+                .set_name("setup_combat")
+                .exec()
+                .expect("combat setup must succeed");
+
+            // Execute inside a mutation scope so `call_combat_execute` can dispatch.
+            // The dummy non-null pointer is fine — the test applier ignores it.
+            let dummy_world = 0x1usize as *mut ();
+            crate::lua_mutation::with_lua_mutation_scope(dummy_world, || {
+                let _: () = lua
+                    .load("combat:execute(caster, nil)")
+                    .set_name("execute")
+                    .exec()
+                    .expect("execute with LEVELMAGIC callback must succeed");
+            });
+        });
+    }
+
+    /// PC-3a Phase 1: SKILL value callback invocation.
+    ///
+    /// Verifies the SKILL callback path (`CALLBACK_PARAM_SKILLVALUE`) passes
+    /// `(skill, attack, factor)` from Rust to the Lua callback, mirroring
+    /// `berserk.lua`'s pattern.
+    #[test]
+    fn value_callback_skill_passes_weapon_params() {
+        use crate::context::with_lua_context;
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemRef, WeaponCombatParams,
+        };
+
+        const CID: ScriptCreatureId = 99;
+        struct Ctx;
+        impl ScriptContext for Ctx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == CID).then_some(ScriptCreatureData {
+                    name: "Knight".into(),
+                    guid: 2,
+                })
+            }
+            fn get_item(&self, _: ScriptCreatureId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(35)
+            }
+            fn get_player_magic_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(0)
+            }
+            fn get_player_position(
+                &self,
+                id: ScriptCreatureId,
+            ) -> Option<tfs_rust_common::Position> {
+                (id == CID).then_some(tfs_rust_common::Position {
+                    x: 200,
+                    y: 200,
+                    z: 7,
+                })
+            }
+            fn get_player_weapon_combat_params(&self, _: ScriptCreatureId) -> WeaponCombatParams {
+                WeaponCombatParams {
+                    skill: 60,
+                    attack: 40,
+                    attack_factor: 1.0,
+                }
+            }
+        }
+
+        let lua = Lua::new();
+        register_combat_metatable(&lua).expect("combat metatable");
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+        crate::combat_enums::register_combat_enums(&lua).expect("combat enums");
+        crate::constants::register_constants(&lua).expect("constants");
+        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+
+        let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/scripts/functions.lua");
+        if !functions_path.exists() {
+            eprintln!(" Skipping — functions.lua not found");
+            return;
+        }
+        let src = std::fs::read_to_string(&functions_path).expect("read functions.lua");
+        lua.load(&src)
+            .set_name("functions.lua")
+            .exec()
+            .expect("functions.lua loads");
+
+        crate::lua_mutation::register_lua_mutation_applier(|_, mutation| {
+            if let crate::lua_mutation::LuaMutation::CombatExecute { request } = mutation {
+                assert!(
+                    request.damage_min != 0 || request.damage_max != 0,
+                    "SKILL callback must produce non-zero damage: min={}, max={}",
+                    request.damage_min,
+                    request.damage_max
+                );
+            }
+            Ok(())
+        });
+
+        let ctx = Ctx;
+        with_lua_context(&ctx, || {
+            let caster_ud = lua
+                .create_userdata(crate::context::CreatureRef(CID))
+                .expect("create caster userdata");
+            lua.globals().set("caster", caster_ud).expect("set caster");
+
+            let _: () = lua
+                .load(
+                    r#"
+                    combat = Combat()
+                    combat:setParameter(COMBAT_PARAM_TYPE, COMBAT_PHYSICALDAMAGE)
+                    combat:setParameter(COMBAT_PARAM_AGGRESSIVE, true)
+
+                    function onGetSkillValues(player, skill, attack, factor)
+                        return player:computeSkillDamage(80, 20, skill, false, true)
+                    end
+
+                    combat:setCallback(CALLBACK_PARAM_SKILLVALUE, "onGetSkillValues")
+                "#,
+                )
+                .set_name("skill_callback_setup")
+                .exec()
+                .expect("SKILL combat setup must succeed");
+
+            // Execute inside a mutation scope so `call_combat_execute` can dispatch.
+            let dummy_world = 0x1usize as *mut ();
+            crate::lua_mutation::with_lua_mutation_scope(dummy_world, || {
+                let _: () = lua
+                    .load("combat:execute(caster, nil)")
+                    .set_name("skill_execute")
+                    .exec()
+                    .expect("SKILL callback execute must succeed");
+            });
+        });
+    }
+
+    /// PC-3a Phase 1: `Player:` method bridge via `__index` fallback.
+    ///
+    /// Verifies that `CreatureRef` userdata can call `Player:computeDamage`
+    /// defined in `functions.lua` — the `__index` metamethod falls back to
+    /// the `Player` global table when the method isn't a native Rust method.
+    #[test]
+    fn creature_ref_index_fallback_resolves_player_methods() {
+        use crate::context::with_lua_context;
+        use tfs_rust_common::{ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemRef};
+
+        const CID: ScriptCreatureId = 7;
+        struct Ctx;
+        impl ScriptContext for Ctx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == CID).then_some(ScriptCreatureData {
+                    name: "Test".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, _: ScriptCreatureId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(20)
+            }
+            fn get_player_magic_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(10)
+            }
+        }
+
+        let lua = Lua::new();
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+
+        let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/scripts/functions.lua");
+        if !functions_path.exists() {
+            eprintln!(" Skipping — functions.lua not found");
+            return;
+        }
+        let src = std::fs::read_to_string(&functions_path).expect("read functions.lua");
+        lua.load(&src)
+            .set_name("functions.lua")
+            .exec()
+            .expect("functions.lua loads");
+
+        let ctx = Ctx;
+        with_lua_context(&ctx, || {
+            let ud = lua
+                .create_userdata(crate::context::CreatureRef(CID))
+                .expect("create userdata");
+            lua.globals().set("player", ud).expect("set player");
+
+            // Call `player:computeDamage(45, 10)` — a `Player:` method from
+            // `functions.lua`, bridged via the `__index` fallback.
+            let (min, max): (f64, f64) = lua
+                .load("return player:computeDamage(45, 10)")
+                .eval()
+                .expect("computeDamage should resolve via __index fallback");
+
+            // computeDamage(45, 10) with level=20, magic=10:
+            // formula = 3*10 + 2*20 = 70
+            // min = 70 * (45-10) / 100 = 70 * 35 / 100 = 24.5 → -24.5
+            // max = 70 * (45+10) / 100 = 70 * 55 / 100 = 38.5 → -38.5
+            assert!(
+                min < 0.0 && max < 0.0,
+                "computeDamage returns negative (damage): min={min}, max={max}"
+            );
+            assert!(
+                min != 0.0 || max != 0.0,
+                "computeDamage must produce non-zero values"
+            );
+        });
     }
 }

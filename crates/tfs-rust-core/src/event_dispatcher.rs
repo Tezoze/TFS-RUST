@@ -136,7 +136,12 @@ pub trait EventDispatcher {
     /// Returns `true` if the callback was found and executed successfully,
     /// `false` if no callback is registered for `spell_words` or the callback
     /// returned `false`.
-    fn dispatch_on_cast_spell(&self, _spell_words: &str, _creature: CreatureId) -> bool {
+    fn dispatch_on_cast_spell(
+        &self,
+        _spell_words: &str,
+        _creature: CreatureId,
+        _need_direction: bool,
+    ) -> bool {
         false
     }
 

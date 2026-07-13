@@ -45,6 +45,39 @@ pub struct PendingSpell {
     /// Whether the spell accepts a player name parameter.
     /// C++ `InstantSpell::hasPlayerNameParam` — set via `spell:hasPlayerNameParam(true)`.
     pub has_player_name_param: bool,
+    /// Whether the spell needs a direction (beam/wave spells).
+    /// C++ `InstantSpell::needDirection` — `spells.h:160`. Set via `spell:needDirection(true)`.
+    pub need_direction: bool,
+    /// Rune-specific: allow casting at a distance from the target.
+    /// C++ `RuneSpell::allowFarUse` — `spells.h:290`. Set via `rune:allowFarUse(true)`.
+    pub allow_far_use: bool,
+    /// Rune-specific: blocked by walls between caster and target.
+    /// C++ `RuneSpell::blockWalls` — `spells.h:291`. Set via `rune:blockWalls(true)`.
+    pub block_walls: bool,
+    /// Rune-specific: check floor difference between caster and target.
+    /// C++ `RuneSpell::checkFloor` — `spells.h:292`. Set via `rune:checkFloor(true)`.
+    pub check_floor: bool,
+    /// Rune-specific: blocked by solid items on target tile.
+    /// C++ `RuneSpell::blockSolid` — `spells.h:293`. Set via `rune:blockSolid(true)`.
+    pub block_solid: bool,
+    /// Rune-specific: blocked by creatures on target tile.
+    /// C++ `RuneSpell::blockCreature` — `spells.h:294`. Set via `rune:blockCreature(true)`.
+    pub block_creature: bool,
+    /// Rune-specific: triggers PZ lock on aggressive use.
+    /// C++ `RuneSpell::isPzLock` — `spells.h:295`. Set via `rune:isPzLock(true)`.
+    pub is_pz_lock: bool,
+    /// Rune-specific: whether the rune's cooldown counts as a spell cooldown.
+    /// C++ `RuneSpell::cooldownSpellTime` — `spells.h:296`. Set via `rune:cooldownSpellTime(false)`.
+    pub cooldown_spell_time: bool,
+    /// Rune-specific: magic level required to use the rune.
+    /// C++ `RuneSpell::runeMagicLevel` — set via `rune:runeMagicLevel(n)`.
+    pub rune_magic_level: u32,
+    /// Spell: blocking solid / blocking creature flags for beam/wave/rune targeting.
+    /// C++ `InstantSpell::isBlockingWalls` / `RuneSpell::isBlocking` — `spells.h`.
+    /// Set via `spell:isBlockingWalls(bool)` / `rune:isBlocking(bool[, bool])`.
+    pub is_blocking_walls: bool,
+    pub is_blocking_solid: bool,
+    pub is_blocking_creature: bool,
     pub vocations: Vec<String>,
     /// Rune-specific fields.
     pub rune_id: u16,
@@ -130,10 +163,26 @@ impl UserData for SpellBuilder {
             Ok(true)
         });
 
-        // `spell:mana(mana)` — sets mana cost.
-        methods.add_method_mut("mana", |_, this, mana: u32| {
+        // `spell:mana([mana])` — getter/setter. C++ `luaSpellMana`
+        // (`luascript.cpp:14116-14131`): `lua_gettop(L) == 1` → getter.
+        // Used as getter by `functions.lua`'s `conjureItem` (reads
+        // `self:mana()` to compute mana cost).
+        methods.add_method_mut("mana", |_, this, args: mlua::MultiValue| {
+            let mut args = args.into_vec();
+            if args.is_empty() {
+                // Getter — return current mana.
+                return Ok(mlua::Value::Integer(this.spell.borrow().mana as i64));
+            }
+            // Setter — coerce first arg to u32.
+            let mana = match args.remove(0) {
+                mlua::Value::Integer(n) if n >= 0 => n as u32,
+                mlua::Value::Number(n) if n >= 0.0 => n as u32,
+                _ => {
+                    return Err(mlua::Error::runtime("spell:mana: expected non-negative number"));
+                }
+            };
             this.spell.borrow_mut().mana = mana;
-            Ok(true)
+            Ok(mlua::Value::Boolean(true))
         });
 
         // `spell:manaPercent(percent)` — sets mana cost as percentage of max mana.
@@ -216,6 +265,91 @@ impl UserData for SpellBuilder {
             Ok(true)
         });
 
+        // `spell:needDirection(bool)` — sets whether the spell needs a direction
+        // (beam/wave spells). C++ `InstantSpell::needDirection` — `spells.h:160`.
+        methods.add_method_mut("needDirection", |_, this, val: bool| {
+            this.spell.borrow_mut().need_direction = val;
+            Ok(true)
+        });
+
+        // `rune:allowFarUse(bool)` — allow casting at a distance.
+        // C++ `RuneSpell::allowFarUse` — `spells.h:290`.
+        methods.add_method_mut("allowFarUse", |_, this, val: bool| {
+            this.spell.borrow_mut().allow_far_use = val;
+            Ok(true)
+        });
+
+        // `rune:blockWalls(bool)` — blocked by walls between caster and target.
+        // C++ `RuneSpell::blockWalls` — `spells.h:291`.
+        methods.add_method_mut("blockWalls", |_, this, val: bool| {
+            this.spell.borrow_mut().block_walls = val;
+            Ok(true)
+        });
+
+        // `rune:checkFloor(bool)` — check floor difference.
+        // C++ `RuneSpell::checkFloor` — `spells.h:292`.
+        methods.add_method_mut("checkFloor", |_, this, val: bool| {
+            this.spell.borrow_mut().check_floor = val;
+            Ok(true)
+        });
+
+        // `rune:blockSolid(bool)` — blocked by solid items on target tile.
+        // C++ `RuneSpell::blockSolid` — `spells.h:293`.
+        methods.add_method_mut("blockSolid", |_, this, val: bool| {
+            this.spell.borrow_mut().block_solid = val;
+            Ok(true)
+        });
+
+        // `rune:blockCreature(bool)` — blocked by creatures on target tile.
+        // C++ `RuneSpell::blockCreature` — `spells.h:294`.
+        methods.add_method_mut("blockCreature", |_, this, val: bool| {
+            this.spell.borrow_mut().block_creature = val;
+            Ok(true)
+        });
+
+        // `rune:isPzLock(bool)` — triggers PZ lock on aggressive use.
+        // C++ `RuneSpell::isPzLock` — `spells.h:295`.
+        methods.add_method_mut("isPzLock", |_, this, val: bool| {
+            this.spell.borrow_mut().is_pz_lock = val;
+            Ok(true)
+        });
+
+        // `rune:cooldownSpellTime(bool)` — whether the rune's cooldown counts as
+        // a spell cooldown. C++ `RuneSpell::cooldownSpellTime` — `spells.h:296`.
+        methods.add_method_mut("cooldownSpellTime", |_, this, val: bool| {
+            this.spell.borrow_mut().cooldown_spell_time = val;
+            Ok(true)
+        });
+
+        // `rune:runeMagicLevel(level)` — sets the magic level required to use
+        // the rune. C++ `RuneSpell::setRuneMagicLevel` — `spells.h`.
+        methods.add_method_mut("runeMagicLevel", |_, this, level: u32| {
+            this.spell.borrow_mut().rune_magic_level = level;
+            Ok(true)
+        });
+
+        // `spell:isBlockingWalls(bool)` — sets whether beam/wave spells are
+        // blocked by walls. C++ `InstantSpell::isBlockingWalls` — `spells.h`.
+        methods.add_method_mut("isBlockingWalls", |_, this, val: bool| {
+            this.spell.borrow_mut().is_blocking_walls = val;
+            Ok(true)
+        });
+
+        // `rune:isBlocking(blockSolid[, blockCreature])` — sets blocking flags
+        // for rune targeting. C++ `RuneSpell::isBlocking` — `spells.h`.
+        // Called as `rune:isBlocking(true)` or `rune:isBlocking(true, true)`.
+        methods.add_method_mut("isBlocking", |_, this, args: mlua::MultiValue| {
+            let args = args.into_vec();
+            let mut b = this.spell.borrow_mut();
+            if let Some(Some(v)) = args.first().map(|v| v.as_boolean()) {
+                b.is_blocking_solid = v;
+            }
+            if let Some(Some(v)) = args.get(1).map(|v| v.as_boolean()) {
+                b.is_blocking_creature = v;
+            }
+            Ok(true)
+        });
+
         // `spell:vocation(name, ...)` — TFS variadic: `spell:vocation("Knight", "Elite Knight")`.
         // Adds each vocation name to the allowed list.
         methods.add_method_mut("vocation", |_, this, vocs: mlua::MultiValue| {
@@ -228,8 +362,16 @@ impl UserData for SpellBuilder {
             Ok(true)
         });
 
-        // `spell:id(id)` — for rune spells, sets the rune item id.
+        // `spell:id(id)` / `rune:runeId(id)` — for rune spells, sets the rune
+        // item id. C++ `luaSpellItemId` (`luascript.cpp`) — both names map to
+        // the same field. Data pack uses `rune:runeId(id)` in rune scripts.
         methods.add_method_mut("id", |_, this, id: u16| {
+            this.spell.borrow_mut().rune_id = id;
+            Ok(true)
+        });
+
+        // `rune:runeId(id)` — alias for `:id(id)` used by rune spell scripts.
+        methods.add_method_mut("runeId", |_, this, id: u16| {
             this.spell.borrow_mut().rune_id = id;
             Ok(true)
         });
