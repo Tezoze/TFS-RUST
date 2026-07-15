@@ -145,14 +145,9 @@ impl GameWorld {
         }
 
         if creature_id == monster_id {
-            let wq0 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
-            let wq1 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.monster_update_target_list(monster_id);
-            let wq2 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.monster_update_idle_status(monster_id);
-            let wq3 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
-            eprintln!("DEBUG on_creature_move(self): wq before={wq0} after_sleep_wake={wq1} after_target_list={wq2} after_idle_status={wq3}");
             return;
         }
 

@@ -481,10 +481,7 @@ impl GameWorld {
                 .get_tile(blocker_pos)
                 .map(|t| t.body().creatures.clone())
                 .unwrap_or_default();
-            let wq_before = self.creatures.get(blocker).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.move_creature_on_map(blocker, blocker_pos, try_pos);
-            let wq_after = self.creatures.get(blocker).map(|k| k.base().walk_queue.len()).unwrap_or(999);
-            eprintln!("DEBUG kick: walk_queue before={wq_before} after={wq_after}");
             // C++ `KickCreature` → `::Move` relocates the creature but does NOT clear its
             // ToDoList (`operate.cc:1403-1446`). The displacement is detected on the next
             // `Execute` when `Go(oldDestX, oldDestY, oldDestZ)` checks `Distance > 1`
