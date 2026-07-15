@@ -151,8 +151,9 @@ impl ItemDatabase {
             .is_some_and(|t| t.type_tag == ITEM_TYPE_DEPOT)
     }
 
-    /// 772 `objects.srv` `DISTUSE` flag — item can be used on objects up to 7 tiles
-    /// away (`cract.cc:761` `ObjectInRange(Obj2, 7)`). C++ ref: `enums.hh:215`.
+    /// 772 `DISTUSE` — ranged use up to 7 tiles (`cract.cc:761` `ObjectInRange(Obj2, 7)`).
+    ///
+    /// OTB has no DistUse bit. Must be set by offline content prep — **not** runtime `objects.srv`.
     #[inline]
     pub fn is_distuse(&self, server_id: u16) -> bool {
         self.items
@@ -1478,8 +1479,9 @@ mod tests {
     }
 
     /// OTB `ITEM_ATTR_SPEED` is the 772 `WAYPOINTS` bank attribute used by `TShortway::FillMap`.
+    /// Loaded from patched `items.otb` only — no `objects.srv` overlay.
     #[test]
-    fn ground_tile_speeds_match_objects_srv_waypoint_expectations() {
+    fn ground_tile_speeds_come_from_otb_without_objects_srv_overlay() {
         use std::path::Path;
 
         let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");

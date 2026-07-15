@@ -468,38 +468,42 @@ impl GameWorld {
             trace_creature_todo(self, cid, "process_creature_todo");
             let mut ran_idle = false;
             if self.creature_todo_queue_empty(cid) {
+                self.creature_todo_release_lock_if_drained(cid);
                 self.maybe_idle_stimulus_after_go_complete(cid);
                 ran_idle = true;
             }
             if !self.creature_todo_queue_empty(cid) {
                 if ran_idle {
-                    let (front_is_go, next_wakeup) = self
+                    let front_is_go = self
                         .creatures
                         .get(cid)
-                        .map(|k| {
-                            (
-                                matches!(k.base().todo.queue.front(), Some(CreatureAction::Go)),
-                                k.base().next_wakeup,
-                            )
-                        })
-                        .unwrap_or((false, None));
+                        .is_some_and(|k| {
+                            matches!(k.base().todo.queue.front(), Some(CreatureAction::Go))
+                        });
                     if front_is_go {
-                        if next_wakeup.is_none() {
+                        if self
+                            .creatures
+                            .get(cid)
+                            .and_then(|k| k.base().next_wakeup)
+                            .is_none()
+                        {
                             // C++ `IdleStimulus` queues `ToDoGo` then `TDAttack`; `ToDoStart` arms
                             // `NextWakeup` — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
                             let _ = self.todo_start_go_delay(cid, true);
                         }
-                        match self.creatures.get(cid).and_then(|k| k.base().next_wakeup) {
-                            Some(wakeup) if wakeup > self.server_ms => {
-                                self.cleanup();
-                                return;
-                            }
-                            None => {
-                                self.cleanup();
-                                return;
-                            }
-                            _ => {}
+                    }
+                    // C++ `Execute` breaks after `IdleStimulus` — fresh batch runs at `ToDoStart`
+                    // wakeup (`cract.cc:789-793`), not only when front is `Go`.
+                    match self.creatures.get(cid).and_then(|k| k.base().next_wakeup) {
+                        Some(wakeup) if wakeup > self.server_ms => {
+                            self.cleanup();
+                            return;
                         }
+                        None => {
+                            self.cleanup();
+                            return;
+                        }
+                        _ => {}
                     }
                 }
                 self.run_monster_todo_execute(cid);
@@ -847,10 +851,9 @@ impl GameWorld {
             }
         }
 
-        // C++ `LockToDo` is true from `ToDoStart` until `ToDoClear` — i.e. any pending or
-        // active ToDo. In Rust, `todo.locked` is only true during `execute_creature_todo_action`
-        // (narrow window). The equivalent "walk in progress" check is: a wakeup is armed, a
-        // `Go` is queued, or steps remain in `walk_queue` (`cract.cc:1003`).
+        // C++ `LockToDo` is true from `ToDoStart` until `ToDoClear` (`cract.cc:1010-1012`).
+        // Rust mirrors that with `todo.locked` for the whole batch (plus wakeup / Go /
+        // walk_queue as belt-and-suspenders).
         let walk_in_progress = self.creatures.get(cid).is_some_and(|k| {
             let b = k.base();
             b.todo.locked || b.next_wakeup.is_some() || b.todo.has_go() || !b.walk_queue.is_empty()
@@ -1083,9 +1086,14 @@ impl GameWorld {
                     self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                 } else if let Some(pkt) = &move_packet {
+                    // TVP always sends 0x6D when both tiles are visible (`protocolgame.cpp:1837`).
+                    // Appearing on the new tile *without* removing the old one (previous
+                    // `!fully_sent` branch) left a ghost sprite / made name+HP bars blink.
+                    // If the client never got a full AddCreature, remove+appear instead.
                     if self.is_creature_fully_sent_to_conn(conn, wire_id) {
                         self.enqueue_outgoing(conn, pkt.clone());
                     } else {
+                        self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
                         self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                     }
                 }
@@ -2025,7 +2033,7 @@ impl GameWorld {
     /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).
     ///
     /// 772 player viewport is `VisibleX/Y = 7` (`cract.cc:1093-1094`), not the monster `10`.
-    /// Path is trimmed via `truncate_cipsoft_chase_queue` — matching C++ `TShortway::Calculate`
+    /// Path is trimmed via `truncate_tshortway_go_queue` — matching C++ `TShortway::Calculate`
     /// (`cract.cc:282-301`): `while(Node != NULL && MaxSteps > 0 && (MustReach || CurDistance > 1))`.
     /// `path_matching_tshortway` returns the full predecessor chain; the trim here is the
     /// equivalent of the C++ reconstruction loop's `MaxSteps` + `CurDistance` checks.
@@ -2036,7 +2044,7 @@ impl GameWorld {
     /// - Range chase: `Distance - 4` (`crcombat.cc:503`)
     ///
     /// `max_target_dist = 0` → `MustReach = true` (walk to exact target).
-    /// `max_target_dist > 0` → `MustReach = false`, stop within `max_target_dist` tiles.
+    /// `max_target_dist > 0` → `MustReach = false`, stop at Chebyshev ≤ 1 (C++ `CurDistance > 1`).
     pub(crate) fn get_creature_path_to(
         &self,
         cid: CreatureId,
@@ -2046,7 +2054,7 @@ impl GameWorld {
         max_steps: usize,
     ) -> Option<Vec<Direction>> {
         use crate::pathfinding::{
-            get_path_matching, truncate_cipsoft_chase_queue, FindPathParams,
+            get_path_matching, truncate_tshortway_go_queue, FindPathParams,
             CREATURE_ON_TILE_PATH_COST, PLAYER_PATH_VIEW_RADIUS,
         };
 
@@ -2102,14 +2110,7 @@ impl GameWorld {
         )?;
 
         let must_reach = max_target_dist == 0;
-        let trimmed = truncate_cipsoft_chase_queue(
-            start,
-            target,
-            path,
-            max_steps,
-            must_reach,
-            max_target_dist,
-        );
+        let trimmed = truncate_tshortway_go_queue(start, target, path, max_steps, must_reach);
         Some(trimmed)
     }
 }
@@ -2509,6 +2510,67 @@ mod monster_walk_tests {
         );
     }
 
+    /// Both-visible spectator move without a prior full AddCreature must not orphan-appear
+    /// (name/HP bar flicker). Remove old tile then appear, or prefer 0x6D once fully sent.
+    #[test]
+    fn spectator_move_without_fully_sent_removes_before_appear() {
+        let mut world = support::minimal_world();
+        let spectator_pos = Position::new(100, 100, 7);
+        let monster_start = Position::new(100, 101, 7);
+        let monster_end = Position::new(101, 101, 7);
+
+        support::ensure_walkable_tile(&mut world.map, spectator_pos, 2148);
+        support::ensure_walkable_tile(&mut world.map, monster_start, 2148);
+        support::ensure_walkable_tile(&mut world.map, monster_end, 2148);
+
+        let conn = ConnId(43);
+        support::insert_spectator_player(
+            &mut world,
+            conn,
+            support::test_player("Spectator2", spectator_pos),
+        );
+        let monster = support::insert_monster(&mut world, "Rat", monster_start, 200);
+        // Deliberately do NOT mark fully_sent — regression for appear-without-remove.
+
+        world.creature_queue_walk_step(monster, Direction::East);
+        for _ in 0..32 {
+            if world.creatures.get(monster).map(|k| k.position()) == Some(monster_end) {
+                break;
+            }
+            world.server_ms = world.server_ms.saturating_add(200);
+            world.drain_todo_queue();
+        }
+
+        let packets = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
+        let opcodes: Vec<u8> = packets
+            .iter()
+            .filter_map(|p| p.first().copied())
+            .collect();
+        // 0x6C = remove tile thing, 0x6A = add tile creature (772 appear).
+        let remove_idx = opcodes.iter().position(|&o| o == 0x6C || o == 0x6D);
+        let appear_idx = opcodes.iter().position(|&o| o == 0x6A);
+        assert!(
+            remove_idx.is_some() || opcodes.iter().any(|&o| o == 0x6D),
+            "expected remove (0x6C) + appear (0x6A) or a 0x6D move, got {opcodes:?}"
+        );
+        if let (Some(r), Some(a)) = (remove_idx, appear_idx) {
+            assert!(
+                r < a || opcodes.iter().any(|&o| o == 0x6D),
+                "remove must precede appear when both-visible !fully_sent, got {opcodes:?}"
+            );
+        }
+        // After the fallback path, creature must be fully sent so the next step uses 0x6D.
+        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+        assert!(
+            world.is_creature_fully_sent_to_conn(conn, wire_id),
+            "appear path must mark fully_sent"
+        );
+    }
+
     /// 772 beat loop: walk arms ToDoQueue + `next_wakeup`, not Tokio timers.
     #[test]
     fn beat_driven_walk_schedules_todo_queue_not_tokio() {
@@ -2600,10 +2662,14 @@ mod monster_walk_tests {
             base.todo
                 .queue
                 .iter()
-                .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == 0)),
-            "creature_todo_yield must enqueue ToDoWait(0) (cract.cc:1001)"
+                .any(|a| matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == 100)),
+            "creature_todo_yield must enqueue ToDoWait(0) at absolute deadline=server_ms (cract.cc:1001)"
         );
-        assert!(!base.todo.locked, "Err arm must unlock the ToDo queue");
+        // ToDoClear unlocks, then ToDoWait+ToDoStart re-locks the yield batch (`cract.cc:1012`).
+        assert!(
+            base.todo.locked,
+            "ToDoStart after yield must set LockToDo for the Wait batch"
+        );
         // IdleStimulus re-armed for the next beat.
         assert_eq!(
             base.next_wakeup,
@@ -2658,12 +2724,13 @@ mod monster_walk_tests {
             base.todo
                 .queue
                 .iter()
-                .any(|a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == 0)),
-            "player Err arm must yield ToDoWait(0) (cract.cc:1001)"
+                .any(|a| matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == 100)),
+            "player Err arm must yield ToDoWait(0) at absolute deadline=server_ms (cract.cc:1001)"
         );
+        // ToDoClear unlocks, then ToDoWait+ToDoStart re-locks the yield batch (`cract.cc:1012`).
         assert!(
-            !base.todo.locked,
-            "player Err arm must unlock the ToDo queue"
+            base.todo.locked,
+            "ToDoStart after yield must set LockToDo for the Wait batch"
         );
         // Player stops: no walk direction remains, no walk_action re-arm.
         assert!(

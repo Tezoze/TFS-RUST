@@ -1,11 +1,12 @@
-//! 772 `objects.srv` parser — BANK `Waypoints` for OTB `ITEM_ATTR_SPEED` parity.
+//! 772 `objects.srv` parser — **offline tooling only** (OTB patch / audits).
 //!
 //! C++ reference: `tibia-game-master/src/cract.cc` `TShortway::FillMap`, `NotifyGo` (`WAYPOINTS`).
 //! TFS stores the same per-tile terrain weight in OTB as `ITEM_ATTR_SPEED` (`src/items.cpp`).
 //!
 //! **`data/items/items.otb` is patched offline** (`patch-otb-waypoints`) so `ITEM_ATTR_SPEED`
-//! mirrors walkable `objects.srv` `Waypoints`. Runtime overlay via [`overlay_otb_speeds_from_objects_srv`]
-//! is optional when reference `objects.srv` is available.
+//! mirrors walkable `objects.srv` `Waypoints`. The **server never loads `objects.srv`** —
+//! runtime item data comes from OTB (+ `items.xml`) only. Keep this module for the patcher
+//! binary and content audits; do not call overlays from `pipeline` / game startup.
 
 use crate::otb::ItemType;
 use std::collections::HashMap;
@@ -135,6 +136,40 @@ pub fn parse_all_bank_waypoints(path: &Path) -> Result<Vec<ObjectsSrvGroundWaypo
     Ok(out)
 }
 
+/// Parse **every** `objects.srv` type block into `TypeID → {flags, waypoints}`.
+///
+/// The OTB join key is a row's **`client_id`** (== the shared 772 `TypeID`), *not* `server_id`.
+/// The `.sec`→OTBM conversion remaps `TypeID → server_id` via `client_id` (verified: ~940/1024
+/// tiles per sector are `client_to_server[sec_id]`), so terrain Waypoints/flags for an OTB row
+/// come from `objects.srv[client_id]`. Waypoints defaults to `-1` when absent (772 `getAttribute`
+/// returns 0 → invalid; `<= 0` is treated as blocked, matching `cract.cc:95-98`).
+pub fn parse_all_types(path: &Path) -> Result<HashMap<u16, ObjectsSrvTypeFlags>> {
+    let text = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
+        file: path.to_string_lossy().into_owned(),
+        message: e.to_string(),
+    })?;
+    let mut out = HashMap::new();
+    for block in text.split("\nTypeID") {
+        let block = if block.starts_with("TypeID") {
+            block.to_string()
+        } else {
+            format!("TypeID{block}")
+        };
+        let Some(type_id) = parse_type_id(&block) else {
+            continue;
+        };
+        out.insert(
+            type_id,
+            ObjectsSrvTypeFlags {
+                type_id,
+                flags: parse_flags(&block),
+                waypoints: parse_waypoints(&block).unwrap_or(-1),
+            },
+        );
+    }
+    Ok(out)
+}
+
 /// Apply 772 `Waypoints` onto OTB `ItemType::speed` (`ITEM_ATTR_SPEED`) for ground tiles.
 ///
 /// Maps 772 `TypeID` → OTB `server_id` (direct id or `client_id` match). Skips unknown ids.
@@ -168,15 +203,20 @@ pub fn resolve_server_id_for_patch(type_id: u16, items: &HashMap<u16, ItemType>)
 }
 
 fn resolve_server_id(type_id: u16, items: &HashMap<u16, ItemType>) -> Option<u16> {
-    // 772 `objects.srv` `TypeID` is the OTB `server_id` for game item types (e.g. grass 102, 397).
-    if items.contains_key(&type_id) {
-        return Some(type_id);
-    }
-    // Fallback: sprite / client id when TypeID is not a server row.
-    items
+    // 772 `objects.srv` `TypeID` == OTB **`client_id`** (the shared 772 sprite/type id). The
+    // `.sec`→OTBM conversion stores `server_id = client_to_server[TypeID]`, so resolve by
+    // `client_id` first (smallest server_id wins for duplicate client ids, mirroring the C++
+    // `clientIdToServerIdMap` "first wins"). Only fall back to a direct `server_id` match for
+    // aligned rows (`server_id == client_id`) that have no distinct client entry.
+    if let Some(server_id) = items
         .values()
-        .find(|it| it.client_id == type_id)
+        .filter(|it| it.client_id == type_id)
         .map(|it| it.server_id)
+        .min()
+    {
+        return Some(server_id);
+    }
+    items.contains_key(&type_id).then_some(type_id)
 }
 
 fn parse_type_id(block: &str) -> Option<u16> {
@@ -193,10 +233,11 @@ fn parse_type_id(block: &str) -> Option<u16> {
 }
 
 /// Parsed `objects.srv` `Flags = {…}` for one type block.
-struct ObjectsSrvFlags {
-    bank: bool,
-    unpass: bool,
-    distuse: bool,
+#[derive(Debug, Clone, Copy)]
+pub struct ObjectsSrvFlags {
+    pub bank: bool,
+    pub unpass: bool,
+    pub distuse: bool,
 }
 
 fn parse_flags(block: &str) -> ObjectsSrvFlags {
@@ -212,6 +253,54 @@ fn parse_flags(block: &str) -> ObjectsSrvFlags {
         unpass: flags.contains(&"Unpass"),
         distuse: flags.contains(&"DistUse"),
     }
+}
+
+/// One `objects.srv` type with parsed flags (+ optional Waypoints).
+#[derive(Debug, Clone)]
+pub struct ObjectsSrvTypeFlags {
+    pub type_id: u16,
+    pub flags: ObjectsSrvFlags,
+    pub waypoints: i32,
+}
+
+/// Parse every `objects.srv` type that has `Unpass`, with Bank/Waypoints context.
+pub fn parse_unpass_types(path: &Path) -> Result<Vec<ObjectsSrvTypeFlags>> {
+    let text = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
+        file: path.to_string_lossy().into_owned(),
+        message: e.to_string(),
+    })?;
+    let mut out = Vec::new();
+    for block in text.split("\nTypeID") {
+        let block = if block.starts_with("TypeID") {
+            block.to_string()
+        } else {
+            format!("TypeID{block}")
+        };
+        let Some(type_id) = parse_type_id(&block) else {
+            continue;
+        };
+        let flags = parse_flags(&block);
+        if !flags.unpass {
+            continue;
+        }
+        out.push(ObjectsSrvTypeFlags {
+            type_id,
+            flags,
+            waypoints: parse_waypoints(&block).unwrap_or(0),
+        });
+    }
+    Ok(out)
+}
+
+/// Parse every `objects.srv` `TypeID` that has the `Unpass` flag.
+///
+/// Used offline to set OTB `FLAG_BLOCK_SOLID` (`docs/772_OTB_OBJECTS_SRV_FLAG_MAPPING.md`).
+// C++ reference: `enums.hh` `UNPASS`; `cract.cc` `TShortway::FillMap` (`BANK && !UNPASS`).
+pub fn parse_unpass_type_ids(path: &Path) -> Result<Vec<u16>> {
+    Ok(parse_unpass_types(path)?
+        .into_iter()
+        .map(|t| t.type_id)
+        .collect())
 }
 
 /// Parse `Waypoints=N` from one `objects.srv` type block (`Attributes = {Waypoints=150}`).
@@ -327,19 +416,35 @@ mod tests {
     }
 
     #[test]
-    fn resolve_typeid_prefers_server_id_over_client_id_collision() {
+    fn resolve_typeid_maps_via_client_id() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let otb = root.join("data/items/items.otb");
         if !otb.is_file() {
             return;
         }
         let items = crate::otb::OtbLoader::load_from_file(&otb).expect("otb");
-        // TypeID 397 is server 397 in objects.srv; client_id 397 may also exist on another row.
-        let sid = resolve_server_id_for_patch(397, &items).expect("397");
-        assert_eq!(
-            sid, 397,
-            "objects.srv TypeID must map to OTB server_id first"
-        );
+        // 772 `TypeID` == OTB `client_id`. The `.sec`→OTBM conversion remaps `TypeID → server_id`
+        // via `client_id`, so a TypeID must resolve to the OTB row whose `client_id` matches it.
+        for type_id in [102u16, 397, 4398] {
+            let sid = resolve_server_id_for_patch(type_id, &items).expect("resolvable");
+            let row = items.get(&sid).expect("row exists");
+            let expected = items
+                .values()
+                .filter(|it| it.client_id == type_id)
+                .map(|it| it.server_id)
+                .min()
+                .unwrap_or(type_id);
+            assert_eq!(sid, expected, "TypeID {type_id} must resolve via client_id");
+            assert!(
+                row.client_id == type_id || (row.server_id == type_id && expected == type_id),
+                "resolved row for TypeID {type_id} has client_id {} / server_id {}",
+                row.client_id,
+                row.server_id
+            );
+        }
+        // Concrete: rock soil TypeID 4398 → OTB row with client_id 4398 (server 4409), not server 4398.
+        let sid = resolve_server_id_for_patch(4398, &items).expect("4398");
+        assert_eq!(items.get(&sid).map(|it| it.client_id), Some(4398));
     }
 
     #[test]
@@ -371,13 +476,16 @@ mod tests {
             return;
         }
         let mut items = crate::otb::OtbLoader::load_from_file(&otb).expect("otb");
-        let before = items.get(&434).map(|i| i.speed);
+        // TypeID 434 (stairs, Waypoints=100) resolves via client_id to its OTB server row.
+        let Some(sid) = resolve_server_id_for_patch(434, &items) else {
+            return;
+        };
+        let before = items.get(&sid).map(|i| i.speed);
         overlay_otb_speeds_from_objects_srv(&mut items, &objects).expect("overlay");
-        // TypeID 434 stairs — Waypoints=100 (`objects.srv`).
         assert_eq!(
-            items.get(&434).map(|i| i.speed),
+            items.get(&sid).map(|i| i.speed),
             Some(100),
-            "before was {before:?}"
+            "stairs TypeID 434 -> server {sid} speed; before was {before:?}"
         );
     }
 }

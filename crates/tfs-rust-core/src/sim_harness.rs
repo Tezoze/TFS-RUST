@@ -639,17 +639,8 @@ fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
     if !xml.is_file() {
         return Err(format!("items.xml not found: {}", xml.display()));
     }
-    let mut db = ItemDatabase::load(&otb, &xml).map_err(|e| e.to_string())?;
-    if let Some(objects_srv) = tfs_rust_content::objects_srv::resolve_objects_srv_path() {
-        let _ = tfs_rust_content::objects_srv::overlay_otb_speeds_from_objects_srv(
-            &mut db.items,
-            &objects_srv,
-        );
-        let _ = tfs_rust_content::objects_srv::overlay_distuse_from_objects_srv(
-            &mut db.items,
-            &objects_srv,
-        );
-    }
+    let db = ItemDatabase::load(&otb, &xml).map_err(|e| e.to_string())?;
+    // OTB-only — do not overlay `objects.srv` (server / sim parity with production load).
     Ok(db)
 }
 

@@ -27,11 +27,18 @@ cargo run -p tfs-rust-content --bin patch-otb-waypoints   # writes items.otb; cr
 cargo test -p tfs-rust-content audit_objects_srv_waypoints -- --nocapture
 ```
 
-At **runtime**, Rust reads `ItemType::speed` from OTB only — no `objects.srv` parse on the hot path. Optional dev overlay: [`overlay_otb_speeds_from_objects_srv`](../crates/tfs-rust-content/src/objects_srv.rs) when reference dat is present and OTB has not been re-patched.
+At **runtime**, Rust reads `ItemType::speed` from OTB only — **the server never loads
+`objects.srv`**. Apply Waypoints offline:
 
-**`TypeID` → OTB resolve:** `objects.srv` `TypeID` is the OTB **`server_id`** for game items (try direct lookup first, then `client_id` fallback in [`resolve_server_id`](../crates/tfs-rust-content/src/objects_srv.rs)). A prior audit bug matched `client_id` only, producing false “14 mismatches” (e.g. TypeID 397 → server 394).
+```bash
+cargo run -p tfs-rust-content --bin patch-otb-waypoints   # writes items.otb; creates items.otb.bak once
+cargo test -p tfs-rust-content audit_objects_srv_waypoints -- --nocapture
+```
 
-After `patch-otb-waypoints` with the fixed resolver, audit should report **843 / 843** walkable BANK exact matches.
+(`overlay_otb_speeds_from_objects_srv` remains for the patcher / audits only — not game startup.)
+
+**`TypeID` → OTB resolve (offline patch):** `objects.srv` `TypeID` == OTB **`client_id`** (the shared 772 sprite/type id). The `.sec`→OTBM conversion remaps `TypeID → server_id` via `client_id`, so patch/audit tooling **iterates OTB rows and joins each row's `client_id`** to `objects.srv` ([`build_*` in `otb_patch.rs`](../crates/tfs-rust-content/src/otb_patch.rs) via `srv_identity`; [`resolve_server_id`](../crates/tfs-rust-content/src/objects_srv.rs) resolves `client_id`-first). **Never join on `server_id`** — TVP renumbered `server_id != client_id` for ~90% of grounds, so a `server_id` join stamps the wrong item's Waypoints (e.g. walkable rock soil → "a mountain" `wp0`, monster-impassable). After `patch-otb-waypoints`, the audit reports **0 walkable / 0 blocked mismatches** across all OTB ground rows.
+
 
 ---
 
@@ -241,11 +248,12 @@ Flag correlation: `cargo test -p tfs-rust-content audit_objects_srv_flag_correla
 
 | Flag mapping | Match |
 |--------------|-------|
-| `Bank` → `isGroundTile()` | 1179 / 27 mismatch |
-| `Unpass` → `blockSolid` | 1947 / 35 mismatch |
-| `Unmove` → `!moveable` | 3572 / 68 mismatch |
+| `Bank` → `isGroundTile()` | group mismatches remain (Clip/etc. as OTB ground) |
+| `Unpass` → `blockSolid` | **1985 / 0** after `patch-otb-waypoints --flags-only` (was ~942 / 1043) |
+| `Unmove` → `!moveable` | still ~835 mismatches — not patched yet |
 
-Re-patch after `objects.srv` changes: `scripts/patch_otb_waypoints.sh` or `patch-otb-waypoints` binary.
+Re-patch after `objects.srv` changes: `scripts/patch_otb_waypoints.sh` or `patch-otb-waypoints`
+(default: BANK speeds + Unpass→`FLAG_BLOCK_SOLID`; `--flags-only` / `--walkable-only` as needed).
 
 ---
 
@@ -258,7 +266,7 @@ Prefer OTB/XML-derived checks, not runtime `objects.srv` parsing, in hot paths:
 | `BANK` | `is_ground_tile()` (document stack-top rule separately) |
 | `UNPASS` | `block_solid()` |
 | `UNMOVE` | `!moveable()` |
-| `WAYPOINTS` | `speed` (`ITEM_ATTR_SPEED` in patched OTB; FillMap treats `0` as invalid per C++) |
+| `WAYPOINTS` | `speed` (`ITEM_ATTR_SPEED` in patched OTB; Unpass → FillMap `-1`; passable `0` → default 150 like NotifyGo) |
 | `AVOID` | `is_magic_field()` + combat/condition data |
 | `MAGICFIELD` | `is_magic_field()` |
 

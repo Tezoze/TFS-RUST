@@ -62,10 +62,8 @@ pub(crate) fn chebyshev(a: Position, b: Position) -> i32 {
 }
 
 /// 772 idle `ToDoGo` batch size — `crnonpl.cc:2732–2733` (melee `must:false, max:3`),
-/// `crnonpl.cc:2769` (dist chase), `cract.cc:260–261` (trim stops at cheb≤1).
-///
-/// Melee chase uses `max:3, must:false`; dist chase uses `cheb - target_distance`
-/// (per-type band from `monsters.xml`, not a hardcoded keep distance).
+/// `crnonpl.cc` dist chase `ToDoGo(..., MaxSteps = Distance − keep)`; trim is `cheb≤1`
+/// only (`cract.cc:282-301`). Melee chase uses `max:3, must:false`.
 pub(crate) fn monster_idle_chase_step_budget(
     _is_melee_chase: bool,
     is_dist_chase: bool,
@@ -73,8 +71,9 @@ pub(crate) fn monster_idle_chase_step_budget(
     target_distance: i32,
 ) -> (usize, bool) {
     if is_dist_chase {
-        let steps = (cheb_to_target - target_distance).max(1);
-        (steps as usize, false)
+        // C++ `Distance - 4` can be 0 at exact band (`crnonpl.cc`); do not `.max(1)`.
+        let steps = (cheb_to_target - target_distance).max(0) as usize;
+        (steps, false)
     } else {
         (CHASE_PATH_MAX_STEPS, false)
     }
@@ -119,9 +118,14 @@ pub(crate) fn manhattan(a: Position, b: Position) -> i32 {
     distance_x(a, b) + distance_y(a, b)
 }
 
-/// 772 master follow wait band — `crnonpl.cc:2691` (Manhattan 2–3 → `ToDoWait` only).
-pub(crate) fn monster_master_follow_in_wait_band(manhattan_dist: i32) -> bool {
-    (2..=3).contains(&manhattan_dist)
+/// 772 master follow wait-only band — `crnonpl.cc:2766` (Manhattan 2 → `ToDoWait` only).
+pub(crate) fn monster_master_follow_wait_only_band(manhattan_dist: i32) -> bool {
+    manhattan_dist == 2
+}
+
+/// 772 master follow includes `ToDoWait` before `ToDoGo` — `crnonpl.cc:2769`.
+pub(crate) fn monster_master_follow_wait_before_go(manhattan_dist: i32) -> bool {
+    manhattan_dist == 3
 }
 
 /// TFS `Monster::isFleeing` gate — `monster.h` ~154.
@@ -1241,7 +1245,9 @@ impl GameWorld {
         true
     }
 
-    /// 772 idle master follow — `crnonpl.cc:2686` (`ToDoGo` max 3; Manhattan 2–3 hold).
+    /// 772 idle master follow — `crnonpl.cc:2760-2773` (`ToDoGo` max 3 when Manhattan ≥ 3).
+    ///
+    /// Caller must gate Manhattan ≤ 2 / empty `walk_queue` before invoking.
     pub(crate) fn monster_idle_master_follow(
         &mut self,
         cid: CreatureId,
@@ -1261,27 +1267,10 @@ impl GameWorld {
             None => return MonsterIdleChaseRepathOutcome::AtGoal,
         };
         let dist = manhattan(pos, target_pos);
-        if dist <= 1 {
-            return MonsterIdleChaseRepathOutcome::AtGoal;
-        }
-        if monster_master_follow_in_wait_band(dist) {
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                    chase_debug::log_branch(
-                        self.chase_trace_tick(),
-                        cid,
-                        m.base.name.as_str(),
-                        "master_follow_wait",
-                        pos,
-                        target_pos,
-                        false,
-                        0,
-                        repath_reason,
-                    );
-                }
-            }
-            return MonsterIdleChaseRepathOutcome::AtGoal;
-        }
+        debug_assert!(
+            dist >= 3,
+            "monster_idle_master_follow is for Manhattan ≥ 3 only (got {dist})"
+        );
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 chase_debug::log_branch(
@@ -1306,7 +1295,7 @@ impl GameWorld {
         &mut self,
         cid: CreatureId,
         target_pos: Position,
-        fleeing: bool,
+        _fleeing: bool,
         target_distance: i32,
         fpp: &FindPathParams,
         max_steps: usize,
@@ -1327,24 +1316,19 @@ impl GameWorld {
                 if dist > 1.max(target_distance) {
                     continue;
                 }
-            } else {
-                // 772 `ToDoGo` trim — `cract.cc:241-258`; melee adjacent uses `must:1` max 1.
-                // `get_creature_path_to_with_fpp` returns C++ predecessor-chain order (first hop first).
-                let stop_at_cheb = if fleeing || target_distance <= 1 {
-                    1
-                } else {
-                    target_distance
-                };
-                steps = crate::pathfinding::truncate_cipsoft_chase_queue(
-                    pos,
-                    target_pos,
-                    steps,
-                    max_steps,
-                    must_reach,
-                    stop_at_cheb,
-                );
-                // `truncate_cipsoft_chase_queue` returns execution order (first step first).
+                // Already in goal band — C++ `ToDoGo` early-return / Calculate with 0 Gos.
+                return true;
             }
+            // 772 `TShortway::Calculate` trim — `cract.cc:282-301` (`CurDistance > 1` + MaxSteps).
+            // Dist keep-band is MaxSteps only (`cheb − target_distance`), not a trim stop.
+            // Predecessor-chain order (first hop first).
+            steps = crate::pathfinding::truncate_tshortway_go_queue(
+                pos,
+                target_pos,
+                steps,
+                max_steps,
+                must_reach,
+            );
             if chase_debug::chase_path_debug_enabled() {
                 if let Some(k) = self.creatures.get(cid) {
                     let name = k.base().name.clone();
@@ -1377,8 +1361,9 @@ impl GameWorld {
                     );
                 }
             }
+            // Path reachable but MaxSteps/adjacent trim yielded no Go — C++ still returns true.
             if steps.is_empty() {
-                continue;
+                return true;
             }
             if let Some(k) = self.creatures.get_mut(cid) {
                 let base = k.base_mut();
@@ -1747,6 +1732,9 @@ impl GameWorld {
     }
 
     /// 772 `TShortway::FillMap` stack-head BANK `WAYPOINTS` (`cract.cc:89-99`) — OTB only, no `MovePossible`.
+    ///
+    /// Raw OTB speed `0` → `-1` (C++ invalid Waypoints / mountain Bank Unpass). Passable Clip borders
+    /// used as sole OTBM ground should be patched to 150 offline (`build_passable_zero_speed_defaults`).
     pub(crate) fn fillmap_terrain_waypoints_at(&self, pos: Position) -> i32 {
         let Some(tile) = self.map.get_tile(pos) else {
             return -1;

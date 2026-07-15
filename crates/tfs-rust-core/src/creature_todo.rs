@@ -110,8 +110,10 @@ pub struct ActionObjectRef {
 pub enum CreatureAction {
     /// `TDGo` — execute one walk step from `listWalkDir`.
     Go,
-    /// `TDWait` — logical delay before the next action (`cract.cc:1008`).
-    Wait { delay_ms: u64 },
+    /// `TDWait` — absolute `Wait.Time` deadline (`cract.cc:1033` `ToDoWait`:
+    /// `ServerMilliseconds + Delay`). Execute uses `max(deadline, EarliestWalkTime)`
+    /// (`CalculateDelay` `cract.cc:905-915`).
+    Wait { deadline_ms: u64 },
     /// `TDAttack` — melee/ranged strike (`cract.cc:1325`); execute stub until Phase E2.
     Attack,
     /// `TDTalk` — speak text on the next ToDo execute (`cract.cc:848`, `:1367-1390`).
@@ -148,7 +150,8 @@ pub enum CreatureAction {
 #[derive(Debug, Clone, Default)]
 pub struct CreatureTodo {
     pub queue: VecDeque<CreatureAction>,
-    /// C++ `LockToDo` while an action is executing.
+    /// C++ `LockToDo` — true from `ToDoStart` until `ToDoClear` / batch drain
+    /// (`cract.cc:1010-1012`). Blocks `IdleStimulus` / `ToDoYield` while a batch is in flight.
     pub locked: bool,
     /// C++ `Stop` flag — set by `ToDoStop` when `LockToDo` is true (`cract.cc:1002-1008`).
     /// The in-flight step lands on the next beat, then `Execute` checks `Stop` and does
@@ -240,21 +243,24 @@ impl GameWorld {
         true
     }
 
-    /// Push `Wait` onto the action queue.
+    /// Push `Wait` onto the action queue with an absolute deadline
+    /// (`cract.cc:1033` `ToDoWait` → `TD.Wait.Time = ServerMilliseconds + Delay`).
     pub(crate) fn enqueue_creature_wait(&mut self, cid: CreatureId, delay_ms: u64) -> bool {
+        let deadline_ms = self.server_ms.saturating_add(delay_ms);
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
         k.base_mut()
             .todo
             .queue
-            .push_back(CreatureAction::Wait { delay_ms });
+            .push_back(CreatureAction::Wait { deadline_ms });
         let name = k.base().name.clone();
         let queue_len = k.base().todo.queue.len();
         tracing::debug!(
             creature = name.as_str(),
             ?cid,
             delay_ms,
+            deadline_ms,
             action_queue_len = queue_len,
             "idle_todo: enqueue_wait"
         );
@@ -572,12 +578,33 @@ impl GameWorld {
     }
 
     /// Schedule the next action wakeup after `delay_ms` logical time.
+    ///
+    /// C++ `ToDoStart` sets `LockToDo = true` for the whole batch (`cract.cc:1010-1012`)
+    /// until `ToDoClear`. Rust keeps [`CreatureTodo::locked`] set here and clears it only
+    /// on explicit clear / batch drain ([`Self::creature_todo_release_lock_if_drained`]).
     pub(crate) fn todo_start_from_action(&mut self, cid: CreatureId, delay_ms: u64) {
         // C++ `ToDoStart` clamps `Delay < 1` to `1` (`cract.cc:1016`), so a re-insertion is always
         // at least `server_ms + 1` — strictly future, so it cannot be re-drained in the same beat.
         // This is the engine's anti-re-entrancy guarantee (audit Finding 17 / Phase 2).
         let delay = delay_ms.max(1);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            if !k.base().todo.is_empty() {
+                k.base_mut().todo.locked = true;
+            }
+        }
         self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay));
+    }
+
+    /// Clear `LockToDo` when the todo batch and walk segment are fully drained
+    /// (`cract.cc` `ToDoClear` before `IdleStimulus` when `ActToDo >= NrToDo`).
+    pub(crate) fn creature_todo_release_lock_if_drained(&mut self, cid: CreatureId) {
+        let Some(k) = self.creatures.get_mut(cid) else {
+            return;
+        };
+        let base = k.base_mut();
+        if base.todo.is_empty() && base.walk_queue.is_empty() {
+            base.todo.locked = false;
+        }
     }
 
     /// C++ `TDAttack` branch in `ToDoStart` — `cract.cc:909-918`.
@@ -621,6 +648,45 @@ impl GameWorld {
         }
         trace_creature_todo(self, cid, "idle_enqueue_wait");
         self.schedule_immediate_todo_wakeup(cid);
+    }
+
+    /// Enqueue `Wait` then `Go` and arm the first step — master follow Manhattan 3 (`crnonpl.cc:2769-2773`).
+    pub(crate) fn idle_enqueue_wait_then_paced_go(
+        &mut self,
+        cid: CreatureId,
+        wait_ms: u64,
+        todo_via: Option<&str>,
+    ) {
+        if !self.enqueue_creature_wait(cid, wait_ms) {
+            return;
+        }
+        if !self.enqueue_creature_go(cid)
+            && !self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().todo.has_go())
+        {
+            return;
+        }
+        if chase_debug::chase_path_debug_enabled() {
+            if let Some((from, dest, must_reach, max_steps)) =
+                self.idle_todo_go_trace_contract(cid, todo_via)
+            {
+                if let Some(k) = self.creatures.get(cid) {
+                    chase_debug::log_todo_go_aligned(
+                        self.chase_trace_tick(),
+                        cid,
+                        k.base().name.as_str(),
+                        from,
+                        dest,
+                        must_reach,
+                        max_steps,
+                        todo_via.filter(|v| *v != "roam"),
+                    );
+                }
+            }
+        }
+        let _ = self.todo_start_go_delay(cid, true);
     }
 
     fn idle_todo_go_trace_contract(
@@ -735,6 +801,12 @@ impl GameWorld {
 
     /// Arm the next todo step on the heap without synchronous re-entry (avoids stack overflow).
     pub(crate) fn schedule_immediate_todo_wakeup(&mut self, cid: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            if !base.todo.is_empty() || !base.walk_queue.is_empty() {
+                base.todo.locked = true;
+            }
+        }
         self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(1));
     }
 
@@ -893,7 +965,7 @@ mod tests {
         assert!(matches!(
             todo.queue[1],
             CreatureAction::Wait {
-                delay_ms: MONSTER_IDLE_WAIT_MS
+                deadline_ms: MONSTER_IDLE_WAIT_MS
             }
         ));
     }
@@ -1083,7 +1155,7 @@ mod tests {
         assert_eq!(todo.queue.len(), 2, "Use single → [Wait{{100}}, Use]");
         assert!(matches!(
             todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         match todo.queue[1] {
             CreatureAction::Use {
@@ -1117,7 +1189,7 @@ mod tests {
         assert_eq!(todo.queue.len(), 2, "Use two-object → [Wait{{100}}, Use]");
         assert!(matches!(
             todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         match todo.queue[1] {
             CreatureAction::Use {
@@ -1151,7 +1223,7 @@ mod tests {
         let todo = &world.creatures.get(cid).unwrap().base().todo;
         assert_eq!(todo.queue.len(), 2, "Move → [Wait{{100}}, Move]");
         assert!(
-            matches!(todo.queue[0], CreatureAction::Wait { delay_ms: 100 }),
+            matches!(todo.queue[0], CreatureAction::Wait { deadline_ms: 100 }),
             "front = Wait{{100}}"
         );
         match todo.queue[1] {
@@ -1184,7 +1256,7 @@ mod tests {
         assert_eq!(todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
         assert!(matches!(
             todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         match todo.queue[1] {
             CreatureAction::Turn { obj: ref o } => assert_eq!(*o, obj),
@@ -1436,8 +1508,8 @@ mod tests {
         );
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 1000 }
-        ));
+            CreatureAction::Wait { deadline_ms: 6000 }
+        ), "ToDoWait(1000) at server_ms=5000 → deadline 6000");
     }
 
     /// RESULT catch: non-exhausted error → `ToDoYield` = `ToDoWait(0)` + `ToDoStart`.
@@ -1462,8 +1534,8 @@ mod tests {
         );
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 0 }
-        ));
+            CreatureAction::Wait { deadline_ms: 5000 }
+        ), "ToDoWait(0) at server_ms=5000 → deadline 5000");
     }
 
     /// RESULT catch: `ThereIsNoWay` (C++ `NOWAY`) is NOT in the 3-result snapback set.
@@ -1493,8 +1565,8 @@ mod tests {
         assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 0 }
-        ));
+            CreatureAction::Wait { deadline_ms: 5000 }
+        ), "ToDoWait(0) at server_ms=5000 → deadline 5000");
     }
 
     /// RESULT catch: the 2-result exempt set (`PlayerIsNotInvited` /
@@ -1519,8 +1591,8 @@ mod tests {
         assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 0 }
-        ));
+            CreatureAction::Wait { deadline_ms: 5000 }
+        ), "ToDoWait(0) at server_ms=5000 → deadline 5000");
     }
 
     /// `Use` execute arm: single-object use on a bag opens the container (success).
@@ -1611,7 +1683,7 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
             "second = Wait{{100}}"
         );
         assert!(
@@ -1656,7 +1728,7 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
             "second = Wait{{100}}"
         );
         assert!(
@@ -1781,7 +1853,7 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
             "second = Wait{{100}}"
         );
         assert!(
@@ -1839,7 +1911,7 @@ mod tests {
             k.base_mut()
                 .todo
                 .queue
-                .push_back(CreatureAction::Wait { delay_ms: 500 });
+                .push_back(CreatureAction::Wait { deadline_ms: 500 });
         }
 
         let now = std::time::Instant::now();
@@ -1858,7 +1930,7 @@ mod tests {
             "ToDo queue unchanged (Wait{{500}} still there)"
         );
         assert!(
-            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 500 }),
+            matches!(base.todo.queue[0], CreatureAction::Wait { deadline_ms: 500 }),
             "ToDo queue not cleared by setup_player_walk_to_target"
         );
     }
@@ -1930,7 +2002,7 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { delay_ms: 100 }),
+            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
             "second = Wait{{100}}"
         );
         assert!(

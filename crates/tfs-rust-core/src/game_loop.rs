@@ -951,7 +951,7 @@ mod f8_s6_handler_routing_tests {
         assert_eq!(base.todo.queue.len(), 2, "Use single → [Wait{{100}}, Use]");
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         match base.todo.queue[1] {
             CreatureAction::Use {
@@ -997,7 +997,7 @@ mod f8_s6_handler_routing_tests {
         );
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         match base.todo.queue[1] {
             CreatureAction::Use {
@@ -1043,7 +1043,7 @@ mod f8_s6_handler_routing_tests {
             "Move → [Wait{{100}}, Move] (D1: ToDoMove prepends Wait{{100}})"
         );
         assert!(
-            matches!(base.todo.queue[0], CreatureAction::Wait { delay_ms: 100 }),
+            matches!(base.todo.queue[0], CreatureAction::Wait { deadline_ms: 100 }),
             "front = Wait{{100}}"
         );
         match base.todo.queue[1] {
@@ -1079,7 +1079,7 @@ mod f8_s6_handler_routing_tests {
         assert_eq!(base.todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         assert!(matches!(base.todo.queue[1], CreatureAction::Turn { .. }));
         assert!(base.next_wakeup.is_some(), "ToDoStart armed a wakeup");
@@ -1110,7 +1110,7 @@ mod f8_s6_handler_routing_tests {
         assert_eq!(base.todo.queue.len(), 2, "Turn → [Wait{{100}}, Turn]");
         assert!(matches!(
             base.todo.queue[0],
-            CreatureAction::Wait { delay_ms: 100 }
+            CreatureAction::Wait { deadline_ms: 100 }
         ));
         assert!(matches!(base.todo.queue[1], CreatureAction::Turn { .. }));
     }

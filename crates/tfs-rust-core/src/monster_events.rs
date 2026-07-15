@@ -265,76 +265,25 @@ impl GameWorld {
     /// 772: dist-chase (`target_distance > 1`) may re-arm idle on follow-target move (`dist_follow_move`).
     /// Close-chase target moves defer to idle segment drain and `CreatureMoveStimulus` (`crmain.cc:919-961`)
     /// — not `monster_chase_queue_stale` / empty-queue idle repath on every kite tile (lesson 37).
+    /// Dist follow-target moved — **no mid-batch wipe** (audit scheduler finding #1).
+    ///
+    /// C++ `TMonster::CreatureMoveStimulus` (`crnonpl.cc:2943`) only wakes from sleep and
+    /// forwards to `TCreature::CreatureMoveStimulus` (`crmain.cc:920`), which requires
+    /// `ChaseMode == CHASE_MODE_CLOSE` + locked head `TDAttack`. Distance arms do **not**
+    /// clear in-flight `ToDoGo` / `walk_queue` on every kite tile — repath happens when the
+    /// current batch drains and `IdleStimulus` runs again (`MaxSteps=3`).
+    ///
+    /// Close-chase combat re-arm stays in [`Self::monster_combat_creature_move_stimulus`].
     fn monster_on_follow_creature_moved(
         &mut self,
-        monster_id: CreatureId,
-        creature_id: CreatureId,
+        _monster_id: CreatureId,
+        _creature_id: CreatureId,
         _new_pos: Position,
-        has_path: bool,
+        _has_path: bool,
     ) {
-        if self
-            .creatures
-            .get(monster_id)
-            .is_none_or(|k| k.base().follow_target.is_none())
-        {
-            return;
-        }
-        // 772 idle drain owns repath even without an in-flight path (P0-1 / freeze fix).
-        if !has_path && !self.mechanics.profile.follow_repath_without_path {
-            return;
-        }
-        if self
-            .creatures
-            .get(monster_id)
-            .is_some_and(|k| k.base().is_updating_path)
-        {
-            return;
-        }
-
-        let should_repath = self.creatures.get(monster_id).is_some_and(|k| {
-            let CreatureKind::Monster(m) = k else {
-                return false;
-            };
-            let target_distance = self.monster_effective_target_distance(m.target_distance);
-            target_distance > 1
-                && m.base.follow_target == Some(creature_id)
-                && self.monster_can_use_attack(monster_id, m.base.position, creature_id)
-        });
-
-        if !should_repath {
-            return;
-        }
-
-        // C++ `CreatureMoveStimulus` close-chase clears in-flight attack todo before repath
-        // (`crmain.cc:946-951` `ToDoClear` + re-queue) — only when a stale queue blocks yield.
-        if let Some(k) = self.creatures.get_mut(monster_id) {
-            let base = k.base_mut();
-            if !base.todo.queue.is_empty() {
-                base.todo.queue.clear();
-                base.todo.locked = false;
-            }
-            // C++ `CreatureMoveStimulus` preempts goal `ToDoWait` — do not defer repath.
-            base.next_wakeup = None;
-            base.walk_queue.clear();
-            base.walk_update_ticks = 0;
-            base.is_updating_path = false;
-            base.force_update_follow_path = true;
-        }
-        self.monster_idle_stimulus_after_creature_move(monster_id);
-        if let (Some(CreatureKind::Monster(m)), Some(target_pos)) = (
-            self.creatures.get(monster_id),
-            self.creatures.get(creature_id).map(|k| k.position()),
-        ) {
-            let cheb = chebyshev(m.base.position, target_pos);
-            chase_debug::log_creature_move_stimulus(
-                self.chase_trace_tick(),
-                monster_id,
-                m.base.name.as_str(),
-                creature_id.data().as_ffi(),
-                "dist_follow_move",
-                cheb,
-            );
-        }
+        // Intentionally empty — see doc comment. Prior Rust path cleared todo/`walk_queue`/
+        // `next_wakeup` and called idle inline for `target_distance > 1`, causing zig-zag
+        // repaths and pauses vs CipSoft.
     }
 
     /// Clear stale close-chase todos when the target left the adjacent band and arm chase inline.

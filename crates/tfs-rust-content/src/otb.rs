@@ -98,9 +98,8 @@ pub struct ItemType {
     pub voc_equip_names: Vec<String>,
     /// C++ `ItemTypes_t` from items.xml `type="..."` — `src/items.h` (`ITEM_TYPE_DEPOT`, etc.).
     pub type_tag: u8,
-    /// 772 `objects.srv` `DISTUSE` flag (bit 11, `enums.hh:215`) — item can be used on
-    /// objects up to 7 tiles away (fishing rod, rope on hole, etc.). Overlayed from
-    /// `objects.srv` at load time; `false` for items without the flag or non-772 eras.
+    /// 772 `DISTUSE` (`enums.hh:215`) — ranged use up to 7 tiles. No OTB bit; must be
+    /// set by offline content prep (never runtime `objects.srv`). Defaults `false`.
     pub distuse: bool,
 }
 

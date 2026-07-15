@@ -11,7 +11,7 @@ use crate::formulas::MechanicsProfile;
 use crate::login_out::creature_wire_id;
 use crate::monster_ai::MonsterIdleChaseRepathOutcome;
 use crate::pathfinding::{
-    truncate_cipsoft_chase_queue, uses_reverse_terrain_path, CHASE_PATH_MAX_STEPS,
+    truncate_tshortway_go_queue, uses_reverse_terrain_path, CHASE_PATH_MAX_STEPS,
 };
 use crate::test_world::support::{
     beat_driven_test_world, beat_driven_world, dist_idle_monster_config, ensure_walkable_tile,
@@ -43,6 +43,88 @@ fn seed_idle_chase_queue_for_test(world: &mut GameWorld, monster: CreatureId) {
         outcome,
         MonsterIdleChaseRepathOutcome::PathQueued,
         "hysteresis fixture needs a non-empty chase queue"
+    );
+}
+
+#[test]
+fn fillmap_reads_otb_bank_waypoints_from_data_pack() {
+    use std::path::Path;
+
+    use crate::sim_harness::beat_driven_world_with_synthetic_ground_data;
+
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+    if !data.is_dir() {
+        return;
+    }
+    let mut world = beat_driven_world_with_synthetic_ground_data(&data, None)
+        .expect("data-pack world with real items.otb");
+    let pos = Position::new(100, 100, 7);
+
+    // Canonical BANK ids from items.xml / objects.srv Waypoints.
+    ensure_walkable_tile(&mut world.map, pos, 102); // grass
+    assert_eq!(
+        world.fillmap_terrain_waypoints_at(pos),
+        150,
+        "grass (102) OTB ITEM_ATTR_SPEED / WAYPOINTS"
+    );
+    ensure_walkable_tile(&mut world.map, pos, 103); // dirt
+    assert_eq!(
+        world.fillmap_terrain_waypoints_at(pos),
+        110,
+        "dirt (103) OTB WAYPOINTS"
+    );
+    ensure_walkable_tile(&mut world.map, pos, 104); // sand
+    assert_eq!(
+        world.fillmap_terrain_waypoints_at(pos),
+        160,
+        "sand (104) OTB WAYPOINTS"
+    );
+}
+
+/// Spider-area OTBM: XML "rock soil" 4411–4421 is srv `a mountain` (Bank+Unpass, wp0).
+/// Players must walk it (OTBM); FillMap stays blocked via speed 0. Clip grass 4533 is patched
+/// to Waypoints 150 offline so borders are not pathfinding holes.
+#[test]
+fn fillmap_mountain_rock_soil_blocked_clip_grass_defaults() {
+    use std::path::Path;
+
+    use crate::pathfinding::DEFAULT_TERRAIN_WAYPOINTS;
+    use crate::sim_harness::beat_driven_world_with_synthetic_ground_data;
+
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+    if !data.is_dir() {
+        return;
+    }
+    let mut world = beat_driven_world_with_synthetic_ground_data(&data, None)
+        .expect("data-pack world with real items.otb");
+    let pos = Position::new(100, 100, 7);
+
+    assert!(
+        !world.items_db.is_unpassable(4417),
+        "Bank Unpass mountain rock soil must stay player-walkable (no blockSolid)"
+    );
+    ensure_walkable_tile(&mut world.map, pos, 4417);
+    assert!(
+        world.fillmap_terrain_waypoints_at(pos) < 0,
+        "mountain rock soil must stay FillMap-blocked via wp0"
+    );
+
+    ensure_walkable_tile(&mut world.map, pos, 4408);
+    assert_eq!(
+        world.fillmap_terrain_waypoints_at(pos),
+        120,
+        "walkable rock soil 4408"
+    );
+
+    assert!(
+        !world.items_db.is_unpassable(4533),
+        "Clip grass border must remain passable"
+    );
+    ensure_walkable_tile(&mut world.map, pos, 4533);
+    assert_eq!(
+        world.fillmap_terrain_waypoints_at(pos),
+        DEFAULT_TERRAIN_WAYPOINTS as i32,
+        "OTBM Clip-as-ground patched to default waypoints"
     );
 }
 
@@ -109,7 +191,7 @@ fn monster_acquires_target_and_steps_toward_player() {
 }
 
 #[test]
-fn monster_repaths_when_follow_target_moves() {
+fn dist_monster_keeps_walk_queue_when_follow_target_moves() {
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(106, 100, 7);
@@ -122,17 +204,13 @@ fn monster_repaths_when_follow_target_moves() {
         );
     }
 
-    // 772: `monster_on_follow_creature_moved` only triggers a synchronous repath for
-    // dist monsters (`target_distance > 1` + `monster_can_use_attack`). A dist config
-    // with a ranged spell satisfies both gates.
+    // C++ `TCreature::CreatureMoveStimulus` is CLOSE-chase + head `TDAttack` only
+    // (`crmain.cc:920`). Dist idle arms must not wipe mid-batch Go/`walk_queue`.
     let config = dist_idle_monster_config(4);
     let monster = insert_monster_with_config(&mut world, "Rat", mpos, 200, config);
     let player = insert_player(&mut world, test_player("Hero", ppos));
     world.map.register_creature_at(ppos, player);
 
-    // 772: appear-self defers target pick to idle `Strategy[]`. Clear the wakeup
-    // armed by `request_idle_stimulus` so the idle drain can both acquire the target
-    // and queue the chase path in a single pass.
     world.monster_on_creature_appear_self(monster);
     if let Some(k) = world.creatures.get_mut(monster) {
         k.base_mut().next_wakeup = None;
@@ -154,15 +232,20 @@ fn monster_repaths_when_follow_target_moves() {
         !queue_before.is_empty(),
         "chasing monster should have a follow path queued"
     );
-    assert!(
-        world.creatures.get(monster).unwrap().base().has_follow_path,
-        "chasing monster should have has_follow_path set"
-    );
-
-    // Clear `is_updating_path` so `monster_on_follow_creature_moved` can proceed.
-    if let Some(k) = world.creatures.get_mut(monster) {
-        k.base_mut().is_updating_path = false;
-    }
+    let todo_len_before = world
+        .creatures
+        .get(monster)
+        .unwrap()
+        .base()
+        .todo
+        .queue
+        .len();
+    let wakeup_before = world
+        .creatures
+        .get(monster)
+        .unwrap()
+        .base()
+        .next_wakeup;
 
     if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
         p.base.position = ppos_moved;
@@ -171,31 +254,24 @@ fn monster_repaths_when_follow_target_moves() {
     world.map.register_creature_at(ppos_moved, player);
     world.monster_dispatch_creature_move(player, ppos, ppos_moved);
 
+    let base = world.creatures.get(monster).unwrap().base();
     assert_eq!(
-        world.creatures.get(monster).unwrap().base().follow_target,
+        base.follow_target,
         Some(player),
         "follow target should remain after target moves one tile"
     );
-    let queue_after = world
-        .creatures
-        .get(monster)
-        .unwrap()
-        .base()
-        .walk_queue
-        .clone();
-    assert!(
-        !queue_after.is_empty(),
-        "monster should repath when follow target moves"
+    assert_eq!(
+        base.walk_queue, queue_before,
+        "dist kite must not clear/repath mid-batch walk_queue (crmain.cc:920 CLOSE-only)"
     );
-    assert_ne!(
-        queue_before, queue_after,
-        "walk queue should be recomputed after target move"
+    assert_eq!(
+        base.todo.queue.len(),
+        todo_len_before,
+        "dist kite must not clear the in-flight todo batch"
     );
-    assert!(
-        queue_after.iter().all(|&d| d == Direction::East),
-        "repath should still step east toward player at {:?}, got {:?}",
-        ppos_moved,
-        queue_after
+    assert_eq!(
+        base.next_wakeup, wakeup_before,
+        "dist kite must not clear next_wakeup mid-batch"
     );
 }
 
@@ -262,7 +338,6 @@ fn fleeing_monster_steps_away_from_player() {
         m.is_idle = false;
         m.base.follow_target = Some(player);
         m.base.attack_target = Some(player);
-        m.flee_opening_melee_dance_done = true;
     }
 
     // 772: flee is classified and enqueued by the idle drain.
@@ -816,7 +891,7 @@ fn test_772_allow_diagonal_true_stays_reverse_path_stack() {
         .get_creature_path_to_with_fpp(monster, ppos, &fpp)
         .expect("reverse TShortway path");
     assert!(!path.is_empty());
-    let steps = truncate_cipsoft_chase_queue(mpos, ppos, path, CHASE_PATH_MAX_STEPS, false, 1);
+    let steps = truncate_tshortway_go_queue(mpos, ppos, path, CHASE_PATH_MAX_STEPS, false);
     assert!(!steps.is_empty());
     for step in &steps {
         assert!(
@@ -960,7 +1035,6 @@ fn test_772_flee_steps_away() {
         m.base.attack_target = Some(player);
         m.base.health = 10;
         m.run_away_health = 20;
-        m.flee_opening_melee_dance_done = true;
         m.base.has_follow_path = false;
         m.base.walk_queue.clear();
     }
@@ -986,17 +1060,39 @@ fn test_772_flee_steps_away() {
 
 #[test]
 fn test_772_blocked_flee_stops() {
+    use crate::map::Map;
+    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use tfs_rust_common::enums::ZoneType;
+
+    fn block_tile(map: &mut Map, pos: Position) {
+        map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: None,
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::BLOCKSOLID,
+                zone: ZoneType::Normal,
+            }),
+        );
+    }
+
     let mut world = beat_driven_test_world();
 
     let mpos = Position::new(100, 100, 7);
-    let ppos = Position::new(101, 100, 7); // player to the east
+    let ppos = Position::new(102, 100, 7); // player east — flight omits pure East when ox < 0
     ensure_walkable_tile(&mut world.map, mpos, 150);
     ensure_walkable_tile(&mut world.map, ppos, 150);
+    block_tile(&mut world.map, Position::new(99, 100, 7));
+    block_tile(&mut world.map, Position::new(100, 99, 7));
+    block_tile(&mut world.map, Position::new(100, 101, 7));
+    block_tile(&mut world.map, Position::new(101, 100, 7));
 
-    // All neighbor tiles are blocked (non-walkable)
     let monster =
         insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
     let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
 
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
@@ -1007,8 +1103,15 @@ fn test_772_blocked_flee_stops() {
         m.run_away_health = 20; // fleeing
     }
 
-    // Flee arm runs through `monster_idle_stimulus`. Since fleeing is true and all
-    // neighbor tiles are blocked, the flee step must not populate the walk queue.
+    assert!(
+        !world.monster_idle_flee_step(monster),
+        "fixture must block SearchFlightField"
+    );
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.base.walk_queue.clear();
+    }
+
+    // P4-1: flee failure falls through to roam; when roam also fails, queue stays empty.
     world.monster_idle_stimulus(monster);
 
     let walk_queue_empty = world
@@ -1020,7 +1123,7 @@ fn test_772_blocked_flee_stops() {
         .is_empty();
     assert!(
         walk_queue_empty,
-        "blocked flee must not populate walk queue"
+        "fully blocked flee+roam must not populate walk queue"
     );
 }
 
@@ -1100,6 +1203,11 @@ fn test_772_melee_adjacent_chase_step_budget() {
     assert_eq!(
         monster_idle_chase_step_budget(false, true, 6, 3),
         (3, false)
+    );
+    assert_eq!(
+        monster_idle_chase_step_budget(false, true, 4, 4),
+        (0, false),
+        "exact dist band → MaxSteps 0 (C++ Distance−4)"
     );
     assert_eq!(
         monster_idle_chase_step_budget(false, false, 2, 4),
@@ -1213,13 +1321,12 @@ fn cyclops_quad_far_n_path_avoids_nw_sibling_when_last() {
     let mut steps = world
         .get_creature_path_to_with_fpp(far_n, player_pos, &fpp)
         .expect("far-N chase path");
-    steps = crate::pathfinding::truncate_cipsoft_chase_queue(
+    steps = crate::pathfinding::truncate_tshortway_go_queue(
         spawns[0],
         player_pos,
         steps,
         crate::pathfinding::CHASE_PATH_MAX_STEPS,
         false,
-        1,
     );
     assert!(!steps.is_empty(), "path must not be empty");
     let first = spawns[0].offset(steps[0]);
@@ -1236,7 +1343,7 @@ fn cyclops_quad_far_n_path_avoids_nw_sibling_when_last() {
 fn cyclops_quad_nw_and_far_n_shortway_match_live_ref() {
     use crate::creature::MonsterState;
     use crate::pathfinding::{
-        truncate_cipsoft_chase_queue, CHASE_PATH_MAX_STEPS, REVERSE_PATH_VIEW_RADIUS,
+        truncate_tshortway_go_queue, CHASE_PATH_MAX_STEPS, REVERSE_PATH_VIEW_RADIUS,
     };
     use crate::sim_harness::{
         beat_driven_world_for_kite_synthetic, default_sim_map_config, insert_monster_from_type,
@@ -1317,7 +1424,7 @@ fn cyclops_quad_nw_and_far_n_shortway_match_live_ref() {
             .get_creature_path_to_with_fpp(cid, player_pos, &fpp)
             .expect("chase path");
         let steps =
-            truncate_cipsoft_chase_queue(start, player_pos, raw, CHASE_PATH_MAX_STEPS, false, 1);
+            truncate_tshortway_go_queue(start, player_pos, raw, CHASE_PATH_MAX_STEPS, false);
         steps_to_tiles(start, &steps)
     };
 

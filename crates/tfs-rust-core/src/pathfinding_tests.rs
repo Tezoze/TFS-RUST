@@ -194,7 +194,7 @@ fn reverse_search_finds_path_to_origin() {
     .expect("reverse path");
     assert!(!path.is_empty());
     let steps =
-        truncate_cipsoft_chase_queue(start, target, path, usize::MAX, false, fpp.max_target_dist);
+        truncate_tshortway_go_queue(start, target, path, usize::MAX, false);
     assert!(!steps.is_empty());
     let mut pos = start;
     for dir in &steps {
@@ -337,7 +337,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
     assert!(!path.is_empty());
 
     let steps =
-        truncate_cipsoft_chase_queue(start, target, path, usize::MAX, false, fpp.max_target_dist);
+        truncate_tshortway_go_queue(start, target, path, usize::MAX, false);
     assert!(!steps.is_empty());
     let mut pos = start;
     for dir in &steps {
@@ -603,18 +603,19 @@ fn reverse_noway_without_fallback() {
 }
 
 #[test]
-fn test_truncate_cipsoft_chase_queue() {
+fn test_truncate_tshortway_go_queue() {
     let start = Position::new(32345, 32288, 7);
     let target = Position::new(32344, 32286, 7);
     let walk_order = vec![Direction::North, Direction::North, Direction::West];
-    let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 3, false, 1);
+    let truncated = truncate_tshortway_go_queue(start, target, walk_order, 3, false);
     assert_eq!(truncated, vec![Direction::North]);
 }
 
 #[test]
-fn test_truncate_cipsoft_chase_queue_dist_chase_stops_at_band() {
+fn test_truncate_tshortway_go_queue_dist_maxsteps_enforces_band() {
+    // C++ Calculate stops at cheb≤1 only; dist band is MaxSteps = Distance − 4.
     let start = Position::new(100, 100, 7);
-    let target = Position::new(106, 100, 7);
+    let target = Position::new(106, 100, 7); // cheb 6
     let walk_order = vec![
         Direction::East,
         Direction::East,
@@ -623,20 +624,27 @@ fn test_truncate_cipsoft_chase_queue_dist_chase_stops_at_band() {
         Direction::East,
         Direction::East,
     ];
-    let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 6, false, 4);
+    let truncated = truncate_tshortway_go_queue(start, target, walk_order.clone(), 2, false);
     assert_eq!(
         truncated,
         vec![Direction::East, Direction::East],
-        "cheb 6 → band 4 should take two steps, not march to melee"
+        "MaxSteps=Distance−4 (2) must stop at band 4"
+    );
+    // Oversized MaxSteps would march to adjacent (cheb≤1 stop) — not keep-band.
+    let oversized = truncate_tshortway_go_queue(start, target, walk_order, 6, false);
+    assert_eq!(
+        oversized.len(),
+        5,
+        "without MaxSteps budget, trim only stops at cheb≤1"
     );
 }
 
 #[test]
-fn test_truncate_cipsoft_chase_queue_melee_adjacent_must_one() {
+fn test_truncate_tshortway_go_queue_melee_adjacent_must_one() {
     let start = Position::new(100, 100, 7);
     let target = Position::new(102, 100, 7);
     let walk_order = vec![Direction::East, Direction::East];
-    let truncated = truncate_cipsoft_chase_queue(start, target, walk_order, 1, true, 1);
+    let truncated = truncate_tshortway_go_queue(start, target, walk_order, 1, true);
     assert_eq!(truncated, vec![Direction::East]);
 }
 
@@ -690,7 +698,7 @@ fn cyclops_quad_east_and_south_shortway_on_uniform_terrain() {
         )
         .expect(label);
         let trimmed =
-            truncate_cipsoft_chase_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false, 1);
+            truncate_tshortway_go_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false);
         let mut pos = start;
         let got_tiles: Vec<Position> = trimmed
             .iter()
@@ -762,7 +770,7 @@ fn get_path_matching_blocked_far_n_matches_path_compare_pipeline() {
         |_| 150u32,
     )
     .expect("raw path");
-    let dirs = truncate_cipsoft_chase_queue(start, target, raw, CHASE_PATH_MAX_STEPS, false, 1);
+    let dirs = truncate_tshortway_go_queue(start, target, raw, CHASE_PATH_MAX_STEPS, false);
     assert_eq!(
         dirs,
         vec![Direction::East, Direction::South, Direction::South],
@@ -794,7 +802,7 @@ fn tshortway_blocked_missing_tile_routes_east_first() {
         |_| 150,
     )
     .expect("path");
-    let exec = truncate_cipsoft_chase_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false, 1);
+    let exec = truncate_tshortway_go_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false);
     assert_eq!(
         exec,
         vec![Direction::East, Direction::South, Direction::South],
@@ -838,7 +846,7 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
         );
     }
     let dirs =
-        truncate_cipsoft_chase_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false, 1);
+        truncate_tshortway_go_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false);
     let mut pos = start;
     for &dir in &dirs {
         pos = pos.offset(dir);
@@ -861,7 +869,7 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
     )
     .expect("path without tile");
     let dirs =
-        truncate_cipsoft_chase_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false, 1);
+        truncate_tshortway_go_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false);
     assert_eq!(
         dirs,
         vec![Direction::East, Direction::South, Direction::South],
@@ -928,7 +936,7 @@ fn cyclops_nw_shortway_matches_python_tshortway_port() {
     let dirs =
         path_matching_tshortway(&map, nw, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150)
             .expect("path");
-    let trimmed = truncate_cipsoft_chase_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
+    let trimmed = truncate_tshortway_go_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false);
     let mut pos = nw;
     let got: Vec<Position> = trimmed
         .iter()
@@ -972,7 +980,7 @@ fn cyclops_far_n_shortway_matches_python_tshortway_port() {
         max_search_dist: 0,
     };
     let dirs = path_matching_tshortway(&map, far_n, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150).expect("path");
-    let trimmed = truncate_cipsoft_chase_queue(far_n, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
+    let trimmed = truncate_tshortway_go_queue(far_n, player, dirs, CHASE_PATH_MAX_STEPS, false);
     let mut pos = far_n;
     let got: Vec<Position> = trimmed
         .iter()
@@ -1015,7 +1023,7 @@ fn cyclops_nw_shortway_live_ref_with_blocked_dest_and_siblings() {
         max_search_dist: 0,
     };
     let dirs = path_matching_tshortway(&map, nw, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150).expect("path");
-    let trimmed = truncate_cipsoft_chase_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false, 1);
+    let trimmed = truncate_tshortway_go_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false);
     let mut pos = nw;
     let got: Vec<Position> = trimmed
         .iter()

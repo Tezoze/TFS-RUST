@@ -30,11 +30,17 @@ full scan). The **numeric `id` / `server_id` is the join key**; names are not.
 From [`crates/tfs-rust-content/src/objects_srv.rs`](../crates/tfs-rust-content/src/objects_srv.rs)
 `resolve_server_id`:
 
-1. **Direct:** `TypeID` == OTB `server_id` → use that row.
-2. **Fallback:** find OTB row where `client_id == TypeID`.
+1. **By `client_id`:** find the OTB row where `client_id == TypeID` (smallest `server_id` wins for
+   duplicate client ids). Use that row's `server_id`.
+2. **Fallback:** aligned rows where `server_id == client_id == TypeID` and no distinct client row.
 
-772 game items almost always hit (1). Fallback matters for edge ids (e.g. audit note: TypeID 397 must
-resolve to server 397, not a `client_id` collision).
+**772 `TypeID` == OTB `client_id`** (the shared 772 sprite/type id). The `.sec`→OTBM conversion
+remaps `TypeID → server_id` via `client_id` (verified: ~940/1024 tiles per sector equal
+`client_to_server[sec_id]`), so an OTB row's real terrain flags/Waypoints come from
+`objects.srv[client_id]`. **Do not resolve `server_id`-first** — for the ~90% of ground rows where
+TVP renumbered `server_id != client_id` that reads the *wrong* item (e.g. rock soil client 4402 →
+server 4413, whose `server_id` maps to "a mountain" in `objects.srv`), storing walkable rock soil as
+`wp0` → monster-impassable. Patch/audit tooling iterates **OTB rows** and joins on `client_id`.
 
 **OTB fields used for 772 mechanics parity:**
 

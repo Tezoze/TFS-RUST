@@ -1,4 +1,5 @@
 use tfs_rust_common::enums::{CombatType, ConditionType, Direction};
+use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 
 use crate::combat::{CombatDamage, CombatParams};
@@ -9,6 +10,7 @@ use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::GameWorld;
 use crate::idle_stimulus::MonsterIdleWalkBranch;
 use crate::ids::CreatureId;
+use crate::login_out::creature_wire_id;
 use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult};
 use crate::test_world::support::{
     beat_driven_test_world, dist_idle_monster_config, ensure_walkable_tile, insert_monster,
@@ -256,7 +258,7 @@ fn rc2_idle_trailing_wait_is_1000ms() {
     // The trailing tail enqueues a Wait(1000) — verify the todo head is a 1000 ms Wait.
     let has_1000ms_wait = world.creatures.get(monster).is_some_and(|k| {
         k.base().todo.queue.iter().any(
-            |a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS),
+            |a| matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == MONSTER_IDLE_WAIT_MS),
         )
     });
     assert!(
@@ -440,7 +442,6 @@ fn test_772_classify_flee_before_melee() {
         m.base.attack_target = Some(player);
         m.base.health = 10;
         m.run_away_health = 20;
-        m.flee_opening_melee_dance_done = true;
     }
 
     assert_eq!(
@@ -449,9 +450,9 @@ fn test_772_classify_flee_before_melee() {
     );
 }
 
-/// X3 — first adjacent idle while `runonhealth` flee is active still classifies `MeleeDance`.
+/// P4-4 — adjacent `runonhealth` flee classifies `Flee` immediately (`crnonpl.cc:2752`).
 #[test]
-fn test_772_adjacent_fleeing_first_idle_melee_dances_then_flee() {
+fn test_772_adjacent_fleeing_classifies_flee_not_dance() {
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(101, 100, 7);
@@ -467,17 +468,8 @@ fn test_772_adjacent_fleeing_first_idle_melee_dances_then_flee() {
         m.base.attack_target = Some(player);
         m.base.health = 10;
         m.run_away_health = 20;
-        m.flee_opening_melee_dance_done = false;
     }
 
-    assert_eq!(
-        world.monster_idle_classify_walk_branch(monster),
-        MonsterIdleWalkBranch::MeleeDance
-    );
-
-    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
-        m.flee_opening_melee_dance_done = true;
-    }
     assert_eq!(
         world.monster_idle_classify_walk_branch(monster),
         MonsterIdleWalkBranch::Flee
@@ -726,6 +718,126 @@ fn test_772_flee_uses_flight_field_not_shortway() {
             .get(monster)
             .is_some_and(|k| k.base().todo.has_go() || k.base().next_wakeup.is_some()),
         "flee idle must enqueue Go"
+    );
+}
+
+/// P4-1 — cornered flee (`SearchFlightField` fail) falls through to roam (`crnonpl.cc:2754-2902`).
+#[test]
+fn test_772_cornered_flee_falls_through_to_roam() {
+    use crate::map::Map;
+    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use tfs_rust_common::enums::ZoneType;
+
+    fn block_tile(map: &mut Map, pos: Position) {
+        map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: None,
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::BLOCKSOLID,
+                zone: ZoneType::Normal,
+            }),
+        );
+    }
+
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    // Player two tiles east — flight cardinals omit pure East when ox < 0.
+    let ppos = Position::new(102, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(101, 100, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    block_tile(&mut world.map, Position::new(99, 100, 7));
+    block_tile(&mut world.map, Position::new(100, 99, 7));
+    block_tile(&mut world.map, Position::new(100, 101, 7));
+    block_tile(&mut world.map, Position::new(99, 99, 7));
+    block_tile(&mut world.map, Position::new(99, 101, 7));
+
+    let monster =
+        insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.opponent_ids.push(player);
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+        m.base.health = 10;
+        m.run_away_health = 20;
+        m.base.has_follow_path = false;
+        m.base.walk_queue.clear();
+        m.base.todo.queue.clear();
+        m.base.next_wakeup = None;
+    }
+
+    assert!(
+        !world.monster_idle_flee_step(monster),
+        "fixture must block SearchFlightField"
+    );
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.base.walk_queue.clear();
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        !base.walk_queue.is_empty(),
+        "flight-field failure must fall through to roam pathing"
+    );
+    assert!(
+        base.todo.has_go(),
+        "roam fallthrough must enqueue ToDoGo"
+    );
+    assert!(
+        base.todo.has_wait(),
+        "roam tail must append ToDoWait(1000)"
+    );
+}
+
+/// P4-3 — fresh `Attack`-fronted batch defers to armed wakeup after idle (`cract.cc:789-793`).
+#[test]
+fn test_772_idle_attack_front_deferred_after_idle_stimulus() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.melee_skill = 50;
+        m.state = MonsterState::Attacking;
+        m.base.chase_mode = ChaseMode::Close;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+        m.base.todo.queue.clear();
+        m.base.walk_queue.clear();
+        m.base.next_wakeup = None;
+    }
+
+    world.schedule_creature_wakeup(monster, world.server_ms);
+    world.process_creature_todo(monster);
+
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        base.todo.has_attack(),
+        "idle tail must enqueue ToDoAttack at melee band"
+    );
+    assert!(
+        matches!(base.todo.queue.front(), Some(CreatureAction::Attack)),
+        "Attack-fronted batch must not be drained on the idle tick"
     );
 }
 
@@ -1184,17 +1296,23 @@ fn test_772_master_follow_manhattan_2_hold() {
     );
 }
 
-/// A5 / B2 — master follow Manhattan 3 enqueues Wait only.
+/// A5 / B2 — master follow Manhattan 3 enqueues Wait then Go (`crnonpl.cc:2769-2773`).
 #[test]
-fn test_772_master_follow_manhattan_3_hold() {
+fn test_772_master_follow_manhattan_3_wait_then_go() {
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(103, 100, 7);
-    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
-    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    for x in 100..=103u16 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
 
     let master = insert_player(&mut world, test_player("Hero", ppos));
     let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    world.map.register_creature_at(ppos, master);
 
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
@@ -1206,22 +1324,74 @@ fn test_772_master_follow_manhattan_3_hold() {
 
     world.monster_idle_stimulus(monster);
 
+    let base = world.creatures.get(monster).unwrap().base();
     assert!(
-        world
-            .creatures
-            .get(monster)
-            .unwrap()
-            .base()
-            .walk_queue
-            .is_empty(),
-        "Manhattan 3 must hold without chase path"
+        base.todo.has_wait(),
+        "Manhattan 3 must enqueue Wait(1000) before Go"
     );
     assert!(
-        world
-            .creatures
-            .get(monster)
-            .is_some_and(|k| k.base().todo.has_wait()),
-        "Manhattan 3 must enqueue Wait(1000)"
+        base.todo.has_go(),
+        "Manhattan 3 must enqueue Go(max 3) after Wait"
+    );
+    assert!(
+        !base.walk_queue.is_empty(),
+        "Manhattan 3 must queue chase path toward master"
+    );
+    assert_eq!(
+        base.todo.queue.front(),
+        Some(&CreatureAction::Wait {
+            deadline_ms: world.server_ms + MONSTER_IDLE_WAIT_MS
+        }),
+        "Wait must be front of batch (C++ order)"
+    );
+}
+
+/// P4-2 — adjacent summon (Manhattan ≤ 1) jiggles via roam tail (`crnonpl.cc:2760-2777`).
+#[test]
+fn test_772_master_follow_manhattan_1_roams() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(99, 100, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(100, 99, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(100, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+
+    let master = insert_player(&mut world, test_player("Hero", ppos));
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    world.map.register_creature_at(ppos, master);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.base.master = Some(master);
+        m.base.follow_target = Some(master);
+        m.base.has_follow_path = false;
+        m.base.walk_queue.clear();
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        base.todo.has_go(),
+        "adjacent summon must roam-jiggle with ToDoGo"
+    );
+    assert!(
+        base.todo.has_wait(),
+        "roam tail must append ToDoWait(1000)"
     );
 }
 
@@ -1727,7 +1897,7 @@ fn test_772_melee_stick_fight_no_wait_after_attack() {
     assert!(todo.has_attack(), "melee stick-fight must enqueue Attack");
     assert!(
         !todo.queue.iter().any(|a| {
-            matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)
+            matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == MONSTER_IDLE_WAIT_MS)
         }),
         "melee stick-fight must not enqueue trailing 1 s Wait after Attack"
     );
@@ -1951,7 +2121,7 @@ fn test_e5_idle_with_target_hit_becomes_under_attack() {
             .todo
             .queue
             .iter()
-            .any(|a| matches!(a, CreatureAction::Wait { delay_ms: 0 })),
+            .any(|a| matches!(a, CreatureAction::Wait { deadline_ms: 0 })),
         "DamageStimulus must ToDoYield (Wait(0)) — cract.cc:1001"
     );
     assert!(
@@ -2000,7 +2170,7 @@ fn test_e5_sleeping_no_target_hit_becomes_panic_and_yields() {
             .todo
             .queue
             .iter()
-            .any(|a| matches!(a, CreatureAction::Wait { delay_ms: 0 })),
+            .any(|a| matches!(a, CreatureAction::Wait { deadline_ms: 0 })),
         "sleeping hit must ToDoYield"
     );
 }
@@ -2199,7 +2369,7 @@ fn test_e3_attack_path_enqueues_close_chase_at_cheb2() {
         !todo
             .queue
             .iter()
-            .any(|a| matches!(a, CreatureAction::Wait { delay_ms: 100 })),
+            .any(|a| matches!(a, CreatureAction::Wait { deadline_ms: 100 })),
         "fist ToDoAttack skips Wait(100) when GetDistance()==1 (cract.cc:1327)"
     );
     let go_idx = todo
@@ -2411,7 +2581,7 @@ fn test_e2_wait_100_before_attack_when_weapon_range_not_close() {
     assert_eq!(todo.queue.len(), 2);
     assert!(matches!(
         todo.queue[0],
-        CreatureAction::Wait { delay_ms: 100 }
+        CreatureAction::Wait { deadline_ms: 100 }
     ));
     assert!(matches!(todo.queue[1], CreatureAction::Attack));
 }
@@ -2499,9 +2669,9 @@ fn test_rotate_direct_call_fires_when_walk_armed() {
     );
 }
 
-/// The idle combat tail calls `Rotate(Target)` directly (not enqueued) before
-/// `ToDoAttack` is enqueued — matching C++ `crnonpl.cc:2872-2877` order. The turn
-/// broadcast lands in the same beat as the first `Go`/`Attack`, making it imperceptible.
+/// Idle combat tail: Attack enqueue then Rotate. When Attack prepends Go, Rotate must
+/// still update facing but must **not** broadcast 0x6B (deferred Execute would show a
+/// stand-still turn every chase batch).
 #[test]
 fn test_idle_tail_rotate_direct_then_attack_enqueued() {
     let mut world = beat_driven_test_world();
@@ -2512,26 +2682,114 @@ fn test_idle_tail_rotate_direct_then_attack_enqueued() {
         m.melee_attack = 7;
     }
 
-    // Invoke the two idle combat tail calls in order (crnonpl.cc:2872-2877).
-    world.monster_idle_rotate_toward_attack_target(monster);
+    // Production order after P4-3 turn-spam fix: Attack then Rotate.
     let attack_enqueued = world.monster_idle_maybe_enqueue_attack(monster);
     assert!(attack_enqueued);
+    world.monster_idle_rotate_toward_attack_target(monster);
 
-    // Rotate was a direct call — direction already changed, no Rotate in the queue.
     assert_eq!(
         world.creatures.get(monster).unwrap().base().direction,
         Direction::East,
-        "Rotate direct call must have turned the monster"
+        "Rotate must still turn the monster toward the target"
     );
-    // Attack is enqueued (Rotate is not, since it was a direct call).
-    // (CreatureAction no longer has a Rotate variant; the queue can only hold
-    // Go/Wait/Attack, so absence of Rotate is structurally guaranteed.)
     let todo = &world.creatures.get(monster).unwrap().base().todo;
     assert!(
         todo.queue
             .iter()
             .any(|a| matches!(a, CreatureAction::Attack)),
-        "Attack must be enqueued after the direct Rotate call"
+        "Attack must be enqueued"
+    );
+}
+
+/// When a Go is already queued, idle Rotate updates direction but does not emit 0x6B.
+#[test]
+fn test_idle_rotate_suppresses_turn_packet_when_go_pending() {
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    let conn = ConnId(99);
+    let spectator_pos = Position::new(100, 99, 7);
+    ensure_walkable_tile(
+        &mut world.map,
+        spectator_pos,
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    insert_spectator_player(
+        &mut world,
+        conn,
+        test_player("TurnWatch", spectator_pos),
+    );
+    let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Attacking;
+    }
+    let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+    world
+        .creature_fully_sent_by_conn
+        .entry(conn)
+        .or_default()
+        .insert(wire_id);
+
+    assert!(world.enqueue_creature_go(monster));
+    world.pending_outgoing.remove(&conn);
+
+    world.monster_idle_rotate_toward_attack_target(monster);
+
+    assert_eq!(
+        world.creatures.get(monster).unwrap().base().direction,
+        Direction::East,
+        "direction must still update toward target"
+    );
+    let packets = world
+        .pending_outgoing
+        .get(&conn)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !packets.iter().any(|p| p.first() == Some(&0x6B)),
+        "must not broadcast 0x6B when Go is pending, got {} packets",
+        packets.len()
+    );
+}
+
+/// Standing combat (no Go): idle Rotate still broadcasts 0x6B.
+#[test]
+fn test_idle_rotate_broadcasts_when_standing() {
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    let conn = ConnId(100);
+    let spectator_pos = Position::new(100, 99, 7);
+    ensure_walkable_tile(
+        &mut world.map,
+        spectator_pos,
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    insert_spectator_player(
+        &mut world,
+        conn,
+        test_player("TurnWatch2", spectator_pos),
+    );
+    let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Attacking;
+    }
+    let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+    world
+        .creature_fully_sent_by_conn
+        .entry(conn)
+        .or_default()
+        .insert(wire_id);
+    world.pending_outgoing.remove(&conn);
+
+    world.monster_idle_rotate_toward_attack_target(monster);
+
+    let packets = world
+        .pending_outgoing
+        .get(&conn)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        packets.iter().any(|p| p.first() == Some(&0x6B)),
+        "standing Rotate must still emit 0x6B"
     );
 }
 
@@ -2903,9 +3161,12 @@ fn test_chase_combat_move_stimulus_rearms_attack_on_target_kite() {
     );
 }
 
-/// Dist at keep-band: target flee must inline-chase, not sit in goal `ToDoWait(1000)`.
+/// Dist at keep-band: target kite must **not** preempt goal `ToDoWait` mid-batch.
+///
+/// C++ `CreatureMoveStimulus` (`crmain.cc:920`) only re-arms CLOSE + head `TDAttack`.
+/// Dist Wait/Go batches drain first; repath happens on the next IdleStimulus.
 #[test]
-fn test_772_dist_target_flee_inline_chase_after_goal_wait() {
+fn test_772_dist_target_flee_does_not_preempt_goal_wait() {
     use crate::creature_todo::CreatureAction;
     use crate::test_world::support::dist_idle_monster_config;
 
@@ -2946,6 +3207,14 @@ fn test_772_dist_target_flee_inline_chase_after_goal_wait() {
             .is_some_and(|k| k.base().todo.has_wait()),
         "at dist band idle arms trailing wait"
     );
+    let todo_before = world
+        .creatures
+        .get(monster)
+        .unwrap()
+        .base()
+        .todo
+        .queue
+        .clone();
 
     world.map.unregister_creature_at(ppos, player);
     world.map.register_creature_at(ppos_fled, player);
@@ -2955,16 +3224,15 @@ fn test_772_dist_target_flee_inline_chase_after_goal_wait() {
     world.monster_dispatch_creature_move(player, ppos, ppos_fled);
 
     let todo = &world.creatures.get(monster).unwrap().base().todo;
-    assert!(
-        todo.has_go(),
-        "target leaving dist band must arm chase Go immediately"
+    assert_eq!(
+        todo.queue, todo_before,
+        "dist kite must not wipe in-flight goal Wait/todo batch (crmain.cc:920 CLOSE-only)"
     );
     assert!(
-        !todo
-            .queue
+        todo.queue
             .iter()
-            .any(|a| matches!(a, CreatureAction::Wait { delay_ms: 1000 })),
-        "goal wait must be preempted when target flees"
+            .any(|a| matches!(a, CreatureAction::Wait { .. })),
+        "goal Wait must still be present after dist target move"
     );
 }
 
@@ -3507,7 +3775,7 @@ fn test_772_close_chase_target_divergence_no_wait_loop() {
                     .todo
                     .queue
                     .iter()
-                    .any(|a| matches!(a, CreatureAction::Wait { delay_ms: 200 }))
+                    .any(|a| matches!(a, CreatureAction::Wait { deadline_ms: 200 }))
             }),
         "diverged dest must not loop Wait(200) when off-band close chase fails"
     );
@@ -5305,7 +5573,7 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
         base.todo.queue.push_back(CreatureAction::Go);
         base.todo
             .queue
-            .push_back(CreatureAction::Wait { delay_ms: 1000 });
+            .push_back(CreatureAction::Wait { deadline_ms: 1000 });
     }
     // Arm the Go — fresh walk, earliest = 0 → clamp 1.
     let _ = world.todo_start_go_delay(monster, true);
@@ -5346,6 +5614,103 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
     );
 }
 
+/// Absolute `TDWait.Time` at enqueue (`cract.cc:1033`): executing Wait after logical time
+/// has advanced must use the enqueue deadline, not restart `server_ms + delay`.
+#[test]
+fn test_monster_wait_deadline_is_absolute_at_enqueue() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+    assert_eq!(world.server_ms, 0);
+    assert!(world.enqueue_creature_wait(monster, 1000));
+    assert!(matches!(
+        world.creatures.get(monster).unwrap().base().todo.queue.front(),
+        Some(CreatureAction::Wait { deadline_ms: 1000 })
+    ));
+
+    // Simulate Go drain consuming logical time before Wait executes.
+    world.server_ms = 600;
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().earliest_walk_server_ms = 0;
+    }
+
+    let kind = world.execute_creature_todo_action(monster);
+    assert!(
+        matches!(kind, Some(super::TodoExecuteKind::Wait)),
+        "expected Wait execute kind, got {kind:?}"
+    );
+    assert_eq!(
+        world.creatures.get(monster).unwrap().base().next_wakeup,
+        Some(1000),
+        "Wait must arm at absolute enqueue deadline (1000), not server_ms+1000 (1600)"
+    );
+}
+
+/// `LockToDo` stays set for the whole batch (`cract.cc:1012`) — IdleStimulus no-ops,
+/// and [`GameWorld::creature_todo_release_lock_if_drained`] keeps the lock while
+/// `walk_queue` still has steps (Rust's multi-`TDGo` stand-in).
+#[test]
+fn test_monster_lock_todo_held_between_go_steps() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let mid = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, mid, TEST_SYNTHETIC_GROUND_WP);
+
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(k) = world.creatures.get_mut(monster) {
+        let base = k.base_mut();
+        base.walk_queue.push_back(Direction::East);
+        base.walk_destinations.push_back(mid);
+        base.todo.queue.push_back(CreatureAction::Go);
+    }
+    let _ = world.todo_start_go_delay(monster, true);
+    assert!(
+        world.creatures.get(monster).unwrap().base().todo.locked,
+        "ToDoStart must set LockToDo"
+    );
+
+    // After a Go pop, todo may be empty while walk_queue still holds the rest of the
+    // CipSoft-equivalent TDGo list — lock must remain until walk_queue drains too.
+    if let Some(k) = world.creatures.get_mut(monster) {
+        let base = k.base_mut();
+        base.todo.queue.clear();
+        base.todo.locked = true;
+        assert!(!base.walk_queue.is_empty());
+    }
+    world.creature_todo_release_lock_if_drained(monster);
+    assert!(
+        world.creatures.get(monster).unwrap().base().todo.locked,
+        "release_lock must keep LockToDo while walk_queue remains"
+    );
+
+    let walk_len = world
+        .creatures
+        .get(monster)
+        .unwrap()
+        .base()
+        .walk_queue
+        .len();
+    world.idle_stimulus(monster);
+    assert!(
+        world.creatures.get(monster).unwrap().base().todo.locked,
+        "IdleStimulus must not clear LockToDo"
+    );
+    assert_eq!(
+        world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .len(),
+        walk_len,
+        "IdleStimulus must no-op while LockToDo"
+    );
+}
+
 /// Monster beat-loop audit #14: `Wait{0}` → non-empty queue must chain same-beat.
 /// C++ `Execute` is a `while(true)` loop — consecutive zero-delay entries run
 /// in the same wakeup (`cract.cc:784`). Rust previously re-armed at `+1` (next
@@ -5364,7 +5729,7 @@ fn test_monster_wait_zero_chains_same_beat_to_next_action() {
         let base = k.base_mut();
         base.todo
             .queue
-            .push_back(CreatureAction::Wait { delay_ms: 0 });
+            .push_back(CreatureAction::Wait { deadline_ms: 0 });
         base.todo.queue.push_back(CreatureAction::Talk {
             text: "Hicks!".into(),
         });
@@ -6112,5 +6477,111 @@ fn otclient_772_chain_turn_emitted_after_move_packets() {
              sendMoveCreature then sendCreatureTurn), got turn at {} vs move at {}",
         turn_idx.unwrap(),
         move_idx.unwrap()
+    );
+}
+
+/// Two identical monsters targeting one player must keep independent todo / lock / wakeup.
+#[test]
+fn two_same_type_monsters_do_not_share_todo_schedule() {
+    let mut world = beat_driven_test_world();
+    let a_pos = Position::new(100, 100, 7);
+    let b_pos = Position::new(100, 102, 7);
+    let ppos = Position::new(104, 101, 7);
+    for p in [
+        a_pos,
+        b_pos,
+        ppos,
+        Position::new(101, 100, 7),
+        Position::new(102, 100, 7),
+        Position::new(103, 100, 7),
+        Position::new(101, 102, 7),
+        Position::new(102, 102, 7),
+        Position::new(103, 102, 7),
+        Position::new(104, 100, 7),
+        Position::new(104, 102, 7),
+    ] {
+        ensure_walkable_tile(&mut world.map, p, TEST_SYNTHETIC_GROUND_WP);
+    }
+
+    let a = insert_monster(&mut world, "Rat", a_pos, 200);
+    let b = insert_monster(&mut world, "Rat", b_pos, 200);
+    assert_ne!(a, b, "SlotMap must allocate distinct CreatureIds");
+
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    world.monster_on_creature_appear_self(a);
+    world.monster_on_creature_appear_self(b);
+
+    world.monster_idle_stimulus(a);
+    world.monster_idle_stimulus(b);
+
+    let (a_todo_len, a_walk) = {
+        let base = world.creatures.get(a).unwrap().base();
+        (base.todo.queue.len(), base.walk_queue.len())
+    };
+    let (b_todo_len, b_locked, b_wakeup, b_follow, b_walk) = {
+        let base = world.creatures.get(b).unwrap().base();
+        (
+            base.todo.queue.len(),
+            base.todo.locked,
+            base.next_wakeup,
+            base.follow_target,
+            base.walk_queue.len(),
+        )
+    };
+
+    assert_eq!(
+        world.creatures.get(a).unwrap().base().follow_target,
+        Some(player),
+        "A must target the player"
+    );
+    assert_eq!(b_follow, Some(player), "B must target the player");
+    assert!(
+        a_todo_len > 0 || a_walk > 0,
+        "A must have its own Go/walk schedule"
+    );
+    assert!(
+        b_todo_len > 0 || b_walk > 0,
+        "B must have its own Go/walk schedule"
+    );
+
+    // Lock A only — B's lock bit must not change.
+    if let Some(k) = world.creatures.get_mut(a) {
+        k.base_mut().todo.locked = true;
+    }
+    assert!(world.creatures.get(a).unwrap().base().todo.locked);
+    assert_eq!(
+        world.creatures.get(b).unwrap().base().todo.locked,
+        b_locked,
+        "mutating A.todo.locked must not change B.todo.locked"
+    );
+
+    // Clear only A's queues — B's schedule must survive.
+    if let Some(k) = world.creatures.get_mut(a) {
+        let base = k.base_mut();
+        base.todo.queue.clear();
+        base.walk_queue.clear();
+        base.todo.locked = false;
+        base.next_wakeup = None;
+    }
+    let b_after = world.creatures.get(b).unwrap().base();
+    assert_eq!(b_after.todo.queue.len(), b_todo_len);
+    assert_eq!(b_after.walk_queue.len(), b_walk);
+    assert_eq!(b_after.next_wakeup, b_wakeup);
+    assert_eq!(b_after.follow_target, Some(player));
+
+    // B can still re-arm after A's wipe.
+    world.monster_idle_stimulus(b);
+    assert!(
+        world
+            .creatures
+            .get(b)
+            .unwrap()
+            .base()
+            .next_wakeup
+            .is_some()
+            || !world.creatures.get(b).unwrap().base().todo.queue.is_empty()
+            || !world.creatures.get(b).unwrap().base().walk_queue.is_empty(),
+        "B must still schedule after A's todo was wiped"
     );
 }

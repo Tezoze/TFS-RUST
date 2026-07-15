@@ -32,7 +32,8 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::monster_ai::{
     chebyshev, compute_look_toward_target, manhattan, monster_idle_chase_step_budget,
-    monster_master_follow_in_wait_band, MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult,
+    monster_master_follow_wait_before_go, monster_master_follow_wait_only_band,
+    MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult,
     MonsterIdleChaseRepathOutcome,
 };
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
@@ -65,7 +66,11 @@ pub(crate) enum MonsterIdleWalkBranch {
 /// Result of executing one idle walk arm.
 enum MonsterIdleWalkOutcome {
     QueuedGo { via: &'static str, wait_after: bool },
+    /// `ToDoWait` then `ToDoGo` — master follow Manhattan 3 (`crnonpl.cc:2769-2773`).
+    QueuedWaitThenGo { via: &'static str },
     QueuedWait,
+    /// No walk arm matched — fall through to roam tail (`crnonpl.cc:2902`).
+    FallthroughRoam,
     Noway,
     Hold,
 }
@@ -1096,7 +1101,10 @@ impl GameWorld {
                     if !self.monster_sight_clear(pos, target_pos) {
                         continue;
                     }
-                    self.monster_update_look_direction(cid);
+                    // Face target for the cast. Wire 0x6B is deferred to the idle combat
+                    // rotate tail (or suppressed when a Go is pending) so Destination/Victim
+                    // spells do not spam stand-still turns between chase batches.
+                    self.monster_face_toward(cid, target_id, false);
                     if let Some(shoot) = spell.shoot_effect {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
@@ -1329,13 +1337,16 @@ impl GameWorld {
         self.monster_idle_stimulus_inner(cid, false);
     }
 
-    /// C++ `CreatureMoveStimulus` may run idle repath in the same beat as a prior `IdleStimulus`
-    /// (`crmain.cc:919-961`) — clear per-beat dedup before re-entering.
+    /// Close-chase restep after clearing a stale Go — walk/attack arms only.
+    ///
+    /// C++ `CreatureMoveStimulus` (`crmain.cc:920`) re-arms Wait+Attack; it does **not** re-run
+    /// the CASTING block. Passing `skip_casting=true` avoids Destination/Victim `Rotate` mid-chase
+    /// (run → face → run), which looked like flee turn-dancing on casters (e.g. giant spider).
     pub(crate) fn monster_idle_stimulus_after_creature_move(&mut self, cid: CreatureId) {
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.idle_stimulus_last_ms = None;
         }
-        self.monster_idle_stimulus_inner(cid, false);
+        self.monster_idle_stimulus_inner(cid, true);
     }
 
     /// C++ `TMonster::IdleStimulus` — `crnonpl.cc:2345`.
@@ -1406,11 +1417,6 @@ impl GameWorld {
 
         // Phase 3: 772 idle path runs unconditionally for both eras.
         self.monster_idle_lose_existing_target(cid);
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            if !m.is_fleeing() {
-                m.flee_opening_melee_dance_done = false;
-            }
-        }
         self.monster_idle_reset_combat_state(cid);
         self.monster_idle_try_talk(cid);
         if self.monster_idle_acquire_target(cid) {
@@ -1432,11 +1438,14 @@ impl GameWorld {
 
         self.monster_idle_prepare_and_enqueue_go(cid);
 
-        // C++ `Rotate(Target)` after walk arms, before `ToDoAttack` — `crnonpl.cc:2871`.
-        self.monster_idle_rotate_toward_attack_target(cid);
-
-        // C++ idle tail appends `ToDoAttack` even when walk already queued `ToDoGo` (`crnonpl.cc:2795`).
+        // C++ order is Rotate then ToDoAttack (`crnonpl.cc:2871-2877`). Attack's
+        // `CanToDoAttack` often prepends `ToDoGo`. CipSoft Execute runs that Go in the same
+        // stimulus window so the turn is masked by the move packet. Our P4-3 deferral arms
+        // Go for a later wakeup — broadcasting 0x6B *before* Attack would face-turn on the
+        // spot every idle. Enqueue Attack first, then Rotate: suppress the wire turn when a
+        // Go is pending (direction still updates for combat/LOS).
         let attack_enqueued = self.monster_idle_maybe_enqueue_attack(cid);
+        self.monster_idle_rotate_toward_attack_target(cid);
         if self.creature_todo_queue_empty(cid) {
             self.monster_idle_maybe_enqueue_at_goal_wait(cid, attack_enqueued);
         }
@@ -1835,13 +1844,11 @@ impl GameWorld {
         self.monster_can_use_attack(cid, pos, attack_id)
     }
 
-    /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871` (after `ToDoGo`, before
-    /// `ToDoAttack`). Called **directly** (not enqueued), matching the C++ unconditional
-    /// `Rotate(Target)` direct call. The 0x6B turn broadcast and the first `TDGo` move packet
-    /// land in the same beat, so the client renders the turn imperceptibly — the move packet
-    /// immediately overrides the facing direction. Enqueuing `Rotate` as a todo action (the
-    /// Phase 8 approach) caused a visible "turn on the spot" because the 0x6B fired in a
-    /// separate beat from any move packet (audit: turn-on-spot defect).
+    /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871`.
+    ///
+    /// Direction always updates. The `0x6B` broadcast is skipped when a `Go` is already
+    /// queued (`todo.has_go` or non-empty `walk_queue`): the move packet carries facing, and
+    /// broadcasting here (with deferred Execute) caused visible stand-still turn spam.
     pub(crate) fn monster_idle_rotate_toward_attack_target(&mut self, cid: CreatureId) {
         let target_id = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
@@ -1852,15 +1859,23 @@ impl GameWorld {
             }
             m.base.attack_target
         });
-        if let Some(target_id) = target_id {
-            self.monster_execute_rotate_toward(cid, target_id);
-        }
+        let Some(target_id) = target_id else {
+            return;
+        };
+        let go_pending = self.creatures.get(cid).is_some_and(|k| {
+            let b = k.base();
+            b.todo.has_go() || !b.walk_queue.is_empty()
+        });
+        self.monster_face_toward(cid, target_id, !go_pending);
     }
 
-    /// C++ `Rotate(TCreature *Target)` — `cract.cc:452-473`. No `walk_timer_idle` gate: the
-    /// turn is unconditional, matching the C++ idle tail (`crnonpl.cc:2872-2873`). If the
-    /// target is gone, no-op (C++ checks `Target == NULL` and returns).
-    pub(crate) fn monster_execute_rotate_toward(&mut self, cid: CreatureId, target_id: CreatureId) {
+    /// Face `target_id` — optional spectator `0x6B`. C++ `Rotate(TCreature*)` — `cract.cc:452-473`.
+    pub(crate) fn monster_face_toward(
+        &mut self,
+        cid: CreatureId,
+        target_id: CreatureId,
+        broadcast: bool,
+    ) {
         let (pos, current) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (m.base.position, m.base.direction),
             _ => return,
@@ -1870,20 +1885,30 @@ impl GameWorld {
             None => return,
         };
         let new_dir = compute_look_toward_target(pos, target_pos, current);
-        if new_dir != current {
+        if new_dir == current {
+            return;
+        }
+        if broadcast {
             creature_turn_with_broadcast(self, cid, new_dir);
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                    chase_debug::log_rotate(
-                        self.chase_trace_tick(),
-                        cid,
-                        m.base.name.as_str(),
-                        new_dir as u8,
-                        Some(target_id.data().as_ffi()),
-                    );
-                }
+        } else if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().direction = new_dir;
+        }
+        if chase_debug::chase_path_debug_enabled() {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                chase_debug::log_rotate(
+                    self.chase_trace_tick(),
+                    cid,
+                    m.base.name.as_str(),
+                    new_dir as u8,
+                    Some(target_id.data().as_ffi()),
+                );
             }
         }
+    }
+
+    /// C++ `Rotate(TCreature *Target)` — `cract.cc:452-473`. Broadcasts `0x6B` when facing changes.
+    pub(crate) fn monster_execute_rotate_toward(&mut self, cid: CreatureId, target_id: CreatureId) {
+        self.monster_face_toward(cid, target_id, true);
     }
 
     /// 772 NOWAY fall-through — clear chase target and roam (`crnonpl.cc:2890-2898` + `:2900-2939`).
@@ -1914,10 +1939,15 @@ impl GameWorld {
             MonsterIdleWalkOutcome::QueuedWait => {
                 self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
             }
+            MonsterIdleWalkOutcome::QueuedWaitThenGo { via } => {
+                self.idle_enqueue_wait_then_paced_go(cid, MONSTER_IDLE_WAIT_MS, Some(via));
+            }
             // Roam found no walkable tile — C++ `ToDoWait(1000) + ToDoStart()`
             // (`crnonpl.cc:2937-2939`). The idle catch-all (`crnonpl.cc:2920-2939` tail) also
             // covers this, but arming the wait here keeps the contract explicit.
-            MonsterIdleWalkOutcome::Hold | MonsterIdleWalkOutcome::Noway => {
+            MonsterIdleWalkOutcome::Hold
+            | MonsterIdleWalkOutcome::Noway
+            | MonsterIdleWalkOutcome::FallthroughRoam => {
                 self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
             }
         }
@@ -2124,11 +2154,7 @@ impl GameWorld {
         let target_distance = self.monster_effective_target_distance(m.target_distance);
         let dist = chebyshev(pos, target_pos);
 
-        // X3 — adjacent low-HP flee still dances once before the flee arm (`crnonpl.cc` idle).
         if m.is_fleeing() {
-            if dist == 1 && target_distance <= 1 && !m.flee_opening_melee_dance_done {
-                return MonsterIdleWalkBranch::MeleeDance;
-            }
             return MonsterIdleWalkBranch::Flee;
         }
 
@@ -2216,18 +2242,76 @@ impl GameWorld {
                 }
             }
             MonsterIdleWalkBranch::MasterFollow => {
-                let (needs_repath, repath_reason) = self.monster_idle_chase_needs_repath(cid);
-                if !needs_repath {
-                    return self.monster_idle_master_follow_hold_or_wait(cid);
-                }
-                match self.monster_idle_master_follow(cid, repath_reason) {
-                    MonsterIdleChaseRepathOutcome::PathQueued => MonsterIdleWalkOutcome::QueuedGo {
-                        via: repath_reason.unwrap_or("idle_drain"),
-                        wait_after: false,
-                    },
-                    MonsterIdleChaseRepathOutcome::AtGoal => {
-                        self.monster_idle_master_follow_hold_or_wait(cid)
+                let (pos, follow_id) = match self.creatures.get(cid) {
+                    Some(CreatureKind::Monster(m)) => {
+                        let Some(follow_id) = m.base.follow_target else {
+                            return MonsterIdleWalkOutcome::FallthroughRoam;
+                        };
+                        (m.base.position, follow_id)
                     }
+                    _ => return MonsterIdleWalkOutcome::Hold,
+                };
+                let target_pos = match self.creatures.get(follow_id) {
+                    Some(k) => k.position(),
+                    None => return MonsterIdleWalkOutcome::FallthroughRoam,
+                };
+                let dist = manhattan(pos, target_pos);
+                if dist <= 1 {
+                    return MonsterIdleWalkOutcome::FallthroughRoam;
+                }
+                if !self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| k.base().walk_queue.is_empty())
+                {
+                    return MonsterIdleWalkOutcome::Hold;
+                }
+                if monster_master_follow_wait_only_band(dist) {
+                    if chase_debug::chase_path_debug_enabled() {
+                        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                            chase_debug::log_branch(
+                                self.chase_trace_tick(),
+                                cid,
+                                m.base.name.as_str(),
+                                "master_follow_wait",
+                                pos,
+                                target_pos,
+                                false,
+                                0,
+                                None,
+                            );
+                        }
+                    }
+                    return MonsterIdleWalkOutcome::QueuedWait;
+                }
+                let repath_reason = if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| k.base().force_update_follow_path)
+                {
+                    Some("force_update")
+                } else if self
+                    .creatures
+                    .get(cid)
+                    .is_some_and(|k| !k.base().has_follow_path)
+                {
+                    Some("idle_drain")
+                } else {
+                    Some("off_band")
+                };
+                match self.monster_idle_master_follow(cid, repath_reason) {
+                    MonsterIdleChaseRepathOutcome::PathQueued => {
+                        let via = repath_reason.unwrap_or("idle_drain");
+                        if monster_master_follow_wait_before_go(dist) {
+                            MonsterIdleWalkOutcome::QueuedWaitThenGo { via }
+                        } else {
+                            MonsterIdleWalkOutcome::QueuedGo {
+                                via,
+                                wait_after: false,
+                            }
+                        }
+                    }
+                    MonsterIdleChaseRepathOutcome::AtGoal => MonsterIdleWalkOutcome::Hold,
                     MonsterIdleChaseRepathOutcome::Noway => MonsterIdleWalkOutcome::Noway,
                 }
             }
@@ -2299,11 +2383,6 @@ impl GameWorld {
                         .get(cid)
                         .is_some_and(|k| !k.base().walk_queue.is_empty());
                     if queued {
-                        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                            if m.is_fleeing() {
-                                m.flee_opening_melee_dance_done = true;
-                            }
-                        }
                         MonsterIdleWalkOutcome::QueuedGo {
                             via: "idle_dance",
                             wait_after: false,
@@ -2346,28 +2425,6 @@ impl GameWorld {
         }
     }
 
-    /// Master follow Manhattan 2–3 → `ToDoWait` only (`crnonpl.cc:2691`).
-    fn monster_idle_master_follow_hold_or_wait(&self, cid: CreatureId) -> MonsterIdleWalkOutcome {
-        let (pos, follow_id) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => {
-                let Some(follow_id) = m.base.follow_target else {
-                    return MonsterIdleWalkOutcome::Hold;
-                };
-                (m.base.position, follow_id)
-            }
-            _ => return MonsterIdleWalkOutcome::Hold,
-        };
-        let target_pos = match self.creatures.get(follow_id) {
-            Some(k) => k.position(),
-            None => return MonsterIdleWalkOutcome::Hold,
-        };
-        if monster_master_follow_in_wait_band(manhattan(pos, target_pos)) {
-            MonsterIdleWalkOutcome::QueuedWait
-        } else {
-            MonsterIdleWalkOutcome::Hold
-        }
-    }
-
     /// Fill walk queue from reference-ordered idle arms, then enqueue `Go` + heap arm.
     ///
     /// C++ walking section — `crnonpl.cc:2676`.
@@ -2379,6 +2436,14 @@ impl GameWorld {
 
         if matches!(outcome, MonsterIdleWalkOutcome::Noway) {
             self.monster_on_chase_noway(cid);
+            outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
+        }
+
+        if matches!(
+            (branch, &outcome),
+            (MonsterIdleWalkBranch::Flee, MonsterIdleWalkOutcome::Hold)
+                | (_, MonsterIdleWalkOutcome::FallthroughRoam)
+        ) {
             outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
         }
 
@@ -2394,6 +2459,9 @@ impl GameWorld {
                     wait_after.then_some(MONSTER_IDLE_WAIT_MS),
                 );
             }
+            MonsterIdleWalkOutcome::QueuedWaitThenGo { via } => {
+                self.idle_enqueue_wait_then_paced_go(cid, MONSTER_IDLE_WAIT_MS, Some(via));
+            }
             MonsterIdleWalkOutcome::QueuedWait => {
                 self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
             }
@@ -2401,7 +2469,7 @@ impl GameWorld {
                 // 772 idle drain owns dance pacing — no TFS `getNextStep` poll (X5).
                 // Phase 3: 1098 `getNextStep` dance poll deleted — both eras use idle drain.
             }
-            MonsterIdleWalkOutcome::Noway => {}
+            MonsterIdleWalkOutcome::FallthroughRoam | MonsterIdleWalkOutcome::Noway => {}
         }
     }
 
@@ -2417,15 +2485,15 @@ impl GameWorld {
             CloseChaseBlocked,
         }
 
+        // Batch `LockToDo` stays true for the whole ToDo list (`cract.cc:1012`); do not
+        // refuse Execute when locked — that gate is for IdleStimulus / ToDoYield only.
         let action = {
             let k = self.creatures.get_mut(cid)?;
-            if k.base().todo.locked {
-                return None;
-            }
             k.base_mut().todo.queue.pop_front()
         };
         let action = action?;
 
+        // Ensure batch lock is held while draining (ToDoStart may have armed it already).
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().todo.locked = true;
         }
@@ -2439,25 +2507,20 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "execute_go_done");
                 TodoExecuteKind::Go
             }
-            CreatureAction::Wait { delay_ms } => {
+            CreatureAction::Wait { deadline_ms } => {
                 trace_creature_todo(self, cid, "execute_wait");
                 // C++ chase trace logs `ToDoWait` enqueue only — not execute drain.
-                if delay_ms > 0 {
-                    // C++ `CalculateDelay(TDWait)` — `cract.cc:905-915`:
-                    // `WaitTime = max(TD->Wait.Time, EarliestWalkTime)`;
-                    // `Delay = WaitTime - ServerMilliseconds`.
-                    // `TD->Wait.Time` = `enqueue_server_ms + delay_ms` (absolute). Since
-                    // `Wait{N}` is always executed in the same beat as enqueued (via tail
-                    // recursion from `finish_creature_todo_execute`), `enqueue_server_ms ==
-                    // server_ms`, so `WaitTime = server_ms + delay_ms`. The `EarliestWalkTime`
-                    // floor ensures a `Wait{1000}` after a slow `Go` step doesn't fire before
-                    // the walk cooldown elapses.
-                    let earliest = self
-                        .creatures
-                        .get(cid)
-                        .map(|k| k.base().earliest_walk_server_ms)
-                        .unwrap_or(0);
-                    let wait_time = self.server_ms.saturating_add(delay_ms).max(earliest);
+                // C++ `CalculateDelay(TDWait)` — `cract.cc:905-915`:
+                // `WaitTime = max(TD->Wait.Time, EarliestWalkTime)`;
+                // `Delay = WaitTime - ServerMilliseconds` when still in the future.
+                // `TD->Wait.Time` is absolute at enqueue (`cract.cc:1033`).
+                let earliest = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().earliest_walk_server_ms)
+                    .unwrap_or(0);
+                let wait_time = deadline_ms.max(earliest);
+                if wait_time > self.server_ms {
                     self.schedule_creature_wakeup(
                         cid,
                         wait_time.max(self.server_ms.saturating_add(1)),
@@ -2907,9 +2970,9 @@ impl GameWorld {
             }
         };
 
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().todo.locked = false;
-        }
+        // Batch LockToDo stays set while todos/walk_queue remain; release before idle follow-up
+        // so IdleStimulus can run (`cract.cc` ToDoClear then IdleStimulus when list drained).
+        self.creature_todo_release_lock_if_drained(cid);
 
         match follow_up {
             CombatExecuteFollowUp::IdleStimulus => self.monster_idle_stimulus(cid),
@@ -3069,6 +3132,7 @@ impl GameWorld {
                     base.walk_queue.clear();
                     base.has_follow_path = false;
                 }
+                self.creature_todo_release_lock_if_drained(cid);
                 self.request_idle_stimulus(cid);
                 return;
             }
@@ -3118,6 +3182,7 @@ impl GameWorld {
             return;
         }
 
+        self.creature_todo_release_lock_if_drained(cid);
         self.maybe_idle_stimulus_after_go_complete(cid);
     }
 
@@ -3157,6 +3222,7 @@ impl GameWorld {
                             base.next_wakeup = None;
                         }
                     }
+                    self.creature_todo_release_lock_if_drained(cid);
                     self.monster_idle_stimulus_inner(cid, true);
                     self.monster_idle_reschedule_target_bound_if_parked(cid);
                 } else {
@@ -3167,6 +3233,7 @@ impl GameWorld {
                 // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
                 // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
                 if self.creature_todo_queue_empty(cid) {
+                    self.creature_todo_release_lock_if_drained(cid);
                     self.idle_stimulus(cid);
                     if !self.creature_todo_queue_empty(cid) {
                         self.run_monster_todo_execute(cid);

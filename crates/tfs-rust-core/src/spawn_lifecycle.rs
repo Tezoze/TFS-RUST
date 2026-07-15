@@ -668,9 +668,10 @@ impl GameWorld {
             .encode_add_tile_creature(pos, stack_pos, &wire, false)
             .into_bytes();
         self.known_creatures_by_conn.insert(conn, known);
-        if !known_flag {
-            self.mark_creature_fully_sent(conn, wire_id);
-        }
+        // Always mark fully-sent: `known=true` means the client already has name/HP from an
+        // earlier full AddCreature; `known=false` just sent them. Either way, subsequent
+        // spectator moves must use 0x6D (not a second appear) or bars flicker.
+        self.mark_creature_fully_sent(conn, wire_id);
         self.enqueue_outgoing(conn, packet);
         true
     }

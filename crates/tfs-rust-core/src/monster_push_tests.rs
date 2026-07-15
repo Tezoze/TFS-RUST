@@ -130,7 +130,7 @@ fn exhausted_wait_clears_target_and_waits_1000() {
     assert_eq!(base.follow_target, None);
     assert!(
         base.todo.queue.iter().any(
-            |a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)
+            |a| matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == MONSTER_IDLE_WAIT_MS)
         ),
         "EXHAUSTED must enqueue a {MONSTER_IDLE_WAIT_MS} ms Wait"
     );
@@ -644,7 +644,7 @@ fn f3_kick_kill_preserves_target() {
     // Wait armed.
     assert!(
         base.todo.queue.iter().any(
-            |a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)
+            |a| matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == MONSTER_IDLE_WAIT_MS)
         ),
         "EXHAUSTED must enqueue a {MONSTER_IDLE_WAIT_MS} ms Wait"
     );
@@ -697,7 +697,7 @@ fn f3_player_tile_clears_target() {
     );
     assert!(
         base.todo.queue.iter().any(
-            |a| matches!(a, CreatureAction::Wait { delay_ms } if *delay_ms == MONSTER_IDLE_WAIT_MS)
+            |a| matches!(a, CreatureAction::Wait { deadline_ms } if *deadline_ms == MONSTER_IDLE_WAIT_MS)
         ),
         "EXHAUSTED must enqueue a {MONSTER_IDLE_WAIT_MS} ms Wait"
     );

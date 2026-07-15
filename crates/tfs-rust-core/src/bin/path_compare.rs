@@ -12,7 +12,7 @@ use tfs_rust_common::Position;
 use tfs_rust_core::formulas::{PathCostModel, PathSearchModel};
 use tfs_rust_core::map::{Map, SparseGrid};
 use tfs_rust_core::pathfinding::{
-    effective_terrain_waypoints, get_path_matching, truncate_cipsoft_chase_queue, FindPathParams,
+    effective_terrain_waypoints, get_path_matching, truncate_tshortway_go_queue, FindPathParams,
     CHASE_PATH_MAX_STEPS,
 };
 use tfs_rust_core::tile::{Tile, TileBody};
@@ -219,7 +219,7 @@ fn run() -> Result<(), String> {
         return Ok(());
     };
 
-    let dirs = truncate_cipsoft_chase_queue(start, target, path, scenario.max_steps, false, 1);
+    let dirs = truncate_tshortway_go_queue(start, target, path, scenario.max_steps, false);
 
     let dir_names: Vec<&str> = dirs.iter().copied().map(dir_name).collect();
     let tiles = apply_dirs(start, &dirs);

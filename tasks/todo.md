@@ -1,3 +1,41 @@
+## Live spider / name-bar / cast turn bugs (2026-07-13) — in progress
+- [x] Rock soil OTB: classic IDs (107, 170+) match objects.srv; items.xml misnames shallow water 861–864 / mountains 4411+ as "rock soil"
+- [x] **Rock soil live bug:** OTBM "rock soil" 4411–4421 = srv mountains; blanket `blockSolid` blocked players ("not enough room") — cleared Bank+Unpass+wp0 solid; non-Bank Unpass stay solid; Clip speed0→150; FillMap wp0→−1
+- [x] Name/HP flicker: both-visible `!fully_sent` was appear-without-remove → remove+appear; always `mark_creature_fully_sent` on appear
+- [x] Cast turn-dance: `after_creature_move` skips CASTING; Destination/Victim cast Rotate gated on `walk_timer_idle`
+- [x] Idle Rotate 0x6B spam: Attack then Rotate; suppress wire turn when Go pending (lesson 169)
+- [ ] Retest live: giant spider diagonals / run-turn-face / rock-soil feel after **server restart** (reload patched `items.otb`)
+- [ ] Follow-up: `SpellImpact::Field` still stub (poisonfield does not place fields)
+- [ ] Follow-up: Unmove→`!moveable` still 835 mismatches (offline patch similar to Unpass)
+
+## OTB-only item load (no objects.srv at runtime) — done
+- [x] Remove `overlay_*_from_objects_srv` from `pipeline.rs` + `sim_harness::load_items_db_for`
+- [x] Confirm grass/dirt/sand WAYPOINTS from patched OTB without srv
+- [x] Offline Unpass→`FLAG_BLOCK_SOLID` via `patch-otb-waypoints` (default + `--flags-only`)
+- [ ] Follow-up: DistUse has no OTB bit — offline DistUse content path (was srv overlay)
+
+## Terrain-weighted TW-1..TW-3 fixes (2026-07-13) — done
+- [x] TW-1 — `truncate_tshortway_go_queue` stops at cheb≤1 only; dist band via MaxSteps
+- [x] TW-2 — FillMap keeps `MinWaypoints=1000` when viewport has no positive wp
+- [x] TW-3 — dist budget `(cheb−td).max(0)`; empty truncate after reachable path = OK
+- [x] Rename `truncate_cipsoft_chase_queue` → `truncate_tshortway_go_queue`
+- [x] Tests + `rtk cargo test -p tfs-rust-core --lib`
+
+## Monster movement audit pass 4 — done
+- [x] P4-1 — cornered `Flee` (`SearchFlightField` fail) falls through to roam (`crnonpl.cc:2754-2759` → `:2902`)
+- [x] P4-2 — master-follow Manhattan bands: dist≤1→roam, dist==2 Wait-only, dist==3 Wait+Go (`crnonpl.cc:2760-2777`)
+- [x] P4-3 — after `IdleStimulus`, defer all fresh batches to armed wakeup, not only `Go`-fronted (`cract.cc:789-793`)
+- [x] P4-4 — remove `flee_opening_melee_dance_done` / X3 (no decompile support; `IsFleeing` checked first)
+- [x] Tests + `rtk cargo test -p tfs-rust-core --lib` (622 passed)
+- [ ] P4-5 deferred VERIFY — `ATTACKING` promotion gate vs `Skills[FIST]>0` (`crnonpl.cc:2779`)
+- [ ] P4-6 INFO — per-type `targetDistance` vs decompile literal 4 (intentional TFS domain)
+
+## Scheduler parity fixes (audit pass 2–3) — done
+- [x] Dist: no-op `monster_on_follow_creature_moved` mid-batch wipe (`crmain.cc:920` CLOSE-only)
+- [x] Wait: `CreatureAction::Wait { deadline_ms }` absolute at enqueue (`cract.cc:1033`)
+- [x] LockToDo: set on ToDoStart, hold until batch drain / ToDoClear (`cract.cc:1010`)
+- [x] Tests: dist mid-walk_queue + Wait absolute + full `tfs-rust-core --lib` green
+
 ## Monster combat E0 — runtime combat data on `Monster` — done
 - [x] `creature/monster_combat.rs`: `MonsterSpell`, `SpellShape`, `SpellImpact`, `combat_from_monster_type`
 - [x] Extend `MonsterAiConfig` + `Monster`; `from_monster_type`; wire `spawn_monster`

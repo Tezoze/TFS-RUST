@@ -38,8 +38,9 @@ pub const DEFAULT_TERRAIN_WAYPOINTS: u32 = 150;
 
 /// Effective per-tile waypoint for `TShortway` — OTB `ITEM_ATTR_SPEED` / 772 `WAYPOINTS`.
 ///
-/// `0` (missing OTB speed) maps to [`DEFAULT_TERRAIN_WAYPOINTS`], not `1`. C++ reference:
-/// `cract.cc` `TShortway::FillMap`, `NotifyGo` (`WAYPOINTS`).
+/// `0` (missing OTB speed) maps to [`DEFAULT_TERRAIN_WAYPOINTS`], not `1`. Matches
+/// `NotifyGo` / `ground_speed_for_item` and passable FillMap defaults (`fillmap_terrain_waypoints_at`).
+/// Unpass grounds are excluded before this helper (FillMap / MovePossible).
 #[inline]
 pub fn effective_terrain_waypoints(raw: u32) -> u32 {
     if raw == 0 {
@@ -671,9 +672,8 @@ where
         }
     }
 
-    if min_waypoints == FILLMAP_MIN_WAYPOINTS_SEED {
-        min_waypoints = DEFAULT_TERRAIN_WAYPOINTS;
-    }
+    // C++ leaves `MinWaypoints = 1000` when no positive tile was scanned (`cract.cc:81`).
+    // Do not substitute `DEFAULT_TERRAIN_WAYPOINTS` (150) — that is NotifyGo / ground_speed only.
 
     let mut search = TShortwaySearch {
         origin: start,
@@ -1227,16 +1227,17 @@ fn walk_queue_direction(from: Position, to: Position) -> Direction {
     }
 }
 
-/// 772 `TShortway::Calculate` queue trim — `cract.cc:241-258`.
+/// 772 `TShortway::Calculate` Go-queue trim — `cract.cc:282-301`.
 ///
-/// `stop_at_cheb`: melee uses `1`; keep-distance dist chase uses per-type `target_distance`.
-pub fn truncate_cipsoft_chase_queue(
+/// Stops when `MaxSteps` is exhausted, or when `!MustReach && Chebyshev ≤ 1`
+/// (`CurDistance > 1` in C++). Dist keep-band is **not** encoded here — callers
+/// pass `MaxSteps = Distance − target_distance` (`crnonpl.cc` dist chase).
+pub fn truncate_tshortway_go_queue(
     start: Position,
     target: Position,
     mut walk_order: Vec<Direction>,
     max_steps: usize,
     must_reach: bool,
-    stop_at_cheb: i32,
 ) -> Vec<Direction> {
     let mut cur_distance = chebyshev_dist(start, target);
     let mut out = Vec::new();
@@ -1247,7 +1248,8 @@ pub fn truncate_cipsoft_chase_queue(
         if remaining == 0 {
             break;
         }
-        if !must_reach && cur_distance <= stop_at_cheb {
+        // C++ `MustReach || CurDistance > 1` — always adjacent stop, never a keep-band.
+        if !must_reach && cur_distance <= 1 {
             break;
         }
         out.push(d);

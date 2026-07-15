@@ -60,12 +60,9 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         map_future
     );
 
-    let mut items = items_res.unwrap()?;
-    // 772 `objects.srv` overlays — `DistUse` flag (`enums.hh:215`) and `Waypoints` speed.
-    if let Some(objects_srv) = crate::objects_srv::resolve_objects_srv_path() {
-        let _ = crate::objects_srv::overlay_distuse_from_objects_srv(&mut items.items, &objects_srv);
-        let _ = crate::objects_srv::overlay_otb_speeds_from_objects_srv(&mut items.items, &objects_srv);
-    }
+    let items = items_res.unwrap()?;
+    // Waypoints / DistUse live in patched `items.otb` only — never load `objects.srv` at runtime.
+    // Offline: `cargo run -p tfs-rust-content --bin patch-otb-waypoints`
     let items_for_monsters = items.clone();
     let monsters_future = tokio::task::spawn_blocking(move || {
         MonsterDatabase::load_dir(&monsters_dir, &items_for_monsters)
