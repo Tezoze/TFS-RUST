@@ -590,15 +590,19 @@ impl GameWorld {
         );
     }
 
-    /// Reverse wire-id → `CreatureId` lookup. Players use `guid`; monsters/NPCs use the low 32
-    /// bits of the SlotMap key (`non_player_wire_id`).
+    /// Reverse wire-id → `CreatureId` lookup. Players use `guid`; monsters/NPCs use
+    /// the auto-incrementing `wire_id` assigned at spawn (C++ `Monster::setID`).
     pub(crate) fn creature_by_wire_id(&self, wire_id: u32) -> Option<CreatureId> {
         if let Some(cid) = self.player_by_guid.get(&wire_id) {
             return Some(*cid);
         }
         self.creatures.iter().find_map(|(cid, k)| match k {
-            CreatureKind::Monster(_) | CreatureKind::Npc(_) => {
-                let native = (cid.data().as_ffi() & 0xFFFF_FFFF) as u32;
+            CreatureKind::Monster(m) => {
+                let native = if m.wire_id != 0 { m.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 };
+                (native == wire_id).then_some(cid)
+            }
+            CreatureKind::Npc(n) => {
+                let native = if n.wire_id != 0 { n.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 };
                 (native == wire_id).then_some(cid)
             }
             _ => None,

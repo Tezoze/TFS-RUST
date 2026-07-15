@@ -1281,6 +1281,7 @@ mod look_tests {
             .insert(CreatureKind::Npc(crate::creature::Npc {
                 base: creature_base_named("Leeland", pos),
                 npc_type_id: 0,
+                wire_id: 0,
             }));
         let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
         let msg = world.player_look_description(viewer_cid, npc_cid);

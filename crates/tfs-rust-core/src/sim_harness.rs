@@ -974,6 +974,7 @@ pub fn insert_monster_with_config(
         .insert(CreatureKind::Monster(Monster::with_config(
             base, pos, config,
         )));
+    crate::login_out::assign_creature_wire_id(world, cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid
@@ -1036,6 +1037,7 @@ pub fn insert_monster_from_type(
         .insert(CreatureKind::Monster(Monster::with_config(
             base, pos, config,
         )));
+    crate::login_out::assign_creature_wire_id(world, cid);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
         m.experience = mtype.experience;
         m.corpse_id = mtype.outfit.corpse_id;
@@ -1126,7 +1128,9 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
     let cid = world.creatures.insert(CreatureKind::Npc(Npc {
         base,
         npc_type_id: 0,
+        wire_id: 0,
     }));
+    crate::login_out::assign_creature_wire_id(world, cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid

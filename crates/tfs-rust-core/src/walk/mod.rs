@@ -1082,20 +1082,16 @@ impl GameWorld {
             let can_see_new = self.can_see_position(viewer, new_pos);
 
             if can_see_old && can_see_new {
-                if z_changed && surface_to_underground {
+                // C++ `sendMoveCreature` spectator branch (`protocolgame.cpp:1830-1849`):
+                // remove+appear only for teleport, surface→underground (z7→z8+), or
+                // stackpos >= 10. Otherwise ALWAYS 0x6D — no "fully_sent" gate. The
+                // previous `!fully_sent` branch sent 0x6C+0x6A, which recreated the
+                // creature sprite and made name/HP bars blink on every step.
+                if z_changed && surface_to_underground || old_stack >= 10 {
                     self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                 } else if let Some(pkt) = &move_packet {
-                    // TVP always sends 0x6D when both tiles are visible (`protocolgame.cpp:1837`).
-                    // Appearing on the new tile *without* removing the old one (previous
-                    // `!fully_sent` branch) left a ghost sprite / made name+HP bars blink.
-                    // If the client never got a full AddCreature, remove+appear instead.
-                    if self.is_creature_fully_sent_to_conn(conn, wire_id) {
-                        self.enqueue_outgoing(conn, pkt.clone());
-                    } else {
-                        self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
-                        self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
-                    }
+                    self.enqueue_outgoing(conn, pkt.clone());
                 }
             } else if can_see_old {
                 self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
@@ -2510,10 +2506,12 @@ mod monster_walk_tests {
         );
     }
 
-    /// Both-visible spectator move without a prior full AddCreature must not orphan-appear
-    /// (name/HP bar flicker). Remove old tile then appear, or prefer 0x6D once fully sent.
+    /// Both-visible spectator move must always use 0x6D (never 0x6C+0x6A), matching
+    /// C++ `sendMoveCreature` spectator branch (`protocolgame.cpp:1830-1849`). The
+    /// previous `!fully_sent` branch sent remove+appear, recreating the creature
+    /// sprite and making name/HP bars blink on every step.
     #[test]
-    fn spectator_move_without_fully_sent_removes_before_appear() {
+    fn spectator_move_both_visible_always_uses_0x6d() {
         let mut world = support::minimal_world();
         let spectator_pos = Position::new(100, 100, 7);
         let monster_start = Position::new(100, 101, 7);
@@ -2530,7 +2528,8 @@ mod monster_walk_tests {
             support::test_player("Spectator2", spectator_pos),
         );
         let monster = support::insert_monster(&mut world, "Rat", monster_start, 200);
-        // Deliberately do NOT mark fully_sent — regression for appear-without-remove.
+        // Deliberately do NOT mark fully_sent — 0x6D must still be sent (C++ has no
+        // fully_sent gate; the client always knows about visible creatures).
 
         world.creature_queue_walk_step(monster, Direction::East);
         for _ in 0..32 {
@@ -2550,24 +2549,52 @@ mod monster_walk_tests {
             .iter()
             .filter_map(|p| p.first().copied())
             .collect();
-        // 0x6C = remove tile thing, 0x6A = add tile creature (772 appear).
-        let remove_idx = opcodes.iter().position(|&o| o == 0x6C || o == 0x6D);
-        let appear_idx = opcodes.iter().position(|&o| o == 0x6A);
+        // C++ always sends 0x6D for both-visible non-teleport moves — no 0x6A appear,
+        // no 0x6C remove. A 0x6A would recreate the sprite and blink the HP bar/name.
         assert!(
-            remove_idx.is_some() || opcodes.iter().any(|&o| o == 0x6D),
-            "expected remove (0x6C) + appear (0x6A) or a 0x6D move, got {opcodes:?}"
+            opcodes.iter().any(|&o| o == 0x6D),
+            "expected 0x6D move for both-visible spectator, got {opcodes:?}"
         );
-        if let (Some(r), Some(a)) = (remove_idx, appear_idx) {
-            assert!(
-                r < a || opcodes.iter().any(|&o| o == 0x6D),
-                "remove must precede appear when both-visible !fully_sent, got {opcodes:?}"
-            );
-        }
-        // After the fallback path, creature must be fully sent so the next step uses 0x6D.
-        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
         assert!(
-            world.is_creature_fully_sent_to_conn(conn, wire_id),
-            "appear path must mark fully_sent"
+            !opcodes.iter().any(|&o| o == 0x6A),
+            "0x6A appear must not be sent for both-visible move (causes blink), got {opcodes:?}"
+        );
+    }
+
+    /// Wire ids must be auto-incrementing and never reused (C++ `Monster::setID`,
+    /// `monster.h:43-46`). When a monster dies and a new monster spawns at the same
+    /// SlotMap slot, they must have different wire ids — otherwise the client caches
+    /// the dead creature's outfit under the shared id and shows a stale sprite
+    /// (the "dragon skeleton" bug: dead dragon → respawned skeleton at same slot →
+    /// client shows dragon sprite with no name/HP).
+    #[test]
+    fn monster_wire_ids_never_reuse_after_slot_recycle() {
+        use crate::login_out::creature_wire_id;
+        let mut world = support::minimal_world();
+        let pos = Position::new(100, 100, 7);
+        support::ensure_walkable_tile(&mut world.map, pos, 2148);
+
+        let dragon = support::insert_monster(&mut world, "Dragon", pos, 200);
+        let dragon_wire = creature_wire_id(dragon, world.creatures.get(dragon).unwrap());
+        assert!(
+            dragon_wire >= 0x4000_0000,
+            "monster wire id must start at 0x40000000 (C++ monsterAutoID), got {dragon_wire:#x}"
+        );
+
+        // Kill the dragon — frees the SlotMap slot for reuse.
+        world.remove_creature(dragon);
+
+        // Spawn a skeleton — may reuse the same SlotMap slot.
+        let skeleton = support::insert_monster(&mut world, "Skeleton", pos, 200);
+        let skeleton_wire = creature_wire_id(skeleton, world.creatures.get(skeleton).unwrap());
+
+        assert_ne!(
+            dragon_wire, skeleton_wire,
+            "wire ids must not collide when SlotMap slots are recycled"
+        );
+        assert!(
+            skeleton_wire >= 0x4000_0000,
+            "skeleton wire id must also be in monster range, got {skeleton_wire:#x}"
         );
     }
 

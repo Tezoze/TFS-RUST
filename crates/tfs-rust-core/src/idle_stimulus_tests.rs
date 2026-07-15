@@ -4479,10 +4479,7 @@ fn test_attack_override_clears_pending_walk_and_snapbacks() {
     let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
     let target = insert_monster(&mut world, "Rat", tpos, 200);
-    let wire_id = {
-        use slotmap::Key;
-        (target.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     // Player starts an autowalk — pending `Go` + queued step directions.
     let now = std::time::Instant::now();
@@ -4541,10 +4538,7 @@ fn test_phase1_player_attack_sets_target_and_enqueues() {
     let target = insert_monster(&mut world, "Rat", tpos, 200);
 
     // Resolve the target's wire id (non-player: low 32 bits of SlotMap key).
-    let wire_id = {
-        use slotmap::Key;
-        (target.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     world.player_set_attack_dest(conn, player, wire_id, false);
 
@@ -4570,14 +4564,8 @@ fn test_player_swap_target_mid_attack_cooldown() {
     let target_a = insert_monster(&mut world, "RatA", tpos_a, 200);
     let target_b = insert_monster(&mut world, "RatB", tpos_b, 200);
 
-    let wire_id_a = {
-        use slotmap::Key;
-        (target_a.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
-    let wire_id_b = {
-        use slotmap::Key;
-        (target_b.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id_a = creature_wire_id(target_a, world.creatures.get(target_a).unwrap());
+    let wire_id_b = creature_wire_id(target_b, world.creatures.get(target_b).unwrap());
 
     // Start attacking target A.
     world.player_set_attack_dest(conn, player, wire_id_a, false);
@@ -4618,10 +4606,7 @@ fn test_player_walk_while_attacking_re_arms_attack() {
     let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
     let target = insert_monster(&mut world, "Rat", tpos, 200);
-    let wire_id = {
-        use slotmap::Key;
-        (target.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     // Start attacking.
     world.player_set_attack_dest(conn, player, wire_id, false);
@@ -4689,10 +4674,7 @@ fn test_phase1_player_follow_sets_follow_and_close_chase() {
     let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
     let target = insert_monster(&mut world, "Rat", tpos, 200);
-    let wire_id = {
-        use slotmap::Key;
-        (target.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     world.player_set_attack_dest(conn, player, wire_id, true);
 
@@ -4716,10 +4698,7 @@ fn test_phase1_player_cancel_clears_target_and_sends_clear_target() {
     let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
     let target = insert_monster(&mut world, "Rat", tpos, 200);
-    let wire_id = {
-        use slotmap::Key;
-        (target.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     world.player_set_attack_dest(conn, player, wire_id, false);
     assert!(world
@@ -4913,10 +4892,7 @@ fn test_phase1_player_stop_attack_sends_clear_target() {
     let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
     let target = insert_monster(&mut world, "Rat", tpos, 200);
-    let wire_id = {
-        use slotmap::Key;
-        (target.data().as_ffi() & 0xFFFF_FFFF) as u32
-    };
+    let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     world.player_set_attack_dest(conn, player, wire_id, false);
     world.pending_outgoing.clear();

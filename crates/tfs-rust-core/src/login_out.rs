@@ -70,11 +70,43 @@ fn non_player_wire_id(cid: CreatureId) -> u32 {
     (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
 }
 
+/// C++ `Monster::setID` — assigns an auto-incrementing wire id to a newly-inserted
+/// monster or npc (`monster.h:43-46`, `monster.cpp:18`). Must be called immediately
+/// after `creatures.insert(CreatureKind::Monster(...))` / `Npc(...)`. The id starts
+/// at `0x40000000` and never wraps or reuses, preventing wire-id collisions when
+/// SlotMap slots are recycled (the root cause of the "dead dragon sprite shows for
+/// respawned skeleton" bug — the client caches outfit/name by wire id).
+pub(crate) fn assign_creature_wire_id(world: &mut GameWorld, cid: CreatureId) {
+    let id = world.next_monster_wire_id;
+    world.next_monster_wire_id = world.next_monster_wire_id.wrapping_add(1);
+    match world.creatures.get_mut(cid) {
+        Some(CreatureKind::Monster(m)) => m.wire_id = id,
+        Some(CreatureKind::Npc(n)) => n.wire_id = id,
+        _ => {}
+    }
+}
+
 /// Protocol creature id for move/turn packets (`protocolgame.cpp` `sendMoveCreature`).
+/// Players use `guid`; monsters/npcs use the auto-incrementing `wire_id` assigned at
+/// spawn (C++ `Monster::setID`, `monster.h:43-46`). Falls back to the SlotMap idx for
+/// unassigned ids (test harness monsters that skip `assign_creature_wire_id`).
 pub(crate) fn creature_wire_id(cid: CreatureId, kind: &CreatureKind) -> u32 {
     match kind {
         CreatureKind::Player(p) => p.guid,
-        CreatureKind::Monster(_) | CreatureKind::Npc(_) => non_player_wire_id(cid),
+        CreatureKind::Monster(m) => {
+            if m.wire_id != 0 {
+                m.wire_id
+            } else {
+                non_player_wire_id(cid)
+            }
+        }
+        CreatureKind::Npc(n) => {
+            if n.wire_id != 0 {
+                n.wire_id
+            } else {
+                non_player_wire_id(cid)
+            }
+        }
     }
 }
 
@@ -146,7 +178,7 @@ fn monster_to_add_creature_wire(
     mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
     AddCreatureWire {
-        id: non_player_wire_id(cid),
+        id: if m.wire_id != 0 { m.wire_id } else { non_player_wire_id(cid) },
         remove_known: 0,
         known: false,
         creature_type: 1,
@@ -173,7 +205,7 @@ fn npc_to_add_creature_wire(
     mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
     AddCreatureWire {
-        id: non_player_wire_id(cid),
+        id: if n.wire_id != 0 { n.wire_id } else { non_player_wire_id(cid) },
         remove_known: 0,
         known: false,
         creature_type: 2,

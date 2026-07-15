@@ -639,8 +639,11 @@ impl GameWorld {
         for (cid, k) in self.creatures.iter() {
             let wire_id = match k {
                 CreatureKind::Player(p) => p.guid,
-                CreatureKind::Monster(_) | CreatureKind::Npc(_) => {
-                    (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
+                CreatureKind::Monster(m) => {
+                    if m.wire_id != 0 { m.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 }
+                }
+                CreatureKind::Npc(n) => {
+                    if n.wire_id != 0 { n.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 }
                 }
             };
             if wire_id != target_protocol_id {

@@ -8,6 +8,9 @@ use crate::ids::CreatureId;
 pub struct Npc {
     pub base: CreatureBase,
     pub npc_type_id: u32,
+    /// Auto-incrementing wire id (same scheme as `Monster::wire_id`).
+    /// C++ `Npc::setID` uses the same `monsterAutoID` counter (`monster.h:168`).
+    pub wire_id: u32,
 }
 
 /// Hooks for NPC Lua — implemented by `tfs-rust-lua` later; core stays trait-only.

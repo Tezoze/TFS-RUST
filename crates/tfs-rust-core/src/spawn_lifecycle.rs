@@ -306,6 +306,7 @@ impl GameWorld {
             .insert(CreatureKind::Monster(Monster::with_config(
                 base, spawn_pos, ai_config,
             )));
+        crate::login_out::assign_creature_wire_id(self, cid);
         // CipSoft `TMonsterhome::Radius` — per-home roam leash (`crnonpl.cc:2157`). Carried from the
         // spawn zone radius; ≤0 (TVP `-1` / no radius) falls back to the global despawn radius.
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
@@ -430,7 +431,9 @@ impl GameWorld {
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {
             base,
             npc_type_id: 0,
+            wire_id: 0,
         }));
+        crate::login_out::assign_creature_wire_id(self, cid);
 
         let placed = self.place_spawn_creature(
             cid,

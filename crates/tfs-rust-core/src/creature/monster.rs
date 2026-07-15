@@ -253,6 +253,12 @@ pub struct Monster {
     pub opponent_ids: Vec<CreatureId>,
     /// C++ `Monster::friendList`.
     pub friend_ids: Vec<CreatureId>,
+    /// C++ `Monster::setID` — auto-incrementing wire id starting at `0x40000000`
+    /// (`monster.h:43-46`, `monster.cpp:18`). Never reused across spawns, preventing
+    /// wire-id collisions when SlotMap slots are recycled (dead dragon → new skeleton
+    /// at the same slot would share a wire-id without this, making the client show the
+    /// stale dragon sprite with no name/HP bar).
+    pub wire_id: u32,
 }
 
 impl Monster {
@@ -311,6 +317,7 @@ impl Monster {
             challenge_focus_duration: 0,
             opponent_ids: Vec::new(),
             friend_ids: Vec::new(),
+            wire_id: 0,
         }
     }
 
