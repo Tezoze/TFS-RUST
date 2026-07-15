@@ -4,6 +4,7 @@ use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::sim_harness::{
     beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player, test_player,
 };
+use tfs_rust_common::enums::Direction;
 
 fn kicker_config() -> MonsterAiConfig {
     MonsterAiConfig {
@@ -1016,5 +1017,117 @@ fn f2_dense_convoy_fluid() {
         unique.len(),
         positions_after.len(),
         "all monsters must be on distinct tiles (no stacking)"
+    );
+}
+
+/// A kicked monster mid-step must have its queued walk rejected on the next `on_walk`
+/// via the absolute-destination adjacency check — matching the decompile's lazy
+/// displacement detection.
+///
+/// C++ `KickCreature` → `::Move` relocates the creature but does NOT clear its ToDoList
+/// (`operate.cc:1403-1446`). The displacement is detected on the next `Execute` when
+/// `Go(oldDestX, oldDestY, oldDestZ)` checks `Distance > 1` (`cract.cc:386-389`) →
+/// `throw NOTACCESSIBLE` → `ToDoClear + ToDoYield` (`cract.cc:870-877`). The Rust now
+/// tracks absolute destinations in `walk_destinations` for monsters too (matching C++
+/// TDGo absolute coordinates), so `on_walk` detects the displacement via the same
+/// adjacency check as players and triggers `on_walk_step_rejected`.
+#[test]
+fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
+    let mut world = beat_driven_world();
+    let now = std::time::Instant::now();
+
+    let mpos = Position::new(100, 100, 7);
+    let bpos = Position::new(101, 100, 7);
+    let escape = Position::new(101, 99, 7); // N escape tile for the kick
+    let tpos = Position::new(105, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, 1);
+    ensure_walkable_tile(&mut world.map, bpos, 1);
+    ensure_walkable_tile(&mut world.map, escape, 1);
+    ensure_walkable_tile(&mut world.map, tpos, 1);
+
+    let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+    let blocker =
+        insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+    world.map.register_creature_at(bpos, blocker);
+    let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+        m.state = MonsterState::Attacking;
+        m.base.attack_target = Some(target);
+        m.base.follow_target = Some(target);
+    }
+
+    // Pre-load the blocker's walk_queue + walk_destinations (simulating mid-step state).
+    // The blocker is at (101,100,7) with a South step queued → destination (101,101,7).
+    // After being kicked north to (101,99,7), the destination (101,101,7) is
+    // dx=0, dy=2 → Chebyshev=2 > 1 → NOTACCESSIBLE. That triggers the adjacency check.
+    //
+    // Set the blocker to non-sleeping (Idle + is_idle=false) with a pre-existing opponent
+    // so the self-move stimulus (`monster_on_creature_move(self,self)`) doesn't re-evaluate
+    // idle status and clear walk_queue. The decompile's `CreatureMoveStimulus(self,self)`
+    // only sets `State = IDLE` + `ToDoYield()` for sleeping monsters — it does NOT call
+    // `updateTargetList` or `updateIdleStatus` (those are Rust additions that diverge from
+    // the decompile). With an opponent listed, `monster_update_idle_status` computes
+    // `idle=false` → no walk_queue clear.
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(blocker) {
+        m.state = MonsterState::Idle;
+        m.is_idle = false;
+        m.opponent_ids.push(mover);
+        m.base.walk_queue.clear();
+        m.base.walk_destinations.clear();
+        m.base.walk_queue.push_back(Direction::South);
+        m.base.walk_destinations
+            .push_back(Position::new(101, 101, 7));
+        m.base.has_follow_path = true;
+        // Arm the walk timer so `on_walk` processes the step.
+        m.base.earliest_walk_server_ms = 0;
+        m.base.next_wakeup = Some(world.server_ms + 1);
+    }
+
+    let outcome = world.monster_push_before_step(mover, bpos, now);
+    assert_eq!(outcome, MonsterKickOutcome::Proceed);
+
+    // Blocker was kicked to the escape tile (north).
+    assert_eq!(
+        world.creatures.get(blocker).map(|k| k.position()),
+        Some(escape),
+        "blocker must be relocated to the escape tile"
+    );
+
+    // C++ does NOT clear the ToDoList on kick — the walk_queue is still intact.
+    let base = world
+        .creatures
+        .get(blocker)
+        .map(|k| k.base())
+        .expect("blocker must still exist");
+    assert!(
+        !base.walk_queue.is_empty(),
+        "walk_queue must NOT be cleared by the kick (decompile ::Move doesn't clear ToDoList)"
+    );
+
+    // Now trigger `on_walk` — the adjacency check detects the displacement.
+    // Destination (101,101,7) vs current (101,99,7): dy=2 → Chebyshev=2 > 1 → NOTACCESSIBLE.
+    world.on_walk(blocker, false, now, None);
+
+    // After `on_walk_step_rejected`, the walk state is cleared (ToDoClear + ToDoYield).
+    let base = world
+        .creatures
+        .get(blocker)
+        .map(|k| k.base())
+        .expect("blocker must still exist");
+    assert!(
+        base.walk_queue.is_empty(),
+        "walk_queue must be cleared after on_walk_step_rejected (decompile ToDoClear)"
+    );
+    assert!(
+        base.walk_destinations.is_empty(),
+        "walk_destinations must be cleared after on_walk_step_rejected"
+    );
+    assert!(
+        !base.has_follow_path,
+        "has_follow_path must be false after rejection"
+    );
+    assert!(
+        base.force_update_follow_path,
+        "force_update_follow_path must be true for replan (monster)"
     );
 }

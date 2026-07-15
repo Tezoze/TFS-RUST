@@ -780,6 +780,7 @@ impl GameWorld {
             base.clear_targets();
             base.has_follow_path = false;
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             base.force_update_follow_path = false;
         }
     }
@@ -808,7 +809,9 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 let base = k.base_mut();
                 base.walk_queue.clear();
+                base.walk_destinations.clear();
                 base.walk_queue.push_back(dir);
+                base.walk_destinations.push_back(dest);
                 base.has_follow_path = false;
                 base.force_update_follow_path = false;
             }
@@ -864,7 +867,9 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             base.walk_queue.push_back(dir);
+            base.walk_destinations.push_back(dest);
             base.has_follow_path = true;
             base.force_update_follow_path = false;
         }
@@ -1208,8 +1213,10 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             if let Some(step) = dir {
                 base.walk_queue.push_back(step);
+                base.walk_destinations.push_back(dest);
             }
             base.has_follow_path = true;
             base.force_update_follow_path = false;
@@ -1368,9 +1375,24 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 let base = k.base_mut();
                 base.walk_queue.clear();
+                base.walk_destinations.clear();
                 // `listWalkDir` — `getNextStep` pops from the back (`creature.cpp`).
+                // Accumulate absolute destinations in execution order (matching C++ TDGo
+                // absolute coords — `cract.cc:286-288`), then push in reverse so `pop_back`
+                // on both queues stays in sync.
+                let mut acc = pos;
+                let dests: Vec<Position> = steps
+                    .iter()
+                    .map(|&d| {
+                        acc = acc.offset(d);
+                        acc
+                    })
+                    .collect();
                 for d in steps.iter().rev() {
                     base.walk_queue.push_back(*d);
+                }
+                for dest in dests.iter().rev() {
+                    base.walk_destinations.push_back(*dest);
                 }
                 base.has_follow_path = true;
             }
@@ -1621,9 +1643,26 @@ impl GameWorld {
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.walking_to_spawn = true;
             m.base.walk_queue.clear();
+            m.base.walk_destinations.clear();
             if let Some(path) = path {
-                for d in path {
-                    m.base.walk_queue.push_back(d);
+                // `get_creature_path_to` returns forward execution order (first step first).
+                // `walk_queue` uses `push_back` + `pop_back` (LIFO), so push in reverse to
+                // make `pop_back` yield the first step. Accumulate absolute destinations
+                // in execution order (matching C++ TDGo — `cract.cc:286-288`), then push
+                // both in reverse so `pop_back` on each queue stays in sync.
+                let mut acc = pos;
+                let dests: Vec<Position> = path
+                    .iter()
+                    .map(|&d| {
+                        acc = acc.offset(d);
+                        acc
+                    })
+                    .collect();
+                for d in path.iter().rev() {
+                    m.base.walk_queue.push_back(*d);
+                }
+                for dest in dests.iter().rev() {
+                    m.base.walk_destinations.push_back(*dest);
                 }
             }
             m.base.has_follow_path = true;

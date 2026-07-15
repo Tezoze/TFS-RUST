@@ -316,6 +316,11 @@ impl GameWorld {
             Some(CreatureKind::Monster(m)) => !m.base.is_summon() && m.opponent_ids.is_empty(),
             _ => return,
         };
+        let (is_idle, state, wq) = self.creatures.get(cid).map(|k| {
+            let CreatureKind::Monster(m) = k else { return (false, MonsterState::Idle, 999u32); };
+            (m.is_idle, m.state, m.base.walk_queue.len() as u32)
+        }).unwrap_or((false, MonsterState::Idle, 999));
+        eprintln!("DEBUG update_idle_status: idle={idle} is_idle={is_idle} state={state:?} wq={wq}");
         self.monster_set_idle(cid, idle);
     }
 
@@ -345,6 +350,7 @@ impl GameWorld {
                 m.base.clear_targets();
                 m.base.has_follow_path = false;
                 m.base.walk_queue.clear();
+                m.base.walk_destinations.clear();
             }
             idle
         };
@@ -667,6 +673,7 @@ impl GameWorld {
             let base = k.base_mut();
             if !base.walk_queue.is_empty() {
                 base.walk_queue.clear();
+                base.walk_destinations.clear();
             }
             base.has_follow_path = false;
             base.force_update_follow_path = false;

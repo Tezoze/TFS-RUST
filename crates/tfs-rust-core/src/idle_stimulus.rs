@@ -214,6 +214,7 @@ impl GameWorld {
                 base.clear_targets(); // player-tile only (`crnonpl.cc:2237`)
             }
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             base.has_follow_path = false;
             base.force_update_follow_path = true;
             base.todo.queue.clear();
@@ -3130,6 +3131,7 @@ impl GameWorld {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     let base = k.base_mut();
                     base.walk_queue.clear();
+                    base.walk_destinations.clear();
                     base.has_follow_path = false;
                 }
                 self.creature_todo_release_lock_if_drained(cid);

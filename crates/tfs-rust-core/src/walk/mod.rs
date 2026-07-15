@@ -47,7 +47,7 @@ use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
 use crate::login_out::{creature_wire_id, map_tile_content};
 use crate::return_value::ReturnValue;
-use crate::tile::client_creature_stack_pos;
+use crate::tile::{client_creature_stack_pos, creature_stack_pos_for_viewer};
 use tfs_rust_common::ConnId;
 
 /// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
@@ -1041,7 +1041,7 @@ impl GameWorld {
         mover: CreatureId,
         old_pos: Position,
         new_pos: Position,
-        old_stack: i32,
+        old_creatures: &[CreatureId],
     ) {
         let wire_id = match self.creatures.get(mover) {
             Some(k) => creature_wire_id(mover, k),
@@ -1071,30 +1071,68 @@ impl GameWorld {
             })
             .collect();
 
-        // TVP always sends 0x6D for spectators (non-teleport, non-z7→z8, both visible),
-        // using the 0xFFFF + creatureID fallback for stack >= 10 (`protocolgame.cpp:1837-1848`).
-        let move_packet =
-            send_move_creature_spectator(&self.codec, old_pos, new_pos, old_stack, wire_id)
-                .map(|m| m.into_bytes());
+        // C++ `Map::moveCreature` captures per-viewer `oldStackPos` BEFORE removing the
+        // creature from the old tile (`map.cpp:292-301`), and `Tile::getClientIndexOfCreature`
+        // only counts creatures the viewer can see (`tile.cpp:1207-1214`). The ground and
+        // top_items counts don't change during a creature move, so we read them from the old
+        // tile after the move (the creature has been removed, but ground/top_items are intact).
+        let (ground_present, top_item_count) = self
+            .map
+            .get_tile(old_pos)
+            .map(|t| (t.body().ground.is_some(), t.body().top_items.len()))
+            .unwrap_or((true, 0));
 
-        for (conn, viewer) in spectators {
-            let can_see_old = self.can_see_position(viewer, old_pos);
-            let can_see_new = self.can_see_position(viewer, new_pos);
+        // First pass: compute per-viewer data using only `&self` borrows.
+        // C++ `map.cpp:295` — `tmpPlayer->canSeeCreature(&creature)` gates the entire
+        // packet: viewers who can't see the moving creature (invisible/ghost) get no
+        // move packet at all (stackpos = -1).
+        let viewer_data: Vec<(ConnId, CreatureId, i32, bool, bool)> = spectators
+            .into_iter()
+            .filter_map(|(conn, viewer)| {
+                if !self.can_see_creature(viewer, mover) {
+                    return None;
+                }
+                let viewer_stack = creature_stack_pos_for_viewer(
+                    ground_present,
+                    top_item_count,
+                    old_creatures,
+                    mover,
+                    |c| self.can_see_creature(viewer, c),
+                );
+                let can_see_old = self.can_see_position(viewer, old_pos);
+                let can_see_new = self.can_see_position(viewer, new_pos);
+                Some((conn, viewer, viewer_stack, can_see_old, can_see_new))
+            })
+            .collect();
 
+        // Second pass: send packets (`&mut self` borrows).
+        for (conn, viewer, viewer_stack, can_see_old, can_see_new) in viewer_data {
             if can_see_old && can_see_new {
                 // C++ `sendMoveCreature` spectator branch (`protocolgame.cpp:1830-1849`):
                 // remove+appear only for teleport, surface→underground (z7→z8+), or
                 // stackpos >= 10. Otherwise ALWAYS 0x6D — no "fully_sent" gate. The
                 // previous `!fully_sent` branch sent 0x6C+0x6A, which recreated the
                 // creature sprite and made name/HP bars blink on every step.
-                if z_changed && surface_to_underground || old_stack >= 10 {
-                    self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
+                if z_changed && surface_to_underground || viewer_stack >= 10 {
+                    self.send_creature_remove_to_conn(conn, mover, old_pos, viewer_stack);
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
-                } else if let Some(pkt) = &move_packet {
-                    self.enqueue_outgoing(conn, pkt.clone());
+                } else {
+                    // Per-viewer 0x6D — stack position may differ between viewers when
+                    // invisible creatures are on the old tile (`tile.cpp:1207-1214`).
+                    let pkt = send_move_creature_spectator(
+                        &self.codec,
+                        old_pos,
+                        new_pos,
+                        viewer_stack,
+                        wire_id,
+                    )
+                    .map(|m| m.into_bytes());
+                    if let Some(pkt) = pkt {
+                        self.enqueue_outgoing(conn, pkt);
+                    }
                 }
             } else if can_see_old {
-                self.send_creature_remove_to_conn(conn, mover, old_pos, old_stack);
+                self.send_creature_remove_to_conn(conn, mover, old_pos, viewer_stack);
             } else if can_see_new {
                 self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
             }
@@ -1163,8 +1201,12 @@ impl GameWorld {
     #[allow(dead_code)]
     pub(crate) fn creature_queue_walk_step(&mut self, cid: CreatureId, direction: Direction) {
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().walk_queue.clear();
-            k.base_mut().walk_queue.push_back(direction);
+            let pos = k.base().position;
+            let base = k.base_mut();
+            base.walk_queue.clear();
+            base.walk_destinations.clear();
+            base.walk_queue.push_back(direction);
+            base.walk_destinations.push_back(pos.offset(direction));
         }
         self.add_event_walk(cid, true);
     }
@@ -1399,9 +1441,13 @@ impl GameWorld {
         let mut stopped_without_reschedule = false;
 
         if walk_delay <= 0 {
-            // Pop the next step direction. For players on the 772 beat-driven path, also pop
-            // the parallel `walk_destinations` entry (absolute destination of this step) so the
-            // adjacency check below can verify it against the current position (audit #4).
+            // Pop the next step direction. For both players and monsters, also pop the
+            // parallel `walk_destinations` entry (absolute destination of this step) so the
+            // adjacency check below can verify it against the current position (audit #4,
+            // `cract.cc:386-389`). Monsters now track absolute destinations too — matching
+            // C++ TDGo absolute coordinates — so a mid-step kick displacement is detected
+            // on the next `on_walk` and triggers `on_walk_step_rejected` (the decompile's
+            // `Go` → `NOTACCESSIBLE` → `ToDoClear + ToDoYield` path, `cract.cc:870-877`).
             let (pop_dir, pop_dest) = if self
                 .creatures
                 .get(cid)
@@ -1412,11 +1458,16 @@ impl GameWorld {
                     .get(cid)
                     .is_some_and(|k| !k.base().walk_queue.is_empty())
                 {
-                    let dir = self
-                        .creatures
-                        .get_mut(cid)
-                        .and_then(|k| k.base_mut().walk_queue.pop_back());
-                    (dir, None)
+                    let mut dest = None;
+                    let dir = self.creatures.get_mut(cid).and_then(|k| {
+                        let base = k.base_mut();
+                        let d = base.walk_queue.pop_back();
+                        if d.is_some() {
+                            dest = base.walk_destinations.pop_back();
+                        }
+                        d
+                    });
+                    (dir, dest)
                 } else {
                     (self.monster_next_walk_step(cid, now), None)
                 }
@@ -1504,6 +1555,15 @@ impl GameWorld {
                     }
                     crate::monster_push::MonsterKickOutcome::Proceed => {}
                 }
+                // C++ `Map::moveCreature` captures per-viewer `oldStackPos` BEFORE removing
+                // the creature from the old tile (`map.cpp:292-301`). Snapshot the old tile's
+                // creature list now — `broadcast_spectator_move` needs it for per-viewer
+                // stack position computation (`Tile::getClientIndexOfCreature`).
+                let old_creatures = self
+                    .map
+                    .get_tile(old_pos)
+                    .map(|t| t.body().creatures.clone())
+                    .unwrap_or_default();
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
@@ -1569,9 +1629,9 @@ impl GameWorld {
                         }
                         // Broadcast to spectators using overall old→new for now.
                         // C++ broadcasts per moveCreature call, but the initial step is most
-                        // important for spectator rendering.
-                        let overall_old_stack = segments.first().map(|s| s.old_stack).unwrap_or(1);
-                        self.broadcast_spectator_move(cid, old_pos, new_pos, overall_old_stack);
+                        // important for spectator rendering. `old_creatures` was captured before
+                        // the move for per-viewer stack position computation.
+                        self.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
 
                         // Emit deferred chain turn `0x6B` AFTER move packets — matches C++ wire
                         // order: `Map::moveCreature` sends `sendMoveCreature` during the move

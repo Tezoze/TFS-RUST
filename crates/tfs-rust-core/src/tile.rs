@@ -377,19 +377,47 @@ where
     body.ground.map(LookTarget::Ground)
 }
 
-/// TFS `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
-// C++ reference: `src/tile.cpp` `Tile::getClientIndexOfCreature`.
-pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
-    // C++ `Tile::getClientIndexOfCreature` — only ground + top items count before creatures (`src/tile.cpp`).
-    let mut n: i32 = if body.ground.is_some() { 1 } else { 0 };
-    n += body.top_items.len() as i32;
-    for &c in body.creatures.iter().rev() {
+/// C++ `Tile::getClientIndexOfCreature` — viewer-aware stack position.
+///
+/// Only counts creatures the viewer can see (`player->canSeeCreature(c)`,
+/// `tile.cpp:1207-1214`). The `creatures` slice is the tile's creature list
+/// **before** the move (including the moving creature). Invisible creatures
+/// below the target are skipped in the count — matching the gameserver which
+/// gates each increment on `player->canSeeCreature(c)`.
+// C++ reference: `gameserver/src/tile.cpp` `Tile::getClientIndexOfCreature`.
+pub fn creature_stack_pos_for_viewer(
+    ground_present: bool,
+    top_item_count: usize,
+    creatures: &[CreatureId],
+    creature: CreatureId,
+    can_see: impl Fn(CreatureId) -> bool,
+) -> i32 {
+    let mut n: i32 = if ground_present { 1 } else { 0 };
+    n += top_item_count as i32;
+    for &c in creatures.iter().rev() {
         if c == creature {
             return n;
         }
-        n += 1;
+        if can_see(c) {
+            n += 1;
+        }
     }
     -1
+}
+
+/// TFS `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
+///
+/// Delegates to [`creature_stack_pos_for_viewer`] with `|_| true` — use the
+/// viewer-aware variant when invisible/ghost creatures may be on the tile.
+// C++ reference: `src/tile.cpp` `Tile::getClientIndexOfCreature`.
+pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
+    creature_stack_pos_for_viewer(
+        body.ground.is_some(),
+        body.top_items.len(),
+        &body.creatures,
+        creature,
+        |_| true,
+    )
 }
 
 #[cfg(test)]

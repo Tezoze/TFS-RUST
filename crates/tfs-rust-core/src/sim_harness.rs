@@ -1286,6 +1286,7 @@ fn harness_acquire_chase_target_without_idle(
         m.base.force_update_follow_path = false;
         if !m.base.walk_queue.is_empty() {
             m.base.walk_queue.clear();
+            m.base.walk_destinations.clear();
         }
     }
 }

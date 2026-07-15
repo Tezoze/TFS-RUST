@@ -145,9 +145,14 @@ impl GameWorld {
         }
 
         if creature_id == monster_id {
+            let wq0 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
+            let wq1 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.monster_update_target_list(monster_id);
+            let wq2 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
             self.monster_update_idle_status(monster_id);
+            let wq3 = self.creatures.get(monster_id).map(|k| k.base().walk_queue.len()).unwrap_or(999);
+            eprintln!("DEBUG on_creature_move(self): wq before={wq0} after_sleep_wake={wq1} after_target_list={wq2} after_idle_status={wq3}");
             return;
         }
 
@@ -351,6 +356,7 @@ impl GameWorld {
             base.todo.queue.clear();
             base.todo.locked = false;
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             base.has_follow_path = false;
             base.force_update_follow_path = true;
             base.next_wakeup = None;
@@ -437,6 +443,7 @@ impl GameWorld {
             let base = k.base_mut();
             base.todo.queue.clear();
             base.walk_queue.clear();
+            base.walk_destinations.clear();
             base.has_follow_path = false;
         }
         if !self.enqueue_creature_wait(monster_id, 200) {
