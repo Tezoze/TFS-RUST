@@ -6,8 +6,8 @@
 
 
 formulas = {
-  beatMs = 200,
-  stepBeatMs = 200,               -- TVP gameserver quantizer (wire reference); beat loop uses beatMs
+  beatMs = 50,                    -- 772 `.tibia` config sets Beat=50 (config.cc:187 overrides default 200)
+  stepBeatMs = 50,                -- TVP gameserver quantizer (wire reference); beat loop uses beatMs
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
   pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x

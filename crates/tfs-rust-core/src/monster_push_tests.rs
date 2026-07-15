@@ -1061,13 +1061,13 @@ fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
     // After being kicked north to (101,99,7), the destination (101,101,7) is
     // dx=0, dy=2 → Chebyshev=2 > 1 → NOTACCESSIBLE. That triggers the adjacency check.
     //
-    // Set the blocker to non-sleeping (Idle + is_idle=false) with a pre-existing opponent
-    // so the self-move stimulus (`monster_on_creature_move(self,self)`) doesn't re-evaluate
-    // idle status and clear walk_queue. The decompile's `CreatureMoveStimulus(self,self)`
-    // only sets `State = IDLE` + `ToDoYield()` for sleeping monsters — it does NOT call
-    // `updateTargetList` or `updateIdleStatus` (those are Rust additions that diverge from
-    // the decompile). With an opponent listed, `monster_update_idle_status` computes
-    // `idle=false` → no walk_queue clear.
+    // Set the blocker to non-sleeping (Idle + is_idle=false) with a pre-existing opponent.
+    // The self-move stimulus (`monster_on_creature_move(self,self)`) no longer re-evaluates
+    // idle status — the decompile's `CreatureMoveStimulus(self,self)` (`crnonpl.cc:2945-2952`)
+    // only sets `State = IDLE` + `ToDoYield()` for sleeping monsters and does NOT call
+    // `updateTargetList` / `updateIdleStatus`. The opponent is kept here only to model a
+    // realistic hostile-kick scenario; it is no longer required as a walk_queue-clear
+    // workaround (that divergence was fixed in `monster_events.rs`).
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(blocker) {
         m.state = MonsterState::Idle;
         m.is_idle = false;

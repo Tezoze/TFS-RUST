@@ -145,9 +145,18 @@ impl GameWorld {
         }
 
         if creature_id == monster_id {
+            // C++ `TMonster::CreatureMoveStimulus(self,self)` (`crnonpl.cc:2945-2952`): a
+            // self-move only wakes from sleep + `ToDoYield()` — it does NOT re-evaluate the
+            // target list or idle status, and it does NOT forward to
+            // `TCreature::CreatureMoveStimulus` (the close-chase combat re-arm path). The
+            // previous Rust path called `monster_update_target_list` +
+            // `monster_update_idle_status`, which diverged: with no visible opponents,
+            // `monster_update_idle_status` → `monster_set_idle(true)` clears `walk_queue` /
+            // `walk_destinations` / `opponent_ids` / targets mid-roam, dropping in-flight
+            // steps the decompile preserves. `monster_sleep_wake_on_creature_move` already
+            // implements the sleep-wake + `ToDoYield` (and no-ops when not sleeping, matching
+            // the decompile's `if (State == SLEEPING && Type != OBJECT_DELETED)` gate).
             self.monster_sleep_wake_on_creature_move(monster_id, creature_id);
-            self.monster_update_target_list(monster_id);
-            self.monster_update_idle_status(monster_id);
             return;
         }
 
@@ -844,6 +853,90 @@ mod tests {
             base.todo.queue.front(),
             Some(&CreatureAction::Go),
             "AI#26: queue must be unchanged when head is Go"
+        );
+    }
+
+    // Regression: `monster_on_creature_move(self,self)` must NOT re-evaluate idle status.
+    // C++ `TMonster::CreatureMoveStimulus(self,self)` (`crnonpl.cc:2945-2952`) only wakes from
+    // sleep + `ToDoYield()` — it does NOT call `updateTargetList` / `updateIdleStatus`. The
+    // previous Rust path called both, so a non-sleeping monster with no visible opponents had
+    // its `walk_queue` / `walk_destinations` / `opponent_ids` cleared mid-roam by
+    // `monster_set_idle(true)`, dropping in-flight steps the decompile preserves.
+    #[test]
+    fn test_772_self_move_does_not_reevaluate_idle_or_clear_walk_queue() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let mpos_new = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        // Non-sleeping, idle=false, NO opponents — the exact state that triggered the
+        // `monster_set_idle(true)` walk_queue wipe under the divergent path.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = false;
+            m.state = MonsterState::Idle;
+            m.opponent_ids.clear();
+            m.base.walk_queue.push_back(Direction::East);
+            m.base.walk_destinations.push_back(mpos_new);
+            m.base.has_follow_path = true;
+        }
+
+        world.monster_on_creature_move(monster, monster, mpos, mpos_new);
+
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            !base.walk_queue.is_empty(),
+            "self-move must NOT clear walk_queue (decompile CreatureMoveStimulus(self,self) \
+             does not re-evaluate idle status)"
+        );
+        assert!(
+            !base.walk_destinations.is_empty(),
+            "self-move must NOT clear walk_destinations"
+        );
+        assert!(
+            base.has_follow_path,
+            "self-move must NOT reset has_follow_path"
+        );
+        // State stays Idle (was not sleeping); is_idle stays false — no idle re-evaluation.
+        let m = world.creatures.get(monster).unwrap();
+        assert!(
+            matches!(m, CreatureKind::Monster(m) if !m.is_idle),
+            "self-move must not flip is_idle without idle re-evaluation"
+        );
+        assert!(
+            matches!(m, CreatureKind::Monster(m) if !matches!(m.state, MonsterState::Sleeping)),
+            "self-move must not put a non-sleeping monster back to sleep"
+        );
+    }
+
+    // Regression counterpart: a SLEEPING monster's self-move wakes it (State=IDLE +
+    // ToDoYield), matching `crnonpl.cc:2947-2950`. Sleep-wake is the one thing the self-move
+    // branch DOES do.
+    #[test]
+    fn test_772_self_move_wakes_sleeping_monster() {
+        let mut world = beat_driven_test_world();
+        let mpos = Position::new(100, 100, 7);
+        let mpos_new = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos_new, TEST_SYNTHETIC_GROUND_WP);
+
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.is_idle = true;
+            m.state = MonsterState::Sleeping;
+        }
+
+        world.monster_on_creature_move(monster, monster, mpos, mpos_new);
+
+        let m = world.creatures.get(monster).unwrap();
+        assert!(
+            matches!(m, CreatureKind::Monster(m) if matches!(m.state, MonsterState::Idle)),
+            "sleeping monster self-move must wake to Idle (crnonpl.cc:2947-2950)"
+        );
+        assert!(
+            matches!(m, CreatureKind::Monster(m) if !m.is_idle),
+            "is_idle must be false after wake"
         );
     }
 }

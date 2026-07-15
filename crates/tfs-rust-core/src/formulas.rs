@@ -308,9 +308,10 @@ impl MechanicsProfile {
     pub fn for_version(version: ProtocolVersion) -> Self {
         match version.raw() {
             772 => Self {
-                beat_ms: 200,
-                // 772 mechanics `NotifyGo` uses main-loop `Beat` (200 ms); 1098 uses TVP step grid.
-                step_beat_ms: 200,
+                beat_ms: 50,
+                // 772 `.tibia` config sets Beat=50 (config.cc:187 overrides default 200);
+                // `NotifyGo` quantizes step delay to `Beat` (cract.cc:1534).
+                step_beat_ms: 50,
                 step_speed: StepSpeedModel::LinearGo,
                 player_speed_model: PlayerSpeedModel::BalancedLog,
                 path_cost: PathCostModel::TerrainWeighted,
@@ -866,7 +867,7 @@ mod tests {
     #[test]
     fn defaults_772_match_linear_go_profile() {
         let p = MechanicsProfile::for_version(ProtocolVersion::V772);
-        assert_eq!(p.beat_ms, 200);
+        assert_eq!(p.beat_ms, 50);
         assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
         assert_eq!(p.path_search, PathSearchModel::Reverse);
         assert_eq!(p.attack_speed_ms, 0);
@@ -878,7 +879,7 @@ mod tests {
         assert_eq!(p.respawn_model, RespawnModel::Monsterhome772);
         assert_eq!(p.level_exp, LevelExpModel::DeltaPoly);
         assert_eq!(p.step_speed, StepSpeedModel::LinearGo);
-        assert_eq!(p.step_beat_ms, 200);
+        assert_eq!(p.step_beat_ms, 50);
         assert_eq!(p.conditions.fire, TickSpec { dmg: 10, ticks: 8 });
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });
         assert_eq!(p.fight_modes.defensive_def, 1.80);

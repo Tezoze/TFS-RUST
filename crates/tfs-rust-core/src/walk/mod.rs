@@ -1501,6 +1501,28 @@ impl GameWorld {
                             self.on_walk_step_rejected(cid, ReturnValue::NotPossible);
                             return;
                         }
+                        // 772 `Go(DestX, DestY, DestZ)` moves to the EXACT destination
+                        // coordinates from the TDGo entry, not the queued Direction
+                        // (`cract.cc:443-446`: `Object Dest = GetMapContainer(DestX, DestY,
+                        // DestZ); ::Move(this->ID, this->CrObject, Dest, -1, false, NONE)`).
+                        // If the creature was pushed mid-walk, the queued Direction no longer
+                        // matches the absolute destination — recompute the step direction from
+                        // the current position to the stored destination. Without this, the
+                        // 0x6D `new_pos` is wrong: the creature slides in the old direction
+                        // from its new (kicked) position, landing on a different tile than the
+                        // decompile's `Go` → `::Move` to the exact dest.
+                        if cur_pos == dest {
+                            // Creature was pushed to exactly its intended destination — the
+                            // step is already complete. The decompile's `Go` with Distance==0
+                            // calls `::Move` to the same position (a map no-op; the 0x6D from
+                            // X to X is visually inert). Skip the move/packets/timing and let
+                            // the walk reschedule for the next step.
+                            if !self.creature_uses_todo_execute(cid) && reschedule_after {
+                                self.add_event_walk(cid, false);
+                            }
+                            return;
+                        }
+                        dir = direction_from_positions(cur_pos, dest);
                     }
                 }
                 // 772 drunk stagger — `cract.cc:392-413`: on stagger, replace the step direction
@@ -1670,6 +1692,57 @@ impl GameWorld {
                                 (ms, go, eff)
                             })
                             .unwrap_or((0, 0, 0));
+                        // Player-only walk debug: tile speed, player speed, wire speed, step duration.
+                        // Matches decompile `NotifyGo` (`cract.cc:1518-1534`) + `GetSpeed` (`crmain.cc:477`).
+                        if self
+                            .creatures
+                            .get(cid)
+                            .is_some_and(|k| matches!(k, CreatureKind::Player(_)))
+                        {
+                            let (go_dbg, eff_dbg, wire_dbg) = self
+                                .creatures
+                                .get(cid)
+                                .map(|k| {
+                                    let base = k.base();
+                                    let go = crate::walk::walk_timing::go_strength_for_walk_pub(
+                                        crate::walk::walk_timing::WalkSpeedRole::Player,
+                                        base,
+                                        &self.mechanics,
+                                    );
+                                    let eff = crate::formulas::linear_go_effective_speed(go);
+                                    let wire = crate::walk::wire_step_speed(
+                                        crate::walk::walk_timing::WalkSpeedRole::Player,
+                                        base,
+                                        &self.mechanics,
+                                    );
+                                    (go, eff, wire)
+                                })
+                                .unwrap_or((0, 0, 0));
+                            let ground_id = self
+                                .map
+                                .get_tile(new_pos)
+                                .and_then(|t| t.body().ground)
+                                .unwrap_or(0);
+                            tracing::info!(
+                                cid = ?cid,
+                                from = ?old_pos,
+                                to = ?new_pos,
+                                ?dir,
+                                ground_item_id = ground_id,
+                                ground_speed = gs_dest,
+                                go_strength = go_dbg,
+                                effective_speed = eff_dbg,
+                                wire_speed = wire_dbg,
+                                step_duration_ms = notify_go_ms,
+                                server_ms = self.server_ms,
+                                earliest_walk_ms = self
+                                    .creatures
+                                    .get(cid)
+                                    .map(|k| k.base().earliest_walk_server_ms)
+                                    .unwrap_or(0),
+                                "player walk step",
+                            );
+                        }
                         if let Some(k) = self.creatures.get_mut(cid) {
                             let base = k.base_mut();
                             base.last_step = Some(Instant::now());
@@ -2275,7 +2348,7 @@ mod step_speed_tests {
             wire_step_speed(WalkSpeedRole::MonsterOrNpc, &base, &mech),
             164
         );
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
     }
 
     /// 1098 wire payload is halved in codec; neutral struct holds full GoStrength before `/2`.
@@ -2318,7 +2391,7 @@ mod step_speed_tests {
         assert_eq!(ticks, 1);
     }
 
-    /// 772 wolf GoStrength 42 → `GetSpeed` 164; `NotifyGo` quantizes to `Beat` (200 ms).
+    /// 772 wolf GoStrength 42 → `GetSpeed` 164; `NotifyGo` quantizes to `Beat` (50 ms).
     #[test]
     fn linear_go_step_duration_matches_notify_go() {
         let p = test_player("Wolf", Position::new(100, 100, 7));
@@ -2327,8 +2400,8 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         assert_eq!(linear_go_effective_speed(42), 164);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 1000);
-        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 200, 0);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+        assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 50, 0);
     }
 
     /// 772 diagonal: `×3` waypoints before step quantizer ceil — 2750 ms, not TFS-style 950×3.
@@ -2344,8 +2417,8 @@ mod step_speed_tests {
             get_step_duration_ms_with_direction(&kind, &base, Direction::East, 150, &mech);
         let diagonal =
             get_step_duration_ms_with_direction(&kind, &base, Direction::NorthEast, 150, &mech);
-        assert_eq!(cardinal, 1000);
-        assert_eq!(diagonal, 2800);
+        assert_eq!(cardinal, 950);
+        assert_eq!(diagonal, 2750);
         assert_ne!(diagonal, cardinal * 3, "CipSoft ceils before ×3, not after");
     }
 
@@ -2417,17 +2490,17 @@ mod step_speed_tests {
         base_zchange.last_step_cost = 2;
         let delay_zchange = get_walk_delay_logical(&kind, &base_zchange, 0, &mech);
 
-        // Cardinal: 150×1000/520 = 288 → ceil 200 = 400 ms.
-        assert_eq!(delay_cardinal, 400, "cardinal completed step = 400 ms");
+        // Cardinal: 150×1000/520 = 288 → ceil 50 = 300 ms.
+        assert_eq!(delay_cardinal, 300, "cardinal completed step = 300 ms");
         // Z-change must equal cardinal (×1), not double (×2 → 600 ms).
         assert_eq!(
             delay_zchange, delay_cardinal,
             "z-change completed step must use ×1 waypoint cost, not ×2 (cract.cc:1526-1528)"
         );
-        // Diagonal: 150×3×1000/520 = 865 → ceil 200 = 1000 ms (×3 before ceil).
+        // Diagonal: 150×3×1000/520 = 865 → ceil 50 = 900 ms (×3 before ceil).
         assert_eq!(
-            delay_diagonal, 1000,
-            "diagonal completed step = ×3 = 1000 ms"
+            delay_diagonal, 900,
+            "diagonal completed step = ×3 = 900 ms"
         );
         assert_ne!(
             delay_diagonal, delay_cardinal,
@@ -2506,11 +2579,100 @@ mod step_speed_tests {
 
 #[cfg(test)]
 mod monster_walk_tests {
+    use crate::creature::CreatureKind;
     use crate::login_out::creature_wire_id;
     use crate::test_world::support;
     use tfs_rust_common::enums::Direction;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::Position;
+
+    /// Regression: when a creature is pushed mid-walk, `on_walk` must step toward the
+    /// **absolute destination** (from `walk_destinations`), not the queued `Direction`.
+    /// The decompile's `Go(DestX, DestY, DestZ)` (`cract.cc:383-446`) moves to the exact
+    /// destination coordinates — it does not use a direction. After a kick, the queued
+    /// Direction and the absolute destination diverge. Without the recompute, the 0x6D
+    /// `new_pos` is wrong: the creature slides in the old direction from its kicked
+    /// position, landing on a different tile.
+    ///
+    /// Scenario: monster at (101,100) walking East → destination (102,100). Kicked South
+    /// to (101,101). On the next `on_walk`, the decompile's `Go(102,100,7)` moves NE to
+    /// (102,100). The old Rust path stepped East from (101,101) → (102,101) — wrong tile,
+    /// wrong animation direction.
+    #[test]
+    fn pushed_mid_walk_steps_toward_absolute_destination_not_queued_dir() {
+        let mut world = support::beat_driven_test_world();
+        let start = Position::new(101, 100, 7);
+        let dest = Position::new(102, 100, 7);
+        let kicked = Position::new(101, 101, 7);
+        // All three tiles + the wrong-tile (102,101) must be walkable.
+        for &p in &[start, dest, kicked, Position::new(102, 101, 7)] {
+            support::ensure_walkable_tile(&mut world.map, p, support::TEST_SYNTHETIC_GROUND_WP);
+        }
+        let monster = support::insert_monster(&mut world, "Rat", start, 200);
+
+        // Queue an East step with absolute destination (102,100).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.base.walk_queue.push_back(Direction::East);
+            m.base.walk_destinations.push_back(dest);
+            m.base.has_follow_path = true;
+            m.base.earliest_walk_server_ms = 0;
+            m.base.next_wakeup = Some(world.server_ms + 1);
+        }
+
+        // Simulate a kick: relocate the monster South to (101,101).
+        world.move_creature_on_map(monster, start, kicked);
+
+        // Trigger the walk — the adjacency check passes (Chebyshev((101,101),(102,100))=1).
+        world.on_walk(monster, false, std::time::Instant::now(), None);
+
+        // The decompile's `Go(102,100,7)` moves to the exact destination (102,100).
+        // The old Rust path stepped East from (101,101) → (102,101) — wrong.
+        assert_eq!(
+            world.creatures.get(monster).map(|k| k.position()),
+            Some(dest),
+            "pushed creature must step toward absolute destination (102,100), \
+             not the queued direction from the kicked position (102,101)"
+        );
+    }
+
+    /// Regression counterpart: when the creature is kicked to exactly its intended
+    /// destination, the step is a no-op (the creature is already there). The decompile's
+    /// `Go` with Distance==0 calls `::Move` to the same position (a map no-op).
+    #[test]
+    fn pushed_to_exact_destination_skips_step() {
+        let mut world = support::beat_driven_test_world();
+        let start = Position::new(101, 100, 7);
+        let dest = Position::new(102, 100, 7);
+        support::ensure_walkable_tile(&mut world.map, start, support::TEST_SYNTHETIC_GROUND_WP);
+        support::ensure_walkable_tile(&mut world.map, dest, support::TEST_SYNTHETIC_GROUND_WP);
+        let monster = support::insert_monster(&mut world, "Rat", start, 200);
+
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.base.walk_queue.push_back(Direction::East);
+            m.base.walk_destinations.push_back(dest);
+            m.base.has_follow_path = true;
+            m.base.earliest_walk_server_ms = 0;
+            m.base.next_wakeup = Some(world.server_ms + 1);
+        }
+
+        // Kick the creature to exactly its destination.
+        world.move_creature_on_map(monster, start, dest);
+
+        world.on_walk(monster, false, std::time::Instant::now(), None);
+
+        // Creature stays at dest — no spurious move in the fallback direction.
+        assert_eq!(
+            world.creatures.get(monster).map(|k| k.position()),
+            Some(dest),
+            "creature kicked to its exact destination must not move further"
+        );
+        // walk_queue was popped; no remaining steps.
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            base.walk_queue.is_empty(),
+            "walk_queue must be popped after same-destination skip"
+        );
+    }
 
     #[test]
     fn monster_walk_step_broadcasts_spectator_move() {

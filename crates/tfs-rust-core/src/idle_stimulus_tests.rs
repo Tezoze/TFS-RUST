@@ -5257,14 +5257,14 @@ fn test_audit6_on_walk_gate_uses_earliest_walk_time() {
         TEST_SYNTHETIC_GROUND_WP,
     );
     // Player starts at speed 220 (GoStrength) → effective 520 → cardinal step on
-    // 150-waypoint ground = 288 ms → ceil to beat 200 = 400 ms.
+    // 150-waypoint ground = 288 ms → ceil to beat 50 = 300 ms.
     assert_eq!(world.creatures.get(player).unwrap().base().speed, 220);
 
     let now = std::time::Instant::now();
     world.player_auto_walk_path(conn, player, vec![Direction::East, Direction::East], now);
 
     // First step fires at server_ms = 1 (C++ ToDoStart clamp). After it lands,
-    // `earliest_walk_server_ms = 1 + 400 = 401`.
+    // `earliest_walk_server_ms = 1 + 300 = 301`.
     world.advance_beat(1);
     assert_eq!(
         world.creatures.get(player).map(|k| k.position()),
@@ -5278,21 +5278,21 @@ fn test_audit6_on_walk_gate_uses_earliest_walk_time() {
         .base()
         .earliest_walk_server_ms;
     assert_eq!(
-        earliest, 401,
-        "NotifyGo sets earliest_walk_server_ms = 1 + 400"
+        earliest, 301,
+        "NotifyGo sets earliest_walk_server_ms = 1 + 300"
     );
 
     // Paralyze the player mid-cooldown (speed 42 → effective 164). The old
     // recomputation would yield a 1000 ms completed-step duration, blocking the
-    // second step at server_ms = 401 (delay = 1000 - 400 = 600 > 0).
+    // second step at server_ms = 301 (delay = 1000 - 300 = 700 > 0).
     if let Some(k) = world.creatures.get_mut(player) {
         k.base_mut().speed = 42;
     }
 
     // Advance to `earliest_walk_server_ms` — the second step must fire.
-    world.advance_beat(400);
+    world.advance_beat(300);
     assert_eq!(
-        world.server_ms, 401,
+        world.server_ms, 301,
         "server_ms must reach earliest_walk_server_ms"
     );
     assert_eq!(
@@ -5536,8 +5536,8 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
     ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
     ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
 
-    // Slow monster: GoStrength 0 → GetSpeed = 80, ground 150wp →
-    // step_duration = ceil(150*1000/80, 200) = ceil(1875, 200) = 2000ms.
+    // Slow monster: GoStrength 0 → BalancedLog softens to 1 → GetSpeed = 82,
+    // ground 150wp → step_duration = ceil(150*1000/82, 50) = ceil(1829, 50) = 1850ms.
     let monster = insert_monster(&mut world, "Rat", mpos, 0);
 
     // Manually enqueue Go + Wait{1000} (mimics IdleStimulus idle-roam tail:
@@ -5562,7 +5562,7 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
         "Go step must execute"
     );
 
-    // After Go, NotifyGo sets EarliestWalkTime = server_ms + 2000.
+    // After Go, NotifyGo sets EarliestWalkTime = server_ms + 1850.
     let earliest = world
         .creatures
         .get(monster)
@@ -5572,13 +5572,13 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
     let server_ms_after_go = world.server_ms;
     assert_eq!(
         earliest,
-        server_ms_after_go + 2000,
-        "EarliestWalkTime must be 2000ms after Go (slow monster)"
+        server_ms_after_go + 1850,
+        "EarliestWalkTime must be 1850ms after Go (slow monster, BalancedLog)"
     );
 
     // The Wait{1000} should have been armed in the same beat as the Go
     // (tail recursion). Check the wakeup time — must be max(server_ms+1000,
-    // EarliestWalkTime) = EarliestWalkTime = server_ms + 2000.
+    // EarliestWalkTime) = EarliestWalkTime = server_ms + 1850.
     let wakeup = world
         .creatures
         .get(monster)
