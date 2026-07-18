@@ -41,6 +41,8 @@ pub enum SkillNr {
     Axe,
     Distance,
     Shielding,
+    /// Not used by weapon resolution; used by skill-tries / death loss (PC-5).
+    Fishing,
 }
 
 impl SkillNr {
@@ -67,8 +69,33 @@ impl SkillNr {
             SkillNr::Axe => skills.axe,
             SkillNr::Distance => skills.dist,
             SkillNr::Shielding => skills.shielding,
+            SkillNr::Fishing => skills.fishing,
         }
     }
+
+    /// 772 `getSkillName` — `tools.cpp:764-796` (used in "You advanced in …").
+    pub fn display_name(self) -> &'static str {
+        match self {
+            SkillNr::Fist => "fist fighting",
+            SkillNr::Club => "club fighting",
+            SkillNr::Sword => "sword fighting",
+            SkillNr::Axe => "axe fighting",
+            SkillNr::Distance => "distance fighting",
+            SkillNr::Shielding => "shielding",
+            SkillNr::Fishing => "fishing",
+        }
+    }
+
+    /// All combat skills that take death try-loss (fist..fishing).
+    pub const COMBAT_ALL: [SkillNr; 7] = [
+        SkillNr::Fist,
+        SkillNr::Club,
+        SkillNr::Sword,
+        SkillNr::Axe,
+        SkillNr::Distance,
+        SkillNr::Shielding,
+        SkillNr::Fishing,
+    ];
 }
 
 /// Per-hand-slot weapon categorization — mirrors C++ `GetWeapon` flag checks (`crcombat.cc:78-100`).
@@ -554,16 +581,7 @@ mod tests {
 
     #[test]
     fn skill_nr_level_resolution() {
-        let skills = PlayerSkills {
-            fist: 10,
-            club: 15,
-            sword: 20,
-            axe: 25,
-            dist: 30,
-            shielding: 35,
-            fishing: 40,
-            maglevel: 5,
-        };
+        let skills = PlayerSkills::with_levels(10, 15, 20, 25, 30, 35, 40, 5);
         assert_eq!(SkillNr::Fist.level(&skills), 10);
         assert_eq!(SkillNr::Club.level(&skills), 15);
         assert_eq!(SkillNr::Sword.level(&skills), 20);

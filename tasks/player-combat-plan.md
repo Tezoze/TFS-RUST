@@ -1,17 +1,49 @@
 # Player Combat System — Implementation Plan (772 mechanics, TVP data shape)
 
-**Goal.** Wire the player weapon-combat *strike* into the unified ToDo engine so that
-**formulas and flow match the 7.72 decompile** (`tibia-game-master/src/`), while all
-**tunable data lives in TVP-shaped files** (vocation combat block in `data/defs/vocations.lua`
-per PC-0; weapon attack/defense/armor from `items.otb`/`items.xml`). No reference source is
-transcribed — we replicate observable outcomes in idiomatic Rust. Era knobs stay in
-`MechanicsProfile` / `data/formulas/772.lua`; per-vocation balance stays in
-`data/defs/vocations.lua`.
+**Goal.** Wire player combat (weapon strikes + spells) into the unified ToDo engine so
+**formulas and flow match the 7.72 decompile** (`tibia-game-master/src/`), while tunable
+data stays TVP-shaped (`data/defs/vocations.lua`, `items.otb`/`items.xml`, Lua weapon/spell
+scripts). Outcomes only — no C++ transcription. Era knobs in `MechanicsProfile` /
+`data/formulas/772.lua`; vocation balance in `data/defs/vocations.lua`.
 
-**Active target:** `clientVersion = 772` (`config.lua:17`). 1098 shares the same code paths
-through `MechanicsProfile`; this plan does not add version branches to core. Architecture
-reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steering) +
-`formulas.rs` module doc comment.
+**Active target:** `clientVersion = 772` (`config.lua`). 1098 shares the same paths via
+`MechanicsProfile` — no `if version == 772` in core.
+
+---
+
+## Where we are (audit 2026-07-18)
+
+**Weapon combat + spell execution core is landed.** **PC-5** (skill tries /
+learning advance, shield skill, death penalty, level-up vitals) is **done**.
+
+| Layer | Status |
+|-------|--------|
+| Melee / distance / wand strikes | ✅ Done (`strike.rs`, `ranged.rs`) |
+| Shared `Damage` path (armor absorb, immunities, mana shield, INVULNERABLE) | ✅ Done (`idle_stimulus.rs`) |
+| Lua Combat/Spell/Weapon + `Combat:execute` AoE | ✅ Done (PC-2b + PC-3a) |
+| Fight / chase / secure mode + BlockLogout | ✅ Done (PC-4; skulls deferred) |
+| Skill tries → level-up, shield learning, death loot/penalty | ✅ **PC-5 done** |
+| Config rates (`rateExp`+stages / `rateSkill` / `rateMagic`) | ✅ Done (exp earlier; skill/magic post-PC-5) |
+| Skulls / frags / aggressor | ⏳ Deferred (PvP phase) |
+
+**Commits (recent landing):** `8b03bd1` PC-3 · `8fb81bc` PC-4 · `ce33c98`/`7506370` PC-3a.
+
+---
+
+## Next steps — after PC-5
+
+PC-5 is landed (including `rateSkill`/`rateMagic`). Remaining player-combat work:
+
+1. **PvP phase** — skulls / aggressor / RecordAttack / frags (deferred).
+2. **Optional rates** — wire `rateLoot` / `rateSpawn` when loot/spawn need config parity.
+3. **PC-3a residual polish** (not blocking):
+
+- Burst arrow AoE still hits primary target only (Lua `Combat:execute` / circle path not wired from ammo special).
+- Missed ammo: always delete (no ground `Move` drop arm); fragility/`breakChance` Lua not wired.
+- `COMBAT_FORMULA_SKILL` in `Combat:execute` deferred (needs weapon resolution).
+- `createCombatArea` diagonal overlay accepted but unused.
+- TFS-style `spell_group_cooldown_end` exists on `Player` but say-spell uses 772
+  `EarliestSpellTime` (correct for primary target); group CD is 1098/TFS surface if needed later.
 
 ---
 
@@ -22,42 +54,37 @@ reference for the Tier-1/Tier-2 profile split: `tfs-mechanics-profile.md` (steer
 | PM | Player module consolidation (file moves) | ✅ Done |
 | PC-0 | Vocation data migration (XML→Lua) | ✅ Done |
 | PC-1 | Player attack/defend/armor value resolution | ✅ Done |
-| PC-2 | The strike (`CloseAttack`) — melee first | ✅ Done (core logic + feedback effects) |
-| PC-2a | `Damage` path completeness (melee audit) | ✅ Done (8 findings — §9.2) |
-| PC-2b | Lua combat/spell/weapon plumbing | ✅ Done (Combat/Spell/Weapon userdata + createCombatArea + enums + spellword dispatch) |
-| PC-3 | Distance + wand strikes | ✅ Done (DistanceAttack + WandAttack + mana shield + typed immunities + probe_hit) |
-| PC-3a | AoE shape model + spell-casting | 🔲 Pending (unified circle-ring disc for both eras — 772: 21x21 from `circles.dat`, 1098: 13x13 from `combat.cpp`; `MatrixArea` for custom shapes; per-spell radius overrides; spell execution mechanics — cooldowns, group cooldowns, PZ lock, aggressive-target validation) |
-| PC-4 | Fight/chase/secure mode + PVP gating | ✅ Done (fight/secure mode storage + M1 INVULNERABLE + M6 BlockLogout + M8 SecureMode gate; skulls/RecordAttack deferred) |
-| PC-5 | Skill/exp gain + regen + death penalty | 🔲 Pending (+ shield skill learning, death penalty, level-up HP/mana gain fix M13, skill-tries data gaps: skill_base/min_level/magic-dispatch) |
-| PvP | Skulls / aggressor tracking / frags | ⏳ Deferred (RecordAttack, aggressor flag, AttackedPlayers, skull broadcast, RecordMurder, playerkiller timer, banishment, protectionLevel enforcement, PVP_ENFORCED damage boost, NON_PVP attack block) |
+| PC-2 | The strike (`CloseAttack`) — melee first | ✅ Done |
+| PC-2a | `Damage` path completeness (melee audit) | ✅ Done (§9.2) |
+| PC-2b | Lua combat/spell/weapon plumbing | ✅ Done |
+| PC-3 | Distance + wand strikes | ✅ Done (`ranged.rs`; M5 mana shield; M3′ typed immunities; `probe_hit`) |
+| PC-3a | AoE disc + spell-casting execution | ✅ Done (core) — residual polish above |
+| PC-4 | Fight/chase/secure mode + PVP gating | ✅ Done (skulls deferred) |
+| PC-5 | Skill/exp gain + regen + death penalty | ✅ Done |
+| PvP | Skulls / aggressor / frags | ⏳ Deferred |
 
 ---
 
 ## 1. Current state
 
-### 1.1 Already implemented and correct
+### 1.1 Landed
 | Piece | Location | Notes |
 |-------|----------|-------|
-| Combat math (probe, defense, armor, spell, exp, skill tries, condition ticks) | `combat/math.rs` | Pure fns over `MechanicsProfile` + `FormulaHooks`; unit-tested; matches `crskill.cc`/`crcombat.cc` outcomes. |
-| Damage application (HP/mana/conditions/dispel, damage_map) | `combat/mod.rs`, `idle_stimulus.rs::combat_execute_with_stimulus` | Death + `DamageStimulus` wired for both monster and player paths. |
-| Attack targeting / chase routing | `player/combat/mod.rs` | Routes attack/follow/cancel packets; strike dispatched to `strike.rs` for `Adjacent`. |
-| Monster melee strike (attack roll, defense gate, armor, poison-on-hit) | `creature/monster_combat.rs`, `monster_ai.rs` | Mirrors `CloseAttack`; uses world-aware `melee_defense_snapshot_for` for player targets. |
-| Player melee strike (`CloseAttack`) | `player/combat/strike.rs` | `weapon_damage` → `roll_target_defense` → `armor_reduction` → `combat_execute_with_stimulus` → `ActivateLearning` → weapon wearout → `StopAttack` on death. |
-| Combat feedback (damage text, health bar, poff/spark/blood) | `game_world_spectators.rs`, `monster_ai.rs`, `player/combat/strike.rs` | `notify_player_combat_damage` handles all creature types; poff (3) / spark (4) emitted at strike call sites; race-keyed blood via `apply_physical_hit_blood`. |
-| Player weapon accessors | `player/inventory/util.rs` | `getWeapon`/`getWeaponType`/`getWeaponSkill` — slot resolution + ammo pairing. |
-| Player attack/defend/armor value resolution | `player/combat/values.rs` | `player_get_attack_value` / `player_get_defend_value` / `player_get_armor_strength` returning raw unscaled values. |
-| Condition ticks + fed regen tick loop | `process_skills.rs` | `VocationRegistry::fed_regen_params` wired (PC-0); hardcoded fallback only for empty-registry test worlds. Full regen-from-vocation-data is PC-5. |
-| Item weapon attributes | `tfs-rust-content/src/otb.rs` `ItemType` | `weapon_type`, `attack`, `defense`, `extra_defense`, `armor`, `ammo_type`, `attack_speed`, `shoot_range`, `hit_chance`. |
-| Fight-mode enum + modifiers | `combat/math.rs` `FightMode`, `formulas.rs` `FightModes` | 772 `+20/−40` atk, `−40/+80` def; era-tunable via `772.lua`. |
-| Vocation data (full TVP combat block) | `data/defs/vocations.lua`, `tfs-rust-content/src/vocations.rs` | `VocationDef` + `VocationRegistry` + `VocationProfile` snapshot on `Player` (PC-0). |
+| Combat math (probe, defense, armor, spell, exp, skill tries formula, condition ticks) | `combat/math.rs` | Pure fns over profile + hooks; `probe_hit` for distance. |
+| Damage application | `combat/mod.rs`, `idle_stimulus.rs::combat_execute_with_stimulus` | Absorb %, typed immunities, mana shield, INVULNERABLE, death, `DamageStimulus`. |
+| Player melee / distance / wand | `player/combat/{strike,ranged,values,mod,skills}.rs` | Strikes + LP + `skill_increase`/`magic_increase` (× `rateSkill`/`rateMagic`). |
+| Config rates | `config.rs` + call sites | `rateExp`/`experience_rate_for_level`; `rateSkill`/`rateMagic` via `scale_tries`. |
+| AoE disc + Lua combat execute | `combat/circles.rs`, `combat/aoe.rs`, Lua `Combat:execute` | Unified 772 disc rings; matrix path for custom shapes; `throw_possible` LoS. |
+| Spellword cast | `game_world_chat.rs::player_say_spell` | Voc/level/mana/soul + exhaustion + PZ + BlockLogout + `onCastSpell`. |
+| Fight/chase/secure + BlockLogout | `player/combat/fight_mode.rs` | Skulls stubbed (`is_attack_justified` → false). |
+| Monster melee + spells | `monster_ai.rs`, `monster_combat.rs` | Uses `disc_offsets` for radius spells. |
+| Vocation / item weapon attrs | `vocations.lua`, OTB `ItemType`, `WandRegistry` | PC-0 / PC-2b / PC-3. |
+| Fed regen from vocation | `process_skills.rs` | Wired via `VocationRegistry::fed_regen_params`. |
 
-### 1.2 Pending work
-- **AoE shape model + spell-casting** (PC-3a) — 772 circle-ring `circles.rs` (from `circles.dat`) not yet created; `AreaShapeModel` not on `MechanicsProfile`; per-spell radius overrides (`data/formulas/772_spell_areas.lua`) not yet written; spell execution mechanics (cooldowns, group cooldowns, PZ lock, aggressive-target validation) not yet wired. PC-2b landed the Lua plumbing (userdata + `createCombatArea` + spellword dispatch seam); PC-3a builds the execution layer on top.
-- **Skill tries counters + skill advance** (PC-5) — `PlayerSkills` has level fields only; DB `skill_*_tries`/`manaspent` columns never loaded into runtime; `req_skill_tries` never called. Data gaps: `skill_base` (Delta) constants and `min_level` per skill not in any Lua file yet (need `data/formulas/772.lua` or `MechanicsProfile`); magic level needs separate dispatch (`min_level=0`, `skill_base=1600`).
-- **Shield skill learning** (PC-5, M12) — `GetDefendDamage` decrements `LearningPoints` and passes `Increase=true` to `ProbeValue` when the defender has a shield and `LearningPoints > 0` (`crcombat.cc:259-263`). Not yet wired into `roll_target_defense`.
-- **Player death penalty** (PC-5, M7) — amulet of loss, inventory drop, bless reductions not yet implemented in `apply_creature_death` for player victims (`crmain.cc:790+`).
-- **Level-up HP/mana gain bug** (PC-5, M13) — `add_experience`/`remove_experience` clamp current HP/mana to the new max instead of adding/subtracting the per-level gain (C++ `TSkillAdd::Advance` raises both `Act` and `Max`).
-- **PvP skull system** (PvP phase, deferred) — `RecordAttack`, aggressor flag, `AttackedPlayers`, skull broadcast, `RecordMurder`, playerkiller timer, banishment, `protectionLevel` enforcement, `PVP_ENFORCED` damage boost, `NON_PVP` attack block. `PvpConfig` is loaded; secure-mode + `BlockLogout` + INVULNERABLE gate are wired; the skull/aggressor subsystem is not.
+### 1.2 Still open
+- **PvP phase** — `RecordAttack`, aggressor, skulls, murder/banishment, `protectionLevel`,
+  `PVP_ENFORCED` / `NON_PVP` attack rules. Secure mode + BlockLogout + INVULNERABLE already wired.
+- **PC-3a residual polish** — burst-arrow AoE, missed-ammo ground drop, `COMBAT_FORMULA_SKILL`.
 
 ---
 
@@ -139,8 +166,9 @@ not in `CloseAttack`.
 calls `Increase(1)` then decrements. `Increase` adds to skill exp and levels when
 `Exp >= NextLevel`; `NextLevel = GetExpForLevel(Act+1)` geometric with `FactorPercent`/`Delta`.
 Maps to `combat/math.rs::req_skill_tries` — fed by `data/defs/vocations.lua` `skill_multipliers`
-(PC-0 landed; `VocationProfile.skill_multipliers` on `Player`). The `req_skill_tries` call site +
-per-skill tries counters are still unwired (PC-5).
++ profile `skillTuning`. ✅ PC-5: runtime tries + `skill_increase`/`magic_increase` on probes /
+mana spend. **Rates (TFS `onGainSkillTries`):** call sites multiply by `config.rateSkill` /
+`rateMagic` via `ConfigManager::scale_tries` before increase — not part of `skillTuning`.
 
 ### 2.8 Fight/chase/secure mode packet — `receiving.cc` `0xA7`, `crcombat.cc:333/354` `SetAttackMode`/`SetChaseMode`
 `SetAttackMode` mode change → `DelayAttack(2000)`. `SetChaseMode` only NONE/CLOSE for players.
@@ -150,9 +178,11 @@ SecureMode stored on `TCombat`. Parse + chase-mode storage already exist (`game_
 `player_set_fight_modes` in `player/combat/fight_mode.rs`.
 
 ### 2.9 Level / vitals — `data/defs/vocations.lua` gains + `crskill.cc:352` `GetExpForLevel`
-Level exp `(((L-6)*L+17)*L-12)/6 * Delta` in `combat/math.rs::experience_for_level`
-(and `creature/vocation.rs::total_experience_for_level` — consolidate onto one in PC-5 cleanup).
-Vitals per level from `data/defs/vocations.lua` via `VocationProfile::recalculate_vitals` (PC-0).
+Level exp `(((L-6)*L+17)*L-12)/6 * Delta` in `combat/math.rs::experience_for_level_poly`
+(shared with `creature/vocation.rs::total_experience_for_level` — PC-5 cleanup). Kill XP uses
+`ConfigManager::experience_rate_for_level` (`rateExp` + optional `experienceStages`). Vitals per
+level from `data/defs/vocations.lua` via `VocationProfile::recalculate_vitals` (PC-0); M13 Advance
+on level-up/down.
 
 ---
 
@@ -172,8 +202,9 @@ cached on `Player` at login. Commits `cd6ba50` + `a462d54`.
 
 **Still open from PC-0:**
 - XML→Lua one-shot converter tool deferred (dual-load golden test covers equivalence).
-- `total_experience_for_level` consolidation onto `combat::math::experience_for_level` — PC-5.
-- `fed_regen_cadence` hardcoded fallback for empty-registry test worlds — PC-5 step 1.
+
+**Closed in PC-5:** `experience_for_level_poly` shared; `fed_regen_params` returns zeros when
+vocation missing (no hardcoded `(12,1,6,2)` fallback).
 
 ### Phase PC-1 — Player attack/defend/armor value resolution — ✅ DONE
 New `player/combat/values.rs` with `SkillNr` enum + `player_get_attack_value` /
@@ -340,109 +371,42 @@ in the Lua bindings. No `if version == 772` in the Lua plumbing.
 PC-2b); `cargo test -p tfs-rust-content` 45 passed; `cargo test -p tfs-rust-common` 5 passed.
 
 ### Phase PC-3 — Distance + wand strikes — ✅ DONE
-**File:** `player/combat/ranged.rs` (new), reusing `player/combat/values.rs`.
-**Prerequisite:** PC-2b (for `Weapon(WEAPON_WAND)` Lua loading of `wands.lua`/`rods.lua`
-into `WandRegistry`).
+**File:** `player/combat/ranged.rs`. **Commit:** `8b03bd1` (+ `d966744` typed hit effects).
+**Prerequisite:** PC-2b (`Weapon(WEAPON_WAND)` → `WandRegistry`).
 
-1. `DistanceAttack`: ammo resolution (already in `player_get_weapon`), range vs `shoot_range`,
-   `HitChance` (bow 90 / throw 75), `Probe(Difficulty*15, HitChance, learning)` — add
-   `combat::math::probe_hit(skill, diff, prob, rng)` mirroring `TSkillProbe::Probe`. On hit apply
-   `GetAttackDamage` × `formula.dist_damage`; on miss scatter-drop ammo. Ammo consume + fragility;
-   special effects (poison arrow → periodic poison condition; burst arrow → area physical via the
-   existing shape helpers).
-2. `WandAttack`: mana check against `Player.mana` (`WANDMANACONSUMPTION`), fixed
-   `AttackStrength ± Variation`, wand `WANDDAMAGETYPE`, missile effect. **Wand/rod data source is
-   `data/scripts/weapons/wands.lua` + `rods.lua`** via the TFS Lua `Weapon(WEAPON_WAND)` API
-   (`level`/`mana`/`element`/`damage(min,max)`/`vocation`/`id`/`register`) — *not* `items.xml` or
-   `objects.srv`. Rods are registered as `WEAPON_WAND` with druid vocations; the same loader
-   handles both files. This requires the `Weapon` userdata + `Weapon:register()` plumbing noted in
-   Q7 (currently absent from `tfs-rust-lua`) — PC-3 must either add that plumbing or load the
-   wand table via a one-shot Lua harness that mirrors the TFS `Weapon` API surface. The loaded
-   rows map to a `WandDef { item_id, level, mana_cost, element, damage_min, damage_max,
-   vocations: Vec<VocationId> }` registry on `tfs-rust-content`, keyed by `item_id`. See §8 Q3
-   (resolved) and §5.
-3. **M5 — Mana shield:** C++ `Damage` checks `SKILL_MANASHIELD` timer and absorbs damage to mana
-   before HP (`crmain.cc:662-689`). Needed when wand attacks introduce typed damage (fire/energy)
-   and when spell-casting lands (PC-3a). Add `SKILL_MANASHIELD` / mana-shield condition check to
-   `combat_execute_with_stimulus` before HP apply.
-4. **M3 (non-physical) — Race immunities for typed damage:** C++ `Damage` checks `NoPoison`/
-   `NoBurning`/`NoEnergy`/`NoLifeDrain` for non-physical damage types and emits `EFFECT_BLOCK_HIT`
-   + returns 0 (`crmain.cc:615-622`). The physical immunity (`NoHit`) is in PC-2a; these
-   non-physical immunities matter when wand damage types (fire/energy) and spell damage are
-   introduced. Add `immunity_fire`/`immunity_energy`/`immunity_life_drain` flags to monster data.
+**What landed:**
+1. `DistanceAttack` — ammo/range/`HitChance`, `probe_hit`, hit → attack roll × `dist_damage` +
+   defense/armor (Q4 C++ semantics), miss → scatter tile + poff; ammo always consumed; poison
+   arrow DoT; burst arrow primary-target physical (full AoE = residual).
+2. `WandAttack` — mana/`WandDef` from `wands.lua`/`rods.lua`, fixed ± variation, typed damage,
+   missile, LoS via `throw_possible`.
+3. **M5** mana shield + **M3′** typed immunities in `combat_execute_with_stimulus`.
 
-### Phase PC-3a — AoE shape model + spell-casting — 🔲 PENDING
-**Prerequisite:** PC-2b (Lua `Combat`/`Spell`/`createCombatArea`/`Weapon` userdata + spellword
-dispatch seam — ✅ done). Player weapon-combat (PC-2/PC-2a) does not depend on this; PC-3 (wand/rod
-data loading) does.
+### Phase PC-3a — AoE shape model + spell-casting — ✅ DONE (core)
+**Commits:** `ce33c98` (AoE modeling + cast mechanics + word matching), `7506370` (directional
+AoE, damage broadcast, chat display). Residual polish listed under **Next steps**.
 
-**Decision: both eras use the circle-ring disc model for radius-based AoE.** The 772 decompile
-loads `circles.dat` (21x21 grid, rings 0-7) into `TCircle Circle[10]` — each ring is a list of
-`(x,y)` offsets (`magic.cc:4344` `InitCircles`, `magic.cc:459` `ExecuteCircleSpell`). TFS 1098
-hardcodes the same disc concept in `AreaCombat::setupArea(radius)` (`combat.cpp:1391`) — a 13x13
-grid with rings 1-8. Both are "which tiles can be hit, organized by ring distance from center."
-A spell with radius R hits all tiles in rings 0 through R.
+**What landed:**
+1. `combat/circles.rs` — `DISC_RINGS` + `disc_offsets(radius)` (772 `circles.dat` rings 0–7;
+   verified identical to 1098 `setupArea` rings 1–8). **No `AreaShapeModel`** — both eras share
+   one disc; era variance was unnecessary.
+2. `combat/aoe.rs` — `combat_execute_from_lua` iterates offsets, `throw_possible` LoS (caster
+   origin for beams/waves, center for circle), PZ tile skip, damage via
+   `combat_execute_with_stimulus`.
+3. Lua `Combat:execute` — builds `CombatExecuteRequest` (matrix / formula / value callbacks) →
+   mutation → core. Matrix path covers Lua `AREA_*` spells; ring path used by monster radius
+   spells (`idle_stimulus` → `disc_offsets`).
+4. Spellword execution in `player_say_spell` — vocation/level/mana/soul, 772 `EarliestSpellTime`
+   exhaustion, aggressive-in-PZ reject, mana/soul deduct, `BlockLogout` on aggressive cast,
+   `onCastSpell` → `Combat:execute`, chat broadcast of cast text.
+5. Directional / need-direction spells + spectator damage feedback.
 
-**Verified: the disc grids are identical.** 772 rings 0-7 == 1098 rings 1-8 (offset by 1), same
-101 tiles, same per-ring counts. Also verified: `AREA_CIRCLE5X5` (the TFS Lua matrix used by UE)
-produces exactly the same 73 tiles as `circles.dat` radius 6 — the Lua matrix path and the
-ring-offset path produce identical hit tiles for circular areas.
-
-**Two coexisting area input methods — both feed the same execution layer:**
-
-| Path | When | How | Output |
-|---|---|---|---|
-| **Matrix** (PC-2b, ✅ done) | Spell uses `createCombatArea(AREA_*)` | `AreaCombat::affected_offsets()` | `Vec<(i32,i32)>` |
-| **Ring offsets** (circles.rs, 🔲) | Spell specifies radius, no matrix | `disc_offsets(radius, &DISC_RINGS)` | `Vec<(i32,i32)>` |
-
-The matrix path covers all existing Lua spells (UE, berserk, fire wave, runes, etc.) — no spell
-changes needed. The ring-offset path covers radius-based AoE without a Lua matrix (burst arrow
-special effect, monster `setupArea(radius)` spells). Both produce offset lists consumed by the
-same damage application layer.
-
-**Line-of-sight is unified to the 772 `throw_possible` model for both eras:**
-
-The codebase already uses `throw_possible` (`info.cc:1154`) for all combat LoS — monster targeting
-(`monster_sight_clear` delegates to `throw_possible`), ranged strikes, and ammo drops. No era
-branch. PC-3a continues this: `Combat:execute()` checks `throw_possible(spell_center → tile)` per
-AoE tile, matching `ExecuteCircleSpell` (`magic.cc:479`). The spell expands from the target
-outward — walls around the target block tiles behind them. `is_sight_clear` (TFS Bresenham-style)
-only survives in pathfinding, not combat.
-
-**Era difference is just the disc grid:**
-- 772: 21x21 (max ring 7), from `circles.dat`
-- 1098: 13x13 (max ring 8), hardcoded
-
-**Custom non-circular shapes** (cones, waves, squares from Lua `createCombatArea`) use
-`MatrixArea` in both eras — the circle-ring model is only for radius-based AoE.
-
-**Per-spell radius override** (`data/formulas/<version>_spell_areas.lua`) is only needed if a
-matrix-based spell's tiles don't match the 772 decompile's radius for that spell. Verified cases
-(UE: `AREA_CIRCLE5X5` == R6) need no override. Cases where the Lua matrix differs from the
-decompile radius (if any) would use the override to route through circles.rs instead.
-
-**Scope:**
-1. `combat/circles.rs` — `DISC_RINGS` baked const + `disc_offsets(radius, &rings)` — generated from
-   `circles.dat` (772) and the TFS 13x13 grid (1098), unified into one ring-offset model.
-2. `AreaShapeModel` enum on `MechanicsProfile` (selects 772 vs 1098 disc grid; both use the same
-   ring-offset execution path).
-3. Per-spell radius overrides (`data/formulas/772_spell_areas.lua` + `1098_spell_areas.lua`) —
-   only for spells where the Lua matrix doesn't match the decompile radius.
-4. Wire `Combat:execute()` (currently a stub in `userdata/combat.rs:356`) to the core execution
-   layer: resolve area offsets (matrix via `affected_offsets()` or ring via `disc_offsets()`),
-   apply `throw_possible(spell_center → tile)` per AoE tile (unified 772 model, same as existing
-   combat LoS), apply damage via `combat_execute_with_stimulus` per tile.
-5. Spell execution mechanics: cooldowns, group cooldowns, PZ lock, aggressive-target validation
-   (the PC-2b spellword dispatch seam handles lookup + cost deduction + `onCastSpell` callback;
-   PC-3a adds the full execution layer).
-6. Burst arrow area physical via the circle-ring shape helpers (radius-based, no Lua matrix).
-7. `MatrixArea` for custom Lua-defined shapes (cones, waves, etc.) — both eras (matrix path
-   already implemented in PC-2b).
-
-**Era note:** the `Combat`/`Spell`/`Weapon`/`Condition` userdata API is era-agnostic — scripts use
-the same Lua calls regardless of `clientVersion`. Era differences (disc grid size, per-spell
-radius overrides, 772 `ProbeValue` vs 1098 damage formula) are handled inside the Rust execution
-layer (`combat_execute_with_stimulus` + `MechanicsProfile`), not in the Lua bindings.
+**Design notes (kept for reference):**
+- Matrix vs ring offsets both feed the same damage layer; custom cones/waves stay on `MatrixArea`.
+- Combat LoS = `throw_possible` only (not TFS `is_sight_clear`).
+- Per-spell radius override files (`*_spell_areas.lua`) **not needed** yet — UE
+  `AREA_CIRCLE5X5` == disc R6 verified. Add only if a matrix diverges from decompile radius.
+- Burst-arrow full AoE + ammo ground-drop + `COMBAT_FORMULA_SKILL` remain residual (see top).
 
 ### Phase PC-4 — Fight/chase/secure mode + PVP gating — ✅ DONE
 **Files:** `player/combat/fight_mode.rs` (new), `game_loop.rs` (`FightModes` arm),
@@ -499,67 +463,24 @@ layer (`combat_execute_with_stimulus` + `MechanicsProfile`), not in the Lua bind
    - `CombatResult::SecureMode` + `CombatResult::AttackNotAllowed` branches in
      `validate_player_attack_target` + `player_execute_attack`.
 
-### Phase PC-5 — Skill/exp gain + regen from vocation data — 🔲 PENDING
-**Files:** `process_skills.rs`, `death.rs`/`idle_stimulus.rs`, `creature/player.rs`.
+### Phase PC-5 — Skill/exp gain + regen from vocation data — ✅ DONE
+**Files:** `process_skills.rs`, `death.rs`/`game_world_lifecycle.rs`, `creature/player.rs`,
+`combat/math.rs`, `player/combat/skills.rs`, `data/formulas/772.lua`, `config.rs`, login/save path.
 
-1. Remove hardcoded fallback table in `fed_regen_params` (only hit by empty-registry test worlds);
-   ensure all test harnesses populate the registry from `data/defs/vocations.lua`.
-2. On kill: `distribute_experience` + `pvp_exp_cap` → `add_experience`; skill `Increase` via
-   learning during strikes.
-3. Skill tries: add `_tries: u64` per skill to `PlayerSkills` (8 fields — 7 combat skills +
-   `manaspent` for magic level); load from DB at login (`skill_*_tries` columns +
-   `manaspent` already round-tripped). **Per-level storage model** (1098-style `tries` that reset
-   to 0 on level-up) — matches DB schema + `req_skill_tries`; the 772 cumulative-`Exp` model
-   produces identical leveling outcomes, so per-level is the idiomatic choice. Wire
-   `Increase(1)`-equivalent leveling in the strike path: `ActivateLearning` sets
-   `learning_points = 30`; each `ProbeValue`/`Probe` with `learning_points > 0` adds 1 try to the
-   appropriate skill, decrements `learning_points`, checks for level-up via `req_skill_tries`.
-   **Data gaps to fill (verified against `human.mon` + `crskill.cc:472-496` + TFS
-   `vocation.cpp:139-154`):**
-   - **`skill_base` (Delta) constants** — `{50, 50, 50, 50, 30, 100, 20}` for
-     `{fist, club, sword, axe, dist, shielding, fishing}` (race data from `human.mon`, same for
-     all vocations in 772, exactly matches TFS 1098 `skillBase` array). NOT in any Lua file yet —
-     add to `data/formulas/772.lua` (e.g. `skillTuning = { skillBase = {50,50,50,50,30,100,20} }`)
-     or `MechanicsProfile`.
-   - **`min_level` per skill** — `Min` from `human.mon`: 10 for combat skills, 0 for MagicLevel.
-     TFS uses `MINIMUM_SKILL_LEVEL = 10` for combat; magic level needs `min_level = 0` (special
-     case, otherwise `req_skill_tries(maglevel, 1, 1600, 3.0, 10)` ≈ 0).
-   - **Magic level dispatch** — TFS 1098 uses a separate `getReqMana(magLevel) = 1600 *
-     manaMultiplier^(magLevel - 1)` (`vocation.cpp:149-154`); `getReqSkillTries` returns 0 for
-     `SKILL_MAGLEVEL`. Our `req_skill_tries` CAN handle magic level if the caller dispatches it
-     with `skill_base=1600, multiplier=mana_multiplier (per-vocation, already in
-     VocationProfile), min_level=0`. The caller must route magic level separately from combat
-     skills.
-   - **Formula verification** — `req_skill_tries(skill, level, skill_base, multiplier, min_level)`
-     returns `skill_base * multiplier^(level - (min_level + 1))` (per-level cost). 772
-     `TSkillProbe::GetExpForLevel(L)` (`crskill.cc:472-496`) returns cumulative
-     `Delta * (Base^(L-Min) - 1) / (Base - 1)`; the per-level cost
-     `GetExpForLevel(L+1) - GetExpForLevel(L) = Delta * Base^(L - Min)` matches our formula when
-     `skill_base = Delta`, `multiplier = Base = FactorPercent/1000`, `min_level = Min`. Verified
-     numerically (sword: L11→50, L12→100, L13→200).
-4. **M12 — Shield skill learning:** C++ `GetDefendDamage` decrements `LearningPoints` and passes
-   `Increase=true` to `ProbeValue` when the defender has a shield and `LearningPoints > 0`
-   (`crcombat.cc:259-263`). This is the shielding-skill exp gain path — the defense counterpart to
-   PC-2's attack-skill learning. Wire into `roll_target_defense`: when the target has a shield and
-   `learning_points > 0`, decrement and accumulate shielding skill tries.
-5. **M7 — Player death penalty:** C++ `Damage` checks `Damage == HitPoints` and handles amulet of
-   loss (prevent inventory drop), inventory drop, and blesses (`crmain.cc:790+`). PC-5 handles the
-   killer's side (exp/skill gain); this is the victim's side — what happens to the player's
-   inventory and blessings when they die. Add to the `apply_creature_death` path for player
-   victims: check for amulet of loss, drop inventory (or not), apply bless reductions.
-6. **M13 — Current HP/mana += gain on level-up (level-up gain bug):** C++ `TSkillAdd::Advance(Range)`
-   (`crskill.cc:667-678`) raises **both** `Act` and `Max` by `Range * AddLevel` — i.e. the level-up
-   gain is added to the player's *current* HP/mana, not just the cap. `TSkillLevel::Jump(Range)`
-   (`crskill.cc:355-382`) calls `Advance(Range)` on HP/Mana/GoStrength/CarryStrength. Our Rust
-   `add_experience`/`remove_experience` (`creature/player.rs:228-262`) **clamps** current HP/mana
-   to the new max instead of adding the per-level gain — a player at full HP (150) leveling up
-   (gain 15) stays at 150 instead of going to 165. Fix: track the level delta and add/subtract
-   `gain_hp * delta` / `gain_mana * delta` to current HP/mana (clamped to the new max), mirroring
-   `Advance`. **Era note:** 1098 TFS (`player.cpp:1800-1802`) refills to full
-   (`health = getMaxHealth(); mana = getMaxMana();`) after the level loop — the 772 decompile does
-   **not**. Current Rust matches 772 (no refill); the 1098 refill must be era-gated when 1098
-   support lands (likely a `MechanicsProfile` flag or `StepSpeedModel`-style enum on the level-up
-   path).
+**What landed:**
+1. `SkillTriesTuning` on `MechanicsProfile` + `skillTuning` in `772.lua`/`1098.lua`
+   (tries *needed* per level — distinct from probe `damageTuning.skillBase`).
+2. Runtime `PlayerSkills` tries (7 combat + `manaspent`) + `Player.blessings`; login/save wired.
+3. `skill_increase` / `magic_increase` on probe (strike/ranged) and mana spend (wand/spell).
+4. **M12** — shield learning in `player_shield_skill_learning` after defend gate.
+5. **M13** — `add_experience`/`remove_experience` Advance current HP/mana by gain.
+6. **M7** — AoL (2173) consume, SOME inventory drop to corpse 3128, bless-reduced exp+skill loss.
+7. Cleanup — `experience_for_level_poly` shared; `fed_regen_params` no hardcoded fallback.
+8. **Config rates (TFS `onGainSkillTries`)** — `rateSkill` / `rateMagic` multiply gained tries via
+   `ConfigManager::scale_tries` at strike/ranged/shield/wand/spell call sites. `rateExp` +
+   `expStages` / `experienceStages` already on kill XP (`experience_rate_for_level`). Curve knobs
+   stay in formulas Lua; rates stay in `config.lua` (missing skill/magic → `1.0`).
+   `rateLoot` / `rateSpawn` getters exist; loot/spawn consumers not wired yet.
 
 ---
 
@@ -567,43 +488,34 @@ layer (`combat_execute_with_stimulus` + `MechanicsProfile`), not in the Lua bind
 
 ### 4.0 Module layout
 ```
-crates/tfs-rust-core/src/player/
-  mod.rs                # module surface doc + re-exports
-  combat/
-    mod.rs              # player_execute_attack strike dispatch
-    values.rs           # player_get_attack_value / _defend_value / _armor_strength (PC-1)
-    strike.rs           # CloseAttack melee strike body (PC-2)
-    ranged.rs           # DistanceAttack + WandAttack (PC-3)
-    fight_mode.rs       # attack/chase/secure-mode setters + PVP gating (PC-4)
-  inventory/
-    mod.rs              # inventory surface
-    query_add.rs        # was player_inventory_query_add.rs
-    load.rs             # was player_inventory_load.rs
-    notifications.rs    # was player_inventory_notifications.rs
-    util.rs             # was player_inventory_util.rs
-  stats.rs              # was game_world_player.rs
-  flags.rs              # was player_flags.rs
-  depot.rs              # was player_depot.rs
-  ping.rs               # was player_ping.rs
+crates/tfs-rust-core/src/player/combat/
+  mod.rs              # attack dispatch / validate
+  values.rs           # attack/defend/armor resolution (PC-1)
+  strike.rs           # CloseAttack (PC-2) + shield learning (M12)
+  ranged.rs           # DistanceAttack + WandAttack (PC-3)
+  skills.rs           # skill_increase / magic_increase (PC-5)
+  fight_mode.rs       # fight/chase/secure + BlockLogout (PC-4)
 
-crates/tfs-rust-lua/src/userdata/        # PC-2b — Lua combat/spell/weapon plumbing
-  combat.rs             # Combat userdata (CombatDef: params, area, formula, callbacks)
-  condition.rs          # Condition userdata (ConditionDef: type, ticks, params)
-  weapon.rs             # Weapon userdata (WeaponDef: wand/distance/melee/ammo config)
-  spell.rs              # Spell userdata (SpellDef: instant/rune config + onCastSpell)
+crates/tfs-rust-core/src/combat/
+  math.rs             # probe / armor / skill-tries formulas
+  circles.rs          # DISC_RINGS + disc_offsets (PC-3a)
+  aoe.rs              # combat_execute_from_lua (PC-3a)
+  mod.rs / pvp.rs / rng.rs
+
+crates/tfs-rust-lua/src/userdata/
+  combat.rs / condition.rs / weapon.rs / spell.rs   # PC-2b + PC-3a execute
 crates/tfs-rust-lua/src/
-  combat_enums.rs       # ~860 TFS combat/spell/weapon/condition enum registrations
-  combat_scripts.rs     # load_weapon_scripts / load_spell_scripts / load_areas_lua
+  combat_enums.rs / combat_scripts.rs
 crates/tfs-rust-content/src/
-  weapons.rs            # WeaponRegistry (drained from pending_weapons)
-  spells.rs             # SpellRegistry (drained from pending_spells)
+  weapons.rs / spells.rs / vocations.rs
 ```
 
 ### 4.1 Steering compliance
 - **Formulas & flow** in `tfs-rust-core` combat modules; **no** `NetworkMessage`/opcode bytes in
   core (`0xA7` parse stays in `tfs-rust-net`).
 - **Era knobs** in `MechanicsProfile` / `data/formulas/772.lua`. **Per-vocation balance** in
-  `data/defs/vocations.lua`. No new balance literals in Rust.
+  `data/defs/vocations.lua`. **Server rates** (`rateExp`/`rateSkill`/`rateMagic`/…) in
+  `config.lua` via `ConfigManager` — not in formulas. No new balance literals in Rust.
 - **No `if version == 772`** in core — melee/dist/wand paths are shared; only profile fields differ.
 - **Reuse** `probe_value`, `armor_reduction`, `defense_value`, `roll_target_defense`,
   `combat_execute_with_stimulus` — do not fork a parallel player combat math module.
@@ -617,9 +529,12 @@ crates/tfs-rust-content/src/
 | Field | Where | Source | Status |
 |-------|-------|--------|--------|
 | `learning_points: i32` | `CreatureBase` | `ActivateLearning`/`ProbeValue` | ✅ PC-2 |
-| `skill_*_tries: u64` (8 fields) | `PlayerSkills` | DB `skill_*_tries` (7) + `manaspent` (1) | 🔲 PC-5 |
-| `skill_base` constants `{50,50,50,50,30,100,20}` | `MechanicsProfile` / `data/formulas/772.lua` | `human.mon` race data (Delta/NextLevel) | 🔲 PC-5 |
-| `min_level` per skill (10 combat, 0 magic) | `MechanicsProfile` / `data/formulas/772.lua` | `human.mon` race data (Min) | 🔲 PC-5 |
+| `skill_*_tries: u64` (8 fields) | `PlayerSkills` (runtime) | DB columns already on `PlayerRecord` / save path | ✅ PC-5 |
+| Per-skill `skill_base` `{50,50,50,50,30,100,20}` | `MechanicsProfile` / `772.lua` | `human.mon` Delta — distinct from probe `skillBase=50` | ✅ PC-5 |
+| `min_level` per skill (10 combat, 0 magic) | `MechanicsProfile` / `772.lua` | `human.mon` Min | ✅ PC-5 |
+| `rateSkill` / `rateMagic` | `config.lua` → `ConfigManager` | TFS `onGainSkillTries` gain multipliers | ✅ Done |
+| `rateExp` + `expStages` / `experienceStages` | `config.lua` → `ConfigManager` | Kill XP (`experience_rate_for_level`) | ✅ Done (pre-PC-5) |
+| `rateLoot` / `rateSpawn` | `config.lua` getters only | TFS loot/spawn rates | ⏳ Getters only |
 | `attack_mode: FightMode` | `Player` | `0xA7` packet | ✅ PC-1 |
 | `secure_mode: bool` | `Player` | `0xA7` packet | ✅ PC-4 |
 | `VocationDef` (full combat block) | `tfs-rust-content` | `data/defs/vocations.lua` | ✅ PC-0 |
@@ -630,9 +545,9 @@ crates/tfs-rust-content/src/
 | `CombatDef` (Lua-side combat config) | `tfs-rust-lua` userdata | `Combat()` + `:setParameter`/`:setArea`/`:setCallback`/`:execute` | ✅ PC-2b |
 | `ConditionDef` (Lua-side condition config) | `tfs-rust-lua` userdata | `Condition(CONDITION_*)` + `:setParameter`/`:setTicks` | ✅ PC-2b |
 | Combat/spell/weapon enums (~860) | `tfs-rust-lua` globals | `tfs-rust-common` enums → `register_combat_enums(&lua)` | ✅ PC-2b |
-| `CIRCLE_RINGS` baked const + `disc_offsets` | `combat/circles.rs` | 772: `circles.dat` (21x21); 1098: `combat.cpp:1393` 13x13 grid | 🔲 PC-3a |
-| `AreaShapeModel` (disc grid selector) | `MechanicsProfile` | era / `772.lua` / `1098.lua` | 🔲 PC-3a |
-| Per-spell radius overrides | `data/formulas/<version>_spell_areas.lua` | `magic.cc` cases (772); TFS spell scripts (1098) | 🔲 PC-3a |
+| `DISC_RINGS` + `disc_offsets` | `combat/circles.rs` | 772 `circles.dat` (== 1098 setupArea) | ✅ PC-3a |
+| `AreaShapeModel` | — | Abandoned — single shared disc | ❌ N/A |
+| Per-spell radius overrides | `data/formulas/*_spell_areas.lua` | Only if matrix ≠ decompile | ⏳ Not needed yet |
 
 `earliest_attack_ms`/`earliest_defend_ms`/`last_defend_ms` already exist on `CreatureBase`.
 
@@ -669,11 +584,11 @@ crates/tfs-rust-content/src/
 - **Wand/rod parse golden** (PC-3, extends PC-2b weapon load): assert all 10 wand/rod entries
   parse with correct `item_id`/`level`/`mana`/`element`/`damage_min`/`damage_max`/`vocations`;
   assert rods register as `WEAPON_WAND` with druid vocations.
-- **Circles parity** (`combat/circles.rs`): re-derive rings from `circles.dat` and assert equality;
-  spot-check `disc_offsets(6)` (UE) and `disc_offsets(8)` (poison storm).
-- **Integration** (`sim_harness`/beat-driven world): player vs `human.mon`/`rat` — verify damage
-  ranges, defense gate 2000 ms, learning advances skill, ammo consumed on distance, wand mana cost,
-  death → exp/skill gain, PZ/secure-mode denial text.
+- **Circles parity** (`combat/circles.rs`) — ✅ unit tests for ring counts + `disc_offsets(6)`.
+- **Spellword / AoE** — ✅ seam + directional AoE landed; end-to-end goldens vs live scripts can
+  still grow (berserk, UE radius, PZ deny).
+- **Integration** (`sim_harness`): damage ranges, defense gate 2000 ms, ammo/wand costs,
+  PZ/secure deny. **PC-5 adds:** learning advances skill tries, death → penalty + exp share.
 - **glibc-rand parity** where `sim_glibc_rng_enabled()`.
 
 ---
@@ -699,33 +614,19 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
    The "vocation change at level > 1" divergence is a **1098-only concern** (TFS has
    `setVocation`/vocation change); defer to the 1098 era work. **However**, the audit surfaced a
    real bug — see M13 (§3 PC-5 / §9.3): C++ `TSkillAdd::Advance` raises *current* HP/mana by the
-   gain on level-up, but our Rust clamps to the new max. Fix queued in PC-5.
-2. **Skill-tries mapping** — ✅ **Resolved.** `FactorPercent = 1000 * multiplier` confirmed
-   against `human.mon` race data; `skill_base = Delta` (NextLevel) matches TFS 1098 `skillBase`
-   exactly. `req_skill_tries` formula verified mathematically (per-level cost matches 772
-   cumulative `GetExpForLevel` difference). **Data gaps identified for PC-5:** (a) `skill_base`
-   constants `{50,50,50,50,30,100,20}` not in any Lua file — add to `data/formulas/772.lua` or
-   `MechanicsProfile`; (b) `min_level` per skill (10 for combat, 0 for magic) needs per-skill
-   dispatch; (c) magic level uses separate path (`getReqMana`-style, `skill_base=1600`,
-   `min_level=0`, `multiplier=mana_multiplier`); (d) `PlayerSkills` needs 8 `_tries: u64` fields
-   (7 combat + `manaspent`). Use per-level storage (1098-style, matches DB schema). Full details
-   in §3 PC-5 step 3.
+   gain on level-up. ✅ Fixed in PC-5 (`add_experience`/`remove_experience` Advance).
+2. **Skill-tries mapping** — ✅ **Resolved (PC-5).** `FactorPercent = 1000 * multiplier`;
+   `skill_base = Delta`; per-level tries + `skillTuning` in formulas Lua; magic via
+   `magic_skill_base=1600` / `mana_multiplier`. **Rates** are separate: `config.lua`
+   `rateSkill`/`rateMagic` (and `rateExp`/stages) — not formula knobs.
 3. **Wand data source** — ✅ **Resolved.** Wand/rod attributes live in
    `data/scripts/weapons/wands.lua` and `rods.lua` via the TFS Lua `Weapon(WEAPON_WAND)` API
    (`level`/`mana`/`element`/`damage(min,max)`/`vocation`/`id`/`register`). Rods register as
    `WEAPON_WAND` with druid vocations — one loader covers both files. No `items.xml` or
    `objects.srv` parsing required. PC-3 loads these into a `WandDef` registry on
    `tfs-rust-content` keyed by `item_id`; the `Weapon` userdata plumbing (Q7) is the prerequisite.
-7. **Lua spell-scripting plumbing** — ✅ **Addressed by PC-2b.** Audit complete: `Combat`/
-   `Spell`/`Weapon`/`Condition` userdata, `createCombatArea` global, ~860 combat enums, and
-   spellword dispatch (`Say` → `onCastSpell`) are all absent from `tfs-rust-lua` (existing
-   userdata: `Container`/`Item`/`Creature` only). PC-2b (§3 PC-2b) implements the full plumbing
-   in 8 ordered steps: enum registry → `createCombatArea` → `Combat` → `Condition` → `Weapon`
-   → `Spell` → script loaders → spellword dispatch seam. PC-3 (wand data) and PC-3a
-   (spell-casting) both depend on PC-2b. Full C++ reference mapping: `luascript.cpp:1115`
-   (`createCombatArea`), `:2855-2871` (`Combat`), `:2874-2895` (`Condition`),
-   `:3095-3137` (`Spell`), `:3209-3246` (`Weapon`), `:1200-2050` (enum block),
-   `game.cpp:3579-3584` + `spells.cpp:30` (spellword dispatch).
+7. **Lua spell-scripting plumbing** — ✅ **Done (PC-2b + PC-3a).** Userdata + loaders in
+   PC-2b; `Combat:execute` + cast gates/exhaustion/PZ/`onCastSpell` in PC-3a.
 5. **Skulls / PVP frags** — ✅ **Resolved: defer all skulls to a dedicated PvP phase** (see phase
    status summary). PC-4 wired the non-skull PvP gates (secure mode, BlockLogout, INVULNERABLE);
    skulls/aggressor/RecordAttack/RecordMurder/banishment are all deferred.
@@ -737,8 +638,14 @@ cargo test  -p tfs-rust-core -p tfs-rust-content
 
 ### 8.2 Open
 
-4. **Ranged defense "bug"** (`crcombat.cc:766`) — replicate the outcome (no defense on ranged, but
-   still rolls target defense/wearout if attacker holds a shield). Confirm in PC-3.
+- `rateLoot` / `rateSpawn` — config getters present; apply to loot roll / spawn interval when those
+  paths need TFS rate parity.
+- 1098 full HP/mana refill on level-up (era-gate) if that profile should diverge from 772 Advance.
+
+4. **Ranged defense "bug"** (`crcombat.cc:766`) — ✅ **Resolved in PC-3.** `player_distance_attack`
+   rolls `roll_target_defense` + armor on hit (comments note C++ likely-bug semantics: defense
+   applies when the defender has a shield). Wearout follows the shared defend path. No further
+   action unless live play diverges.
 
 ---
 
@@ -785,13 +692,24 @@ Side-by-side audit of `monster_do_attacking` (melee arm) against C++ `Attack` �
 | **M6** | `BlockLogout(60)` (`crcombat.cc:601-602`) | `player_block_logout` in `fight_mode.rs`; called at strike + `SetAttackDest` | ✅ PC-4 |
 | **M8** | `SecureMode` PvP check (`crcombat.cc:563-568`) | `player_secure_mode_blocks_attack` gate in `validate_player_attack_target` + `player_execute_attack` | ✅ PC-4 |
 
+### 9.2b Resolved in PC-3 / PC-3a (post-melee audit)
+
+| # | C++ behavior | Fix | Phase |
+|---|---|---|---|
+| **M5** | Mana shield (`crmain.cc:662-689`) | `apply_mana_shield` in `idle_stimulus.rs` before HP apply | ✅ PC-3 |
+| **M3′** | Typed immunities fire/energy/poison/life-drain (`crmain.cc:615-622`) | Flags on monster + check in `combat_execute_with_stimulus` | ✅ PC-3 |
+
 ### 9.3 Pending gaps
 
 | # | C++ behavior | Rust gap | Phase | Impact |
 |---|---|---|---|---|
-| **M5** | Mana shield `SKILL_MANASHIELD` (`crmain.cc:662-689`) | Not implemented | PC-3 | Needed when typed damage (wand/spell) lands. |
-| **M3′** | Non-physical immunities `NoPoison`/`NoBurning`/`NoEnergy` (`crmain.cc:615-622`) | Not implemented | PC-3 | Needed when wand/spell damage types are introduced. |
-| **M9** | `RecordAttack` for PvP (`crcombat.cc:530-532,604-606`) | Not implemented — deferred to PvP skull phase (Q5: defer all skulls) | ⏳ PvP | No PvP skull system. |
-| **M7** | Player death penalty — amulet of loss, inventory drop (`crmain.cc:790+`) | Not implemented | PC-5 | No death penalty for player victims. |
-| **M12** | Defense `LearningPoints` for shield skill (`crcombat.cc:259-263`) | Not implemented | PC-5 | Shield skill never gains exp. Player-only. |
-| **M13** | `TSkillAdd::Advance` raises *current* HP/mana by gain on level-up (`crskill.cc:667-678`, via `TSkillLevel::Jump:355-382`) | Our `add_experience`/`remove_experience` clamps to new max instead of adding the per-level gain | PC-5 | Player at full HP leveling up stays at old max — level-up HP/mana gain is lost. 1098 refills to full (`player.cpp:1800-1802`); 772 does not — era-gate the refill. |
+| **M9** | `RecordAttack` for PvP (`crcombat.cc:530-532,604-606`) | Deferred with skulls (Q5) | ⏳ PvP | No PvP skull system. |
+
+### 9.3b Closed in PC-5 (+ config rates)
+
+| # | C++ / TFS behavior | Fix | Status |
+|---|---|---|---|
+| **M7** | Player death — AoL, SOME drop (`crmain.cc:790+`) | AoL 2173 + corpse 3128 + bless/skill loss | ✅ Done |
+| **M12** | Shield skill `Increase` on defend (`crcombat.cc:259-263`) | `player_shield_skill_learning` | ✅ Done |
+| **M13** | `Advance` current HP/mana on level-up (`crskill.cc:667-678`) | `add_experience`/`remove_experience` | ✅ Done |
+| **Rates** | TFS `onGainSkillTries` × `RATE_SKILL`/`RATE_MAGIC`; exp × `RATE_EXPERIENCE`/stages | `scale_tries` + `experience_rate_for_level` | ✅ Done |

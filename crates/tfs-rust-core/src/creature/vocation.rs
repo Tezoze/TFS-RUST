@@ -15,12 +15,7 @@ use tfs_rust_content::vocations::VocationDef;
 /// profile in scope. The hookable Tier-2 path is `combat::math::experience_for_level`.
 // C++ reference: `Player::getExpForLevel` / `crskill.cc:352` `TSkillLevel::GetExpForLevel`.
 pub fn total_experience_for_level(level: u32) -> u64 {
-    if level <= 1 {
-        return 0;
-    }
-    let l = level as i64;
-    let v = (50 * l * l * l) / 3 - 100 * l * l + (850 * l) / 3 - 200;
-    v.max(0) as u64
+    crate::combat::math::experience_for_level_poly(level as i64, 100).max(0) as u64
 }
 
 /// Experience needed to go from `level` to `level + 1`.

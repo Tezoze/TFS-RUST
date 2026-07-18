@@ -30,6 +30,7 @@ use crate::combat::math::{
     armor_reduction, melee_damage_after_defense_and_armor, probe_hit, weapon_damage,
 };
 use crate::combat::{CombatDamage, CombatParams};
+use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -200,9 +201,23 @@ impl GameWorld {
             }
             return;
         }
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.mana -= mana_cost;
+        let profile = self.mechanics.profile;
+        let magic_tries = ConfigManager::scale_tries(
+            mana_cost as u64,
+            self.config.rate_magic().unwrap_or(1.0),
+        );
+        let mut levels_gained = 0u32;
+        let mut new_maglevel = 0i32;
+        {
+            let hooks = &self.mechanics.hooks;
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                p.mana -= mana_cost;
+                levels_gained = p.magic_increase(magic_tries, &profile, hooks);
+                new_maglevel = p.skills.maglevel;
+            }
         }
+        // TFS `addManaSpent` → `sendStats()` + advance text.
+        self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
 
         // Damage roll — `AttackStrength + random(-AttackVariation, AttackVariation)`
         // (`crcombat.cc:731`). Map `[min, max]` → `Strength = (min+max)/2`, `Variation = (max-min)/2`.
@@ -408,12 +423,22 @@ impl GameWorld {
 
         // `Probe(Difficulty * 15, HitChance, LearningPoints > 0)` (`crcombat.cc:793-794`).
         let hit = probe_hit(&mut rng, skill, difficulty * 15, hit_chance);
-        // `LearningPoints -= 1` while > 0 (`crcombat.cc:795-797`).
+        // `Increase(1)` on distance skill + `LearningPoints -= 1` (`crcombat.cc:795-797`).
+        // TFS `onGainSkillTries`: multiply by `rateSkill` before adding.
+        let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
+        let mut skill_trained = false;
+        let mut levels_gained = 0u32;
         if learning_active {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                let lp = &mut k.base_mut().learning_points;
-                if *lp > 0 {
-                    *lp -= 1;
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                if p.base.learning_points > 0 {
+                    levels_gained = p.skill_increase(
+                        crate::player::combat::SkillNr::Distance,
+                        skill_tries,
+                        &profile,
+                        hooks,
+                    );
+                    p.base.learning_points -= 1;
+                    skill_trained = skill_tries > 0;
                 }
             }
         }
@@ -433,6 +458,10 @@ impl GameWorld {
             // `Target->Combat.GetDefendDamage()` — `crcombat.cc:809-811`. The C++ comment notes
             // this is probably a bug (defense shouldn't block ranged), but it runs when the
             // defender has a shield. We mirror: roll defense, apply armor, then `Damage(PHYSICAL)`.
+            let defense_gate_passed = self
+                .creatures
+                .get(target_id)
+                .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
             let defense_roll = match self.creatures.get_mut(target_id) {
                 Some(kind) => roll_target_defense(
                     kind.base_mut(),
@@ -448,6 +477,19 @@ impl GameWorld {
                 }
             };
             let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+            // TFS `addSkillAdvance` → `sendSkills()` + advance text — after `hooks` is last used on hit.
+            if skill_trained {
+                self.notify_skill_tries_gained(
+                    cid,
+                    crate::player::combat::SkillNr::Distance,
+                    levels_gained,
+                );
+            }
+            // M11/M12 — shield wearout + shielding skill learning when gate passed.
+            if defense_gate_passed {
+                self.player_shield_wearout(target_id);
+                self.player_shield_skill_learning(target_id, defense_snap.has_shield);
+            }
             let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
             drop_pos = target_pos;
@@ -555,6 +597,14 @@ impl GameWorld {
                 drop = target_pos;
             }
             drop_pos = drop;
+            // Miss path: hooks unused after skill_increase — still refresh client %.
+            if skill_trained {
+                self.notify_skill_tries_gained(
+                    cid,
+                    crate::player::combat::SkillNr::Distance,
+                    levels_gained,
+                );
+            }
         }
 
         // Missile animation — `::Missile(Master, DropCon, AnimType)` (`crcombat.cc:831`).

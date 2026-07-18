@@ -25,6 +25,13 @@ formulas = {
     minArmorForRandom = 2,
     divisor = 2,
   },
+  -- Per-skill tries curve (PC-5): TFS skillBase array; distinct from damageTuning.skillBase.
+  skillTuning = {
+    skillBase = {50, 50, 50, 50, 30, 100, 20},  -- fist, club, sword, axe, dist, shielding, fishing
+    minLevel  = {10, 10, 10, 10, 10, 10, 10},
+    magicSkillBase = 1600,
+    magicMinLevel = 0,
+  },
   spawnNearPlayer = "block",
   spawnPlacement = "tfs",        -- TFS Spawn::shuffle
   respawnModel = "fixed",        -- TFS Spawn::checkSpawn: fixed per-slot spawntime_ms

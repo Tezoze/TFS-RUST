@@ -155,12 +155,12 @@ impl VocationRegistry {
 
     /// `TSkillFed::Event` regen cadence for a vocation (`crskill.cc:828-885`).
     /// Returns `(hp_ticks, hp_amount, mana_ticks, mana_amount)`. When the
-    /// vocation is absent from the registry, falls back to the C++ `default:`
-    /// case (`SecsPerHP = 12`, `SecsPerMana = 6`) with the hardcoded
-    /// `Change(1)`/`Change(2)` amounts (`crskill.cc:871,880,884`).
+    /// vocation is absent from the registry, returns `(0,0,0,0)` so callers
+    /// skip regen rather than inventing hardcoded C++ `default:` amounts
+    /// (PC-5 — test harnesses must populate the registry).
     pub fn fed_regen_params(&self, vocation_id: i32) -> (u32, i32, u32, i32) {
         if vocation_id < 0 {
-            return (12, 1, 6, 2);
+            return (0, 0, 0, 0);
         }
         self.vocations
             .get(&(vocation_id as u16))
@@ -172,7 +172,7 @@ impl VocationRegistry {
                     v.gain_mana_amount,
                 )
             })
-            .unwrap_or((12, 1, 6, 2))
+            .unwrap_or((0, 0, 0, 0))
     }
 
     /// Lookup a vocation definition by id.

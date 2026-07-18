@@ -138,6 +138,15 @@ impl GameWorld {
         row.skill_dist = player.skills.dist.max(0) as u32;
         row.skill_shielding = player.skills.shielding.max(0) as u32;
         row.skill_fishing = player.skills.fishing.max(0) as u32;
+        row.skill_fist_tries = player.skills.fist_tries;
+        row.skill_club_tries = player.skills.club_tries;
+        row.skill_sword_tries = player.skills.sword_tries;
+        row.skill_axe_tries = player.skills.axe_tries;
+        row.skill_dist_tries = player.skills.dist_tries;
+        row.skill_shielding_tries = player.skills.shielding_tries;
+        row.skill_fishing_tries = player.skills.fishing_tries;
+        row.manaspent = player.skills.manaspent;
+        row.blessings = player.blessings;
 
         // 772 `SKILL_FED` persistence — `crplayer.cc:2496` save Cycle, `crplayer.cc:2486` save Act.
         row.food_remaining = player.food_remaining as i32;

@@ -24,6 +24,13 @@ formulas = {
     minArmorForRandom = 2,
     divisor = 2,
   },
+  -- Per-skill tries curve (PC-5): human.mon Delta/Min; distinct from damageTuning.skillBase.
+  skillTuning = {
+    skillBase = {50, 50, 50, 50, 30, 100, 20},  -- fist, club, sword, axe, dist, shielding, fishing
+    minLevel  = {10, 10, 10, 10, 10, 10, 10},
+    magicSkillBase = 1600,
+    magicMinLevel = 0,
+  },
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
   spawnPlacement = "classic772", -- SearchSpawnField BFS (monster.db homes)
   respawnModel = "monsterhome772", -- StartMonsterhomeTimer: random(regen/2,regen) + crowd scaling

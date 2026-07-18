@@ -19,6 +19,7 @@
 
 pub(crate) mod fight_mode;
 pub(crate) mod ranged;
+pub(crate) mod skills;
 pub(crate) mod strike;
 pub(crate) mod values;
 

@@ -147,6 +147,35 @@ pub struct ArmorRandomTuning {
     pub divisor: i32,
 }
 
+/// Per-skill tries curve constants for `req_skill_tries` (PC-5).
+///
+/// Distinct from [`DamageProbeTuning::skill_base`] (probe formula always 50).
+/// Indices 0..6 = fist, club, sword, axe, dist, shielding, fishing — `human.mon` Delta/Min
+/// (`crskill.cc:472-496`); magic uses separate `magic_*` fields (TFS `getReqMana`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkillTriesTuning {
+    /// Per-skill `Delta` / TFS `skillBase` — `{50,50,50,50,30,100,20}`.
+    pub skill_base: [u64; 7],
+    /// Per-skill minimum trainable level — combat skills 10.
+    pub min_level: [i32; 7],
+    /// Magic-level `skill_base` (TFS `1600 * manaMultiplier^(magLevel-1)`).
+    pub magic_skill_base: u64,
+    /// Magic-level `min_level` (0 — not `MINIMUM_SKILL_LEVEL`).
+    pub magic_min_level: i32,
+}
+
+impl SkillTriesTuning {
+    /// `human.mon` / TFS 1098 `skillBase` defaults (same for both eras).
+    pub const fn classic() -> Self {
+        Self {
+            skill_base: [50, 50, 50, 50, 30, 100, 20],
+            min_level: [10, 10, 10, 10, 10, 10, 10],
+            magic_skill_base: 1600,
+            magic_min_level: 0,
+        }
+    }
+}
+
 /// Linear go strength speed — `gameserver/src/creature.h` `getSpeed()` (`2*go + 80`).
 #[inline]
 pub fn linear_go_effective_speed(go_strength: i32) -> i32 {
@@ -301,6 +330,8 @@ pub struct MechanicsProfile {
     /// 772/TVP `CheckInventoryDestination` lets any pickupable item occupy a hand slot; TFS 1.4.2
     /// gated this behind `classicEquipmentSlots` (`player.cpp` ~2516–2552).
     pub classic_equipment_slots: bool,
+    /// Per-skill tries curve (`skillTuning` in formulas Lua) — PC-5.
+    pub skill_tries: SkillTriesTuning,
 }
 
 impl MechanicsProfile {
@@ -362,6 +393,7 @@ impl MechanicsProfile {
                 underground_sees_surface: true,
                 damage_text_format: DamageTextFormat::AttackerAttribution,
                 classic_equipment_slots: true,
+                skill_tries: SkillTriesTuning::classic(),
             },
             1098 => Self {
                 beat_ms: 50,
@@ -415,6 +447,7 @@ impl MechanicsProfile {
                 underground_sees_surface: false,
                 damage_text_format: DamageTextFormat::SimpleLoss,
                 classic_equipment_slots: false,
+                skill_tries: SkillTriesTuning::classic(),
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -820,6 +853,41 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             .max(0) as i32,
             divisor: num_or(lua, &ar, "divisor", p.armor_random.divisor as i64).max(1) as i32,
         };
+    }
+
+    if let Ok(Value::Table(st)) = formulas.get::<Value>("skillTuning") {
+        if let Ok(Value::Table(bases)) = st.get::<Value>("skillBase") {
+            for i in 0..7 {
+                if let Ok(Value::Integer(v)) = bases.get::<Value>(i + 1) {
+                    p.skill_tries.skill_base[i] = (v as u64).max(1);
+                } else if let Ok(Value::Number(v)) = bases.get::<Value>(i + 1) {
+                    p.skill_tries.skill_base[i] = (v as u64).max(1);
+                }
+            }
+        }
+        if let Ok(Value::Table(mins)) = st.get::<Value>("minLevel") {
+            for i in 0..7 {
+                if let Ok(Value::Integer(v)) = mins.get::<Value>(i + 1) {
+                    p.skill_tries.min_level[i] = v as i32;
+                } else if let Ok(Value::Number(v)) = mins.get::<Value>(i + 1) {
+                    p.skill_tries.min_level[i] = v as i32;
+                }
+            }
+        }
+        p.skill_tries.magic_skill_base = num_or(
+            lua,
+            &st,
+            "magicSkillBase",
+            p.skill_tries.magic_skill_base as i64,
+        )
+        .max(1) as u64;
+        p.skill_tries.magic_min_level = num_or(
+            lua,
+            &st,
+            "magicMinLevel",
+            p.skill_tries.magic_min_level as i64,
+        )
+        .max(0) as i32;
     }
 
     if let Ok(Value::Table(pvp)) = formulas.get::<Value>("pvpExpCap") {

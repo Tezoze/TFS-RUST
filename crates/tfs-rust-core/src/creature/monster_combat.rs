@@ -219,6 +219,9 @@ pub struct MeleeDefenseSnapshot {
     pub armor: i32,
     /// C++ `GetDefendDamage` fight-mode branch — `crcombat.cc:243-255`.
     pub defend_mode: FightMode,
+    /// True when the defender has a shield equipped — gates shielding `Increase`
+    /// (`crcombat.cc:259` `Shield != NONE`).
+    pub has_shield: bool,
 }
 
 /// Effective defend fight mode — `crcombat.cc:243-255` (`Following || AttackDest == 0` → DEFENSIVE).
@@ -256,19 +259,23 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
             defense_value: m.defense,
             armor: m.armor,
             defend_mode,
+            has_shield: false,
         },
         CreatureKind::Player(p) => MeleeDefenseSnapshot {
             // C++ `GetDefendValue` without shield — `WEAPON_NONE` → `SKILL_FIST` (`crcombat.cc:191-217`).
+            // World-aware path sets `has_shield` via `melee_defense_snapshot_for`.
             defense_skill: p.skills.fist,
             defense_value: p.sim_melee_defense,
             armor: 0,
             defend_mode,
+            has_shield: false,
         },
         CreatureKind::Npc(_) => MeleeDefenseSnapshot {
             defense_skill: 0,
             defense_value: 0,
             armor: 0,
             defend_mode,
+            has_shield: false,
         },
     }
 }
@@ -292,17 +299,20 @@ impl crate::game_world::GameWorld {
                 defense_value: 0,
                 armor: 0,
                 defend_mode: FightMode::Defensive,
+                has_shield: false,
             };
         };
         match kind {
             crate::creature::CreatureKind::Player(p) => {
                 let (def_value, skill_nr) = self.player_get_defend_value(target_id);
                 let armor = self.player_get_armor_strength(target_id);
+                let has_shield = self.player_get_shield(target_id).is_some();
                 MeleeDefenseSnapshot {
                     defense_skill: skill_nr.level(&p.skills),
                     defense_value: def_value,
                     armor,
                     defend_mode: defend_fight_mode_for_target(kind),
+                    has_shield,
                 }
             }
             _ => melee_defense_snapshot(kind),
@@ -804,6 +814,7 @@ mod tests {
             defense_value: 10,
             armor: 0,
             defend_mode: FightMode::Balanced,
+            has_shield: false,
         };
         let mut rng = StdRng::seed_from_u64(7);
 

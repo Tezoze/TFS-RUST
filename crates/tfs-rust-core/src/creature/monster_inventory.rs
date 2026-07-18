@@ -334,7 +334,7 @@ impl GameWorld {
         }
     }
 
-    fn move_body_item_into_corpse(&mut self, corpse_id: ItemId, item_id: ItemId) {
+    pub(crate) fn move_body_item_into_corpse(&mut self, corpse_id: ItemId, item_id: ItemId) {
         self.hydrate_container_if_needed(corpse_id);
         if let Some(cont) = self.container_registry.get_mut(corpse_id) {
             if cont.is_full() {

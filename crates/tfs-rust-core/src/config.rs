@@ -188,6 +188,59 @@ impl ConfigManager {
         }
     }
 
+    /// C++ `ConfigManager::RATE_SKILL` (`rateSkill`, default 1.0 when unset).
+    /// Multiplies combat-skill tries gained (`Player:onGainSkillTries`).
+    pub fn rate_skill(&self) -> Result<f64> {
+        match self.get_f64("rateSkill") {
+            Ok(v) => Ok(v.max(0.0)),
+            Err(e) if is_missing_config_key(&e) => Ok(1.0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// C++ `ConfigManager::RATE_MAGIC` (`rateMagic`, default 1.0 when unset).
+    /// Multiplies mana-spent / magic-level tries (`Player:onGainSkillTries` for `SKILL_MAGLEVEL`).
+    pub fn rate_magic(&self) -> Result<f64> {
+        match self.get_f64("rateMagic") {
+            Ok(v) => Ok(v.max(0.0)),
+            Err(e) if is_missing_config_key(&e) => Ok(1.0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// C++ `ConfigManager::RATE_LOOT` (`rateLoot`, default 1.0 when unset).
+    pub fn rate_loot(&self) -> Result<f64> {
+        match self.get_f64("rateLoot") {
+            Ok(v) => Ok(v.max(0.0)),
+            Err(e) if is_missing_config_key(&e) => Ok(1.0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// C++ `ConfigManager::RATE_SPAWN` (`rateSpawn`, default 1.0 when unset).
+    pub fn rate_spawn(&self) -> Result<f64> {
+        match self.get_f64("rateSpawn") {
+            Ok(v) => Ok(v.max(0.0)),
+            Err(e) if is_missing_config_key(&e) => Ok(1.0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Scale try gains by a config rate — TFS `Player:onGainSkillTries`
+    /// (`tries = tries * rateSkill` / `rateMagic`). Uses `floor(base * rate)`.
+    #[inline]
+    pub fn scale_tries(base: u64, rate: f64) -> u64 {
+        if base == 0 || !(rate > 0.0) {
+            return 0;
+        }
+        let scaled = (base as f64) * rate;
+        if !scaled.is_finite() || scaled >= u64::MAX as f64 {
+            u64::MAX
+        } else {
+            scaled.floor() as u64
+        }
+    }
+
     /// C++ `ConfigManager::DEATH_LOSE_PERCENT` (`deathLosePercent`, default -1).
     /// - `-1` => use default formula.
     /// - `0..100` => fixed percentage loss.
@@ -792,6 +845,20 @@ mod tests {
     fn rate_experience_reads_config_value() {
         let cfg = config_from_lua("rateExp = 3.5");
         assert_eq!(cfg.rate_experience().expect("rateExp"), 3.5);
+    }
+
+    #[test]
+    fn rate_skill_and_magic_defaults_and_values() {
+        let cfg = config_from_lua("");
+        assert_eq!(cfg.rate_skill().expect("rateSkill default"), 1.0);
+        assert_eq!(cfg.rate_magic().expect("rateMagic default"), 1.0);
+
+        let cfg = config_from_lua("rateSkill = 3\nrateMagic = 3");
+        assert_eq!(cfg.rate_skill().expect("rateSkill"), 3.0);
+        assert_eq!(cfg.rate_magic().expect("rateMagic"), 3.0);
+        assert_eq!(ConfigManager::scale_tries(1, 3.0), 3);
+        assert_eq!(ConfigManager::scale_tries(50, 3.0), 150);
+        assert_eq!(ConfigManager::scale_tries(1, 0.0), 0);
     }
 
     #[test]

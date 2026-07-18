@@ -18,6 +18,7 @@ use tfs_rust_common::ConnId;
 
 use crate::combat::apply_condition;
 use crate::condition::{ActiveCondition, ConditionData};
+use crate::config::ConfigManager;
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -325,11 +326,25 @@ impl GameWorld {
         }
 
         // Deduct mana + soul — 772 `CheckMana` `magic.cc:762-763`.
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.mana -= mana_cost as i32;
-            p.economy.soul -= spell.soul as i32;
+        // PC-5: mana spent advances magic level (`Player::addManaSpent`).
+        // TFS `onGainSkillTries`: multiply by `rateMagic` before adding.
+        let profile = self.mechanics.profile;
+        let magic_tries = ConfigManager::scale_tries(
+            mana_cost as u64,
+            self.config.rate_magic().unwrap_or(1.0),
+        );
+        let mut levels_gained = 0u32;
+        let mut new_maglevel = 0i32;
+        {
+            let hooks = &self.mechanics.hooks;
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                p.mana -= mana_cost as i32;
+                p.economy.soul -= spell.soul as i32;
+                levels_gained = p.magic_increase(magic_tries, &profile, hooks);
+                new_maglevel = p.skills.maglevel;
+            }
         }
-        self.send_player_stats(cid);
+        self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
 
         // PC-3a: Set spell exhaustion — 772 `CheckMana` `magic.cc:770-773`.
         // `EarliestSpellTime = max(., ServerMilliseconds + Delay)`.

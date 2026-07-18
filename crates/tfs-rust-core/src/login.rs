@@ -169,6 +169,14 @@ pub fn player_from_loaded(
             shielding: p.skill_shielding as i32,
             fishing: p.skill_fishing as i32,
             maglevel: p.maglevel,
+            fist_tries: p.skill_fist_tries,
+            club_tries: p.skill_club_tries,
+            sword_tries: p.skill_sword_tries,
+            axe_tries: p.skill_axe_tries,
+            dist_tries: p.skill_dist_tries,
+            shielding_tries: p.skill_shielding_tries,
+            fishing_tries: p.skill_fishing_tries,
+            manaspent: p.manaspent,
         },
         economy: PlayerEconomy {
             balance: p.balance,
@@ -221,6 +229,7 @@ pub fn player_from_loaded(
         earliest_protection_zone_round: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
+        blessings: p.blessings,
     }
 }
 

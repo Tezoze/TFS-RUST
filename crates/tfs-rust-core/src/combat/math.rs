@@ -311,10 +311,21 @@ pub fn experience_for_level(profile: &MechanicsProfile, hooks: &FormulaHooks, le
         // (`crskill.cc:352`) with `Delta = 100`: `(((L-6)*L+17)*L-12)/6 * delta`. The eras differ
         // only in the `Delta` default (both 100 for the level curve; 772 varies it per skill).
         LevelExpModel::Tfs | LevelExpModel::DeltaPoly => {
-            let l = level;
-            (((l - 6) * l + 17) * l - 12) / 6 * profile.level_exp_delta
+            experience_for_level_poly(level, profile.level_exp_delta)
         }
     }
+}
+
+/// Pure level-exp polynomial `(((L-6)*L+17)*L-12)/6 * delta` (`crskill.cc:352`).
+///
+/// Shared by [`experience_for_level`] and [`crate::creature::vocation::total_experience_for_level`].
+#[inline]
+pub fn experience_for_level_poly(level: i64, delta: i64) -> i64 {
+    if level <= 1 {
+        return 0;
+    }
+    let l = level;
+    (((l - 6) * l + 17) * l - 12) / 6 * delta
 }
 
 /// Triangular 20-slot proportional split of `total_exp` across `damage_shares` (B4.5).
@@ -568,6 +579,88 @@ mod tests {
         assert_eq!(req_skill_tries(&m.hooks, 2, 11, 50, 1.1, 10), 50);
         assert_eq!(req_skill_tries(&m.hooks, 2, 12, 50, 1.1, 10), 55);
         assert_eq!(req_skill_tries(&m.hooks, 2, 13, 50, 1.1, 10), 60);
+    }
+
+    #[test]
+    fn req_skill_tries_772_human_mon_deltas() {
+        let m = p772();
+        let st = m.profile.skill_tries;
+        // Sword Delta=50, Base=2.0 (none vocation) — L11→50, L12→100, L13→200.
+        assert_eq!(
+            req_skill_tries(&m.hooks, 2, 11, st.skill_base[2], 2.0, st.min_level[2]),
+            50
+        );
+        assert_eq!(
+            req_skill_tries(&m.hooks, 2, 12, st.skill_base[2], 2.0, st.min_level[2]),
+            100
+        );
+        assert_eq!(
+            req_skill_tries(&m.hooks, 2, 13, st.skill_base[2], 2.0, st.min_level[2]),
+            200
+        );
+        // Dist Delta=30, Base=2.0 — L11→30, L12→60.
+        assert_eq!(
+            req_skill_tries(&m.hooks, 4, 11, st.skill_base[4], 2.0, st.min_level[4]),
+            30
+        );
+        assert_eq!(
+            req_skill_tries(&m.hooks, 4, 12, st.skill_base[4], 2.0, st.min_level[4]),
+            60
+        );
+        // Shielding Delta=100, Base=1.5 — L11→100, L12→150.
+        assert_eq!(
+            req_skill_tries(&m.hooks, 5, 11, st.skill_base[5], 1.5, st.min_level[5]),
+            100
+        );
+        assert_eq!(
+            req_skill_tries(&m.hooks, 5, 12, st.skill_base[5], 1.5, st.min_level[5]),
+            150
+        );
+        // Fishing Delta=20, Base=1.1 — L11→20, L12→22.
+        assert_eq!(
+            req_skill_tries(&m.hooks, 6, 11, st.skill_base[6], 1.1, st.min_level[6]),
+            20
+        );
+        assert_eq!(
+            req_skill_tries(&m.hooks, 6, 12, st.skill_base[6], 1.1, st.min_level[6]),
+            22
+        );
+        // Magic skill_base=1600, min=0, mult=3.0 — L1→1600, L2→4800.
+        assert_eq!(
+            req_skill_tries(
+                &m.hooks,
+                -1,
+                1,
+                st.magic_skill_base,
+                3.0,
+                st.magic_min_level
+            ),
+            1600
+        );
+        assert_eq!(
+            req_skill_tries(
+                &m.hooks,
+                -1,
+                2,
+                st.magic_skill_base,
+                3.0,
+                st.magic_min_level
+            ),
+            4800
+        );
+    }
+
+    #[test]
+    fn experience_for_level_poly_matches_total() {
+        assert_eq!(experience_for_level_poly(1, 100), 0);
+        assert_eq!(
+            experience_for_level_poly(2, 100) as u64,
+            crate::creature::vocation::total_experience_for_level(2)
+        );
+        assert_eq!(
+            experience_for_level_poly(8, 100) as u64,
+            crate::creature::vocation::total_experience_for_level(8)
+        );
     }
 
     #[test]

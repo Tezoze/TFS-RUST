@@ -556,6 +556,7 @@ impl GameWorld {
             && matches!(self.creatures.get(target_id), Some(CreatureKind::Player(_)))
         {
             self.player_shield_wearout(target_id);
+            self.player_shield_skill_learning(target_id, defense_snap.has_shield);
         }
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 

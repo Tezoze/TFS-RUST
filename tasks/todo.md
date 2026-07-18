@@ -638,3 +638,15 @@ not a 772 `CharacterRights` DB table.
 
 ## PC-3a spell-gaps doc audit — done
 - [x] Corrected `tasks/pc3a-spell-gaps.md` against tree (wild_growth, area names, DISPEL/CREATEITEM counts, conjureItem via functions.lua, direct addCondition vs callbacks, existing CreatureRef APIs).
+
+## PC-5 — Skill tries / learning / death (2026-07-18) — done
+- [x] SkillTriesTuning + skillTuning in 772/1098.lua
+- [x] PlayerSkills tries + manaspent + blessings; login/save
+- [x] Increase(1) on attack/defend probe + magic_increase on mana spend
+- [x] M12 shield learning; M13 level-up current vitals; M7 AoL/SOME drop/bless
+- [x] experience_for_level_poly consolidate; fed_regen no hardcoded fallback
+- [x] Tests: req_skill_tries goldens, skill_increase, vitals Advance
+- [x] Wire `rateSkill`/`rateMagic` from config.lua onto try gains (`scale_tries`; exp stages already done)
+- [x] Client refresh: `send_player_stats` after kill XP; `send_player_skills` + real skill/magic % bars
+- [x] Exp popup (`TEXTCOLOR_WHITE_EXP` animated text) + `MESSAGE_EVENT_ADVANCE` skill/magic/level lines
+

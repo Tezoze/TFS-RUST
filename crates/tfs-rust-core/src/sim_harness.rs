@@ -166,16 +166,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         max_mana: 50,
         capacity: 40000,
         inventory: PlayerInventory::default(),
-        skills: PlayerSkills {
-            fist: 10,
-            club: 10,
-            sword: 10,
-            axe: 10,
-            dist: 10,
-            shielding: 10,
-            fishing: 10,
-            maglevel: 0,
-        },
+        skills: PlayerSkills::with_levels(10, 10, 10, 10, 10, 10, 10, 0),
         economy: PlayerEconomy {
             balance: 0,
             soul: 100,
@@ -226,6 +217,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         earliest_protection_zone_round: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
+        blessings: 0,
     }
 }
 

@@ -21,6 +21,7 @@ use tfs_rust_common::enums::CombatType;
 
 use crate::combat::math::{armor_reduction, melee_damage_after_defense_and_armor, weapon_damage};
 use crate::combat::{CombatDamage, CombatParams};
+use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -76,13 +77,18 @@ impl GameWorld {
         // Vocation `formula.melee_damage` multiplier (PC-2 step 1).
         let attack_roll = ((attack_roll as f64) * melee_mult).floor() as i32;
 
-        // `ProbeValue` side-effect: decrement `LearningPoints` while > 0 (`crskill.cc:549`).
-        // `Increase(1)` skill-exp is PC-5 (§0.5 — no tries counters yet).
+        // `ProbeValue` side-effect: `Increase(1)` + decrement `LearningPoints` while > 0
+        // (`crskill.cc:535-549`). PC-5 wires skill tries via `skill_increase`.
+        // TFS `onGainSkillTries`: multiply by `rateSkill` before adding.
+        let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
+        let mut skill_trained = false;
+        let mut levels_gained = 0u32;
         if learning_active {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                let lp = &mut k.base_mut().learning_points;
-                if *lp > 0 {
-                    *lp -= 1;
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                if p.base.learning_points > 0 {
+                    levels_gained = p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
+                    p.base.learning_points -= 1;
+                    skill_trained = skill_tries > 0;
                 }
             }
         }
@@ -114,12 +120,18 @@ impl GameWorld {
         // here it feeds `melee_damage_after_defense_and_armor` so the shared physical path
         // (`combat_execute_with_stimulus`) receives the post-armor HP delta.
         let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+        // TFS `addSkillAdvance` → `sendSkills()` + advance text — after `hooks` is last used.
+        if skill_trained {
+            self.notify_skill_tries_gained(cid, atk_skill_nr, levels_gained);
+        }
         // M11 — Shield wearout: decrement the defender's shield `REMAININGUSES` when the defense
         // gate passed and the defender has a chargeable shield equipped (`crcombat.cc:265-281`).
         // Player-only (monsters don't have shields). Called after `hooks` is last used to avoid
         // borrow conflict with `&mut self`.
         if defense_gate_passed {
             self.player_shield_wearout(target_id);
+            // M12 — shield skill learning (`crcombat.cc:259-263`).
+            self.player_shield_skill_learning(target_id, defense_snap.has_shield);
         }
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
@@ -284,6 +296,41 @@ impl GameWorld {
             if let Some(slot) = slot {
                 self.broadcast_player_inventory_slot(cid, slot, Some(shield_iid));
             }
+        }
+    }
+
+    /// M12 — Shielding skill `Increase(1)` when defending with a shield and learning is active.
+    ///
+    /// C++ `GetDefendDamage` (`crcombat.cc:259-263`): `Increase = (Shield != NONE &&
+    /// LearningPoints > 0)` → `ProbeValue(..., Increase)` → `LearningPoints--`.
+    /// Tries are scaled by `config.rateSkill` (TFS `onGainSkillTries`).
+    pub(crate) fn player_shield_skill_learning(&mut self, cid: CreatureId, has_shield: bool) {
+        if !has_shield {
+            return;
+        }
+        let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
+        let profile = self.mechanics.profile;
+        let hooks = &self.mechanics.hooks;
+        let mut skill_trained = false;
+        let mut levels_gained = 0u32;
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            if p.base.learning_points > 0 {
+                levels_gained = p.skill_increase(
+                    crate::player::combat::SkillNr::Shielding,
+                    skill_tries,
+                    &profile,
+                    hooks,
+                );
+                p.base.learning_points -= 1;
+                skill_trained = skill_tries > 0;
+            }
+        }
+        if skill_trained {
+            self.notify_skill_tries_gained(
+                cid,
+                crate::player::combat::SkillNr::Shielding,
+                levels_gained,
+            );
         }
     }
 }

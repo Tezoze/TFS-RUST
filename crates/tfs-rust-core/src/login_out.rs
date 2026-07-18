@@ -17,7 +17,7 @@ use crate::ids::CreatureId;
 use crate::walk::{wire_step_speed, WalkSpeedRole};
 use crate::{Monster, Npc, Outfit, Player};
 
-use tfs_rust_net::codec::{ItemTemplateArgs, PlayerSkillsWire};
+use tfs_rust_net::codec::ItemTemplateArgs;
 use tfs_rust_net::creature_encode::{AddCreatureWire, OutfitWire};
 use tfs_rust_net::map_description::{
     send_map_description_packet, send_map_description_stub, ItemStack, TileContent,
@@ -467,27 +467,15 @@ fn enqueue_initial_login_packets_classic(
     conn_id: ConnId,
     creature_id: CreatureId,
 ) {
-    let (pid, pos, skill_levels, equipment_slots, vip_list, with_desc_inv, is_otclient) = {
+    let (pid, pos, equipment_slots, vip_list, with_desc_inv, is_otclient) = {
         let Some(CreatureKind::Player(p)) = world.creatures.get(creature_id) else {
             return;
         };
-        let sk = &p.skills;
-        let lvl = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
-        let skill_levels = [
-            lvl(sk.fist),
-            lvl(sk.club),
-            lvl(sk.sword),
-            lvl(sk.axe),
-            lvl(sk.dist),
-            lvl(sk.shielding),
-            lvl(sk.fishing),
-        ];
         let is_otclient =
             p.otclient_v8 != 0 || p.operating_system >= tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
         (
             p.guid,
             p.base.position,
-            skill_levels,
             p.equipment_slots,
             p.vip_list.clone(),
             p.item_with_description(),
@@ -559,16 +547,7 @@ fn enqueue_initial_login_packets_classic(
 
     // Stats (`0xA0`) + skills (`0xA1`) via the codec (772 widths).
     world.send_player_stats(creature_id);
-    world.enqueue_encoded(
-        conn_id,
-        world.codec.encode_player_skills(&PlayerSkillsWire {
-            levels: skill_levels,
-            bases: skill_levels,
-            percents: [0u8; 7],
-            additional_levels: [0u16; 6],
-            additional_bases: [0u16; 6],
-        }),
-    );
+    world.send_player_skills(creature_id);
 
     // World light (`0x82`) + this player's creature light (`0x8D`).
     let wt = crate::world_light::world_time_from_local_clock();
@@ -622,41 +601,14 @@ fn enqueue_initial_login_packets_1098(
     conn_id: ConnId,
     creature_id: CreatureId,
 ) {
-    let (
-        pid,
-        pos,
-        skill_levels,
-        skill_bases,
-        skill_percents,
-        vocation_id,
-        premium_ends_at,
-        equipment_slots,
-        vip_list,
-        with_desc_inv,
-    ) = {
+    let (pid, pos, vocation_id, premium_ends_at, equipment_slots, vip_list, with_desc_inv) = {
         let Some(CreatureKind::Player(p)) = world.creatures.get(creature_id) else {
             return;
         };
-        let sk = &p.skills;
-        let lvl = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
-        let skill_levels = [
-            lvl(sk.fist),
-            lvl(sk.club),
-            lvl(sk.sword),
-            lvl(sk.axe),
-            lvl(sk.dist),
-            lvl(sk.shielding),
-            lvl(sk.fishing),
-        ];
-        let skill_bases = skill_levels;
-        let skill_percents = [0u8; 7];
         let with_desc_inv = p.item_with_description();
         (
             p.guid,
             p.base.position,
-            skill_levels,
-            skill_bases,
-            skill_percents,
             p.vocation_id,
             p.premium_ends_at,
             p.equipment_slots,
@@ -665,9 +617,6 @@ fn enqueue_initial_login_packets_1098(
         )
     };
     let voc_client = world.vocations.client_id_u8(vocation_id);
-    // OTClient 1098 + GameAdditionalSkills: skills 7–12 (critical / leech); not modeled in PlayerSkills yet — zeros.
-    let additional_skill_levels = [0u16; 6];
-    let additional_skill_bases = [0u16; 6];
 
     let free_premium = world.config.get_bool("freePremium").unwrap_or(false);
     let now = SystemTime::now()
@@ -756,16 +705,9 @@ fn enqueue_initial_login_packets_1098(
             .codec
             .encode_basic_data(has_premium, premium_packet_ends, voc_client),
     );
-    world.enqueue_encoded(
-        conn_id,
-        world.codec.encode_player_skills(&PlayerSkillsWire {
-            levels: skill_levels,
-            bases: skill_bases,
-            percents: skill_percents,
-            additional_levels: additional_skill_levels,
-            additional_bases: additional_skill_bases,
-        }),
-    );
+    // OTClient 1098 + GameAdditionalSkills: skills 7–12 (critical / leech) still zero in
+    // `send_player_skills` until those fields exist on `PlayerSkills`.
+    world.send_player_skills(creature_id);
 
     let wt = crate::world_light::world_time_from_local_clock();
     let wl = crate::world_light::light_level_from_world_time(wt);

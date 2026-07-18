@@ -33,6 +33,65 @@ pub struct PlayerSkills {
     pub shielding: i32,
     pub fishing: i32,
     pub maglevel: i32,
+    /// Per-level tries toward next skill level (DB `skill_*_tries`).
+    pub fist_tries: u64,
+    pub club_tries: u64,
+    pub sword_tries: u64,
+    pub axe_tries: u64,
+    pub dist_tries: u64,
+    pub shielding_tries: u64,
+    pub fishing_tries: u64,
+    /// Tries toward next magic level (DB `manaspent`).
+    pub manaspent: u64,
+}
+
+impl Default for PlayerSkills {
+    fn default() -> Self {
+        Self {
+            fist: 10,
+            club: 10,
+            sword: 10,
+            axe: 10,
+            dist: 10,
+            shielding: 10,
+            fishing: 10,
+            maglevel: 0,
+            fist_tries: 0,
+            club_tries: 0,
+            sword_tries: 0,
+            axe_tries: 0,
+            dist_tries: 0,
+            shielding_tries: 0,
+            fishing_tries: 0,
+            manaspent: 0,
+        }
+    }
+}
+
+impl PlayerSkills {
+    /// Zero-tries copy with the given skill levels (test / stub helpers).
+    pub fn with_levels(
+        fist: i32,
+        club: i32,
+        sword: i32,
+        axe: i32,
+        dist: i32,
+        shielding: i32,
+        fishing: i32,
+        maglevel: i32,
+    ) -> Self {
+        Self {
+            fist,
+            club,
+            sword,
+            axe,
+            dist,
+            shielding,
+            fishing,
+            maglevel,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +266,9 @@ pub struct Player {
     /// cannot enter a protection zone. Enforcement (walk/move PZ-entry check) is deferred;
     /// PC-4 wires the field + setter so `BlockLogout` stores the round.
     pub earliest_protection_zone_round: u32,
+    /// `players.blessings` bitfield — TFS domain `Player::blessings` (`player.cpp`).
+    /// Bits 0–4 = five blessings; bit 5 = twist of fate. Drives death-loss reduction (PC-5).
+    pub blessings: i8,
 }
 
 impl Player {
@@ -233,6 +295,10 @@ impl Player {
     /// C++ `Player::addExperience` — level-up loop updates HP/mana/cap/speed
     /// (`crskill.cc` `Event`). Returns `true` if any level changed (caller should
     /// `announce_creature_speed` — C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED`).
+    ///
+    /// M13: each level-up adds `gain_hp`/`gain_mana` to *current* HP/mana (772
+    /// `TSkillAdd::Advance`, `crskill.cc:667-678`), then clamps to the new max —
+    /// not a full refill (1098 does refill; era-gate later).
     pub fn add_experience(
         &mut self,
         amount: u64,
@@ -246,9 +312,13 @@ impl Player {
             self.level += 1;
             let (max_hp, max_mana, cap) = self.vocation_profile.recalculate_vitals(self.level);
             self.base.max_health = max_hp;
-            self.base.health = self.base.health.min(max_hp).max(1);
+            self.base.health = (self.base.health + self.vocation_profile.gain_hp)
+                .min(max_hp)
+                .max(1);
             self.max_mana = max_mana;
-            self.mana = self.mana.min(max_mana);
+            self.mana = (self.mana + self.vocation_profile.gain_mana)
+                .min(max_mana)
+                .max(0);
             self.capacity = cap;
             let sp = base_walk_speed(
                 step_speed_model,
@@ -264,6 +334,7 @@ impl Player {
 
     /// Remove experience and apply level-down recalculation (`Player::removeExperience`-style outcome).
     /// C++ `Player::removeExperience` — level-down loop. Returns `true` if level changed.
+    /// M13: subtracts `gain_hp`/`gain_mana` from current on each level lost (`Advance` inverse).
     pub fn remove_experience(
         &mut self,
         amount: u64,
@@ -275,9 +346,13 @@ impl Player {
             self.level -= 1;
             let (max_hp, max_mana, cap) = self.vocation_profile.recalculate_vitals(self.level);
             self.base.max_health = max_hp;
-            self.base.health = self.base.health.min(max_hp).max(1);
+            self.base.health = (self.base.health - self.vocation_profile.gain_hp)
+                .min(max_hp)
+                .max(1);
             self.max_mana = max_mana;
-            self.mana = self.mana.min(max_mana);
+            self.mana = (self.mana - self.vocation_profile.gain_mana)
+                .min(max_mana)
+                .max(0);
             self.capacity = cap;
             let sp = base_walk_speed(
                 step_speed_model,

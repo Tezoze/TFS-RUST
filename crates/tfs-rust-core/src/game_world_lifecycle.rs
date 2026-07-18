@@ -169,6 +169,17 @@ impl GameWorld {
             return;
         }
 
+        let is_player = matches!(
+            self.creatures.get(victim),
+            Some(CreatureKind::Player(_))
+        );
+
+        // PC-5 M7 — player skill-try loss + inventory drop (AoL / SOME) before XP share.
+        if is_player {
+            self.apply_player_death_skill_loss(victim);
+            self.player_death_drop_inventory(victim);
+        }
+
         let corpse_snapshot = self.creatures.get(victim).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -201,9 +212,9 @@ impl GameWorld {
         }
 
         let decay_now = self.now_ms();
-        // K2: corpse decay offset from profile (772 30 000 ms, 1098 600 ms).
-        // `schedule_generic_corpse` is always true — the 1098 no-corpse arm was deleted in Phase 5.
-        let leveled = crate::death::handle_creature_death(
+        // Players already placed corpse 3128 in `player_death_drop_inventory`; skip generic 3058.
+        let schedule_generic_corpse = !is_player;
+        let (leveled, xp_grants) = crate::death::handle_creature_death(
             &mut self.creatures,
             &mut self.items,
             &mut self.decay,
@@ -213,7 +224,7 @@ impl GameWorld {
             None,
             self.mechanics.profile.step_speed,
             self.config.as_ref(),
-            true,
+            schedule_generic_corpse,
             self.mechanics.profile.corpse_decay_offset_ms,
         );
         // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
@@ -221,6 +232,145 @@ impl GameWorld {
         for cid in leveled {
             self.announce_creature_speed(cid);
         }
+        // TFS/772: `sendStats` + animated exp popup (`Creature::onGainExperience`) + level advance text.
+        for grant in xp_grants {
+            self.send_player_stats(grant.cid);
+            if grant.amount > 0 {
+                if let Some(pos) = self.creatures.get(grant.cid).map(|k| k.position()) {
+                    self.broadcast_experience_popup(pos, grant.amount);
+                }
+            }
+            if grant.new_level > grant.old_level {
+                // 772 `Player::addExperience` — `player.cpp:1548`.
+                self.send_player_advance_message(
+                    grant.cid,
+                    &format!(
+                        "You advanced from Level {} to Level {}.",
+                        grant.old_level, grant.new_level
+                    ),
+                );
+            } else if grant.new_level < grant.old_level {
+                self.send_player_advance_message(
+                    grant.cid,
+                    &format!(
+                        "You were downgraded from Level {} to Level {}.",
+                        grant.old_level, grant.new_level
+                    ),
+                );
+            }
+        }
         self.remove_creature(victim);
+    }
+
+    /// PC-5 M7 — skill / magic try loss at the bless-reduced death fraction.
+    ///
+    /// TFS `Player::death` skill loop (`player.cpp:2099-2108`); 772 `DecreasePercent`
+    /// (`crplayer.cc:352-360`) produces the same demotion outcomes with per-level tries.
+    fn apply_player_death_skill_loss(&mut self, victim: CreatureId) {
+        let profile = self.mechanics.profile;
+        let hooks = &self.mechanics.hooks;
+        let frac = {
+            let Some(CreatureKind::Player(v)) = self.creatures.get(victim) else {
+                return;
+            };
+            crate::death::death_loss_fraction(
+                self.config.as_ref(),
+                v.level,
+                v.experience,
+                v.blessings,
+            )
+            .clamp(0.0, 1.0)
+        };
+        if let Some(CreatureKind::Player(v)) = self.creatures.get_mut(victim) {
+            for skill in crate::player::combat::SkillNr::COMBAT_ALL {
+                let total = v.skill_total_tries(skill, &profile, hooks);
+                let lose_tries = ((total as f64) * frac).floor() as u64;
+                let _ = v.skill_decrease(skill, lose_tries, &profile, hooks);
+            }
+            let mag_total = v.magic_total_tries(&profile, hooks);
+            let mag_lose = ((mag_total as f64) * frac).floor() as u64;
+            let _ = v.magic_decrease(mag_lose, &profile, hooks);
+        }
+    }
+
+    /// PC-5 M7 — amulet of loss + inventory drop onto dead-human corpse.
+    ///
+    /// C++ `crmain.cc:790-815` (AoL → `LOSE_INVENTORY_NONE` + delete amulet);
+    /// `crmain.cc:267-281` (`LOSE_INVENTORY_SOME`: containers always, else 10% chance).
+    /// Corpse type `3128` (dead human). Default player mode is SOME (`crplayer.cc:30`).
+    fn player_death_drop_inventory(&mut self, victim: CreatureId) {
+        const AMULET_OF_LOSS: u16 = 2173;
+        const DEAD_HUMAN_CORPSE: u16 = 3128;
+
+        let pos = match self.creatures.get(victim) {
+            Some(CreatureKind::Player(p)) => p.base.position,
+            _ => return,
+        };
+
+        // Scan for amulet of loss in the necklace slot (or any clothes slot matching type).
+        let mut lose_none = false;
+        let necklace_slot = crate::inventory::InventorySlot::Necklace as u8;
+        if let Some(iid) = self.get_player_inventory_item(victim, necklace_slot) {
+            if self.items.get(iid).is_some_and(|i| i.item_type == AMULET_OF_LOSS) {
+                lose_none = true;
+                let _ = self.internal_remove_item_from_inventory_slot(victim, necklace_slot, iid);
+                self.items.remove(iid);
+                tracing::info!(?victim, "player died with amulet of loss");
+            }
+        }
+
+        // Always create the corpse; items only move when lose mode is SOME.
+        let corpse_id = self.items.insert(crate::item::Item::new(DEAD_HUMAN_CORPSE, 1));
+        self.hydrate_container_if_needed(corpse_id);
+        let decay_deadline = self
+            .now_ms()
+            .saturating_add(self.mechanics.profile.corpse_decay_offset_ms);
+        self.decay.schedule(corpse_id, decay_deadline, None);
+        if self
+            .internal_add_item_to_tile(pos, corpse_id, crate::cylinder::CylinderFlags::NO_LIMIT)
+            .is_err()
+        {
+            tracing::warn!(?pos, "player corpse could not be placed on tile");
+        }
+
+        if lose_none {
+            return;
+        }
+
+        // LOSE_INVENTORY_SOME — drop containers always, other slots with 1/10 chance.
+        for slot in 1u8..=10u8 {
+            let Some(iid) = self.get_player_inventory_item(victim, slot) else {
+                continue;
+            };
+            let is_container = self
+                .items
+                .get(iid)
+                .is_some_and(|i| self.items_db.is_container(i.item_type));
+            let drop = is_container || {
+                #[cfg(any(test, feature = "sim"))]
+                {
+                    if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                        crate::sim_glibc_rand::parity_rand_mod(10) == 0
+                    } else {
+                        use rand::Rng;
+                        self.ai_rng.gen_range(0..10) == 0
+                    }
+                }
+                #[cfg(not(any(test, feature = "sim")))]
+                {
+                    use rand::Rng;
+                    self.ai_rng.gen_range(0..10) == 0
+                }
+            };
+            if !drop {
+                continue;
+            }
+            if self
+                .internal_remove_item_from_inventory_slot(victim, slot, iid)
+                .is_ok()
+            {
+                self.move_body_item_into_corpse(corpse_id, iid);
+            }
+        }
     }
 }
