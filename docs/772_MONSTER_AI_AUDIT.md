@@ -24,8 +24,8 @@ subsystem sweeps and cite both sides.
 | 2 | HIGH | GAP | Targeting | Acquire path missing invisibility filter `[verified]` |
 | 3 | MED | BUG | Targeting | `CanSeeFloor` awake check reduced to exact-Z equality `[verified]` |
 | 4 | MED | BUG | Targeting | Acquire filter uses `is_summon()` instead of `IsPlayerControlled` `[verified]` |
-| 5 | HIGH | GAP | Spells | `SpellImpact::Field` is a stub — monsters never place fields `[verified]` |
-| 6 | HIGH | GAP | Spells | `SpellImpact::Summon` is a stub — monster summon spells do nothing `[verified]` |
+| 5 | HIGH | DONE | Spells | `SpellImpact::Field` places poison/fire/energy via `CreateField` |
+| 6 | HIGH | DONE | Spells | `SpellImpact::Summon` via CASTING + CreateMonster |
 | 7 | MED | GAP | Spells | `IMPACT_STRENGTH` (skill % buff/debuff) impact not modeled `[verified]` |
 | 8 | MED | GAP | Spells | `IMPACT_OUTFIT` (shapeshift/illusion) impact not modeled `[verified]` |
 | 9 | HIGH | GAP | Summons | `ConvinceMonster` (master takeover) not implemented anywhere `[verified]` |
@@ -91,17 +91,16 @@ own map entry for the candidate is exactly C++ `this->Combat.GetDamageByCreature
 
 ## 5–8. Monster spell impacts (`crnonpl.cc:2571-2736` CASTING vs `monster_combat.rs` `SpellImpact` + `idle_stimulus.rs` cast executor)
 
-### 5. `IMPACT_FIELD` stub — HIGH, GAP `[verified]`
-- Rust: `idle_stimulus.rs:1063-1069` — `SpellImpact::Field` logs
-  `"monster spell field impact not yet placed on map"` and does nothing.
-- C++: `crnonpl.cc:2596-2600` — `TFieldImpact(this, FieldType)` places fire/poison/energy
-  fields via the spell shape.
-- Field-throwing monsters (giant spider, warlock, demons, …) currently no-op their signature
-  attacks.
+### 5. `IMPACT_FIELD` — HIGH, DONE (2026-07-18)
+- Rust: `parse_spell_impact` maps `poisonfield`/`firefield`/`energyfield` →
+  `SpellImpact::Field { field_type }`; `monster_create_field` implements 772
+  `CreateField` (`FieldPossible`, delete MAGICFIELD, place 1490/1487/1491).
+- C++: `crnonpl.cc:2596-2600` / `magic.cc:167–172` / `:984`.
 
-### 6. `IMPACT_SUMMON` stub — HIGH, GAP `[verified]`
-- Rust: `idle_stimulus.rs:1070-1081` — master gate is correct (`Master == 0`,
-  `crnonpl.cc:2648-2655`) but the body only logs `"monster summon spell stub"`.
+### 6. `IMPACT_SUMMON` — HIGH, DONE (XML `<summons>` → CASTING)
+- Rust: CASTING Origin r=0 + `SearchSummonField` / `SearchFreeField` / reparent /
+  `broadcast_creature_appear`.
+- C++: `crnonpl.cc:2648-2655`, `magic.cc:385–395`, `CreateMonster` `:3158`.
 - C++: `TSummonImpact(this, SummonRace, MaxSummons)` spawns bound summons.
 - Orc shamans / necromancers etc. never summon.
 

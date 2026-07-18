@@ -95,8 +95,7 @@ fn offset_position(center: Position, dx: i32, dy: i32) -> Position {
 }
 
 /// C++ `SearchFreeField` / `SearchLoginField` east-first spiral (`info.cc:761`, `info.cc:868`).
-#[cfg(any(test, feature = "sim"))]
-fn spiral_login_positions(center: Position, distance: i32) -> Vec<Position> {
+fn spiral_free_field_positions(center: Position, distance: i32) -> Vec<Position> {
     let mut out = Vec::new();
     let base_x = center.x as i32;
     let base_y = center.y as i32;
@@ -155,7 +154,7 @@ pub(crate) fn search_login_field(
     mut login_possible: impl FnMut(Position) -> bool,
 ) -> Option<Position> {
     let distance = distance.max(0);
-    for pos in spiral_login_positions(center, distance) {
+    for pos in spiral_free_field_positions(center, distance) {
         if login_possible(pos) {
             return Some(pos);
         }
@@ -252,6 +251,70 @@ pub(crate) fn search_spawn_field(
 }
 
 impl GameWorld {
+    /// 772 `SearchFreeField` — `info.cc:761`. East-first spiral; `HouseID == 0` (no house tiles).
+    ///
+    /// Used by `CreateMonster` after `SearchSummonField` (`crnonpl.cc:3169`). Return value is
+    /// ignored there on failure — callers should `unwrap_or(center)`.
+    pub(crate) fn search_free_field(&self, center: Position, distance: i32) -> Option<Position> {
+        let distance = distance.max(0);
+        for pos in spiral_free_field_positions(center, distance) {
+            if self.free_field_tile_ok(pos) {
+                return Some(pos);
+            }
+        }
+        None
+    }
+
+    /// `SearchFreeField` MovePossible arm (`info.cc:775–778`) + house gate with `HouseID == 0`.
+    fn free_field_tile_ok(&self, pos: Position) -> bool {
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        // `HouseID == 0` → reject all house tiles (`info.cc:782–783`).
+        if matches!(tile, crate::tile::Tile::House(_)) {
+            return false;
+        }
+        let body = tile.body();
+        let chain = body.map_object_chain();
+        let Some(crate::tile::MapStackEntry::Ground(server_id)) = chain.first() else {
+            return false;
+        };
+        if !self.items_db.is_terrain_bank(*server_id) {
+            return false;
+        }
+        // Creatures are UNPASS containers — occupied tiles fail.
+        if !body.creatures.is_empty() {
+            return false;
+        }
+        for entry in &chain {
+            match entry {
+                crate::tile::MapStackEntry::Ground(sid) => {
+                    if self.items_db.is_unpassable(*sid) {
+                        return false;
+                    }
+                    // AVOID allowed only with BED (`info.cc:777–778`).
+                    if self.items_db.is_avoid_hazard(*sid) && (body.flags & tilestate::BED) == 0 {
+                        return false;
+                    }
+                }
+                crate::tile::MapStackEntry::Item(item_id) => {
+                    let Some(item) = self.items.get(*item_id) else {
+                        return false;
+                    };
+                    let sid = item.item_type;
+                    if self.items_db.is_unpassable(sid) {
+                        return false;
+                    }
+                    if self.items_db.is_avoid_hazard(sid) && (body.flags & tilestate::BED) == 0 {
+                        return false;
+                    }
+                }
+                crate::tile::MapStackEntry::Creature(_) => return false,
+            }
+        }
+        true
+    }
+
     pub(crate) fn probe_spawn_tile(
         &self,
         cid: CreatureId,

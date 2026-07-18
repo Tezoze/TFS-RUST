@@ -1,3 +1,11 @@
+## Item decay / expire system (2026-07-18) — Phase 1 done
+- [x] Audit decompile Expire/Cron vs TFS duration/decayto/stopduration vs Rust
+- [x] Plan doc: `tasks/decay-system-plan.md` (Phase 0 decisions locked)
+- [x] Phase 0: corpse = XML duration only; Empty required; depot config default false; 1098 shared
+- [x] Phase 1: typed ItemType decay fields + `decay_deadline_ms` (fix `duration * 50`)
+- [ ] Phase 2: general `start_decay` / `process_decay_expiry` (not equip-only)
+- [ ] Phase 3–6: cylinder hooks, stopduration, persistence, cleanup
+
 ## Monster XML summons — 772 CASTING / ToDo (2026-07-18) — done
 - [x] Parse `<summons>` / `SummonBlock` into `MonsterType`
 - [x] Merge into CASTING as `SpellImpact::Summon` (Origin r=0) via `combat_from_monster_type`
@@ -52,7 +60,8 @@
 - [x] Cast turn-dance: `after_creature_move` skips CASTING; Destination/Victim cast Rotate gated on `walk_timer_idle`
 - [x] Idle Rotate 0x6B spam: Attack then Rotate; suppress wire turn when Go pending (lesson 169)
 - [ ] Retest live: giant spider diagonals / run-turn-face / rock-soil feel after **server restart** (reload patched `items.otb`)
-- [ ] Follow-up: `SpellImpact::Field` still stub (poisonfield does not place fields)
+- [x] Follow-up: `SpellImpact::Field` — poisonfield/firefield/energyfield parse + `CreateField` via `internal_add_item_to_tile` (772 `TFieldImpact` / `magic.cc:167`)
+- [x] Follow-up: summon-of-summon reparent + `SearchFreeField` nudge + aggressive PZ skip (CASTING Origin/Destination/Angle)
 - [ ] Follow-up: Unmove→`!moveable` still 835 mismatches (offline patch similar to Unpass)
 
 ## OTB-only item load (no objects.srv at runtime) — done

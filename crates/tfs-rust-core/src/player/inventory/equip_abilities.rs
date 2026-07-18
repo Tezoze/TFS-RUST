@@ -198,17 +198,26 @@ impl GameWorld {
     ) {
         self.decay.cancel(item_id);
 
-        let duration_sec = self
+        let (duration_sec, decay_to) = self
             .items_db
             .items
             .get(&new_type)
-            .and_then(|it| xml_u32(&it.xml_attributes, "duration"))
-            .unwrap_or(0);
-        let decay_to = self
-            .items_db
-            .items
-            .get(&new_type)
-            .and_then(|it| xml_u16(&it.xml_attributes, "decayto"));
+            .map(|it| {
+                let secs = if it.decay_time > 0 {
+                    it.decay_time
+                } else {
+                    xml_u32(&it.xml_attributes, "duration").unwrap_or(0)
+                };
+                let to = if it.decay_to > 0 {
+                    Some(it.decay_to as u16)
+                } else if it.decay_to == 0 {
+                    None
+                } else {
+                    xml_u16(&it.xml_attributes, "decayto")
+                };
+                (secs, to)
+            })
+            .unwrap_or((0, None));
 
         if let Some(item) = self.items.get_mut(item_id) {
             item.item_type = new_type;
@@ -223,9 +232,7 @@ impl GameWorld {
         }
 
         if start_decay && duration_sec > 0 {
-            let deadline = self
-                .server_ms
-                .saturating_add(u64::from(duration_sec).saturating_mul(1000));
+            let deadline = crate::decay::decay_deadline_ms(self.server_ms, duration_sec);
             let replace = decay_to.filter(|&id| id > 0);
             self.decay.schedule(item_id, deadline, replace);
         }
@@ -624,6 +631,8 @@ mod tests {
 
         let mut active = ItemType::default();
         active.abilities.speed = 30;
+        active.decay_time = 600;
+        active.decay_to = 0;
         active
             .xml_attributes
             .insert("duration".into(), "600".into());

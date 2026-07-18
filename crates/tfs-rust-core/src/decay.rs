@@ -1,12 +1,22 @@
 //! Item decay scheduling (per-tick).
-// C++ reference: `items.cpp` decay / `Game::checkDecay`.
+//!
+//! Domain: TFS `Game::startDecay` / `Game::checkDecay` (`game.cpp`).
+//! Outcomes: decompile `CronExpire` / `ProcessCronSystem` (`map.cc` / `operate.cc`) —
+//! XML `duration` is seconds → deadline on `server_ms`.
 
 use crate::ids::ItemId;
 use std::collections::HashMap;
 
+/// Absolute `server_ms` deadline from remaining duration in **seconds**.
+///
+/// C++: instance duration is ms (`decayTime * 1000`); decompile Cron delay is RoundNr seconds.
+pub fn decay_deadline_ms(now_ms: u64, duration_sec: u32) -> u64 {
+    now_ms.saturating_add(u64::from(duration_sec).saturating_mul(1000))
+}
+
 #[derive(Debug, Clone)]
 pub struct DecayEntry {
-    /// Game tick index when the item should transform / vanish.
+    /// Absolute `server_ms` when the item should transform / vanish.
     pub deadline_tick: u64,
     pub replace_with: Option<u16>,
 }
@@ -43,5 +53,19 @@ impl DecayManager {
             }
         });
         done
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decay_deadline_ms;
+
+    #[test]
+    fn decay_deadline_matches_xml_seconds_to_ms() {
+        // firefield 1487 duration=200; lit candelabrum 2042=3000; dead troll 2806=1800
+        assert_eq!(decay_deadline_ms(0, 200), 200_000);
+        assert_eq!(decay_deadline_ms(0, 3000), 3_000_000);
+        assert_eq!(decay_deadline_ms(0, 1800), 1_800_000);
+        assert_eq!(decay_deadline_ms(50_000, 10), 60_000);
     }
 }

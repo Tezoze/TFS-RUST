@@ -386,9 +386,7 @@ impl GameWorld {
 
         // Phase 3: both eras use the 772 `server_ms` decay clock.
         let decay_clock = self.now_ms();
-        let decay_unit_ms = 50;
-        let (deadline, replace_with) =
-            item_decay_schedule(&self.items_db, corpse_type, decay_clock, decay_unit_ms);
+        let (deadline, replace_with) = item_decay_schedule(&self.items_db, corpse_type, decay_clock);
         self.decay.schedule(corpse_id, deadline, replace_with);
 
         if self
@@ -455,8 +453,7 @@ impl GameWorld {
         item.set_fluid_type(fluid_subtype);
         let id = self.items.insert(item);
         let clock = self.now_ms();
-        let (deadline, replace_with) =
-            item_decay_schedule(&self.items_db, splash_item_id, clock, 50);
+        let (deadline, replace_with) = item_decay_schedule(&self.items_db, splash_item_id, clock);
         self.decay.schedule(id, deadline, replace_with);
         if self
             .internal_add_item_to_tile(pos, id, CylinderFlags::NO_LIMIT)
@@ -482,25 +479,29 @@ fn item_decay_schedule(
     items_db: &tfs_rust_content::items::ItemDatabase,
     server_id: u16,
     clock: u64,
-    unit_ms: u64,
 ) -> (u64, Option<u16>) {
+    use crate::decay::decay_deadline_ms;
+
     let Some(it) = items_db.items.get(&server_id) else {
-        return (clock.saturating_add(600u64.saturating_mul(unit_ms)), None);
+        return (decay_deadline_ms(clock, 600), None);
     };
-    let duration: u64 = it
-        .xml_attributes
-        .get("duration")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(600);
-    let decayto = it
-        .xml_attributes
-        .get("decayto")
-        .and_then(|s| s.parse::<u16>().ok())
-        .filter(|&id| id > 0);
-    (
-        clock.saturating_add(duration.saturating_mul(unit_ms)),
-        decayto,
-    )
+    let duration_sec = if it.decay_time > 0 {
+        it.decay_time
+    } else {
+        it.xml_attributes
+            .get("duration")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600)
+    };
+    let decayto = if it.decay_to > 0 {
+        Some(it.decay_to as u16)
+    } else {
+        it.xml_attributes
+            .get("decayto")
+            .and_then(|s| s.parse::<u16>().ok())
+            .filter(|&id| id > 0)
+    };
+    (decay_deadline_ms(clock, duration_sec), decayto)
 }
 
 #[cfg(test)]
@@ -554,6 +555,30 @@ mod tests {
             client_to_server: HashMap::new(),
         });
         world
+    }
+
+    #[test]
+    fn item_decay_schedule_uses_seconds_to_ms_not_beat_units() {
+        let mut items = HashMap::new();
+        items.insert(
+            1487u16,
+            ItemType {
+                decay_time: 200,
+                decay_to: 1488,
+                ..ItemType::default()
+            },
+        );
+        let db = ItemDatabase {
+            items,
+            client_to_server: HashMap::new(),
+        };
+        let (deadline, replace) = super::item_decay_schedule(&db, 1487, 1_000);
+        assert_eq!(deadline, 201_000, "200s → +200_000 ms from clock");
+        assert_eq!(replace, Some(1488));
+
+        let (missing_deadline, missing_replace) = super::item_decay_schedule(&db, 9999, 0);
+        assert_eq!(missing_deadline, 600_000, "unknown type defaults to 600s");
+        assert_eq!(missing_replace, None);
     }
 
     fn insert_test_monster(world: &mut GameWorld, pos: Position) -> CreatureId {

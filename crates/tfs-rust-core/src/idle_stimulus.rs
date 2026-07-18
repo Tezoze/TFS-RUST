@@ -12,7 +12,9 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use slotmap::Key;
-use tfs_rust_common::enums::{CombatType, ConditionType, Direction, SpeakType, ZoneType};
+use tfs_rust_common::enums::{
+    CombatType, ConditionType, Direction, SpeakType, WorldType, ZoneType,
+};
 use tfs_rust_common::game_packet::ThrowPayload;
 use tfs_rust_common::Position;
 
@@ -21,9 +23,14 @@ use crate::combat::math::spell_damage;
 use crate::combat::{disc_offsets, CombatDamage, CombatParams};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
-    monster_weapon_attack_distance, ChaseMode, CreatureBase, CreatureKind, MonsterSpell,
-    MonsterState, SpellImpact, SpellShape,
+    monster_weapon_attack_distance, ChaseMode, CreatureBase, CreatureKind, MonsterFieldType,
+    MonsterSpell, MonsterState, SpellImpact, SpellShape,
 };
+use crate::cylinder::CylinderFlags;
+use crate::item::Item;
+use crate::item_attributes::ItemAttributes;
+use crate::login_out::creature_wire_id;
+use crate::tile::MapStackEntry;
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
 use crate::creature_todo::{
     trace_creature_todo, ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS,
@@ -1250,6 +1257,12 @@ impl GameWorld {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
                     for tile in tiles {
+                        // `ExecuteCircleSpell` PZ skip — `magic.cc:475–477`.
+                        if spell.impact.is_aggressive()
+                            && self.tile_in_protection_zone(tile)
+                        {
+                            continue;
+                        }
                         if !self.monster_sight_clear(pos, tile) {
                             continue;
                         }
@@ -1271,6 +1284,10 @@ impl GameWorld {
                     }
                 }
                 SpellShape::Actor => {
+                    // 772 `ActorShapeSpell` — aggressive + PZ → return (`magic.cc:406–408`).
+                    if spell.impact.is_aggressive() && self.tile_in_protection_zone(pos) {
+                        continue;
+                    }
                     // 772 `ActorShapeSpell` — `GraphicalEffect` on actor tile (`magic.cc:400`).
                     if let Some(effect) = spell.area_effect {
                         self.broadcast_magic_effect(pos, effect);
@@ -1281,6 +1298,12 @@ impl GameWorld {
                     // 772 `OriginShapeSpell`/`AngleShapeSpell` — `ExecuteCircleSpell`/beam:
                     // `handleField` then `handleCreature` per victim (`magic.cc:483–494`).
                     for tile in tiles {
+                        // `ExecuteCircleSpell` PZ skip — `magic.cc:475–477`.
+                        if spell.impact.is_aggressive()
+                            && self.tile_in_protection_zone(tile)
+                        {
+                            continue;
+                        }
                         if !self.monster_sight_clear(pos, tile) {
                             continue;
                         }
@@ -1327,7 +1350,7 @@ impl GameWorld {
                     SpellImpact::Condition { condition, .. } => format!("condition:{condition:?}"),
                     SpellImpact::Healing { .. } => "healing".into(),
                     SpellImpact::Speed { .. } => "speed".into(),
-                    SpellImpact::Field => "field".into(),
+                    SpellImpact::Field { .. } => "field".into(),
                     SpellImpact::Summon { race, .. } => format!("summon:{race}"),
                     SpellImpact::Drunk { .. } => "drunk".into(),
                 };
@@ -1520,16 +1543,128 @@ impl GameWorld {
                     }
                 }
             }
-            SpellImpact::Field => {
-                tracing::debug!(
-                    caster = ?caster_id,
-                    target = ?target_id,
-                    "monster spell field impact not yet placed on map"
-                );
+            SpellImpact::Field { .. } => {
+                // Field is `handleField`-only (`magic.cc:167`); creature hits are no-ops.
             }
             SpellImpact::Summon { .. } => {
                 // Summon is `handleField`-only (`magic.cc:385`); creature hits are no-ops.
             }
+        }
+    }
+
+    /// 772 `FieldPossible` — `info.cc:728` (fire/poison/energy; no MAGICWALL/WILDGROWTH arm).
+    fn monster_field_possible(&self, pos: Position) -> bool {
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        let chain = body.map_object_chain();
+        let Some(MapStackEntry::Ground(server_id)) = chain.first() else {
+            return false;
+        };
+        if !self.items_db.is_terrain_bank(*server_id) {
+            return false;
+        }
+        for entry in &chain {
+            match entry {
+                MapStackEntry::Creature(_) => {}
+                MapStackEntry::Ground(sid) => {
+                    if self.items_db.is_unpassable(*sid) {
+                        return false;
+                    }
+                }
+                MapStackEntry::Item(item_id) => {
+                    let Some(item) = self.items.get(*item_id) else {
+                        return false;
+                    };
+                    if self.items_db.is_unpassable(item.item_type) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// 772 `CreateField` — `magic.cc:984` (PvP/dangerous ids; NoPvP remap for peaceful casters).
+    pub(crate) fn monster_create_field(
+        &mut self,
+        caster_id: CreatureId,
+        field_pos: Position,
+        field_type: MonsterFieldType,
+    ) {
+        if !self.monster_field_possible(field_pos) {
+            return;
+        }
+
+        // TFS field item ids — same as `aoe.rs` CREATEITEM path (`combatTileEffects`).
+        const ITEM_FIREFIELD_PVP: u16 = 1487;
+        const ITEM_POISONFIELD_PVP: u16 = 1490;
+        const ITEM_ENERGYFIELD_PVP: u16 = 1491;
+        const ITEM_FIREFIELD_NOPVP: u16 = 1500;
+        const ITEM_POISONFIELD_NOPVP: u16 = 1503;
+        const ITEM_ENERGYFIELD_NOPVP: u16 = 1504;
+
+        let (caster_is_player, summon_master) = match self.creatures.get(caster_id) {
+            Some(CreatureKind::Player(_)) => (true, None),
+            Some(CreatureKind::Monster(m)) => (false, m.base.master),
+            _ => (false, None),
+        };
+        let peaceful = self.pvp_config.world_type == WorldType::NoPvp
+            && (caster_is_player
+                || summon_master.is_some_and(|mid| {
+                    matches!(self.creatures.get(mid), Some(CreatureKind::Player(_)))
+                }));
+
+        let item_type = match (field_type, peaceful) {
+            (MonsterFieldType::Fire, false) => ITEM_FIREFIELD_PVP,
+            (MonsterFieldType::Poison, false) => ITEM_POISONFIELD_PVP,
+            (MonsterFieldType::Energy, false) => ITEM_ENERGYFIELD_PVP,
+            (MonsterFieldType::Fire, true) => ITEM_FIREFIELD_NOPVP,
+            (MonsterFieldType::Poison, true) => ITEM_POISONFIELD_NOPVP,
+            (MonsterFieldType::Energy, true) => ITEM_ENERGYFIELD_NOPVP,
+        };
+
+        // Delete existing MAGICFIELD items — `CreateField` (`magic.cc:1034–1041`).
+        let existing: Vec<_> = self
+            .map
+            .get_tile(field_pos)
+            .map(|t| {
+                t.body()
+                    .down_items
+                    .iter()
+                    .chain(t.body().top_items.iter())
+                    .copied()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for iid in existing {
+            if self
+                .items
+                .get(iid)
+                .and_then(|item| self.items_db.items.get(&item.item_type))
+                .is_some_and(|t| t.is_magic_field())
+            {
+                let _ = self.internal_remove_item_from_tile(field_pos, iid, u16::MAX);
+            }
+        }
+
+        let owner_wire = self
+            .creatures
+            .get(caster_id)
+            .map(|kind| creature_wire_id(caster_id, kind));
+        let mut item = Item::new_single(item_type);
+        if let Some(owner) = owner_wire {
+            item.attributes
+                .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+                .set_owner(owner);
+        }
+        let iid = self.items.insert(item);
+        if self
+            .internal_add_item_to_tile(field_pos, iid, CylinderFlags::NONE)
+            .is_err()
+        {
+            self.items.remove(iid);
         }
     }
 
@@ -1543,12 +1678,9 @@ impl GameWorld {
         spell: &MonsterSpell,
     ) {
         match &spell.impact {
-            SpellImpact::Field => {
-                tracing::debug!(
-                    caster = ?caster_id,
-                    ?field_pos,
-                    "monster spell field impact not yet placed on map"
-                );
+            SpellImpact::Field { field_type } => {
+                // `TFieldImpact::handleField` → `CreateField` (`magic.cc:167–172`).
+                self.monster_create_field(caster_id, field_pos, *field_type);
             }
             SpellImpact::Summon { race, max, force } => {
                 // `crnonpl.cc:2647` — only wild masters build `TSummonImpact`.

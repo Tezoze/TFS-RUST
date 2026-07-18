@@ -55,11 +55,11 @@ These XML `<attack name="...">` values fall through to the `debug!("skipping unk
 | `manadrain` | 21 | `IMPACT_DAMAGE` `DAMAGE_MANADRAIN` (0x0200) | no match arm; `CombatType::ManaDrain` exists |
 | `outfit` | 21 | `IMPACT_OUTFIT` | no `SpellImpact::Outfit` variant exists |
 | `invisible` | 12 | TFS condition (`CONDITION_INVISIBLE`), not a 772 impact | no match arm; needs condition application |
-| `firefield` | 10 | `IMPACT_FIELD` | not mapped + `SpellImpact::Field` is a stub |
-| `poisonfield` | 6 | `IMPACT_FIELD` | not mapped + stub |
-| `energyfield` | 1 | `IMPACT_FIELD` | not mapped + stub |
+| `firefield` | 10 | `IMPACT_FIELD` | ✓ `SpellImpact::Field { Fire }` |
+| `poisonfield` | 6 | `IMPACT_FIELD` | ✓ `SpellImpact::Field { Poison }` |
+| `energyfield` | 1 | `IMPACT_FIELD` | ✓ `SpellImpact::Field { Energy }` |
 
-**7 of 17** attack names broken.
+**4 of 17** attack names still broken (poison / manadrain / outfit / invisible). Field trio closed 2026-07-18.
 
 ## Working — Area Effects (`areaeffect`)
 
@@ -127,11 +127,11 @@ All 5 `SpellShape` variants are correctly handled in `monster_idle_spell_tiles` 
 | `SpellImpact::Speed` | ✓ working | `IMPACT_SPEED` — `TSpeedImpact` |
 | `SpellImpact::Condition` | ✓ working | `IMPACT_DAMAGE` with periodic damage type |
 | `SpellImpact::Drunk` | ✓ working | `IMPACT_DRUNKEN` — `TDrunkenImpact` |
-| `SpellImpact::Field` | **stub** — "not yet placed on map" | `IMPACT_FIELD` — `TFieldImpact` places field item on tile |
+| `SpellImpact::Field` | ✓ `CreateField` via `internal_add_item_to_tile` | `IMPACT_FIELD` — `TFieldImpact` places field item on tile |
 | `SpellImpact::Summon` | ✓ CASTING + `handleField` | `IMPACT_SUMMON` — `TSummonImpact` + `SearchSummonField` / `CreateMonster` |
 | `SpellImpact::Outfit` | **does not exist** | `IMPACT_OUTFIT` — `TOutfitImpact` changes target outfit |
 
-**5 of 8** impacts fully implemented.
+**6 of 8** impacts fully implemented.
 
 ## Fixed — Defense Spells Cast Without Target (2026-07-18)
 
@@ -185,7 +185,7 @@ Non-aggressive spells (healing) fire **regardless of target** — the `!isAggres
 6. Defense cast-without-target path (all defense spells)
 
 ### Large (field placement / summon spawning)
-7. `firefield`, `poisonfield`, `energyfield` → `SpellImpact::Field` real implementation (17 monsters)
+7. `firefield`, `poisonfield`, `energyfield` → `SpellImpact::Field` — **done** (parse + `CreateField` / `internal_add_item_to_tile`)
 8. `SpellImpact::Summon` — **done** (XML `<summons>` → CASTING Origin r=0; ToDo-driven IdleStimulus)
 
 ## Recent Fixes (2026-07-16)

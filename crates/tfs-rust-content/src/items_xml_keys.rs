@@ -4,7 +4,8 @@
 //! `extradefense` (alias of `extradef`) and `blockprojectile`.
 //!
 //! **Phase 3 (abilities):** all keys in the `ItemParseAttributesMap` abilities block (equipment `speed`, skills, absorb, suppress, elements, …) are parsed into [crate::item_abilities::ItemAbilities] on [crate::otb::ItemType::abilities] — see [crate::item_abilities::apply_ability_attribute].
-//! **Phase 2 (still `xml_attributes` + typed `ItemType` where noted):** `fluidsource`, `decayto` / `duration` / `stopduration`, `transformto` / `destroyto` / equip transforms, `maletransformto` / `femaletransformto`, `shoottype`, `effect`, `corpsetype`, `field` (+ nested), `supply`, `showcharges`, `showduration`, `showattributes`, `leveldoor`, `partnerdirection`, `writeonceitemid`, `runespellname`, … — keep this list in sync. Details: `tasks/items-parsing-audit.md` (Phase 2–3).
+//! **Decay (typed on `ItemType`):** `duration` → `decay_time`, `decayto` → `decay_to`, `stopduration` → `stop_time`, `showduration` → `show_duration` (still mirrored in `xml_attributes`).
+//! **Phase 2 (still `xml_attributes` + typed `ItemType` where noted):** `fluidsource`, `transformto` / `destroyto` / equip transforms, `maletransformto` / `femaletransformto`, `shoottype`, `effect`, `corpsetype`, `field` (+ nested), `supply`, `showcharges`, `showattributes`, `leveldoor`, `partnerdirection`, `writeonceitemid`, `runespellname`, … — keep this list in sync. Details: `tasks/items-parsing-audit.md` (Phase 2–3).
 
 /// Sorted for binary search — keep alphabetical when adding keys.
 const KNOWN_XML_KEYS: &[&str] = &[

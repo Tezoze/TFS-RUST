@@ -24,6 +24,14 @@ pub enum SpellShape {
     Angle,
 }
 
+/// 772 `FIELD_TYPE_*` — `magic.hh:9–11` (fire/poison/energy for monster IMPACT_FIELD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonsterFieldType {
+    Fire = 1,
+    Poison = 2,
+    Energy = 3,
+}
+
 /// C++ `IMPACT_*` — `crnonpl.cc:2536`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpellImpact {
@@ -32,7 +40,10 @@ pub enum SpellImpact {
         base: i32,
         variation: i32,
     },
-    Field,
+    /// 772 `IMPACT_FIELD` / `TFieldImpact` — places a magic field on the tile.
+    Field {
+        field_type: MonsterFieldType,
+    },
     Healing {
         base: i32,
         variation: i32,
@@ -489,6 +500,21 @@ fn parse_spell_impact(name: &str, node: &MonsterSpellNode) -> Option<SpellImpact
             drunkness: parse_attr_i32(node, "drunkness", 0),
         });
     }
+    if name.eq_ignore_ascii_case("poisonfield") {
+        return Some(SpellImpact::Field {
+            field_type: MonsterFieldType::Poison,
+        });
+    }
+    if name.eq_ignore_ascii_case("firefield") {
+        return Some(SpellImpact::Field {
+            field_type: MonsterFieldType::Fire,
+        });
+    }
+    if name.eq_ignore_ascii_case("energyfield") {
+        return Some(SpellImpact::Field {
+            field_type: MonsterFieldType::Energy,
+        });
+    }
 
     debug!(spell_name = name, "skipping unknown monster attack spell");
     None
@@ -717,6 +743,30 @@ mod tests {
             SpellImpact::Summon { race, max, force: false }
                 if race == "Poison Spider" && *max == 2
         ));
+    }
+
+    /// Giant spider `poisonfield` → `SpellImpact::Field { Poison }` Destination
+    /// (`crnonpl.cc:2598` `IMPACT_FIELD` / `TFieldImpact`).
+    #[test]
+    fn test_giant_spider_poisonfield_from_xml() {
+        let mtype = load_monster_type("giant spider");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        let field = cfg
+            .spells
+            .iter()
+            .find(|s| matches!(s.impact, SpellImpact::Field { .. }))
+            .expect("poisonfield spell");
+        assert_eq!(field.delay, 6);
+        assert_eq!(field.range, 7);
+        assert_eq!(field.radius, 1);
+        assert_eq!(field.shape, SpellShape::Destination);
+        assert!(matches!(
+            field.impact,
+            SpellImpact::Field {
+                field_type: MonsterFieldType::Poison
+            }
+        ));
+        assert_eq!(field.shoot_effect, Some(ShootEffect::PoisonArrow as u8));
     }
 
     #[test]

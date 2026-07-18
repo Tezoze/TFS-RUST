@@ -19,7 +19,8 @@ pub use monster_combat::{
     combat_from_monster_type, creature_immune_poison, defend_fight_mode_for_target,
     melee_defense_snapshot, melee_poison_on_hit, monster_has_melee_strike,
     monster_weapon_attack_distance, roll_target_defense, runtime_spell_in_attack_range,
-    MeleeDefenseSnapshot, MonsterCombatSnapshot, MonsterSpell, SpellImpact, SpellShape,
+    MeleeDefenseSnapshot, MonsterCombatSnapshot, MonsterFieldType, MonsterSpell, SpellImpact,
+    SpellShape,
 };
 pub use monster_inventory::{
     damage_text_color, effective_monster_combat_stats, MonsterInventory, DEFAULT_MONSTER_BAG_TYPE,

@@ -656,7 +656,7 @@ impl GameWorld {
     /// `magic.cc:385–395`, `crnonpl.cc:3158`.
     ///
     /// `search_origin` is the field tile from `ExecuteCircleSpell` (Origin r=0 = actor).
-    /// `SearchSummonField` then place; wire `EFFECT_ENERGY` (11) on the summon tile.
+    /// `SearchSummonField` → `SearchFreeField` nudge → place; wire `EFFECT_ENERGY` (11).
     pub(crate) fn monster_create_summon(
         &mut self,
         master_id: CreatureId,
@@ -667,9 +667,17 @@ impl GameWorld {
         if !self.creatures.contains_key(master_id) {
             return None;
         }
-        let Some(place_at) = self.search_summon_field(search_origin, 2) else {
+        // `TMonster` ctor reparents summon-of-summon up to the wild/player ancestor
+        // (`crnonpl.cc:2012–2028`). CASTING still only *builds* IMPACT_SUMMON when Master==0.
+        let effective_master = self.effective_summon_master(master_id)?;
+        let Some(summon_field) = self.search_summon_field(search_origin, 2) else {
             return None;
         };
+        // `CreateMonster` ignores `SearchFreeField` failure — keep SearchSummonField coords
+        // (`crnonpl.cc:3169`).
+        let place_at = self
+            .search_free_field(summon_field, 2)
+            .unwrap_or(summon_field);
         let mtype = self.monsters_db.get_by_name(race_name)?.clone();
         let max_hp = mtype.health_max.max(1) as i32;
         let now_hp = if mtype.health_now > 0 {
@@ -710,7 +718,7 @@ impl GameWorld {
             stairhop_blocked_until: None,
             follow_target: None,
             attack_target: None,
-            master: Some(master_id),
+            master: Some(effective_master),
             damage_map: Default::default(),
             earliest_attack_ms: 0,
             earliest_defend_ms: 0,
@@ -745,6 +753,29 @@ impl GameWorld {
         self.broadcast_creature_appear(cid, placed);
         self.broadcast_magic_effect(placed, 11);
         Some(cid)
+    }
+
+    /// 772 `TMonster` master-chain walk (`crnonpl.cc:2012–2028`).
+    ///
+    /// Rebases summon-of-summon up to the first non-monster-summon ancestor (wild monster or
+    /// player). Returns `None` if the chain is broken (missing creature).
+    fn effective_summon_master(&self, master_id: CreatureId) -> Option<CreatureId> {
+        let mut current = master_id;
+        for _ in 0..8 {
+            match self.creatures.get(current) {
+                Some(CreatureKind::Monster(m)) if m.base.master.is_some() => {
+                    tracing::debug!(
+                        ?current,
+                        parent = ?m.base.master,
+                        "CreateMonster: reparent summon-of-summon to grandparent"
+                    );
+                    current = m.base.master?;
+                }
+                Some(_) => return Some(current),
+                None => return None,
+            }
+        }
+        Some(current)
     }
 
     /// `creature:move(tile, flags)` — returns true on `RETURNVALUE_NOERROR`.
@@ -1653,5 +1684,77 @@ mod tests {
             .filter(|(_, k)| k.base().master == Some(master))
             .count();
         assert_eq!(summoned, 2);
+    }
+
+    /// 772 `TMonster` ctor reparents summon-of-summon (`crnonpl.cc:2012–2028`).
+    #[test]
+    fn monster_create_summon_reparents_summon_of_summon() {
+        use crate::creature::CreatureKind;
+        use crate::test_world::support::{insert_monster, TEST_SYNTHETIC_GROUND_WP};
+
+        let mut world = beat_driven_test_world();
+        let mut monsters = HashMap::new();
+        monsters.insert("poison spider".into(), poison_spider_type());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+
+        let mpos = Position::new(100, 100, 7);
+        for dx in -2i32..=2 {
+            for dy in -2i32..=2 {
+                let p = Position::new((100 + dx) as u16, (100 + dy) as u16, 7);
+                ensure_walkable_tile(&mut world.map, p, TEST_SYNTHETIC_GROUND_WP);
+            }
+        }
+        let wild = insert_monster(&mut world, "Giant Spider", mpos, 80);
+        world.map.register_creature_at(mpos, wild);
+
+        let mid = world
+            .monster_create_summon(wild, "Poison Spider", false, mpos)
+            .expect("mid summon");
+        let child = world
+            .monster_create_summon(mid, "Poison Spider", false, mpos)
+            .expect("child of summon");
+        assert_eq!(
+            world.creatures.get(child).and_then(|k| k.base().master),
+            Some(wild),
+            "summon-of-summon must reparent to wild ancestor"
+        );
+        let under_wild = world
+            .creatures
+            .iter()
+            .filter(|(_, k)| k.base().master == Some(wild))
+            .count();
+        assert_eq!(under_wild, 2, "wild master's summon count includes reparented child");
+        assert!(matches!(
+            world.creatures.get(mid),
+            Some(CreatureKind::Monster(_))
+        ));
+    }
+
+    /// `CreateMonster` `SearchFreeField` after `SearchSummonField` (`crnonpl.cc:3169`).
+    #[test]
+    fn search_free_field_nudges_off_occupied_center() {
+        use crate::test_world::support::{insert_monster, TEST_SYNTHETIC_GROUND_WP};
+
+        let mut world = beat_driven_test_world();
+        let center = Position::new(100, 100, 7);
+        let east = Position::new(101, 100, 7);
+        for dx in -2i32..=2 {
+            for dy in -2i32..=2 {
+                let p = Position::new((100 + dx) as u16, (100 + dy) as u16, 7);
+                ensure_walkable_tile(&mut world.map, p, TEST_SYNTHETIC_GROUND_WP);
+            }
+        }
+        assert_eq!(
+            world.search_free_field(center, 2),
+            Some(center),
+            "clear center stays put"
+        );
+        let blocker = insert_monster(&mut world, "Blocker", center, 80);
+        world.map.register_creature_at(center, blocker);
+        assert_eq!(
+            world.search_free_field(center, 2),
+            Some(east),
+            "occupied center nudges east-first spiral"
+        );
     }
 }

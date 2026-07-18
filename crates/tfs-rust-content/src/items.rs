@@ -956,6 +956,32 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         "showattributes" => {
             item.show_attributes = parse_xml_bool(value).unwrap_or(false);
         }
+        // C++ `ITEM_PARSE_DURATION` / `ITEM_PARSE_DECAYTO` / `ITEM_PARSE_STOPDURATION` /
+        // `ITEM_PARSE_SHOWDURATION` — `src/items.cpp` (~787–817).
+        "duration" => {
+            if let Ok(v) = value.parse::<u32>() {
+                item.decay_time = v;
+            }
+        }
+        "decayto" => {
+            if let Ok(v) = value.parse::<i32>() {
+                item.decay_to = v;
+                if v >= 0 && v as u16 == item.id {
+                    warn!(
+                        target: "tfs_rust_content::items",
+                        item_id,
+                        decay_to = v,
+                        "Item is decaying to itself (C++ Items::parseItemNode warning)"
+                    );
+                }
+            }
+        }
+        "stopduration" => {
+            item.stop_time = parse_xml_bool(value).unwrap_or(false);
+        }
+        "showduration" => {
+            item.show_duration = parse_xml_bool(value).unwrap_or(false);
+        }
         "levelrequired" => {
             if let Ok(v) = value.parse::<u32>() {
                 item.min_req_level = v;
@@ -1034,6 +1060,44 @@ mod tests {
             item.voc_equip_names,
             vec!["sorcerer".to_string(), "druid".to_string()]
         );
+    }
+
+    /// C++ `ITEM_PARSE_DURATION` / `DECAYTO` / `STOPDURATION` / `SHOWDURATION` — firefield-like attrs.
+    #[test]
+    fn decay_duration_decayto_stop_show_xml_to_itemtype() {
+        let mut item = ItemType {
+            id: 1487,
+            ..ItemType::default()
+        };
+        apply_xml_attribute(&mut item, "duration", "200", 1487);
+        apply_xml_attribute(&mut item, "decayto", "1488", 1487);
+        apply_xml_attribute(&mut item, "showduration", "1", 1487);
+
+        assert_eq!(item.decay_time, 200);
+        assert_eq!(item.decay_to, 1488);
+        assert!(item.show_duration);
+        assert!(!item.stop_time);
+        assert_eq!(
+            item.xml_attributes.get("duration"),
+            Some(&"200".to_string())
+        );
+
+        let mut lamp = ItemType {
+            id: 2041,
+            ..ItemType::default()
+        };
+        apply_xml_attribute(&mut lamp, "stopduration", "true", 2041);
+        assert!(lamp.stop_time);
+        assert_eq!(lamp.decay_to, -1);
+    }
+
+    #[test]
+    fn itemtype_decay_defaults_match_cpp() {
+        let it = ItemType::default();
+        assert_eq!(it.decay_time, 0);
+        assert_eq!(it.decay_to, -1);
+        assert!(!it.stop_time);
+        assert!(!it.show_duration);
     }
 
     #[test]

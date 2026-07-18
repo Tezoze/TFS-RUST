@@ -101,6 +101,14 @@ pub struct ItemType {
     /// 772 `DISTUSE` (`enums.hh:215`) — ranged use up to 7 tiles. No OTB bit; must be
     /// set by offline content prep (never runtime `objects.srv`). Defaults `false`.
     pub distuse: bool,
+    /// C++ `ItemType::decayTime` — `src/items.h`; XML `duration` in seconds. Default `0`.
+    pub decay_time: u32,
+    /// C++ `ItemType::decayTo` — `src/items.h`; XML `decayto`. Default `-1`; `0` = vanish; `>0` = next type.
+    pub decay_to: i32,
+    /// C++ `ItemType::stopTime` — `src/items.h`; XML `stopduration`. Default `false`.
+    pub stop_time: bool,
+    /// C++ `ItemType::showDuration` — `src/items.h`; XML `showduration`. Default `false`.
+    pub show_duration: bool,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -164,6 +172,10 @@ impl Default for ItemType {
             voc_equip_names: Vec::new(),
             type_tag: 0,
             distuse: false,
+            decay_time: 0,
+            decay_to: -1,
+            stop_time: false,
+            show_duration: false,
         }
     }
 }

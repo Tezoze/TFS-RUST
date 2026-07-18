@@ -6764,3 +6764,202 @@ fn two_same_type_monsters_do_not_share_todo_schedule() {
         "B must still schedule after A's todo was wiped"
     );
 }
+
+/// Register a synthetic MAGICFIELD item type for CASTING field tests.
+fn register_magic_field_type(world: &mut GameWorld, server_id: u16) {
+    use std::sync::Arc;
+    use tfs_rust_content::otb::ItemType;
+
+    let mut db = (*world.items_db).clone();
+    db.items.insert(
+        server_id,
+        ItemType {
+            server_id,
+            type_tag: 6, // ITEM_TYPE_MAGICFIELD
+            ..Default::default()
+        },
+    );
+    world.items_db = Arc::new(db);
+}
+
+fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position, ground_type: u16) {
+    use crate::tile::{Tile, TileBody};
+    use tfs_rust_common::enums::ZoneType;
+    map.insert_tile(
+        pos,
+        Tile::Normal(TileBody {
+            ground: Some(ground_type),
+            down_items: Vec::new(),
+            top_items: Vec::new(),
+            creatures: Vec::new(),
+            flags: 0,
+            zone: ZoneType::Protection,
+        }),
+    );
+}
+
+fn tile_has_item_type(world: &GameWorld, pos: Position, item_type: u16) -> bool {
+    let Some(tile) = world.map.get_tile(pos) else {
+        return false;
+    };
+    tile.body()
+        .down_items
+        .iter()
+        .chain(tile.body().top_items.iter())
+        .any(|iid| world.items.get(*iid).is_some_and(|i| i.item_type == item_type))
+}
+
+/// 772 `TFieldImpact` / `CreateField` — Destination poisonfield places PvP field 1490.
+#[test]
+fn test_772_poisonfield_places_item_on_destination() {
+    use crate::creature::MonsterFieldType;
+
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    register_magic_field_type(&mut world, 1490);
+
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(103, 100, 7);
+    for x in 100..=103u16 {
+        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+    }
+
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+
+    let mut cfg = MonsterAiConfig::default();
+    cfg.spells.push(MonsterSpell {
+        delay: 1,
+        range: 7,
+        radius: 0,
+        length: 0,
+        spread: 0,
+        min_cycle: 0,
+        shape: SpellShape::Destination,
+        impact: SpellImpact::Field {
+            field_type: MonsterFieldType::Poison,
+        },
+        shoot_effect: None,
+        area_effect: None,
+    });
+    let monster = insert_monster_with_config(&mut world, "Spider", mpos, 200, cfg);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.is_hostile = true;
+        m.state = MonsterState::Attacking;
+        m.opponent_ids.push(player);
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+    }
+
+    world.monster_idle_stimulus(monster);
+    assert!(
+        tile_has_item_type(&world, ppos, 1490),
+        "Destination poisonfield must place ITEM_POISONFIELD_PVP (1490) on target tile"
+    );
+}
+
+/// Direct `CreateField` path — also covers replace-existing MAGICFIELD.
+#[test]
+fn test_772_create_field_replaces_existing_magic_field() {
+    use crate::creature::MonsterFieldType;
+    use crate::cylinder::CylinderFlags;
+    use crate::item::Item;
+
+    let mut world = beat_driven_test_world();
+    register_magic_field_type(&mut world, 1490);
+    register_magic_field_type(&mut world, 1487);
+
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let caster = insert_monster(&mut world, "Caster", pos, 200);
+    world.map.register_creature_at(pos, caster);
+
+    let old = world.items.insert(Item::new_single(1487));
+    world
+        .internal_add_item_to_tile(pos, old, CylinderFlags::NONE)
+        .expect("place fire field");
+    assert!(tile_has_item_type(&world, pos, 1487));
+
+    world.monster_create_field(caster, pos, MonsterFieldType::Poison);
+    assert!(
+        tile_has_item_type(&world, pos, 1490),
+        "CreateField must place poison field"
+    );
+    assert!(
+        !tile_has_item_type(&world, pos, 1487),
+        "CreateField must remove prior MAGICFIELD"
+    );
+}
+
+/// `ExecuteCircleSpell` PZ skip — aggressive Destination field does not land on PZ
+/// (`magic.cc:475–477`).
+#[test]
+fn test_772_aggressive_destination_skips_pz_tiles() {
+    use crate::creature::MonsterFieldType;
+
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    register_magic_field_type(&mut world, 1490);
+
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(102, 100, 7);
+    let pz = Position::new(103, 100, 7);
+    for x in 100..=103u16 {
+        let pos = Position::new(x, 100, 7);
+        if pos == pz {
+            ensure_pz_tile(&mut world.map, pz, TEST_SYNTHETIC_GROUND_WP);
+        } else {
+            ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        }
+    }
+    // Disc radius 1 also covers N/S of the player.
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(102, 99, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(102, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+
+    let mut cfg = MonsterAiConfig::default();
+    cfg.spells.push(MonsterSpell {
+        delay: 1,
+        range: 7,
+        radius: 1,
+        length: 0,
+        spread: 0,
+        min_cycle: 0,
+        shape: SpellShape::Destination,
+        impact: SpellImpact::Field {
+            field_type: MonsterFieldType::Poison,
+        },
+        shoot_effect: None,
+        area_effect: None,
+    });
+    let monster = insert_monster_with_config(&mut world, "Spider", mpos, 200, cfg);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.is_hostile = true;
+        m.state = MonsterState::Attacking;
+        m.opponent_ids.push(player);
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+    }
+
+    world.monster_idle_stimulus(monster);
+    assert!(
+        !tile_has_item_type(&world, pz, 1490),
+        "PZ tile in Destination disc must not receive aggressive field"
+    );
+    assert!(
+        tile_has_item_type(&world, ppos, 1490),
+        "non-PZ Destination center must still receive field"
+    );
+}
