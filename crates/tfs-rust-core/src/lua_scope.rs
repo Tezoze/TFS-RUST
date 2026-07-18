@@ -191,6 +191,15 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             // `throw_possible`, and applies damage per creature.
             unsafe { &mut *world }.combat_execute_from_lua(&request)
         }
+        LuaMutation::ChallengeCreature {
+            challenger_id,
+            target_id,
+        } => {
+            let ok = unsafe { &mut *world }
+                .lua_do_challenge_creature(challenger_id, target_id);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 

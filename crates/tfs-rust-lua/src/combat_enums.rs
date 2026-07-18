@@ -34,6 +34,7 @@ pub fn register_combat_enums(lua: &Lua) -> Result<(), mlua::Error> {
     register_tile_props(&globals)?;
     register_tile_states(&globals)?;
     register_message_types(&globals)?;
+    register_world_types(&globals)?;
 
     Ok(())
 }
@@ -323,10 +324,13 @@ fn register_item_constants(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("ITEM_POISONFIELD_NOPVP", 1503i32)?; // const.h:207
     globals.set("ITEM_ENERGYFIELD_PVP", 1491i32)?; // const.h:208
     globals.set("ITEM_ENERGYFIELD_PERSISTENT", 1495i32)?; // const.h:209
+    globals.set("ITEM_ENERGYFIELD_NOPVP", 1504i32)?; // const.h:210
     globals.set("ITEM_MAGICWALL", 1497i32)?; // const.h:212
     globals.set("ITEM_MAGICWALL_PERSISTENT", 1498i32)?; // const.h:213
+    globals.set("ITEM_MAGICWALL_NOPVP", 20669i32)?; // const.h:214
     globals.set("ITEM_WILDGROWTH", 1499i32)?; // const.h:215
     globals.set("ITEM_WILDGROWTH_PERSISTENT", 2721i32)?; // const.h:216
+    globals.set("ITEM_WILDGROWTH_NOPVP", 20670i32)?; // const.h:217
     Ok(())
 }
 
@@ -410,6 +414,16 @@ fn register_message_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
+// --- WORLD_TYPE_* (enums.h / game.h) ---
+
+fn register_world_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // C++ `WorldType_t` — `enums.h`. Used by `cancel_invisibility.lua`.
+    globals.set("WORLD_TYPE_NO_PVP", 0i32)?;
+    globals.set("WORLD_TYPE_PVP", 1i32)?;
+    globals.set("WORLD_TYPE_PVP_ENFORCED", 2i32)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +450,7 @@ mod tests {
         assert_eq!(globals.get::<i32>("CONST_ANI_BURSTARROW").unwrap(), 7);
         assert_eq!(globals.get::<i32>("SKULL_RED").unwrap(), 4);
         assert_eq!(globals.get::<i32>("CONST_SLOT_LEFT").unwrap(), 6);
+        assert_eq!(globals.get::<i32>("WORLD_TYPE_PVP").unwrap(), 1);
+        assert_eq!(globals.get::<i32>("WORLD_TYPE_PVP_ENFORCED").unwrap(), 2);
     }
 }

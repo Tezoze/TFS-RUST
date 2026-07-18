@@ -374,6 +374,43 @@ pub trait ScriptContext {
         let _ = creature_id;
         false
     }
+
+    /// `Tile(pos)` existence — true when the map has a tile at `(x,y,z)`.
+    fn tile_exists(&self, x: u16, y: u16, z: u8) -> bool {
+        let _ = (x, y, z);
+        false
+    }
+
+    /// `tile:hasProperty(CONST_PROP_*)` — `Tile::hasProperty` (`tile.cpp:27`).
+    /// PC-3a Phase 8: field runes check `CONST_PROP_BLOCKSOLID` (0).
+    fn tile_has_property(&self, x: u16, y: u16, z: u8, prop: i32) -> bool {
+        let _ = (x, y, z, prop);
+        false
+    }
+
+    /// `Game.getWorldType()` — `Game::getWorldType` (`game.h`).
+    /// Returns Lua `WORLD_TYPE_*` ordinal (`0=nopvp, 1=pvp, 2=pvp-enforced`).
+    fn get_world_type(&self) -> i32 {
+        1 // WORLD_TYPE_PVP default
+    }
+
+    /// `MonsterType(name)` — lookType for outfit condition (`monsters.h`).
+    fn get_monster_type_look_type(&self, name: &str) -> Option<i32> {
+        let _ = name;
+        None
+    }
+
+    /// `MonsterType:isIllusionable()` — `<flag illusionable=…>`.
+    fn get_monster_type_is_illusionable(&self, name: &str) -> bool {
+        let _ = name;
+        false
+    }
+
+    /// `MonsterType(name)` exists in the loaded monster database.
+    fn monster_type_exists(&self, name: &str) -> bool {
+        let _ = name;
+        false
+    }
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

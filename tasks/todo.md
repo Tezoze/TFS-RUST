@@ -1,3 +1,11 @@
+## PC-3a Phases 6–8 + MonsterType (2026-07-18) — done
+- [x] Phase 8: CREATEITEM / NODAMAGE / DISTANCEEFFECT on request → `aoe.rs`
+- [x] Minimal `Tile(pos):hasProperty(BLOCKSOLID)`
+- [x] Phase 7: `extArea` diagonal orientation
+- [x] Phase 6: TARGETCREATURE/TILE; `Game.getWorldType`; `doChallengeCreature`
+- [x] `MonsterType:getOutfit` / `isIllusionable`; parse illusionable/challengeable
+- [x] Docs in `pc3a-spell-gaps.md`; unit tests (remap, diagonal, WORLD_TYPE_*)
+
 ## PC-3a Phase 5 — conjure helpers (2026-07-18) — done
 - [x] `getMana` / `addMana` / `addManaSpent` on `CreatureRef` (+ ScriptContext / LuaMutation)
 - [x] `ItemType:getCharges`, `item:hasAttribute`, `item:transform`

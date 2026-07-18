@@ -102,6 +102,10 @@ pub struct MonsterTypeFlags {
     pub pushable: bool,
     /// `<flag hostile=…>` — default true for wild monsters.
     pub is_hostile: bool,
+    /// `<flag illusionable=…>` — default false (`monsters.h`).
+    pub illusionable: bool,
+    /// `<flag challengeable=…>` — default true (`monsters.h`).
+    pub is_challengeable: bool,
     /// `<targetchange interval/speed=…>` — default 0 (`monsters.h`).
     pub change_target_speed: u32,
     /// `<targetchange chance=…>` — default 0.
@@ -118,6 +122,8 @@ impl Default for MonsterTypeFlags {
             can_push_items: false,
             pushable: true,
             is_hostile: true,
+            illusionable: false,
+            is_challengeable: true,
             change_target_speed: 0,
             change_target_chance: 0,
         }
@@ -204,6 +210,11 @@ impl MonsterDatabase {
         }
 
         Ok(Self { monsters })
+    }
+
+    /// Lookup by index name (case-insensitive) — C++ `Monsters::getMonsterType`.
+    pub fn get_by_name(&self, name: &str) -> Option<&MonsterType> {
+        self.monsters.get(&name.to_lowercase())
     }
 }
 
@@ -649,6 +660,8 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
                 }
                 "runonhealth" => flags.run_away_health = value.parse().unwrap_or(0),
                 "hostile" => flags.is_hostile = parse_bool_flag(value),
+                "illusionable" => flags.illusionable = parse_bool_flag(value),
+                "challengeable" => flags.is_challengeable = parse_bool_flag(value),
                 _ => {}
             }
         }

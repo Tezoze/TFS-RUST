@@ -625,6 +625,58 @@ impl GameWorld {
 
         self.monster_set_follow_creature(monster_id, Some(target_id))
     }
+
+    /// TFS `Monster::challengeCreature` — `monster.cpp:2070`.
+    /// PC-3a Phase 6: `doChallengeCreature` from `challenge.lua`.
+    pub fn monster_challenge_creature(
+        &mut self,
+        monster_id: CreatureId,
+        challenger_id: CreatureId,
+    ) -> bool {
+        let (is_summon, name) = match self.creatures.get(monster_id) {
+            Some(CreatureKind::Monster(m)) => (m.base.is_summon(), m.base.name.clone()),
+            _ => return false,
+        };
+        if is_summon {
+            return false;
+        }
+        let challengeable = self
+            .monsters_db
+            .get_by_name(&name)
+            .map(|t| t.flags.is_challengeable)
+            .unwrap_or(true);
+        if !challengeable {
+            return false;
+        }
+        // Ensure challenger is on the opponent list so `selectTarget` can succeed.
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
+            if !m.opponent_ids.contains(&challenger_id) {
+                m.opponent_ids.push(challenger_id);
+            }
+        }
+        if !self.monster_select_target(monster_id, challenger_id) {
+            return false;
+        }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
+            m.target_change_cooldown = 8000;
+            m.challenge_focus_duration = 8000;
+            m.target_change_ticks = 0;
+        }
+        true
+    }
+
+    /// Lua `doChallengeCreature(creature, target)` — challenger is the knight,
+    /// target is the monster being challenged.
+    pub fn lua_do_challenge_creature(&mut self, challenger_u64: u64, target_u64: u64) -> bool {
+        let Some(challenger) = self.resolve_creature_u64(challenger_u64) else {
+            return false;
+        };
+        let Some(target) = self.resolve_creature_u64(target_u64) else {
+            return false;
+        };
+        self.monster_challenge_creature(target, challenger)
+    }
+
     /// TFS `Creature::setFollowCreature` — `creature.cpp` ~1058.
     pub(crate) fn monster_set_follow_creature(
         &mut self,

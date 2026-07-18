@@ -150,6 +150,12 @@ pub enum LuaMutation {
     CombatExecute {
         request: CombatExecuteRequest,
     },
+    /// `doChallengeCreature(creature, target)` — PC-3a Phase 6.
+    /// C++ `luaDoChallengeCreature` → `Monster::challengeCreature` (`monster.cpp:2070`).
+    ChallengeCreature {
+        challenger_id: u64,
+        target_id: u64,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -217,6 +223,15 @@ pub struct CombatExecuteRequest {
     /// `COMBAT_PARAM_DISPEL` — 772 bit-flag condition type to remove per target.
     /// `None` / `0` means no dispel. C++ `CombatParams::dispelType` — `combat.h:52`.
     pub dispel_type: Option<i32>,
+    /// `COMBAT_PARAM_CREATEITEM` — item type id to place on affected tiles.
+    /// `0` = none. C++ `CombatParams::itemId` — `combat.h` / `combatTileEffects`.
+    pub create_item: i32,
+    /// `COMBAT_PARAM_NODAMAGE` — skip damage roll (FX / CREATEITEM / conditions still run).
+    /// C++ `CombatParams` path when damage is suppressed — `combat.h`.
+    pub no_damage: bool,
+    /// `COMBAT_PARAM_DISTANCEEFFECT` — shoot type (`CONST_ANI_*`); `0` = none.
+    /// C++ `CombatParams::distanceEffect` / `postCombatEffects` — `combat.cpp:643`.
+    pub distance_effect: i32,
 }
 
 /// Destination for `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
@@ -505,4 +520,14 @@ pub fn call_lua_item_transform(
 /// `area_offsets`, checks `throw_possible` per tile, and applies damage.
 pub fn call_combat_execute(request: CombatExecuteRequest) -> Result<(), String> {
     apply_mutation(LuaMutation::CombatExecute { request })
+}
+
+/// `doChallengeCreature(creature, target)` — PC-3a Phase 6.
+/// C++ `luascript.cpp` `luaDoChallengeCreature` → `Monster::challengeCreature`.
+pub fn call_do_challenge_creature(challenger_id: u64, target_id: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::ChallengeCreature {
+        challenger_id,
+        target_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }

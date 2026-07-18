@@ -528,4 +528,71 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         };
         matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
     }
+
+    fn tile_exists(&self, x: u16, y: u16, z: u8) -> bool {
+        self.map
+            .get_tile(tfs_rust_common::Position { x, y, z })
+            .is_some()
+    }
+
+    fn tile_has_property(&self, x: u16, y: u16, z: u8, prop: i32) -> bool {
+        // Only CONST_PROP_BLOCKSOLID (0) is needed for field rune gates.
+        // C++ `Tile::hasProperty` — `tile.cpp:27` / `Item::hasProperty`.
+        if prop != 0 {
+            return false;
+        }
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        if let Some(ground_type) = body.ground {
+            if self
+                .items_db
+                .items
+                .get(&ground_type)
+                .is_some_and(|t| t.block_solid())
+            {
+                return true;
+            }
+        }
+        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+            if let Some(item) = self.items.get(iid) {
+                if self
+                    .items_db
+                    .items
+                    .get(&item.item_type)
+                    .is_some_and(|t| t.block_solid())
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn get_world_type(&self) -> i32 {
+        match self.pvp_config.world_type {
+            tfs_rust_common::WorldType::NoPvp => 0,
+            tfs_rust_common::WorldType::Pvp => 1,
+            tfs_rust_common::WorldType::PvpEnforced => 2,
+        }
+    }
+
+    fn get_monster_type_look_type(&self, name: &str) -> Option<i32> {
+        self.monsters_db
+            .get_by_name(name)
+            .map(|m| m.outfit.look_type)
+    }
+
+    fn get_monster_type_is_illusionable(&self, name: &str) -> bool {
+        self.monsters_db
+            .get_by_name(name)
+            .map(|m| m.flags.illusionable)
+            .unwrap_or(false)
+    }
+
+    fn monster_type_exists(&self, name: &str) -> bool {
+        self.monsters_db.get_by_name(name).is_some()
+    }
 }

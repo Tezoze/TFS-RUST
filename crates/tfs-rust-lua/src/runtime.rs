@@ -3,7 +3,7 @@
 //! This module provides the LuaRuntime struct which owns the mlua::Lua VM
 //! and manages script registry and global function registration.
 
-use mlua::{Lua, RegistryKey};
+use mlua::{Lua, RegistryKey, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,8 +15,9 @@ use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_s
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
     register_creature_metatable, register_group_metatable, register_item_metatable,
-    register_item_type_constructor, register_item_type_metatable, register_position_metatable,
-    register_spell_metatable, register_vocation_metatable, register_weapon_metatable,
+    register_item_type_constructor, register_item_type_metatable,
+    register_monster_type_constructor, register_position_metatable, register_spell_metatable,
+    register_tile_constructor, register_vocation_metatable, register_weapon_metatable,
 };
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
@@ -90,6 +91,10 @@ impl LuaRuntime {
         register_position_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_type_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
+        // Overwrite empty `Tile` / `Game` stubs from bootstrap with real constructors.
+        register_tile_constructor(&lua).map_err(LuaError::Registration)?;
+        register_game_api(&lua).map_err(LuaError::Registration)?;
+        register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
         // VOCATION_NONE, CONDITION_*, RETURNVALUE_*, …). Mirrors
         // `luascript.cpp` `registerConstants`; 772 values from
@@ -104,6 +109,7 @@ impl LuaRuntime {
         register_weapon_metatable(&lua).map_err(LuaError::Registration)?;
         register_spell_metatable(&lua).map_err(LuaError::Registration)?;
         crate::combat_enums::register_combat_enums(&lua).map_err(LuaError::Registration)?;
+        register_do_challenge_creature(&lua).map_err(LuaError::Registration)?;
 
         // Initialize pending channel buffer for Channel:register()
         let pending_channels = lua.create_table()?;
@@ -825,20 +831,26 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     // `Creature(id)` — resolve a creature by slotmap key bits → `CreatureRef`
     // userdata or `nil`. PC-3a Phase 3: `envenom_rune` / `soulfire_rune` use
     // `Creature(variant.number)`. C++ `luascript.cpp` `luaCreatureCreate`.
-    let creature_ctor = lua.create_function(|lua, id: u64| {
-        if id == 0 {
-            return Ok(mlua::Value::Nil);
-        }
-        // Validate the creature still exists via ScriptContext when available.
-        let exists = crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some())
-            .unwrap_or(true);
-        if !exists {
-            return Ok(mlua::Value::Nil);
-        }
-        let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
-        Ok(mlua::Value::UserData(ud))
-    })?;
-    globals.set("Creature", creature_ctor)?;
+    // Keep `Creature` as a class table (for `function Creature:…` in
+    // `functions.lua`) and attach `__call` like `Player(name)`.
+    let creature_table: mlua::Table = globals.get("Creature")?;
+    let creature_meta = lua.create_table()?;
+    creature_meta.set(
+        "__call",
+        lua.create_function(|lua, (_self, id): (mlua::Value, u64)| {
+            if id == 0 {
+                return Ok(mlua::Value::Nil);
+            }
+            let exists = crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some())
+                .unwrap_or(true);
+            if !exists {
+                return Ok(mlua::Value::Nil);
+            }
+            let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+            Ok(mlua::Value::UserData(ud))
+        })?,
+    )?;
+    creature_table.set_metatable(Some(creature_meta));
 
     // `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
     // Server-originated channel broadcast (anonymous speaker). Routes to
@@ -870,6 +882,48 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         lua.create_function(|_, _: mlua::MultiValue| Ok(false))?,
     )?;
 
+    Ok(())
+}
+
+/// `Game` table methods — PC-3a Phase 6 (`Game.getWorldType`).
+/// C++ `luascript.cpp` `luaGameGetWorldType`.
+fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
+    let game = lua.create_table()?;
+    game.set(
+        "getWorldType",
+        lua.create_function(|_, ()| {
+            let wt = crate::context::current_ctx(|ctx| ctx.get_world_type()).unwrap_or(1);
+            Ok(wt)
+        })?,
+    )?;
+    lua.globals().set("Game", game)?;
+    Ok(())
+}
+
+/// `doChallengeCreature(creature, target)` — PC-3a Phase 6.
+/// C++ `luascript.cpp` `luaDoChallengeCreature` → `Monster::challengeCreature`.
+fn register_do_challenge_creature(lua: &Lua) -> Result<(), mlua::Error> {
+    let f = lua.create_function(|_, (creature, target): (Value, Value)| {
+        let challenger = match creature {
+            Value::UserData(ud) => ud.borrow::<crate::context::CreatureRef>()?.0,
+            _ => {
+                return Err(mlua::Error::runtime(
+                    "doChallengeCreature: creature must be Creature userdata",
+                ));
+            }
+        };
+        let target_id = match target {
+            Value::UserData(ud) => ud.borrow::<crate::context::CreatureRef>()?.0,
+            _ => {
+                return Err(mlua::Error::runtime(
+                    "doChallengeCreature: target must be Creature userdata",
+                ));
+            }
+        };
+        crate::lua_mutation::call_do_challenge_creature(challenger, target_id)
+            .map_err(mlua::Error::runtime)
+    })?;
+    lua.globals().set("doChallengeCreature", f)?;
     Ok(())
 }
 
@@ -966,13 +1020,11 @@ mod tests {
         runtime
             .load_script(path.to_str().expect("utf8 path"))
             .expect("player.lua should load");
+        // `player.lua` defines `onTurn` / `onLook` / … — no `onInventoryUpdate` in
+        // the current data pack; smoke-test any registered Player method.
         runtime
-            .register_table_method_callback(
-                "test::onInventoryUpdate".to_string(),
-                "Player",
-                "onInventoryUpdate",
-            )
-            .expect("onInventoryUpdate registered");
+            .register_table_method_callback("test::onTurn".to_string(), "Player", "onTurn")
+            .expect("onTurn registered");
     }
 
     /// LUA-1 smoke test: every chat-channel script loads without

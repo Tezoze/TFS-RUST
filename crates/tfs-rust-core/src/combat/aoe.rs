@@ -9,17 +9,23 @@
 //!   every creature on each tile via `doAreaCombat` (`combat.cpp:929`).
 //! - 1098 `luaCombatExecute` — `src/luascript.cpp:13198` dispatches on variant
 //!   type (NUMBER → target, POSITION/TARGETPOSITION → area).
+//! - Tile item create — `Combat::combatTileEffects` — `combat.cpp:557`.
+//! - Distance FX — `Combat::postCombatEffects` — `combat.cpp:643`.
 
-use tfs_rust_common::enums::{CombatType, ZoneType};
+use slotmap::Key;
+use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_lua::CombatExecuteRequest;
 
 use crate::combat::{apply_condition, uniform_random, CombatDamage, CombatParams};
 use crate::creature::CreatureKind;
+use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::game_world_chat::{active_condition_from_apply_spec, condition_type_from_lua};
 use crate::ids::CreatureId;
-use tfs_rust_common::enums::ConditionType;
+use crate::item::Item;
+use crate::item_attributes::ItemAttributes;
+use crate::login_out::creature_wire_id;
 
 /// Map a Lua `COMBAT_*` bit-flag value to the Rust `CombatType` enum.
 /// Mirrors `CombatDef::resolved_combat_type` in `tfs-rust-lua/src/userdata/combat.rs`.
@@ -35,6 +41,68 @@ fn combat_type_from_lua(value: i32) -> CombatType {
         128 => CombatType::Healing,
         _ => CombatType::Physical,
     }
+}
+
+/// TFS `const.h` / `combatTileEffects` field & wall item ids.
+const ITEM_FIREFIELD_PVP_FULL: u16 = 1487;
+const ITEM_FIREFIELD_PVP_MEDIUM: u16 = 1488;
+const ITEM_FIREFIELD_PVP_SMALL: u16 = 1489;
+const ITEM_FIREFIELD_PERSISTENT_FULL: u16 = 1492;
+const ITEM_FIREFIELD_PERSISTENT_MEDIUM: u16 = 1493;
+const ITEM_FIREFIELD_PERSISTENT_SMALL: u16 = 1494;
+const ITEM_FIREFIELD_NOPVP: u16 = 1500;
+const ITEM_POISONFIELD_PVP: u16 = 1490;
+const ITEM_POISONFIELD_PERSISTENT: u16 = 1496;
+const ITEM_POISONFIELD_NOPVP: u16 = 1503;
+const ITEM_ENERGYFIELD_PVP: u16 = 1491;
+const ITEM_ENERGYFIELD_PERSISTENT: u16 = 1495;
+const ITEM_ENERGYFIELD_NOPVP: u16 = 1504;
+const ITEM_MAGICWALL: u16 = 1497;
+const ITEM_MAGICWALL_PERSISTENT: u16 = 1498;
+const ITEM_MAGICWALL_NOPVP: u16 = 20669;
+const ITEM_WILDGROWTH: u16 = 1499;
+const ITEM_WILDGROWTH_PERSISTENT: u16 = 2721;
+const ITEM_WILDGROWTH_NOPVP: u16 = 20670;
+
+/// Remap CREATEITEM id — TFS `Combat::combatTileEffects` (`combat.cpp:560-614`).
+fn remap_create_item_id(
+    raw: u16,
+    world_type: WorldType,
+    tile_zone: ZoneType,
+    caster_is_player_or_summon: bool,
+) -> u16 {
+    let mut item_id = match raw {
+        ITEM_FIREFIELD_PERSISTENT_FULL => ITEM_FIREFIELD_PVP_FULL,
+        ITEM_FIREFIELD_PERSISTENT_MEDIUM => ITEM_FIREFIELD_PVP_MEDIUM,
+        ITEM_FIREFIELD_PERSISTENT_SMALL => ITEM_FIREFIELD_PVP_SMALL,
+        ITEM_ENERGYFIELD_PERSISTENT => ITEM_ENERGYFIELD_PVP,
+        ITEM_POISONFIELD_PERSISTENT => ITEM_POISONFIELD_PVP,
+        ITEM_MAGICWALL_PERSISTENT => ITEM_MAGICWALL,
+        ITEM_WILDGROWTH_PERSISTENT => ITEM_WILDGROWTH,
+        other => other,
+    };
+
+    if caster_is_player_or_summon
+        && (world_type == WorldType::NoPvp || tile_zone == ZoneType::NoPvp)
+    {
+        item_id = match item_id {
+            ITEM_FIREFIELD_PVP_FULL => ITEM_FIREFIELD_NOPVP,
+            ITEM_POISONFIELD_PVP => ITEM_POISONFIELD_NOPVP,
+            ITEM_ENERGYFIELD_PVP => ITEM_ENERGYFIELD_NOPVP,
+            ITEM_MAGICWALL => ITEM_MAGICWALL_NOPVP,
+            ITEM_WILDGROWTH => ITEM_WILDGROWTH_NOPVP,
+            other => other,
+        };
+    }
+
+    item_id
+}
+
+fn create_item_applies_infight(item_id: u16) -> bool {
+    matches!(
+        item_id,
+        ITEM_FIREFIELD_PVP_FULL | ITEM_POISONFIELD_PVP | ITEM_ENERGYFIELD_PVP
+    )
 }
 
 impl GameWorld {
@@ -89,10 +157,15 @@ impl GameWorld {
             y: request.caster_y,
             z: request.caster_z,
         };
-        let los_origin = if caster_pos == center { center } else { caster_pos };
+        let los_origin = if caster_pos == center {
+            center
+        } else {
+            caster_pos
+        };
 
         let mut targets: Vec<(CreatureId, Position)> = Vec::new();
         let mut effect_tiles: Vec<Position> = Vec::new();
+        let mut create_tiles: Vec<(Position, ZoneType)> = Vec::new();
         for &(dx, dy) in &request.area_offsets {
             let tx = center.x as i32 + dx;
             let ty = center.y as i32 + dy;
@@ -130,11 +203,32 @@ impl GameWorld {
                 effect_tiles.push(tile_pos);
             }
 
+            if request.create_item > 0 {
+                let zone = self
+                    .map
+                    .get_tile(tile_pos)
+                    .map(|t| t.body().zone)
+                    .unwrap_or(ZoneType::Normal);
+                create_tiles.push((tile_pos, zone));
+            }
+
             // Collect creatures on this tile — 772 `GetFirstObject` loop (`magic.cc:485-494`).
             if let Some(tile) = self.map.get_tile(tile_pos) {
                 for &cid in &tile.body().creatures {
                     targets.push((cid, tile_pos));
                 }
+            }
+        }
+
+        // Distance shoot — once from caster → center (`postCombatEffects`).
+        if request.distance_effect > 0 {
+            if let Some(cid) = caster_id {
+                let from = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.position())
+                    .unwrap_or(caster_pos);
+                self.broadcast_distance_shoot(from, center, request.distance_effect as u8);
             }
         }
 
@@ -144,16 +238,76 @@ impl GameWorld {
             self.broadcast_magic_effect(*pos, request.effect as u8);
         }
 
+        // CREATEITEM — `combatTileEffects` (`combat.cpp:557-631`).
+        if request.create_item > 0 {
+            let world_type = self.pvp_config.world_type;
+            let (caster_is_player_or_summon, owner_wire, infight_player) =
+                match caster_id.and_then(|cid| self.creatures.get(cid).map(|k| (cid, k))) {
+                    Some((cid, kind)) => {
+                        let owner = creature_wire_id(cid, kind);
+                        let is_player = matches!(kind, CreatureKind::Player(_));
+                        let is_summon = kind.base().is_summon();
+                        let infight = if is_player {
+                            Some(cid)
+                        } else if is_summon {
+                            kind.base().master
+                        } else {
+                            None
+                        };
+                        (is_player || is_summon, Some(owner), infight)
+                    }
+                    None => (false, None, None),
+                };
+
+            let mut applied_infight = false;
+            for (tile_pos, zone) in create_tiles {
+                let item_type = remap_create_item_id(
+                    request.create_item as u16,
+                    world_type,
+                    zone,
+                    caster_is_player_or_summon,
+                );
+                let mut item = Item::new_single(item_type);
+                if let Some(owner) = owner_wire {
+                    item.attributes
+                        .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+                        .set_owner(owner);
+                }
+                let iid = self.items.insert(item);
+                match self.internal_add_item_to_tile(tile_pos, iid, CylinderFlags::NONE) {
+                    Ok(_) => {
+                        if !applied_infight
+                            && create_item_applies_infight(item_type)
+                            && infight_player.is_some()
+                        {
+                            // TFS `casterPlayer->addInFightTicks()` — `combat.cpp:616`.
+                            if let Some(pid) = infight_player {
+                                let _ = self
+                                    .lua_script_player_set_in_fight(pid.data().as_ffi(), true);
+                                applied_infight = true;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // Quiet skip — C++ deletes the item on failed add.
+                        self.items.remove(iid);
+                    }
+                }
+            }
+        }
+
         // Apply damage / heal / conditions / dispel per target.
         // C++ `Combat::doTargetCombat` + `postCombatEffects` (`combat.cpp:643`):
         // damage first, then conditionList, then dispelType. Heal+DISPEL both run
         // (antidote is damage=0 + dispel only).
+        // `COMBAT_PARAM_NODAMAGE` skips the damage arm only (soulfire FX path).
         let damage_min = request.damage_min;
         let damage_max = request.damage_max;
         let block_armor = request.block_armor;
         let _block_shield = request.block_shield; // TODO: wire shield defense
         let condition_specs = &request.conditions;
         let dispel_flag = request.dispel_type;
+        let no_damage = request.no_damage;
 
         for (target_id, _pos) in targets {
             // Don't damage the caster with their own aggressive spell — 772
@@ -174,32 +328,34 @@ impl GameWorld {
                 .map(|k| k.base().health)
                 .unwrap_or(0);
 
-            // Roll damage — 1098 `getCombatDamage` (`combat.cpp:100`). For
-            // `COMBAT_FORMULA_DAMAGE` the min/max are the literal range. For
-            // level/magic formula the Lua side already resolved the values.
-            let value = uniform_random(&mut self.ai_rng, damage_min, damage_max);
+            if !no_damage {
+                // Roll damage — 1098 `getCombatDamage` (`combat.cpp:100`). For
+                // `COMBAT_FORMULA_DAMAGE` the min/max are the literal range. For
+                // level/magic formula the Lua side already resolved the values.
+                let value = uniform_random(&mut self.ai_rng, damage_min, damage_max);
 
-            // Healing spells (COMBAT_HEALING) use positive deltas; damage uses
-            // negative. 772 `THealingImpact` vs `TDamageImpact` (`magic.cc:210,119`).
-            let signed_value = if combat_type == CombatType::Healing {
-                value.max(0)
-            } else {
-                -value.abs()
-            };
+                // Healing spells (COMBAT_HEALING) use positive deltas; damage uses
+                // negative. 772 `THealingImpact` vs `TDamageImpact` (`magic.cc:210,119`).
+                let signed_value = if combat_type == CombatType::Healing {
+                    value.max(0)
+                } else {
+                    -value.abs()
+                };
 
-            let damage = CombatDamage {
-                primary: (combat_type, signed_value),
-                secondary: (CombatType::Undefined, 0),
-            };
-            // Dispel is applied after damage so heal+paralyze-clear both work.
-            let params = CombatParams {
-                primary_type: combat_type,
-                dispel: None,
-                apply_condition: None,
-            };
+                let damage = CombatDamage {
+                    primary: (combat_type, signed_value),
+                    secondary: (CombatType::Undefined, 0),
+                };
+                // Dispel is applied after damage so heal+paralyze-clear both work.
+                let params = CombatParams {
+                    primary_type: combat_type,
+                    dispel: None,
+                    apply_condition: None,
+                };
 
-            let _ = block_armor; // armor applied inside combat_execute_with_stimulus
-            self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
+                let _ = block_armor; // armor applied inside combat_execute_with_stimulus
+                self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
+            }
 
             // Apply `combat:addCondition` list — C++ `conditionList` post-effects.
             for spec in condition_specs {
@@ -232,20 +388,22 @@ impl GameWorld {
             // `notify_player_combat_damage` (`game_world_spectators.rs:481`).
             // Called by strike/ranged/monster_ai paths but was missing here,
             // so spell damage was applied silently. Mirrors `strike.rs:173-176`.
-            let hp_after = self
-                .creatures
-                .get(target_id)
-                .map(|k| k.base().health)
-                .unwrap_or(0);
-            let damage_done = (hp_before - hp_after).max(0);
-            if let Some(snap) = notify_snap {
-                self.notify_player_combat_damage(
-                    caster_id,
-                    target_id,
-                    damage_done,
-                    combat_type,
-                    snap,
-                );
+            if !no_damage {
+                let hp_after = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().health)
+                    .unwrap_or(0);
+                let damage_done = (hp_before - hp_after).max(0);
+                if let Some(snap) = notify_snap {
+                    self.notify_player_combat_damage(
+                        caster_id,
+                        target_id,
+                        damage_done,
+                        combat_type,
+                        snap,
+                    );
+                }
             }
         }
 
@@ -263,4 +421,48 @@ fn creature_position(world: &GameWorld, cid: CreatureId) -> Option<Position> {
 #[allow(dead_code)]
 fn is_player(world: &GameWorld, cid: CreatureId) -> bool {
     matches!(world.creatures.get(cid), Some(CreatureKind::Player(_)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remap_persistent_fire_to_pvp() {
+        assert_eq!(
+            remap_create_item_id(
+                ITEM_FIREFIELD_PERSISTENT_FULL,
+                WorldType::Pvp,
+                ZoneType::Normal,
+                true
+            ),
+            ITEM_FIREFIELD_PVP_FULL
+        );
+    }
+
+    #[test]
+    fn remap_pvp_fire_to_nopvp_in_nopvp_world() {
+        assert_eq!(
+            remap_create_item_id(
+                ITEM_FIREFIELD_PVP_FULL,
+                WorldType::NoPvp,
+                ZoneType::Normal,
+                true
+            ),
+            ITEM_FIREFIELD_NOPVP
+        );
+    }
+
+    #[test]
+    fn remap_skips_nopvp_for_non_player_casters() {
+        assert_eq!(
+            remap_create_item_id(
+                ITEM_FIREFIELD_PVP_FULL,
+                WorldType::NoPvp,
+                ZoneType::Normal,
+                false
+            ),
+            ITEM_FIREFIELD_PVP_FULL
+        );
+    }
 }

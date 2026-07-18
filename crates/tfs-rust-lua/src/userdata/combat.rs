@@ -23,6 +23,7 @@ use tfs_rust_common::enums::CombatType;
 
 use crate::context::{CURRENT_CTX, CreatureRef};
 use crate::lua_mutation::{CombatExecuteRequest, call_combat_execute};
+use crate::userdata::position::PositionRef;
 
 /// Area combat matrix — the Rust side of `createCombatArea(areaMatrix)`.
 /// C++ `AreaCombat` — `combat.h`. The matrix is a 2D grid where each cell is:
@@ -37,27 +38,35 @@ pub struct AreaCombat {
     pub center_row: usize,
     /// Caster origin col (index of the col containing `3`).
     pub center_col: usize,
+    /// Optional diagonal overlay (`createCombatArea(area, extArea)`).
+    /// C++ `AreaCombat::setupExtArea` — `combat.cpp:1426`.
+    pub ext_matrix: Option<Vec<Vec<u8>>>,
+    pub ext_center_row: usize,
+    pub ext_center_col: usize,
 }
 
 impl AreaCombat {
     /// Parse a Lua 2D table into an `AreaCombat`.
     /// C++ `LuaScriptInterface::getArea` — `luascript.cpp`.
     pub fn from_matrix(matrix: Vec<Vec<u8>>) -> Self {
-        let mut center_row = 0;
-        let mut center_col = 0;
-        for (r, row) in matrix.iter().enumerate() {
-            for (c, &cell) in row.iter().enumerate() {
-                if cell == 3 {
-                    center_row = r;
-                    center_col = c;
-                }
-            }
-        }
+        let (center_row, center_col) = find_matrix_center(&matrix);
         Self {
             matrix,
             center_row,
             center_col,
+            ext_matrix: None,
+            ext_center_row: 0,
+            ext_center_col: 0,
         }
+    }
+
+    /// Attach diagonal `extArea` overlay — C++ `setupExtArea`.
+    pub fn with_ext_area(mut self, ext: Vec<Vec<u8>>) -> Self {
+        let (r, c) = find_matrix_center(&ext);
+        self.ext_matrix = Some(ext);
+        self.ext_center_row = r;
+        self.ext_center_col = c;
+        self
     }
 
     /// Returns the relative offsets of affected tiles (cell value `1` or `3`),
@@ -67,18 +76,51 @@ impl AreaCombat {
     /// x-axis (east-west) and `dy` maps to the y-axis (north-south). The matrix
     /// is row-major (`matrix[row][col]`), so row maps to y and col maps to x.
     pub fn affected_offsets(&self) -> Vec<(i32, i32)> {
-        let mut offsets = Vec::new();
-        for (r, row) in self.matrix.iter().enumerate() {
-            for (c, &cell) in row.iter().enumerate() {
-                if cell != 0 {
-                    let dy = r as i32 - self.center_row as i32;
-                    let dx = c as i32 - self.center_col as i32;
-                    offsets.push((dx, dy));
-                }
+        matrix_affected_offsets(&self.matrix, self.center_row, self.center_col)
+    }
+
+    /// Offsets from the diagonal overlay matrix (NW orientation raw).
+    pub fn ext_affected_offsets(&self) -> Option<Vec<(i32, i32)>> {
+        self.ext_matrix
+            .as_ref()
+            .map(|m| matrix_affected_offsets(m, self.ext_center_row, self.ext_center_col))
+    }
+
+    pub fn has_ext_area(&self) -> bool {
+        self.ext_matrix.is_some()
+    }
+}
+
+fn find_matrix_center(matrix: &[Vec<u8>]) -> (usize, usize) {
+    let mut center_row = 0;
+    let mut center_col = 0;
+    for (r, row) in matrix.iter().enumerate() {
+        for (c, &cell) in row.iter().enumerate() {
+            if cell == 3 {
+                center_row = r;
+                center_col = c;
             }
         }
-        offsets
     }
+    (center_row, center_col)
+}
+
+fn matrix_affected_offsets(
+    matrix: &[Vec<u8>],
+    center_row: usize,
+    center_col: usize,
+) -> Vec<(i32, i32)> {
+    let mut offsets = Vec::new();
+    for (r, row) in matrix.iter().enumerate() {
+        for (c, &cell) in row.iter().enumerate() {
+            if cell != 0 {
+                let dy = r as i32 - center_row as i32;
+                let dx = c as i32 - center_col as i32;
+                offsets.push((dx, dy));
+            }
+        }
+    }
+    offsets
 }
 
 /// Combat parameter keys — mirrors `CombatParam_t` (`enums.h:113-124`).
@@ -282,12 +324,16 @@ pub fn register_combat_metatable(lua: &Lua) -> Result<(), mlua::Error> {
     lua.globals().set("Combat", combat_new)?;
 
     // `createCombatArea(areaMatrix[, extArea])` — C++ `luaCreateCombatArea`
-    // (`luascript.cpp:3545-3575`). Returns an `AreaRef` userdata. The optional `extArea`
-    // diagonal overlay is accepted but not yet processed (PC-2b scope: matrix only).
+    // (`luascript.cpp:3545-3575`). Returns an `AreaRef` userdata. Optional
+    // `extArea` is the diagonal overlay (`AREADIAGONAL_*`) — Phase 7.
     let create_area =
-        lua.create_function(|_, (area, _ext): (mlua::Value, Option<mlua::Value>)| {
+        lua.create_function(|_, (area, ext): (mlua::Value, Option<mlua::Value>)| {
             let matrix = parse_area_matrix(&area)?;
-            let area_combat = AreaCombat::from_matrix(matrix);
+            let mut area_combat = AreaCombat::from_matrix(matrix);
+            if let Some(ext_val) = ext {
+                let ext_matrix = parse_area_matrix(&ext_val)?;
+                area_combat = area_combat.with_ext_area(ext_matrix);
+            }
             Ok(AreaRef(Rc::new(RefCell::new(area_combat))))
         })?;
     lua.globals().set("createCombatArea", create_area)?;
@@ -425,10 +471,9 @@ impl UserData for CombatRef {
                 let area_offsets: Vec<(i32, i32)> = match &combat.area {
                     Some(area_rc) => {
                         let area = area_rc.borrow();
-                        let raw = area.affected_offsets();
                         let dx = center_x as i32 - caster_x as i32;
                         let dy = center_y as i32 - caster_y as i32;
-                        rotate_area_offsets(&raw, dx, dy)
+                        resolve_oriented_offsets(&area, dx, dy)
                     }
                     None => vec![(0, 0)],
                 };
@@ -477,7 +522,7 @@ impl UserData for CombatRef {
                     aggressive: combat.aggressive,
                     block_armor: combat.block_armor,
                     block_shield: combat.block_shield,
-                    area_offsets,
+                    area_offsets: area_offsets.clone(),
                     damage_min,
                     damage_max,
                     conditions: combat
@@ -490,8 +535,23 @@ impl UserData for CombatRef {
                     } else {
                         None
                     },
+                    create_item: combat.create_item,
+                    no_damage: combat.no_damage,
+                    distance_effect: combat.distance_effect,
                 };
                 call_combat_execute(request).map_err(mlua::Error::runtime)?;
+                // Phase 6: event callbacks after tile resolution / damage.
+                // C++ `TargetCallback::onTargetCombat` / `TileCallback::onTileCombat`
+                // — `combat.cpp:720,776`.
+                invoke_event_callbacks(
+                    lua,
+                    &combat,
+                    caster_id,
+                    center_x,
+                    center_y,
+                    center_z,
+                    &area_offsets,
+                )?;
                 Ok(true)
             },
         );
@@ -511,10 +571,9 @@ impl UserData for CombatRef {
                 let area_offsets: Vec<(i32, i32)> = match &combat.area {
                     Some(area_rc) => {
                         let area = area_rc.borrow();
-                        let raw = area.affected_offsets();
                         let dx = center_x as i32 - caster_x as i32;
                         let dy = center_y as i32 - caster_y as i32;
-                        rotate_area_offsets(&raw, dx, dy)
+                        resolve_oriented_offsets(&area, dx, dy)
                     }
                     None => vec![(0, 0)],
                 };
@@ -628,6 +687,46 @@ fn resolve_caster_position(caster_id: u64) -> Result<(u16, u16, u8), mlua::Error
             .map(|p| (p.x, p.y, p.z))
             .ok_or_else(|| mlua::Error::runtime("combat:execute: caster position not found"))
     })
+}
+
+/// Pick cardinal or diagonal area offsets from caster→center direction.
+///
+/// C++ `AreaCombat::getArea` (`combat.cpp:1308-1340`): when `hasExtArea` and both
+/// dx/dy are non-zero, use the diagonal overlay (NW=raw, NE=mirror, SW=flip,
+/// SE=transpose). Otherwise rotate the primary matrix for N/E/S/W.
+fn resolve_oriented_offsets(area: &AreaCombat, dx_dir: i32, dy_dir: i32) -> Vec<(i32, i32)> {
+    if area.has_ext_area() && dx_dir != 0 && dy_dir != 0 {
+        if let Some(ext) = area.ext_affected_offsets() {
+            return transform_diagonal_offsets(&ext, dx_dir, dy_dir);
+        }
+    }
+    rotate_area_offsets(&area.affected_offsets(), dx_dir, dy_dir)
+}
+
+/// Diagonal orientation transforms — C++ `setupExtArea` (`combat.cpp:1435-1438`):
+/// NW = raw, NE = mirror, SW = flip, SE = transpose.
+fn transform_diagonal_offsets(offsets: &[(i32, i32)], dx_dir: i32, dy_dir: i32) -> Vec<(i32, i32)> {
+    // Offset transforms equivalent to MatrixArea mirror/flip/transpose on
+    // relative (dx, dy) cells (center stays at origin).
+    offsets
+        .iter()
+        .copied()
+        .map(|(dx, dy)| {
+            if dx_dir < 0 && dy_dir < 0 {
+                // NW — raw
+                (dx, dy)
+            } else if dx_dir > 0 && dy_dir < 0 {
+                // NE — mirror (reflect over vertical axis → negate x)
+                (-dx, dy)
+            } else if dx_dir < 0 && dy_dir > 0 {
+                // SW — flip (reflect over horizontal axis → negate y)
+                (dx, -dy)
+            } else {
+                // SE — transpose (swap axes)
+                (dy, dx)
+            }
+        })
+        .collect()
 }
 
 /// Rotate area offsets based on the direction from caster to center.
@@ -753,6 +852,80 @@ fn invoke_value_callback(
     Ok((min as i32, max as i32))
 }
 
+/// Invoke `TARGETCREATURE` / `TARGETTILE` callbacks after combat execute.
+/// C++ `TargetCallback::onTargetCombat` / `TileCallback::onTileCombat` —
+/// `combat.cpp:1223,1193`.
+fn invoke_event_callbacks(
+    lua: &Lua,
+    combat: &CombatDef,
+    caster_id: u64,
+    center_x: u16,
+    center_y: u16,
+    center_z: u8,
+    area_offsets: &[(i32, i32)],
+) -> Result<(), mlua::Error> {
+    if let Some(cb) = combat.callbacks.get(&CALLBACK_PARAM_TARGETCREATURE) {
+        let func: mlua::Function = match lua
+            .globals()
+            .get::<mlua::Function>(cb.function_name.as_str())
+        {
+            Ok(f) => f,
+            Err(_) => {
+                tracing::warn!(
+                    name = %cb.function_name,
+                    "TARGETCREATURE callback not found in Lua globals"
+                );
+                return Ok(());
+            }
+        };
+        let target_ids = CURRENT_CTX.with(|c| {
+            let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+            if ptr.is_null() {
+                return Err(mlua::Error::runtime("LuaContext not set"));
+            }
+            let ctx = unsafe { &*ptr };
+            Ok(ctx.get_creatures_on_area(center_x, center_y, center_z, area_offsets))
+        })?;
+        for tid in target_ids {
+            let caster_ud = lua.create_userdata(CreatureRef(caster_id))?;
+            let target_ud = lua.create_userdata(CreatureRef(tid))?;
+            let _: mlua::Value = func.call((caster_ud, target_ud))?;
+        }
+    }
+
+    if let Some(cb) = combat.callbacks.get(&CALLBACK_PARAM_TARGETTILE) {
+        let func: mlua::Function = match lua
+            .globals()
+            .get::<mlua::Function>(cb.function_name.as_str())
+        {
+            Ok(f) => f,
+            Err(_) => {
+                tracing::warn!(
+                    name = %cb.function_name,
+                    "TARGETTILE callback not found in Lua globals"
+                );
+                return Ok(());
+            }
+        };
+        for &(dx, dy) in area_offsets {
+            let tx = center_x as i32 + dx;
+            let ty = center_y as i32 + dy;
+            if tx < 0 || ty < 0 {
+                continue;
+            }
+            let caster_ud = lua.create_userdata(CreatureRef(caster_id))?;
+            let pos_ud = lua.create_userdata(PositionRef {
+                x: tx as u16,
+                y: ty as u16,
+                z: center_z,
+            })?;
+            let _: mlua::Value = func.call((caster_ud, pos_ud))?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -786,6 +959,52 @@ mod tests {
 
         def.set_parameter(COMBAT_PARAM_DISPEL, 1); // CONDITION_POISON
         assert_eq!(def.dispel_type, 1);
+
+        def.set_parameter(COMBAT_PARAM_CREATEITEM, 1487);
+        assert_eq!(def.create_item, 1487);
+        def.set_parameter(COMBAT_PARAM_NODAMAGE, 1);
+        assert!(def.no_damage);
+        def.set_parameter(COMBAT_PARAM_DISTANCEEFFECT, 4);
+        assert_eq!(def.distance_effect, 4);
+    }
+
+    #[test]
+    fn diagonal_ext_area_orientation_differs_from_cardinal() {
+        // Wall field: horizontal line through center (simplified).
+        let primary = vec![vec![1, 3, 1]];
+        // Diagonal: vertical-ish line for NW raw.
+        let ext = vec![vec![1, 0, 0], vec![0, 3, 0], vec![0, 0, 1]];
+        let area = AreaCombat::from_matrix(primary).with_ext_area(ext);
+        assert!(area.has_ext_area());
+
+        let north = resolve_oriented_offsets(&area, 0, -1);
+        let ne = resolve_oriented_offsets(&area, 1, -1);
+        let nw = resolve_oriented_offsets(&area, -1, -1);
+        // Cardinal uses primary; diagonal uses ext transforms — NE ≠ NW.
+        assert_ne!(ne, nw);
+        // North (cardinal) uses primary rotate — not the same as NW raw ext.
+        assert_ne!(north, nw);
+    }
+
+    #[test]
+    fn create_combat_area_stores_ext_area() {
+        let lua = Lua::new();
+        register_combat_metatable(&lua).expect("registration must succeed");
+        let result: mlua::AnyUserData = lua
+            .load(
+                r#"
+                return createCombatArea(
+                    {{1, 3, 1}},
+                    {{1, 0}, {0, 3}}
+                )
+            "#,
+            )
+            .eval()
+            .expect("createCombatArea with ext");
+        let area_ref = result.borrow::<AreaRef>().expect("AreaRef");
+        let area = area_ref.0.borrow();
+        assert!(area.has_ext_area());
+        assert_eq!(area.ext_matrix.as_ref().unwrap().len(), 2);
     }
 
     #[test]
