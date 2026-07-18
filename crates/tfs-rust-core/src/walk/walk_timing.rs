@@ -21,9 +21,18 @@ const SPEED_C: f64 = -4795.01;
 const PLAYER_MIN_SPEED: i32 = 10;
 const PLAYER_MAX_SPEED: i32 = 1500;
 
-/// TFS `Creature::getSpeed` — `baseSpeed + varSpeed` from conditions (`creature.h`); step uses `getStepSpeed` clamp.
+/// TFS `Creature::getSpeed` — vocation GoStrength (`base_speed`) + equip `var_speed`
+/// + active haste/paralyze conditions (`creature.h`).
+///
+/// Prefer `base_speed` over `speed` so haste baked into `speed` by an older
+/// `recompute_speed_from_conditions` does not double-count with the condition loop.
 fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i32 {
-    let mut s = base.speed + base.var_speed;
+    let go = if base.base_speed != 0 {
+        base.base_speed
+    } else {
+        base.speed
+    };
+    let mut s = go + base.var_speed;
     for c in &base.active_conditions {
         if let ConditionData::Speed { flat_delta } = c.data {
             s += flat_delta;

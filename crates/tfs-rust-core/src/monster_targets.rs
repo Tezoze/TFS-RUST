@@ -255,14 +255,24 @@ impl GameWorld {
                 if p.ghost_mode {
                     return false;
                 }
+                // Monsters without SeeInvisible do not treat invisible players as opponents
+                // (`Creature::canSeeCreature` + `crnonpl.cc:2514` acquire gate).
+                if !m.see_invisible && p.base.is_invisible() {
+                    return false;
+                }
                 let flags = flags_for_group(&self.groups, p.group_id);
                 !has_player_flag(flags, PLAYER_FLAG_IGNORED_BY_MONSTERS)
             }
-            Some(other) if other.base().is_summon() => other
-                .base()
-                .master
-                .and_then(|mid| self.creatures.get(mid))
-                .is_some_and(|master| matches!(master, CreatureKind::Player(_))),
+            Some(other) if other.base().is_summon() => {
+                if !m.see_invisible && other.base().is_invisible() {
+                    return false;
+                }
+                other
+                    .base()
+                    .master
+                    .and_then(|mid| self.creatures.get(mid))
+                    .is_some_and(|master| matches!(master, CreatureKind::Player(_)))
+            }
             _ => false,
         }
     }

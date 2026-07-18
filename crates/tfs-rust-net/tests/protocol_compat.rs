@@ -150,6 +150,62 @@ fn creature_speed_encoding_1098() {
     );
 }
 
+/// 7.72 `sendCreatureOutfit` — `gameserver/src/protocolgame.cpp` ~1119.
+/// Invisible: empty outfit `look_type == 0` → `u16 0` + `u16 lookTypeEx` (no mount).
+#[test]
+fn creature_outfit_encoding_772_invisible() {
+    let codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
+    let o = OutfitWire::default(); // look_type 0
+    let m = codec.encode_creature_outfit(0x11223344, &o);
+    // 0x8E + id LE + lookType 0 + lookTypeEx 0 — no addons, no mount
+    assert_eq!(
+        m.as_bytes(),
+        &[0x8E, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00, 0x00, 0x00]
+    );
+}
+
+/// 7.72 `AddOutfit` lookType path — colors only (no addons / mount).
+#[test]
+fn creature_outfit_encoding_772_looktype() {
+    let codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
+    let o = OutfitWire {
+        look_type: 128,
+        look_head: 1,
+        look_body: 2,
+        look_legs: 3,
+        look_feet: 4,
+        look_addons: 99, // ignored on 772
+        look_mount: 9,   // ignored on 772
+        look_type_ex: 0,
+    };
+    let m = codec.encode_creature_outfit(0x11223344, &o);
+    assert_eq!(
+        m.as_bytes(),
+        &[0x8E, 0x44, 0x33, 0x22, 0x11, 128, 0, 1, 2, 3, 4]
+    );
+}
+
+/// 10.98 `sendCreatureOutfit` — addons + mount after colors.
+#[test]
+fn creature_outfit_encoding_1098_looktype() {
+    let codec = Codec::from_version(ProtocolVersion::V1098).expect("1098 codec");
+    let o = OutfitWire {
+        look_type: 128,
+        look_head: 1,
+        look_body: 2,
+        look_legs: 3,
+        look_feet: 4,
+        look_addons: 5,
+        look_mount: 9,
+        look_type_ex: 0,
+    };
+    let m = codec.encode_creature_outfit(0x11223344, &o);
+    assert_eq!(
+        m.as_bytes(),
+        &[0x8E, 0x44, 0x33, 0x22, 0x11, 128, 0, 1, 2, 3, 4, 5, 9, 0]
+    );
+}
+
 #[test]
 fn text_message_encoding() {
     let m = send_text_message(0x16, "hello");

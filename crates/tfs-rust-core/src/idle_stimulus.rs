@@ -504,7 +504,7 @@ impl GameWorld {
         }
         // Announce the outfit change so spectators see the creature reappear.
         // Mirrors C++ `AnnounceChangedCreature(CREATURE_OUTFIT_CHANGED)`.
-        let msg = tfs_rust_net::outgoing_extra::send_creature_outfit(wire_id, &outfit_wire);
+        let msg = self.codec.encode_creature_outfit(wire_id, &outfit_wire);
         self.broadcast_to_spectators(pos, msg.into_bytes());
     }
 
@@ -859,9 +859,12 @@ impl GameWorld {
                 m.strategy_nearest,
                 m.strategy_health,
                 m.strategy_damage,
+                m.see_invisible,
             ))
         });
-        let Some((pos, existing_follow, _state, strat_near, strat_hp, strat_dmg)) = snapshot else {
+        let Some((pos, existing_follow, _state, strat_near, strat_hp, strat_dmg, see_invisible)) =
+            snapshot
+        else {
             return false;
         };
 
@@ -916,6 +919,10 @@ impl GameWorld {
                 let flags = flags_for_group(&self.groups, p.group_id);
                 has_player_flag(flags, PLAYER_FLAG_IGNORED_BY_MONSTERS)
             }) {
+                continue;
+            }
+            // C++ `crnonpl.cc:2514` `(Target->IsInvisible() && !RaceData[Race].SeeInvisible)`.
+            if target.base().is_invisible() && !see_invisible {
                 continue;
             }
             let param = match strategy {

@@ -272,6 +272,10 @@ pub mod server {
     /// repo-root `src/protocolgame.cpp` ~2544 (shared opcode + layout).
     pub const DISTANCE_SHOOT: u8 = 0x85;
     pub const CREATURE_HEALTH: u8 = 0x8C;
+    /// `ProtocolGame::sendCreatureOutfit` — `0x8E` + creature id + `AddOutfit`.
+    /// 772: `gameserver/src/protocolgame.cpp` ~1119; 1098: repo-root `src/protocolgame.cpp`.
+    /// Outfit body differs by era (772: no addons/mount); always encode via `ProtocolCodec`.
+    pub const CREATURE_OUTFIT: u8 = 0x8E;
     /// `SV_CMD_CREATURE_SPEED` — `sending.cc:1039` `SendCreatureSpeed` (772) /
     /// `src/protocolgame.cpp` `sendChangeSpeed` (1098). 772 sends one `u16` (`GetSpeed()`),
     /// 1098 sends two halved `u16`s (`baseSpeed/2`, `speed/2`).

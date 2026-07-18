@@ -456,6 +456,16 @@ impl Codec772 {
         m
     }
 
+    /// 7.72 `ProtocolGame::sendCreatureOutfit` — `gameserver/src/protocolgame.cpp` ~1119.
+    /// `0x8E` + id + `AddOutfit` (no addons / mount). Empty `look_type` is invisibility.
+    pub fn encode_creature_outfit(&self, creature_id: u32, outfit: &OutfitWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATURE_OUTFIT);
+        m.write_u32(creature_id);
+        self.write_outfit(&mut m, outfit);
+        m
+    }
+
     /// 7.72 `Game::combatChangeHealth` — `sendTextMessage` simple branch (`gameserver/src/const.h` `MESSAGE_EVENT_DEFAULT`).
     pub fn encode_combat_damage_text_message(&self, w: &CombatDamageNotifyWire) -> NetworkMessage {
         const MESSAGE_EVENT_DEFAULT: u8 = 0x14;

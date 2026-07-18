@@ -396,7 +396,7 @@ impl GameWorld {
     /// TFS `Player::sendCreatureChangeVisible` player branch — empty outfit when invisible.
     ///
     /// C++: `player.h` ~789–800 (`Outfit_t{}` vs `getCurrentOutfit`).
-    fn announce_player_change_visible(&mut self, cid: CreatureId, visible: bool) {
+    pub(crate) fn announce_player_change_visible(&mut self, cid: CreatureId, visible: bool) {
         let Some(kind) = self.creatures.get(cid) else {
             return;
         };
@@ -426,7 +426,7 @@ impl GameWorld {
                 look_type_ex: 0,
             }
         };
-        let msg = tfs_rust_net::outgoing_extra::send_creature_outfit(wire_id, &outfit);
+        let msg = self.codec.encode_creature_outfit(wire_id, &outfit);
         self.broadcast_to_spectators(pos, msg.into_bytes());
     }
 

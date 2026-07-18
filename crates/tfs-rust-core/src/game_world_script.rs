@@ -443,4 +443,40 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             attack_factor,
         }
     }
+
+    /// Creatures on area offsets — PC-3a Phase 3 `combat:getTargets`.
+    fn get_creatures_on_area(
+        &self,
+        center_x: u16,
+        center_y: u16,
+        center_z: u8,
+        offsets: &[(i32, i32)],
+    ) -> Vec<tfs_rust_common::ScriptCreatureId> {
+        let mut out = Vec::new();
+        for &(dx, dy) in offsets {
+            let tx = center_x as i32 + dx;
+            let ty = center_y as i32 + dy;
+            if tx < 0 || ty < 0 {
+                continue;
+            }
+            let pos = tfs_rust_common::Position {
+                x: tx as u16,
+                y: ty as u16,
+                z: center_z,
+            };
+            if let Some(tile) = self.map.get_tile(pos) {
+                for &cid in &tile.body().creatures {
+                    out.push(Self::creature_to_script_id(cid));
+                }
+            }
+        }
+        out
+    }
+
+    fn is_creature_player(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> bool {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return false;
+        };
+        matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+    }
 }

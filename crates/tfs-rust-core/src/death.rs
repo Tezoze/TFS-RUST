@@ -94,7 +94,8 @@ pub struct XpShareGrant {
 ///
 /// Returns `(leveled, xp_grants)`:
 /// - `leveled` — creature IDs whose level (and thus speed) changed
-/// - `xp_grants` — players who received a positive XP share (refresh stats + exp popup)
+/// - `xp_grants` — killers with positive XP (stats + popup) **and** the player victim
+///   (always, so `sendStats` runs after blessing clear even when exp loss is 0)
 // C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:891-908`.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_creature_death(
@@ -136,14 +137,16 @@ pub fn handle_creature_death(
         if lose > 0 && v.remove_experience(lose, step_speed_model) {
             leveled_killers.push(victim);
         }
-        if lose > 0 {
-            xp_grants.push(XpShareGrant {
-                cid: victim,
-                amount: 0, // loss path — no floating “+exp” popup
-                old_level,
-                new_level: v.level,
-            });
-        }
+        // Always refresh victim stats after death — TFS `Player::death` calls `sendStats()`
+        // after blessing clear even when `deathLosePercent` yields zero exp loss
+        // (`player.cpp:2153`). Skipping this when `lose == 0` left blessings cleared
+        // server-side with no client `0xA0` until next login.
+        xp_grants.push(XpShareGrant {
+            cid: victim,
+            amount: 0, // loss path — no floating “+exp” popup
+            old_level,
+            new_level: v.level,
+        });
         v.blessings = clear_blessings_on_death(v.blessings, last_hit_by_player);
     }
 
@@ -231,5 +234,67 @@ mod tests {
         let reduced = base * (1.0 - 5.0 * 0.08);
         assert!((reduced - 0.06).abs() < 1e-9);
         assert_eq!(blessing_count(0b11111), 5);
+    }
+
+    #[test]
+    fn zero_exp_loss_still_queues_victim_stats_grant() {
+        // `deathLosePercent = 0` → lose == 0, but blessings still clear; must still emit a
+        // victim grant so `apply_creature_death` calls `send_player_stats`.
+        use crate::event_dispatcher::NullEventDispatcher;
+        use crate::formulas::StepSpeedModel;
+        use crate::sim_harness::{insert_player, minimal_world, test_player};
+        use tfs_rust_common::Position;
+
+        let mut world = minimal_world();
+        // Override config with zero death loss.
+        let path = std::env::temp_dir().join(format!(
+            "tfs_death_zero_loss_{}_{}.lua",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        std::fs::write(
+            &path,
+            "depotFreeLimit = 2000\ndeathLosePercent = 0\n",
+        )
+        .expect("write config");
+        world.config = std::rc::Rc::new(ConfigManager::load(&path).expect("load config"));
+
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("ZeroLoss", Position::new(100, 100, 7));
+                p.blessings = 0b11111;
+                p.experience = 10_000;
+                p.level = 20;
+                p
+            },
+        );
+
+        let (_, grants) = handle_creature_death(
+            &mut world.creatures,
+            &mut world.items,
+            &mut world.decay,
+            &NullEventDispatcher,
+            cid,
+            0,
+            None,
+            StepSpeedModel::LinearGo,
+            world.config.as_ref(),
+            false,
+            0,
+        );
+
+        assert!(
+            grants.iter().any(|g| g.cid == cid && g.amount == 0),
+            "victim must get a zero-amount grant for sendStats"
+        );
+        let blessings = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.blessings,
+            _ => panic!("victim missing"),
+        };
+        assert_eq!(blessings, 0, "blessings cleared even with zero exp loss");
     }
 }

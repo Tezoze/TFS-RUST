@@ -191,6 +191,9 @@ pub struct Player {
     pub inventory_weight: u32,
     /// Max light from equipped items — `Player::itemsLight` (`player.h`).
     pub items_light: LightInfo,
+    /// Condition / spell light — `Creature::internalLight` (`creature.h`).
+    /// `Player::getCreatureLight` returns max(internal, items).
+    pub internal_light: LightInfo,
     /// MoveEvent ability guard per slot — `Player::inventoryAbilities` (`player.h`).
     pub inventory_abilities: [bool; 11],
     /// TFS `Player::varSkills` — equipment skill modifiers (`player.h` / `MoveEvent::EquipItem`).

@@ -204,6 +204,7 @@ pub fn player_from_loaded(
         equipment_slots: std::array::from_fn(|_| None),
         inventory_weight: 0,
         items_light: crate::creature::LightInfo::default(),
+        internal_light: crate::creature::LightInfo::default(),
         inventory_abilities: [false; 11],
         var_skills: [0; 7],
         var_stats: [0; 4],

@@ -1,3 +1,9 @@
+## PC-3a Phase 4b — condition client updates (2026-07-18) — done
+- [x] `Player::internal_light` + `player_creature_light` max(internal, items)
+- [x] `on_condition_started` / `on_condition_ended` (icons, speed, light, invis, outfit)
+- [x] Wire AoE apply/dispel, Lua add/remove/setInFight, ProcessSkills expiry
+- [x] Docs in `pc3a-spell-gaps.md`; light max unit smoke
+
 ## Equip item abilities (2026-07-18) — done
 - [x] Native `MoveEvent::EquipItem` / `DeEquipItem` abilities (`movement.cpp`) — speed, skills, flat/percent stats, invisible, mana shield, regen, suppressdrunk
 - [x] `CreatureBase::var_speed` + `Player::{var_skills,var_stats,condition_suppressions}`; walk/combat/stats use effective values

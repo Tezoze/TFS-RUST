@@ -90,6 +90,7 @@ const COMBAT_PARAM_BLOCKSHIELD: i32 = 3;
 const COMBAT_PARAM_BLOCKARMOR: i32 = 4;
 const COMBAT_PARAM_CREATEITEM: i32 = 6; // enums.h:119
 const COMBAT_PARAM_AGGRESSIVE: i32 = 7;
+const COMBAT_PARAM_DISPEL: i32 = 8; // enums.h:121
 const COMBAT_PARAM_NODAMAGE: i32 = 10; // enums.h:123
 
 /// Callback parameter keys — mirrors `CallbackParam_t` (`enums.h:128-131`).
@@ -153,6 +154,9 @@ pub struct CombatDef {
     /// Conditions added via `combat:addCondition(condition)`.
     /// C++ `Combat::conditionList` — `combat.h`.
     pub conditions: Vec<crate::userdata::condition::ConditionBuilder>,
+    /// `COMBAT_PARAM_DISPEL` → 772 bit-flag condition type to remove on hit.
+    /// C++ `CombatParams::dispelType` — `combat.h:52`. `0` = unset.
+    pub dispel_type: i32,
     /// `COMBAT_PARAM_CREATEITEM` → item id to create on hit tiles.
     /// C++ `Combat::createItem` — `combat.h`.
     pub create_item: i32,
@@ -177,6 +181,7 @@ impl CombatDef {
             k if k == COMBAT_PARAM_BLOCKARMOR => self.block_armor = value != 0,
             k if k == COMBAT_PARAM_CREATEITEM => self.create_item = value,
             k if k == COMBAT_PARAM_AGGRESSIVE => self.aggressive = value != 0,
+            k if k == COMBAT_PARAM_DISPEL => self.dispel_type = value,
             k if k == COMBAT_PARAM_NODAMAGE => self.no_damage = value != 0,
             _ => {} // Unknown params silently ignored (C++ `default: break`).
         }
@@ -475,9 +480,59 @@ impl UserData for CombatRef {
                     area_offsets,
                     damage_min,
                     damage_max,
+                    conditions: combat
+                        .conditions
+                        .iter()
+                        .map(|c| c.to_apply_spec())
+                        .collect(),
+                    dispel_type: if combat.dispel_type != 0 {
+                        Some(combat.dispel_type)
+                    } else {
+                        None
+                    },
                 };
                 call_combat_execute(request).map_err(mlua::Error::runtime)?;
                 Ok(true)
+            },
+        );
+
+        // `combat:getTargets(creature, variant)` — C++ `luaCombatGetTargets`
+        // (`luascript.cpp`). Returns a table of `CreatureRef` userdata on the
+        // combat's area tiles. PC-3a Phase 3: `poison_storm.lua` iterates targets
+        // to apply poison outside `combat:execute`.
+        methods.add_method(
+            "getTargets",
+            |lua, this, (creature, variant): (Value, Value)| {
+                let combat = this.0.borrow();
+                let caster_id = resolve_creature_id(&creature)?;
+                let (center_x, center_y, center_z) = resolve_variant_center(&variant, caster_id)?;
+                let (caster_x, caster_y, _caster_z) =
+                    resolve_caster_position(caster_id).unwrap_or((center_x, center_y, center_z));
+                let area_offsets: Vec<(i32, i32)> = match &combat.area {
+                    Some(area_rc) => {
+                        let area = area_rc.borrow();
+                        let raw = area.affected_offsets();
+                        let dx = center_x as i32 - caster_x as i32;
+                        let dy = center_y as i32 - caster_y as i32;
+                        rotate_area_offsets(&raw, dx, dy)
+                    }
+                    None => vec![(0, 0)],
+                };
+                let ids = CURRENT_CTX.with(|c| {
+                    let ptr =
+                        (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                    if ptr.is_null() {
+                        return Err(mlua::Error::runtime("LuaContext not set"));
+                    }
+                    let ctx = unsafe { &*ptr };
+                    Ok(ctx.get_creatures_on_area(center_x, center_y, center_z, &area_offsets))
+                })?;
+                let table = lua.create_table()?;
+                for (i, id) in ids.into_iter().enumerate() {
+                    let ud = lua.create_userdata(CreatureRef(id))?;
+                    table.set(i + 1, ud)?;
+                }
+                Ok(table)
             },
         );
     }
@@ -728,6 +783,9 @@ mod tests {
 
         def.set_parameter(COMBAT_PARAM_BLOCKARMOR, 0);
         assert!(!def.block_armor);
+
+        def.set_parameter(COMBAT_PARAM_DISPEL, 1); // CONDITION_POISON
+        assert_eq!(def.dispel_type, 1);
     }
 
     #[test]

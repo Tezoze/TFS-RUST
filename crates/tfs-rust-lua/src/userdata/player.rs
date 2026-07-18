@@ -9,7 +9,7 @@ use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_feed,
     call_lua_get_depot_chest, call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
-    call_lua_send_cancel_message,
+    call_lua_send_cancel_message, call_lua_set_in_fight,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -380,36 +380,46 @@ impl UserData for CreatureRef {
             },
         );
 
-        // `player:addCondition(condition)` — LUA-4. Immediate-apply condition
-        // add. `condition` is a `ConditionBuilder` userdata constructed via
-        // `Condition(type, id)`.
+        // `player:addCondition(condition)` — LUA-4 / PC-3a Phase 3. Immediate-apply
+        // condition add with full `ConditionApplySpec` fields.
         // C++ reference: `luascript.cpp:2117` `Creature::addCondition`.
         methods.add_method("addCondition", |_, this, condition: mlua::AnyUserData| {
             let builder = condition
                 .borrow::<crate::userdata::condition::ConditionBuilder>()
                 .map_err(mlua::Error::runtime)?;
-            call_lua_add_condition(
-                this.0,
-                builder.ctype,
-                builder.cond_id,
-                builder.sub_id,
-                builder.ticks,
-            )
-            .map_err(mlua::Error::runtime)?;
+            call_lua_add_condition(this.0, builder.to_apply_spec())
+                .map_err(mlua::Error::runtime)?;
             Ok(())
         });
 
-        // `player:removeCondition(type, id, subId)` — LUA-4. Immediate-apply
-        // condition removal.
+        // `player:removeCondition(type[, id[, subId]])` — LUA-4. Immediate-apply
+        // condition removal. Optional id/subId default to -1 / 0 (match all of type
+        // when core ignores id for retain).
         // C++ reference: `luascript.cpp:2118` `Creature::removeCondition`.
         methods.add_method(
             "removeCondition",
-            |_, this, (ctype, cond_id, sub_id): (i32, i32, u32)| {
-                call_lua_remove_condition(this.0, ctype, cond_id, sub_id)
-                    .map_err(mlua::Error::runtime)?;
+            |_, this, (ctype, cond_id, sub_id): (i32, Option<i32>, Option<u32>)| {
+                call_lua_remove_condition(
+                    this.0,
+                    ctype,
+                    cond_id.unwrap_or(-1),
+                    sub_id.unwrap_or(0),
+                )
+                .map_err(mlua::Error::runtime)?;
                 Ok(())
             },
         );
+
+        // `creature:isPlayer()` — PC-3a Phase 3 (`poison_storm.lua`).
+        methods.add_method("isPlayer", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.is_creature_player(this.0)))
+        });
+
+        // `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
+        methods.add_method("setInFight", |_, this, in_fight: bool| {
+            call_lua_set_in_fight(this.0, in_fight).map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
 
         // `__index` fallback — bridges `function Player:method(...)` definitions
         // from `data/scripts/functions.lua` (and event scripts) onto `CreatureRef`

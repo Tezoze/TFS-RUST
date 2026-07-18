@@ -110,12 +110,14 @@ impl GameWorld {
         }
     }
 
-    /// C++ `Player::getCreatureLight` — internal condition light not ported; items only for now.
+    /// C++ `Player::getCreatureLight` — `player.cpp` ~3403: max of `internalLight` vs `itemsLight`.
     pub(crate) fn player_creature_light(&self, cid: CreatureId) -> LightInfo {
         self.creatures
             .get(cid)
             .and_then(|k| match k {
-                CreatureKind::Player(p) => Some(p.items_light),
+                CreatureKind::Player(p) => {
+                    Some(LightInfo::max_of(p.internal_light, p.items_light))
+                }
                 _ => None,
             })
             .unwrap_or_default()
@@ -362,6 +364,26 @@ mod tests {
         assert_eq!(LightInfo::max_of(a, b), b);
     }
 
+    /// Phase 4b — `Player::getCreatureLight` max(internal, items).
+    #[test]
+    fn player_creature_light_prefers_higher_of_internal_vs_items() {
+        let mut p = test_player_stub();
+        p.items_light = LightInfo { level: 3, color: 1 };
+        p.internal_light = LightInfo {
+            level: 8,
+            color: 215,
+        };
+        assert_eq!(
+            LightInfo::max_of(p.internal_light, p.items_light),
+            p.internal_light
+        );
+        p.internal_light = LightInfo::default();
+        assert_eq!(
+            LightInfo::max_of(p.internal_light, p.items_light),
+            p.items_light
+        );
+    }
+
     #[test]
     fn inventory_abilities_set_and_query() {
         let mut p = test_player_stub();
@@ -463,6 +485,7 @@ mod tests {
             equipment_slots: std::array::from_fn(|_| None),
             inventory_weight: 0,
             items_light: LightInfo::default(),
+            internal_light: LightInfo::default(),
             inventory_abilities: [false; 11],
             var_skills: [0; 7],
             var_stats: [0; 4],

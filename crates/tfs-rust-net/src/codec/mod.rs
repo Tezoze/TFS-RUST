@@ -171,6 +171,11 @@ pub trait ProtocolCodec {
     /// 772: `0x8F + u32 id + u16 speed`. 1098: `0x8F + u32 id + u16 base/2 + u16 speed/2`.
     fn encode_creature_speed(&self, w: &wire::CreatureSpeedWire) -> NetworkMessage;
 
+    /// `ProtocolGame::sendCreatureOutfit` — `0x8E` + id + era `AddOutfit`.
+    /// 772 has no addons/mount; using the 1098 outfit body desyncs and crashes 7.72 clients.
+    fn encode_creature_outfit(&self, creature_id: u32, outfit: &CreatureOutfitWire)
+        -> NetworkMessage;
+
     /// Player damage caption — simple text (772) vs damage block (1098).
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire)
         -> NetworkMessage;
@@ -454,6 +459,14 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_creature_speed(self, w)
     }
 
+    fn encode_creature_outfit(
+        &self,
+        creature_id: u32,
+        outfit: &CreatureOutfitWire,
+    ) -> NetworkMessage {
+        Codec1098::encode_creature_outfit(self, creature_id, outfit)
+    }
+
     fn encode_combat_damage_text_message(
         &self,
         w: &wire::CombatDamageNotifyWire,
@@ -724,6 +737,14 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_creature_speed(self, w)
     }
 
+    fn encode_creature_outfit(
+        &self,
+        creature_id: u32,
+        outfit: &CreatureOutfitWire,
+    ) -> NetworkMessage {
+        Codec772::encode_creature_outfit(self, creature_id, outfit)
+    }
+
     fn encode_combat_damage_text_message(
         &self,
         w: &wire::CombatDamageNotifyWire,
@@ -926,6 +947,8 @@ impl Codec {
         encode_creature_health(w: &wire::CreatureHealthWire) -> NetworkMessage;
 
         encode_creature_speed(w: &wire::CreatureSpeedWire) -> NetworkMessage;
+
+        encode_creature_outfit(creature_id: u32, outfit: &CreatureOutfitWire) -> NetworkMessage;
 
         encode_combat_damage_text_message(w: &wire::CombatDamageNotifyWire) -> NetworkMessage;
 
@@ -1166,6 +1189,17 @@ impl ProtocolCodec for Codec {
         match self {
             Self::V1098(c) => ProtocolCodec::encode_creature_speed(c, w),
             Self::V772(c) => ProtocolCodec::encode_creature_speed(c, w),
+        }
+    }
+
+    fn encode_creature_outfit(
+        &self,
+        creature_id: u32,
+        outfit: &CreatureOutfitWire,
+    ) -> NetworkMessage {
+        match self {
+            Self::V1098(c) => ProtocolCodec::encode_creature_outfit(c, creature_id, outfit),
+            Self::V772(c) => ProtocolCodec::encode_creature_outfit(c, creature_id, outfit),
         }
     }
 

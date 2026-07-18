@@ -509,10 +509,13 @@ fn default_shape_for_node(name: &str, node: &MonsterSpellNode) -> SpellShape {
     if target == Some(1) && radius > 0 {
         return SpellShape::Destination;
     }
-    if target == Some(1) || range > 1 {
+    // Single-target on the victim: XML `target="1"` **or** any positive `range`
+    // (including melee-range `range="1"` — ghoul lifedrain / 772 `Victim (1,0,0)`).
+    // Previously `range > 1` left `range="1"` as Actor → life drain hit the caster.
+    if target == Some(1) || range > 0 {
         return SpellShape::Victim;
     }
-    if name.ends_with("condition") && range > 1 {
+    if name.ends_with("condition") && range > 0 {
         SpellShape::Victim
     } else {
         SpellShape::Actor
@@ -906,6 +909,33 @@ mod tests {
             })
             .expect("marid lifedrain");
         assert_eq!(lifedrain.shoot_effect, Some(ShootEffect::Death as u8));
+    }
+
+    /// Ghoul XML `lifedrain … range="1"` → 772 `Victim (1,0,0)` (`ghoul.mon`), not Actor.
+    /// Regression: `range > 1` left melee-range drains as self-casts.
+    #[test]
+    fn test_e0_ghoul_lifedrain_range_1_is_victim() {
+        let mtype = load_monster_type("ghoul");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        let drain = cfg
+            .spells
+            .iter()
+            .find(|s| {
+                matches!(
+                    s.impact,
+                    SpellImpact::Damage {
+                        element: CombatType::LifeDrain,
+                        ..
+                    }
+                )
+            })
+            .expect("ghoul lifedrain");
+        assert_eq!(drain.range, 1);
+        assert_eq!(
+            drain.shape,
+            SpellShape::Victim,
+            "range=1 must be Victim (player), not Actor (self)"
+        );
     }
 
     #[test]

@@ -129,19 +129,14 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
         LuaMutation::PlayerSendCancelMessage { creature_id, text } => {
             unsafe { &mut *world }.lua_script_player_send_cancel_message(creature_id, text)
         }
-        LuaMutation::PlayerAddCondition {
+        LuaMutation::PlayerAddCondition { creature_id, spec } => unsafe {
+            &mut *world
+        }
+        .lua_script_player_add_condition(creature_id, spec),
+        LuaMutation::PlayerSetInFight {
             creature_id,
-            ctype,
-            cond_id,
-            sub_id,
-            ticks,
-        } => unsafe { &mut *world }.lua_script_player_add_condition(
-            creature_id,
-            ctype,
-            cond_id,
-            sub_id,
-            ticks,
-        ),
+            in_fight,
+        } => unsafe { &mut *world }.lua_script_player_set_in_fight(creature_id, in_fight),
         LuaMutation::PlayerRemoveCondition {
             creature_id,
             ctype,

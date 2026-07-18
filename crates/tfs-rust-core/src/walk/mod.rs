@@ -2273,6 +2273,7 @@ mod step_speed_tests {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
+        base.base_speed = 220;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         // Decompile `sending.cc:265`: SendWord(GetSpeed()) = 2*220+80 = 520.
         assert_eq!(wire_step_speed(WalkSpeedRole::Player, &base, &mech), 520);
@@ -2342,6 +2343,7 @@ mod step_speed_tests {
     fn wire_step_speed_772_monster_is_effective_get_speed() {
         let mut base = test_player("Wolf", Position::new(100, 100, 7)).base;
         base.speed = 42;
+        base.base_speed = 42;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
         assert_eq!(
@@ -2357,6 +2359,7 @@ mod step_speed_tests {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
+        base.base_speed = 220;
         let mech = Mechanics::for_version(ProtocolVersion::V1098);
         assert_eq!(wire_step_speed(WalkSpeedRole::Player, &base, &mech), 220);
     }
@@ -2367,6 +2370,7 @@ mod step_speed_tests {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
+        base.base_speed = 220;
         base.last_step_ground_speed = 150;
         base.last_step_cost = 1;
         let mech = Mechanics::for_version(ProtocolVersion::V1098);
@@ -2383,6 +2387,7 @@ mod step_speed_tests {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
+        base.base_speed = 220;
         base.last_step = None;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Player(p);
@@ -2397,6 +2402,7 @@ mod step_speed_tests {
         let p = test_player("Wolf", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 42;
+        base.base_speed = 42;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         assert_eq!(linear_go_effective_speed(42), 164);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
@@ -2411,6 +2417,7 @@ mod step_speed_tests {
         let p = test_player("Wolf", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 42;
+        base.base_speed = 42;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
         let cardinal =
@@ -2470,6 +2477,7 @@ mod step_speed_tests {
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
         base.speed = 220;
+        base.base_speed = 220;
         base.last_step_ground_speed = 150;
         base.last_step_server_ms = Some(0);
         let mech = Mechanics::for_version(ProtocolVersion::V772);

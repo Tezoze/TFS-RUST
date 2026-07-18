@@ -451,6 +451,15 @@ impl Codec1098 {
         m
     }
 
+    /// 10.98 `ProtocolGame::sendCreatureOutfit` — `src/protocolgame.cpp` (`0x8E` + id + `AddOutfit`).
+    pub fn encode_creature_outfit(&self, creature_id: u32, outfit: &OutfitWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::CREATURE_OUTFIT);
+        m.write_u32(creature_id);
+        self.write_outfit(&mut m, outfit);
+        m
+    }
+
     /// 10.98 `Game::combatChangeHealth` damage `sendTextMessage` branch (`src/const.h` `MESSAGE_DAMAGE_RECEIVED`).
     pub fn encode_combat_damage_text_message(&self, w: &CombatDamageNotifyWire) -> NetworkMessage {
         const MESSAGE_DAMAGE_RECEIVED: u8 = 24;

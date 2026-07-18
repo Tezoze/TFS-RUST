@@ -4269,6 +4269,61 @@ fn test_phase9_772_keeps_invisible_target_with_see_invisible() {
     );
 }
 
+/// Acquire must not pick an invisible player when the monster lacks SeeInvisible
+/// (`crnonpl.cc:2514`). Regression: `can_see_creature` used the Player override for
+/// all viewers, so monsters kept targeting `utana vid` players.
+#[test]
+fn test_772_acquire_skips_invisible_player_without_see_invisible() {
+    use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    if let Some(k) = world.creatures.get_mut(player) {
+        add_condition_merge(
+            &mut k.base_mut().active_conditions,
+            ActiveCondition::new(
+                0,
+                0,
+                ConditionType::Invisible,
+                ConditionData::Generic { ticks: 0 },
+                None,
+            ),
+        );
+    }
+    let monster = insert_monster(&mut world, "Cyclops", mpos, 200);
+    world.map.register_creature_at(mpos, monster);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Idle;
+        m.base.follow_target = None;
+        m.base.attack_target = None;
+    }
+
+    assert!(
+        !world.can_see_creature(monster, player),
+        "monster without SeeInvisible must not see invisible player"
+    );
+    assert!(
+        !world.monster_is_opponent(monster, player),
+        "invisible player must not be an opponent without SeeInvisible"
+    );
+
+    world.monster_idle_stimulus(monster);
+
+    let base = world.creatures.get(monster).unwrap().base();
+    assert_eq!(
+        base.follow_target, None,
+        "acquire must skip invisible player without SeeInvisible"
+    );
+    assert_eq!(base.attack_target, None);
+}
+
 /// C++ `VictimShapeSpell` (`magic.cc:423`) checks `Actor->posz != Victim->posz` → return,
 /// and `CircleShapeSpell` (`magic.cc:522`, used by `DestinationShapeSpell`) checks
 /// `Actor->posz != DestZ` → return. A monster must NOT cast a `Victim`/`Destination`

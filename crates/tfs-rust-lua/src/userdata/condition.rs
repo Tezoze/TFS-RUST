@@ -3,13 +3,15 @@
 //! C++ reference: `luascript.cpp` `luaCreateCondition` / `Condition::setParameter`
 //! / `Condition::setTicks` — `condition.cpp` / `condition.h`.
 //!
-//! LUA-4 §1.6: a `ConditionBuilder` accumulates `{ ctype, cond_id, sub_id,
-//! ticks }` and is consumed by `player:addCondition(condition)` which reads the
-//! builder's fields into `LuaMutation::PlayerAddCondition`. The
-//! `setTicks` / `setParameter` methods keep `data/events/scripts/player.lua`'s
-//! `soulCondition` loading unchanged (regression guard — §4.1).
+//! LUA-4 §1.6: a `ConditionBuilder` accumulates condition fields and is
+//! consumed by `player:addCondition(condition)` / `combat:addCondition` into
+//! [`crate::lua_mutation::ConditionApplySpec`]. The `setTicks` / `setParameter`
+//! methods keep `data/events/scripts/player.lua`'s `soulCondition` loading
+//! unchanged (regression guard — §4.1).
 
 use mlua::{Lua, UserData, UserDataMethods, Value};
+
+use crate::lua_mutation::ConditionApplySpec;
 
 /// Condition parameter constants — mirrors `enums.h:135-195`.
 /// Kept here (not in `constants.rs`) because they're only used by the
@@ -77,6 +79,8 @@ pub struct ConditionBuilder {
     pub count: i32,
     pub max_count: i32,
     pub owner_guid: i32,
+    /// `condition:setOutfit` — lookType from the outfit table (illusion/chameleon).
+    pub look_type: i32,
 }
 
 impl ConditionBuilder {
@@ -85,6 +89,28 @@ impl ConditionBuilder {
             ctype,
             cond_id,
             ..Default::default()
+        }
+    }
+
+    /// Snapshot builder fields for the Lua→core mutation / combat-execute seam.
+    /// PC-3a Phases 2–3: core maps this to `ActiveCondition`.
+    pub fn to_apply_spec(&self) -> ConditionApplySpec {
+        ConditionApplySpec {
+            ctype: self.ctype,
+            cond_id: self.cond_id,
+            sub_id: self.sub_id,
+            ticks: self.ticks,
+            speed: self.speed,
+            light_level: self.light_level,
+            light_color: self.light_color,
+            cycle: self.cycle,
+            count: self.count,
+            max_count: self.max_count,
+            look_type: self.look_type,
+            health_gain: self.health_gain,
+            health_ticks: self.health_ticks,
+            mana_gain: self.mana_gain,
+            mana_ticks: self.mana_ticks,
         }
     }
 
@@ -167,11 +193,48 @@ impl UserData for ConditionBuilder {
 
         // `condition:setOutfit(outfitTable)` — `Condition::setOutfit`
         // (`condition.cpp`). Used by chameleon_rune.lua and creature_illusion.lua.
-        // The outfit table contains `lookType`, `lookTypeEx`, `lookHead`, etc.
-        // We store the lookTypeEx for now; full outfit support is deferred.
-        methods.add_method_mut("setOutfit", |_, _this, _outfit: mlua::Table| {
-            // Outfit storage deferred — accept the call so scripts load.
+        // Stores `lookType` (or `lookTypeEx` as fallback) for `ConditionData::Outfit`.
+        methods.add_method_mut("setOutfit", |_, this, outfit: mlua::Table| {
+            let look_type = outfit
+                .get::<i32>("lookType")
+                .or_else(|_| outfit.get::<i32>("lookTypeEx"))
+                .unwrap_or(0);
+            this.look_type = look_type;
             Ok(true)
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_apply_spec_preserves_light_and_speed() {
+        let mut b = ConditionBuilder::new(256, -1); // CONDITION_LIGHT
+        b.set_parameter(CONDITION_PARAM_LIGHT_LEVEL, 6);
+        b.set_parameter(CONDITION_PARAM_TICKS, 370_000);
+        let spec = b.to_apply_spec();
+        assert_eq!(spec.light_level, 6);
+        assert_eq!(spec.ticks, 370_000);
+
+        let mut haste = ConditionBuilder::new(16, -1); // CONDITION_HASTE
+        haste.set_parameter(CONDITION_PARAM_SPEED, 30);
+        haste.set_parameter(CONDITION_PARAM_TICKS, 30_000);
+        let hs = haste.to_apply_spec();
+        assert_eq!(hs.speed, 30);
+        assert_eq!(hs.ticks, 30_000);
+    }
+
+    #[test]
+    fn to_apply_spec_preserves_poison_cycle() {
+        let mut b = ConditionBuilder::new(1, -1); // CONDITION_POISON
+        b.set_parameter(CONDITION_PARAM_CYCLE, 40);
+        b.set_parameter(CONDITION_PARAM_COUNT, 3);
+        b.set_parameter(CONDITION_PARAM_MAX_COUNT, 3);
+        let spec = b.to_apply_spec();
+        assert_eq!(spec.cycle, 40);
+        assert_eq!(spec.count, 3);
+        assert_eq!(spec.max_count, 3);
     }
 }

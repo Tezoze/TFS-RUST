@@ -1125,39 +1125,69 @@ impl GameWorld {
         Ok(())
     }
 
-    /// `player:addCondition(condition)` — LUA-4. Immediate-apply condition add.
+    /// `player:addCondition(condition)` — LUA-4 / PC-3a Phase 3.
     /// C++ reference: `luascript.cpp:2117` `Creature::addCondition`;
     /// `condition.cpp` `Condition::addCondition` merge rules.
     ///
-    /// `ctype` is the Lua-facing 772 bit-flag value (e.g.
-    /// `CONDITION_CHANNELMUTEDTICKS = 1<<15 = 32768`); mapped to the Rust
-    /// `ConditionType` enum via `condition_type_from_lua`.
+    /// Full [`tfs_rust_lua::ConditionApplySpec`] → [`ActiveCondition`] via
+    /// [`active_condition_from_apply_spec`].
     pub fn lua_script_player_add_condition(
         &mut self,
         creature_u64: u64,
-        ctype: i32,
-        _cond_id: i32,
-        sub_id: u32,
-        ticks: i32,
+        spec: tfs_rust_lua::ConditionApplySpec,
     ) -> Result<(), String> {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
-        let rust_ctype = condition_type_from_lua(ctype);
-        let cond = ActiveCondition {
-            id: 0,
-            sub_id,
-            ctype: rust_ctype,
-            data: ConditionData::Generic { ticks },
-            timer_rounds_left: None,
-        };
+        let cond = active_condition_from_apply_spec(&spec);
+        let ctype = cond.ctype;
         apply_condition(&mut self.creatures, cid, cond);
+        self.on_condition_started(cid, ctype);
+        Ok(())
+    }
+
+    /// `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
+    /// Applies / clears `CONDITION_INFIGHT` (bit `1<<10` = 1024).
+    pub fn lua_script_player_set_in_fight(
+        &mut self,
+        creature_u64: u64,
+        in_fight: bool,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        if in_fight {
+            let cond = ActiveCondition {
+                id: 0,
+                sub_id: 0,
+                ctype: ConditionType::Infight,
+                data: ConditionData::Generic { ticks: 60_000 },
+                timer_rounds_left: Some(60),
+            };
+            apply_condition(&mut self.creatures, cid, cond);
+            self.on_condition_started(cid, ConditionType::Infight);
+        } else {
+            let removed = if let Some(kind) = self.creatures.get_mut(cid) {
+                let before = kind.base().active_conditions.len();
+                kind.base_mut()
+                    .active_conditions
+                    .retain(|c| c.ctype != ConditionType::Infight);
+                before != kind.base().active_conditions.len()
+            } else {
+                false
+            };
+            if removed {
+                self.on_condition_ended(cid, ConditionType::Infight);
+            }
+        }
         Ok(())
     }
 
     /// `player:removeCondition(type, id, subId)` — LUA-4. Immediate-apply
     /// condition removal. C++ reference: `luascript.cpp:2118`
     /// `Creature::removeCondition`; `condition.cpp` `Condition::endCondition`.
+    /// When `sub_id == 0`, removes all conditions of `ctype` (spell-script form
+    /// `removeCondition(CONDITION_INVISIBLE)`).
     pub fn lua_script_player_remove_condition(
         &mut self,
         creature_u64: u64,
@@ -1169,10 +1199,22 @@ impl GameWorld {
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
         let rust_ctype = condition_type_from_lua(ctype);
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.base
-                .active_conditions
-                .retain(|c| !(c.ctype == rust_ctype && c.sub_id == sub_id));
+        let removed = if let Some(kind) = self.creatures.get_mut(cid) {
+            let base = kind.base_mut();
+            let before = base.active_conditions.len();
+            if sub_id == 0 {
+                base.active_conditions
+                    .retain(|c| c.ctype != rust_ctype);
+            } else {
+                base.active_conditions
+                    .retain(|c| !(c.ctype == rust_ctype && c.sub_id == sub_id));
+            }
+            before != base.active_conditions.len()
+        } else {
+            false
+        };
+        if removed {
+            self.on_condition_ended(cid, rust_ctype);
         }
         Ok(())
     }
@@ -1208,6 +1250,244 @@ impl GameWorld {
             self.enqueue_outgoing(conn_id, msg_bytes.clone());
         }
         Ok(())
+    }
+
+    /// PC-3a Phase 4b — TFS `Condition*::startCondition` + `Player::onAddCondition`.
+    ///
+    /// Call after the condition is present in `active_conditions`.
+    /// C++: `condition.cpp` Speed/Light/Invisible/Outfit start; `player.cpp` `onAddCondition` → `sendIcons`.
+    pub(crate) fn on_condition_started(&mut self, cid: CreatureId, ctype: ConditionType) {
+        match ctype {
+            ConditionType::Haste | ConditionType::Paralyze => {
+                if let Some(kind) = self.creatures.get_mut(cid) {
+                    Self::recompute_speed_from_conditions(kind.base_mut());
+                }
+                self.announce_creature_speed(cid);
+            }
+            ConditionType::Light => {
+                self.sync_internal_light_from_conditions(cid);
+                self.change_creature_light(cid);
+            }
+            ConditionType::Invisible => {
+                let ghost = matches!(
+                    self.creatures.get(cid),
+                    Some(CreatureKind::Player(p)) if p.ghost_mode
+                );
+                if !ghost {
+                    self.announce_player_change_visible(cid, false);
+                }
+            }
+            ConditionType::Outfit => {
+                self.announce_condition_outfit(cid, /*started=*/ true);
+            }
+            _ => {}
+        }
+        if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+            self.send_player_icons(cid);
+        }
+    }
+
+    /// PC-3a Phase 4b — TFS `Condition*::endCondition` + `Player::onEndCondition`.
+    ///
+    /// Call after the condition of `ctype` has been removed (or after a dispel).
+    /// C++: `condition.cpp` end; `player.cpp` `onEndCondition` → `sendIcons`.
+    pub(crate) fn on_condition_ended(&mut self, cid: CreatureId, ctype: ConditionType) {
+        match ctype {
+            ConditionType::Haste | ConditionType::Paralyze => {
+                if let Some(kind) = self.creatures.get_mut(cid) {
+                    Self::recompute_speed_from_conditions(kind.base_mut());
+                }
+                self.announce_creature_speed(cid);
+            }
+            ConditionType::Light => {
+                self.sync_internal_light_from_conditions(cid);
+                self.change_creature_light(cid);
+            }
+            ConditionType::Invisible => {
+                let (ghost, still_invisible) = match self.creatures.get(cid) {
+                    Some(CreatureKind::Player(p)) => (p.ghost_mode, p.base.is_invisible()),
+                    Some(kind) => (false, kind.base().is_invisible()),
+                    None => (false, false),
+                };
+                if !ghost && !still_invisible {
+                    self.announce_player_change_visible(cid, true);
+                }
+            }
+            ConditionType::Outfit => {
+                let still_outfit = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| {
+                        k.base()
+                            .active_conditions
+                            .iter()
+                            .any(|c| c.ctype == ConditionType::Outfit)
+                    })
+                    .unwrap_or(false);
+                if !still_outfit {
+                    self.announce_condition_outfit(cid, /*started=*/ false);
+                }
+            }
+            _ => {}
+        }
+        if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+            self.send_player_icons(cid);
+        }
+    }
+
+    /// Copy strongest active `ConditionData::Light` into `Player::internal_light`, or clear.
+    /// C++ `ConditionLight::startCondition` / `setNormalCreatureLight` — `condition.cpp` ~1876–1910.
+    fn sync_internal_light_from_conditions(&mut self, cid: CreatureId) {
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return;
+        };
+        let mut best = crate::creature::LightInfo::default();
+        for cond in &p.base.active_conditions {
+            if let ConditionData::Light { level, color } = cond.data {
+                if level > best.level {
+                    best = crate::creature::LightInfo { level, color };
+                }
+            }
+        }
+        p.internal_light = best;
+    }
+
+    /// Broadcast outfit for condition start (illusion lookType) or end (restore default).
+    /// C++ `ConditionOutfit::startCondition` / `endCondition` — `condition.cpp` ~1824–1852.
+    fn announce_condition_outfit(&mut self, cid: CreatureId, started: bool) {
+        let Some(kind) = self.creatures.get(cid) else {
+            return;
+        };
+        let pos = kind.position();
+        let wire_id = crate::login_out::creature_wire_id(cid, kind);
+        let outfit = if started {
+            let look_type = kind
+                .base()
+                .active_conditions
+                .iter()
+                .find_map(|c| match c.data {
+                    ConditionData::Outfit { look_type } => Some(look_type),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let o = &kind.base().outfit;
+            tfs_rust_net::creature_encode::OutfitWire {
+                look_type: look_type.max(0) as u16,
+                look_head: o.look_head.clamp(0, 255) as u8,
+                look_body: o.look_body.clamp(0, 255) as u8,
+                look_legs: o.look_legs.clamp(0, 255) as u8,
+                look_feet: o.look_feet.clamp(0, 255) as u8,
+                look_addons: o.look_addons.clamp(0, 255) as u8,
+                look_mount: 0,
+                look_type_ex: 0,
+            }
+        } else {
+            let o = &kind.base().outfit;
+            tfs_rust_net::creature_encode::OutfitWire {
+                look_type: o.look_type.max(0) as u16,
+                look_head: o.look_head.clamp(0, 255) as u8,
+                look_body: o.look_body.clamp(0, 255) as u8,
+                look_legs: o.look_legs.clamp(0, 255) as u8,
+                look_feet: o.look_feet.clamp(0, 255) as u8,
+                look_addons: o.look_addons.clamp(0, 255) as u8,
+                look_mount: 0,
+                look_type_ex: 0,
+            }
+        };
+        let msg = self.codec.encode_creature_outfit(wire_id, &outfit);
+        self.broadcast_to_spectators(pos, msg.into_bytes());
+    }
+}
+
+/// Map a Lua `ConditionApplySpec` to a core [`ActiveCondition`].
+/// PC-3a Phases 2–3 shared mapper — `combat:addCondition` and
+/// `creature:addCondition` both go through this.
+///
+/// C++ reference: `Condition::addCondition` / condition subclasses — `condition.cpp`.
+pub(crate) fn active_condition_from_apply_spec(
+    spec: &tfs_rust_lua::ConditionApplySpec,
+) -> ActiveCondition {
+    let ctype = condition_type_from_lua(spec.ctype);
+    let id = if spec.cond_id < 0 {
+        0
+    } else {
+        spec.cond_id as u32
+    };
+    let rounds_from_ticks = if spec.ticks > 0 {
+        // `ProcessSkills` fires every ~1000 ms — convert ms duration to rounds.
+        Some((spec.ticks.max(1) + 999) / 1000)
+    } else {
+        None
+    };
+
+    let (data, timer_rounds_left) = match ctype {
+        ConditionType::Light => (
+            ConditionData::Light {
+                level: spec.light_level.clamp(0, 255) as u8,
+                color: spec.light_color.clamp(0, 255) as u8,
+            },
+            rounds_from_ticks,
+        ),
+        ConditionType::Haste | ConditionType::Paralyze => (
+            ConditionData::Speed {
+                flat_delta: spec.speed,
+            },
+            rounds_from_ticks,
+        ),
+        ConditionType::Outfit => (
+            ConditionData::Outfit {
+                look_type: spec.look_type,
+            },
+            rounds_from_ticks,
+        ),
+        ConditionType::Poison => {
+            let rank = if spec.cycle != 0 {
+                spec.cycle.abs()
+            } else {
+                1
+            };
+            (ConditionData::Damage { total_rank: rank }, None)
+        }
+        ConditionType::Fire | ConditionType::Energy => {
+            let rounds = if spec.count > 0 || spec.max_count > 0 {
+                Some(spec.count.max(spec.max_count).max(1))
+            } else {
+                rounds_from_ticks
+            };
+            let rank = spec.cycle.abs();
+            if rank > 0 {
+                (ConditionData::Damage { total_rank: rank }, rounds)
+            } else {
+                (ConditionData::Generic { ticks: spec.ticks }, rounds)
+            }
+        }
+        ConditionType::Regeneration => (
+            ConditionData::Regeneration {
+                health_gain: spec.health_gain,
+                health_ticks_ms: spec.health_ticks.max(0) as u32,
+                mana_gain: spec.mana_gain,
+                mana_ticks_ms: spec.mana_ticks.max(0) as u32,
+                health_elapsed_ms: 0,
+                mana_elapsed_ms: 0,
+            },
+            rounds_from_ticks,
+        ),
+        ConditionType::Invisible | ConditionType::ManaShield => (
+            ConditionData::Generic { ticks: spec.ticks },
+            rounds_from_ticks,
+        ),
+        _ => (
+            ConditionData::Generic { ticks: spec.ticks },
+            rounds_from_ticks,
+        ),
+    };
+
+    ActiveCondition {
+        id,
+        sub_id: spec.sub_id,
+        ctype,
+        data,
+        timer_rounds_left,
     }
 }
 
@@ -1255,4 +1535,65 @@ pub(crate) fn condition_type_from_lua(ctype: i32) -> ConditionType {
 /// byte-level `toupper` behavior exactly.
 fn ascii_uppercase(s: &str) -> String {
     s.bytes().map(|b| b.to_ascii_uppercase() as char).collect()
+}
+
+#[cfg(test)]
+mod apply_spec_tests {
+    use super::*;
+    use crate::condition::ConditionData;
+    use tfs_rust_lua::ConditionApplySpec;
+
+    #[test]
+    fn maps_light_condition() {
+        let spec = ConditionApplySpec {
+            ctype: 256, // CONDITION_LIGHT
+            light_level: 6,
+            ticks: 370_000,
+            ..Default::default()
+        };
+        let cond = active_condition_from_apply_spec(&spec);
+        assert_eq!(cond.ctype, ConditionType::Light);
+        assert_eq!(
+            cond.data,
+            ConditionData::Light {
+                level: 6,
+                color: 0
+            }
+        );
+        assert_eq!(cond.timer_rounds_left, Some(370));
+    }
+
+    #[test]
+    fn maps_haste_speed() {
+        let spec = ConditionApplySpec {
+            ctype: 16, // CONDITION_HASTE
+            speed: 30,
+            ticks: 30_000,
+            ..Default::default()
+        };
+        let cond = active_condition_from_apply_spec(&spec);
+        assert_eq!(cond.ctype, ConditionType::Haste);
+        assert_eq!(cond.data, ConditionData::Speed { flat_delta: 30 });
+        assert_eq!(cond.timer_rounds_left, Some(30));
+    }
+
+    #[test]
+    fn maps_poison_cycle_damage() {
+        let spec = ConditionApplySpec {
+            ctype: 1, // CONDITION_POISON
+            cycle: 40,
+            count: 3,
+            max_count: 3,
+            ..Default::default()
+        };
+        let cond = active_condition_from_apply_spec(&spec);
+        assert_eq!(cond.ctype, ConditionType::Poison);
+        assert_eq!(cond.data, ConditionData::Damage { total_rank: 40 });
+    }
+
+    #[test]
+    fn maps_dispel_flag_poison() {
+        assert_eq!(condition_type_from_lua(1), ConditionType::Poison);
+        assert_eq!(condition_type_from_lua(32), ConditionType::Paralyze);
+    }
 }

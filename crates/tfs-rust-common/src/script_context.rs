@@ -323,6 +323,25 @@ pub trait ScriptContext {
         let _ = creature_id;
         WeaponCombatParams::default()
     }
+
+    /// Creatures standing on the given area offsets around `(cx,cy,cz)`.
+    /// PC-3a Phase 3: `combat:getTargets` for `poison_storm.lua`.
+    fn get_creatures_on_area(
+        &self,
+        center_x: u16,
+        center_y: u16,
+        center_z: u8,
+        offsets: &[(i32, i32)],
+    ) -> Vec<ScriptCreatureId> {
+        let _ = (center_x, center_y, center_z, offsets);
+        Vec::new()
+    }
+
+    /// `creature:isPlayer()` — true when the id resolves to a player.
+    fn is_creature_player(&self, creature_id: ScriptCreatureId) -> bool {
+        let _ = creature_id;
+        false
+    }
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

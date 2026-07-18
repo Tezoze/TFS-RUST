@@ -14,10 +14,12 @@ use tfs_rust_common::enums::{CombatType, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_lua::CombatExecuteRequest;
 
-use crate::combat::{uniform_random, CombatDamage, CombatParams};
+use crate::combat::{apply_condition, uniform_random, CombatDamage, CombatParams};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
+use crate::game_world_chat::{active_condition_from_apply_spec, condition_type_from_lua};
 use crate::ids::CreatureId;
+use tfs_rust_common::enums::ConditionType;
 
 /// Map a Lua `COMBAT_*` bit-flag value to the Rust `CombatType` enum.
 /// Mirrors `CombatDef::resolved_combat_type` in `tfs-rust-lua/src/userdata/combat.rs`.
@@ -142,15 +144,21 @@ impl GameWorld {
             self.broadcast_magic_effect(*pos, request.effect as u8);
         }
 
-        // Apply damage to each target creature — 772 `Impact->handleCreature`
-        // (`magic.cc:490`) / 1098 `doTargetCombat` (`combat.cpp:833`).
+        // Apply damage / heal / conditions / dispel per target.
+        // C++ `Combat::doTargetCombat` + `postCombatEffects` (`combat.cpp:643`):
+        // damage first, then conditionList, then dispelType. Heal+DISPEL both run
+        // (antidote is damage=0 + dispel only).
         let damage_min = request.damage_min;
         let damage_max = request.damage_max;
         let block_armor = request.block_armor;
         let _block_shield = request.block_shield; // TODO: wire shield defense
+        let condition_specs = &request.conditions;
+        let dispel_flag = request.dispel_type;
+
         for (target_id, _pos) in targets {
             // Don't damage the caster with their own aggressive spell — 772
             // `CheckAffectedPlayers` / 1098 `Combat::canDoCombat(caster, target)`.
+            // Non-aggressive buffs (light/haste) still apply to the caster.
             if request.aggressive && Some(target_id) == caster_id {
                 continue;
             }
@@ -183,17 +191,42 @@ impl GameWorld {
                 primary: (combat_type, signed_value),
                 secondary: (CombatType::Undefined, 0),
             };
+            // Dispel is applied after damage so heal+paralyze-clear both work.
             let params = CombatParams {
                 primary_type: combat_type,
                 dispel: None,
                 apply_condition: None,
             };
 
-            // Apply armor reduction if requested — 772 `Damage` (`crmain.cc:540-574`).
-            // `combat_execute_with_stimulus` already handles equipment absorb, so we
-            // only need to gate on `block_armor` for the no-armor fast path.
             let _ = block_armor; // armor applied inside combat_execute_with_stimulus
             self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
+
+            // Apply `combat:addCondition` list — C++ `conditionList` post-effects.
+            for spec in condition_specs {
+                let cond = active_condition_from_apply_spec(spec);
+                let ctype = cond.ctype;
+                apply_condition(&mut self.creatures, target_id, cond);
+                self.on_condition_started(target_id, ctype);
+            }
+
+            // `COMBAT_PARAM_DISPEL` — C++ `dispelType` in `postCombatEffects`.
+            if let Some(flag) = dispel_flag {
+                let dtype = condition_type_from_lua(flag);
+                if dtype != ConditionType::None {
+                    let removed = if let Some(kind) = self.creatures.get_mut(target_id) {
+                        let before = kind.base().active_conditions.len();
+                        kind.base_mut()
+                            .active_conditions
+                            .retain(|c| c.ctype != dtype);
+                        before != kind.base().active_conditions.len()
+                    } else {
+                        false
+                    };
+                    if removed {
+                        self.on_condition_ended(target_id, dtype);
+                    }
+                }
+            }
 
             // Broadcast animated damage text + health bar to spectators —
             // `notify_player_combat_damage` (`game_world_spectators.rs:481`).
@@ -206,7 +239,13 @@ impl GameWorld {
                 .unwrap_or(0);
             let damage_done = (hp_before - hp_after).max(0);
             if let Some(snap) = notify_snap {
-                self.notify_player_combat_damage(caster_id, target_id, damage_done, combat_type, snap);
+                self.notify_player_combat_damage(
+                    caster_id,
+                    target_id,
+                    damage_done,
+                    combat_type,
+                    snap,
+                );
             }
         }
 

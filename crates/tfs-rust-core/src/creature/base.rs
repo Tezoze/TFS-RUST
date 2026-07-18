@@ -64,7 +64,8 @@ pub struct CreatureBase {
     pub speed: i32,
     pub base_speed: i32,
     /// TFS `Creature::varSpeed` — equipment / `changeSpeed` delta (`creature.h`).
-    /// Effective walk speed is `speed + var_speed` (+ active `ConditionData::Speed`).
+    /// Effective walk speed is `base_speed + var_speed` + active `ConditionData::Speed`
+    /// (see `walk_timing::creature_effective_speed_for_step`). `speed` tracks vocation GoStrength.
     pub var_speed: i32,
     pub skull: SkullType,
     /// TFS `Creature::drunkenness` — set by `ConditionDrunk` (`condition.cpp` / `creature.h`).

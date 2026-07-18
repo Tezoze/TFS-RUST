@@ -79,15 +79,11 @@ pub enum LuaMutation {
         text: String,
     },
     /// `player:addCondition(condition)` — `luascript.cpp:2117`
-    /// `Creature::addCondition`. LUA-4; immediate apply. `ctype` is the
-    /// Lua-facing 772 bit-flag value (e.g. `CONDITION_CHANNELMUTEDTICKS = 1<<15`);
-    /// the core applier maps it to the Rust `ConditionType` enum.
+    /// `Creature::addCondition`. LUA-4 / PC-3a Phase 3: full builder fields via
+    /// [`ConditionApplySpec`].
     PlayerAddCondition {
         creature_id: u64,
-        ctype: i32,
-        cond_id: i32,
-        sub_id: u32,
-        ticks: i32,
+        spec: ConditionApplySpec,
     },
     /// `player:removeCondition(type, id, subId)` — `luascript.cpp:2118`
     /// `Creature::removeCondition`. LUA-4; immediate apply.
@@ -96,6 +92,13 @@ pub enum LuaMutation {
         ctype: i32,
         cond_id: i32,
         sub_id: u32,
+    },
+    /// `player:setInFight(bool)` — TFS `Player::onAttackedCreature` / PZ-lock
+    /// fight flag. PC-3a Phase 3: `poison_storm.lua` sets in-fight when a
+    /// player is hit by the AoE poison.
+    PlayerSetInFight {
+        creature_id: u64,
+        in_fight: bool,
     },
     /// `sendChannelMessage(channelId, type, message)` — `chat.cpp` channel
     /// broadcast (server-originated, anonymous speaker). LUA-4 §1.7.
@@ -126,6 +129,31 @@ pub enum LuaMutation {
     CombatExecute {
         request: CombatExecuteRequest,
     },
+}
+
+/// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
+/// PC-3a Phases 2–3: core maps this to `ActiveCondition` via
+/// `active_condition_from_apply_spec`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ConditionApplySpec {
+    /// 772 bit-flag `ConditionType_t` (e.g. `CONDITION_LIGHT = 1<<8`).
+    pub ctype: i32,
+    pub cond_id: i32,
+    pub sub_id: u32,
+    /// Duration in ms (`CONDITION_PARAM_TICKS` / `setTicks`).
+    pub ticks: i32,
+    pub speed: i32,
+    pub light_level: i32,
+    pub light_color: i32,
+    /// 772 DoT cycle strength (`CONDITION_PARAM_CYCLE`).
+    pub cycle: i32,
+    pub count: i32,
+    pub max_count: i32,
+    pub look_type: i32,
+    pub health_gain: i32,
+    pub health_ticks: i32,
+    pub mana_gain: i32,
+    pub mana_ticks: i32,
 }
 
 /// Parameters for `Combat:execute()` — PC-3a. Built by the Lua `Combat:execute()`
@@ -162,6 +190,12 @@ pub struct CombatExecuteRequest {
     /// Pre-computed damage min/max (from formula + callback resolution).
     pub damage_min: i32,
     pub damage_max: i32,
+    /// Conditions from `combat:addCondition` — applied per target after damage.
+    /// C++ `CombatParams::conditionList` — `combat.h:44`.
+    pub conditions: Vec<ConditionApplySpec>,
+    /// `COMBAT_PARAM_DISPEL` — 772 bit-flag condition type to remove per target.
+    /// `None` / `0` means no dispel. C++ `CombatParams::dispelType` — `combat.h:52`.
+    pub dispel_type: Option<i32>,
 }
 
 /// Destination for `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.
@@ -352,21 +386,20 @@ pub fn call_lua_send_cancel_message(creature_id: u64, text: String) -> Result<()
     apply_mutation(LuaMutation::PlayerSendCancelMessage { creature_id, text })
 }
 
-/// `player:addCondition(condition)` — LUA-4. Immediate-apply condition add.
-/// `ctype` is the Lua-facing 772 bit-flag value; the core applier maps it.
+/// `player:addCondition(condition)` — LUA-4 / PC-3a Phase 3. Immediate-apply
+/// condition add with full [`ConditionApplySpec`] fields.
 pub fn call_lua_add_condition(
     creature_id: u64,
-    ctype: i32,
-    cond_id: i32,
-    sub_id: u32,
-    ticks: i32,
+    spec: ConditionApplySpec,
 ) -> Result<(), String> {
-    apply_mutation(LuaMutation::PlayerAddCondition {
+    apply_mutation(LuaMutation::PlayerAddCondition { creature_id, spec })
+}
+
+/// `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
+pub fn call_lua_set_in_fight(creature_id: u64, in_fight: bool) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetInFight {
         creature_id,
-        ctype,
-        cond_id,
-        sub_id,
-        ticks,
+        in_fight,
     })
 }
 

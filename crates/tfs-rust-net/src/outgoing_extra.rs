@@ -136,12 +136,9 @@ pub fn send_channel_event(channel_id: u16, player_name: &str, event: u8) -> Netw
     m
 }
 
+#[deprecated(note = "use Codec::encode_creature_outfit — 1098 AddOutfit only; crashes 772 clients")]
 pub fn send_creature_outfit(creature_id: u32, outfit: &OutfitWire) -> NetworkMessage {
-    let mut m = NetworkMessage::new();
-    m.write_u8(0x8E);
-    m.write_u32(creature_id);
-    crate::creature_encode::write_outfit(&mut m, outfit);
-    m
+    Codec1098.encode_creature_outfit(creature_id, outfit)
 }
 
 pub fn send_creature_walkthrough(creature_id: u32, walkthrough: bool) -> NetworkMessage {

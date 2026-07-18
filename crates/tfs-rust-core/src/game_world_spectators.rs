@@ -224,7 +224,7 @@ impl GameWorld {
     /// to all spectators who can see the creature's tile.
     pub(crate) fn announce_creature_speed(&mut self, cid: CreatureId) {
         use tfs_rust_net::codec::wire::CreatureSpeedWire;
-        let (pos, wire_speed, base_speed) = match self.creatures.get(cid) {
+        let (pos, wire_speed, base_speed, creature_id) = match self.creatures.get(cid) {
             Some(k) => {
                 let base = k.base();
                 let role = match k {
@@ -232,11 +232,13 @@ impl GameWorld {
                     _ => crate::walk::WalkSpeedRole::MonsterOrNpc,
                 };
                 let wire = crate::walk::wire_step_speed(role, base, &self.mechanics);
-                (base.position, wire, base.base_speed.max(0) as u16)
+                // Must use protocol wire id (player guid / monster wire_id), not SlotMap ffi —
+                // otherwise the client never updates the creature the player knows.
+                let wire_id = crate::login_out::creature_wire_id(cid, k);
+                (base.position, wire, base.base_speed.max(0) as u16, wire_id)
             }
             None => return,
         };
-        let creature_id = cid.data().as_ffi() as u32;
         let packet = self
             .codec
             .encode_creature_speed(&CreatureSpeedWire {
@@ -693,7 +695,11 @@ impl GameWorld {
     }
 
     /// C++ `Creature::canSeeCreature` / `Player::canSeeCreature` — ghost mode + invisibility.
-    /// `creature.cpp` ~74, `player.cpp` ~715–726.
+    /// `creature.cpp` ~60–71 (TVP); `player.cpp` ~663–676.
+    ///
+    /// - **Monsters / NPCs** use the base rule: invisible targets are hidden unless
+    ///   `see_invisible` (`Monster::canSeeInvisibility` / race flag).
+    /// - **Players** override: only non-player invisibles are hidden (TFS/TVP `Player::canSeeCreature`).
     pub fn can_see_creature(&self, viewer: CreatureId, target: CreatureId) -> bool {
         if viewer == target {
             return true;
@@ -716,13 +722,18 @@ impl GameWorld {
                 }
             }
         }
-        // C++ `Player::canSeeCreature` — invisibility only hides non-players from viewers without `canSeeInvisibility`.
-        if !matches!(target_kind, CreatureKind::Player(_))
-            && Self::has_invisible(&target_kind.base().active_conditions)
-        {
-            return false;
+        if !Self::has_invisible(&target_kind.base().active_conditions) {
+            return true;
         }
-        true
+        match self.creatures.get(viewer) {
+            Some(CreatureKind::Monster(m)) => m.see_invisible,
+            Some(CreatureKind::Player(_)) => {
+                // Player override — invisible other players remain "seeable".
+                matches!(target_kind, CreatureKind::Player(_))
+            }
+            // Npc / missing viewer: base `Creature::canSeeCreature` — no SeeInvisible.
+            _ => false,
+        }
     }
 
     fn has_invisible(conditions: &[ActiveCondition]) -> bool {

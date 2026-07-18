@@ -93,7 +93,7 @@ impl GameWorld {
     fn process_creature_skills(&mut self, cid: CreatureId) {
         let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32)> = Vec::new();
         let mut remove_indices: Vec<usize> = Vec::new();
-        let mut speed_expired = false;
+        let mut ended_ctypes: Vec<ConditionType> = Vec::new();
 
         {
             let Some(kind) = self.creatures.get(cid) else {
@@ -118,6 +118,7 @@ impl GameWorld {
                         let ticks_left = cond.timer_rounds_left.unwrap_or(max_ticks);
                         if ticks_left <= 0 {
                             remove_indices.push(idx);
+                            ended_ctypes.push(cond.ctype);
                             continue;
                         }
                         let combat = if cond.ctype == ConditionType::Fire {
@@ -128,18 +129,21 @@ impl GameWorld {
                         dot_events.push((None, combat, dmg));
                         if ticks_left <= 1 {
                             remove_indices.push(idx);
+                            ended_ctypes.push(cond.ctype);
                         }
                     }
                     ConditionType::Poison => {
                         if let ConditionData::Damage { total_rank } = cond.data {
                             if total_rank <= 0 {
                                 remove_indices.push(idx);
+                                ended_ctypes.push(cond.ctype);
                                 continue;
                             }
                             dot_events.push((None, CombatType::Earth, total_rank));
                             let next = (total_rank * POISON_DECAY_PERCENT) / 100;
                             if next <= 0 {
                                 remove_indices.push(idx);
+                                ended_ctypes.push(cond.ctype);
                             }
                         }
                     }
@@ -147,8 +151,22 @@ impl GameWorld {
                         if let Some(left) = cond.timer_rounds_left {
                             if left <= 1 {
                                 remove_indices.push(idx);
-                                speed_expired = true;
+                                ended_ctypes.push(cond.ctype);
                             }
+                        }
+                    }
+                    ConditionType::Light
+                    | ConditionType::Invisible
+                    | ConditionType::ManaShield
+                    | ConditionType::Infight => {
+                        if let Some(left) = cond.timer_rounds_left {
+                            if left <= 1 {
+                                remove_indices.push(idx);
+                                ended_ctypes.push(cond.ctype);
+                            }
+                        } else if let ConditionData::Generic { ticks: 0 } = cond.data {
+                            remove_indices.push(idx);
+                            ended_ctypes.push(cond.ctype);
                         }
                     }
                     _ => {}
@@ -214,8 +232,14 @@ impl GameWorld {
                     // ticks. CH-5 adds `Muted`/`ChannelMutedTicks` ticking the same way.
                     ConditionType::YellTicks
                     | ConditionType::Muted
-                    | ConditionType::ChannelMutedTicks => {
-                        if let ConditionData::Generic { ticks } = &mut cond.data {
+                    | ConditionType::ChannelMutedTicks
+                    | ConditionType::Invisible
+                    | ConditionType::ManaShield
+                    | ConditionType::Light
+                    | ConditionType::Infight => {
+                        if let Some(left) = cond.timer_rounds_left.as_mut() {
+                            *left -= 1;
+                        } else if let ConditionData::Generic { ticks } = &mut cond.data {
                             *ticks = (*ticks).saturating_sub(1000);
                         }
                     }
@@ -234,26 +258,23 @@ impl GameWorld {
                     )
                 )
             });
-            if speed_expired {
-                Self::recompute_speed_from_conditions(base);
-            }
         }
-        // C++ `crskill.cc:366,741,761` `CREATURE_SPEED_CHANGED` — announce when a speed
-        // condition expires and `base.speed` is recomputed.
-        if speed_expired {
-            self.announce_creature_speed(cid);
+        // PC-3a Phase 4b — client notifies on expiry (icons / speed / light / invis).
+        // C++ `Player::onEndCondition` + `Condition*::endCondition`; speed via
+        // `crskill.cc:366,741,761` `CREATURE_SPEED_CHANGED`.
+        ended_ctypes.sort_unstable_by_key(|c| *c as u8);
+        ended_ctypes.dedup();
+        for ctype in ended_ctypes {
+            self.on_condition_ended(cid, ctype);
         }
     }
 
-    fn recompute_speed_from_conditions(base: &mut crate::creature::CreatureBase) {
-        let base_speed = base.base_speed;
-        let mut delta = 0i32;
-        for cond in &base.active_conditions {
-            if let ConditionData::Speed { flat_delta } = cond.data {
-                delta += flat_delta;
-            }
-        }
-        base.speed = base_speed + delta;
+    /// Keep `base.speed` aligned with vocation GoStrength after haste/paralyze changes.
+    /// Effective walk/wire speed is `base_speed + var_speed + ConditionData::Speed`
+    /// ([`crate::walk::walk_timing`] `creature_effective_speed_for_step`) — do not bake
+    /// condition deltas into `base.speed` or they double-count.
+    pub(crate) fn recompute_speed_from_conditions(base: &mut crate::creature::CreatureBase) {
+        base.speed = base.base_speed;
     }
 
     /// C++ `TSkillFed::Event` — vocation HP/mana regen (`crskill.cc:812-885`).

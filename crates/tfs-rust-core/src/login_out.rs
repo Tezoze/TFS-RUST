@@ -58,6 +58,16 @@ fn outfit_to_wire(o: &Outfit) -> OutfitWire {
     }
 }
 
+/// Empty outfit for `CONDITION_INVISIBLE` — TFS `Outfit_t{}` / 772 `TOutfit::Invisible()`.
+/// Used on AddCreature so floor-change map refresh does not reappear a full lookType.
+fn outfit_wire_visible(base: &crate::creature::CreatureBase) -> OutfitWire {
+    if base.is_invisible() {
+        OutfitWire::default()
+    } else {
+        outfit_to_wire(&base.outfit)
+    }
+}
+
 fn health_percent(cur: i32, max_hp: i32) -> u8 {
     if max_hp <= 0 {
         return 100;
@@ -158,7 +168,7 @@ fn player_to_add_creature_wire(
         name: p.base.name.clone(),
         health_percent: hp,
         direction: p.base.direction as u8,
-        outfit: outfit_to_wire(&p.base.outfit),
+        outfit: outfit_wire_visible(&p.base),
         light_level: light.level,
         light_color: light.color,
         step_speed,
@@ -185,7 +195,7 @@ fn monster_to_add_creature_wire(
         name: m.base.name.clone(),
         health_percent: health_percent(m.base.health, m.base.max_health),
         direction: m.base.direction as u8,
-        outfit: outfit_to_wire(&m.base.outfit),
+        outfit: outfit_wire_visible(&m.base),
         light_level: 0,
         light_color: 0,
         step_speed: wire_step_speed(WalkSpeedRole::MonsterOrNpc, &m.base, mech),
@@ -212,7 +222,7 @@ fn npc_to_add_creature_wire(
         name: n.base.name.clone(),
         health_percent: health_percent(n.base.health, n.base.max_health),
         direction: n.base.direction as u8,
-        outfit: outfit_to_wire(&n.base.outfit),
+        outfit: outfit_wire_visible(&n.base),
         light_level: 0,
         light_color: 0,
         step_speed: wire_step_speed(WalkSpeedRole::MonsterOrNpc, &n.base, mech),
@@ -785,5 +795,54 @@ mod map_creature_wire_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V1098);
         let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true, &mech);
         assert!(wire.access_player);
+    }
+
+    /// Login / map AddCreature must use player guid + GetSpeed (2×Go+80 on 772).
+    /// Distinct from `0x8F` announce which previously sent SlotMap ffi ids.
+    #[test]
+    fn login_add_creature_wire_uses_guid_and_get_speed() {
+        use crate::formulas::linear_go_effective_speed;
+        use crate::walk::{WalkSpeedRole, wire_step_speed};
+
+        let mut p = test_player("LoginSpeed", Position::new(100, 100, 7));
+        p.guid = 42_001;
+        p.base.speed = 220;
+        p.base.base_speed = 220;
+        p.base.var_speed = 0;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech);
+
+        assert_eq!(wire.id, p.guid);
+        // Decompile `sending.cc` SendWord(GetSpeed()) = 2*220+80 = 520.
+        assert_eq!(wire.step_speed, 520);
+        assert_eq!(
+            wire.step_speed,
+            wire_step_speed(WalkSpeedRole::Player, &p.base, &mech)
+        );
+        assert_eq!(
+            wire.step_speed,
+            u16::try_from(linear_go_effective_speed(220)).expect("fits u16")
+        );
+    }
+
+    /// Floor-change map refresh must keep empty outfit while Invisible is active.
+    #[test]
+    fn invisible_player_add_creature_uses_empty_outfit() {
+        use crate::condition::{ActiveCondition, ConditionData};
+        use tfs_rust_common::ConditionType;
+
+        let mut p = test_player("Invis", Position::new(100, 100, 7));
+        p.base.outfit.look_type = 128;
+        p.base.active_conditions.push(ActiveCondition::new(
+            0,
+            0,
+            ConditionType::Invisible,
+            ConditionData::Generic { ticks: 0 },
+            None,
+        ));
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech);
+        assert_eq!(wire.outfit.look_type, 0);
+        assert_eq!(wire.outfit.look_type_ex, 0);
     }
 }

@@ -233,6 +233,7 @@ impl GameWorld {
             self.announce_creature_speed(cid);
         }
         // TFS/772: `sendStats` + animated exp popup (`Creature::onGainExperience`) + level advance text.
+        // Victim is always in `xp_grants` (even at zero exp loss) so blessing clear reaches the client.
         for grant in xp_grants {
             self.send_player_stats(grant.cid);
             if grant.amount > 0 {
@@ -258,6 +259,10 @@ impl GameWorld {
                     ),
                 );
             }
+        }
+        // TFS `Player::death` — `sendSkills()` after death penalties (`player.cpp:2154`).
+        if is_player {
+            self.send_player_skills(victim);
         }
         self.remove_creature(victim);
     }

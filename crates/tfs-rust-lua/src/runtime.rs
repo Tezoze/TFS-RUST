@@ -822,6 +822,24 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     )?;
     player_table.set_metatable(Some(player_meta));
 
+    // `Creature(id)` — resolve a creature by slotmap key bits → `CreatureRef`
+    // userdata or `nil`. PC-3a Phase 3: `envenom_rune` / `soulfire_rune` use
+    // `Creature(variant.number)`. C++ `luascript.cpp` `luaCreatureCreate`.
+    let creature_ctor = lua.create_function(|lua, id: u64| {
+        if id == 0 {
+            return Ok(mlua::Value::Nil);
+        }
+        // Validate the creature still exists via ScriptContext when available.
+        let exists = crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some())
+            .unwrap_or(true);
+        if !exists {
+            return Ok(mlua::Value::Nil);
+        }
+        let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+        Ok(mlua::Value::UserData(ud))
+    })?;
+    globals.set("Creature", creature_ctor)?;
+
     // `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
     // Server-originated channel broadcast (anonymous speaker). Routes to
     // `LuaMutation::SendChannelMessage` via the mutation scope.
