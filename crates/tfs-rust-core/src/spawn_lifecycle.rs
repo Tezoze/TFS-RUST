@@ -555,7 +555,9 @@ impl GameWorld {
             self.creatures.remove(cid);
             return Ok(None);
         }
+        let placed = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);
         self.monster_on_creature_appear_self(cid);
+        self.broadcast_creature_appear(cid, placed);
         Ok(Some(cid.data().as_ffi()))
     }
 
@@ -578,6 +580,171 @@ impl GameWorld {
         m.base.follow_target = None;
         m.base.master = Some(master);
         Ok(true)
+    }
+
+    /// 772 `SearchSummonField` — `info.cc:1118`. Picks a nearby free tile for `TSummonImpact`.
+    ///
+    /// Gates: BANK, !UNPASS, !AVOID, !PZ, !House, ThrowPossible from origin. Tie-break =
+    /// `random(0, 99)` keeping the highest roll (`info.cc:1124–1140`).
+    pub(crate) fn search_summon_field(&self, origin: Position, distance: i32) -> Option<Position> {
+        let mut best: Option<(Position, i32)> = None;
+        for dy in -distance..=distance {
+            for dx in -distance..=distance {
+                let tie = self.parity_random(0, 99);
+                if best.is_some_and(|(_, b)| tie <= b) {
+                    continue;
+                }
+                let x = origin.x as i32 + dx;
+                let y = origin.y as i32 + dy;
+                if x < 0 || y < 0 || x > i32::from(u16::MAX) || y > i32::from(u16::MAX) {
+                    continue;
+                }
+                let pos = Position::new(x as u16, y as u16, origin.z);
+                if !self.summon_field_tile_ok(origin, pos) {
+                    continue;
+                }
+                best = Some((pos, tie));
+            }
+        }
+        best.map(|(p, _)| p)
+    }
+
+    fn summon_field_tile_ok(&self, origin: Position, pos: Position) -> bool {
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        if matches!(tile, crate::tile::Tile::House(_)) {
+            return false;
+        }
+        if tile.body().zone == ZoneType::Protection {
+            return false;
+        }
+        let chain = tile.body().map_object_chain();
+        let Some(crate::tile::MapStackEntry::Ground(server_id)) = chain.first() else {
+            return false;
+        };
+        if !self.items_db.is_terrain_bank(*server_id) || self.items_db.is_unpassable(*server_id) {
+            return false;
+        }
+        // Any stack object with AVOID / UNPASS blocks (decompile `!CoordinateFlag(…, AVOID)`).
+        for entry in &chain {
+            match entry {
+                crate::tile::MapStackEntry::Ground(sid) => {
+                    if self.items_db.is_avoid_hazard(*sid) {
+                        return false;
+                    }
+                }
+                crate::tile::MapStackEntry::Item(item_id) => {
+                    let Some(item) = self.items.get(*item_id) else {
+                        return false;
+                    };
+                    let sid = item.item_type;
+                    if self.items_db.is_avoid_hazard(sid) || self.items_db.is_unpassable(sid) {
+                        return false;
+                    }
+                }
+                crate::tile::MapStackEntry::Creature(_) => {}
+            }
+        }
+        if !tile.body().creatures.is_empty() {
+            return false;
+        }
+        self.monster_sight_clear(origin, pos)
+    }
+
+    /// 772 `TSummonImpact::handleField` → `CreateMonster(…, MasterID, ShowEffect)` —
+    /// `magic.cc:385–395`, `crnonpl.cc:3158`.
+    ///
+    /// `search_origin` is the field tile from `ExecuteCircleSpell` (Origin r=0 = actor).
+    /// `SearchSummonField` then place; wire `EFFECT_ENERGY` (11) on the summon tile.
+    pub(crate) fn monster_create_summon(
+        &mut self,
+        master_id: CreatureId,
+        race_name: &str,
+        force: bool,
+        search_origin: Position,
+    ) -> Option<CreatureId> {
+        if !self.creatures.contains_key(master_id) {
+            return None;
+        }
+        let Some(place_at) = self.search_summon_field(search_origin, 2) else {
+            return None;
+        };
+        let mtype = self.monsters_db.get_by_name(race_name)?.clone();
+        let max_hp = mtype.health_max.max(1) as i32;
+        let now_hp = if mtype.health_now > 0 {
+            mtype.health_now as i32
+        } else {
+            max_hp
+        };
+        let speed = mtype.speed as i32;
+        let base = CreatureBase {
+            name: mtype.name.clone(),
+            position: place_at,
+            direction: Direction::South,
+            health: now_hp,
+            max_health: max_hp,
+            outfit: monster_outfit_to_base(&mtype.outfit),
+            speed,
+            base_speed: speed,
+            var_speed: 0,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            walk_destinations: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_wakeup: None,
+            last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            has_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: Some(master_id),
+            damage_map: Default::default(),
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
+            last_defend_ms: 0,
+            learning_points: 0,
+            todo: Default::default(),
+            chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
+        };
+        let ai_config = MonsterAiConfig::from_monster_type(&mtype);
+        let cid = self
+            .creatures
+            .insert(CreatureKind::Monster(Monster::with_config(
+                base, place_at, ai_config,
+            )));
+        crate::login_out::assign_creature_wire_id(self, cid);
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            // Summons do not grant XP / drop loot (`setDropLoot(false)` / master gate).
+            m.experience = 0;
+            m.corpse_id = mtype.outfit.corpse_id;
+            m.blood = mtype.blood_type();
+        }
+        if !self.find_and_place_creature_tfs(cid, place_at, false, force, 0) {
+            self.creatures.remove(cid);
+            return None;
+        }
+        // `CreateMonster` ShowEffect → `EFFECT_ENERGY` (`enums.hh` = 11).
+        let placed = self.creatures.get(cid).map(|k| k.position()).unwrap_or(place_at);
+        // Same order as `spawn_monster` (non-startup): AI bookkeeping → spectator AddCreature → effect.
+        // Skipping `broadcast_creature_appear` left clients with Move/effect for an unknown id → crash.
+        self.monster_on_creature_appear_self(cid);
+        self.broadcast_creature_appear(cid, placed);
+        self.broadcast_magic_effect(placed, 11);
+        Some(cid)
     }
 
     /// `creature:move(tile, flags)` — returns true on `RETURNVALUE_NOERROR`.
@@ -1024,8 +1191,8 @@ mod tests {
     use super::*;
     use crate::spawn::SpawnManager;
     use crate::test_world::support::{
-        beat_driven_test_world, ensure_walkable_tile, insert_player, insert_spectator_player,
-        minimal_world, test_player,
+        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player,
+        insert_spectator_player, minimal_world, test_player, TEST_SYNTHETIC_GROUND_WP,
     };
     use std::collections::HashMap;
     use std::collections::HashSet;
@@ -1055,6 +1222,7 @@ mod tests {
             health_max: 20,
             outfit: MonsterOutfit::default(),
             flags: MonsterTypeFlags::default(),
+            mana_cost: 0,
             loot: Vec::new(),
             attack_spells: vec![MonsterSpellNode {
                 element: "attack".into(),
@@ -1072,6 +1240,8 @@ mod tests {
                 see_invisible: false,
                 immunity_physical: false,
             },
+            max_summons: 0,
+            summons: Vec::new(),
             talk_texts: Vec::new(),
         }
     }
@@ -1399,5 +1569,89 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(world.compute_respawn_delay_ms(regen), regen);
         }
+    }
+
+    fn poison_spider_type() -> MonsterType {
+        MonsterType {
+            name: "Poison Spider".into(),
+            filename: "poison spider.xml".into(),
+            name_description: "a poison spider".into(),
+            race: "venom".into(),
+            experience: 0,
+            speed: 40,
+            health_now: 26,
+            health_max: 26,
+            outfit: MonsterOutfit::default(),
+            flags: MonsterTypeFlags::default(),
+            mana_cost: 0,
+            loot: Vec::new(),
+            attack_spells: Vec::new(),
+            defenses: MonsterDefenses {
+                armor: None,
+                defense: None,
+                spells: Vec::new(),
+                immunity_poison: false,
+                immunity_fire: false,
+                immunity_energy: false,
+                immunity_life_drain: false,
+                see_invisible: false,
+                immunity_physical: false,
+            },
+            max_summons: 0,
+            summons: Vec::new(),
+            talk_texts: Vec::new(),
+        }
+    }
+
+    /// 772 `TSummonImpact` / `CreateMonster` — master link + no XP.
+    #[test]
+    fn monster_create_summon_links_master() {
+        use crate::creature::CreatureKind;
+        use crate::test_world::support::{insert_monster, TEST_SYNTHETIC_GROUND_WP};
+
+        let mut world = beat_driven_test_world();
+        let mut monsters = HashMap::new();
+        monsters.insert("poison spider".into(), poison_spider_type());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+
+        let mpos = Position::new(100, 100, 7);
+        for dx in -2i32..=2 {
+            for dy in -2i32..=2 {
+                let p = Position::new((100 + dx) as u16, (100 + dy) as u16, 7);
+                ensure_walkable_tile(&mut world.map, p, TEST_SYNTHETIC_GROUND_WP);
+            }
+        }
+        let master = insert_monster(&mut world, "Giant Spider", mpos, 80);
+        world.map.register_creature_at(mpos, master);
+
+        let first = world
+            .monster_create_summon(master, "Poison Spider", false, mpos)
+            .expect("first summon");
+        assert_eq!(
+            world.creatures.get(first).and_then(|k| k.base().master),
+            Some(master)
+        );
+        assert_eq!(
+            world
+                .creatures
+                .get(first)
+                .and_then(|k| match k {
+                    CreatureKind::Monster(m) => Some(m.experience),
+                    _ => None,
+                }),
+            Some(0),
+            "summons grant no XP"
+        );
+
+        let second = world
+            .monster_create_summon(master, "Poison Spider", false, mpos)
+            .expect("second summon");
+        assert_ne!(first, second);
+        let summoned = world
+            .creatures
+            .iter()
+            .filter(|(_, k)| k.base().master == Some(master))
+            .count();
+        assert_eq!(summoned, 2);
     }
 }

@@ -1,3 +1,12 @@
+## Monster XML summons — 772 CASTING / ToDo (2026-07-18) — done
+- [x] Parse `<summons>` / `SummonBlock` into `MonsterType`
+- [x] Merge into CASTING as `SpellImpact::Summon` (Origin r=0) via `combat_from_monster_type`
+- [x] `search_summon_field` (`info.cc`) + `monster_create_summon` (`TSummonImpact` / `CreateMonster`)
+- [x] Origin/Destination CASTING `handleField` path; Master==0 + SummonedCreatures < max
+- [x] Tests: parse, giant spider spell merge, create+master link
+- [x] Fix summon rebind: monster masters are never `Following` — inherit `AttackDest` (lesson 194)
+- [x] Own-summon kick = decompile push-first (lesson 195; always-trample reverted)
+
 ## PC-3a Gaps 5–6 — summons + utilities (2026-07-18) — done
 - [x] Phase 9a: VARIANT_STRING param plumbing; Variant ctor; getString/getNumber/getPosition
 - [x] Phase 9b–9c: Position fields/ctor/getNextPosition/moveUpstairs; Tile hasFlag/getGround/getItems/getItemByType/getTopDownItem

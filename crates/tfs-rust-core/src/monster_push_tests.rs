@@ -280,6 +280,98 @@ fn boxed_in_blocker_is_killed_and_step_exhausted() {
     );
 }
 
+/// Master with KickCreatures stepping onto its own boxed-in summon — same KickCreature
+/// kill path as any pushable blocker (`crnonpl.cc:3074-3080`). Own-summon is not a hard block.
+#[test]
+fn master_kicks_own_boxed_summon() {
+    let mut world = beat_driven_world();
+    world.server_ms = 0;
+    let now = std::time::Instant::now();
+
+    let mpos = Position::new(100, 100, 7);
+    let spos = Position::new(101, 100, 7);
+    let tpos = Position::new(105, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, 1);
+    ensure_walkable_tile(&mut world.map, spos, 1);
+    ensure_walkable_tile(&mut world.map, tpos, 1);
+
+    let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+    let master = insert_monster_with_config(&mut world, "Giant Spider", mpos, 80, kicker_config());
+    let summon =
+        insert_monster_with_config(&mut world, "Poison Spider", spos, 40, MonsterAiConfig::default());
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.base.master = Some(master);
+        m.pushable = true;
+    }
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(master) {
+        m.state = MonsterState::Attacking;
+        m.base.attack_target = Some(target);
+        m.base.follow_target = Some(target);
+    }
+
+    let outcome = world.monster_push_before_step(master, spos, now);
+    assert_eq!(
+        outcome,
+        MonsterKickOutcome::Exhausted,
+        "boxed own summon must kick-kill (EXHAUSTED) like any boxed blocker"
+    );
+    assert!(
+        !world.creatures.contains_key(summon),
+        "boxed own summon must be killed when no escape tile"
+    );
+}
+
+/// Decompile `KickCreature` push-first (`crnonpl.cc:3057–3073`): own summons with a free
+/// escape tile are shoved aside, not killed.
+#[test]
+fn master_pushes_own_summon_when_escape_exists() {
+    let mut world = beat_driven_world();
+    world.server_ms = 0;
+    let now = std::time::Instant::now();
+
+    let mpos = Position::new(100, 100, 7);
+    let spos = Position::new(101, 100, 7);
+    let escape = Position::new(102, 100, 7);
+    let tpos = Position::new(105, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, 1);
+    ensure_walkable_tile(&mut world.map, spos, 1);
+    ensure_walkable_tile(&mut world.map, escape, 1);
+    ensure_walkable_tile(&mut world.map, tpos, 1);
+    ensure_walkable_tile(&mut world.map, Position::new(101, 99, 7), 1);
+    ensure_walkable_tile(&mut world.map, Position::new(101, 101, 7), 1);
+
+    let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+    let master = insert_monster_with_config(&mut world, "Giant Spider", mpos, 80, kicker_config());
+    let summon =
+        insert_monster_with_config(&mut world, "Poison Spider", spos, 40, MonsterAiConfig::default());
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.base.master = Some(master);
+        m.pushable = true;
+    }
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(master) {
+        m.state = MonsterState::Attacking;
+        m.base.attack_target = Some(target);
+        m.base.follow_target = Some(target);
+    }
+
+    let outcome = world.monster_push_before_step(master, spos, now);
+    assert_eq!(
+        outcome,
+        MonsterKickOutcome::Proceed,
+        "own summon with escape must be pushed, not killed"
+    );
+    assert!(
+        world.creatures.contains_key(summon),
+        "own summon must survive when KickCreature can shove it"
+    );
+    assert_ne!(
+        world.creatures.get(summon).map(|k| k.position()),
+        Some(spos),
+        "own summon must have been relocated off the destination tile"
+    );
+}
+
+
 /// End-to-end: cyclops paths through a boxed-in **pushable** creature (rat) in a 1-wide
 /// corridor and kills it on step execution. This verifies the full flow: planning routes
 /// through the pushable creature → Go enqueued → `on_walk` → `monster_push_before_step` →

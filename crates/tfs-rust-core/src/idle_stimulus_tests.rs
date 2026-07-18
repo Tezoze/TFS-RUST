@@ -4024,16 +4024,31 @@ fn summon_rebinds_to_master_attack_target_when_not_following() {
     );
 }
 
-/// Summon clears target when master is following (Combat.Following = true), then falls back
-/// to master per `if (Target == 0 || Target == self) Target = Master`.
+/// Summon clears target when player master is Following (`Combat.Following = true`), then
+/// falls back to master per `if (Target == 0 || Target == self) Target = Master`.
+///
+/// Player follow mode sets `follow_target` (`player_set_attack_dest(follow=true)`).
 #[test]
 fn summon_rebinds_to_master_when_target_clears() {
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
-    let master = insert_monster(&mut world, "Master", mpos, 200);
-    // Master is following (follow_target set) → summon Target = 0 → fallback to master.
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(101, 100, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(102, 100, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    let master = insert_player(&mut world, test_player("Hero", mpos));
+    world.map.register_creature_at(mpos, master);
     let follow_target = insert_monster(&mut world, "Follow", Position::new(101, 100, 7), 200);
+    world.map.register_creature_at(Position::new(101, 100, 7), follow_target);
     if let Some(k) = world.creatures.get_mut(master) {
+        k.base_mut().attack_target = Some(follow_target);
         k.base_mut().follow_target = Some(follow_target);
     }
     let summon = insert_summon(&mut world, "Summon", Position::new(102, 100, 7), master);
@@ -4044,8 +4059,44 @@ fn summon_rebinds_to_master_when_target_clears() {
     assert_eq!(
         base.attack_target,
         Some(master),
-        "summon must fall back to master when target clears"
+        "when player master is Following, summon Target=0 then falls back to Master"
     );
+}
+
+/// Monster masters chase via `follow_target` while attacking — that is NOT `Combat.Following`.
+/// Summons must inherit `AttackDest` (the player), not fall back to the master spider.
+#[test]
+fn summon_of_monster_inherits_attack_dest_while_master_chases() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(103, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(102, 100, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let master = insert_monster(&mut world, "Giant Spider", mpos, 80);
+    world.map.register_creature_at(mpos, master);
+    // Realistic chase: both attack + follow point at the player.
+    if let Some(k) = world.creatures.get_mut(master) {
+        k.base_mut().attack_target = Some(player);
+        k.base_mut().follow_target = Some(player);
+    }
+    let summon = insert_summon(&mut world, "Poison Spider", Position::new(102, 100, 7), master);
+    world.map.register_creature_at(Position::new(102, 100, 7), summon);
+    wake_monster(&mut world, summon);
+    world.monster_idle_stimulus(summon);
+    let base = world.creatures.get(summon).unwrap().base();
+    assert_eq!(
+        base.attack_target,
+        Some(player),
+        "monster-master summon must inherit AttackDest, not Master"
+    );
+    assert_eq!(base.follow_target, Some(player));
 }
 
 // --- Phase 6: monster Talk packet (Finding 3, `crnonpl.cc:2442–2458`) ---

@@ -493,12 +493,20 @@ impl GameWorld {
             return true;
         }
 
-        // C++ KickCreature: "Kein Platz zum Verschieben => Töten." No adjacent tile is free, so the
-        // kicker kills the boxed-in creature (`crnonpl.cc:3074-3080`):
-        //   GraphicalEffect(EFFECT_BLOCK_HIT); Combat.AddDamageToCombatList(this->ID, fullHP); Kill();
-        // We mirror this exactly: emit block-hit, deal full-HP physical damage **attributed to the
-        // kicker** (recorded in the victim's damage map for kill credit / exp), then run the death
-        // pipeline (corpse + loot + experience distribution).
+        // C++ KickCreature: "Kein Platz zum Verschieben => Töten." (`crnonpl.cc:3074-3080`).
+        self.monster_kick_creature_kill(kicker, blocker, blocker_pos);
+        false
+    }
+
+    /// KickCreature kill arm — `crnonpl.cc:3074-3080`:
+    /// `GraphicalEffect(EFFECT_BLOCK_HIT); Combat.AddDamageToCombatList(kicker, fullHP); Kill()`.
+    /// Used when no N/S/W/E escape tile is free.
+    fn monster_kick_creature_kill(
+        &mut self,
+        kicker: CreatureId,
+        blocker: CreatureId,
+        blocker_pos: Position,
+    ) {
         self.broadcast_magic_effect(blocker_pos, EFFECT_BLOCK_HIT);
         let victim_hp = self
             .creatures
@@ -520,7 +528,6 @@ impl GameWorld {
         // C++ `Kill()` — death xp/events/corpse + remove (mirrors `combat_execute_with_stimulus`'s
         // post-apply death branch without re-running `DamageStimulus`, which `Kill()` skips).
         self.apply_creature_death(blocker);
-        false
     }
 
     /// F2: 772 `TMonster::MovePossible(Execute=true)` for `KickCreature` dest validation

@@ -733,16 +733,23 @@ impl GameWorld {
             return true;
         }
 
-        // Re-bind — `crnonpl.cc:2397–2405`. `Combat.Following` maps to an active follow target on
-        // the master; `Combat.AttackDest` is the master's attack target.
-        let master_following = self
-            .creatures
-            .get(master_id)
-            .is_some_and(|k| k.base().follow_target.is_some());
-        let master_attack_dest = self
-            .creatures
-            .get(master_id)
-            .and_then(|k| k.base().attack_target);
+        // Re-bind — `crnonpl.cc:2397–2405`.
+        //
+        // `Combat.Following` is the player follow-mode flag (`SetAttackDest(…, Follow=true)`),
+        // NOT "has a chase `follow_target`". Monsters always set `follow_target` while
+        // attacking — treating that as Following made summons Target=0 → fall back to Master
+        // (giant spider) instead of AttackDest (the player).
+        //
+        // Player mapping: follow packet sets `follow_target`; attack packet clears it
+        // (`player_set_attack_dest`). Monster masters: Following is always false.
+        let (master_following, master_attack_dest) = match self.creatures.get(master_id) {
+            Some(CreatureKind::Player(p)) => (
+                p.base.follow_target.is_some(),
+                p.base.attack_target,
+            ),
+            Some(k) => (false, k.base().attack_target),
+            None => (false, None),
+        };
 
         let new_target = if master_following {
             None // `Target = 0`
@@ -1249,6 +1256,7 @@ impl GameWorld {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
                         }
+                        self.monster_idle_apply_spell_field(cid, tile, spell);
                         let victims: Vec<CreatureId> = self
                             .map
                             .get_tile(tile)
@@ -1271,7 +1279,7 @@ impl GameWorld {
                 }
                 SpellShape::Origin | SpellShape::Angle => {
                     // 772 `OriginShapeSpell`/`AngleShapeSpell` — `ExecuteCircleSpell`/beam:
-                    // `GraphicalEffect` per tile + `handleCreature` per victim (`magic.cc:503,550`).
+                    // `handleField` then `handleCreature` per victim (`magic.cc:483–494`).
                     for tile in tiles {
                         if !self.monster_sight_clear(pos, tile) {
                             continue;
@@ -1279,6 +1287,8 @@ impl GameWorld {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
                         }
+                        // `TSummonImpact` / `TFieldImpact` override `handleField` only.
+                        self.monster_idle_apply_spell_field(cid, tile, spell);
                         let victims: Vec<CreatureId> = self
                             .map
                             .get_tile(tile)
@@ -1517,18 +1527,50 @@ impl GameWorld {
                     "monster spell field impact not yet placed on map"
                 );
             }
-            SpellImpact::Summon { race, max } => {
-                let master_gated = self.creatures.get(caster_id).is_some_and(
-                    |k| matches!(k, CreatureKind::Monster(m) if m.base.master.is_none()),
-                );
-                if master_gated {
-                    tracing::debug!(
-                        race = %race,
-                        max = max,
-                        "monster summon spell stub"
-                    );
-                }
+            SpellImpact::Summon { .. } => {
+                // Summon is `handleField`-only (`magic.cc:385`); creature hits are no-ops.
             }
+        }
+    }
+
+    /// 772 `TImpact::handleField` path — `ExecuteCircleSpell` (`magic.cc:483`).
+    ///
+    /// `TSummonImpact` / `TFieldImpact` override this; damage/heal leave it as a no-op.
+    fn monster_idle_apply_spell_field(
+        &mut self,
+        caster_id: CreatureId,
+        field_pos: Position,
+        spell: &MonsterSpell,
+    ) {
+        match &spell.impact {
+            SpellImpact::Field => {
+                tracing::debug!(
+                    caster = ?caster_id,
+                    ?field_pos,
+                    "monster spell field impact not yet placed on map"
+                );
+            }
+            SpellImpact::Summon { race, max, force } => {
+                // `crnonpl.cc:2647` — only wild masters build `TSummonImpact`.
+                if self
+                    .creatures
+                    .get(caster_id)
+                    .is_some_and(|k| k.base().is_summon())
+                {
+                    return;
+                }
+                // `magic.cc:391` — `Actor->SummonedCreatures < Maximum`.
+                let summoned = self
+                    .creatures
+                    .iter()
+                    .filter(|(_, k)| k.base().master == Some(caster_id))
+                    .count() as i32;
+                if summoned >= *max {
+                    return;
+                }
+                let _ = self.monster_create_summon(caster_id, race, *force, field_pos);
+            }
+            _ => {}
         }
     }
 

@@ -128,7 +128,7 @@ All 5 `SpellShape` variants are correctly handled in `monster_idle_spell_tiles` 
 | `SpellImpact::Condition` | ✓ working | `IMPACT_DAMAGE` with periodic damage type |
 | `SpellImpact::Drunk` | ✓ working | `IMPACT_DRUNKEN` — `TDrunkenImpact` |
 | `SpellImpact::Field` | **stub** — "not yet placed on map" | `IMPACT_FIELD` — `TFieldImpact` places field item on tile |
-| `SpellImpact::Summon` | **stub** — "monster summon spell stub" | `IMPACT_SUMMON` — `TSummonImpact` spawns creatures |
+| `SpellImpact::Summon` | ✓ CASTING + `handleField` | `IMPACT_SUMMON` — `TSummonImpact` + `SearchSummonField` / `CreateMonster` |
 | `SpellImpact::Outfit` | **does not exist** | `IMPACT_OUTFIT` — `TOutfitImpact` changes target outfit |
 
 **5 of 8** impacts fully implemented.
@@ -186,7 +186,7 @@ Non-aggressive spells (healing) fire **regardless of target** — the `!isAggres
 
 ### Large (field placement / summon spawning)
 7. `firefield`, `poisonfield`, `energyfield` → `SpellImpact::Field` real implementation (17 monsters)
-8. `SpellImpact::Summon` real implementation (summon spawning)
+8. `SpellImpact::Summon` — **done** (XML `<summons>` → CASTING Origin r=0; ToDo-driven IdleStimulus)
 
 ## Recent Fixes (2026-07-16)
 

@@ -136,6 +136,21 @@ impl Default for MonsterTypeFlags {
     }
 }
 
+/// One `<summon>` entry under `<summons>` — TVP/TFS XML domain; CASTING maps to 772
+/// `IMPACT_SUMMON` (`crnonpl.cc:2647`, `magic.cc` `TSummonImpact`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummonBlock {
+    pub name: String,
+    /// Cast gate modulus — XML `delay` (default 1); 772 `SpellData.Delay` / `rand() % Delay`.
+    pub delay: i32,
+    /// Cap for `SummonedCreatures < Maximum` — XML `max` (defaults to parent `maxSummons`).
+    pub max: u32,
+    /// Passed to place-creature when set — XML `force`.
+    pub force: bool,
+    /// XML `chance` (default 100); unused by 772 CASTING (delay modulus only).
+    pub chance: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct MonsterType {
     pub name: String,
@@ -153,6 +168,10 @@ pub struct MonsterType {
     pub loot: Vec<LootBlock>,
     pub attack_spells: Vec<MonsterSpellNode>,
     pub defenses: MonsterDefenses,
+    /// `<summons maxSummons=…>` — cap 100 (`monsters.cpp`).
+    pub max_summons: u32,
+    /// `<summons><summon …/></summons>` — merged into CASTING as `SpellImpact::Summon`.
+    pub summons: Vec<SummonBlock>,
     /// `<voices><voice sentence="…"/></voices>` — 772 `RaceData.Talk` list (`crnonpl.cc:2442`).
     /// Empty when the monster has no `<voices>` block; the idle talk gate still draws `rand()%50`
     /// + `random(1, Talks)` for RNG parity but emits no packet (matches C++ `Talks == 0` return).
@@ -517,6 +536,8 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         immunity_physical: false,
     };
     let mut talk_texts = Vec::new();
+    let mut max_summons = 0u32;
+    let mut summons = Vec::new();
 
     for child in monster.children().filter(|n| n.is_element()) {
         let tag = child.tag_name().name();
@@ -605,6 +626,8 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
             }
         } else if tag.eq_ignore_ascii_case("targetchange") {
             parse_target_change(child, &mut flags, file_str);
+        } else if tag.eq_ignore_ascii_case("summons") {
+            parse_summons(child, &mut max_summons, &mut summons, file_str);
         } else if tag.eq_ignore_ascii_case("voices") {
             // 772 `RaceData.Talk` list — `<voice sentence="…"/>` (`crnonpl.cc:2442`, `crmain.cc:1551`).
             for voice in child.children().filter(|n| n.is_element()) {
@@ -634,8 +657,79 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         loot,
         attack_spells,
         defenses,
+        max_summons,
+        summons,
         talk_texts,
     })
+}
+
+/// `<summons maxSummons=…><summon name=… delay=… max=…/></summons>` — TVP `monsters.cpp` ~1226.
+fn parse_summons(
+    node: roxmltree::Node<'_, '_>,
+    max_summons: &mut u32,
+    summons: &mut Vec<SummonBlock>,
+    file: &str,
+) {
+    if let Some(a) = node.attribute("maxSummons") {
+        *max_summons = a.parse::<u32>().unwrap_or(0).min(100);
+    } else {
+        warn!(file, "monster summons missing maxSummons");
+    }
+
+    for summon_node in node.children().filter(|n| n.is_element()) {
+        if !summon_node.tag_name().name().eq_ignore_ascii_case("summon") {
+            continue;
+        }
+        let Some(name) = summon_node.attribute("name") else {
+            warn!(file, "monster summon missing name");
+            continue;
+        };
+        let mut chance = 100i32;
+        let mut delay = 1i32;
+        let mut max = *max_summons;
+        let mut force = false;
+
+        if let Some(a) = summon_node
+            .attribute("speed")
+            .or_else(|| summon_node.attribute("interval"))
+        {
+            // TFS ms tick path — stored only if present; CASTING uses `delay`.
+            let _speed = a.parse::<i32>().unwrap_or(1000).max(1);
+            let _ = _speed;
+        }
+
+        if let Some(a) = summon_node.attribute("chance") {
+            chance = a.parse().unwrap_or(100);
+            if chance > 100 {
+                warn!(file, chance, "summon chance out of bounds, clamping to 100");
+                chance = 100;
+            }
+        } else if let Some(a) = summon_node.attribute("delay") {
+            delay = a.parse().unwrap_or(1);
+            if delay > 100 {
+                warn!(file, delay, "summon delay out of bounds, clamping to 100");
+                delay = 100;
+            }
+            if delay < 1 {
+                delay = 1;
+            }
+        }
+
+        if let Some(a) = summon_node.attribute("max") {
+            max = a.parse().unwrap_or(max);
+        }
+        if let Some(a) = summon_node.attribute("force") {
+            force = parse_bool_flag(a);
+        }
+
+        summons.push(SummonBlock {
+            name: name.to_string(),
+            delay,
+            max,
+            force,
+            chance,
+        });
+    }
 }
 
 /// C++ `Monsters::loadMonster` flags block (`monsters.cpp` ~959–1001).
@@ -742,6 +836,27 @@ mod tests {
         assert!(m.flags.can_push_creatures);
         assert!(m.flags.can_push_items);
         assert!(m.flags.is_hostile);
+    }
+
+    #[test]
+    fn parses_monster_summons_block() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<monster name="Giant Spider" speed="80">
+    <health now="1300" max="1300"/>
+    <summons maxSummons="2">
+        <summon name="Poison Spider" max="2" delay="10" />
+    </summons>
+</monster>"#;
+        let items = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let m = parse_monster_xml(xml, "giant spider.xml", &items).expect("parse");
+        assert_eq!(m.max_summons, 2);
+        assert_eq!(m.summons.len(), 1);
+        assert_eq!(m.summons[0].name, "Poison Spider");
+        assert_eq!(m.summons[0].delay, 10);
+        assert_eq!(m.summons[0].max, 2);
     }
 
     #[test]

@@ -614,6 +614,7 @@ mod tests {
                 ..MonsterOutfit::default()
             },
             flags: MonsterTypeFlags::default(),
+            mana_cost: 0,
             loot: vec![LootBlock {
                 id: 2148,
                 countmax: 4,
@@ -635,6 +636,8 @@ mod tests {
                 see_invisible: false,
                 immunity_physical: false,
             },
+            max_summons: 0,
+            summons: Vec::new(),
             talk_texts: Vec::new(),
         }
     }

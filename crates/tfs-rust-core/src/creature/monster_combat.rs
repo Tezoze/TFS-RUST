@@ -50,6 +50,8 @@ pub enum SpellImpact {
     Summon {
         race: String,
         max: i32,
+        /// XML `force` — passed to place-creature (`placeCreature` extended force).
+        force: bool,
     },
     /// C++ `IMPACT_DRUNKEN` — sets target `drunkenness` (`crnonpl.cc:2553`).
     Drunk {
@@ -181,6 +183,33 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
         } else if let Some(spell) = MonsterSpell::try_from_node(node) {
             snap.spells.push(spell);
         }
+    }
+
+    // XML `<summons>` → 772 CASTING `IMPACT_SUMMON` spells (`crnonpl.cc:2647`).
+    // Origin radius 0 so `ExecuteCircleSpell` calls `handleField` once at the actor
+    // (`magic.cc:503` / `:483`). Delay modulus matches `SpellData.Delay`.
+    for block in &mtype.summons {
+        let max = if block.max > 0 {
+            block.max as i32
+        } else {
+            mtype.max_summons.max(1) as i32
+        };
+        snap.spells.push(MonsterSpell {
+            delay: block.delay.max(1),
+            range: 0,
+            radius: 0,
+            length: 0,
+            spread: 0,
+            min_cycle: 0,
+            shape: SpellShape::Origin,
+            impact: SpellImpact::Summon {
+                race: block.name.clone(),
+                max,
+                force: block.force,
+            },
+            shoot_effect: None,
+            area_effect: None,
+        });
     }
 
     snap
@@ -661,6 +690,33 @@ mod tests {
         assert_eq!(cfg.armor, 1);
         assert_eq!(cfg.poison_cycles, 0);
         assert!(cfg.spells.is_empty());
+    }
+
+    /// XML `<summons>` merges into CASTING as `SpellImpact::Summon` / Origin r=0
+    /// (`crnonpl.cc:2647`, `magic.cc` `TSummonImpact`).
+    #[test]
+    fn test_giant_spider_summon_spell_from_xml() {
+        let mtype = load_monster_type("giant spider");
+        assert_eq!(mtype.max_summons, 2);
+        assert_eq!(mtype.summons.len(), 1);
+        assert_eq!(mtype.summons[0].name, "Poison Spider");
+        assert_eq!(mtype.summons[0].delay, 10);
+        assert_eq!(mtype.summons[0].max, 2);
+
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        let summon = cfg
+            .spells
+            .iter()
+            .find(|s| matches!(s.impact, SpellImpact::Summon { .. }))
+            .expect("summon spell from <summons>");
+        assert_eq!(summon.delay, 10);
+        assert_eq!(summon.shape, SpellShape::Origin);
+        assert_eq!(summon.radius, 0);
+        assert!(matches!(
+            &summon.impact,
+            SpellImpact::Summon { race, max, force: false }
+                if race == "Poison Spider" && *max == 2
+        ));
     }
 
     #[test]
