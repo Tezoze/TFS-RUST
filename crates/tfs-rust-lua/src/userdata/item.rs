@@ -231,9 +231,7 @@ impl UserData for ItemRef {
             },
         );
 
-        // `item:decay()` — `items.cpp` `startDecay` / `Game::checkDecay`.
-        // CH-6 talkaction `/i` item decay scheduling. Schedules the item for
-        // decay transformation after its `decayTime` elapses.
+        // `item:decay()` — TFS `luaItemDecay` → `Item::startDecaying` → `Game::startDecay`.
         methods.add_method("decay", |_, this, ()| {
             call_lua_item_decay(this.0).map_err(mlua::Error::runtime)
         });

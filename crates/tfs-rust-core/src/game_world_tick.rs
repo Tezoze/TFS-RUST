@@ -47,7 +47,7 @@ impl GameWorld {
         if fired.cron {
             let expired = self.decay.tick(self.server_ms);
             if !expired.is_empty() {
-                self.process_equipment_decay_expiry(&expired);
+                self.process_decay_expiry(&expired);
             }
         }
         if fired.skills {

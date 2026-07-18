@@ -626,6 +626,7 @@ impl GameWorld {
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = None;
             }
+            self.cancel_item_decay(item_id);
             self.items.remove(item_id);
         }
         self.refresh_container_chain(container_item_id);
@@ -683,6 +684,7 @@ impl GameWorld {
             container_item_id,
             ContainerContentChange::Add { slot: 0 },
         );
+        self.start_decay(item_id);
         Ok(())
     }
 
@@ -736,6 +738,7 @@ impl GameWorld {
             container_item_id,
             ContainerContentChange::Add { slot: index as u16 },
         );
+        self.start_decay(item_id);
         Ok(())
     }
 }

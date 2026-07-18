@@ -14,7 +14,6 @@ use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::item_attributes::DecayState;
 
 impl GameWorld {
     /// TFS `Game::changeSpeed` — adjust `varSpeed` and announce (`game.cpp` ~3855).
@@ -119,7 +118,7 @@ impl GameWorld {
             .filter(|&id| id > 0);
 
         let ability_type = if let Some(new_type) = transform_to {
-            self.transform_equipped_item(cid, item_id, slot, new_type, true);
+            self.transform_equipped_item(cid, item_id, slot, new_type);
             new_type
         } else {
             item_type
@@ -181,63 +180,22 @@ impl GameWorld {
             .and_then(|it| xml_u16(&it.xml_attributes, "transformdeequipto"))
             .filter(|&id| id > 0);
         if let Some(new_type) = transform_to {
-            self.transform_equipped_item(cid, item_id, slot, new_type, false);
+            self.transform_equipped_item(cid, item_id, slot, new_type);
         }
     }
 
-    /// Change equipped item type + refresh `0x78` + optional decay schedule.
+    /// Change equipped item type + refresh `0x78` via shared decay type-change helper.
     ///
-    /// C++ `Game::transformItem` + `startDecay` (`game.cpp` / `item.cpp` duration = decayTime×1000).
+    /// Domain: `Game::transformItem` + equip/deequip (`game.cpp` / `movement.cpp`).
+    /// Outcomes: `stopduration` pause on deequip; resume on re-equip (`ChangeObject`).
     fn transform_equipped_item(
         &mut self,
-        cid: CreatureId,
+        _cid: CreatureId,
         item_id: ItemId,
-        slot: u8,
+        _slot: u8,
         new_type: u16,
-        start_decay: bool,
     ) {
-        self.decay.cancel(item_id);
-
-        let (duration_sec, decay_to) = self
-            .items_db
-            .items
-            .get(&new_type)
-            .map(|it| {
-                let secs = if it.decay_time > 0 {
-                    it.decay_time
-                } else {
-                    xml_u32(&it.xml_attributes, "duration").unwrap_or(0)
-                };
-                let to = if it.decay_to > 0 {
-                    Some(it.decay_to as u16)
-                } else if it.decay_to == 0 {
-                    None
-                } else {
-                    xml_u16(&it.xml_attributes, "decayto")
-                };
-                (secs, to)
-            })
-            .unwrap_or((0, None));
-
-        if let Some(item) = self.items.get_mut(item_id) {
-            item.item_type = new_type;
-            if start_decay && duration_sec > 0 {
-                let duration_ms = duration_sec.saturating_mul(1000) as i32;
-                item.set_duration(duration_ms);
-                item.set_decaying(DecayState::True);
-            } else {
-                item.set_decaying(DecayState::False);
-                item.set_duration(0);
-            }
-        }
-
-        if start_decay && duration_sec > 0 {
-            let deadline = crate::decay::decay_deadline_ms(self.server_ms, duration_sec);
-            let replace = decay_to.filter(|&id| id > 0);
-            self.decay.schedule(item_id, deadline, replace);
-        }
-
-        self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
+        self.change_item_type(item_id, new_type);
     }
 
     /// Apply (`sign = 1`) or reverse (`sign = -1`) one item's ability modifiers.
@@ -438,7 +396,12 @@ impl GameWorld {
     }
 
     /// Reverse equip abilities without `transformDeEquipTo` (used when decay owns the type change).
-    fn strip_equip_abilities_keep_type(&mut self, cid: CreatureId, item_id: ItemId, slot: u8) {
+    pub(crate) fn strip_equip_abilities_keep_type(
+        &mut self,
+        cid: CreatureId,
+        item_id: ItemId,
+        slot: u8,
+    ) {
         let enabled = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.is_item_ability_enabled(slot),
             _ => return,
@@ -464,30 +427,7 @@ impl GameWorld {
         self.apply_item_abilities_delta(cid, slot, &abilities, -1);
     }
 
-    /// Apply expired equipment decay (active rings → remove / transform).
-    ///
-    /// Called from the cron beat after `DecayManager::tick`.
-    pub(crate) fn process_equipment_decay_expiry(
-        &mut self,
-        expired: &[(ItemId, crate::decay::DecayEntry)],
-    ) {
-        for &(item_id, ref entry) in expired {
-            let owner = self.find_equipment_owner(item_id);
-            let Some((cid, slot)) = owner else {
-                continue;
-            };
-            // Strip abilities from the active type; decay (not deequip) chooses the next id.
-            self.strip_equip_abilities_keep_type(cid, item_id, slot);
-            if let Some(replace) = entry.replace_with {
-                self.transform_equipped_item(cid, item_id, slot, replace, false);
-            } else {
-                // `decayto = 0` — item vanishes (TFS `internalDecayItem` remove).
-                self.unequip_decayed_item(cid, slot, item_id);
-            }
-        }
-    }
-
-    fn find_equipment_owner(&self, item_id: ItemId) -> Option<(CreatureId, u8)> {
+    pub(crate) fn find_equipment_owner(&self, item_id: ItemId) -> Option<(CreatureId, u8)> {
         for (cid, kind) in self.creatures.iter() {
             let CreatureKind::Player(p) = kind else {
                 continue;
@@ -501,7 +441,7 @@ impl GameWorld {
         None
     }
 
-    fn unequip_decayed_item(&mut self, cid: CreatureId, slot: u8, item_id: ItemId) {
+    pub(crate) fn unequip_decayed_item(&mut self, cid: CreatureId, slot: u8, item_id: ItemId) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             if let Some(idx) = crate::inventory::slot_to_array_index(slot) {
                 if p.equipment_slots[idx] == Some(item_id) {
@@ -522,14 +462,11 @@ fn xml_u16(attrs: &std::collections::HashMap<String, String>, key: &str) -> Opti
     attrs.get(key).and_then(|s| s.parse().ok())
 }
 
-fn xml_u32(attrs: &std::collections::HashMap<String, String>, key: &str) -> Option<u32> {
-    attrs.get(key).and_then(|s| s.parse().ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::inventory::InventorySlot;
+    use crate::item_attributes::DecayState;
     use crate::sim_harness::{insert_player, minimal_world, test_player};
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;

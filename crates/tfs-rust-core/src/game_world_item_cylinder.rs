@@ -268,7 +268,9 @@ impl GameWorld {
                     let remainder = item_count.saturating_sub(can_add);
                     if remainder == 0 {
                         // Fully merged — remove the source item from SlotMap
+                        self.cancel_item_decay(item_id);
                         self.items.remove(item_id);
+                        self.start_decay(target_id);
                         return Ok(target_id);
                     }
                     // Partial merge — update source item count and add remainder to tile
@@ -332,6 +334,7 @@ impl GameWorld {
         // Broadcast add
         self.broadcast_tile_item_add(pos, item_id, stack_pos);
 
+        self.start_decay(item_id);
         Ok(item_id)
     }
 
@@ -376,6 +379,7 @@ impl GameWorld {
             }
             self.broadcast_tile_item_remove(pos, stack_pos);
             // Remove from SlotMap
+            self.cancel_item_decay(item_id);
             self.items.remove(item_id);
         }
         Ok(())

@@ -41,6 +41,13 @@ impl DecayManager {
         self.entries.remove(&id);
     }
 
+    /// Remaining ms until deadline, if the item is scheduled.
+    pub fn remaining_ms(&self, id: ItemId, now_ms: u64) -> Option<u64> {
+        self.entries
+            .get(&id)
+            .map(|e| e.deadline_tick.saturating_sub(now_ms))
+    }
+
     /// Run after other per-tick work; returns items that expired this tick.
     pub fn tick(&mut self, now: u64) -> Vec<(ItemId, DecayEntry)> {
         let mut done = Vec::new();
@@ -58,7 +65,9 @@ impl DecayManager {
 
 #[cfg(test)]
 mod tests {
-    use super::decay_deadline_ms;
+    use super::{decay_deadline_ms, DecayManager};
+    use crate::ids::ItemId;
+    use slotmap::SlotMap;
 
     #[test]
     fn decay_deadline_matches_xml_seconds_to_ms() {
@@ -67,5 +76,17 @@ mod tests {
         assert_eq!(decay_deadline_ms(0, 3000), 3_000_000);
         assert_eq!(decay_deadline_ms(0, 1800), 1_800_000);
         assert_eq!(decay_deadline_ms(50_000, 10), 60_000);
+    }
+
+    #[test]
+    fn remaining_ms_tracks_deadline() {
+        let mut items: SlotMap<ItemId, ()> = SlotMap::with_key();
+        let id = items.insert(());
+        let mut decay = DecayManager::default();
+        decay.schedule(id, 5_000, Some(100));
+        assert_eq!(decay.remaining_ms(id, 2_000), Some(3_000));
+        assert_eq!(decay.remaining_ms(id, 5_000), Some(0));
+        decay.cancel(id);
+        assert_eq!(decay.remaining_ms(id, 2_000), None);
     }
 }

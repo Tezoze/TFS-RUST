@@ -97,7 +97,7 @@ find person, levitate, rope, destroy/desintegrate, convince, wild_growth helpers
 
 ### 2026-07-18 Phase 5 — conjure helpers
 - `getMana` / `addMana` / `addManaSpent`; transform / charges / Group:hasFlag.
-- `item:decay` still logged no-op.
+- `item:decay` → `start_decay` (decay Phase 2).
 
 ### 2026-07-18 Phase 4b — condition client updates
 - icons / speed / light / invis / outfit on start+end.

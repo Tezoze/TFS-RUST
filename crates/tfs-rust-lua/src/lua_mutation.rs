@@ -116,9 +116,7 @@ pub enum LuaMutation {
         z: u8,
         effect: u8,
     },
-    /// `item:decay()` — `items.cpp` `startDecay` / `Game::checkDecay`.
-    /// CH-6 talkaction `/i` item decay scheduling. Schedules the item for
-    /// decay transformation after its `decayTime` elapses.
+    /// `item:decay()` — TFS `luaItemDecay` → `Game::startDecay`.
     ItemDecay {
         item_id: u64,
     },
@@ -513,8 +511,7 @@ pub fn call_lua_send_magic_effect(x: u16, y: u16, z: u8, effect: u8) -> Result<(
     apply_mutation(LuaMutation::PositionSendMagicEffect { x, y, z, effect })
 }
 
-/// `item:decay()` — CH-6. Schedules the item for decay transformation.
-/// C++ `items.cpp` `startDecay` / `Game::checkDecay`.
+/// `item:decay()` — schedules via core `GameWorld::start_decay`.
 pub fn call_lua_item_decay(item_id: u64) -> Result<(), String> {
     apply_mutation(LuaMutation::ItemDecay { item_id })
 }

@@ -16,6 +16,7 @@ mod creature_todo;
 pub mod cylinder;
 mod death;
 mod decay;
+mod decay_apply;
 pub mod event_dispatcher;
 mod floor_change_use;
 pub mod formulas;

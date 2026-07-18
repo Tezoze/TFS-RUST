@@ -204,6 +204,10 @@ impl ItemAttributes {
         self.attribute_bits.contains(ItemAttrFlags::DURATION)
     }
 
+    pub fn has_decay_to(&self) -> bool {
+        self.attribute_bits.contains(ItemAttrFlags::DECAY_TO)
+    }
+
     pub fn has_decay_state(&self) -> bool {
         self.attribute_bits.contains(ItemAttrFlags::DECAY_STATE)
     }

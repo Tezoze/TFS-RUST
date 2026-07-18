@@ -111,6 +111,7 @@ impl GameWorld {
     ) -> Result<(), ReturnValue> {
         self.internal_add_item_to_inventory_slot(cid, slot, item_id)?;
         self.notify_player_inventory_slot_add(cid, slot, item_id, old_parent);
+        self.start_decay(item_id);
         Ok(())
     }
 
@@ -640,10 +641,11 @@ impl GameWorld {
             sub_type as u16
         };
         if let Some(item) = self.items.get_mut(item_id) {
-            item.item_type = new_type;
             item.count = new_count.max(1);
         }
-        if let Some(parent) = self.resolve_item_parent_cylinder(item_id) {
+        if old_type != new_type {
+            self.change_item_type(item_id, new_type);
+        } else if let Some(parent) = self.resolve_item_parent_cylinder(item_id) {
             match parent {
                 Cylinder::Inventory { player_id, slot } => {
                     self.broadcast_player_inventory_slot(player_id, slot, Some(item_id));
@@ -835,6 +837,7 @@ impl GameWorld {
             let removed = item_count.min(count);
             let _ =
                 self.unequip_item_from_inventory_slot(cid, slot, item_id, NotificationParent::None);
+            self.cancel_item_decay(item_id);
             self.items.remove(item_id);
             removed
         }

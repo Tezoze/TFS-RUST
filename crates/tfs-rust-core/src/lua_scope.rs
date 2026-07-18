@@ -159,11 +159,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             Ok(())
         }
         LuaMutation::ItemDecay { item_id } => {
-            // CH-6: `item:decay()` — schedule the item for decay. For now this
-            // is a logged no-op since the per-item decay-to-transformType wiring
-            // isn't loaded from items.xml yet. The item is still created; decay
-            // just won't tick. C++ `items.cpp` `startDecay`.
-            tracing::debug!(item_id, "item:decay() called (decay scheduling is a no-op pending items.xml decayTo wiring)");
+            // TFS `luaItemDecay` → `Item::startDecaying` → `Game::startDecay`.
+            let world = unsafe { &mut *world };
+            if let Some(id) = world.resolve_item_u64(item_id) {
+                world.start_decay(id);
+            }
             Ok(())
         }
         LuaMutation::PlayerAddMana {

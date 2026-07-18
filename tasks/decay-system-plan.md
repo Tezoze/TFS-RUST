@@ -1,6 +1,6 @@
 # Item Decay / Expire — Implementation Plan
 
-**Status:** Phase 1 done — ready for Phase 2  
+**Status:** Phase 3 done — ready for Phase 4  
 **Date:** 2026-07-18  
 **Goal:** 772 decompile **expire outcomes** on a **TFS/TVP-style data pack** (`items.xml` `duration` / `decayto` / `stopduration`), implemented as **idiomatic Rust** (deadline scheduler, not a C++ transliteration of either reference).
 
@@ -90,23 +90,23 @@ checkDecay: 250ms × 4 buckets (implementation detail — not required in Rust)
 | Equip transform + schedule | `equip_abilities.rs` | Rings/boots: `duration` sec × 1000 → deadline; **only path that applies expiry** |
 | Corpse / splash schedule | `monster_inventory.rs`, `death.rs` | Schedules into `DecayManager` |
 | Attr blob Duration / DecayingState / DecayTo | `item_attributes.rs`, `item_blob.rs` | DB serialize path present |
-| Lua `item:decay()` | `lua_mutation` → `LuaMutation::ItemDecay` | **Logged no-op** (`lua_scope.rs` CH-6) |
+| Lua `item:decay()` | `lua_mutation` → `LuaMutation::ItemDecay` | **Wired** → `start_decay` (Phase 2) |
 | XML keys recognized | `items_xml_keys.rs` | `duration` / `decayto` / `stopduration` still mostly raw `xml_attributes` |
 | Profile corpse offset | `corpse_decay_offset_ms` | 772 = 30s, 1098 = 600ms (death placeholder) |
 
 ### 3.2 Critical gaps
 
-1. **Expiry apply is equipment-only.**  
-   `advance_beat` cron: `decay.tick` → `process_equipment_decay_expiry` only. Tile corpses, blood pools, magic fields, lit lamps, etc. are **removed from the scheduler and never transformed/deleted**.
+1. **Expiry apply is equipment-only.** — **fixed Phase 2**  
+   Cron → `process_decay_expiry` dispatches equip / tile / container.
 
-2. **No general `start_decay` / `internal_decay_item`.**  
-   Create-on-tile, cylinder add, map load, login hydrate, and Lua do not consistently schedule. TFS calls `startDecaying` from map/load/player/container paths; decompile schedules on every `ChangeObject`.
+2. **No general `start_decay` / `internal_decay_item`.** — **fixed Phase 2 (API)**  
+   Create-on-tile, cylinder add, map load, login hydrate hooks still Phase 3/4; Lua `item:decay()` wired.
 
 3. **Duration unit bug (corpse/splash).** — **fixed Phase 1**  
    Was `duration * 50` ms; now `decay_deadline_ms` (seconds × 1000).
 
-4. **No `stopduration` / ExpireStop.**  
-   Lit → unlit candelabrum / time-ring inactive types must **pause** remaining time into saved duration and resume on re-light / re-equip. Decompile `SAVEDEXPIRETIME` / TFS `stopTime` + keep duration attr. (`stop_time` field parsed Phase 1; behavior Phase 3.)
+4. **No `stopduration` / ExpireStop.** — **fixed Phase 3**  
+   Lit → unlit / deequip pause remaining via `change_item_type`; re-light / re-equip resumes.
 
 5. **No typed `ItemType` decay fields.** — **fixed Phase 1**  
    `decay_time` / `decay_to` / `stop_time` / `show_duration` on `ItemType`; XML still mirrored in `xml_attributes`.
@@ -237,22 +237,22 @@ Port TFS checks (domain): not removed, `decay_time != 0`, `decay_to >= 0`, no un
 - [x] Central helper: `decay_deadline_ms(now, duration_sec)`.
 - [x] Unit tests: firefield 200s, candelabrum 3000s, dead troll 1800s; `item_decay_schedule` typed path.
 
-### Phase 2 — Core decay apply
+### Phase 2 — Core decay apply — **done**
 
-**Files:** `decay.rs` (API clarify), new `decay_apply.rs` or methods on `GameWorld`, `game_world_tick.rs`.
+**Files:** `decay.rs` (API clarify), `decay_apply.rs`, `game_world_tick.rs`, `lua_scope.rs`, `equip_abilities.rs`.
 
-- `start_decay` / `stop_decay` / `can_decay` / `internal_decay_item`.
-- `process_decay_expiry`: dispatch by location (equip / tile / container).
-- Cron tick calls **general** apply (equip path becomes a branch).
-- Wire `LuaMutation::ItemDecay` to `start_decay`.
+- [x] `start_decay` / `stop_decay` / `can_decay` / `internal_decay_item`.
+- [x] `process_decay_expiry`: dispatch by location (equip / tile / container).
+- [x] Cron tick calls **general** apply (equip path becomes a branch).
+- [x] Wire `LuaMutation::ItemDecay` to `start_decay`.
 
-### Phase 3 — Create / transform / cylinder hooks
+### Phase 3 — Create / transform / cylinder hooks — **done**
 
-**Files:** item create helpers, tile add, inventory move, `transform_item` (inventory + tile), equip transform.
+**Files:** `decay_apply.rs` (`change_item_type`), equip/lua transform, tile/container/inventory add+remove.
 
-- Every create/transform that yields a decaying type calls `start_decay`.
-- Implement stopduration pause/resume in the shared type-change helper.
-- Cancel decay on `Destroy` / item remove (`DestroyObject` CronStop).
+- [x] Every create/transform that yields a decaying type calls `start_decay` (via cylinder add + `change_item_type`).
+- [x] Implement stopduration pause/resume in the shared type-change helper.
+- [x] Cancel decay on `Destroy` / item remove (`DestroyObject` CronStop).
 
 ### Phase 4 — Persistence
 
