@@ -1,6 +1,6 @@
 # Item Decay / Expire — Implementation Plan
 
-**Status:** Phase 3 done — ready for Phase 4  
+**Status:** Phase 5 done — ready for Phase 6  
 **Date:** 2026-07-18  
 **Goal:** 772 decompile **expire outcomes** on a **TFS/TVP-style data pack** (`items.xml` `duration` / `decayto` / `stopduration`), implemented as **idiomatic Rust** (deadline scheduler, not a C++ transliteration of either reference).
 
@@ -254,19 +254,20 @@ Port TFS checks (domain): not removed, `decay_time != 0`, `decay_to >= 0`, no un
 - [x] Implement stopduration pause/resume in the shared type-change helper.
 - [x] Cancel decay on `Destroy` / item remove (`DestroyObject` CronStop).
 
-### Phase 4 — Persistence
+### Phase 4 — Persistence — **done**
 
-**Files:** `item_blob.rs`, login/map load hydrate.
+**Files:** `item_blob.rs`, `game_world_save.rs`, `player/inventory/load.rs`.
 
-- On load: if `DecayState::Pending` or duration > 0 with decaying true → `start_decay` with remaining ms.
-- Save remaining duration (TFS already writes Duration + DecayingState).
+- [x] On load: `DecayState::Pending` → `start_decay` with remaining ms (`restart_pending_decay_for_player`).
+- [x] Save remaining duration via `write_item_blob_with_duration` + `DecayManager::remaining_ms`.
+- [x] House `tile_store` apply still absent — reuse `restart_pending_decay_*` when that path lands.
 
-### Phase 5 — Container empty + polish
+### Phase 5 — Container empty + polish — **done**
 
-- Decompile `Empty` before expire transform when type is container.
-- Look text / `showduration` if not already covered.
-- Depot policy + quest actionId / uniqueId guards.
-- Magic field / splash parity retest.
+- [x] Decompile `Empty` before expire transform when type is container (`empty_container_for_expire`).
+- [x] Look text / `showduration` (`item_look.rs` + look call site remaining ms).
+- [x] Depot policy + quest actionId / uniqueId guards (`itemsDecayInsideDepots` default false).
+- [x] Magic field expire unit smoke via cron `process_decay_expiry`.
 
 ### Phase 6 — Cleanup special cases
 

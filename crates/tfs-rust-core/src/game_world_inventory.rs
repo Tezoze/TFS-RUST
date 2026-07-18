@@ -32,6 +32,21 @@ impl GameWorld {
         self.creature_to_conn.get(&cid).copied()
     }
 
+    /// Remaining duration for look `showduration` — scheduler when decaying, else raw attr.
+    pub(crate) fn item_look_duration_ms(&self, item_id: ItemId) -> Option<i32> {
+        let item = self.items.get(item_id)?;
+        let attrs = item.attributes.as_ref()?;
+        if !attrs.has_duration() {
+            return None;
+        }
+        if item.decaying() == crate::item_attributes::DecayState::True {
+            if let Some(rem) = self.decay.remaining_ms(item_id, self.server_ms) {
+                return Some(rem.min(i32::MAX as u64) as i32);
+            }
+        }
+        Some(attrs.get_duration_raw())
+    }
+
     /// `Player` inventory slot item — `Game::internalGetThing` inventory branch (`game.cpp` ~320–326).
     pub fn get_player_inventory_item(&self, cid: CreatureId, slot: u8) -> Option<ItemId> {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
@@ -1088,7 +1103,7 @@ impl GameWorld {
                 if let Some(it) = self.items_db.items.get(&ground_type) {
                     format!(
                         "You see {}",
-                        item_get_description_cpp(&ephemeral, it, it.weight, look_d, None)
+                        item_get_description_cpp(&ephemeral, it, it.weight, look_d, None, None)
                     )
                 } else {
                     format!("You see an item of type {ground_type}.")
@@ -1097,6 +1112,7 @@ impl GameWorld {
             LookTarget::Item(item_id) => {
                 self.hydrate_container_if_needed(item_id);
                 let w = self.item_recursive_weight_oz(item_id);
+                let show_duration_ms = self.item_look_duration_ms(item_id);
                 let Some(item) = self.items.get(item_id) else {
                     self.send_cancel_message(conn_id, ReturnValue::NotPossible);
                     return;
@@ -1105,7 +1121,14 @@ impl GameWorld {
                 if let Some(it) = self.items_db.items.get(&item.item_type) {
                     format!(
                         "You see {}",
-                        item_get_description_cpp(item, it, w, look_d, container_capacity)
+                        item_get_description_cpp(
+                            item,
+                            it,
+                            w,
+                            look_d,
+                            container_capacity,
+                            show_duration_ms,
+                        )
                     )
                 } else {
                     format!("You see an item of type {}.", item.item_type)

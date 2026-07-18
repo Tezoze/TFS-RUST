@@ -13,7 +13,8 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::slot_to_array_index;
-use crate::item_blob::write_item_blob;
+use crate::item_attributes::DecayState;
+use crate::item_blob::{write_item_blob, write_item_blob_with_duration};
 
 fn direction_to_u8(d: Direction) -> u8 {
     match d {
@@ -35,7 +36,16 @@ fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Res
         )));
     };
     let count = (item.count.min(10000)) as i16;
-    let attributes = write_item_blob(item, world.items_db.as_ref());
+    // When actively decaying, persist live remaining ms (TFS `getDuration()`), not schedule snapshot.
+    let attributes = if item.decaying() == DecayState::True {
+        let rem = world
+            .decay
+            .remaining_ms(item_id, world.server_ms)
+            .map(|m| m.min(i32::MAX as u64) as i32);
+        write_item_blob_with_duration(item, world.items_db.as_ref(), rem)
+    } else {
+        write_item_blob(item, world.items_db.as_ref())
+    };
     Ok(ItemRecord {
         pid,
         sid,
@@ -234,7 +244,10 @@ mod tests {
     use tfs_rust_common::Position;
 
     use crate::item::Item;
+    use crate::item_attributes::DecayState;
+    use crate::item_blob::parse_item_blob;
     use crate::test_world::support::{insert_player, minimal_world, test_player};
+    use tfs_rust_content::otb::ItemType;
 
     #[test]
     fn save_depot_skipped_when_never_opened() {
@@ -266,5 +279,45 @@ mod tests {
         assert_eq!(save.items.depot.len(), 1);
         assert_eq!(save.items.depot[0].pid, 1);
         assert_eq!(save.items.depot[0].itemtype, 2148);
+    }
+
+    #[test]
+    fn save_writes_decay_remaining_not_schedule_snapshot() {
+        let mut world = minimal_world();
+        world.server_ms = 10_000;
+        let mut it = ItemType::default();
+        it.id = 2169;
+        it.server_id = 2169;
+        it.decay_time = 600;
+        it.decay_to = 2168;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(2169, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("decay_save", pos));
+        let mut ring = Item::new_single(2169);
+        ring.set_duration(200_000);
+        let ring_id = world.items.insert(ring);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.equipment_slots[5] = Some(ring_id); // CONST_SLOT_RING
+        }
+        world.start_decay(ring_id);
+        world.server_ms = 60_000; // 50s elapsed → 150_000 remaining
+
+        let save = world.build_player_save_data(cid).expect("save");
+        let rec = save
+            .items
+            .inventory
+            .iter()
+            .find(|r| r.itemtype == 2169)
+            .expect("ring row");
+        let parsed = parse_item_blob(&rec.attributes, false).expect("parse");
+        assert_eq!(parsed.attrs.get_duration_raw(), 150_000);
+        assert_eq!(parsed.attrs.get_decaying(), DecayState::Pending); // non-zero → Pending on parse
     }
 }

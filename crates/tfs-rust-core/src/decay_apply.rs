@@ -5,11 +5,12 @@
 //! Outcomes: decompile `CronExpire` / `CronStop` / `ProcessCronSystem`
 //! (`map.cc` / `operate.cc`) — deadline fire on all cylinders.
 
+use crate::container::ContainerType;
 use crate::container_ui::ContainerContentChange;
-use crate::cylinder::Cylinder;
+use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::decay::DecayEntry;
 use crate::game_world::GameWorld;
-use crate::ids::ItemId;
+use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::item_attributes::DecayState;
 
@@ -23,7 +24,9 @@ enum DecayFire {
 }
 
 impl GameWorld {
-    /// TFS `Item::canDecay` — not removed, typed duration, decayTo ≥ 0, no uniqueId.
+    /// TVP `Item::canDecay` — uniqueId, quest actionId band, depot policy, typed duration.
+    ///
+    /// Domain: TVP `item.cpp` `Item::canDecay`; TFS uniqueId + duration/decayTo.
     pub fn can_decay(&self, item_id: ItemId) -> bool {
         let Some(item) = self.items.get(item_id) else {
             return false;
@@ -35,13 +38,59 @@ impl GameWorld {
         {
             return false;
         }
+        let action_id = item.action_id();
+        if (1000..=2000).contains(&action_id) {
+            return false;
+        }
         let Some(it) = self.items_db.items.get(&item.item_type) else {
             return false;
         };
         if it.decay_time == 0 {
             return false;
         }
-        self.effective_decay_to(item) >= 0
+        if self.effective_decay_to(item) < 0 {
+            return false;
+        }
+        // TVP `itemsDecayInsideDepots` default false — `configmanager.cpp`.
+        let allow_depot = crate::config::get_bool_or(
+            self.config.as_ref(),
+            "itemsDecayInsideDepots",
+            false,
+        )
+        .unwrap_or(false);
+        if !allow_depot && self.is_inside_depot_locker(item_id) {
+            return false;
+        }
+        true
+    }
+
+    /// Whether any ancestor container is a depot chest/locker.
+    fn is_inside_depot_locker(&self, item_id: ItemId) -> bool {
+        if self.container_is_depot_root(item_id) {
+            return true;
+        }
+        let mut cur = match self.resolve_item_parent_cylinder(item_id) {
+            Some(Cylinder::Container {
+                item_id: parent, ..
+            }) => Some(parent),
+            _ => None,
+        };
+        while let Some(id) = cur {
+            if self.container_is_depot_root(id) {
+                return true;
+            }
+            cur = self
+                .container_registry
+                .get(id)
+                .and_then(|c| c.parent_container);
+        }
+        false
+    }
+
+    fn container_is_depot_root(&self, id: ItemId) -> bool {
+        self.container_registry.get(id).is_some_and(|c| {
+            c.container_type == ContainerType::Depot || c.depot_locker_town_id.is_some()
+        })
     }
 
     /// TFS `Game::startDecay` — schedule remaining duration, or fire immediately if ≤ 0.
@@ -179,6 +228,9 @@ impl GameWorld {
 
     /// TFS `Game::internalDecayItem` — transform to `decay_to` or remove.
     ///
+    /// Outcomes: decompile `ProcessCronSystem` empties containers before `Change`
+    /// (`operate.cc` `Empty` + `ProcessCronSystem`).
+    ///
     /// `replace_hint` comes from a popped [`DecayEntry`] when firing from cron;
     /// otherwise the effective type/attr `decay_to` is used.
     pub fn internal_decay_item(&mut self, item_id: ItemId, replace_hint: Option<u16>) {
@@ -211,13 +263,160 @@ impl GameWorld {
             DecayFire::None => {}
             DecayFire::Transform(new_type) => {
                 if self.items_db.items.get(&new_type).is_none() {
+                    self.empty_container_for_expire(item_id, 0);
                     self.remove_decayed_item(item_id);
                     return;
                 }
+                let remainder = self.expire_empty_remainder(new_type);
+                self.empty_container_for_expire(item_id, remainder);
                 self.change_item_type(item_id, new_type);
             }
             DecayFire::Remove => {
+                self.empty_container_for_expire(item_id, 0);
                 self.remove_decayed_item(item_id);
+            }
+        }
+    }
+
+    /// Next-stage container capacity, or 0 if target is not a container (`operate.cc`).
+    fn expire_empty_remainder(&self, new_type: u16) -> usize {
+        if !self.items_db.is_container(new_type) {
+            return 0;
+        }
+        self.items_db
+            .items
+            .get(&new_type)
+            .map(|t| t.max_items as usize)
+            .unwrap_or(0)
+    }
+
+    /// Decompile `Empty(Con, Remainder)` before expire transform (`operate.cc`).
+    ///
+    /// Corpse: delete excess beyond `remainder`. Non-corpse: move excess to parent cylinder.
+    fn empty_container_for_expire(&mut self, container_id: ItemId, remainder: usize) {
+        let Some(item_type) = self.items.get(container_id).map(|i| i.item_type) else {
+            return;
+        };
+        if !self.items_db.is_container(item_type) {
+            return;
+        }
+
+        // Ensure registry entry so we can iterate children (map corpses may be lazy).
+        self.hydrate_container_if_needed(container_id);
+        if self.container_registry.get(container_id).is_none() {
+            return;
+        }
+
+        let viewers: Vec<CreatureId> = self
+            .container_registry
+            .get(container_id)
+            .map(|c| c.open_by.clone())
+            .unwrap_or_default();
+        for viewer in viewers {
+            self.auto_close_containers_for_container_item(viewer, container_id);
+        }
+
+        let is_corpse = self.is_corpse_item_type(item_type);
+        loop {
+            let count = self
+                .container_registry
+                .get(container_id)
+                .map(|c| c.items.len())
+                .unwrap_or(0);
+            if count <= remainder {
+                break;
+            }
+            let Some(child) = self
+                .container_registry
+                .get(container_id)
+                .and_then(|c| c.items.first().copied())
+            else {
+                break;
+            };
+            // Detach without destroying — then delete or move.
+            if let Some(idx) = self.get_thing_index_in_container(container_id, child) {
+                let idx = idx as usize;
+                if let Some(cont) = self.container_registry.get_mut(container_id) {
+                    let _ = cont.remove_item(idx);
+                }
+                if let Some(ch) = self.container_registry.get_mut(child) {
+                    ch.parent_container = None;
+                }
+                self.refresh_container_chain(container_id);
+                self.notify_container_content_changed(
+                    container_id,
+                    ContainerContentChange::Remove { slot: idx as u16 },
+                );
+            }
+            if is_corpse {
+                self.destroy_item_tree(child);
+            } else {
+                self.move_detached_item_to_parent_of(container_id, child);
+            }
+        }
+    }
+
+    fn is_corpse_item_type(&self, item_type: u16) -> bool {
+        self.items_db
+            .items
+            .get(&item_type)
+            .is_some_and(|t| t.xml_attributes.contains_key("corpsetype"))
+    }
+
+    /// Recursively destroy an item and nested container contents.
+    fn destroy_item_tree(&mut self, item_id: ItemId) {
+        if let Some(children) = self
+            .container_registry
+            .get(item_id)
+            .map(|c| c.items.clone())
+        {
+            for child in children {
+                self.destroy_item_tree(child);
+            }
+        }
+        self.auto_close_containers_for_all_viewers_of(item_id);
+        if let Some(reg) = self.container_registry.get_mut(item_id) {
+            reg.items.clear();
+        }
+        // Unregister if present — ContainerRegistry may not have a public unregister;
+        // leave empty entry or remove via existing API.
+        self.cancel_item_decay(item_id);
+        self.items.remove(item_id);
+    }
+
+    fn auto_close_containers_for_all_viewers_of(&mut self, container_id: ItemId) {
+        let viewers: Vec<CreatureId> = self
+            .container_registry
+            .get(container_id)
+            .map(|c| c.open_by.clone())
+            .unwrap_or_default();
+        for viewer in viewers {
+            self.auto_close_containers_for_container_item(viewer, container_id);
+        }
+    }
+
+    /// Move a detached child onto the parent cylinder of `container_id` (non-corpse Empty).
+    fn move_detached_item_to_parent_of(&mut self, container_id: ItemId, child: ItemId) {
+        match self.resolve_item_parent_cylinder(container_id) {
+            Some(Cylinder::Tile { pos }) => {
+                let _ = self.internal_add_item_to_tile(pos, child, CylinderFlags::NO_LIMIT);
+            }
+            Some(Cylinder::Container {
+                item_id: parent, ..
+            }) => {
+                let _ = self.container_add_thing(parent, 0, child);
+            }
+            Some(Cylinder::Inventory { player_id, slot }) => {
+                // Prefer tile under player if inventory add is awkward; try container-like fallback.
+                if let Some(pos) = self.creatures.get(player_id).map(|c| c.position()) {
+                    let _ = self.internal_add_item_to_tile(pos, child, CylinderFlags::NO_LIMIT);
+                } else {
+                    let _ = slot; // unused — destroy if no position
+                    self.destroy_item_tree(child);
+                }
+            }
+            None => {
+                self.destroy_item_tree(child);
             }
         }
     }
@@ -569,5 +768,170 @@ mod tests {
             .expect("remove");
         assert!(world.decay.remaining_ms(iid, world.server_ms).is_none());
         assert!(world.items.get(iid).is_none());
+    }
+
+    #[test]
+    fn can_decay_false_with_quest_action_id() {
+        let mut world = minimal_world();
+        let mut it = ItemType::default();
+        it.decay_time = 100;
+        it.decay_to = 0;
+        register_type(&mut world, 1001, it);
+
+        let iid = world.items.insert(Item::new_single(1001));
+        if let Some(item) = world.items.get_mut(iid) {
+            item.set_action_id(1500);
+        }
+        assert!(!world.can_decay(iid));
+    }
+
+    #[test]
+    fn can_decay_false_inside_depot_by_default() {
+        use crate::test_world::support::{insert_player, test_player};
+
+        let mut world = minimal_world();
+        let mut it = ItemType::default();
+        it.decay_time = 100;
+        it.decay_to = 0;
+        register_type(&mut world, 2169, it);
+
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("depot_decay", pos));
+        let chest = world
+            .player_get_depot_chest(cid, 1, true)
+            .expect("depot chest");
+        let iid = world.items.insert(Item::new_single(2169));
+        if let Some(cont) = world.container_registry.get_mut(chest) {
+            let _ = cont.add_item(iid);
+        }
+        assert!(!world.can_decay(iid));
+        world.start_decay(iid);
+        assert!(world.decay.remaining_ms(iid, world.server_ms).is_none());
+    }
+
+    #[test]
+    fn corpse_empty_trims_excess_before_stage_transform() {
+        use crate::container::Container;
+        use std::collections::HashMap;
+
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut stage1 = ItemType::default();
+        stage1.group = ItemType::GROUP_CONTAINER;
+        stage1.max_items = 7;
+        stage1.decay_time = 10;
+        stage1.decay_to = 2810;
+        stage1.xml_attributes = HashMap::from([("corpsetype".into(), "blood".into())]);
+        register_type(&mut world, 2806, stage1);
+
+        let mut stage2 = ItemType::default();
+        stage2.group = ItemType::GROUP_CONTAINER;
+        stage2.max_items = 3;
+        stage2.decay_time = 20;
+        stage2.decay_to = 0;
+        stage2.xml_attributes = HashMap::from([("corpsetype".into(), "blood".into())]);
+        register_type(&mut world, 2810, stage2);
+
+        let pos = Position::new(70, 70, 7);
+        let corpse = place_on_tile(&mut world, pos, 2806);
+        world
+            .container_registry
+            .register(Container::new(corpse, 7));
+
+        let mut loot_ids = Vec::new();
+        for _ in 0..5 {
+            let loot = world.items.insert(Item::new_single(2148));
+            if let Some(cont) = world.container_registry.get_mut(corpse) {
+                let _ = cont.add_item(loot);
+            }
+            loot_ids.push(loot);
+        }
+
+        world.start_decay(corpse);
+        let expired = world.decay.tick(world.server_ms + 10_000);
+        world.process_decay_expiry(&expired);
+
+        assert_eq!(world.items.get(corpse).map(|i| i.item_type), Some(2810));
+        let remaining = world
+            .container_registry
+            .get(corpse)
+            .map(|c| c.items.len())
+            .unwrap_or(0);
+        assert_eq!(remaining, 3);
+        // First two children destroyed (Empty walks from front).
+        assert!(world.items.get(loot_ids[0]).is_none());
+        assert!(world.items.get(loot_ids[1]).is_none());
+        assert!(world.items.get(loot_ids[2]).is_some());
+    }
+
+    #[test]
+    fn non_corpse_empty_moves_excess_to_tile() {
+        use crate::container::Container;
+
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut bag = ItemType::default();
+        bag.group = ItemType::GROUP_CONTAINER;
+        bag.max_items = 5;
+        bag.decay_time = 5;
+        bag.decay_to = 0;
+        register_type(&mut world, 1988, bag);
+
+        let pos = Position::new(71, 71, 7);
+        let bag_id = place_on_tile(&mut world, pos, 1988);
+        world
+            .container_registry
+            .register(Container::new(bag_id, 5));
+
+        let loot = world.items.insert(Item::new_single(2148));
+        if let Some(cont) = world.container_registry.get_mut(bag_id) {
+            let _ = cont.add_item(loot);
+        }
+
+        world.start_decay(bag_id);
+        let expired = world.decay.tick(world.server_ms + 5_000);
+        world.process_decay_expiry(&expired);
+
+        assert!(world.items.get(bag_id).is_none());
+        assert!(
+            world
+                .map
+                .get_tile(pos)
+                .is_some_and(|t| t.has_item(loot)),
+            "loot moved to tile before bag removed"
+        );
+    }
+
+    #[test]
+    fn field_expire_transforms_via_cron() {
+        use crate::cylinder::CylinderFlags;
+
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut fire = ItemType::default();
+        fire.decay_time = 200;
+        fire.decay_to = 1488;
+        register_type(&mut world, 1487, fire);
+
+        let mut mid = ItemType::default();
+        mid.decay_time = 200;
+        mid.decay_to = 0;
+        register_type(&mut world, 1488, mid);
+
+        let pos = Position::new(72, 72, 7);
+        world.map.insert_tile(pos, Tile::empty_normal());
+        let iid = world.items.insert(Item::new_single(1487));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+            .expect("add field");
+
+        let expired = world.decay.tick(world.server_ms + 200_000);
+        world.process_decay_expiry(&expired);
+
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(1488));
+        assert!(world.decay.remaining_ms(iid, world.server_ms).is_some());
     }
 }

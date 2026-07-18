@@ -402,12 +402,16 @@ fn append_equip_requirements(s: &mut String, it: &ItemType) {
 }
 
 /// Full `Item::getDescription(it, lookDistance, item, subType)` for normal items (no runes / no spells).
+///
+/// `show_duration_ms`: remaining duration for `showduration` look text (`None` = no duration attr →
+/// "brand-new" when `it.show_duration`). Callers pass scheduler remaining when `DecayState::True`.
 pub fn item_get_description_cpp(
     item: &Item,
     it: &ItemType,
     total_weight_hundredths: u32,
     look_distance: i32,
     hydrated_container_capacity: Option<u32>,
+    show_duration_ms: Option<i32>,
 ) -> String {
     let mut s = item_name_description(item, it, true);
 
@@ -430,6 +434,17 @@ pub fn item_get_description_cpp(
         if charges > 0 {
             let plural = if charges == 1 { "" } else { "s" };
             s.push_str(&format!(" that has {} charge{} left", charges, plural));
+        }
+    }
+
+    // TFS `item.cpp` ~1463–1498 — `it.showDuration`.
+    if it.show_duration {
+        match show_duration_ms {
+            Some(ms) => {
+                s.push_str(" that will expire in ");
+                s.push_str(&format_duration_remaining(ms.max(0) as u32 / 1000));
+            }
+            None => s.push_str(" that is brand-new"),
         }
     }
 
@@ -470,6 +485,57 @@ pub fn item_get_description_cpp(
     s
 }
 
+/// Format remaining seconds for showduration look text (`item.cpp` ~1466–1494).
+fn format_duration_remaining(duration_sec: u32) -> String {
+    if duration_sec >= 86400 {
+        let days = duration_sec / 86400;
+        let hours = (duration_sec % 86400) / 3600;
+        let mut s = format!("{} day{}", days, if days != 1 { "s" } else { "" });
+        if hours > 0 {
+            s.push_str(&format!(
+                " and {} hour{}",
+                hours,
+                if hours != 1 { "s" } else { "" }
+            ));
+        }
+        s
+    } else if duration_sec >= 3600 {
+        let hours = duration_sec / 3600;
+        let minutes = (duration_sec % 3600) / 60;
+        let mut s = format!("{} hour{}", hours, if hours != 1 { "s" } else { "" });
+        if minutes > 0 {
+            s.push_str(&format!(
+                " and {} minute{}",
+                minutes,
+                if minutes != 1 { "s" } else { "" }
+            ));
+        }
+        s
+    } else if duration_sec >= 60 {
+        let minutes = duration_sec / 60;
+        let seconds = duration_sec % 60;
+        let mut s = format!(
+            "{} minute{}",
+            minutes,
+            if minutes != 1 { "s" } else { "" }
+        );
+        if seconds > 0 {
+            s.push_str(&format!(
+                " and {} second{}",
+                seconds,
+                if seconds != 1 { "s" } else { "" }
+            ));
+        }
+        s
+    } else {
+        format!(
+            "{} second{}",
+            duration_sec,
+            if duration_sec != 1 { "s" } else { "" }
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,7 +561,7 @@ mod tests {
 
         let item = Item::new(it.id, 4);
         let total = 8000u32;
-        let s = item_get_description_cpp(&item, &it, total, 1, None);
+        let s = item_get_description_cpp(&item, &it, total, 1, None, None);
         assert_eq!(s, "4 spears (Atk:25).\nThey weigh 80.00 oz.");
     }
 
@@ -525,7 +591,7 @@ mod tests {
         it.abilities.stats[STAT_MAGICPOINTS] = 2;
 
         let item = Item::new(it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 3500, 1, None);
+        let s = item_get_description_cpp(&item, &it, 3500, 1, None, None);
         assert_eq!(
             s,
             "a yalahari mask (Arm:5, magic level +2).\n\
@@ -549,7 +615,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
         };
 
         let item = Item::new(it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 1800, 1, None);
+        let s = item_get_description_cpp(&item, &it, 1800, 1, None, None);
         assert_eq!(s, "a backpack (Vol:20).\nIt weighs 18.00 oz.");
     }
 
@@ -569,7 +635,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
 
         let mut item = Item::new(it.id, 1);
         item.set_charges(50);
-        let s = item_get_description_cpp(&item, &it, 500, 1, None);
+        let s = item_get_description_cpp(&item, &it, 500, 1, None, None);
         assert_eq!(
             s,
             "a necklace of the deep (protection life drain +50%) that has 50 charges left.\n\
@@ -588,7 +654,32 @@ It can only be wielded properly by players of level 120 or higher."
         };
 
         let item = Item::new_single(it.id);
-        let s = item_get_description_cpp(&item, &it, it.weight, 3, None);
+        let s = item_get_description_cpp(&item, &it, it.weight, 3, None, None);
         assert_eq!(s, "water.");
+    }
+
+    #[test]
+    fn showduration_expire_text_and_brand_new() {
+        let it = ItemType {
+            id: 2169,
+            name: "time ring".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            show_duration: true,
+            weight: 90,
+            ..Default::default()
+        };
+        let item = Item::new_single(it.id);
+        let brand = item_get_description_cpp(&item, &it, 90, 1, None, None);
+        assert!(
+            brand.contains("that is brand-new"),
+            "brand-new: {brand}"
+        );
+
+        let with_dur = item_get_description_cpp(&item, &it, 90, 1, None, Some(125_000));
+        assert!(
+            with_dur.contains("that will expire in 2 minutes and 5 seconds"),
+            "expire: {with_dur}"
+        );
     }
 }

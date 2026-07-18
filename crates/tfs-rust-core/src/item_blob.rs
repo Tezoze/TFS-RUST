@@ -224,6 +224,16 @@ fn write_custom_value(w: &mut PropWriteStream, v: &CustomAttrValue) {
 
 /// C++ `Item::serializeAttr` — binary compatible with TFS 1.4.2 `PropWriteStream` output.
 pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
+    write_item_blob_with_duration(item, items_db, None)
+}
+
+/// Like [`write_item_blob`], but `duration_override_ms` replaces raw Duration when set
+/// (player save: live remaining from `DecayManager`, not schedule-time snapshot).
+pub fn write_item_blob_with_duration(
+    item: &Item,
+    items_db: &ItemDatabase,
+    duration_override_ms: Option<i32>,
+) -> Vec<u8> {
     let mut w = PropWriteStream::new();
     let it = items_db.items.get(&item.item_type);
 
@@ -290,9 +300,16 @@ pub fn write_item_blob(item: &Item, items_db: &ItemDatabase) -> Vec<u8> {
         w.write_string(desc);
     }
 
-    if attrs.has_duration() {
+    let duration_to_write = duration_override_ms.or_else(|| {
+        if attrs.has_duration() {
+            Some(attrs.get_duration_raw())
+        } else {
+            None
+        }
+    });
+    if let Some(dur) = duration_to_write {
         w.write_u8(AttrType::Duration as u8);
-        w.write_i32(attrs.get_duration_raw());
+        w.write_i32(dur);
     }
 
     let decay = attrs.get_decaying();

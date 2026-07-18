@@ -1,11 +1,13 @@
-## Item decay / expire system (2026-07-18) — Phase 3 done
+## Item decay / expire system (2026-07-18) — Phase 5 done
 - [x] Audit decompile Expire/Cron vs TFS duration/decayto/stopduration vs Rust
 - [x] Plan doc: `tasks/decay-system-plan.md` (Phase 0 decisions locked)
 - [x] Phase 0: corpse = XML duration only; Empty required; depot config default false; 1098 shared
 - [x] Phase 1: typed ItemType decay fields + `decay_deadline_ms` (fix `duration * 50`)
 - [x] Phase 2: `start_decay` / `stop_decay` / `can_decay` / `internal_decay_item` / `process_decay_expiry`; Lua `item:decay()`; cron applies all cylinders
 - [x] Phase 3: `change_item_type` stopduration; cylinder add→`start_decay`; destroy→cancel; equip/lua transform wired
-- [ ] Phase 4–6: persistence, Empty/depot polish, cleanup ad-hoc schedulers
+- [x] Phase 4: login `Pending` → `start_decay`; save writes `DecayManager` remaining ms
+- [x] Phase 5: Empty before expire; showduration look; actionId/depot `can_decay`; field cron smoke
+- [ ] Phase 6: fold corpse/splash ad-hoc schedulers; remove `corpse_decay_offset_ms`
 
 ## Monster XML summons — 772 CASTING / ToDo (2026-07-18) — done
 - [x] Parse `<summons>` / `SummonBlock` into `MonsterType`

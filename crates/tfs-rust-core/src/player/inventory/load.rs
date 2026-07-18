@@ -11,6 +11,7 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::slot_to_array_index;
 use crate::item::Item;
+use crate::item_attributes::DecayState;
 
 impl GameWorld {
     /// Hydrate runtime items from DB rows (`loadItems` + placement loop — `iologindata.cpp`).
@@ -35,6 +36,50 @@ impl GameWorld {
         // TFS login: equipped items get `EquipItem` abilities when placed
         // (`iologindata` → inventory; MoveEvent equip runs on add). Apply here after slots fill.
         self.apply_login_equipment_abilities(cid);
+        // Domain: `iologindata.cpp` / `iomapserialize.cpp` `startDecaying` after load.
+        // Blob maps non-zero DecayingState → Pending; re-queue into DecayManager.
+        self.restart_pending_decay_for_player(cid);
+    }
+
+    /// Re-schedule items loaded as [`DecayState::Pending`] (login / future house hydrate).
+    ///
+    /// Domain: TFS `Item::startDecaying` after `loadItem` (`iologindata.cpp` / `iomapserialize.cpp`).
+    pub fn restart_pending_decay_for_player(&mut self, cid: CreatureId) {
+        let pending: Vec<ItemId> = self
+            .collect_player_item_ids(cid)
+            .into_iter()
+            .filter(|&id| {
+                self.items
+                    .get(id)
+                    .is_some_and(|i| i.decaying() == DecayState::Pending)
+            })
+            .collect();
+        for id in pending {
+            self.start_decay(id);
+        }
+    }
+
+    /// BFS over equipment slots + depot/inbox/store trees owned by `cid`.
+    fn collect_player_item_ids(&self, cid: CreatureId) -> Vec<ItemId> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return Vec::new();
+        };
+        let mut roots: Vec<ItemId> = p.equipment_slots.iter().flatten().copied().collect();
+        roots.extend(p.depot_chests.values().copied());
+        roots.extend(p.depot_lockers.values().copied());
+        if let Some(inbox) = p.inbox_root {
+            roots.push(inbox);
+        }
+
+        let mut out = Vec::new();
+        let mut stack = roots;
+        while let Some(id) = stack.pop() {
+            out.push(id);
+            if let Some(cont) = self.container_registry.get(id) {
+                stack.extend(cont.items.iter().copied());
+            }
+        }
+        out
     }
 
     /// Apply `EquipItem` abilities for every filled equipment slot (login / hydrate).
@@ -555,7 +600,61 @@ mod tests {
     use tfs_rust_db::ItemRecord;
 
     use crate::container::ContainerType;
+    use crate::item_attributes::DecayState;
+    use crate::item_blob::write_item_blob;
     use crate::test_world::support::{insert_player, minimal_world, test_player};
+    use tfs_rust_content::otb::ItemType;
+
+    #[test]
+    fn hydrate_pending_decay_reschedules_remaining_ms() {
+        let mut world = minimal_world();
+        world.server_ms = 5_000;
+        let mut it = ItemType::default();
+        it.id = 2169;
+        it.server_id = 2169;
+        it.decay_time = 600;
+        it.decay_to = 2168;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(2169, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+
+        let mut ring = Item::new_single(2169);
+        ring.set_duration(120_000);
+        ring.set_decaying(DecayState::True); // write as True; parse → Pending
+        let blob = write_item_blob(&ring, world.items_db.as_ref());
+
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("decay_login", pos));
+        let rows = vec![ItemRecord {
+            pid: 6, // CONST_SLOT_RING
+            sid: 101,
+            itemtype: 2169,
+            count: 1,
+            attributes: blob,
+        }];
+        world.hydrate_player_inventory_from_db(cid, &rows, &[], &[], &[]);
+
+        let ring_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.equipment_slots[5], // slot 6 → index 5
+                _ => None,
+            })
+            .expect("ring equipped");
+        assert_eq!(
+            world.items.get(ring_id).map(|i| i.decaying()),
+            Some(DecayState::True)
+        );
+        assert_eq!(
+            world.decay.remaining_ms(ring_id, world.server_ms),
+            Some(120_000)
+        );
+    }
 
     #[test]
     fn load_inbox_top_level_places_items_in_inbox() {
