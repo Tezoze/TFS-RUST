@@ -32,7 +32,7 @@ impl GameWorld {
             crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY,
         );
         let hl = p.base.health.max(0).min(u16::MAX as i32) as u16;
-        let max_h = p.base.max_health.max(0).min(u16::MAX as i32) as u16;
+        let max_h = p.effective_max_health().min(u16::MAX as i32) as u16;
         let level = p.level.max(0).min(u16::MAX as i32) as u16;
         let total_cap = p.get_capacity_u32_with_flags(cannot, infinite);
         let free_cap = p.get_free_capacity_u32_with_flags(cannot, infinite);
@@ -49,6 +49,8 @@ impl GameWorld {
         };
 
         let magic_level_percent = p.magic_percent(&self.mechanics.profile, &self.mechanics.hooks);
+        let magic_level = p.magic_level().clamp(0, 255) as u8;
+        let base_magic = p.skills.maglevel.clamp(0, 255) as u8;
 
         let stats = PlayerStatsWire {
             health: hl,
@@ -59,11 +61,11 @@ impl GameWorld {
             level,
             level_percent,
             mana: p.mana.max(0).min(u16::MAX as i32) as u16,
-            max_mana: p.max_mana.max(0).min(u16::MAX as i32) as u16,
-            magic_level: p.skills.maglevel.clamp(0, 255) as u8,
-            base_magic_level: p.skills.maglevel.clamp(0, 255) as u8,
+            max_mana: p.effective_max_mana().min(u16::MAX as i32) as u16,
+            magic_level,
+            base_magic_level: base_magic,
             magic_level_percent,
-            soul: p.economy.soul.clamp(0, 255) as u8,
+            soul: p.effective_soul().clamp(0, 255) as u8,
             stamina_minutes: p.stamina_minutes,
             base_speed_half: (p.base.base_speed.max(0) as u32 / 2).min(0xFFFF) as u16,
             regeneration_ticks_sec: 0,
@@ -86,15 +88,17 @@ impl GameWorld {
         let profile = &self.mechanics.profile;
         let hooks = &self.mechanics.hooks;
         let mut levels = [0u16; 7];
+        let mut bases = [0u16; 7];
         let mut percents = [0u8; 7];
         for skill in SkillNr::COMBAT_ALL {
             let idx = skill.try_index();
-            levels[idx] = skill.level(&p.skills).clamp(0, u16::MAX as i32) as u16;
+            levels[idx] = p.skill_level(skill).clamp(0, u16::MAX as i32) as u16;
+            bases[idx] = skill.level(&p.skills).clamp(0, u16::MAX as i32) as u16;
             percents[idx] = p.skill_percent(skill, profile, hooks);
         }
         let wire = PlayerSkillsWire {
             levels,
-            bases: levels,
+            bases,
             percents,
             additional_levels: [0u16; 6],
             additional_bases: [0u16; 6],

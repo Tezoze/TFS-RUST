@@ -407,7 +407,7 @@ impl GameWorld {
         let (skill, level, mode, dist_mult, attack_speed_ms, learning_active) =
             match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => (
-                    p.skills.dist,
+                    p.skill_level(crate::player::combat::SkillNr::Distance),
                     p.level,
                     p.attack_mode,
                     p.vocation_profile.formula.dist_damage as f64,

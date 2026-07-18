@@ -51,7 +51,7 @@ impl GameWorld {
         let (skill, level, mode, melee_mult, attack_speed_ms, learning_active) =
             match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => (
-                    atk_skill_nr.level(&p.skills),
+                    p.skill_level(atk_skill_nr),
                     p.level,
                     p.attack_mode,
                     p.vocation_profile.formula.melee_damage as f64,

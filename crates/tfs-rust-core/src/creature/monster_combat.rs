@@ -308,7 +308,7 @@ impl crate::game_world::GameWorld {
                 let armor = self.player_get_armor_strength(target_id);
                 let has_shield = self.player_get_shield(target_id).is_some();
                 MeleeDefenseSnapshot {
-                    defense_skill: skill_nr.level(&p.skills),
+                    defense_skill: p.skill_level(skill_nr),
                     defense_value: def_value,
                     armor,
                     defend_mode: defend_fight_mode_for_target(kind),
@@ -765,6 +765,7 @@ mod tests {
             outfit: Default::default(),
             speed: 200,
             base_speed: 200,
+            var_speed: 0,
             skull: SkullType::None,
             drunkenness: 0,
             active_conditions: Vec::new(),

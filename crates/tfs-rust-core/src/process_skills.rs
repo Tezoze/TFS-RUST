@@ -28,8 +28,65 @@ impl GameWorld {
             self.process_creature_skills(cid);
             // Phase 4: 1098 defer deleted — both eras run fed regen.
             self.process_player_fed_regen(cid);
+            self.process_equipment_regeneration(cid);
             // CH-5: flood protection message buffer decrement (1500ms interval).
             self.process_player_message_buffer(cid);
+        }
+    }
+
+    /// TFS `ConditionRegeneration::executeCondition` — life ring / soft boots (`condition.cpp`).
+    ///
+    /// `ProcessSkills` cadence is ~1000 ms; accumulate until `health_ticks_ms` / `mana_ticks_ms`.
+    fn process_equipment_regeneration(&mut self, cid: CreatureId) {
+        const INTERVAL_MS: u32 = 1000;
+        let Some(CreatureKind::Player(_)) = self.creatures.get(cid) else {
+            return;
+        };
+        // Inside PZ — TFS regen conditions still tick; fed regen is PZ-gated separately.
+        let mut hp_delta = 0i32;
+        let mut mana_delta = 0i32;
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            for cond in p.base.active_conditions.iter_mut() {
+                if cond.ctype != ConditionType::Regeneration {
+                    continue;
+                }
+                let ConditionData::Regeneration {
+                    health_gain,
+                    health_ticks_ms,
+                    mana_gain,
+                    mana_ticks_ms,
+                    health_elapsed_ms,
+                    mana_elapsed_ms,
+                } = &mut cond.data
+                else {
+                    continue;
+                };
+                if *health_ticks_ms > 0 && *health_gain > 0 {
+                    *health_elapsed_ms = health_elapsed_ms.saturating_add(INTERVAL_MS);
+                    while *health_elapsed_ms >= *health_ticks_ms {
+                        *health_elapsed_ms -= *health_ticks_ms;
+                        hp_delta += *health_gain;
+                    }
+                }
+                if *mana_ticks_ms > 0 && *mana_gain > 0 {
+                    *mana_elapsed_ms = mana_elapsed_ms.saturating_add(INTERVAL_MS);
+                    while *mana_elapsed_ms >= *mana_ticks_ms {
+                        *mana_elapsed_ms -= *mana_ticks_ms;
+                        mana_delta += *mana_gain;
+                    }
+                }
+            }
+            if hp_delta > 0 {
+                let max_h = p.effective_max_health();
+                p.base.health = (p.base.health + hp_delta).min(max_h);
+            }
+            if mana_delta > 0 {
+                let max_m = p.effective_max_mana();
+                p.mana = (p.mana + mana_delta).min(max_m);
+            }
+        }
+        if hp_delta > 0 || mana_delta > 0 {
+            self.send_player_stats(cid);
         }
     }
 
@@ -145,6 +202,9 @@ impl GameWorld {
                         if let Some(left) = cond.timer_rounds_left.as_mut() {
                             *left -= 1;
                         }
+                    }
+                    ConditionType::Regeneration => {
+                        // Ticked in `process_equipment_regeneration` (needs HP/mana mutation).
                     }
                     // C++ `ConditionGeneric::executeCondition` — `condition.cpp:315-317` →
                     // `Condition::executeCondition` (`condition.cpp:154-163`): `ticks =

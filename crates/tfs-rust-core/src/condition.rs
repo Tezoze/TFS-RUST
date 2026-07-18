@@ -22,8 +22,14 @@ pub enum ConditionData {
         color: u8,
     },
     Regeneration {
-        health_per_tick: i32,
-        mana_per_tick: i32,
+        health_gain: i32,
+        /// Interval between HP ticks (ms). `0` → no HP regen from this condition.
+        health_ticks_ms: u32,
+        mana_gain: i32,
+        /// Interval between mana ticks (ms). `0` → no mana regen from this condition.
+        mana_ticks_ms: u32,
+        health_elapsed_ms: u32,
+        mana_elapsed_ms: u32,
     },
     Soul {
         per_tick: i32,

@@ -23,7 +23,7 @@ const PLAYER_MAX_SPEED: i32 = 1500;
 
 /// TFS `Creature::getSpeed` — `baseSpeed + varSpeed` from conditions (`creature.h`); step uses `getStepSpeed` clamp.
 fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i32 {
-    let mut s = base.speed;
+    let mut s = base.speed + base.var_speed;
     for c in &base.active_conditions {
         if let ConditionData::Speed { flat_delta } = c.data {
             s += flat_delta;

@@ -8,6 +8,7 @@ pub(crate) mod load;
 pub(crate) mod notifications;
 pub(crate) mod query_add;
 pub(crate) mod util;
+pub(crate) mod equip_abilities;
 
 // `#[allow(unused_imports)]` — populated as later phases add `crate::player::inventory::…`
 // call sites; the pure-move phase (PM) keeps them unused.

@@ -1489,8 +1489,18 @@ impl GameWorld {
                 );
             }
             SpellImpact::Drunk { drunkness } => {
-                if let Some(kind) = self.creatures.get_mut(target_id) {
-                    kind.base_mut().drunkenness = (*drunkness).max(0) as u32;
+                let suppressed = match self.creatures.get(target_id) {
+                    Some(CreatureKind::Player(p)) => {
+                        p.condition_suppressions
+                            & tfs_rust_content::item_abilities::CONDITION_DRUNK
+                            != 0
+                    }
+                    _ => false,
+                };
+                if !suppressed {
+                    if let Some(kind) = self.creatures.get_mut(target_id) {
+                        kind.base_mut().drunkenness = (*drunkness).max(0) as u32;
+                    }
                 }
             }
             SpellImpact::Field => {

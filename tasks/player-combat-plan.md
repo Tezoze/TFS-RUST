@@ -79,6 +79,7 @@ PC-5 is landed (including `rateSkill`/`rateMagic`). Remaining player-combat work
 | Fight/chase/secure + BlockLogout | `player/combat/fight_mode.rs` | Skulls stubbed (`is_attack_justified` → false). |
 | Monster melee + spells | `monster_ai.rs`, `monster_combat.rs` | Uses `disc_offsets` for radius spells. |
 | Vocation / item weapon attrs | `vocations.lua`, OTB `ItemType`, `WandRegistry` | PC-0 / PC-2b / PC-3. |
+| Equip item abilities (speed/skills/stats/regen/transform) | `player/inventory/equip_abilities.rs` | TFS `EquipItem`/`DeEquipItem`; BoH +20; rings transform+decay. |
 | Fed regen from vocation | `process_skills.rs` | Wired via `VocationRegistry::fed_regen_params`. |
 
 ### 1.2 Still open

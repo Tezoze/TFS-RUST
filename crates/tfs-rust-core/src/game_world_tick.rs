@@ -45,7 +45,10 @@ impl GameWorld {
             self.process_creatures();
         }
         if fired.cron {
-            let _ = self.decay.tick(self.server_ms);
+            let expired = self.decay.tick(self.server_ms);
+            if !expired.is_empty() {
+                self.process_equipment_decay_expiry(&expired);
+            }
         }
         if fired.skills {
             self.process_skills();

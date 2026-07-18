@@ -308,12 +308,18 @@ pub fn fire_on_player_equip(world: &mut GameWorld, player: CreatureId, item: Ite
             .events
             .on_player_equip(player, item, item_type, slot, player_level);
     });
+    // Native `MoveEvent::EquipItem` abilities — `movement.cpp` (speed/skills/stats).
+    // XML `function="onEquipItem"` is a C++ builtin, not the Lua stub we register.
+    world.apply_equip_item_abilities(player, item, slot);
 }
 
 /// TFS `MoveEvents::onPlayerDeEquip` — `postRemoveNotification`.
 pub fn fire_on_player_deequip(world: &mut GameWorld, player: CreatureId, item: ItemId, slot: u8) {
     let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
     let player_level = player_level_u32(world, player);
+    // Native deequip abilities first — needs `inventoryAbilities` still true
+    // (`DeEquipItem` clears the flag itself; `clear_inventory_ability_on_deequip` is redundant).
+    world.remove_equip_item_abilities(player, item, slot);
     with_equip_mutation_scope(world, |world| {
         world
             .events

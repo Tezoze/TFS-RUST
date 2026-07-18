@@ -350,21 +350,22 @@ impl GameWorld {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return 0;
         };
+        use crate::player::combat::SkillNr;
         let item_id = match item_id {
             Some(id) => id,
-            None => return p.skills.fist,
+            None => return p.skill_level(SkillNr::Fist),
         };
         let Some(item) = self.items.get(item_id) else {
-            return p.skills.fist;
+            return p.skill_level(SkillNr::Fist);
         };
         let Some(it) = self.items_db.items.get(&item.item_type) else {
             return 0;
         };
         match it.weapon_type {
-            crate::inventory::WEAPON_SWORD => p.skills.sword,
-            crate::inventory::WEAPON_CLUB => p.skills.club,
-            crate::inventory::WEAPON_AXE => p.skills.axe,
-            crate::inventory::WEAPON_DISTANCE => p.skills.dist,
+            crate::inventory::WEAPON_SWORD => p.skill_level(SkillNr::Sword),
+            crate::inventory::WEAPON_CLUB => p.skill_level(SkillNr::Club),
+            crate::inventory::WEAPON_AXE => p.skill_level(SkillNr::Axe),
+            crate::inventory::WEAPON_DISTANCE => p.skill_level(SkillNr::Distance),
             _ => 0,
         }
     }

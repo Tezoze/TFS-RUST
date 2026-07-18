@@ -32,7 +32,8 @@ pub enum CombatType {
     Death = 11,
 }
 
-/// Order matches TFS `ConditionType_t` (`condition.h`) 0..=24.
+/// Order matches TFS `ConditionType_t` (`condition.h`) 0..=24; `Regeneration` is 25
+/// (TFS bit-flag `CONDITION_REGENERATION` — kept as a sequential discriminant for Rust).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ConditionType {
@@ -61,6 +62,8 @@ pub enum ConditionType {
     Cursed = 22,
     ExhaustGroup = 23,
     Pz = 24,
+    /// Equipment regen (life ring / soft boots) — TFS `CONDITION_REGENERATION`.
+    Regeneration = 25,
 }
 
 /// Order matches TFS `Skulls_t` (`enums.h`) for protocol skull byte 0..=6.
@@ -289,6 +292,7 @@ impl fmt::Display for ConditionType {
             Self::Cursed => "cursed",
             Self::ExhaustGroup => "exhaust-group",
             Self::Pz => "pz",
+            Self::Regeneration => "regeneration",
         })
     }
 }
@@ -521,6 +525,7 @@ impl TryFrom<u8> for ConditionType {
             22 => Self::Cursed,
             23 => Self::ExhaustGroup,
             24 => Self::Pz,
+            25 => Self::Regeneration,
             _ => return Err(()),
         })
     }

@@ -32,6 +32,32 @@ impl GameWorld {
         self.recompute_player_inventory_weight(cid);
         self.update_player_items_light(cid, true);
         self.change_creature_light(cid);
+        // TFS login: equipped items get `EquipItem` abilities when placed
+        // (`iologindata` → inventory; MoveEvent equip runs on add). Apply here after slots fill.
+        self.apply_login_equipment_abilities(cid);
+    }
+
+    /// Apply `EquipItem` abilities for every filled equipment slot (login / hydrate).
+    pub(crate) fn apply_login_equipment_abilities(&mut self, cid: CreatureId) {
+        let slots: Vec<(u8, ItemId)> = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p
+                .equipment_slots
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, iid)| {
+                    // Array index `i` → slot `i + 1` (`CONST_SLOT_*` / store inbox = 11).
+                    let slot = (idx as u8).saturating_add(1);
+                    if !(1..=10).contains(&slot) {
+                        return None; // skip store inbox — no equip abilities
+                    }
+                    iid.map(|id| (slot, id))
+                })
+                .collect(),
+            _ => return,
+        };
+        for (slot, iid) in slots {
+            self.apply_equip_item_abilities(cid, iid, slot);
+        }
     }
 
     pub(crate) fn ensure_container_registered(

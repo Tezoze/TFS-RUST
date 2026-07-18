@@ -193,6 +193,12 @@ pub struct Player {
     pub items_light: LightInfo,
     /// MoveEvent ability guard per slot — `Player::inventoryAbilities` (`player.h`).
     pub inventory_abilities: [bool; 11],
+    /// TFS `Player::varSkills` — equipment skill modifiers (`player.h` / `MoveEvent::EquipItem`).
+    pub var_skills: [i32; 7],
+    /// TFS `Player::varStats` — equipment stat modifiers (`stats_t`, `player.h`).
+    pub var_stats: [i32; 4],
+    /// TFS `Player::conditionSuppressions` — `addConditionSuppressions` (`player.cpp`).
+    pub condition_suppressions: u32,
     /// Active NPC shop session — `Player::shopOwner` (`player.h`); list refresh deferred until shop runtime.
     pub shop_owner: Option<u32>,
     /// `sendVIPEntries` payload from `account_viplist`.
@@ -416,5 +422,43 @@ impl Player {
         if let Some(idx) = crate::inventory::slot_to_array_index(slot) {
             self.inventory_abilities[idx] = enabled;
         }
+    }
+
+    /// TFS `Player::getSkillLevel` — base skill + `varSkills` (`player.h`).
+    #[inline]
+    pub fn skill_level(&self, skill: crate::player::combat::SkillNr) -> i32 {
+        let base = skill.level(&self.skills);
+        let var = self.var_skills[skill.try_index()];
+        (base + var).max(0)
+    }
+
+    /// TFS `Player::getMagicLevel` — base maglevel + `varStats[STAT_MAGICPOINTS]`.
+    #[inline]
+    pub fn magic_level(&self) -> i32 {
+        (self.skills.maglevel
+            + self.var_stats[tfs_rust_content::item_abilities::STAT_MAGICPOINTS])
+            .max(0)
+    }
+
+    /// Effective max HP including `varStats[STAT_MAXHITPOINTS]`.
+    #[inline]
+    pub fn effective_max_health(&self) -> i32 {
+        (self.base.max_health
+            + self.var_stats[tfs_rust_content::item_abilities::STAT_MAXHITPOINTS])
+            .max(0)
+    }
+
+    /// Effective max mana including `varStats[STAT_MAXMANAPOINTS]`.
+    #[inline]
+    pub fn effective_max_mana(&self) -> i32 {
+        (self.max_mana + self.var_stats[tfs_rust_content::item_abilities::STAT_MAXMANAPOINTS])
+            .max(0)
+    }
+
+    /// Effective soul including `varStats[STAT_SOULPOINTS]` (clamped ≥ 0).
+    #[inline]
+    pub fn effective_soul(&self) -> i32 {
+        (self.economy.soul + self.var_stats[tfs_rust_content::item_abilities::STAT_SOULPOINTS])
+            .max(0)
     }
 }

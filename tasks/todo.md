@@ -1,3 +1,12 @@
+## Equip item abilities (2026-07-18) — done
+- [x] Native `MoveEvent::EquipItem` / `DeEquipItem` abilities (`movement.cpp`) — speed, skills, flat/percent stats, invisible, mana shield, regen, suppressdrunk
+- [x] `CreatureBase::var_speed` + `Player::{var_skills,var_stats,condition_suppressions}`; walk/combat/stats use effective values
+- [x] `transformEquipTo` / `transformDeEquipTo` + decay schedule (`duration` sec × 1000); cron expiry strips abilities
+- [x] `ConditionType::Regeneration` + `process_equipment_regeneration` (life ring / soft boots)
+- [x] `sendIcons` (0xA2) + stealth-ring empty-outfit visibility announce
+- [x] Wire via `fire_on_player_equip` / `fire_on_player_deequip` + login hydrate
+- [x] Tests: BoH, sword ring, time ring transform, life/energy/stealth/dwarven rings
+
 ## Live spider / name-bar / cast turn bugs (2026-07-13) — in progress
 - [x] **Monster fire attacks not casting** (2026-07-16): `length`+`spread` fire wave fell through to `SpellShape::Actor` (self-cast, invisible on fire-immune dragons); `target+radius` fireball mapped to `Victim` (single target) instead of `Destination` (area); `areaeffect` parsed but never broadcast (`parse_area_effect_name` stub). Fixed shape detection, 772 `AngleShapeSpell` cone by facing direction (`spread*10`→Angle, `length`→Range), Destination circle, and `CONST_ME_*` area-effect broadcast. See lesson 176.
 - [x] Rock soil OTB: classic IDs (107, 170+) match objects.srv; items.xml misnames shallow water 861–864 / mountains 4411+ as "rock soil"
