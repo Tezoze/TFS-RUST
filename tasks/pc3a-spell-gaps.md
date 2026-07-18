@@ -1,6 +1,6 @@
 # PC-3a Spell System — Remaining Gaps
 
-Updated: 2026-07-18 (Phases 2–4 + 4b landed)
+Updated: 2026-07-18 (Phases 2–5 + 4b landed)
 Scope: `data/scripts/spells/**/*.lua` (70 spell scripts, excluding `areas.lua`)
 
 ## Current State
@@ -9,14 +9,15 @@ All 70 spells **load** and **register** correctly. All 70 spells **cast** —
 `player_say_spell` dispatches vocation/level/mana/soul gates, exhaustion, PZ
 check, mana deduction, and fires the `onCastSpell` Lua callback.
 
-**Phases 1–4 + 4b are done.** Value callbacks, combat `addCondition` application,
+**Phases 1–5 + 4b are done.** Value callbacks, combat `addCondition` application,
 full `ConditionApplySpec` → `ActiveCondition` mapping, `COMBAT_PARAM_DISPEL`,
-`combat:getTargets`, `Creature(id)`, `isPlayer`, `setInFight`, and condition
-**client notifies** (icons / light / invis / outfit / speed) are wired.
+`combat:getTargets`, `Creature(id)`, `isPlayer`, `setInFight`, condition
+**client notifies**, and **conjure helpers** (`getMana` / transform / charges /
+`Group:hasFlag`) are wired.
 
 Remaining gaps are **CREATEITEM / NODAMAGE / distance FX** (Phase 8),
-**conjure helpers** (Phase 5), **event callbacks** (Phase 6), diagonal areas
-(Phase 7), and **non-combat APIs** (houses / summons / utilities).
+**event callbacks** (Phase 6), diagonal areas (Phase 7), and **non-combat APIs**
+(houses / summons / utilities).
 
 **What already works:**
 - `Combat()` constructor, `:setParameter`, `:setArea`, `:setFormula`, `:setCallback`
@@ -32,6 +33,8 @@ Remaining gaps are **CREATEITEM / NODAMAGE / distance FX** (Phase 8),
   Regeneration + cycle→timer_rounds (Phase 3 mapper)
 - `CreatureRef:addCondition` (full spec) / `:removeCondition` / `:isPlayer` /
   `:setInFight` / `:addItem` / inventory helpers
+- `getMana` / `addMana` / `addManaSpent`; `item:transform` / `hasAttribute`;
+  `ItemType:getCharges`; `Group:hasFlag`
 - `combat:getTargets(creature, variant)` — area creature list
 - `Creature(id)` constructor
 - Constants + `SpellBuilder` methods registered
@@ -39,8 +42,6 @@ Remaining gaps are **CREATEITEM / NODAMAGE / distance FX** (Phase 8),
 **Not yet wired (frequently needed):**
 - Event callback invocation (`TARGETCREATURE` / `TARGETTILE`)
 - `create_item` / `no_damage` / `distance_effect` on execute
-- Conjure helpers: `getMana` / `addMana` / `addManaSpent`, `item:transform`,
-  `item:hasAttribute`, `ItemType:getCharges`
 - `MonsterType` (outfit from monster), `Game.createMonster`, house / Tile utilities
 - Diagonal `extArea` overlay
 
@@ -144,14 +145,15 @@ strong_haste / magic_shield / invisibility / paralyze_rune
 |-------|--------|
 | Load `functions.lua` | ✅ |
 | `Player:` bridge on `CreatureRef` | ✅ |
-| `getSlotItem` / `addItem` / `remove` / `getGroup():hasFlag` / `sendCancelMessage` / `Position:sendMagicEffect` | ✅ / mostly |
-| `getMana` / `addMana` / `addManaSpent` | ❌ Missing on `CreatureRef` |
-| `item:transform` / `item:hasAttribute` | ❌ Missing |
-| `ItemType:getCharges` | ❌ Missing (`getId` / stackable / fluid only) |
+| `getSlotItem` / `addItem` / `remove` / `getGroup():hasFlag` / `sendCancelMessage` / `Position:sendMagicEffect` | ✅ |
+| `getMana` / `addMana` / `addManaSpent` | ✅ |
+| `item:transform` / `item:hasAttribute` | ✅ |
+| `ItemType:getCharges` | ✅ |
 | `item:decay` | ⚠️ Method exists; core is logged no-op |
 
 `conjureItem` is Lua in `functions.lua` — do **not** reimplement as a special
-Rust method. Fill the helpers above, then verify conjure + rune creation.
+Rust method. Helpers above landed in Phase 5; cast-test conjure arrow / fireball
+rune conjure to confirm end-to-end.
 
 ### Affected scripts (33 conjureItem + food)
 - All 26 rune scripts (instant half conjures the rune) + animate_dead conjure half
@@ -268,12 +270,13 @@ TFS `Condition*::start/endCondition` + `Player::onAdd/onEndCondition`:
 icons (`0xA2`), speed announce, internal light vs items max, invis empty outfit,
 outfit condition broadcast. Progressive light dim during duration still out of scope.
 
-### Phase 5: Conjure path verification — OPEN (bridge done; helpers missing)
+### Phase 5: Conjure path verification — ✅ DONE
 
 **Goal:** 33 `conjureItem` scripts work via Lua.
 
-Add `getMana` / `addMana` / `addManaSpent`, `transform`, `hasAttribute`,
-`ItemType:getCharges`. Then cast-test conjure arrow / fireball rune conjure.
+Landed: `getMana` / `addMana` / `addManaSpent`, `transform`, `hasAttribute`,
+`ItemType:getCharges`, `Group:hasFlag`, `PlayerFlag_HasInfiniteMana`,
+`ITEM_ATTRIBUTE_*`. `item:decay` remains a logged no-op.
 
 ### Phase 6: Event callbacks — OPEN
 
@@ -293,12 +296,11 @@ Wire `CREATEITEM`, `NODAMAGE`, `DISTANCEEFFECT` through request → `aoe.rs`.
 
 ## Priority Order
 
-1. **Phase 5** — conjure helpers (`getMana`, transform, charges, …)
-2. **Phase 8** — CREATEITEM / NODAMAGE / DISTANCEEFFECT
-3. **Phase 6** — event callbacks
-4. **Phase 7** — diagonal wall areas
-5. **Gaps 5–6** — summons + utilities (+ `MonsterType` for illusion)
-6. **Gap 4** — houses (separate milestone)
+1. **Phase 8** — CREATEITEM / NODAMAGE / DISTANCEEFFECT
+2. **Phase 6** — event callbacks
+3. **Phase 7** — diagonal wall areas
+4. **Gaps 5–6** — summons + utilities (+ `MonsterType` for illusion)
+5. **Gap 4** — houses (separate milestone)
 
 ---
 
@@ -311,7 +313,7 @@ Wire `CREATEITEM`, `NODAMAGE`, `DISTANCEEFFECT` through request → `aoe.rs`.
 | ✅ Direct `addCondition` / helpers (MonsterType residual) | 5 | Phase 3 **done** |
 | ✅ Dispel applied | 9 | Phase 4 **done** |
 | ✅ Condition client notifies (icons/light/invis) | buffs | Phase 4b **done** |
-| ⚠️ `conjureItem` bridge OK; helpers missing | 33 | Phase 5 |
+| ✅ `conjureItem` helpers (`getMana`, transform, charges, …) | 33 | Phase 5 **done** |
 | ✅ `addItem` food; mostly wired | 1 | Phase 5 footnote |
 | ❌ Event callback not invoked | 2 | Phase 6 |
 | ⚠️ Diagonal area partial | 3 | Phase 7 |
@@ -328,12 +330,18 @@ Wire `CREATEITEM`, `NODAMAGE`, `DISTANCEEFFECT` through request → `aoe.rs`.
 - Wall runes — Phase 5 conjure + Phase 7 diagonal + Phase 8 CREATEITEM
 
 **Rough end-to-end readiness:**
-- Damage/heal + buffs + dispel: combat condition path landed
-- Full pack parity: still Phases 5–8 + Gaps 4–6
+- Damage/heal + buffs + dispel + conjure helpers: landed
+- Full pack parity: still Phases 6–8 + Gaps 4–6
 
 ---
 
 ## Correction log
+
+### 2026-07-18 Phase 5 — conjure helpers
+- `getMana` / `addMana` / `addManaSpent` on `CreatureRef` (ScriptContext + LuaMutation).
+- `ItemType:getCharges`, `item:hasAttribute`, `item:transform` (in-place + cylinder notify).
+- Unblockers: `Group:hasFlag`, `PlayerFlag_HasInfiniteMana`, `ITEM_ATTRIBUTE_*`.
+- `item:decay` still logged no-op.
 
 ### 2026-07-18 Phase 4b — condition client updates
 - `Player::internal_light`; `player_creature_light` = max(internal, items).

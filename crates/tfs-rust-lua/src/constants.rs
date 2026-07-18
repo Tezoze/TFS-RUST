@@ -38,6 +38,7 @@ pub fn register_constants(lua: &Lua) -> Result<(), mlua::Error> {
     register_vocations(&globals)?;
     register_conditions(&globals)?;
     register_return_values(&globals)?;
+    register_item_attributes(&globals)?;
     register_misc(&globals)?;
 
     Ok(())
@@ -81,6 +82,10 @@ fn register_player_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("PlayerFlag_CanTalkRedPrivate", 1i32 << 21)?; // const.h:264
     globals.set("PlayerFlag_CanTalkRedChannel", 1i32 << 22)?; // const.h:265
     globals.set("PlayerFlag_TalkOrangeHelpChannel", 1i32 << 23)?; // const.h:266
+    // const.h:506 — PC-3a Phase 5: `conjureItem` dual-hand mana gate.
+    globals.set("PlayerFlag_HasInfiniteMana", 1i64 << 10)?;
+    // const.h:516 — used by quest / capacity scripts.
+    globals.set("PlayerFlag_HasInfiniteCapacity", 1i64 << 20)?;
     Ok(())
 }
 
@@ -207,6 +212,21 @@ fn register_return_values(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
+// --- ITEM_ATTRIBUTE_* (enums.h:51-84 itemAttrTypes bitflags) ---
+//
+// PC-3a Phase 5: `conjureItem` / `destroyItem` check duration / unique / action id.
+
+fn register_item_attributes(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    globals.set("ITEM_ATTRIBUTE_NONE", 0i32)?;
+    globals.set("ITEM_ATTRIBUTE_ACTIONID", 1i32 << 0)?;
+    globals.set("ITEM_ATTRIBUTE_UNIQUEID", 1i32 << 1)?;
+    globals.set("ITEM_ATTRIBUTE_DESCRIPTION", 1i32 << 2)?;
+    globals.set("ITEM_ATTRIBUTE_TEXT", 1i32 << 3)?;
+    globals.set("ITEM_ATTRIBUTE_DURATION", 1i32 << 17)?;
+    globals.set("ITEM_ATTRIBUTE_CHARGES", 1i32 << 20)?;
+    Ok(())
+}
+
 // --- Misc globals previously set as constants in bootstrap ---
 
 fn register_misc(globals: &mlua::Table) -> Result<(), mlua::Error> {
@@ -243,10 +263,27 @@ mod tests {
         assert_eq!(get("TALKTYPE_CHANNEL_O"), 12);
         assert_eq!(get("TALKTYPE_CHANNEL_R2"), 14);
 
-        // PlayerFlag_* (const.h:264-266)
+        // PlayerFlag_* (const.h:264-266, 506, 516)
         assert_eq!(get("PlayerFlag_CanTalkRedPrivate"), 1 << 21);
         assert_eq!(get("PlayerFlag_CanTalkRedChannel"), 1 << 22);
         assert_eq!(get("PlayerFlag_TalkOrangeHelpChannel"), 1 << 23);
+        assert_eq!(
+            globals
+                .get::<i64>("PlayerFlag_HasInfiniteMana")
+                .expect("PlayerFlag_HasInfiniteMana"),
+            1 << 10
+        );
+        assert_eq!(
+            globals
+                .get::<i64>("PlayerFlag_HasInfiniteCapacity")
+                .expect("PlayerFlag_HasInfiniteCapacity"),
+            1 << 20
+        );
+
+        // ITEM_ATTRIBUTE_* (enums.h bitflags)
+        assert_eq!(get("ITEM_ATTRIBUTE_ACTIONID"), 1 << 0);
+        assert_eq!(get("ITEM_ATTRIBUTE_UNIQUEID"), 1 << 1);
+        assert_eq!(get("ITEM_ATTRIBUTE_DURATION"), 1 << 17);
 
         // VOCATION_NONE (enums.h:297)
         assert_eq!(get("VOCATION_NONE"), 0);

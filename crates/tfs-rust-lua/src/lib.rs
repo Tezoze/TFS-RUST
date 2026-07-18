@@ -24,13 +24,14 @@ pub use context::{
 };
 pub use lua_mutation::{
     CombatExecuteRequest, ConditionApplySpec, LuaMoveDestination, LuaMutation, call_combat_execute,
-    call_lua_add_condition, call_lua_add_item, call_lua_add_item_full,
-    call_lua_container_add_item, call_lua_get_depot_chest, call_lua_get_inbox,
-    call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove, call_lua_remove_condition,
-    call_lua_remove_item, call_lua_send_cancel_message, call_lua_send_channel_message,
-    call_lua_send_magic_effect, call_lua_set_action_id, call_lua_set_in_fight,
-    call_lua_set_store_item, call_lua_set_unique_id, register_lua_mutation_applier,
-    set_mutation_bool_result, set_mutation_item_result, with_lua_mutation_scope,
+    call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
+    call_lua_add_mana_spent, call_lua_container_add_item, call_lua_get_depot_chest,
+    call_lua_get_inbox, call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove,
+    call_lua_item_transform, call_lua_remove_condition, call_lua_remove_item,
+    call_lua_send_cancel_message, call_lua_send_channel_message, call_lua_send_magic_effect,
+    call_lua_set_action_id, call_lua_set_in_fight, call_lua_set_store_item,
+    call_lua_set_unique_id, register_lua_mutation_applier, set_mutation_bool_result,
+    set_mutation_item_result, with_lua_mutation_scope,
 };
 pub use move_events::{MoveEventEntry, MoveEventKind, MoveEventsRegistry};
 pub use runtime::{

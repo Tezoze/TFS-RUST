@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
 use crate::lua_mutation::{
     LuaMoveDestination, call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove,
-    call_lua_set_action_id, call_lua_set_store_item, call_lua_set_unique_id,
+    call_lua_item_transform, call_lua_set_action_id, call_lua_set_store_item,
+    call_lua_set_unique_id,
 };
 use crate::userdata::container::ContainerRef;
 
@@ -197,6 +198,38 @@ impl UserData for ItemRef {
             let count = count.unwrap_or(-1);
             call_lua_item_remove(this.0, count).map_err(mlua::Error::runtime)
         });
+
+        // `item:hasAttribute(key)` — `luascript.cpp` `luaItemHasAttribute`.
+        // PC-3a Phase 5: `conjureItem` checks `ITEM_ATTRIBUTE_DURATION`.
+        methods.add_method("hasAttribute", |_, this, key: Option<u32>| {
+            let attr_bits = key.unwrap_or(0);
+            if attr_bits == 0 {
+                return Ok(false);
+            }
+            with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
+        });
+
+        // `item:transform(itemId[, count/subType])` — `luascript.cpp`
+        // `luaItemTransform` → `Game::transformItem`. PC-3a Phase 5.
+        methods.add_method(
+            "transform",
+            |_, this, (item_id, sub_type): (mlua::Value, Option<i32>)| {
+                let new_type: u16 = match item_id {
+                    mlua::Value::Integer(n) => n as u16,
+                    mlua::Value::Number(n) => n as u16,
+                    mlua::Value::String(s) => {
+                        let name = s.to_str()?.to_string();
+                        with_ctx(|ctx| {
+                            ctx.get_item_type_id_by_name(&name)
+                                .ok_or_else(|| mlua::Error::runtime("unknown item name"))
+                        })?
+                    }
+                    _ => return Err(mlua::Error::runtime("invalid item type")),
+                };
+                let sub_type = sub_type.unwrap_or(-1);
+                call_lua_item_transform(this.0, new_type, sub_type).map_err(mlua::Error::runtime)
+            },
+        );
 
         // `item:decay()` — `items.cpp` `startDecay` / `Game::checkDecay`.
         // CH-6 talkaction `/i` item decay scheduling. Schedules the item for

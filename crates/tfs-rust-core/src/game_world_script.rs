@@ -395,6 +395,55 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .is_some_and(|t| t.is_fluid_container())
     }
 
+    /// `ItemType:getCharges()` — `ItemType::charges` (`src/items.h`).
+    /// PC-3a Phase 5: `Player:conjureItem` charge fallback.
+    fn get_item_type_charges(&self, item_type: u16) -> u32 {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.charges)
+            .unwrap_or(0)
+    }
+
+    /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute` (`src/item.h`).
+    /// PC-3a Phase 5: `conjureItem` checks `ITEM_ATTRIBUTE_DURATION`.
+    fn item_has_attribute(
+        &self,
+        item_id: tfs_rust_common::ScriptItemId,
+        attr_bits: u32,
+    ) -> bool {
+        let Some(iid) = self.resolve_item_u64(item_id) else {
+            return false;
+        };
+        let Some(item) = self.items.get(iid) else {
+            return false;
+        };
+        let Some(attrs) = item.attributes.as_ref() else {
+            return false;
+        };
+        (attr_bits & attrs.attribute_bits()) != 0
+    }
+
+    /// `group:hasFlag(flag)` — `Group::flags & flag` (`src/groups.cpp`).
+    /// PC-3a Phase 5: `conjureItem` dual-hand infinite-mana gate.
+    fn group_has_flag(&self, group_id: u16, flag: u64) -> bool {
+        let bits = crate::player_flags::flags_for_group(&self.groups, group_id);
+        crate::player_flags::has_player_flag(bits, flag)
+    }
+
+    /// `player:getMana()` — `Player::getMana` (`player.h`).
+    /// PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana check.
+    fn get_player_mana(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.mana),
+            _ => None,
+        })
+    }
+
     /// `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
     /// PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
     /// `functions.lua` (`computeDamage` / `computeHealing` / `computeSkillDamage`).

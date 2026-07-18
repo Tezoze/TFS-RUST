@@ -305,6 +305,38 @@ pub trait ScriptContext {
         false
     }
 
+    /// `ItemType:getCharges()` — `ItemType::charges` (`src/items.h`).
+    /// PC-3a Phase 5: `Player:conjureItem` falls back to charges when count
+    /// is omitted. Defaults to `0`.
+    fn get_item_type_charges(&self, item_type: u16) -> u32 {
+        let _ = item_type;
+        0
+    }
+
+    /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute`
+    /// (`src/item.h`). `attr_bits` is a Lua `itemAttrTypes` bitflag
+    /// (`ITEM_ATTRIBUTE_*`). Defaults to `false`.
+    fn item_has_attribute(&self, item_id: ScriptItemId, attr_bits: u32) -> bool {
+        let _ = (item_id, attr_bits);
+        false
+    }
+
+    /// `group:hasFlag(flag)` — `Group::flags & flag` (`src/groups.cpp`).
+    /// PC-3a Phase 5: `conjureItem` dual-hand mana gate uses
+    /// `PlayerFlag_HasInfiniteMana`. Defaults to `false`.
+    fn group_has_flag(&self, group_id: u16, flag: u64) -> bool {
+        let _ = (group_id, flag);
+        false
+    }
+
+    /// `player:getMana()` — `Player::getMana` (`player.h`).
+    /// PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana check.
+    /// Defaults to `None`.
+    fn get_player_mana(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
     /// `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
     /// PC-3a Phase 1: value-callback spells (`computeDamage` / `computeHealing`)
     /// call `self:getMagicLevel()` inside `functions.lua`. Defaults to `None`.

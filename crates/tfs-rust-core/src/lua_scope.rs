@@ -166,6 +166,23 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             tracing::debug!(item_id, "item:decay() called (decay scheduling is a no-op pending items.xml decayTo wiring)");
             Ok(())
         }
+        LuaMutation::PlayerAddMana {
+            creature_id,
+            mana_change,
+        } => unsafe { &mut *world }.lua_script_player_add_mana(creature_id, mana_change),
+        LuaMutation::PlayerAddManaSpent {
+            creature_id,
+            amount,
+        } => unsafe { &mut *world }.lua_script_player_add_mana_spent(creature_id, amount),
+        LuaMutation::ItemTransform {
+            item_id,
+            new_type,
+            sub_type,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_item_transform(item_id, new_type, sub_type)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
         LuaMutation::CombatExecute { request } => {
             // PC-3a: `combat:execute(creature, variant)` — synchronous AoE combat.
             // C++ reference: `luascript.cpp:13198` `luaCombatExecute` →

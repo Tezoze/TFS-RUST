@@ -35,6 +35,20 @@ impl UserData for GroupRef {
         // raw group id.
         methods.add_method("getId", |_, this, ()| Ok(this.0));
 
+        // `group:hasFlag(flag)` — `Group::flags & flag` (`src/groups.cpp`).
+        // PC-3a Phase 5: `conjureItem` dual-hand infinite-mana gate.
+        methods.add_method("hasFlag", |_, this, flag: u64| {
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.group_has_flag(this.0, flag))
+            })
+        });
+
         // `group:getName()` — `Group::getName` (`src/groups.cpp`). Returns the
         // group name. Reads through ScriptContext to avoid duplicating the
         // group database in the lua crate.

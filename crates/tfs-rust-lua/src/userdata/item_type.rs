@@ -48,6 +48,21 @@ impl UserData for ItemTypeRef {
             })
         });
 
+        // `ItemType:getCharges()` — `ItemType::charges` (`src/items.h`).
+        // PC-3a Phase 5: `Player:conjureItem` falls back to charges when count
+        // is omitted.
+        methods.add_method("getCharges", |_, this, ()| {
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_item_type_charges(this.0))
+            })
+        });
+
         // `ItemType:getName()` — `ItemType::name` (`src/items.h`). Returns
         // the item name, or empty string if not found.
         methods.add_method("getName", |_, this, ()| {

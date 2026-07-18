@@ -7,9 +7,10 @@ use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_feed,
-    call_lua_get_depot_chest, call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
-    call_lua_send_cancel_message, call_lua_set_in_fight,
+    call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
+    call_lua_add_mana_spent, call_lua_feed, call_lua_get_depot_chest, call_lua_get_inbox,
+    call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
+    call_lua_set_in_fight,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -73,6 +74,29 @@ impl UserData for CreatureRef {
                 ctx.get_player_magic_level(this.0)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
+        });
+
+        // `player:getMana()` — `Player::getMana` (`player.h`).
+        // PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana check.
+        methods.add_method("getMana", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_mana(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        // `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`.
+        // PC-3a Phase 5: `conjureItem` deducts mana for dual-hand second conjure.
+        methods.add_method("addMana", |_, this, mana_change: i32| {
+            call_lua_add_mana(this.0, mana_change).map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
+        // PC-3a Phase 5: advances magic level for dual-hand second conjure.
+        methods.add_method("addManaSpent", |_, this, amount: u64| {
+            call_lua_add_mana_spent(this.0, amount).map_err(mlua::Error::runtime)?;
+            Ok(true)
         });
 
         // `player:getAccountType()` — `accounts.type` tier (`enums.h:80-85`).

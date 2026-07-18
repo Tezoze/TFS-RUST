@@ -122,6 +122,27 @@ pub enum LuaMutation {
     ItemDecay {
         item_id: u64,
     },
+    /// `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`.
+    /// PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana deduction.
+    /// Clamps to `[0, max_mana]`; no combat animation path.
+    PlayerAddMana {
+        creature_id: u64,
+        mana_change: i32,
+    },
+    /// `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
+    /// PC-3a Phase 5: advances magic level via `Player::magic_increase`.
+    PlayerAddManaSpent {
+        creature_id: u64,
+        amount: u64,
+    },
+    /// `item:transform(itemId[, count/subType])` — `luascript.cpp`
+    /// `luaItemTransform` → `Game::transformItem`. PC-3a Phase 5: in-place
+    /// type/subtype change + cylinder notify (inventory/container).
+    ItemTransform {
+        item_id: u64,
+        new_type: u16,
+        sub_type: i32,
+    },
     /// `combat:execute(creature, variant)` — PC-3a. The Lua side resolves area
     /// offsets + formula min/max, then the core applier iterates tiles, checks
     /// `throw_possible`, and applies damage via `combat_execute_with_stimulus`.
@@ -443,6 +464,39 @@ pub fn call_lua_send_magic_effect(x: u16, y: u16, z: u8, effect: u8) -> Result<(
 /// C++ `items.cpp` `startDecay` / `Game::checkDecay`.
 pub fn call_lua_item_decay(item_id: u64) -> Result<(), String> {
     apply_mutation(LuaMutation::ItemDecay { item_id })
+}
+
+/// `player:addMana(manaChange)` — PC-3a Phase 5. Clamps mana to `[0, max_mana]`.
+/// C++ `luascript.cpp` `luaPlayerAddMana` → `Player::changeMana`.
+pub fn call_lua_add_mana(creature_id: u64, mana_change: i32) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerAddMana {
+        creature_id,
+        mana_change,
+    })
+}
+
+/// `player:addManaSpent(amount)` — PC-3a Phase 5. Advances magic level.
+/// C++ `luascript.cpp` `luaPlayerAddManaSpent` → `Player::addManaSpent`.
+pub fn call_lua_add_mana_spent(creature_id: u64, amount: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerAddManaSpent {
+        creature_id,
+        amount,
+    })
+}
+
+/// `item:transform(itemId[, count/subType])` — PC-3a Phase 5.
+/// C++ `luascript.cpp` `luaItemTransform` → `Game::transformItem`.
+pub fn call_lua_item_transform(
+    item_id: u64,
+    new_type: u16,
+    sub_type: i32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::ItemTransform {
+        item_id,
+        new_type,
+        sub_type,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
 /// `combat:execute(creature, variant)` — PC-3a. Synchronous AoE combat

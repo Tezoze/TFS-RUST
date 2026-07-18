@@ -13,6 +13,8 @@ pub const PLAYER_FLAG_CANNOT_BE_ATTACKED: u64 = 1 << 3;
 pub const PLAYER_FLAG_CANNOT_PICKUP_ITEM: u64 = 1 << 14;
 /// C++ `PlayerFlag_HasInfiniteCapacity` — `src/const.h`
 pub const PLAYER_FLAG_HAS_INFINITE_CAPACITY: u64 = 1 << 20;
+/// C++ `PlayerFlag_HasInfiniteMana` — `src/const.h`
+pub const PLAYER_FLAG_HAS_INFINITE_MANA: u64 = 1 << 10;
 /// C++ `PlayerFlag_IgnoredByMonsters` — `src/const.h`
 pub const PLAYER_FLAG_IGNORED_BY_MONSTERS: u64 = 1 << 8;
 /// C++ `PlayerFlag_CanBroadcast` — `src/const.h`
@@ -32,6 +34,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "cannotbeattacked" => Some(PLAYER_FLAG_CANNOT_BE_ATTACKED),
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),
+        "hasinfinitemana" => Some(PLAYER_FLAG_HAS_INFINITE_MANA),
         "ignoredbymonsters" => Some(PLAYER_FLAG_IGNORED_BY_MONSTERS),
         "canbroadcast" => Some(PLAYER_FLAG_CAN_BROADCAST),
         "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
@@ -100,5 +103,12 @@ mod tests {
         let groups = make_group(6, &[("setmaxspeed", false)]);
         let flags = flags_for_group(&groups, 6);
         assert!(!has_player_flag(flags, PLAYER_FLAG_SET_MAX_SPEED));
+    }
+
+    #[test]
+    fn has_infinite_mana_flag_resolves_from_group() {
+        let groups = make_group(2, &[("hasinfinitemana", true)]);
+        let flags = flags_for_group(&groups, 2);
+        assert!(has_player_flag(flags, PLAYER_FLAG_HAS_INFINITE_MANA));
     }
 }

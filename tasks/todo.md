@@ -1,3 +1,9 @@
+## PC-3a Phase 5 — conjure helpers (2026-07-18) — done
+- [x] `getMana` / `addMana` / `addManaSpent` on `CreatureRef` (+ ScriptContext / LuaMutation)
+- [x] `ItemType:getCharges`, `item:hasAttribute`, `item:transform`
+- [x] Unblockers: `Group:hasFlag`, `PlayerFlag_HasInfiniteMana`, `ITEM_ATTRIBUTE_*`
+- [x] Docs in `pc3a-spell-gaps.md`; `player_flags` + constants tests
+
 ## PC-3a Phase 4b — condition client updates (2026-07-18) — done
 - [x] `Player::internal_light` + `player_creature_light` max(internal, items)
 - [x] `on_condition_started` / `on_condition_ended` (icons, speed, light, invis, outfit)

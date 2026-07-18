@@ -554,6 +554,132 @@ impl GameWorld {
         }
     }
 
+    /// Lua `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`
+    /// with `animationOnLoss=false` → `Player::changeMana`.
+    /// PC-3a Phase 5: `conjureItem` dual-hand mana deduction.
+    pub fn lua_script_player_add_mana(
+        &mut self,
+        creature_u64: u64,
+        mana_change: i32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return Err("not a player".into());
+        };
+        let new_mana = (p.mana + mana_change).clamp(0, p.max_mana);
+        p.mana = new_mana;
+        self.send_player_stats(cid);
+        Ok(())
+    }
+
+    /// Lua `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
+    /// PC-3a Phase 5: advances magic level via `Player::magic_increase`.
+    pub fn lua_script_player_add_mana_spent(
+        &mut self,
+        creature_u64: u64,
+        amount: u64,
+    ) -> Result<(), String> {
+        use crate::config::ConfigManager;
+
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let magic_tries =
+            ConfigManager::scale_tries(amount, self.config.rate_magic().unwrap_or(1.0));
+        let profile = self.mechanics.profile;
+        let (levels_gained, new_maglevel) = {
+            let hooks = &self.mechanics.hooks;
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                let gained = p.magic_increase(magic_tries, &profile, hooks);
+                (gained, p.skills.maglevel)
+            } else {
+                return Err("not a player".into());
+            }
+        };
+        self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
+        Ok(())
+    }
+
+    /// Lua `item:transform(itemId[, count/subType])` — pragmatic subset of
+    /// `Game::transformItem` (`game.cpp:1612`). PC-3a Phase 5: in-place type
+    /// + subtype change with inventory/container/tile notify.
+    pub fn lua_script_item_transform(
+        &mut self,
+        item_u64: u64,
+        new_type: u16,
+        sub_type: i32,
+    ) -> Result<bool, String> {
+        let item_id = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        let old_type = self
+            .items
+            .get(item_id)
+            .map(|i| i.item_type)
+            .ok_or_else(|| "item not found".to_string())?;
+        let old_count = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
+        if old_type == new_type && (sub_type < 0 || sub_type as u16 == old_count) {
+            return Ok(true);
+        }
+        if self.items_db.items.get(&new_type).is_none() {
+            return Ok(true);
+        }
+        let stackable = self
+            .items_db
+            .items
+            .get(&new_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        let new_count = if sub_type < 0 {
+            old_count
+        } else if stackable {
+            (sub_type as u16).min(100).max(1)
+        } else {
+            sub_type as u16
+        };
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.item_type = new_type;
+            item.count = new_count.max(1);
+        }
+        if let Some(parent) = self.resolve_item_parent_cylinder(item_id) {
+            match parent {
+                Cylinder::Inventory { player_id, slot } => {
+                    self.broadcast_player_inventory_slot(player_id, slot, Some(item_id));
+                }
+                Cylinder::Container {
+                    item_id: container_id,
+                    ..
+                } => {
+                    if let Some(slot) =
+                        self.get_thing_index_in_container(container_id, item_id)
+                    {
+                        self.notify_container_content_changed(
+                            container_id,
+                            ContainerContentChange::Update {
+                                slot: slot as u16,
+                            },
+                        );
+                    } else {
+                        self.notify_container_content_changed(
+                            container_id,
+                            ContainerContentChange::FullRefresh,
+                        );
+                    }
+                }
+                Cylinder::Tile { pos } => {
+                    if let Some(tile) = self.map.get_tile(pos) {
+                        if let Some(stack_pos) = tile.get_item_stack_pos(item_id) {
+                            self.broadcast_tile_item_update(pos, item_id, stack_pos);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+
     /// TFS `Player::removeItemOfType` — `player.cpp` ~2998–3047.
     pub fn player_remove_item_of_type(
         &mut self,
