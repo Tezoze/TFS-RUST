@@ -439,6 +439,125 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.is_creature_player(this.0)))
         });
 
+        // `creature:isMonster()` — PC-3a Gap 5/6.
+        methods.add_method("isMonster", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.is_creature_monster(this.0)))
+        });
+
+        // `creature:getDirection()` — facing direction 0..=7.
+        methods.add_method("getDirection", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_player_direction(this.0).unwrap_or(0)))
+        });
+
+        // `creature:getSummons()` — array of Creature userdata.
+        methods.add_method("getSummons", |lua, this, ()| {
+            let ids = with_ctx(|ctx| Ok(ctx.get_creature_summons(this.0)))?;
+            let t = lua.create_table_with_capacity(ids.len(), 0)?;
+            for (i, id) in ids.into_iter().enumerate() {
+                let ud = lua.create_userdata(CreatureRef(id))?;
+                t.set(i + 1, ud)?;
+            }
+            Ok(t)
+        });
+
+        // `creature:addSummon(monster)` — PC-3a Gap 5.
+        methods.add_method("addSummon", |_, this, summon: Value| {
+            let summon_id = match summon {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "addSummon: expected Creature userdata",
+                    ));
+                }
+            };
+            crate::lua_mutation::call_add_summon(this.0, summon_id).map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `monster:getType()` → MonsterType(name).
+        methods.add_method("getType", |lua, this, ()| {
+            let name = with_ctx(|ctx| Ok(ctx.get_creature_monster_type_name(this.0)))?;
+            match name {
+                Some(n) => {
+                    let ud = lua.create_userdata(crate::userdata::monster_type::MonsterTypeRef {
+                        name: n,
+                    })?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `creature:move(tile, flags)` — returns RETURNVALUE_NOERROR (0) or NOTPOSSIBLE.
+        methods.add_method("move", |_, this, (tile, flags): (Value, Option<u32>)| {
+            let (x, y, z) = match tile {
+                Value::UserData(ud) => {
+                    if let Ok(t) = ud.borrow::<crate::userdata::tile::TileRef>() {
+                        (t.x, t.y, t.z)
+                    } else if let Ok(p) = ud.borrow::<PositionRef>() {
+                        (p.x, p.y, p.z)
+                    } else {
+                        return Err(mlua::Error::runtime("move: expected Tile"));
+                    }
+                }
+                _ => return Err(mlua::Error::runtime("move: expected Tile")),
+            };
+            let ok = crate::lua_mutation::call_creature_move_to_tile(
+                this.0,
+                x,
+                y,
+                z,
+                flags.unwrap_or(0),
+            )
+            .map_err(mlua::Error::runtime)?;
+            // Levitate compares to RETURNVALUE_NOERROR (0).
+            Ok(if ok { 0i32 } else { 1i32 })
+        });
+
+        // `creature:teleportTo(pos[, pushMovement])`.
+        methods.add_method(
+            "teleportTo",
+            |_, this, (pos, push): (Value, Option<bool>)| {
+                let (x, y, z) = match pos {
+                    Value::UserData(ud) => {
+                        if let Ok(p) = ud.borrow::<PositionRef>() {
+                            (p.x, p.y, p.z)
+                        } else {
+                            return Err(mlua::Error::runtime("teleportTo: expected Position"));
+                        }
+                    }
+                    Value::Table(t) => {
+                        let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+                        let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+                        let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+                        (x as u16, y as u16, z as u8)
+                    }
+                    _ => {
+                        return Err(mlua::Error::runtime("teleportTo: expected Position"));
+                    }
+                };
+                crate::lua_mutation::call_creature_teleport(
+                    this.0,
+                    x,
+                    y,
+                    z,
+                    push.unwrap_or(false),
+                )
+                .map_err(mlua::Error::runtime)?;
+                Ok(true)
+            },
+        );
+
+        // `creature:sendTextMessage(type, text)`.
+        methods.add_method(
+            "sendTextMessage",
+            |_, this, (msg_class, text): (u8, String)| {
+                crate::lua_mutation::call_send_text_message(this.0, msg_class, text)
+                    .map_err(mlua::Error::runtime)?;
+                Ok(())
+            },
+        );
+
         // `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
         methods.add_method("setInFight", |_, this, in_fight: bool| {
             call_lua_set_in_fight(this.0, in_fight).map_err(mlua::Error::runtime)?;

@@ -302,6 +302,8 @@ impl EventDispatcher for LuaEventDispatcher {
         spell_words: &str,
         creature: CreatureId,
         need_direction: bool,
+        has_param: bool,
+        param: &str,
     ) -> bool {
         // PC-3a: C++ reference: `InstantSpell::castSpell` →
         // `LuaEnvironment::callLuaFunction` (`spells.cpp`).
@@ -309,6 +311,8 @@ impl EventDispatcher for LuaEventDispatcher {
             spell_words,
             creature.data().as_ffi(),
             need_direction,
+            has_param,
+            param,
         ) {
             Ok(success) => success,
             Err(e) => {
@@ -317,6 +321,29 @@ impl EventDispatcher for LuaEventDispatcher {
                     spell_words,
                     "Lua onCastSpell callback failed: {e}"
                 );
+                false
+            }
+        }
+    }
+
+    fn dispatch_on_cast_rune(
+        &self,
+        rune_id: u16,
+        creature: CreatureId,
+        target_creature: Option<CreatureId>,
+        target_pos: Option<(u16, u16, u8)>,
+    ) -> bool {
+        let key = format!("rune:{rune_id}");
+        let target_num = target_creature.map(|c| c.data().as_ffi());
+        match self.runtime.call_on_cast_spell_keyed(
+            &key,
+            creature.data().as_ffi(),
+            target_num,
+            target_pos,
+        ) {
+            Ok(success) => success,
+            Err(e) => {
+                tracing::error!(?creature, rune_id, "Lua rune onCastSpell failed: {e}");
                 false
             }
         }

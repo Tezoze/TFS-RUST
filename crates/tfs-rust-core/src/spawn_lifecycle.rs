@@ -4,6 +4,7 @@
 // 772 placement: `spawn_placement.rs` (`info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes`).
 
 use rand::seq::SliceRandom;
+use slotmap::Key;
 use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -471,6 +472,199 @@ impl GameWorld {
         }
 
         Some(cid)
+    }
+
+    /// `Game.createMonster` — PC-3a Gap 5. Like [`Self::spawn_monster`] without a spawn slot.
+    /// C++ `luascript.cpp` `luaGameCreateMonster` → `Monster::createMonster` + `placeCreature`.
+    pub fn lua_script_create_monster(
+        &mut self,
+        name: &str,
+        x: u16,
+        y: u16,
+        z: u8,
+        extended: bool,
+        force: bool,
+    ) -> Result<Option<u64>, String> {
+        let center = Position { x, y, z };
+        let mtype = match self.monsters_db.get_by_name(name) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        let max_hp = mtype.health_max.max(1) as i32;
+        let now_hp = if mtype.health_now > 0 {
+            mtype.health_now as i32
+        } else {
+            max_hp
+        };
+        let speed = mtype.speed as i32;
+        let base = CreatureBase {
+            name: mtype.name.clone(),
+            position: center,
+            direction: Direction::South,
+            health: now_hp,
+            max_health: max_hp,
+            outfit: monster_outfit_to_base(&mtype.outfit),
+            speed,
+            base_speed: speed,
+            var_speed: 0,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            walk_destinations: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_wakeup: None,
+            last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            has_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+            earliest_attack_ms: 0,
+            earliest_defend_ms: 0,
+            last_defend_ms: 0,
+            learning_points: 0,
+            todo: Default::default(),
+            chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
+        };
+        let ai_config = MonsterAiConfig::from_monster_type(&mtype);
+        let cid = self
+            .creatures
+            .insert(CreatureKind::Monster(Monster::with_config(
+                base, center, ai_config,
+            )));
+        crate::login_out::assign_creature_wire_id(self, cid);
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.experience = mtype.experience;
+            m.corpse_id = mtype.outfit.corpse_id;
+            m.blood = mtype.blood_type();
+        }
+        if !self.find_and_place_creature_tfs(cid, center, extended, force, 0) {
+            self.creatures.remove(cid);
+            return Ok(None);
+        }
+        self.monster_on_creature_appear_self(cid);
+        Ok(Some(cid.data().as_ffi()))
+    }
+
+    /// `creature:addSummon(monster)` — PC-3a Gap 5. Sets master; clears target/follow.
+    pub fn lua_script_add_summon(
+        &mut self,
+        master_u64: u64,
+        summon_u64: u64,
+    ) -> Result<bool, String> {
+        let master = self
+            .resolve_creature_u64(master_u64)
+            .ok_or_else(|| "addSummon: master not found".to_string())?;
+        let summon = self
+            .resolve_creature_u64(summon_u64)
+            .ok_or_else(|| "addSummon: summon not found".to_string())?;
+        let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(summon) else {
+            return Ok(false);
+        };
+        m.base.attack_target = None;
+        m.base.follow_target = None;
+        m.base.master = Some(master);
+        Ok(true)
+    }
+
+    /// `creature:move(tile, flags)` — returns true on `RETURNVALUE_NOERROR`.
+    pub fn lua_script_creature_move_to_tile(
+        &mut self,
+        creature_u64: u64,
+        x: u16,
+        y: u16,
+        z: u8,
+        flags: u32,
+    ) -> Result<bool, String> {
+        use crate::return_value::ReturnValue;
+        use crate::walk::{internal_teleport_player, tile_query_add_creature};
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "move: creature not found".to_string())?;
+        let dest = Position { x, y, z };
+        let Some(tile) = self.map.get_tile(dest) else {
+            return Ok(false);
+        };
+        if tile_query_add_creature(self, tile, cid, flags) != ReturnValue::NoError {
+            return Ok(false);
+        }
+        // Prefer teleport semantics for floor change / levitate (ignore walk path).
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let ret = internal_teleport_player(self, conn, cid, dest);
+            return Ok(ret == ReturnValue::NoError);
+        }
+        // Non-player: move on map directly.
+        let old = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .ok_or_else(|| "move: creature missing".to_string())?;
+        self.move_creature_on_map(cid, old, dest);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.set_position(dest);
+        }
+        Ok(true)
+    }
+
+    /// `creature:teleportTo(pos[, pushMovement])`.
+    pub fn lua_script_creature_teleport(
+        &mut self,
+        creature_u64: u64,
+        x: u16,
+        y: u16,
+        z: u8,
+        _push_movement: bool,
+    ) -> Result<bool, String> {
+        use crate::return_value::ReturnValue;
+        use crate::walk::internal_teleport_player;
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "teleportTo: creature not found".to_string())?;
+        let dest = Position { x, y, z };
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let ret = internal_teleport_player(self, conn, cid, dest);
+            return Ok(ret == ReturnValue::NoError);
+        }
+        let old = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .ok_or_else(|| "teleportTo: creature missing".to_string())?;
+        self.move_creature_on_map(cid, old, dest);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.set_position(dest);
+        }
+        Ok(true)
+    }
+
+    /// `creature:sendTextMessage(type, text)`.
+    pub fn lua_script_player_send_text_message(
+        &mut self,
+        creature_u64: u64,
+        msg_class: u8,
+        text: String,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "sendTextMessage: creature not found".to_string())?;
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let msg = tfs_rust_net::outgoing_extra::send_text_message_simple(msg_class, &text);
+            self.enqueue_outgoing(conn, msg.into_bytes());
+        }
+        Ok(())
     }
 
     /// C++ `Map::placeCreature` tile search (`map.cpp` ~183); TVP uses `searchSpawnField` /

@@ -200,6 +200,65 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::CreateMonster {
+            name,
+            x,
+            y,
+            z,
+            extended,
+            force,
+        } => {
+            let result = unsafe { &mut *world }.lua_script_create_monster(
+                &name, x, y, z, extended, force,
+            )?;
+            if let Some(id) = result {
+                set_mutation_item_result(id);
+            }
+            Ok(())
+        }
+        LuaMutation::AddSummon {
+            master_id,
+            summon_id,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_add_summon(master_id, summon_id)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::CreatureMoveToTile {
+            creature_id,
+            x,
+            y,
+            z,
+            flags,
+        } => {
+            let ret = unsafe { &mut *world }
+                .lua_script_creature_move_to_tile(creature_id, x, y, z, flags)?;
+            set_mutation_bool_result(ret);
+            Ok(())
+        }
+        LuaMutation::CreatureTeleport {
+            creature_id,
+            x,
+            y,
+            z,
+            push_movement,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_creature_teleport(
+                creature_id,
+                x,
+                y,
+                z,
+                push_movement,
+            )?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PlayerSendTextMessage {
+            creature_id,
+            msg_class,
+            text,
+        } => unsafe { &mut *world }
+            .lua_script_player_send_text_message(creature_id, msg_class, text),
     }
 }
 
@@ -276,6 +335,32 @@ pub fn fire_on_cast_spell(
     spell_words: &str,
     cid: CreatureId,
     need_direction: bool,
+    has_param: bool,
+    param: &str,
+) -> bool {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.dispatch_on_cast_spell(
+                spell_words,
+                cid,
+                need_direction,
+                has_param,
+                param,
+            )
+        })
+    })
+}
+
+/// PC-3a Gap 6: Fire a rune script callback (`rune:{id}`).
+pub fn fire_on_cast_rune(
+    world: &mut GameWorld,
+    rune_id: u16,
+    cid: CreatureId,
+    target_creature: Option<CreatureId>,
+    target_pos: Option<(u16, u16, u8)>,
 ) -> bool {
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
@@ -284,7 +369,7 @@ pub fn fire_on_cast_spell(
             let world = unsafe { &mut *world_ptr };
             world
                 .events
-                .dispatch_on_cast_spell(spell_words, cid, need_direction)
+                .dispatch_on_cast_rune(rune_id, cid, target_creature, target_pos)
         })
     })
 }

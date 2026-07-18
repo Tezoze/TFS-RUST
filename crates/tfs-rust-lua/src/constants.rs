@@ -86,6 +86,9 @@ fn register_player_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("PlayerFlag_HasInfiniteMana", 1i64 << 10)?;
     // const.h:516 — used by quest / capacity scripts.
     globals.set("PlayerFlag_HasInfiniteCapacity", 1i64 << 20)?;
+    // const.h:500–501 — summon/convince admin overrides.
+    globals.set("PlayerFlag_CanConvinceAll", 1i64 << 4)?;
+    globals.set("PlayerFlag_CanSummonAll", 1i64 << 5)?;
     Ok(())
 }
 

@@ -233,7 +233,12 @@ impl LuaRuntime {
                     .lua
                     .create_registry_value(func)
                     .map_err(|e| e.to_string())?;
-                self.register_spell_callback(&ps.words, reg_key);
+                if ps.is_rune() && ps.rune_id != 0 {
+                    // PC-3a Gap 6: rune callbacks keyed by item id — words are empty.
+                    self.register_spell_callback(&format!("rune:{}", ps.rune_id), reg_key);
+                } else {
+                    self.register_spell_callback(&ps.words, reg_key);
+                }
             }
             if ps.is_instant() {
                 let def = InstantSpellDef {

@@ -141,6 +141,22 @@ pub trait EventDispatcher {
         _spell_words: &str,
         _creature: CreatureId,
         _need_direction: bool,
+        _has_param: bool,
+        _param: &str,
+    ) -> bool {
+        false
+    }
+
+    /// PC-3a Gap 6: Dispatch a rune `onCastSpell` callback keyed by `rune:{id}`.
+    ///
+    /// `target_creature` is `Some` for `needTarget` runes (`VARIANT_NUMBER`);
+    /// otherwise `target_pos` is used (`VARIANT_POSITION`).
+    fn dispatch_on_cast_rune(
+        &self,
+        _rune_id: u16,
+        _creature: CreatureId,
+        _target_creature: Option<CreatureId>,
+        _target_pos: Option<(u16, u16, u8)>,
     ) -> bool {
         false
     }

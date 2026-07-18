@@ -4,6 +4,7 @@
 
 use std::collections::VecDeque;
 
+use slotmap::Key;
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
@@ -533,16 +534,88 @@ impl GameWorld {
     /// F8 S5 — core two-object use logic for the ToDo execute arm ([`execute_player_use`]).
     /// Skips the ready check + walk-to-reach (ToDo arm handles those). On success,
     /// sets multiuse exhaustion via `player_apply_multiuse_exhaust` (`cract.cc:765`).
+    ///
+    /// PC-3a Gap 6: if `item_id` is a registered rune, dispatch `onCastSpell` instead
+    /// of container open (`spells.cpp` `RuneSpell::playerCastRune`).
     pub(crate) fn player_use_item_ex_core(
         &mut self,
         conn_id: ConnId,
         cid: CreatureId,
         item_id: ItemId,
+        target: crate::creature_todo::ActionObjectRef,
     ) -> Result<(), ReturnValue> {
-        // `UseItemEx` has no index byte; new window uses client-chosen cid via normal `UseItem`.
+        let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
+        if let Some(rune) = self.spells.runes_by_id.get(&item_type).cloned() {
+            return self.player_cast_rune(conn_id, cid, item_id, &rune, target);
+        }
         self.try_open_container_for_item(conn_id, cid, item_id, None);
         self.player_apply_multiuse_exhaust(cid);
         Ok(())
+    }
+
+    /// PC-3a Gap 6: rune use-with → Lua `onCastSpell`.
+    /// C++ `RuneSpell::castSpell` / `playerCastRune` — `spells.cpp`.
+    fn player_cast_rune(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        item_id: ItemId,
+        rune: &tfs_rust_content::spells::RuneSpellDef,
+        target: crate::creature_todo::ActionObjectRef,
+    ) -> Result<(), ReturnValue> {
+        let target_creature = if rune.need_target {
+            // Prefer creature on the target tile / stack.
+            self.resolve_creature_at_action_target(cid, target)
+        } else {
+            None
+        };
+        let target_pos = if target_creature.is_none() {
+            Some((target.pos.x, target.pos.y, target.pos.z))
+        } else {
+            None
+        };
+        let ok = crate::lua_scope::fire_on_cast_rune(
+            self,
+            rune.rune_id,
+            cid,
+            target_creature,
+            target_pos,
+        );
+        if !ok {
+            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+            return Err(ReturnValue::NotPossible);
+        }
+        // Consume one charge / count — TFS `transformItem` count-1.
+        if let Some(item) = self.items.get_mut(item_id) {
+            if item.count > 1 {
+                item.count -= 1;
+            } else {
+                // Remove empty rune — best-effort via lua item remove path.
+                let _ = self.lua_script_item_remove(item_id.data().as_ffi(), 1);
+            }
+        }
+        self.player_apply_multiuse_exhaust(cid);
+        Ok(())
+    }
+
+    /// Resolve a creature at a use-with target (map tile stack or inventory skip).
+    fn resolve_creature_at_action_target(
+        &self,
+        _caster: CreatureId,
+        target: crate::creature_todo::ActionObjectRef,
+    ) -> Option<CreatureId> {
+        if target.pos.x == 0xFFFF {
+            return None;
+        }
+        let tile = self.map.get_tile(target.pos)?;
+        // Prefer creature at stack_pos among tile creatures; else first creature.
+        let body = tile.body();
+        if !body.creatures.is_empty() {
+            let idx = (target.stack_pos as usize).min(body.creatures.len().saturating_sub(1));
+            // stack_pos includes ground/tops — approximate: use first creature if unsure.
+            return body.creatures.first().copied().or_else(|| body.creatures.get(idx).copied());
+        }
+        None
     }
 
     /// C++ `Actions::internalUseItem` container branch — toggle if already open; else `addContainer(index, ...)`.

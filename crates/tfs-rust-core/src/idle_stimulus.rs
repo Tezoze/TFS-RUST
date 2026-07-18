@@ -3231,7 +3231,8 @@ impl GameWorld {
         if obj2.is_some() {
             // Two-object use — `CUseTwoObjects` (`receiving.cc:430`). Core helper sets
             // multiuse exhaustion on success (`cract.cc:765`).
-            self.player_use_item_ex_core(conn_id, cid, item_id)
+            let o2 = obj2.expect("obj2 checked");
+            self.player_use_item_ex_core(conn_id, cid, item_id, o2)
         } else {
             // Single-object use — `CUseObject` (`receiving.cc:384`).
             let preferred_cid =

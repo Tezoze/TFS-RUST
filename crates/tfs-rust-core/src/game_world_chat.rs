@@ -213,7 +213,7 @@ impl GameWorld {
         // This handles comma-separated registered words (e.g. `"ex,evo, vis, lux"`)
         // matched against space-separated player input (e.g. `"exevo vis lux"`),
         // plus parameter extraction for spells with `hasParam`/`hasPlayerNameParam`.
-        let Some((spell, _param)) = self.spells.get_instant_spell(text) else {
+        let Some((spell, param)) = self.spells.get_instant_spell(text) else {
             // If a talkaction matched but returned `Continue`, the text is not a
             // spell — return `false` so the caller proceeds to the `/`-prefix
             // access-player drop (line 3229 in C++).
@@ -369,11 +369,14 @@ impl GameWorld {
         // We dispatch via `fire_on_cast_spell` which calls the Lua runtime's
         // `call_on_cast_spell` → the spell's `onCastSpell(creature, variant)`
         // function, which in turn calls `combat:execute(creature, variant)`.
+        let has_param = spell.has_param || spell.has_player_name_param;
         let callback_success = crate::lua_scope::fire_on_cast_spell(
             self,
             &spell.words,
             cid,
             spell.need_direction,
+            has_param,
+            &param,
         );
         tracing::info!(
             ?cid,

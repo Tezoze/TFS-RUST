@@ -1,77 +1,33 @@
 # PC-3a Spell System — Remaining Gaps
 
-Updated: 2026-07-18 (Phases 6–8 + MonsterType landed)
+Updated: 2026-07-18 (Gaps 5–6 landed)
 Scope: `data/scripts/spells/**/*.lua` (70 spell scripts, excluding `areas.lua`)
 
 ## Current State
 
 All 70 spells **load** and **register** correctly. All 70 spells **cast** —
 `player_say_spell` dispatches vocation/level/mana/soul gates, exhaustion, PZ
-check, mana deduction, and fires the `onCastSpell` Lua callback.
+check, mana deduction, and fires the `onCastSpell` Lua callback (with
+`VARIANT_STRING` when `hasParams`).
 
-**Phases 1–8 + 4b are done** (except houses / summons / heavy utilities).
+**Phases 1–8 + Gaps 5–6 are done** (except Gap 4 houses).
 
-Remaining gaps: **Gap 4 houses**, **Gap 5 summons**, **heavy Gap 6 utilities**
-(find person, levitate/rope, destroy/desintegrate, convince, wild_growth
-movement helpers beyond CREATEITEM).
+Remaining: **Gap 4 houses** (separate milestone).
 
 **What already works:**
-- `Combat()` constructor, `:setParameter`, `:setArea`, `:setFormula`, `:setCallback`
-- `combat:execute()` — area offsets, LoS, damage/heal roll, magic effects, damage text
-- **Value callbacks** — `CALLBACK_PARAM_LEVELMAGICVALUE` / `SKILLVALUE` invoked at
-  execute; `(min, max)` used as damage range
-- **Event callbacks** — `TARGETCREATURE` / `TARGETTILE` invoked after execute
-- `data/scripts/functions.lua` loaded before spell scripts (after `areas.lua`)
-- `Player:` Lua method bridge via `CreatureRef` `__index` fallback
-- `getMagicLevel`, `getLevel`; SKILL path uses `get_player_weapon_combat_params`
-- **`combat:addCondition`** — stored + applied per target in `aoe.rs` (Phase 2)
-- **`COMBAT_PARAM_DISPEL`** — stored + removes matching conditions after damage (Phase 4)
-- **`COMBAT_PARAM_CREATEITEM` / `NODAMAGE` / `DISTANCEEFFECT`** — Phase 8
-- **`ConditionBuilder` → `ActiveCondition`** — Light/Speed/Damage/Outfit/Generic/
-  Regeneration + cycle→timer_rounds (Phase 3 mapper)
-- `CreatureRef:addCondition` (full spec) / `:removeCondition` / `:isPlayer` /
-  `:setInFight` / `:addItem` / inventory helpers
-- `getMana` / `addMana` / `addManaSpent`; `item:transform` / `hasAttribute`;
-  `ItemType:getCharges`; `Group:hasFlag`
-- `combat:getTargets(creature, variant)` — area creature list
-- `Creature(id)` constructor; `MonsterType(name):getOutfit()` / `isIllusionable()`
-- `Tile(pos):hasProperty(CONST_PROP_BLOCKSOLID)`; `Game.getWorldType()`;
-  `doChallengeCreature`; diagonal `extArea`
-- Constants + `SpellBuilder` methods registered
-
-**Note:** No spell in this pack uses `:setFormula()` — all damage/healing ranges
-come from value callbacks (or hard-coded condition cycles).
+- Full combat/condition/conjure surface from Phases 1–8
+- **`Game.createMonster`** + `addSummon` / `getSummons` / master link
+- **`MonsterType:isSummonable` / `isConvinceable` / `getManaCost`**
+- **Variant** `getString` / `getNumber` / `getPosition`; `Variant(pos)` ctor
+- **Position** `.x/.y/.z`, ctor, `getNextPosition`, `moveUpstairs`
+- **Tile** `hasFlag`, `getGround`, `getTopDownItem`, `getItems`, `getItemByType`
+- **Utilities:** `sendTextMessage`, `getDirection`, `move`, `teleportTo`
+- **Rune use-with** → `rune:{id}` `onCastSpell` + charge consume
+- Globals: `ropeSpots`, `Fields`, `corpseIds`
 
 ---
 
-## Gap 1: `setCallback` Lua function invocation
-
-### Value callbacks — ✅ DONE (Phase 1)
-### Event callbacks — ✅ DONE (Phase 6)
-
-| Spell | Status |
-|-------|--------|
-| `support/cancel_invisibility.lua` | ✅ TARGETCREATURE + `Game.getWorldType` |
-| `support/challenge.lua` | ✅ TARGETCREATURE + `doChallengeCreature` |
-
-| Constant | Value | Type | Status |
-|----------|-------|------|--------|
-| `CALLBACK_PARAM_LEVELMAGICVALUE` | 0 | Value | ✅ Invoked |
-| `CALLBACK_PARAM_SKILLVALUE` | 1 | Value | ✅ Invoked |
-| `CALLBACK_PARAM_TARGETTILE` | 2 | Event | ✅ Invoked |
-| `CALLBACK_PARAM_TARGETCREATURE` | 3 | Event | ✅ Invoked |
-
----
-
-## Gap 2: Condition application — ✅ DONE (Phases 2–4 + 4b)
-
-**Remaining for illusion/chameleon:** ✅ `MonsterType:getOutfit()` landed.
-
----
-
-## Gap 3: `conjureItem` via `functions.lua` — ✅ DONE (Phase 5)
-
-`item:decay` remains a logged no-op.
+## Gap 1–3, 7–8 — ✅ DONE (see correction log)
 
 ---
 
@@ -81,62 +37,21 @@ come from value callbacks (or hard-coded condition cycles).
 
 ---
 
-## Gap 5: `Game.createMonster` / summon APIs (LOW) — OPEN
+## Gap 5: `Game.createMonster` / summon APIs — ✅ DONE
 
-**Affects:** 3 spells — summon creature, undead legion, animate dead.
-
----
-
-## Gap 6: Utility spell APIs (LOW) — PARTIAL
-
-| Piece | Status |
-|-------|--------|
-| `Game.getWorldType` / `doChallengeCreature` | ✅ (Phase 6) |
-| `MonsterType` / illusion | ✅ |
-| `Tile:hasProperty(BLOCKSOLID)` | ✅ (minimal, Phase 8) |
-| find person / levitate / rope / destroy / convince / wild_growth helpers | ❌ OPEN |
+**Affects:** summon creature, undead legion, animate dead.
 
 ---
 
-## Gap 7: `setArea` / `createCombatArea` — ✅ DONE (Phase 7)
+## Gap 6: Utility spell APIs — ✅ DONE
 
-`extArea` diagonal overlay stored + oriented at execute/`getTargets`
-(NW=raw, NE=mirror, SW=flip, SE=transpose).
-
----
-
-## Gap 8: `COMBAT_PARAM_*` — ✅ CREATEITEM / NODAMAGE / DISTANCEEFFECT
-
-| Parameter | Status | Notes |
-|-----------|--------|-------|
-| `COMBAT_PARAM_TYPE` | ✅ | |
-| `COMBAT_PARAM_EFFECT` | ✅ | |
-| `COMBAT_PARAM_AGGRESSIVE` | ✅ | |
-| `COMBAT_PARAM_BLOCKARMOR` | ✅ | |
-| `COMBAT_PARAM_BLOCKSHIELD` | ⚠️ Stored | Not applied |
-| `COMBAT_PARAM_DISTANCEEFFECT` | ✅ | `broadcast_distance_shoot` |
-| `COMBAT_PARAM_CREATEITEM` | ✅ | `combatTileEffects` remap + place |
-| `COMBAT_PARAM_NODAMAGE` | ✅ | Skip damage arm |
-| `COMBAT_PARAM_DISPEL` | ✅ | |
-| `COMBAT_PARAM_USECHARGES` | ❌ Ignored | |
-| `COMBAT_PARAM_TARGETCASTERORTOPMOST` | ❌ Ignored | |
-| `COMBAT_PARAM_FORCEONTARGETEVENT` | ❌ Ignored | |
-
----
-
-## Implementation Plan
-
-### Phases 1–5 + 4b — ✅ DONE
-### Phase 6: Event callbacks — ✅ DONE
-### Phase 7: Diagonal area overlay — ✅ DONE
-### Phase 8: CREATEITEM / NODAMAGE / DISTANCEEFFECT — ✅ DONE
+find person, levitate, rope, destroy/desintegrate, convince, wild_growth helpers.
 
 ---
 
 ## Priority Order (remaining)
 
-1. **Gaps 5–6** — summons + remaining utilities
-2. **Gap 4** — houses (separate milestone)
+1. **Gap 4** — houses (separate milestone)
 
 ---
 
@@ -153,14 +68,22 @@ come from value callbacks (or hard-coded condition cycles).
 | ✅ Event callbacks | 2 | Phase 6 **done** |
 | ✅ Diagonal area | 3 | Phase 7 **done** |
 | ✅ `CREATEITEM` / NODAMAGE / DISTANCE | 11+ | Phase 8 **done** |
+| ✅ Summon API | 3 | Gap 5 **done** |
+| ✅ Utility API | rest | Gap 6 **done** |
 | ❌ House API missing | 4 | Gap 4 |
-| ❌ Summon API missing | 3 | Gap 5 |
-| ⚠️ Utility API partial | rest | Gap 6 |
 | **Unique scripts** | **70** | Categories overlap |
 
 ---
 
 ## Correction log
+
+### 2026-07-18 Gaps 5–6
+- Cast param → `VARIANT_STRING`; `Variant` metatable methods; `Variant()` ctor.
+- Position/Tile spatial surface; ScriptContext tile reads.
+- `Game.createMonster` via `find_and_place_creature_tfs`; `addSummon` / summons list.
+- Monster XML `summonable` / `convinceable` / `manacost`.
+- Rune callbacks keyed `rune:{id}`; `player_use_item_ex` dispatches Lua cast.
+- `ropeSpots` / `Fields` / `corpseIds` in `functions.lua`.
 
 ### 2026-07-18 Phases 6–8 + MonsterType
 - Phase 8: `create_item` / `no_damage` / `distance_effect` on `CombatExecuteRequest`

@@ -411,6 +411,96 @@ pub trait ScriptContext {
         let _ = name;
         false
     }
+
+    /// `tile:hasFlag(TILESTATE_*)` — `Tile::hasFlag` (`tile.cpp`).
+    fn tile_has_flag(&self, x: u16, y: u16, z: u8, flags: i32) -> bool {
+        let _ = (x, y, z, flags);
+        false
+    }
+
+    /// `tile:getGround()` — ground **server item type** id (map stores type, not SlotMap key).
+    fn tile_get_ground_type(&self, x: u16, y: u16, z: u8) -> Option<u16> {
+        let _ = (x, y, z);
+        None
+    }
+
+    /// `tile:getTopDownItem()` — top of the down-item stack.
+    fn tile_get_top_down_item(&self, x: u16, y: u16, z: u8) -> Option<ScriptItemId> {
+        let _ = (x, y, z);
+        None
+    }
+
+    /// `tile:getItems()` — top + down items (excluding ground).
+    fn tile_get_items(&self, x: u16, y: u16, z: u8) -> Vec<ScriptItemId> {
+        let _ = (x, y, z);
+        Vec::new()
+    }
+
+    /// `tile:getItemByType(ITEM_TYPE_*)` — first matching item by type_tag.
+    fn tile_get_item_by_type(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        type_tag: i32,
+    ) -> Option<ScriptItemId> {
+        let _ = (x, y, z, type_tag);
+        None
+    }
+
+    /// Walkable for rope/levitate helpers — ground present, not block-solid.
+    fn tile_is_walkable(&self, x: u16, y: u16, z: u8) -> bool {
+        let _ = (x, y, z);
+        false
+    }
+
+    /// `MonsterType:isSummonable()` — `<flag summonable=…>`.
+    fn get_monster_type_is_summonable(&self, name: &str) -> bool {
+        let _ = name;
+        false
+    }
+
+    /// `MonsterType:isConvinceable()` — `<flag convinceable=…>`.
+    fn get_monster_type_is_convinceable(&self, name: &str) -> bool {
+        let _ = name;
+        false
+    }
+
+    /// `MonsterType:getManaCost()` — XML `manacost=`.
+    fn get_monster_type_mana_cost(&self, name: &str) -> u32 {
+        let _ = name;
+        0
+    }
+
+    /// `creature:getSummons()` — creature ids with `master == self`.
+    fn get_creature_summons(&self, creature_id: ScriptCreatureId) -> Vec<ScriptCreatureId> {
+        let _ = creature_id;
+        Vec::new()
+    }
+
+    /// `creature:isMonster()`.
+    fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
+        let _ = creature_id;
+        false
+    }
+
+    /// Monster type name for `creature:getType()` → `MonsterType(name)`.
+    fn get_creature_monster_type_name(&self, creature_id: ScriptCreatureId) -> Option<String> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `ItemType:isCorpse()` — `corpsetype` set in items.xml.
+    fn get_item_type_is_corpse(&self, item_type: u16) -> bool {
+        let _ = item_type;
+        false
+    }
+
+    /// `ItemType:isMovable()` — `ItemType::moveable`.
+    fn get_item_type_is_movable(&self, item_type: u16) -> bool {
+        let _ = item_type;
+        true
+    }
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

@@ -45,6 +45,42 @@ impl UserData for MonsterTypeRef {
             })
         });
 
+        methods.add_method("isSummonable", |_, this, ()| {
+            CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_monster_type_is_summonable(&this.name))
+            })
+        });
+
+        methods.add_method("isConvinceable", |_, this, ()| {
+            CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_monster_type_is_convinceable(&this.name))
+            })
+        });
+
+        methods.add_method("getManaCost", |_, this, ()| {
+            CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_monster_type_mana_cost(&this.name))
+            })
+        });
+
         methods.add_method("name", |_, this, ()| Ok(this.name.clone()));
     }
 }

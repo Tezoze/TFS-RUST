@@ -106,6 +106,10 @@ pub struct MonsterTypeFlags {
     pub illusionable: bool,
     /// `<flag challengeable=…>` — default true (`monsters.h`).
     pub is_challengeable: bool,
+    /// `<flag summonable=…>` — default false (`monsters.h`).
+    pub summonable: bool,
+    /// `<flag convinceable=…>` — default false (`monsters.h`).
+    pub convinceable: bool,
     /// `<targetchange interval/speed=…>` — default 0 (`monsters.h`).
     pub change_target_speed: u32,
     /// `<targetchange chance=…>` — default 0.
@@ -124,6 +128,8 @@ impl Default for MonsterTypeFlags {
             is_hostile: true,
             illusionable: false,
             is_challengeable: true,
+            summonable: false,
+            convinceable: false,
             change_target_speed: 0,
             change_target_chance: 0,
         }
@@ -142,6 +148,8 @@ pub struct MonsterType {
     pub health_max: u32,
     pub outfit: MonsterOutfit,
     pub flags: MonsterTypeFlags,
+    /// XML `manacost=` — summon/convince mana (`monsters.h` `manaCost`).
+    pub mana_cost: u32,
     pub loot: Vec<LootBlock>,
     pub attack_spells: Vec<MonsterSpellNode>,
     pub defenses: MonsterDefenses,
@@ -469,6 +477,10 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
     if let Some(a) = monster.attribute("speed") {
         speed = a.parse().unwrap_or(0);
     }
+    let mut mana_cost = 0u32;
+    if let Some(a) = monster.attribute("manacost") {
+        mana_cost = a.parse().unwrap_or(0);
+    }
 
     for child in monster.children().filter(|n| n.is_element()) {
         let tag = child.tag_name().name();
@@ -618,6 +630,7 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         health_max,
         outfit,
         flags,
+        mana_cost,
         loot,
         attack_spells,
         defenses,
@@ -662,6 +675,8 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
                 "hostile" => flags.is_hostile = parse_bool_flag(value),
                 "illusionable" => flags.illusionable = parse_bool_flag(value),
                 "challengeable" => flags.is_challengeable = parse_bool_flag(value),
+                "summonable" => flags.summonable = parse_bool_flag(value),
+                "convinceable" => flags.convinceable = parse_bool_flag(value),
                 _ => {}
             }
         }

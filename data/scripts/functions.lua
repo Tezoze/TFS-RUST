@@ -521,3 +521,14 @@ function Creature:addAttributeCondition(parameters)
 
 	self:addCondition(condition)
 end
+
+-- PC-3a Gaps 5–6: globals required by utility/summon spell scripts.
+if not ropeSpots then
+	ropeSpots = {384, 418, 8278, 8592, 13189, 14435, 14436, 14857, 15635, 19518, 24621, 24622, 24623, 24624, 26019}
+end
+if not Fields then
+	Fields = {1487, 1488, 1489, 1490, 1491, 1492, 1493, 1494, 1495, 1496, 1500, 1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508, 1509, 1510, 1511, 1512, 1513}
+end
+if not corpseIds then
+	corpseIds = {}
+end

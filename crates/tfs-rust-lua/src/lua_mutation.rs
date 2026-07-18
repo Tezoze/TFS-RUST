@@ -156,6 +156,44 @@ pub enum LuaMutation {
         challenger_id: u64,
         target_id: u64,
     },
+    /// `Game.createMonster(name, pos[, extended[, force]])` — PC-3a Gap 5.
+    /// C++ `luascript.cpp` `luaGameCreateMonster`. Result creature id via
+    /// [`set_mutation_item_result`] (None → Lua nil).
+    CreateMonster {
+        name: String,
+        x: u16,
+        y: u16,
+        z: u8,
+        extended: bool,
+        force: bool,
+    },
+    /// `creature:addSummon(monster)` — set master + clear target/follow.
+    AddSummon {
+        master_id: u64,
+        summon_id: u64,
+    },
+    /// `creature:move(tile, flags)` — `Game::internalMoveCreature` to tile.
+    CreatureMoveToTile {
+        creature_id: u64,
+        x: u16,
+        y: u16,
+        z: u8,
+        flags: u32,
+    },
+    /// `creature:teleportTo(pos[, pushMovement])` — `Game::internalTeleport`.
+    CreatureTeleport {
+        creature_id: u64,
+        x: u16,
+        y: u16,
+        z: u8,
+        push_movement: bool,
+    },
+    /// `creature:sendTextMessage(type, text)` — `Player::sendTextMessage`.
+    PlayerSendTextMessage {
+        creature_id: u64,
+        msg_class: u8,
+        text: String,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -530,4 +568,78 @@ pub fn call_do_challenge_creature(challenger_id: u64, target_id: u64) -> Result<
         target_id,
     })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.createMonster` — PC-3a Gap 5. Returns created creature id bits, or None.
+pub fn call_create_monster(
+    name: String,
+    x: u16,
+    y: u16,
+    z: u8,
+    extended: bool,
+    force: bool,
+) -> Result<Option<u64>, String> {
+    apply_mutation(LuaMutation::CreateMonster {
+        name,
+        x,
+        y,
+        z,
+        extended,
+        force,
+    })?;
+    Ok(take_mutation_item_result())
+}
+
+pub fn call_add_summon(master_id: u64, summon_id: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::AddSummon {
+        master_id,
+        summon_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_creature_move_to_tile(
+    creature_id: u64,
+    x: u16,
+    y: u16,
+    z: u8,
+    flags: u32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::CreatureMoveToTile {
+        creature_id,
+        x,
+        y,
+        z,
+        flags,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_creature_teleport(
+    creature_id: u64,
+    x: u16,
+    y: u16,
+    z: u8,
+    push_movement: bool,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::CreatureTeleport {
+        creature_id,
+        x,
+        y,
+        z,
+        push_movement,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_send_text_message(
+    creature_id: u64,
+    msg_class: u8,
+    text: String,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSendTextMessage {
+        creature_id,
+        msg_class,
+        text,
+    })
 }

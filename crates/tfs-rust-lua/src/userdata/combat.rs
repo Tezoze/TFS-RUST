@@ -658,6 +658,21 @@ fn resolve_variant_center(variant: &Value, caster_id: u64) -> Result<(u16, u16, 
                 })?;
                 pos.map(|p| (p.x, p.y, p.z))
                     .ok_or_else(|| mlua::Error::runtime("variant: target creature not found"))
+            } else if vtype == 4 {
+                // VARIANT_STRING — resolve online player by name (`spells.cpp`).
+                let name: String = t.get("string").unwrap_or_default();
+                let pos = CURRENT_CTX.with(|c| {
+                    let ptr =
+                        (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                    if ptr.is_null() {
+                        return Err(mlua::Error::runtime("LuaContext not set"));
+                    }
+                    let ctx = unsafe { &*ptr };
+                    let id = ctx.get_player_by_name(&name);
+                    Ok(id.and_then(|pid| ctx.get_player_position(pid)))
+                })?;
+                pos.map(|p| (p.x, p.y, p.z))
+                    .ok_or_else(|| mlua::Error::runtime("variant: string player not found"))
             } else {
                 // Unknown variant type — fall back to caster position
                 resolve_caster_position(caster_id)

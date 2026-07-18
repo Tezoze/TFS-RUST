@@ -94,6 +94,7 @@ impl LuaRuntime {
         // Overwrite empty `Tile` / `Game` stubs from bootstrap with real constructors.
         register_tile_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
+        register_variant_constructor(&lua).map_err(LuaError::Registration)?;
         register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
         // VOCATION_NONE, CONDITION_*, RETURNVALUE_*, …). Mirrors
@@ -524,25 +525,59 @@ impl LuaRuntime {
         function.call::<()>(player_ud).map_err(LuaError::Init)
     }
 
-    /// PC-3a: Call a spell's `onCastSpell` callback.
+    /// Invoke a spell's `onCastSpell` Lua callback.
     ///
-    /// C++ reference: `InstantSpell::castSpell` → `LuaEnvironment::callLuaFunction`
+    /// C++ reference: `InstantSpell::playerCastInstant` / `executeCastSpell`
     /// (`spells.cpp` / `luascript.cpp`). The callback receives `(creature, variant)`
     /// and returns `true` on success.
     ///
-    /// Looks up the callback by spell words (lowercased) in the `spell_callbacks`
-    /// map populated during `load_spell_scripts`.
+    /// When `has_param` is true, builds `VARIANT_STRING` with `param` text
+    /// (`spells.cpp` ~939–972). Otherwise builds `VARIANT_POSITION` (optionally
+    /// direction-offset when `need_direction`).
     pub fn call_on_cast_spell(
         &self,
         spell_words: &str,
         creature: crate::context::CreatureId,
         need_direction: bool,
+        has_param: bool,
+        param: &str,
     ) -> Result<bool, LuaError> {
-        let key = self
-            .spell_callbacks
-            .get(spell_words.to_lowercase().as_str());
-        let Some(registry_key) = key else {
-            // No Lua callback registered — the spell has no script-side cast logic.
+        let spec = if has_param {
+            CastVariantSpec::String(param.to_string())
+        } else {
+            CastVariantSpec::Position { need_direction }
+        };
+        self.call_on_cast_spell_keyed_spec(&spell_words.to_lowercase(), creature, spec)
+    }
+
+    /// Invoke an `onCastSpell` callback by registry key (`words` or `rune:{id}`).
+    pub fn call_on_cast_spell_keyed(
+        &self,
+        key: &str,
+        creature: crate::context::CreatureId,
+        target_number: Option<u64>,
+        target_pos: Option<(u16, u16, u8)>,
+    ) -> Result<bool, LuaError> {
+        let spec = if let Some(n) = target_number {
+            CastVariantSpec::Number(n)
+        } else if let Some((x, y, z)) = target_pos {
+            CastVariantSpec::FixedPosition { x, y, z }
+        } else {
+            CastVariantSpec::Position {
+                need_direction: false,
+            }
+        };
+        self.call_on_cast_spell_keyed_spec(key, creature, spec)
+    }
+
+    fn call_on_cast_spell_keyed_spec(
+        &self,
+        key: &str,
+        creature: crate::context::CreatureId,
+        spec: CastVariantSpec,
+    ) -> Result<bool, LuaError> {
+        let registry_key = self.spell_callbacks.get(key);
+        let Some(registry_key) = registry_key else {
             return Ok(false);
         };
         let function: mlua::Function = self
@@ -553,18 +588,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(creature))
             .map_err(LuaError::Init)?;
-
-        // Construct the variant table. C++ `InstantSpell::castSpell`
-        // (`spells.cpp`) builds a `LuaVariant` with `type = VARIANT_POSITION`
-        // and `pos = getCasterPosition(creature, direction)` when
-        // `needDirection` is true, or `pos = creature->getPosition()` otherwise.
-        //
-        // `getCasterPosition` offsets the position by one tile in the player's
-        // facing direction — this is the center tile for area spells (beams,
-        // waves, strikes). Without this, `exori vis` hits the player's tile
-        // instead of the tile in front, and `exevo gran mas vis` centers the
-        // beam on the player instead of extending it forward.
-        let variant = build_cast_variant(&self.lua, creature, need_direction)?;
+        let variant = build_cast_variant_spec(&self.lua, creature, spec)?;
         function
             .call::<bool>((creature_ud, variant))
             .map_err(LuaError::Init)
@@ -577,78 +601,201 @@ impl LuaRuntime {
     }
 }
 
-/// Construct the `LuaVariant` table passed to `onCastSpell(creature, variant)`.
-///
-/// C++ reference: `InstantSpell::castSpell` (`spells.cpp`) builds a
-/// `LuaVariant` with `type = VARIANT_POSITION` (2) and:
-/// - `pos = getCasterPosition(creature, direction)` when `needDirection` is
-///   true — offsets the caster position by one tile in the facing direction.
-/// - `pos = creature->getPosition()` otherwise.
-///
-/// `getCasterPosition` (`spells.cpp`) is the key piece: without the direction
-/// offset, `exori vis` hits the player's tile instead of the tile in front,
-/// and `exevo gran mas vis` centers the beam on the player instead of
-/// extending it forward.
-fn build_cast_variant(
+/// How to build the Lua variant passed to `onCastSpell`.
+enum CastVariantSpec {
+    /// `VARIANT_STRING` — instant spells with `hasParams`.
+    String(String),
+    /// `VARIANT_NUMBER` — rune/self target creature id.
+    Number(u64),
+    /// `VARIANT_POSITION` from caster (optionally direction-offset).
+    Position { need_direction: bool },
+    /// `VARIANT_POSITION` at a fixed tile (rune use-with).
+    FixedPosition { x: u16, y: u16, z: u8 },
+}
+
+/// LuaVariant type discriminants — `luascript.h` `LuaVariantType_t`.
+const VARIANT_NUMBER: i32 = 1;
+const VARIANT_POSITION: i32 = 2;
+const VARIANT_STRING: i32 = 4;
+
+fn build_cast_variant_spec(
     lua: &Lua,
     caster: crate::context::CreatureId,
-    need_direction: bool,
+    spec: CastVariantSpec,
 ) -> Result<mlua::Value, LuaError> {
-    use crate::context::CURRENT_CTX;
-
-    let (x, y, z) = CURRENT_CTX.with(|c| {
-        let ptr = (*c.borrow()).ok_or_else(|| {
-            LuaError::Init(mlua::Error::runtime("build_cast_variant: LuaContext not set"))
-        })?;
-        if ptr.is_null() {
-            return Err(LuaError::Init(mlua::Error::runtime(
-                "build_cast_variant: LuaContext is null",
-            )));
+    match spec {
+        CastVariantSpec::String(text) => {
+            let table = lua.create_table()?;
+            table.set("type", VARIANT_STRING)?;
+            table.set("string", text)?;
+            attach_variant_methods(lua, table)
         }
-        let ctx = unsafe { &*ptr };
-
-        let pos = ctx
-            .get_player_position(caster)
-            .ok_or_else(|| mlua::Error::runtime("build_cast_variant: caster position not found"))?;
-
-        if !need_direction {
-            return Ok((pos.x, pos.y, pos.z));
+        CastVariantSpec::Number(n) => {
+            let table = lua.create_table()?;
+            table.set("type", VARIANT_NUMBER)?;
+            table.set("number", n)?;
+            attach_variant_methods(lua, table)
         }
+        CastVariantSpec::FixedPosition { x, y, z } => {
+            build_position_variant(lua, x, y, z)
+        }
+        CastVariantSpec::Position { need_direction } => {
+            use crate::context::CURRENT_CTX;
+            let (x, y, z) = CURRENT_CTX.with(|c| {
+                let ptr = (*c.borrow()).ok_or_else(|| {
+                    LuaError::Init(mlua::Error::runtime(
+                        "build_cast_variant: LuaContext not set",
+                    ))
+                })?;
+                if ptr.is_null() {
+                    return Err(LuaError::Init(mlua::Error::runtime(
+                        "build_cast_variant: LuaContext is null",
+                    )));
+                }
+                let ctx = unsafe { &*ptr };
+                let pos = ctx.get_player_position(caster).ok_or_else(|| {
+                    mlua::Error::runtime("build_cast_variant: caster position not found")
+                })?;
+                if !need_direction {
+                    return Ok((pos.x, pos.y, pos.z));
+                }
+                let dir = ctx.get_player_direction(caster).ok_or_else(|| {
+                    mlua::Error::runtime("build_cast_variant: caster direction not found")
+                })?;
+                let (dx, dy) = match dir {
+                    0 => (0i16, -1i16),
+                    1 => (1, 0),
+                    2 => (0, 1),
+                    3 => (-1, 0),
+                    4 => (-1, 1),
+                    5 => (1, 1),
+                    6 => (-1, -1),
+                    7 => (1, -1),
+                    _ => (0, 0),
+                };
+                Ok((
+                    (pos.x as i16 + dx) as u16,
+                    (pos.y as i16 + dy) as u16,
+                    pos.z,
+                ))
+            })?;
+            build_position_variant(lua, x, y, z)
+        }
+    }
+}
 
-        // `Spells::getCasterPosition` — offset by one tile in facing direction.
-        let dir = ctx
-            .get_player_direction(caster)
-            .ok_or_else(|| mlua::Error::runtime("build_cast_variant: caster direction not found"))?;
-
-        // Direction enum: 0=N, 1=E, 2=S, 3=W, 4=SW, 5=SE, 6=NW, 7=NE.
-        let (dx, dy) = match dir {
-            0 => (0i16, -1i16), // North
-            1 => (1, 0),        // East
-            2 => (0, 1),        // South
-            3 => (-1, 0),       // West
-            4 => (-1, 1),       // SouthWest
-            5 => (1, 1),        // SouthEast
-            6 => (-1, -1),      // NorthWest
-            7 => (1, -1),       // NorthEast
-            _ => (0, 0),        // Unknown — no offset
-        };
-        Ok((
-            (pos.x as i16 + dx) as u16,
-            (pos.y as i16 + dy) as u16,
-            pos.z,
-        ))
-    })?;
-
-    // Build the variant table: { type = 2, pos = { x=.., y=.., z=.. } }
+fn build_position_variant(lua: &Lua, x: u16, y: u16, z: u8) -> Result<mlua::Value, LuaError> {
     let table = lua.create_table()?;
-    table.set("type", 2i32)?; // VARIANT_POSITION
+    table.set("type", VARIANT_POSITION)?;
     let pos = lua.create_table()?;
     pos.set("x", x as i64)?;
     pos.set("y", y as i64)?;
     pos.set("z", z as i64)?;
     table.set("pos", pos)?;
-    Ok(mlua::Value::Table(table))
+    attach_variant_methods(lua, table)
 }
+
+/// Attach `getString` / `getNumber` / `getPosition` — TFS `pushVariant` metatable.
+fn attach_variant_methods(lua: &Lua, table: mlua::Table) -> Result<mlua::Value, LuaError> {
+    let mt = lua.create_table().map_err(LuaError::Init)?;
+    let index = lua.create_table().map_err(LuaError::Init)?;
+    index
+        .set(
+            "getString",
+            lua.create_function(|_, t: mlua::Table| {
+                Ok(t.get::<String>("string").unwrap_or_default())
+            })
+            .map_err(LuaError::Init)?,
+        )
+        .map_err(LuaError::Init)?;
+    index
+        .set(
+            "getNumber",
+            lua.create_function(|_, t: mlua::Table| {
+                Ok(t.get::<u64>("number").unwrap_or(0))
+            })
+            .map_err(LuaError::Init)?,
+        )
+        .map_err(LuaError::Init)?;
+    index
+        .set(
+            "getPosition",
+            lua.create_function(|lua, t: mlua::Table| {
+                use crate::userdata::position::PositionRef;
+                if let Ok(pos) = t.get::<mlua::Table>("pos") {
+                    let x: i64 = pos.get("x").unwrap_or(0);
+                    let y: i64 = pos.get("y").unwrap_or(0);
+                    let z: i64 = pos.get("z").unwrap_or(0);
+                    let ud = lua.create_userdata(PositionRef {
+                        x: x as u16,
+                        y: y as u16,
+                        z: z as u8,
+                    })?;
+                    return Ok(Value::UserData(ud));
+                }
+                Ok(Value::Nil)
+            })
+            .map_err(LuaError::Init)?,
+        )
+        .map_err(LuaError::Init)?;
+    mt.set("__index", index).map_err(LuaError::Init)?;
+    table.set_metatable(Some(mt));
+    Ok(Value::Table(table))
+}
+
+/// `Variant(pos|creature|…)` — TFS `luaCreateVariant` / undead_legion.lua.
+fn register_variant_constructor(lua: &Lua) -> Result<(), mlua::Error> {
+    use crate::userdata::position::PositionRef;
+    let f = lua.create_function(|lua, arg: Value| {
+        match arg {
+            Value::UserData(ud) => {
+                if let Ok(pos) = ud.borrow::<PositionRef>() {
+                    return build_position_variant(lua, pos.x, pos.y, pos.z)
+                        .map_err(|e| mlua::Error::runtime(e.to_string()));
+                }
+                if let Ok(cref) = ud.borrow::<CreatureRef>() {
+                    let table = lua.create_table()?;
+                    table.set("type", VARIANT_NUMBER)?;
+                    table.set("number", cref.0)?;
+                    return attach_variant_methods(lua, table)
+                        .map_err(|e| mlua::Error::runtime(e.to_string()));
+                }
+                Err(mlua::Error::runtime(
+                    "Variant(): expected Position or Creature userdata",
+                ))
+            }
+            Value::Table(t) => {
+                // Already a variant-like table — attach methods.
+                attach_variant_methods(lua, t).map_err(|e| mlua::Error::runtime(e.to_string()))
+            }
+            Value::String(s) => {
+                let table = lua.create_table()?;
+                table.set("type", VARIANT_STRING)?;
+                table.set("string", s.to_str()?.to_string())?;
+                attach_variant_methods(lua, table).map_err(|e| mlua::Error::runtime(e.to_string()))
+            }
+            Value::Integer(n) => {
+                let table = lua.create_table()?;
+                table.set("type", VARIANT_NUMBER)?;
+                table.set("number", n as u64)?;
+                attach_variant_methods(lua, table).map_err(|e| mlua::Error::runtime(e.to_string()))
+            }
+            _ => Err(mlua::Error::runtime(
+                "Variant(): expected Position, Creature, string, number, or table",
+            )),
+        }
+    })?;
+    lua.globals().set("Variant", f)?;
+    // `luascript.h` LuaVariantType_t
+    let g = lua.globals();
+    g.set("VARIANT_NUMBER", VARIANT_NUMBER)?;
+    g.set("VARIANT_POSITION", VARIANT_POSITION)?;
+    g.set("VARIANT_TARGETPOSITION", 3i32)?;
+    g.set("VARIANT_STRING", VARIANT_STRING)?;
+    Ok(())
+}
+
+// Keep register_spell_callback outside the removed block — already on impl above.
 
 pub trait RegisterLuaFunctions {
     fn register_functions(&self, lua: &Lua) -> Result<(), mlua::Error>;
@@ -885,9 +1032,11 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     Ok(())
 }
 
-/// `Game` table methods — PC-3a Phase 6 (`Game.getWorldType`).
-/// C++ `luascript.cpp` `luaGameGetWorldType`.
+/// `Game` table methods — PC-3a Phase 6 + Gap 5 (`Game.getWorldType` / `createMonster`).
+/// C++ `luascript.cpp` `luaGameGetWorldType` / `luaGameCreateMonster`.
 fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
+    use crate::lua_mutation::call_create_monster;
+    use crate::userdata::position::PositionRef;
     let game = lua.create_table()?;
     game.set(
         "getWorldType",
@@ -895,6 +1044,50 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
             let wt = crate::context::current_ctx(|ctx| ctx.get_world_type()).unwrap_or(1);
             Ok(wt)
         })?,
+    )?;
+    game.set(
+        "createMonster",
+        lua.create_function(
+            |lua, (name, pos, extended, force): (String, Value, Option<bool>, Option<bool>)| {
+                let (x, y, z) = match pos {
+                    Value::UserData(ud) => {
+                        if let Ok(p) = ud.borrow::<PositionRef>() {
+                            (p.x, p.y, p.z)
+                        } else {
+                            return Err(mlua::Error::runtime(
+                                "Game.createMonster: position must be Position",
+                            ));
+                        }
+                    }
+                    Value::Table(t) => {
+                        let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+                        let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+                        let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+                        (x as u16, y as u16, z as u8)
+                    }
+                    _ => {
+                        return Err(mlua::Error::runtime(
+                            "Game.createMonster: expected Position",
+                        ));
+                    }
+                };
+                match call_create_monster(
+                    name,
+                    x,
+                    y,
+                    z,
+                    extended.unwrap_or(false),
+                    force.unwrap_or(false),
+                ) {
+                    Ok(Some(id)) => {
+                        let ud = lua.create_userdata(CreatureRef(id))?;
+                        Ok(Value::UserData(ud))
+                    }
+                    Ok(None) => Ok(Value::Nil),
+                    Err(e) => Err(mlua::Error::runtime(e)),
+                }
+            },
+        )?,
     )?;
     lua.globals().set("Game", game)?;
     Ok(())

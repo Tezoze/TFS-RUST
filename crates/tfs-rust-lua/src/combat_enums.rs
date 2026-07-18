@@ -35,6 +35,7 @@ pub fn register_combat_enums(lua: &Lua) -> Result<(), mlua::Error> {
     register_tile_states(&globals)?;
     register_message_types(&globals)?;
     register_world_types(&globals)?;
+    register_cylinder_flags(&globals)?;
 
     Ok(())
 }
@@ -393,6 +394,9 @@ fn register_tile_states(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("TILESTATE_BED", 65536i32)?; // tile.h:41 (1<<16)
     globals.set("TILESTATE_DEPOT", 131072i32)?; // tile.h:42 (1<<17)
     globals.set("TILESTATE_BLOCKSOLID", 262144i32)?; // tile.h:43 (1<<18)
+    globals.set("TILESTATE_IMMOVABLEBLOCKSOLID", 524288i32)?; // tile.h:45 (1<<19)
+    // Composite floor-change mask — tile.h TILESTATE_FLOORCHANGE.
+    globals.set("TILESTATE_FLOORCHANGE", 1i32 | 2 | 4 | 8 | 16)?;
     Ok(())
 }
 
@@ -421,6 +425,15 @@ fn register_world_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("WORLD_TYPE_NO_PVP", 0i32)?;
     globals.set("WORLD_TYPE_PVP", 1i32)?;
     globals.set("WORLD_TYPE_PVP_ENFORCED", 2i32)?;
+    Ok(())
+}
+
+fn register_cylinder_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // cylinder.h — used by levitate `creature:move(tile, flags)`.
+    globals.set("FLAG_IGNOREBLOCKITEM", 1i32 << 1)?;
+    globals.set("FLAG_IGNOREBLOCKCREATURE", 1i32 << 2)?;
+    // items.h ITEM_TYPE_MAGICFIELD
+    globals.set("ITEM_TYPE_MAGICFIELD", 6i32)?;
     Ok(())
 }
 

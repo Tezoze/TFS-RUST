@@ -6,6 +6,7 @@ use slotmap::Key;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
+use tfs_rust_common::{ScriptCreatureId, ScriptItemId};
 
 impl tfs_rust_common::ScriptContext for GameWorld {
     fn get_creature(
@@ -594,5 +595,176 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     fn monster_type_exists(&self, name: &str) -> bool {
         self.monsters_db.get_by_name(name).is_some()
+    }
+
+    fn tile_has_flag(&self, x: u16, y: u16, z: u8, flags: i32) -> bool {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        let mut matched = body.flags as i32;
+
+        const TILESTATE_PROTECTIONZONE: i32 = 128;
+        const TILESTATE_MAGICFIELD: i32 = 8192;
+        const TILESTATE_BLOCKSOLID: i32 = 262_144;
+        const TILESTATE_IMMOVABLEBLOCKSOLID: i32 = 524_288;
+        const TILESTATE_FLOORCHANGE: i32 = 1 | 2 | 4 | 8 | 16;
+
+        if self.tile_in_protection_zone(pos) {
+            matched |= TILESTATE_PROTECTIONZONE;
+        }
+        if self.tile_has_property(x, y, z, 0) {
+            matched |= TILESTATE_BLOCKSOLID;
+            matched |= TILESTATE_IMMOVABLEBLOCKSOLID;
+        }
+        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+            if let Some(item) = self.items.get(iid) {
+                if self
+                    .items_db
+                    .items
+                    .get(&item.item_type)
+                    .is_some_and(|t| t.is_magic_field())
+                {
+                    matched |= TILESTATE_MAGICFIELD;
+                    break;
+                }
+            }
+        }
+        if let Some(gt) = body.ground {
+            if self
+                .items_db
+                .items
+                .get(&gt)
+                .is_some_and(|t| t.floor_change != 0)
+            {
+                matched |= TILESTATE_FLOORCHANGE;
+            }
+        }
+        (matched & flags) != 0
+    }
+
+    fn tile_get_ground_type(&self, x: u16, y: u16, z: u8) -> Option<u16> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        self.map.get_tile(pos).and_then(|t| t.body().ground)
+    }
+
+    fn tile_get_top_down_item(&self, x: u16, y: u16, z: u8) -> Option<ScriptItemId> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let tile = self.map.get_tile(pos)?;
+        tile.get_top_down_item().map(|id| id.data().as_ffi())
+    }
+
+    fn tile_get_items(&self, x: u16, y: u16, z: u8) -> Vec<ScriptItemId> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return Vec::new();
+        };
+        let body = tile.body();
+        let mut out = Vec::new();
+        for &id in &body.top_items {
+            out.push(id.data().as_ffi());
+        }
+        for &id in &body.down_items {
+            out.push(id.data().as_ffi());
+        }
+        out
+    }
+
+    fn tile_get_item_by_type(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        type_tag: i32,
+    ) -> Option<ScriptItemId> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+            let item = self.items.get(iid)?;
+            let tag = self
+                .items_db
+                .items
+                .get(&item.item_type)
+                .map(|t| t.type_tag as i32)
+                .unwrap_or(0);
+            if tag == type_tag {
+                return Some(iid.data().as_ffi());
+            }
+        }
+        None
+    }
+
+    fn tile_is_walkable(&self, x: u16, y: u16, z: u8) -> bool {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        if tile.body().ground.is_none() {
+            return false;
+        }
+        !self.tile_has_property(x, y, z, 0)
+    }
+
+    fn get_monster_type_is_summonable(&self, name: &str) -> bool {
+        self.monsters_db
+            .get_by_name(name)
+            .map(|m| m.flags.summonable)
+            .unwrap_or(false)
+    }
+
+    fn get_monster_type_is_convinceable(&self, name: &str) -> bool {
+        self.monsters_db
+            .get_by_name(name)
+            .map(|m| m.flags.convinceable)
+            .unwrap_or(false)
+    }
+
+    fn get_monster_type_mana_cost(&self, name: &str) -> u32 {
+        self.monsters_db
+            .get_by_name(name)
+            .map(|m| m.mana_cost)
+            .unwrap_or(0)
+    }
+
+    fn get_creature_summons(&self, creature_id: ScriptCreatureId) -> Vec<ScriptCreatureId> {
+        let Some(master) = self.resolve_creature_u64(creature_id) else {
+            return Vec::new();
+        };
+        self.creatures
+            .iter()
+            .filter(|(_, k)| k.base().master == Some(master))
+            .map(|(id, _)| id.data().as_ffi())
+            .collect()
+    }
+
+    fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
+        self.resolve_creature_u64(creature_id)
+            .and_then(|cid| self.creatures.get(cid))
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+    }
+
+    fn get_creature_monster_type_name(&self, creature_id: ScriptCreatureId) -> Option<String> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Monster(m) => Some(m.base.name.clone()),
+            _ => None,
+        }
+    }
+
+    fn get_item_type_is_corpse(&self, item_type: u16) -> bool {
+        self.items_db
+            .items
+            .get(&item_type)
+            .is_some_and(|t| t.xml_attributes.contains_key("corpsetype"))
+    }
+
+    fn get_item_type_is_movable(&self, item_type: u16) -> bool {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.moveable())
+            .unwrap_or(true)
     }
 }

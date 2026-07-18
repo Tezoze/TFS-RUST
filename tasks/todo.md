@@ -1,3 +1,11 @@
+## PC-3a Gaps 5–6 — summons + utilities (2026-07-18) — done
+- [x] Phase 9a: VARIANT_STRING param plumbing; Variant ctor; getString/getNumber/getPosition
+- [x] Phase 9b–9c: Position fields/ctor/getNextPosition/moveUpstairs; Tile hasFlag/getGround/getItems/getItemByType/getTopDownItem
+- [x] Phase 9d: ropeSpots / Fields / corpseIds in functions.lua
+- [x] Phase 10: summonable/convinceable/manaCost; Game.createMonster; addSummon/getSummons/isMonster/getType; ItemType isCorpse/isMovable
+- [x] Phase 11a: rune:{id} callbacks; use-with → fire_on_cast_rune + charge consume
+- [x] Phase 11b: sendTextMessage, getDirection, move/teleportTo, CanSummonAll/CanConvinceAll; docs
+
 ## PC-3a Phases 6–8 + MonsterType (2026-07-18) — done
 - [x] Phase 8: CREATEITEM / NODAMAGE / DISTANCEEFFECT on request → `aoe.rs`
 - [x] Minimal `Tile(pos):hasProperty(BLOCKSOLID)`

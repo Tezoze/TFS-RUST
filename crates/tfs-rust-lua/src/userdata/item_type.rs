@@ -63,6 +63,30 @@ impl UserData for ItemTypeRef {
             })
         });
 
+        methods.add_method("isCorpse", |_, this, ()| {
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_item_type_is_corpse(this.0))
+            })
+        });
+
+        methods.add_method("isMovable", |_, this, ()| {
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_item_type_is_movable(this.0))
+            })
+        });
+
         // `ItemType:getName()` — `ItemType::name` (`src/items.h`). Returns
         // the item name, or empty string if not found.
         methods.add_method("getName", |_, this, ()| {
