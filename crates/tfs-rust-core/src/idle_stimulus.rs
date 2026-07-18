@@ -12,13 +12,13 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use slotmap::Key;
-use tfs_rust_common::enums::{CombatType, ConditionType, SpeakType, ZoneType};
+use tfs_rust_common::enums::{CombatType, ConditionType, Direction, SpeakType, ZoneType};
 use tfs_rust_common::game_packet::ThrowPayload;
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
 use crate::combat::math::spell_damage;
-use crate::combat::{CombatDamage, CombatParams};
+use crate::combat::{disc_offsets, CombatDamage, CombatParams};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
     monster_weapon_attack_distance, ChaseMode, CreatureBase, CreatureKind, MonsterSpell,
@@ -980,42 +980,69 @@ impl GameWorld {
         base.follow_target.or(base.attack_target)
     }
 
-    /// Tile set for a spell shape — `crnonpl.cc:2627`.
+    /// Tile set for a spell shape — `crnonpl.cc:2627`; shape spell bodies in `magic.cc`.
+    ///
+    /// - `Angle`: 772 `AngleShapeSpell` (`magic.cc:550`) — forward cone by **caster direction**
+    ///   (`Forward=1..=length`, `Across = ±Forward*spread/90`), NOT a target-vector line.
+    /// - `Destination`: 772 `DestinationShapeSpell` → `CircleShapeSpell` at victim tile
+    ///   (`magic.cc:537`) — circle of `radius` around the target.
+    /// - `Origin`: 772 `OriginShapeSpell` (`magic.cc:503`) — circle of `radius` around caster.
     fn monster_idle_spell_tiles(
-        shape: SpellShape,
+        spell: &MonsterSpell,
         caster_pos: Position,
+        caster_dir: Direction,
         target_pos: Position,
-        radius: i32,
     ) -> Vec<Position> {
-        match shape {
+        let clamp = |x: i32, y: i32| {
+            Position::new(
+                x.clamp(0, u16::MAX as i32) as u16,
+                y.clamp(0, u16::MAX as i32) as u16,
+                caster_pos.z,
+            )
+        };
+        match spell.shape {
             SpellShape::Actor => vec![caster_pos],
-            SpellShape::Victim | SpellShape::Destination => vec![target_pos],
-            SpellShape::Origin => {
-                let mut tiles = vec![caster_pos];
-                let r = radius.max(0) as u32;
-                for dx in -(r as i32)..=(r as i32) {
-                    for dy in -(r as i32)..=(r as i32) {
-                        if dx.unsigned_abs().max(dy.unsigned_abs()) <= r {
-                            let x = (caster_pos.x as i32 + dx).clamp(0, u16::MAX as i32) as u16;
-                            let y = (caster_pos.y as i32 + dy).clamp(0, u16::MAX as i32) as u16;
-                            let p = Position::new(x, y, caster_pos.z);
-                            if p != caster_pos {
-                                tiles.push(p);
-                            }
-                        }
-                    }
-                }
-                tiles
+            SpellShape::Victim => vec![target_pos],
+            SpellShape::Destination | SpellShape::Origin => {
+                let center = match spell.shape {
+                    SpellShape::Destination => target_pos,
+                    _ => caster_pos,
+                };
+                // 772 `ExecuteCircleSpell` (`magic.cc:459`) iterates `Circle[0..=R]` from
+                // `circles.dat` — a proper disc, NOT a Chebyshev square. Reuse the baked
+                // `disc_offsets` (verified vs `circles.dat` / 1098 `setupArea`).
+                disc_offsets(spell.radius.max(0) as usize)
+                    .into_iter()
+                    .map(|(dx, dy)| clamp(center.x as i32 + dx, center.y as i32 + dy))
+                    .collect()
             }
             SpellShape::Angle => {
+                // 772 `AngleShapeSpell` — `magic.cc:550-588`. Walks forward `length` steps in
+                // the caster's facing direction, spreading `±Forward*Angle/90` across.
+                // TFS data-pack `spread` maps to 772 `Angle` as `spread * 10`
+                // (dragon.xml `spread=3` ↔ dragon.mon `Angle(30,8,7)`; demon `spread=0` ↔ `Angle(0,8,…)`).
                 let mut tiles = Vec::new();
-                let dx = (target_pos.x as i32 - caster_pos.x as i32).signum();
-                let dy = (target_pos.y as i32 - caster_pos.y as i32).signum();
-                let steps = radius.max(1) as u32;
-                for i in 0..=steps {
-                    let x = (caster_pos.x as i32 + dx * i as i32).clamp(0, u16::MAX as i32) as u16;
-                    let y = (caster_pos.y as i32 + dy * i as i32).clamp(0, u16::MAX as i32) as u16;
-                    tiles.push(Position::new(x, y, caster_pos.z));
+                let range = spell.length.max(0);
+                let angle = spell.spread.max(0) * 10;
+                let (fx, fy) = match caster_dir {
+                    Direction::North => (0, -1),
+                    Direction::East => (1, 0),
+                    Direction::South => (0, 1),
+                    Direction::West => (-1, 0),
+                    // Non-cardinal facing: fall back to longest-axis step (rare for monsters).
+                    Direction::NorthEast => (1, -1),
+                    Direction::SouthEast => (1, 1),
+                    Direction::SouthWest => (-1, 1),
+                    Direction::NorthWest => (-1, -1),
+                };
+                let (ax, ay) = (-fy, fx); // across-axis (perpendicular to forward)
+                for forward in 1..=range {
+                    let half = (forward * angle) / 90;
+                    for across in -half..=half {
+                        let x = caster_pos.x as i32 + fx * forward + ax * across;
+                        let y = caster_pos.y as i32 + fy * forward + ay * across;
+                        tiles.push(clamp(x, y));
+                    }
                 }
                 tiles
             }
@@ -1033,7 +1060,11 @@ impl GameWorld {
             ),
             _ => return,
         };
-        let defense_delay_moduli = self
+        // 772 `RaceData.Spells` is a single list with both attack and defense entries
+        // (`dragon.mon`: healing + fireball + fire wave). The TFS data pack splits them
+        // into `<attacks>` and `<defenses>`; we merge defense spells here so the CASTING
+        // loop can fire non-aggressive defenses (healing) even without a target.
+        let defense_spells: Vec<MonsterSpell> = self
             .monsters_db
             .monsters
             .get(&db_name)
@@ -1043,23 +1074,18 @@ impl GameWorld {
                     .spells
                     .iter()
                     .filter_map(MonsterSpell::try_from_node)
-                    .filter_map(|spell| (spell.delay > 0).then_some(spell.delay as u32))
-                    .collect::<Vec<_>>()
+                    .collect()
             })
             .unwrap_or_default();
-        if spells.is_empty() && defense_delay_moduli.is_empty() {
+        if spells.is_empty() && defense_spells.is_empty() {
             return;
         }
-        let Some(target_id) = cast_target else {
-            for delay in defense_delay_moduli {
-                let _ = self.parity_rand_mod(delay);
-            }
-            return;
-        };
-        let target_pos = match self.creatures.get(target_id) {
-            Some(k) => k.position(),
-            None => return,
-        };
+        // 772 CASTING (`crnonpl.cc:2521-2667`): Target may be 0 — the loop still runs,
+        // consuming delay + flee rolls for every spell. Non-aggressive spells (Healing)
+        // pass the `!isAggressive()` gate and cast on self; aggressive spells skip
+        // (`crnonpl.cc:2682`: `!isAggressive() || (Target != 0 && Target != Master)`).
+        let target_id = cast_target;
+        let target_pos = target_id.and_then(|tid| self.creatures.get(tid).map(|k| k.position()));
         let fleeing = self
             .creatures
             .get(cid)
@@ -1067,13 +1093,80 @@ impl GameWorld {
 
         let mut rng_scratch = StdRng::from_entropy();
         // Phase 3: 1098 `ai_rng` path deleted — both eras use the 772 parity RNG stream.
-        for spell in &spells {
+        // Attack spells first, then defense spells — matches current RNG order (defense
+        // delay rolls were consumed after the attack loop pre-fix).
+        for spell in spells.iter().chain(defense_spells.iter()) {
             if spell.delay <= 0 || self.parity_rand_mod(spell.delay as u32) != 0 {
                 continue;
             }
             if fleeing && self.parity_random(1, 3) != 1 {
                 continue;
             }
+
+            // 772 `isAggressive` gate (`crnonpl.cc:2682`):
+            // `if(!Impact->isAggressive() || (this->Target != 0 && this->Target != this->Master))`
+            // Non-aggressive spells (Healing) always cast; aggressive spells need a valid
+            // target that isn't the master.
+            let is_aggressive = spell.impact.is_aggressive();
+            if is_aggressive {
+                let Some(tid) = target_id else { continue };
+                if self.creatures.get(cid).is_some_and(|k| {
+                    matches!(k, CreatureKind::Monster(m) if m.base.master == Some(tid))
+                }) {
+                    continue;
+                }
+            }
+            let Some(target_pos) = target_pos else {
+                // No target — only non-aggressive spells with self-centered shapes can fire.
+                // 772 shape dispatch: Actor/Origin/Angle don't need Target; Victim/Destination
+                // check `if(Target != NULL)`.
+                if !is_aggressive {
+                    match spell.shape {
+                        SpellShape::Actor => {
+                            if let Some(effect) = spell.area_effect {
+                                self.broadcast_magic_effect(pos, effect);
+                            }
+                            self.monster_idle_apply_spell_impact(
+                                cid, cid, spell, &mut rng_scratch,
+                            );
+                        }
+                        SpellShape::Origin | SpellShape::Angle => {
+                            let caster_dir = self
+                                .creatures
+                                .get(cid)
+                                .map(|k| k.base().direction)
+                                .unwrap_or(Direction::North);
+                            let tiles = Self::monster_idle_spell_tiles(
+                                spell, pos, caster_dir, pos,
+                            );
+                            for tile in tiles {
+                                if !self.monster_sight_clear(pos, tile) {
+                                    continue;
+                                }
+                                if let Some(effect) = spell.area_effect {
+                                    self.broadcast_magic_effect(tile, effect);
+                                }
+                                let victims: Vec<CreatureId> = self
+                                    .map
+                                    .get_tile(tile)
+                                    .map(|t| t.body().creatures.clone())
+                                    .unwrap_or_default();
+                                for victim_id in victims {
+                                    if victim_id == cid {
+                                        continue;
+                                    }
+                                    self.monster_idle_apply_spell_impact(
+                                        cid, victim_id, spell, &mut rng_scratch,
+                                    );
+                                }
+                            }
+                        }
+                        // Victim/Destination require a target — skip.
+                        _ => {}
+                    }
+                }
+                continue;
+            };
 
             let dist = chebyshev(pos, target_pos);
             if spell.range > 0 && dist > spell.range {
@@ -1090,34 +1183,94 @@ impl GameWorld {
             {
                 continue;
             }
-            if self.monster_idle_suppress_adjacent_melee_spell(cid, dist) {
-                continue;
-            }
+            // 772 CASTING (`crnonpl.cc:2521-2667`) has no adjacent-melee spell suppression —
+            // melee and spells run on independent cooldowns. The dragon casts fire wave/fireball
+            // even when adjacent to the target. Range checks are inside the shape spell
+            // functions (`VictimShapeSpell` `magic.cc:423`, `CircleShapeSpell` `magic.cc:520`),
+            // NOT in the CASTING block. `AngleShapeSpell` has no range check at all.
 
-            let tiles = Self::monster_idle_spell_tiles(spell.shape, pos, target_pos, spell.radius);
+            // 772 `SHAPE_ANGLE` calls `this->Rotate(Target)` before building the beam
+            // (`crnonpl.cc:2725`), so the cone follows the freshly-faced direction.
+            // At this point `target_id` is guaranteed `Some` — aggressive spells without
+            // a target `continue`d above, and non-aggressive without target took the
+            // self-cast `continue` path.
+            let tid = target_id.unwrap();
+            let caster_dir = if matches!(spell.shape, SpellShape::Angle) {
+                self.monster_face_toward(cid, tid, false);
+                self.creatures
+                    .get(cid)
+                    .map(|k| k.base().direction)
+                    .unwrap_or(Direction::North)
+            } else {
+                Direction::North
+            };
+            let tiles = Self::monster_idle_spell_tiles(spell, pos, caster_dir, target_pos);
             let rng: &mut StdRng = &mut rng_scratch;
 
             match spell.shape {
-                SpellShape::Victim | SpellShape::Destination => {
+                SpellShape::Victim => {
                     if !self.monster_sight_clear(pos, target_pos) {
                         continue;
                     }
                     // Face target for the cast. Wire 0x6B is deferred to the idle combat
-                    // rotate tail (or suppressed when a Go is pending) so Destination/Victim
-                    // spells do not spam stand-still turns between chase batches.
-                    self.monster_face_toward(cid, target_id, false);
+                    // rotate tail (or suppressed when a Go is pending) so Victim spells do
+                    // not spam stand-still turns between chase batches.
+                    self.monster_face_toward(cid, tid, false);
                     if let Some(shoot) = spell.shoot_effect {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
-                    self.monster_idle_apply_spell_impact(cid, target_id, spell, rng);
+                    if let Some(effect) = spell.area_effect {
+                        self.broadcast_magic_effect(target_pos, effect);
+                    }
+                    self.monster_idle_apply_spell_impact(cid, tid, spell, rng);
                 }
-                SpellShape::Actor => {
-                    self.monster_idle_apply_spell_impact(cid, cid, spell, rng);
-                }
-                SpellShape::Origin | SpellShape::Angle => {
+                SpellShape::Destination => {
+                    // 772 `DestinationShapeSpell` → `CircleShapeSpell` (`magic.cc:537,522`):
+                    // gate actor→dest center + `Missile` to dest, then `ExecuteCircleSpell`
+                    // over `radius` applying impact + `GraphicalEffect` per tile.
+                    if !self.monster_sight_clear(pos, target_pos) {
+                        continue;
+                    }
+                    self.monster_face_toward(cid, tid, false);
+                    if let Some(shoot) = spell.shoot_effect {
+                        self.broadcast_distance_shoot(pos, target_pos, shoot);
+                    }
                     for tile in tiles {
                         if !self.monster_sight_clear(pos, tile) {
                             continue;
+                        }
+                        if let Some(effect) = spell.area_effect {
+                            self.broadcast_magic_effect(tile, effect);
+                        }
+                        let victims: Vec<CreatureId> = self
+                            .map
+                            .get_tile(tile)
+                            .map(|t| t.body().creatures.clone())
+                            .unwrap_or_default();
+                        for victim_id in victims {
+                            if victim_id == cid {
+                                continue;
+                            }
+                            self.monster_idle_apply_spell_impact(cid, victim_id, spell, rng);
+                        }
+                    }
+                }
+                SpellShape::Actor => {
+                    // 772 `ActorShapeSpell` — `GraphicalEffect` on actor tile (`magic.cc:400`).
+                    if let Some(effect) = spell.area_effect {
+                        self.broadcast_magic_effect(pos, effect);
+                    }
+                    self.monster_idle_apply_spell_impact(cid, cid, spell, rng);
+                }
+                SpellShape::Origin | SpellShape::Angle => {
+                    // 772 `OriginShapeSpell`/`AngleShapeSpell` — `ExecuteCircleSpell`/beam:
+                    // `GraphicalEffect` per tile + `handleCreature` per victim (`magic.cc:503,550`).
+                    for tile in tiles {
+                        if !self.monster_sight_clear(pos, tile) {
+                            continue;
+                        }
+                        if let Some(effect) = spell.area_effect {
+                            self.broadcast_magic_effect(tile, effect);
                         }
                         let victims: Vec<CreatureId> = self
                             .map
@@ -1141,24 +1294,6 @@ impl GameWorld {
             // gates pass is evaluated and cast in the same idle, and each spell's delay roll is drawn
             // regardless (audit Finding 2). Stopping after the first cast desyncs the glibc stream.
         }
-        // C++ `RaceData` spell list includes defense entries — consume delay rolls only.
-        for delay in defense_delay_moduli {
-            let _ = self.parity_rand_mod(delay);
-        }
-    }
-
-    fn monster_idle_suppress_adjacent_melee_spell(&self, cid: CreatureId, dist: i32) -> bool {
-        if dist > 1 {
-            return false;
-        }
-        self.creatures.get(cid).is_some_and(|k| {
-            matches!(
-                k,
-                CreatureKind::Monster(m)
-                    if self.monster_effective_target_distance(m.target_distance) <= 1
-                        && m.melee_skill > 0
-            )
-        })
     }
 
     fn monster_idle_apply_spell_impact(
@@ -1252,6 +1387,16 @@ impl GameWorld {
                     primary_type: *element,
                     ..CombatParams::default()
                 };
+                // Capture snapshot + HP before — same pattern as monster melee/ranged
+                // (`monster_ai.rs:444,592`). `combat_execute_with_stimulus` broadcasts the
+                // magic hit effect but NOT the animated damage text / health bar / status
+                // message — `notify_player_combat_damage` owns those (`game_world_spectators.rs:481`).
+                let notify_snap = self.combat_notify_snapshot(target_id);
+                let hp_before = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().health)
+                    .unwrap_or(0);
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
@@ -1261,11 +1406,37 @@ impl GameWorld {
                     },
                     &params,
                 );
+                let hp_after = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().health)
+                    .unwrap_or(hp_before);
+                if let Some(snap) = notify_snap {
+                    let damage_done = (hp_before - hp_after).max(0);
+                    if damage_done > 0 {
+                        self.notify_player_combat_damage(
+                            Some(caster_id),
+                            target_id,
+                            damage_done,
+                            *element,
+                            snap,
+                        );
+                    }
+                }
             }
             SpellImpact::Healing { base, variation } => {
                 let min_heal = (*base).saturating_sub(*variation);
                 let max_heal = (*base).saturating_add(*variation);
                 let heal = self.parity_random(min_heal, max_heal).max(0);
+                // 772 `THealingImpact::handleCreature` (`magic.cc:191`) changes HP directly — no
+                // `TextualEffect` (animated text), but the health bar must still update. We capture
+                // the snapshot for pos/wire_id, then broadcast health + stats only (no damage text).
+                let notify_snap = self.combat_notify_snapshot(target_id);
+                let hp_before = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().health)
+                    .unwrap_or(0);
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
@@ -1275,6 +1446,17 @@ impl GameWorld {
                     },
                     &CombatParams::default(),
                 );
+                let hp_after = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().health)
+                    .unwrap_or(hp_before);
+                if let Some(snap) = notify_snap {
+                    let heal_done = hp_after.saturating_sub(hp_before);
+                    if heal_done > 0 {
+                        self.notify_creature_healed(target_id, snap);
+                    }
+                }
             }
             SpellImpact::Speed {
                 percent,

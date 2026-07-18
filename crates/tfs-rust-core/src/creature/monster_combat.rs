@@ -57,6 +57,16 @@ pub enum SpellImpact {
     },
 }
 
+impl SpellImpact {
+    /// 772 `TImpact::isAggressive` (`magic.cc:119`) — base returns `true`.
+    /// Only `THealingImpact` overrides to `false` (`magic.cc:210`).
+    /// Used by the CASTING gate (`crnonpl.cc:2682`):
+    /// `if(!Impact->isAggressive() || (this->Target != 0 && this->Target != this->Master))`.
+    pub fn is_aggressive(&self) -> bool {
+        !matches!(self, SpellImpact::Healing { .. })
+    }
+}
+
 /// Runtime spell entry for idle CASTING (E4) and target-range checks.
 ///
 /// C++ reference: `cr.hh:55` `TSpellData`.
@@ -65,8 +75,14 @@ pub struct MonsterSpell {
     /// Cast gate: `rand() % Delay == 0` — `crnonpl.cc:2527`.
     pub delay: i32,
     pub range: i32,
-    /// Area radius for `Origin` / `Angle` shapes — XML `radius`.
+    /// Area radius for `Origin` / `Destination` shapes — XML `radius`.
     pub radius: i32,
+    /// Forward range for `Angle` (beam) shapes — XML `length`.
+    /// 772 `AngleShapeSpell` `Range` (`magic.cc:550`, `ShapeParam2`).
+    pub length: i32,
+    /// Cone half-angle for `Angle` shapes — XML `spread`.
+    /// 772 `AngleShapeSpell` `Angle` (`magic.cc:550`, `ShapeParam1`); `Left/Right = ±Forward*Angle/90`.
+    pub spread: i32,
     pub min_cycle: i32,
     pub shape: SpellShape,
     pub impact: SpellImpact,
@@ -111,6 +127,8 @@ impl MonsterSpell {
         let delay = parse_attr_i32(node, "delay", 0);
         let range = parse_attr_i32(node, "range", 0);
         let radius = parse_attr_i32(node, "radius", 0);
+        let length = parse_attr_i32(node, "length", 0);
+        let spread = parse_attr_i32(node, "spread", 0);
         let min_cycle = parse_attr_i32(node, "mincycle", 0);
         let shape = default_shape_for_node(name, node);
         let impact = parse_spell_impact(name, node)?;
@@ -125,6 +143,8 @@ impl MonsterSpell {
             delay,
             range,
             radius,
+            length,
+            spread,
             min_cycle,
             shape,
             impact,
@@ -456,16 +476,28 @@ fn parse_min_max_healing(node: &MonsterSpellNode) -> (i32, i32) {
     (base.max(0), variation.max(0))
 }
 
-/// Shape from XML attrs — `crnonpl.cc:2609`.
+/// Shape from XML attrs — `crnonpl.cc:2609` `SHAPE_*`; TFS data-pack mapping
+/// (`monsters.cpp:191` `length`+`spread` → directional area = 772 `SHAPE_ANGLE`;
+/// `monsters.cpp:217` `radius` → area; `target="1"` → needs victim tile).
 fn default_shape_for_node(name: &str, node: &MonsterSpellNode) -> SpellShape {
     let radius = parse_attr_i32(node, "radius", 0);
     let range = parse_attr_i32(node, "range", 0);
+    let length = parse_attr_i32(node, "length", 0);
     let target = node
         .attributes
         .get("target")
         .and_then(|s| s.parse::<i32>().ok());
+    // TFS `length`+`spread` → `AreaCombat::setupArea` + `needDirection` = 772 beam (`SHAPE_ANGLE`).
+    if length > 0 {
+        return SpellShape::Angle;
+    }
     if radius > 0 && target == Some(0) {
         return SpellShape::Origin;
+    }
+    // TFS `target="1"` + `radius` → area around victim tile = 772 `SHAPE_DESTINATION`
+    // (`DestinationShapeSpell` → `CircleShapeSpell` at victim pos, `magic.cc:537`).
+    if target == Some(1) && radius > 0 {
+        return SpellShape::Destination;
     }
     if target == Some(1) || range > 1 {
         return SpellShape::Victim;
@@ -520,9 +552,43 @@ fn parse_shoot_effect_name(name: &str) -> Option<u8> {
     }
 }
 
+/// TFS data-pack `areaeffect` name → 772 `CONST_ME_*` wire byte
+/// (`tools.cpp:497` `magicEffectNames`; 772 `const.h:11-35`). Returns the raw
+/// on-wire byte used by `broadcast_magic_effect` (`sendMagicEffect`).
+/// Names beyond the 772 client range (>25) are dropped — they would not render.
 fn parse_area_effect_name(name: &str) -> Option<u8> {
-    debug!(areaeffect = name, "monster areaeffect not mapped yet");
-    None
+    let byte = match name.to_ascii_lowercase().as_str() {
+        "redspark" => 1,        // CONST_ME_DRAWBLOOD
+        "bluebubble" => 2,      // CONST_ME_LOSEENERGY
+        "poff" => 3,            // CONST_ME_POFF
+        "yellowspark" => 4,     // CONST_ME_BLOCKHIT
+        "explosionarea" => 5,   // CONST_ME_EXPLOSIONAREA
+        "explosion" => 6,       // CONST_ME_EXPLOSIONHIT
+        "firearea" => 7,        // CONST_ME_FIREAREA
+        "yellowbubble" => 8,    // CONST_ME_YELLOW_RINGS
+        "greenbubble" => 9,     // CONST_ME_GREEN_RINGS
+        "blackspark" => 10,     // CONST_ME_HITAREA
+        "teleport" => 11,       // CONST_ME_TELEPORT
+        "energy" => 12,         // CONST_ME_ENERGYHIT
+        "blueshimmer" => 13,    // CONST_ME_MAGIC_BLUE
+        "redshimmer" => 14,     // CONST_ME_MAGIC_RED
+        "greenshimmer" => 15,   // CONST_ME_MAGIC_GREEN
+        "fire" => 16,           // CONST_ME_HITBYFIRE
+        "greenspark" => 17,     // CONST_ME_HITBYPOISON
+        "mortarea" => 18,       // CONST_ME_MORTAREA
+        "greennote" => 19,      // CONST_ME_SOUND_GREEN
+        "rednote" => 20,        // CONST_ME_SOUND_RED
+        "poison" => 21,         // CONST_ME_POISONAREA
+        "yellownote" => 22,     // CONST_ME_SOUND_YELLOW
+        "purplenote" => 23,     // CONST_ME_SOUND_PURPLE
+        "bluenote" => 24,       // CONST_ME_SOUND_BLUE
+        "whitenote" => 25,      // CONST_ME_SOUND_WHITE
+        _ => {
+            debug!(areaeffect = name, "monster areaeffect not mapped to a 772 effect");
+            return None;
+        }
+    };
+    Some(byte)
 }
 
 #[cfg(test)]
@@ -608,6 +674,37 @@ mod tests {
         assert_eq!(spell.shoot_effect, Some(ShootEffect::PoisonArrow as u8));
     }
 
+    /// Dragon fire wave (`length`+`spread`) → `Angle`; fireball (`target`+`range`+`radius`)
+    /// → `Destination`. 772 refs: `dragon.mon` `Angle(30,8,7)` / `Destination(7,4,3,7)`.
+    #[test]
+    fn test_e0_dragon_fire_spells_shape_mapping() {
+        let mtype = load_monster_type("dragon");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        // melee + two fire spells (wave + fireball).
+        assert!(cfg.spells.len() >= 2, "dragon must parse its fire spells");
+
+        let wave = cfg
+            .spells
+            .iter()
+            .find(|s| s.shape == SpellShape::Angle)
+            .expect("dragon fire wave must parse as Angle (length+spread)");
+        assert_eq!(wave.length, 8, "length → 772 Range");
+        assert_eq!(wave.spread, 3, "spread → 772 Angle/10");
+        assert_eq!(wave.delay, 9);
+        assert_eq!(wave.area_effect, Some(7), "firearea → CONST_ME_FIREAREA 7");
+        assert!(matches!(wave.impact, SpellImpact::Damage { element: CombatType::Fire, .. }));
+
+        let fireball = cfg
+            .spells
+            .iter()
+            .find(|s| s.shape == SpellShape::Destination)
+            .expect("dragon fireball must parse as Destination (target+radius)");
+        assert_eq!(fireball.range, 7);
+        assert!(fireball.radius > 0);
+        assert_eq!(fireball.shoot_effect, Some(ShootEffect::Fire as u8));
+        assert!(matches!(fireball.impact, SpellImpact::Damage { element: CombatType::Fire, .. }));
+    }
+
     #[test]
     fn test_e0_unknown_spell_skipped() {
         let node = spell_node("weirdattack", &[("delay", "1")], &[]);
@@ -625,6 +722,8 @@ mod tests {
             delay: 4,
             range: 5,
             radius: 0,
+            length: 0,
+            spread: 0,
             min_cycle: 6,
             shape: SpellShape::Victim,
             impact: SpellImpact::Condition {

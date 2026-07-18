@@ -495,6 +495,8 @@ fn test_772_classify_melee_dance_when_throw_not_possible_at_adjacent() {
         delay: 2000,
         range: 7,
         radius: 0,
+        length: 0,
+        spread: 0,
         min_cycle: 0,
         shape: SpellShape::Victim,
         impact: SpellImpact::Damage {
@@ -2557,6 +2559,8 @@ fn test_e2_wait_100_before_attack_when_weapon_range_not_close() {
         delay: 4,
         range: 5,
         radius: 0,
+        length: 0,
+        spread: 0,
         min_cycle: 6,
         shape: SpellShape::Victim,
         impact: SpellImpact::Condition {
@@ -4293,6 +4297,8 @@ fn test_772_spell_blocked_across_z_levels() {
         delay: 1,
         range: 5,
         radius: 0,
+        length: 0,
+        spread: 0,
         min_cycle: 0,
         shape: SpellShape::Victim,
         impact: SpellImpact::Damage {
@@ -4322,6 +4328,97 @@ fn test_772_spell_blocked_across_z_levels() {
         hp_before, hp_after,
         "monster must not cast Victim spell at a target on a different Z-level \
              (C++ VictimShapeSpell magic.cc:423 checks Actor->posz != Victim->posz)"
+    );
+}
+
+/// Dragon fire-wave (`Angle` shape, TFS `length`+`spread`) must cast as a directional beam
+/// toward the target — NOT self-cast `Actor`. 772 `AngleShapeSpell` (`magic.cc:550`); the TFS
+/// data-pack `length=8 spread=3` maps to 772 `Angle(30, 8, 7)` (`dragon.mon`).
+#[test]
+fn test_772_dragon_fire_wave_angle_casts_toward_target() {
+    use crate::creature::MonsterAiConfig;
+
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(103, 100, 7); // directly east of dragon, cheb=3
+    // Lay the full beam corridor so every cone tile is valid + sight-clear.
+    for x in 100..=111u16 {
+        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+    }
+
+    let conn = ConnId(1);
+    let mut player = test_player("Hero", ppos);
+    player.base.health = 1000;
+    player.base.max_health = 1000;
+    let player = insert_spectator_player(&mut world, conn, player);
+    world
+        .known_creatures_by_conn
+        .insert(conn, std::collections::HashSet::new());
+
+    // Dragon fire wave: Angle, length=8, spread=3 (→ 772 Angle=30/Range=8), delay=1 (always
+    // casts), firearea graphical effect (CONST_ME_FIREAREA = 7).
+    let mut cfg = MonsterAiConfig::default();
+    cfg.spells.push(MonsterSpell {
+        delay: 1,
+        range: 0,
+        radius: 0,
+        length: 8,
+        spread: 3,
+        min_cycle: 0,
+        shape: SpellShape::Angle,
+        impact: SpellImpact::Damage {
+            element: CombatType::Fire,
+            base: 130,
+            variation: 30,
+        },
+        shoot_effect: None,
+        area_effect: Some(7), // firearea
+    });
+    let monster = insert_monster_with_config(&mut world, "Dragon", mpos, 200, cfg);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.is_hostile = true;
+        m.state = MonsterState::Attacking;
+        m.opponent_ids.push(player);
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+    }
+
+    world.pending_outgoing.clear();
+    let hp_before = world.creatures.get(player).unwrap().base().health;
+    world.monster_idle_stimulus(monster);
+    let hp_after = world.creatures.get(player).unwrap().base().health;
+
+    assert!(
+        hp_after < hp_before,
+        "dragon fire wave (Angle) must damage the target in the beam, not self-cast \
+             (772 AngleShapeSpell magic.cc:550)"
+    );
+
+    // The fire-wave visual (`firearea` = CONST_ME_FIREAREA 7) must be broadcast on a beam tile.
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("spectator must receive spell packets");
+    assert!(
+        pkts.iter().any(|p| {
+            // 772 sendMagicEffect opcode 0x83, then position, then effect byte.
+            p.len() >= 7 && p[0] == 0x83 && p[p.len() - 1] == 7
+        }),
+        "dragon fire wave must broadcast firearea magic effect (0x83 / effect 7) on a beam tile"
+    );
+
+    // Animated damage text (floating number) — 772 opcode 0x84.
+    assert!(
+        pkts.iter().any(|p| p.len() >= 2 && p[0] == 0x84),
+        "dragon fire wave must broadcast animated damage text (0x84) so the player sees the number"
+    );
+
+    // Health bar update — 772 opcode 0x8C (CreatureHealth).
+    assert!(
+        pkts.iter().any(|p| p.len() >= 2 && p[0] == 0x8C),
+        "dragon fire wave must broadcast health bar update (0x8C) so the client HP bar refreshes"
     );
 }
 

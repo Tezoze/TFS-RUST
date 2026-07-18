@@ -602,6 +602,44 @@ impl GameWorld {
         );
     }
 
+    /// Health bar fan-out + player stats for healing impacts — 772 `THealingImpact::handleCreature`
+    /// (`magic.cc:191`) changes HP directly with no `TextualEffect` (no animated damage text), but
+    /// the health bar must still update (`sendCreatureHealth`). Player targets also get a stats
+    /// update so the client HP bar refreshes.
+    pub(crate) fn notify_creature_healed(
+        &mut self,
+        target_id: CreatureId,
+        snapshot: CombatNotifySnapshot,
+    ) {
+        let CombatNotifySnapshot {
+            pos,
+            wire_id,
+            is_player,
+            max_hp,
+        } = snapshot;
+        let max_hp = max_hp.max(1);
+        let hp_pct = self
+            .creatures
+            .get(target_id)
+            .map(|k| ((k.base().health.max(0) as u64 * 100) / max_hp as u64).min(100) as u8)
+            .unwrap_or(0);
+
+        if is_player {
+            self.send_player_stats(target_id);
+        }
+
+        use tfs_rust_net::codec::wire::CreatureHealthWire;
+        self.broadcast_to_spectators(
+            pos,
+            self.codec
+                .encode_creature_health(&CreatureHealthWire {
+                    creature_id: wire_id,
+                    health_percent: hp_pct,
+                })
+                .into_bytes(),
+        );
+    }
+
     /// Strip wire ids from `known` that this conn never received as a full `AddCreature` block.
     /// C++ `ProtocolGame::knownCreatureSet` only marks known after the client got full data.
     pub fn reconcile_known_creatures_for_send(&self, conn_id: ConnId, known: &mut HashSet<u32>) {

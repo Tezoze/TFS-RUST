@@ -1,4 +1,5 @@
 ## Live spider / name-bar / cast turn bugs (2026-07-13) — in progress
+- [x] **Monster fire attacks not casting** (2026-07-16): `length`+`spread` fire wave fell through to `SpellShape::Actor` (self-cast, invisible on fire-immune dragons); `target+radius` fireball mapped to `Victim` (single target) instead of `Destination` (area); `areaeffect` parsed but never broadcast (`parse_area_effect_name` stub). Fixed shape detection, 772 `AngleShapeSpell` cone by facing direction (`spread*10`→Angle, `length`→Range), Destination circle, and `CONST_ME_*` area-effect broadcast. See lesson 176.
 - [x] Rock soil OTB: classic IDs (107, 170+) match objects.srv; items.xml misnames shallow water 861–864 / mountains 4411+ as "rock soil"
 - [x] **Rock soil live bug:** OTBM "rock soil" 4411–4421 = srv mountains; blanket `blockSolid` blocked players ("not enough room") — cleared Bank+Unpass+wp0 solid; non-Bank Unpass stay solid; Clip speed0→150; FillMap wp0→−1
 - [x] Name/HP flicker: both-visible `!fully_sent` was appear-without-remove → remove+appear; always `mark_creature_fully_sent` on appear

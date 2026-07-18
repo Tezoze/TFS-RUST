@@ -17,6 +17,8 @@ pub mod support {
             delay: 2000,
             range: 7,
             radius: 0,
+            length: 0,
+            spread: 0,
             min_cycle: 0,
             shape: SpellShape::Victim,
             impact: SpellImpact::Damage {
