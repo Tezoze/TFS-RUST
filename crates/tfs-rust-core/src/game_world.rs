@@ -175,6 +175,11 @@ pub struct GameWorld {
     pub(crate) scratch_pk_marks: Vec<CreatureId>,
     pub(crate) scratch_dead: Vec<CreatureId>,
     pub(crate) scratch_spectators: Vec<CreatureId>,
+    /// IDLE-3: temporary buffer for one-floor sector collect before gen-dedup into `scratch_spectators`.
+    pub(crate) scratch_sector_buf: Vec<CreatureId>,
+    /// IDLE-3: generation-stamped spectator dedup (avoids sort+dedup across Z / old+new).
+    pub(crate) scratch_spectator_seen: rustc_hash::FxHashMap<CreatureId, u32>,
+    pub(crate) scratch_spectator_gen: u32,
     /// OBS-1: aggregated window histograms / counters (Phase 0).
     pub(crate) obs: crate::obs::GameObs,
 }
@@ -368,7 +373,31 @@ impl GameWorld {
             scratch_pk_marks: Vec::new(),
             scratch_dead: Vec::new(),
             scratch_spectators: Vec::new(),
+            scratch_sector_buf: Vec::new(),
+            scratch_spectator_seen: rustc_hash::FxHashMap::default(),
+            scratch_spectator_gen: 0,
             obs: crate::obs::GameObs::new(),
+        }
+    }
+
+    /// IDLE-3: bump spectator-seen generation; clear map on wrap to avoid stale hits.
+    pub(crate) fn bump_spectator_gen(&mut self) -> u32 {
+        self.scratch_spectator_gen = self.scratch_spectator_gen.wrapping_add(1);
+        if self.scratch_spectator_gen == 0 {
+            self.scratch_spectator_seen.clear();
+            self.scratch_spectator_gen = 1;
+        }
+        self.scratch_spectator_gen
+    }
+
+    /// IDLE-3: mark `id` seen for `gen`; returns `true` on first sight this generation.
+    pub(crate) fn spectator_mark_new(&mut self, id: CreatureId, gen: u32) -> bool {
+        let entry = self.scratch_spectator_seen.entry(id).or_insert(0);
+        if *entry == gen {
+            false
+        } else {
+            *entry = gen;
+            true
         }
     }
 

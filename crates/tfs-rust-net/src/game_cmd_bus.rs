@@ -118,4 +118,29 @@ mod tests {
         assert!(tx.send(GameCommand::Shutdown).is_ok());
         assert!(matches!(ctrl_rx.try_recv(), Ok(GameCommand::Shutdown)));
     }
+
+    /// Audit #2: game-lane full and outbound SlowClient both report without blocking.
+    #[test]
+    fn dual_fill_game_lane_full_and_outbound_slow_client() {
+        use crate::outbound::{OutboundSendError, OutboundTx};
+
+        let (game_tx, _game_rx) = mpsc::channel(1);
+        let (ctrl_tx, _ctrl_rx) = mpsc::unbounded_channel();
+        let cmd_tx = GameCmdTx::new(game_tx, ctrl_tx);
+        let pkt = || GameCommand::Game {
+            conn_id: ConnId(1),
+            packet: GamePacket::Move(Direction::North),
+        };
+        assert!(cmd_tx.send(pkt()).is_ok());
+        assert!(matches!(
+            cmd_tx.send(pkt()),
+            Err(GameCmdSendError::GameLaneFull)
+        ));
+
+        let (out_tx, _out_rx) = OutboundTx::pair_with_caps(4, 50, 100);
+        assert!(matches!(
+            out_tx.try_send(vec![vec![0u8; 200]]),
+            Err((OutboundSendError::SlowClient { .. }, _))
+        ));
+    }
 }

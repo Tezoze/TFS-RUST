@@ -1,18 +1,25 @@
 # Game-loop OBS baselines (Phase 0)
 
-Capture after OBS-1 summaries are enabled. Run the server with:
+Capture after OBS-1 summaries are enabled. **Opt-in only** — do not leave this on for day-to-day play (one fat `game_obs_summary` every 10s).
 
 ```bash
+# Baseline capture:
 RUST_LOG=tfs_obs=info,warn ./scripts/run_server.sh
+
+# Day-to-day (mute obs; keep lag WARNs):
+RUST_LOG=warn ./scripts/run_server.sh
+# or: RUST_LOG=info,tfs_obs=off ./scripts/run_server.sh
 ```
 
-Every **10 seconds** the game thread emits one structured line:
+Every **10 seconds** (while `tfs_obs=info`) the game thread emits one structured line:
 
 ```text
 target=tfs_obs message=game_obs_summary …
 ```
 
 Paste p50/p95/p99 fields from a **60-second** window (six consecutive summaries, or one summary after a 60s scenario) into the tables below.
+
+Day-to-day lag signal without obs spam: `WARN tfs_rust_core::game_world_tick: 772 beat advance timing` (fires only when a beat is actually slow).
 
 ## Scenarios
 
@@ -62,5 +69,6 @@ Paste p50/p95/p99 fields from a **60-second** window (six consecutive summaries,
 
 - Command age is **game-thread visibility age** (pending deque / first receive), not wire ingress age.
 - Writer age is not yet exposed; `output_queued_bytes_max` / `output_full` / `output_slow_shed` are.
+- Early live samples under dense floors often show ToDo/idle as the hot path (`todo_us` / beat-timing WARN) — confirm with the tables above under load.
 - Do **not** start TODO-2 overload caps until these baselines + a production-shaped load-test show synchronized all-due drain is still the bottleneck.
 - Audit: [`GAME_LOOP_DECAY_IDLE_TODO_PERFORMANCE_AUDIT.md`](GAME_LOOP_DECAY_IDLE_TODO_PERFORMANCE_AUDIT.md).

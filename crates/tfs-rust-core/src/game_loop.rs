@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 use tokio::task::JoinSet;
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{interval_at, MissedTickBehavior};
 
 use tfs_rust_common::{ConnId, GameCommand, GamePacket, OwnedPlayerLoad};
 use tokio::sync::mpsc::error::TryRecvError;
@@ -1232,6 +1232,17 @@ fn obs_advance_beats(
     );
 }
 
+/// Build the beat timer so the first tick waits one full beat (772 `LaunchGame` waits for
+/// the first alarm — `main.cc:484–497`). Tokio's `interval` fires immediately; `interval_at`
+/// matches the reference.
+fn new_beat_timer(beat_ms: u64) -> (tokio::time::Interval, Instant) {
+    let period = Duration::from_millis(beat_ms.max(1));
+    let first_deadline = Instant::now() + period;
+    let mut beat_timer = interval_at(tokio::time::Instant::from_std(first_deadline), period);
+    beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
+    (beat_timer, first_deadline)
+}
+
 /// Unified beat-driven game loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
 ///
 /// Both eras run on this single engine. Beat size, think cadence, condition/skill tick
@@ -1246,16 +1257,12 @@ pub async fn run_game_loop(
     out_registry: Option<OutRegistry>,
 ) -> anyhow::Result<()> {
     let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
-    let mut beat_timer = interval(Duration::from_millis(beat_ms));
-    beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
+    let (mut beat_timer, mut next_beat_deadline) = new_beat_timer(beat_ms);
     let mut pending: PendingQueue = VecDeque::new();
     let mut pending_login_conns: HashSet<ConnId> = HashSet::new();
     let mut login_started: HashMap<ConnId, Instant> = HashMap::new();
     let mut output_sinks: OutputSinkMap = HashMap::new();
     let mut pending_output_shed: Vec<ConnId> = Vec::new();
-    // OBS-1: schedule baseline — first tick is immediately ready under `interval`;
-    // lateness is measured against this deadline (advance by coalesced beats).
-    let mut next_beat_deadline = Instant::now();
 
     loop {
         tokio::select! {
@@ -2006,6 +2013,243 @@ mod f8_s6_handler_routing_tests {
             world.server_ms > before,
             "beats must advance under sustained game-lane flood"
         );
+    }
+
+    /// Audit #1 full-scale: multi-second flood keeps beat lateness bounded by one command budget turn.
+    #[tokio::test(flavor = "current_thread")]
+    async fn command_flood_bounds_beat_lateness_over_multi_second() {
+        use std::collections::HashSet;
+        use std::ops::ControlFlow;
+        use std::time::{Duration, Instant};
+
+        use tfs_rust_common::{enums::Direction, ConnId};
+        use tfs_rust_net::MAX_GAME_COMMANDS_PER_TURN;
+
+        use super::{
+            dispatch_command, drain_ready_beats, new_beat_timer, try_recv_next_command,
+        };
+
+        let mut world = beat_driven_test_world();
+        let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
+        let mut pending = VecDeque::new();
+        let mut pending_logins = HashSet::new();
+        let mut login_started = HashMap::new();
+        let out_registry = None;
+        let mut output_sinks = HashMap::new();
+        let mut pending_output_shed = Vec::new();
+
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let (mut beat_timer, _) = new_beat_timer(beat_ms);
+        // Wait for the delayed first tick so subsequent ready ticks are real.
+        tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
+        let _ = drain_ready_beats(&mut beat_timer);
+
+        let wall_start = Instant::now();
+        let mut max_lateness_ms = 0u64;
+        let mut total_ready = 0u64;
+        // Keep the lane topped up for ~2 wall seconds.
+        while wall_start.elapsed() < Duration::from_secs(2) {
+            while tx
+                .send(GameCommand::Game {
+                    conn_id: ConnId(1),
+                    packet: GamePacket::Move(Direction::North),
+                })
+                .is_ok()
+            {
+                // Fill until backpressure or enough queued for this turn.
+                if pending.len() + 8 >= MAX_GAME_COMMANDS_PER_TURN * 2 {
+                    break;
+                }
+            }
+
+            let turn_start = Instant::now();
+            let mut processed = 0usize;
+            while processed < MAX_GAME_COMMANDS_PER_TURN {
+                let Some(cmd) = try_recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending)
+                else {
+                    break;
+                };
+                let flow = dispatch_command(
+                    &mut world,
+                    Some(cmd),
+                    &mut game_rx,
+                    &tx,
+                    &mut pending,
+                    &mut pending_logins,
+                    &mut login_started,
+                    &mut output_sinks,
+                    &out_registry,
+                    &mut pending_output_shed,
+                );
+                assert!(matches!(flow, ControlFlow::Continue(())));
+                processed += 1;
+            }
+
+            tokio::time::sleep(Duration::from_millis(beat_ms)).await;
+            let ready = drain_ready_beats(&mut beat_timer);
+            if ready > 0 {
+                total_ready = total_ready.saturating_add(ready);
+                world.advance_beat(beat_ms.saturating_mul(ready));
+                let lateness = turn_start.elapsed().as_millis() as u64;
+                max_lateness_ms = max_lateness_ms.max(lateness);
+            }
+        }
+
+        assert!(
+            total_ready >= 10,
+            "expected multiple beats over 2s flood (got {total_ready})"
+        );
+        // Budget turn + one beat sleep should keep lateness well under a second.
+        assert!(
+            max_lateness_ms < 1_000,
+            "beat lateness under flood must stay bounded (max={max_lateness_ms}ms)"
+        );
+    }
+
+    /// Audit #2: outbound SlowClient hard cap sheds the connection deterministically.
+    #[test]
+    fn outbound_slow_client_flush_sheds_connection() {
+        use tfs_rust_common::ConnId;
+        use tfs_rust_net::OutboundTx;
+
+        use super::flush_pending_outgoing;
+
+        let mut world = beat_driven_test_world();
+        let conn = ConnId(42);
+        // Hard cap 100 — a 200-byte flush must SlowClient-shed.
+        let (tx, _rx) = OutboundTx::pair_with_caps(8, 50, 100);
+        let mut sinks = HashMap::new();
+        sinks.insert(conn, tx);
+        world
+            .pending_outgoing
+            .insert(conn, vec![vec![0u8; 200]]);
+        let mut shed = Vec::new();
+        flush_pending_outgoing(&mut world, &mut sinks, &None, &mut shed);
+        assert!(
+            shed.contains(&conn),
+            "SlowClient flush must enqueue pending_output_shed"
+        );
+        assert!(
+            world.obs.output_slow_shed >= 1,
+            "OBS must record slow-client shed"
+        );
+    }
+
+    /// Audit #3: decay + ToDo continue while an async login load is in flight.
+    #[tokio::test(flavor = "current_thread")]
+    async fn login_load_pending_allows_decay_and_todo() {
+        use std::collections::HashSet;
+
+        use tfs_rust_common::ConnId;
+        use tfs_rust_content::otb::ItemType;
+
+        use crate::creature::MonsterAiConfig;
+        use crate::item::Item;
+        use crate::tile::Tile;
+        use crate::test_world::support::{ensure_walkable_tile, insert_monster_with_config};
+
+        use super::begin_player_login_load;
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1_000;
+
+        // Decay item due after clock advance.
+        let mut it = ItemType::default();
+        it.id = 1490;
+        it.server_id = 1490;
+        it.decay_time = 1;
+        it.decay_to = 0;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(1490, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+        let pos = Position::new(120, 120, 7);
+        world.map.insert_tile(pos, Tile::empty_normal());
+        let iid = world.items.insert(Item::new_single(1490));
+        world.map.get_tile_mut(pos).unwrap().add_item(iid);
+        if let Some(item) = world.items.get_mut(iid) {
+            item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
+        }
+        world.start_decay(iid);
+
+        // ToDo: due wakeup during pending login.
+        let mpos = Position::new(122, 120, 7);
+        ensure_walkable_tile(&mut world.map, mpos, 100);
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            mpos,
+            50,
+            MonsterAiConfig::default(),
+        );
+        world.schedule_creature_wakeup(monster, world.server_ms);
+
+        let (tx, _game_rx, _ctrl_rx) = tfs_rust_net::open_game_command_channels();
+        let mut pending_logins = HashSet::new();
+        let mut login_started = HashMap::new();
+        let login_conn = ConnId(77);
+        begin_player_login_load(
+            &mut world,
+            &tx,
+            &mut pending_logins,
+            &mut login_started,
+            login_conn,
+            "SlowHero".to_string(),
+            0,
+            0,
+        );
+        assert!(pending_logins.contains(&login_conn));
+
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let before_todo_popped = world.obs.todo_popped;
+        for _ in 0..40 {
+            world.advance_beat(beat_ms);
+            tokio::task::yield_now().await;
+        }
+
+        // Force decay expiry if deadline units differ (round vs ms).
+        if world.items.get(iid).is_some() {
+            let expired = world.decay.tick(u64::MAX / 4);
+            world.process_decay_expiry(&expired);
+        }
+        assert!(
+            world.items.get(iid).is_none(),
+            "decay must process while login load was/is pending"
+        );
+        assert!(
+            world.obs.todo_popped > before_todo_popped,
+            "ToDo drain must run under pending login (before={before_todo_popped}, after={})",
+            world.obs.todo_popped
+        );
+    }
+
+    /// Beat startup: first tick must wait one full beat (772 waits for alarm — `main.cc:484–497`).
+    #[tokio::test(flavor = "current_thread")]
+    async fn beat_timer_waits_one_beat_before_first_tick() {
+        use std::time::{Duration, Instant};
+
+        use super::new_beat_timer;
+
+        let beat_ms = 40u64;
+        let (mut timer, deadline) = new_beat_timer(beat_ms);
+        assert!(
+            deadline > Instant::now(),
+            "next_beat_deadline must start one beat in the future"
+        );
+
+        // Half a period must not complete — unlike `interval()`, which fires at once.
+        let early = tokio::time::timeout(Duration::from_millis(beat_ms / 2), timer.tick()).await;
+        assert!(
+            early.is_err(),
+            "first beat tick must not fire before one full period"
+        );
+
+        tokio::time::timeout(Duration::from_millis(beat_ms + 20), timer.tick())
+            .await
+            .expect("first beat must fire after one period");
     }
 
     // Suppress unused-import warning for `Player` (re-exported via test_player; kept for

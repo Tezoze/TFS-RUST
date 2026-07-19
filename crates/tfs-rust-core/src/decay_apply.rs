@@ -1110,6 +1110,45 @@ mod tests {
         }
     }
 
+    /// Audit #5 full-scale: thousands of tile expiries with wall-time bound.
+    #[test]
+    fn decay_burst_thousands_bounded_wall_time() {
+        use std::time::Instant;
+
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut it = ItemType::default();
+        it.decay_time = 5;
+        it.decay_to = 0;
+        register_type(&mut world, 1490, it);
+
+        const N: usize = 2_000;
+        let mut ids = Vec::with_capacity(N);
+        for i in 0..N {
+            let x = 50 + (i % 200) as u16;
+            let y = 50 + (i / 200) as u16;
+            let pos = Position::new(x, y, 7);
+            let iid = place_on_tile(&mut world, pos, 1490);
+            world.start_decay(iid);
+            ids.push(iid);
+        }
+
+        let start = Instant::now();
+        let expired = world.decay.tick(world.server_ms + 5_000);
+        assert_eq!(expired.len(), N);
+        world.process_decay_expiry(&expired);
+        let elapsed = start.elapsed();
+
+        for iid in &ids {
+            assert!(world.items.get(*iid).is_none(), "burst item removed");
+        }
+        assert!(
+            elapsed.as_secs() < 5,
+            "2k decay burst must finish in <5s (took {elapsed:?})"
+        );
+    }
+
     #[test]
     fn corpse_empty_remainder_zero_destroys_all_loot() {
         use crate::container::Container;

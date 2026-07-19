@@ -16,7 +16,7 @@ use crate::item::Item;
 use crate::tile::HouseTile;
 use crate::tile::{flags, Tile, TileBody};
 
-pub use grid::{SparseGrid, CHUNK_AREA, CHUNK_SIZE};
+pub use grid::{SparseGrid, CHUNK_AREA, CHUNK_SIZE, SECTOR_SIZE};
 pub use los::walk_grid_line;
 
 /// Runtime map state (sparse chunk grid + metadata).

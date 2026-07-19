@@ -1154,7 +1154,7 @@ fn tshortway_scratch_storm_reuse_stable() {
     )
     .expect("baseline");
     // Interleave other searches (wake-storm shape) then re-query baseline endpoints.
-    for i in 0..48 {
+    for i in 0..256 {
         let alt_start = Position::new(32359 + (i % 3) as u16, 32288, 7);
         let alt_target = Position::new(32360, 32292 + (i % 2) as u16, 7);
         let _ = path_matching_tshortway(

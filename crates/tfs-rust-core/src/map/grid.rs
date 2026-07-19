@@ -12,6 +12,8 @@ use crate::tile::Tile;
 
 pub const CHUNK_SIZE: u16 = 64;
 pub const CHUNK_AREA: usize = (CHUNK_SIZE as usize) * (CHUNK_SIZE as usize);
+/// 772 `TFindCreatures` block size (`crmain.cc` `blockx` / `blocky`).
+pub const SECTOR_SIZE: u16 = 16;
 
 /// Packed `(floor, chunk_x, chunk_y)` — `FxHashMap` key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -225,6 +227,55 @@ impl SparseGrid {
         }
     }
 
+    /// Viewport creatures in 772 `TFindCreatures::getNext` 16×16 sector order (`crmain.cc:101–144`).
+    ///
+    /// Walks `blocky` outer / `blockx` inner over sectors covering the XY box, then tiles
+    /// within each sector (y outer, x inner) appending each tile's creature list.
+    /// Exact LIFO `NextChainCreature` within a sector would need per-sector chains; tile-list
+    /// order is the deterministic stand-in (IDLE-3).
+    pub fn collect_spectators_sector_order(
+        &self,
+        center_x: u16,
+        center_y: u16,
+        z: u8,
+        range_x: u16,
+        range_y: u16,
+        out: &mut Vec<CreatureId>,
+    ) {
+        let x0 = center_x.saturating_sub(range_x);
+        let y0 = center_y.saturating_sub(range_y);
+        let x1 = center_x.saturating_add(range_x);
+        let y1 = center_y.saturating_add(range_y);
+
+        let bx0 = x0 / SECTOR_SIZE;
+        let by0 = y0 / SECTOR_SIZE;
+        let bx1 = x1 / SECTOR_SIZE;
+        let by1 = y1 / SECTOR_SIZE;
+
+        for by in by0..=by1 {
+            for bx in bx0..=bx1 {
+                let sx0 = bx * SECTOR_SIZE;
+                let sy0 = by * SECTOR_SIZE;
+                let sx1 = sx0 + SECTOR_SIZE - 1;
+                let sy1 = sy0 + SECTOR_SIZE - 1;
+                let tx0 = sx0.max(x0);
+                let ty0 = sy0.max(y0);
+                let tx1 = sx1.min(x1);
+                let ty1 = sy1.min(y1);
+                for y in ty0..=ty1 {
+                    for x in tx0..=tx1 {
+                        if let Some(tile) = self.get_tile(x, y, z) {
+                            let creatures = &tile.body().creatures;
+                            if !creatures.is_empty() {
+                                out.extend_from_slice(creatures);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn find_item_position(&self, item_id: crate::ids::ItemId) -> Option<Position> {
         for (key, chunk) in &self.chunks {
             let (ox, oy, z) = key.chunk_origin();
@@ -243,7 +294,7 @@ impl SparseGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slotmap::SlotMap;
+    use slotmap::{Key, SlotMap};
 
     use crate::ids::ItemId;
     use crate::tile::TileBody;
@@ -283,6 +334,51 @@ mod tests {
         out.clear();
         grid.collect_spectators(0, 0, 7, 5, 5, &mut out);
         assert!(!out.contains(&id1));
+    }
+
+    /// IDLE-3: adjacent 16×16 sectors inside one 64×64 chunk emit in sector order, not
+    /// SlotMap-key (creation) order.
+    #[test]
+    fn collect_spectators_sector_order_not_slotmap_key_order() {
+        let mut grid = SparseGrid::new();
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+
+        // Insert A first (lower SlotMap key), place it in the *later* sector (x=16).
+        // Insert B second (higher key), place it in the *earlier* sector (x=0).
+        // Same 64×64 chunk (origin 0,0); center (8,8) range 16 covers both.
+        let id_a = sm.insert(());
+        let id_b = sm.insert(());
+        assert!(
+            id_a.data().as_ffi() < id_b.data().as_ffi(),
+            "precondition: A must have lower SlotMap key than B"
+        );
+
+        for (x, y, id) in [(16u16, 8u16, id_a), (0u16, 8u16, id_b)] {
+            let tile = crate::tile::Tile::Normal(TileBody {
+                ground: Some(100),
+                down_items: vec![],
+                top_items: vec![],
+                creatures: vec![id],
+                flags: 0,
+                zone: tfs_rust_common::ZoneType::Normal,
+            });
+            grid.insert_tile(x, y, 7, tile);
+            grid.register_creature(x, y, 7, id);
+        }
+
+        let mut out = Vec::new();
+        grid.collect_spectators_sector_order(8, 8, 7, 16, 16, &mut out);
+        assert_eq!(
+            out,
+            vec![id_b, id_a],
+            "sector (0,0) must emit before sector (1,0); got {out:?}"
+        );
+
+        // SlotMap-key sort would be [A, B] — prove that differs.
+        let mut by_key = out.clone();
+        by_key.sort_by_key(|id| id.data().as_ffi());
+        assert_eq!(by_key, vec![id_a, id_b]);
+        assert_ne!(out, by_key);
     }
 
     /// Audit #7 — a creature in `Chunk.creatures` but not on any tile's `TileBody.creatures`

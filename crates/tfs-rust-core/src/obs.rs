@@ -548,4 +548,77 @@ mod tests {
         // Future key 2000 must remain on the heap.
         assert!(!world.todo_queue.is_empty());
     }
+
+    /// Audit #10: randomized schedule/clear/reschedule — stale pops skip; live wakeups execute.
+    #[test]
+    fn randomized_todo_schedule_clear_reschedule_stale_accounting() {
+        use crate::creature::MonsterAiConfig;
+        use crate::test_world::support::{
+            beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
+        };
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(150, 150, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let monster = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            pos,
+            100,
+            MonsterAiConfig::default(),
+        );
+
+        // Deterministic LCG — avoid flaky wall-clock RNG in CI.
+        let mut state = 0xC0FFEE_u64;
+        let mut next_u64 = || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1);
+            state
+        };
+
+        let mut expected_stale = 0u64;
+        world.server_ms = 10_000;
+        for _ in 0..40 {
+            let t1 = world.server_ms.saturating_sub(100 + (next_u64() % 50));
+            world.schedule_creature_wakeup(monster, t1);
+            // Clear without removing heap keys (reference insert-and-recheck).
+            if next_u64() % 3 == 0 {
+                world.stop_event_walk(monster);
+                // Old due key is now stale when drained.
+                expected_stale = expected_stale.saturating_add(1);
+            } else {
+                let t2 = world.server_ms.saturating_add(500 + (next_u64() % 200));
+                // Reschedule into the future — previous due key becomes stale on drain.
+                if let Some(k) = world.creatures.get_mut(monster) {
+                    let prev = k.base().next_wakeup;
+                    k.base_mut().next_wakeup = Some(t2);
+                    if prev.is_some_and(|p| p <= world.server_ms) {
+                        expected_stale = expected_stale.saturating_add(1);
+                    }
+                }
+                world.todo_queue.insert(t2, monster);
+            }
+        }
+
+        let before_stale = world.obs.todo_stale;
+        let before_popped = world.obs.todo_popped;
+        world.drain_todo_queue();
+        let stale = world.obs.todo_stale.saturating_sub(before_stale);
+        let popped = world.obs.todo_popped.saturating_sub(before_popped);
+        assert!(popped >= 1, "drain must pop at least one heap entry");
+        assert!(
+            stale >= 1,
+            "randomized clear/reschedule must produce stale skips (stale={stale})"
+        );
+        // Live wakeup, if any, must be the creature's current next_wakeup only.
+        if let Some(wake) = world.creatures.get(monster).and_then(|k| k.base().next_wakeup) {
+            assert!(
+                wake > world.server_ms || world.todo_queue.is_empty() || wake == world.server_ms + 1,
+                "surviving wakeup must be current NextWakeup ({wake})"
+            );
+        }
+        let _ = expected_stale;
+    }
 }

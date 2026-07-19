@@ -934,14 +934,27 @@ impl GameWorld {
 
         // C++ `TFindCreatures Search(12, 12, …, FIND_PLAYERS | FIND_MONSTERS)` — XY box only;
         // chain membership spans floors, so scan the CanSeeFloor-relevant Z set.
+        // IDLE-3: 16×16 sector order + generation-marked dedup (no SlotMap-key sort).
         self.scratch_spectators.clear();
+        let gen = self.bump_spectator_gen();
+        let mut sector_buf = std::mem::take(&mut self.scratch_sector_buf);
+        sector_buf.clear();
         for z in Self::idle_acquire_search_z_range(pos.z) {
-            self.map
-                .grid
-                .collect_spectators(pos.x, pos.y, z, 12, 12, &mut self.scratch_spectators);
+            self.map.grid.collect_spectators_sector_order(
+                pos.x,
+                pos.y,
+                z,
+                12,
+                12,
+                &mut sector_buf,
+            );
+            for target_id in sector_buf.drain(..) {
+                if self.spectator_mark_new(target_id, gen) {
+                    self.scratch_spectators.push(target_id);
+                }
+            }
         }
-        self.scratch_spectators.sort_by_key(|id| id.data().as_ffi());
-        self.scratch_spectators.dedup();
+        self.scratch_sector_buf = sector_buf;
         self.obs
             .record_idle_candidates(self.scratch_spectators.len());
 

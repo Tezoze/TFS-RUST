@@ -789,6 +789,78 @@ mod tests {
         ));
     }
 
+    /// Audit #7: many spell-capable monsters share prebuilt spells; idle passes do not rebuild.
+    #[test]
+    fn spell_idle_burst_uses_prebuilt_spells() {
+        use std::time::Instant;
+
+        use crate::test_world::support::{
+            beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
+        };
+        use tfs_rust_common::Position;
+
+        let mtype = load_monster_type("dragon");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        let spell_len = cfg.spells.len();
+        assert!(spell_len >= 2, "dragon must have merged attack/defense spells");
+
+        let mut world = beat_driven_test_world();
+        let mut monsters = Vec::new();
+        for i in 0..32 {
+            let pos = Position::new(200 + (i % 8) as u16, 200 + (i / 8) as u16, 7);
+            ensure_walkable_tile(&mut world.map, pos, 100);
+            let id = insert_monster_with_config(&mut world, "Dragon", pos, 200, cfg.clone());
+            monsters.push(id);
+        }
+
+        // Snapshot spell lengths at spawn — IDLE-1 must not rebuild per pass.
+        let spawn_lens: Vec<usize> = monsters
+            .iter()
+            .map(|&id| {
+                world
+                    .creatures
+                    .get(id)
+                    .and_then(|k| match k {
+                        crate::creature::CreatureKind::Monster(m) => Some(m.spells.len()),
+                        _ => None,
+                    })
+                    .unwrap_or(0)
+            })
+            .collect();
+        assert!(spawn_lens.iter().all(|&n| n == spell_len));
+
+        let start = Instant::now();
+        for &id in &monsters {
+            for _ in 0..4 {
+                world.request_idle_stimulus(id);
+                // Drain-style: run idle if queue empty.
+                if world.creature_todo_queue_empty(id) {
+                    world.monster_idle_stimulus(id);
+                }
+            }
+        }
+        let elapsed = start.elapsed();
+
+        for (i, &id) in monsters.iter().enumerate() {
+            let len = world
+                .creatures
+                .get(id)
+                .and_then(|k| match k {
+                    crate::creature::CreatureKind::Monster(m) => Some(m.spells.len()),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            assert_eq!(
+                len, spawn_lens[i],
+                "idle must not rebuild/grow spell vec for monster {i}"
+            );
+        }
+        assert!(
+            elapsed.as_secs() < 3,
+            "32×4 idle spell passes must stay fast (took {elapsed:?})"
+        );
+    }
+
     #[test]
     fn test_e0_cobra_poison_spell_from_xml() {
         let mtype = load_monster_type("cobra");

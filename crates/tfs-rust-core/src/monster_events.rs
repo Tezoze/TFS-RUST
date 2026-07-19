@@ -4,6 +4,7 @@
 //! - `Monster::onCreatureAppear` — `monster.cpp` (~159–166).
 //! - `TCreature::CreatureMoveStimulus` — `crmain.cc:888` (close-chase restep while `TDAttack` pending).
 //! - `Map::getSpectators` move fan-out — `map.cpp` (~264–323, ~386–474).
+//! - IDLE-3: 16×16 sector order via `TFindCreatures::getNext` — `crmain.cc:101–144`.
 
 use slotmap::Key;
 use tfs_rust_common::Position;
@@ -59,27 +60,39 @@ impl GameWorld {
         0..=7
     }
 
-    /// C++ `Map::getSpectators` — spatial viewport box only (`map.cpp` ~386–474).
-    /// Used for move/appear fan-out; per-creature `canSee` is checked in `Monster::onCreatureMove`.
+    /// C++ `Map::getSpectators` / `TFindCreatures` — viewport in 16×16 sector order (IDLE-3).
+    ///
+    /// Appends into `scratch_spectators` using generation-marked dedup across floors.
+    /// When `reuse_gen` is `Some`, continues the same generation (old+new merge).
     fn fill_spatial_spectators(
-        map: &crate::map::Map,
+        &mut self,
         center: Position,
         multifloor: bool,
-        out: &mut Vec<CreatureId>,
+        reuse_gen: Option<u32>,
     ) {
-        out.clear();
+        let gen = reuse_gen.unwrap_or_else(|| {
+            self.scratch_spectators.clear();
+            self.bump_spectator_gen()
+        });
+        // Sector collect writes into a drain buffer so we can mark/filter without aliasing.
+        let mut sector_buf = std::mem::take(&mut self.scratch_sector_buf);
+        sector_buf.clear();
         for z in Self::spectator_z_range(center.z, multifloor) {
-            map.grid.collect_spectators(
+            self.map.grid.collect_spectators_sector_order(
                 center.x,
                 center.y,
                 z,
                 MAP_MAX_VIEWPORT,
                 MAP_MAX_VIEWPORT,
-                out,
+                &mut sector_buf,
             );
+            for id in sector_buf.drain(..) {
+                if self.spectator_mark_new(id, gen) {
+                    self.scratch_spectators.push(id);
+                }
+            }
         }
-        out.sort_by_key(|id| id.data().as_ffi());
-        out.dedup();
+        self.scratch_sector_buf = sector_buf;
     }
 
     /// Creatures within `Creature::canSee` of `center` (monster `updateTargetList` / spawn scan).
@@ -89,12 +102,7 @@ impl GameWorld {
         multifloor: bool,
     ) -> Vec<CreatureId> {
         let range = i32::from(MAP_MAX_VIEWPORT);
-        Self::fill_spatial_spectators(
-            &self.map,
-            center,
-            multifloor,
-            &mut self.scratch_spectators,
-        );
+        self.fill_spatial_spectators(center, multifloor, None);
         self.scratch_spectators.retain(|&other| {
             let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
                 return false;
@@ -115,28 +123,19 @@ impl GameWorld {
         old_pos: Position,
         new_pos: Position,
     ) -> Vec<CreatureId> {
-        Self::fill_spatial_spectators(&self.map, old_pos, true, &mut self.scratch_spectators);
-        let mut ids = std::mem::take(&mut self.scratch_spectators);
-        Self::fill_spatial_spectators(&self.map, new_pos, true, &mut self.scratch_spectators);
-        ids.extend(self.scratch_spectators.drain(..));
-        ids.retain(|&id| {
+        // One generation across old+new so overlaps dedup without SlotMap-key sort (IDLE-3).
+        // Order: all old_pos sectors, then new_pos sectors not already seen — matches
+        // iterating both `TFindCreatures` searches with first-seen wins.
+        self.scratch_spectators.clear();
+        let gen = self.bump_spectator_gen();
+        self.fill_spatial_spectators(old_pos, true, Some(gen));
+        self.fill_spatial_spectators(new_pos, true, Some(gen));
+        self.scratch_spectators.retain(|&id| {
             self.creatures
                 .get(id)
                 .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
         });
-        // NOTE(parity, GL#24): C++ `TFindCreatures::getNext` (`crmain.cc:101–144`) walks
-        // 16×16 blocks in row-major order (blockx inner, blocky outer) and follows the
-        // `NextChainCreature` linked list within each block — so the move-stimulus fan-out
-        // order is spatial-sector, not creation-order. Rust `grid.collect_spectators`
-        // (`grid.rs:150`) walks 64×64 chunks (`CHUNK_SIZE = 64`) in the same row-major shape,
-        // but the 4× coarser granularity means creatures within one 64×64 chunk but different
-        // 16×16 blocks arrive in chunk-insertion order, not C++ block order. Exact parity
-        // would require re-bucketing to 16×16 blocks; until then the SlotMap-key (creation
-        // order) sort is kept as a deterministic stable fallback. Affects which monster
-        // reacts first to a move event — observable only in tie-break edge cases.
-        ids.sort_by_key(|id| id.data().as_ffi());
-        ids.dedup();
-        ids
+        std::mem::take(&mut self.scratch_spectators)
     }
 
     /// TFS `Monster::onCreatureMove` — `monster.cpp` ~212.
@@ -519,7 +518,7 @@ impl GameWorld {
         pos: Position,
     ) {
         let monsters: Vec<CreatureId> = {
-            Self::fill_spatial_spectators(&self.map, pos, true, &mut self.scratch_spectators);
+            self.fill_spatial_spectators(pos, true, None);
             self.scratch_spectators.retain(|&id| {
                 id != creature_id
                     && self
