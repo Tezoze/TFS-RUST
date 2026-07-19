@@ -55,6 +55,7 @@ mod monster_distance_step;
 mod monster_events;
 mod monster_push;
 mod monster_targets;
+mod obs;
 pub mod output_queue;
 pub mod party;
 pub mod pathfinding;

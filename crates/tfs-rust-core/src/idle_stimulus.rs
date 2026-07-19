@@ -942,6 +942,8 @@ impl GameWorld {
         }
         self.scratch_spectators.sort_by_key(|id| id.data().as_ffi());
         self.scratch_spectators.dedup();
+        self.obs
+            .record_idle_candidates(self.scratch_spectators.len());
 
         for target_id in self.scratch_spectators.iter().copied() {
             if target_id == cid {
@@ -1777,6 +1779,7 @@ impl GameWorld {
         }) {
             return;
         }
+        self.obs.record_idle_pass();
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 chase_debug::log_idle_stimulus(self.chase_trace_tick(), cid, &m.base.name);

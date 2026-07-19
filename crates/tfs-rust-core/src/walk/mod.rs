@@ -394,7 +394,10 @@ impl GameWorld {
         // never reached in correct operation. If it ever trips it indicates a re-arm at
         // `<= server_ms` (a real bug) — log loudly rather than silently deferring work.
         const RUNAWAY_GUARD: usize = 1_000_000;
+        let heap_before = self.todo_queue.len();
         let mut drained = 0usize;
+        let mut executed = 0u64;
+        let mut stale = 0u64;
         while let Some(entry) = self.todo_queue.peek() {
             if entry.execution_time > self.server_ms {
                 break;
@@ -424,9 +427,16 @@ impl GameWorld {
                 due,
             );
             if due {
+                let lateness = self.server_ms.saturating_sub(entry.execution_time);
+                self.obs.record_todo_lateness_ms(lateness);
                 self.process_creature_todo(entry.creature_id);
+                executed = executed.saturating_add(1);
+            } else {
+                stale = stale.saturating_add(1);
             }
         }
+        self.obs
+            .record_todo_drain(heap_before, drained as u64, executed, stale);
         // Phase 3 (audit Finding 8): the per-beat `rescue_stalled_chase_monsters_772` band-aid is
         // removed — with the verbatim heap (Phase 1), the `+1` clamp and `<= server_ms` drain
         // (Phase 2), a creature must always either re-insert or idle, so none can strand.

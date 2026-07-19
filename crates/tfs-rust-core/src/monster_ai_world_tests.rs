@@ -1418,7 +1418,7 @@ fn cyclops_quad_nw_and_far_n_shortway_match_live_ref() {
     let nw_start = spawns[3];
     let far_n_start = spawns[0];
 
-    let chase_path = |cid: CreatureId, start: Position| -> Vec<Position> {
+    let mut chase_path = |cid: CreatureId, start: Position| -> Vec<Position> {
         let fpp = world.monster_path_search_params(cid, player, false, 1, false, false);
         let raw = world
             .get_creature_path_to_with_fpp(cid, player_pos, &fpp)

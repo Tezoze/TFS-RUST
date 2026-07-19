@@ -33,6 +33,14 @@ use tfs_rust_net::{
 /// Game-thread-owned outbound writers — lock-free flush path (GL-3).
 type OutputSinkMap = HashMap<ConnId, OutboundTx>;
 
+/// Game-thread pending commands with receive Instant (OBS-1 command age).
+type PendingQueue = VecDeque<(Instant, GameCommand)>;
+
+#[inline]
+fn pending_push(pending: &mut PendingQueue, cmd: GameCommand) {
+    pending.push_back((Instant::now(), cmd));
+}
+
 /// Persist every player still tied to a live game connection. Used for SIGINT / graceful shutdown
 /// (awaited; not fire-and-forget).
 ///
@@ -170,6 +178,7 @@ fn flush_pending_outgoing(
                 .extend(blobs);
             continue;
         };
+        world.obs.note_output_queued_bytes(tx.queued_bytes());
         match tx.try_send(blobs) {
             Ok(()) => {}
             Err((OutboundSendError::Closed, batch)) => {
@@ -195,6 +204,7 @@ fn flush_pending_outgoing(
                     queued_bytes = tx.queued_bytes(),
                     "output batch channel full — re-queuing (not shedding)"
                 );
+                world.obs.record_output_full();
                 world
                     .pending_outgoing
                     .entry(conn)
@@ -209,6 +219,7 @@ fn flush_pending_outgoing(
                     returned_packets = returned.len(),
                     "output hard byte cap exceeded — shedding slow client"
                 );
+                world.obs.record_output_slow_shed();
                 world
                     .pending_outgoing
                     .entry(conn)
@@ -360,10 +371,12 @@ enum LoopExit {
 }
 
 /// Spawn Tokio DB load; never await I/O on the game thread (GL-1).
+#[allow(clippy::too_many_arguments)]
 fn begin_player_login_load(
-    world: &GameWorld,
+    world: &mut GameWorld,
     cmd_tx: &GameCmdTx,
     pending_login_conns: &mut HashSet<tfs_rust_common::ConnId>,
+    login_started: &mut HashMap<ConnId, Instant>,
     conn_id: tfs_rust_common::ConnId,
     name: String,
     operating_system: u16,
@@ -392,6 +405,10 @@ fn begin_player_login_load(
         );
         return;
     }
+    login_started.insert(conn_id, Instant::now());
+    world
+        .obs
+        .note_concurrent_logins(pending_login_conns.len());
 
     let db = world.db.clone();
     let tx = cmd_tx.clone();
@@ -439,9 +456,11 @@ fn conn_still_current(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_player_loaded(
     world: &mut GameWorld,
     pending_login_conns: &mut HashSet<ConnId>,
+    login_started: &mut HashMap<ConnId, Instant>,
     conn_id: ConnId,
     name: String,
     operating_system: u16,
@@ -451,6 +470,12 @@ fn handle_player_loaded(
     out_registry: &Option<OutRegistry>,
     pending_output_shed: &mut Vec<ConnId>,
 ) {
+    if let Some(started) = login_started.remove(&conn_id) {
+        world.obs.record_login_load(
+            started.elapsed().as_micros() as u64,
+            pending_login_conns.len().saturating_sub(1),
+        );
+    }
     pending_login_conns.remove(&conn_id);
     if !conn_still_current(world, output_sinks, out_registry, conn_id) {
         warn!(
@@ -511,15 +536,23 @@ fn handle_player_loaded(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_player_load_failed(
     world: &mut GameWorld,
     pending_login_conns: &mut HashSet<tfs_rust_common::ConnId>,
+    login_started: &mut HashMap<ConnId, Instant>,
     conn_id: tfs_rust_common::ConnId,
     name: String,
     reason: String,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
 ) {
+    if let Some(started) = login_started.remove(&conn_id) {
+        world.obs.record_login_load(
+            started.elapsed().as_micros() as u64,
+            pending_login_conns.len().saturating_sub(1),
+        );
+    }
     pending_login_conns.remove(&conn_id);
     warn!(
         conn_id = conn_id.0,
@@ -593,7 +626,7 @@ fn handle_game_packet(
     conn_id: tfs_rust_common::ConnId,
     packet: GamePacket,
     game_rx: &mut Receiver<GameCommand>,
-    pending: &mut VecDeque<GameCommand>,
+    pending: &mut PendingQueue,
 ) {
     let now = Instant::now();
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
@@ -660,15 +693,18 @@ fn handle_game_packet(
                             }
                             other => {
                                 world.flush_deferred_turn_broadcast(cid);
-                                pending.push_back(GameCommand::Game {
-                                    conn_id: next_conn,
-                                    packet: other,
-                                });
+                                pending_push(
+                                    pending,
+                                    GameCommand::Game {
+                                        conn_id: next_conn,
+                                        packet: other,
+                                    },
+                                );
                             }
                         },
                         other => {
                             world.flush_deferred_turn_broadcast(cid);
-                            pending.push_back(other);
+                            pending_push(pending, other);
                         }
                     },
                     Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => {
@@ -848,16 +884,22 @@ fn handle_game_packet(
             // Mid-async-login (no `conn_to_creature` yet) still closes the session.
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 if world.player_logout_allowed(conn_id, cid, false) {
-                    pending.push_back(GameCommand::PlayerDisconnect {
-                        conn_id,
-                        display_effect: true,
-                    });
+                    pending_push(
+                        pending,
+                        GameCommand::PlayerDisconnect {
+                            conn_id,
+                            display_effect: true,
+                        },
+                    );
                 }
             } else {
-                pending.push_back(GameCommand::PlayerDisconnect {
-                    conn_id,
-                    display_effect: false,
-                });
+                pending_push(
+                    pending,
+                    GameCommand::PlayerDisconnect {
+                        conn_id,
+                        display_effect: false,
+                    },
+                );
             }
         }
         GamePacket::Say(payload) => {
@@ -928,13 +970,15 @@ fn handle_game_packet(
     // Phase 4: 1098 `process_walk_deadlines` call deleted — both eras use the ToDo queue.
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dispatch_command(
     world: &mut GameWorld,
     cmd: Option<GameCommand>,
     game_rx: &mut Receiver<GameCommand>,
     cmd_tx: &GameCmdTx,
-    pending: &mut VecDeque<GameCommand>,
+    pending: &mut PendingQueue,
     pending_login_conns: &mut HashSet<ConnId>,
+    login_started: &mut HashMap<ConnId, Instant>,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
     pending_output_shed: &mut Vec<ConnId>,
@@ -954,6 +998,7 @@ fn dispatch_command(
                 world,
                 cmd_tx,
                 pending_login_conns,
+                login_started,
                 conn_id,
                 name,
                 operating_system,
@@ -971,6 +1016,7 @@ fn dispatch_command(
             handle_player_loaded(
                 world,
                 pending_login_conns,
+                login_started,
                 conn_id,
                 name,
                 operating_system,
@@ -990,6 +1036,7 @@ fn dispatch_command(
             handle_player_load_failed(
                 world,
                 pending_login_conns,
+                login_started,
                 conn_id,
                 name,
                 reason,
@@ -1051,9 +1098,9 @@ fn dispatch_command(
 async fn recv_next_command(
     game_rx: &mut Receiver<GameCommand>,
     ctrl_rx: &mut UnboundedReceiver<GameCommand>,
-    pending: &mut VecDeque<GameCommand>,
+    pending: &mut PendingQueue,
 ) -> Option<GameCommand> {
-    if let Some(c) = pending.pop_front() {
+    if let Some((_at, c)) = pending.pop_front() {
         return Some(c);
     }
     tokio::select! {
@@ -1067,9 +1114,9 @@ async fn recv_next_command(
 fn try_recv_next_command(
     game_rx: &mut Receiver<GameCommand>,
     ctrl_rx: &mut UnboundedReceiver<GameCommand>,
-    pending: &mut VecDeque<GameCommand>,
+    pending: &mut PendingQueue,
 ) -> Option<GameCommand> {
-    if let Some(c) = pending.pop_front() {
+    if let Some((_at, c)) = pending.pop_front() {
         return Some(c);
     }
     if let Ok(c) = ctrl_rx.try_recv() {
@@ -1123,6 +1170,68 @@ fn drain_burst_beats(interval: &mut tokio::time::Interval) -> u64 {
     beats
 }
 
+fn obs_note_ingress(
+    world: &mut GameWorld,
+    game_rx: &Receiver<GameCommand>,
+    pending: &PendingQueue,
+) {
+    let depth = game_rx.len().saturating_add(pending.len());
+    world.obs.note_command_depth(depth);
+    if let Some((at, _)) = pending.front() {
+        world
+            .obs
+            .record_command_age_ms(at.elapsed().as_millis() as u64);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn obs_advance_beats(
+    world: &mut GameWorld,
+    next_beat_deadline: &mut Instant,
+    beat_ms: u64,
+    coalesced: u64,
+    pending_login_conns: &mut HashSet<ConnId>,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    let now = Instant::now();
+    let lateness_ms = now
+        .saturating_duration_since(*next_beat_deadline)
+        .as_millis() as u64;
+    let wall_start = Instant::now();
+    world.advance_beat(beat_ms.saturating_mul(coalesced.max(1)));
+    let wall_ms = wall_start.elapsed().as_millis() as u64;
+    world
+        .obs
+        .record_beat(coalesced.max(1), lateness_ms, wall_ms);
+    *next_beat_deadline = next_beat_deadline
+        .checked_add(Duration::from_millis(beat_ms.saturating_mul(coalesced.max(1))))
+        .unwrap_or(now);
+    // If we fell far behind, clamp so the next lateness sample is relative to "now + beat".
+    if *next_beat_deadline < now {
+        *next_beat_deadline = now + Duration::from_millis(beat_ms);
+    }
+    while let Some(conn_id) = world.pending_idle_kick.pop() {
+        handle_player_disconnect(
+            world,
+            pending_login_conns,
+            conn_id,
+            false,
+            output_sinks,
+            out_registry,
+        );
+    }
+    flush_pending_outgoing(world, output_sinks, out_registry, pending_output_shed);
+    drain_output_shed(
+        world,
+        pending_login_conns,
+        output_sinks,
+        out_registry,
+        pending_output_shed,
+    );
+}
+
 /// Unified beat-driven game loop — `LaunchGame` + `AdvanceGame` + `SendAll`.
 ///
 /// Both eras run on this single engine. Beat size, think cadence, condition/skill tick
@@ -1139,16 +1248,21 @@ pub async fn run_game_loop(
     let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
     let mut beat_timer = interval(Duration::from_millis(beat_ms));
     beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
-    let mut pending: VecDeque<GameCommand> = VecDeque::new();
+    let mut pending: PendingQueue = VecDeque::new();
     let mut pending_login_conns: HashSet<ConnId> = HashSet::new();
+    let mut login_started: HashMap<ConnId, Instant> = HashMap::new();
     let mut output_sinks: OutputSinkMap = HashMap::new();
     let mut pending_output_shed: Vec<ConnId> = Vec::new();
+    // OBS-1: schedule baseline — first tick is immediately ready under `interval`;
+    // lateness is measured against this deadline (advance by coalesced beats).
+    let mut next_beat_deadline = Instant::now();
 
     loop {
         tokio::select! {
             biased;
 
             cmd = recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending) => {
+                obs_note_ingress(&mut world, &game_rx, &pending);
                 match dispatch_command(
                     &mut world,
                     cmd,
@@ -1156,6 +1270,7 @@ pub async fn run_game_loop(
                     &cmd_tx,
                     &mut pending,
                     &mut pending_login_conns,
+                    &mut login_started,
                     &mut output_sinks,
                     &out_registry,
                     &mut pending_output_shed,
@@ -1181,6 +1296,7 @@ pub async fn run_game_loop(
                                 &cmd_tx,
                                 &mut pending,
                                 &mut pending_login_conns,
+                                &mut login_started,
                                 &mut output_sinks,
                                 &out_registry,
                                 &mut pending_output_shed,
@@ -1199,31 +1315,18 @@ pub async fn run_game_loop(
                         // After the command budget, service ready beats so ingress cannot starve simulation.
                         let ready = drain_ready_beats(&mut beat_timer);
                         if ready > 0 {
-                            world.advance_beat(beat_ms * ready);
-                            while let Some(conn_id) = world.pending_idle_kick.pop() {
-                                handle_player_disconnect(
-                                    &mut world,
-                                    &mut pending_login_conns,
-                                    conn_id,
-                                    false,
-                                    &mut output_sinks,
-                                    &out_registry,
-                                );
-                            }
-                            flush_pending_outgoing(
+                            obs_advance_beats(
                                 &mut world,
-                                &mut output_sinks,
-                                &out_registry,
-                                &mut pending_output_shed,
-                            );
-                            drain_output_shed(
-                                &mut world,
+                                &mut next_beat_deadline,
+                                beat_ms,
+                                ready,
                                 &mut pending_login_conns,
                                 &mut output_sinks,
                                 &out_registry,
                                 &mut pending_output_shed,
                             );
                         }
+                        world.obs_maybe_emit();
                     }
                 }
             }
@@ -1232,30 +1335,17 @@ pub async fn run_game_loop(
                 if beats == 0 {
                     beats = 1;
                 }
-                world.advance_beat(beat_ms * beats);
-                while let Some(conn_id) = world.pending_idle_kick.pop() {
-                    handle_player_disconnect(
-                        &mut world,
-                        &mut pending_login_conns,
-                        conn_id,
-                        false,
-                        &mut output_sinks,
-                        &out_registry,
-                    );
-                }
-                flush_pending_outgoing(
+                obs_advance_beats(
                     &mut world,
-                    &mut output_sinks,
-                    &out_registry,
-                    &mut pending_output_shed,
-                );
-                drain_output_shed(
-                    &mut world,
+                    &mut next_beat_deadline,
+                    beat_ms,
+                    beats,
                     &mut pending_login_conns,
                     &mut output_sinks,
                     &out_registry,
                     &mut pending_output_shed,
                 );
+                world.obs_maybe_emit();
             }
         }
     }
@@ -1709,15 +1799,17 @@ mod f8_s6_handler_routing_tests {
         let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
         let mut pending = VecDeque::new();
         let mut pending_logins = HashSet::new();
+        let mut login_started = HashMap::new();
         let out_registry = None;
         let mut output_sinks = HashMap::new();
         let mut pending_output_shed = Vec::new();
 
         let login_conn = ConnId(99);
         begin_player_login_load(
-            &world,
+            &mut world,
             &tx,
             &mut pending_logins,
+            &mut login_started,
             login_conn,
             "DelayedHero".to_string(),
             0,
@@ -1765,6 +1857,7 @@ mod f8_s6_handler_routing_tests {
                         &tx,
                         &mut pending,
                         &mut pending_logins,
+                        &mut login_started,
                         &mut output_sinks,
                         &out_registry,
                         &mut pending_output_shed,
@@ -1791,15 +1884,17 @@ mod f8_s6_handler_routing_tests {
         use super::begin_player_login_load;
         use crate::login::MAX_CONCURRENT_LOGIN_LOADS;
 
-        let world = beat_driven_test_world();
+        let mut world = beat_driven_test_world();
         let (tx, _game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
         let mut pending_logins = HashSet::new();
+        let mut login_started = HashMap::new();
 
         for i in 0..MAX_CONCURRENT_LOGIN_LOADS {
             begin_player_login_load(
-                &world,
+                &mut world,
                 &tx,
                 &mut pending_logins,
+                &mut login_started,
                 ConnId(i as u32),
                 format!("Hero{i}"),
                 0,
@@ -1809,9 +1904,10 @@ mod f8_s6_handler_routing_tests {
         assert_eq!(pending_logins.len(), MAX_CONCURRENT_LOGIN_LOADS);
 
         begin_player_login_load(
-            &world,
+            &mut world,
             &tx,
             &mut pending_logins,
+            &mut login_started,
             ConnId(9000),
             "Overflow".to_string(),
             0,
@@ -1856,6 +1952,7 @@ mod f8_s6_handler_routing_tests {
         let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
         let mut pending = VecDeque::new();
         let mut pending_logins = HashSet::new();
+        let mut login_started = HashMap::new();
         let out_registry = None;
         let mut output_sinks = HashMap::new();
         let mut pending_output_shed = Vec::new();
@@ -1891,6 +1988,7 @@ mod f8_s6_handler_routing_tests {
                     &tx,
                     &mut pending,
                     &mut pending_logins,
+                    &mut login_started,
                     &mut output_sinks,
                     &out_registry,
                     &mut pending_output_shed,

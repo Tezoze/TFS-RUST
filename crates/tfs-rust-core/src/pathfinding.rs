@@ -469,6 +469,8 @@ fn tshortway_cell_default() -> TShortwayCell {
 pub struct TShortwayScratch {
     cells: Box<[TShortwayCell]>,
     search_gen: u32,
+    /// Cells expanded in the most recent `path_matching_tshortway` call (OBS-1).
+    pub last_expanded: u64,
 }
 
 impl Default for TShortwayScratch {
@@ -482,11 +484,13 @@ impl TShortwayScratch {
         Self {
             cells: vec![tshortway_cell_default(); TSHORTWAY_MAX_CELLS].into_boxed_slice(),
             search_gen: 0,
+            last_expanded: 0,
         }
     }
 
     fn begin_search(&mut self) -> u32 {
         self.search_gen = self.search_gen.wrapping_add(1);
+        self.last_expanded = 0;
         self.search_gen
     }
 }
@@ -829,12 +833,17 @@ where
         expand_count += 1;
     }
 
-    if search.cell_waylength(origin_idx) == TSHORTWAY_UNVISITED_WL {
-        return None;
-    }
-
-    // C++ `TShortway::Calculate` walks the predecessor chain directly — no goal-band trim.
-    Some(reconstruct_reverse_dirs_dense(&search, origin_idx))
+    let result = if search.cell_waylength(origin_idx) == TSHORTWAY_UNVISITED_WL {
+        None
+    } else {
+        // C++ `TShortway::Calculate` walks the predecessor chain directly — no goal-band trim.
+        Some(reconstruct_reverse_dirs_dense(&search, origin_idx))
+    };
+    // End exclusive borrow of `scratch.cells` held by `search` before writing OBS field.
+    #[allow(clippy::drop_non_drop)]
+    drop(search);
+    scratch.last_expanded = expand_count as u64;
+    result
 }
 
 fn reconstruct_reverse_dirs_dense(search: &TShortwaySearch<'_>, origin_idx: u16) -> Vec<Direction> {

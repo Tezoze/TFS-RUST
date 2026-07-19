@@ -1481,7 +1481,7 @@ impl GameWorld {
     }
 
     fn get_creature_path_to_with_fpp(
-        &self,
+        &mut self,
         cid: CreatureId,
         target: Position,
         fpp: &FindPathParams,
@@ -1491,11 +1491,6 @@ impl GameWorld {
         };
 
         let start = self.creatures.get(cid)?.position();
-        struct PathCtx<'a> {
-            world: &'a GameWorld,
-            cid: CreatureId,
-        }
-        let ctx = PathCtx { world: self, cid };
         let uses_reverse_terrain = uses_reverse_terrain_path(
             self.mechanics.profile.path_cost,
             self.mechanics.profile.path_search,
@@ -1504,50 +1499,66 @@ impl GameWorld {
             uses_reverse_terrain,
             "772 monster chase requires reverse TShortway + terrain costs (check MechanicsProfile / formulas lua)"
         );
-        let fill_walkable = |pos: Position| {
-            if uses_reverse_terrain {
-                ctx.world
-                    .monster_tshortway_fill_walkable(ctx.cid, pos, target)
-            } else {
-                ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos)
+        let path_cost = self.mechanics.profile.path_cost;
+        let path_search = self.mechanics.profile.path_search;
+        let path_forward_fallback = self.mechanics.profile.path_forward_fallback;
+        let path_t0 = std::time::Instant::now();
+        let path = {
+            let world = &*self;
+            struct PathCtx<'a> {
+                world: &'a GameWorld,
+                cid: CreatureId,
             }
-        };
-        let mut scratch = self.tshortway_scratch.borrow_mut();
-        get_path_matching_with_fill(
-            &self.map,
-            start,
-            target,
-            fpp,
-            self.mechanics.profile.path_cost,
-            self.mechanics.profile.path_search,
-            self.mechanics.profile.path_forward_fallback,
-            REVERSE_PATH_VIEW_RADIUS,
-            fill_walkable,
-            |pos| {
+            let ctx = PathCtx { world, cid };
+            let fill_walkable = |pos: Position| {
                 if uses_reverse_terrain {
-                    return 0;
+                    ctx.world
+                        .monster_tshortway_fill_walkable(ctx.cid, pos, target)
+                } else {
+                    ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos)
                 }
-                let Some(tile) = ctx.world.map.get_tile(pos) else {
-                    return 0;
-                };
-                let mut cost = 0u32;
-                for &c in tile.body().creatures.iter() {
-                    if c != ctx.cid {
-                        cost += CREATURE_ON_TILE_PATH_COST;
+            };
+            let mut scratch = world.tshortway_scratch.borrow_mut();
+            get_path_matching_with_fill(
+                &world.map,
+                start,
+                target,
+                fpp,
+                path_cost,
+                path_search,
+                path_forward_fallback,
+                REVERSE_PATH_VIEW_RADIUS,
+                fill_walkable,
+                |pos| {
+                    if uses_reverse_terrain {
+                        return 0;
                     }
-                }
-                cost
-            },
-            // Heuristic / non-tshortway reverse paths still use ground speed.
-            |pos| {
-                let Some(tile) = ctx.world.map.get_tile(pos) else {
-                    return 0;
-                };
-                ctx.world.tile_ground_speed(tile.body())
-            },
-            |pos| ctx.world.fillmap_terrain_waypoints_at(pos),
-            Some(&mut *scratch),
-        )
+                    let Some(tile) = ctx.world.map.get_tile(pos) else {
+                        return 0;
+                    };
+                    let mut cost = 0u32;
+                    for &c in tile.body().creatures.iter() {
+                        if c != ctx.cid {
+                            cost += CREATURE_ON_TILE_PATH_COST;
+                        }
+                    }
+                    cost
+                },
+                |pos| {
+                    let Some(tile) = ctx.world.map.get_tile(pos) else {
+                        return 0;
+                    };
+                    ctx.world.tile_ground_speed(tile.body())
+                },
+                |pos| ctx.world.fillmap_terrain_waypoints_at(pos),
+                Some(&mut *scratch),
+            )
+        };
+        let expanded = self.tshortway_scratch.borrow().last_expanded;
+        let path_us = path_t0.elapsed().as_micros() as u64;
+        self.obs
+            .record_path_search(path_us, expanded, path.is_some());
+        path
     }
 
     /// Re-arm walk timer while actively chasing with an empty queue so `getNextStep` can repath.

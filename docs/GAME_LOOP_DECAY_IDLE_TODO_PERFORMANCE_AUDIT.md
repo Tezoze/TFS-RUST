@@ -1,15 +1,19 @@
 # Beat Loop, Decay, Idle Stimulus, and ToDo Performance Audit
 
 **Date:** 2026-07-19  
-**Updated:** 2026-07-19 (remediation status + next steps)  
+**Updated:** 2026-07-19 (post-landing regressions + next steps)  
 **Primary comparison:** 772 mechanics reference (`tibia-game-master/src/`)  
-**Scope:** static source audit of the single game thread. This is not a sampled CPU profile; suspected costs are ranked from code shape, known cardinalities, and existing live timing notes in `tasks/lessons.md` §205–§208.  
-**Implementation checklist:** `tasks/todo.md`
+**Scope:** static source audit of the single game thread. This is not a sampled CPU profile; suspected costs are ranked from code shape, known cardinalities, and existing live timing notes in `tasks/lessons.md` §205–§216.  
+**Implementation checklist:** `tasks/todo.md`  
+**Landed commit (this remediation):** `68b7c93`
 
 ## Status (2026-07-19)
 
-Phases **1–4 code fixes are landed** (GL-1…GL-4, DEC-1…DEC-4, IDLE-1…IDLE-3 thin, TODO-1, OBS-1 thin).  
-**Not done:** Phase 0 full baselines, full OBS-1 histograms, several full-scale required tests, beat-startup parity note, and **TODO-2** (explicit overload budget — only after load-test).
+Phases **1–4 code fixes are landed** (GL-1…GL-4, DEC-1…DEC-4, IDLE-1…IDLE-3 thin, TODO-1, OBS-1 thin), plus **post-landing session/decay/path regressions** (logout TCP close, LocalSet-safe saves, GameLaneFull shed, TShortway `expand_next`, `stop_decay` / look-save clock units, todo execute guard re-arm).
+
+**OBS-1 full histograms are landed** (`crates/tfs-rust-core/src/obs.rs`, periodic `target=tfs_obs` summary every 10s). Live **60s baselines** and manual smoke remain operator work — see [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md).
+
+**Not done (next work):** manual smoke retests, Phase 0 live baseline capture, IDLE-3 sector order, optional GL-4 indexes, full-scale required tests, beat-startup parity note, load-test, and **TODO-2** (only if still needed after load-test).
 
 Jump to [Next steps](#next-steps).
 
@@ -58,7 +62,7 @@ Also landed: **GL-3** (bounded outbound + game-thread sink map), **DEC-3** (`Dec
 | TODO-2 | **P2 / Medium** | Due ToDo drain | **Deferred** — only after load-test |
 | IDLE-3 | **P2 / Medium** | Target/move searches | **Partial** — scratch reuse; sector-order/dedup still open |
 | GL-4 | **P2 / Medium** | Periodic systems | **Partial** — scratch Vecs; active indexes still open |
-| OBS-1 | **P1 / High** | Diagnostics | **Partial** — thin warn-path counters; full histograms open |
+| OBS-1 | **P1 / High** | Diagnostics | **Done (code)** — windowed histograms + `tfs_obs` summary; live baselines open |
 | DEC-4 | **P2 / Medium** | `can_decay` / destroy | **Done** — cached depot flag; iterative destroy (via DEC-1) |
 
 ---
@@ -375,10 +379,10 @@ Use periodic aggregated `tracing` events first; avoid per-action INFO logs in ho
 
 ## Remediation order
 
-### Phase 0 — Baseline and regression harness — **NEXT (primary)**
+### Phase 0 — Baseline and regression harness — **Code done; live capture open**
 
-1. Expand OBS-1 beyond thin warn-path counters (see [Next steps](#next-steps)).
-2. Capture 60-second baselines for idle world, dense spawn, active chase, spell-heavy fight, corpse wave, and packet flood.
+1. ~~Expand OBS-1 beyond thin warn-path counters~~ — `obs.rs` + instrumentation.
+2. Capture 60-second baselines for idle world, dense spawn, active chase, spell-heavy fight, corpse wave, and packet flood — template [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md).
 3. Record p50/p95/p99 beat lateness and subsystem wall time, not only average throughput.
 
 ### Phase 1 — Protect the game thread — **Done**
@@ -402,30 +406,39 @@ Use periodic aggregated `tracing` events first; avoid per-action INFO logs in ho
 3. ~~Reuse `TShortway` and spectator scratch.~~
 4. Preserve reference ordering with differential tests — **partial** (path scratch reuse parity test exists; 16×16 spectator sector order still open under IDLE-3).
 
-### Phase 4 — Harden ToDo execution — **Code done; metrics/budget open**
+### Phase 4 — Harden ToDo execution — **Code done; overload budget open**
 
 1. ~~Replace recursive execution with an explicit loop.~~
-2. Add stale/due/lateness metrics — **open** (OBS-1).
+2. ~~Add stale/due/lateness metrics~~ — OBS-1 (`todo_popped` / `todo_executed` / `todo_stale` / lateness histograms).
 3. Decide whether an explicit overload budget is necessary only after profiling the optimized path — **TODO-2 deferred**.
 
 ---
 
 ## Next steps
 
-Ordered for the next implementation / measurement pass. Do not start TODO-2 until steps 1–3 produce load data.
+Ordered for the next pass. **Do not start TODO-2** until steps 2–4 produce load data that still shows synchronized all-due drain as the bottleneck.
 
-### 1. Phase 0 + full OBS-1 (highest priority)
+### 0. Manual smoke (before more code)
 
-Finish the observability section above as **aggregated** counters/histograms (periodic `tracing`, not per-action INFO):
+Confirm the post-landing session fixes on a live client after `./scripts/run_server.sh` restart:
 
-| Area | Still missing |
+| Check | Expected |
 |---|---|
-| Loop turn | Command queue depth, oldest command age, commands processed before beat yield, beat lateness/wall duration, missed/coalesced beats, login load latency + concurrent loads |
-| Output | Queued bytes per connection, max writer age (GL-3 has byte accounting — expose it) |
-| Subsystems | Histograms for `creatures_us` / `cron_us` / `skills_us` / `other_us` / `todo_us`; counts processed |
-| ToDo | Heap entries, current wakeups, stale pops, due count, lateness p50/p95/p99 |
-| Idle / path | Idle passes, target candidates, path searches / expanded cells / failures / wall time |
-| Decay | Live vs heap (partially present), due count, transformed/removed descendants |
+| Floor change onto a dense monster floor | No OTClient desync; monsters can acquire/chase without wedging the game thread |
+| Logout (`0x14`) | Immediate return to character list (TCP closes); no ~10s hang |
+| Ctrl+C | Graceful flush or force-exit within 10s / second Ctrl+C; no `block_in_place` panic |
+| Failed login / logout mid-async-load | Game TCP closes; no half-open session |
+
+Checklist mirrors `tasks/todo.md` live retest items.
+
+### 1. Phase 0 + full OBS-1 (highest engineering priority) — **code done**
+
+~~Finish observability as aggregated counters/histograms~~ — landed. Operator capture:
+
+| Area | Status |
+|---|---|
+| Loop turn / output / subsystems / ToDo / idle-path / decay | **Instrumented** → `RUST_LOG=tfs_obs=info` |
+| 60s baselines | Template: [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md) — fill from live runs |
 
 Then capture **60-second baselines** (idle, dense spawn, chase, spell fight, corpse wave, packet flood) and record p50/p95/p99 beat lateness + subsystem wall time.
 
@@ -436,6 +449,7 @@ Then capture **60-second baselines** (idle, dense spawn, chase, spell fight, cor
 | IDLE-3 | Where 772 order is observable, iterate/rebucket in 16×16 sector order instead of SlotMap-key sort; generation-marked dedup where order is not observable |
 | GL-4 | Optional active indexes (players / conditioned / dead-pending) if scratch Vecs are insufficient under load — do **not** add an extra full scan just to size vectors |
 | Beat startup | Parity test for immediate `interval` first tick vs reference waiting for alarm; use `interval_at(now + beat, beat)` if the immediate advance is unintended |
+| Failed-login UX (low) | Optional gameworld `disconnectClient` error string before TCP close (client currently just drops) |
 
 ### 3. Strengthen required tests (full scale)
 
@@ -448,10 +462,10 @@ Thin coverage exists for several items; bring the suite up to the audit bar:
 | 3 | Slow login DB | Beats continue while load pending | Also assert decay + ToDo continue under delayed `load_player_full` |
 | 4 | Decay churn | Heap ∝ live entries | Keep; extend duration/churn volume if needed |
 | 5 | Decay burst | Small burst / order tests | Thousands of tile/inv/container/nested corpse expiries; packets + wall-time bound |
-| 6 | Lag/decay parity | Present (`lag_guard` + decay clock) | Keep as regression |
+| 6 | Lag/decay parity | Present (`lag_guard` + decay clock + `item_decay_remaining_ms`) | Keep as regression |
 | 7 | Spell idle burst | Spawn merge unit test | Many spell-capable monsters; assert no per-pass rebuild + measure alloc/time |
-| 8 | Path burst | Scratch reuse parity | Many concurrent repaths + existing 772 oracle fixtures |
-| 9 | Deep zero-delay ToDo | Present | Keep as regression |
+| 8 | Path burst | Scratch reuse + storm-reuse + expand_next gen fix | Many concurrent repaths + existing 772 oracle fixtures |
+| 9 | Deep zero-delay ToDo | Present + guard re-arm test | Keep as regression |
 | 10 | Stale ToDo entries | Metrics still thin | Randomized schedule/clear/reschedule differential vs reference heap / `NextWakeup` |
 
 ### 4. Gate: load-test, then maybe TODO-2
@@ -475,14 +489,14 @@ rtk cargo test --workspace
 Status relative to the original list:
 
 1. **Command starvation:** partial — budget unit test; needs multi-second lateness bound.
-2. **Backpressure:** partial — lane-full / outbound unit tests; needs shed determinism under dual fill.
+2. **Backpressure:** partial — lane-full shed / outbound re-queue unit tests; needs shed determinism under dual fill.
 3. **Slow login DB:** partial — beats continue; extend to decay/ToDo continuity.
 4. **Decay churn:** **done** (heap ∝ live).
 5. **Decay burst:** partial — needs thousands-scale + packet/time bounds.
-6. **Lag/decay parity:** **done**.
+6. **Lag/decay parity:** **done** (includes round-clock look/save remaining).
 7. **Spell idle burst:** partial — needs multi-monster alloc/time assertion.
-8. **Path burst:** partial — scratch reuse parity; needs multi-repath burst.
-9. **Deep zero-delay ToDo:** **done**.
+8. **Path burst:** partial — scratch reuse + storm-reuse; needs multi-repath burst.
+9. **Deep zero-delay ToDo:** **done** (includes iteration-guard re-arm).
 10. **Stale ToDo entries:** **open**.
 
 Suggested verification commands:
@@ -495,4 +509,6 @@ rtk cargo test --workspace
 
 ## Bottom line
 
-The original diagnosis stands: lag came from **admission and amplification** on the game thread, not from `O(log n)` heap ops. **Protect-the-loop and decay/idle/ToDo code fixes are in.** The immediate next work is **Phase 0 measurement (full OBS-1 + baselines)**, then close **IDLE-3 / GL-4 / full-scale tests**, then load-test before considering **TODO-2**.
+The original diagnosis stands: lag came from **admission and amplification** on the game thread, not from `O(log n)` heap ops. **Protect-the-loop and decay/idle/ToDo code fixes are in**, and the first wave of **session/decay/path regressions from that landing is fixed** (`68b7c93`).
+
+**Immediate next work:** (0) manual smoke retests → (1) **fill live OBS baselines** → (2) close **IDLE-3 / GL-4 / full-scale tests** → (3) load-test → only then consider **TODO-2**.

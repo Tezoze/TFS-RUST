@@ -51,6 +51,11 @@ impl GameWorld {
         let t0 = Instant::now();
         if fired.cron {
             let expired = self.decay.tick(self.decay_clock_now());
+            self.obs.record_decay(
+                expired.len(),
+                self.decay.live_count(),
+                self.decay.heap_len(),
+            );
             if !expired.is_empty() {
                 self.process_decay_expiry(&expired);
             }
@@ -92,6 +97,18 @@ impl GameWorld {
         let todo_us = t0.elapsed().as_micros();
         let wall_ms = wall_start.elapsed().as_millis();
 
+        self.obs.record_subsystems(
+            creatures_us as u64,
+            cron_us as u64,
+            skills_us as u64,
+            other_us as u64,
+            todo_us as u64,
+            fired.creatures,
+            fired.cron,
+            fired.skills,
+            fired.other,
+        );
+
         // Surface the hotspot when a beat (or coalesced burst) burns real time. `delay_ms` is
         // how far the wall clock already fell behind *before* this call; `wall_ms` is how long
         // *this* advance took (usually dominated by ToDo/IdleStimulus pathfinding).
@@ -110,7 +127,7 @@ impl GameWorld {
                 fired_other = fired.other,
                 decay_live = self.decay.live_count(),
                 decay_heap = self.decay.heap_len(),
-                obs_commands = self.obs_commands_processed,
+                obs_commands = self.obs.commands_processed_total,
                 "772 beat advance timing"
             );
         }

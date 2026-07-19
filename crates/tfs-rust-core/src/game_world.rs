@@ -175,8 +175,8 @@ pub struct GameWorld {
     pub(crate) scratch_pk_marks: Vec<CreatureId>,
     pub(crate) scratch_dead: Vec<CreatureId>,
     pub(crate) scratch_spectators: Vec<CreatureId>,
-    /// OBS-1: cumulative game-lane commands processed since world creation.
-    pub(crate) obs_commands_processed: u64,
+    /// OBS-1: aggregated window histograms / counters (Phase 0).
+    pub(crate) obs: crate::obs::GameObs,
 }
 
 impl GameWorld {
@@ -368,15 +368,18 @@ impl GameWorld {
             scratch_pk_marks: Vec::new(),
             scratch_dead: Vec::new(),
             scratch_spectators: Vec::new(),
-            obs_commands_processed: 0,
+            obs: crate::obs::GameObs::new(),
         }
     }
 
     /// OBS-1: record game-lane commands processed in one loop turn.
     pub(crate) fn obs_record_commands(&mut self, count: usize) {
-        self.obs_commands_processed = self
-            .obs_commands_processed
-            .saturating_add(count as u64);
+        self.obs.record_commands_processed(count);
+    }
+
+    /// OBS-1: emit summary if the aggregation window elapsed.
+    pub(crate) fn obs_maybe_emit(&mut self) {
+        self.obs.maybe_emit(std::time::Instant::now());
     }
 
     /// Millisecond clock for chase JSONL — matches C++ `ServerMilliseconds` in `chase_path_debug.cc`.
