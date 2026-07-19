@@ -31,6 +31,7 @@ use crate::login_out::creature_wire_id;
 /// Mirrors `CombatDef::resolved_combat_type` in `tfs-rust-lua/src/userdata/combat.rs`.
 fn combat_type_from_lua(value: i32) -> CombatType {
     match value {
+        0 => CombatType::Undefined, // COMBAT_NONE — condition/FX-only (utevo lux, haste, …)
         1 => CombatType::Physical,
         2 => CombatType::Energy,
         4 => CombatType::Earth,
@@ -307,7 +308,9 @@ impl GameWorld {
         let _block_shield = request.block_shield; // TODO: wire shield defense
         let condition_specs = &request.conditions;
         let dispel_flag = request.dispel_type;
-        let no_damage = request.no_damage;
+        let no_damage = request.no_damage
+            || combat_type == CombatType::Undefined
+            || (damage_min == 0 && damage_max == 0);
 
         for (target_id, _pos) in targets {
             // Don't damage the caster with their own aggressive spell — 772

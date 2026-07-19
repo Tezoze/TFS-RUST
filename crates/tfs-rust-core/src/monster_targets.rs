@@ -615,14 +615,10 @@ impl GameWorld {
             return false;
         }
 
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get(monster_id) {
-            if m.is_hostile || m.base.is_summon() {
-                if let Some(k) = self.creatures.get_mut(monster_id) {
-                    k.base_mut().attack_target = Some(target_id);
-                }
-            }
-        }
-
+        // 772: strategy / `selectTarget` only sets `Target` (= follow via `setFollowCreature`).
+        // `Combat.AttackDest` + `AttackStimulus` are applied in idle walk `SetAttackDest`
+        // (`crnonpl.cc:2540` vs `:2784`). Do not set `attack_target` here or that call
+        // early-outs and skips the logout lock (`crcombat.cc:358-360`).
         self.monster_set_follow_creature(monster_id, Some(target_id))
     }
 

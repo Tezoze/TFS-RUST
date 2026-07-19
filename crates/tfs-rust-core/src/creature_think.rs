@@ -83,6 +83,21 @@ impl GameWorld {
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.earliest_logout_round = 0;
             }
+            // Drop TFS-domain Infight when the 772 logout round expires (`CheckState` clear).
+            let removed_infight = if let Some(kind) = self.creatures.get_mut(cid) {
+                let before = kind.base().active_conditions.len();
+                kind.base_mut()
+                    .active_conditions
+                    .retain(|c| c.ctype != tfs_rust_common::enums::ConditionType::Infight);
+                before != kind.base().active_conditions.len()
+            } else {
+                false
+            };
+            if removed_infight {
+                self.on_condition_ended(cid, tfs_rust_common::enums::ConditionType::Infight);
+            } else if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+                self.send_player_icons(cid);
+            }
             tracing::debug!(
                 ?cid,
                 round_nr,

@@ -88,7 +88,11 @@ pub struct MonsterSpell {
     /// Cast gate: `rand() % Delay == 0` — `crnonpl.cc:2527`.
     pub delay: i32,
     pub range: i32,
-    /// Area radius for `Origin` / `Destination` shapes — XML `radius`.
+    /// Disc radius for `Origin` / `Destination` — 772 `ExecuteCircleSpell` rings `0..=R`.
+    ///
+    /// TFS XML `radius` uses `AreaCombat::setupArea(R)` (rings `1..=R`); that is one greater
+    /// than the 772 ring index (`setupArea(R)` ≡ `disc_offsets(R-1)`). Stored value is the
+    /// 772 radius after conversion at parse time.
     pub radius: i32,
     /// Forward range for `Angle` (beam) shapes — XML `length`.
     /// 772 `AngleShapeSpell` `Range` (`magic.cc:550`, `ShapeParam2`).
@@ -139,11 +143,18 @@ impl MonsterSpell {
 
         let delay = parse_attr_i32(node, "delay", 0);
         let range = parse_attr_i32(node, "range", 0);
-        let radius = parse_attr_i32(node, "radius", 0);
+        // Shape detection needs the raw TFS XML radius (`radius > 0` → Origin/Destination).
+        // Disc execution uses 772 ring index: `setupArea(R)` ≡ rings `0..=R-1`
+        // (`circles.rs` / `combat.cpp:1391`; giant spider XML `radius="1"` → `.mon` `Destination(...,0,...)`).
+        let xml_radius = parse_attr_i32(node, "radius", 0);
         let length = parse_attr_i32(node, "length", 0);
         let spread = parse_attr_i32(node, "spread", 0);
         let min_cycle = parse_attr_i32(node, "mincycle", 0);
         let shape = default_shape_for_node(name, node);
+        let radius = match shape {
+            SpellShape::Origin | SpellShape::Destination if xml_radius > 0 => xml_radius - 1,
+            _ => xml_radius,
+        };
         let impact = parse_spell_impact(name, node)?;
         let shoot_effect = spell_child_attr(node, "shooteffect")
             .as_deref()
@@ -600,8 +611,14 @@ fn spell_child_attr(node: &MonsterSpellNode, key: &str) -> Option<String> {
         .map(|(_, v)| v.clone())
 }
 
+/// TFS/TVP `shooteffect` name → 772 `CONST_ANI_*` wire byte (`tools.cpp` `shootTypeNames`).
+///
+/// `"poison"` / `"earth"` → `CONST_ANI_POISON` (15); `"poisonarrow"` → `CONST_ANI_POISONARROW` (6).
+/// Do not collapse these — giant spider / cobra use poison missile, not the arrow.
 fn parse_shoot_effect_name(name: &str) -> Option<u8> {
-    if name.eq_ignore_ascii_case("poison") || name.eq_ignore_ascii_case("poisonarrow") {
+    if name.eq_ignore_ascii_case("poison") || name.eq_ignore_ascii_case("earth") {
+        Some(ShootEffect::Poison as u8)
+    } else if name.eq_ignore_ascii_case("poisonarrow") {
         Some(ShootEffect::PoisonArrow as u8)
     } else if name.eq_ignore_ascii_case("fire") {
         Some(ShootEffect::Fire as u8)
@@ -756,6 +773,9 @@ mod tests {
 
     /// Giant spider `poisonfield` → `SpellImpact::Field { Poison }` Destination
     /// (`crnonpl.cc:2598` `IMPACT_FIELD` / `TFieldImpact`).
+    ///
+    /// 772 `giantspider.mon`: `Destination (7, 15, 0, 0) -> Field (2) : 6`
+    /// — range 7, `CONST_ANI_POISON` (15), disc radius 0 (XML `radius="1"` → `setupArea(1)`).
     #[test]
     fn test_giant_spider_poisonfield_from_xml() {
         let mtype = load_monster_type("giant spider");
@@ -767,7 +787,7 @@ mod tests {
             .expect("poisonfield spell");
         assert_eq!(field.delay, 6);
         assert_eq!(field.range, 7);
-        assert_eq!(field.radius, 1);
+        assert_eq!(field.radius, 0, "TFS radius=1 → 772 disc radius 0 (center only)");
         assert_eq!(field.shape, SpellShape::Destination);
         assert!(matches!(
             field.impact,
@@ -775,7 +795,91 @@ mod tests {
                 field_type: MonsterFieldType::Poison
             }
         ));
-        assert_eq!(field.shoot_effect, Some(ShootEffect::PoisonArrow as u8));
+        assert_eq!(field.shoot_effect, Some(ShootEffect::Poison as u8));
+    }
+
+    /// Field casters: TFS XML `radius` / `shooteffect` → 772 `.mon` Destination params.
+    ///
+    /// Refs: `demon.mon` `Destination (7,4,0,0) -> Field (1)`; `dragonlord.mon`
+    /// `(7,4,3,0)`; `warlock.mon` `(7,4,1,0)` + `(7,4,0,0)`; `demodras.mon` `(7,4,5,0)`.
+    #[test]
+    fn test_field_casters_radius_and_shoot_match_772_mon() {
+        let cases: &[(&str, &[(i32, i32, u8, MonsterFieldType)])] = &[
+            // name, [(delay, 772_radius, shoot, field)]
+            (
+                "demon",
+                &[(7, 0, ShootEffect::Fire as u8, MonsterFieldType::Fire)],
+            ),
+            (
+                "dragon lord",
+                &[(7, 3, ShootEffect::Fire as u8, MonsterFieldType::Fire)],
+            ),
+            (
+                "fire elemental",
+                &[(3, 0, ShootEffect::Fire as u8, MonsterFieldType::Fire)],
+            ),
+            (
+                "witch",
+                &[(8, 0, ShootEffect::Fire as u8, MonsterFieldType::Fire)],
+            ),
+            (
+                "warlock",
+                &[
+                    (5, 1, ShootEffect::Fire as u8, MonsterFieldType::Fire),
+                    (7, 0, ShootEffect::Fire as u8, MonsterFieldType::Fire),
+                ],
+            ),
+            (
+                "orshabaal",
+                &[(11, 3, ShootEffect::Fire as u8, MonsterFieldType::Fire)],
+            ),
+            (
+                "demodras",
+                &[(10, 5, ShootEffect::Fire as u8, MonsterFieldType::Fire)],
+            ),
+            (
+                "minotaur mage",
+                &[(9, 0, ShootEffect::Energy as u8, MonsterFieldType::Energy)],
+            ),
+            (
+                "merlkin",
+                // 772 uses energy missile (5) for poison field — XML `shooteffect="energy"`.
+                &[(7, 0, ShootEffect::Energy as u8, MonsterFieldType::Poison)],
+            ),
+            (
+                "the old widow",
+                &[(11, 3, ShootEffect::Poison as u8, MonsterFieldType::Poison)],
+            ),
+        ];
+
+        for &(name, expected) in cases {
+            let mtype = load_monster_type(name);
+            let cfg = MonsterAiConfig::from_monster_type(&mtype);
+            let mut fields: Vec<_> = cfg
+                .spells
+                .iter()
+                .filter(|s| matches!(s.impact, SpellImpact::Field { .. }))
+                .collect();
+            fields.sort_by_key(|s| s.delay);
+            assert_eq!(
+                fields.len(),
+                expected.len(),
+                "{name}: field spell count"
+            );
+            for (spell, &(delay, radius, shoot, field_type)) in fields.iter().zip(expected.iter()) {
+                assert_eq!(spell.delay, delay, "{name} delay");
+                assert_eq!(spell.radius, radius, "{name} 772 disc radius");
+                assert_eq!(spell.shape, SpellShape::Destination, "{name} shape");
+                assert_eq!(spell.shoot_effect, Some(shoot), "{name} shoot");
+                assert!(
+                    matches!(
+                        spell.impact,
+                        SpellImpact::Field { field_type: ft } if ft == field_type
+                    ),
+                    "{name} field type"
+                );
+            }
+        }
     }
 
     #[test]
@@ -882,7 +986,8 @@ mod tests {
                 min_cycle: 6,
             }
         ));
-        assert_eq!(spell.shoot_effect, Some(ShootEffect::PoisonArrow as u8));
+        // cobra.xml `shooteffect="poison"` / cobra.mon `Victim (5, 15, 0)` → CONST_ANI_POISON.
+        assert_eq!(spell.shoot_effect, Some(ShootEffect::Poison as u8));
     }
 
     /// Dragon fire wave (`length`+`spread`) → `Angle`; fireball (`target`+`range`+`radius`)
@@ -911,7 +1016,8 @@ mod tests {
             .find(|s| s.shape == SpellShape::Destination)
             .expect("dragon fireball must parse as Destination (target+radius)");
         assert_eq!(fireball.range, 7);
-        assert!(fireball.radius > 0);
+        // XML `radius="4"` → 772 disc radius 3 (`Destination (7, 4, 3, 7)`).
+        assert_eq!(fireball.radius, 3);
         assert_eq!(fireball.shoot_effect, Some(ShootEffect::Fire as u8));
         assert!(matches!(fireball.impact, SpellImpact::Damage { element: CombatType::Fire, .. }));
     }
@@ -1091,7 +1197,8 @@ mod tests {
             })
             .expect("marid energycondition");
         assert_eq!(energy_cond.shape, SpellShape::Origin);
-        assert_eq!(energy_cond.radius, 3);
+        // XML `radius="3"` → 772 `Origin (2, …)` disc radius (`marid.mon`).
+        assert_eq!(energy_cond.radius, 2);
 
         let lifedrain = cfg
             .spells

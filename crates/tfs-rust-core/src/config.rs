@@ -439,18 +439,29 @@ impl ChatConfig {
     }
 }
 
-/// PvP world settings — C++ `configmanager.cpp` `worldType` / `protectionLevel`.
+/// PvP world settings — C++ `configmanager.cpp` `worldType` / `protectionLevel` /
+/// `pzLocked` / `whiteSkullTime`.
 ///
 /// `worldType` maps to the 772 decompile `WorldType` enum (`NORMAL` → [`WorldType::Pvp`],
 /// `NON_PVP` → [`WorldType::NoPvp`], `PVP_ENFORCED` → [`WorldType::PvpEnforced`]).
 /// `protectionLevel` is the minimum level for PvP (both players must be ≥ this level).
-// C++ reference: `config.cc` `WorldType` / `ProtectionLevel`, `crcombat.cc` secure-mode gate.
+///
+/// Logout / PZ lock duration uses `pzLocked` (ms). 772 `BlockLogout(60)` is ~60 s at
+/// ~1 `RoundNr`/s (`Other` subsystem); default `pzLocked = 60000` matches that.
+/// Unjustified PvP uses `whiteSkullTime` (seconds) — 772 `BlockLogout(900)` ≡ default
+/// `15 * 60`.
+// C++ reference: `config.cc` `WorldType` / `ProtectionLevel`, `crmain.cc` `BlockLogout`,
+// `configmanager.cpp` `PZ_LOCKED` / `WHITE_SKULL_TIME`, `crcombat.cc` secure-mode gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PvpConfig {
     /// `config.lua` `worldType` (default `"pvp"` → [`WorldType::Pvp`]).
     pub world_type: WorldType,
     /// `config.lua` `protectionLevel` (default 1) — both players must be ≥ this level to fight.
     pub protection_level: u32,
+    /// `config.lua` `pzLocked` — combat logout / PZ-lock duration in milliseconds (default 60000).
+    pub pz_locked_ms: u32,
+    /// `config.lua` `whiteSkullTime` — unjustified PvP / white-skull lock in seconds (default 900).
+    pub white_skull_time_secs: u32,
 }
 
 impl PvpConfig {
@@ -459,7 +470,22 @@ impl PvpConfig {
         Self {
             world_type: WorldType::Pvp,
             protection_level: 1,
+            pz_locked_ms: 60_000,
+            white_skull_time_secs: 15 * 60,
         }
+    }
+
+    /// 772 `BlockLogout` delay in `RoundNr` units for ordinary combat / aggressive spells.
+    ///
+    /// `RoundNr` advances once per `Other` subsystem fire (~1000 ms). Ceil-divide ms so
+    /// `pzLocked = 60000` → 60 rounds (772 hardcoded `BlockLogout(60)`).
+    pub fn pz_locked_rounds(&self) -> u32 {
+        self.pz_locked_ms.saturating_add(999) / 1000
+    }
+
+    /// 772 `BlockLogout(900)` / TFS Infight extension on unjustified kill — seconds → rounds.
+    pub fn white_skull_rounds(&self) -> u32 {
+        self.white_skull_time_secs.max(1)
     }
 
     pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
@@ -476,6 +502,8 @@ impl PvpConfig {
         Ok(Self {
             world_type,
             protection_level: get_i64_or(cfg, "protectionLevel", 1)?.max(0) as u32,
+            pz_locked_ms: get_i64_or(cfg, "pzLocked", 60_000)?.max(0) as u32,
+            white_skull_time_secs: get_i64_or(cfg, "whiteSkullTime", 15 * 60)?.max(0) as u32,
         })
     }
 }
@@ -859,6 +887,28 @@ mod tests {
         assert_eq!(ConfigManager::scale_tries(1, 3.0), 3);
         assert_eq!(ConfigManager::scale_tries(50, 3.0), 150);
         assert_eq!(ConfigManager::scale_tries(1, 0.0), 0);
+    }
+
+    #[test]
+    fn pvp_config_defaults_and_reads_lock_times() {
+        let cfg = config_from_lua("");
+        let pvp = PvpConfig::from_config(&cfg).expect("pvp defaults");
+        assert_eq!(pvp.pz_locked_ms, 60_000);
+        assert_eq!(pvp.white_skull_time_secs, 15 * 60);
+        assert_eq!(pvp.pz_locked_rounds(), 60);
+        assert_eq!(pvp.white_skull_rounds(), 900);
+
+        let cfg = config_from_lua(
+            r#"
+            pzLocked = 120000
+            whiteSkullTime = 30 * 60
+            "#,
+        );
+        let pvp = PvpConfig::from_config(&cfg).expect("pvp custom");
+        assert_eq!(pvp.pz_locked_ms, 120_000);
+        assert_eq!(pvp.white_skull_time_secs, 1800);
+        assert_eq!(pvp.pz_locked_rounds(), 120);
+        assert_eq!(pvp.white_skull_rounds(), 1800);
     }
 
     #[test]

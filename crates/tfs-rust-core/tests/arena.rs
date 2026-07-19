@@ -113,6 +113,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         attack_mode: Default::default(),
         secure_mode: false,
         earliest_protection_zone_round: 0,
+            client_icons: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: 0,

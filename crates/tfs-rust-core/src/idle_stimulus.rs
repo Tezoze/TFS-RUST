@@ -332,6 +332,21 @@ impl GameWorld {
                 // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
                 self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
             }
+            // Logout / swords icon — 772 `Attack` + `Damage` refresh (`crcombat.cc:601-602`,
+            // `crmain.cc:525`, `TPlayer::DamageStimulus`). Initial lock on target *acquire* is
+            // `SetAttackDest` → `AttackStimulus` (`combat_on_attack_dest_changed`).
+            // - Attacker: `BlockLogout(60, Target->Type == PLAYER)` (no-op for monsters).
+            // - Target: `BlockLogout(60, false)` — refresh even on 0-damage hits.
+            // Skip pure heals (`primary/secondary > 0`). Covers melee, ranged, spells, AoE.
+            let healing = reduced_damage.primary.1 > 0 || reduced_damage.secondary.1 > 0;
+            if !healing {
+                let target_is_player =
+                    matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+                self.player_block_logout_infight(attacker_id, target_is_player);
+                if target_is_player {
+                    self.player_block_logout_infight(target, false);
+                }
+            }
         }
         let applied = crate::combat::execute(
             &mut self.creatures,
@@ -779,18 +794,10 @@ impl GameWorld {
         // `monster_think_summon_stub` pass refines the follow target; this block sets the
         // authoritative attack-dest per C++.
         if let Some(target_id) = new_target {
-            if self.monster_is_target(cid, target_id) {
-                let _ = self.monster_set_follow_creature(cid, Some(target_id));
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().attack_target = Some(target_id);
-                }
-            } else {
-                // Target not in opponent list (e.g. master itself) — still set follow per C++.
-                let _ = self.monster_set_follow_creature(cid, Some(target_id));
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().attack_target = Some(target_id);
-                }
-            }
+            // 772 assigns `Target` only here (`crnonpl.cc:2397-2404`). `Combat.AttackDest` is
+            // set in the walk prelude via `SetAttackDest` (`:2784`) — do not write
+            // `attack_target` or fire AttackStimulus here.
+            let _ = self.monster_set_follow_creature(cid, Some(target_id));
         } else {
             let _ = self.monster_set_follow_creature(cid, None);
             if let Some(k) = self.creatures.get_mut(cid) {
@@ -807,8 +814,9 @@ impl GameWorld {
             return;
         };
         if self.monster_idle_should_lose_target(cid, target_id) {
+            // 772 only clears `Target` (`crnonpl.cc:2433`) — not `Combat.AttackDest`.
             if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().clear_targets();
+                k.base_mut().follow_target = None;
             }
         }
     }
@@ -2014,42 +2022,85 @@ impl GameWorld {
         self.broadcast_creature_say_viewport(cid, speak_type, &text);
     }
 
-    /// C++ walking prelude — `crnonpl.cc:2705` (`SKILL_FIST > 0 && State != PANIC`).
-    fn monster_idle_maybe_enter_attacking(&mut self, cid: CreatureId) {
-        let should_attack = {
+    /// 772 walking prelude — `crnonpl.cc:2778-2786`.
+    ///
+    /// `SKILL_FIST > 0 && State != PANIC` → `State = ATTACKING`. Then if
+    /// `ATTACKING || PANIC` → `Combat.SetAttackDest(Target, false)` + `SetChaseMode(NONE)`.
+    /// No melee-range / ranged-spell gate — that is only for later walk/attack arms.
+    pub(crate) fn monster_idle_maybe_enter_attacking(&mut self, cid: CreatureId) {
+        let snapshot = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
             if m.is_fleeing() {
                 return;
             }
-            let Some(follow_id) = m.base.follow_target else {
+            // 772 `this->Target` — Rust chase target (`follow_target`).
+            let Some(target_id) = m.base.follow_target else {
                 return;
             };
-            if m.base.master == Some(follow_id) {
+            if m.base.master == Some(target_id) {
                 return;
             }
-            if m.state == MonsterState::Panic {
-                return;
-            }
-            m.melee_skill > 0
-                && (self.monster_effective_target_distance(m.target_distance) <= 1
-                    || !m.spells.iter().any(|s| s.range > 1))
+            (target_id, m.melee_skill, m.state, m.base.attack_target)
         };
-        if should_attack {
+
+        let (target_id, melee_skill, state, prev_attack) = snapshot;
+
+        // `if (Skills[SKILL_FIST]->Get() > 0 && State != PANIC) State = ATTACKING`
+        if melee_skill > 0 && state != MonsterState::Panic {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                let _entering = m.state != MonsterState::Attacking;
                 m.state = MonsterState::Attacking;
-                // C++ `SetAttackDest` — chase dest tracks combat target (`crnonpl.cc:2709`).
-                if m.base.attack_target.is_none() {
-                    if let Some(follow_id) = m.base.follow_target {
-                        m.base.attack_target = Some(follow_id);
-                    }
-                } else if let Some(attack_id) = m.base.attack_target {
-                    m.base.follow_target = Some(attack_id);
-                }
             }
         }
+
+        let combat_state = self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Monster(m) => Some(m.state),
+            _ => None,
+        });
+        if !matches!(
+            combat_state,
+            Some(MonsterState::Attacking | MonsterState::Panic)
+        ) {
+            return;
+        }
+
+        // `Combat.SetAttackDest(this->Target, false)` — early-out when AttackDest unchanged
+        // (`crcombat.cc:358-360`). Side effects only on change (`:432-437`).
+        if prev_attack == Some(target_id) {
+            // Still reset chase mode like C++ `SetChaseMode(CHASE_MODE_NONE)` before the
+            // distance arm re-selects CLOSE/NONE (`monster_idle_set_combat_chase_mode`).
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.base.chase_mode = ChaseMode::None;
+            }
+            return;
+        }
+
+        // `ObjectDistance > 8` → `StopAttack` (`crcombat.cc:424-427`).
+        let too_far = match (
+            self.creatures.get(cid).map(|k| k.position()),
+            self.creatures.get(target_id).map(|k| k.position()),
+        ) {
+            (Some(from), Some(to)) => chebyshev(from, to) > 8,
+            _ => true,
+        };
+        if too_far {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().attack_target = None;
+            }
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.base.chase_mode = ChaseMode::None;
+            }
+            return;
+        }
+
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().attack_target = Some(target_id);
+        }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.base.chase_mode = ChaseMode::None;
+        }
+        self.combat_on_attack_dest_changed(cid, target_id);
     }
 
     /// C++ ATTACKING walk prelude — `crnonpl.cc:2709-2726` (`SetChaseMode` reset then CLOSE for melee).
@@ -2060,14 +2111,8 @@ impl GameWorld {
 
     /// Set `chase_mode` from posture/target band — no JSONL side effect.
     fn monster_idle_set_combat_chase_mode(&mut self, cid: CreatureId) {
-        // Keep follow/attack dest aligned for close-chase repath (`SetAttackDest`).
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            if matches!(m.state, MonsterState::Attacking | MonsterState::Panic) {
-                if let Some(attack_id) = m.base.attack_target {
-                    m.base.follow_target = Some(attack_id);
-                }
-            }
-        }
+        // 772 `SetAttackDest(this->Target)` copies Target → AttackDest (`crnonpl.cc:2784`).
+        // Do not overwrite `follow_target` from `attack_target` (that inverted the decompile).
         let snapshot = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;

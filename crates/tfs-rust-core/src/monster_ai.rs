@@ -443,6 +443,8 @@ impl GameWorld {
 
             let notify_snap = self.combat_notify_snapshot(target_id);
             let hp_before = self.creatures.get(target_id).unwrap().base().health;
+            // Victim logout lock is applied inside `combat_execute_with_stimulus`
+            // (`Attack` Target->BlockLogout — `crcombat.cc:601-602`).
             let _ = self.combat_execute_with_stimulus(
                 Some(cid),
                 target_id,

@@ -1332,6 +1332,24 @@ pub async fn run_game_loop(
                                 &out_registry,
                                 &mut pending_output_shed,
                             );
+                        } else {
+                            // Commands (Attack → BlockLogout → icons / cancel messages) must not
+                            // wait for the next beat alarm — 772 `SendAll` is per AdvanceGame, but
+                            // our command lane runs between beats; flush here so `0xA2` state and
+                            // talk failures reach the client immediately.
+                            flush_pending_outgoing(
+                                &mut world,
+                                &mut output_sinks,
+                                &out_registry,
+                                &mut pending_output_shed,
+                            );
+                            drain_output_shed(
+                                &mut world,
+                                &mut pending_login_conns,
+                                &mut output_sinks,
+                                &out_registry,
+                                &mut pending_output_shed,
+                            );
                         }
                         world.obs_maybe_emit();
                     }

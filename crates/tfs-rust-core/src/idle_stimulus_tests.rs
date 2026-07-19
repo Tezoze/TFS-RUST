@@ -22,7 +22,10 @@ use crate::test_world::support::{
 
 /// Same-floor creature outside the 10-tile targeting box — `CanSeeFloor` awake without a target.
 fn register_distant_floor_spectator(world: &mut GameWorld, near: Position) -> CreatureId {
-    let far = Position::new(near.x.saturating_add(15), near.y, near.z);
+    // Must sit inside the idle `TFindCreatures(12,12)` box so `CanSeeFloor` clears
+    // `ShouldSleep` (`crnonpl.cc:2504`), but outside the target accept band (`Distance > 10`
+    // continue at `:2512`). dx=15 was outside the search box → false sleep.
+    let far = Position::new(near.x.saturating_add(11), near.y, near.z);
     ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
     let player = insert_player(world, test_player("Spectator", far));
     world.map.register_creature_at(far, player);
@@ -3805,7 +3808,7 @@ fn test_772_attacking_los_blocked_does_not_freeze() {
     );
 }
 
-/// Diverged follow/attack dest must sync and escalate to roam — not infinite Wait(200).
+/// Diverged follow/attack dest: 772 `SetAttackDest(Target)` makes AttackDest follow Target.
 #[test]
 fn test_772_close_chase_target_divergence_no_wait_loop() {
     let mut world = beat_driven_test_world();
@@ -3819,7 +3822,14 @@ fn test_772_close_chase_target_divergence_no_wait_loop() {
             TEST_SYNTHETIC_GROUND_WP,
         );
     }
-    ensure_walkable_tile(&mut world.map, decoy, TEST_SYNTHETIC_GROUND_WP);
+    // Path south to decoy (otherwise close-chase NOWAY clears Target).
+    for y in 101..=103u16 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(100, y, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
 
     let player = insert_player(&mut world, test_player("Hero", ppos));
     let decoy_player = insert_player(&mut world, test_player("Decoy", decoy));
@@ -3831,6 +3841,7 @@ fn test_772_close_chase_target_divergence_no_wait_loop() {
         m.is_idle = false;
         m.is_hostile = true;
         m.melee_skill = 15;
+        m.lose_target_percent = 0;
         m.opponent_ids.push(player);
         m.base.follow_target = Some(decoy_player);
         m.base.attack_target = Some(player);
@@ -3843,10 +3854,16 @@ fn test_772_close_chase_target_divergence_no_wait_loop() {
     world.monster_idle_stimulus(monster);
 
     let base = world.creatures.get(monster).unwrap().base();
+    // 772 `SetAttackDest(this->Target)` — AttackDest follows Target (decoy), not the reverse.
     assert_eq!(
         base.follow_target,
-        Some(player),
-        "Attacking idle must sync follow_target to attack_target"
+        Some(decoy_player),
+        "Target (follow) must stay the chase dest"
+    );
+    assert_eq!(
+        base.attack_target,
+        Some(decoy_player),
+        "SetAttackDest must copy Target → AttackDest"
     );
     assert!(
         !world
@@ -4075,7 +4092,10 @@ fn summon_despawns_beyond_30_tiles() {
     );
 }
 
-/// Summon stays alive when within range and re-binds to master's attack target.
+/// Summon stays alive when within range and re-binds `Target` to master's AttackDest.
+///
+/// 772 assigns `Target` only here (`crnonpl.cc:2397-2404`); `Combat.AttackDest` comes from
+/// the walk `SetAttackDest` when `ATTACKING|PANIC` (`:2784`).
 #[test]
 fn summon_rebinds_to_master_attack_target_when_not_following() {
     let mut world = beat_driven_test_world();
@@ -4088,6 +4108,9 @@ fn summon_rebinds_to_master_attack_target_when_not_following() {
         k.base_mut().follow_target = None;
     }
     let summon = insert_summon(&mut world, "Summon", Position::new(102, 100, 7), master);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.melee_skill = 10; // so idle walk SetAttackDest runs
+    }
     wake_monster(&mut world, summon);
     world.monster_idle_stimulus(summon);
     assert!(
@@ -4096,9 +4119,14 @@ fn summon_rebinds_to_master_attack_target_when_not_following() {
     );
     let base = world.creatures.get(summon).unwrap().base();
     assert_eq!(
+        base.follow_target,
+        Some(victim),
+        "summon Target must inherit master's AttackDest when master is not Following"
+    );
+    assert_eq!(
         base.attack_target,
         Some(victim),
-        "summon must inherit master's attack_target when master is not following"
+        "idle SetAttackDest must copy Target → AttackDest when fist>0"
     );
 }
 
@@ -4135,9 +4163,15 @@ fn summon_rebinds_to_master_when_target_clears() {
     assert!(world.creatures.contains_key(summon));
     let base = world.creatures.get(summon).unwrap().base();
     assert_eq!(
-        base.attack_target,
+        base.follow_target,
         Some(master),
         "when player master is Following, summon Target=0 then falls back to Master"
+    );
+    // Master-follow branch returns before SetAttackDest (`crnonpl.cc:2760-2776`).
+    assert_eq!(
+        base.attack_target,
+        None,
+        "AttackDest is not set while Target == Master"
     );
 }
 
@@ -4166,15 +4200,18 @@ fn summon_of_monster_inherits_attack_dest_while_master_chases() {
     }
     let summon = insert_summon(&mut world, "Poison Spider", Position::new(102, 100, 7), master);
     world.map.register_creature_at(Position::new(102, 100, 7), summon);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.melee_skill = 10;
+    }
     wake_monster(&mut world, summon);
     world.monster_idle_stimulus(summon);
     let base = world.creatures.get(summon).unwrap().base();
+    assert_eq!(base.follow_target, Some(player), "summon Target inherits master AttackDest");
     assert_eq!(
         base.attack_target,
         Some(player),
-        "monster-master summon must inherit AttackDest, not Master"
+        "idle SetAttackDest copies Target → AttackDest (not Master)"
     );
-    assert_eq!(base.follow_target, Some(player));
 }
 
 // --- Phase 6: monster Talk packet (Finding 3, `crnonpl.cc:2442–2458`) ---

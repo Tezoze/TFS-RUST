@@ -24,12 +24,31 @@ impl GameWorld {
         self.announce_creature_speed(cid);
     }
 
-    /// TFS `Player::sendIcons` — `0xA2` condition icons (`player.cpp` / `protocolgame.cpp`).
+    /// TFS `Player::sendIcons` / 772 `TPlayer::CheckState` — `0xA2` condition icons.
+    ///
+    /// 772 only sends when the state byte changes (`crplayer.cc:1249-1252`). We keep
+    /// [`Player::client_icons`] as `OldState` and skip redundant packets.
     pub(crate) fn send_player_icons(&mut self, cid: CreatureId) {
-        let Some(conn_id) = self.conn_for_creature(cid) else {
+        let icons = self.player_client_icons(cid);
+        let prev = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.client_icons,
+            _ => return,
+        };
+        if prev == icons {
+            return;
+        }
+        let Some(conn_id) = self.conn_for_creature(cid).or_else(|| {
+            // Fallback if reverse index drifted (should not happen after `register_conn_mapping`).
+            self.conn_to_creature
+                .iter()
+                .find_map(|(c, id)| (*id == cid).then_some(*c))
+        }) else {
+            tracing::debug!(?cid, icons, "send_player_icons: no conn mapping — skipped");
             return;
         };
-        let icons = self.player_client_icons(cid);
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.client_icons = icons;
+        }
         use tfs_rust_net::outgoing_extra::{send_icons, send_icons_classic};
         let packet = match &self.codec {
             tfs_rust_net::Codec::V772(_) => send_icons_classic(icons).into_bytes(),
@@ -52,6 +71,7 @@ impl GameWorld {
         const ICON_MANASHIELD: u16 = 1 << 4;
         const ICON_PARALYZE: u16 = 1 << 5;
         const ICON_HASTE: u16 = 1 << 6;
+        const ICON_SWORDS: u16 = 1 << 7;
         const ICON_DROWNING: u16 = 1 << 8;
         const ICON_FREEZING: u16 = 1 << 9;
         const ICON_DAZZLED: u16 = 1 << 10;
@@ -72,6 +92,7 @@ impl GameWorld {
                 ConditionType::ManaShield => ICON_MANASHIELD,
                 ConditionType::Paralyze => ICON_PARALYZE,
                 ConditionType::Haste => ICON_HASTE,
+                ConditionType::Infight => ICON_SWORDS,
                 ConditionType::Freezing if suppress & CONDITION_FREEZING == 0 => ICON_FREEZING,
                 ConditionType::Dazzled if suppress & CONDITION_DAZZLED == 0 => ICON_DAZZLED,
                 ConditionType::Cursed if suppress & CONDITION_CURSED == 0 => ICON_CURSED,
@@ -85,6 +106,11 @@ impl GameWorld {
         }
         if p.base.drunkenness > 0 && suppress & CONDITION_DRUNK == 0 {
             icons |= ICON_DRUNK;
+        }
+        // 772 `CheckState` — swords while `RoundNr < EarliestLogoutRound` (`crplayer.cc:1246`).
+        // Also covers the case where Infight was cleared early but the logout round remains.
+        if p.earliest_logout_round > self.round_nr {
+            icons |= ICON_SWORDS;
         }
         icons
     }

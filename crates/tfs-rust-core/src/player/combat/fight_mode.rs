@@ -6,6 +6,8 @@
 //! - `TCombat::SetSecureMode` — `crcombat.cc:348-355` (DISABLED/ENABLED only).
 //! - `TCreature::BlockLogout` — `crmain.cc:433-453` (sets `EarliestLogoutRound` +
 //!   `EarliestProtectionZoneRound`).
+//! - `TPlayer::AttackStimulus` — `crplayer.cc:407-410` (`BlockLogout(60, false)` on being targeted).
+//! - `TCombat::SetAttackDest` !Follow arm — `crcombat.cc:432-437` (AttackStimulus + Master BlockLogout).
 //! - `TPlayer::IsAttackJustified` — `crplayer.cc:1438-1460` (aggressor/party/attacker check).
 //! - Secure-mode gate — `crcombat.cc:374-381` (`SetAttackDest` `!Follow`) + `:563-568` (`Attack`).
 //!
@@ -95,11 +97,57 @@ impl GameWorld {
         }
     }
 
-    /// 772 `TCreature::BlockLogout` — `crmain.cc:433-453`.
+    /// Ordinary combat / aggressive-spell logout block — delay from `config.lua` `pzLocked`.
+    ///
+    /// 772 callers hardcode `BlockLogout(60, …)`; we map `pzLocked` ms → rounds
+    /// ([`PvpConfig::pz_locked_rounds`](crate::config::PvpConfig::pz_locked_rounds)).
+    pub(crate) fn player_block_logout_infight(&mut self, cid: CreatureId, block_pz: bool) {
+        let delay = self.pvp_config.pz_locked_rounds();
+        self.player_block_logout(cid, delay, block_pz);
+    }
+
+    /// 772 `TPlayer::AttackStimulus` — `crplayer.cc:407-410`.
+    ///
+    /// Fired by `SetAttackDest(!Follow)` on the **target** (`crcombat.cc:433`) when
+    /// `AttackDest` changes — for monsters, that is the idle walk prelude
+    /// (`crnonpl.cc:2784`), not strategy `Target = …`. No-op for non-players / dead.
+    pub(crate) fn player_attack_stimulus(&mut self, cid: CreatureId) {
+        let alive_player = self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Player(_)) && k.base().health > 0
+        });
+        if alive_player {
+            self.player_block_logout_infight(cid, false);
+        }
+    }
+
+    /// 772 `TCombat::SetAttackDest` success arm for `!Follow` — `crcombat.cc:432-437`.
+    ///
+    /// Call only when `AttackDest` actually changes (C++ early-outs on same dest+follow).
+    /// `Target->AttackStimulus` then `Master->BlockLogout(60, Target->Type == PLAYER)`.
+    pub(crate) fn combat_on_attack_dest_changed(&mut self, master: CreatureId, target: CreatureId) {
+        self.player_attack_stimulus(target);
+        let target_is_player =
+            matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+        self.player_block_logout_infight(master, target_is_player);
+    }
+
+    /// Unjustified PvP / white-skull logout block — delay from `config.lua` `whiteSkullTime`.
+    ///
+    /// 772 `BlockLogout(900, true)` on unjustified kill (`crmain.cc:823`); TFS extends
+    /// `CONDITION_INFIGHT` by `WHITE_SKULL_TIME * 1000` (`player.cpp:3671-3673`).
+    #[allow(dead_code)] // wired when aggressor / unjustified-kill path lands
+    pub(crate) fn player_block_logout_white_skull(&mut self, cid: CreatureId) {
+        let delay = self.pvp_config.white_skull_rounds();
+        self.player_block_logout(cid, delay, true);
+    }
+
+    /// 772 `TCreature::BlockLogout` — `crmain.cc:433-453` + `CheckState` (`crplayer.cc:1246`).
     ///
     /// Sets `EarliestLogoutRound = max(., RoundNr + Delay)` and, when `block_pz` is true (or
     /// the player already has a pending PZ block), `EarliestProtectionZoneRound = max(.,
     /// RoundNr + Delay)`. In `NON_PVP` worlds, `block_pz` is cleared (`crmain.cc:434-436`).
+    /// Also refreshes TFS-domain `CONDITION_INFIGHT` (scripts / `ICON_SWORDS`) and sends icons
+    /// (`CheckState` / `Player::sendIcons`).
     /// Skipped for non-players and for players with the `NO_LOGOUT_BLOCK` right (deferred —
     /// no group flag mapping yet, so all players are subject to the block).
     pub(crate) fn player_block_logout(&mut self, cid: CreatureId, delay_rounds: u32, block_pz: bool) {
@@ -126,6 +174,25 @@ impl GameWorld {
         if p.earliest_logout_round < earliest {
             p.earliest_logout_round = earliest;
         }
+
+        let remaining = p.earliest_logout_round.saturating_sub(round_nr);
+        if remaining == 0 {
+            return;
+        }
+
+        // TFS `addInFightTicks` domain — `CONDITION_INFIGHT` for scripts + swords icon.
+        // Duration tracks the pending logout round (same clock as 772 `EarliestLogoutRound`).
+        let remaining_i32 = remaining.min(i32::MAX as u32) as i32;
+        let ticks_ms = remaining_i32.saturating_mul(1000);
+        let cond = crate::condition::ActiveCondition {
+            id: 0,
+            sub_id: 0,
+            ctype: tfs_rust_common::enums::ConditionType::Infight,
+            data: crate::condition::ConditionData::Generic { ticks: ticks_ms },
+            timer_rounds_left: Some(remaining_i32),
+        };
+        crate::combat::apply_condition(&mut self.creatures, cid, cond);
+        self.on_condition_started(cid, tfs_rust_common::enums::ConditionType::Infight);
     }
 
     /// 772 `TPlayer::IsAttackJustified` — `crplayer.cc:1438-1460`.
@@ -189,7 +256,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::config::PvpConfig;
-    use crate::creature::CreatureKind;
+    use crate::creature::{CreatureKind, MonsterState};
     use crate::ids::CreatureId;
     use tfs_rust_common::WorldType;
 
@@ -198,7 +265,7 @@ mod tests {
         let mut world = crate::sim_harness::minimal_world();
         world.pvp_config = PvpConfig {
             world_type,
-            protection_level: 1,
+            ..PvpConfig::defaults()
         };
         world
     }
@@ -307,6 +374,195 @@ mod tests {
         if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
             // max(200, 100+60=160) = 200.
             assert_eq!(p.earliest_logout_round, 200);
+        }
+    }
+
+    #[test]
+    fn block_logout_infight_uses_pz_locked_from_config() {
+        let mut world = make_pvp_world(WorldType::Pvp);
+        world.round_nr = 100;
+        world.pvp_config.pz_locked_ms = 30_000; // 30s → 30 rounds
+        let a = insert_player(&mut world, "alice");
+        world.player_block_logout_infight(a, false);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
+            assert_eq!(p.earliest_logout_round, 130);
+            assert!(
+                p.base
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == tfs_rust_common::enums::ConditionType::Infight),
+                "Infight condition applied for TFS domain / swords icon"
+            );
+        }
+    }
+
+    #[test]
+    fn logout_denied_while_earliest_logout_round_pending() {
+        let mut world = make_pvp_world(WorldType::Pvp);
+        world.round_nr = 100;
+        let a = insert_player(&mut world, "alice");
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, a);
+        // Ensure a tile exists so the zone check path runs.
+        let pos = tfs_rust_common::Position::new(0, 0, 7);
+        crate::sim_harness::ensure_walkable_tile(
+            &mut world.map,
+            pos,
+            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+        );
+        world.player_block_logout(a, 60, false);
+        assert!(
+            !world.player_logout_allowed(conn, a, false),
+            "772 LogoutPossible must deny while EarliestLogoutRound > RoundNr"
+        );
+        // Icons packet must be queued for the client (`0xA2` + swords bit).
+        let queued = world
+            .pending_outgoing
+            .get(&conn)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        assert!(
+            queued.iter().any(|pkt| pkt.len() >= 2 && pkt[0] == 0xA2 && (pkt[1] & 0x80) != 0),
+            "expected 0xA2 icons update with ICON_SWORDS (0x80), got {queued:?}"
+        );
+        world.round_nr = 160;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
+            p.earliest_logout_round = 0;
+            p.base
+                .active_conditions
+                .retain(|c| c.ctype != tfs_rust_common::enums::ConditionType::Infight);
+        }
+        assert!(world.player_logout_allowed(conn, a, false));
+    }
+
+    #[test]
+    fn monster_damage_locks_player_victim_logout_and_icons() {
+        let mut world = make_pvp_world(WorldType::Pvp);
+        world.round_nr = 100;
+        let player = insert_player(&mut world, "alice");
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        let monster = world.creatures.insert(CreatureKind::Monster(
+            crate::creature::Monster::new(
+                crate::sim_harness::minimal_creature_base(),
+                tfs_rust_common::Position::new(1, 1, 7),
+            ),
+        ));
+        let applied = world.combat_execute_with_stimulus(
+            Some(monster),
+            player,
+            &crate::combat::CombatDamage {
+                primary: (tfs_rust_common::enums::CombatType::Physical, -10),
+                secondary: (tfs_rust_common::enums::CombatType::Physical, 0),
+            },
+            &crate::combat::CombatParams::default(),
+        );
+        assert!(applied);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
+            assert!(
+                p.earliest_logout_round > 100,
+                "772 Attack Target->BlockLogout must lock the player victim"
+            );
+            assert!(
+                p.base
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == tfs_rust_common::enums::ConditionType::Infight),
+                "Infight must apply for swords icon"
+            );
+        }
+        let queued = world
+            .pending_outgoing
+            .get(&conn)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        assert!(
+            queued
+                .iter()
+                .any(|pkt| pkt.len() >= 2 && pkt[0] == 0xA2 && (pkt[1] & 0x80) != 0),
+            "expected 0xA2 ICON_SWORDS when player is hit, got {queued:?}"
+        );
+    }
+
+    #[test]
+    fn monster_idle_set_attack_dest_locks_player_before_hit() {
+        // 772 idle walk: fist>0 → ATTACKING → SetAttackDest → AttackStimulus
+        // (`crnonpl.cc:2778-2784`, `crcombat.cc:433`) — not on Target assign / selectTarget.
+        let mut world = make_pvp_world(WorldType::Pvp);
+        world.round_nr = 100;
+        let player_pos = tfs_rust_common::Position::new(100, 100, 7);
+        let monster_pos = tfs_rust_common::Position::new(102, 100, 7);
+        crate::sim_harness::ensure_walkable_tile(
+            &mut world.map,
+            player_pos,
+            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+        );
+        crate::sim_harness::ensure_walkable_tile(
+            &mut world.map,
+            monster_pos,
+            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+        );
+        let mut player = crate::sim_harness::test_player("alice", player_pos);
+        player.guid = 1;
+        let player = world.creatures.insert(CreatureKind::Player(player));
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        world.map.register_creature_at(player_pos, player);
+
+        let monster = crate::sim_harness::insert_monster(&mut world, "Rat", monster_pos, 100);
+        world.map.register_creature_at(monster_pos, monster);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.melee_skill = 10;
+            m.is_hostile = true;
+            m.base.follow_target = Some(player);
+            m.base.attack_target = None;
+            m.state = MonsterState::Sleeping;
+        }
+
+        world.monster_idle_maybe_enter_attacking(monster);
+
+        assert_eq!(
+            world.creatures.get(monster).and_then(|k| k.base().attack_target),
+            Some(player),
+            "SetAttackDest must copy Target → AttackDest"
+        );
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
+            assert!(
+                p.earliest_logout_round > 100,
+                "AttackStimulus must lock player on idle SetAttackDest"
+            );
+            assert!(
+                p.base
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == tfs_rust_common::enums::ConditionType::Infight),
+                "Infight must apply for swords icon on SetAttackDest"
+            );
+        }
+        let queued = world
+            .pending_outgoing
+            .get(&conn)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        assert!(
+            queued
+                .iter()
+                .any(|pkt| pkt.len() >= 2 && pkt[0] == 0xA2 && (pkt[1] & 0x80) != 0),
+            "expected 0xA2 ICON_SWORDS when monster SetAttackDest, got {queued:?}"
+        );
+
+        // Same dest again → early-out, no error / still locked.
+        let logout_round = world
+            .creatures
+            .get(player)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => Some(p.earliest_logout_round),
+                _ => None,
+            })
+            .unwrap_or(0);
+        world.monster_idle_maybe_enter_attacking(monster);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
+            assert_eq!(p.earliest_logout_round, logout_round);
         }
     }
 

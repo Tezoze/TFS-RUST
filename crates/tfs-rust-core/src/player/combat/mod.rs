@@ -151,18 +151,16 @@ impl GameWorld {
             if follow {
                 base.chase_mode = ChaseMode::Close;
             }
-            // `LatestAttackTime = 0` so the first `Attack` execute isn't suppressed
-            // (`crcombat.cc:438`).
-            base.earliest_attack_ms = 0;
+            // 772 `LatestAttackTime = 0` on `!Follow` only (`crcombat.cc:438`) — clears the
+            // delayed-`StopAttack` flag, **not** `EarliestAttackTime`. Do **not** zero
+            // `earliest_attack_ms` here or retargeting wipes attack-speed exhaust and allows
+            // an immediate strike on the new target.
         }
 
-        // PC-4 — `!Follow` path: `BlockLogout(60)` on attacker + `RecordAttack` (`crcombat.cc:433-437`).
-        // `RecordAttack` (skull/aggressor tracking) is deferred to the PvP phase; `BlockLogout`
-        // fires now so the logout lock is active from the moment the target is set.
+        // PC-4 — `!Follow` path: `Target->AttackStimulus` + `Master->BlockLogout`
+        // (`crcombat.cc:432-437`). Early-out above already skipped same dest+follow.
         if !follow {
-            let target_is_player =
-                self.creatures.get(target_id).is_some_and(|k| matches!(k, CreatureKind::Player(_)));
-            self.player_block_logout(cid, 60, target_is_player);
+            self.combat_on_attack_dest_changed(cid, target_id);
         }
 
         // `ToDoAttack()` → `ToDoAdd(TDAttack)`. Every `ToDoAdd` runs the `LockToDo` preamble:
@@ -400,8 +398,8 @@ impl GameWorld {
                 // Target: `BlockLogout(60, false)`.
                 let target_is_player =
                     self.creatures.get(target_id).is_some_and(|k| matches!(k, CreatureKind::Player(_)));
-                self.player_block_logout(cid, 60, target_is_player);
-                self.player_block_logout(target_id, 60, false);
+                self.player_block_logout_infight(cid, target_is_player);
+                self.player_block_logout_infight(target_id, false);
             }
         }
 
@@ -636,4 +634,52 @@ pub(crate) enum PlayerChaseOutcome {
 /// Helper for the `SetAttackDest` early-out comparison without borrowing `self` mutably twice.
 fn target_wire_id_to_creature(world: &GameWorld, wire_id: u32) -> Option<CreatureId> {
     world.creature_by_wire_id(wire_id)
+}
+
+#[cfg(test)]
+mod set_attack_dest_tests {
+    use tfs_rust_common::Position;
+
+    use crate::login_out::creature_wire_id;
+    use crate::sim_harness::{
+        ensure_walkable_tile, insert_monster, insert_player, test_player, TEST_SYNTHETIC_GROUND_WP,
+    };
+
+    use super::*;
+
+    #[test]
+    fn set_attack_dest_retarget_preserves_attack_exhaust() {
+        // 772 clears `LatestAttackTime`, not `EarliestAttackTime` (`crcombat.cc:438`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let m1 = Position::new(101, 100, 7);
+        let m2 = Position::new(100, 101, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, m1, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, m2, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let a = insert_monster(&mut world, "Rat", m1, 100);
+        let b = insert_monster(&mut world, "Rat", m2, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(m1, a);
+        world.map.register_creature_at(m2, b);
+
+        world.server_ms = 5_000;
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().earliest_attack_ms = 7_000; // mid-exhaust after a prior strike
+        }
+
+        let wire_b = creature_wire_id(b, world.creatures.get(b).unwrap());
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        let result = world.player_set_attack_dest(conn, player, wire_b, false);
+        assert_eq!(result, CombatResult::NoError);
+        let earliest = world.creatures.get(player).unwrap().base().earliest_attack_ms;
+        assert_eq!(
+            earliest, 7_000,
+            "retarget must not clear EarliestAttackTime / attack-speed exhaust"
+        );
+        let delay = world.todo_attack_delay_ms(player);
+        assert_eq!(delay, 2_000, "ToDoStart must wait remaining exhaust before next strike");
+    }
 }

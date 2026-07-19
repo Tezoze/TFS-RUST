@@ -275,6 +275,9 @@ pub struct Player {
     /// cannot enter a protection zone. Enforcement (walk/move PZ-entry check) is deferred;
     /// PC-4 wires the field + setter so `BlockLogout` stores the round.
     pub earliest_protection_zone_round: u32,
+    /// 772 `TPlayer::OldState` — last icons byte sent via `CheckState` / `0xA2` (`crplayer.cc:1249`).
+    /// Compared before `send_player_icons` so we only emit on change.
+    pub client_icons: u16,
     /// `players.blessings` bitfield — TFS domain `Player::blessings` (`player.cpp`).
     /// Bits 0–4 = five blessings; bit 5 = twist of fate. Drives death-loss reduction (PC-5).
     pub blessings: i8,

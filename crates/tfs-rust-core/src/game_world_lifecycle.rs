@@ -89,9 +89,10 @@ impl GameWorld {
         self.creatures.remove(id);
     }
 
-    /// TFS / 772 `ProtocolGame::logout` gates — returns `false` when logout is cancelled
+    /// TFS / 772 logout gates — returns `false` when logout is cancelled
     /// (no-logout tile, in-fight, or `onLogout` script). Caller then issues `PlayerDisconnect`.
-    // C++ ref: `gameserver/src/protocolgame.cpp` `ProtocolGame::logout`; TFS `protocolgame.cpp:336-372`.
+    // C++ ref: 772 `TCreature::LogoutPossible` (`crmain.cc:417-431`) + `CQuitGame`
+    // (`receiving.cc:88-98`); TFS `ProtocolGame::logout` (`protocolgame.cpp:336-372`).
     pub fn player_logout_allowed(
         &mut self,
         conn_id: ConnId,
@@ -106,6 +107,14 @@ impl GameWorld {
             let has_access = player.ghost_mode;
             if !has_access {
                 let pos = player.base.position;
+                let earliest_logout = player.earliest_logout_round;
+                let has_infight = player
+                    .base
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::Infight);
+                let round_nr = self.round_nr;
+
                 if let Some(tile) = self.map.get_tile(pos) {
                     if tile.body().zone == ZoneType::NoLogout {
                         self.send_cancel_message(conn_id, ReturnValue::YouCannotLogoutHere);
@@ -113,15 +122,20 @@ impl GameWorld {
                     }
 
                     let in_protection_zone = tile.body().zone == ZoneType::Protection;
-                    let has_infight = player
-                        .base
-                        .active_conditions
-                        .iter()
-                        .any(|c| c.ctype == ConditionType::Infight);
+                    // 772 `LogoutPossible` — combat block while `EarliestLogoutRound > RoundNr`
+                    // (`crmain.cc:419`). Not waived by protection zone.
+                    if earliest_logout > round_nr {
+                        self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
+                        return false;
+                    }
+                    // TFS Infight residual (Lua / field) — waived inside PZ (`protocolgame.cpp:351`).
                     if !in_protection_zone && has_infight {
                         self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
                         return false;
                     }
+                } else if earliest_logout > round_nr {
+                    self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
+                    return false;
                 }
             }
 

@@ -355,12 +355,10 @@ impl GameWorld {
             k.base_mut().delay_spell_ms(server_ms, cooldown_ms as u64);
         }
 
-        // PC-3a: PZ lock for aggressive spells — 772 `BlockLogout` `crmain.cc:433-457`.
-        // Aggressive spells block logout (and PZ entry) for a delay. The 772 delay
-        // is in rounds (10s = 50 rounds at 200ms/beat). We use a fixed 50-round
-        // delay matching the 772 combat block.
+        // PC-3a: PZ lock for aggressive spells — 772 `BlockLogout` `crmain.cc:433-457` /
+        // `magic.cc` (typically `BlockLogout(60, true)`). Duration from `config.lua` `pzLocked`.
         if spell.is_aggressive {
-            self.player_block_logout(cid, 50, true);
+            self.player_block_logout_infight(cid, true);
         }
 
         // PC-3a: Dispatch the `onCastSpell` Lua callback.
@@ -1151,6 +1149,7 @@ impl GameWorld {
 
     /// `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
     /// Applies / clears `CONDITION_INFIGHT` (bit `1<<10` = 1024).
+    /// Duration when applying comes from `config.lua` `pzLocked` (TFS `addInFightTicks`).
     pub fn lua_script_player_set_in_fight(
         &mut self,
         creature_u64: u64,
@@ -1160,15 +1159,9 @@ impl GameWorld {
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
         if in_fight {
-            let cond = ActiveCondition {
-                id: 0,
-                sub_id: 0,
-                ctype: ConditionType::Infight,
-                data: ConditionData::Generic { ticks: 60_000 },
-                timer_rounds_left: Some(60),
-            };
-            apply_condition(&mut self.creatures, cid, cond);
-            self.on_condition_started(cid, ConditionType::Infight);
+            // Prefer 772 `BlockLogout` + Infight via the shared combat path so logout gate,
+            // PZ lock, and swords icon stay consistent with melee / spells.
+            self.player_block_logout_infight(cid, true);
         } else {
             let removed = if let Some(kind) = self.creatures.get_mut(cid) {
                 let before = kind.base().active_conditions.len();
@@ -1179,8 +1172,14 @@ impl GameWorld {
             } else {
                 false
             };
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                p.earliest_logout_round = 0;
+                p.earliest_protection_zone_round = 0;
+            }
             if removed {
                 self.on_condition_ended(cid, ConditionType::Infight);
+            } else if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+                self.send_player_icons(cid);
             }
         }
         Ok(())
@@ -1424,13 +1423,19 @@ pub(crate) fn active_condition_from_apply_spec(
     };
 
     let (data, timer_rounds_left) = match ctype {
-        ConditionType::Light => (
-            ConditionData::Light {
-                level: spec.light_level.clamp(0, 255) as u8,
-                color: spec.light_color.clamp(0, 255) as u8,
-            },
-            rounds_from_ticks,
-        ),
+        ConditionType::Light => {
+            // 772 `GetCreatureLight` (`info.cc:1238-1281`): skill-only light packs to
+            // color 215 (`5*36+5*6+5`). Stock `light.lua` sets LEVEL but not COLOR
+            // (TFS ConditionLight also defaults color to 0) — send 215 so the client
+            // actually renders the glow instead of black light.
+            let level = spec.light_level.clamp(0, 255) as u8;
+            let color = if level > 0 && spec.light_color == 0 {
+                215
+            } else {
+                spec.light_color.clamp(0, 255) as u8
+            };
+            (ConditionData::Light { level, color }, rounds_from_ticks)
+        }
         ConditionType::Haste | ConditionType::Paralyze => (
             ConditionData::Speed {
                 flat_delta: spec.speed,
@@ -1560,10 +1565,30 @@ mod apply_spec_tests {
             cond.data,
             ConditionData::Light {
                 level: 6,
-                color: 0
+                // 772 skill-only light color (`info.cc:1238-1281`).
+                color: 215
             }
         );
         assert_eq!(cond.timer_rounds_left, Some(370));
+    }
+
+    #[test]
+    fn maps_light_condition_preserves_explicit_color() {
+        let spec = ConditionApplySpec {
+            ctype: 256,
+            light_level: 9,
+            light_color: 180,
+            ticks: 60_000,
+            ..Default::default()
+        };
+        let cond = active_condition_from_apply_spec(&spec);
+        assert_eq!(
+            cond.data,
+            ConditionData::Light {
+                level: 9,
+                color: 180
+            }
+        );
     }
 
     #[test]
