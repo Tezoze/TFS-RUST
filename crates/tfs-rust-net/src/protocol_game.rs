@@ -5,7 +5,6 @@ use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
 use tokio::io::AsyncRead;
-use tokio::sync::mpsc;
 
 use crate::adler::adler_checksum;
 use crate::game_frame::read_sized_payload;
@@ -117,16 +116,22 @@ pub fn encrypt_xtea_game_frame(payload: &[u8], keys: &RoundKeys, caps: &Protocol
 pub async fn forward_game_packets<R: AsyncRead + Unpin>(
     mut read: R,
     conn_id: ConnId,
-    cmd_tx: mpsc::UnboundedSender<GameCommand>,
+    cmd_tx: crate::game_cmd_bus::GameCmdTx,
     version: ProtocolVersion,
 ) -> std::io::Result<()> {
     while let Some(payload) = read_sized_payload(&mut read).await? {
         match game_command_from_payload(conn_id, &payload, version) {
-            Ok(cmd) => {
-                if cmd_tx.send(cmd).is_err() {
+            Ok(cmd) => match cmd_tx.send(cmd) {
+                Ok(()) => {}
+                Err(crate::game_cmd_bus::GameCmdSendError::GameLaneFull) => {
+                    tracing::warn!(
+                        conn_id = conn_id.0,
+                        "game command lane full — shedding connection"
+                    );
                     break;
                 }
-            }
+                Err(crate::game_cmd_bus::GameCmdSendError::Closed) => break,
+            },
             Err(e) => {
                 tracing::warn!(?e, "game packet parse error");
             }
@@ -140,7 +145,7 @@ pub async fn forward_game_packets<R: AsyncRead + Unpin>(
 pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
     mut read: R,
     conn_id: ConnId,
-    cmd_tx: mpsc::UnboundedSender<GameCommand>,
+    cmd_tx: crate::game_cmd_bus::GameCmdTx,
     keys: &RoundKeys,
     version: ProtocolVersion,
     caps: &ProtocolCaps,
@@ -154,11 +159,17 @@ pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
             }
         };
         match game_command_from_payload(conn_id, plain, version) {
-            Ok(cmd) => {
-                if cmd_tx.send(cmd).is_err() {
+            Ok(cmd) => match cmd_tx.send(cmd) {
+                Ok(()) => {}
+                Err(crate::game_cmd_bus::GameCmdSendError::GameLaneFull) => {
+                    tracing::warn!(
+                        conn_id = conn_id.0,
+                        "game command lane full — shedding connection"
+                    );
                     break;
                 }
-            }
+                Err(crate::game_cmd_bus::GameCmdSendError::Closed) => break,
+            },
             Err(e) => {
                 tracing::warn!(?e, "game packet parse error");
             }

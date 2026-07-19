@@ -8,9 +8,6 @@
 
 use std::time::Instant;
 
-use rand::rngs::StdRng;
-use rand::Rng;
-use rand::SeedableRng;
 use slotmap::Key;
 use tfs_rust_common::enums::{
     CombatType, ConditionType, Direction, SpeakType, WorldType, ZoneType,
@@ -95,6 +92,15 @@ pub(crate) enum TodoExecuteKind {
     /// in the gate check, so the post-execute handler is a no-op — mirrors C++ `Execute`'s
     /// "Delay > 0 → schedule + break" (`cract.cc:795-801`).
     Deferred,
+}
+
+/// Driver for C++ `TCreature::Execute`'s `while (true)` loop (`cract.cc:783-898`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TodoExecuteLoopControl {
+    /// Zero-delay queue tail — continue same wakeup.
+    Continue,
+    /// Delay armed, idle ran, stop requested, or queue empty — exit loop.
+    Break,
 }
 
 impl GameWorld {
@@ -928,20 +934,20 @@ impl GameWorld {
 
         // C++ `TFindCreatures Search(12, 12, …, FIND_PLAYERS | FIND_MONSTERS)` — XY box only;
         // chain membership spans floors, so scan the CanSeeFloor-relevant Z set.
-        let mut candidates = Vec::new();
+        self.scratch_spectators.clear();
         for z in Self::idle_acquire_search_z_range(pos.z) {
             self.map
                 .grid
-                .collect_spectators(pos.x, pos.y, z, 12, 12, &mut candidates);
+                .collect_spectators(pos.x, pos.y, z, 12, 12, &mut self.scratch_spectators);
         }
-        candidates.sort_by_key(|id| id.data().as_ffi());
-        candidates.dedup();
+        self.scratch_spectators.sort_by_key(|id| id.data().as_ffi());
+        self.scratch_spectators.dedup();
 
-        for target_id in &candidates {
-            if *target_id == cid {
+        for target_id in self.scratch_spectators.iter().copied() {
+            if target_id == cid {
                 continue;
             }
-            let Some(target) = self.creatures.get(*target_id) else {
+            let Some(target) = self.creatures.get(target_id) else {
                 continue;
             };
             // C++ `crnonpl.cc:2500-2502`: wild (non-player-controlled) monsters are skipped
@@ -995,7 +1001,7 @@ impl GameWorld {
                 2 => self
                     .creatures
                     .get(cid)
-                    .map(|k| k.base().damage_map.get(target_id).copied().unwrap_or(0) as i32)
+                    .map(|k| k.base().damage_map.get(&target_id).copied().unwrap_or(0) as i32)
                     .unwrap_or(0),
                 _ => 0,
             };
@@ -1008,8 +1014,8 @@ impl GameWorld {
         }
 
         if let Some(target_id) = best_id {
-            self.monster_add_opponent(cid, *target_id, true);
-            let _ = self.monster_select_target(cid, *target_id);
+            self.monster_add_opponent(cid, target_id, true);
+            let _ = self.monster_select_target(cid, target_id);
         }
 
         let state = self.creatures.get(cid).and_then(|k| match k {
@@ -1128,35 +1134,15 @@ impl GameWorld {
 
     /// C++ CASTING block — `crnonpl.cc:2521-2667`.
     fn monster_idle_try_casting(&mut self, cid: CreatureId) {
-        let (spells, db_name, cast_target, pos) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (
-                m.spells.clone(),
-                m.base.name.to_ascii_lowercase(),
+        let (spell_len, cast_target, pos) = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) if !m.spells.is_empty() => (
+                m.spells.len(),
                 Self::monster_cast_target_id(&m.base),
                 m.base.position,
             ),
             _ => return,
         };
-        // 772 `RaceData.Spells` is a single list with both attack and defense entries
-        // (`dragon.mon`: healing + fireball + fire wave). The TFS data pack splits them
-        // into `<attacks>` and `<defenses>`; we merge defense spells here so the CASTING
-        // loop can fire non-aggressive defenses (healing) even without a target.
-        let defense_spells: Vec<MonsterSpell> = self
-            .monsters_db
-            .monsters
-            .get(&db_name)
-            .map(|mtype| {
-                mtype
-                    .defenses
-                    .spells
-                    .iter()
-                    .filter_map(MonsterSpell::try_from_node)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if spells.is_empty() && defense_spells.is_empty() {
-            return;
-        }
+        // Attack + defense spells are merged at spawn (`combat_from_monster_type`, audit IDLE-1).
         // 772 CASTING (`crnonpl.cc:2521-2667`): Target may be 0 — the loop still runs,
         // consuming delay + flee rolls for every spell. Non-aggressive spells (Healing)
         // pass the `!isAggressive()` gate and cast on self; aggressive spells skip
@@ -1168,11 +1154,13 @@ impl GameWorld {
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_fleeing()));
 
-        let mut rng_scratch = StdRng::from_entropy();
-        // Phase 3: 1098 `ai_rng` path deleted — both eras use the 772 parity RNG stream.
-        // Attack spells first, then defense spells — matches current RNG order (defense
-        // delay rolls were consumed after the attack loop pre-fix).
-        for spell in spells.iter().chain(defense_spells.iter()) {
+        for spell_idx in 0..spell_len {
+            let Some(spell) = self.creatures.get(cid).and_then(|k| match k {
+                CreatureKind::Monster(m) => m.spells.get(spell_idx).cloned(),
+                _ => None,
+            }) else {
+                break;
+            };
             if spell.delay <= 0 || self.parity_rand_mod(spell.delay as u32) != 0 {
                 continue;
             }
@@ -1203,9 +1191,7 @@ impl GameWorld {
                             if let Some(effect) = spell.area_effect {
                                 self.broadcast_magic_effect(pos, effect);
                             }
-                            self.monster_idle_apply_spell_impact(
-                                cid, cid, spell, &mut rng_scratch,
-                            );
+                            self.monster_idle_apply_spell_impact(cid, cid, &spell);
                         }
                         SpellShape::Origin | SpellShape::Angle => {
                             let caster_dir = self
@@ -1214,7 +1200,7 @@ impl GameWorld {
                                 .map(|k| k.base().direction)
                                 .unwrap_or(Direction::North);
                             let tiles = Self::monster_idle_spell_tiles(
-                                spell, pos, caster_dir, pos,
+                                &spell, pos, caster_dir, pos,
                             );
                             for tile in tiles {
                                 if !self.monster_sight_clear(pos, tile) {
@@ -1232,9 +1218,7 @@ impl GameWorld {
                                     if victim_id == cid {
                                         continue;
                                     }
-                                    self.monster_idle_apply_spell_impact(
-                                        cid, victim_id, spell, &mut rng_scratch,
-                                    );
+                                    self.monster_idle_apply_spell_impact(cid, victim_id, &spell);
                                 }
                             }
                         }
@@ -1281,8 +1265,7 @@ impl GameWorld {
             } else {
                 Direction::North
             };
-            let tiles = Self::monster_idle_spell_tiles(spell, pos, caster_dir, target_pos);
-            let rng: &mut StdRng = &mut rng_scratch;
+            let tiles = Self::monster_idle_spell_tiles(&spell, pos, caster_dir, target_pos);
 
             match spell.shape {
                 SpellShape::Victim => {
@@ -1299,7 +1282,7 @@ impl GameWorld {
                     if let Some(effect) = spell.area_effect {
                         self.broadcast_magic_effect(target_pos, effect);
                     }
-                    self.monster_idle_apply_spell_impact(cid, tid, spell, rng);
+                    self.monster_idle_apply_spell_impact(cid, tid, &spell);
                 }
                 SpellShape::Destination => {
                     // 772 `DestinationShapeSpell` → `CircleShapeSpell` (`magic.cc:537,522`):
@@ -1325,7 +1308,7 @@ impl GameWorld {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
                         }
-                        self.monster_idle_apply_spell_field(cid, tile, spell);
+                        self.monster_idle_apply_spell_field(cid, tile, &spell);
                         let victims: Vec<CreatureId> = self
                             .map
                             .get_tile(tile)
@@ -1335,7 +1318,7 @@ impl GameWorld {
                             if victim_id == cid {
                                 continue;
                             }
-                            self.monster_idle_apply_spell_impact(cid, victim_id, spell, rng);
+                            self.monster_idle_apply_spell_impact(cid, victim_id, &spell);
                         }
                     }
                 }
@@ -1348,7 +1331,7 @@ impl GameWorld {
                     if let Some(effect) = spell.area_effect {
                         self.broadcast_magic_effect(pos, effect);
                     }
-                    self.monster_idle_apply_spell_impact(cid, cid, spell, rng);
+                    self.monster_idle_apply_spell_impact(cid, cid, &spell);
                 }
                 SpellShape::Origin | SpellShape::Angle => {
                     // 772 `OriginShapeSpell`/`AngleShapeSpell` — `ExecuteCircleSpell`/beam:
@@ -1367,7 +1350,7 @@ impl GameWorld {
                             self.broadcast_magic_effect(tile, effect);
                         }
                         // `TSummonImpact` / `TFieldImpact` override `handleField` only.
-                        self.monster_idle_apply_spell_field(cid, tile, spell);
+                        self.monster_idle_apply_spell_field(cid, tile, &spell);
                         let victims: Vec<CreatureId> = self
                             .map
                             .get_tile(tile)
@@ -1380,7 +1363,7 @@ impl GameWorld {
                             if let Some(shoot) = spell.shoot_effect {
                                 self.broadcast_distance_shoot(pos, tile, shoot);
                             }
-                            self.monster_idle_apply_spell_impact(cid, victim_id, spell, rng);
+                            self.monster_idle_apply_spell_impact(cid, victim_id, &spell);
                         }
                     }
                 }
@@ -1397,7 +1380,6 @@ impl GameWorld {
         caster_id: CreatureId,
         target_id: CreatureId,
         spell: &MonsterSpell,
-        _rng: &mut impl Rng,
     ) {
         if chase_debug::chase_path_debug_enabled() {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get(caster_id) {
@@ -1972,12 +1954,11 @@ impl GameWorld {
     /// `TALKTYPE_MONSTER_SAY = 0x11`. The RNG draw order (gate then pick) is preserved exactly so
     /// the glibc parity stream stays aligned with the sim harness.
     fn monster_idle_try_talk(&mut self, cid: CreatureId) {
-        // Borrow the talk list + count together so we don't hold a borrow across the RNG draws.
-        let (talks, talk_texts) = match self.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => (m.talks, m.talk_texts.clone()),
+        let talks = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => m.talks,
             _ => return,
         };
-        if talks == 0 || talk_texts.is_empty() {
+        if talks == 0 {
             return;
         }
         let _trace_gate = crate::sim_glibc_rand::sim_rng_trace_site("idle_talk_gate");
@@ -1987,10 +1968,13 @@ impl GameWorld {
         let _trace_pick = crate::sim_glibc_rand::sim_rng_trace_site("idle_talk_pick");
         // C++ `TalkNr = random(1, Talks)` — 1-indexed; Rust `talk_texts` is 0-indexed.
         let talk_nr = self.parity_random(1, i32::from(talks));
-        let idx = (talk_nr.max(1) as usize)
-            .saturating_sub(1)
-            .min(talk_texts.len() - 1);
-        let raw = &talk_texts[idx];
+        let idx = (talk_nr.max(1) as usize).saturating_sub(1);
+        let Some(raw) = self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Monster(m) => m.talk_texts.get(idx).cloned(),
+            _ => None,
+        }) else {
+            return;
+        };
 
         // C++ `if (Text[0] == '#' && Text[1] != 0 && Text[2] == ' ')` yell marker (`crnonpl.cc:2450`).
         // TVP equivalent: `<voice yell="1">` sets `voiceBlock.yellText` (`monster.cpp:851`).
@@ -2002,16 +1986,16 @@ impl GameWorld {
             && (raw.as_bytes()[1] == b'y' || raw.as_bytes()[1] == b'Y')
             && raw.as_bytes()[2] == b' '
         {
-            (TALKTYPE_MONSTER_YELL, &raw[3..])
+            (TALKTYPE_MONSTER_YELL, raw[3..].to_string())
         } else {
-            (TALKTYPE_MONSTER_SAY, raw.as_str())
+            (TALKTYPE_MONSTER_SAY, raw)
         };
 
         // C++ `if (Text != 0 && Text[0] != 0)` — skip empty text after prefix strip.
         if text.is_empty() {
             return;
         }
-        self.broadcast_creature_say_viewport(cid, speak_type, text);
+        self.broadcast_creature_say_viewport(cid, speak_type, &text);
     }
 
     /// C++ walking prelude — `crnonpl.cc:2705` (`SKILL_FIST > 0 && State != PANIC`).
@@ -3519,8 +3503,16 @@ impl GameWorld {
 
     /// After Go/Attack execute: schedule next step or chain queued actions.
     pub(crate) fn finish_creature_todo_execute(&mut self, cid: CreatureId) {
+        if self.finish_creature_todo_execute_step(cid) == TodoExecuteLoopControl::Continue {
+            self.run_monster_todo_execute(cid);
+        }
+    }
+
+    /// Post-Go/Attack tail — returns [`TodoExecuteLoopControl::Continue`] when the queue still
+    /// has zero-delay work for the same wakeup (`cract.cc:783-898`).
+    fn finish_creature_todo_execute_step(&mut self, cid: CreatureId) -> TodoExecuteLoopControl {
         if !self.creature_uses_todo_execute(cid) {
-            return;
+            return TodoExecuteLoopControl::Break;
         }
 
         // C++ `Execute` checks `Stop` after a successful action (`cract.cc:891-897`) and when the
@@ -3541,7 +3533,7 @@ impl GameWorld {
                 self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
             }
             self.player_todo_clear(cid);
-            return;
+            return TodoExecuteLoopControl::Break;
         }
 
         let walk_queue_has_more = self
@@ -3566,7 +3558,7 @@ impl GameWorld {
                 }
                 self.creature_todo_release_lock_if_drained(cid);
                 self.request_idle_stimulus(cid);
-                return;
+                return TodoExecuteLoopControl::Break;
             }
             // Re-arm `Go` before pending `Attack` — one step per execute (`cract.cc:728`).
             let _ = self.enqueue_creature_go_at(cid, true);
@@ -3574,7 +3566,7 @@ impl GameWorld {
             if immediate {
                 self.schedule_immediate_todo_wakeup(cid);
             }
-            return;
+            return TodoExecuteLoopControl::Break;
         }
 
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -3608,14 +3600,14 @@ impl GameWorld {
                     delay_ms = 200;
                 }
                 self.todo_start_from_action(cid, delay_ms);
-                return;
+                return TodoExecuteLoopControl::Break;
             }
-            self.run_monster_todo_execute(cid);
-            return;
+            return TodoExecuteLoopControl::Continue;
         }
 
         self.creature_todo_release_lock_if_drained(cid);
         self.maybe_idle_stimulus_after_go_complete(cid);
+        TodoExecuteLoopControl::Break
     }
 
     /// Gate harness idle re-entry after todo drain — shared by [`finish_creature_todo_execute`]
@@ -3633,69 +3625,104 @@ impl GameWorld {
 
     /// Run one queued action (772 monsters).
     ///
-    /// Phase 8 / GL#7: the atomic `Execute` drain is realized via the tail-recursion in
-    /// [`finish_creature_todo_execute`] → `run_monster_todo_execute`, which chains zero-delay
-    /// actions (e.g. `Rotate` → `Attack`) in one beat — semantically equivalent to C++'s
-    /// `while(true)` `Execute` loop (`cract.cc:783-898`) and bounded by the `+1` re-insertion
-    /// clamp (`ToDoStart`, audit Finding 17).
+    /// C++ `TCreature::Execute` — explicit `while (true)` loop (`cract.cc:783-898`), not recursion.
     pub(crate) fn run_monster_todo_execute(&mut self, cid: CreatureId) {
-        match self.execute_creature_todo_action(cid) {
-            Some(TodoExecuteKind::Go) | Some(TodoExecuteKind::Attack) => {
-                self.finish_creature_todo_execute(cid);
+        const MAX_TODO_EXECUTE_ITERATIONS: u32 = 512;
+        let mut iterations = 0u32;
+        loop {
+            iterations = iterations.saturating_add(1);
+            if iterations > MAX_TODO_EXECUTE_ITERATIONS {
+                let queue_len = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().todo.queue.len())
+                    .unwrap_or(0);
+                tracing::warn!(
+                    creature = ?cid,
+                    queue_len,
+                    iterations,
+                    "todo execute iteration guard tripped — breaking zero-delay chain"
+                );
+                // `process_creature_todo` already took `next_wakeup`. Leaving `todo.locked`
+                // with a non-empty queue and no heap entry stalls the creature forever
+                // (`idle_stimulus` no-ops while locked). Re-arm for the next beat.
+                if !self.creature_todo_queue_empty(cid) {
+                    self.todo_start_from_action(cid, 1);
+                } else {
+                    self.creature_todo_release_lock_if_drained(cid);
+                }
+                break;
             }
-            Some(TodoExecuteKind::DistanceAttack) => {
-                self.monster_idle_try_casting(cid);
-                if self.creature_todo_queue_empty(cid) {
-                    // Future attack cadence lives in `earliest_attack_ms`; do not block the
-                    // post-`TDAttack` idle walk arm (`cract.cc:764-767`, `crnonpl.cc:2741`).
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        let base = k.base_mut();
-                        if base.next_wakeup.is_some_and(|w| w > self.server_ms) {
-                            base.next_wakeup = None;
+
+            let kind = match self.execute_creature_todo_action(cid) {
+                Some(k) => k,
+                None => break,
+            };
+
+            let control = match kind {
+                TodoExecuteKind::Go | TodoExecuteKind::Attack => {
+                    self.finish_creature_todo_execute_step(cid)
+                }
+                TodoExecuteKind::DistanceAttack => {
+                    self.monster_idle_try_casting(cid);
+                    if self.creature_todo_queue_empty(cid) {
+                        // Future attack cadence lives in `earliest_attack_ms`; do not block the
+                        // post-`TDAttack` idle walk arm (`cract.cc:764-767`, `crnonpl.cc:2741`).
+                        if let Some(k) = self.creatures.get_mut(cid) {
+                            let base = k.base_mut();
+                            if base.next_wakeup.is_some_and(|w| w > self.server_ms) {
+                                base.next_wakeup = None;
+                            }
+                        }
+                        self.creature_todo_release_lock_if_drained(cid);
+                        self.monster_idle_stimulus_inner(cid, true);
+                        self.monster_idle_reschedule_target_bound_if_parked(cid);
+                        TodoExecuteLoopControl::Break
+                    } else {
+                        self.finish_creature_todo_execute_step(cid)
+                    }
+                }
+                TodoExecuteKind::Wait => {
+                    // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
+                    // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
+                    if self.creature_todo_queue_empty(cid) {
+                        self.creature_todo_release_lock_if_drained(cid);
+                        self.idle_stimulus(cid);
+                        if self.creature_todo_queue_empty(cid) {
+                            TodoExecuteLoopControl::Break
+                        } else {
+                            TodoExecuteLoopControl::Continue
+                        }
+                    } else {
+                        // C++ `Execute` is a `while(true)` loop — consecutive zero-delay entries
+                        // run in the same wakeup (`cract.cc:784`). `Wait{0}` doesn't arm a
+                        // wakeup (delay 0 → no `todo_start_from_action`), so chain same-beat.
+                        // `Wait{N>0}` arms a wakeup — let it fire on the future beat.
+                        let has_armed_wakeup = self
+                            .creatures
+                            .get(cid)
+                            .is_some_and(|k| k.base().next_wakeup.is_some());
+                        if has_armed_wakeup {
+                            self.monster_combat_reschedule_if_stalled(cid);
+                            TodoExecuteLoopControl::Break
+                        } else {
+                            TodoExecuteLoopControl::Continue
                         }
                     }
-                    self.creature_todo_release_lock_if_drained(cid);
-                    self.monster_idle_stimulus_inner(cid, true);
-                    self.monster_idle_reschedule_target_bound_if_parked(cid);
-                } else {
-                    self.finish_creature_todo_execute(cid);
                 }
-            }
-            Some(TodoExecuteKind::Wait) => {
-                // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
-                // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
-                if self.creature_todo_queue_empty(cid) {
-                    self.creature_todo_release_lock_if_drained(cid);
-                    self.idle_stimulus(cid);
-                    if !self.creature_todo_queue_empty(cid) {
-                        self.run_monster_todo_execute(cid);
-                    }
-                } else {
-                    // C++ `Execute` is a `while(true)` loop — consecutive zero-delay entries
-                    // run in the same wakeup (`cract.cc:784`). `Wait{0}` doesn't arm a
-                    // wakeup (delay 0 → no `todo_start_from_action`), so chain same-beat.
-                    // `Wait{N>0}` arms a wakeup — let it fire on the future beat.
-                    let has_armed_wakeup = self
-                        .creatures
-                        .get(cid)
-                        .is_some_and(|k| k.base().next_wakeup.is_some());
-                    if has_armed_wakeup {
-                        self.monster_combat_reschedule_if_stalled(cid);
-                    } else {
-                        // Audit #14 fix: chain zero-delay Wait → next action same-beat
-                        // (C++ `Execute` `while(true)` continues, `cract.cc:784-807`).
-                        self.run_monster_todo_execute(cid);
-                    }
+                TodoExecuteKind::AttackDeferred => {
+                    self.monster_combat_reschedule_if_stalled(cid);
+                    TodoExecuteLoopControl::Break
                 }
+                // F8 S3 — gate-deferred action (two-object Use waiting on multiuse exhaustion).
+                // The wakeup was already armed by `todo_start_from_action` in the gate check;
+                // no reschedule needed (`cract.cc:795-801` "Delay > 0 → schedule + break").
+                TodoExecuteKind::Deferred => TodoExecuteLoopControl::Break,
+            };
+
+            if control == TodoExecuteLoopControl::Break {
+                break;
             }
-            Some(TodoExecuteKind::AttackDeferred) => {
-                self.monster_combat_reschedule_if_stalled(cid);
-            }
-            // F8 S3 — gate-deferred action (two-object Use waiting on multiuse exhaustion).
-            // The wakeup was already armed by `todo_start_from_action` in the gate check;
-            // no reschedule needed (`cract.cc:795-801` "Delay > 0 → schedule + break").
-            Some(TodoExecuteKind::Deferred) => {}
-            None => {}
         }
     }
 }

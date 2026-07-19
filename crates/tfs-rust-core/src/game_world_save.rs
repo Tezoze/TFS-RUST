@@ -39,8 +39,7 @@ fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Res
     // When actively decaying, persist live remaining ms (TFS `getDuration()`), not schedule snapshot.
     let attributes = if item.decaying() == DecayState::True {
         let rem = world
-            .decay
-            .remaining_ms(item_id, world.server_ms)
+            .item_decay_remaining_ms(item_id)
             .map(|m| m.min(i32::MAX as u64) as i32);
         write_item_blob_with_duration(item, world.items_db.as_ref(), rem)
     } else {

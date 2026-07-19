@@ -332,6 +332,17 @@ pub struct MechanicsProfile {
     pub classic_equipment_slots: bool,
     /// Per-skill tries curve (`skillTuning` in formulas Lua) — PC-5.
     pub skill_tries: SkillTriesTuning,
+    /// Item decay / cron deadline clock — 772 `RoundNr`, 1098 movement `server_ms` (DEC-3).
+    pub decay_clock: DecayClockModel,
+}
+
+/// Which logical clock drives item decay deadlines for the active era.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecayClockModel {
+    /// TFS 1098 — deadlines on movement `server_ms` (`game.cpp` decay check).
+    ServerMilliseconds,
+    /// 772 cron — `RoundNr + duration_seconds` (`map.cc` `CronSet` / `CronCheck`).
+    RoundNumber,
 }
 
 impl MechanicsProfile {
@@ -394,6 +405,7 @@ impl MechanicsProfile {
                 damage_text_format: DamageTextFormat::AttackerAttribution,
                 classic_equipment_slots: true,
                 skill_tries: SkillTriesTuning::classic(),
+                decay_clock: DecayClockModel::RoundNumber,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -448,6 +460,7 @@ impl MechanicsProfile {
                 damage_text_format: DamageTextFormat::SimpleLoss,
                 classic_equipment_slots: false,
                 skill_tries: SkillTriesTuning::classic(),
+                decay_clock: DecayClockModel::ServerMilliseconds,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -773,6 +786,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         p.corpse_decay_offset_ms as i64,
     )
     .max(0) as u64;
+    p.decay_clock = match str_or(&formulas, "decayClock", "").as_str() {
+        "round" | "roundNumber" | "roundNr" => DecayClockModel::RoundNumber,
+        "serverMs" | "serverMilliseconds" | "movement" => DecayClockModel::ServerMilliseconds,
+        _ => p.decay_clock,
+    };
     p.underground_sees_surface = bool_or(
         &formulas,
         "undergroundSeesSurface",

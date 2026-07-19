@@ -265,20 +265,31 @@ fn apply_offline_food_drain(food_remaining: u32, lastlogout: u64) -> u32 {
     food_remaining.saturating_sub(regen * 3)
 }
 
-/// Load character by name, insert into world and indices. Returns new `CreatureId`.
-pub async fn login_player(
-    world: &mut GameWorld,
+/// Max concurrent `load_player_full` tasks. Excess logins are rejected off the sim await path.
+pub const MAX_CONCURRENT_LOGIN_LOADS: usize = 8;
+
+/// I/O-thread (or Tokio task) load — never call while holding the game loop.
+pub async fn load_player_data(
+    db: &tfs_rust_db::DbPool,
     name: &str,
-    operating_system: u16,
-    otclient_v8: u16,
-) -> Result<CreatureId> {
-    let store = PlayerStore::new(&world.db);
+) -> Result<LoadedPlayerData> {
+    let store = PlayerStore::new(db);
     let Some(loaded) = store.load_player_full(name).await? else {
         return Err(TfsRustError::Database(format!(
             "character `{name}` not found"
         )));
     };
+    Ok(loaded)
+}
 
+/// Game-thread apply of a completed DB load. Returns new `CreatureId`.
+pub fn apply_loaded_player(
+    world: &mut GameWorld,
+    loaded: LoadedPlayerData,
+    operating_system: u16,
+    otclient_v8: u16,
+) -> Result<CreatureId> {
+    let name = loaded.player.name.clone();
     let inventory_rows = loaded.items.inventory.clone();
     let store_inbox_rows = loaded.items.store_inbox.clone();
     let depot_rows = loaded.items.depot.clone();
@@ -367,4 +378,15 @@ pub async fn login_player(
 
     fire_on_login(world, cid);
     Ok(cid)
+}
+
+/// Load + apply in one call (tests / tools). Production game loop must not await this.
+pub async fn login_player(
+    world: &mut GameWorld,
+    name: &str,
+    operating_system: u16,
+    otclient_v8: u16,
+) -> Result<CreatureId> {
+    let loaded = load_player_data(&world.db, name).await?;
+    apply_loaded_player(world, loaded, operating_system, otclient_v8)
 }

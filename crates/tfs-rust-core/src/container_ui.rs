@@ -434,6 +434,45 @@ impl GameWorld {
         self.notify_container_owner_carry_weight(container_item_id);
     }
 
+    /// Batch front-slot removals for expiry `Empty` — one viewer clone, one carry-weight notify.
+    ///
+    /// Outcomes: decompile `Empty(Con, Remainder)` walks from front (`operate.cc`).
+    pub(crate) fn notify_container_front_removals(
+        &mut self,
+        container_item_id: ItemId,
+        remove_count: usize,
+    ) {
+        if remove_count == 0 {
+            return;
+        }
+        let Some(cont) = self.container_registry.get(container_item_id) else {
+            return;
+        };
+        let viewers: Vec<CreatureId> = cont.open_by.clone();
+        let change = ContainerContentChange::Remove { slot: 0 };
+        for pl in viewers {
+            let Some(client_cid) = self
+                .container_registry
+                .get_cid_for_container(pl, container_item_id)
+            else {
+                continue;
+            };
+            let Some(conn) = self.conn_id_for_creature(pl) else {
+                continue;
+            };
+            for _ in 0..remove_count {
+                self.enqueue_container_slot_delta(
+                    pl,
+                    conn,
+                    client_cid,
+                    change,
+                    container_item_id,
+                );
+            }
+        }
+        self.notify_container_owner_carry_weight(container_item_id);
+    }
+
     /// Enqueue `sendCloseContainer` (0x6F) for one player.
     pub(crate) fn send_close_container_packet(&mut self, conn_id: ConnId, client_cid: u8) {
         self.enqueue_outgoing(conn_id, send_close_container(client_cid).into_bytes());

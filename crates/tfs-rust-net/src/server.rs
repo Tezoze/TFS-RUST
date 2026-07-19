@@ -4,20 +4,21 @@ use std::sync::{Arc, Mutex};
 use rsa::RsaPrivateKey;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
 use tracing::{error, info, trace};
 
 use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
 use crate::game_challenge::{send_game_challenge, GameChallenge};
+use crate::game_cmd_bus::GameCmdTx;
 use crate::game_first_packet::{parse_first_client_packet, FirstClientPacket, LoginIdentity};
 use crate::game_frame::read_sized_payload;
+use crate::outbound::OutboundTx;
 use crate::protocol_game::{encrypt_xtea_game_frame, forward_game_packets_xtea};
 use crate::protocol_login_out::{build_login_error, build_login_success, LoginSuccess};
 use crate::xtea_tfs::expand_key;
 
-/// Per-connection writer for `flush_output_buffers` batches (`src/connection.cpp`).
-pub type OutRegistry = Arc<Mutex<HashMap<ConnId, mpsc::UnboundedSender<Vec<Vec<u8>>>>>>;
+/// Per-connection writer registry — I/O thread insert/remove only; game thread mirrors via commands (GL-3).
+pub type OutRegistry = Arc<Mutex<HashMap<ConnId, OutboundTx>>>;
 
 pub struct Server {
     listener: TcpListener,
@@ -26,7 +27,7 @@ pub struct Server {
 /// RSA + game thread + DB + per-connection outgoing writers (`src/connection.cpp` send path).
 #[derive(Clone)]
 pub struct GameWireConfig {
-    pub cmd_tx: mpsc::UnboundedSender<GameCommand>,
+    pub cmd_tx: GameCmdTx,
     pub rsa_private_key: RsaPrivateKey,
     pub db: tfs_rust_db::DbPool,
     pub password_hash: tfs_rust_db::PasswordHashConfig,
@@ -320,11 +321,14 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     let round_keys = expand_key(&xtea_key);
     let caps = wire.protocol_caps;
 
-    let (batch_tx, mut batch_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<Vec<u8>>>();
+    let (batch_tx, mut batch_rx) = OutboundTx::pair();
     {
         let mut g = wire.out_registry.lock().expect("out_registry lock");
         g.insert(conn_id, batch_tx);
     }
+    wire.cmd_tx
+        .send(GameCommand::RegisterOutputSink { conn_id })
+        .map_err(|_| anyhow::anyhow!("game command channel closed"))?;
 
     tokio::spawn(async move {
         while let Some(blobs) = batch_rx.recv().await {
@@ -348,7 +352,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         })
         .map_err(|_| anyhow::anyhow!("game command channel closed"))?;
 
-    forward_game_packets_xtea(
+    match forward_game_packets_xtea(
         read_half,
         conn_id,
         wire.cmd_tx.clone(),
@@ -356,7 +360,13 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         wire.protocol_version,
         &caps,
     )
-    .await?;
+    .await
+    {
+        Ok(()) => {}
+        Err(e) => {
+            tracing::warn!(?e, conn_id = conn_id.0, "game packet forward ended with error");
+        }
+    }
 
     // TCP connection dropped (client crash / disconnect). Send PlayerDisconnect so the
     // game loop removes the creature from the map — otherwise it stays as a ghost that
@@ -369,6 +379,9 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         conn_id,
         display_effect: false,
     });
+    let _ = wire
+        .cmd_tx
+        .send(GameCommand::UnregisterOutputSink { conn_id });
 
     let mut g = wire.out_registry.lock().expect("out_registry lock");
     g.remove(&conn_id);

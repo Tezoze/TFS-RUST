@@ -40,7 +40,7 @@ impl GameWorld {
             return None;
         }
         if item.decaying() == crate::item_attributes::DecayState::True {
-            if let Some(rem) = self.decay.remaining_ms(item_id, self.server_ms) {
+            if let Some(rem) = self.item_decay_remaining_ms(item_id) {
                 return Some(rem.min(i32::MAX as u64) as i32);
             }
         }

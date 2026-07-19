@@ -5,15 +5,17 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::Context;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
 use tokio::task::LocalSet;
 use tracing::info;
-
 use tfs_rust_common::GameCommand;
-use tfs_rust_net::{Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server};
+
+use tfs_rust_net::{
+    open_game_command_channels, Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server,
+};
 
 use crate::config::{
     password_hash_config_from, resolve_protocol_version, ConfigManager, DbConfig, MysqlPoolConfig,
@@ -164,9 +166,8 @@ pub async fn run() -> anyhow::Result<()> {
     let spawns = SpawnManager::from_zones(spawn_zones);
     let vocations = std::sync::Arc::new(content.vocations);
 
-    // Game command channel — created early so the `Scheduler` can be wired before
-    // `LuaRuntime::new()` (scripts may call `addEvent` at load time).
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<GameCommand>();
+    // Dual-lane game command bus (GL-2): bounded game packets + control lane.
+    let (cmd_tx, game_rx, ctrl_rx) = open_game_command_channels();
     // `addEvent` / `stopEvent` scheduler — game-thread only (`Rc` → `!Send`).
     // C++ reference: `g_scheduler` (`scheduler.cpp`).
     let scheduler = std::rc::Rc::new(crate::scheduler::Scheduler::new(
@@ -420,7 +421,7 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     let game_cfg = GameWireConfig {
-        cmd_tx,
+        cmd_tx: cmd_tx.clone(),
         rsa_private_key,
         db,
         password_hash,
@@ -436,26 +437,52 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     // `GameWorld` holds `ConfigManager` → mlua `Lua` (not `Send`); drive the simulation on a `LocalSet`.
-    // SIGINT → `GameCommand::Shutdown` → `run_game_loop` flushes all online players (awaited), then
-    // we stop the TCP acceptors (C++: `Game::saveGameState` before exit).
+    // SIGINT → `GameCommand::Shutdown` → `run_game_loop` flushes online players, then we stop TCP
+    // acceptors (C++: `Game::saveGameState` before exit). If the game thread is wedged in a long
+    // sync beat (pathfinding storm), Shutdown never drains — force-exit after timeout / 2nd Ctrl+C.
+    const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
     let local = LocalSet::new();
     local
         .run_until(async move {
-            tokio::spawn(async move {
+            let force_exit = tokio::spawn(async move {
                 match wait_for_shutdown_signal().await {
                     Ok(()) => {
                         if shutdown_cmd_tx.send(GameCommand::Shutdown).is_err() {
                             tracing::warn!("could not send Shutdown — game command channel closed");
                         } else {
-                            tracing::info!("shutdown signal: flushing online players, then exit");
+                            tracing::info!(
+                                "shutdown signal: requested graceful exit (flush runs on game thread)"
+                            );
                         }
                     }
-                    Err(e) => tracing::error!(?e, "wait_for_shutdown_signal"),
+                    Err(e) => {
+                        tracing::error!(?e, "wait_for_shutdown_signal");
+                        return;
+                    }
+                }
+                tokio::select! {
+                    second = wait_for_shutdown_signal() => {
+                        match second {
+                            Ok(()) => tracing::error!(
+                                "second Ctrl+C — forcing process exit (game thread may be wedged)"
+                            ),
+                            Err(e) => tracing::error!(?e, "second wait_for_shutdown_signal"),
+                        }
+                        std::process::exit(1);
+                    }
+                    _ = tokio::time::sleep(GRACEFUL_SHUTDOWN_TIMEOUT) => {
+                        tracing::error!(
+                            timeout_secs = GRACEFUL_SHUTDOWN_TIMEOUT.as_secs(),
+                            "graceful shutdown timed out — forcing process exit"
+                        );
+                        std::process::exit(1);
+                    }
                 }
             });
             let game_jh = tokio::task::spawn_local(async move {
                 // Phase 7: both eras run on the single unified beat loop.
-                let loop_result = run_game_loop(world, cmd_rx, Some(out_for_loop)).await;
+                let loop_result =
+                    run_game_loop(world, game_rx, ctrl_rx, cmd_tx, Some(out_for_loop)).await;
                 if let Err(e) = loop_result {
                     tracing::error!(?e, "game loop exited with error");
                 } else {
@@ -473,6 +500,7 @@ pub async fn run() -> anyhow::Result<()> {
             if let Err(e) = game_jh.await {
                 tracing::error!(?e, "game loop task join error");
             }
+            force_exit.abort();
             login_jh.abort();
             game_accept_jh.abort();
         })

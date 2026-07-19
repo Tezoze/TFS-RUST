@@ -209,6 +209,7 @@ fn run() -> Result<(), String> {
         |pos| map.is_walkable(pos),
         |_pos| 0u32,
         ground,
+        None,
     );
 
     let Some(path) = path else {

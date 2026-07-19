@@ -2201,6 +2201,7 @@ impl GameWorld {
             cid: CreatureId,
         }
         let ctx = PathCtx { world: self, cid };
+        let mut scratch = self.tshortway_scratch.borrow_mut();
         let path = get_path_matching(
             &self.map,
             start,
@@ -2236,6 +2237,7 @@ impl GameWorld {
                     .map(|t| ctx.world.tile_ground_speed(t.body()))
                     .unwrap_or(150)
             },
+            Some(&mut *scratch),
         )?;
 
         let must_reach = max_target_dist == 0;

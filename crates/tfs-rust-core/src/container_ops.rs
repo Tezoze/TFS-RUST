@@ -109,6 +109,43 @@ impl GameWorld {
         }
     }
 
+    /// Subtree weight and holding count for one item — expiry batch deltas without full refresh.
+    ///
+    /// Outcomes: decompile `Empty` / `CronExpire` container trim (`operate.cc`).
+    pub(crate) fn item_subtree_weight_and_holding_count(&self, item_id: ItemId) -> (u32, u32) {
+        let weight = self.item_recursive_weight_oz(item_id);
+        let holding = 1u32.saturating_add(
+            ContainerIterator::new(&self.container_registry, item_id).count() as u32,
+        );
+        (weight, holding)
+    }
+
+    /// Subtract removed subtree stats up the parent container chain (expiry empty batch path).
+    pub(crate) fn apply_container_remove_delta_chain(
+        &mut self,
+        mut container_item_id: ItemId,
+        weight_delta: u32,
+        count_delta: u32,
+    ) {
+        if weight_delta == 0 && count_delta == 0 {
+            return;
+        }
+        loop {
+            if let Some(c) = self.container_registry.get_mut(container_item_id) {
+                c.total_weight = c.total_weight.saturating_sub(weight_delta);
+                c.total_item_count = c.total_item_count.saturating_sub(count_delta);
+            }
+            let Some(p) = self
+                .container_registry
+                .get(container_item_id)
+                .and_then(|c| c.parent_container)
+            else {
+                break;
+            };
+            container_item_id = p;
+        }
+    }
+
     /// Whether `player` carries `container_root` in equipment or nested bags.
     // C++ ref: implicit via `Cylinder` parent chain to `Player`.
     pub(crate) fn player_holds_container_tree(

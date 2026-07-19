@@ -2,13 +2,16 @@
 //!
 //! Domain: TFS `Game::startDecay` / `Game::checkDecay` (`game.cpp`).
 //! Outcomes: decompile `CronExpire` / `ProcessCronSystem` / `CronCheck` (`map.cc` / `operate.cc`) —
-//! XML `duration` is seconds → deadline on `server_ms`; due heads pop from a min-heap (772
-//! `TCronEntry` heap), not a full `HashMap::retain` scan.
+//! XML `duration` is seconds → deadline on the active decay clock (`MechanicsProfile::decay_clock`);
+//! 772 `RoundNr + duration_seconds` (`map.cc`), 1098 movement `server_ms`.
+//!
+//! Indexed heap: `CronDelete` (`map.cc`) removes live entries by object id — heap size tracks
+//! live decays, not historical schedule/cancel churn.
 
 use crate::ids::ItemId;
 use slotmap::Key;
-use std::cmp::{Ordering, Reverse};
-use std::collections::{BinaryHeap, HashMap};
+use std::cmp::Ordering;
+use std::collections::HashMap;
 
 /// Absolute `server_ms` deadline from remaining duration in **seconds**.
 ///
@@ -25,33 +28,30 @@ pub struct DecayEntry {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-struct DecayHeapKey {
+struct DecayHeapNode {
     deadline: u64,
     item_id: ItemId,
 }
 
-impl Ord for DecayHeapKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.deadline
-            .cmp(&other.deadline)
-            .then_with(|| self.item_id.data().as_ffi().cmp(&other.item_id.data().as_ffi()))
-    }
+fn node_ord(a: &DecayHeapNode, b: &DecayHeapNode) -> Ordering {
+    a.deadline
+        .cmp(&b.deadline)
+        .then_with(|| a.item_id.data().as_ffi().cmp(&b.item_id.data().as_ffi()))
 }
 
-impl PartialOrd for DecayHeapKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+fn node_less(a: &DecayHeapNode, b: &DecayHeapNode) -> bool {
+    node_ord(a, b) == Ordering::Less
 }
 
 /// Cron-style decay scheduler — O(log n) schedule/cancel; `tick` only pops due heads.
 ///
-/// C++ ref: `map.cc` `CronSet` / `CronCheck` / `CronDelete` (`TCronEntry` heap).
+/// C++ ref: `map.cc` `CronSet` / `CronCheck` / `CronDelete` (`TCronEntry` indexed heap).
 #[derive(Debug, Default)]
 pub struct DecayManager {
     entries: HashMap<ItemId, DecayEntry>,
-    /// Min-heap keyed by deadline. Stale keys (cancelled / rescheduled) skipped on pop.
-    heap: BinaryHeap<Reverse<DecayHeapKey>>,
+    heap: Vec<DecayHeapNode>,
+    /// ItemId → index in `heap` for O(log n) cancel/reschedule.
+    heap_index: HashMap<ItemId, usize>,
 }
 
 impl DecayManager {
@@ -63,15 +63,35 @@ impl DecayManager {
                 replace_with,
             },
         );
-        self.heap.push(Reverse(DecayHeapKey {
-            deadline: deadline_tick,
-            item_id: id,
-        }));
+        if let Some(&index) = self.heap_index.get(&id) {
+            self.heap[index].deadline = deadline_tick;
+            self.sift_up(index);
+            self.sift_down(index);
+        } else {
+            self.push_node(DecayHeapNode {
+                deadline: deadline_tick,
+                item_id: id,
+            });
+        }
     }
 
     pub fn cancel(&mut self, id: ItemId) {
         self.entries.remove(&id);
-        // Heap entry becomes stale; skipped on tick.
+        if let Some(index) = self.heap_index.remove(&id) {
+            self.remove_at(index);
+        }
+    }
+
+    /// Live scheduled entries (OBS-1 / DEC-2 diagnostics).
+    #[inline]
+    pub fn live_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Indexed heap length — should match [`Self::live_count`] when cancel is eager.
+    #[inline]
+    pub fn heap_len(&self) -> usize {
+        self.heap.len()
     }
 
     /// Remaining ms until deadline, if the item is scheduled.
@@ -84,21 +104,90 @@ impl DecayManager {
     /// Pop all entries with `deadline_tick <= now` (772 `CronCheck` loop shape).
     pub fn tick(&mut self, now: u64) -> Vec<(ItemId, DecayEntry)> {
         let mut done = Vec::new();
-        while let Some(Reverse(key)) = self.heap.peek().copied() {
-            if key.deadline > now {
+        while let Some(node) = self.heap.first().copied() {
+            if node.deadline > now {
                 break;
             }
-            self.heap.pop();
-            let Some(entry) = self.entries.get(&key.item_id) else {
-                continue; // cancelled
-            };
-            if entry.deadline_tick != key.deadline {
-                continue; // rescheduled; newer heap key still pending
-            }
-            let entry = self.entries.remove(&key.item_id).expect("checked above");
-            done.push((key.item_id, entry));
+            self.remove_at(0);
+            let entry = self
+                .entries
+                .remove(&node.item_id)
+                .expect("heap node must have matching entry");
+            done.push((node.item_id, entry));
         }
         done
+    }
+
+    fn push_node(&mut self, node: DecayHeapNode) {
+        let index = self.heap.len();
+        self.heap_index.insert(node.item_id, index);
+        self.heap.push(node);
+        self.sift_up(index);
+    }
+
+    fn remove_at(&mut self, index: usize) {
+        let item_id = self.heap[index].item_id;
+        let last = self.heap.len() - 1;
+        if index != last {
+            self.heap.swap(index, last);
+            self.heap_index.insert(self.heap[index].item_id, index);
+            self.heap.pop();
+            self.sift_up(index);
+            self.sift_down(index);
+        } else {
+            self.heap.pop();
+        }
+        self.heap_index.remove(&item_id);
+    }
+
+    fn sift_up(&mut self, mut index: usize) {
+        while index > 0 {
+            let parent = (index - 1) / 2;
+            if !node_less(&self.heap[index], &self.heap[parent]) {
+                break;
+            }
+            self.swap_nodes(index, parent);
+            index = parent;
+        }
+    }
+
+    fn sift_down(&mut self, mut index: usize) {
+        let len = self.heap.len();
+        loop {
+            let left = index * 2 + 1;
+            if left >= len {
+                break;
+            }
+            let right = left + 1;
+            let mut smallest = index;
+            if node_less(&self.heap[left], &self.heap[smallest]) {
+                smallest = left;
+            }
+            if right < len && node_less(&self.heap[right], &self.heap[smallest]) {
+                smallest = right;
+            }
+            if smallest == index {
+                break;
+            }
+            self.swap_nodes(index, smallest);
+            index = smallest;
+        }
+    }
+
+    fn swap_nodes(&mut self, a: usize, b: usize) {
+        self.heap.swap(a, b);
+        self.heap_index.insert(self.heap[a].item_id, a);
+        self.heap_index.insert(self.heap[b].item_id, b);
+    }
+
+    #[cfg(test)]
+    fn live_heap_len(&self) -> usize {
+        self.heap.len()
+    }
+
+    #[cfg(test)]
+    fn live_entry_count(&self) -> usize {
+        self.entries.len()
     }
 }
 
@@ -127,6 +216,7 @@ mod tests {
         assert_eq!(decay.remaining_ms(id, 5_000), Some(0));
         decay.cancel(id);
         assert_eq!(decay.remaining_ms(id, 2_000), None);
+        assert_eq!(decay.live_heap_len(), 0);
     }
 
     #[test]
@@ -137,23 +227,28 @@ mod tests {
         let mut decay = DecayManager::default();
         decay.schedule(a, 100, None);
         decay.schedule(b, 500, Some(1));
+        assert_eq!(decay.live_heap_len(), 2);
         assert!(decay.tick(50).is_empty());
         let due = decay.tick(100);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].0, a);
         assert_eq!(decay.remaining_ms(b, 100), Some(400));
+        assert_eq!(decay.live_heap_len(), 1);
         let due = decay.tick(500);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].0, b);
+        assert_eq!(decay.live_heap_len(), 0);
     }
 
     #[test]
-    fn cancel_skips_stale_heap_entry() {
+    fn cancel_removes_heap_entry() {
         let mut items: SlotMap<ItemId, ()> = SlotMap::with_key();
         let id = items.insert(());
         let mut decay = DecayManager::default();
         decay.schedule(id, 100, None);
+        assert_eq!(decay.live_heap_len(), 1);
         decay.cancel(id);
+        assert_eq!(decay.live_heap_len(), 0);
         assert!(decay.tick(100).is_empty());
     }
 
@@ -163,10 +258,58 @@ mod tests {
         let id = items.insert(());
         let mut decay = DecayManager::default();
         decay.schedule(id, 100, None);
+        assert_eq!(decay.live_heap_len(), 1);
         decay.schedule(id, 300, Some(2));
+        assert_eq!(decay.live_heap_len(), 1);
         assert!(decay.tick(100).is_empty());
         let due = decay.tick(300);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].1.replace_with, Some(2));
+        assert_eq!(decay.live_heap_len(), 0);
+    }
+
+    #[test]
+    fn heap_size_tracks_live_entries_not_churn() {
+        let mut items: SlotMap<ItemId, ()> = SlotMap::with_key();
+        let mut decay = DecayManager::default();
+        let far_future = 10_000_000_u64;
+
+        for round in 0_u64..200 {
+            let id = items.insert(());
+            decay.schedule(id, far_future + round, None);
+            assert_eq!(
+                decay.live_heap_len(),
+                decay.live_entry_count(),
+                "schedule must keep heap in sync"
+            );
+            decay.cancel(id);
+            assert_eq!(decay.live_heap_len(), 0, "cancel must remove heap node");
+            assert_eq!(decay.live_entry_count(), 0);
+        }
+
+        // Keep a small live set while churning schedule/cancel on other ids.
+        let _live: Vec<ItemId> = (0_u64..5)
+            .map(|i| {
+                let id = items.insert(());
+                decay.schedule(id, far_future + i, None);
+                id
+            })
+            .collect();
+        assert_eq!(decay.live_heap_len(), 5);
+
+        for round in 0_u64..500 {
+            let ephemeral = items.insert(());
+            decay.schedule(ephemeral, far_future + 1_000 + round, None);
+            decay.cancel(ephemeral);
+            assert_eq!(
+                decay.live_heap_len(),
+                decay.live_entry_count(),
+                "churn round {round}: heap must not retain cancelled entries"
+            );
+            assert_eq!(decay.live_heap_len(), 5);
+        }
+
+        decay.tick(far_future + 10);
+        assert_eq!(decay.live_heap_len(), 0);
     }
 }

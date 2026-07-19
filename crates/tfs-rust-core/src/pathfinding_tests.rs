@@ -190,6 +190,7 @@ fn reverse_search_finds_path_to_origin() {
         can_walk,
         no_extra,
         ground,
+        None,
     )
     .expect("reverse path");
     assert!(!path.is_empty());
@@ -262,6 +263,7 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         can_walk,
         no_extra,
         ground,
+        None,
     )
     .expect("path");
     assert!(!path.is_empty());
@@ -332,6 +334,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         can_walk,
         no_extra,
         ground,
+        None,
     )
     .expect("reverse A* must detour around obstacle");
     assert!(!path.is_empty());
@@ -412,6 +415,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         can_walk,
         no_extra,
         ground,
+        None,
     )
     .expect("forward");
     let reverse = get_path_matching(
@@ -426,6 +430,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         can_walk,
         no_extra,
         ground,
+        None,
     )
     .expect("reverse");
 
@@ -502,6 +507,7 @@ fn forward_pathfinder_obeys_allow_diagonal() {
         can_walk,
         no_extra,
         ground,
+        None,
     )
     .expect("should find a path without diagonals");
 
@@ -576,6 +582,7 @@ fn reverse_noway_without_fallback() {
         can_walk,
         no_extra,
         ground,
+        None,
     );
     assert!(
         path_no_fallback.is_none(),
@@ -595,6 +602,7 @@ fn reverse_noway_without_fallback() {
         can_walk,
         no_extra,
         ground,
+        None,
     );
     assert!(
         path_with_fallback.is_some(),
@@ -695,6 +703,7 @@ fn cyclops_quad_east_and_south_shortway_on_uniform_terrain() {
             can_walk,
             |_| 0u32,
             ground,
+            None,
         )
         .expect(label);
         let trimmed =
@@ -768,6 +777,7 @@ fn get_path_matching_blocked_far_n_matches_path_compare_pipeline() {
         |pos| map.is_walkable(pos),
         |_| 0u32,
         |_| 150u32,
+        None,
     )
     .expect("raw path");
     let dirs = truncate_tshortway_go_queue(start, target, raw, CHASE_PATH_MAX_STEPS, false);
@@ -792,7 +802,9 @@ fn tshortway_blocked_missing_tile_routes_east_first() {
         full_path_search: true,
         max_search_dist: 0,
     };
+    let mut scratch = TShortwayScratch::new();
     let dirs = path_matching_tshortway(
+        &mut scratch,
         &map,
         start,
         target,
@@ -824,10 +836,12 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
         max_search_dist: 0,
     };
 
+    let mut scratch = TShortwayScratch::new();
     // Occupied sibling tile present on map (creature blocking) — `can_walk_to` rejects it.
     let map_with_tile = cyclops_quad_uniform_map(start, target);
     let can_walk = |pos: Position| pos != blocked;
     let walk_order = path_matching_tshortway(
+        &mut scratch,
         &map_with_tile,
         start,
         target,
@@ -859,6 +873,7 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
     // Missing tile (path_compare style) — same outcome.
     let map_without_tile = cyclops_quad_uniform_map_excluding(start, target, &[blocked]);
     let mut walk_order = path_matching_tshortway(
+        &mut scratch,
         &map_without_tile,
         start,
         target,
@@ -933,9 +948,18 @@ fn cyclops_nw_shortway_matches_python_tshortway_port() {
         full_path_search: true,
         max_search_dist: 0,
     };
-    let dirs =
-        path_matching_tshortway(&map, nw, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150)
-            .expect("path");
+    let mut scratch = TShortwayScratch::new();
+    let dirs = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        nw,
+        player,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("path");
     let trimmed = truncate_tshortway_go_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false);
     let mut pos = nw;
     let got: Vec<Position> = trimmed
@@ -979,7 +1003,18 @@ fn cyclops_far_n_shortway_matches_python_tshortway_port() {
         full_path_search: true,
         max_search_dist: 0,
     };
-    let dirs = path_matching_tshortway(&map, far_n, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150).expect("path");
+    let mut scratch = TShortwayScratch::new();
+    let dirs = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        far_n,
+        player,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("path");
     let trimmed = truncate_tshortway_go_queue(far_n, player, dirs, CHASE_PATH_MAX_STEPS, false);
     let mut pos = far_n;
     let got: Vec<Position> = trimmed
@@ -1022,7 +1057,18 @@ fn cyclops_nw_shortway_live_ref_with_blocked_dest_and_siblings() {
         full_path_search: true,
         max_search_dist: 0,
     };
-    let dirs = path_matching_tshortway(&map, nw, player, &fpp, REVERSE_PATH_VIEW_RADIUS, can_walk, |_| 150).expect("path");
+    let mut scratch = TShortwayScratch::new();
+    let dirs = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        nw,
+        player,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("path");
     let trimmed = truncate_tshortway_go_queue(nw, player, dirs, CHASE_PATH_MAX_STEPS, false);
     let mut pos = nw;
     let got: Vec<Position> = trimmed
@@ -1038,4 +1084,103 @@ fn cyclops_nw_shortway_live_ref_with_blocked_dest_and_siblings() {
         Position::new(32359, 32291, 7),
     ];
     assert_eq!(got, want, "NW live-ref shortway tiles");
+}
+
+#[test]
+fn tshortway_scratch_reuse_preserves_paths() {
+    let start = Position::new(32359, 32288, 7);
+    let target = Position::new(32360, 32294, 7);
+    let map = cyclops_quad_uniform_map(start, target);
+    let fpp = FindPathParams {
+        min_target_dist: 1,
+        max_target_dist: 1,
+        clear_sight: false,
+        allow_diagonal: true,
+        full_path_search: true,
+        max_search_dist: 0,
+    };
+    let can_walk = |pos: Position| map.is_walkable(pos);
+    let mut scratch = TShortwayScratch::new();
+    let first = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        start,
+        target,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("first path");
+    let second = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        start,
+        target,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("second path after scratch reuse");
+    assert_eq!(first, second, "generation-scratch reuse must not change paths");
+}
+
+/// Many successive searches on one scratch (floor-change wake storm shape).
+#[test]
+fn tshortway_scratch_storm_reuse_stable() {
+    let start = Position::new(32359, 32288, 7);
+    let target = Position::new(32360, 32294, 7);
+    let map = cyclops_quad_uniform_map(start, target);
+    let fpp = FindPathParams {
+        min_target_dist: 1,
+        max_target_dist: 1,
+        clear_sight: false,
+        allow_diagonal: true,
+        full_path_search: true,
+        max_search_dist: 0,
+    };
+    let can_walk = |pos: Position| map.is_walkable(pos);
+    let mut scratch = TShortwayScratch::new();
+    let baseline = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        start,
+        target,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("baseline");
+    // Interleave other searches (wake-storm shape) then re-query baseline endpoints.
+    for i in 0..48 {
+        let alt_start = Position::new(32359 + (i % 3) as u16, 32288, 7);
+        let alt_target = Position::new(32360, 32292 + (i % 2) as u16, 7);
+        let _ = path_matching_tshortway(
+            &mut scratch,
+            &map,
+            alt_start,
+            alt_target,
+            &fpp,
+            REVERSE_PATH_VIEW_RADIUS,
+            can_walk,
+            |_| 150,
+        );
+    }
+    let again = path_matching_tshortway(
+        &mut scratch,
+        &map,
+        start,
+        target,
+        &fpp,
+        REVERSE_PATH_VIEW_RADIUS,
+        can_walk,
+        |_| 150,
+    )
+    .expect("after storm");
+    assert_eq!(
+        baseline, again,
+        "wake-storm scratch reuse must not corrupt later paths"
+    );
 }

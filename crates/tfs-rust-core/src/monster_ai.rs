@@ -1512,6 +1512,7 @@ impl GameWorld {
                 ctx.world.monster_can_occupy_chase_tile(ctx.cid, pos)
             }
         };
+        let mut scratch = self.tshortway_scratch.borrow_mut();
         get_path_matching_with_fill(
             &self.map,
             start,
@@ -1545,6 +1546,7 @@ impl GameWorld {
                 ctx.world.tile_ground_speed(tile.body())
             },
             |pos| ctx.world.fillmap_terrain_waypoints_at(pos),
+            Some(&mut *scratch),
         )
     }
 

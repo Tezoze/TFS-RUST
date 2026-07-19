@@ -8,27 +8,38 @@
 // C++ reference: `Game::gameLoop`, `ServiceManager::threadFunc` (1098);
 // `tibia-game-master/src/main.cc` `LaunchGame` / `AdvanceGame` (772).
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
 use tokio::signal;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 use tokio::task::JoinSet;
 use tokio::time::{interval, MissedTickBehavior};
 
-use tfs_rust_common::{GameCommand, GamePacket};
+use tfs_rust_common::{ConnId, GameCommand, GamePacket, OwnedPlayerLoad};
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{error, info, trace, warn};
 
 use crate::creature_todo::ActionObjectRef;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use tfs_rust_db::player::PlayerStore;
-use tfs_rust_net::OutRegistry;
+use crate::login::{self, MAX_CONCURRENT_LOGIN_LOADS};
+use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
+use tfs_rust_net::{
+    GameCmdTx, OutboundSendError, OutboundTx, OutRegistry, MAX_GAME_COMMANDS_PER_TURN,
+};
+
+/// Game-thread-owned outbound writers — lock-free flush path (GL-3).
+type OutputSinkMap = HashMap<ConnId, OutboundTx>;
 
 /// Persist every player still tied to a live game connection. Used for SIGINT / graceful shutdown
-/// (awaited; not fire-and-forget). Bounded concurrency to limit DB load.
+/// (awaited; not fire-and-forget).
+///
+/// Spawns saves onto the multi-thread pool and `.await`s them. Do **not** use
+/// `block_in_place` here — the game loop runs on a `LocalSet`, which panics on blocking.
+/// Fire-and-forget `spawn` + await of `JoinHandle` is fine: other runtime workers poll DB I/O
+/// while this LocalSet task yields.
 // C++ ref: `src/game.cpp` `Game::saveGameState`
 async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
     let cids: Vec<CreatureId> = world.conn_to_creature.values().copied().collect();
@@ -46,9 +57,11 @@ async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
         }
     }
     if datas.is_empty() {
+        info!("shutdown: no online players to flush");
         return Ok(());
     }
     let n = datas.len();
+    info!(saved = n, "shutdown: flushing online players to DB");
     let db = world.db.clone();
     const MAX_IN_FLIGHT: usize = 8;
     let mut set = JoinSet::new();
@@ -92,20 +105,193 @@ async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn flush_pending_outgoing(world: &mut GameWorld, out_registry: &Option<OutRegistry>) {
-    let flushed = world.flush_output_buffers();
-    if let Some(reg) = out_registry.as_ref() {
-        if let Ok(g) = reg.lock() {
-            for (conn, blobs) in flushed {
+fn register_output_sink(
+    conn_id: ConnId,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) {
+    let Some(reg) = out_registry.as_ref() else {
+        return;
+    };
+    if let Ok(g) = reg.lock() {
+        if let Some(tx) = g.get(&conn_id) {
+            output_sinks.insert(conn_id, tx.clone());
+        }
+    }
+}
+
+fn unregister_output_sink(conn_id: ConnId, output_sinks: &mut OutputSinkMap) {
+    output_sinks.remove(&conn_id);
+}
+
+/// Ensure `output_sinks` has a live `OutboundTx`, mirroring from `OutRegistry` if needed.
+fn ensure_output_sink<'a>(
+    conn: ConnId,
+    output_sinks: &'a mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) -> Option<&'a OutboundTx> {
+    if !output_sinks.contains_key(&conn) {
+        if let Some(reg) = out_registry {
+            if let Ok(g) = reg.lock() {
                 if let Some(tx) = g.get(&conn) {
-                    let _ = tx.send(blobs);
+                    output_sinks.insert(conn, tx.clone());
                 }
             }
         }
-    } else {
+    }
+    output_sinks.get(&conn)
+}
+
+fn flush_pending_outgoing(
+    world: &mut GameWorld,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    let flushed = world.flush_output_buffers();
+    if out_registry.is_none() && output_sinks.is_empty() {
         trace!(
             batches = flushed.len(),
-            "flushed outgoing (no registry — packets dropped)"
+            "flushed outgoing (no sinks — packets dropped)"
+        );
+        return;
+    }
+    for (conn, blobs) in flushed {
+        let Some(tx) = ensure_output_sink(conn, output_sinks, out_registry) else {
+            warn!(
+                conn_id = conn.0,
+                packets = blobs.len(),
+                "no output sink — re-queuing pending batch"
+            );
+            world
+                .pending_outgoing
+                .entry(conn)
+                .or_default()
+                .extend(blobs);
+            continue;
+        };
+        match tx.try_send(blobs) {
+            Ok(()) => {}
+            Err((OutboundSendError::Closed, batch)) => {
+                // Writer gone — re-queue then shed so disconnect can close cleanly.
+                warn!(
+                    conn_id = conn.0,
+                    packets = batch.len(),
+                    "outbound closed — re-queuing and shedding connection"
+                );
+                world
+                    .pending_outgoing
+                    .entry(conn)
+                    .or_default()
+                    .extend(batch);
+                output_sinks.remove(&conn);
+                pending_output_shed.push(conn);
+            }
+            Err((OutboundSendError::Full, batch)) => {
+                // Soft backpressure: do not disconnect — dropping a floor-change `0x64`
+                // desyncs OTClient. Re-queue for the next flush; shed only on SlowClient.
+                warn!(
+                    conn_id = conn.0,
+                    queued_bytes = tx.queued_bytes(),
+                    "output batch channel full — re-queuing (not shedding)"
+                );
+                world
+                    .pending_outgoing
+                    .entry(conn)
+                    .or_default()
+                    .extend(batch);
+            }
+            Err((OutboundSendError::SlowClient { queued, batch }, returned)) => {
+                warn!(
+                    conn_id = conn.0,
+                    queued,
+                    batch,
+                    returned_packets = returned.len(),
+                    "output hard byte cap exceeded — shedding slow client"
+                );
+                world
+                    .pending_outgoing
+                    .entry(conn)
+                    .or_default()
+                    .extend(returned);
+                pending_output_shed.push(conn);
+            }
+        }
+    }
+}
+
+/// Push one connection's pending packets onto its outbound writer.
+/// On failure, re-queues the batch (caller may still close the connection afterward).
+fn flush_conn_outgoing(
+    world: &mut GameWorld,
+    conn_id: ConnId,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) {
+    let Some(blobs) = world.pending_outgoing.remove(&conn_id) else {
+        return;
+    };
+    if blobs.is_empty() {
+        return;
+    }
+    let Some(tx) = ensure_output_sink(conn_id, output_sinks, out_registry) else {
+        warn!(
+            conn_id = conn_id.0,
+            packets = blobs.len(),
+            "disconnect flush: no output sink — re-queuing"
+        );
+        world
+            .pending_outgoing
+            .entry(conn_id)
+            .or_default()
+            .extend(blobs);
+        return;
+    };
+    if let Err((err, batch)) = tx.try_send(blobs) {
+        warn!(
+            conn_id = conn_id.0,
+            ?err,
+            returned = batch.len(),
+            "disconnect flush failed — re-queuing"
+        );
+        world
+            .pending_outgoing
+            .entry(conn_id)
+            .or_default()
+            .extend(batch);
+    }
+}
+
+/// Drop game-thread + registry `OutboundTx` so the writer task exits and TCP shuts down
+/// (TFS `ProtocolGame::disconnect` / 772 `logout` → connection close).
+fn close_output_connection(
+    conn_id: ConnId,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) {
+    output_sinks.remove(&conn_id);
+    if let Some(reg) = out_registry {
+        if let Ok(mut g) = reg.lock() {
+            g.remove(&conn_id);
+        }
+    }
+}
+
+fn drain_output_shed(
+    world: &mut GameWorld,
+    pending_login_conns: &mut HashSet<ConnId>,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    for conn in pending_output_shed.drain(..) {
+        handle_player_disconnect(
+            world,
+            pending_login_conns,
+            conn,
+            false,
+            output_sinks,
+            out_registry,
         );
     }
 }
@@ -173,33 +359,195 @@ enum LoopExit {
     ChannelClosed,
 }
 
-async fn handle_player_login(
-    world: &mut GameWorld,
+/// Spawn Tokio DB load; never await I/O on the game thread (GL-1).
+fn begin_player_login_load(
+    world: &GameWorld,
+    cmd_tx: &GameCmdTx,
+    pending_login_conns: &mut HashSet<tfs_rust_common::ConnId>,
     conn_id: tfs_rust_common::ConnId,
     name: String,
     operating_system: u16,
     otclient_v8: u16,
-    out_registry: &Option<OutRegistry>,
 ) {
-    match crate::login::login_player(world, &name, operating_system, otclient_v8).await {
+    if pending_login_conns.len() >= MAX_CONCURRENT_LOGIN_LOADS {
+        warn!(
+            conn_id = conn_id.0,
+            %name,
+            in_flight = pending_login_conns.len(),
+            cap = MAX_CONCURRENT_LOGIN_LOADS,
+            "rejecting login load — concurrent cap reached"
+        );
+        let _ = cmd_tx.send(GameCommand::PlayerLoadFailed {
+            conn_id,
+            name,
+            reason: format!("too many concurrent login loads (cap {MAX_CONCURRENT_LOGIN_LOADS})"),
+        });
+        return;
+    }
+    if !pending_login_conns.insert(conn_id) {
+        warn!(
+            conn_id = conn_id.0,
+            %name,
+            "login load already in flight for connection"
+        );
+        return;
+    }
+
+    let db = world.db.clone();
+    let tx = cmd_tx.clone();
+    let load_name = name.clone();
+    tokio::spawn(async move {
+        match login::load_player_data(&db, &load_name).await {
+            Ok(data) => {
+                let _ = tx.send(GameCommand::PlayerLoaded {
+                    conn_id,
+                    name: load_name,
+                    operating_system,
+                    otclient_v8,
+                    data: OwnedPlayerLoad::new(data),
+                });
+            }
+            Err(e) => {
+                let _ = tx.send(GameCommand::PlayerLoadFailed {
+                    conn_id,
+                    name: load_name,
+                    reason: e.to_string(),
+                });
+            }
+        }
+    });
+}
+
+fn conn_still_current(
+    world: &GameWorld,
+    output_sinks: &OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    conn_id: ConnId,
+) -> bool {
+    if world.conn_to_creature.contains_key(&conn_id) {
+        return false;
+    }
+    if output_sinks.contains_key(&conn_id) {
+        return true;
+    }
+    match out_registry {
+        Some(reg) => reg
+            .lock()
+            .map(|g| g.contains_key(&conn_id))
+            .unwrap_or(false),
+        None => true,
+    }
+}
+
+fn handle_player_loaded(
+    world: &mut GameWorld,
+    pending_login_conns: &mut HashSet<ConnId>,
+    conn_id: ConnId,
+    name: String,
+    operating_system: u16,
+    otclient_v8: u16,
+    data: OwnedPlayerLoad,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    pending_login_conns.remove(&conn_id);
+    if !conn_still_current(world, output_sinks, out_registry, conn_id) {
+        warn!(
+            conn_id = conn_id.0,
+            %name,
+            "discarding PlayerLoaded — connection no longer current"
+        );
+        return;
+    }
+    let loaded = match data.downcast::<LoadedPlayerData>() {
+        Ok(d) => d,
+        Err(_) => {
+            error!(
+                conn_id = conn_id.0,
+                %name,
+                "PlayerLoaded payload was not LoadedPlayerData"
+            );
+            handle_player_disconnect(
+                world,
+                pending_login_conns,
+                conn_id,
+                false,
+                output_sinks,
+                out_registry,
+            );
+            return;
+        }
+    };
+    match login::apply_loaded_player(world, loaded, operating_system, otclient_v8) {
         Ok(cid) => {
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
-            // Login always flushes — client must receive map / self-appear before play.
-            flush_pending_outgoing(world, out_registry);
+            flush_pending_outgoing(
+                world,
+                output_sinks,
+                out_registry,
+                pending_output_shed,
+            );
+            drain_output_shed(
+                world,
+                pending_login_conns,
+                output_sinks,
+                out_registry,
+                pending_output_shed,
+            );
         }
         Err(e) => {
-            tracing::warn!(?e, %name, conn_id = conn_id.0, "player login failed");
+            warn!(?e, %name, conn_id = conn_id.0, "player login apply failed");
+            handle_player_disconnect(
+                world,
+                pending_login_conns,
+                conn_id,
+                false,
+                output_sinks,
+                out_registry,
+            );
         }
     }
 }
 
-fn handle_player_disconnect(
+fn handle_player_load_failed(
     world: &mut GameWorld,
+    pending_login_conns: &mut HashSet<tfs_rust_common::ConnId>,
     conn_id: tfs_rust_common::ConnId,
-    display_effect: bool,
+    name: String,
+    reason: String,
+    output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
 ) {
+    pending_login_conns.remove(&conn_id);
+    warn!(
+        conn_id = conn_id.0,
+        %name,
+        %reason,
+        "player login load failed"
+    );
+    // GL-1: async load failure must close the game TCP (TFS `disconnectClient`), not leave
+    // a half-open session with no character mapping.
+    handle_player_disconnect(
+        world,
+        pending_login_conns,
+        conn_id,
+        false,
+        output_sinks,
+        out_registry,
+    );
+}
+
+fn handle_player_disconnect(
+    world: &mut GameWorld,
+    pending_login_conns: &mut HashSet<ConnId>,
+    conn_id: ConnId,
+    display_effect: bool,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) {
+    pending_login_conns.remove(&conn_id);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         if display_effect {
             let pos = world.creatures.get(cid).map(|k| k.position());
@@ -211,6 +559,8 @@ fn handle_player_disconnect(
         match world.build_player_save_data(cid) {
             Ok(data) => {
                 let guid = data.player.id;
+                // Fire-and-forget on the multi-thread pool. Do not `block_in_place` —
+                // the game loop is on a `LocalSet`, which panics on blocking calls.
                 tokio::spawn(async move {
                     if let Err(e) = PlayerStore::new(&db).save_player(&data).await {
                         tracing::error!(?e, guid, "player save on disconnect failed");
@@ -227,15 +577,14 @@ fn handle_player_disconnect(
         }
         world.remove_creature(cid);
     }
-    flush_pending_outgoing(world, out_registry);
     world.unregister_conn_mapping(conn_id);
     world.known_creatures_by_conn.remove(&conn_id);
     world.creature_fully_sent_by_conn.remove(&conn_id);
-    if let Some(reg) = out_registry.as_ref() {
-        if let Ok(mut g) = reg.lock() {
-            g.remove(&conn_id);
-        }
-    }
+    // TFS `ProtocolGame::logout`: flush then `disconnect()` so the client leaves the game
+    // cleanly. Dropping only the game-thread sink left `OutboundTx` alive in the registry —
+    // the writer never exited, TCP stayed open, OTClient desynced until idle timeout.
+    flush_conn_outgoing(world, conn_id, output_sinks, out_registry);
+    close_output_connection(conn_id, output_sinks, out_registry);
     trace!(conn_id = conn_id.0, "player disconnected");
 }
 
@@ -243,7 +592,7 @@ fn handle_game_packet(
     world: &mut GameWorld,
     conn_id: tfs_rust_common::ConnId,
     packet: GamePacket,
-    cmd_rx: &mut UnboundedReceiver<GameCommand>,
+    game_rx: &mut Receiver<GameCommand>,
     pending: &mut VecDeque<GameCommand>,
 ) {
     let now = Instant::now();
@@ -295,7 +644,7 @@ fn handle_game_packet(
         GamePacket::Turn(dir) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_turn_request(cid, dir, now);
-                match cmd_rx.try_recv() {
+                match game_rx.try_recv() {
                     Ok(next) => match next {
                         GameCommand::Game {
                             conn_id: next_conn,
@@ -495,10 +844,21 @@ fn handle_game_packet(
             }
         }
         GamePacket::Logout => {
-            pending.push_back(GameCommand::PlayerDisconnect {
-                conn_id,
-                display_effect: true,
-            });
+            // TFS / 772 `ProtocolGame::logout` — validate then disconnect (close TCP).
+            // Mid-async-login (no `conn_to_creature` yet) still closes the session.
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                if world.player_logout_allowed(conn_id, cid, false) {
+                    pending.push_back(GameCommand::PlayerDisconnect {
+                        conn_id,
+                        display_effect: true,
+                    });
+                }
+            } else {
+                pending.push_back(GameCommand::PlayerDisconnect {
+                    conn_id,
+                    display_effect: false,
+                });
+            }
         }
         GamePacket::Say(payload) => {
             // CH-1: `Game::playerSay` dispatch — `gameserver/src/game.cpp:3208-3281`.
@@ -568,12 +928,16 @@ fn handle_game_packet(
     // Phase 4: 1098 `process_walk_deadlines` call deleted — both eras use the ToDo queue.
 }
 
-async fn dispatch_command(
+fn dispatch_command(
     world: &mut GameWorld,
     cmd: Option<GameCommand>,
-    cmd_rx: &mut UnboundedReceiver<GameCommand>,
+    game_rx: &mut Receiver<GameCommand>,
+    cmd_tx: &GameCmdTx,
     pending: &mut VecDeque<GameCommand>,
+    pending_login_conns: &mut HashSet<ConnId>,
+    output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
 ) -> ControlFlow<LoopExit> {
     let Some(cmd) = cmd else {
         return ControlFlow::Break(LoopExit::ChannelClosed);
@@ -586,15 +950,60 @@ async fn dispatch_command(
             operating_system,
             otclient_v8,
         } => {
-            handle_player_login(
+            begin_player_login_load(
                 world,
+                cmd_tx,
+                pending_login_conns,
                 conn_id,
                 name,
                 operating_system,
                 otclient_v8,
+            );
+            ControlFlow::Continue(())
+        }
+        GameCommand::PlayerLoaded {
+            conn_id,
+            name,
+            operating_system,
+            otclient_v8,
+            data,
+        } => {
+            handle_player_loaded(
+                world,
+                pending_login_conns,
+                conn_id,
+                name,
+                operating_system,
+                otclient_v8,
+                data,
+                output_sinks,
                 out_registry,
-            )
-            .await;
+                pending_output_shed,
+            );
+            ControlFlow::Continue(())
+        }
+        GameCommand::PlayerLoadFailed {
+            conn_id,
+            name,
+            reason,
+        } => {
+            handle_player_load_failed(
+                world,
+                pending_login_conns,
+                conn_id,
+                name,
+                reason,
+                output_sinks,
+                out_registry,
+            );
+            ControlFlow::Continue(())
+        }
+        GameCommand::RegisterOutputSink { conn_id } => {
+            register_output_sink(conn_id, output_sinks, out_registry);
+            ControlFlow::Continue(())
+        }
+        GameCommand::UnregisterOutputSink { conn_id } => {
+            unregister_output_sink(conn_id, output_sinks);
             ControlFlow::Continue(())
         }
         GameCommand::LuaCallback { event_id } => {
@@ -622,24 +1031,74 @@ async fn dispatch_command(
             conn_id,
             display_effect,
         } => {
-            handle_player_disconnect(world, conn_id, display_effect, out_registry);
+            handle_player_disconnect(
+                world,
+                pending_login_conns,
+                conn_id,
+                display_effect,
+                output_sinks,
+                out_registry,
+            );
             ControlFlow::Continue(())
         }
         GameCommand::Game { conn_id, packet } => {
-            handle_game_packet(world, conn_id, packet, cmd_rx, pending);
+            handle_game_packet(world, conn_id, packet, game_rx, pending);
             ControlFlow::Continue(())
         }
     }
 }
 
 async fn recv_next_command(
-    cmd_rx: &mut UnboundedReceiver<GameCommand>,
+    game_rx: &mut Receiver<GameCommand>,
+    ctrl_rx: &mut UnboundedReceiver<GameCommand>,
     pending: &mut VecDeque<GameCommand>,
 ) -> Option<GameCommand> {
-    match pending.pop_front() {
-        Some(c) => Some(c),
-        None => cmd_rx.recv().await,
+    if let Some(c) = pending.pop_front() {
+        return Some(c);
     }
+    tokio::select! {
+        biased;
+        c = ctrl_rx.recv() => c,
+        c = game_rx.recv() => c,
+    }
+}
+
+/// Prefer control-lane, then pending, then one game-lane try_recv.
+fn try_recv_next_command(
+    game_rx: &mut Receiver<GameCommand>,
+    ctrl_rx: &mut UnboundedReceiver<GameCommand>,
+    pending: &mut VecDeque<GameCommand>,
+) -> Option<GameCommand> {
+    if let Some(c) = pending.pop_front() {
+        return Some(c);
+    }
+    if let Ok(c) = ctrl_rx.try_recv() {
+        return Some(c);
+    }
+    match game_rx.try_recv() {
+        Ok(c) => Some(c),
+        Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
+    }
+}
+
+/// Count how many beat ticks are already ready without awaiting (may be zero).
+fn drain_ready_beats(interval: &mut tokio::time::Interval) -> u64 {
+    use std::future::Future;
+    use std::task::Poll;
+
+    let mut beats = 0u64;
+    loop {
+        let next = interval.tick();
+        tokio::pin!(next);
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        if matches!(next.as_mut().poll(&mut cx), Poll::Ready(_)) {
+            beats += 1;
+        } else {
+            break;
+        }
+    }
+    beats
 }
 
 /// TFS 1098 reactive loop — Dispatcher + Scheduler walk timers.
@@ -672,47 +1131,98 @@ fn drain_burst_beats(interval: &mut tokio::time::Interval) -> u64 {
 // 1098 observable behavior per `src/game.cpp` `Game::gameLoop` / `checkCreatures`.
 pub async fn run_game_loop(
     mut world: GameWorld,
-    mut cmd_rx: UnboundedReceiver<GameCommand>,
+    mut game_rx: Receiver<GameCommand>,
+    mut ctrl_rx: UnboundedReceiver<GameCommand>,
+    cmd_tx: GameCmdTx,
     out_registry: Option<OutRegistry>,
 ) -> anyhow::Result<()> {
     let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
     let mut beat_timer = interval(Duration::from_millis(beat_ms));
     beat_timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
     let mut pending: VecDeque<GameCommand> = VecDeque::new();
+    let mut pending_login_conns: HashSet<ConnId> = HashSet::new();
+    let mut output_sinks: OutputSinkMap = HashMap::new();
+    let mut pending_output_shed: Vec<ConnId> = Vec::new();
 
     loop {
         tokio::select! {
             biased;
 
-            cmd = recv_next_command(&mut cmd_rx, &mut pending) => {
+            cmd = recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending) => {
                 match dispatch_command(
                     &mut world,
                     cmd,
-                    &mut cmd_rx,
+                    &mut game_rx,
+                    &cmd_tx,
                     &mut pending,
+                    &mut pending_login_conns,
+                    &mut output_sinks,
                     &out_registry,
-                ).await {
+                    &mut pending_output_shed,
+                ) {
                     ControlFlow::Break(LoopExit::Shutdown) => {
                         flush_online_players_to_db(&world).await?;
                         break;
                     }
                     ControlFlow::Break(LoopExit::ChannelClosed) => break,
                     ControlFlow::Continue(()) => {
-                        while let Ok(more) = cmd_rx.try_recv() {
+                        // GL-2: bounded slice — do not drain the game lane to empty.
+                        let mut processed = 1usize;
+                        while processed < MAX_GAME_COMMANDS_PER_TURN {
+                            let Some(more) =
+                                try_recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending)
+                            else {
+                                break;
+                            };
                             match dispatch_command(
                                 &mut world,
                                 Some(more),
-                                &mut cmd_rx,
+                                &mut game_rx,
+                                &cmd_tx,
                                 &mut pending,
+                                &mut pending_login_conns,
+                                &mut output_sinks,
                                 &out_registry,
-                            ).await {
+                                &mut pending_output_shed,
+                            ) {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
                                     flush_online_players_to_db(&world).await?;
                                     return Ok(());
                                 }
                                 ControlFlow::Break(LoopExit::ChannelClosed) => return Ok(()),
-                                ControlFlow::Continue(()) => {}
+                                ControlFlow::Continue(()) => {
+                                    processed += 1;
+                                }
                             }
+                        }
+                        world.obs_record_commands(processed);
+                        // After the command budget, service ready beats so ingress cannot starve simulation.
+                        let ready = drain_ready_beats(&mut beat_timer);
+                        if ready > 0 {
+                            world.advance_beat(beat_ms * ready);
+                            while let Some(conn_id) = world.pending_idle_kick.pop() {
+                                handle_player_disconnect(
+                                    &mut world,
+                                    &mut pending_login_conns,
+                                    conn_id,
+                                    false,
+                                    &mut output_sinks,
+                                    &out_registry,
+                                );
+                            }
+                            flush_pending_outgoing(
+                                &mut world,
+                                &mut output_sinks,
+                                &out_registry,
+                                &mut pending_output_shed,
+                            );
+                            drain_output_shed(
+                                &mut world,
+                                &mut pending_login_conns,
+                                &mut output_sinks,
+                                &out_registry,
+                                &mut pending_output_shed,
+                            );
                         }
                     }
                 }
@@ -724,9 +1234,28 @@ pub async fn run_game_loop(
                 }
                 world.advance_beat(beat_ms * beats);
                 while let Some(conn_id) = world.pending_idle_kick.pop() {
-                    handle_player_disconnect(&mut world, conn_id, false, &out_registry);
+                    handle_player_disconnect(
+                        &mut world,
+                        &mut pending_login_conns,
+                        conn_id,
+                        false,
+                        &mut output_sinks,
+                        &out_registry,
+                    );
                 }
-                flush_pending_outgoing(&mut world, &out_registry);
+                flush_pending_outgoing(
+                    &mut world,
+                    &mut output_sinks,
+                    &out_registry,
+                    &mut pending_output_shed,
+                );
+                drain_output_shed(
+                    &mut world,
+                    &mut pending_login_conns,
+                    &mut output_sinks,
+                    &out_registry,
+                    &mut pending_output_shed,
+                );
             }
         }
     }
@@ -847,7 +1376,7 @@ mod timed_action_gate_tests {
 /// `CTurnObject`) → `ToDo*` builder + `ToDoStart` (`cract.cc:955-1024`).
 #[cfg(test)]
 mod f8_s6_handler_routing_tests {
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, VecDeque};
 
     use tokio::sync::mpsc;
 
@@ -917,14 +1446,15 @@ mod f8_s6_handler_routing_tests {
 
     /// Drive one packet through `handle_game_packet` with empty cmd/pending queues.
     fn dispatch(world: &mut crate::game_world::GameWorld, conn_id: ConnId, packet: GamePacket) {
-        let (_tx, mut rx) = mpsc::unbounded_channel::<GameCommand>();
+        let (_tx, mut game_rx, _ctrl_rx) = tfs_rust_net::open_game_command_channels();
         let mut pending = VecDeque::new();
-        handle_game_packet(world, conn_id, packet, &mut rx, &mut pending);
+        handle_game_packet(world, conn_id, packet, &mut game_rx, &mut pending);
         // None of the rerouted opcodes push to pending (only Logout does).
         assert!(
             pending.is_empty(),
             "Use/Throw/RotateItem must not push commands"
         );
+        let _ = _tx;
     }
 
     /// `UseItem` (single-object) routes to `[Wait{100}, Use{obj2:None}]` + arms a wakeup.
@@ -1162,6 +1692,222 @@ mod f8_s6_handler_routing_tests {
         let base = world.creatures.get(cid).unwrap().base();
         assert!(base.todo.is_empty(), "LookAt must not create a ToDo entry");
         assert!(base.next_wakeup.is_none());
+    }
+
+    /// GL-1: `PlayerLogin` must not await DB — beats continue while a load is in flight.
+    #[tokio::test(flavor = "current_thread")]
+    async fn player_login_does_not_block_beats_while_load_pending() {
+        use std::collections::HashSet;
+        use std::ops::ControlFlow;
+        use std::time::Duration;
+
+        use tfs_rust_common::ConnId;
+
+        use super::{begin_player_login_load, dispatch_command, try_recv_next_command};
+
+        let mut world = beat_driven_test_world();
+        let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
+        let mut pending = VecDeque::new();
+        let mut pending_logins = HashSet::new();
+        let out_registry = None;
+        let mut output_sinks = HashMap::new();
+        let mut pending_output_shed = Vec::new();
+
+        let login_conn = ConnId(99);
+        begin_player_login_load(
+            &world,
+            &tx,
+            &mut pending_logins,
+            login_conn,
+            "DelayedHero".to_string(),
+            0,
+            0,
+        );
+        assert!(
+            pending_logins.contains(&login_conn),
+            "load must be tracked as in-flight"
+        );
+
+        // Inject a delayed failure so the load stays pending across several beats.
+        let tx_delay = tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            // Real load may have already failed; ignore send errors.
+            let _ = tx_delay.send(GameCommand::PlayerLoadFailed {
+                conn_id: login_conn,
+                name: "DelayedHero".to_string(),
+                reason: "injected delay".to_string(),
+            });
+        });
+
+        let before_ms = world.server_ms;
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        for _ in 0..5 {
+            world.advance_beat(beat_ms);
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            world.server_ms > before_ms,
+            "simulation time must advance while login load is pending (before={before_ms}, after={})",
+            world.server_ms
+        );
+
+        // Drain any load-result commands without blocking the test forever.
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+        while tokio::time::Instant::now() < deadline {
+            let cmd = try_recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending);
+            match cmd {
+                Some(cmd) => {
+                    let flow = dispatch_command(
+                        &mut world,
+                        Some(cmd),
+                        &mut game_rx,
+                        &tx,
+                        &mut pending,
+                        &mut pending_logins,
+                        &mut output_sinks,
+                        &out_registry,
+                        &mut pending_output_shed,
+                    );
+                    assert!(matches!(flow, ControlFlow::Continue(())));
+                }
+                None => {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            if pending_logins.is_empty() {
+                break;
+            }
+        }
+    }
+
+    /// GL-1: concurrent login load cap rejects excess attempts without awaiting.
+    #[tokio::test(flavor = "current_thread")]
+    async fn login_load_cap_rejects_without_blocking() {
+        use std::collections::HashSet;
+
+        use tfs_rust_common::ConnId;
+
+        use super::begin_player_login_load;
+        use crate::login::MAX_CONCURRENT_LOGIN_LOADS;
+
+        let world = beat_driven_test_world();
+        let (tx, _game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
+        let mut pending_logins = HashSet::new();
+
+        for i in 0..MAX_CONCURRENT_LOGIN_LOADS {
+            begin_player_login_load(
+                &world,
+                &tx,
+                &mut pending_logins,
+                ConnId(i as u32),
+                format!("Hero{i}"),
+                0,
+                0,
+            );
+        }
+        assert_eq!(pending_logins.len(), MAX_CONCURRENT_LOGIN_LOADS);
+
+        begin_player_login_load(
+            &world,
+            &tx,
+            &mut pending_logins,
+            ConnId(9000),
+            "Overflow".to_string(),
+            0,
+            0,
+        );
+        assert_eq!(
+            pending_logins.len(),
+            MAX_CONCURRENT_LOGIN_LOADS,
+            "cap must not grow past MAX"
+        );
+
+        let mut saw_reject = false;
+        while let Ok(cmd) = ctrl_rx.try_recv() {
+            if matches!(
+                cmd,
+                GameCommand::PlayerLoadFailed {
+                    conn_id: ConnId(9000),
+                    ..
+                }
+            ) {
+                saw_reject = true;
+            }
+        }
+        assert!(saw_reject, "overflow login must produce PlayerLoadFailed");
+    }
+
+    /// GL-2: sustained game-lane flood must not prevent beat advancement when budget yields.
+    #[tokio::test(flavor = "current_thread")]
+    async fn command_budget_allows_beats_under_game_lane_flood() {
+        use std::collections::HashSet;
+        use std::ops::ControlFlow;
+        use std::time::Duration;
+
+        use tfs_rust_common::{enums::Direction, ConnId};
+        use tfs_rust_net::MAX_GAME_COMMANDS_PER_TURN;
+
+        use super::{
+            dispatch_command, drain_ready_beats, try_recv_next_command,
+        };
+
+        let mut world = beat_driven_test_world();
+        let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
+        let mut pending = VecDeque::new();
+        let mut pending_logins = HashSet::new();
+        let out_registry = None;
+        let mut output_sinks = HashMap::new();
+        let mut pending_output_shed = Vec::new();
+
+        // Fill well beyond one turn's budget.
+        for _ in 0..(MAX_GAME_COMMANDS_PER_TURN * 4) {
+            tx.send(GameCommand::Game {
+                conn_id: ConnId(1),
+                packet: GamePacket::Move(Direction::North),
+            })
+            .expect("game lane accepts flood in test");
+        }
+
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let mut beat_timer = tokio::time::interval(Duration::from_millis(beat_ms));
+        beat_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Burst);
+        // Consume the immediate first tick so subsequent ready ticks are real.
+        beat_timer.tick().await;
+
+        let before = world.server_ms;
+        // Simulate several command turns with budget + beat yield.
+        for _ in 0..8 {
+            let mut processed = 0usize;
+            while processed < MAX_GAME_COMMANDS_PER_TURN {
+                let Some(cmd) = try_recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending)
+                else {
+                    break;
+                };
+                let flow = dispatch_command(
+                    &mut world,
+                    Some(cmd),
+                    &mut game_rx,
+                    &tx,
+                    &mut pending,
+                    &mut pending_logins,
+                    &mut output_sinks,
+                    &out_registry,
+                    &mut pending_output_shed,
+                );
+                assert!(matches!(flow, ControlFlow::Continue(())));
+                processed += 1;
+            }
+            tokio::time::sleep(Duration::from_millis(beat_ms + 1)).await;
+            let ready = drain_ready_beats(&mut beat_timer);
+            if ready > 0 {
+                world.advance_beat(beat_ms * ready);
+            }
+        }
+        assert!(
+            world.server_ms > before,
+            "beats must advance under sustained game-lane flood"
+        );
     }
 
     // Suppress unused-import warning for `Player` (re-exported via test_player; kept for

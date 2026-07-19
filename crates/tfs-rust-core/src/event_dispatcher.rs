@@ -28,7 +28,10 @@ pub enum TalkActionResult {
 /// Script and engine events. Default bodies are no-ops until `tfs-rust-lua` implements dispatch.
 pub trait EventDispatcher {
     fn on_login(&self, _creature: CreatureId, _ctx: &dyn ScriptContext) {}
-    fn on_logout(&self, _creature: CreatureId, _ctx: &dyn ScriptContext) {}
+    /// Returns `false` to cancel logout (772/TFS `playerLogout` / `onLogout`).
+    fn on_logout(&self, _creature: CreatureId, _ctx: &dyn ScriptContext) -> bool {
+        true
+    }
     fn on_think(&self, _creature: CreatureId, _interval_ms: u32) {}
     fn on_prepare_death(&self, _creature: CreatureId) {}
     fn on_death(&self, _creature: CreatureId) {}

@@ -18,11 +18,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use tfs_rust_common::GameCommand;
 use tfs_rust_common::ProtocolVersion;
-use tfs_rust_net::{GameWireConfig, LoginWireConfig, OutRegistry, Server};
+use tfs_rust_net::{
+    open_game_command_channels, GameWireConfig, LoginWireConfig, OutRegistry, Server,
+};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
 fn resolve_pem_path() -> anyhow::Result<PathBuf> {
@@ -69,10 +69,20 @@ async fn main() -> anyhow::Result<()> {
 
     let out_registry: OutRegistry = Arc::new(Mutex::new(HashMap::new()));
 
-    let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<GameCommand>();
+    let (cmd_tx, mut game_rx, mut ctrl_rx) = open_game_command_channels();
     tokio::spawn(async move {
-        while let Some(cmd) = cmd_rx.recv().await {
-            eprintln!("[game_login_smoke] {:?}", cmd);
+        loop {
+            tokio::select! {
+                biased;
+                cmd = ctrl_rx.recv() => {
+                    let Some(cmd) = cmd else { break; };
+                    eprintln!("[game_login_smoke] {:?}", cmd);
+                }
+                cmd = game_rx.recv() => {
+                    let Some(cmd) = cmd else { break; };
+                    eprintln!("[game_login_smoke] {:?}", cmd);
+                }
+            }
         }
     });
 

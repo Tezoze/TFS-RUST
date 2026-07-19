@@ -3,6 +3,7 @@ pub mod enums;
 pub mod error;
 pub mod game_command;
 pub mod game_packet;
+pub mod owned_player_load;
 pub mod position;
 pub mod propstream;
 pub mod protocol_constants;
@@ -11,6 +12,7 @@ pub mod protocol_version;
 pub mod script_context;
 
 pub use conn_id::ConnId;
+pub use owned_player_load::OwnedPlayerLoad;
 pub use enums::{
     CombatType, ConditionType, Direction, ItemGroup, MagicEffect, PlayerSex, ShootEffect, Skill,
     SkullType, SpeakType, WeaponType, WorldType, ZoneType,

@@ -7,6 +7,7 @@
 
 pub use crate::game_world_spectators::{creature_can_see, protocol_can_see};
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -164,6 +165,18 @@ pub struct GameWorld {
     /// `addEvent` / `stopEvent` scheduler — `None` in tests / when Lua is unavailable.
     /// Game-thread only (`Rc` → `!Send`); used by the game loop to `forget` fired timers.
     pub(crate) scheduler: Option<std::rc::Rc<crate::scheduler::Scheduler>>,
+    /// Reusable 772 `TShortway` search buffer — game thread only (`pathfinding.rs`).
+    pub(crate) tshortway_scratch: RefCell<crate::pathfinding::TShortwayScratch>,
+    /// Cached `config.lua` `itemsDecayInsideDepots` — DEC-4.
+    pub(crate) items_decay_inside_depots: bool,
+    /// Game-thread scratch `Vec`s — GL-4 / IDLE-3 (reuse capacity across periodic passes).
+    pub(crate) scratch_creature_ids: Vec<CreatureId>,
+    pub(crate) scratch_stats_dirty: Vec<CreatureId>,
+    pub(crate) scratch_pk_marks: Vec<CreatureId>,
+    pub(crate) scratch_dead: Vec<CreatureId>,
+    pub(crate) scratch_spectators: Vec<CreatureId>,
+    /// OBS-1: cumulative game-lane commands processed since world creation.
+    pub(crate) obs_commands_processed: u64,
 }
 
 impl GameWorld {
@@ -171,6 +184,47 @@ impl GameWorld {
     /// Phase 6: the `beat_driven_loop` fork is collapsed; both eras run on the unified beat engine.
     pub(crate) fn now_ms(&self) -> u64 {
         self.server_ms
+    }
+
+    /// Active decay/cron clock — `MechanicsProfile::decay_clock` (DEC-3).
+    ///
+    /// 772: `RoundNr` (`map.cc` `CronCheck`); 1098: movement `server_ms`.
+    pub(crate) fn decay_clock_now(&self) -> u64 {
+        match self.mechanics.profile.decay_clock {
+            crate::formulas::DecayClockModel::ServerMilliseconds => self.server_ms,
+            crate::formulas::DecayClockModel::RoundNumber => u64::from(self.round_nr),
+        }
+    }
+
+    /// Schedule deadline in the active decay clock's units.
+    pub(crate) fn decay_schedule_deadline(&self, duration_ms: i32) -> u64 {
+        match self.mechanics.profile.decay_clock {
+            crate::formulas::DecayClockModel::ServerMilliseconds => self
+                .server_ms
+                .saturating_add(duration_ms.max(0) as u64),
+            crate::formulas::DecayClockModel::RoundNumber => {
+                let sec = duration_ms.max(0) as u64 / 1000;
+                let sec = sec.max(1);
+                u64::from(self.round_nr).saturating_add(sec)
+            }
+        }
+    }
+
+    /// Convert remaining decay clock units to item `duration` milliseconds.
+    pub(crate) fn decay_clock_remaining_to_item_ms(&self, remaining: u64) -> u64 {
+        match self.mechanics.profile.decay_clock {
+            crate::formulas::DecayClockModel::ServerMilliseconds => remaining,
+            crate::formulas::DecayClockModel::RoundNumber => remaining.saturating_mul(1000),
+        }
+    }
+
+    /// Live remaining decay duration in **item milliseconds** (look / save / UI).
+    ///
+    /// Uses [`Self::decay_clock_now`] — never pass `server_ms` into the heap on 772
+    /// (`RoundNumber` deadlines are rounds, not wall-clock ms).
+    pub(crate) fn item_decay_remaining_ms(&self, item_id: ItemId) -> Option<u64> {
+        let rem = self.decay.remaining_ms(item_id, self.decay_clock_now())?;
+        Some(self.decay_clock_remaining_to_item_ms(rem))
     }
 
     pub fn player_timed_action_ready(&self, cid: CreatureId) -> bool {
@@ -244,6 +298,12 @@ impl GameWorld {
             .unwrap_or_else(|_| crate::config::ChatConfig::defaults());
         let pvp_config = crate::config::PvpConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::PvpConfig::defaults());
+        let items_decay_inside_depots = crate::config::get_bool_or(
+            config.as_ref(),
+            "itemsDecayInsideDepots",
+            false,
+        )
+        .unwrap_or(false);
         Self {
             creatures: SlotMap::with_key(),
             items,
@@ -301,7 +361,22 @@ impl GameWorld {
             lag: false,
             pending_idle_kick: Vec::new(),
             scheduler: None,
+            tshortway_scratch: RefCell::new(crate::pathfinding::TShortwayScratch::new()),
+            items_decay_inside_depots,
+            scratch_creature_ids: Vec::new(),
+            scratch_stats_dirty: Vec::new(),
+            scratch_pk_marks: Vec::new(),
+            scratch_dead: Vec::new(),
+            scratch_spectators: Vec::new(),
+            obs_commands_processed: 0,
         }
+    }
+
+    /// OBS-1: record game-lane commands processed in one loop turn.
+    pub(crate) fn obs_record_commands(&mut self, count: usize) {
+        self.obs_commands_processed = self
+            .obs_commands_processed
+            .saturating_add(count as u64);
     }
 
     /// Millisecond clock for chase JSONL — matches C++ `ServerMilliseconds` in `chase_path_debug.cc`.

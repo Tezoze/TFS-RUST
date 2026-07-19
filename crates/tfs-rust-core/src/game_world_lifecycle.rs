@@ -89,38 +89,29 @@ impl GameWorld {
         self.creatures.remove(id);
     }
 
-    /// TFS `ProtocolGame::logout` (`protocolgame.cpp:336-372`).
-    /// Handles player logout with validation, effects, and cleanup.
-    // C++ ref: src/protocolgame.cpp:336-372
-    pub fn player_logout(
+    /// TFS / 772 `ProtocolGame::logout` gates — returns `false` when logout is cancelled
+    /// (no-logout tile, in-fight, or `onLogout` script). Caller then issues `PlayerDisconnect`.
+    // C++ ref: `gameserver/src/protocolgame.cpp` `ProtocolGame::logout`; TFS `protocolgame.cpp:336-372`.
+    pub fn player_logout_allowed(
         &mut self,
         conn_id: ConnId,
         cid: CreatureId,
-        display_effect: bool,
         forced: bool,
-    ) {
-        // Verify player exists
+    ) -> bool {
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
-            return;
+            return false;
         };
 
-        // Check logout conditions if not forced
         if !forced {
-            // Check if player has access (gamemaster/canAlwaysLogin flag equivalent)
-            // C++: player->isAccessPlayer() checks group access
-            // Using ghost_mode as proxy for GM access until proper groups are implemented
             let has_access = player.ghost_mode;
-
             if !has_access {
-                // Check no-logout zone (TILESTATE_NOLOGOUT)
                 let pos = player.base.position;
                 if let Some(tile) = self.map.get_tile(pos) {
                     if tile.body().zone == ZoneType::NoLogout {
                         self.send_cancel_message(conn_id, ReturnValue::YouCannotLogoutHere);
-                        return;
+                        return false;
                     }
 
-                    // Check infight condition outside protection zone
                     let in_protection_zone = tile.body().zone == ZoneType::Protection;
                     let has_infight = player
                         .base
@@ -129,40 +120,53 @@ impl GameWorld {
                         .any(|c| c.ctype == ConditionType::Infight);
                     if !in_protection_zone && has_infight {
                         self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
-                        return;
+                        return false;
                     }
                 }
             }
 
             // Scripting event - onLogout
             // C++ ref: src/protocolgame.cpp:357 (`g_creatureEvents->playerLogout(player)`).
-            self.events.on_logout(cid, self);
+            if !self.events.on_logout(cid, self) {
+                return false;
+            }
         }
 
-        // Get player data for effect
+        true
+    }
+
+    /// TFS `ProtocolGame::logout` (`protocolgame.cpp:336-372`).
+    /// Validates then removes the player; prefer game-loop `PlayerDisconnect` so TCP closes.
+    // C++ ref: src/protocolgame.cpp:336-372
+    pub fn player_logout(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        display_effect: bool,
+        forced: bool,
+    ) {
+        if !self.player_logout_allowed(conn_id, cid, forced) {
+            return;
+        }
+
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
         let health = player.base.health;
         let ghost_mode = player.ghost_mode;
         let pos = player.base.position;
+        let guid = player.guid;
 
-        // Show logout effect if requested and player is alive and not in ghost mode
-        // C++: if (displayEffect && player->getHealth() > 0 && !player->isInGhostMode())
         if display_effect && health > 0 && !ghost_mode {
-            // Magic effect CONST_ME_POFF (value 4)
             self.broadcast_magic_effect(pos, 4);
         }
 
-        // Remove connection mapping (audit #4 — keeps reverse index in sync)
         self.unregister_conn_mapping(conn_id);
         self.known_creatures_by_conn.remove(&conn_id);
         self.creature_fully_sent_by_conn.remove(&conn_id);
-
-        // Remove creature from world (C++: g_game.removeCreature(player))
         self.remove_creature(cid);
 
-        tracing::info!(
-            guid = self.player_guid(cid).unwrap_or(0),
-            "player logged out"
-        );
+        tracing::info!(guid, "player logged out");
     }
 
     /// Run death XP / events / corpse scheduling, then remove the creature (and summons).

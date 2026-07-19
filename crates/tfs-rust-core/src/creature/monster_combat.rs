@@ -223,6 +223,15 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
         });
     }
 
+    // 772 `RaceData.Spells` is one list (attack then defense) — `crnonpl.cc:2521-2667`.
+    // TFS XML splits `<attacks>` / `<defenses>`; merge at spawn so idle CASTING does not
+    // rebuild defense spells each pass (audit IDLE-1).
+    for node in &mtype.defenses.spells {
+        if let Some(spell) = MonsterSpell::try_from_node(node) {
+            snap.spells.push(spell);
+        }
+    }
+
     snap
 }
 
@@ -767,6 +776,17 @@ mod tests {
             }
         ));
         assert_eq!(field.shoot_effect, Some(ShootEffect::PoisonArrow as u8));
+    }
+
+    #[test]
+    fn test_dragon_merges_defense_spells_at_spawn() {
+        let mtype = load_monster_type("dragon");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        assert_eq!(cfg.spells.len(), 3, "2 attacks + 1 healing defense");
+        assert!(matches!(
+            cfg.spells.last().map(|s| &s.impact),
+            Some(SpellImpact::Healing { .. })
+        ));
     }
 
     #[test]

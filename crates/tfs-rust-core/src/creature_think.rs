@@ -13,6 +13,7 @@
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
+#[allow(unused_imports)] // re-exported for `creature_think_tests` via `super::*`
 use crate::ids::CreatureId;
 
 /// TFS `creature.h` `EVENT_CREATURE_THINK_INTERVAL` — used by the ToDo attack cadence.
@@ -41,13 +42,13 @@ impl GameWorld {
         // CreatureTimeCounter fire (same lag class as `process_skills`).
         let round_nr = self.round_nr;
 
-        let mut stats_dirty: Vec<CreatureId> = Vec::new();
-        let mut pk_marks_expired: Vec<CreatureId> = Vec::new();
-        let mut dead: Vec<CreatureId> = Vec::new();
+        self.scratch_stats_dirty.clear();
+        self.scratch_pk_marks.clear();
+        self.scratch_dead.clear();
 
         for (cid, k) in self.creatures.iter() {
             if k.base().health <= 0 {
-                dead.push(cid);
+                self.scratch_dead.push(cid);
             }
             let CreatureKind::Player(p) = k else {
                 continue;
@@ -62,15 +63,15 @@ impl GameWorld {
                 && round_nr.is_multiple_of(p.food_level as u32)
                 && !self.tile_in_protection_zone(p.base.position)
             {
-                stats_dirty.push(cid);
+                self.scratch_stats_dirty.push(cid);
             }
             // C++ PK-mark clearing (`crmain.cc:1102-1105`).
             if p.earliest_logout_round != 0 && p.earliest_logout_round <= round_nr {
-                pk_marks_expired.push(cid);
+                self.scratch_pk_marks.push(cid);
             }
         }
 
-        for cid in stats_dirty {
+        for cid in std::mem::take(&mut self.scratch_stats_dirty) {
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.base.health = (p.base.health + 1).min(p.base.max_health);
                 p.mana = (p.mana + 4).min(p.max_mana);
@@ -78,7 +79,7 @@ impl GameWorld {
             self.send_player_stats(cid);
         }
 
-        for cid in pk_marks_expired {
+        for cid in std::mem::take(&mut self.scratch_pk_marks) {
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.earliest_logout_round = 0;
             }
@@ -91,7 +92,7 @@ impl GameWorld {
 
         // C++ `ProcessCreatures` death safety (`crmain.cc:1113–1117`).
         // `apply_creature_death` is idempotent (returns early if creature gone).
-        for cid in dead {
+        for cid in std::mem::take(&mut self.scratch_dead) {
             if self
                 .creatures
                 .get(cid)

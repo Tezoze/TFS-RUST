@@ -19,10 +19,11 @@ use tokio::task::AbortHandle;
 
 use tfs_rust_common::GameCommand;
 use tfs_rust_lua::TimerScheduler;
+use tfs_rust_net::GameCmdTx;
 
 #[derive(Debug)]
 pub struct Scheduler {
-    tx: UnboundedSender<GameCommand>,
+    tx: GameCmdTx,
     handle: Handle,
     next_id: AtomicU64,
     /// `event_id → AbortHandle` for cancellation via `stopEvent`.
@@ -32,7 +33,7 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new(tx: UnboundedSender<GameCommand>, handle: Handle) -> Self {
+    pub fn new(tx: GameCmdTx, handle: Handle) -> Self {
         Self {
             tx,
             handle,
@@ -46,6 +47,11 @@ impl Scheduler {
     /// stale entry so the map doesn't grow unbounded.
     pub fn forget(&self, event_id: u64) {
         self.timers.borrow_mut().remove(&event_id);
+    }
+
+    /// Control-lane sender for tests that need the raw channel.
+    pub fn ctrl_sender(&self) -> UnboundedSender<GameCommand> {
+        self.tx.ctrl_sender()
     }
 }
 

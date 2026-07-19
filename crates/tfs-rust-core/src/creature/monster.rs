@@ -2,6 +2,7 @@
 // C++ reference: `monster.cpp` `Monster::onThink`, `searchTarget`, `getDistanceStep`.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::creature::base::CreatureBase;
 use crate::creature::monster_combat::{combat_from_monster_type, MonsterSpell};
@@ -82,7 +83,7 @@ pub struct MonsterAiConfig {
     pub spells: Vec<MonsterSpell>,
     /// 772 `RaceData[].Talk` text list — `<voices><voice sentence="…"/></voices>`
     /// (`crnonpl.cc:2442`, `crmain.cc:1551`). Empty = no broadcast (gate still draws for RNG parity).
-    pub talk_texts: Vec<String>,
+    pub talk_texts: Arc<[String]>,
 }
 
 impl Default for MonsterAiConfig {
@@ -115,7 +116,7 @@ impl Default for MonsterAiConfig {
             see_invisible: false,
             immunity_physical: false,
             spells: Vec::new(),
-            talk_texts: Vec::new(),
+            talk_texts: Arc::from([]),
         }
     }
 }
@@ -149,7 +150,7 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             see_invisible: false,
             immunity_physical: false,
             spells: Vec::new(),
-            talk_texts: Vec::new(),
+            talk_texts: Arc::from([]),
         }
     }
 }
@@ -170,9 +171,9 @@ impl MonsterAiConfig {
         cfg.see_invisible = combat.see_invisible;
         cfg.immunity_physical = combat.immunity_physical;
         cfg.spells = combat.spells;
-        cfg.talk_texts = mtype.talk_texts.clone();
+        cfg.talk_texts = Arc::from(mtype.talk_texts.clone());
         // 772 `RaceData[].Talks` is the count of `Talk` entries (`crmain.cc:1552`).
-        cfg.talks = mtype.talk_texts.len().min(u8::MAX as usize) as u8;
+        cfg.talks = cfg.talk_texts.len().min(u8::MAX as usize) as u8;
         cfg
     }
 }
@@ -215,7 +216,7 @@ pub struct Monster {
     pub strategy_damage: u8,
     pub talks: u8,
     /// 772 `RaceData[].Talk` text list — `<voices>` (`crnonpl.cc:2442`). Empty = no broadcast.
-    pub talk_texts: Vec<String>,
+    pub talk_texts: Arc<[String]>,
     pub melee_skill: i32,
     pub melee_attack: i32,
     pub poison_cycles: i32,

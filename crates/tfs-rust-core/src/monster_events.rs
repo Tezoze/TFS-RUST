@@ -61,21 +61,25 @@ impl GameWorld {
 
     /// C++ `Map::getSpectators` — spatial viewport box only (`map.cpp` ~386–474).
     /// Used for move/appear fan-out; per-creature `canSee` is checked in `Monster::onCreatureMove`.
-    fn collect_spatial_spectators(&self, center: Position, multifloor: bool) -> Vec<CreatureId> {
-        let mut out = Vec::new();
+    fn fill_spatial_spectators(
+        map: &crate::map::Map,
+        center: Position,
+        multifloor: bool,
+        out: &mut Vec<CreatureId>,
+    ) {
+        out.clear();
         for z in Self::spectator_z_range(center.z, multifloor) {
-            self.map.grid.collect_spectators(
+            map.grid.collect_spectators(
                 center.x,
                 center.y,
                 z,
                 MAP_MAX_VIEWPORT,
                 MAP_MAX_VIEWPORT,
-                &mut out,
+                out,
             );
         }
         out.sort_by_key(|id| id.data().as_ffi());
         out.dedup();
-        out
     }
 
     /// Creatures within `Creature::canSee` of `center` (monster `updateTargetList` / spawn scan).
@@ -85,21 +89,25 @@ impl GameWorld {
         multifloor: bool,
     ) -> Vec<CreatureId> {
         let range = i32::from(MAP_MAX_VIEWPORT);
-        self.collect_spatial_spectators(center, multifloor)
-            .into_iter()
-            .filter(|&other| {
-                let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
-                    return false;
-                };
-                creature_can_see(
-                    center,
-                    other_pos,
-                    range,
-                    range,
-                    self.mechanics.profile.underground_sees_surface,
-                )
-            })
-            .collect()
+        Self::fill_spatial_spectators(
+            &self.map,
+            center,
+            multifloor,
+            &mut self.scratch_spectators,
+        );
+        self.scratch_spectators.retain(|&other| {
+            let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
+                return false;
+            };
+            creature_can_see(
+                center,
+                other_pos,
+                range,
+                range,
+                self.mechanics.profile.underground_sees_surface,
+            )
+        });
+        std::mem::take(&mut self.scratch_spectators)
     }
     /// Monsters that should receive `Monster::onCreatureMove` for a move (`map.cpp` ~264–323).
     fn monsters_witnessing_move(
@@ -107,16 +115,15 @@ impl GameWorld {
         old_pos: Position,
         new_pos: Position,
     ) -> Vec<CreatureId> {
-        let mut ids: Vec<CreatureId> = self
-            .collect_spatial_spectators(old_pos, true)
-            .into_iter()
-            .chain(self.collect_spatial_spectators(new_pos, true))
-            .filter(|&id| {
-                self.creatures
-                    .get(id)
-                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-            })
-            .collect();
+        Self::fill_spatial_spectators(&self.map, old_pos, true, &mut self.scratch_spectators);
+        let mut ids = std::mem::take(&mut self.scratch_spectators);
+        Self::fill_spatial_spectators(&self.map, new_pos, true, &mut self.scratch_spectators);
+        ids.extend(self.scratch_spectators.drain(..));
+        ids.retain(|&id| {
+            self.creatures
+                .get(id)
+                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+        });
         // NOTE(parity, GL#24): C++ `TFindCreatures::getNext` (`crmain.cc:101–144`) walks
         // 16×16 blocks in row-major order (blockx inner, blocky outer) and follows the
         // `NextChainCreature` linked list within each block — so the move-stimulus fan-out
@@ -511,17 +518,17 @@ impl GameWorld {
         creature_id: CreatureId,
         pos: Position,
     ) {
-        let monsters: Vec<CreatureId> = self
-            .collect_spatial_spectators(pos, true)
-            .into_iter()
-            .filter(|&id| {
+        let monsters: Vec<CreatureId> = {
+            Self::fill_spatial_spectators(&self.map, pos, true, &mut self.scratch_spectators);
+            self.scratch_spectators.retain(|&id| {
                 id != creature_id
                     && self
                         .creatures
                         .get(id)
                         .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-            })
-            .collect();
+            });
+            std::mem::take(&mut self.scratch_spectators)
+        };
         self.monster_viewport_notify_depth += 1;
         for monster_id in monsters {
             // C++ `Monster::onCreatureAppear` → `onCreatureEnter` for each spatial spectator (`monster.cpp` ~167).

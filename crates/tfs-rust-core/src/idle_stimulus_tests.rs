@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tfs_rust_common::enums::{CombatType, ConditionType, Direction};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -4188,7 +4190,7 @@ fn monster_talk_emits_packet_on_gate_hit() {
         let mut w = beat_driven_test_world();
         w.seed_parity_rng(seed);
         let mut c = MonsterAiConfig::default();
-        c.talk_texts = vec!["Zzzzzz".into()];
+        c.talk_texts = Arc::from(["Zzzzzz".into()]);
         c.talks = 1;
         let m = insert_monster_with_config(&mut w, "Cobra", mpos, 200, c);
         // Wake the monster so it reaches the talk path (sleeping+idle returns early).
@@ -5963,6 +5965,82 @@ fn test_monster_lock_todo_held_between_go_steps() {
             .len(),
         walk_len,
         "IdleStimulus must no-op while LockToDo"
+    );
+}
+
+/// TODO-1 / audit: deep zero-delay `Execute` chain must drain in one wakeup without recursion.
+/// C++ `TCreature::Execute` — `cract.cc:783-898` `while (true)`.
+#[test]
+fn test_monster_deep_zero_delay_execute_chain() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    const CHAIN_LEN: usize = 64;
+    if let Some(k) = world.creatures.get_mut(monster) {
+        let base = k.base_mut();
+        for _i in 0..CHAIN_LEN {
+            base.todo.queue.push_back(CreatureAction::Wait {
+                deadline_ms: 0,
+            });
+            base.todo.queue.push_back(CreatureAction::Talk {
+                text: "chain-step",
+            });
+        }
+    }
+
+    world.todo_start_from_action(monster, 0);
+    let initial_server_ms = world.server_ms;
+    world.advance_beat(200);
+
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        base.todo.queue.is_empty(),
+        "deep zero-delay chain must fully drain in one beat"
+    );
+    assert_eq!(
+        world.server_ms,
+        initial_server_ms + 200,
+        "deep chain must not advance extra beats"
+    );
+}
+
+/// TODO-1 guard: when the iteration cap trips mid-batch, re-arm wakeup so the creature
+/// is not left `todo.locked` with no heap entry.
+#[test]
+fn test_todo_execute_guard_rearms_wakeup() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    // > MAX_TODO_EXECUTE_ITERATIONS (512) zero-delay waits.
+    if let Some(k) = world.creatures.get_mut(monster) {
+        let base = k.base_mut();
+        for _ in 0..600 {
+            base.todo
+                .queue
+                .push_back(CreatureAction::Wait { deadline_ms: 0 });
+        }
+        base.todo.locked = true;
+        base.next_wakeup = None; // already taken by process_creature_todo
+    }
+
+    world.run_monster_todo_execute(monster);
+
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        !base.todo.queue.is_empty(),
+        "guard must leave remaining queue work"
+    );
+    assert!(
+        base.next_wakeup.is_some(),
+        "guard must re-arm next_wakeup so the creature is not stalled"
+    );
+    assert!(
+        base.todo.locked,
+        "remaining queue keeps LockToDo until drain"
     );
 }
 

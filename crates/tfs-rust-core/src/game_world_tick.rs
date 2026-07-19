@@ -50,7 +50,7 @@ impl GameWorld {
 
         let t0 = Instant::now();
         if fired.cron {
-            let expired = self.decay.tick(self.server_ms);
+            let expired = self.decay.tick(self.decay_clock_now());
             if !expired.is_empty() {
                 self.process_decay_expiry(&expired);
             }
@@ -108,6 +108,9 @@ impl GameWorld {
                 fired_creatures = fired.creatures,
                 fired_skills = fired.skills,
                 fired_other = fired.other,
+                decay_live = self.decay.live_count(),
+                decay_heap = self.decay.heap_len(),
+                obs_commands = self.obs_commands_processed,
                 "772 beat advance timing"
             );
         }
@@ -138,5 +141,43 @@ mod tests {
         assert!(world.lag);
         assert_eq!(world.server_ms, 0);
         assert!(world.round_nr > 0, "Other subsystem should have fired");
+    }
+
+    /// DEC-3: 772 decay uses `RoundNr`, not movement `server_ms` — lag guard must not freeze expiry.
+    #[test]
+    fn lag_guard_does_not_freeze_decay_clock() {
+        use crate::formulas::DecayClockModel;
+        use crate::ids::ItemId;
+        use slotmap::SlotMap;
+
+        let mut world = beat_driven_test_world();
+        assert_eq!(
+            world.mechanics.profile.decay_clock,
+            DecayClockModel::RoundNumber
+        );
+
+        let mut scratch: SlotMap<ItemId, ()> = SlotMap::with_key();
+        let item_id = scratch.insert(());
+        world.round_nr = 0;
+        world.decay.schedule(item_id, 1, None);
+
+        world.server_ms = 100;
+        world.advance_beat(2000);
+
+        assert_eq!(
+            world.server_ms, 100,
+            "movement clock must stay frozen under lag guard"
+        );
+        assert!(world.lag);
+        assert!(
+            world.decay_clock_now() >= 1,
+            "round-based decay clock must advance while movement is paused"
+        );
+        let expired = world.decay.tick(world.decay_clock_now());
+        assert_eq!(
+            expired.len(),
+            1,
+            "scheduled decay must become due after round clock advances"
+        );
     }
 }

@@ -427,6 +427,9 @@ impl GameWorld {
         self.apply_item_abilities_delta(cid, slot, &abilities, -1);
     }
 
+    /// Prefer `resolve_item_parent_cylinder` / `Cylinder::Inventory` (DEC-1). Kept for
+    /// debugging when parent links are missing.
+    #[allow(dead_code)]
     pub(crate) fn find_equipment_owner(&self, item_id: ItemId) -> Option<(CreatureId, u8)> {
         for (cid, kind) in self.creatures.iter() {
             let CreatureKind::Player(p) = kind else {

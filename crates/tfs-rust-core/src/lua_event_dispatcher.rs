@@ -237,7 +237,9 @@ impl EventDispatcher for LuaEventDispatcher {
         });
     }
 
-    fn on_logout(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {
+    fn on_logout(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) -> bool {
+        // C++: `g_creatureEvents->playerLogout(player)` — false cancels logout.
+        let mut allow = true;
         with_lua_context(ctx, || {
             if let Some(callbacks) = self.creature_events.get(&CreatureEventType::Logout) {
                 for callback in callbacks {
@@ -248,6 +250,7 @@ impl EventDispatcher for LuaEventDispatcher {
                         Ok(true) => {}
                         Ok(false) => {
                             tracing::warn!("Lua onLogout returned false for {:?}", creature);
+                            allow = false;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -260,6 +263,7 @@ impl EventDispatcher for LuaEventDispatcher {
                 }
             }
         });
+        allow
     }
 
     fn execute_timer_event(&self, event_id: u64) -> bool {

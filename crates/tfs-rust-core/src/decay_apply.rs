@@ -51,14 +51,8 @@ impl GameWorld {
         if self.effective_decay_to(item) < 0 {
             return false;
         }
-        // TVP `itemsDecayInsideDepots` default false — `configmanager.cpp`.
-        let allow_depot = crate::config::get_bool_or(
-            self.config.as_ref(),
-            "itemsDecayInsideDepots",
-            false,
-        )
-        .unwrap_or(false);
-        if !allow_depot && self.is_inside_depot_locker(item_id) {
+        // TVP `itemsDecayInsideDepots` default false — cached at startup (DEC-4).
+        if !self.items_decay_inside_depots && self.is_inside_depot_locker(item_id) {
             return false;
         }
         true
@@ -137,25 +131,31 @@ impl GameWorld {
             if let Some(item) = self.items.get_mut(item_id) {
                 item.set_decaying(DecayState::True);
             }
-            let deadline = self.server_ms.saturating_add(duration_ms as u64);
+            let deadline = self.decay_schedule_deadline(duration_ms);
             self.decay.schedule(item_id, deadline, replace_with);
         } else {
             self.internal_decay_item(item_id, None);
         }
     }
 
-    /// TFS `Game::stopDecay` — cancel cron and keep remaining ms on the item.
+    /// TFS `Game::stopDecay` — cancel cron and keep remaining **item milliseconds** on the item.
+    ///
+    /// Returns remaining duration in **item ms** (same units as `Item::duration` / `change_item_type`),
+    /// not raw decay-clock ticks. On 772 (`RoundNumber`) the heap stores rounds; converting here
+    /// prevents `change_item_type` from treating rounds as milliseconds.
     pub fn stop_decay(&mut self, item_id: ItemId) -> u64 {
+        let now = self.decay_clock_now();
         let remaining = self
             .decay
-            .remaining_ms(item_id, self.server_ms)
+            .remaining_ms(item_id, now)
             .unwrap_or(0);
         self.decay.cancel(item_id);
+        let item_ms = self.decay_clock_remaining_to_item_ms(remaining);
         if let Some(item) = self.items.get_mut(item_id) {
-            item.set_duration(remaining.min(i32::MAX as u64) as i32);
+            item.set_duration(item_ms.min(i32::MAX as u64) as i32);
             item.set_decaying(DecayState::False);
         }
-        remaining
+        item_ms
     }
 
     /// Cancel scheduler entry when the item is being destroyed (`CronStop` / `stopDecaying`).
@@ -293,6 +293,7 @@ impl GameWorld {
     /// Decompile `Empty(Con, Remainder)` before expire transform (`operate.cc`).
     ///
     /// Corpse: delete excess beyond `remainder`. Non-corpse: move excess to parent cylinder.
+    /// Batch path: snapshot children once, incremental chain deltas, one carry-weight notify.
     fn empty_container_for_expire(&mut self, container_id: ItemId, remainder: usize) {
         let Some(item_type) = self.items.get(container_id).map(|i| i.item_type) else {
             return;
@@ -303,54 +304,57 @@ impl GameWorld {
 
         // Ensure registry entry so we can iterate children (map corpses may be lazy).
         self.hydrate_container_if_needed(container_id);
-        if self.container_registry.get(container_id).is_none() {
+        let Some((viewers, children)) = self.container_registry.get(container_id).map(|c| {
+            (c.open_by.clone(), c.items.clone())
+        }) else {
             return;
-        }
+        };
 
-        let viewers: Vec<CreatureId> = self
-            .container_registry
-            .get(container_id)
-            .map(|c| c.open_by.clone())
-            .unwrap_or_default();
         for viewer in viewers {
             self.auto_close_containers_for_container_item(viewer, container_id);
         }
 
+        let count = children.len();
+        if count <= remainder {
+            return;
+        }
+
         let is_corpse = self.is_corpse_item_type(item_type);
-        loop {
-            let count = self
-                .container_registry
-                .get(container_id)
-                .map(|c| c.items.len())
-                .unwrap_or(0);
-            if count <= remainder {
-                break;
+        let excess = count - remainder;
+        let to_remove: Vec<ItemId> = children[..excess].to_vec();
+
+        let mut total_weight_delta = 0u32;
+        let mut total_count_delta = 0u32;
+        for &child in &to_remove {
+            let (w, h) = self.item_subtree_weight_and_holding_count(child);
+            total_weight_delta = total_weight_delta.saturating_add(w);
+            total_count_delta = total_count_delta.saturating_add(h);
+        }
+
+        if let Some(cont) = self.container_registry.get_mut(container_id) {
+            if remainder == 0 {
+                cont.items.clear();
+            } else {
+                cont.items.drain(..excess);
             }
-            let Some(child) = self
-                .container_registry
-                .get(container_id)
-                .and_then(|c| c.items.first().copied())
-            else {
-                break;
-            };
-            // Detach without destroying — then delete or move.
-            if let Some(idx) = self.get_thing_index_in_container(container_id, child) {
-                let idx = idx as usize;
-                if let Some(cont) = self.container_registry.get_mut(container_id) {
-                    let _ = cont.remove_item(idx);
-                }
-                if let Some(ch) = self.container_registry.get_mut(child) {
-                    ch.parent_container = None;
-                }
-                if let Some(item) = self.items.get_mut(child) {
-                    item.parent = None;
-                }
-                self.refresh_container_chain(container_id);
-                self.notify_container_content_changed(
-                    container_id,
-                    ContainerContentChange::Remove { slot: idx as u16 },
-                );
+        }
+        for &child in &to_remove {
+            if let Some(ch) = self.container_registry.get_mut(child) {
+                ch.parent_container = None;
             }
+            if let Some(item) = self.items.get_mut(child) {
+                item.parent = None;
+            }
+        }
+
+        self.apply_container_remove_delta_chain(
+            container_id,
+            total_weight_delta,
+            total_count_delta,
+        );
+        self.notify_container_front_removals(container_id, excess);
+
+        for child in to_remove {
             if is_corpse {
                 self.destroy_item_tree(child);
             } else {
@@ -366,25 +370,29 @@ impl GameWorld {
             .is_some_and(|t| t.xml_attributes.contains_key("corpsetype"))
     }
 
-    /// Recursively destroy an item and nested container contents.
-    fn destroy_item_tree(&mut self, item_id: ItemId) {
-        if let Some(children) = self
-            .container_registry
-            .get(item_id)
-            .map(|c| c.items.clone())
-        {
-            for child in children {
-                self.destroy_item_tree(child);
+    /// Iteratively destroy an item and nested container contents (post-order stack).
+    ///
+    /// Outcomes: decompile `Empty` corpse delete path (`operate.cc`).
+    fn destroy_item_tree(&mut self, root: ItemId) {
+        let mut stack = vec![root];
+        let mut destroy_order = Vec::new();
+        while let Some(id) = stack.pop() {
+            destroy_order.push(id);
+            if let Some(children) = self.container_registry.get(id).map(|c| c.items.clone()) {
+                for child in children {
+                    stack.push(child);
+                }
             }
         }
-        self.auto_close_containers_for_all_viewers_of(item_id);
-        if let Some(reg) = self.container_registry.get_mut(item_id) {
-            reg.items.clear();
+        destroy_order.reverse();
+        for item_id in destroy_order {
+            self.auto_close_containers_for_all_viewers_of(item_id);
+            if let Some(reg) = self.container_registry.get_mut(item_id) {
+                reg.items.clear();
+            }
+            self.cancel_item_decay(item_id);
+            self.items.remove(item_id);
         }
-        // Unregister if present — ContainerRegistry may not have a public unregister;
-        // leave empty entry or remove via existing API.
-        self.cancel_item_decay(item_id);
-        self.items.remove(item_id);
     }
 
     fn auto_close_containers_for_all_viewers_of(&mut self, container_id: ItemId) {
@@ -425,10 +433,14 @@ impl GameWorld {
     }
 
     /// Cron apply — all cylinders. Equip branch strips abilities first.
+    ///
+    /// O(1) equip resolution via [`Item::parent`] — not `find_equipment_owner` scan.
     pub(crate) fn process_decay_expiry(&mut self, expired: &[(ItemId, DecayEntry)]) {
         for &(item_id, ref entry) in expired {
-            if let Some((cid, slot)) = self.find_equipment_owner(item_id) {
-                self.strip_equip_abilities_keep_type(cid, item_id, slot);
+            if let Some(Cylinder::Inventory { player_id, slot }) =
+                self.resolve_item_parent_cylinder(item_id)
+            {
+                self.strip_equip_abilities_keep_type(player_id, item_id, slot);
             }
             // Scheduler `replace_with: None` means vanish (`decayto` 0).
             match entry.replace_with {
@@ -524,6 +536,7 @@ mod tests {
     use crate::item::Item;
     use crate::sim_harness::minimal_world;
     use crate::tile::Tile;
+    use crate::creature::CreatureKind;
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
 
@@ -721,6 +734,73 @@ mod tests {
         assert_eq!(
             world.decay.remaining_ms(iid, world.server_ms),
             Some(30_000)
+        );
+    }
+
+    #[test]
+    fn stop_decay_returns_item_ms_under_round_clock() {
+        use crate::formulas::DecayClockModel;
+
+        let mut world = minimal_world();
+        world.mechanics.profile.decay_clock = DecayClockModel::RoundNumber;
+        world.round_nr = 100;
+
+        let mut lit = ItemType::default();
+        lit.decay_time = 30; // 30s → 30 rounds on schedule
+        lit.decay_to = 2041;
+        register_type(&mut world, 2042, lit);
+
+        let mut unlit = ItemType::default();
+        unlit.stop_time = true;
+        register_type(&mut world, 2041, unlit);
+
+        let iid = world.items.insert(Item::new_single(2042));
+        world.start_decay(iid);
+        world.round_nr = 110; // 10 rounds elapsed → 20s left
+        assert_eq!(
+            world.stop_decay(iid),
+            20_000,
+            "stop_decay must return item ms, not rounds"
+        );
+        assert_eq!(world.item_duration_raw_ms(iid), 20_000);
+
+        // Resume path via change_item_type must keep item-ms (not raw rounds).
+        if let Some(item) = world.items.get_mut(iid) {
+            item.set_duration(20_000);
+        }
+        world.start_decay(iid);
+        world.round_nr = 110;
+        world.change_item_type(iid, 2041);
+        assert_eq!(world.item_duration_raw_ms(iid), 20_000);
+    }
+
+    #[test]
+    fn item_decay_remaining_ms_uses_round_clock() {
+        use crate::formulas::DecayClockModel;
+
+        let mut world = minimal_world();
+        world.mechanics.profile.decay_clock = DecayClockModel::RoundNumber;
+        world.round_nr = 100;
+        world.server_ms = 50_000; // must not be used as heap "now"
+
+        let mut it = ItemType::default();
+        it.decay_time = 30;
+        it.decay_to = 0;
+        register_type(&mut world, 1490, it);
+
+        let iid = world.items.insert(Item::new_single(1490));
+        world.start_decay(iid);
+        world.round_nr = 110;
+        assert_eq!(
+            world.item_decay_remaining_ms(iid),
+            Some(20_000),
+            "look/save helper must convert rounds → item ms"
+        );
+        // Bug shape: querying with server_ms would yield 0 / nonsense.
+        assert_eq!(
+            world.decay.remaining_ms(iid, world.server_ms),
+            Some(0),
+            "sanity: raw heap query with server_ms is wrong on RoundNumber"
         );
     }
 
@@ -945,5 +1025,147 @@ mod tests {
 
         assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(1488));
         assert!(world.decay.remaining_ms(iid, world.server_ms).is_some());
+    }
+
+    #[test]
+    fn equipped_decay_strips_abilities_via_parent() {
+        use crate::inventory::InventorySlot;
+        use crate::test_world::support::{insert_player, test_player};
+        use tfs_rust_content::item_abilities::ItemAbilities;
+
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+        let pos = Position::new(80, 80, 7);
+        let cid = insert_player(&mut world, test_player("ring_decay", pos));
+        let slot = InventorySlot::Ring as u8;
+
+        let mut ring = ItemType::default();
+        ring.decay_time = 10;
+        ring.decay_to = 0;
+        let mut abl = ItemAbilities::default();
+        abl.speed = 15;
+        ring.abilities = abl;
+        register_type(&mut world, 2169, ring);
+
+        let iid = world.items.insert(Item::new_single(2169));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(slot).expect("slot");
+            p.equipment_slots[idx] = Some(iid);
+        }
+        if let Some(item) = world.items.get_mut(iid) {
+            item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                player_id: cid,
+                slot,
+            });
+        }
+        world.apply_equip_item_abilities(cid, iid, slot);
+        assert_eq!(
+            match world.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.base.var_speed,
+                _ => panic!("player"),
+            },
+            15
+        );
+
+        world.start_decay(iid);
+        let expired = world.decay.tick(world.server_ms + 10_000);
+        assert_eq!(expired.len(), 1);
+        world.process_decay_expiry(&expired);
+
+        assert!(world.items.get(iid).is_none());
+        assert_eq!(
+            match world.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.base.var_speed,
+                _ => panic!("player"),
+            },
+            0,
+            "equip abilities stripped via parent cylinder, not owner scan"
+        );
+    }
+
+    #[test]
+    fn decay_burst_processes_many_expiries() {
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut it = ItemType::default();
+        it.decay_time = 5;
+        it.decay_to = 0;
+        register_type(&mut world, 1490, it);
+
+        let mut ids = Vec::new();
+        for i in 0..12 {
+            let pos = Position::new(90 + i, 90, 7);
+            let iid = place_on_tile(&mut world, pos, 1490);
+            world.start_decay(iid);
+            ids.push(iid);
+        }
+
+        let expired = world.decay.tick(world.server_ms + 5_000);
+        assert_eq!(expired.len(), 12);
+        world.process_decay_expiry(&expired);
+
+        for iid in ids {
+            assert!(world.items.get(iid).is_none(), "burst item removed");
+        }
+    }
+
+    #[test]
+    fn corpse_empty_remainder_zero_destroys_all_loot() {
+        use crate::container::Container;
+        use std::collections::HashMap;
+
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut stage1 = ItemType::default();
+        stage1.group = ItemType::GROUP_CONTAINER;
+        stage1.max_items = 7;
+        stage1.decay_time = 10;
+        stage1.decay_to = 2148;
+        stage1.xml_attributes = HashMap::from([("corpsetype".into(), "blood".into())]);
+        register_type(&mut world, 2806, stage1);
+
+        let mut coin = ItemType::default();
+        coin.decay_time = 0;
+        coin.decay_to = -1;
+        register_type(&mut world, 2148, coin);
+
+        let pos = Position::new(75, 75, 7);
+        let corpse = place_on_tile(&mut world, pos, 2806);
+        world
+            .container_registry
+            .register(Container::new(corpse, 7));
+
+        let mut loot_ids = Vec::new();
+        for _ in 0..5 {
+            let loot = world.items.insert(Item::new_single(2148));
+            if let Some(cont) = world.container_registry.get_mut(corpse) {
+                let _ = cont.add_item(loot);
+            }
+            if let Some(item) = world.items.get_mut(loot) {
+                item.parent = Some(crate::cylinder::Cylinder::Container {
+                    item_id: corpse,
+                    index: crate::cylinder::INDEX_WHEREEVER,
+                });
+            }
+            loot_ids.push(loot);
+        }
+
+        world.start_decay(corpse);
+        let expired = world.decay.tick(world.server_ms + 10_000);
+        world.process_decay_expiry(&expired);
+
+        assert_eq!(world.items.get(corpse).map(|i| i.item_type), Some(2148));
+        assert!(
+            world
+                .container_registry
+                .get(corpse)
+                .is_none_or(|c| c.items.is_empty()),
+            "remainder==0 fast path clears all corpse loot"
+        );
+        for loot in loot_ids {
+            assert!(world.items.get(loot).is_none());
+        }
     }
 }

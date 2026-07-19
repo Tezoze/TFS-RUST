@@ -22,19 +22,20 @@ impl GameWorld {
     /// to push beat lag over the 1000 ms `MoveCreatures` skip threshold when many nearby
     /// monsters were also pathfinding.
     pub(crate) fn process_skills(&mut self) {
-        let ids: Vec<CreatureId> = self
-            .creatures
-            .iter()
-            .filter(|(_, k)| {
-                if k.base().health <= 0 {
-                    return false;
-                }
-                matches!(k, CreatureKind::Player(_)) || !k.base().active_conditions.is_empty()
-            })
-            .map(|(id, _)| id)
-            .collect();
+        self.scratch_creature_ids.clear();
+        self.scratch_creature_ids.extend(
+            self.creatures
+                .iter()
+                .filter(|(_, k)| {
+                    if k.base().health <= 0 {
+                        return false;
+                    }
+                    matches!(k, CreatureKind::Player(_)) || !k.base().active_conditions.is_empty()
+                })
+                .map(|(id, _)| id),
+        );
 
-        for cid in ids {
+        for cid in std::mem::take(&mut self.scratch_creature_ids) {
             self.process_creature_skills(cid);
             // Phase 4: 1098 defer deleted — both eras run fed regen.
             self.process_player_fed_regen(cid);
