@@ -2,37 +2,22 @@
 
 See `docs/GAME_LOOP_DECAY_IDLE_TODO_PERFORMANCE_AUDIT.md` § Next steps (full detail).
 Landed remediation: `68b7c93`.
-Follow-up (IDLE-3 / beat-startup / full-scale tests / OBS-1): landed this commit.
+Follow-up (IDLE-3 / beat-startup / full-scale tests / OBS-1): landed.
+MAP-walk open-container fix + live decay/chase verification: 2026-07-19.
 
-## Done (Phases 1–4 + post-landing + engineering follow-up)
-- [x] GL-1 async login
-- [x] GL-2 dual-lane command ingress + budget
-- [x] GL-3 bounded outbound + sink map
-- [x] DEC-1…DEC-4 decay apply / heap / clock / depot cache
-- [x] IDLE-1 / IDLE-2 spells + path scratch
-- [x] TODO-1 iterative Execute (+ guard re-arm)
-- [x] IDLE-3 sector-order + gen-marked dedup
-- [x] Beat-startup `interval_at` parity
-- [x] Full-scale tests #1–3, #5, #7–8, #10
-- [x] OBS-1 aggregated histograms (`tfs_obs` — opt-in only)
-- [x] Session/path/decay regressions (logout TCP, LocalSet saves, lane-full shed, expand_next, stop_decay/look-save ms, mid-login disconnect)
+## Done
+- [x] GL-1…GL-3, DEC-1…DEC-4, IDLE-1…IDLE-3, TODO-1, OBS-1
+- [x] Beat-startup `interval_at` + full-scale tests #1–3, #5, #7–8, #10
+- [x] Session/path/decay regressions
+- [x] Live chase smoke (~20 monsters lure/kite)
+- [x] Live corpse decay (in-game stages + OBS `decay_due`; cheap cron)
+- [x] MAP-walk: open ground corpse/container + walk → O(1) `script_item_position` (verified)
 
-## Next — 0. Manual smoke (operator)
-Day-to-day: `RUST_LOG=warn` or `info,tfs_obs=off` (do not leave `tfs_obs=info` on).
-- [ ] Floor change onto dense monsters (no desync / no wedge)
-- [ ] Logout returns to character list immediately
-- [ ] Ctrl+C exits cleanly (≤10s / 2nd Ctrl+C)
-- [ ] Failed login / logout mid-load closes TCP
-
-## Next — 1. Live OBS baselines (operator, opt-in)
-- [x] Aggregated histograms (loop / output / subsystems / ToDo / idle-path / decay)
-- [ ] 60s baselines: idle, dense spawn, chase, spell fight, corpse wave, packet flood — `docs/GAME_LOOP_OBS_BASELINES.md`
-  - Capture with: `RUST_LOG=tfs_obs=info,warn ./scripts/run_server.sh`
-
-## Next — 2. Deferred until data
-- [ ] GL-4 active indexes only if load data requires it
+## Next — optional / deferred
+- [ ] Fill remaining baseline rows (idle dense / spell / packet flood) in `docs/GAME_LOOP_OBS_BASELINES.md`
+- [ ] Harder multi-client / denser load-test
+- [ ] GL-4 active indexes — only if load data requires
 - [ ] (Low) failed-login `disconnectClient` error string
+- [ ] TODO-2 overload budget — only if still needed after harder load-test
 
-## Next — 3. Load-test gate
-- [ ] Load-test optimized path
-- [ ] TODO-2 overload budget — only if still needed after load-test
+Day-to-day: default mutes `tfs_obs`; opt-in with `RUST_LOG=info,tfs_obs=info`.

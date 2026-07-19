@@ -203,7 +203,8 @@ impl GameWorld {
 
     fn container_item_position(&self, container_item_id: ItemId) -> Option<Position> {
         let top = self.top_container_item_id(container_item_id);
-        self.map.find_item_position(top)
+        // O(1) parent chain — same as auto-close / Lua (`script_item_position`).
+        self.script_item_position(top)
     }
 
     fn post_remove_container_item_notification(&mut self, cid: CreatureId, item_id: ItemId) {

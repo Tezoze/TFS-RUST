@@ -1,17 +1,21 @@
 # Beat Loop, Decay, Idle Stimulus, and ToDo Performance Audit
 
 **Date:** 2026-07-19  
-**Updated:** 2026-07-19 (IDLE-3 / beat-startup / full-scale tests landed; next = operator)  
+**Updated:** 2026-07-19 (live smoke + corpse decay verified; open-ground-container walk scan fixed)  
 **Primary comparison:** 772 mechanics reference (`tibia-game-master/src/`)  
-**Scope:** static source audit of the single game thread. This is not a sampled CPU profile; suspected costs are ranked from code shape, known cardinalities, and existing live timing notes in `tasks/lessons.md` §205–§218.  
+**Scope:** static source audit of the single game thread. This is not a sampled CPU profile; suspected costs are ranked from code shape, known cardinalities, and existing live timing notes in `tasks/lessons.md` §205–§219.  
 **Implementation checklist:** `tasks/todo.md`  
 **Landed commit (Phases 1–4 remediation):** `68b7c93`
 
 ## Status (2026-07-19)
 
-**Engineering complete for this audit batch:** Phases 1–4 + post-landing regressions + IDLE-3 sector order + beat-startup `interval_at` + full-scale tests (#1–3, #5, #7–8, #10) + OBS-1 histograms.
+**Engineering + first live gate:** Phases 1–4 + IDLE-3 + beat-startup + full-scale tests + OBS-1 are in. Live capture (lure/kite ~20 monsters, mass kill, corpse stages) shows:
 
-**Operator / gate work remains** — see [Next steps](#next-steps). Do **not** implement TODO-2 or GL-4 indexes until live baselines + load-test say so.
+- **Decay OK** — corpses transformed in-game; OBS `decay_due` bursts (max 11/10s); `heap == live`; `cron_us_p99` ≤ 256µs during due windows; no cron beat lag.
+- **Chase OK** — under ~20-monster kite, `beat_lateness` ~0 and `beat_wall_ms_p99` ~16–32ms when not hitting the container bug below.
+- **~~Open ground corpse/container + walk~~** — **Fixed (MAP-walk):** per-step `find_item_position` full-map scan → O(1) `script_item_position` / `Item.parent`. Verified fixed in-game after rebuild.
+
+**Still deferred:** GL-4 active indexes, TODO-2 overload caps, failed-login UX string — only if further load shows a need. Fill remaining baseline rows in [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md) as convenient.
 
 Jump to [Next steps](#next-steps).
 
@@ -59,8 +63,9 @@ Also landed: **GL-3** (bounded outbound + game-thread sink map), **DEC-3** (`Dec
 | DEC-3 | **P1 / High** | Decay clock | **Done** — `DecayClockModel` / round clock |
 | TODO-2 | **P2 / Medium** | Due ToDo drain | **Deferred** — only after load-test |
 | IDLE-3 | **P2 / Medium** | Target/move searches | **Done** — 16×16 sector order + gen-marked dedup |
+| MAP-walk | **P0 / Critical** | Open ground container + player step | **Done** — O(1) `script_item_position` (was full-map `find_item_position` per step) |
 | GL-4 | **P2 / Medium** | Periodic systems | **Partial** — scratch Vecs; active indexes still open |
-| OBS-1 | **P1 / High** | Diagnostics | **Done (code)** — windowed histograms + `tfs_obs` summary; live baselines open |
+| OBS-1 | **P1 / High** | Diagnostics | **Done** — histograms + live chase/corpse samples; more rows optional |
 | DEC-4 | **P2 / Medium** | `can_decay` / destroy | **Done** — cached depot flag; iterative destroy (via DEC-1) |
 
 ---
@@ -412,52 +417,47 @@ Use periodic aggregated `tracing` events first; avoid per-action INFO logs in ho
 
 ## Next steps
 
-**Engineering for this audit batch is done.** Remaining work is operator capture + a load-test gate. **Do not start TODO-2** (or GL-4 active indexes) until steps 1–2 show synchronized all-due drain is still the bottleneck.
+Live smoke + corpse decay + open-container walk fix are **verified**. Remaining work is optional baseline fill-out and a harder load-test before considering TODO-2 / GL-4.
 
-### 0. Manual smoke (operator) — first
+### 0. Manual smoke — **done (operator)**
 
-After `./scripts/run_server.sh` restart (day-to-day: `RUST_LOG=warn` or `info,tfs_obs=off` — do **not** leave `tfs_obs=info` on; it prints a fat line every 10s):
-
-| Check | Expected |
+| Check | Status |
 |---|---|
-| Floor change onto a dense monster floor | No OTClient desync; monsters acquire/chase without wedging the game thread |
-| Logout (`0x14`) | Immediate character list; TCP closes; no ~10s hang |
-| Ctrl+C | Exit ≤10s / 2nd Ctrl+C; no `block_in_place` panic |
-| Failed login / logout mid-async-load | Game TCP closes; no half-open session |
+| Dense monster floor / lure / kite | **OK** — no wedge when not on MAP-walk bug |
+| Open ground corpse + walk | **Was broken** (350ms–1.1s `todo_us` / MoveCreatures skip) → **fixed + verified** |
+| Corpse decay stages | **OK** — transformed in-game; OBS `decay_due` bursts; cheap cron |
+| Ctrl+C / logout | Covered earlier in session regressions |
 
-Day-to-day lag signal: `WARN … 772 beat advance timing` (only when a beat is actually slow). Checklist: `tasks/todo.md`.
+Day-to-day: omit `RUST_LOG` (default mutes `tfs_obs`) or `RUST_LOG=warn`.
 
-### 1. Fill live OBS baselines (operator)
+### 1. Live OBS baselines — **partial fill**
 
-Opt-in only while capturing (mute afterward):
+Chase + corpse-wave samples recorded in [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md). Optional: idle / spell-fight / packet-flood rows.
 
-```bash
-RUST_LOG=tfs_obs=info,warn ./scripts/run_server.sh
-```
-
-Paste six 60s scenarios into [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md) (p50/p95/p99 beat lateness + subsystem wall + ToDo/decay/path). Early live samples already show ToDo/idle as the hot path under dense floors (`todo_us` spikes; `WARN` beat timing) — baselines confirm whether that survives load.
+Opt-in capture: `RUST_LOG=info,tfs_obs=info ./scripts/run_server.sh` (tee recommended).
 
 ### 2. Still open (code — only if data requires)
 
 | ID | When |
 |---|---|
-| GL-4 active indexes | Only if baselines show `creatures_us` / `skills_us` still hot after this pass |
-| Failed-login UX (low) | Optional `disconnectClient` error string before TCP close |
-| TODO-2 overload budget | Only after production-shaped load-test of the optimized path |
+| GL-4 active indexes | Only if `creatures_us` / `skills_us` dominate under heavier load |
+| Failed-login UX (low) | Optional `disconnectClient` error string |
+| TODO-2 overload budget | Only after a harder production-shaped load still shows all-due ToDo as the bottleneck |
 
-### 3. Already done this pass (do not re-do)
+**Not indicated by current live data:** decay/cron is not the lag source; MAP-walk was. Do **not** add TODO-2 caps from this capture alone.
+
+### 3. Already done
 
 | Item | Status |
 |---|---|
-| IDLE-3 16×16 sector order + gen dedup | **Done** |
-| Beat-startup `interval_at` | **Done** |
-| Full-scale tests #1–3, #5, #7–8, #10 | **Done** |
-| OBS-1 histograms / `tfs_obs` summaries | **Done** (code; live fill open) |
+| IDLE-3 / beat-startup / full-scale tests / OBS-1 code | **Done** |
+| MAP-walk O(1) open-container position | **Done** |
+| Corpse decay live verification | **Done** |
 
-### 4. Gate: load-test → maybe TODO-2
+### 4. Gate: harder load-test → maybe TODO-2
 
-1. Run production-shaped load with Phases 1–4 + filled baselines.
-2. If synchronized all-due ToDo/cron still dominates, design an **explicit** overload budget — that is **TODO-2**.
+1. Optional denser spawn / multi-client load with the MAP-walk fix in the binary.
+2. Only if synchronized all-due ToDo still dominates → design **TODO-2**.
 3. Until then: preserve all-due drain; do not silently cap.
 
 ### 5. Verification
@@ -465,7 +465,6 @@ Paste six 60s scenarios into [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELI
 ```bash
 rtk cargo test -p tfs-rust-core --lib
 rtk cargo clippy -p tfs-rust-core --lib -- -D warnings
-rtk cargo test --workspace
 ```
 ---
 
@@ -484,6 +483,6 @@ rtk cargo test --workspace
 
 ## Bottom line
 
-Lag came from **admission and amplification** on the game thread, not `O(log n)` heaps. Protect-the-loop + decay/idle/ToDo fixes are in (`68b7c93`); this follow-up closed **IDLE-3**, **beat-startup**, and **full-scale tests**.
+Lag came from **admission and amplification**, not heap ops. Protect-the-loop + decay/idle/ToDo fixes are in; live play confirmed **corpse decay is fine** (cheap cron) and exposed **open-ground-container walk** as a full-map scan per step — now O(1) via `Item.parent`.
 
-**Next (operator):** (0) manual smoke with `tfs_obs` off → (1) opt-in baselines into [`GAME_LOOP_OBS_BASELINES.md`](GAME_LOOP_OBS_BASELINES.md) → (2) load-test → only then **TODO-2** / GL-4 if still hot.
+**Next:** optional denser load-test; **do not** start TODO-2 from the current capture. Default log filter mutes `tfs_obs`.

@@ -255,7 +255,11 @@ impl GameWorld {
         let Some(viewer_pos) = self.creatures.get(viewer).map(|k| k.position()) else {
             return false;
         };
-        if let Some(pos) = self.map.find_item_position(top) {
+        // O(1) via `Item.parent` — C++ `Thing::getPosition` / parent cylinder walk.
+        // Never `map.find_item_position` here: that is a full-world tile scan and runs on
+        // every player step while a ground corpse/container window is open (`walk/mod.rs`
+        // → `auto_close_containers_for_player`).
+        if let Some(pos) = self.script_item_position(top) {
             return are_in_range_1_1_0(viewer_pos, pos);
         }
         false

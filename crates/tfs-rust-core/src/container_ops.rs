@@ -42,7 +42,7 @@ impl GameWorld {
         actor: CreatureId,
     ) -> Option<ReturnValue> {
         let root = self.top_container_item_id(container_item_id);
-        let pos = self.map.find_item_position(root)?;
+        let pos = self.script_item_position(root)?;
         let tile = self.map.get_tile(pos)?;
         let house_id = match tile {
             Tile::House(h) => h.house_id,
