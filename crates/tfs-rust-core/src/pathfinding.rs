@@ -427,20 +427,28 @@ where
 }
 
 /// One cell in the 772 `TShortway` viewport grid (`cract.cc` `TShortwayPoint`).
+#[derive(Clone)]
 struct TShortwayCell {
     waypoints: i32,
     /// Signed path cost — `cract.cc` `TShortwayPoint::Waylength` (`INT_MAX` = unvisited).
     waylength: i32,
     /// Signed expand key — `cract.cc` `TShortwayPoint::Heuristic` (`INT_MAX` = not queued).
     heuristic: i32,
-    parent: Option<Position>,
+    parent: Option<u16>,
     /// Incoming edge to this cell was diagonal — used for equal-cost cardinal tie-break.
     parent_diagonal: bool,
-    expand_next: Option<Position>,
+    expand_next: Option<u16>,
+    /// Cell is inside the current outer matrix and maps to a valid world position.
+    in_matrix: bool,
 }
 
 const TSHORTWAY_UNVISITED_WL: i32 = i32::MAX;
 const TSHORTWAY_UNVISITED_H: i32 = i32::MAX;
+
+/// Monster viewport outer half-extent (`Visible+1` with `Visible=10`) — max dense buffer size.
+const TSHORTWAY_MAX_OUTER: i32 = REVERSE_PATH_VIEW_RADIUS + 1;
+const TSHORTWAY_MAX_SIDE: usize = (2 * TSHORTWAY_MAX_OUTER + 1) as usize;
+const TSHORTWAY_MAX_CELLS: usize = TSHORTWAY_MAX_SIDE * TSHORTWAY_MAX_SIDE;
 
 /// Prefer cardinal when two relaxations reach the same `waylength` (`cract.cc` strict `<` keeps
 /// first-seen; linked-list expand order can still tie — cardinals match live 772 chase traces).
@@ -449,105 +457,126 @@ fn tshortway_should_relax(prev_waylength: u32, new_waylength: u32) -> bool {
     new_waylength < prev_waylength
 }
 
-/// 772 `TShortway` search state — linked-list open set (`cract.cc`, `compare_chase_pathfinding.py`).
+fn tshortway_cell_idx(dx: i32, dy: i32, outer: i32) -> Option<usize> {
+    if dx < -outer || dx > outer || dy < -outer || dy > outer {
+        return None;
+    }
+    let side = (2 * outer + 1) as usize;
+    Some(((dy + outer) as usize) * side + ((dx + outer) as usize))
+}
+
+fn tshortway_rel(origin: Position, pos: Position) -> (i32, i32) {
+    (pos.x as i32 - origin.x as i32, pos.y as i32 - origin.y as i32)
+}
+
+/// 772 `TShortway` search state — dense matrix + linked-list open set (`cract.cc`).
 struct TShortwaySearch {
     origin: Position,
+    outer: i32,
+    origin_idx: u16,
     min_waypoints: u32,
-    cells: HashMap<Position, TShortwayCell>,
-    expand_head: Option<Position>,
+    cells: Box<[TShortwayCell]>,
+    expand_head: Option<u16>,
 }
 
 impl TShortwaySearch {
+    fn cell(&self, idx: u16) -> &TShortwayCell {
+        &self.cells[idx as usize]
+    }
+
+    fn cell_mut(&mut self, idx: u16) -> &mut TShortwayCell {
+        &mut self.cells[idx as usize]
+    }
+
+    fn idx_of(&self, pos: Position) -> Option<u16> {
+        let (dx, dy) = tshortway_rel(self.origin, pos);
+        tshortway_cell_idx(dx, dy, self.outer).map(|i| i as u16)
+    }
+
+    fn pos_of(&self, idx: u16) -> Option<Position> {
+        let side = (2 * self.outer + 1) as i32;
+        let i = idx as i32;
+        let dx = (i % side) - self.outer;
+        let dy = (i / side) - self.outer;
+        offset_position(self.origin, dx, dy)
+    }
+
     /// Reset path-search fields on inner `±Visible` cells only (`cract.cc` `TShortway::ClearMap`).
     fn clear_path_state(&mut self, inner_radius: i32) {
         for dy in -inner_radius..=inner_radius {
             for dx in -inner_radius..=inner_radius {
-                let Some(pos) = offset_position(self.origin, dx, dy) else {
+                let Some(idx) = tshortway_cell_idx(dx, dy, self.outer) else {
                     continue;
                 };
-                if let Some(cell) = self.cells.get_mut(&pos) {
-                    cell.waylength = TSHORTWAY_UNVISITED_WL;
-                    cell.heuristic = TSHORTWAY_UNVISITED_H;
-                    cell.parent = None;
-                    cell.parent_diagonal = false;
-                    cell.expand_next = None;
+                let cell = &mut self.cells[idx];
+                if !cell.in_matrix {
+                    continue;
                 }
+                cell.waylength = TSHORTWAY_UNVISITED_WL;
+                cell.heuristic = TSHORTWAY_UNVISITED_H;
+                cell.parent = None;
+                cell.parent_diagonal = false;
+                cell.expand_next = None;
             }
         }
         self.expand_head = None;
     }
 
-    fn remove_from_expand_list(&mut self, pos: Position) {
-        if self.expand_head == Some(pos) {
-            self.expand_head = self.cells.get(&pos).and_then(|c| c.expand_next);
+    fn remove_from_expand_list(&mut self, idx: u16) {
+        if self.expand_head == Some(idx) {
+            self.expand_head = self.cell(idx).expand_next;
             return;
         }
         let mut cur = self.expand_head;
-        while let Some(cur_pos) = cur {
-            let next = self.cells.get(&cur_pos).and_then(|c| c.expand_next);
-            if next == Some(pos) {
-                let removed_next = self.cells.get(&pos).and_then(|c| c.expand_next);
-                if let Some(cell) = self.cells.get_mut(&cur_pos) {
-                    cell.expand_next = removed_next;
-                }
+        while let Some(cur_idx) = cur {
+            let next = self.cell(cur_idx).expand_next;
+            if next == Some(idx) {
+                let removed_next = self.cell(idx).expand_next;
+                self.cell_mut(cur_idx).expand_next = removed_next;
                 return;
             }
             cur = next;
         }
     }
 
-    fn insert_expand_list(&mut self, pos: Position) {
-        let new_h = self
-            .cells
-            .get(&pos)
-            .map(|c| c.heuristic)
-            .unwrap_or(TSHORTWAY_UNVISITED_H);
-        let mut prev: Option<Position> = None;
+    fn insert_expand_list(&mut self, idx: u16) {
+        let new_h = self.cell(idx).heuristic;
+        let mut prev: Option<u16> = None;
         let mut cur = self.expand_head;
-        while let Some(cur_pos) = cur {
-            let cur_h = self
-                .cells
-                .get(&cur_pos)
-                .map(|c| c.heuristic)
-                .unwrap_or(TSHORTWAY_UNVISITED_H);
+        while let Some(cur_idx) = cur {
+            let cur_h = self.cell(cur_idx).heuristic;
             if cur_h < new_h {
-                prev = Some(cur_pos);
-                cur = self.cells.get(&cur_pos).and_then(|c| c.expand_next);
+                prev = Some(cur_idx);
+                cur = self.cell(cur_idx).expand_next;
             } else {
                 break;
             }
         }
         let next = cur;
-        if let Some(cell) = self.cells.get_mut(&pos) {
-            cell.expand_next = next;
-        }
-        if let Some(prev_pos) = prev {
-            if let Some(prev_cell) = self.cells.get_mut(&prev_pos) {
-                prev_cell.expand_next = Some(pos);
-            }
+        self.cell_mut(idx).expand_next = next;
+        if let Some(prev_idx) = prev {
+            self.cell_mut(prev_idx).expand_next = Some(idx);
         } else {
-            self.expand_head = Some(pos);
+            self.expand_head = Some(idx);
         }
     }
 
-    fn expand(&mut self, pos: Position, allow_diagonal: bool) {
-        let (node_wp, node_wl, node_next) = {
-            let Some(cell) = self.cells.get(&pos) else {
+    fn expand(&mut self, idx: u16, allow_diagonal: bool) {
+        let (node_wp, node_wl, node_next, node_pos) = {
+            let cell = self.cell(idx);
+            if !cell.in_matrix {
+                return;
+            }
+            let Some(pos) = self.pos_of(idx) else {
                 return;
             };
-            (cell.waypoints, cell.waylength, cell.expand_next)
+            (cell.waypoints, cell.waylength, cell.expand_next, pos)
         };
         self.expand_head = node_next;
-        if let Some(cell) = self.cells.get_mut(&pos) {
-            cell.expand_next = None;
-        }
+        self.cell_mut(idx).expand_next = None;
         // `cract.cc:137-140` — no `Waypoints<=0` early out; dest seed may hold `Waypoints=-1`.
         let min_neighbor_wl = node_wl + node_wp;
-        let origin_wl_i = self
-            .cells
-            .get(&self.origin)
-            .map(|c| c.waylength)
-            .unwrap_or(TSHORTWAY_UNVISITED_WL);
+        let origin_wl_i = self.cell(self.origin_idx).waylength;
         if min_neighbor_wl >= origin_wl_i {
             return;
         }
@@ -556,9 +585,15 @@ impl TShortwaySearch {
             if !allow_diagonal && ox != 0 && oy != 0 {
                 continue;
             }
-            let Some(neighbor_pos) = offset_position(pos, ox, oy) else {
+            let Some(neighbor_pos) = offset_position(node_pos, ox, oy) else {
                 continue;
             };
+            let Some(neighbor_idx) = self.idx_of(neighbor_pos) else {
+                continue;
+            };
+            if !self.cell(neighbor_idx).in_matrix {
+                continue;
+            }
             let is_diagonal = ox != 0 && oy != 0;
             let mut neighbor_wl = min_neighbor_wl;
             if is_diagonal {
@@ -568,11 +603,10 @@ impl TShortwaySearch {
                 continue;
             }
 
-            let (neighbor_wp, prev_wl, prev_heuristic) = self
-                .cells
-                .get(&neighbor_pos)
-                .map(|c| (c.waypoints, c.waylength, c.heuristic))
-                .unwrap_or((-1, TSHORTWAY_UNVISITED_WL, TSHORTWAY_UNVISITED_H));
+            let (neighbor_wp, prev_wl, prev_heuristic) = {
+                let c = self.cell(neighbor_idx);
+                (c.waypoints, c.waylength, c.heuristic)
+            };
 
             // `cract.cc:158-202` — relax any neighbor with a shorter waylength; only enqueue
             // expand when `Waypoints != -1` and not the origin cell.
@@ -580,29 +614,29 @@ impl TShortwaySearch {
                 continue;
             }
 
-            if let Some(cell) = self.cells.get_mut(&neighbor_pos) {
+            {
+                let cell = self.cell_mut(neighbor_idx);
                 cell.waylength = neighbor_wl;
-                cell.parent = Some(pos);
+                cell.parent = Some(idx);
                 cell.parent_diagonal = is_diagonal;
             }
 
-            if neighbor_wp <= 0 || neighbor_pos == self.origin {
+            if neighbor_wp <= 0 || neighbor_idx == self.origin_idx {
                 continue;
             }
 
             // `cract.cc:181-184` — signed sum; negative `Waylength` is valid during reverse expand.
-            let distance = manhattan_dist(neighbor_pos, self.origin);
+            let (ndx, ndy) = tshortway_rel(self.origin, neighbor_pos);
+            let distance = ndx.unsigned_abs() as i32 + ndy.unsigned_abs() as i32;
             let heuristic =
                 neighbor_wl + neighbor_wp + (self.min_waypoints as i32) * (distance - 1);
 
             if prev_heuristic != TSHORTWAY_UNVISITED_H {
-                self.remove_from_expand_list(neighbor_pos);
+                self.remove_from_expand_list(neighbor_idx);
             }
 
-            if let Some(cell) = self.cells.get_mut(&neighbor_pos) {
-                cell.heuristic = heuristic;
-            }
-            self.insert_expand_list(neighbor_pos);
+            self.cell_mut(neighbor_idx).heuristic = heuristic;
+            self.insert_expand_list(neighbor_idx);
         }
     }
 }
@@ -631,30 +665,47 @@ where
 
     // `cract.cc:79-114` — matrix spans `±(Visible+1)`; only inner `±Visible` gets terrain fill.
     let outer_radius = radius.saturating_add(1);
+    debug_assert!(outer_radius <= TSHORTWAY_MAX_OUTER);
+    let side = (2 * outer_radius + 1) as usize;
+    let cell_count = side * side;
+
+    let mut cells = vec![
+        TShortwayCell {
+            waypoints: -1,
+            waylength: TSHORTWAY_UNVISITED_WL,
+            heuristic: TSHORTWAY_UNVISITED_H,
+            parent: None,
+            parent_diagonal: false,
+            expand_next: None,
+            in_matrix: false,
+        };
+        TSHORTWAY_MAX_CELLS
+    ]
+    .into_boxed_slice();
+
     let mut min_waypoints = FILLMAP_MIN_WAYPOINTS_SEED;
-    let mut cells: HashMap<Position, TShortwayCell> = HashMap::new();
 
     for dy in -outer_radius..=outer_radius {
         for dx in -outer_radius..=outer_radius {
+            let Some(idx) = tshortway_cell_idx(dx, dy, outer_radius) else {
+                continue;
+            };
             let Some(pos) = offset_position(start, dx, dy) else {
                 continue;
             };
-            cells.insert(
-                pos,
-                TShortwayCell {
-                    waypoints: -1,
-                    waylength: TSHORTWAY_UNVISITED_WL,
-                    heuristic: TSHORTWAY_UNVISITED_H,
-                    parent: None,
-                    parent_diagonal: false,
-                    expand_next: None,
-                },
-            );
+            cells[idx].in_matrix = true;
+            let _ = pos;
         }
     }
 
     for dy in -radius..=radius {
         for dx in -radius..=radius {
+            let Some(idx) = tshortway_cell_idx(dx, dy, outer_radius) else {
+                continue;
+            };
+            if !cells[idx].in_matrix {
+                continue;
+            }
             let Some(pos) = offset_position(start, dx, dy) else {
                 continue;
             };
@@ -666,28 +717,37 @@ where
             if waypoints > 0 {
                 min_waypoints = min_waypoints.min(waypoints as u32);
             }
-            if let Some(cell) = cells.get_mut(&pos) {
-                cell.waypoints = waypoints;
-            }
+            cells[idx].waypoints = waypoints;
         }
     }
 
     // C++ leaves `MinWaypoints = 1000` when no positive tile was scanned (`cract.cc:81`).
     // Do not substitute `DEFAULT_TERRAIN_WAYPOINTS` (150) — that is NotifyGo / ground_speed only.
 
+    let origin_idx = tshortway_cell_idx(0, 0, outer_radius)? as u16;
+    let target_idx = {
+        let (tdx, tdy) = tshortway_rel(start, target);
+        tshortway_cell_idx(tdx, tdy, outer_radius)? as u16
+    };
+
     let mut search = TShortwaySearch {
         origin: start,
+        outer: outer_radius,
+        origin_idx,
         min_waypoints,
         cells,
         expand_head: None,
     };
+    // Only the active `cell_count` slots matter; rest stay unused for smaller viewports.
+    let _ = cell_count;
 
     search.clear_path_state(radius);
-    if let Some(seed) = search.cells.get_mut(&target) {
+    {
+        let seed = search.cell_mut(target_idx);
         seed.waylength = 0;
         seed.heuristic = 0;
     }
-    search.expand_head = Some(target);
+    search.expand_head = Some(target_idx);
 
     // C++ runs until expand list is empty; cap is a safety guard only.
     // 772 viewport tile budget scales with `VisibleX/Y` — 441 for monsters (10), 225 for players (7).
@@ -702,31 +762,28 @@ where
         expand_count += 1;
     }
 
-    let origin_wl = search
-        .cells
-        .get(&start)
-        .map(|c| c.waylength)
-        .unwrap_or(TSHORTWAY_UNVISITED_WL);
-    if origin_wl == TSHORTWAY_UNVISITED_WL {
+    if search.cell(origin_idx).waylength == TSHORTWAY_UNVISITED_WL {
         return None;
     }
 
-    let mut nodes: HashMap<Position, AStarNode> = HashMap::new();
-    for (pos, cell) in &search.cells {
-        if cell.waylength != TSHORTWAY_UNVISITED_WL {
-            nodes.insert(
-                *pos,
-                AStarNode {
-                    parent: cell.parent,
-                    g: cell.waylength.max(0) as u32,
-                },
-            );
-        }
-    }
-
-    let dirs = reconstruct_reverse_dirs(&nodes, start);
     // C++ `TShortway::Calculate` walks the predecessor chain directly — no goal-band trim.
-    Some(dirs)
+    Some(reconstruct_reverse_dirs_dense(&search, origin_idx))
+}
+
+fn reconstruct_reverse_dirs_dense(search: &TShortwaySearch, origin_idx: u16) -> Vec<Direction> {
+    let mut dir_list = Vec::new();
+    let mut cur_idx = origin_idx;
+    while let Some(next_idx) = search.cell(cur_idx).parent {
+        let Some(cur) = search.pos_of(cur_idx) else {
+            break;
+        };
+        let Some(next) = search.pos_of(next_idx) else {
+            break;
+        };
+        dir_list.push(walk_queue_direction(cur, next));
+        cur_idx = next_idx;
+    }
+    dir_list
 }
 
 /// 772 reverse A* — destination (`target`) → origin (`start`) (`cract.cc:7` `TShortway`).

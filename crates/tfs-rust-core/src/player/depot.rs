@@ -197,9 +197,9 @@ impl GameWorld {
         uni.max_depot_items = max_items;
         reg.register(uni);
 
-        Self::link_child_in_registry(&mut reg, locker_iid, market_iid);
-        Self::link_child_in_registry(&mut reg, locker_iid, inbox_id);
-        Self::link_child_in_registry(&mut reg, locker_iid, uni_iid);
+        Self::link_child_in_registry(&mut reg, &mut self.items, locker_iid, market_iid);
+        Self::link_child_in_registry(&mut reg, &mut self.items, locker_iid, inbox_id);
+        Self::link_child_in_registry(&mut reg, &mut self.items, locker_iid, uni_iid);
 
         let mut town_ids: Vec<u32> = self.map.towns.keys().copied().collect();
         town_ids.sort_unstable_by(|a, b| b.cmp(a));
@@ -210,7 +210,7 @@ impl GameWorld {
         for town_id in town_ids {
             let chest_id = self.player_get_depot_chest(cid, town_id, true)?;
             let mut reg = std::mem::take(&mut self.container_registry);
-            Self::link_child_in_registry(&mut reg, uni_iid, chest_id);
+            Self::link_child_in_registry(&mut reg, &mut self.items, uni_iid, chest_id);
             self.container_registry = reg;
         }
 
@@ -240,7 +240,7 @@ impl GameWorld {
         };
 
         let mut reg = std::mem::take(&mut self.container_registry);
-        Self::ensure_child_in_container(&mut reg, locker_id, inbox_id, 1);
+        Self::ensure_child_in_container(&mut reg, &mut self.items, locker_id, inbox_id, 1);
         let town_ids: Vec<u32> = self
             .creatures
             .get(cid)
@@ -251,7 +251,7 @@ impl GameWorld {
             .unwrap_or_default();
         for town_id in town_ids {
             if let Some(chest_id) = self.player_get_depot_chest(cid, town_id, false) {
-                Self::ensure_child_in_container(&mut reg, uni_id, chest_id, usize::MAX);
+                Self::ensure_child_in_container(&mut reg, &mut self.items, uni_id, chest_id, usize::MAX);
             }
         }
         self.container_registry = reg;
@@ -259,7 +259,12 @@ impl GameWorld {
         self.refresh_container_chain(locker_id);
     }
 
-    fn link_child_in_registry(reg: &mut ContainerRegistry, parent_id: ItemId, child_id: ItemId) {
+    fn link_child_in_registry(
+        reg: &mut ContainerRegistry,
+        items: &mut slotmap::SlotMap<ItemId, Item>,
+        parent_id: ItemId,
+        child_id: ItemId,
+    ) {
         if let Some(parent) = reg.get_mut(parent_id) {
             if !parent.contains(child_id) {
                 let _ = parent.add_item(child_id);
@@ -268,10 +273,17 @@ impl GameWorld {
         if let Some(child) = reg.get_mut(child_id) {
             child.parent_container = Some(parent_id);
         }
+        if let Some(item) = items.get_mut(child_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Container {
+                item_id: parent_id,
+                index: crate::cylinder::INDEX_WHEREEVER,
+            });
+        }
     }
 
     fn ensure_child_in_container(
         reg: &mut ContainerRegistry,
+        items: &mut slotmap::SlotMap<ItemId, Item>,
         parent_id: ItemId,
         child_id: ItemId,
         slot: usize,
@@ -280,6 +292,12 @@ impl GameWorld {
             if parent.contains(child_id) {
                 if let Some(child) = reg.get_mut(child_id) {
                     child.parent_container = Some(parent_id);
+                }
+                if let Some(item) = items.get_mut(child_id) {
+                    item.parent = Some(crate::cylinder::Cylinder::Container {
+                        item_id: parent_id,
+                        index: crate::cylinder::INDEX_WHEREEVER,
+                    });
                 }
                 return;
             }
@@ -293,6 +311,12 @@ impl GameWorld {
         }
         if let Some(child) = reg.get_mut(child_id) {
             child.parent_container = Some(parent_id);
+        }
+        if let Some(item) = items.get_mut(child_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Container {
+                item_id: parent_id,
+                index: crate::cylinder::INDEX_WHEREEVER,
+            });
         }
     }
 

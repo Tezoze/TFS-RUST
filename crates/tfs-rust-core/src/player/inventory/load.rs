@@ -30,6 +30,7 @@ impl GameWorld {
         self.load_store_inbox_table(cid, store_inbox);
         self.load_depot_table(cid, depot);
         self.load_inbox_table(cid, inbox);
+        self.resync_loaded_item_parents(cid);
         self.recompute_player_inventory_weight(cid);
         self.update_player_items_light(cid, true);
         self.change_creature_light(cid);
@@ -56,6 +57,45 @@ impl GameWorld {
             .collect();
         for id in pending {
             self.start_decay(id);
+        }
+    }
+
+    /// After DB hydrate (bypass hubs), stamp `Item.parent` from slots + container registry.
+    fn resync_loaded_item_parents(&mut self, cid: CreatureId) {
+        let slots: Vec<(u8, ItemId)> = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p
+                .equipment_slots
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, id)| id.map(|id| ((idx as u8) + 1, id)))
+                .collect(),
+            _ => return,
+        };
+        for (slot, item_id) in slots {
+            if let Some(item) = self.items.get_mut(item_id) {
+                item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                    player_id: cid,
+                    slot,
+                });
+            }
+        }
+        let pairs: Vec<(ItemId, ItemId)> = self
+            .container_registry
+            .registered_container_ids()
+            .flat_map(|parent_id| {
+                self.container_registry
+                    .get(parent_id)
+                    .into_iter()
+                    .flat_map(move |c| c.items.iter().copied().map(move |child| (parent_id, child)))
+            })
+            .collect();
+        for (parent_id, child_id) in pairs {
+            if let Some(item) = self.items.get_mut(child_id) {
+                item.parent = Some(crate::cylinder::Cylinder::Container {
+                    item_id: parent_id,
+                    index: crate::cylinder::INDEX_WHEREEVER,
+                });
+            }
         }
     }
 
@@ -198,6 +238,12 @@ impl GameWorld {
                         player.equipment_slots[idx] = Some(item_id);
                     }
                 }
+                if let Some(item) = self.items.get_mut(item_id) {
+                    item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                        player_id: cid,
+                        slot: pid as u8,
+                    });
+                }
             } else if let Some(&parent_id) = sid_map.get(&pid) {
                 let parent_type = self.items.get(parent_id).map(|i| i.item_type).unwrap_or(0);
                 if self.items_db.is_container(parent_type) {
@@ -210,6 +256,12 @@ impl GameWorld {
                     );
                     if let Some(cont) = registry.get_mut(parent_id) {
                         let _ = cont.add_item(item_id);
+                    }
+                    if let Some(item) = self.items.get_mut(item_id) {
+                        item.parent = Some(crate::cylinder::Cylinder::Container {
+                            item_id: parent_id,
+                            index: crate::cylinder::INDEX_WHEREEVER,
+                        });
                     }
                     if self
                         .items_db

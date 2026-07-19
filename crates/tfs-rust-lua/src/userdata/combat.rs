@@ -163,12 +163,37 @@ pub struct FormulaDef {
 }
 
 /// A combat callback — `combat:setCallback(param, functionName)`.
-/// C++ `Combat::setCallback` — `combat.cpp`. The callback name is a Lua global
-/// function name resolved at execution time.
-#[derive(Debug, Clone, Default)]
+///
+/// Domain: TFS `Combat::setCallback` / `CallBack::loadCallBack` (`combat.cpp` /
+/// `baseevents.cpp`). At registration, TFS `getEvent` copies the named global into
+/// a private registry id and **clears the global** so later scripts may reuse the
+/// same name (`onGetFormulaValues`). We snapshot [`mlua::Function`] the same way.
+#[derive(Clone)]
 pub struct CombatCallback {
     pub param: i32,
     pub function_name: String,
+    /// Function captured at `setCallback` time (not re-looked-up at execute).
+    pub function: Option<mlua::Function>,
+}
+
+impl std::fmt::Debug for CombatCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CombatCallback")
+            .field("param", &self.param)
+            .field("function_name", &self.function_name)
+            .field("has_function", &self.function.is_some())
+            .finish()
+    }
+}
+
+impl Default for CombatCallback {
+    fn default() -> Self {
+        Self {
+            param: 0,
+            function_name: String::new(),
+            function: None,
+        }
+    }
 }
 
 /// The Rust-side `Combat` definition — a config bag accumulated during script loading.
@@ -229,13 +254,19 @@ impl CombatDef {
         }
     }
 
-    /// `Combat::setCallback` — stores the callback function name for a given param.
-    pub fn set_callback(&mut self, param: i32, function_name: String) {
+    /// `Combat::setCallback` / `CallBack::loadCallBack` — snapshot the Lua function.
+    pub fn set_callback(
+        &mut self,
+        param: i32,
+        function_name: String,
+        function: Option<mlua::Function>,
+    ) {
         self.callbacks.insert(
             param,
             CombatCallback {
                 param,
                 function_name,
+                function,
             },
         );
     }
@@ -412,9 +443,20 @@ impl UserData for CombatRef {
             },
         );
 
-        // `combat:setCallback(param, functionName)` — `luascript.cpp`.
-        methods.add_method_mut("setCallback", |_, this, (param, name): (i32, String)| {
-            this.0.borrow_mut().set_callback(param, name);
+        // `combat:setCallback(param, functionName)` — `luascript.cpp:13157`.
+        // Snapshot the global now (TFS `getEvent`) and clear it so later spell
+        // scripts may redefine the same name without clobbering this combat.
+        methods.add_method_mut("setCallback", |lua, this, (param, name): (i32, String)| {
+            let func: mlua::Function = lua.globals().get(name.as_str()).map_err(|_| {
+                mlua::Error::runtime(format!(
+                    "combat:setCallback: global function '{name}' not found"
+                ))
+            })?;
+            // TFS `LuaScriptInterface::getEvent` — `luascript.cpp:355-357`.
+            lua.globals().set(name.as_str(), Value::Nil)?;
+            this.0
+                .borrow_mut()
+                .set_callback(param, name, Some(func));
             Ok(true)
         });
 
@@ -828,15 +870,15 @@ fn invoke_value_callback(
         return Ok((0, 0));
     };
 
-    let func: mlua::Function = lua
-        .globals()
-        .get::<mlua::Function>(callback.function_name.as_str())
-        .map_err(|_| {
-            mlua::Error::runtime(format!(
-                "combat:execute: callback function '{}' not found in Lua globals",
+    let func = match resolve_callback_function(lua, callback) {
+        Some(f) => f,
+        None => {
+            return Err(mlua::Error::runtime(format!(
+                "combat:execute: callback function '{}' not found",
                 callback.function_name
-            ))
-        })?;
+            )));
+        }
+    };
 
     // Build the `player` CreatureRef userdata to pass as the first argument.
     // The callback body calls `player:computeDamage(...)` etc., which are
@@ -867,6 +909,16 @@ fn invoke_value_callback(
     Ok((min as i32, max as i32))
 }
 
+/// Prefer the function snapshotted at `setCallback`; fall back to global lookup.
+fn resolve_callback_function(lua: &Lua, cb: &CombatCallback) -> Option<mlua::Function> {
+    if let Some(f) = &cb.function {
+        return Some(f.clone());
+    }
+    lua.globals()
+        .get::<mlua::Function>(cb.function_name.as_str())
+        .ok()
+}
+
 /// Invoke `TARGETCREATURE` / `TARGETTILE` callbacks after combat execute.
 /// C++ `TargetCallback::onTargetCombat` / `TileCallback::onTileCombat` —
 /// `combat.cpp:1223,1193`.
@@ -880,15 +932,12 @@ fn invoke_event_callbacks(
     area_offsets: &[(i32, i32)],
 ) -> Result<(), mlua::Error> {
     if let Some(cb) = combat.callbacks.get(&CALLBACK_PARAM_TARGETCREATURE) {
-        let func: mlua::Function = match lua
-            .globals()
-            .get::<mlua::Function>(cb.function_name.as_str())
-        {
-            Ok(f) => f,
-            Err(_) => {
+        let func = match resolve_callback_function(lua, cb) {
+            Some(f) => f,
+            None => {
                 tracing::warn!(
                     name = %cb.function_name,
-                    "TARGETCREATURE callback not found in Lua globals"
+                    "TARGETCREATURE callback not found"
                 );
                 return Ok(());
             }
@@ -909,15 +958,12 @@ fn invoke_event_callbacks(
     }
 
     if let Some(cb) = combat.callbacks.get(&CALLBACK_PARAM_TARGETTILE) {
-        let func: mlua::Function = match lua
-            .globals()
-            .get::<mlua::Function>(cb.function_name.as_str())
-        {
-            Ok(f) => f,
-            Err(_) => {
+        let func = match resolve_callback_function(lua, cb) {
+            Some(f) => f,
+            None => {
                 tracing::warn!(
                     name = %cb.function_name,
-                    "TARGETTILE callback not found in Lua globals"
+                    "TARGETTILE callback not found"
                 );
                 return Ok(());
             }
@@ -1025,7 +1071,11 @@ mod tests {
     #[test]
     fn combat_def_set_callback_stores_function() {
         let mut def = CombatDef::new();
-        def.set_callback(CALLBACK_PARAM_SKILLVALUE, "onGetFormulaValues".to_string());
+        def.set_callback(
+            CALLBACK_PARAM_SKILLVALUE,
+            "onGetFormulaValues".to_string(),
+            None,
+        );
         assert_eq!(
             def.callbacks
                 .get(&CALLBACK_PARAM_SKILLVALUE)
@@ -1033,6 +1083,84 @@ mod tests {
                 .function_name,
             "onGetFormulaValues"
         );
+    }
+
+    /// Regression: shared global name `onGetFormulaValues` must not clobber earlier
+    /// combats — TFS `getEvent` snapshots + clears the global (`luascript.cpp:334-360`).
+    #[test]
+    fn set_callback_snapshots_function_so_later_global_overwrite_is_ignored() {
+        let lua = Lua::new();
+        crate::combat_enums::register_combat_enums(&lua).expect("enums");
+        register_combat_metatable(&lua).expect("register");
+        // Minimal Player table so computeDamage path isn't needed — callbacks return literals.
+        lua.load(
+            r#"
+            function onGetFormulaValues(player, level, magicLevel)
+                return -100, -200
+            end
+            combat_a = Combat()
+            combat_a:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")
+
+            function onGetFormulaValues(player, level, magicLevel)
+                return -900, -1000
+            end
+            combat_b = Combat()
+            combat_b:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")
+            "#,
+        )
+        .exec()
+        .expect("load two combats");
+
+        let combat_a = lua
+            .globals()
+            .get::<mlua::AnyUserData>("combat_a")
+            .expect("combat_a");
+        let combat_b = lua
+            .globals()
+            .get::<mlua::AnyUserData>("combat_b")
+            .expect("combat_b");
+        let a = combat_a.borrow::<CombatRef>().expect("CombatRef a");
+        let b = combat_b.borrow::<CombatRef>().expect("CombatRef b");
+
+        let cb_a = a
+            .0
+            .borrow()
+            .callbacks
+            .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
+            .cloned()
+            .expect("callback a");
+        let cb_b = b
+            .0
+            .borrow()
+            .callbacks
+            .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
+            .cloned()
+            .expect("callback b");
+
+        assert!(cb_a.function.is_some());
+        assert!(cb_b.function.is_some());
+        // Global must be cleared after setCallback (TFS getEvent).
+        let global: mlua::Value = lua.globals().get("onGetFormulaValues").expect("get");
+        assert!(matches!(global, mlua::Value::Nil));
+
+        // Invoke snapshotted functions with dummy args — returns must differ.
+        let player = lua
+            .create_userdata(CreatureRef(1))
+            .expect("player ud");
+        let (min_a, max_a): (f64, f64) = cb_a
+            .function
+            .as_ref()
+            .unwrap()
+            .call((player.clone(), 120i32, 52i32))
+            .expect("call a");
+        let (min_b, max_b): (f64, f64) = cb_b
+            .function
+            .as_ref()
+            .unwrap()
+            .call((player, 120i32, 52i32))
+            .expect("call b");
+        assert_eq!((min_a, max_a), (-100.0, -200.0));
+        assert_eq!((min_b, max_b), (-900.0, -1000.0));
     }
 
     #[test]

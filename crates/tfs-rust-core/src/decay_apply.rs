@@ -342,6 +342,9 @@ impl GameWorld {
                 if let Some(ch) = self.container_registry.get_mut(child) {
                     ch.parent_container = None;
                 }
+                if let Some(item) = self.items.get_mut(child) {
+                    item.parent = None;
+                }
                 self.refresh_container_chain(container_id);
                 self.notify_container_content_changed(
                     container_id,
@@ -544,6 +547,9 @@ mod tests {
             .get_tile_mut(pos)
             .expect("tile")
             .add_item(iid);
+        if let Some(item) = world.items.get_mut(iid) {
+            item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
+        }
         iid
     }
 
@@ -803,6 +809,12 @@ mod tests {
         let iid = world.items.insert(Item::new_single(2169));
         if let Some(cont) = world.container_registry.get_mut(chest) {
             let _ = cont.add_item(iid);
+        }
+        if let Some(item) = world.items.get_mut(iid) {
+            item.parent = Some(crate::cylinder::Cylinder::Container {
+                item_id: chest,
+                index: crate::cylinder::INDEX_WHEREEVER,
+            });
         }
         assert!(!world.can_decay(iid));
         world.start_decay(iid);

@@ -1723,7 +1723,7 @@ impl GameWorld {
                                 .get_tile(new_pos)
                                 .and_then(|t| t.body().ground)
                                 .unwrap_or(0);
-                            tracing::info!(
+                            tracing::debug!(
                                 cid = ?cid,
                                 from = ?old_pos,
                                 to = ?new_pos,

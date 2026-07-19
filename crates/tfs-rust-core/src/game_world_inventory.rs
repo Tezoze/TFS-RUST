@@ -98,6 +98,9 @@ impl GameWorld {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.equipment_slots[idx] = None;
         }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = None;
+        }
         Ok(())
     }
 
@@ -110,6 +113,12 @@ impl GameWorld {
         let idx = crate::inventory::slot_to_array_index(slot).ok_or(ReturnValue::NotPossible)?;
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.equipment_slots[idx] = Some(item_id);
+        }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                player_id: cid,
+                slot,
+            });
         }
         // C++: carrying a bag updates parent chain / `totalWeight` — ground→inventory must keep registry in sync for look/capacity.
         self.hydrate_container_if_needed(item_id);

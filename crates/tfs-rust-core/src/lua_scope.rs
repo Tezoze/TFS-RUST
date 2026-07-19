@@ -317,7 +317,7 @@ pub fn fire_talkaction(world: &mut GameWorld, cid: CreatureId, text: &str) -> Ta
         with_lua_context(ctx, || {
             let world = unsafe { &mut *world_ptr };
             let result = world.events.dispatch_talkaction(text, cid);
-            tracing::info!(?cid, text, ?result, "fire_talkaction result");
+            tracing::debug!(?cid, text, ?result, "fire_talkaction result");
             result
         })
     })

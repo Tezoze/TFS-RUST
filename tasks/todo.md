@@ -1,3 +1,11 @@
+## Gameloop lag fixes — parent + cron heap + dense TShortway (2026-07-19)
+- [x] `Item.parent: Option<Cylinder>`; remove unused `ItemPosition`
+- [x] Hub writers: tile / inventory / container + OTBM + load resync + depot link + inv↔inv swap
+- [x] `resolve_item_parent_cylinder` / Lua parent+position O(1); demote map scan
+- [x] `DecayManager` deadline min-heap (`CronCheck` shape)
+- [x] Dense `TShortway` scratch (±Visible+1 indices)
+- [x] Tests: decay + tshortway/cyclops; lessons.md §205
+
 ## Item decay / expire system (2026-07-18) — Phase 5 done
 - [x] Audit decompile Expire/Cron vs TFS duration/decayto/stopduration vs Rust
 - [x] Plan doc: `tasks/decay-system-plan.md` (Phase 0 decisions locked)

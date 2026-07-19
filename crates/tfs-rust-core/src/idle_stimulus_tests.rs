@@ -134,14 +134,10 @@ fn rc2_idle_stimulus_always_schedules_wakeup_when_no_action_queued() {
     ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
     let monster = insert_monster(&mut world, "Rat", pos, 200);
 
-    // A second non-summon monster on the same floor prevents sleep
-    // (`should_sleep = false` in `monster_idle_acquire_target`) but is NOT a valid
-    // target (filtered out in the target selection loop), so the monster falls through
-    // to the idle-wandering catch-all with no target and no Go queued.
-    let bystander_pos = Position::new(102, 100, 7);
-    ensure_walkable_tile(&mut world.map, bystander_pos, TEST_SYNTHETIC_GROUND_WP);
-    let _bystander = insert_monster(&mut world, "Spider", bystander_pos, 200);
-    world.map.register_creature_at(bystander_pos, _bystander);
+    // A distant floor spectator (`CanSeeFloor`) prevents sleep without being a valid
+    // target (xy > 10) — mirrors C++ `crnonpl.cc:2504` + `:2512`. Wild same-floor
+    // monsters must NOT keep the pack awake (`crnonpl.cc:2500` skips them before CanSeeFloor).
+    let _spectator = register_distant_floor_spectator(&mut world, pos);
 
     // No target, no opponents — idle stimulus will try to roam and fail (Hold).
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -231,6 +227,89 @@ fn rc2_idle_stimulus_does_not_double_schedule_when_already_armed() {
     );
 }
 
+/// Wild same-floor monsters must not keep the pack awake — C++ skips them before
+/// `CanSeeFloor` (`crnonpl.cc:2500-2505`). Regression for the spawn-pack lag bug.
+#[test]
+fn idle_acquire_wild_bystander_does_not_prevent_sleep() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.map.register_creature_at(pos, monster);
+
+    let bystander_pos = Position::new(102, 100, 7);
+    ensure_walkable_tile(&mut world.map, bystander_pos, TEST_SYNTHETIC_GROUND_WP);
+    let bystander = insert_monster(&mut world, "Spider", bystander_pos, 200);
+    world.map.register_creature_at(bystander_pos, bystander);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Idle;
+    }
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().next_wakeup = None;
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.state == MonsterState::Sleeping && m.is_idle)
+        }),
+        "wild bystander must not set ShouldSleep=false — pack must sleep with no players"
+    );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().next_wakeup.is_none()),
+        "sleeping wild monster must leave the ToDo queue (no ToDoStart)"
+    );
+}
+
+/// Player on a different surface floor within the XY search box keeps the monster
+/// awake via `CanSeeFloor` but cannot be targeted (`posz` mismatch) — `crnonpl.cc:2504,2512`.
+#[test]
+fn idle_acquire_upstairs_player_keeps_awake_without_target() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(100, 100, 6);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    world.map.register_creature_at(mpos, monster);
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Idle;
+    }
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().next_wakeup = None;
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    let (state, follow, wakeup) = match world.creatures.get(monster) {
+        Some(CreatureKind::Monster(m)) => (m.state, m.base.follow_target, m.base.next_wakeup),
+        _ => panic!("monster missing"),
+    };
+    assert_ne!(
+        state,
+        MonsterState::Sleeping,
+        "CanSeeFloor(player upstairs) must prevent sleep"
+    );
+    assert!(
+        follow.is_none(),
+        "different Z must not be acquired as chase target"
+    );
+    assert!(
+        wakeup.is_some(),
+        "awake no-target idle must still arm the roam/wait wakeup"
+    );
+}
+
 /// RC2 — the trailing wakeup delay matches C++ `ToDoWait(1000)` (`crnonpl.cc:2938`).
 #[test]
 fn rc2_idle_trailing_wait_is_1000ms() {
@@ -239,11 +318,8 @@ fn rc2_idle_trailing_wait_is_1000ms() {
     ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
     let monster = insert_monster(&mut world, "Rat", pos, 200);
 
-    // Bystander prevents sleep without being a valid target (same as test above).
-    let bystander_pos = Position::new(102, 100, 7);
-    ensure_walkable_tile(&mut world.map, bystander_pos, TEST_SYNTHETIC_GROUND_WP);
-    let _bystander = insert_monster(&mut world, "Spider", bystander_pos, 200);
-    world.map.register_creature_at(bystander_pos, _bystander);
+    // Distant floor spectator prevents sleep without being a valid target (same as test above).
+    let _spectator = register_distant_floor_spectator(&mut world, pos);
 
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;

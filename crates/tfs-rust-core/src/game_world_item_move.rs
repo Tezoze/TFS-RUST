@@ -707,6 +707,18 @@ impl GameWorld {
                         p.equipment_slots[idx_f] = Some(did);
                         p.equipment_slots[idx_t] = Some(item_id);
                     }
+                    if let Some(item) = self.items.get_mut(item_id) {
+                        item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                            player_id: cid,
+                            slot: *to_slot,
+                        });
+                    }
+                    if let Some(item) = self.items.get_mut(did) {
+                        item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                            player_id: cid,
+                            slot: *from_slot,
+                        });
+                    }
                     self.player_post_remove_notification(
                         cid,
                         item_id,

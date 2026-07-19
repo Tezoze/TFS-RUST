@@ -451,6 +451,9 @@ impl GameWorld {
             p.set_item_ability(slot, false);
         }
         self.decay.cancel(item_id);
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = None;
+        }
         self.items.remove(item_id);
         self.broadcast_player_inventory_slot(cid, slot, None);
         self.recompute_player_inventory_weight(cid);

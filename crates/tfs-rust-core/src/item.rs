@@ -1,23 +1,13 @@
 //! World `Item` node with full attribute system.
-// C++ reference: `src/item.h` (Item class)
+//! C++ reference: `src/item.h` (Item class); 772 parent chain via `TObject::Container` (`map.hh`).
 
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::otb::ItemType;
 use tfs_rust_db::ItemRecord;
 
+use crate::cylinder::Cylinder;
 use crate::ids::ItemId;
 use crate::item_attributes::{DecayState, ItemAttributes};
-
-/// Position of an item in the world (Tile, Container, or Player inventory)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemPosition {
-    /// Item is on a tile at the given position
-    Tile { x: u16, y: u16, z: u8 },
-    /// Item is inside a container
-    Container { container_id: ItemId, slot: usize },
-    /// Item is in a player's inventory slot
-    Inventory { player_id: u32, slot: u8 },
-}
 
 /// Runtime item instance with unique ID and attributes
 // C++ ref: `src/item.h` Item class (composition of ItemAttributes)
@@ -30,6 +20,9 @@ pub struct Item {
     /// Full attribute system (actionId, uniqueId, text, duration, etc.)
     /// Heap-allocated only if the item possesses specific attributes.
     pub attributes: Option<Box<ItemAttributes>>,
+    /// Live cylinder parent — O(1) resolve for decay/Lua (772 `TObject::Container` outcome).
+    /// Maintained only by place/remove hubs; `None` while detached or before first place.
+    pub parent: Option<Cylinder>,
 }
 
 impl Item {
@@ -39,6 +32,7 @@ impl Item {
             item_type,
             count,
             attributes: None,
+            parent: None,
         }
     }
 

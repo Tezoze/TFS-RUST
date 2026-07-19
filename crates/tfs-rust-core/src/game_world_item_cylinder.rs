@@ -323,6 +323,10 @@ impl GameWorld {
             }
         }
 
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
+        }
+
         // Stackpos of the item as it now sits on the tile (top items counted before creatures,
         // down items after) — matches C++ `Tile::getStackposOfItem`.
         let stack_pos = self
@@ -380,6 +384,9 @@ impl GameWorld {
             self.broadcast_tile_item_remove(pos, stack_pos);
             // Remove from SlotMap
             self.cancel_item_decay(item_id);
+            if let Some(item) = self.items.get_mut(item_id) {
+                item.parent = None;
+            }
             self.items.remove(item_id);
         }
         Ok(())

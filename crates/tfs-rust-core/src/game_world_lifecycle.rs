@@ -64,11 +64,13 @@ impl GameWorld {
         });
 
         if let Some(p) = pos {
-            tracing::info!(
-                ?id,
-                at = ?p,
-                "LOGOUT: unregistering creature from map"
-            );
+            // Players only at INFO — monster/NPC death used to spam this on every kill and
+            // made mass-death (UE) look like a logout storm while adding log I/O cost.
+            if player_cleanup.is_some() {
+                tracing::info!(?id, at = ?p, "LOGOUT: unregistering creature from map");
+            } else {
+                tracing::debug!(?id, at = ?p, "unregistering creature from map");
+            }
             self.map.unregister_creature_at(p, id);
         }
 

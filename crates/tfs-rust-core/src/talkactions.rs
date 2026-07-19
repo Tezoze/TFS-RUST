@@ -73,7 +73,7 @@ impl TalkActionRegistry {
     /// C++ reference: `talkaction.cpp:84-134` `TalkActions::playerSaySpell`.
     pub fn find_match(&self, text: &str) -> Option<(&TalkActionEntry, String)> {
         let text_lower = text.to_ascii_lowercase();
-        tracing::info!(
+        tracing::debug!(
             text,
             text_lower,
             registered_words = ?self.entries.keys().collect::<Vec<_>>(),
@@ -82,11 +82,11 @@ impl TalkActionRegistry {
         for (words, entry) in &self.entries {
             let words_lower = words.to_ascii_lowercase();
             if text_lower.len() < words_lower.len() {
-                tracing::info!(words = %words, "find_match: text shorter than words, skip");
+                tracing::debug!(words = %words, "find_match: text shorter than words, skip");
                 continue;
             }
             if !text_lower.starts_with(&words_lower) {
-                tracing::info!(words = %words, "find_match: prefix mismatch, skip");
+                tracing::debug!(words = %words, "find_match: prefix mismatch, skip");
                 continue;
             }
 

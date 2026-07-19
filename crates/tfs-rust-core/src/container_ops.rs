@@ -578,6 +578,9 @@ impl GameWorld {
         if let Some(ch) = self.container_registry.get_mut(item_id) {
             ch.parent_container = None;
         }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = None;
+        }
         self.refresh_container_chain(container_item_id);
         self.notify_container_content_changed(
             container_item_id,
@@ -627,6 +630,9 @@ impl GameWorld {
                 ch.parent_container = None;
             }
             self.cancel_item_decay(item_id);
+            if let Some(item) = self.items.get_mut(item_id) {
+                item.parent = None;
+            }
             self.items.remove(item_id);
         }
         self.refresh_container_chain(container_item_id);
@@ -678,6 +684,12 @@ impl GameWorld {
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = Some(container_item_id);
             }
+        }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Container {
+                item_id: container_item_id,
+                index: crate::cylinder::INDEX_WHEREEVER,
+            });
         }
         self.refresh_container_chain(container_item_id);
         self.notify_container_content_changed(
@@ -732,6 +744,12 @@ impl GameWorld {
             if let Some(ch) = self.container_registry.get_mut(item_id) {
                 ch.parent_container = Some(container_item_id);
             }
+        }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(Cylinder::Container {
+                item_id: container_item_id,
+                index: INDEX_WHEREEVER,
+            });
         }
         self.refresh_container_chain(container_item_id);
         self.notify_container_content_changed(

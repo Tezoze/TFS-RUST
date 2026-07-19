@@ -41,7 +41,7 @@ impl Map {
     ) -> Self {
         let mut grid = SparseGrid::new();
         for (pos, td) in data.tiles {
-            let tile = tile_from_data(td, items_db, items);
+            let tile = tile_from_data(pos, td, items_db, items);
             grid.insert_tile(pos.x, pos.y, pos.z, tile);
         }
         Self {
@@ -151,6 +151,7 @@ impl Map {
 /// C++ `Tile::internalAddThing` for item ids (`src/tile.cpp`).
 /// Creates an Item instance and returns its ItemId.
 fn internal_add_item_id(
+    pos: Position,
     id: u16,
     items_db: &ItemDatabase,
     body: &mut TileBody,
@@ -164,7 +165,8 @@ fn internal_add_item_id(
         return;
     }
 
-    let item = Item::new_single(id);
+    let mut item = Item::new_single(id);
+    item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
     let item_id = items.insert(item);
 
     let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);
@@ -315,6 +317,7 @@ fn otbm_item_stream_id(thing: &TileThing) -> Option<u16> {
 }
 
 fn tile_from_data(
+    pos: Position,
     td: TileData,
     items_db: &ItemDatabase,
     items: &mut SlotMap<ItemId, Item>,
@@ -340,7 +343,7 @@ fn tile_from_data(
             apply_item_tile_flags(&mut body, item_type, items_db);
         }
 
-        internal_add_item_id(stream_id, items_db, &mut body, items);
+        internal_add_item_id(pos, stream_id, items_db, &mut body, items);
     }
 
     if let Some(hid) = td.house_id {

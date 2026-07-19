@@ -39,27 +39,41 @@ impl GameWorld {
     /// 772 `AdvanceGame` beat step — staggered subsystems + logical clock + ToDoQueue drain.
     /// C++ ref: `tibia-game-master/src/main.cc` `AdvanceGame`, `crmain.cc` `MoveCreatures`.
     pub fn advance_beat(&mut self, delay_ms: u64) {
+        let wall_start = Instant::now();
         let fired = self.subsystem_counters.accumulate(delay_ms);
 
+        let t0 = Instant::now();
         if fired.creatures {
             self.process_creatures();
         }
+        let creatures_us = t0.elapsed().as_micros();
+
+        let t0 = Instant::now();
         if fired.cron {
             let expired = self.decay.tick(self.server_ms);
             if !expired.is_empty() {
                 self.process_decay_expiry(&expired);
             }
         }
+        let cron_us = t0.elapsed().as_micros();
+
+        let t0 = Instant::now();
         if fired.skills {
             self.process_skills();
         }
+        let skills_us = t0.elapsed().as_micros();
+
+        let t0 = Instant::now();
         if fired.other {
             let now = Instant::now();
             self.run_other_subsystems(now, false);
         }
+        let other_us = t0.elapsed().as_micros();
 
         // C++ `AdvanceGame` calls `MoveCreatures(Delay)` only when `Delay < 1000` (`main.cc:445-453`).
         // `MoveCreatures` itself always drains once invoked (`crmain.cc:1144`).
+        let todo_len_before = self.todo_queue.len();
+        let t0 = Instant::now();
         if delay_ms < LAG_SKIP_MOVEMENT_MS {
             self.server_ms = self.server_ms.saturating_add(delay_ms);
             self.drain_todo_queue();
@@ -69,9 +83,33 @@ impl GameWorld {
             if self.round_nr > 10 {
                 tracing::error!(
                     delay_ms,
+                    todo_queue_len = todo_len_before,
+                    creatures = self.creatures.len(),
                     "772 beat advance skipped MoveCreatures due to lag (Delay >= 1000)"
                 );
             }
+        }
+        let todo_us = t0.elapsed().as_micros();
+        let wall_ms = wall_start.elapsed().as_millis();
+
+        // Surface the hotspot when a beat (or coalesced burst) burns real time. `delay_ms` is
+        // how far the wall clock already fell behind *before* this call; `wall_ms` is how long
+        // *this* advance took (usually dominated by ToDo/IdleStimulus pathfinding).
+        if wall_ms >= 100 || delay_ms >= LAG_SKIP_MOVEMENT_MS {
+            tracing::warn!(
+                delay_ms,
+                wall_ms,
+                creatures_us,
+                cron_us,
+                skills_us,
+                other_us,
+                todo_us,
+                todo_queue_len = todo_len_before,
+                fired_creatures = fired.creatures,
+                fired_skills = fired.skills,
+                fired_other = fired.other,
+                "772 beat advance timing"
+            );
         }
     }
 }

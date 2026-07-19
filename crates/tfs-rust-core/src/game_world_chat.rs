@@ -200,7 +200,7 @@ impl GameWorld {
         // `TALKACTION_CONTINUE` (onSay returned true) → fall through to spell
         // check, matching C++ behavior.
         let talkaction_result = crate::lua_scope::fire_talkaction(self, cid, text);
-        tracing::info!(?cid, text, ?talkaction_result, "CH-6 talkaction dispatch");
+        tracing::debug!(?cid, text, ?talkaction_result, "CH-6 talkaction dispatch");
         if matches!(
             talkaction_result,
             crate::event_dispatcher::TalkActionResult::Break
@@ -378,7 +378,7 @@ impl GameWorld {
             has_param,
             &param,
         );
-        tracing::info!(
+        tracing::debug!(
             ?cid,
             spell_words = %spell.words,
             mana_cost,

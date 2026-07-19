@@ -857,7 +857,36 @@ impl GameWorld {
 
     /// C++ `TFindCreatures` + `Strategy[]` target pick — `crnonpl.cc:2420-2516`.
     ///
+    /// C++ `TCreature::CanSeeFloor` — `cr.hh:576-582`.
+    ///
+    /// Used by idle acquire's `ShouldSleep` gate (`crnonpl.cc:2504`): a player/summon that can
+    /// see the monster's floor keeps the monster awake even when it cannot be targeted
+    /// (different Z / outside the 10-tile box).
+    #[inline]
+    fn creature_can_see_floor(viewer_z: u8, floor_z: u8) -> bool {
+        if viewer_z <= 7 {
+            floor_z <= 7
+        } else {
+            (viewer_z as i32 - floor_z as i32).abs() <= 2
+        }
+    }
+
+    /// Z floors `TFindCreatures` can hit for idle acquire — XY search is 12×12; CipSoft's
+    /// creature chain is XY-only so other floors in that box appear. Mirror that with a
+    /// compact per-era Z span instead of scanning the whole map.
+    fn idle_acquire_search_z_range(monster_z: u8) -> std::ops::RangeInclusive<u8> {
+        if monster_z <= 7 {
+            0..=7
+        } else {
+            let min_z = monster_z.saturating_sub(2);
+            let max_z = (monster_z + 2).min(15);
+            min_z..=max_z
+        }
+    }
+
     /// Returns `true` when idle should stop (monster entered sleep).
+    ///
+    /// C++ `IdleStimulus` targeting block — `crnonpl.cc:2470-2557`.
     fn monster_idle_acquire_target(&mut self, cid: CreatureId) -> bool {
         let snapshot = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
@@ -897,10 +926,16 @@ impl GameWorld {
         let mut best_id = None;
         let mut best_tie = 0i32;
 
+        // C++ `TFindCreatures Search(12, 12, …, FIND_PLAYERS | FIND_MONSTERS)` — XY box only;
+        // chain membership spans floors, so scan the CanSeeFloor-relevant Z set.
         let mut candidates = Vec::new();
-        self.map
-            .grid
-            .collect_spectators(pos.x, pos.y, pos.z, 12, 12, &mut candidates);
+        for z in Self::idle_acquire_search_z_range(pos.z) {
+            self.map
+                .grid
+                .collect_spectators(pos.x, pos.y, z, 12, 12, &mut candidates);
+        }
+        candidates.sort_by_key(|id| id.data().as_ffi());
+        candidates.dedup();
 
         for target_id in &candidates {
             if *target_id == cid {
@@ -909,13 +944,24 @@ impl GameWorld {
             let Some(target) = self.creatures.get(*target_id) else {
                 continue;
             };
-            if target.position().z == pos.z {
-                should_sleep = false;
-            }
+            // C++ `crnonpl.cc:2500-2502`: wild (non-player-controlled) monsters are skipped
+            // **before** `CanSeeFloor` / targeting. Using them for `ShouldSleep` kept entire
+            // spawn packs awake forever (each rat prevented every other rat from sleeping).
             if matches!(target, CreatureKind::Monster(m) if !m.base.is_summon()) {
                 continue;
             }
+            // FIND_PLAYERS | FIND_MONSTERS — NPCs are not in the search mask.
+            if matches!(target, CreatureKind::Npc(_)) {
+                continue;
+            }
+
             let tp = target.position();
+            // C++ `Target->CanSeeFloor(this->posz)` — `crnonpl.cc:2504`.
+            if Self::creature_can_see_floor(tp.z, pos.z) {
+                should_sleep = false;
+            }
+
+            // Targeting requires same Z + ≤10 axis box (`crnonpl.cc:2512-2518`).
             if tp.z != pos.z {
                 continue;
             }
@@ -926,6 +972,10 @@ impl GameWorld {
             }
             if let Some(tile) = self.map.get_tile(tp) {
                 if tile.body().zone == ZoneType::Protection {
+                    continue;
+                }
+                // C++ `IsHouse` — `crnonpl.cc:2516`.
+                if matches!(tile, crate::tile::Tile::House(_)) {
                     continue;
                 }
             }
@@ -975,10 +1025,16 @@ impl GameWorld {
             && still_no_target
             && !matches!(state, Some(MonsterState::UnderAttack | MonsterState::Panic))
         {
+            // C++ wild: `State = SLEEPING; return;` — no `ToDoStart` (`crnonpl.cc:2550-2556`).
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
                 m.state = MonsterState::Sleeping;
                 m.is_idle = true;
                 m.base.clear_targets();
+                m.base.todo.queue.clear();
+                m.base.todo.locked = false;
+                m.base.walk_queue.clear();
+                m.base.walk_destinations.clear();
+                m.base.next_wakeup = None;
             }
             return true;
         }

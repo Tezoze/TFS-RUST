@@ -6,11 +6,9 @@ use slotmap::Key;
 use tfs_rust_common::{ScriptContainerData, ScriptCylinder, ScriptItemId};
 
 use crate::container::ContainerIterator;
-use crate::creature::CreatureKind;
-use crate::cylinder::{Cylinder, INDEX_WHEREEVER};
+use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::inventory::{PLAYER_INVENTORY_SLOT_FIRST, PLAYER_INVENTORY_SLOT_LAST};
 
 impl GameWorld {
     pub(crate) fn resolve_item_u64(&self, id: u64) -> Option<ItemId> {
@@ -37,24 +35,15 @@ impl GameWorld {
 
     /// TFS `Item::getParent` cylinder — `item.cpp` / `luascript.cpp` `luaItemGetParent`.
     pub fn script_item_parent(&self, item_id: ItemId) -> Option<ScriptCylinder> {
-        for (cid, kind) in self.creatures.iter() {
-            let CreatureKind::Player(p) = kind else {
-                continue;
-            };
-            for slot in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
-                let idx = (slot - 1) as usize;
-                if p.equipment_slots[idx] == Some(item_id) {
-                    return Some(ScriptCylinder::Player(Self::creature_to_script_id(cid)));
-                }
+        match self.items.get(item_id)?.parent? {
+            Cylinder::Inventory { player_id, .. } => {
+                Some(ScriptCylinder::Player(Self::creature_to_script_id(player_id)))
             }
+            Cylinder::Container { item_id: parent, .. } => {
+                Some(ScriptCylinder::Container(Self::item_to_script_id(parent)))
+            }
+            Cylinder::Tile { pos } => Some(ScriptCylinder::Tile(pos)),
         }
-        if let Some(parent) = self.parent_container_of(item_id) {
-            return Some(ScriptCylinder::Container(Self::item_to_script_id(parent)));
-        }
-        if let Some(pos) = self.map.find_item_position(item_id) {
-            return Some(ScriptCylinder::Tile(pos));
-        }
-        None
     }
 
     /// TFS `Item::getTopParent` — `item.cpp` ~283–299.
@@ -79,23 +68,14 @@ impl GameWorld {
 
     /// TFS `Item::getPosition` — position of top parent tile or owning player.
     pub fn script_item_position(&self, item_id: ItemId) -> Option<tfs_rust_common::Position> {
-        if let Some(pos) = self.map.find_item_position(item_id) {
-            return Some(pos);
-        }
-        if let Some(top) = self.script_item_top_parent(item_id) {
-            match top {
-                ScriptCylinder::Player(cid_u64) => {
-                    let cid = self.resolve_creature_from_script(cid_u64)?;
-                    return Some(self.creatures.get(cid)?.position());
-                }
-                ScriptCylinder::Tile(pos) => return Some(pos),
-                ScriptCylinder::Container(container_id) => {
-                    let root = self.resolve_item_u64(container_id)?;
-                    return self.script_item_position(root);
-                }
+        match self.items.get(item_id)?.parent {
+            Some(Cylinder::Tile { pos }) => Some(pos),
+            Some(Cylinder::Inventory { player_id, .. }) => {
+                Some(self.creatures.get(player_id)?.position())
             }
+            Some(Cylinder::Container { item_id: parent, .. }) => self.script_item_position(parent),
+            None => None,
         }
-        None
     }
 
     pub fn script_is_registered_container(&self, item_id: ItemId) -> bool {
@@ -187,32 +167,11 @@ impl GameWorld {
             .get_container_first_index(cid, client_cid)
     }
 
-    /// Resolve parent [`Cylinder`] for Lua `item:moveTo` / `item:remove`.
+    /// Resolve parent [`Cylinder`] for Lua `item:moveTo` / `item:remove` / decay apply.
+    ///
+    /// O(1) via [`Item::parent`] (772 `TObject::Container` outcome). Hubs maintain the field.
     pub fn resolve_item_parent_cylinder(&self, item_id: ItemId) -> Option<Cylinder> {
-        for (cid, kind) in self.creatures.iter() {
-            let CreatureKind::Player(p) = kind else {
-                continue;
-            };
-            for slot in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
-                let idx = (slot - 1) as usize;
-                if p.equipment_slots[idx] == Some(item_id) {
-                    return Some(Cylinder::Inventory {
-                        player_id: cid,
-                        slot,
-                    });
-                }
-            }
-        }
-        if let Some(parent) = self.parent_container_of(item_id) {
-            return Some(Cylinder::Container {
-                item_id: parent,
-                index: INDEX_WHEREEVER,
-            });
-        }
-        if let Some(pos) = self.map.find_item_position(item_id) {
-            return Some(Cylinder::Tile { pos });
-        }
-        None
+        self.items.get(item_id).and_then(|i| i.parent)
     }
 
     pub fn item_type_id_by_name(&self, name: &str) -> Option<u16> {

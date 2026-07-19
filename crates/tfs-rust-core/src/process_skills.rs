@@ -16,11 +16,21 @@ const POISON_DECAY_PERCENT: i32 = 50;
 
 impl GameWorld {
     /// C++ `ProcessSkills` — tick timer-skills for every creature (`crmain.cc:1130-1139`).
+    ///
+    /// Skip wild monsters / NPCs with an empty condition list: they have nothing to tick, and
+    /// with ~20k+ spawned creatures a full SlotMap sweep every SkillTimeCounter fire was enough
+    /// to push beat lag over the 1000 ms `MoveCreatures` skip threshold when many nearby
+    /// monsters were also pathfinding.
     pub(crate) fn process_skills(&mut self) {
         let ids: Vec<CreatureId> = self
             .creatures
             .iter()
-            .filter(|(_, k)| k.base().health > 0)
+            .filter(|(_, k)| {
+                if k.base().health <= 0 {
+                    return false;
+                }
+                matches!(k, CreatureKind::Player(_)) || !k.base().active_conditions.is_empty()
+            })
             .map(|(id, _)| id)
             .collect();
 
