@@ -1,21 +1,23 @@
-//! `Weapon` userdata for Lua — PC-2b.
+//! `Weapon` userdata for Lua — PC-2b / PC-3a.
 //!
 //! C++ reference:
 //! - `luascript.cpp:3209-3246` — `luaCreateWeapon` / Weapon metatable registration.
 //! - `luascript.cpp:17556-17586` — `luaWeaponRegister`.
 //! - `luascript.cpp:17729-17745` — `luaWeaponWandDamage`.
 //! - `luascript.cpp:17747-17777` — `luaWeaponElement`.
+//! - `weapons.cpp:485` — `Weapon::executeUseWeapon` / `onUseWeapon(player, var)`.
 //! - `weapons.h:53-293` — `Weapon` / `WeaponWand` / `WeaponDistance` / `WeaponMelee`.
 //!
 //! The Lua `Weapon` is a config bag: `Weapon(WEAPON_WAND)` creates a `WeaponBuilder`,
 //! `:id`/`:level`/`:mana`/`:element`/`:damage`/`:vocation` populate it, and
 //! `:register()` pushes a `PendingWeapon` into the runtime's pending buffer.
+//! `function weapon.onUseWeapon(...)` is captured like `spell.onCastSpell`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use mlua::{Lua, UserData, UserDataMethods};
+use mlua::{Lua, RegistryKey, UserData, UserDataMethods, Value};
 
 use tfs_rust_common::enums::CombatType;
 use tfs_rust_content::weapons::parse_element_string;
@@ -39,6 +41,12 @@ pub struct PendingWeapon {
     pub damage_max: u32,
     /// Vocation name → allowed (TFS `vocation(name, bool)`).
     pub vocations: HashMap<String, bool>,
+    /// `weapon:breakChance(n)` — 0..=100; used with `action("move")`.
+    pub break_chance: u8,
+    /// `weapon:action("move"|"removecount"|"removecharge")`.
+    pub consume_action: tfs_rust_content::weapons::WeaponConsumeAction,
+    /// True when an `onUseWeapon` callback was captured for this registration.
+    pub has_on_use: bool,
 }
 
 impl PendingWeapon {
@@ -51,10 +59,15 @@ impl PendingWeapon {
     }
 }
 
-/// Lua-facing `Weapon(type)` builder — newtype wrapper around `Rc<RefCell<PendingWeapon>>`
-/// to satisfy Rust's orphan rule.
+/// Lua-facing `Weapon(type)` builder.
+///
+/// `on_use_fn` holds the Lua callback captured via `__newindex` /
+/// `:onUseWeapon(fn)` (`function weapon.onUseWeapon(player, variant[, hit])`).
 #[derive(Clone)]
-pub struct WeaponBuilder(pub Rc<RefCell<PendingWeapon>>);
+pub struct WeaponBuilder {
+    pub weapon: Rc<RefCell<PendingWeapon>>,
+    pub on_use_fn: Rc<RefCell<Option<RegistryKey>>>,
+}
 
 /// Register the `Weapon` metatable + constructor.
 pub fn register_weapon_metatable(lua: &Lua) -> Result<(), mlua::Error> {
@@ -67,9 +80,10 @@ pub fn register_weapon_metatable(lua: &Lua) -> Result<(), mlua::Error> {
         if matches!(weapon_type, WEAPON_NONE | WEAPON_SHIELD) {
             return Ok(None::<WeaponBuilder>);
         }
-        Ok(Some(WeaponBuilder(Rc::new(RefCell::new(
-            PendingWeapon::new(weapon_type),
-        )))))
+        Ok(Some(WeaponBuilder {
+            weapon: Rc::new(RefCell::new(PendingWeapon::new(weapon_type))),
+            on_use_fn: Rc::new(RefCell::new(None)),
+        }))
     })?;
     lua.globals().set("Weapon", weapon_new)?;
 
@@ -80,30 +94,29 @@ impl UserData for WeaponBuilder {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `weapon:id(id)` — `luascript.cpp:17829`.
         methods.add_method_mut("id", |_, this, id: u16| {
-            this.0.borrow_mut().item_id = id;
+            this.weapon.borrow_mut().item_id = id;
             Ok(true)
         });
 
         // `weapon:level(level)` — sets minimum wield level.
         methods.add_method_mut("level", |_, this, level: u32| {
-            this.0.borrow_mut().level = level;
+            this.weapon.borrow_mut().level = level;
             Ok(true)
         });
 
         // `weapon:magicLevel(level)` — sets minimum magic level.
         methods.add_method_mut("magicLevel", |_, this, level: u32| {
-            this.0.borrow_mut().magic_level = level;
+            this.weapon.borrow_mut().magic_level = level;
             Ok(true)
         });
 
         // `weapon:mana(mana)` — sets mana cost per attack.
         methods.add_method_mut("mana", |_, this, mana: u32| {
-            this.0.borrow_mut().mana_cost = mana;
+            this.weapon.borrow_mut().mana_cost = mana;
             Ok(true)
         });
 
         // `weapon:element(combatType)` — `luascript.cpp:17747-17777`.
-        // Accepts a string ("energy"/"fire"/"earth"/...) or a numeric COMBAT_* constant.
         methods.add_method_mut("element", |_, this, value: mlua::Value| {
             let element = match value {
                 mlua::Value::String(s) => {
@@ -113,13 +126,13 @@ impl UserData for WeaponBuilder {
                 mlua::Value::Integer(n) => bitflag_to_combat_type(n as i32),
                 _ => return Err(mlua::Error::runtime("element: expected string or integer")),
             };
-            this.0.borrow_mut().element = element;
+            this.weapon.borrow_mut().element = element;
             Ok(true)
         });
 
         // `weapon:damage(min, max)` — `luascript.cpp:17729-17745`. Wand-only.
         methods.add_method_mut("damage", |_, this, (min, max): (u32, u32)| {
-            let mut b = this.0.borrow_mut();
+            let mut b = this.weapon.borrow_mut();
             b.damage_min = min;
             b.damage_max = max;
             Ok(true)
@@ -127,25 +140,72 @@ impl UserData for WeaponBuilder {
 
         // `weapon:vocation(name, allowed)` — adds a vocation filter entry.
         methods.add_method_mut("vocation", |_, this, (name, allowed): (String, bool)| {
-            this.0.borrow_mut().vocations.insert(name, allowed);
+            this.weapon.borrow_mut().vocations.insert(name, allowed);
+            Ok(true)
+        });
+
+        // `weapon:breakChance(chance)` — `luascript.cpp` `luaWeaponBreakChance`.
+        methods.add_method_mut("breakChance", |_, this, chance: u8| {
+            this.weapon.borrow_mut().break_chance = chance.min(100);
+            Ok(true)
+        });
+
+        // `weapon:action(action)` — `luascript.cpp` `luaWeaponAction`.
+        methods.add_method_mut("action", |_, this, action: String| {
+            use tfs_rust_content::weapons::WeaponConsumeAction;
+            let consume = match action.to_ascii_lowercase().as_str() {
+                "move" => WeaponConsumeAction::Move,
+                "removecharge" => WeaponConsumeAction::RemoveCharge,
+                _ => WeaponConsumeAction::RemoveCount,
+            };
+            this.weapon.borrow_mut().consume_action = consume;
+            Ok(true)
+        });
+
+        // `weapon:onUseWeapon(fn)` — TFS / compat.lua when `function weapon.onUseWeapon`.
+        methods.add_method_mut("onUseWeapon", |lua, this, value: Value| {
+            if let Value::Function(func) = value {
+                let registry_key = lua.create_registry_value(func)?;
+                *this.on_use_fn.borrow_mut() = Some(registry_key);
+                this.weapon.borrow_mut().has_on_use = true;
+            }
             Ok(true)
         });
 
         // `weapon:register()` — `luascript.cpp:17556-17586`.
-        // Pushes a snapshot of this weapon's config into the `_pending_weapons` global
-        // table for later draining by the script loader.
         methods.add_method("register", |lua, this, ()| {
             let globals = lua.globals();
             let pending: mlua::Table = globals.get("_pending_weapons")?;
             let len = pending.len()?;
-            let snapshot = this.0.borrow().clone();
-            pending.set(len + 1, snapshot)?;
+            let idx = len + 1;
+            let snapshot = this.weapon.borrow().clone();
+            pending.set(idx, snapshot)?;
+
+            let callback_key = this.on_use_fn.borrow_mut().take();
+            if let Some(key) = callback_key {
+                let callbacks: mlua::Table = globals.get("_pending_weapon_callbacks")?;
+                let func: mlua::Function = lua.registry_value(&key)?;
+                callbacks.set(idx, func)?;
+            }
+
             Ok(true)
         });
+
+        // `__newindex` — captures `function weapon.onUseWeapon(...)` without compat.lua.
+        methods.add_meta_method(
+            mlua::MetaMethod::NewIndex,
+            |lua, this, (key, value): (String, Value)| {
+                if key == "onUseWeapon" && let Value::Function(func) = value {
+                    let registry_key = lua.create_registry_value(func)?;
+                    *this.on_use_fn.borrow_mut() = Some(registry_key);
+                    this.weapon.borrow_mut().has_on_use = true;
+                }
+                Ok(())
+            },
+        );
     }
 }
 
-/// Map a Lua bit-flag combat type (1=physical, 2=energy, 4=earth, ...) to the Rust enum.
 fn bitflag_to_combat_type(value: i32) -> CombatType {
     match value {
         1 => CombatType::Physical,
@@ -160,22 +220,27 @@ fn bitflag_to_combat_type(value: i32) -> CombatType {
     }
 }
 
-// `PendingWeapon` must be UserData so it can be stored in the `_pending_weapons` Lua table.
 impl UserData for PendingWeapon {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn setup_pending(lua: &Lua) {
+        lua.globals()
+            .set("_pending_weapons", lua.create_table().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("_pending_weapon_callbacks", lua.create_table().unwrap())
+            .unwrap();
+    }
+
     #[test]
     fn weapon_constructor_creates_wand_builder() {
         let lua = Lua::new();
         register_weapon_metatable(&lua).expect("registration must succeed");
         crate::combat_enums::register_combat_enums(&lua).expect("enum registration must succeed");
-        // Initialize _pending_weapons table (normally done by the script loader).
-        lua.globals()
-            .set("_pending_weapons", lua.create_table().unwrap())
-            .unwrap();
+        setup_pending(&lua);
 
         let result: mlua::AnyUserData = lua
             .load(
@@ -196,7 +261,7 @@ mod tests {
         let w_ref = result
             .borrow::<WeaponBuilder>()
             .expect("must be WeaponBuilder");
-        let w = w_ref.0.borrow();
+        let w = w_ref.weapon.borrow();
         assert_eq!(w.item_id, 2190);
         assert_eq!(w.level, 7);
         assert_eq!(w.mana_cost, 2);
@@ -212,9 +277,7 @@ mod tests {
         let lua = Lua::new();
         register_weapon_metatable(&lua).expect("registration must succeed");
         crate::combat_enums::register_combat_enums(&lua).expect("enum registration must succeed");
-        lua.globals()
-            .set("_pending_weapons", lua.create_table().unwrap())
-            .unwrap();
+        setup_pending(&lua);
 
         lua.load(
             r#"
@@ -232,5 +295,67 @@ mod tests {
 
         let pending: mlua::Table = lua.globals().get("_pending_weapons").unwrap();
         assert_eq!(pending.len().unwrap(), 1);
+    }
+
+    #[test]
+    fn weapon_break_chance_and_action_methods() {
+        let lua = Lua::new();
+        register_weapon_metatable(&lua).expect("registration must succeed");
+        crate::combat_enums::register_combat_enums(&lua).expect("enum registration must succeed");
+        setup_pending(&lua);
+
+        let result: mlua::AnyUserData = lua
+            .load(
+                r#"
+                local weapon = Weapon(WEAPON_DISTANCE)
+                weapon:id(2389)
+                weapon:action("move")
+                weapon:breakChance(7)
+                return weapon
+            "#,
+            )
+            .eval()
+            .expect("weapon setup must succeed");
+        let w_ref = result
+            .borrow::<WeaponBuilder>()
+            .expect("must be WeaponBuilder");
+        let w = w_ref.weapon.borrow();
+        assert_eq!(w.item_id, 2389);
+        assert_eq!(w.break_chance, 7);
+        assert_eq!(
+            w.consume_action,
+            tfs_rust_content::weapons::WeaponConsumeAction::Move
+        );
+    }
+
+    #[test]
+    fn weapon_on_use_weapon_captured_via_newindex() {
+        let lua = Lua::new();
+        register_weapon_metatable(&lua).expect("registration must succeed");
+        crate::combat_enums::register_combat_enums(&lua).expect("enum registration must succeed");
+        setup_pending(&lua);
+
+        lua.load(
+            r#"
+            local weapon = Weapon(WEAPON_AMMO)
+            function weapon.onUseWeapon(player, variant, hit)
+                return true
+            end
+            weapon:id(2546)
+            weapon:action("removecount")
+            weapon:register()
+        "#,
+        )
+        .exec()
+        .expect("burst-style register must succeed");
+
+        let pending: mlua::Table = lua.globals().get("_pending_weapons").unwrap();
+        let ud: mlua::AnyUserData = pending.get(1).unwrap();
+        let pw = ud.borrow::<PendingWeapon>().unwrap();
+        assert!(pw.has_on_use);
+        assert_eq!(pw.item_id, 2546);
+
+        let callbacks: mlua::Table = lua.globals().get("_pending_weapon_callbacks").unwrap();
+        assert!(callbacks.get::<mlua::Function>(1).is_ok());
     }
 }

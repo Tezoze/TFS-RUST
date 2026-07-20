@@ -12,8 +12,6 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 use slotmap::SlotMap;
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
@@ -150,9 +148,7 @@ pub struct GameWorld {
     /// Nesting depth for [`crate::monster_events::GameWorld::monster_notify_creature_enter_viewport`]
     /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
     pub(crate) monster_viewport_notify_depth: u32,
-    /// AI/combat RNG — re-seeded from `TFS_SIM_SEED` in harness runs (`crnonpl.cc` dance/attack rolls).
-    pub(crate) ai_rng: StdRng,
-    /// Per-world glibc parity stream for 772 — avoids process-global `libc::srand` (Finding 8/15).
+    /// Per-world glibc `rand()` stream — sole production RNG for combat / AI / spawn.
     pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
     /// 772 `RoundNr` — incremented each `Other` subsystem tick (`main.cc:350`).
     pub(crate) round_nr: u32,
@@ -359,7 +355,6 @@ impl GameWorld {
             chat_config,
             pvp_config,
             monster_viewport_notify_depth: 0,
-            ai_rng: StdRng::from_entropy(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
             round_nr: 0,
             last_ambiente_brightness: -1,
@@ -427,11 +422,10 @@ impl GameWorld {
         }
     }
 
-    /// Re-seed [`Self::ai_rng`] when `TFS_SIM_SEED` is set (headless parity harness).
+    /// Re-seed [`Self::parity_rng`] when `TFS_SIM_SEED` is set (headless parity harness).
     pub fn init_sim_rng_from_env(&mut self) {
         if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
             if let Ok(seed) = seed_str.parse::<u64>() {
-                self.ai_rng = StdRng::seed_from_u64(seed);
                 self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed as u32);
                 // C++ `srand(TFS_SIM_SEED)` — legacy harness global stream (sim only).
                 #[cfg(any(test, feature = "sim"))]
@@ -443,60 +437,43 @@ impl GameWorld {
         }
     }
 
-    /// Deterministic parity stream for unit tests and live 772 (`Finding 8/15`).
+    /// Deterministic parity stream for unit tests and live production.
     pub fn seed_parity_rng(&mut self, seed: u32) {
         self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed);
     }
 
-    /// Inclusive random on the era-appropriate stream — K1 profile knob.
-    /// 772 (`PerWorldGlibc`) uses per-world glibc state; 1098 (`EnvGlobal`) uses env/global.
+    /// Inclusive random on the per-world glibc stream (sim harness overrides when enabled).
     pub(crate) fn parity_random(&self, min: i32, max: i32) -> i32 {
-        if self.mechanics.profile.parity_rng_source
-            == crate::formulas::ParityRngSource::PerWorldGlibc
-        {
-            self.parity_rng.random(min, max)
-        } else {
-            crate::sim_glibc_rand::parity_random(min, max)
+        #[cfg(any(test, feature = "sim"))]
+        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+            return crate::sim_glibc_rand::sim_random(min, max);
         }
+        self.parity_rng.random(min, max)
     }
 
-    /// Modulo roll on the era-appropriate stream — K1 profile knob.
+    /// Modulo roll on the per-world glibc stream (sim harness overrides when enabled).
     pub(crate) fn parity_rand_mod(&self, modulus: u32) -> u32 {
-        if self.mechanics.profile.parity_rng_source
-            == crate::formulas::ParityRngSource::PerWorldGlibc
-        {
-            self.parity_rng.rand_mod(modulus)
-        } else {
-            crate::sim_glibc_rand::parity_rand_mod(modulus)
+        #[cfg(any(test, feature = "sim"))]
+        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+            return crate::sim_glibc_rand::sim_rand_mod(modulus);
         }
+        self.parity_rng.rand_mod(modulus)
     }
 
-    /// Forward Fisher-Yates shuffle on the era-appropriate parity stream — K1 profile knob.
+    /// Forward Fisher-Yates shuffle on the per-world glibc stream.
     #[allow(dead_code)]
     pub(crate) fn parity_random_shuffle<T>(&self, buf: &mut [T]) {
-        if self.mechanics.profile.parity_rng_source
-            == crate::formulas::ParityRngSource::PerWorldGlibc
-        {
-            self.parity_rng.random_shuffle(buf);
-        } else {
+        #[cfg(any(test, feature = "sim"))]
+        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
             crate::sim_glibc_rand::parity_random_shuffle(buf);
+            return;
         }
+        self.parity_rng.random_shuffle(buf);
     }
 
-    /// Dance / harness rolls — K1: per-world glibc on 772; env/global or [`Self::ai_rng`] on 1098.
+    /// Dance sidestep roll — `%5` on the unified glibc stream.
     pub(crate) fn sim_dance_choice(&mut self) -> u32 {
-        if self.mechanics.profile.parity_rng_source
-            == crate::formulas::ParityRngSource::PerWorldGlibc
-        {
-            self.parity_rand_mod(5)
-        } else {
-            #[cfg(any(test, feature = "sim"))]
-            if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                return crate::sim_glibc_rand::sim_rand_mod(5);
-            }
-            use rand::Rng;
-            self.ai_rng.gen_range(0..5)
-        }
+        self.parity_rand_mod(5)
     }
 
     pub(crate) fn tile_ground_speed(&self, body: &crate::tile::TileBody) -> u32 {

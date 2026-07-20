@@ -371,22 +371,7 @@ impl GameWorld {
                 .items
                 .get(iid)
                 .is_some_and(|i| self.items_db.is_container(i.item_type));
-            let drop = is_container || {
-                #[cfg(any(test, feature = "sim"))]
-                {
-                    if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                        crate::sim_glibc_rand::parity_rand_mod(10) == 0
-                    } else {
-                        use rand::Rng;
-                        self.ai_rng.gen_range(0..10) == 0
-                    }
-                }
-                #[cfg(not(any(test, feature = "sim")))]
-                {
-                    use rand::Rng;
-                    self.ai_rng.gen_range(0..10) == 0
-                }
-            };
+            let drop = is_container || self.parity_rand_mod(10) == 0;
             if !drop {
                 continue;
             }

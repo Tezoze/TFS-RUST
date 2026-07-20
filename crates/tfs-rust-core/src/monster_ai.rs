@@ -12,8 +12,6 @@
 #[allow(unused_imports)]
 pub use crate::monster_targets::TargetSearchType;
 
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 use tfs_rust_common::Position;
@@ -398,19 +396,17 @@ impl GameWorld {
             }
 
             let defense_snap = self.melee_defense_snapshot_for(target_id);
-            let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
             let attack_roll = weapon_damage(
                 &profile,
                 hooks,
-                &mut rng,
                 melee_skill,
                 melee_attack,
                 FightMode::Balanced,
                 0,
+                &self.parity_rng,
             );
             let defense_roll = {
                 let Some(kind) = self.creatures.get_mut(target_id) else {
-                    self.ai_rng = rng;
                     return;
                 };
                 roll_target_defense(
@@ -418,11 +414,12 @@ impl GameWorld {
                     server_ms,
                     &profile,
                     hooks,
-                    &mut rng,
                     defense_snap,
+                    &self.parity_rng,
                 )
             };
-            let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+            let armor_roll =
+                armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
             let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
             // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
@@ -486,7 +483,6 @@ impl GameWorld {
                     snap,
                 );
             }
-            self.ai_rng = rng;
 
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 2000);
@@ -515,15 +511,14 @@ impl GameWorld {
             k.base_mut().delay_attack_ms(server_ms, 200);
         }
 
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
         let attack_roll = weapon_damage(
             &profile,
             hooks,
-            &mut rng,
             melee_skill,
             melee_attack,
             FightMode::Balanced,
             0,
+            &self.parity_rng,
         );
 
         // M11 — shield wearout gate check: capture whether the defense gate will pass before
@@ -535,7 +530,6 @@ impl GameWorld {
             .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
         let defense_roll = {
             let Some(kind) = self.creatures.get_mut(target_id) else {
-                self.ai_rng = rng;
                 return;
             };
             let _trace = crate::sim_glibc_rand::sim_rng_trace_site("melee_defense_probe");
@@ -544,13 +538,14 @@ impl GameWorld {
                 server_ms,
                 &profile,
                 hooks,
-                &mut rng,
                 defense_snap,
+                &self.parity_rng,
             )
         };
 
         let _trace_armor = crate::sim_glibc_rand::sim_rng_trace_site("melee_armor_probe");
-        let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+        let armor_roll =
+            armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
         // M11 — Shield wearout: decrement the player defender's shield `REMAININGUSES` when the
         // defense gate passed (`crcombat.cc:265-281`). Player-only. Called after `hooks` is last
         // used to avoid borrow conflict with `&mut self`.
@@ -608,11 +603,11 @@ impl GameWorld {
 
         if !target_immune_poison {
             if let Some(cond) = melee_poison_on_hit(
-                &mut rng,
                 poison_cycles,
                 attack_roll,
                 defense_roll,
                 damage_done,
+                &self.parity_rng,
             ) {
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -635,7 +630,6 @@ impl GameWorld {
                 }
             }
         }
-        self.ai_rng = rng;
 
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 2000);

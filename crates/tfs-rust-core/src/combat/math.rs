@@ -22,12 +22,11 @@
 //! `creature.cpp:500–533` (`blockHit`), `vocation.cpp`, `condition.cpp:1330`, `spells.cpp`,
 //! `player.cpp` (`getExpForLevel`).
 
-use rand::Rng;
-
 use crate::formulas::{
     ArmorReduction, ConditionTicks, DamageFormula, DamageProbeTuning, FightModes, FormulaHooks,
     LevelExpModel, MechanicsProfile,
 };
+use crate::sim_glibc_rand::GlibcRngState;
 
 /// Player fight stance (`ATTACK_MODE_*` in CipSoft, `fightMode_t` in TFS).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -51,7 +50,7 @@ impl FightMode {
     }
 
     /// Integer code passed to Tier-2 hooks (mirrors 772 `ATTACK_MODE_*`: 1/2/3).
-    fn code(self) -> i32 {
+    pub(crate) fn code(self) -> i32 {
         match self {
             FightMode::Offensive => 1,
             FightMode::Balanced => 2,
@@ -119,24 +118,25 @@ fn apply_defense_mode(modes: &FightModes, mode: FightMode, max_value: i32) -> i3
 // ---------------------------------------------------------------------------
 
 /// Probe damage roll loaded from startup tuning (`formulas.damageTuning`).
-pub fn probe_value<R: Rng + ?Sized>(
-    rng: &mut R,
+///
+/// Random factor source: sim harness glibc (`TFS_SIM_SEED`) when enabled, else `parity`
+/// (per-world [`GlibcRngState`] — sole production stream).
+pub fn probe_value(
     skill: i32,
     attack: i32,
     tuning: DamageProbeTuning,
+    parity: &GlibcRngState,
 ) -> i32 {
     let random_factor = {
         #[cfg(any(test, feature = "sim"))]
         if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
             crate::sim_glibc_rand::sim_probe_random_factor()
         } else {
-            let max_roll = tuning.random_max.max(1) + 1;
-            (rng.gen_range(0..max_roll) + rng.gen_range(0..max_roll)) / 2
+            parity.probe_random_factor(tuning.random_max)
         }
         #[cfg(not(any(test, feature = "sim")))]
         {
-            let max_roll = tuning.random_max.max(1) + 1;
-            (rng.gen_range(0..max_roll) + rng.gen_range(0..max_roll)) / 2
+            parity.probe_random_factor(tuning.random_max)
         }
     };
     let max_value = attack.max(0)
@@ -147,42 +147,172 @@ pub fn probe_value<R: Rng + ?Sized>(
     (random_factor * max_value) / 10000
 }
 
-/// Rolled weapon damage for the active era (B4.2).
+/// Deterministic ceiling of [`probe_value`] when `RandomFactor == damageTuning.randomMax`.
 ///
-/// - [`DamageFormula::ClassicProbe`] (772) — fight-mode-scaled `attack`, then probe roll.
-/// - [`DamageFormula::Modern`] (1098) — current shared probe shape (tunable via startup profile).
-pub fn weapon_damage<R: Rng + ?Sized>(
-    profile: &MechanicsProfile,
-    _hooks: &FormulaHooks,
-    rng: &mut R,
+/// Useful for diagnostics / Modern-adjacent max queries. **772 `COMBAT_FORMULA_SKILL`
+/// does not use this** — it rolls one [`classic_probe_sample`] like `GetAttackDamage`.
+pub fn probe_damage_ceiling(
     skill: i32,
     attack: i32,
     mode: FightMode,
-    _level: i32,
+    profile: &MechanicsProfile,
 ) -> i32 {
     let modified_attack = apply_attack_mode(&profile.fight_modes, mode, attack);
+    classic_probe_sample_raw(skill, modified_attack, profile.damage_probe, profile.damage_probe.random_max.max(0))
+}
+
+/// One `ProbeValue` sample with a pre-rolled `random_factor` (`crskill.cc:535-546`).
+///
+/// `attack` should already include fight-mode scaling ([`apply_attack_mode`] via
+/// [`classic_probe_sample`]).
+pub fn classic_probe_sample_raw(
+    skill: i32,
+    attack: i32,
+    tuning: DamageProbeTuning,
+    random_factor: i32,
+) -> i32 {
+    let max_value = attack.max(0)
+        * (skill
+            .max(0)
+            .saturating_mul(tuning.skill_mult.max(0))
+            .saturating_add(tuning.skill_base.max(0)));
+    (random_factor.max(0) * max_value) / 10000
+}
+
+/// Fight-mode-scaled ClassicProbe sample — 772 `GetAttackDamage` without skill Increase.
+pub fn classic_probe_sample(
+    profile: &MechanicsProfile,
+    skill: i32,
+    attack: i32,
+    mode: FightMode,
+    random_factor: i32,
+) -> i32 {
+    let modified_attack = apply_attack_mode(&profile.fight_modes, mode, attack);
+    classic_probe_sample_raw(skill, modified_attack, profile.damage_probe, random_factor)
+}
+
+/// TFS `COMBAT_FORMULA_SKILL` weapon-max term — era-gated.
+///
+/// - **772 / ClassicProbe** — [`probe_damage_ceiling`] (diagnostic max only).
+/// - **1098 / Modern** — TFS `Weapons::getMaxWeaponDamage` (`0.085×skill×attack×d + level/5`).
+pub fn formula_skill_weapon_max(
+    profile: &MechanicsProfile,
+    skill: i32,
+    attack: i32,
+    mode: FightMode,
+    level: u32,
+    attack_factor: f64,
+) -> i32 {
     match profile.damage_formula {
-        DamageFormula::ClassicProbe | DamageFormula::Modern => {
-            probe_value(rng, skill, modified_attack, profile.damage_probe).max(0)
+        DamageFormula::ClassicProbe => probe_damage_ceiling(skill, attack, mode, profile),
+        DamageFormula::Modern => {
+            let factor = if attack_factor > 0.0 {
+                attack_factor
+            } else {
+                1.0
+            };
+            crate::weapon::max_weapon_damage_melee(level, skill, attack, factor)
+        }
+    }
+}
+
+/// `setFormula(COMBAT_FORMULA_SKILL, …)` → `(lo, hi)` magnitudes for AoE.
+///
+/// - **772 / ClassicProbe** — one [`weapon_damage`] / ProbeValue sample (decompile
+///   `GetAttackDamage`), then `× maxa + maxb`. Returns `(v, v)` so AoE does not
+///   re-roll uniformly over a ceiling range.
+/// - **1098 / Modern** — TFS `normal_random(minb, fma(weaponMax, maxa, maxb))` bounds.
+pub fn formula_skill_damage_bounds(
+    profile: &MechanicsProfile,
+    hooks: &FormulaHooks,
+    skill: i32,
+    attack: i32,
+    mode: FightMode,
+    level: u32,
+    attack_factor: f64,
+    min_b: f64,
+    max_a: f64,
+    max_b: f64,
+    parity: &GlibcRngState,
+) -> (i32, i32) {
+    match profile.damage_formula {
+        DamageFormula::ClassicProbe => {
+            let rolled =
+                weapon_damage(profile, hooks, skill, attack, mode, level as i32, parity);
+            let v = (f64::from(rolled) * max_a + max_b).round() as i32;
+            (v, v)
+        }
+        DamageFormula::Modern => {
+            let weapon_max =
+                formula_skill_weapon_max(profile, skill, attack, mode, level, attack_factor);
+            let lo = min_b as i32;
+            let hi = (f64::from(weapon_max) * max_a + max_b).round() as i32;
+            (lo, hi.max(lo))
+        }
+    }
+}
+
+/// Rolled weapon damage for the active era (B4.2).
+///
+/// - Tier-2 `getWeaponDamage` hook wins when registered (`772.lua` / `1098.lua`).
+/// - [`DamageFormula::ClassicProbe`] (772) — fight-mode-scaled `attack`, then probe roll.
+/// - [`DamageFormula::Modern`] (1098) — TFS `getMaxWeaponDamage` then triangular melee roll
+///   (15%‥max), matching `WeaponMelee::getWeaponDamage`.
+///
+/// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
+pub fn weapon_damage(
+    profile: &MechanicsProfile,
+    hooks: &FormulaHooks,
+    skill: i32,
+    attack: i32,
+    mode: FightMode,
+    level: i32,
+    parity: &GlibcRngState,
+) -> i32 {
+    if let Some(v) = hooks.weapon_damage(skill, attack, mode.code(), level) {
+        return v.max(0);
+    }
+    match profile.damage_formula {
+        DamageFormula::ClassicProbe => {
+            let modified_attack = apply_attack_mode(&profile.fight_modes, mode, attack);
+            probe_value(skill, modified_attack, profile.damage_probe, parity).max(0)
+        }
+        DamageFormula::Modern => {
+            // TFS `Player::getAttackFactor` — offensive 1.0 / balanced 0.75 / defense 0.5.
+            let attack_factor = match mode {
+                FightMode::Offensive => 1.0,
+                FightMode::Balanced => 0.75,
+                FightMode::Defensive => 0.5,
+            };
+            let max_value = crate::weapon::max_weapon_damage_melee(
+                level.max(0) as u32,
+                skill,
+                attack,
+                attack_factor,
+            );
+            let max_value = (max_value as f64).floor() as i32;
+            let min_value = (max_value as f64 * 0.15_f64).floor() as i32;
+            // Magnitude only — callers treat this as a positive roll like ClassicProbe.
+            crate::combat::rng::triangular_random_glibc(parity, min_value, max_value).max(0)
         }
     }
 }
 
 /// Rolled defense value (`crcombat.cc:236` `GetDefendDamage`): fight-mode-scaled defense through
 /// `ProbeValue`. Tier-2 `getDefense(skill, defense, mode)` overrides.
-pub fn defense_value<R: Rng + ?Sized>(
+pub fn defense_value(
     profile: &MechanicsProfile,
     hooks: &FormulaHooks,
-    rng: &mut R,
     skill: i32,
     defense: i32,
     mode: FightMode,
+    parity: &GlibcRngState,
 ) -> i32 {
     if let Some(v) = hooks.defense(skill, defense, mode.code()) {
         return v.max(0);
     }
     let modified_defense = apply_defense_mode(&profile.fight_modes, mode, defense);
-    probe_value(rng, skill, modified_defense, profile.damage_probe).max(0)
+    probe_value(skill, modified_defense, profile.damage_probe, parity).max(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -191,14 +321,20 @@ pub fn defense_value<R: Rng + ?Sized>(
 
 /// Effective armor mitigation (B4.3).
 ///
+/// - Tier-2 `getArmorReduction(armor)` wins when registered (`772.lua` / `1098.lua`).
 /// - [`ArmorReduction::Full`] (1098) — subtract the full armor value (`creature.cpp` ~532).
-/// - [`ArmorReduction::Randomized`] (772) — startup-loaded randomized armor mode.
-pub fn armor_reduction<R: Rng + ?Sized>(
+/// - [`ArmorReduction::Randomized`] (772) — `(A/2)+rand%(A/2)` when `A >= minArmorForRandom`.
+///
+/// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
+pub fn armor_reduction(
     profile: &MechanicsProfile,
-    _hooks: &FormulaHooks,
-    rng: &mut R,
+    hooks: &FormulaHooks,
     armor: i32,
+    parity: &GlibcRngState,
 ) -> i32 {
+    if let Some(v) = hooks.armor_reduction(armor) {
+        return v.max(0);
+    }
     match profile.armor {
         ArmorReduction::Full => armor.max(0),
         ArmorReduction::Randomized => {
@@ -211,11 +347,11 @@ pub fn armor_reduction<R: Rng + ?Sized>(
                     if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
                         half + crate::sim_glibc_rand::sim_rand_mod(half as u32) as i32
                     } else {
-                        half + rng.gen_range(0..half)
+                        half + parity.armor_rand_extra(half)
                     }
                     #[cfg(not(any(test, feature = "sim")))]
                     {
-                        half + rng.gen_range(0..half)
+                        half + parity.armor_rand_extra(half)
                     }
                 }
             } else {
@@ -238,27 +374,39 @@ pub fn melee_damage_after_defense_and_armor(attack: i32, defense: i32, armor: i3
 
 /// 772 `TSkillProbe::Probe` — `crskill.cc:549` hit-probe for distance attacks.
 ///
-/// `Probe(Diff, Prob, Increase)`:
-/// - if `Increase`: `Increase(1)` (skill exp — PC-5 wires the tries counter; PC-3 only consumes
-///   the `LearningPoints` window the caller passes in).
-/// - default `Result = true`; if `Diff != 0`:
-///   - if `skill >= rand() % Diff`: `Result = (rand() % 100) <= Prob`
-///   - else: `Result = false`
-///
-/// `Diff` is the difficulty threshold (`Distance * 15` for distance attacks,
-/// `crcombat.cc:792-794`); `Prob` is the hit chance (bow 90 / throw 75). Returns whether the
-/// projectile hits. The caller handles `LearningPoints` decrement (`crcombat.cc:795-797`).
-pub fn probe_hit<R: Rng + ?Sized>(rng: &mut R, skill: i32, diff: i32, prob: i32) -> bool {
+/// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
+pub fn probe_hit(skill: i32, diff: i32, prob: i32, parity: &GlibcRngState) -> bool {
     if diff == 0 {
         return true;
     }
-    let diff_roll = rng.gen_range(0..diff);
+    let (diff_roll, chance_roll) = {
+        #[cfg(any(test, feature = "sim"))]
+        {
+            if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                (
+                    crate::sim_glibc_rand::sim_rand_mod(diff.max(1) as u32) as i32,
+                    crate::sim_glibc_rand::sim_rand_mod(100) as i32,
+                )
+            } else {
+                (
+                    parity.rand_mod(diff.max(1) as u32) as i32,
+                    parity.rand_mod(100) as i32,
+                )
+            }
+        }
+        #[cfg(not(any(test, feature = "sim")))]
+        {
+            (
+                parity.rand_mod(diff.max(1) as u32) as i32,
+                parity.rand_mod(100) as i32,
+            )
+        }
+    };
     if skill < diff_roll {
         return false;
     }
-    // `(rand() % 100) <= Prob` — `Prob` is 0..=100 inclusive; a 100 always hits, a 0 rarely hits (1% chance)
-    // (the `<=` makes `Prob=0` hit only when `rand()%100 == 0`, matching C++).
-    rng.gen_range(0..100) <= prob
+    // `(rand() % 100) <= Prob` — Prob=100 always hits; Prob=0 hits only on 0 (1%).
+    chance_roll <= prob
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +428,26 @@ pub fn spell_damage(
     if let Some(v) = hooks.spell_damage(level, magic_level, base) {
         return v;
     }
+    let mult = spell_formula_multiplier(
+        profile,
+        level,
+        magic_level,
+        clamp_max_100,
+        clamp_min_100,
+    );
+    (base * mult) / 100
+}
+
+/// Level/magic multiplier after optional 100% clamps (`magic.cc:784-792`).
+///
+/// Tuned by `formulas.spell.levelMult` / `magicMult` (`772.lua` / `1098.lua`).
+pub fn spell_formula_multiplier(
+    profile: &MechanicsProfile,
+    level: i32,
+    magic_level: i32,
+    clamp_max_100: bool,
+    clamp_min_100: bool,
+) -> i32 {
     let mut mult =
         profile.spell_coeff.level_mult * level + profile.spell_coeff.magic_mult * magic_level;
     if clamp_max_100 && mult > 100 {
@@ -288,7 +456,42 @@ pub fn spell_damage(
     if clamp_min_100 && mult < 100 {
         mult = 100;
     }
-    (base * mult) / 100
+    mult
+}
+
+/// `Player:computeDamage` / `computeHealing` range — decompile variation as bounds, then scale.
+///
+/// Returns **positive** magnitudes `(lo, hi)` for `damage±variation` after the spell formula.
+/// Lua damage scripts negate; healing keeps the sign.
+pub fn spell_damage_range(
+    profile: &MechanicsProfile,
+    hooks: &FormulaHooks,
+    level: i32,
+    magic_level: i32,
+    damage: i32,
+    variation: i32,
+    clamp_max_100: bool,
+    clamp_min_100: bool,
+) -> (i32, i32) {
+    let lo = spell_damage(
+        profile,
+        hooks,
+        level,
+        magic_level,
+        damage - variation,
+        clamp_max_100,
+        clamp_min_100,
+    );
+    let hi = spell_damage(
+        profile,
+        hooks,
+        level,
+        magic_level,
+        damage + variation,
+        clamp_max_100,
+        clamp_min_100,
+    );
+    (lo.min(hi), lo.max(hi))
 }
 
 // ---------------------------------------------------------------------------
@@ -420,8 +623,7 @@ pub fn condition_tick(
 mod tests {
     use super::*;
     use crate::formulas::Mechanics;
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
+    use crate::sim_glibc_rand::GlibcRngState;
     use tfs_rust_common::ProtocolVersion;
 
     fn p772() -> Mechanics {
@@ -476,10 +678,10 @@ mod tests {
         // ProbeValue is bounded by Max/100: max factor 99 -> (99 * Max)/10000.
         // skill=10, attack=50 -> Max = 50*(10*5+50) = 50*100 = 5000.
         // Max possible roll: (99 * 5000)/10000 = 49. Min: 0.
-        let mut rng = StdRng::seed_from_u64(42);
+        let parity = GlibcRngState::seed(42);
         let mut max_seen = 0;
         for _ in 0..10_000 {
-            let v = probe_value(&mut rng, 10, 50, p772().profile.damage_probe);
+            let v = probe_value(10, 50, p772().profile.damage_probe, &parity);
             assert!((0..=49).contains(&v), "probe value {v} out of [0,49]");
             max_seen = max_seen.max(v);
         }
@@ -501,22 +703,40 @@ mod tests {
     fn armor_full_vs_randomized_bounds() {
         let m1098 = p1098();
         let m772 = p772();
-        let mut rng = StdRng::seed_from_u64(7);
+        let parity = GlibcRngState::seed(7);
         // 1098 full: armor returned verbatim.
         assert_eq!(
-            armor_reduction(&m1098.profile, &m1098.hooks, &mut rng, 30),
+            armor_reduction(&m1098.profile, &m1098.hooks, 30, &parity),
             30
         );
         // 772 randomized: in [A/2, A-1] for A>=2 → [15, 29] for A=30.
         for _ in 0..1000 {
-            let r = armor_reduction(&m772.profile, &m772.hooks, &mut rng, 30);
+            let r = armor_reduction(&m772.profile, &m772.hooks, 30, &parity);
             assert!(
                 (15..=29).contains(&r),
                 "randomized armor {r} out of [15,29]"
             );
         }
         // A=1 returns 1 in both.
-        assert_eq!(armor_reduction(&m772.profile, &m772.hooks, &mut rng, 1), 1);
+        assert_eq!(
+            armor_reduction(&m772.profile, &m772.hooks, 1, &parity),
+            1
+        );
+    }
+
+    #[test]
+    fn tier2_get_armor_reduction_overrides_native() {
+        use crate::formulas::FormulaHooks;
+        let lua = mlua::Lua::new();
+        lua.load("function getArmorReduction(armor) return 42 end")
+            .exec()
+            .unwrap();
+        let hooks = FormulaHooks::from_lua_for_test(lua);
+        let parity = GlibcRngState::seed(1);
+        assert_eq!(
+            armor_reduction(&p772().profile, &hooks, 30, &parity),
+            42
+        );
     }
 
     #[test]
@@ -537,6 +757,15 @@ mod tests {
             spell_damage(&m.profile, &m.hooks, 1, 1, 100, false, true),
             100
         );
+    }
+
+    #[test]
+    fn spell_damage_range_matches_compute_damage() {
+        let m = p772();
+        // level=20, magic=10 → mult=70; damage=45, variation=10 → (24, 38)
+        let (lo, hi) =
+            spell_damage_range(&m.profile, &m.hooks, 20, 10, 45, 10, false, false);
+        assert_eq!((lo, hi), (24, 38));
     }
 
     #[test]
@@ -694,8 +923,60 @@ mod tests {
         profile.damage_probe.skill_base = 1;
         profile.damage_probe.random_max = 10;
         let hooks = FormulaHooks::default();
-        let mut rng = StdRng::seed_from_u64(1);
-        let v = weapon_damage(&profile, &hooks, &mut rng, 10, 50, FightMode::Offensive, 8);
+        let parity = GlibcRngState::seed(1);
+        let v = weapon_damage(&profile, &hooks, 10, 50, FightMode::Offensive, 8, &parity);
         assert!(v >= 0);
+    }
+
+    /// ClassicProbe FORMULA_SKILL: one ProbeValue sample → `(v, v)`, not ceiling range.
+    #[test]
+    fn formula_skill_classic_probe_rolls_once() {
+        let m = p772();
+        let parity = GlibcRngState::seed(42);
+        let (lo, hi) = formula_skill_damage_bounds(
+            &m.profile,
+            &m.hooks,
+            80,
+            40,
+            FightMode::Balanced,
+            50,
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            &parity,
+        );
+        assert_eq!(lo, hi, "772 FORMULA_SKILL must not re-roll over a range");
+        let ceiling = probe_damage_ceiling(80, 40, FightMode::Balanced, &m.profile);
+        assert!(
+            (0..=ceiling).contains(&lo),
+            "probe sample {lo} must be in 0..={ceiling}"
+        );
+    }
+
+    /// Modern FORMULA_SKILL max = TFS `getMaxWeaponDamage`.
+    #[test]
+    fn formula_skill_modern_tfs_closed_form() {
+        let profile = p1098().profile;
+        // floor(0.085*80*40*1) + floor(50/5) = 272 + 10 = 282
+        assert_eq!(
+            formula_skill_weapon_max(&profile, 80, 40, FightMode::Balanced, 50, 1.0),
+            282
+        );
+        let parity = GlibcRngState::seed(1);
+        let (lo, hi) = formula_skill_damage_bounds(
+            &profile,
+            &FormulaHooks::default(),
+            80,
+            40,
+            FightMode::Balanced,
+            50,
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            &parity,
+        );
+        assert_eq!((lo, hi), (0, 282));
     }
 }

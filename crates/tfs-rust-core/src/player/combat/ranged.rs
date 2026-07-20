@@ -8,63 +8,48 @@
 //! - `TCreature::Damage` — `crmain.cc:486-760` (typed immunities, mana shield, armor — shared
 //!   path via `combat_execute_with_stimulus`).
 //!
-//! Reuses `combat::math::{probe_hit, weapon_damage, melee_damage_after_defense_and_armor,
-//! armor_reduction}`, `roll_target_defense`, and `combat_execute_with_stimulus` — no parallel
-//! player combat math module (`tfs-code-hygiene.md`). Era knobs flow through
-//! `MechanicsProfile`/`FormulaHooks`; per-vocation `formula.dist_damage` from the cached
-//! `VocationProfile` snapshot.
+//! Reuses `combat::math::{probe_hit, weapon_damage, armor_reduction}`, `roll_target_defense`,
+//! and `combat_execute_with_stimulus` — no parallel player combat math module
+//! (`tfs-code-hygiene.md`). Era knobs flow through `MechanicsProfile`/`FormulaHooks`;
+//! per-vocation `formula.dist_damage` from the cached `VocationProfile` snapshot.
 //!
-//! Wand data comes from `world.weapons: Arc<WeaponRegistry>` (loaded from
-//! `data/scripts/weapons/wands.lua` + `rods.lua` via the TFS Lua `Weapon(WEAPON_WAND)` API in
-//! PC-2b). Distance weapon/ammo data comes from `items.xml` (`attack`, `shoot_range`,
-//! `shoot_effect`, `ammo_type`).
-
-use rand::rngs::StdRng;
-use rand::Rng;
-use rand::SeedableRng;
+//! Wand/rod **data** comes from `world.weapons` (`wands.lua` / `rods.lua`). Burst / scripted
+//! ammo uses Lua `onUseWeapon` → `Combat:execute` (`burst_arrow.lua`), same TFS domain shape.
+//! Distance item stats still come from `items.xml` (`attack`, `shoot_range`, `shoot_effect`).
 
 use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
 
-use crate::combat::math::{
-    armor_reduction, melee_damage_after_defense_and_armor, probe_hit, weapon_damage,
-};
+use crate::combat::math::{armor_reduction, probe_hit, weapon_damage};
 use crate::combat::{CombatDamage, CombatParams};
+use crate::cylinder::CylinderFlags;
 use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{InventorySlot, WEAPON_DISTANCE, WEAPON_WAND};
+use crate::lua_scope::fire_on_use_weapon;
 use crate::monster_ai::chebyshev;
 use crate::player_combat::CombatResult;
 
-/// Special-effect enum for distance ammo — `AMMOSPECIALEFFECT`/`THROWSPECIALEFFECT`
-/// (`crcombat.cc:770,783`). 772 only defines `1 = POISON ARROW` and `2 = BURST ARROW`.
+/// Native special effects for distance ammo without an `onUseWeapon` script.
+///
+/// Poison remains XML-driven (`poisondamagecycles`). Burst arrow is **not** a native special —
+/// it goes through Lua `onUseWeapon` (`burst_arrow.lua` / TFS `Weapon::executeUseWeapon`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AmmoSpecialEffect {
     None,
-    /// `SpecialEffect == 1` — poison arrow: extra `DAMAGE_POISON_PERIODIC` on hit
-    /// (`crcombat.cc:833-836`). `EffectStrength` = the ammo's `poisondamagecycles` attribute.
+    /// Extra earth damage on hit when `poisondamagecycles > 0` (`crcombat.cc:833-836`).
     Poison,
-    /// `SpecialEffect == 2` — burst arrow: physical AoE burst centered on the impact tile
-    /// (`crcombat.cc:837-842`). `EffectStrength` = the burst damage amount.
-    Burst,
 }
 
 impl AmmoSpecialEffect {
-    /// Map an `items.xml` `poisondamagecycles` / `burstdamage` attribute presence to the
-    /// 772 special-effect enum. The 772 `AMMOSPECIALEFFECT` is read from the ammo's
-    /// `ObjectType` attribute; TFS encodes it via the `poisondamagecycles` (poison arrow) and
-    /// the `onUseWeapon` Lua script (burst arrow). For PC-3 we detect poison arrows by the
-    /// `poisondamagecycles > 0` attribute and burst arrows by item id (2546).
-    fn from_item(item_type: u16, poison_cycles: i32) -> Self {
+    fn from_item(_item_type: u16, poison_cycles: i32) -> Self {
         if poison_cycles > 0 {
-            return Self::Poison;
+            Self::Poison
+        } else {
+            Self::None
         }
-        if item_type == 2546 {
-            return Self::Burst;
-        }
-        Self::None
     }
 }
 
@@ -223,9 +208,8 @@ impl GameWorld {
         // (`crcombat.cc:731`). Map `[min, max]` → `Strength = (min+max)/2`, `Variation = (max-min)/2`.
         let strength = ((wand_def.damage_min + wand_def.damage_max) / 2) as i32;
         let variation = ((wand_def.damage_max - wand_def.damage_min) / 2) as i32;
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
         let damage = if variation > 0 {
-            strength + rng.gen_range(-variation..=variation)
+            strength + self.parity_rng.random(-variation, variation)
         } else {
             strength
         };
@@ -269,14 +253,15 @@ impl GameWorld {
         };
         let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
-            self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
+            // Typed color from wand element — `crmain.cc:746-755` (Fire→ORANGE, Energy→LIGHTBLUE).
+            // Must not hardcode Physical (blood-family color); that made fire/energy wands look red.
+            self.notify_player_combat_damage(Some(cid), target_id, damage_done, damage_type, snap);
         }
 
         // Missile animation — broadcast after the damage lands (C++ `::Missile` at `:736`).
         if shoot_type != 0 {
             self.broadcast_distance_shoot(master_pos, target_pos, shoot_type);
         }
-        self.ai_rng = rng;
 
         // `ActivateLearning` on `DamageDone > 0` (`crcombat.cc:733`).
         if damage_done > 0 {
@@ -314,9 +299,8 @@ impl GameWorld {
     ///
     /// Bow+ammo: `HitChance = 90`, `Fragility = 100` (always consumed), `DamageType = PHYSICAL`,
     /// `AnimType = AMMOMISSILE` (`crcombat.cc:766-771`). Throwing: `HitChance = 75`,
-    /// `Fragility = THROWFRAGILITY` (from `items.xml` `breakChance` via the Lua script — PC-3
-    /// uses 100 for parity with the 772 `THROWFRAGILITY` default; the Lua `breakChance` is
-    /// PC-3a script-wiring scope), `AnimType = THROWMISSILE` (`crcombat.cc:779-784`).
+    /// `Fragility = THROWFRAGILITY` from Lua `weapon:breakChance` when `action("move")`
+    /// (`crcombat.cc:779-784`, PC-3a).
     fn player_distance_attack(&mut self, cid: CreatureId, target_id: CreatureId) {
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
@@ -327,9 +311,7 @@ impl GameWorld {
         // is the inventory slot the consumed item lives in (Ammo for bows, hand for throwing) —
         // needed to push the slot update to the client after consumption.
         let (weapon_iid, ammo_iid, is_bow, active_slot) = self.resolve_distance_weapon(cid);
-        // `HitChance` — bow=90, throw=75 (`crcombat.cc:766,779`). `Fragility` is always 100 for
-        // PC-3 (bows always consume ammo; throwing weapons always consume a charge). The
-        // `random(0, 99) < Fragility` roll is PC-3a script-wiring scope (Lua `breakChance`).
+        // `HitChance` — bow=90, throw=75 (`crcombat.cc:766,779`).
         let (active_iid, hit_chance) = match (weapon_iid, ammo_iid, is_bow) {
             (Some(_), Some(a), true) => (a, 90),
             (Some(w), None, false) => (w, 75),
@@ -346,7 +328,7 @@ impl GameWorld {
         };
 
         // Read the active item (ammo for bows, weapon for throwing) for attack/shoot/effect.
-        let (attack_value, shoot_type, special_effect, effect_strength) = {
+        let (attack_value, shoot_type, special_effect, effect_strength, active_type_id) = {
             let Some(item) = self.items.get(active_iid) else {
                 return;
             };
@@ -354,8 +336,8 @@ impl GameWorld {
                 return;
             };
             let shoot_type = it.shoot_effect.unwrap_or(0);
-            // Poison arrow detection: `poisondamagecycles` is stored in `xml_attributes` (PC-2
-            // items.xml parsing keeps unknown keys there). Burst arrow: item id 2546.
+            // Poison arrow: `poisondamagecycles` in xml_attributes. Burst / scripted ammo
+            // use Lua `onUseWeapon` when registered (not hardcoded by id).
             let poison_cycles = it
                 .xml_attributes
                 .get("poisondamagecycles")
@@ -364,11 +346,17 @@ impl GameWorld {
             let special = AmmoSpecialEffect::from_item(it.server_id, poison_cycles);
             let effect_strength = match special {
                 AmmoSpecialEffect::Poison => poison_cycles,
-                AmmoSpecialEffect::Burst => 30, // 772 burst arrow base damage (`crcombat.cc:838`).
                 AmmoSpecialEffect::None => 0,
             };
-            (it.attack, shoot_type, special, effect_strength)
+            (it.attack, shoot_type, special, effect_strength, it.server_id)
         };
+        // TFS scripted distance: `onUseWeapon` replaces native damage/specials
+        // (`weapons.cpp:365-369`). Burst arrow lives here via `burst_arrow.lua`.
+        let scripted = self
+            .weapons
+            .get_distance(active_type_id)
+            .is_some_and(|d| d.has_on_use)
+            || self.events.has_weapon_on_use(active_type_id);
 
         // Positions for range/LoS — read before mutation.
         let (master_pos, target_pos) =
@@ -419,10 +407,9 @@ impl GameWorld {
 
         // `Difficulty = (Distance >= 2) ? Distance : 5` (`crcombat.cc:792`).
         let difficulty = if cheb >= 2 { cheb } else { 5 };
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
 
         // `Probe(Difficulty * 15, HitChance, LearningPoints > 0)` (`crcombat.cc:793-794`).
-        let hit = probe_hit(&mut rng, skill, difficulty * 15, hit_chance);
+        let hit = probe_hit(skill, difficulty * 15, hit_chance, &self.parity_rng);
         // `Increase(1)` on distance skill + `LearningPoints -= 1` (`crcombat.cc:795-797`).
         // TFS `onGainSkillTries`: multiply by `rateSkill` before adding.
         let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
@@ -443,147 +430,128 @@ impl GameWorld {
             }
         }
 
-        // Target defense snapshot — for the `Target->Combat.GetDefendDamage()` call on hit
-        // (`crcombat.cc:809-811`). C++ notes this is likely a bug (defense shouldn't apply to
-        // ranged), but it does run when the defender has a shield. We mirror the behavior.
+        // Target armor snapshot for Physical armor inside `Damage` (`crmain.cc:624`).
+        // Defense side effects only when the **attacker** wears a shield (`crcombat.cc:809-811`).
         let defense_snap = self.melee_defense_snapshot_for(target_id);
+        let attacker_has_shield = self.player_get_shield(cid).is_some();
 
         let drop_pos; // Missile impact tile (target tile on hit, random adjacent on miss).
         if hit {
-            // `GetAttackDamage` — fight-mode-scaled probe roll (`crcombat.cc:803`).
-            let attack_roll =
-                weapon_damage(&profile, hooks, &mut rng, skill, attack_value, mode, level);
-            let attack_roll = ((attack_roll as f64) * dist_mult).floor() as i32;
+            drop_pos = target_pos;
 
-            // `Target->Combat.GetDefendDamage()` — `crcombat.cc:809-811`. The C++ comment notes
-            // this is probably a bug (defense shouldn't block ranged), but it runs when the
-            // defender has a shield. We mirror: roll defense, apply armor, then `Damage(PHYSICAL)`.
-            let defense_gate_passed = self
-                .creatures
-                .get(target_id)
-                .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
-            let defense_roll = match self.creatures.get_mut(target_id) {
-                Some(kind) => roll_target_defense(
-                    kind.base_mut(),
-                    server_ms,
-                    &profile,
-                    hooks,
-                    &mut rng,
-                    defense_snap,
-                ),
-                None => {
-                    self.ai_rng = rng;
-                    return;
+            // Skill notify after hooks last used on hit (native arm uses hooks below).
+            if !scripted {
+                // Native physical arrow/throw — skipped when `onUseWeapon` owns damage
+                // (TFS `Weapon::internalUseWeapon` scripted branch).
+                let attack_roll =
+                    weapon_damage(&profile, hooks, skill, attack_value, mode, level, &self.parity_rng);
+                let attack_roll = ((attack_roll as f64) * dist_mult).floor() as i32;
+
+                let armor_roll =
+                    armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
+                let dmg = (attack_roll - armor_roll.max(0)).max(0);
+
+                if attacker_has_shield {
+                    let defense_gate_passed = self
+                        .creatures
+                        .get(target_id)
+                        .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+                    let _ = match self.creatures.get_mut(target_id) {
+                        Some(kind) => roll_target_defense(
+                            kind.base_mut(),
+                            server_ms,
+                            &profile,
+                            hooks,
+                            defense_snap,
+                            &self.parity_rng,
+                        ),
+                        None => return,
+                    };
+                    if defense_gate_passed {
+                        self.player_shield_wearout(target_id);
+                        self.player_shield_skill_learning(target_id, defense_snap.has_shield);
+                    }
                 }
-            };
-            let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
-            // TFS `addSkillAdvance` → `sendSkills()` + advance text — after `hooks` is last used on hit.
-            if skill_trained {
+
+                if skill_trained {
+                    self.notify_skill_tries_gained(
+                        cid,
+                        crate::player::combat::SkillNr::Distance,
+                        levels_gained,
+                    );
+                }
+
+                if dmg <= 0 {
+                    self.broadcast_magic_effect(target_pos, 4u8);
+                }
+
+                let notify_snap = self.combat_notify_snapshot(target_id);
+                let hp_before = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().health)
+                    .unwrap_or(0);
+                let _ = self.combat_execute_with_stimulus(
+                    Some(cid),
+                    target_id,
+                    &CombatDamage {
+                        primary: (CombatType::Physical, -dmg),
+                        secondary: (CombatType::Physical, 0),
+                    },
+                    &CombatParams::default(),
+                );
+                let target_alive = self.creatures.contains_key(target_id);
+                let hp_after = if target_alive {
+                    self.creatures
+                        .get(target_id)
+                        .map(|k| k.base().health)
+                        .unwrap_or(hp_before)
+                } else {
+                    0
+                };
+                let damage_done = (hp_before - hp_after).max(0);
+                if let Some(snap) = notify_snap {
+                    self.notify_player_combat_damage(
+                        Some(cid),
+                        target_id,
+                        damage_done,
+                        CombatType::Physical,
+                        snap,
+                    );
+                }
+
+                if damage_done > 0 {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut().activate_learning();
+                    }
+                }
+
+                // Poison arrow — hit-only, native when no onUseWeapon script.
+                if special_effect == AmmoSpecialEffect::Poison && effect_strength > 0 {
+                    let _ = self.combat_execute_with_stimulus(
+                        Some(cid),
+                        target_id,
+                        &CombatDamage {
+                            primary: (CombatType::Earth, -effect_strength),
+                            secondary: (CombatType::Earth, 0),
+                        },
+                        &CombatParams::default(),
+                    );
+                }
+            } else if skill_trained {
                 self.notify_skill_tries_gained(
                     cid,
                     crate::player::combat::SkillNr::Distance,
                     levels_gained,
                 );
             }
-            // M11/M12 — shield wearout + shielding skill learning when gate passed.
-            if defense_gate_passed {
-                self.player_shield_wearout(target_id);
-                self.player_shield_skill_learning(target_id, defense_snap.has_shield);
-            }
-            let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
-
-            drop_pos = target_pos;
-
-            // Poff / spark for `dmg <= 0` — same as melee (`crmain.cc:577-579, 624-628`).
-            if dmg <= 0 {
-                let effect = if attack_roll <= defense_roll {
-                    3u8
-                } else {
-                    4u8
-                };
-                self.broadcast_magic_effect(target_pos, effect);
-            }
-
-            // `Damage(Master, Attack, DAMAGE_PHYSICAL)` (`crcombat.cc:813`).
-            let notify_snap = self.combat_notify_snapshot(target_id);
-            let hp_before = self
-                .creatures
-                .get(target_id)
-                .map(|k| k.base().health)
-                .unwrap_or(0);
-            let _ = self.combat_execute_with_stimulus(
-                Some(cid),
-                target_id,
-                &CombatDamage {
-                    primary: (CombatType::Physical, -dmg),
-                    secondary: (CombatType::Physical, 0),
-                },
-                &CombatParams::default(),
-            );
-            let target_alive = self.creatures.contains_key(target_id);
-            let hp_after = if target_alive {
-                self.creatures
-                    .get(target_id)
-                    .map(|k| k.base().health)
-                    .unwrap_or(hp_before)
-            } else {
-                0
-            };
-            let damage_done = (hp_before - hp_after).max(0);
-            if let Some(snap) = notify_snap {
-                self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
-            }
-
-            // `ActivateLearning` on `DamageDone > 0` (`crcombat.cc:814`).
-            if damage_done > 0 {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().activate_learning();
-                }
-            }
-
-            // Special effects — poison arrow / burst arrow (`crcombat.cc:833-842`).
-            match special_effect {
-                AmmoSpecialEffect::Poison => {
-                    if effect_strength > 0 {
-                        // `Target->Damage(Master, EffectStrength, DAMAGE_POISON_PERIODIC)`
-                        // (`crcombat.cc:835`). The shared path applies the poison condition
-                        // via `apply_condition` when the target is not immune.
-                        let _ = self.combat_execute_with_stimulus(
-                            Some(cid),
-                            target_id,
-                            &CombatDamage {
-                                primary: (CombatType::Earth, -effect_strength),
-                                secondary: (CombatType::Earth, 0),
-                            },
-                            &CombatParams::default(),
-                        );
-                    }
-                }
-                AmmoSpecialEffect::Burst => {
-                    // `ComputeDamage(Master, 0, EffectStrength, EffectStrength)` + AoE
-                    // `CircleShapeSpell` (`crcombat.cc:838-841`). PC-3 applies the burst damage
-                    // to the primary target only; the AoE spread is PC-3a script-wiring scope
-                    // (the burst arrow's `onUseWeapon` Lua `Combat:execute` handles the area).
-                    let burst_dmg = effect_strength.max(0);
-                    let _ = self.combat_execute_with_stimulus(
-                        Some(cid),
-                        target_id,
-                        &CombatDamage {
-                            primary: (CombatType::Physical, -burst_dmg),
-                            secondary: (CombatType::Physical, 0),
-                        },
-                        &CombatParams::default(),
-                    );
-                }
-                AmmoSpecialEffect::None => {}
-            }
         } else {
             // Miss — drop the projectile on a random adjacent tile (`crcombat.cc:817-828`).
             let mut dx = 0i32;
             let mut dy = 0i32;
             if dist_x > 1 || dist_y > 1 {
-                dx = rng.gen_range(-1..=1);
-                dy = rng.gen_range(-1..=1);
+                dx = self.parity_rng.random(-1, 1);
+                dy = self.parity_rng.random(-1, 1);
             }
             let mut drop = Position::new(
                 (target_pos.x as i32 + dx).max(0) as u16,
@@ -612,24 +580,35 @@ impl GameWorld {
             self.broadcast_distance_shoot(master_pos, drop_pos, shoot_type);
         }
 
-        // Ammo consumption — `random(0, 99) < Fragility` → `Delete(Ammo, 1)`, else `Move` to
-        // the drop tile (`crcombat.cc:844-849`). PC-3: bows (`Fragility=100`) always consume
-        // one ammo; throwing weapons (`Fragility=100` default) always consume one charge.
-        // Dropping the projectile on the ground (the `Move` arm) is PC-3a follow-up; PC-3
-        // always deletes to keep the ammo economy simple. The `is_bow` flag is preserved for
-        // the PC-3a split (bow consumes from the ammo slot; throw consumes from the hand slot).
-        let _ = is_bow;
-        self.decrement_inventory_item(cid, active_slot, active_iid);
+        // Scripted ammo (burst arrow, etc.) — TFS `Weapon::executeUseWeapon` after missile
+        // (`weapons.cpp:485`). Hit → VARIANT_NUMBER; miss → VARIANT_POSITION at drop.
+        if scripted {
+            if hit {
+                let _ = fire_on_use_weapon(self, active_type_id, cid, Some(target_id), None, true);
+            } else {
+                let _ = fire_on_use_weapon(
+                    self,
+                    active_type_id,
+                    cid,
+                    None,
+                    Some((drop_pos.x, drop_pos.y, drop_pos.z)),
+                    false,
+                );
+            }
+        }
+
+        // Ammo consumption — `random(0, 99) < Fragility` → `Delete`, else `Move` to drop
+        // (`crcombat.cc:844-849`). Bow/`removecount` → Fragility 100; throw+`move` → breakChance.
+        let fragility = self.distance_ammo_fragility(active_iid, is_bow);
+        self.consume_or_drop_ammo(cid, active_slot, active_iid, drop_pos, fragility);
 
         // `EFFECT_POFF` on miss (`crcombat.cc:858`).
         if !hit {
             self.broadcast_magic_effect(drop_pos, 3u8);
         }
-        self.ai_rng = rng;
 
         // `DelayAttack(2000)` — `crcombat.cc:641`. Distance weapons use the fixed 2s cadence
         // in 772 (the vocation `attackspeed` is for melee; distance cadence is `2000`).
-        // PC-3a may wire the per-vocation distance `attackspeed` if `data/formulas` defines one.
         let _ = attack_speed_ms;
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 2000);
@@ -645,6 +624,66 @@ impl GameWorld {
                 base.follow_target = None;
             }
         }
+    }
+
+    /// Resolve Fragility for the consumed ammo/throw item.
+    ///
+    /// Bow path always uses 100 (`crcombat.cc:766`). Throw/`WEAPON_AMMO` with Lua
+    /// `action("move")` uses `break_chance`; `removecount`/`removecharge` → 100.
+    fn distance_ammo_fragility(&self, active_iid: ItemId, is_bow: bool) -> u8 {
+        if is_bow {
+            return 100;
+        }
+        let Some(item) = self.items.get(active_iid) else {
+            return 100;
+        };
+        let Some(def) = self.weapons.get_distance(item.item_type) else {
+            return 100;
+        };
+        use tfs_rust_content::weapons::WeaponConsumeAction;
+        match def.consume_action {
+            WeaponConsumeAction::Move => def.break_chance.min(100),
+            WeaponConsumeAction::RemoveCount | WeaponConsumeAction::RemoveCharge => 100,
+        }
+    }
+
+    /// `random(0, 99) < Fragility` → Delete 1, else Move 1 to `drop_pos` (`crcombat.cc:844-849`).
+    fn consume_or_drop_ammo(
+        &mut self,
+        cid: CreatureId,
+        slot: u8,
+        iid: ItemId,
+        drop_pos: Position,
+        fragility: u8,
+    ) {
+        let roll = self.parity_rng.rand_mod(100) as u8;
+        if roll < fragility {
+            self.decrement_inventory_item(cid, slot, iid);
+            return;
+        }
+        // Move 1 charge to the drop tile.
+        let Some(item_type) = self.items.get(iid).map(|i| i.item_type) else {
+            return;
+        };
+        let remove_entire = if let Some(item) = self.items.get_mut(iid) {
+            if item.count > 1 {
+                item.count -= 1;
+                false
+            } else {
+                true
+            }
+        } else {
+            return;
+        };
+        if remove_entire {
+            let _ = self.internal_remove_item_from_inventory_slot(cid, slot, iid);
+            self.items.remove(iid);
+            self.broadcast_player_inventory_slot(cid, slot, None);
+        } else {
+            self.broadcast_player_inventory_slot(cid, slot, Some(iid));
+        }
+        let dropped = self.items.insert(crate::item::Item::new_single(item_type));
+        let _ = self.internal_add_item_to_tile(drop_pos, dropped, CylinderFlags::NO_LIMIT);
     }
 
     /// Resolve the distance weapon (bow vs throw) and ammo item id.
@@ -710,11 +749,10 @@ impl GameWorld {
             false
         };
         if remove {
+            let _ = self.internal_remove_item_from_inventory_slot(cid, slot, iid);
             self.items.remove(iid);
-            // Slot is now empty — send `sendInventoryItem` with no item.
             self.broadcast_player_inventory_slot(cid, slot, None);
         } else {
-            // Count decreased — resend the slot with the new count.
             self.broadcast_player_inventory_slot(cid, slot, Some(iid));
         }
     }
@@ -735,8 +773,11 @@ mod tests {
     use crate::creature::CreatureKind;
     use crate::inventory::{InventorySlot, WEAPON_AMMO};
     use crate::item::Item;
-    use crate::sim_harness::{insert_monster_with_config, minimal_world, sim_hero_player};
-    use tfs_rust_common::Position;
+    use crate::sim_harness::{
+        beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
+        insert_spectator_player, minimal_world, sim_hero_player, TEST_SYNTHETIC_GROUND_WP,
+    };
+    use tfs_rust_common::{ConnId, Position};
     use tfs_rust_content::otb::ItemType;
     use tfs_rust_content::weapons::{WandDef, WeaponRegistry};
 
@@ -809,10 +850,10 @@ mod tests {
     /// `probe_hit` with `diff == 0` always hits (C++ `crskill.cc:560-566`).
     #[test]
     fn probe_hit_diff_zero_always_hits() {
-        let mut rng = rand::thread_rng();
+        let parity = crate::sim_glibc_rand::GlibcRngState::seed(1);
         for _ in 0..100 {
-            assert!(probe_hit(&mut rng, 0, 0, 100));
-            assert!(probe_hit(&mut rng, 100, 0, 0));
+            assert!(probe_hit(0, 0, 100, &parity));
+            assert!(probe_hit(100, 0, 0, &parity));
         }
     }
 
@@ -821,10 +862,10 @@ mod tests {
     /// Use a high skill so the `skill >= rand%diff` gate always passes, isolating the prob roll.
     #[test]
     fn probe_hit_prob_zero_rarely_hits() {
-        let mut rng = rand::thread_rng();
+        let parity = crate::sim_glibc_rand::GlibcRngState::seed(2);
         let mut hits = 0;
         for _ in 0..1000 {
-            if probe_hit(&mut rng, 1000, 100, 0) {
+            if probe_hit(1000, 100, 0, &parity) {
                 hits += 1;
             }
         }
@@ -835,21 +876,21 @@ mod tests {
     /// `probe_hit` with `prob == 100` always hits when the skill gate passes.
     #[test]
     fn probe_hit_prob_100_always_hits_when_skill_passes() {
-        let mut rng = rand::thread_rng();
+        let parity = crate::sim_glibc_rand::GlibcRngState::seed(3);
         for _ in 0..1000 {
             // skill=1000, diff=100 → rand%100 is 0..99, skill >= that always → prob roll 100.
-            assert!(probe_hit(&mut rng, 1000, 100, 100));
+            assert!(probe_hit(1000, 100, 100, &parity));
         }
     }
 
     /// `probe_hit` with low skill vs high difficulty mostly misses the skill gate.
     #[test]
     fn probe_hit_low_skill_high_diff_misses() {
-        let mut rng = rand::thread_rng();
+        let parity = crate::sim_glibc_rand::GlibcRngState::seed(4);
         let mut hits = 0;
         for _ in 0..1000 {
             // skill=0, diff=100 → rand%100 is 0..99; 0 >= rand is only true when rand==0 (1%).
-            if probe_hit(&mut rng, 0, 100, 100) {
+            if probe_hit(0, 100, 100, &parity) {
                 hits += 1;
             }
         }
@@ -918,6 +959,69 @@ mod tests {
         // `DelayAttack(2000)` — earliest attack advanced by 2s.
         let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
         assert_eq!(earliest, 3000);
+    }
+
+    /// Fire wand animated text uses COLOR_ORANGE (198), not blood COLOR_RED (180).
+    /// Regression: `player_wand_attack` previously hardcoded `CombatType::Physical` into notify.
+    /// Uses 772 codec — 1098 `encode_animated_text` is a no-op.
+    #[test]
+    fn wand_fire_animated_text_uses_orange_not_blood_red() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        let target_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, target_pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = sim_hero_player("Hero", pos);
+        player.mana = 100;
+        let conn = ConnId(1);
+        let cid = insert_spectator_player(&mut world, conn, player);
+        let target = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            target_pos,
+            100,
+            crate::creature::MonsterAiConfig::default(),
+        );
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2187,
+            make_wand(2187, tfs_rust_common::enums::ShootEffect::Fire as u8),
+        );
+        register_wand(
+            &mut world,
+            2187,
+            WandDef {
+                item_id: 2187,
+                level: 13,
+                mana_cost: 3,
+                element: CombatType::Fire,
+                damage_min: 20,
+                damage_max: 20,
+                ..Default::default()
+            },
+        );
+        world.server_ms = 1000;
+        world.pending_outgoing.clear();
+        world.player_ranged_attack_strike(cid, target);
+
+        const COLOR_ORANGE: u8 = 198; // crmain.cc:749 DAMAGE_FIRE
+        const COLOR_RED: u8 = 180; // blood-family physical
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("spectator must receive packets");
+        let anim = pkts
+            .iter()
+            .find(|b| b.len() >= 7 && b[0] == 0x84)
+            .expect("must send animated damage text 0x84");
+        assert_eq!(
+            anim[6], COLOR_ORANGE,
+            "fire wand text color must be ORANGE(198), got {} (blood red would be {})",
+            anim[6],
+            COLOR_RED
+        );
     }
 
     /// Wand strike with insufficient mana sends OUTOFAMMO and does not drain or damage.
@@ -1370,7 +1474,7 @@ mod tests {
         assert_eq!(world.classify_player_ranged_arm(cid), RangedArm::None);
     }
 
-    /// `AmmoSpecialEffect::from_item` detects poison arrows via `poisondamagecycles`.
+    /// Poison special is XML `poisondamagecycles`; burst is Lua `onUseWeapon`, not native.
     #[test]
     fn ammo_special_effect_poison_detection() {
         assert_eq!(
@@ -1379,11 +1483,271 @@ mod tests {
         );
         assert_eq!(
             AmmoSpecialEffect::from_item(2546, 0),
-            AmmoSpecialEffect::Burst
+            AmmoSpecialEffect::None
         );
         assert_eq!(
             AmmoSpecialEffect::from_item(2544, 0),
             AmmoSpecialEffect::None
         );
+    }
+
+    /// DistanceAttack does not subtract target defense when the attacker has no shield.
+    /// Target with huge defense + zero armor still takes damage; defend timestamps unchanged.
+    #[test]
+    fn distance_attack_no_attacker_shield_skips_defense_subtraction() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.dist = 100;
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        let target_pos = Position::new(103, 100, 7);
+        let mut cfg = crate::creature::MonsterAiConfig::default();
+        cfg.defense = 500;
+        cfg.armor = 0;
+        cfg.melee_skill = 100;
+        let target = insert_monster_with_config(&mut world, "Tank", target_pos, 100, cfg);
+        let defend_before = world.creatures.get(target).unwrap().base().earliest_defend_ms;
+
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 1, 6),
+        );
+        let arrow_iid = world.items.insert(Item::new(2544, 10));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+            p.equipment_slots[idx] = Some(arrow_iid);
+        }
+        let arrow_it = make_ammo(2544, 1, 50, tfs_rust_common::enums::ShootEffect::Arrow as u8);
+        if !world.items_db.items.contains_key(&2544) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(2544, arrow_it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+        world.server_ms = 1000;
+        // Retry until a hit lands (high skill → almost always).
+        let mut damaged = false;
+        for i in 0..20 {
+            if !world.creatures.contains_key(target) {
+                damaged = true;
+                break;
+            }
+            let hp = world.creatures.get(target).unwrap().base().health;
+            if hp < 100 {
+                damaged = true;
+                break;
+            }
+            // Restock ammo if depleted.
+            if world.get_player_inventory_item(cid, InventorySlot::Ammo as u8).is_none() {
+                let iid = world.items.insert(Item::new(2544, 10));
+                if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+                    let idx =
+                        crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+                    p.equipment_slots[idx] = Some(iid);
+                }
+            }
+            world.server_ms = 1000 + i * 3000;
+            world.player_ranged_attack_strike(cid, target);
+        }
+        assert!(
+            damaged || world
+                .creatures
+                .get(target)
+                .is_some_and(|k| k.base().health < 100),
+            "ranged hit must deal damage despite huge target defense (no attacker shield)"
+        );
+        if let Some(k) = world.creatures.get(target) {
+            assert_eq!(
+                k.base().earliest_defend_ms,
+                defend_before,
+                "defend gate must not advance without attacker shield"
+            );
+        }
+    }
+
+    /// Scripted ammo (`has_on_use`) skips native physical damage on hit.
+    #[test]
+    fn scripted_ammo_skips_native_primary_damage() {
+        use tfs_rust_content::weapons::{DistanceWeaponDef, WeaponConsumeAction, WeaponRegistry};
+
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let target_pos = Position::new(103, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, target_pos, TEST_SYNTHETIC_GROUND_WP);
+        for x in 100..=103u16 {
+            ensure_walkable_tile(
+                &mut world.map,
+                Position::new(x, 100, 7),
+                TEST_SYNTHETIC_GROUND_WP,
+            );
+        }
+
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.dist = 100;
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        world.map.register_creature_at(pos, cid);
+
+        let mut cfg = crate::creature::MonsterAiConfig::default();
+        cfg.armor = 0;
+        cfg.defense = 0;
+        let target = insert_monster_with_config(&mut world, "Primary", target_pos, 100, cfg);
+
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 1, 6),
+        );
+        let arrow_iid = world.items.insert(Item::new(2546, 5));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+            p.equipment_slots[idx] = Some(arrow_iid);
+        }
+        let burst_it = make_ammo(
+            2546,
+            1,
+            50, // high attack — would natively deal damage if scripted path were skipped
+            tfs_rust_common::enums::ShootEffect::BurstArrow as u8,
+        );
+        if !world.items_db.items.contains_key(&2546) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(2546, burst_it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+
+        let mut registry = WeaponRegistry::default();
+        registry.distance.insert(
+            2546,
+            DistanceWeaponDef {
+                item_id: 2546,
+                consume_action: WeaponConsumeAction::RemoveCount,
+                has_on_use: true,
+                ..Default::default()
+            },
+        );
+        world.weapons = std::sync::Arc::new(registry);
+
+        world.server_ms = 1000;
+        // NullEventDispatcher: onUseWeapon is a no-op; native damage must still be skipped.
+        for i in 0..30 {
+            if world.get_player_inventory_item(cid, InventorySlot::Ammo as u8).is_none() {
+                let iid = world.items.insert(Item::new(2546, 5));
+                if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+                    let idx =
+                        crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+                    p.equipment_slots[idx] = Some(iid);
+                }
+            }
+            if let Some(k) = world.creatures.get_mut(target) {
+                k.base_mut().health = 100;
+            }
+            world.server_ms = 1000 + i * 3000;
+            world.player_ranged_attack_strike(cid, target);
+        }
+        let hp = world
+            .creatures
+            .get(target)
+            .map(|k| k.base().health)
+            .unwrap_or(0);
+        assert_eq!(
+            hp, 100,
+            "has_on_use must skip native DistanceAttack damage (hp={hp})"
+        );
+    }
+
+    /// Throw with `action(move)` + `breakChance(0)` always drops 1 to the impact tile.
+    #[test]
+    fn throwing_break_chance_zero_moves_to_drop_tile() {
+        use tfs_rust_content::weapons::{DistanceWeaponDef, WeaponConsumeAction, WeaponRegistry};
+
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.dist = 100;
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        let target_pos = Position::new(103, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, target_pos, TEST_SYNTHETIC_GROUND_WP);
+        let target = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            target_pos,
+            100,
+            crate::creature::MonsterAiConfig::default(),
+        );
+
+        let spear_iid = world.items.insert(Item::new(2389, 5));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Left as u8).unwrap();
+            p.equipment_slots[idx] = Some(spear_iid);
+        }
+        let spear_it = make_throwing(
+            2389,
+            25,
+            7,
+            tfs_rust_common::enums::ShootEffect::Spear as u8,
+        );
+        if !world.items_db.items.contains_key(&2389) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(2389, spear_it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+        let mut reg = WeaponRegistry::clone(&world.weapons);
+        reg.distance.insert(
+            2389,
+            DistanceWeaponDef {
+                item_id: 2389,
+                break_chance: 0,
+                consume_action: WeaponConsumeAction::Move,
+                ..Default::default()
+            },
+        );
+        world.weapons = std::sync::Arc::new(reg);
+
+        world.server_ms = 1000;
+        world.player_ranged_attack_strike(cid, target);
+
+        let spear_count = world.items.get(spear_iid).map(|i| i.count).unwrap_or(0);
+        assert_eq!(spear_count, 4, "stack should decrement when moving to ground");
+
+        // Dropped spear on target tile (hit) or adjacent (miss).
+        let mut found_drop = false;
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                let p = Position::new(
+                    (target_pos.x as i32 + dx) as u16,
+                    (target_pos.y as i32 + dy) as u16,
+                    target_pos.z,
+                );
+                if let Some(tile) = world.map.get_tile(p) {
+                    for &iid in tile.body().down_items.iter().chain(tile.body().top_items.iter())
+                    {
+                        if world.items.get(iid).is_some_and(|i| i.item_type == 2389) {
+                            found_drop = true;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(found_drop, "breakChance=0 must Move spear onto drop tile");
     }
 }

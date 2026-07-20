@@ -37,7 +37,6 @@ formulas = {
   expAttributionRounds = 60,
   followRepathWithoutPath = true,  -- target-move repath without hasFollowPath gate (not idle drain)
   pathForwardFallback = false,     -- NOWAY when reverse search fails
-  parityRngSource = "perWorld",    -- per-world glibc-parity stream (Finding 8/15)
   corpseDecayOffsetMs = 30000,     -- generic corpse decay +30s (crmain.cc decay scheduler)
   classicEquipmentSlots = true,      -- 772 hand slots accept any pickupable item
   undergroundSeesSurface = true,   -- IsVisible: underground CAN see surface ±2 floors
@@ -54,7 +53,7 @@ formulas = {
     poisonStart = 50,
   },
 
-  spell = { levelMult = 2, magicMult = 3 },
+  spell = { levelMult = 2, magicMult = 3 },  -- ComputeDamage; Player:computeDamage reads these
   pvpExpCap = { num = 11, den = 10 },
   playerSpeed = "772",      -- "772" | "retail" | "balanced" (loaded once at startup)
 }

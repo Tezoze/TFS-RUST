@@ -356,6 +356,61 @@ pub trait ScriptContext {
         WeaponCombatParams::default()
     }
 
+    /// `COMBAT_FORMULA_SKILL` damage bounds — TFS API shape, era formula.
+    ///
+    /// Default (no `GameWorld`) uses **772 ClassicProbe ceiling** for deterministic
+    /// unit tests. Live `GameWorld` overrides and rolls one ProbeValue like
+    /// `GetAttackDamage` (returns `(v, v)`).
+    fn get_formula_skill_damage_bounds(
+        &self,
+        creature_id: ScriptCreatureId,
+        _min_a: f64,
+        min_b: f64,
+        max_a: f64,
+        max_b: f64,
+    ) -> (i32, i32) {
+        let p = self.get_player_weapon_combat_params(creature_id);
+        // 772 `ProbeValue` ceiling: `(randomMax * attack * (skill*skillMult + skillBase)) / 10000`
+        // balanced fight mode. Tunables match `MechanicsProfile::for_version(772)`.
+        let attack = p.attack.max(0);
+        let skill = p.skill.max(0);
+        let max_value = attack.saturating_mul(skill.saturating_mul(5).saturating_add(50));
+        let weapon_max = (99i32.saturating_mul(max_value)) / 10000;
+        let lo = min_b as i32;
+        let hi = (f64::from(weapon_max) * max_a + max_b).round() as i32;
+        (lo, hi.max(lo))
+    }
+
+    /// `formulas.spell.levelMult` / `magicMult` — defaults match 772 / 1098 (`2`, `3`).
+    fn get_spell_coeff(&self) -> (i32, i32) {
+        (2, 3)
+    }
+
+    /// `Player:computeDamage` magnitude range after level/magic formula (`magic.cc:776`).
+    ///
+    /// Returns positive `(lo, hi)` for `damage±variation`. Default uses [`get_spell_coeff`].
+    /// `GameWorld` overrides with `MechanicsProfile` + Tier-2 `getSpellDamage`.
+    fn compute_magic_damage_range(
+        &self,
+        creature_id: ScriptCreatureId,
+        damage: i32,
+        variation: i32,
+        limit_minimum: bool,
+        limit_maximum: bool,
+    ) -> (i32, i32) {
+        let level = self.get_player_level(creature_id).unwrap_or(0);
+        let magic = self.get_player_magic_level(creature_id).unwrap_or(0);
+        let (lm, mm) = self.get_spell_coeff();
+        let mut formula = lm * level + mm * magic;
+        // Match `functions.lua` / decompile flag clamps (`<=99` floor, `>=101` cap).
+        if (limit_minimum && formula <= 99) || (limit_maximum && formula >= 101) {
+            formula = 100;
+        }
+        let lo = ((damage - variation) * formula) / 100;
+        let hi = ((damage + variation) * formula) / 100;
+        (lo.min(hi), lo.max(hi))
+    }
+
     /// Creatures standing on the given area offsets around `(cx,cy,cz)`.
     /// PC-3a Phase 3: `combat:getTargets` for `poison_storm.lua`.
     fn get_creatures_on_area(

@@ -14,9 +14,6 @@
 //! module (`tfs-code-hygiene.md`). Era knobs flow through `MechanicsProfile`/`FormulaHooks`;
 //! per-vocation `formula.melee_damage` from the cached `VocationProfile` snapshot.
 
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-
 use tfs_rust_common::enums::CombatType;
 
 use crate::combat::math::{armor_reduction, melee_damage_after_defense_and_armor, weapon_damage};
@@ -24,7 +21,7 @@ use crate::combat::{CombatDamage, CombatParams};
 use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
+use crate::ids::{CreatureId, ItemId};
 
 impl GameWorld {
     /// 772 `TCombat::CloseAttack` — `crcombat.cc:647-664`. Melee strike at `GetDistance()==1`.
@@ -70,10 +67,9 @@ impl GameWorld {
             k.base_mut().delay_attack_ms(server_ms, 200);
         }
 
-        let mut rng = std::mem::replace(&mut self.ai_rng, StdRng::from_entropy());
-
         // `GetAttackDamage` — fight-mode-scaled probe roll (`crcombat.cc:220`).
-        let attack_roll = weapon_damage(&profile, hooks, &mut rng, skill, atk_value, mode, level);
+        let attack_roll =
+            weapon_damage(&profile, hooks, skill, atk_value, mode, level, &self.parity_rng);
         // Vocation `formula.melee_damage` multiplier (PC-2 step 1).
         let attack_roll = ((attack_roll as f64) * melee_mult).floor() as i32;
 
@@ -107,19 +103,16 @@ impl GameWorld {
                 server_ms,
                 &profile,
                 hooks,
-                &mut rng,
                 defense_snap,
+                &self.parity_rng,
             ),
-            None => {
-                self.ai_rng = rng;
-                return;
-            }
+            None => return,
         };
 
         // Armor mitigation — applied inside `Damage(PHYSICAL)` in C++ (`crcombat.cc:302`);
         // here it feeds `melee_damage_after_defense_and_armor` so the shared physical path
         // (`combat_execute_with_stimulus`) receives the post-armor HP delta.
-        let armor_roll = armor_reduction(&profile, hooks, &mut rng, defense_snap.armor);
+        let armor_roll = armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
         // TFS `addSkillAdvance` → `sendSkills()` + advance text — after `hooks` is last used.
         if skill_trained {
             self.notify_skill_tries_gained(cid, atk_skill_nr, levels_gained);
@@ -186,7 +179,6 @@ impl GameWorld {
         if let Some(snap) = notify_snap {
             self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
         }
-        self.ai_rng = rng;
 
         // `if (DamageDone > 0) ActivateLearning()` (`crcombat.cc:655`).
         if damage_done > 0 {
@@ -220,60 +212,33 @@ impl GameWorld {
     /// Weapon wearout for the player strike — `crcombat.cc:662` `RemainingUses--`.
     ///
     /// Decrements the equipped weapon's `count` when `ItemType.charges > 0` (chargeable
-    /// weapons/shields model remaining uses via `count`). No-op for standard weapons
-    /// (`charges == 0`). Full wearout — initializing `count = charges` at equip time and
-    /// unequipping/destroying on `count == 0` — is a follow-up; PC-2 wires the per-strike
-    /// decrement hook so chargeable items tick down. Sends `sendInventoryItem` (0x78) so the
-    /// client refreshes the charge count immediately.
+    /// weapons model remaining uses via `count`). No-op for standard weapons (`charges == 0`).
+    /// When `count` would reach 0, remove and destroy the item (772 `WearOutTarget` transform
+    /// is unavailable in the TFS data pack — Delete is the domain-shaped outcome).
     fn player_strike_weapon_wearout(&mut self, cid: CreatureId) {
         let weapon_iid = match self.player_get_weapon(cid, true) {
             Some(iid) => iid,
             None => return,
         };
-        // Read the item type's `charges` flag without holding borrows across the mutation.
-        let has_charges = {
-            let Some(item) = self.items.get(weapon_iid) else {
-                return;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                return;
-            };
-            it.charges > 0
-        };
-        if !has_charges {
-            return;
-        }
-        let mut decremented = false;
-        if let Some(item) = self.items.get_mut(weapon_iid) {
-            if item.count > 1 {
-                item.count -= 1;
-                decremented = true;
-            }
-        }
-        if decremented {
-            // Resolve the hand slot holding the weapon so the client refreshes the charge count.
-            let slot = self.equipment_slot_for_item(cid, weapon_iid);
-            if let Some(slot) = slot {
-                self.broadcast_player_inventory_slot(cid, slot, Some(weapon_iid));
-            }
-        }
+        self.player_chargeable_item_wearout(cid, weapon_iid);
     }
 
     /// M11 — Shield wearout for the defender — `crcombat.cc:265-281` `RemainingUses--`.
     ///
-    /// Decrements the defender's shield `count` when `ItemType.charges > 0` (chargeable
-    /// shields model remaining uses via `count`). No-op for standard shields (`charges == 0`)
-    /// or when no shield is equipped. Player-only — monsters don't have shields. Called after
-    /// `roll_target_defense` when the defense gate passed (the C++ `GetDefendDamage` decrements
-    /// after the probe, inside the gate-passed block). Sends `sendInventoryItem` (0x78) so the
-    /// client refreshes the charge count immediately.
+    /// Decrements the defender's shield `count` when `ItemType.charges > 0`. When `count`
+    /// would reach 0, remove and destroy (no WearOutTarget in TFS content). Player-only.
     pub(crate) fn player_shield_wearout(&mut self, cid: CreatureId) {
         let shield_iid = match self.player_get_shield(cid) {
             Some(iid) => iid,
             None => return,
         };
+        self.player_chargeable_item_wearout(cid, shield_iid);
+    }
+
+    /// Shared chargeable wearout — decrement `count`, or destroy when the last charge is spent.
+    fn player_chargeable_item_wearout(&mut self, cid: CreatureId, iid: ItemId) {
         let has_charges = {
-            let Some(item) = self.items.get(shield_iid) else {
+            let Some(item) = self.items.get(iid) else {
                 return;
             };
             let Some(it) = self.items_db.items.get(&item.item_type) else {
@@ -284,18 +249,26 @@ impl GameWorld {
         if !has_charges {
             return;
         }
-        let mut decremented = false;
-        if let Some(item) = self.items.get_mut(shield_iid) {
+        let slot = self.equipment_slot_for_item(cid, iid);
+        let destroy = if let Some(item) = self.items.get_mut(iid) {
             if item.count > 1 {
                 item.count -= 1;
-                decremented = true;
+                false
+            } else {
+                true
             }
-        }
-        if decremented {
-            let slot = self.equipment_slot_for_item(cid, shield_iid);
-            if let Some(slot) = slot {
-                self.broadcast_player_inventory_slot(cid, slot, Some(shield_iid));
-            }
+        } else {
+            return;
+        };
+        let Some(slot) = slot else {
+            return;
+        };
+        if destroy {
+            let _ = self.internal_remove_item_from_inventory_slot(cid, slot, iid);
+            self.items.remove(iid);
+            self.broadcast_player_inventory_slot(cid, slot, None);
+        } else {
+            self.broadcast_player_inventory_slot(cid, slot, Some(iid));
         }
     }
 
@@ -339,7 +312,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::creature::{CreatureKind, MonsterAiConfig};
-    use crate::inventory::{InventorySlot, WEAPON_SHIELD};
+    use crate::inventory::{InventorySlot, WEAPON_SHIELD, WEAPON_SWORD};
     use crate::item::Item;
     use crate::sim_harness::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
@@ -597,6 +570,60 @@ mod tests {
         assert!(
             pkts.iter().any(|b| !b.is_empty() && b[0] == 0x84),
             "killing blow must send animated damage text (0x84) even after target death"
+        );
+    }
+
+    /// Chargeable weapon at count=1 is destroyed on wearout (not stuck at 1).
+    #[test]
+    fn chargeable_weapon_wearout_destroys_last_charge() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.fist = 50;
+        player.sim_melee_attack = 20;
+        let pid = world.creatures.insert(CreatureKind::Player(player));
+        let mut cfg = MonsterAiConfig::default();
+        cfg.defense = 0;
+        cfg.armor = 0;
+        let target = insert_monster_with_config(&mut world, "Rat", adjacent_pos(pos), 100, cfg);
+
+        // Chargeable sword: ItemType.charges > 0, item.count = 1.
+        const SWORD_ID: u16 = 2376;
+        let it = ItemType {
+            server_id: SWORD_ID,
+            weapon_type: WEAPON_SWORD,
+            attack: 20,
+            charges: 100,
+            ..Default::default()
+        };
+        if !world.items_db.items.contains_key(&SWORD_ID) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(SWORD_ID, it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+        let sword_iid = world.items.insert(Item::new(SWORD_ID, 1));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(pid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Left as u8).unwrap();
+            p.equipment_slots[idx] = Some(sword_iid);
+        }
+
+        world.server_ms = 1000;
+        world.player_close_attack_strike(pid, target);
+
+        assert!(
+            world.items.get(sword_iid).is_none(),
+            "last charge must destroy the weapon"
+        );
+        assert!(
+            world
+                .get_player_inventory_item(pid, InventorySlot::Left as u8)
+                .is_none(),
+            "left hand slot must be cleared after wearout destroy"
         );
     }
 }

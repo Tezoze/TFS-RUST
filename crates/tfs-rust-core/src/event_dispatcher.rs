@@ -164,6 +164,24 @@ pub trait EventDispatcher {
         false
     }
 
+    /// TFS `Weapon::executeUseWeapon` — `weapons.cpp:485`.
+    /// Hit → `VARIANT_NUMBER`; miss → `VARIANT_POSITION` at drop tile.
+    fn dispatch_on_use_weapon(
+        &self,
+        _item_id: u16,
+        _creature: CreatureId,
+        _target_creature: Option<CreatureId>,
+        _target_pos: Option<(u16, u16, u8)>,
+        _hit: bool,
+    ) -> bool {
+        false
+    }
+
+    /// Whether an `onUseWeapon` callback is registered for this item id.
+    fn has_weapon_on_use(&self, _item_id: u16) -> bool {
+        false
+    }
+
     /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).
     fn as_any(&self) -> &dyn Any
     where

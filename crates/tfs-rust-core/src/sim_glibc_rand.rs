@@ -59,6 +59,20 @@ impl GlibcRngState {
         (self.rand() % m) as u32
     }
 
+    /// `ProbeValue` factor — `((rand()%M)+(rand()%M))/2` with `M = random_max+1`
+    /// (`crskill.cc:543`; `random_max=99` → `% 100`).
+    pub fn probe_random_factor(&self, random_max: i32) -> i32 {
+        let m = (random_max.max(0) + 1) as u32;
+        let a = self.rand_mod(m) as i32;
+        let b = self.rand_mod(m) as i32;
+        (a + b) / 2
+    }
+
+    /// Armor extra term — `rand() % (Armor/2)` (`crcombat.cc:304`).
+    pub fn armor_rand_extra(&self, half: i32) -> i32 {
+        self.rand_mod(half.max(1) as u32) as i32
+    }
+
     /// Forward Fisher-Yates shuffle matching C++ `RandomShuffle`.
     pub fn random_shuffle<T>(&self, buf: &mut [T]) {
         let size = buf.len();
@@ -240,6 +254,7 @@ pub fn sim_rand_mod(modulus: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 /// Inclusive random — production uses `thread_rng`, sim uses glibc `random()`.
+/// Prefer [`crate::game_world::GameWorld::parity_random`] for live simulation draws.
 pub fn parity_random(min: i32, max: i32) -> i32 {
     #[cfg(any(test, feature = "sim"))]
     if sim_glibc_rng_enabled() {
@@ -250,6 +265,8 @@ pub fn parity_random(min: i32, max: i32) -> i32 {
 }
 
 /// Modulo roll — production uses `thread_rng`, sim uses glibc `rand()`.
+/// Prefer [`GameWorld::parity_rand_mod`] for live simulation draws.
+#[allow(dead_code)]
 pub fn parity_rand_mod(modulus: u32) -> u32 {
     debug_assert!(modulus > 0);
     #[cfg(any(test, feature = "sim"))]

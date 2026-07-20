@@ -3,8 +3,6 @@
 //! C++ reference: `cr.hh` `TSpellData`; `crnonpl.cc:2521-2667` CASTING shape/impact switches;
 //! `crcombat.cc:647` `CloseAttack`, `:660` poison-on-hit.
 
-use rand::Rng;
-
 use crate::combat::math::{defense_gate_ms, defense_value, FightMode};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::base::CreatureBase;
@@ -284,14 +282,19 @@ pub struct MeleeDefenseSnapshot {
     pub has_shield: bool,
 }
 
-/// Effective defend fight mode — `crcombat.cc:243-255` (`Following || AttackDest == 0` → DEFENSIVE).
+/// Effective defend fight mode — `crcombat.cc:245-247`.
+///
+/// `Following || AttackDest == 0` → `ATTACK_MODE_DEFENSIVE`.
+/// Player `Following` is `follow_target.is_some()` (set by `SetAttackDest(…, Follow=true)`).
+/// Monster chase via `follow_target` is **not** `Combat.Following` — monsters stay Balanced
+/// when they have an attack target (`idle_stimulus` / summon inheritance comments).
 pub fn defend_fight_mode_for_target(kind: &CreatureKind) -> FightMode {
     let base = kind.base();
-    if base.attack_target.is_none() {
+    let following = matches!(kind, CreatureKind::Player(_)) && base.follow_target.is_some();
+    if following || base.attack_target.is_none() {
         return FightMode::Defensive;
     }
-    // Player fight-mode from `0xA7` packet (PC-1 wired `Player.attack_mode`); monsters default to
-    // BALANCED (`crcombat.cc:13`).
+    // Player fight-mode from `0xA7` packet; monsters default to BALANCED (`crcombat.cc:13`).
     match kind {
         CreatureKind::Player(p) => p.attack_mode,
         _ => FightMode::Balanced,
@@ -313,11 +316,11 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
         CreatureKind::Monster(m) => MeleeDefenseSnapshot {
             // C++ `GetDefendValue` with no shield/weapon → `WEAPON_NONE` → `SKILL_FIST`
             // (`crcombat.cc:213,153`); `ProbeValue` uses `Skills[SKILL_FIST]->Get()` which for
-            // monsters is their `FistFighting` skill (= `melee_skill` in our data model,
-            // `rat.mon` `FistFighting=15`). Was `0` — nerfed monster defense to near-zero.
-            defense_skill: m.melee_skill,
-            defense_value: m.defense,
-            armor: m.armor,
+            // monsters is their `FistFighting` skill (= `race_melee_skill` / `melee_skill`).
+            // World-aware path: [`GameWorld::melee_defense_snapshot_for`].
+            defense_skill: m.race_melee_skill,
+            defense_value: m.race_defense,
+            armor: m.race_armor,
             defend_mode,
             has_shield: false,
         },
@@ -343,12 +346,9 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
 impl crate::game_world::GameWorld {
     /// World-aware target defense/armor snapshot for melee strikes — PC-2.
     ///
-    /// For **player targets**, uses [`Self::player_get_defend_value`] (shield/weapon defend +
-    /// shielding skill per `GetDefendValue` priority) and [`Self::player_get_armor_strength`]
-    /// (full equipped armor sum). For monster/NPC targets, delegates to the `&CreatureKind`
-    /// [`melee_defense_snapshot`] (unchanged). This closes the PC-1 fist-only stub for player
-    /// targets so a monster or player striking a player resolves defense/armor through the
-    /// real `GetDefendValue`/`GetArmorStrength` paths (`crcombat.cc:191`, `:286`).
+    /// Players: [`Self::player_get_defend_value`] + [`Self::player_get_armor_strength`].
+    /// Monsters: [`Self::monster_get_defend_value`] + [`Self::monster_get_armor_strength`]
+    /// (`GetDefendValue` / `GetArmorStrength`, `crcombat.cc:191`, `:286`).
     pub(crate) fn melee_defense_snapshot_for(
         &self,
         target_id: crate::ids::CreatureId,
@@ -375,19 +375,31 @@ impl crate::game_world::GameWorld {
                     has_shield,
                 }
             }
+            crate::creature::CreatureKind::Monster(_) => {
+                let (def_value, def_skill) = self.monster_get_defend_value(target_id);
+                let armor = self.monster_get_armor_strength(target_id);
+                let has_shield = self.monster_has_shield(target_id);
+                MeleeDefenseSnapshot {
+                    defense_skill: def_skill,
+                    defense_value: def_value,
+                    armor,
+                    defend_mode: defend_fight_mode_for_target(kind),
+                    has_shield,
+                }
+            }
             _ => melee_defense_snapshot(kind),
         }
     }
 }
 
 /// C++ `TCombat::GetDefendDamage` — `crcombat.cc:236` (gate + probe roll).
-pub fn roll_target_defense<R: Rng + ?Sized>(
+pub fn roll_target_defense(
     target_base: &mut CreatureBase,
     server_ms: u64,
     profile: &MechanicsProfile,
     hooks: &FormulaHooks,
-    rng: &mut R,
     snap: MeleeDefenseSnapshot,
+    parity: &crate::sim_glibc_rand::GlibcRngState,
 ) -> i32 {
     if server_ms < target_base.earliest_defend_ms {
         return 0;
@@ -398,44 +410,44 @@ pub fn roll_target_defense<R: Rng + ?Sized>(
     defense_value(
         profile,
         hooks,
-        rng,
         snap.defense_skill,
         snap.defense_value,
         snap.defend_mode,
+        parity,
     )
 }
 
 /// Poison-on-hit condition after `CloseAttack` — `crcombat.cc:660`.
-pub fn melee_poison_on_hit<R: Rng + ?Sized>(
-    rng: &mut R,
+pub fn melee_poison_on_hit(
     poison_cycles: i32,
     attack_roll: i32,
     defense_roll: i32,
     damage_done: i32,
+    parity: &crate::sim_glibc_rand::GlibcRngState,
 ) -> Option<ActiveCondition> {
     if poison_cycles <= 0 {
         return None;
     }
     let proc = damage_done > 0
-        || (attack_roll > defense_roll && crate::sim_glibc_rand::parity_rand_mod(5) == 0);
+        || (attack_roll > defense_roll && {
+            #[cfg(any(test, feature = "sim"))]
+            {
+                if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+                    crate::sim_glibc_rand::sim_rand_mod(5) == 0
+                } else {
+                    parity.rand_mod(5) == 0
+                }
+            }
+            #[cfg(not(any(test, feature = "sim")))]
+            {
+                parity.rand_mod(5) == 0
+            }
+        });
     if !proc {
         return None;
     }
     let half = poison_cycles / 2;
-    let poison_dmg = {
-        #[cfg(any(test, feature = "sim"))]
-        {
-            if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                crate::sim_glibc_rand::sim_random(half, poison_cycles)
-            } else {
-                crate::combat::uniform_random(rng, half, poison_cycles)
-            }
-        }
-        #[cfg(not(any(test, feature = "sim")))]
-        {
-            crate::combat::uniform_random(rng, half, poison_cycles)
-        }
-    };
+    let poison_dmg = crate::combat::rng::uniform_random_glibc(parity, half, poison_cycles);
     if poison_dmg <= 0 {
         return None;
     }
@@ -1110,8 +1122,7 @@ mod tests {
     #[test]
     fn test_defense_gate_allows_pair_then_blocks() {
         use crate::formulas::{FormulaHooks, Mechanics};
-        use rand::rngs::StdRng;
-        use rand::SeedableRng;
+        use crate::sim_glibc_rand::GlibcRngState;
         use tfs_rust_common::ProtocolVersion;
 
         let mechanics = Mechanics::for_version(ProtocolVersion::V772);
@@ -1124,18 +1135,38 @@ mod tests {
             defend_mode: FightMode::Balanced,
             has_shield: false,
         };
-        let mut rng = StdRng::seed_from_u64(7);
+        let parity = GlibcRngState::seed(7);
 
-        let _ = roll_target_defense(&mut base, 1000, &mechanics.profile, &hooks, &mut rng, snap);
+        let _ = roll_target_defense(
+            &mut base,
+            1000,
+            &mechanics.profile,
+            &hooks,
+            snap,
+            &parity,
+        );
         assert_eq!(base.last_defend_ms, 1000);
         assert_eq!(base.earliest_defend_ms, 2000);
 
-        let _ = roll_target_defense(&mut base, 2100, &mechanics.profile, &hooks, &mut rng, snap);
+        let _ = roll_target_defense(
+            &mut base,
+            2100,
+            &mechanics.profile,
+            &hooks,
+            snap,
+            &parity,
+        );
         assert_eq!(base.last_defend_ms, 2100);
         assert_eq!(base.earliest_defend_ms, 3000);
 
-        let blocked =
-            roll_target_defense(&mut base, 2200, &mechanics.profile, &hooks, &mut rng, snap);
+        let blocked = roll_target_defense(
+            &mut base,
+            2200,
+            &mechanics.profile,
+            &hooks,
+            snap,
+            &parity,
+        );
         assert_eq!(
             blocked, 0,
             "defense must gate until LastDefendTime + 2000 ms"
@@ -1151,6 +1182,44 @@ mod tests {
         let m = Monster::with_config(base, Position::new(100, 100, 7), MonsterAiConfig::default());
         let snap = melee_defense_snapshot(&CreatureKind::Monster(m));
         assert_eq!(snap.defend_mode, FightMode::Defensive);
+    }
+
+    /// Player Following forces DEFENSIVE even when AttackDest is set (`crcombat.cc:245-247`).
+    #[test]
+    fn test_defend_fight_mode_player_following_is_defensive() {
+        use crate::creature::CreatureKind;
+        use crate::ids::CreatureId;
+        use crate::sim_harness::sim_hero_player;
+        use tfs_rust_common::Position;
+
+        let dummy = CreatureId::default();
+        let mut player = sim_hero_player("Hero", Position::new(100, 100, 7));
+        player.attack_mode = FightMode::Offensive;
+        player.base.attack_target = Some(dummy);
+        player.base.follow_target = Some(dummy);
+        assert_eq!(
+            defend_fight_mode_for_target(&CreatureKind::Player(player)),
+            FightMode::Defensive,
+            "Following must force DEFENSIVE defend mode"
+        );
+    }
+
+    /// Monster chase `follow_target` is not Combat.Following — keep Balanced when attacking.
+    #[test]
+    fn test_defend_fight_mode_monster_chase_follow_stays_balanced() {
+        use crate::creature::{CreatureKind, Monster};
+        use crate::ids::CreatureId;
+        use tfs_rust_common::Position;
+
+        let mut base = test_creature_base();
+        let dummy = CreatureId::default();
+        base.attack_target = Some(dummy);
+        base.follow_target = Some(dummy); // pathfinding chase, not Following
+        let m = Monster::with_config(base, Position::new(100, 100, 7), MonsterAiConfig::default());
+        assert_eq!(
+            defend_fight_mode_for_target(&CreatureKind::Monster(m)),
+            FightMode::Balanced
+        );
     }
 
     #[test]

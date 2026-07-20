@@ -9,8 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
+use tfs_rust_common::enums::CombatType;
 use tfs_rust_content::spells::{InstantSpellDef, SpellRegistry};
-use tfs_rust_content::weapons::{WandDef, WeaponRegistry};
+use tfs_rust_content::weapons::{DistanceWeaponDef, WandDef, WeaponRegistry};
 
 use crate::LuaRuntime;
 use crate::userdata::{PendingSpell, PendingWeapon};
@@ -30,6 +31,13 @@ impl LuaRuntime {
             .globals()
             .set(
                 "_pending_weapons",
+                self.lua.create_table().map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        self.lua
+            .globals()
+            .set(
+                "_pending_weapon_callbacks",
                 self.lua.create_table().map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?;
@@ -66,10 +74,25 @@ impl LuaRuntime {
             .globals()
             .get::<mlua::Table>("_pending_weapons")
             .map_err(|e| e.to_string())?;
+        let callbacks_table = self
+            .lua
+            .globals()
+            .get::<mlua::Table>("_pending_weapon_callbacks")
+            .map_err(|e| e.to_string())?;
         let mut registry = WeaponRegistry::default();
         for pair in pending.pairs::<i64, mlua::AnyUserData>() {
-            let (_, ud) = pair.map_err(|e| e.to_string())?;
+            let (idx, ud) = pair.map_err(|e| e.to_string())?;
             let pw = ud.borrow::<PendingWeapon>().map_err(|e| e.to_string())?;
+            let callback_fn: Option<mlua::Function> =
+                callbacks_table.get::<mlua::Function>(idx).ok();
+            let has_callback = callback_fn.is_some();
+            if let Some(func) = callback_fn {
+                let reg_key = self
+                    .lua
+                    .create_registry_value(func)
+                    .map_err(|e| e.to_string())?;
+                self.register_weapon_callback(pw.item_id, reg_key);
+            }
             match pw.weapon_type {
                 6 => {
                     // WEAPON_WAND
@@ -87,8 +110,24 @@ impl LuaRuntime {
                     );
                 }
                 5 | 7 => {
-                    // WEAPON_DISTANCE / WEAPON_AMMO — PC-3 scope; store minimally.
-                    tracing::debug!("Distance/ammo weapon {} loaded (PC-3 scope)", pw.item_id);
+                    // WEAPON_DISTANCE / WEAPON_AMMO — PC-3a breakChance/action + onUseWeapon.
+                    registry.distance.insert(
+                        pw.item_id,
+                        DistanceWeaponDef {
+                            item_id: pw.item_id,
+                            level: pw.level,
+                            magic_level: pw.magic_level,
+                            mana_cost: pw.mana_cost,
+                            vocations: pw.vocations.clone(),
+                            hit_chance: 0,
+                            shoot_range: 0,
+                            element: pw.element,
+                            extra_element: CombatType::Physical,
+                            break_chance: pw.break_chance,
+                            consume_action: pw.consume_action,
+                            has_on_use: pw.has_on_use || has_callback,
+                        },
+                    );
                 }
                 1..=3 => {
                     // WEAPON_SWORD / WEAPON_CLUB / WEAPON_AXE — melee; store minimally.
@@ -112,11 +151,15 @@ impl LuaRuntime {
             registry.melee.len()
         );
 
-        // Clear the pending buffer.
+        // Clear the pending buffers.
         let _ = self
             .lua
             .globals()
             .set("_pending_weapons", self.lua.create_table().unwrap());
+        let _ = self
+            .lua
+            .globals()
+            .set("_pending_weapon_callbacks", self.lua.create_table().unwrap());
 
         Ok(registry)
     }

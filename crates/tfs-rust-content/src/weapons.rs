@@ -36,8 +36,23 @@ pub struct WandDef {
     pub vocations: HashMap<String, bool>,
 }
 
+/// How a distance/ammo weapon consumes a charge after a strike.
+///
+/// TFS `weapon:action(...)` — `luascript.cpp` `luaWeaponAction`. Maps to 772
+/// `Fragility` + `Delete` vs `Move` to the drop tile (`crcombat.cc:844-849`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WeaponConsumeAction {
+    /// Always destroy one charge (`Fragility = 100` / `removecount`).
+    #[default]
+    RemoveCount,
+    /// `breakChance` roll: break → Delete, else Move 1 to impact/drop tile.
+    Move,
+    /// Chargeable wand-like items (`removecharge`) — treated as always-consume.
+    RemoveCharge,
+}
+
 /// A distance weapon definition (bow/crossbow + ammo pairing).
-/// C++ `WeaponDistance` — `weapons.h:160-199`. PC-3 scope; PC-2b loads the struct.
+/// C++ `WeaponDistance` — `weapons.h:160-199`. PC-3a loads breakChance/action.
 #[derive(Debug, Clone, Default)]
 pub struct DistanceWeaponDef {
     pub item_id: u16,
@@ -49,6 +64,13 @@ pub struct DistanceWeaponDef {
     pub shoot_range: u32,
     pub element: CombatType,
     pub extra_element: CombatType,
+    /// `weapon:breakChance(n)` — percent chance to Delete instead of Move (0..=100).
+    /// Only meaningful when `consume_action == Move`.
+    pub break_chance: u8,
+    pub consume_action: WeaponConsumeAction,
+    /// True when Lua registered `onUseWeapon` for this item — distance strike
+    /// dispatches to the script instead of native damage / special effects.
+    pub has_on_use: bool,
 }
 
 /// A melee weapon definition (sword/club/axe with scripted config).

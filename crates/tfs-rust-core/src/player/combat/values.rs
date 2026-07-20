@@ -100,7 +100,7 @@ impl SkillNr {
 
 /// Per-hand-slot weapon categorization — mirrors C++ `GetWeapon` flag checks (`crcombat.cc:78-100`).
 #[derive(Debug, Clone, Copy)]
-enum HandWeapon {
+pub(crate) enum HandWeapon {
     /// `SHIELD` flag → `this->Shield`.
     Shield,
     /// `WEAPON` flag → `this->Close`.
@@ -113,7 +113,7 @@ enum HandWeapon {
     Wand,
 }
 
-fn classify_weapon(weapon_type: u8, ammo_type: u8) -> Option<HandWeapon> {
+pub(crate) fn classify_weapon(weapon_type: u8, ammo_type: u8) -> Option<HandWeapon> {
     match weapon_type {
         WEAPON_SHIELD => Some(HandWeapon::Shield),
         WEAPON_SWORD | WEAPON_CLUB | WEAPON_AXE => Some(HandWeapon::Close),

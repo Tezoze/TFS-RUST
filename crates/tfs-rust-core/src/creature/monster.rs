@@ -220,8 +220,20 @@ pub struct Monster {
     pub melee_skill: i32,
     pub melee_attack: i32,
     pub poison_cycles: i32,
+    /// Effective armor after `CheckCombatValues` (race + equipped). Prefer
+    /// [`GameWorld::monster_get_armor_strength`] for strike snapshots.
     pub armor: i32,
+    /// Race/fist defense when no shield/weapon; overwritten only by race spawn.
+    /// Strike snapshots use [`GameWorld::monster_get_defend_value`].
     pub defense: i32,
+    /// Immutable race armor from `<defenses armor=>` / `RaceData.Armor` — `GetArmorStrength` base.
+    pub race_armor: i32,
+    /// Immutable race defense from `<defenses defense=>` / `RaceData.Defend`.
+    pub race_defense: i32,
+    /// Immutable race melee attack — `CheckCombatValues` weapon override base.
+    pub race_melee_attack: i32,
+    /// Immutable race fist skill — `ProbeValue` skill for unequipped defend.
+    pub race_melee_skill: i32,
     pub immunity_poison: bool,
     /// `<immunity fire="1"/>` — `crmain.cc:549` `NoBurning`.
     pub immunity_fire: bool,
@@ -302,6 +314,10 @@ impl Monster {
             poison_cycles: config.poison_cycles,
             armor: config.armor,
             defense: config.defense,
+            race_armor: config.armor,
+            race_defense: config.defense,
+            race_melee_attack: config.melee_attack,
+            race_melee_skill: config.melee_skill,
             immunity_poison: config.immunity_poison,
             immunity_fire: config.immunity_fire,
             immunity_energy: config.immunity_energy,

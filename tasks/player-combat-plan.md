@@ -36,14 +36,12 @@ PC-5 is landed (including `rateSkill`/`rateMagic`). Remaining player-combat work
 
 1. **PvP phase** — skulls / aggressor / RecordAttack / frags (deferred).
 2. **Optional rates** — wire `rateLoot` / `rateSpawn` when loot/spawn need config parity.
-3. **PC-3a residual polish** (not blocking):
-
-- Burst arrow AoE still hits primary target only (Lua `Combat:execute` / circle path not wired from ammo special).
-- Missed ammo: always delete (no ground `Move` drop arm); fragility/`breakChance` Lua not wired.
-- `COMBAT_FORMULA_SKILL` in `Combat:execute` deferred (needs weapon resolution).
-- `createCombatArea` diagonal overlay accepted but unused.
-- TFS-style `spell_group_cooldown_end` exists on `Player` but say-spell uses 772
-  `EarliestSpellTime` (correct for primary target); group CD is 1098/TFS surface if needed later.
+3. **PC-3a residual polish** — ✅ done 2026-07-20 (PvE):
+   DistanceAttack defense bug (attacker-shield SE only); burst via Lua `onUseWeapon`
+   (`burst_arrow.lua`); Fragility/`breakChance` Move-to-drop; spell `block_shield`/`block_armor`;
+   `COMBAT_FORMULA_SKILL`; chargeable wearout destroy-on-zero.
+   Still open: `createCombatArea` diagonal overlay unused; TFS `spell_group_cooldown_end`
+   (say-spell correctly uses 772 `EarliestSpellTime`).
 
 ---
 
@@ -58,7 +56,7 @@ PC-5 is landed (including `rateSkill`/`rateMagic`). Remaining player-combat work
 | PC-2a | `Damage` path completeness (melee audit) | ✅ Done (§9.2) |
 | PC-2b | Lua combat/spell/weapon plumbing | ✅ Done |
 | PC-3 | Distance + wand strikes | ✅ Done (`ranged.rs`; M5 mana shield; M3′ typed immunities; `probe_hit`) |
-| PC-3a | AoE disc + spell-casting execution | ✅ Done (core) — residual polish above |
+| PC-3a | AoE disc + spell-casting execution | ✅ Done — PvE residuals closed 2026-07-20 |
 | PC-4 | Fight/chase/secure mode + PVP gating | ✅ Done (skulls deferred) |
 | PC-5 | Skill/exp gain + regen + death penalty | ✅ Done |
 | PvP | Skulls / aggressor / frags | ⏳ Deferred |

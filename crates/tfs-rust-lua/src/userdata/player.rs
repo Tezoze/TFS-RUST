@@ -67,14 +67,80 @@ impl UserData for CreatureRef {
 
         // `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
         // PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
-        // `data/scripts/functions.lua` (`computeDamage` / `computeHealing` /
-        // `computeSkillDamage` — all read `(3 * magicLevel) + 2 * level`).
+        // `computeDamage` / `computeHealing` (native methods below; also `functions.lua`).
         methods.add_method("getMagicLevel", |_, this, ()| {
             with_ctx(|ctx| {
                 ctx.get_player_magic_level(this.0)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
         });
+
+        // `player:getSpellCoeff()` → `(levelMult, magicMult)` from `MechanicsProfile`
+        // / `data/formulas/<era>.lua` `formulas.spell`.
+        methods.add_method("getSpellCoeff", |_, _this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_spell_coeff()))
+        });
+
+        // `player:computeDamage(damage, variation[, limitMinimum[, limitMaximum]])`
+        // — 772 `ComputeDamage` (`magic.cc:776`); coeffs from profile, not hardcoded 2/3.
+        methods.add_method(
+            "computeDamage",
+            |_, this, args: mlua::Variadic<Value>| {
+                let (damage, variation, limit_min, limit_max) =
+                    parse_compute_damage_args(&args)?;
+                with_ctx(|ctx| {
+                    let (lo, hi) = ctx.compute_magic_damage_range(
+                        this.0,
+                        damage,
+                        variation,
+                        limit_min,
+                        limit_max,
+                    );
+                    Ok((-lo, -hi))
+                })
+            },
+        );
+
+        // `player:computeHealing(...)` — same formula, positive magnitudes.
+        methods.add_method(
+            "computeHealing",
+            |_, this, args: mlua::Variadic<Value>| {
+                let (damage, variation, limit_min, limit_max) =
+                    parse_compute_damage_args(&args)?;
+                with_ctx(|ctx| {
+                    Ok(ctx.compute_magic_damage_range(
+                        this.0,
+                        damage,
+                        variation,
+                        limit_min,
+                        limit_max,
+                    ))
+                })
+            },
+        );
+
+        // `player:computeSkillDamage(damage, variation, skill[, limitMinimum[, limitMaximum]])`
+        // — magic formula then `× level / 25` (`functions.lua`).
+        methods.add_method(
+            "computeSkillDamage",
+            |_, this, args: mlua::Variadic<Value>| {
+                let (damage, variation, _skill, limit_min, limit_max) =
+                    parse_compute_skill_damage_args(&args)?;
+                with_ctx(|ctx| {
+                    let level = ctx.get_player_level(this.0).unwrap_or(0);
+                    let (lo, hi) = ctx.compute_magic_damage_range(
+                        this.0,
+                        damage,
+                        variation,
+                        limit_min,
+                        limit_max,
+                    );
+                    let lo = (lo * level) / 25;
+                    let hi = (hi * level) / 25;
+                    Ok((-lo, -hi))
+                })
+            },
+        );
 
         // `player:getMana()` — `Player::getMana` (`player.h`).
         // PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana check.
@@ -581,6 +647,51 @@ impl UserData for CreatureRef {
             let player_table: mlua::Table = lua.globals().get("Player")?;
             player_table.get::<mlua::Value>(key)
         });
+    }
+}
+
+/// Parse `computeDamage(damage, variation[, limitMinimum[, limitMaximum]])` args.
+fn parse_compute_damage_args(
+    args: &mlua::Variadic<Value>,
+) -> Result<(i32, i32, bool, bool), mlua::Error> {
+    let damage = args
+        .first()
+        .and_then(value_as_i32)
+        .ok_or_else(|| mlua::Error::runtime("computeDamage: damage required"))?;
+    let variation = args.get(1).and_then(value_as_i32).unwrap_or(0);
+    let limit_min = args.get(2).and_then(value_as_bool).unwrap_or(false);
+    let limit_max = args.get(3).and_then(value_as_bool).unwrap_or(false);
+    Ok((damage, variation, limit_min, limit_max))
+}
+
+/// Parse `computeSkillDamage(damage, variation, skill[, limitMinimum[, limitMaximum]])`.
+fn parse_compute_skill_damage_args(
+    args: &mlua::Variadic<Value>,
+) -> Result<(i32, i32, i32, bool, bool), mlua::Error> {
+    let damage = args
+        .first()
+        .and_then(value_as_i32)
+        .ok_or_else(|| mlua::Error::runtime("computeSkillDamage: damage required"))?;
+    let variation = args.get(1).and_then(value_as_i32).unwrap_or(0);
+    let skill = args.get(2).and_then(value_as_i32).unwrap_or(0);
+    let limit_min = args.get(3).and_then(value_as_bool).unwrap_or(false);
+    let limit_max = args.get(4).and_then(value_as_bool).unwrap_or(false);
+    Ok((damage, variation, skill, limit_min, limit_max))
+}
+
+fn value_as_i32(v: &Value) -> Option<i32> {
+    match v {
+        Value::Integer(n) => Some(*n as i32),
+        Value::Number(n) => Some(*n as i32),
+        _ => None,
+    }
+}
+
+fn value_as_bool(v: &Value) -> Option<bool> {
+    match v {
+        Value::Boolean(b) => Some(*b),
+        Value::Nil => Some(false),
+        _ => None,
     }
 }
 

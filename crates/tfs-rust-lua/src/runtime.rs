@@ -42,6 +42,9 @@ pub struct LuaRuntime {
     /// C++ reference: `Event::loadCallback` / `getEvent` (`baseevents.cpp:136`,
     /// `luascript.cpp:363`) — stores the Lua function reference for later invocation.
     spell_callbacks: HashMap<String, RegistryKey>,
+    /// PC-3a: `onUseWeapon` callbacks keyed by item id (`weapon:{id}`).
+    /// C++ `Weapon::executeUseWeapon` — `weapons.cpp:485`.
+    weapon_callbacks: HashMap<u16, RegistryKey>,
 }
 
 /// Pending channel definition from Lua Channel:register().
@@ -139,6 +142,7 @@ impl LuaRuntime {
             pending_chat_channels: Vec::new(),
             pending_talkactions: Vec::new(),
             spell_callbacks: HashMap::new(),
+            weapon_callbacks: HashMap::new(),
         })
     }
 
@@ -598,6 +602,58 @@ impl LuaRuntime {
     /// Called from `load_spell_scripts` after draining `_pending_spell_callbacks`.
     pub fn register_spell_callback(&mut self, words: &str, key: RegistryKey) {
         self.spell_callbacks.insert(words.to_lowercase(), key);
+    }
+
+    /// Register an `onUseWeapon` callback keyed by item id.
+    pub fn register_weapon_callback(&mut self, item_id: u16, key: RegistryKey) {
+        self.weapon_callbacks.insert(item_id, key);
+    }
+
+    /// Whether an `onUseWeapon` script is registered for this item.
+    pub fn has_weapon_callback(&self, item_id: u16) -> bool {
+        self.weapon_callbacks.contains_key(&item_id)
+    }
+
+    /// Invoke `onUseWeapon(player, variant[, hit])` — `weapons.cpp:485`.
+    ///
+    /// Hit → `VARIANT_NUMBER` (target creature id). Miss → `VARIANT_POSITION` at drop.
+    /// Extra `hit` boolean matches `data/scripts/weapons/burst_arrow.lua` arity.
+    pub fn call_on_use_weapon(
+        &self,
+        item_id: u16,
+        creature: crate::context::CreatureId,
+        target_number: Option<u64>,
+        target_pos: Option<(u16, u16, u8)>,
+        hit: bool,
+    ) -> Result<bool, LuaError> {
+        let Some(registry_key) = self.weapon_callbacks.get(&item_id) else {
+            return Ok(false);
+        };
+        let function: mlua::Function = self
+            .lua
+            .registry_value(registry_key)
+            .map_err(LuaError::Init)?;
+        let creature_ud = self
+            .lua
+            .create_userdata(CreatureRef(creature))
+            .map_err(LuaError::Init)?;
+        let spec = if let Some(n) = target_number {
+            CastVariantSpec::Number(n)
+        } else if let Some((x, y, z)) = target_pos {
+            CastVariantSpec::FixedPosition { x, y, z }
+        } else {
+            return Ok(false);
+        };
+        let variant = build_cast_variant_spec(&self.lua, creature, spec)?;
+        // Always pass `hit` as 3rd arg — 2-arg scripts ignore it (Lua).
+        let result: Value = function
+            .call((creature_ud, variant, hit))
+            .map_err(LuaError::Init)?;
+        Ok(match result {
+            Value::Boolean(b) => b,
+            Value::Nil => true,
+            _ => true,
+        })
     }
 }
 

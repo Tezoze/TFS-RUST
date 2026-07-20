@@ -461,10 +461,16 @@ function Player:conjureItem(conjureMana, reagentId, conjureId, conjureCount, eff
 end
 
 function Player:computeSkillDamage(damage, variation, skill, limitMinimum, limitMaximum)
+	-- Native `CreatureRef:computeSkillDamage` wins when called as userdata method.
+	-- Fallback for plain `Player` table calls: coeffs from `getSpellCoeff` / profile.
 	local min = damage - variation
 	local max = damage + variation
-	local formula = (3 * self:getMagicLevel()) + 2 * self:getLevel()
-		
+	local levelMult, magicMult = 2, 3
+	if self.getSpellCoeff then
+		levelMult, magicMult = self:getSpellCoeff()
+	end
+	local formula = (magicMult * self:getMagicLevel()) + levelMult * self:getLevel()
+
 	if limitMinimum and formula <= 99 or limitMaximum and formula >= 101 then
 		formula = 100
 	end
@@ -479,11 +485,17 @@ function Player:computeSkillDamage(damage, variation, skill, limitMinimum, limit
 end
 
 function Player:computeDamage(damage, variation, limitMinimum, limitMaximum)
+	-- Prefer native userdata method (reads `MechanicsProfile` / `772.lua` spell coeffs).
+	-- This table fallback keeps the same formula for non-userdata call sites.
 	local minimumDamage = damage - variation
 	local maximumDamage = damage + variation
 	local min = minimumDamage
 	local max = maximumDamage
-	local formula = (3 * self:getMagicLevel()) + 2 * self:getLevel()
+	local levelMult, magicMult = 2, 3
+	if self.getSpellCoeff then
+		levelMult, magicMult = self:getSpellCoeff()
+	end
+	local formula = (magicMult * self:getMagicLevel()) + levelMult * self:getLevel()
 
 	if limitMinimum and formula <= 99 or limitMaximum and formula >= 101 then
 		formula = 100
@@ -500,7 +512,11 @@ function Player:computeHealing(damage, variation, limitMinimum, limitMaximum)
 	local maximumDamage = damage + variation
 	local min = minimumDamage
 	local max = maximumDamage
-	local formula = (3 * self:getMagicLevel()) + 2 * self:getLevel()
+	local levelMult, magicMult = 2, 3
+	if self.getSpellCoeff then
+		levelMult, magicMult = self:getSpellCoeff()
+	end
+	local formula = (magicMult * self:getMagicLevel()) + levelMult * self:getLevel()
 
 	if limitMinimum and formula <= 99 or limitMaximum and formula >= 101 then
 		formula = 100

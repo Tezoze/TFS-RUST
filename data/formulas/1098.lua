@@ -38,7 +38,6 @@ formulas = {
   expAttributionRounds = 60,
   followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
   pathForwardFallback = true,       -- TFS falls back to forward search if reverse fails
-  parityRngSource = "env",          -- env/global or ai_rng (not per-world glibc)
   corpseDecayOffsetMs = 600,        -- generic corpse decay +600ms
   classicEquipmentSlots = false,     -- 10.98 hand slots enforce weapon/shield restrictions
   undergroundSeesSurface = false,   -- TFS canSee: underground cannot see surface (tz < 8 rejects)
@@ -55,7 +54,7 @@ formulas = {
     poisonStart = 50,
   },
 
-  spell = { levelMult = 2, magicMult = 3 },
+  spell = { levelMult = 2, magicMult = 3 }, -- ComputeDamage / Player:computeDamage
   pvpExpCap = { num = 11, den = 10 },
   playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
 }

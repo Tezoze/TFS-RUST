@@ -168,7 +168,7 @@ pub struct FormulaDef {
 /// `baseevents.cpp`). At registration, TFS `getEvent` copies the named global into
 /// a private registry id and **clears the global** so later scripts may reuse the
 /// same name (`onGetFormulaValues`). We snapshot [`mlua::Function`] the same way.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CombatCallback {
     pub param: i32,
     pub function_name: String,
@@ -183,16 +183,6 @@ impl std::fmt::Debug for CombatCallback {
             .field("function_name", &self.function_name)
             .field("has_function", &self.function.is_some())
             .finish()
-    }
-}
-
-impl Default for CombatCallback {
-    fn default() -> Self {
-        Self {
-            param: 0,
-            function_name: String::new(),
-            function: None,
-        }
     }
 }
 
@@ -536,17 +526,42 @@ impl UserData for CombatRef {
                         // level + magic level if available. C++ `getCombatDamage`
                         // (`combat.cpp:117-119`): `fma(levelFormula, mina, minb)`.
                         FormulaType::LevelMagic => {
+                            // TFS `fma(levelFormula, …)` shape; coeffs from profile
+                            // (`772.lua` `spell.levelMult` / `magicMult`), not hardcoded.
                             let (level, magic) = read_caster_level_magic(caster_id)?;
-                            let lf = level * 2 + magic * 3;
+                            let (lm, mm) = CURRENT_CTX.with(|c| {
+                                let ptr = (*c.borrow())
+                                    .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                                if ptr.is_null() {
+                                    return Err(mlua::Error::runtime("LuaContext not set"));
+                                }
+                                let ctx = unsafe { &*ptr };
+                                Ok(ctx.get_spell_coeff())
+                            })?;
+                            let lf = lm * level + mm * magic;
                             let lo = (lf as f64 * f.min_a + f.min_b) as i32;
                             let hi = (lf as f64 * f.max_a + f.max_b) as i32;
                             (lo, hi)
                         }
-                        // Skill formula requires weapon resolution — deferred.
-                        // Use minb/maxb as a fallback for now.
-                        FormulaType::Skill | FormulaType::Undefined => {
-                            (f.min_b as i32, f.max_b as i32)
+                        // `COMBAT_FORMULA_SKILL` — TFS API shape (`combat.cpp:120-129`);
+                        // magnitude from era `MechanicsProfile` (772 ClassicProbe /
+                        // `772.lua` damageTuning; 1098 TFS getMaxWeaponDamage).
+                        FormulaType::Skill => {
+                            let (mina, minb, maxa, maxb) =
+                                (f.min_a, f.min_b, f.max_a, f.max_b);
+                            CURRENT_CTX.with(|c| {
+                                let ptr = (*c.borrow())
+                                    .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                                if ptr.is_null() {
+                                    return Err(mlua::Error::runtime("LuaContext not set"));
+                                }
+                                let ctx = unsafe { &*ptr };
+                                Ok(ctx.get_formula_skill_damage_bounds(
+                                    caster_id, mina, minb, maxa, maxb,
+                                ))
+                            })?
                         }
+                        FormulaType::Undefined => (f.min_b as i32, f.max_b as i32),
                     },
                     None => invoke_value_callback(lua, &combat, caster_id)?,
                 };
@@ -752,10 +767,10 @@ fn resolve_caster_position(caster_id: u64) -> Result<(u16, u16, u8), mlua::Error
 /// dx/dy are non-zero, use the diagonal overlay (NW=raw, NE=mirror, SW=flip,
 /// SE=transpose). Otherwise rotate the primary matrix for N/E/S/W.
 fn resolve_oriented_offsets(area: &AreaCombat, dx_dir: i32, dy_dir: i32) -> Vec<(i32, i32)> {
-    if area.has_ext_area() && dx_dir != 0 && dy_dir != 0 {
-        if let Some(ext) = area.ext_affected_offsets() {
-            return transform_diagonal_offsets(&ext, dx_dir, dy_dir);
-        }
+    if area.has_ext_area() && dx_dir != 0 && dy_dir != 0
+        && let Some(ext) = area.ext_affected_offsets()
+    {
+        return transform_diagonal_offsets(&ext, dx_dir, dy_dir);
     }
     rotate_area_offsets(&area.affected_offsets(), dx_dir, dy_dir)
 }
@@ -1481,6 +1496,109 @@ mod tests {
         });
     }
 
+    /// Default (no GameWorld) still exposes ClassicProbe *ceiling* for deterministic
+    /// unit tests; live `GameWorld` rolls one ProbeValue (see `game_world_script`).
+    /// `COMBAT_FORMULA_SKILL` resolves via ClassicProbe (772 primary),
+    /// not TFS `getMaxWeaponDamage` 0.085. Shape still `setFormula(SKILL, …)`.
+    #[test]
+    fn formula_skill_resolves_weapon_damage_range() {
+        use crate::context::with_lua_context;
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemRef, WeaponCombatParams,
+        };
+
+        const CID: ScriptCreatureId = 77;
+        struct Ctx;
+        impl ScriptContext for Ctx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == CID).then_some(ScriptCreatureData {
+                    name: "Paladin".into(),
+                    guid: 3,
+                })
+            }
+            fn get_item(&self, _: ScriptCreatureId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(50)
+            }
+            fn get_player_magic_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == CID).then_some(0)
+            }
+            fn get_player_position(
+                &self,
+                id: ScriptCreatureId,
+            ) -> Option<tfs_rust_common::Position> {
+                (id == CID).then_some(tfs_rust_common::Position {
+                    x: 100,
+                    y: 100,
+                    z: 7,
+                })
+            }
+            fn get_player_weapon_combat_params(&self, _: ScriptCreatureId) -> WeaponCombatParams {
+                WeaponCombatParams {
+                    skill: 80,
+                    attack: 40,
+                    attack_factor: 1.0,
+                }
+            }
+        }
+
+        let lua = Lua::new();
+        register_combat_metatable(&lua).expect("combat metatable");
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+        crate::combat_enums::register_combat_enums(&lua).expect("combat enums");
+        crate::constants::register_constants(&lua).expect("constants");
+        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+        crate::lua_mutation::register_lua_mutation_applier(|_, _| Ok(()));
+
+        let ctx = Ctx;
+        with_lua_context(&ctx, || {
+            // Default ScriptContext: probe ceiling (99*40*(80*5+50))/10000 = 178
+            // Live GameWorld rolls one ProbeValue instead (lo==hi).
+            crate::lua_mutation::register_lua_mutation_applier(|_, mutation| {
+                if let crate::lua_mutation::LuaMutation::CombatExecute { request } = mutation {
+                    assert_eq!(request.damage_min, 0);
+                    assert_eq!(
+                        request.damage_max, 178,
+                        "default FORMULA_SKILL ceiling, got {}",
+                        request.damage_max
+                    );
+                }
+                Ok(())
+            });
+
+            let caster_ud = lua
+                .create_userdata(crate::context::CreatureRef(CID))
+                .expect("create caster userdata");
+            lua.globals().set("caster", caster_ud).expect("set caster");
+
+            let _: () = lua
+                .load(
+                    r#"
+                    combat = Combat()
+                    combat:setParameter(COMBAT_PARAM_TYPE, COMBAT_PHYSICALDAMAGE)
+                    combat:setFormula(COMBAT_FORMULA_SKILL, 0, 0, 1, 0)
+                "#,
+                )
+                .set_name("skill_formula_setup")
+                .exec()
+                .expect("FORMULA_SKILL setup must succeed");
+
+            let dummy_world = 0x1usize as *mut ();
+            crate::lua_mutation::with_lua_mutation_scope(dummy_world, || {
+                let _: () = lua
+                    .load("combat:execute(caster, nil)")
+                    .set_name("skill_formula_execute")
+                    .exec()
+                    .expect("FORMULA_SKILL execute must succeed");
+            });
+        });
+    }
+
     /// PC-3a Phase 1: `Player:` method bridge via `__index` fallback.
     ///
     /// Verifies that `CreatureRef` userdata can call `Player:computeDamage`
@@ -1537,25 +1655,15 @@ mod tests {
                 .expect("create userdata");
             lua.globals().set("player", ud).expect("set player");
 
-            // Call `player:computeDamage(45, 10)` — a `Player:` method from
-            // `functions.lua`, bridged via the `__index` fallback.
-            let (min, max): (f64, f64) = lua
+            // Native `computeDamage` (profile coeffs). level=20, magic=10 → formula=70
+            // min = (45-10)*70/100 = 24 → -24; max = (45+10)*70/100 = 38 → -38
+            let (min, max): (i32, i32) = lua
                 .load("return player:computeDamage(45, 10)")
                 .eval()
-                .expect("computeDamage should resolve via __index fallback");
+                .expect("computeDamage should resolve as native userdata method");
 
-            // computeDamage(45, 10) with level=20, magic=10:
-            // formula = 3*10 + 2*20 = 70
-            // min = 70 * (45-10) / 100 = 70 * 35 / 100 = 24.5 → -24.5
-            // max = 70 * (45+10) / 100 = 70 * 55 / 100 = 38.5 → -38.5
-            assert!(
-                min < 0.0 && max < 0.0,
-                "computeDamage returns negative (damage): min={min}, max={max}"
-            );
-            assert!(
-                min != 0.0 || max != 0.0,
-                "computeDamage must produce non-zero values"
-            );
+            assert_eq!(min, -24, "computeDamage min");
+            assert_eq!(max, -38, "computeDamage max");
         });
     }
 }

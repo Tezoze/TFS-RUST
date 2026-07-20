@@ -13,7 +13,10 @@ use crate::creature::CreatureKind;
 use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::inventory::{item_fits_equipment_slot, slot_to_array_index, WEAPON_NONE, WEAPON_SHIELD};
+use crate::inventory::{
+    item_fits_equipment_slot, slot_to_array_index, slot_type_for_item_type, WEAPON_NONE,
+    WEAPON_SHIELD,
+};
 use crate::item::Item;
 
 /// Default internal bag for spawn-rolled loot — TVP `item id="1987"`.
@@ -167,6 +170,9 @@ fn roll_loot_block_glibc(
 }
 
 /// Combat stats after equipped loot — weapon override + slot-matched armor sum.
+///
+/// Armor matches `GetArmorStrength` (`crcombat.cc:286-307`): `RaceData.Armor` + every
+/// equipped body item with `armor > 0` at its fitting slot (C++ `CLOTHES`+`ARMOR`+`BODYPOSITION`).
 pub fn effective_monster_combat_stats(
     base_skill: i32,
     base_attack: i32,
@@ -200,7 +206,8 @@ pub fn effective_monster_combat_stats(
         }
     }
 
-    for slot in [1u8, 4, 7, 8] {
+    // Full inventory scan — C++ `INVENTORY_FIRST..=INVENTORY_LAST` (`crcombat.cc:289-300`).
+    for slot in 1u8..=10 {
         let Some(idx) = slot_to_array_index(slot) else {
             continue;
         };
@@ -213,7 +220,9 @@ pub fn effective_monster_combat_stats(
         let Some(it) = items_db.items.get(&item.item_type) else {
             continue;
         };
-        if item_fits_equipment_slot(slot, it) && it.armor > 0 {
+        // C++ `CLOTHES`+`ARMOR`+`BODYPOSITION == Position` (`crcombat.cc:295-297`).
+        // Same gate as [`GameWorld::player_get_armor_strength`].
+        if it.armor > 0 && slot_type_for_item_type(it) == slot {
             armor = armor.saturating_add(it.armor);
         }
     }
@@ -309,12 +318,19 @@ impl GameWorld {
     }
 
     /// Recompute melee/armor from spawn inventory — `CheckCombatValues` (`crcombat.cc:128`).
+    ///
+    /// Uses immutable `race_*` bases so repeated calls do not double-count equipped armor.
     pub(crate) fn recompute_monster_combat_from_equipment(&mut self, monster_id: CreatureId) {
         let snapshot = self.creatures.get(monster_id).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
             };
-            Some((m.melee_skill, m.melee_attack, m.armor, m.inventory.clone()))
+            Some((
+                m.race_melee_skill,
+                m.race_melee_attack,
+                m.race_armor,
+                m.inventory.clone(),
+            ))
         });
         let Some((base_skill, base_attack, base_armor, inventory)) = snapshot else {
             return;
@@ -332,6 +348,109 @@ impl GameWorld {
             m.melee_attack = attack;
             m.armor = armor;
         }
+    }
+
+    /// 772 `GetArmorStrength` for monsters — `crcombat.cc:286-307`.
+    ///
+    /// `RaceData.Armor` (`race_armor`) + equipped body armor at fitting slots. Raw sum;
+    /// randomization is in [`crate::combat::math::armor_reduction`].
+    pub(crate) fn monster_get_armor_strength(&self, cid: CreatureId) -> i32 {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return 0;
+        };
+        let (skill, attack, armor) = effective_monster_combat_stats(
+            m.race_melee_skill,
+            m.race_melee_attack,
+            m.race_armor,
+            &m.inventory,
+            &self.items,
+            &self.items_db,
+        );
+        let _ = (skill, attack);
+        armor
+    }
+
+    /// 772 `GetDefendValue` for monsters — `crcombat.cc:191-218`.
+    ///
+    /// Priority: shield → close weapon → throw → missile(0) → `RaceData.Defend`.
+    /// Returns `(defense_value, defense_skill)` for ProbeValue. Monsters use race fist
+    /// skill for all arms (their skill table is fist-centric); players use `SkillNr`.
+    pub(crate) fn monster_get_defend_value(&self, cid: CreatureId) -> (i32, i32) {
+        use crate::inventory::InventorySlot;
+        use crate::player::combat::values::{classify_weapon, HandWeapon};
+
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return (0, 0);
+        };
+        let race_def = m.race_defense;
+        let race_skill = m.race_melee_skill;
+
+        let mut shield_def: Option<i32> = None;
+        let mut close_def: Option<i32> = None;
+        let mut throw_def: Option<i32> = None;
+        let mut has_missile = false;
+
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let Some(idx) = slot_to_array_index(slot) else {
+                continue;
+            };
+            let Some(iid) = m.inventory.equipment[idx] else {
+                continue;
+            };
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            match classify_weapon(it.weapon_type, it.ammo_type) {
+                Some(HandWeapon::Shield) => shield_def = Some(it.defense),
+                Some(HandWeapon::Close) => close_def = Some(it.defense),
+                Some(HandWeapon::Throw) => throw_def = Some(it.defense),
+                Some(HandWeapon::Missile) => has_missile = true,
+                Some(HandWeapon::Wand) | None => {}
+            }
+        }
+
+        if let Some(def) = shield_def {
+            return (def, race_skill);
+        }
+        if let Some(def) = close_def {
+            return (def, race_skill);
+        }
+        if let Some(def) = throw_def {
+            return (def, race_skill);
+        }
+        if has_missile {
+            return (0, race_skill);
+        }
+        (race_def, race_skill)
+    }
+
+    /// True when the monster holds a shield in a hand slot.
+    pub(crate) fn monster_has_shield(&self, cid: CreatureId) -> bool {
+        use crate::inventory::InventorySlot;
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
+            let Some(idx) = slot_to_array_index(slot) else {
+                continue;
+            };
+            let Some(iid) = m.inventory.equipment[idx] else {
+                continue;
+            };
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            if it.weapon_type == WEAPON_SHIELD {
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn move_body_item_into_corpse(&mut self, corpse_id: ItemId, item_id: ItemId) {
@@ -509,8 +628,6 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
     use slotmap::SlotMap;
     use tfs_rust_common::enums::CombatType;
     use tfs_rust_common::Position;
@@ -525,7 +642,7 @@ mod tests {
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::game_world::GameWorld;
     use crate::ids::{CreatureId, ItemId};
-    use crate::inventory::{SLOTP_ARMOR, WEAPON_SWORD};
+    use crate::inventory::{SLOTP_ARMOR, SLOTP_LEFT, SLOTP_RIGHT, WEAPON_SHIELD, WEAPON_SWORD};
     use crate::item::Item;
     use crate::sim_harness::{bag_item_type, insert_monster, pickup_item_type};
     use crate::test_world::support::{
@@ -543,6 +660,14 @@ mod tests {
         let mut it = pickup_item_type(server_id);
         it.weapon_type = WEAPON_SWORD;
         it.attack = attack;
+        it
+    }
+
+    fn shield_item_type(server_id: u16, defense: i32) -> ItemType {
+        let mut it = pickup_item_type(server_id);
+        it.weapon_type = WEAPON_SHIELD;
+        it.defense = defense;
+        it.slot_position = SLOTP_LEFT | SLOTP_RIGHT;
         it
     }
 
@@ -593,6 +718,7 @@ mod tests {
         let mut world_items = SlotMap::<ItemId, Item>::with_key();
         let mut inv = MonsterInventory::default();
         let armor_id = world_items.insert(Item::new(2464, 1));
+        // Slot 4 (armor) → equipment[3]
         inv.equipment[3] = Some(armor_id);
 
         let items_db = ItemDatabase {
@@ -622,6 +748,98 @@ mod tests {
         let (_, attack, _) =
             effective_monster_combat_stats(15, 7, 1, &inv, &world_items, &items_db);
         assert_eq!(attack, 25);
+    }
+
+    #[test]
+    fn recompute_monster_combat_does_not_double_add_armor() {
+        let mut world = beat_world(HashMap::from([(2464, armor_item_type(2464, 10))]));
+        let pos = Position::new(100, 100, 7);
+        let monster = insert_test_monster(&mut world, pos);
+        let armor_id = world.items.insert(Item::new(2464, 1));
+        {
+            let CreatureKind::Monster(m) = world.creatures.get_mut(monster).unwrap() else {
+                panic!("expected monster");
+            };
+            m.race_armor = 20;
+            m.armor = 20;
+            m.race_defense = 5;
+            m.defense = 5;
+            m.race_melee_attack = 7;
+            m.melee_attack = 7;
+            m.race_melee_skill = 9;
+            m.melee_skill = 9;
+            m.inventory.equipment[3] = Some(armor_id);
+        }
+        world.recompute_monster_combat_from_equipment(monster);
+        world.recompute_monster_combat_from_equipment(monster);
+        let CreatureKind::Monster(m) = world.creatures.get(monster).unwrap() else {
+            panic!("expected monster");
+        };
+        assert_eq!(m.race_armor, 20);
+        assert_eq!(m.armor, 30, "race 20 + chain 10, not double-counted");
+    }
+
+    #[test]
+    fn monster_live_armor_and_defend_match_get_armor_strength_and_get_defend_value() {
+        let mut sword = sword_item_type(2406, 25);
+        sword.defense = 11;
+        let mut world = beat_world(HashMap::from([
+            (2464, armor_item_type(2464, 10)),
+            (2406, sword),
+            (2511, shield_item_type(2511, 25)),
+        ]));
+        let pos = Position::new(100, 100, 7);
+        let monster = insert_test_monster(&mut world, pos);
+        {
+            let CreatureKind::Monster(m) = world.creatures.get_mut(monster).unwrap() else {
+                panic!("expected monster");
+            };
+            m.race_armor = 1;
+            m.armor = 1;
+            m.race_defense = 5;
+            m.defense = 5;
+            m.race_melee_skill = 15;
+            m.melee_skill = 15;
+        }
+
+        assert_eq!(world.monster_get_armor_strength(monster), 1);
+        assert_eq!(world.monster_get_defend_value(monster), (5, 15));
+
+        let armor_id = world.items.insert(Item::new(2464, 1));
+        {
+            let CreatureKind::Monster(m) = world.creatures.get_mut(monster).unwrap() else {
+                panic!("expected monster");
+            };
+            m.inventory.equipment[3] = Some(armor_id);
+        }
+        assert_eq!(world.monster_get_armor_strength(monster), 11);
+
+        let sword_id = world.items.insert(Item::new(2406, 1));
+        {
+            let CreatureKind::Monster(m) = world.creatures.get_mut(monster).unwrap() else {
+                panic!("expected monster");
+            };
+            // Right hand = slot 5 → equipment[4]
+            m.inventory.equipment[4] = Some(sword_id);
+        }
+        assert_eq!(world.monster_get_defend_value(monster), (11, 15));
+
+        let shield_id = world.items.insert(Item::new(2511, 1));
+        {
+            let CreatureKind::Monster(m) = world.creatures.get_mut(monster).unwrap() else {
+                panic!("expected monster");
+            };
+            // Left hand = slot 6 → equipment[5]
+            m.inventory.equipment[5] = Some(shield_id);
+        }
+        assert_eq!(world.monster_get_defend_value(monster), (25, 15));
+        assert!(world.monster_has_shield(monster));
+
+        let snap = world.melee_defense_snapshot_for(monster);
+        assert_eq!(snap.armor, 11);
+        assert_eq!(snap.defense_value, 25);
+        assert_eq!(snap.defense_skill, 15);
+        assert!(snap.has_shield);
     }
 
     fn rat_with_loot() -> MonsterType {
@@ -684,7 +902,7 @@ mod tests {
             c
         });
         let mut world = beat_world(items);
-        world.ai_rng = StdRng::seed_from_u64(42);
+        world.seed_parity_rng(42);
 
         let pos = Position::new(100, 100, 7);
         let monster = insert_test_monster(&mut world, pos);
@@ -750,7 +968,7 @@ mod tests {
         items.insert(1987u16, bag_item_type(1987));
         items.insert(2148u16, stackable_pickup_item_type(2148));
         let mut world = beat_world(items);
-        world.ai_rng = StdRng::seed_from_u64(99);
+        world.seed_parity_rng(99);
 
         let pos = Position::new(100, 100, 7);
         let player = insert_player(&mut world, test_player("Hero", pos));

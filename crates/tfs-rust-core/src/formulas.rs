@@ -94,16 +94,6 @@ pub enum StepSpeedModel {
     LinearGo,
 }
 
-/// Parity RNG source — K1 (`game_world.rs` `parity_random*` / `sim_dance_choice`).
-/// 772 uses per-world glibc-parity stream; 1098 uses env/global or `ai_rng`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParityRngSource {
-    /// 772 — per-world `GlibcRngState` (`Finding 8/15`).
-    PerWorldGlibc,
-    /// 1098 — env/global `sim_glibc_rand` or `ai_rng`.
-    EnvGlobal,
-}
-
 /// Damage text format — K10 (`game_world_spectators.rs` combat damage notify).
 /// 772 attributes the attacker; 1098 uses a simpler "You lose N hitpoints." form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,8 +308,6 @@ pub struct MechanicsProfile {
     /// When true, pathfinder falls back to forward search if reverse search fails.
     /// Default is false on 772, true on 1098.
     pub path_forward_fallback: bool,
-    /// K1 — parity RNG source: 772 per-world glibc vs 1098 env/global.
-    pub parity_rng_source: ParityRngSource,
     /// K2 — generic corpse decay offset in ms (772 30 000, 1098 600).
     pub corpse_decay_offset_ms: u64,
     /// K3 — underground viewers can see surface within ±2 floors (772 true, 1098 false).
@@ -399,7 +387,6 @@ impl MechanicsProfile {
                 level_exp_delta: 100,
                 follow_repath_without_path: true,
                 path_forward_fallback: false,
-                parity_rng_source: ParityRngSource::PerWorldGlibc,
                 corpse_decay_offset_ms: 30_000,
                 underground_sees_surface: true,
                 damage_text_format: DamageTextFormat::AttackerAttribution,
@@ -454,7 +441,6 @@ impl MechanicsProfile {
                 level_exp_delta: 100,
                 follow_repath_without_path: false,
                 path_forward_fallback: true,
-                parity_rng_source: ParityRngSource::EnvGlobal,
                 corpse_decay_offset_ms: 600,
                 underground_sees_surface: false,
                 damage_text_format: DamageTextFormat::SimpleLoss,
@@ -774,11 +760,6 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         p.follow_repath_without_path,
     );
     p.path_forward_fallback = bool_or(&formulas, "pathForwardFallback", p.path_forward_fallback);
-    p.parity_rng_source = match str_or(&formulas, "parityRngSource", "").as_str() {
-        "perWorld" | "perWorldGlibc" | "772" => ParityRngSource::PerWorldGlibc,
-        "env" | "envGlobal" | "1098" => ParityRngSource::EnvGlobal,
-        _ => p.parity_rng_source,
-    };
     p.corpse_decay_offset_ms = num_or(
         lua,
         &formulas,
@@ -937,7 +918,6 @@ mod tests {
         assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
         assert!(!p.follow_repath_without_path);
         assert!(p.path_forward_fallback);
-        assert_eq!(p.parity_rng_source, ParityRngSource::EnvGlobal);
         assert_eq!(p.corpse_decay_offset_ms, 600);
         assert!(!p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::SimpleLoss);
@@ -971,7 +951,6 @@ mod tests {
         assert_eq!(p.fight_modes.defensive_def, 1.80);
         assert!(p.follow_repath_without_path);
         assert!(!p.path_forward_fallback);
-        assert_eq!(p.parity_rng_source, ParityRngSource::PerWorldGlibc);
         assert_eq!(p.corpse_decay_offset_ms, 30_000);
         assert!(p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::AttackerAttribution);

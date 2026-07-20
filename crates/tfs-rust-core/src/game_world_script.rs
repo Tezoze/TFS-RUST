@@ -494,6 +494,102 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         }
     }
 
+    /// `COMBAT_FORMULA_SKILL` — TFS `setFormula` shape; 772 rolls one ProbeValue
+    /// (`GetAttackDamage`), 1098 keeps TFS max + `[minb, hi]` range.
+    fn get_formula_skill_damage_bounds(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        _min_a: f64,
+        min_b: f64,
+        max_a: f64,
+        max_b: f64,
+    ) -> (i32, i32) {
+        use crate::combat::math::{classic_probe_sample, formula_skill_weapon_max, FightMode};
+        use crate::formulas::DamageFormula;
+
+        let params = self.get_player_weapon_combat_params(creature_id);
+        let level = self.get_player_level(creature_id).unwrap_or(1).max(0) as u32;
+        let mode = self
+            .resolve_creature_from_script(creature_id)
+            .and_then(|cid| self.creatures.get(cid))
+            .map(|k| match k {
+                CreatureKind::Player(p) => p.attack_mode,
+                _ => FightMode::Balanced,
+            })
+            .unwrap_or_default();
+
+        match self.mechanics.profile.damage_formula {
+            DamageFormula::ClassicProbe => {
+                // One ProbeValue sample — same shape as `GetAttackDamage` (`crcombat.cc:220`).
+                // Uses per-world glibc via `parity_random` (`&self`-accessible).
+                let rolled = if let Some(v) = self.mechanics.hooks.weapon_damage(
+                    params.skill,
+                    params.attack,
+                    mode.code(),
+                    level as i32,
+                ) {
+                    v.max(0)
+                } else {
+                    let max_roll = self.mechanics.profile.damage_probe.random_max.max(0);
+                    let factor =
+                        (self.parity_random(0, max_roll) + self.parity_random(0, max_roll)) / 2;
+                    classic_probe_sample(
+                        &self.mechanics.profile,
+                        params.skill,
+                        params.attack,
+                        mode,
+                        factor,
+                    )
+                };
+                let v = (f64::from(rolled) * max_a + max_b).round() as i32;
+                (v, v)
+            }
+            DamageFormula::Modern => {
+                let weapon_max = formula_skill_weapon_max(
+                    &self.mechanics.profile,
+                    params.skill,
+                    params.attack,
+                    mode,
+                    level,
+                    params.attack_factor,
+                );
+                let lo = min_b as i32;
+                let hi = (f64::from(weapon_max) * max_a + max_b).round() as i32;
+                (lo, hi.max(lo))
+            }
+        }
+    }
+
+    fn get_spell_coeff(&self) -> (i32, i32) {
+        (
+            self.mechanics.profile.spell_coeff.level_mult,
+            self.mechanics.profile.spell_coeff.magic_mult,
+        )
+    }
+
+    /// Profile + Tier-2 `getSpellDamage` — `Player:computeDamage` / healing range.
+    fn compute_magic_damage_range(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        damage: i32,
+        variation: i32,
+        limit_minimum: bool,
+        limit_maximum: bool,
+    ) -> (i32, i32) {
+        let level = self.get_player_level(creature_id).unwrap_or(0);
+        let magic = self.get_player_magic_level(creature_id).unwrap_or(0);
+        crate::combat::math::spell_damage_range(
+            &self.mechanics.profile,
+            &self.mechanics.hooks,
+            level,
+            magic,
+            damage,
+            variation,
+            limit_maximum, // clamp_max_100 — flag & 4
+            limit_minimum, // clamp_min_100 — flag & 8
+        )
+    }
+
     /// Creatures on area offsets — PC-3a Phase 3 `combat:getTargets`.
     fn get_creatures_on_area(
         &self,

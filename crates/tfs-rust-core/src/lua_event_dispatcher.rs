@@ -353,6 +353,38 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn dispatch_on_use_weapon(
+        &self,
+        item_id: u16,
+        creature: CreatureId,
+        target_creature: Option<CreatureId>,
+        target_pos: Option<(u16, u16, u8)>,
+        hit: bool,
+    ) -> bool {
+        let target_num = target_creature.map(|c| c.data().as_ffi());
+        match self.runtime.call_on_use_weapon(
+            item_id,
+            creature.data().as_ffi(),
+            target_num,
+            target_pos,
+            hit,
+        ) {
+            Ok(success) => success,
+            Err(e) => {
+                tracing::error!(
+                    ?creature,
+                    item_id,
+                    "Lua onUseWeapon callback failed: {e}"
+                );
+                false
+            }
+        }
+    }
+
+    fn has_weapon_on_use(&self, item_id: u16) -> bool {
+        self.runtime.has_weapon_callback(item_id)
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

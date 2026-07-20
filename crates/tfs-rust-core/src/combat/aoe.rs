@@ -17,8 +17,9 @@ use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_lua::CombatExecuteRequest;
 
-use crate::combat::{apply_condition, uniform_random, CombatDamage, CombatParams};
-use crate::creature::CreatureKind;
+use crate::combat::math::armor_reduction;
+use crate::combat::{apply_condition, CombatDamage, CombatParams};
+use crate::creature::{roll_target_defense, CreatureKind};
 use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::game_world_chat::{active_condition_from_apply_spec, condition_type_from_lua};
@@ -305,14 +306,16 @@ impl GameWorld {
         let damage_min = request.damage_min;
         let damage_max = request.damage_max;
         let block_armor = request.block_armor;
-        let _block_shield = request.block_shield; // TODO: wire shield defense
+        let block_shield = request.block_shield;
         let condition_specs = &request.conditions;
         let dispel_flag = request.dispel_type;
         let no_damage = request.no_damage
             || combat_type == CombatType::Undefined
             || (damage_min == 0 && damage_max == 0);
+        let profile = self.mechanics.profile;
+        let server_ms = self.server_ms;
 
-        for (target_id, _pos) in targets {
+        for (target_id, target_pos) in targets {
             // Don't damage the caster with their own aggressive spell — 772
             // `CheckAffectedPlayers` / 1098 `Combat::canDoCombat(caster, target)`.
             // Non-aggressive buffs (light/haste) still apply to the caster.
@@ -335,12 +338,65 @@ impl GameWorld {
                 // Roll damage — 1098 `getCombatDamage` (`combat.cpp:100`). For
                 // `COMBAT_FORMULA_DAMAGE` the min/max are the literal range. For
                 // level/magic formula the Lua side already resolved the values.
-                let value = uniform_random(&mut self.ai_rng, damage_min, damage_max);
+                let value = crate::combat::uniform_random_glibc(
+                    &self.parity_rng,
+                    damage_min,
+                    damage_max,
+                );
 
                 // Healing spells (COMBAT_HEALING) use positive deltas; damage uses
                 // negative. 772 `THealingImpact` vs `TDamageImpact` (`magic.cc:210,119`).
                 let signed_value = if combat_type == CombatType::Healing {
                     value.max(0)
+                } else if combat_type == CombatType::Physical {
+                    // `TDamageImpact::handleCreature` (`magic.cc:147-150`): when
+                    // `AllowDefense` (BLOCKSHIELD), subtract `GetDefendDamage`.
+                    // Armor (`crmain.cc:624` / TFS BLOCKARMOR) is applied here —
+                    // not inside `combat_execute_with_stimulus` (absorb% only).
+                    let mut abs_dmg = value.abs();
+                    let defense_snap = self.melee_defense_snapshot_for(target_id);
+                    let mut defense_roll = 0i32;
+                    if block_shield {
+                        let defense_gate_passed = self
+                            .creatures
+                            .get(target_id)
+                            .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+                        defense_roll = match self.creatures.get_mut(target_id) {
+                            Some(kind) => roll_target_defense(
+                                kind.base_mut(),
+                                server_ms,
+                                &profile,
+                                &self.mechanics.hooks,
+                                defense_snap,
+                                &self.parity_rng,
+                            ),
+                            None => 0,
+                        };
+                        if defense_gate_passed {
+                            self.player_shield_wearout(target_id);
+                            self.player_shield_skill_learning(target_id, defense_snap.has_shield);
+                        }
+                        abs_dmg = (abs_dmg - defense_roll).max(0);
+                    }
+                    if block_armor {
+                        let armor_roll = armor_reduction(
+                            &profile,
+                            &self.mechanics.hooks,
+                            defense_snap.armor,
+                            &self.parity_rng,
+                        );
+                        abs_dmg = (abs_dmg - armor_roll.max(0)).max(0);
+                    }
+                    if abs_dmg <= 0 {
+                        // Defense >= attack → poff (3); armor absorbed remainder → spark (4).
+                        let effect = if block_shield && defense_roll >= value.abs() {
+                            3u8
+                        } else {
+                            4u8
+                        };
+                        self.broadcast_magic_effect(target_pos, effect);
+                    }
+                    -abs_dmg
                 } else {
                     -value.abs()
                 };
@@ -356,7 +412,6 @@ impl GameWorld {
                     apply_condition: None,
                 };
 
-                let _ = block_armor; // armor applied inside combat_execute_with_stimulus
                 self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
             }
 
@@ -466,6 +521,56 @@ mod tests {
                 false
             ),
             ITEM_FIREFIELD_PVP_FULL
+        );
+    }
+
+    /// Physical Combat:execute with BLOCKARMOR reduces damage by armor roll.
+    #[test]
+    fn physical_block_armor_reduces_spell_damage() {
+        use crate::creature::MonsterAiConfig;
+        use crate::sim_harness::{insert_monster_with_config, minimal_world, sim_hero_player};
+        use slotmap::Key;
+        use tfs_rust_lua::CombatExecuteRequest;
+
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let caster = world
+            .creatures
+            .insert(CreatureKind::Player(sim_hero_player("Mage", pos)));
+        let target_pos = Position::new(101, 100, 7);
+        let mut cfg = MonsterAiConfig::default();
+        cfg.armor = 50;
+        cfg.defense = 0;
+        let target = insert_monster_with_config(&mut world, "Armored", target_pos, 100, cfg);
+
+        let req = CombatExecuteRequest {
+            caster_id: caster.data().as_ffi(),
+            center_x: target_pos.x,
+            center_y: target_pos.y,
+            center_z: target_pos.z,
+            caster_x: pos.x,
+            caster_y: pos.y,
+            caster_z: pos.z,
+            combat_type: 1, // PHYSICAL
+            effect: 0,
+            aggressive: true,
+            block_armor: true,
+            block_shield: false,
+            area_offsets: vec![(0, 0)],
+            damage_min: 40,
+            damage_max: 40,
+            conditions: vec![],
+            dispel_type: None,
+            create_item: 0,
+            no_damage: false,
+            distance_effect: 0,
+        };
+        world.combat_execute_from_lua(&req).expect("execute");
+        let hp = world.creatures.get(target).unwrap().base().health;
+        // Armor 50 vs fixed 40 → often fully absorbed; without armor HP would be 60.
+        assert!(
+            hp > 60,
+            "BLOCKARMOR must mitigate physical spell damage (hp={hp}, expected >60)"
         );
     }
 }
