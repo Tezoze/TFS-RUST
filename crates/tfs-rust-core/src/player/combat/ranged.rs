@@ -13,8 +13,9 @@
 //! (`tfs-code-hygiene.md`). Era knobs flow through `MechanicsProfile`/`FormulaHooks`;
 //! per-vocation `formula.dist_damage` from the cached `VocationProfile` snapshot.
 //!
-//! Wand/rod **data** comes from `world.weapons` (`wands.lua` / `rods.lua`). Burst / scripted
-//! ammo uses Lua `onUseWeapon` → `Combat:execute` (`burst_arrow.lua`), same TFS domain shape.
+//! Wand/rod **data** comes from `world.weapons` (`wands.lua` / `rods.lua`). Scripted ammo
+//! (burst, poison arrow) uses Lua `onUseWeapon` → `Combat:execute` / conditions — same TFS
+//! domain shape as `data/scripts/weapons/*.lua`.
 //! Distance item stats still come from `items.xml` (`attack`, `shoot_range`, `shoot_effect`).
 
 use tfs_rust_common::enums::CombatType;
@@ -32,14 +33,14 @@ use crate::lua_scope::fire_on_use_weapon;
 use crate::monster_ai::chebyshev;
 use crate::player_combat::CombatResult;
 
-/// Native special effects for distance ammo without an `onUseWeapon` script.
+/// Fallback specials for distance ammo **without** `onUseWeapon`.
 ///
-/// Poison remains XML-driven (`poisondamagecycles`). Burst arrow is **not** a native special —
-/// it goes through Lua `onUseWeapon` (`burst_arrow.lua` / TFS `Weapon::executeUseWeapon`).
+/// Poison/burst are Lua-owned (`poison_arrow.lua` / `burst_arrow.lua`). Keep this only for
+/// packs that set `poisondamagecycles` with no script — do not add new native specials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AmmoSpecialEffect {
     None,
-    /// Extra earth damage on hit when `poisondamagecycles > 0` (`crcombat.cc:833-836`).
+    /// Unscripted fallback — prefer Lua `Condition(CONDITION_POISON)` DoT.
     Poison,
 }
 
@@ -82,8 +83,12 @@ impl GameWorld {
     }
 
     /// Classify the player's equipped weapon into a ranged arm — `crcombat.cc:632-638`.
-    /// Returns `Distance` for bow+ammo or throwing weapons, `Wand` for wands/rods, `None`
-    /// otherwise (melee or empty — should not reach this point from the dispatch).
+    /// Returns `Distance` for bow+ammo or throwing weapons, `Wand` for wands/rods that pass
+    /// Lua `WandDef` level/vocation gates, `None` otherwise.
+    ///
+    /// 772 `GetWeapon` skips `RESTRICTLEVEL` / `RESTRICTPROFESSION` items (`crcombat.cc:62-76`).
+    /// Era content applies those flags to **wands/rods** (Lua `weapon:level` / `:vocation`), not
+    /// ordinary melee weapons — do not gate swords/clubs here.
     fn classify_player_ranged_arm(&self, cid: CreatureId) -> RangedArm {
         for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
             let Some(iid) = self.get_player_inventory_item(cid, slot) else {
@@ -97,11 +102,41 @@ impl GameWorld {
             };
             match it.weapon_type {
                 WEAPON_DISTANCE => return RangedArm::Distance,
-                WEAPON_WAND => return RangedArm::Wand,
+                WEAPON_WAND => {
+                    if self.player_meets_wand_requirements(cid, item.item_type) {
+                        return RangedArm::Wand;
+                    }
+                    // Underleveled / wrong vocation — skip like `GetWeapon` `continue`.
+                }
                 _ => {}
             }
         }
         RangedArm::None
+    }
+
+    /// Lua `WandDef` level + vocation gates — `wands.lua` / `rods.lua` via `WeaponRegistry`.
+    ///
+    /// Empty `vocations` map ⇒ no vocation filter. Keys are allowed names (TFS
+    /// `weapon:vocation(name[, showInDescription])` — the bool is description-only; both
+    /// `"Sorcerer"` and `"Master Sorcerer"` entries allow those vocations).
+    pub(crate) fn player_meets_wand_requirements(&self, cid: CreatureId, wand_type_id: u16) -> bool {
+        let Some(def) = self.weapons.get_wand(wand_type_id) else {
+            // No Lua wand def — still treat as wand for classify; `player_wand_attack` re-arms.
+            return true;
+        };
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if def.level > 0 && (p.level as u32) < def.level {
+            return false;
+        }
+        if def.vocations.is_empty() {
+            return true;
+        }
+        let Some(voc) = self.vocations.get(p.vocation_id) else {
+            return false;
+        };
+        def.vocations.contains_key(&voc.name)
     }
 
     /// 772 `TCombat::WandAttack` — `crcombat.cc:697-737`.
@@ -139,6 +174,13 @@ impl GameWorld {
             }
             return;
         };
+        // Lua level/vocation — same gates as `classify_player_ranged_arm` (772 GetWeapon skip).
+        if !self.player_meets_wand_requirements(cid, wand_item_type) {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().delay_attack_ms(server_ms, 200);
+            }
+            return;
+        }
 
         // Positions for range/LoS checks — read before mutation.
         let (master_pos, target_pos) =
@@ -410,7 +452,9 @@ impl GameWorld {
 
         // `Probe(Difficulty * 15, HitChance, LearningPoints > 0)` (`crcombat.cc:793-794`).
         let hit = probe_hit(skill, difficulty * 15, hit_chance, &self.parity_rng);
-        // `Increase(1)` on distance skill + `LearningPoints -= 1` (`crcombat.cc:795-797`).
+        // Probe `Increase(1)` + `LearningPoints -= 1` (`crcombat.cc:795-797`).
+        // On hit, `GetAttackDamage` → `ProbeValue(..., Increase)` is a **second** try
+        // (`crcombat.cc:803`, `crskill.cc:535-538`) — even when Lua `onUseWeapon` owns damage.
         // TFS `onGainSkillTries`: multiply by `rateSkill` before adding.
         let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
         let mut skill_trained = false;
@@ -439,10 +483,25 @@ impl GameWorld {
         if hit {
             drop_pos = target_pos;
 
+            // `GetAttackDamage` skill side-effect — second Increase while LP still > 0.
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                if p.base.learning_points > 0 {
+                    levels_gained = levels_gained.saturating_add(p.skill_increase(
+                        crate::player::combat::SkillNr::Distance,
+                        skill_tries,
+                        &profile,
+                        hooks,
+                    ));
+                    p.base.learning_points -= 1;
+                    skill_trained = skill_trained || skill_tries > 0;
+                }
+            }
+
             // Skill notify after hooks last used on hit (native arm uses hooks below).
             if !scripted {
                 // Native physical arrow/throw — skipped when `onUseWeapon` owns damage
                 // (TFS `Weapon::internalUseWeapon` scripted branch).
+                // Magnitude only — skill Increase already applied above (GetAttackDamage SE).
                 let attack_roll =
                     weapon_damage(&profile, hooks, skill, attack_value, mode, level, &self.parity_rng);
                 let attack_roll = ((attack_roll as f64) * dist_mult).floor() as i32;
@@ -526,7 +585,8 @@ impl GameWorld {
                     }
                 }
 
-                // Poison arrow — hit-only, native when no onUseWeapon script.
+                // Unscripted poison-ammo fallback only. Live pack uses
+                // `poison_arrow.lua` `onUseWeapon` → ConditionDamage (not Earth HP).
                 if special_effect == AmmoSpecialEffect::Poison && effect_strength > 0 {
                     let _ = self.combat_execute_with_stimulus(
                         Some(cid),
@@ -1474,7 +1534,7 @@ mod tests {
         assert_eq!(world.classify_player_ranged_arm(cid), RangedArm::None);
     }
 
-    /// Poison special is XML `poisondamagecycles`; burst is Lua `onUseWeapon`, not native.
+    /// Unscripted fallback detection from `poisondamagecycles`; live pack uses Lua.
     #[test]
     fn ammo_special_effect_poison_detection() {
         assert_eq!(
@@ -1749,5 +1809,169 @@ mod tests {
             }
         }
         assert!(found_drop, "breakChance=0 must Move spear onto drop tile");
+    }
+
+    /// On hit with learning open, Probe + GetAttackDamage each Increase(1) — two tries, LP−2.
+    #[test]
+    fn distance_hit_trains_skill_twice_when_learning() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.dist = 100;
+        player.skills.dist_tries = 0;
+        player.base.learning_points = 2;
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        let target_pos = Position::new(103, 100, 7);
+        let target = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            target_pos,
+            100,
+            crate::creature::MonsterAiConfig::default(),
+        );
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 1, 6),
+        );
+        let arrow_iid = world.items.insert(Item::new(2544, 10));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+            p.equipment_slots[idx] = Some(arrow_iid);
+        }
+        let arrow_it = make_ammo(
+            2544,
+            1,
+            25,
+            tfs_rust_common::enums::ShootEffect::Arrow as u8,
+        );
+        if !world.items_db.items.contains_key(&2544) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(2544, arrow_it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+
+        world.server_ms = 1000;
+        // Retry until a hit lands (high skill → almost always).
+        for _ in 0..20 {
+            if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+                p.base.learning_points = 2;
+                p.skills.dist_tries = 0;
+            }
+            if let Some(item) = world.items.get_mut(arrow_iid) {
+                item.count = 10;
+            }
+            world.player_ranged_attack_strike(cid, target);
+            let (lp, tries) = match world.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => (p.base.learning_points, p.skills.dist_tries),
+                _ => (0, 0),
+            };
+            if tries >= 2 {
+                assert_eq!(tries, 2, "Probe + GetAttackDamage → two tries");
+                // DamageDone > 0 → ActivateLearning sets LP=30 after the two burns.
+                assert_eq!(
+                    lp, 30,
+                    "ActivateLearning must refresh LearningPoints after a damaging hit"
+                );
+                return;
+            }
+        }
+        panic!("expected a distance hit within 20 attempts");
+    }
+
+    /// Underleveled wand (Lua `weapon:level`) is skipped — not classified as Wand.
+    #[test]
+    fn underleveled_wand_not_classified() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.level = 8; // below Inferno / Cosmic Energy gate (26)
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2187,
+            make_wand(2187, 0),
+        );
+        register_wand(
+            &mut world,
+            2187,
+            WandDef {
+                item_id: 2187,
+                level: 26,
+                mana_cost: 13,
+                element: CombatType::Fire,
+                damage_min: 55,
+                damage_max: 75,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            world.classify_player_ranged_arm(cid),
+            RangedArm::None,
+            "level gate must skip wand like GetWeapon continue"
+        );
+        assert_eq!(world.player_weapon_range(cid), 1);
+    }
+
+    /// Wand with vocation filter and no matching registry entry is not usable.
+    #[test]
+    fn wrong_vocation_wand_not_classified() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        player.vocation_id = 4; // knight-ish; registry empty → name lookup fails
+        player.level = 50;
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2190,
+            make_wand(2190, 0),
+        );
+        let mut vocs = std::collections::HashMap::new();
+        vocs.insert("Sorcerer".into(), true);
+        register_wand(
+            &mut world,
+            2190,
+            WandDef {
+                item_id: 2190,
+                level: 7,
+                mana_cost: 2,
+                element: CombatType::Energy,
+                damage_min: 8,
+                damage_max: 18,
+                vocations: vocs,
+            },
+        );
+        assert_eq!(world.classify_player_ranged_arm(cid), RangedArm::None);
+    }
+
+    /// Hand/ammo equip triggers CheckCombatValues DelayAttack(2000).
+    #[test]
+    fn weapon_slot_change_delays_attack() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let cid = world
+            .creatures
+            .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
+        world.server_ms = 5_000;
+        world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Left as u8);
+        let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
+        assert_eq!(earliest, 7_000);
+        // Non-weapon slots do not delay.
+        world.server_ms = 8_000;
+        world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Head as u8);
+        let earliest2 = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
+        assert_eq!(earliest2, 7_000, "head slot must not DelayAttack");
     }
 }

@@ -276,8 +276,12 @@ impl GameWorld {
             };
             match it.weapon_type {
                 WEAPON_DISTANCE => return it.shoot_range.max(1),
-                // `WEAPON_WAND` — `WANDRANGE = 3` (`crcombat.cc:706`).
-                w if w == crate::inventory::WEAPON_WAND => return 3,
+                // `WEAPON_WAND` — `WANDRANGE = 3` (`crcombat.cc:706`); skip gated wands.
+                w if w == crate::inventory::WEAPON_WAND => {
+                    if self.player_meets_wand_requirements(cid, item.item_type) {
+                        return 3;
+                    }
+                }
                 _ => {}
             }
         }

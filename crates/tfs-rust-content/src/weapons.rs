@@ -31,8 +31,10 @@ pub struct WandDef {
     pub damage_min: u32,
     /// Maximum damage per hit.
     pub damage_max: u32,
-    /// Vocation names that can wield (e.g. `["Sorcerer", "Master Sorcerer"]`).
-    /// `true` = allowed, `false` = explicitly disallowed (TFS `vocation(name, bool)`).
+    /// Vocation names listed via `weapon:vocation(name[, showInDescription])`.
+    /// Presence of a key means that vocation may wield; the bool is TFS description-only
+    /// (`showInDescription`), not allow/deny — both `"Sorcerer"` and `"Master Sorcerer"`
+    /// entries in `wands.lua` permit those vocations.
     pub vocations: HashMap<String, bool>,
 }
 

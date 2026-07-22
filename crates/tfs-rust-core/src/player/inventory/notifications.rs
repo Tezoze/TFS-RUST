@@ -22,6 +22,28 @@ pub(crate) enum NotificationParent {
 }
 
 impl GameWorld {
+    /// 772 `CheckCombatValues` weapon-swap delay — `crcombat.cc:128-147`.
+    ///
+    /// When hand or ammo equipment changes, `DelayAttack(2000)`. Matches Object identity
+    /// change on Shield/Close/Missile/Throw/Wand/Ammo (those slots).
+    pub(crate) fn player_maybe_delay_attack_on_weapon_slot_change(
+        &mut self,
+        cid: CreatureId,
+        slot: u8,
+    ) {
+        use crate::inventory::InventorySlot;
+        if slot != InventorySlot::Left as u8
+            && slot != InventorySlot::Right as u8
+            && slot != InventorySlot::Ammo as u8
+        {
+            return;
+        }
+        let server_ms = self.server_ms;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().delay_attack_ms(server_ms, 2000);
+        }
+    }
+
     /// Equipment slot (1–11) directly holding `item_id`, if any. Used to resolve the slot for
     /// `broadcast_player_inventory_slot` after a count mutation on an equipped item (e.g.
     /// weapon/shield charge wearout). Only scans direct equipment slots — does not descend
@@ -244,6 +266,9 @@ impl GameWorld {
             fire_on_player_equip(self, cid, item_id, slot);
             fire_on_player_inventory_update(self, cid, item_id, slot, true);
             self.on_update_inventory_item(cid, slot, None, item_id);
+            // 772 `CheckCombatValues` — weapon identity change → `DelayAttack(2000)`
+            // (`crcombat.cc:128-147`). Hands + ammo only (Close/Missile/Throw/Wand/Shield/Ammo).
+            self.player_maybe_delay_attack_on_weapon_slot_change(cid, slot);
         }
 
         if link == CylinderLink::Owner || link == CylinderLink::TopParent {
@@ -279,6 +304,7 @@ impl GameWorld {
             fire_on_player_inventory_update(self, cid, item_id, slot, false);
             self.clear_inventory_ability_on_deequip(cid, slot);
             self.on_remove_inventory_item(cid, item_id);
+            self.player_maybe_delay_attack_on_weapon_slot_change(cid, slot);
         }
 
         if link == CylinderLink::Owner || link == CylinderLink::TopParent {

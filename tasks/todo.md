@@ -1,14 +1,21 @@
-# PC-3a PvE combat polish (skip PvP) — 2026-07-20
+# Player combat PvE polish — 2026-07-22
 
-- [x] DistanceAttack: full attack − armor only; GetDefendDamage SE when attacker has shield
-- [x] Burst arrow via Lua `onUseWeapon` → `Combat:execute` (`burst_arrow.lua`) — not hardcoded AoE
-- [x] Wire Lua breakChance/action + Fragility Delete vs Move-to-drop
-- [x] aoe.rs: apply block_shield + block_armor for Physical Combat:execute
-- [x] Resolve COMBAT_FORMULA_SKILL via MechanicsProfile (772 ClassicProbe / 1098 TFS 0.085)
-- [x] Destroy chargeable weapon/shield when wearout would hit count 0
-- [x] Regression tests + lessons/plan residuals
-- [x] Production 772 combat ProbeValue/armor/hit → `world.parity_rng` (glibc), not `ai_rng`
-- [x] Unify RNG: remove `ai_rng` / `ParityRngSource`; both eras use per-world glibc
-- [x] Monster `GetArmorStrength` / `GetDefendValue`: race + equipped body/hands via live snapshot
+**Scope:** everything but PvP. Canvas: `player-combat-audit.canvas.tsx`.
 
-**Out of scope (still deferred):** PvP skulls / RecordAttack / protectionLevel / world-type gates.
+## Closed
+
+- [x] DistanceAttack defense (attacker-shield SE only; attack − armor)
+- [x] Burst via Lua `onUseWeapon` (`burst_arrow.lua`)
+- [x] Poison via Lua `onUseWeapon` (`poison_arrow.lua`)
+- [x] Fragility / breakChance Delete vs Move-to-drop
+- [x] aoe.rs `block_shield` + `block_armor` for Physical
+- [x] `COMBAT_FORMULA_SKILL` (772 one ProbeValue → `(v,v)`)
+- [x] Wearout destroy on last charge
+- [x] Distance hit: Probe + GetAttackDamage → two `Increase(1)` + two LP--
+- [x] Wand/rod Lua level + vocation gates (`WandDef` only — not melee weapons)
+- [x] Equip hand/ammo → `DelayAttack(2000)` (`CheckCombatValues`)
+
+## Still deferred
+
+- [ ] Delayed `StopAttack` / `LatestAttackTime` (low; rare in PvE)
+- [ ] PvP skulls / RecordAttack / protectionLevel / world-type gates

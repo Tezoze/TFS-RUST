@@ -1196,6 +1196,16 @@ fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
         "walk_queue must NOT be cleared by the kick (decompile ::Move doesn't clear ToDoList)"
     );
 
+    // Kick → `::Move` → `NotifyGo` locks `EarliestWalkTime` (`cract.cc:1535`). The next
+    // `Go` Execute only runs after that delay, then hits Distance > 1 → NOTACCESSIBLE.
+    let earliest = base.earliest_walk_server_ms;
+    assert!(
+        earliest > world.server_ms,
+        "NotifyGo must lock EarliestWalkTime past now (got {earliest}, server_ms={})",
+        world.server_ms
+    );
+    world.server_ms = earliest;
+
     // Now trigger `on_walk` — the adjacency check detects the displacement.
     // Destination (101,101,7) vs current (101,99,7): dy=2 → Chebyshev=2 > 1 → NOTACCESSIBLE.
     world.on_walk(blocker, false, now, None);
@@ -1221,5 +1231,252 @@ fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
     assert!(
         base.force_update_follow_path,
         "force_update_follow_path must be true for replan (monster)"
+    );
+}
+
+/// KickCreature → `::Move` → `NotifyGo` must lock `EarliestWalkTime` from the **escape**
+/// tile's BANK WAYPOINTS (`cract.cc:1513–1535`, `operate.cc:1427–1431`). Also faces the
+/// kick direction (`NotifyTurn`, `cract.cc:1566–1581`).
+#[test]
+fn kick_applies_notify_go_dest_floor_speed_and_facing() {
+    use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+    use crate::walk::{get_step_duration_ms_with_direction, ground_speed_for_tile_body};
+
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    let now = std::time::Instant::now();
+
+    let mpos = Position::new(100, 100, 7);
+    let bpos = Position::new(101, 100, 7);
+    let escape = Position::new(101, 99, 7); // N — first KickCreature offset
+    let tpos = Position::new(105, 100, 7);
+    let wp = TEST_SYNTHETIC_GROUND_WP;
+    ensure_walkable_tile(&mut world.map, mpos, wp);
+    ensure_walkable_tile(&mut world.map, bpos, wp);
+    ensure_walkable_tile(&mut world.map, escape, wp);
+    ensure_walkable_tile(&mut world.map, tpos, wp);
+
+    let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+    let blocker =
+        insert_monster_with_config(&mut world, "Rat", bpos, 200, MonsterAiConfig::default());
+    // Stale timing from a prior step on a different tile — kick must overwrite with dest WP.
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(blocker) {
+        m.base.earliest_walk_server_ms = 0;
+        m.base.last_step_ground_speed = 50;
+        m.base.last_step_server_ms = Some(0);
+        m.base.direction = Direction::South;
+    }
+    let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+        m.state = MonsterState::Attacking;
+        m.base.attack_target = Some(target);
+        m.base.follow_target = Some(target);
+    }
+
+    let outcome = world.monster_push_before_step(mover, bpos, now);
+    assert_eq!(outcome, MonsterKickOutcome::Proceed);
+    assert_eq!(
+        world.creatures.get(blocker).map(|k| k.position()),
+        Some(escape)
+    );
+
+    let gs_escape = world
+        .map
+        .get_tile(escape)
+        .map(|t| ground_speed_for_tile_body(t.body(), world.items_db.as_ref()))
+        .unwrap_or(0);
+    assert_eq!(gs_escape, u32::from(wp), "escape tile must use synthetic WP");
+
+    let (earliest, last_gs, last_ms, facing, expected_step) = world
+        .creatures
+        .get(blocker)
+        .map(|k| {
+            let b = k.base();
+            let expected = get_step_duration_ms_with_direction(
+                k,
+                b,
+                Direction::North,
+                gs_escape,
+                &world.mechanics,
+            );
+            (
+                b.earliest_walk_server_ms,
+                b.last_step_ground_speed,
+                b.last_step_server_ms,
+                b.direction,
+                expected,
+            )
+        })
+        .expect("blocker");
+
+    assert_eq!(
+        last_gs, gs_escape,
+        "last_step_ground_speed must be escape WAYPOINTS"
+    );
+    assert_eq!(last_ms, Some(1000), "last_step_server_ms must be kick instant");
+    assert_eq!(facing, Direction::North, "NotifyTurn faces kick direction");
+    assert!(expected_step > 0, "step duration must be positive");
+    assert_eq!(
+        earliest,
+        1000 + expected_step as u64,
+        "EarliestWalkTime = server_ms + NotifyGo delay from dest floor speed"
+    );
+}
+
+/// Fast `KickCreatures` chase through three pushable blockers in a line: each `on_walk`
+/// must kick the blocker aside **and** step the kicker onto the vacated tile. Kicker
+/// NotifyGo uses the **kicker's** high speed (not the slow blocker's).
+///
+/// Layout (N escape free for each kick — KickCreature prefers North first):
+/// ```text
+///   .  b0' b1' b2'      (kick escapes)
+///   K  B0  B1  B2  P   (kicker → blockers → player)
+/// ```
+#[test]
+fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
+    use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+    use crate::walk::{get_step_duration_ms_with_direction, ground_speed_for_tile_body};
+
+    let mut world = beat_driven_test_world();
+    world.server_ms = 5000;
+    let now = std::time::Instant::now();
+    let wp = TEST_SYNTHETIC_GROUND_WP;
+
+    // Corridor y=100; kick-escape row y=99.
+    for x in 100..=105 {
+        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), wp);
+        ensure_walkable_tile(&mut world.map, Position::new(x, 99, 7), wp);
+    }
+
+    let ppos = Position::new(105, 100, 7);
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+
+    // Slow blockers on 101, 102, 103.
+    let mut blockers = Vec::new();
+    for x in 101u16..=103 {
+        let bpos = Position::new(x, 100, 7);
+        let bid = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            bpos,
+            50, // slow GoStrength
+            MonsterAiConfig::default(),
+        );
+        world.map.register_creature_at(bpos, bid);
+        blockers.push(bid);
+    }
+
+    let kpos = Position::new(100, 100, 7);
+    let kicker_speed = 400; // much faster than blockers
+    let kicker =
+        insert_monster_with_config(&mut world, "Cyclops", kpos, kicker_speed, kicker_config());
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(kicker) {
+        m.state = MonsterState::Attacking;
+        m.base.attack_target = Some(player);
+        m.base.follow_target = Some(player);
+        m.base.earliest_walk_server_ms = 0;
+        m.base.next_wakeup = None;
+    }
+
+    let gs = world
+        .map
+        .get_tile(Position::new(101, 100, 7))
+        .map(|t| ground_speed_for_tile_body(t.body(), world.items_db.as_ref()))
+        .unwrap_or(150);
+
+    // Expected step duration at kicker speed vs blocker speed (same ground).
+    let (fast_ms, slow_ms) = {
+        let k = world.creatures.get(kicker).expect("kicker");
+        let fast = get_step_duration_ms_with_direction(
+            k,
+            k.base(),
+            Direction::East,
+            gs,
+            &world.mechanics,
+        );
+        let b = world.creatures.get(blockers[0]).expect("blocker");
+        let slow = get_step_duration_ms_with_direction(
+            b,
+            b.base(),
+            Direction::East,
+            gs,
+            &world.mechanics,
+        );
+        (fast, slow)
+    };
+    assert!(
+        fast_ms < slow_ms,
+        "precondition: kicker step ({fast_ms}ms) must be faster than blocker ({slow_ms}ms)"
+    );
+
+    for step in 0..3 {
+        let expected_kicker_pos = Position::new(101 + step as u16, 100, 7);
+        let blocker = blockers[step];
+        let blocker_start = Position::new(101 + step as u16, 100, 7);
+        let escape = Position::new(101 + step as u16, 99, 7); // North kick
+
+        // Arm one East step; clear any stale todo so on_walk is the sole driver.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(kicker) {
+            m.base.walk_queue.clear();
+            m.base.walk_destinations.clear();
+            m.base.todo.queue.clear();
+            m.base.todo.locked = false;
+            m.base.next_wakeup = None;
+            m.base.earliest_walk_server_ms = world.server_ms; // ready now
+            m.base.walk_queue.push_back(Direction::East);
+            m.base.walk_destinations.push_back(expected_kicker_pos);
+        }
+
+        world.on_walk(kicker, false, now, None);
+
+        assert_eq!(
+            world.creatures.get(kicker).map(|k| k.position()),
+            Some(expected_kicker_pos),
+            "step {step}: fast kicker must occupy the vacated blocker tile {expected_kicker_pos:?}"
+        );
+        assert_eq!(
+            world.creatures.get(blocker).map(|k| k.position()),
+            Some(escape),
+            "step {step}: blocker must be kicked North to {escape:?} (was {blocker_start:?})"
+        );
+        // Vacated tile must not still list the blocker.
+        let still_on_old = world
+            .map
+            .get_tile(blocker_start)
+            .is_some_and(|t| t.body().creatures.contains(&blocker));
+        assert!(
+            !still_on_old,
+            "step {step}: blocker must be unregistered from vacated tile"
+        );
+        assert!(
+            world
+                .map
+                .get_tile(expected_kicker_pos)
+                .is_some_and(|t| t.body().creatures.contains(&kicker)),
+            "step {step}: kicker must be registered on the vacated tile"
+        );
+
+        // Kicker NotifyGo uses *its* speed — EarliestWalkTime advances by fast_ms, not slow_ms.
+        let earliest = world
+            .creatures
+            .get(kicker)
+            .map(|k| k.base().earliest_walk_server_ms)
+            .unwrap_or(0);
+        assert_eq!(
+            earliest,
+            world.server_ms + fast_ms as u64,
+            "step {step}: kicker EarliestWalkTime must use kicker speed ({fast_ms}ms), \
+             not blocker speed ({slow_ms}ms)"
+        );
+
+        // Next push only after the kicker's own walk lock (matches C++ CalculateDelay).
+        world.server_ms = earliest;
+    }
+
+    assert_eq!(
+        world.creatures.get(kicker).map(|k| k.position()),
+        Some(Position::new(103, 100, 7)),
+        "after three pushes kicker must sit on the third vacated tile"
     );
 }

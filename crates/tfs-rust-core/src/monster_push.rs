@@ -13,7 +13,8 @@
 //! (player-tile: target cleared, C++ `crnonpl.cc:2236-2238`). The caller waits 1000 ms in both
 //! cases.
 //!
-//! Called from [`crate::walk::GameWorld::on_walk`] before the mover steps.
+//! Called from [`crate::walk::GameWorld::on_walk`] before the mover steps. A successful kick
+//! relocates via `::Move` parity: `0x6D` broadcast + `NotifyTurn`/`NotifyGo` (dest floor speed).
 
 use std::time::Instant;
 
@@ -481,6 +482,15 @@ impl GameWorld {
                 .get_tile(blocker_pos)
                 .map(|t| t.body().creatures.clone())
                 .unwrap_or_default();
+            // C++ `::Move` order (`operate.cc:1403–1434`): NotifyTurn → AnnounceMoving →
+            // MoveObject → NotifyGo. Broadcast *before* relocate so stackpos matches the
+            // still-occupied tile (C++ `GetObjectRNum` while CrObject is on the old field).
+            let kick_dir = dir;
+            if let Some(k) = self.creatures.get_mut(blocker) {
+                // NotifyTurn — facing only (`cract.cc:1566–1581`); no `0x6B`.
+                crate::walk::set_direction_from_step_for_kick(blocker_pos, try_pos, k);
+            }
+            self.broadcast_spectator_move(blocker, blocker_pos, try_pos, &old_creatures);
             self.move_creature_on_map(blocker, blocker_pos, try_pos);
             // C++ `KickCreature` → `::Move` relocates the creature but does NOT clear its
             // ToDoList (`operate.cc:1403-1446`). The displacement is detected on the next
@@ -489,7 +499,11 @@ impl GameWorld {
             // (`cract.cc:870-877`). The Rust `walk_destinations` overlay (now populated for
             // monsters too) stores the absolute destination of each queued step, so `on_walk`
             // detects the displacement via the same adjacency check as players.
-            self.broadcast_spectator_move(blocker, blocker_pos, try_pos, &old_creatures);
+            // NotifyGo already applied facing — pass `apply_notify_turn=false`.
+            self.apply_notify_go_after_relocate(blocker, blocker_pos, try_pos, kick_dir, false);
+            // Pending wakeup may predate the kick; push it out to EarliestWalkTime so a
+            // premature `Go` cannot race the client walk animation (OTC dash/skip).
+            self.reschedule_wakeup_for_earliest_walk(blocker);
             return true;
         }
 

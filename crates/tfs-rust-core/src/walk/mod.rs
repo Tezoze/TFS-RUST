@@ -152,10 +152,10 @@ use walk_tile::{
     tile_query_add_player,
 };
 use walk_timing::{
-    get_event_step_ticks, get_step_duration_ms_with_direction, last_step_cost_for_move,
-    peek_next_walk_direction, walk_timing_speed_kind,
+    get_event_step_ticks, last_step_cost_for_move, peek_next_walk_direction,
+    walk_timing_speed_kind,
 };
-pub(crate) use walk_timing::{wire_step_speed, WalkSpeedRole};
+pub(crate) use walk_timing::{get_step_duration_ms_with_direction, wire_step_speed, WalkSpeedRole};
 
 #[inline]
 fn is_diagonal(direction: Direction) -> bool {
@@ -310,6 +310,15 @@ fn set_direction_from_step(old_pos: Position, new_pos: Position, creature: &mut 
     if let Some(dir) = d {
         creature.base_mut().direction = dir;
     }
+}
+
+/// 772 `NotifyTurn` facing update for KickCreature (`cract.cc:1566–1581`) — state only.
+pub(crate) fn set_direction_from_step_for_kick(
+    old_pos: Position,
+    new_pos: Position,
+    creature: &mut CreatureKind,
+) {
+    set_direction_from_step(old_pos, new_pos, creature);
 }
 
 /// TFS `Game::internalCreatureTurn` (`game.cpp` ~3703–3721).
@@ -1045,6 +1054,94 @@ impl GameWorld {
         self.enqueue_outgoing(conn_id, map_pkt);
     }
 
+    /// C++ `::Move` → `NotifyTurn` + `NotifyGo` (`operate.cc:1407–1431`, `cract.cc:1400–1564`).
+    ///
+    /// Shared by normal `on_walk` steps and `KickCreature` forced relocate. Locks
+    /// `EarliestWalkTime` from the **destination** tile's BANK WAYPOINTS (`NotifyGo`).
+    /// When `apply_notify_turn` is true (kick path), also sets facing (`NotifyTurn`).
+    /// Walk steps pass `false` — direction was already set in `internal_move_creature_step`
+    /// (including post-`queryDestination` chain turns) and must not be overwritten.
+    pub(crate) fn apply_notify_go_after_relocate(
+        &mut self,
+        cid: CreatureId,
+        old_pos: Position,
+        new_pos: Position,
+        step_dir: Direction,
+        apply_notify_turn: bool,
+    ) {
+        // `NotifyTurn` — state only; C++ does not broadcast `0x6B` here (`cract.cc:1566–1581`).
+        if apply_notify_turn {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                set_direction_from_step(old_pos, new_pos, k);
+            }
+        }
+
+        let gs_dest = self
+            .map
+            .get_tile(new_pos)
+            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+            .unwrap_or(150);
+        let notify_go_ms = self
+            .creatures
+            .get(cid)
+            .map(|k| {
+                get_step_duration_ms_with_direction(
+                    k,
+                    k.base(),
+                    step_dir,
+                    gs_dest,
+                    &self.mechanics,
+                )
+            })
+            .unwrap_or(0);
+        if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.last_step = Some(Instant::now());
+            base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
+            base.last_step_ground_speed = gs_dest;
+            base.last_step_server_ms = Some(self.server_ms);
+            if notify_go_ms > 0 {
+                let new_earliest = self.server_ms.saturating_add(notify_go_ms.max(1) as u64);
+                base.earliest_walk_server_ms = new_earliest;
+            }
+        }
+    }
+
+    /// After KickCreature `NotifyGo`, push any armed wakeup out to `EarliestWalkTime`.
+    ///
+    /// A pre-kick `next_wakeup` can fire a `Go` before the client finishes the push
+    /// `0x6D` animation (OTC `getStepDuration` from dest ground speed). Premature steps
+    /// look like dashes/skips. C++ `CalculateDelay(TDGo)` waits on `EarliestWalkTime`
+    /// (`cract.cc:918–923`); this keeps the heap in sync when kick extends that time.
+    pub(crate) fn reschedule_wakeup_for_earliest_walk(&mut self, cid: CreatureId) {
+        let earliest = self
+            .creatures
+            .get(cid)
+            .map(|k| k.base().earliest_walk_server_ms)
+            .unwrap_or(0);
+        if earliest <= self.server_ms {
+            return;
+        }
+        let armed = self
+            .creatures
+            .get(cid)
+            .and_then(|k| k.base().next_wakeup)
+            .unwrap_or(0);
+        // Only bump when a wakeup is already armed for sooner than the new walk lock,
+        // or when the creature still has walk/todo work that will need a wake.
+        let has_work = self.creatures.get(cid).is_some_and(|k| {
+            let b = k.base();
+            !b.walk_queue.is_empty() || !b.todo.is_empty()
+        });
+        if !has_work && armed == 0 {
+            return;
+        }
+        if armed != 0 && armed >= earliest {
+            return;
+        }
+        self.schedule_creature_wakeup(cid, earliest);
+    }
+
     /// `ProtocolGame::sendMoveCreature` for other clients (`protocolgame.cpp` ~2872–2893).
     pub(crate) fn broadcast_spectator_move(
         &mut self,
@@ -1086,11 +1183,22 @@ impl GameWorld {
         // only counts creatures the viewer can see (`tile.cpp:1207-1214`). The ground and
         // top_items counts don't change during a creature move, so we read them from the old
         // tile after the move (the creature has been removed, but ground/top_items are intact).
-        let (ground_present, top_item_count) = self
+        //
+        // 772 decompile `GetObjectRNum` (`info.cc:205`) counts the full map-container chain
+        // (ground → down → top → creatures). TVP/OTC `getClientIndexOfCreature` skips down
+        // items (they are emitted *after* creatures in `GetTileDescription`). Use RNum for
+        // real-772 viewers so KickCreature `0x6D` hits the correct stack; OTC keeps TVP math.
+        let (ground_present, down_item_count, top_item_count) = self
             .map
             .get_tile(old_pos)
-            .map(|t| (t.body().ground.is_some(), t.body().top_items.len()))
-            .unwrap_or((true, 0));
+            .map(|t| {
+                (
+                    t.body().ground.is_some(),
+                    t.body().down_items.len(),
+                    t.body().top_items.len(),
+                )
+            })
+            .unwrap_or((true, 0, 0));
 
         // First pass: compute per-viewer data using only `&self` borrows.
         // C++ `map.cpp:295` — `tmpPlayer->canSeeCreature(&creature)` gates the entire
@@ -1102,9 +1210,14 @@ impl GameWorld {
                 if !self.can_see_creature(viewer, mover) {
                     return None;
                 }
+                let otc = self
+                    .creatures
+                    .get(viewer)
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
+                let downs = if otc { 0 } else { down_item_count };
                 let viewer_stack = creature_stack_pos_for_viewer(
                     ground_present,
-                    top_item_count,
+                    downs + top_item_count,
                     old_creatures,
                     mover,
                     |c| self.can_see_creature(viewer, c),
@@ -1118,17 +1231,17 @@ impl GameWorld {
         // Second pass: send packets (`&mut self` borrows).
         for (conn, viewer, viewer_stack, can_see_old, can_see_new) in viewer_data {
             if can_see_old && can_see_new {
-                // C++ `sendMoveCreature` spectator branch (`protocolgame.cpp:1830-1849`):
-                // remove+appear only for teleport, surface→underground (z7→z8+), or
-                // stackpos >= 10. Otherwise ALWAYS 0x6D — no "fully_sent" gate. The
-                // previous `!fully_sent` branch sent 0x6C+0x6A, which recreated the
-                // creature sprite and made name/HP bars blink on every step.
-                if z_changed && surface_to_underground || viewer_stack >= 10 {
+                // Surface→underground still needs remove+appear (TVP `protocolgame.cpp:1831`).
+                // For same-viewport adjacent moves — including KickCreature — ALWAYS send
+                // `0x6D`. TVP's `oldStackPos >= 10` branch used remove+`sendAddCreature`,
+                // which has **no** OTClient `allowAppearWalk` → creature teleports (looks
+                // like a skip). Prefer `0x6D` with `0xFFFF+creature_id` fallback when the
+                // stack index is out of `0..9` (`send_move_creature_spectator`); that path
+                // still runs `allowAppearWalk` and uses the dest-tile ground-speed formula.
+                if z_changed && surface_to_underground {
                     self.send_creature_remove_to_conn(conn, mover, old_pos, viewer_stack);
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
                 } else {
-                    // Per-viewer 0x6D — stack position may differ between viewers when
-                    // invisible creatures are on the old tile (`tile.cpp:1207-1214`).
                     let pkt = send_move_creature_spectator(
                         &self.codec,
                         old_pos,
@@ -1675,41 +1788,19 @@ impl GameWorld {
                             internal_creature_turn_broadcast_only(self, pt.cid, pt.dir);
                         }
 
-                        // TFS `lastStep` is set in `onCreatureMove` **after** `sendCreatureMove` (`map.cpp` ~309–324).
-                        let gs_dest = self
-                            .map
-                            .get_tile(new_pos)
-                            .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
-                            .unwrap_or(150);
-                        // Phase 4: both eras compute `notify_go_ms` (772 `NotifyGo` path).
-                        let (notify_go_ms, _go_strength, _eff_speed) = self
-                            .creatures
-                            .get(cid)
-                            .map(|k| {
-                                let ms = get_step_duration_ms_with_direction(
-                                    k,
-                                    k.base(),
-                                    dir,
-                                    gs_dest,
-                                    &self.mechanics,
-                                );
-                                let go = crate::walk::walk_timing::go_strength_for_walk_pub(
-                                    crate::walk::walk_timing::WalkSpeedRole::Player,
-                                    k.base(),
-                                    &self.mechanics,
-                                );
-                                let eff = crate::formulas::linear_go_effective_speed(go);
-                                (ms, go, eff)
-                            })
-                            .unwrap_or((0, 0, 0));
-                        // Player-only walk debug: tile speed, player speed, wire speed, step duration.
+                        // Player-only walk debug — before NotifyGo mutates `earliest_walk_server_ms`.
                         // Matches decompile `NotifyGo` (`cract.cc:1518-1534`) + `GetSpeed` (`crmain.cc:477`).
                         if self
                             .creatures
                             .get(cid)
                             .is_some_and(|k| matches!(k, CreatureKind::Player(_)))
                         {
-                            let (go_dbg, eff_dbg, wire_dbg) = self
+                            let gs_dest = self
+                                .map
+                                .get_tile(new_pos)
+                                .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+                                .unwrap_or(150);
+                            let (go_dbg, eff_dbg, wire_dbg, step_ms) = self
                                 .creatures
                                 .get(cid)
                                 .map(|k| {
@@ -1725,9 +1816,16 @@ impl GameWorld {
                                         base,
                                         &self.mechanics,
                                     );
-                                    (go, eff, wire)
+                                    let ms = get_step_duration_ms_with_direction(
+                                        k,
+                                        base,
+                                        dir,
+                                        gs_dest,
+                                        &self.mechanics,
+                                    );
+                                    (go, eff, wire, ms)
                                 })
-                                .unwrap_or((0, 0, 0));
+                                .unwrap_or((0, 0, 0, 0));
                             let ground_id = self
                                 .map
                                 .get_tile(new_pos)
@@ -1743,7 +1841,7 @@ impl GameWorld {
                                 go_strength = go_dbg,
                                 effective_speed = eff_dbg,
                                 wire_speed = wire_dbg,
-                                step_duration_ms = notify_go_ms,
+                                step_duration_ms = step_ms,
                                 server_ms = self.server_ms,
                                 earliest_walk_ms = self
                                     .creatures
@@ -1753,21 +1851,10 @@ impl GameWorld {
                                 "player walk step",
                             );
                         }
-                        if let Some(k) = self.creatures.get_mut(cid) {
-                            let base = k.base_mut();
-                            base.last_step = Some(Instant::now());
-                            base.last_step_cost = last_step_cost_for_move(old_pos, new_pos);
-                            base.last_step_ground_speed = gs_dest;
-                            // Phase 4: both eras set `last_step_server_ms` + `EarliestWalkTime`.
-                            base.last_step_server_ms = Some(self.server_ms);
-                            if notify_go_ms > 0 {
-                                // C++ `NotifyGo` — `EarliestWalkTime` (`cract.cc:1515–1525`).
-                                let step_ms = notify_go_ms;
-                                let new_earliest =
-                                    self.server_ms.saturating_add(step_ms.max(1) as u64);
-                                base.earliest_walk_server_ms = new_earliest;
-                            }
-                        }
+                        // TFS `lastStep` after `sendCreatureMove` (`map.cpp` ~309–324);
+                        // 772 `NotifyGo` (`cract.cc:1515–1535`) — also used by KickCreature.
+                        // Facing already set in `internal_move_creature_step` — do not NotifyTurn.
+                        self.apply_notify_go_after_relocate(cid, old_pos, new_pos, dir, false);
                     }
                 }
             } else {
