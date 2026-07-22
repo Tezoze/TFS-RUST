@@ -1,21 +1,17 @@
-# Player combat PvE polish — 2026-07-22
+# Relog TakeOver — 2026-07-22
 
-**Scope:** everything but PvP. Canvas: `player-combat-audit.canvas.tsx`.
+**Scope:** 772 `TPlayer::TakeOver` when a character body is still on the map (`connections.cc:224-253`, `crplayer.cc:721`).
 
-## Closed
+## Plan
 
-- [x] DistanceAttack defense (attacker-shield SE only; attack − armor)
-- [x] Burst via Lua `onUseWeapon` (`burst_arrow.lua`)
-- [x] Poison via Lua `onUseWeapon` (`poison_arrow.lua`)
-- [x] Fragility / breakChance Delete vs Move-to-drop
-- [x] aoe.rs `block_shield` + `block_armor` for Physical
-- [x] `COMBAT_FORMULA_SKILL` (772 one ProbeValue → `(v,v)`)
-- [x] Wearout destroy on last charge
-- [x] Distance hit: Probe + GetAttackDamage → two `Increase(1)` + two LP--
-- [x] Wand/rod Lua level + vocation gates (`WandDef` only — not melee weapons)
-- [x] Equip hand/ammo → `DelayAttack(2000)` (`CheckCombatValues`)
+- [x] Detect existing `player_by_guid` body at login apply
+- [x] Reject if dead, or `LoggingOut && LogoutPossible==Ok` (about to despawn)
+- [x] Else TakeOver: clear old conn if any, cancel `logging_out` / `logout_allowed`, attach new conn, skip fresh spawn
+- [x] Re-send login/map packets for the existing creature (`enqueue_initial_login_packets`)
+- [x] Tests + lessons / todo
 
 ## Still deferred
 
-- [ ] Delayed `StopAttack` / `LatestAttackTime` (low; rare in PvE)
 - [ ] PvP skulls / RecordAttack / protectionLevel / world-type gates
+- [ ] TakeOver `RejectTrade` (trade not ported)
+- [ ] Refresh rights/guild/name from sticky PlayerData on TakeOver (minimal: OS/OTC flags only)

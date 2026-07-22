@@ -1,7 +1,9 @@
-//! Creature release, removal, logout, and death.
+//! Creature release, removal, logout, death, and relog TakeOver.
 //!
 //! - `Game::removeCreature`, `Game::ReleaseCreature`, `Game::cleanup` — `game.cpp`.
 //! - `ProtocolGame::logout` — `protocolgame.cpp`.
+//! - 772 `TConnection` login TakeOver — `connections.cc:224-253`; `TPlayer::TakeOver` —
+//!   `crplayer.cc:721-775`.
 
 use slotmap::Key;
 use tfs_rust_common::enums::{ConditionType, ZoneType};
@@ -11,6 +13,15 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
+use tfs_rust_db::player::PlayerStore;
+
+/// 772 `TCreature::LogoutPossible` result (`crmain.cc:417-431`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogoutPossible {
+    Ok,
+    Combat,
+    NoLogoutField,
+}
 
 impl GameWorld {
     /// TFS `Game::ReleaseCreature` — deferred until [`Self::cleanup`] (`src/game.cpp` ~4766).
@@ -89,6 +100,36 @@ impl GameWorld {
         self.creatures.remove(id);
     }
 
+    /// 772 `TCreature::LogoutPossible` — `crmain.cc:417-431`.
+    ///
+    /// On success, sets `LogoutAllowed = true` (sticky). Used by `CQuitGame` before
+    /// `Logout`, and by `ProcessCreatures` to finalize `LoggingOut` bodies.
+    pub fn player_logout_possible(&mut self, cid: CreatureId) -> LogoutPossible {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return LogoutPossible::Ok;
+        };
+        if p.logout_allowed || p.base.health <= 0 {
+            return LogoutPossible::Ok;
+        }
+        let round_nr = self.round_nr;
+        let earliest = p.earliest_logout_round;
+        let pos = p.base.position;
+        if earliest > round_nr {
+            return LogoutPossible::Combat;
+        }
+        if self
+            .map
+            .get_tile(pos)
+            .is_some_and(|t| t.body().zone == ZoneType::NoLogout)
+        {
+            return LogoutPossible::NoLogoutField;
+        }
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.logout_allowed = true;
+        }
+        LogoutPossible::Ok
+    }
+
     /// TFS / 772 logout gates — returns `false` when logout is cancelled
     /// (no-logout tile, in-fight, or `onLogout` script). Caller then issues `PlayerDisconnect`.
     // C++ ref: 772 `TCreature::LogoutPossible` (`crmain.cc:417-431`) + `CQuitGame`
@@ -106,36 +147,33 @@ impl GameWorld {
         if !forced {
             let has_access = player.ghost_mode;
             if !has_access {
-                let pos = player.base.position;
-                let earliest_logout = player.earliest_logout_round;
-                let has_infight = player
-                    .base
-                    .active_conditions
-                    .iter()
-                    .any(|c| c.ctype == ConditionType::Infight);
-                let round_nr = self.round_nr;
-
-                if let Some(tile) = self.map.get_tile(pos) {
-                    if tile.body().zone == ZoneType::NoLogout {
+                // TFS Infight residual before sticky `LogoutAllowed` (`protocolgame.cpp:351`).
+                if let Some(CreatureKind::Player(player)) = self.creatures.get(cid) {
+                    let pos = player.base.position;
+                    let has_infight = player
+                        .base
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Infight);
+                    let in_pz = self
+                        .map
+                        .get_tile(pos)
+                        .is_some_and(|t| t.body().zone == ZoneType::Protection);
+                    if has_infight && !in_pz {
+                        self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
+                        return false;
+                    }
+                }
+                match self.player_logout_possible(cid) {
+                    LogoutPossible::Ok => {}
+                    LogoutPossible::Combat => {
+                        self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
+                        return false;
+                    }
+                    LogoutPossible::NoLogoutField => {
                         self.send_cancel_message(conn_id, ReturnValue::YouCannotLogoutHere);
                         return false;
                     }
-
-                    let in_protection_zone = tile.body().zone == ZoneType::Protection;
-                    // 772 `LogoutPossible` — combat block while `EarliestLogoutRound > RoundNr`
-                    // (`crmain.cc:419`). Not waived by protection zone.
-                    if earliest_logout > round_nr {
-                        self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
-                        return false;
-                    }
-                    // TFS Infight residual (Lua / field) — waived inside PZ (`protocolgame.cpp:351`).
-                    if !in_protection_zone && has_infight {
-                        self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
-                        return false;
-                    }
-                } else if earliest_logout > round_nr {
-                    self.send_cancel_message(conn_id, ReturnValue::YouMayNotLogoutDuringAFight);
-                    return false;
                 }
             }
 
@@ -146,6 +184,146 @@ impl GameWorld {
             }
         }
 
+        true
+    }
+
+    /// 772 `TCreature::StartLogout` — `crmain.cc:404-415`.
+    ///
+    /// Sets `LoggingOut`, optionally forces `LogoutAllowed`, and schedules
+    /// `StopAttack(0)` or `StopAttack(60)` from `stop_fight`. Does **not** remove the
+    /// creature — `ProcessCreatures` finalizes when `LogoutPossible` succeeds.
+    pub(crate) fn creature_begin_logout(&mut self, cid: CreatureId, force: bool, stop_fight: bool) {
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.logging_out = true;
+            if force {
+                p.logout_allowed = true;
+            }
+        }
+        self.creature_start_logout_stop_fight(cid, stop_fight);
+    }
+
+    /// 772 login TakeOver gate + attach — `connections.cc:231-252`, `crplayer.cc:721-775`.
+    ///
+    /// When `player_by_guid` already has a live body:
+    /// - dead → `Err` (dying — login failed)
+    /// - `LoggingOut && LogoutPossible == Ok` → `Err` (about to despawn)
+    /// - else → cancel logout, `StopAttack(0)`, leave channels, close containers, detach
+    ///   old conn mapping (caller closes that TCP **without** `StartLogout`), return
+    ///   `Some((cid, old_conn))`
+    ///
+    /// `None` = no existing body — caller should spawn from DB.
+    pub(crate) fn player_try_takeover_for_login(
+        &mut self,
+        guid: u32,
+        name: &str,
+        operating_system: u16,
+        otclient_v8: u16,
+    ) -> Result<Option<(CreatureId, Option<ConnId>)>, tfs_rust_common::error::TfsRustError> {
+        let Some(&cid) = self.player_by_guid.get(&guid) else {
+            return Ok(None);
+        };
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            // Stale index — drop and allow a fresh spawn.
+            self.player_by_guid.remove(&guid);
+            if self.player_by_name.get(name).copied() == Some(cid) {
+                self.player_by_name.remove(name);
+            }
+            return Ok(None);
+        };
+
+        if p.base.health <= 0 {
+            return Err(tfs_rust_common::error::TfsRustError::Database(format!(
+                "player `{name}` is dying — login failed"
+            )));
+        }
+
+        let logging_out = p.logging_out;
+        if logging_out && self.player_logout_possible(cid) == LogoutPossible::Ok {
+            // `connections.cc:238-241` — body is finalize-ready; reject until removed.
+            return Err(tfs_rust_common::error::TfsRustError::Database(format!(
+                "player `{name}` is logging out — login failed"
+            )));
+        }
+
+        let old_conn = self.player_takeover(cid, operating_system, otclient_v8);
+        Ok(Some((cid, old_conn)))
+    }
+
+    /// 772 `TPlayer::TakeOver` — `crplayer.cc:721-775`.
+    ///
+    /// Clears `LoggingOut` / `LogoutAllowed`, stops attack, leaves channels, closes
+    /// open containers. Detaches any prior connection mapping and returns that
+    /// `ConnId` so the caller can close TCP without `StartLogout` (772 sets
+    /// `OldConnection->CharacterID = 0` before `Logout`).
+    pub(crate) fn player_takeover(
+        &mut self,
+        cid: CreatureId,
+        operating_system: u16,
+        otclient_v8: u16,
+    ) -> Option<ConnId> {
+        let old_conn = self.creature_to_conn.get(&cid).copied();
+        if let Some(old) = old_conn {
+            // `ClearConnection` — do not `StartLogout` (CharacterID already conceptually 0).
+            self.unregister_conn_mapping(old);
+            self.known_creatures_by_conn.remove(&old);
+            self.creature_fully_sent_by_conn.remove(&old);
+        }
+
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.logging_out = false;
+            p.logout_allowed = false;
+            p.operating_system = operating_system;
+            p.otclient_v8 = otclient_v8;
+        }
+
+        // `Combat.StopAttack(0)` — TakeOver always clears dest (`crplayer.cc:757`).
+        self.combat_stop_attack(cid, 0);
+        self.chat.remove_user_from_all_channels(cid);
+        let _ = self.container_registry.close_all_for_player(cid);
+        // `RejectTrade` — trade not ported yet.
+
+        tracing::info!(?cid, old_conn = ?old_conn.map(|c| c.0), "player takeover");
+        old_conn
+    }
+
+    /// Finalize a `LoggingOut` player when `LogoutPossible` — `crmain.cc:1113-1124`.
+    ///
+    /// Returns `true` if the creature was removed.
+    pub(crate) fn player_try_finalize_logout(&mut self, cid: CreatureId) -> bool {
+        let logging_out = self
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => Some(p.logging_out),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if !logging_out {
+            return false;
+        }
+        if self.player_logout_possible(cid) != LogoutPossible::Ok {
+            return false;
+        }
+        // Re-save: body may have taken damage / finished strikes while deferred.
+        if let Ok(data) = self.build_player_save_data(cid) {
+            let db = self.db.clone();
+            let guid = data.player.id;
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    if let Err(e) = PlayerStore::new(&db).save_player(&data).await {
+                        tracing::error!(?e, guid, "player save on deferred logout failed");
+                    }
+                });
+            }
+        }
+        let guid = self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.guid),
+            _ => None,
+        });
+        self.remove_creature(cid);
+        if let Some(guid) = guid {
+            tracing::info!(guid, "player deferred logout finalized");
+        }
         true
     }
 
@@ -175,12 +353,18 @@ impl GameWorld {
             self.broadcast_magic_effect(pos, 4);
         }
 
+        // Intentional quit — `StopFight=true` (`receiving.cc:84,91`). Connection cleared by caller.
+        self.creature_begin_logout(cid, forced, true);
+
         self.unregister_conn_mapping(conn_id);
         self.known_creatures_by_conn.remove(&conn_id);
         self.creature_fully_sent_by_conn.remove(&conn_id);
-        self.remove_creature(cid);
 
-        tracing::info!(guid, "player logged out");
+        // `LogoutPossible` already succeeded in `player_logout_allowed` → remove now.
+        if self.player_logout_possible(cid) == LogoutPossible::Ok {
+            self.remove_creature(cid);
+            tracing::info!(guid, "player logged out");
+        }
     }
 
     /// Run death XP / events / corpse scheduling, then remove the creature (and summons).

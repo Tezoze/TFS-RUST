@@ -227,6 +227,15 @@ pub struct Player {
     /// is zeroed. **Stub**: full PK-mark clearing (attacked-players list, aggressor
     /// flag, skull broadcast) is deferred until the PvP aggressor subsystem exists.
     pub earliest_logout_round: u32,
+    /// 772 `TCreature::LoggingOut` — `crmain.cc:405` `StartLogout`.
+    ///
+    /// When set, `ProcessCreatures` removes the character once `logout_allowed` /
+    /// `LogoutPossible` succeeds (`crmain.cc:1113-1124`). Dead-connection
+    /// `StopFight=false` leaves the body on the map (still fighting until
+    /// `LatestAttackTime`) until the combat logout lock expires.
+    pub logging_out: bool,
+    /// 772 `TCreature::LogoutAllowed` — set by `LogoutPossible` success or `StartLogout(Force)`.
+    pub logout_allowed: bool,
     /// C++ `MessageBufferCount` — flood protection message count (`player.cpp:1064`).
     /// Incremented by `removeMessageBuffer` per say, decremented by `addMessageBuffer`
     /// every 1500ms. Triggers mute escalation when exceeding `maxMessageBuffer`.

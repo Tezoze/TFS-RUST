@@ -1110,6 +1110,7 @@ mod tests {
             master: None,
             damage_map: Default::default(),
             earliest_attack_ms: 0,
+        latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,

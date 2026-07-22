@@ -156,8 +156,10 @@ pub struct GameWorld {
     pub(crate) last_ambiente_brightness: i8,
     /// True when last beat advance skipped `MoveCreatures` due to lag (`main.cc:449`).
     pub(crate) lag: bool,
-    /// Idle-kick disconnects queued from `process_connections` — drained by the 772 game loop.
-    pub(crate) pending_idle_kick: Vec<ConnId>,
+    /// Idle-kick / dead-connection disconnects queued from `process_connections`.
+    /// `(ConnId, stop_fight)` — idle kick uses `stop_fight=true`, command-timeout uses `false`
+    /// (`connections.cc:35-38`).
+    pub(crate) pending_idle_kick: Vec<(ConnId, bool)>,
     /// `addEvent` / `stopEvent` scheduler — `None` in tests / when Lua is unavailable.
     /// Game-thread only (`Rc` → `!Send`); used by the game loop to `forget` fired timers.
     pub(crate) scheduler: Option<std::rc::Rc<crate::scheduler::Scheduler>>,

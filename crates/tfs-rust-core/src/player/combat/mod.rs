@@ -150,11 +150,13 @@ impl GameWorld {
             base.follow_target = follow.then_some(target_id);
             if follow {
                 base.chase_mode = ChaseMode::Close;
+            } else {
+                // 772 `LatestAttackTime = 0` on `!Follow` only (`crcombat.cc:438`) — clears the
+                // delayed-`StopAttack` flag, **not** `EarliestAttackTime`. Do **not** zero
+                // `earliest_attack_ms` here or retargeting wipes attack-speed exhaust and allows
+                // an immediate strike on the new target.
+                base.latest_attack_round = 0;
             }
-            // 772 `LatestAttackTime = 0` on `!Follow` only (`crcombat.cc:438`) — clears the
-            // delayed-`StopAttack` flag, **not** `EarliestAttackTime`. Do **not** zero
-            // `earliest_attack_ms` here or retargeting wipes attack-speed exhaust and allows
-            // an immediate strike on the new target.
         }
 
         // PC-4 — `!Follow` path: `Target->AttackStimulus` + `Master->BlockLogout`
@@ -188,25 +190,92 @@ impl GameWorld {
         CombatResult::NoError
     }
 
+    /// 772 `TCombat::StopAttack(Delay)` — `crcombat.cc:513-522`.
+    ///
+    /// - `delay_rounds == 0`: clear `AttackDest` / follow; players get `SendClearTarget` (`0xA3`).
+    /// - `delay_rounds > 0`: leave dest armed; set `LatestAttackTime = RoundNr + Delay`. The next
+    ///   `Attack()` after that round expires the dest (`crcombat.cc:551-553`). Used by
+    ///   `StartLogout(..., StopFight=false)` with delay **60** (`crmain.cc:414`,
+    ///   `connections.cc:38` dead-connection logout).
+    pub(crate) fn combat_stop_attack(&mut self, cid: CreatureId, delay_rounds: u32) {
+        self.combat_stop_attack_with_conn(None, cid, delay_rounds);
+    }
+
+    fn combat_stop_attack_with_conn(
+        &mut self,
+        conn_hint: Option<ConnId>,
+        cid: CreatureId,
+        delay_rounds: u32,
+    ) {
+        if delay_rounds == 0 {
+            let was_attacking = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().attack_target.is_some());
+            let is_player = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+            if let Some(k) = self.creatures.get_mut(cid) {
+                let base = k.base_mut();
+                base.attack_target = None;
+                base.follow_target = None;
+            }
+            if was_attacking && is_player {
+                let conn_id = conn_hint.or_else(|| self.conn_for_creature(cid));
+                if let Some(conn_id) = conn_id {
+                    self.enqueue_encoded(conn_id, self.codec.encode_clear_target());
+                }
+                trace_creature_todo(self, cid, "combat_stop_attack");
+            }
+        } else if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().latest_attack_round = self.round_nr.saturating_add(delay_rounds);
+        }
+    }
+
     /// 772 `TCombat::StopAttack(0)` — `crcombat.cc:513-522`: clear `AttackDest` and, for players,
     /// `SendClearTarget` (`0xA3`).
     pub(crate) fn player_stop_attack(&mut self, conn_id: ConnId, cid: CreatureId) {
-        let was_attacking = self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| k.base().attack_target.is_some());
-        if let Some(k) = self.creatures.get_mut(cid) {
-            let base = k.base_mut();
-            base.attack_target = None;
-            base.follow_target = None;
-            // Reset to the chase mode last set by `FightModes` (Following forced CLOSE; clearing
-            // follow restores the player's chosen mode). We do not store the pre-follow mode, so
-            // leave `chase_mode` as-is — `CanToDoAttack` re-reads it next attack.
+        self.combat_stop_attack_with_conn(Some(conn_id), cid, 0);
+    }
+
+    /// 772 `StartLogout(Force, StopFight)` combat half — `crmain.cc:414`.
+    ///
+    /// `stop_fight` true → immediate `StopAttack(0)`; false → `StopAttack(60)` (RoundNr).
+    pub(crate) fn creature_start_logout_stop_fight(&mut self, cid: CreatureId, stop_fight: bool) {
+        const DELAYED_STOP_ATTACK_ROUNDS: u32 = 60;
+        self.combat_stop_attack(
+            cid,
+            if stop_fight {
+                0
+            } else {
+                DELAYED_STOP_ATTACK_ROUNDS
+            },
+        );
+    }
+
+    /// `Attack()` delayed-stop expire — `crcombat.cc:551-553`.
+    ///
+    /// Returns `true` when the dest was cleared (caller must not strike). Silent — no
+    /// `TARGETLOST` / `SendResult`. Skipped while `Following` (Attack early-returns).
+    pub(crate) fn combat_expire_delayed_stop_attack(&mut self, cid: CreatureId) -> bool {
+        let (following, latest) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => {
+                // Player `Following` == `follow_target.is_some()` (`SetAttackDest` follow arm).
+                (p.base.follow_target.is_some(), p.base.latest_attack_round)
+            }
+            Some(k) => {
+                // Monster chase `follow_target` is **not** `Combat.Following` — Attack() still
+                // runs expire for monsters (`crcombat.cc:532` Following is player follow-mode).
+                (false, k.base().latest_attack_round)
+            }
+            None => return false,
+        };
+        if following || latest == 0 || latest >= self.round_nr {
+            return false;
         }
-        if was_attacking {
-            self.enqueue_encoded(conn_id, self.codec.encode_clear_target());
-            trace_creature_todo(self, cid, "player_stop_attack");
-        }
+        self.combat_stop_attack(cid, 0);
+        true
     }
 
     /// 772 `CCancelAttack` — `receiving.cc:1330-1347`, `cract.cc:953-989`.
@@ -346,6 +415,13 @@ impl GameWorld {
     /// the `TARGETLOST` → `StopAttack` + `SendClearTarget` + `ToDoClear` + `SendResult` +
     /// `ToDoWait(1000)` + `ToDoStart` recovery (`crcombat.cc:456`, `crplayer.cc:393-402`).
     pub(crate) fn player_execute_attack(&mut self, cid: CreatureId) -> TodoExecuteKind {
+        // `Attack()` early: `AttackDest == 0 || Following` → return (`crcombat.cc:532-534`).
+        // Delayed `StopAttack` expire runs only on the non-follow arm (`:551-553`).
+        if self.combat_expire_delayed_stop_attack(cid) {
+            trace_creature_todo(self, cid, "player_attack_delayed_stop_expired");
+            return TodoExecuteKind::AttackDeferred;
+        }
+
         let conn_id = self.conn_for_creature(cid);
         let outcome = self.player_can_to_do_attack_chase(cid);
 
@@ -681,5 +757,136 @@ mod set_attack_dest_tests {
         );
         let delay = world.todo_attack_delay_ms(player);
         assert_eq!(delay, 2_000, "ToDoStart must wait remaining exhaust before next strike");
+    }
+
+    #[test]
+    fn delayed_stop_attack_schedules_latest_attack_round() {
+        // `StopAttack(60)` → `LatestAttackTime = RoundNr + 60` (`crcombat.cc:520`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        world.round_nr = 100;
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().attack_target = Some(mon);
+        }
+
+        world.creature_start_logout_stop_fight(player, false);
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.attack_target, Some(mon), "delayed stop must keep AttackDest");
+        assert_eq!(base.latest_attack_round, 160);
+    }
+
+    #[test]
+    fn attack_expires_delayed_stop_when_round_passes() {
+        // `LatestAttackTime != 0 && LatestAttackTime < RoundNr` → `StopAttack(0)` (`crcombat.cc:551`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+
+        world.round_nr = 50;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let b = k.base_mut();
+            b.attack_target = Some(mon);
+            b.latest_attack_round = 40; // already expired
+        }
+
+        assert!(world.combat_expire_delayed_stop_attack(player));
+        let base = world.creatures.get(player).unwrap().base();
+        assert!(base.attack_target.is_none());
+        // C++ StopAttack(0) does not clear LatestAttackTime; leave as-is.
+    }
+
+    #[test]
+    fn delayed_stop_not_expired_at_exact_deadline_round() {
+        // Condition is `LatestAttackTime < RoundNr`, not `<=` (`crcombat.cc:551`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        world.round_nr = 40;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let b = k.base_mut();
+            b.attack_target = Some(player); // any Some
+            b.latest_attack_round = 40;
+        }
+        assert!(!world.combat_expire_delayed_stop_attack(player));
+        assert!(world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .attack_target
+            .is_some());
+    }
+
+    #[test]
+    fn set_attack_dest_clears_latest_attack_round() {
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+
+        if let Some(k) = world.creatures.get_mut(player) {
+            k.base_mut().latest_attack_round = 999;
+        }
+        let wire = creature_wire_id(mon, world.creatures.get(mon).unwrap());
+        assert_eq!(
+            world.player_set_attack_dest(conn, player, wire, false),
+            CombatResult::NoError
+        );
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().latest_attack_round,
+            0,
+            "SetAttackDest !Follow must clear LatestAttackTime"
+        );
+    }
+
+    #[test]
+    fn delayed_stop_skipped_while_following() {
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        world.round_nr = 100;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let b = k.base_mut();
+            b.attack_target = Some(player);
+            b.follow_target = Some(player);
+            b.latest_attack_round = 1;
+        }
+        assert!(
+            !world.combat_expire_delayed_stop_attack(player),
+            "Attack() returns early when Following — no expire"
+        );
+        assert!(world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .attack_target
+            .is_some());
     }
 }

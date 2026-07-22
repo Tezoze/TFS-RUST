@@ -33,8 +33,8 @@ impl GameWorld {
     /// `DamageStimulus`.
     ///
     /// Vocation regen (HP/mana from `TSkillFed::Event`) is handled by `process_skills` →
-    /// `process_player_fed_regen` (`process_skills.rs:29`). Logout is handled by
-    /// `process_connections` / `pending_idle_kick`.
+    /// `process_player_fed_regen` (`process_skills.rs:29`). Deferred logout finalization
+    /// (`LoggingOut && LogoutPossible`) runs at the end of this pass (`crmain.cc:1113-1124`).
     pub fn process_creatures(&mut self) {
         // C++ iterates all creatures (`FirstFreeCreature`). Item regen + PK marks are
         // player-only; death safety is the only work that applies to monsters/NPCs. Split
@@ -105,7 +105,7 @@ impl GameWorld {
             );
         }
 
-        // C++ `ProcessCreatures` death safety (`crmain.cc:1113–1117`).
+        // C++ `ProcessCreatures` death safety (`crmain.cc:1108–1117`).
         // `apply_creature_death` is idempotent (returns early if creature gone).
         for cid in std::mem::take(&mut self.scratch_dead) {
             if self
@@ -115,6 +115,18 @@ impl GameWorld {
             {
                 self.apply_creature_death(cid);
             }
+        }
+
+        // 772 `LoggingOut && LogoutPossible == 0` → delete (`crmain.cc:1113-1124`).
+        // Collect first — `player_try_finalize_logout` mutates the SlotMap.
+        self.scratch_creature_ids.clear();
+        for (cid, k) in self.creatures.iter() {
+            if matches!(k, CreatureKind::Player(p) if p.logging_out) {
+                self.scratch_creature_ids.push(cid);
+            }
+        }
+        for cid in std::mem::take(&mut self.scratch_creature_ids) {
+            let _ = self.player_try_finalize_logout(cid);
         }
     }
 }

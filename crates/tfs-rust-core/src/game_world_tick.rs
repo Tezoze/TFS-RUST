@@ -31,8 +31,8 @@ impl GameWorld {
         self.round_nr = self.round_nr.saturating_add(1);
         let kick = self.process_connections();
         self.tick_ambient_light();
-        for conn_id in kick {
-            self.pending_idle_kick.push(conn_id);
+        for kick in kick {
+            self.pending_idle_kick.push(kick);
         }
     }
 

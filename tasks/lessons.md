@@ -521,3 +521,9 @@
 240. **772 level/vocation gates are wand/rod Lua, not melee weapons** (`crcombat.cc:62-76`, `wands.lua`/`rods.lua`): Gate via `WandDef.level` + vocation name keys. TFS `weapon:vocation(name, bool)` bool is `showInDescription`, not allow/deny — any listed name is allowed. Ordinary swords/clubs have no 772 level req on this path. *(July 2026)*
 
 241. **Hand/ammo equip → DelayAttack(2000)** (`crcombat.cc:128-147` CheckCombatValues): Mirror weapon identity change on Left/Right/Ammo postAdd/postRemove Owner link. *(July 2026)*
+
+242. **Delayed StopAttack uses RoundNr, not server_ms** (`crcombat.cc:513-553`, `crmain.cc:414`): `StopAttack(Delay)` with Delay≠0 sets `LatestAttackTime = RoundNr + Delay` without clearing AttackDest. `Attack()` expires when `LatestAttackTime < RoundNr` (strict `<`, silent — no TARGETLOST). `SetAttackDest !Follow` clears the flag (`:438`) — do not confuse with `EarliestAttackTime`. Primary caller: `StartLogout(..., StopFight=false)` → delay 60 (`connections.cc:38` dead conn). *(July 2026)*
+
+243. **Dead-connection map presence** (`connections.cc:37-38`, `crmain.cc:404-426`, `:1113-1124`): `Logout(0, false)` clears the connection then `StartLogout(false, false)` — body stays until `LogoutPossible` (combat lock / no-logout field). Idle kick uses `StopFight=true` (clears attack immediately); command-timeout / TCP shed uses `false` (`StopAttack(60)`). `BlockLogout` must not extend `EarliestLogoutRound` when `Connection == NULL` (`crmain.cc:444-448`). *(July 2026)*
+
+244. **Relog TakeOver keeps the live body** (`connections.cc:231-252`, `crplayer.cc:721-775`): If `player_by_guid` exists — reject when dead or `LoggingOut && LogoutPossible==0`; else detach old TCP **without** `StartLogout` (CharacterID already 0), clear `LoggingOut`/`LogoutAllowed`, `StopAttack(0)`, leave channels, close containers, re-send login packets. Do **not** spawn a second creature from the DB load. *(July 2026)*

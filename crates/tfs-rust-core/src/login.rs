@@ -1,10 +1,14 @@
-//! Character login: DB load → `Player` → world + indices.
-// C++ reference: `Game::placeCreature`, `IOLoginData::loadPlayer`.
+//! Character login: DB load → `Player` → world + indices (or 772 TakeOver).
+//!
+//! - Domain: `Game::placeCreature`, `IOLoginData::loadPlayer`.
+//! - 772 outcomes: `connections.cc:224-253` (existing body / reject / TakeOver),
+//!   `TPlayer::TakeOver` — `crplayer.cc:721-775`.
 
 use std::collections::HashMap;
 
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::error::{Result, TfsRustError};
+use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
@@ -125,6 +129,7 @@ pub fn player_from_loaded(
         master: None,
         damage_map: Default::default(),
         earliest_attack_ms: 0,
+        latest_attack_round: 0,
         earliest_defend_ms: 0,
         last_defend_ms: 0,
         learning_points: 0,
@@ -218,6 +223,8 @@ pub fn player_from_loaded(
         food_remaining: apply_offline_food_drain(p.food_remaining.max(0) as u32, p.lastlogout),
         food_level: p.food_level,
         earliest_logout_round: 0,
+        logging_out: false,
+        logout_allowed: false,
         last_ping_sent: std::time::Instant::now(),
         last_pong_at: std::time::Instant::now(),
         next_action_until: None,
@@ -283,13 +290,34 @@ pub async fn load_player_data(
     Ok(loaded)
 }
 
-/// Game-thread apply of a completed DB load. Returns new `CreatureId`.
+/// Result of applying a DB-loaded character on the game thread.
+#[derive(Debug)]
+pub enum ApplyPlayerOutcome {
+    /// Fresh spawn — creature inserted and placed on the map.
+    Spawned(CreatureId),
+    /// 772 `TakeOver` — existing body kept. Caller must close `old_conn` TCP **without**
+    /// `StartLogout` (772 zeroes `CharacterID` before connection `Logout`).
+    TakenOver {
+        cid: CreatureId,
+        old_conn: Option<ConnId>,
+    },
+}
+
+impl ApplyPlayerOutcome {
+    pub fn creature_id(&self) -> CreatureId {
+        match *self {
+            Self::Spawned(cid) | Self::TakenOver { cid, .. } => cid,
+        }
+    }
+}
+
+/// Game-thread apply of a completed DB load — spawn or TakeOver.
 pub fn apply_loaded_player(
     world: &mut GameWorld,
     loaded: LoadedPlayerData,
     operating_system: u16,
     otclient_v8: u16,
-) -> Result<CreatureId> {
+) -> Result<ApplyPlayerOutcome> {
     let name = loaded.player.name.clone();
     let inventory_rows = loaded.items.inventory.clone();
     let store_inbox_rows = loaded.items.store_inbox.clone();
@@ -300,6 +328,14 @@ pub fn apply_loaded_player(
     let guid = u32::try_from(loaded.player.id).map_err(|_| {
         TfsRustError::Database(format!("player id out of u32 range: {}", loaded.player.id))
     })?;
+
+    if let Some((cid, old_conn)) =
+        world.player_try_takeover_for_login(guid, &name, operating_system, otclient_v8)?
+    {
+        // Live body kept — do not rehydrate inventory / place / onLogin from this load.
+        return Ok(ApplyPlayerOutcome::TakenOver { cid, old_conn });
+    }
+
     let pos = {
         let p = &loaded.player;
         Position::new(
@@ -378,7 +414,7 @@ pub fn apply_loaded_player(
     }
 
     fire_on_login(world, cid);
-    Ok(cid)
+    Ok(ApplyPlayerOutcome::Spawned(cid))
 }
 
 /// Load + apply in one call (tests / tools). Production game loop must not await this.
@@ -389,5 +425,5 @@ pub async fn login_player(
     otclient_v8: u16,
 ) -> Result<CreatureId> {
     let loaded = load_player_data(&world.db, name).await?;
-    apply_loaded_player(world, loaded, operating_system, otclient_v8)
+    Ok(apply_loaded_player(world, loaded, operating_system, otclient_v8)?.creature_id())
 }

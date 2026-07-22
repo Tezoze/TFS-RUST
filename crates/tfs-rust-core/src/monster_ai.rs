@@ -302,6 +302,11 @@ impl GameWorld {
     ///
     /// C++ `TCombat::Attack` / `CloseAttack` / `DistanceAttack` — `crcombat.cc:530`, `:609`, `:647`.
     pub fn monster_do_attacking(&mut self, cid: CreatureId, _interval_ms: u32) {
+        // Shared `TCombat::Attack` gate — delayed StopAttack expire (`crcombat.cc:551-553`).
+        if self.combat_expire_delayed_stop_attack(cid) {
+            return;
+        }
+
         self.monster_update_look_direction(cid);
 
         let server_ms = self.server_ms;

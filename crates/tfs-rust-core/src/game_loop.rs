@@ -301,6 +301,7 @@ fn drain_output_shed(
             pending_login_conns,
             conn,
             false,
+            false, // dead connection / shed — StopFight=false
             output_sinks,
             out_registry,
         );
@@ -498,6 +499,7 @@ fn handle_player_loaded(
                 pending_login_conns,
                 conn_id,
                 false,
+                true, // no in-game body / login fail — StopFight=true
                 output_sinks,
                 out_registry,
             );
@@ -505,7 +507,31 @@ fn handle_player_loaded(
         }
     };
     match login::apply_loaded_player(world, loaded, operating_system, otclient_v8) {
-        Ok(cid) => {
+        Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
+            world.register_conn_mapping(conn_id, cid);
+            crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
+            flush_pending_outgoing(
+                world,
+                output_sinks,
+                out_registry,
+                pending_output_shed,
+            );
+            drain_output_shed(
+                world,
+                pending_login_conns,
+                output_sinks,
+                out_registry,
+                pending_output_shed,
+            );
+        }
+        Ok(login::ApplyPlayerOutcome::TakenOver { cid, old_conn }) => {
+            // 772: `CharacterID = 0` then connection `Logout` — close old TCP without
+            // `StartLogout` on the body (`connections.cc:244-252`).
+            if let Some(old) = old_conn {
+                pending_login_conns.remove(&old);
+                flush_conn_outgoing(world, old, output_sinks, out_registry);
+                close_output_connection(old, output_sinks, out_registry);
+            }
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
             flush_pending_outgoing(
@@ -529,6 +555,7 @@ fn handle_player_loaded(
                 pending_login_conns,
                 conn_id,
                 false,
+                true, // no in-game body / login fail — StopFight=true
                 output_sinks,
                 out_registry,
             );
@@ -567,6 +594,7 @@ fn handle_player_load_failed(
         pending_login_conns,
         conn_id,
         false,
+        true, // no in-game body / login fail — StopFight=true
         output_sinks,
         out_registry,
     );
@@ -577,6 +605,7 @@ fn handle_player_disconnect(
     pending_login_conns: &mut HashSet<ConnId>,
     conn_id: ConnId,
     display_effect: bool,
+    stop_fight: bool,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
 ) {
@@ -608,17 +637,26 @@ fn handle_player_disconnect(
                 );
             }
         }
-        world.remove_creature(cid);
+        // Clear connection first (772 `ClearConnection` before `StartLogout`).
+        world.unregister_conn_mapping(conn_id);
+        world.known_creatures_by_conn.remove(&conn_id);
+        world.creature_fully_sent_by_conn.remove(&conn_id);
+        // 772 `StartLogout(false, StopFight)` — body may stay on map until LogoutPossible.
+        world.creature_begin_logout(cid, false, stop_fight);
+        if world.player_logout_possible(cid) == crate::game_world_lifecycle::LogoutPossible::Ok {
+            world.remove_creature(cid);
+        }
+    } else {
+        world.unregister_conn_mapping(conn_id);
+        world.known_creatures_by_conn.remove(&conn_id);
+        world.creature_fully_sent_by_conn.remove(&conn_id);
     }
-    world.unregister_conn_mapping(conn_id);
-    world.known_creatures_by_conn.remove(&conn_id);
-    world.creature_fully_sent_by_conn.remove(&conn_id);
     // TFS `ProtocolGame::logout`: flush then `disconnect()` so the client leaves the game
     // cleanly. Dropping only the game-thread sink left `OutboundTx` alive in the registry —
     // the writer never exited, TCP stayed open, OTClient desynced until idle timeout.
     flush_conn_outgoing(world, conn_id, output_sinks, out_registry);
     close_output_connection(conn_id, output_sinks, out_registry);
-    trace!(conn_id = conn_id.0, "player disconnected");
+    trace!(conn_id = conn_id.0, stop_fight, "player disconnected");
 }
 
 fn handle_game_packet(
@@ -1083,6 +1121,7 @@ fn dispatch_command(
                 pending_login_conns,
                 conn_id,
                 display_effect,
+                true, // CQuitGame / intentional — StopFight=true
                 output_sinks,
                 out_registry,
             );
@@ -1212,12 +1251,13 @@ fn obs_advance_beats(
     if *next_beat_deadline < now {
         *next_beat_deadline = now + Duration::from_millis(beat_ms);
     }
-    while let Some(conn_id) = world.pending_idle_kick.pop() {
+    while let Some((conn_id, stop_fight)) = world.pending_idle_kick.pop() {
         handle_player_disconnect(
             world,
             pending_login_conns,
             conn_id,
             false,
+            stop_fight,
             output_sinks,
             out_registry,
         );

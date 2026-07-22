@@ -124,6 +124,13 @@ pub struct CreatureBase {
     pub damage_map: DamageMap,
     /// C++ `TCombat::EarliestAttackTime` — `crcombat.cc:523` `DelayAttack`.
     pub earliest_attack_ms: u64,
+    /// C++ `TCombat::LatestAttackTime` — `crcombat.cc:513-522` delayed `StopAttack`.
+    ///
+    /// `0` = inactive. Non-zero is a `RoundNr` deadline: when `RoundNr` exceeds it,
+    /// `Attack()` calls `StopAttack(0)` and returns without striking (`crcombat.cc:551-553`).
+    /// Cleared on `SetAttackDest` with `!Follow` (`crcombat.cc:438`). Units are
+    /// [`GameWorld::round_nr`](crate::game_world::GameWorld::round_nr), not `server_ms`.
+    pub latest_attack_round: u32,
     /// C++ `TCombat::EarliestDefendTime` — `crcombat.cc:236` `GetDefendDamage` gate.
     pub earliest_defend_ms: u64,
     /// C++ `TCombat::LastDefendTime` — paired with `EarliestDefendTime` (`crcombat.cc:241-242`).

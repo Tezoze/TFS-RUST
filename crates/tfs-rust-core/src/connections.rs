@@ -45,17 +45,19 @@ impl GameWorld {
     }
 
     /// C++ `ProcessConnections` idle kick + round-based ping + connection timeout
-    /// (`connections.cc:21-51`). Returns conn IDs to disconnect.
+    /// (`connections.cc:21-51`). Returns `(conn, stop_fight)` pairs to disconnect.
     ///
     /// Idle warn/kick rounds are config-driven via `kickIdlePlayerAfterMinutes`
     /// (`config.lua`): warning at `N*60` rounds, kick at `(N+1)*60` rounds. The proactive
-    /// ping cadence (30/60) and dead-connection timeout (90) are 772 engine constants.
-    pub(crate) fn process_connections(&mut self) -> Vec<ConnId> {
+    /// ping cadence (30/60) and the dead-connection timeout (round 90) are 772 engine
+    /// constants. Idle kick → `Logout(..., StopFight=true)`; command timeout →
+    /// `StopFight=false` (`connections.cc:35-38`).
+    pub(crate) fn process_connections(&mut self) -> Vec<(ConnId, bool)> {
         // Phase 4: 1098 defer deleted — both eras use 772 ProcessConnections.
         let round = self.round_nr;
         let idle_warn_rounds = self.connection_config.idle_warn_rounds();
         let idle_kick_rounds = self.connection_config.idle_kick_rounds();
-        let mut kick: Vec<ConnId> = Vec::new();
+        let mut kick: Vec<(ConnId, bool)> = Vec::new();
 
         let online: Vec<(ConnId, CreatureId)> = self
             .conn_to_creature
@@ -86,10 +88,11 @@ impl GameWorld {
                 );
             }
             if last_action >= idle_kick_rounds {
-                kick.push(conn_id);
+                // `Logout(0, true)` — StopFight (`connections.cc:35-36`).
+                kick.push((conn_id, true));
             } else if last_command >= COMMAND_TIMEOUT_ROUNDS {
-                // C++ `LastCommand >= 90` → logout (`connections.cc:37`).
-                kick.push(conn_id);
+                // `Logout(0, false)` — keep fighting on map (`connections.cc:37-38`).
+                kick.push((conn_id, false));
             }
         }
 
@@ -161,7 +164,8 @@ mod tests {
         world.round_nr = 960;
         let kick = world.process_connections();
         assert_eq!(kick.len(), 1);
-        assert_eq!(kick[0].0, 1);
+        assert_eq!(kick[0].0, tfs_rust_common::ConnId(1));
+        assert!(kick[0].1, "idle kick → StopFight=true");
     }
 
     /// Custom `kickIdlePlayerAfterMinutes = 10` → warn at 600, kick at 660.
@@ -242,6 +246,7 @@ mod tests {
             1,
             "LastCommand >= 90 must trigger connection timeout"
         );
+        assert_eq!(kick[0].1, false, "command timeout → StopFight=false");
     }
 
     /// `packet_counts_as_action` mirrors `TConnection::ResetTimer` (`connections.cc:53-63`):
@@ -289,6 +294,187 @@ mod tests {
                 packet_counts_as_action(&p),
                 "action packet {p:?} must count as action"
             );
+        }
+    }
+
+    /// Dead-connection `StopFight=false` keeps the body on the map until combat lock ends.
+    #[test]
+    fn dead_connection_map_presence_until_logout_possible() {
+        use crate::game_world_lifecycle::LogoutPossible;
+        use crate::sim_harness::insert_monster;
+
+        let mut world = beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        let player = insert_player(&mut world, test_player("Ghost", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+
+        world.round_nr = 100;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.attack_target = Some(mon);
+            p.earliest_logout_round = 160; // combat lock
+        }
+
+        // Simulate Connection::Logout(0, false): clear conn then StartLogout(false, false).
+        world.unregister_conn_mapping(conn);
+        world.creature_begin_logout(player, false, false);
+
+        let p = match world.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!("body must remain on map"),
+        };
+        assert!(p.logging_out);
+        assert_eq!(p.base.attack_target, Some(mon), "StopFight=false keeps AttackDest");
+        assert_eq!(p.base.latest_attack_round, 160, "StopAttack(60) from RoundNr 100");
+        assert_eq!(
+            world.player_logout_possible(player),
+            LogoutPossible::Combat
+        );
+
+        world.process_creatures();
+        assert!(
+            world.creatures.get(player).is_some(),
+            "still combat-locked — ProcessCreatures must not remove"
+        );
+
+        world.round_nr = 160;
+        // PK-mark clear + logout finalize on same ProcessCreatures pass.
+        world.process_creatures();
+        assert!(
+            world.creatures.get(player).is_none(),
+            "LogoutPossible after combat lock → remove body"
+        );
+    }
+
+    /// Idle kick uses StopFight=true (`connections.cc:35-36`).
+    #[test]
+    fn idle_kick_uses_stop_fight_true() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Idle", pos));
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), player);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.last_command_round = 0;
+            p.last_action_round = 0;
+        }
+        // Default kickIdleAfterMinutes=15 → kick at 16*60=960.
+        world.round_nr = 960;
+        let kick = world.process_connections();
+        assert_eq!(kick.len(), 1);
+        assert!(kick[0].1, "idle kick → StopFight=true");
+    }
+
+    /// Relog TakeOver while deferred logout body is combat-locked (`connections.cc:231-252`).
+    #[test]
+    fn relog_takeover_while_combat_locked_logging_out() {
+        use crate::sim_harness::insert_monster;
+
+        let mut world = beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, 150);
+        ensure_walkable_tile(&mut world.map, mpos, 150);
+        let mut pl = test_player("TakeOver", ppos);
+        pl.guid = 42;
+        let player = insert_player(&mut world, pl);
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        world.player_by_guid.insert(42, player);
+        world.player_by_name.insert("TakeOver".into(), player);
+
+        world.round_nr = 100;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.attack_target = Some(mon);
+            p.earliest_logout_round = 160;
+        }
+        world.creature_begin_logout(player, false, false);
+        assert!(
+            matches!(
+                world.creatures.get(player),
+                Some(CreatureKind::Player(p)) if p.logging_out
+            )
+        );
+
+        let (cid, old_conn) = world
+            .player_try_takeover_for_login(42, "TakeOver", 0, 0)
+            .expect("takeover must succeed while combat-locked")
+            .expect("existing body");
+        assert_eq!(cid, player);
+        assert!(old_conn.is_none(), "no prior TCP on deferred body");
+
+        let p = match world.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!("same body must remain"),
+        };
+        assert!(!p.logging_out);
+        assert!(!p.logout_allowed);
+        assert!(p.base.attack_target.is_none(), "TakeOver StopAttack(0)");
+        assert_eq!(world.player_by_guid.get(&42), Some(&player));
+        assert_eq!(world.creatures.len(), 2, "no duplicate player spawn");
+    }
+
+    /// TakeOver rejects when LoggingOut and LogoutPossible (`connections.cc:238-241`).
+    #[test]
+    fn relog_rejected_when_logout_finalize_ready() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut pl = test_player("Finishing", pos);
+        pl.guid = 7;
+        let player = insert_player(&mut world, pl);
+        world.map.register_creature_at(pos, player);
+        world.player_by_guid.insert(7, player);
+        world.player_by_name.insert("Finishing".into(), player);
+
+        world.round_nr = 200;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.earliest_logout_round = 0;
+            p.logging_out = true;
+        }
+        let err = world
+            .player_try_takeover_for_login(7, "Finishing", 0, 0)
+            .expect_err("must reject finalize-ready logout");
+        assert!(
+            err.to_string().contains("logging out"),
+            "err={err}"
+        );
+        assert!(world.creatures.get(player).is_some());
+    }
+
+    /// TakeOver while still connected clears old mapping (`connections.cc:244-252`).
+    #[test]
+    fn takeover_detaches_old_connection() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut pl = test_player("KickOld", pos);
+        pl.guid = 9;
+        let player = insert_player(&mut world, pl);
+        world.map.register_creature_at(pos, player);
+        world.player_by_guid.insert(9, player);
+        let old = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(old, player);
+
+        let (cid, old_conn) = world
+            .player_try_takeover_for_login(9, "KickOld", 1, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cid, player);
+        assert_eq!(old_conn, Some(old));
+        assert!(world.conn_to_creature.get(&old).is_none());
+        assert!(world.creature_to_conn.get(&player).is_none());
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
+            assert_eq!(p.operating_system, 1);
+            assert_eq!(p.otclient_v8, 2);
+            assert!(!p.logging_out);
         }
     }
 }

@@ -155,6 +155,8 @@ impl GameWorld {
         let round_nr = self.round_nr;
         // `NON_PVP` clears `BlockProtectionZone` (`crmain.cc:434-436`).
         let block_pz = block_pz && world_type != WorldType::NoPvp;
+        // Capture before `get_mut` — failsafe uses Connection==NULL (`crmain.cc:444-448`).
+        let has_conn = self.conn_for_creature(cid).is_some();
 
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
             return;
@@ -162,14 +164,18 @@ impl GameWorld {
 
         // `EarliestProtectionZoneRound` — only extended when `block_pz` or already pending
         // (`crmain.cc:439-443`).
-        if block_pz || p.earliest_protection_zone_round > round_nr {
+        let in_pz_branch = block_pz || p.earliest_protection_zone_round > round_nr;
+        if in_pz_branch {
             let earliest = round_nr.saturating_add(delay_rounds);
             if p.earliest_protection_zone_round < earliest {
                 p.earliest_protection_zone_round = earliest;
             }
+        } else if !has_conn {
+            // Disconnected failsafe — do not extend `EarliestLogoutRound`.
+            return;
         }
 
-        // `EarliestLogoutRound` — always extended (`crmain.cc:450-453`).
+        // `EarliestLogoutRound` — always extended when not caught by the failsafe above.
         let earliest = round_nr.saturating_add(delay_rounds);
         if p.earliest_logout_round < earliest {
             p.earliest_logout_round = earliest;
@@ -330,6 +336,7 @@ mod tests {
         let mut world = make_pvp_world(WorldType::Pvp);
         world.round_nr = 100;
         let a = insert_player(&mut world, "alice");
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), a);
         world.player_block_logout(a, 60, false);
         if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
             assert_eq!(p.earliest_logout_round, 160);
@@ -354,6 +361,7 @@ mod tests {
         let mut world = make_pvp_world(WorldType::NoPvp);
         world.round_nr = 100;
         let a = insert_player(&mut world, "alice");
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), a);
         // block_pz=true but WorldType == NoPvp → PZ block cleared.
         world.player_block_logout(a, 60, true);
         if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
@@ -363,10 +371,32 @@ mod tests {
     }
 
     #[test]
+    fn block_logout_skips_logout_round_when_disconnected() {
+        // `Connection == NULL` failsafe (`crmain.cc:444-448`) — do not extend
+        // EarliestLogoutRound for a dead-connection body (unless PZ-block branch).
+        let mut world = make_pvp_world(WorldType::Pvp);
+        world.round_nr = 100;
+        let a = insert_player(&mut world, "alice");
+        // No conn mapping → Connection == NULL.
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
+            p.earliest_logout_round = 130;
+        }
+        world.player_block_logout(a, 60, false);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
+            assert_eq!(
+                p.earliest_logout_round, 130,
+                "disconnected failsafe must not extend EarliestLogoutRound"
+            );
+        }
+    }
+
+    #[test]
     fn block_logout_takes_max_of_existing_and_new() {
         let mut world = make_pvp_world(WorldType::Pvp);
         world.round_nr = 100;
         let a = insert_player(&mut world, "alice");
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, a);
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
             p.earliest_logout_round = 200;
         }
@@ -383,6 +413,7 @@ mod tests {
         world.round_nr = 100;
         world.pvp_config.pz_locked_ms = 30_000; // 30s → 30 rounds
         let a = insert_player(&mut world, "alice");
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), a);
         world.player_block_logout_infight(a, false);
         if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
             assert_eq!(p.earliest_logout_round, 130);
