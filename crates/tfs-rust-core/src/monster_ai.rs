@@ -22,8 +22,7 @@ use crate::combat::{
     CombatParams, FightMode,
 };
 use crate::creature::{
-    creature_immune_poison, melee_poison_on_hit, monster_weapon_attack_distance,
-    roll_target_defense,
+    creature_immune_poison, melee_poison_on_hit, roll_target_defense,
 };
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::game_world::{creature_can_see, GameWorld};
@@ -319,8 +318,6 @@ impl GameWorld {
             melee_skill,
             melee_attack,
             poison_cycles,
-            has_ranged_spell,
-            shoot_effect,
         ) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
@@ -328,30 +325,17 @@ impl GameWorld {
             let Some(target_id) = m.base.attack_target else {
                 return;
             };
-            let has_ranged_spell = m.spells.iter().any(|s| s.range > 1);
-            let weapon_dist = monster_weapon_attack_distance(m.melee_skill, has_ranged_spell);
-            if m.melee_skill <= 0 && weapon_dist <= 1 {
+            // Fist-only Attack — `GetDistance=1` (`crcombat.cc:309-318`). Spellcasters
+            // with melee_skill=0 never DistanceAttack; ranged damage is CASTING only.
+            if m.melee_skill <= 0 {
                 return;
             }
-            let shoot = m
-                .spells
-                .iter()
-                .find_map(|s| s.shoot_effect)
-                .or(if weapon_dist >= 3 {
-                    Some(tfs_rust_common::enums::ShootEffect::Arrow as u8)
-                } else if weapon_dist >= 2 {
-                    Some(tfs_rust_common::enums::ShootEffect::Spear as u8)
-                } else {
-                    None
-                });
             (
                 target_id,
                 m.base.position,
                 m.melee_skill,
                 m.melee_attack,
                 m.poison_cycles,
-                has_ranged_spell,
-                shoot,
             )
         };
 
@@ -377,123 +361,6 @@ impl GameWorld {
         let cheb = chebyshev(monster_pos, target_pos);
         let in_pz = self.monster_tile_in_protection_zone(monster_pos)
             || self.monster_tile_in_protection_zone(target_pos);
-        let weapon_dist = monster_weapon_attack_distance(melee_skill, has_ranged_spell) as u32;
-
-        // C++ `DistanceAttack` / `WandAttack` — `crcombat.cc:609-637`.
-        if weapon_dist >= 2 && cheb >= 2 && cheb <= weapon_dist as i32 && !in_pz {
-            let dx = (target_pos.x as i32 - monster_pos.x as i32).unsigned_abs();
-            let dy = (target_pos.y as i32 - monster_pos.y as i32).unsigned_abs();
-            if dx > 7 || dy > 5 {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().delay_attack_ms(server_ms, 200);
-                }
-                return;
-            }
-            if !self.monster_sight_clear(monster_pos, target_pos) {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().delay_attack_ms(server_ms, 200);
-                }
-                return;
-            }
-
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().delay_attack_ms(server_ms, 200);
-            }
-
-            let defense_snap = self.melee_defense_snapshot_for(target_id);
-            let attack_roll = weapon_damage(
-                &profile,
-                hooks,
-                melee_skill,
-                melee_attack,
-                FightMode::Balanced,
-                0,
-                &self.parity_rng,
-            );
-            let defense_roll = {
-                let Some(kind) = self.creatures.get_mut(target_id) else {
-                    return;
-                };
-                roll_target_defense(
-                    kind.base_mut(),
-                    server_ms,
-                    &profile,
-                    hooks,
-                    defense_snap,
-                    &self.parity_rng,
-                )
-            };
-            let armor_roll =
-                armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
-            let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
-
-            // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
-            if dmg <= 0 {
-                if let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position) {
-                    let effect = if attack_roll <= defense_roll {
-                        3u8
-                    } else {
-                        4u8
-                    };
-                    self.broadcast_magic_effect(pos, effect);
-                }
-            }
-
-            if let Some(shoot) = shoot_effect {
-                self.broadcast_distance_shoot(monster_pos, target_pos, shoot);
-            }
-
-            let notify_snap = self.combat_notify_snapshot(target_id);
-            let hp_before = self.creatures.get(target_id).unwrap().base().health;
-            // Victim logout lock is applied inside `combat_execute_with_stimulus`
-            // (`Attack` Target->BlockLogout — `crcombat.cc:601-602`).
-            let _ = self.combat_execute_with_stimulus(
-                Some(cid),
-                target_id,
-                &CombatDamage {
-                    primary: (CombatType::Physical, -dmg),
-                    secondary: (CombatType::Physical, 0),
-                },
-                &CombatParams::default(),
-            );
-            let hp_after = self
-                .creatures
-                .get(target_id)
-                .map(|k| k.base().health)
-                .unwrap_or(hp_before);
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                crate::chase_debug::log_ranged_hit(
-                    self.chase_trace_tick(),
-                    cid,
-                    &m.base.name,
-                    target_id.data().as_ffi(),
-                    attack_roll,
-                    defense_roll,
-                    armor_roll,
-                    dmg,
-                    hp_before,
-                    hp_after,
-                    self.creatures
-                        .get(cid)
-                        .map(|k| k.base().earliest_attack_ms)
-                        .unwrap_or(0),
-                );
-            }
-            if let Some(snap) = notify_snap {
-                self.notify_player_combat_damage(
-                    Some(cid),
-                    target_id,
-                    (hp_before - hp_after).max(0),
-                    CombatType::Physical,
-                    snap,
-                );
-            }
-
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().delay_attack_ms(server_ms, 2000);
-            }
-            return;
-        }
 
         if cheb > 1 || in_pz || melee_skill <= 0 {
             if let Some(k) = self.creatures.get_mut(cid) {

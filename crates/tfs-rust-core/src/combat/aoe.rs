@@ -28,6 +28,75 @@ use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::login_out::creature_wire_id;
 
+impl GameWorld {
+    /// Physical spell mitigation — 772 `TDamageImpact` AllowDefense + `Damage()` armor.
+    ///
+    /// C++: `magic.cc:147-151` (`GetDefendDamage`); `crmain.cc:624-629` (`GetArmorStrength`).
+    /// TFS domain: `COMBAT_PARAM_BLOCKSHIELD` / `BLOCKARMOR`. Shared by Lua AoE and
+    /// monster CASTING (`AllowDefense=true` always for physical impacts).
+    ///
+    /// Returns non-negative remaining magnitude after defense/armor. Broadcasts poff (3)
+    /// or spark (4) when fully absorbed.
+    pub(crate) fn mitigate_physical_spell_damage(
+        &mut self,
+        target_id: CreatureId,
+        target_pos: Position,
+        raw_magnitude: i32,
+        block_shield: bool,
+        block_armor: bool,
+    ) -> i32 {
+        let mut abs_dmg = raw_magnitude.abs();
+        if abs_dmg <= 0 {
+            return 0;
+        }
+        let profile = self.mechanics.profile;
+        let server_ms = self.server_ms;
+        let defense_snap = self.melee_defense_snapshot_for(target_id);
+        let mut defense_roll = 0i32;
+        if block_shield {
+            let defense_gate_passed = self
+                .creatures
+                .get(target_id)
+                .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+            defense_roll = match self.creatures.get_mut(target_id) {
+                Some(kind) => roll_target_defense(
+                    kind.base_mut(),
+                    server_ms,
+                    &profile,
+                    &self.mechanics.hooks,
+                    defense_snap,
+                    &self.parity_rng,
+                ),
+                None => 0,
+            };
+            if defense_gate_passed {
+                self.player_shield_wearout(target_id);
+                self.player_shield_skill_learning(target_id, defense_snap.has_shield);
+            }
+            abs_dmg = (abs_dmg - defense_roll).max(0);
+        }
+        if block_armor {
+            let armor_roll = armor_reduction(
+                &profile,
+                &self.mechanics.hooks,
+                defense_snap.armor,
+                &self.parity_rng,
+            );
+            abs_dmg = (abs_dmg - armor_roll.max(0)).max(0);
+        }
+        if abs_dmg <= 0 {
+            // Defense >= attack → poff (3); armor absorbed remainder → spark (4).
+            let effect = if block_shield && defense_roll >= raw_magnitude.abs() {
+                3u8
+            } else {
+                4u8
+            };
+            self.broadcast_magic_effect(target_pos, effect);
+        }
+        abs_dmg
+    }
+}
+
 /// Map a Lua `COMBAT_*` bit-flag value to the Rust `CombatType` enum.
 /// Mirrors `CombatDef::resolved_combat_type` in `tfs-rust-lua/src/userdata/combat.rs`.
 fn combat_type_from_lua(value: i32) -> CombatType {
@@ -312,8 +381,6 @@ impl GameWorld {
         let no_damage = request.no_damage
             || combat_type == CombatType::Undefined
             || (damage_min == 0 && damage_max == 0);
-        let profile = self.mechanics.profile;
-        let server_ms = self.server_ms;
 
         for (target_id, target_pos) in targets {
             // Don't damage the caster with their own aggressive spell — 772
@@ -349,53 +416,14 @@ impl GameWorld {
                 let signed_value = if combat_type == CombatType::Healing {
                     value.max(0)
                 } else if combat_type == CombatType::Physical {
-                    // `TDamageImpact::handleCreature` (`magic.cc:147-150`): when
-                    // `AllowDefense` (BLOCKSHIELD), subtract `GetDefendDamage`.
-                    // Armor (`crmain.cc:624` / TFS BLOCKARMOR) is applied here —
-                    // not inside `combat_execute_with_stimulus` (absorb% only).
-                    let mut abs_dmg = value.abs();
-                    let defense_snap = self.melee_defense_snapshot_for(target_id);
-                    let mut defense_roll = 0i32;
-                    if block_shield {
-                        let defense_gate_passed = self
-                            .creatures
-                            .get(target_id)
-                            .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
-                        defense_roll = match self.creatures.get_mut(target_id) {
-                            Some(kind) => roll_target_defense(
-                                kind.base_mut(),
-                                server_ms,
-                                &profile,
-                                &self.mechanics.hooks,
-                                defense_snap,
-                                &self.parity_rng,
-                            ),
-                            None => 0,
-                        };
-                        if defense_gate_passed {
-                            self.player_shield_wearout(target_id);
-                            self.player_shield_skill_learning(target_id, defense_snap.has_shield);
-                        }
-                        abs_dmg = (abs_dmg - defense_roll).max(0);
-                    }
-                    if block_armor {
-                        let armor_roll = armor_reduction(
-                            &profile,
-                            &self.mechanics.hooks,
-                            defense_snap.armor,
-                            &self.parity_rng,
-                        );
-                        abs_dmg = (abs_dmg - armor_roll.max(0)).max(0);
-                    }
-                    if abs_dmg <= 0 {
-                        // Defense >= attack → poff (3); armor absorbed remainder → spark (4).
-                        let effect = if block_shield && defense_roll >= value.abs() {
-                            3u8
-                        } else {
-                            4u8
-                        };
-                        self.broadcast_magic_effect(target_pos, effect);
-                    }
+                    // Shared with monster CASTING — `mitigate_physical_spell_damage`.
+                    let abs_dmg = self.mitigate_physical_spell_damage(
+                        target_id,
+                        target_pos,
+                        value,
+                        block_shield,
+                        block_armor,
+                    );
                     -abs_dmg
                 } else {
                     -value.abs()

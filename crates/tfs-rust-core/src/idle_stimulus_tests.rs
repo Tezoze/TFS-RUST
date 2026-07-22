@@ -2626,49 +2626,55 @@ fn test_e2_melee_adjacent_enqueues_attack_without_wait() {
     assert!(matches!(todo.queue[0], CreatureAction::Attack));
 }
 
+/// Fist-only Attack distance — monsters never synthesize DistanceAttack range 3.
+/// Spellcasters (melee_skill=0) deal ranged damage via CASTING only.
 #[test]
-fn test_e2_wait_100_before_attack_when_weapon_range_not_close() {
+fn test_e2_fist_only_weapon_distance_is_always_one() {
     use crate::creature::monster_weapon_attack_distance;
 
-    assert_eq!(monster_weapon_attack_distance(0, true), 3);
+    assert_eq!(monster_weapon_attack_distance(0, true), 1);
+    assert_eq!(monster_weapon_attack_distance(0, false), 1);
     assert_eq!(monster_weapon_attack_distance(15, true), 1);
+}
 
+/// B1 — monster CASTING physical Damage applies AllowDefense + armor (shared with AoE).
+#[test]
+fn test_casting_physical_mitigate_reduces_damage() {
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
+    let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+
+    let mut cfg = MonsterAiConfig::default();
+    cfg.melee_skill = 0;
+    cfg.armor = 50;
+    cfg.defense = 0;
+    let target = insert_monster_with_config(&mut world, "Armored", tpos, 100, cfg);
+    let caster = insert_monster(&mut world, "Caster", mpos, 200);
+
     let spell = MonsterSpell {
-        delay: 4,
-        range: 5,
+        delay: 1,
+        range: 7,
         radius: 0,
         length: 0,
         spread: 0,
-        min_cycle: 6,
+        min_cycle: 0,
         shape: SpellShape::Victim,
-        impact: SpellImpact::Condition {
-            condition: ConditionType::Poison,
-            cycle: 20,
-            min_cycle: 6,
+        impact: SpellImpact::Damage {
+            element: CombatType::Physical,
+            base: 40,
+            variation: 0,
         },
         shoot_effect: None,
         area_effect: None,
     };
-    let mut cfg = MonsterAiConfig::default();
-    cfg.melee_skill = 0;
-    cfg.spells = vec![spell];
-    let monster = insert_monster_with_config(&mut world, "Cobra", mpos, 200, cfg);
-
-    if monster_weapon_attack_distance(0, true) != 1 {
-        world.enqueue_creature_wait(monster, 100);
-    }
-    world.enqueue_creature_attack(monster);
-
-    let todo = &world.creatures.get(monster).unwrap().base().todo;
-    assert_eq!(todo.queue.len(), 2);
-    assert!(matches!(
-        todo.queue[0],
-        CreatureAction::Wait { deadline_ms: 100 }
-    ));
-    assert!(matches!(todo.queue[1], CreatureAction::Attack));
+    world.monster_idle_apply_spell_impact(caster, target, &spell);
+    let hp = world.creatures.get(target).unwrap().base().health;
+    assert!(
+        hp > 60,
+        "physical CASTING must apply armor mitigation (hp={hp}, expected >60)"
+    );
 }
 
 // ---- Rotate direct call (audit: turn-on-spot defect) ----

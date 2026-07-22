@@ -20,8 +20,9 @@ use crate::combat::math::spell_damage;
 use crate::combat::{disc_offsets, CombatDamage, CombatParams};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
-    monster_weapon_attack_distance, ChaseMode, CreatureBase, CreatureKind, MonsterFieldType,
-    MonsterSpell, MonsterState, SpellImpact, SpellShape,
+    drunk_power_from_xml, duration_ms_to_rounds, monster_weapon_attack_distance, speed_mdact,
+    ChaseMode, CreatureBase, CreatureKind, MonsterFieldType, MonsterSpell, MonsterState,
+    SpellImpact, SpellShape,
 };
 use crate::cylinder::CylinderFlags;
 use crate::item::Item;
@@ -1081,9 +1082,10 @@ impl GameWorld {
         false
     }
 
-    /// Resolve cast target — C++ single `Target` field (`follow_target` / `attack_target`).
+    /// Resolve cast target — 772 `this->Target` (`crnonpl.cc:2572`).
+    /// Rust: `follow_target` = C++ Target; `attack_target` = Combat.AttackDest (melee only).
     fn monster_cast_target_id(base: &CreatureBase) -> Option<CreatureId> {
-        base.follow_target.or(base.attack_target)
+        base.follow_target
     }
 
     /// Tile set for a spell shape — `crnonpl.cc:2627`; shape spell bodies in `magic.cc`.
@@ -1398,7 +1400,7 @@ impl GameWorld {
         }
     }
 
-    fn monster_idle_apply_spell_impact(
+    pub(crate) fn monster_idle_apply_spell_impact(
         &mut self,
         caster_id: CreatureId,
         target_id: CreatureId,
@@ -1414,6 +1416,8 @@ impl GameWorld {
                     SpellImpact::Field { .. } => "field".into(),
                     SpellImpact::Summon { race, .. } => format!("summon:{race}"),
                     SpellImpact::Drunk { .. } => "drunk".into(),
+                    SpellImpact::Outfit { .. } => "outfit".into(),
+                    SpellImpact::Invisible { .. } => "invisible".into(),
                 };
                 let shape = match spell.shape {
                     SpellShape::Victim => "victim",
@@ -1477,13 +1481,24 @@ impl GameWorld {
                 let min_dmg = (*base).saturating_sub(*variation);
                 let max_dmg = (*base).saturating_add(*variation);
                 let scaled = spell_damage(&profile, hooks, 0, 0, max_dmg, false, false);
-                let dmg = if scaled > 0 {
+                let mut dmg = if scaled > 0 {
                     scaled
                 } else {
                     // C++ `ComputeDamage` monster path: `Damage + random(-Var, Var)` (`magic.cc:776`)
                     // — glibc parity stream, not `ai_rng` (Finding 14).
                     self.parity_random(min_dmg, max_dmg).max(0)
                 };
+                // 772 CASTING `TDamageImpact(..., AllowDefense=true)` (`crnonpl.cc:2592`) —
+                // physical always subtracts GetDefendDamage then armor (`magic.cc:147-151`).
+                if *element == CombatType::Physical && dmg > 0 {
+                    if let Some(target_pos) =
+                        self.creatures.get(target_id).map(|k| k.position())
+                    {
+                        dmg = self.mitigate_physical_spell_damage(
+                            target_id, target_pos, dmg, true, true,
+                        );
+                    }
+                }
                 let params = CombatParams {
                     primary_type: *element,
                     ..CombatParams::default()
@@ -1562,17 +1577,29 @@ impl GameWorld {
             SpellImpact::Speed {
                 percent,
                 variation,
-                duration: _,
+                duration,
             } => {
-                let min_delta = (*percent).saturating_sub(*variation);
-                let max_delta = (*percent).saturating_add(*variation);
-                let flat_delta = self.parity_random(min_delta, max_delta);
+                // 772 `TSpeedImpact` (`magic.cc:226-250`): roll percent, MDAct from Go Act.
+                let min_pct = (*percent).saturating_sub(*variation);
+                let max_pct = (*percent).saturating_add(*variation);
+                let rolled_pct = self.parity_random(min_pct, max_pct);
+                let go_act = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().base_speed)
+                    .unwrap_or(0);
+                let flat_delta = speed_mdact(go_act, rolled_pct);
+                let ctype = if flat_delta >= 0 {
+                    ConditionType::Haste
+                } else {
+                    ConditionType::Paralyze
+                };
                 let cond = ActiveCondition {
                     id: 0,
                     sub_id: 0,
-                    ctype: ConditionType::Haste,
+                    ctype,
                     data: ConditionData::Speed { flat_delta },
-                    timer_rounds_left: None,
+                    timer_rounds_left: duration_ms_to_rounds(*duration),
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -1588,8 +1615,14 @@ impl GameWorld {
                     },
                     &params,
                 );
+                self.on_condition_started(target_id, ctype);
             }
-            SpellImpact::Drunk { drunkness } => {
+            SpellImpact::Drunk {
+                drunkness,
+                duration,
+            } => {
+                // 772 `TDrunkenImpact` (`magic.cc:255-285`): Power = drunkness/20 ≤ 6.
+                let power = drunk_power_from_xml(*drunkness);
                 let suppressed = match self.creatures.get(target_id) {
                     Some(CreatureKind::Player(p)) => {
                         p.condition_suppressions
@@ -1599,10 +1632,110 @@ impl GameWorld {
                     _ => false,
                 };
                 if !suppressed {
-                    if let Some(kind) = self.creatures.get_mut(target_id) {
-                        kind.base_mut().drunkenness = (*drunkness).max(0) as u32;
+                    let current = self
+                        .creatures
+                        .get(target_id)
+                        .map(|k| k.base().drunkenness)
+                        .unwrap_or(0);
+                    // Refresh only when new Power ≥ current TimerValue.
+                    if power >= current {
+                        if let Some(kind) = self.creatures.get_mut(target_id) {
+                            kind.base_mut().drunkenness = power;
+                        }
+                        let cond = ActiveCondition {
+                            id: 0,
+                            sub_id: 0,
+                            ctype: ConditionType::Drunk,
+                            data: ConditionData::Generic {
+                                ticks: *duration,
+                            },
+                            timer_rounds_left: duration_ms_to_rounds(*duration),
+                        };
+                        let params = CombatParams {
+                            primary_type: CombatType::Physical,
+                            dispel: None,
+                            apply_condition: Some(cond),
+                        };
+                        let _ = self.combat_execute_with_stimulus(
+                            Some(caster_id),
+                            target_id,
+                            &CombatDamage {
+                                primary: (CombatType::Physical, 0),
+                                secondary: (CombatType::Physical, 0),
+                            },
+                            &params,
+                        );
+                        self.on_condition_started(target_id, ConditionType::Drunk);
                     }
                 }
+            }
+            SpellImpact::Outfit {
+                monster,
+                item,
+                duration,
+            } => {
+                let look_type = monster
+                    .as_ref()
+                    .and_then(|name| {
+                        self.monsters_db
+                            .get_by_name(name)
+                            .map(|t| t.outfit.look_type)
+                    })
+                    .unwrap_or(0);
+                let look_type_ex = item.unwrap_or(0);
+                if look_type != 0 || look_type_ex != 0 {
+                    let cond = ActiveCondition {
+                        id: 0,
+                        sub_id: 0,
+                        ctype: ConditionType::Outfit,
+                        data: ConditionData::Outfit {
+                            look_type,
+                            look_type_ex,
+                        },
+                        timer_rounds_left: duration_ms_to_rounds(*duration),
+                    };
+                    let params = CombatParams {
+                        primary_type: CombatType::Physical,
+                        dispel: None,
+                        apply_condition: Some(cond),
+                    };
+                    let _ = self.combat_execute_with_stimulus(
+                        Some(caster_id),
+                        target_id,
+                        &CombatDamage {
+                            primary: (CombatType::Physical, 0),
+                            secondary: (CombatType::Physical, 0),
+                        },
+                        &params,
+                    );
+                    self.on_condition_started(target_id, ConditionType::Outfit);
+                }
+            }
+            SpellImpact::Invisible { duration } => {
+                let cond = ActiveCondition {
+                    id: 0,
+                    sub_id: 0,
+                    ctype: ConditionType::Invisible,
+                    data: ConditionData::Generic {
+                        ticks: *duration,
+                    },
+                    timer_rounds_left: duration_ms_to_rounds(*duration),
+                };
+                let params = CombatParams {
+                    primary_type: CombatType::Physical,
+                    dispel: None,
+                    apply_condition: Some(cond),
+                };
+                let _ = self.combat_execute_with_stimulus(
+                    Some(caster_id),
+                    target_id,
+                    &CombatDamage {
+                        primary: (CombatType::Physical, 0),
+                        secondary: (CombatType::Physical, 0),
+                    },
+                    &params,
+                );
+                self.on_condition_started(target_id, ConditionType::Invisible);
             }
             SpellImpact::Field { .. } => {
                 // Field is `handleField`-only (`magic.cc:167`); creature hits are no-ops.

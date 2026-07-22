@@ -49,6 +49,7 @@ pub enum SpellImpact {
     Speed {
         percent: i32,
         variation: i32,
+        /// XML `duration` in ms — applied as ProcessSkills rounds (`ms→rounds`).
         duration: i32,
     },
     Condition {
@@ -62,19 +63,39 @@ pub enum SpellImpact {
         /// XML `force` — passed to place-creature (`placeCreature` extended force).
         force: bool,
     },
-    /// C++ `IMPACT_DRUNKEN` — sets target `drunkenness` (`crnonpl.cc:2553`).
+    /// C++ `IMPACT_DRUNKEN` — Power = drunkness/20 clamp 6 (`magic.cc:255-285`).
     Drunk {
+        /// Raw XML `drunkness` / `drunkenness` (e.g. 120) — converted at apply.
         drunkness: i32,
+        /// XML `duration` in ms.
+        duration: i32,
+    },
+    /// TFS `CONDITION_OUTFIT` / 772 `IMPACT_OUTFIT` (`monsters.cpp:386-408`).
+    Outfit {
+        /// XML `monster="…"` — resolve look_type from monsters DB at cast.
+        monster: Option<String>,
+        /// XML `item="…"` → lookTypeEx.
+        item: Option<u16>,
+        duration: i32,
+    },
+    /// TFS `CONDITION_INVISIBLE` (`monsters.cpp:410-419`) — not empty Outfit.
+    Invisible {
+        duration: i32,
     },
 }
 
 impl SpellImpact {
     /// 772 `TImpact::isAggressive` (`magic.cc:119`) — base returns `true`.
-    /// Only `THealingImpact` overrides to `false` (`magic.cc:210`).
-    /// Used by the CASTING gate (`crnonpl.cc:2682`):
-    /// `if(!Impact->isAggressive() || (this->Target != 0 && this->Target != this->Master))`.
+    /// Overrides: Healing; Outfit/Invisible (TFS AGGRESSIVE=0); Speed when percent≥0
+    /// (self haste defenses with Target=0). Used by CASTING gate (`crnonpl.cc:2682`).
     pub fn is_aggressive(&self) -> bool {
-        !matches!(self, SpellImpact::Healing { .. })
+        match self {
+            SpellImpact::Healing { .. }
+            | SpellImpact::Outfit { .. }
+            | SpellImpact::Invisible { .. } => false,
+            SpellImpact::Speed { percent, .. } => *percent < 0,
+            _ => true,
+        }
     }
 }
 
@@ -258,15 +279,38 @@ pub fn monster_has_melee_strike(melee_skill: i32, distance: u32) -> bool {
     melee_skill > 0 && distance <= 1
 }
 
-/// C++ `TCombat::GetDistance` — `crcombat.cc:309` (1 close/fist, 2 throw, 3 missile/wand).
-pub fn monster_weapon_attack_distance(melee_skill: i32, has_ranged_spell: bool) -> i32 {
-    if melee_skill > 0 {
-        1
-    } else if has_ranged_spell {
-        3
+/// XML duration ms → ProcessSkills rounds (ceil). Matches `active_condition_from_apply_spec`.
+#[inline]
+pub fn duration_ms_to_rounds(duration_ms: i32) -> Option<i32> {
+    if duration_ms <= 0 {
+        None
     } else {
-        1
+        Some((duration_ms.max(1) + 999) / 1000)
     }
+}
+
+/// 772 `TDrunkenImpact` Power — `drunkness/20` clamped to 6 (`magic.cc:260-263`).
+#[inline]
+pub fn drunk_power_from_xml(drunkness: i32) -> u32 {
+    ((drunkness.max(0) / 20).min(6)) as u32
+}
+
+/// 772 `TSpeedImpact` MDAct from GoStrength Act + percent (`magic.cc:236-245`).
+#[inline]
+pub fn speed_mdact(go_act: i32, percent: i32) -> i32 {
+    if percent < -100 {
+        -go_act - 20
+    } else {
+        (go_act * percent) / 100
+    }
+}
+
+/// C++ `TCombat::GetDistance` — `crcombat.cc:309`.
+///
+/// Monsters are Fist-only (`GetWeapon` Fist=true → distance 1). Ranged spell damage
+/// comes from CASTING + per-spell `shoot_effect`, not a synthetic DistanceAttack.
+pub fn monster_weapon_attack_distance(_melee_skill: i32, _has_ranged_spell: bool) -> i32 {
+    1
 }
 
 /// Target defense/armor inputs for melee (`GetDefendValue` / `GetArmorStrength`).
@@ -516,6 +560,25 @@ fn parse_spell_impact(name: &str, node: &MonsterSpellNode) -> Option<SpellImpact
             variation,
         });
     }
+    // TFS XML `name="poison"` → `COMBAT_EARTHDAMAGE` / 772 `DAMAGE_POISON`
+    // (`monsters.cpp:308-309`). Distinct from `poisoncondition` DoT above.
+    if name.eq_ignore_ascii_case("poison") {
+        let (base, variation) = parse_min_max_damage(node);
+        return Some(SpellImpact::Damage {
+            element: CombatType::Earth,
+            base,
+            variation,
+        });
+    }
+    // TFS XML `name="manadrain"` → `COMBAT_MANADRAIN` (`monsters.cpp:324-325`).
+    if name.eq_ignore_ascii_case("manadrain") {
+        let (base, variation) = parse_min_max_damage(node);
+        return Some(SpellImpact::Damage {
+            element: CombatType::ManaDrain,
+            base,
+            variation,
+        });
+    }
     if name.eq_ignore_ascii_case("healing") {
         let (base, variation) = parse_min_max_healing(node);
         return Some(SpellImpact::Healing { base, variation });
@@ -528,8 +591,36 @@ fn parse_spell_impact(name: &str, node: &MonsterSpellNode) -> Option<SpellImpact
         });
     }
     if name.eq_ignore_ascii_case("drunk") {
+        let drunkness = node
+            .attributes
+            .get("drunkness")
+            .or_else(|| node.attributes.get("drunkenness"))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         return Some(SpellImpact::Drunk {
-            drunkness: parse_attr_i32(node, "drunkness", 0),
+            drunkness,
+            duration: parse_attr_i32(node, "duration", 0),
+        });
+    }
+    if name.eq_ignore_ascii_case("outfit") {
+        let monster = node
+            .attributes
+            .get("monster")
+            .cloned()
+            .filter(|s| !s.is_empty());
+        let item = node
+            .attributes
+            .get("item")
+            .and_then(|s| s.parse::<u16>().ok());
+        return Some(SpellImpact::Outfit {
+            monster,
+            item,
+            duration: parse_attr_i32(node, "duration", 10000),
+        });
+    }
+    if name.eq_ignore_ascii_case("invisible") || name.eq_ignore_ascii_case("invisibility") {
+        return Some(SpellImpact::Invisible {
+            duration: parse_attr_i32(node, "duration", 10000),
         });
     }
     if name.eq_ignore_ascii_case("poisonfield") {
@@ -648,6 +739,12 @@ fn parse_shoot_effect_name(name: &str) -> Option<u8> {
         Some(ShootEffect::BurstArrow as u8)
     } else if name.eq_ignore_ascii_case("throwingstar") {
         Some(ShootEffect::ThrowingStar as u8)
+    } else if name.eq_ignore_ascii_case("throwingknife") {
+        Some(ShootEffect::ThrowingKnife as u8)
+    } else if name.eq_ignore_ascii_case("smallstone") {
+        Some(ShootEffect::SmallStone as u8)
+    } else if name.eq_ignore_ascii_case("largerock") || name.eq_ignore_ascii_case("rock") {
+        Some(ShootEffect::LargeRock as u8)
     } else if name.eq_ignore_ascii_case("snowball") {
         Some(ShootEffect::Snowball as u8)
     } else if name.eq_ignore_ascii_case("powerbolt") {
@@ -1329,7 +1426,10 @@ mod tests {
         assert_eq!(spell.shape, SpellShape::Victim);
         assert!(matches!(
             spell.impact,
-            SpellImpact::Drunk { drunkness: 120 }
+            SpellImpact::Drunk {
+                drunkness: 120,
+                duration: 60000
+            }
         ));
 
         let speed_node = spell_node(
@@ -1372,5 +1472,118 @@ mod tests {
         cfg.immunity_poison = true;
         let m = Monster::with_config(test_creature_base(), Position::new(100, 100, 7), cfg);
         assert!(creature_immune_poison(&CreatureKind::Monster(m)));
+    }
+
+    #[test]
+    fn test_parse_poison_and_manadrain_damage() {
+        let poison = MonsterSpell::try_from_node(&spell_node(
+            "poison",
+            &[("delay", "5"), ("range", "7"), ("min", "-50"), ("max", "-100")],
+            &[("shooteffect", "poison")],
+        ))
+        .expect("poison");
+        assert!(matches!(
+            poison.impact,
+            SpellImpact::Damage {
+                element: CombatType::Earth,
+                ..
+            }
+        ));
+
+        let mana = MonsterSpell::try_from_node(&spell_node(
+            "manadrain",
+            &[("delay", "5"), ("range", "7"), ("min", "-20"), ("max", "-40")],
+            &[],
+        ))
+        .expect("manadrain");
+        assert!(matches!(
+            mana.impact,
+            SpellImpact::Damage {
+                element: CombatType::ManaDrain,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_shoot_knife_rock_stone() {
+        assert_eq!(
+            parse_shoot_effect_name("throwingknife"),
+            Some(ShootEffect::ThrowingKnife as u8)
+        );
+        assert_eq!(
+            parse_shoot_effect_name("smallstone"),
+            Some(ShootEffect::SmallStone as u8)
+        );
+        assert_eq!(
+            parse_shoot_effect_name("largerock"),
+            Some(ShootEffect::LargeRock as u8)
+        );
+    }
+
+    #[test]
+    fn test_parse_outfit_and_invisible() {
+        let outfit = MonsterSpell::try_from_node(&spell_node(
+            "outfit",
+            &[
+                ("delay", "6"),
+                ("duration", "20000"),
+                ("range", "7"),
+                ("monster", "Rabbit"),
+            ],
+            &[],
+        ))
+        .expect("outfit");
+        assert!(matches!(
+            &outfit.impact,
+            SpellImpact::Outfit {
+                monster: Some(name),
+                item: None,
+                duration: 20000,
+            } if name == "Rabbit"
+        ));
+        assert!(!outfit.impact.is_aggressive());
+
+        let invis = MonsterSpell::try_from_node(&spell_node(
+            "invisible",
+            &[("delay", "12"), ("duration", "2000")],
+            &[],
+        ))
+        .expect("invisible");
+        assert!(matches!(
+            invis.impact,
+            SpellImpact::Invisible { duration: 2000 }
+        ));
+        assert!(!invis.impact.is_aggressive());
+    }
+
+    #[test]
+    fn test_drunk_power_and_speed_mdact_helpers() {
+        assert_eq!(drunk_power_from_xml(120), 6);
+        assert_eq!(drunk_power_from_xml(60), 3);
+        assert_eq!(drunk_power_from_xml(140), 6);
+        assert_eq!(duration_ms_to_rounds(30000), Some(30));
+        assert_eq!(duration_ms_to_rounds(3000), Some(3));
+        assert_eq!(speed_mdact(100, 60), 60);
+        assert_eq!(speed_mdact(100, -50), -50);
+        assert_eq!(speed_mdact(100, -120), -120); // -Act - 20
+        assert!(!SpellImpact::Speed {
+            percent: 60,
+            variation: 5,
+            duration: 3000,
+        }
+        .is_aggressive());
+        assert!(SpellImpact::Speed {
+            percent: -75,
+            variation: 25,
+            duration: 15000,
+        }
+        .is_aggressive());
+    }
+
+    #[test]
+    fn test_fist_only_weapon_distance() {
+        assert_eq!(monster_weapon_attack_distance(0, true), 1);
+        assert_eq!(monster_weapon_attack_distance(50, false), 1);
     }
 }

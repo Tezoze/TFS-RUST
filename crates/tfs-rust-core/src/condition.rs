@@ -15,7 +15,10 @@ pub enum ConditionData {
         flat_delta: i32,
     },
     Outfit {
+        /// Illusion lookType (creature look). `0` when using look_type_ex only.
         look_type: i32,
+        /// Item illusion lookTypeEx (TFS `outfit.lookTypeEx` / XML `item=`).
+        look_type_ex: u16,
     },
     Light {
         level: u8,

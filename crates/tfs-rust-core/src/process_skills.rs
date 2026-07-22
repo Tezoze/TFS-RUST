@@ -168,6 +168,8 @@ impl GameWorld {
                     }
                     ConditionType::Light
                     | ConditionType::Invisible
+                    | ConditionType::Outfit
+                    | ConditionType::Drunk
                     | ConditionType::ManaShield
                     | ConditionType::Infight => {
                         if let Some(left) = cond.timer_rounds_left {
@@ -245,6 +247,8 @@ impl GameWorld {
                     | ConditionType::Muted
                     | ConditionType::ChannelMutedTicks
                     | ConditionType::Invisible
+                    | ConditionType::Outfit
+                    | ConditionType::Drunk
                     | ConditionType::ManaShield
                     | ConditionType::Light
                     | ConditionType::Infight => {

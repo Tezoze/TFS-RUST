@@ -1330,6 +1330,11 @@ impl GameWorld {
                     self.announce_condition_outfit(cid, /*started=*/ false);
                 }
             }
+            ConditionType::Drunk => {
+                if let Some(kind) = self.creatures.get_mut(cid) {
+                    kind.base_mut().drunkenness = 0;
+                }
+            }
             _ => {}
         }
         if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
@@ -1363,15 +1368,18 @@ impl GameWorld {
         let pos = kind.position();
         let wire_id = crate::login_out::creature_wire_id(cid, kind);
         let outfit = if started {
-            let look_type = kind
+            let (look_type, look_type_ex) = kind
                 .base()
                 .active_conditions
                 .iter()
                 .find_map(|c| match c.data {
-                    ConditionData::Outfit { look_type } => Some(look_type),
+                    ConditionData::Outfit {
+                        look_type,
+                        look_type_ex,
+                    } => Some((look_type, look_type_ex)),
                     _ => None,
                 })
-                .unwrap_or(0);
+                .unwrap_or((0, 0));
             let o = &kind.base().outfit;
             tfs_rust_net::creature_encode::OutfitWire {
                 look_type: look_type.max(0) as u16,
@@ -1381,7 +1389,7 @@ impl GameWorld {
                 look_feet: o.look_feet.clamp(0, 255) as u8,
                 look_addons: o.look_addons.clamp(0, 255) as u8,
                 look_mount: 0,
-                look_type_ex: 0,
+                look_type_ex,
             }
         } else {
             let o = &kind.base().outfit;
@@ -1445,6 +1453,7 @@ pub(crate) fn active_condition_from_apply_spec(
         ConditionType::Outfit => (
             ConditionData::Outfit {
                 look_type: spec.look_type,
+                look_type_ex: 0,
             },
             rounds_from_ticks,
         ),

@@ -527,3 +527,13 @@
 243. **Dead-connection map presence** (`connections.cc:37-38`, `crmain.cc:404-426`, `:1113-1124`): `Logout(0, false)` clears the connection then `StartLogout(false, false)` — body stays until `LogoutPossible` (combat lock / no-logout field). Idle kick uses `StopFight=true` (clears attack immediately); command-timeout / TCP shed uses `false` (`StopAttack(60)`). `BlockLogout` must not extend `EarliestLogoutRound` when `Connection == NULL` (`crmain.cc:444-448`). *(July 2026)*
 
 244. **Relog TakeOver keeps the live body** (`connections.cc:231-252`, `crplayer.cc:721-775`): If `player_by_guid` exists — reject when dead or `LoggingOut && LogoutPossible==0`; else detach old TCP **without** `StartLogout` (CharacterID already 0), clear `LoggingOut`/`LogoutAllowed`, `StopAttack(0)`, leave channels, close containers, re-send login packets. Do **not** spawn a second creature from the DB load. *(July 2026)*
+
+245. **Monster CASTING physical AllowDefense + armor** (`magic.cc:147-151`, `crmain.cc:624`): CASTING builds `TDamageImpact(..., AllowDefense=true)`. Rust must run the same defend+armor path as Lua AoE `BLOCKSHIELD`/`BLOCKARMOR` before HP apply — shared `mitigate_physical_spell_damage`. Non-physical elements skip both. *(July 2026 — monster combat audit)*
+
+246. **Speed MDAct is percent of Go Act, not raw XML percent** (`magic.cc:226-250`): `flat_delta = (base_speed × percent) / 100`; if `percent < -100` → `-Act - 20`. Duration ms→ProcessSkills rounds. Haste (percent≥0) is non-aggressive so Target=0 defenses still cast. *(July 2026 — monster combat audit)*
+
+247. **Drunk Power = drunkness/20 clamp 6** (`magic.cc:260-286`): XML keeps raw `drunkness` (e.g. 120); store `drunkenness` Power 0..=6 + Drunk condition timer. Clear Power on timer end. *(July 2026 — monster combat audit)*
+
+248. **CASTING Target is `follow_target`, not AttackDest** (`crnonpl.cc:2572`, `monster_targets.rs`): Rust `follow_target` = C++ `Target`; `attack_target` = `Combat.AttackDest` (melee SetAttackDest only when Fist>0). Aim spells at `follow_target` only. Fist-only Attack: never synthesize DistanceAttack range 3 for spellcasters. *(July 2026 — monster combat audit)*
+
+249. **Invisible stays CONDITION_INVISIBLE** (assassin.mon Outfit(0) parity): TFS XML `name="invisible"` → `ConditionType::Invisible`, not empty Outfit. Outfit illusions use `ConditionOutfit` (`monster=` / `item=`). *(July 2026 — monster combat audit)*
