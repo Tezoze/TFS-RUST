@@ -75,6 +75,8 @@ impl GameWorld {
         });
 
         if let Some(p) = pos {
+            // 772 `TNPC::CreatureMoveStimulus` with OBJECT_DELETED — prune queue / VANISH focus.
+            self.npc_dispatch_creature_move(id, p, p, true);
             // Players only at INFO — monster/NPC death used to spam this on every kill and
             // made mass-death (UE) look like a logout storm while adding log I/O cost.
             if player_cleanup.is_some() {

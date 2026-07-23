@@ -56,6 +56,19 @@ formulas = {
   spell = { levelMult = 2, magicMult = 3 },  -- ComputeDamage; Player:computeDamage reads these
   pvpExpCap = { num = 11, den = 10 },
   playerSpeed = "772",      -- "772" | "retail" | "balanced" (loaded once at startup)
+
+  -- NPC-4/6: classic dialogue stimulus and timing (`crnonpl.cc` / `operate.cc`).
+  npc = {
+    speechRangeX = 3,
+    speechRangeY = 3,
+    focusRangeX = 5,
+    focusRangeY = 4,
+    conversationTimeoutRounds = 30,
+    numericCaptureCap = 500,
+    replyInitialDelayMs = 1000,
+    replyBaseDelayMs = 3100,
+    replyByteFactorMs = 100,
+  },
 }
 
 -- Player speed model selector ------------------------------------------------------------

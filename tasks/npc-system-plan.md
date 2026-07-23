@@ -1,6 +1,6 @@
 # NPC system audit and implementation plan — 772 outcomes, TFS flexibility
 
-**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; speech/focus matching not started
+**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; NPC-4 speech/focus/matching done (mutating actions deferred to NPC-5; ToDo reply scheduling deferred to NPC-6)
 **Primary target:** exact observable 772 NPC outcomes
 **Domain:** TFS-style `Npc` / `NpcType`, Lua content and userdata APIs
 **Implementation:** idiomatic Rust on the game thread; LuaJIT for content hooks
@@ -482,15 +482,17 @@ Affected files:
 
 Work:
 
-- [ ] Add same-floor normal-say NPC stimulus collection at profile range.
-- [ ] Implement queued-single-focus and opt-in per-player policies.
-- [ ] Implement address/default/busy/vanish/queued-address transitions.
-- [ ] Implement deterministic matching, boundaries, numeric capture, condition-count selection, `!`, and `*`.
-- [ ] Remove invalid/out-of-range queued players and deduplicate queue entries.
-- [ ] Turn NPCs toward active interlocutors.
-- [ ] Add exact two-player queue, range, timeout, topic-reset, tie-break, and capture tests.
+- [x] Add same-floor normal-say NPC stimulus collection at profile range.
+- [x] Implement queued-single-focus and opt-in per-player policies.
+- [x] Implement address/default/busy/vanish/queued-address transitions.
+- [x] Implement deterministic matching, boundaries, numeric capture, condition-count selection, `!`, and `*`.
+- [x] Remove invalid/out-of-range queued players and deduplicate queue entries.
+- [x] Turn NPCs toward active interlocutors.
+- [x] Add exact two-player queue, range, timeout, topic-reset, tie-break, and capture tests.
 
 **Gate:** pure dialogue/state traces match NPC-0 fixtures before adding mutating actions.
+
+**NPC-4 deliverables:** `crates/tfs-rust-core/src/npc/` (`words`/`match_rule`/`expr`/`react`/`focus`/`stimulus`); `MechanicsProfile::npc` + `data/formulas/{772,1098}.lua` knobs; SAY → `deliver_npc_say_stimuli`; move/timeout hooks. Mutating actions emit `DeferredAction` until NPC-5; reply ToDo drain lands in NPC-6.
 
 ### NPC-5 — Standard actions and immediate mutation
 

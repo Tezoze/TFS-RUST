@@ -55,6 +55,7 @@ mod monster_distance_step;
 mod monster_events;
 mod monster_push;
 mod monster_targets;
+mod npc;
 mod obs;
 pub mod output_queue;
 pub mod party;
@@ -135,8 +136,8 @@ pub use cylinder::{
 pub use event_dispatcher::{EventDispatcher, NullEventDispatcher, TalkActionResult};
 pub use formulas::{
     load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DistanceKeep, FightModes,
-    FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, PathCostModel, PathSearchModel,
-    SpawnNearPlayer, SpellCoeff, TickSpec, WeakestTargetMetric,
+    FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, NpcTuning, PathCostModel,
+    PathSearchModel, SpawnNearPlayer, SpellCoeff, TickSpec, WeakestTargetMetric,
 };
 pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
 pub use game_world::GameWorld;

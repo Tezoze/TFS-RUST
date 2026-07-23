@@ -3,7 +3,7 @@
 //! Domain: TFS-style `Npc` instance; definitions live in [`tfs_rust_content::npcs::NpcDatabase`].
 //! C++ reference: `Npc` (`npc.h`); 772 runtime state shaped after `TNonPlayer` behaviour focus.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use tfs_rust_common::Position;
 use tfs_rust_content::npcs::{DialoguePolicy, NpcTypeId};
@@ -11,7 +11,7 @@ use tfs_rust_content::npcs::{DialoguePolicy, NpcTypeId};
 use crate::creature::base::CreatureBase;
 use crate::ids::CreatureId;
 
-/// Per-instance NPC activity (772 sleep/wake / talk / leave). Matching in NPC-4+.
+/// Per-instance NPC activity (772 sleep/wake / talk / leave).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NpcActivity {
     Sleeping,
@@ -21,7 +21,26 @@ pub enum NpcActivity {
     Leaving,
 }
 
-/// Game-thread-only conversation / roam state. Focus/queue filled in NPC-4.
+/// One FIFO wait-queue entry (`QueuedPlayers` + `QueuedAddresses`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuedNpcAddress {
+    pub player: CreatureId,
+    pub text: String,
+}
+
+/// Per-player session vars when [`DialoguePolicy::PerPlayer`] is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct NpcPlayerSession {
+    pub topic: i32,
+    pub price: i32,
+    pub amount: i32,
+    pub item_type: i32,
+    pub data: i32,
+    pub last_talk_round: u32,
+    pub active: bool,
+}
+
+/// Game-thread-only conversation / roam state.
 #[derive(Debug, Clone)]
 pub struct NpcRuntimeState {
     pub activity: NpcActivity,
@@ -37,7 +56,9 @@ pub struct NpcRuntimeState {
     /// Next roam attempt deadline in `server_ms` (NPC-6).
     pub next_walk: Option<u64>,
     pub focus: Option<CreatureId>,
-    pub queue: VecDeque<CreatureId>,
+    pub queue: VecDeque<QueuedNpcAddress>,
+    /// Opt-in per-player sessions ([`DialoguePolicy::PerPlayer`]).
+    pub player_sessions: HashMap<CreatureId, NpcPlayerSession>,
 }
 
 impl NpcRuntimeState {
@@ -57,7 +78,15 @@ impl NpcRuntimeState {
             next_walk: None,
             focus: None,
             queue: VecDeque::new(),
+            player_sessions: HashMap::new(),
         }
+    }
+
+    /// Whether the NPC is currently holding a conversation (or has waiters).
+    pub fn is_engaged(&self) -> bool {
+        matches!(self.activity, NpcActivity::Talking | NpcActivity::Leaving)
+            || !self.queue.is_empty()
+            || self.focus.is_some()
     }
 }
 

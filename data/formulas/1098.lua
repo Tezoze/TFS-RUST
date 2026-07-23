@@ -57,6 +57,19 @@ formulas = {
   spell = { levelMult = 2, magicMult = 3 }, -- ComputeDamage / Player:computeDamage
   pvpExpCap = { num = 11, den = 10 },
   playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
+
+  -- Classic NPC stimulus defaults (shared until a TFS-specific audit).
+  npc = {
+    speechRangeX = 3,
+    speechRangeY = 3,
+    focusRangeX = 5,
+    focusRangeY = 4,
+    conversationTimeoutRounds = 30,
+    numericCaptureCap = 500,
+    replyInitialDelayMs = 1000,
+    replyBaseDelayMs = 3100,
+    replyByteFactorMs = 100,
+  },
 }
 
 -- Player speed model selector ------------------------------------------------------------

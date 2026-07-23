@@ -131,6 +131,8 @@ impl GameWorld {
                 // `internalCreatureSay`'s normal-range spectator lookup + per-viewer
                 // `sendCreatureSay` + (CH-1) `on_creature_say`/`on_hear` event hooks.
                 self.broadcast_creature_say_viewport(cid, TALKTYPE_SAY, text);
+                // 772 `Talk` NPC stimulus after player SAY — `operate.cc:2451-2468`.
+                crate::npc::deliver_npc_say_stimuli(self, cid, text);
             }
             TALKTYPE_WHISPER => {
                 // C++ `playerWhisper(player, text)` — `game.cpp:3240-3241, 3400-3422`.

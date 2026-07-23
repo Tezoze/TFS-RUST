@@ -250,6 +250,46 @@ pub struct SpellCoeff {
     pub magic_mult: i32,
 }
 
+/// Classic NPC dialogue / stimulus knobs (772 `TalkStimulus` / `IdleStimulus` / `react`).
+///
+/// Domain: TFS NPC runtime; outcomes from `crnonpl.cc` / `operate.cc` / `strings.cc`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NpcTuning {
+    /// `TFindCreatures(speech_range_x, speech_range_y, …)` half-extent (`operate.cc:2452`).
+    pub speech_range_x: u16,
+    pub speech_range_y: u16,
+    /// Focus / queue keep range: `|dx| < focus_range_x` and `|dy| < focus_range_y` (`crnonpl.cc:1821`).
+    pub focus_range_x: i32,
+    pub focus_range_y: i32,
+    /// Conversation timeout rounds after `LastTalk` (`crnonpl.cc:1720`).
+    pub conversation_timeout_rounds: u32,
+    /// Cap for `%1` / `%2` numeric captures (`crnonpl.cc:1041`).
+    pub numeric_capture_cap: i32,
+    /// Initial `TalkDelay` before first reply (`crnonpl.cc:1087`).
+    pub reply_initial_delay_ms: u32,
+    /// Added after each reply before length factor (`crnonpl.cc:1113`).
+    pub reply_base_delay_ms: u32,
+    /// `(byte_len / 2) * reply_byte_factor_ms` (`crnonpl.cc:1113`).
+    pub reply_byte_factor_ms: u32,
+}
+
+impl NpcTuning {
+    /// 772 defaults from `tibia-game-master`.
+    pub const fn classic_772() -> Self {
+        Self {
+            speech_range_x: 3,
+            speech_range_y: 3,
+            focus_range_x: 5,
+            focus_range_y: 4,
+            conversation_timeout_rounds: 30,
+            numeric_capture_cap: 500,
+            reply_initial_delay_ms: 1000,
+            reply_base_delay_ms: 3100,
+            reply_byte_factor_ms: 100,
+        }
+    }
+}
+
 /// Era-tuned mechanics knobs (Tier-1). `Copy` — read freely on the game thread, no per-call cost.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MechanicsProfile {
@@ -322,6 +362,8 @@ pub struct MechanicsProfile {
     pub skill_tries: SkillTriesTuning,
     /// Item decay / cron deadline clock — 772 `RoundNr`, 1098 movement `server_ms` (DEC-3).
     pub decay_clock: DecayClockModel,
+    /// NPC speech stimulus, focus keep, timeout, capture, and reply timing.
+    pub npc: NpcTuning,
 }
 
 /// Which logical clock drives item decay deadlines for the active era.
@@ -393,6 +435,7 @@ impl MechanicsProfile {
                 classic_equipment_slots: true,
                 skill_tries: SkillTriesTuning::classic(),
                 decay_clock: DecayClockModel::RoundNumber,
+                npc: NpcTuning::classic_772(),
             },
             1098 => Self {
                 beat_ms: 50,
@@ -447,6 +490,8 @@ impl MechanicsProfile {
                 classic_equipment_slots: false,
                 skill_tries: SkillTriesTuning::classic(),
                 decay_clock: DecayClockModel::ServerMilliseconds,
+                // Same classic stimulus/timeout numbers until a TFS-specific audit lands (NPC-6).
+                npc: NpcTuning::classic_772(),
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -892,6 +937,37 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     if let Ok(Value::Table(pvp)) = formulas.get::<Value>("pvpExpCap") {
         p.pvp_exp_cap_num = num_or(lua, &pvp, "num", p.pvp_exp_cap_num as i64).max(0) as u32;
         p.pvp_exp_cap_den = num_or(lua, &pvp, "den", p.pvp_exp_cap_den as i64).max(1) as u32;
+    }
+
+    if let Ok(Value::Table(npc)) = formulas.get::<Value>("npc") {
+        p.npc.speech_range_x =
+            num_or(lua, &npc, "speechRangeX", p.npc.speech_range_x as i64).max(0) as u16;
+        p.npc.speech_range_y =
+            num_or(lua, &npc, "speechRangeY", p.npc.speech_range_y as i64).max(0) as u16;
+        p.npc.focus_range_x =
+            num_or(lua, &npc, "focusRangeX", p.npc.focus_range_x as i64).max(1) as i32;
+        p.npc.focus_range_y =
+            num_or(lua, &npc, "focusRangeY", p.npc.focus_range_y as i64).max(1) as i32;
+        p.npc.conversation_timeout_rounds = num_or(
+            lua,
+            &npc,
+            "conversationTimeoutRounds",
+            p.npc.conversation_timeout_rounds as i64,
+        )
+        .max(1) as u32;
+        p.npc.numeric_capture_cap =
+            num_or(lua, &npc, "numericCaptureCap", p.npc.numeric_capture_cap as i64).max(0) as i32;
+        p.npc.reply_initial_delay_ms = num_or(
+            lua,
+            &npc,
+            "replyInitialDelayMs",
+            p.npc.reply_initial_delay_ms as i64,
+        )
+        .max(0) as u32;
+        p.npc.reply_base_delay_ms =
+            num_or(lua, &npc, "replyBaseDelayMs", p.npc.reply_base_delay_ms as i64).max(0) as u32;
+        p.npc.reply_byte_factor_ms =
+            num_or(lua, &npc, "replyByteFactorMs", p.npc.reply_byte_factor_ms as i64).max(0) as u32;
     }
 
     p

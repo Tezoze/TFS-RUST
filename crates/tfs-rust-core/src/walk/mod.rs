@@ -2254,6 +2254,7 @@ impl GameWorld {
             k.set_position(to);
         }
         self.monster_dispatch_creature_move(cid, from, to);
+        self.npc_dispatch_creature_move(cid, from, to, false);
     }
 
     /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).
