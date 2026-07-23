@@ -10,6 +10,9 @@ pub mod constants;
 pub mod context;
 pub mod lua_mutation;
 pub mod move_events;
+pub mod npc_dialogue;
+pub mod npc_loader;
+pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
 pub mod talkactions;
@@ -35,6 +38,8 @@ pub use lua_mutation::{
     set_mutation_item_result, with_lua_mutation_scope,
 };
 pub use move_events::{MoveEventEntry, MoveEventKind, MoveEventsRegistry};
+pub use npc_dialogue::{NpcDialogueProgram, register_npc_dialogue};
+pub use npc_type::{NpcTypeBuilder, PendingNpc, register_npc_type};
 pub use runtime::{
     CallbackRef, LuaError, LuaRuntime, PendingChatChannel, PendingTalkAction, RegisterLuaFunctions,
 };

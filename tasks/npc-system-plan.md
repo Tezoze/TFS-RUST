@@ -1,6 +1,6 @@
 # NPC system audit and implementation plan — 772 outcomes, TFS flexibility
 
-**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; runtime implementation not started
+**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; runtime spawn/matching not started
 **Primary target:** exact observable 772 NPC outcomes
 **Domain:** TFS-style `Npc` / `NpcType`, Lua content and userdata APIs
 **Implementation:** idiomatic Rust on the game thread; LuaJIT for content hooks
@@ -416,14 +416,16 @@ Affected files:
 
 Work:
 
-- [ ] Add typed ids, definitions, rules, expressions, source spans, policies, voices, callbacks, and shops.
-- [ ] Register `NpcType` / `NpcDialogue` constructors and methods.
-- [ ] Load `data/npc/scripts/definitions/**/*.lua` deterministically.
-- [ ] Validate duplicate names, invalid item ids, impossible expressions, missing callbacks, and malformed definitions.
-- [ ] Freeze definitions into `Arc<NpcDatabase>` and expose no mutable definition references.
-- [ ] Add loader unit tests and duplicate/error diagnostics tests.
+- [x] Add typed ids, definitions, rules, expressions, source spans, policies, voices, callbacks, and shops.
+- [x] Register `NpcType` / `NpcDialogue` constructors and methods.
+- [x] Load `data/npc/scripts/definitions/**/*.lua` deterministically.
+- [x] Validate duplicate names, invalid item ids, impossible expressions, missing callbacks, and malformed definitions.
+- [x] Freeze definitions into `Arc<NpcDatabase>` and expose no mutable definition references.
+- [x] Add loader unit tests and duplicate/error diagnostics tests.
 
 **Gate:** a handwritten declarative NPC loads without `GameWorld` and produces a stable definition snapshot.
+
+**NPC-1 deliverables:** `crates/tfs-rust-content/src/npcs/`; `crates/tfs-rust-lua/src/{npc_type,npc_dialogue,npc_loader}.rs`; smoke `data/npc/scripts/definitions/greeting.lua`.
 
 ### NPC-2 — Offline legacy importer
 

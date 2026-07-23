@@ -5,6 +5,7 @@ pub mod items;
 mod items_xml_keys;
 pub mod monsters;
 pub mod mounts;
+pub mod npcs;
 pub mod objects_srv;
 pub mod otb;
 pub mod otb_patch;

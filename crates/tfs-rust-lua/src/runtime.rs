@@ -11,6 +11,8 @@ use std::rc::Rc;
 
 use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
+use crate::npc_dialogue::register_npc_dialogue;
+use crate::npc_type::register_npc_type;
 use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
@@ -45,6 +47,9 @@ pub struct LuaRuntime {
     /// PC-3a: `onUseWeapon` callbacks keyed by item id (`weapon:{id}`).
     /// C++ `Weapon::executeUseWeapon` — `weapons.cpp:485`.
     weapon_callbacks: HashMap<u16, RegistryKey>,
+    /// NPC-1: custom predicate/action callbacks keyed by opaque [`tfs_rust_content::npcs::NpcCallbackId`].
+    /// Content defs store the id; RegistryKeys stay here (!Send, game thread).
+    pub(crate) npc_callbacks: HashMap<tfs_rust_content::npcs::NpcCallbackId, RegistryKey>,
 }
 
 /// Pending channel definition from Lua Channel:register().
@@ -115,6 +120,10 @@ impl LuaRuntime {
         crate::combat_enums::register_combat_enums(&lua).map_err(LuaError::Registration)?;
         register_do_challenge_creature(&lua).map_err(LuaError::Registration)?;
 
+        // NPC-1: NpcType / NpcDialogue definition builders (no GameWorld).
+        register_npc_dialogue(&lua).map_err(LuaError::Registration)?;
+        register_npc_type(&lua).map_err(LuaError::Registration)?;
+
         // Initialize pending channel buffer for Channel:register()
         let pending_channels = lua.create_table()?;
         lua.globals().set("_pending_channels", pending_channels)?;
@@ -123,6 +132,13 @@ impl LuaRuntime {
         let pending_talkactions = lua.create_table()?;
         lua.globals()
             .set("_pending_talkactions", pending_talkactions)?;
+
+        // NPC-1 pending buffers (also re-init'd in load_npc_definitions).
+        lua.globals().set("_pending_npcs", lua.create_table()?)?;
+        lua.globals()
+            .set("_pending_npc_action_callbacks", lua.create_table()?)?;
+        lua.globals()
+            .set("_pending_npc_predicate_callbacks", lua.create_table()?)?;
 
         // `addEvent` / `stopEvent` globals (C++ `luascript.cpp:1126-1130`).
         // The `TimerScheduler` thread-local is set later from `run_server.rs`;
@@ -143,6 +159,7 @@ impl LuaRuntime {
             pending_talkactions: Vec::new(),
             spell_callbacks: HashMap::new(),
             weapon_callbacks: HashMap::new(),
+            npc_callbacks: HashMap::new(),
         })
     }
 

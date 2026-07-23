@@ -16,7 +16,9 @@
 - [x] NPC-0 — Freeze corpus inventory and differential parity traces
   - Inventory: `scripts/npc_corpus_inventory.py` → `tasks/npc-corpus-inventory.{json,md}` (337 `.npc` + 39 `.ndb` + 165 includes; unsupported: `String`/`Bless`/`Town`/`Promote` + 4 non-utf8 files)
   - Black-box fixtures: `tests/fixtures/npc/` + `scripts/validate_npc_fixtures.py` (no live C++ harness)
-- [ ] NPC-1 — Add typed definitions and `NpcType` / `NpcDialogue` Lua registration
+- [x] NPC-1 — Add typed definitions and `NpcType` / `NpcDialogue` Lua registration
+  - Content: `crates/tfs-rust-content/src/npcs/` (`NpcDatabase`, dialogue enums, validate)
+  - Lua: `npc_type.rs` / `npc_dialogue.rs` / `npc_loader.rs`; smoke `data/npc/scripts/definitions/greeting.lua`
 - [ ] NPC-2 — Add offline legacy importer and full-corpus validation
 - [ ] NPC-3 — Wire NPC definitions into spawn/type initialization
 - [ ] NPC-4 — Implement speech stimulus, focus, queue, and rule matching
