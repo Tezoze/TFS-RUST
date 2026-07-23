@@ -18,8 +18,13 @@
   - Black-box fixtures: `tests/fixtures/npc/` + `scripts/validate_npc_fixtures.py` (no live C++ harness)
 - [x] NPC-1 — Add typed definitions and `NpcType` / `NpcDialogue` Lua registration
   - Content: `crates/tfs-rust-content/src/npcs/` (`NpcDatabase`, dialogue enums, validate)
-  - Lua: `npc_type.rs` / `npc_dialogue.rs` / `npc_loader.rs`; smoke `data/npc/scripts/definitions/greeting.lua`
-- [ ] NPC-2 — Add offline legacy importer and full-corpus validation
+  - Lua: `npc_type.rs` / `npc_dialogue.rs` / `npc_loader.rs`; smoke `data/npc/scripts/greeting.lua`
+- [x] NPC-2 — Add offline legacy importer and full-corpus validation
+  - Importer: `crates/tfs-rust-content/src/npc_import/` (reference `cipsoft-772/runtime/npc` authority; reject `String`/`Bless`/`Town`/`Promote`)
+  - CLI: `cargo run -p tfs-rust-lua --bin import-npcs -- --root … --out … --validate-data-dir data`
+  - Tests: parse-all 337, goldens albert/quentin/suzy(+bank), Lua round-trip
+  - Generated: 337 Lua defs under `data/npc/scripts/`
+  - Archived: `data/npc/archive/{xml,behavior}/` (old `behavior=` pack); 9 `script=` XMLs stay live for NPC-7
 - [ ] NPC-3 — Wire NPC definitions into spawn/type initialization
 - [ ] NPC-4 — Implement speech stimulus, focus, queue, and rule matching
 - [ ] NPC-5 — Implement standard immediate actions

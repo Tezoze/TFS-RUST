@@ -77,11 +77,16 @@ pub enum ExprOp {
 pub enum DialogueExpr {
     Lit(i32),
     Session(SessionVar),
+    /// `%1` / `%2` captured numeric word (runtime value).
+    Capture {
+        slot: u8,
+    },
     Hp,
     Burning,
     Poison,
+    /// `Count(item)` — item may be a literal id or session `Type`.
     Count {
-        item_id: u16,
+        item: Box<DialogueExpr>,
     },
     CountMoney,
     Level,
@@ -93,11 +98,13 @@ pub enum DialogueExpr {
         lo: i32,
         hi: i32,
     },
+    /// `SpellKnown(spell)` — spell may be a literal id or session `Type`.
     SpellKnown {
-        spell_id: u32,
+        spell: Box<DialogueExpr>,
     },
+    /// `SpellLevel(spell)` — spell may be a literal id or session `Type`.
     SpellLevel {
-        spell_id: u32,
+        spell: Box<DialogueExpr>,
     },
     Binary {
         op: ExprOp,
@@ -172,16 +179,15 @@ pub enum DialogueAction {
     Nop {
         span: SourceSpan,
     },
-    StartPosition {
-        span: SourceSpan,
-    },
+    /// `Create(item[, count])` — item may be literal or session `Type`.
     Create {
-        item_id: u16,
+        item: DialogueExpr,
         count: DialogueExpr,
         span: SourceSpan,
     },
+    /// `Delete(item[, count])` — item may be literal or session `Type`.
     Delete {
-        item_id: u16,
+        item: DialogueExpr,
         count: DialogueExpr,
         span: SourceSpan,
     },
@@ -193,12 +199,16 @@ pub enum DialogueAction {
         amount: DialogueExpr,
         span: SourceSpan,
     },
+    /// 772 `Burning(cycles, param)` action (condition reads use [`DialogueExpr::Burning`]).
     Burning {
-        value: DialogueExpr,
+        cycles: DialogueExpr,
+        param: DialogueExpr,
         span: SourceSpan,
     },
+    /// 772 `Poison(cycles, param)` action (condition reads use [`DialogueExpr::Poison`]).
     Poison {
-        value: DialogueExpr,
+        cycles: DialogueExpr,
+        param: DialogueExpr,
         span: SourceSpan,
     },
     EffectMe {
@@ -215,21 +225,29 @@ pub enum DialogueAction {
         span: SourceSpan,
     },
     Profession {
-        vocation_id: u16,
+        /// Vocation id expression (literal or session `Type`).
+        vocation: DialogueExpr,
         span: SourceSpan,
     },
+    /// `TeachSpell(spell)` — spell may be literal or session `Type`.
     TeachSpell {
-        spell_id: u32,
+        spell: DialogueExpr,
         span: SourceSpan,
     },
     Summon {
-        monster_name: String,
+        /// Monster type id or name (772 often uses numeric race/monster ids).
+        monster: String,
         span: SourceSpan,
     },
     Teleport {
         x: i32,
         y: i32,
         z: i32,
+        span: SourceSpan,
+    },
+    /// Return player to temple / set start; optional explicit coordinates.
+    StartPosition {
+        pos: Option<(i32, i32, i32)>,
         span: SourceSpan,
     },
     /// `*` — re-execute the previously declared rule's actions.

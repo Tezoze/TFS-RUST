@@ -1,6 +1,6 @@
 //! Immutable NPC definition database — Lua `NpcType` / `NpcDialogue` registrations.
 //!
-//! Domain: TFS-style NPC content (`npc.cpp` / `NpcType`) under `data/npc/scripts/definitions/`.
+//! Domain: TFS-style NPC content (`npc.cpp` / `NpcType`) under `data/npc/scripts/`.
 //! 772 outcomes preserved later via importer → these types; runtime matching in NPC-4+.
 //!
 //! C++ reference (metadata shape): `tibia-game-master` `.npc` Name/Sex/Race/Outfit/Home/Radius/

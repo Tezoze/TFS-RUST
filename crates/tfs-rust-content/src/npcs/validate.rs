@@ -225,32 +225,36 @@ fn validate_action(
         DialogueAction::SetSession { expr, .. } | DialogueAction::SetHp { expr, .. } => {
             validate_expr(file, &format!("{loc}.expr"), expr, items)?;
         }
-        DialogueAction::Create { item_id, count, .. }
-        | DialogueAction::Delete { item_id, count, .. } => {
-            if let Some(db) = items {
-                if !db.items.contains_key(item_id) {
-                    return Err(NpcValidateError::content(
-                        file,
-                        format!("{loc}: unknown item id {item_id}"),
-                    ));
-                }
-            }
+        DialogueAction::Create { item, count, .. } | DialogueAction::Delete { item, count, .. } => {
+            validate_item_expr(file, &format!("{loc}.item"), item, items)?;
             validate_expr(file, &format!("{loc}.count"), count, items)?;
         }
-        DialogueAction::CreateMoney { amount, .. }
-        | DialogueAction::DeleteMoney { amount, .. }
-        | DialogueAction::Burning { value: amount, .. }
-        | DialogueAction::Poison { value: amount, .. } => {
+        DialogueAction::CreateMoney { amount, .. } | DialogueAction::DeleteMoney { amount, .. } => {
             validate_expr(file, &format!("{loc}.amount"), amount, items)?;
+        }
+        DialogueAction::Burning {
+            cycles, param, ..
+        }
+        | DialogueAction::Poison {
+            cycles, param, ..
+        } => {
+            validate_expr(file, &format!("{loc}.cycles"), cycles, items)?;
+            validate_expr(file, &format!("{loc}.param"), param, items)?;
         }
         DialogueAction::SetQuestValue { value, .. } => {
             validate_expr(file, &format!("{loc}.value"), value, items)?;
         }
-        DialogueAction::Summon { monster_name, .. } => {
-            if monster_name.trim().is_empty() {
+        DialogueAction::TeachSpell { spell, .. } => {
+            validate_expr(file, &format!("{loc}.spell"), spell, items)?;
+        }
+        DialogueAction::Profession { vocation, .. } => {
+            validate_expr(file, &format!("{loc}.vocation"), vocation, items)?;
+        }
+        DialogueAction::Summon { monster, .. } => {
+            if monster.trim().is_empty() {
                 return Err(NpcValidateError::content(
                     file,
-                    format!("{loc}: summon monster name must not be empty"),
+                    format!("{loc}: summon monster must not be empty"),
                 ));
             }
         }
@@ -270,10 +274,27 @@ fn validate_action(
         | DialogueAction::StartPosition { .. }
         | DialogueAction::EffectMe { .. }
         | DialogueAction::EffectOpp { .. }
-        | DialogueAction::Profession { .. }
-        | DialogueAction::TeachSpell { .. }
         | DialogueAction::Teleport { .. }
         | DialogueAction::RepeatPrevious { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_item_expr(
+    file: &str,
+    loc: &str,
+    expr: &DialogueExpr,
+    items: Option<&ItemDatabase>,
+) -> Result<(), NpcValidateError> {
+    validate_expr(file, loc, expr, items)?;
+    if let (Some(db), DialogueExpr::Lit(id)) = (items, expr) {
+        let item_id = *id as u16;
+        if *id < 0 || *id > u16::MAX as i32 || !db.items.contains_key(&item_id) {
+            return Err(NpcValidateError::content(
+                file,
+                format!("{loc}: unknown item id {id}"),
+            ));
+        }
     }
     Ok(())
 }
@@ -293,31 +314,26 @@ fn validate_expr(
                 ));
             }
         }
-        DialogueExpr::Count { item_id } => {
-            if let Some(db) = items {
-                if !db.items.contains_key(item_id) {
-                    return Err(NpcValidateError::content(
-                        file,
-                        format!("{loc}: unknown item id {item_id} in count()"),
-                    ));
-                }
-            }
+        DialogueExpr::Count { item } => {
+            validate_item_expr(file, &format!("{loc}.count"), item, items)?;
         }
         DialogueExpr::Binary { lhs, rhs, .. } => {
             validate_expr(file, loc, lhs, items)?;
             validate_expr(file, loc, rhs, items)?;
         }
+        DialogueExpr::SpellKnown { spell } | DialogueExpr::SpellLevel { spell } => {
+            validate_expr(file, loc, spell, items)?;
+        }
         DialogueExpr::Lit(_)
         | DialogueExpr::Session(_)
+        | DialogueExpr::Capture { .. }
         | DialogueExpr::Hp
         | DialogueExpr::Burning
         | DialogueExpr::Poison
         | DialogueExpr::CountMoney
         | DialogueExpr::Level
         | DialogueExpr::MagicLevel
-        | DialogueExpr::QuestValue { .. }
-        | DialogueExpr::SpellKnown { .. }
-        | DialogueExpr::SpellLevel { .. } => {}
+        | DialogueExpr::QuestValue { .. } => {}
     }
     Ok(())
 }

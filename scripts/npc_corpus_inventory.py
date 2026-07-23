@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Generate a full-corpus inventory of data/npc/behavior legacy NPC scripts.
+"""Generate a full-corpus inventory of archived data-pack NPC behavior scripts.
 
 NPC-0: freeze identifiers, actions, expression functions, substitutions, include
 edges, encodings, and constructs unsupported by 772 `TBehaviourDatabase`
 (`crnonpl.cc` ctor / `readValue` / property table).
+
+Live import authority is `reference/cipsoft-772/runtime/npc/`. This inventories
+`data/npc/archive/behavior/` (formerly `data/npc/behavior/`).
 
 Usage:
   python3 scripts/npc_corpus_inventory.py          # regenerate artifacts
@@ -20,7 +23,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-BEHAVIOR_DIR = REPO / "data" / "npc" / "behavior"
+BEHAVIOR_DIR = REPO / "data" / "npc" / "archive" / "behavior"
 REF_NPC_DIR = REPO / "reference" / "cipsoft-772" / "runtime" / "npc"
 OUT_JSON = REPO / "tasks" / "npc-corpus-inventory.json"
 OUT_MD = REPO / "tasks" / "npc-corpus-inventory.md"

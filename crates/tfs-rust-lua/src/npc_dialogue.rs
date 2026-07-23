@@ -190,8 +190,8 @@ fn parse_predicate(table: &Table, span: &SourceSpan) -> Result<DialoguePredicate
             span: span.clone(),
         });
     }
-    if let Ok(Value::Table(expr_t)) = table.get::<Value>("expr") {
-        let expr = parse_expr(&Value::Table(expr_t.clone()))?;
+    if let Some(expr_v) = get_non_nil(table, "expr")? {
+        let expr = parse_expr(&expr_v)?;
         let op = match table.get::<Value>("op")? {
             Value::String(s) => parse_op(&s.to_str().map_err(mlua::Error::external)?)?,
             _ => {
@@ -260,65 +260,97 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("startPosition") {
         return Ok(DialogueAction::StartPosition {
+            pos: None,
             span: span.clone(),
         });
     }
+    if let Ok(Value::Table(t)) = table.get::<Value>("startPosition") {
+        let x: i32 = t.get("x")?;
+        let y: i32 = t.get("y")?;
+        let z: i32 = t.get("z")?;
+        return Ok(DialogueAction::StartPosition {
+            pos: Some((x, y, z)),
+            span: span.clone(),
+        });
+    }
+    if let Ok(Value::Boolean(true)) = table.get::<Value>("repeatPrevious") {
+        return Ok(DialogueAction::RepeatPrevious {
+            span: span.clone(),
+        });
+    }
+    // Accept legacy key only if authored with ["repeat"] = true (rare).
     if let Ok(Value::Boolean(true)) = table.get::<Value>("repeat") {
         return Ok(DialogueAction::RepeatPrevious {
             span: span.clone(),
         });
     }
     if let Ok(Value::Table(t)) = table.get::<Value>("create") {
-        let item_id: u16 = t.get("item")?;
+        let item = parse_expr(&t.get("item")?)?;
         let count = match t.get::<Value>("count")? {
             Value::Nil => DialogueExpr::Lit(1),
             v => parse_expr(&v)?,
         };
         return Ok(DialogueAction::Create {
-            item_id,
+            item,
             count,
             span: span.clone(),
         });
     }
     if let Ok(Value::Table(t)) = table.get::<Value>("delete") {
-        let item_id: u16 = t.get("item")?;
+        let item = parse_expr(&t.get("item")?)?;
         let count = match t.get::<Value>("count")? {
             Value::Nil => DialogueExpr::Lit(1),
             v => parse_expr(&v)?,
         };
         return Ok(DialogueAction::Delete {
-            item_id,
+            item,
             count,
             span: span.clone(),
         });
     }
-    if let Ok(v) = table.get::<Value>("createMoney") {
+    if let Some(v) = get_non_nil(table, "createMoney")? {
+        // Boolean true = bare CreateMoney → Amount session (772).
+        let amount = match v {
+            Value::Boolean(true) => DialogueExpr::Session(SessionVar::Amount),
+            other => parse_expr(&other)?,
+        };
         return Ok(DialogueAction::CreateMoney {
-            amount: parse_expr(&v)?,
+            amount,
             span: span.clone(),
         });
     }
-    if let Ok(v) = table.get::<Value>("deleteMoney") {
+    if let Some(v) = get_non_nil(table, "deleteMoney")? {
+        // Boolean true = bare DeleteMoney → Price session (772).
+        let amount = match v {
+            Value::Boolean(true) => DialogueExpr::Session(SessionVar::Price),
+            other => parse_expr(&other)?,
+        };
         return Ok(DialogueAction::DeleteMoney {
-            amount: parse_expr(&v)?,
+            amount,
             span: span.clone(),
         });
     }
-    if let Ok(v) = table.get::<Value>("hp") {
+    if let Some(v) = get_non_nil(table, "hp")? {
         return Ok(DialogueAction::SetHp {
             expr: parse_expr(&v)?,
             span: span.clone(),
         });
     }
-    if let Ok(v) = table.get::<Value>("burning") {
+    if let Ok(Value::Table(t)) = table.get::<Value>("burning") {
+        let cycles = parse_expr(&t.get("cycles")?)?;
+        let param = parse_expr(&t.get("param")?)?;
         return Ok(DialogueAction::Burning {
-            value: parse_expr(&v)?,
+            cycles,
+            param,
             span: span.clone(),
         });
     }
-    if let Ok(v) = table.get::<Value>("poison") {
+    if let Ok(Value::Table(t)) = table.get::<Value>("poison") {
+        let cycles = parse_expr(&t.get("cycles")?)?;
+        let param = parse_expr(&t.get("param")?)?;
         return Ok(DialogueAction::Poison {
-            value: parse_expr(&v)?,
+            cycles,
+            param,
             span: span.clone(),
         });
     }
@@ -343,21 +375,21 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
             span: span.clone(),
         });
     }
-    if let Ok(id) = table.get::<u16>("profession") {
+    if let Some(v) = get_non_nil(table, "profession")? {
         return Ok(DialogueAction::Profession {
-            vocation_id: id,
+            vocation: parse_expr(&v)?,
             span: span.clone(),
         });
     }
-    if let Ok(id) = table.get::<u32>("teachSpell") {
+    if let Some(v) = get_non_nil(table, "teachSpell")? {
         return Ok(DialogueAction::TeachSpell {
-            spell_id: id,
+            spell: parse_expr(&v)?,
             span: span.clone(),
         });
     }
     if let Ok(name) = table.get::<String>("summon") {
         return Ok(DialogueAction::Summon {
-            monster_name: name,
+            monster: name,
             span: span.clone(),
         });
     }
@@ -410,6 +442,14 @@ fn parse_expr(value: &Value) -> Result<DialogueExpr, mlua::Error> {
                     &s.to_str().map_err(mlua::Error::external)?,
                 )?));
             }
+            if let Ok(Value::Integer(slot)) = t.get::<Value>("capture") {
+                if !(1..=2).contains(&slot) {
+                    return Err(runtime(format!(
+                        "capture slot must be 1 or 2 (got {slot})"
+                    )));
+                }
+                return Ok(DialogueExpr::Capture { slot: slot as u8 });
+            }
             if let Ok(Value::Boolean(true)) = t.get::<Value>("hp") {
                 return Ok(DialogueExpr::Hp);
             }
@@ -428,17 +468,29 @@ fn parse_expr(value: &Value) -> Result<DialogueExpr, mlua::Error> {
             if let Ok(Value::Boolean(true)) = t.get::<Value>("magicLevel") {
                 return Ok(DialogueExpr::MagicLevel);
             }
-            if let Ok(item_id) = t.get::<u16>("count") {
-                return Ok(DialogueExpr::Count { item_id });
+            if let Ok(count_v) = t.get::<Value>("count") {
+                // Prefer nested expr table/string; bare integer remains supported.
+                match count_v {
+                    Value::Nil => {}
+                    v => {
+                        return Ok(DialogueExpr::Count {
+                            item: Box::new(parse_expr(&v)?),
+                        });
+                    }
+                }
             }
             if let Ok(storage_id) = t.get::<u32>("questValue") {
                 return Ok(DialogueExpr::QuestValue { storage_id });
             }
-            if let Ok(spell_id) = t.get::<u32>("spellKnown") {
-                return Ok(DialogueExpr::SpellKnown { spell_id });
+            if let Some(spell_v) = get_non_nil(t, "spellKnown")? {
+                return Ok(DialogueExpr::SpellKnown {
+                    spell: Box::new(parse_expr(&spell_v)?),
+                });
             }
-            if let Ok(spell_id) = t.get::<u32>("spellLevel") {
-                return Ok(DialogueExpr::SpellLevel { spell_id });
+            if let Some(spell_v) = get_non_nil(t, "spellLevel")? {
+                return Ok(DialogueExpr::SpellLevel {
+                    spell: Box::new(parse_expr(&spell_v)?),
+                });
             }
             if let Ok(Value::Table(r)) = t.get::<Value>("random") {
                 let lo: i32 = r.get(1)?;
@@ -543,7 +595,7 @@ fn parse_op(s: &str) -> Result<ExprOp, mlua::Error> {
         "-" => Ok(ExprOp::Sub),
         "*" => Ok(ExprOp::Mul),
         "=" | "==" => Ok(ExprOp::Eq),
-        "~=" | "!=" => Ok(ExprOp::Ne),
+        "~=" | "!=" | "<>" => Ok(ExprOp::Ne),
         "<" => Ok(ExprOp::Lt),
         "<=" => Ok(ExprOp::Le),
         ">" => Ok(ExprOp::Gt),
@@ -587,6 +639,13 @@ fn require_sequence(table: &Table, label: &str) -> Result<(), mlua::Error> {
         )));
     }
     Ok(())
+}
+
+fn get_non_nil(table: &Table, key: &str) -> Result<Option<Value>, mlua::Error> {
+    match table.get::<Value>(key)? {
+        Value::Nil => Ok(None),
+        v => Ok(Some(v)),
+    }
 }
 
 fn reject_unsupported_keys(table: &Table, keys: &[&str]) -> Result<(), mlua::Error> {

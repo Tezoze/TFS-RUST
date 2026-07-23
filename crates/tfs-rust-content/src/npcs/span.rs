@@ -3,7 +3,7 @@
 //! Attached to rules (and optionally predicates/actions) so loader and runtime
 //! errors can cite the authored Lua file and original import span.
 //!
-//! Domain: TFS-style Lua `NpcType` definitions under `data/npc/scripts/definitions/`.
+//! Domain: TFS-style Lua `NpcType` definitions under `data/npc/scripts/`.
 //! 772 outcome source for eventual importer spans: `tibia-game-master/src/crnonpl.cc`
 //! behaviour parser diagnostics (file/line through includes).
 

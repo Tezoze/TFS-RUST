@@ -1,4 +1,4 @@
-//! Load `data/npc/scripts/definitions/**/*.lua` into an immutable [`NpcDatabase`].
+//! Load `data/npc/scripts/**/*.lua` into an immutable [`NpcDatabase`].
 //!
 //! Domain: TFS-style Lua `NpcType` / `NpcDialogue` registrations.
 //! 772: definitions come from offline import of `.npc`/`.ndb` (NPC-2); this loader
@@ -22,7 +22,7 @@ use crate::npc_type::PendingNpc;
 use crate::runtime::LuaRuntime;
 
 impl LuaRuntime {
-    /// Load NPC definition scripts from `data_dir/npc/scripts/definitions/**/*.lua`.
+    /// Load NPC definition scripts from `data_dir/npc/scripts/**/*.lua`.
     ///
     /// Hard-fails on script exec errors and on validation errors after drain.
     /// Does not require `GameWorld`.
@@ -31,7 +31,19 @@ impl LuaRuntime {
         data_dir: &Path,
         items: &ItemDatabase,
     ) -> Result<NpcDatabase, String> {
-        let defs_dir = data_dir.join("npc/scripts/definitions");
+        let defs_dir = data_dir.join("npc/scripts");
+        self.load_npc_definitions_dir(&defs_dir, items)
+    }
+
+    /// Load NPC definition scripts from an explicit scripts directory.
+    ///
+    /// Used by the offline `import-npcs` CLI to validate a temp tree before
+    /// atomically replacing `data/npc/scripts`.
+    pub fn load_npc_definitions_dir(
+        &mut self,
+        defs_dir: &Path,
+        items: &ItemDatabase,
+    ) -> Result<NpcDatabase, String> {
         if !defs_dir.exists() {
             tracing::warn!(
                 "NPC definitions dir not found: {}",
@@ -63,7 +75,7 @@ impl LuaRuntime {
             .map_err(|e| e.to_string())?;
 
         let mut lua_files: Vec<PathBuf> = Vec::new();
-        collect_lua_files(&defs_dir, &mut lua_files);
+        collect_lua_files(defs_dir, &mut lua_files);
         lua_files.retain(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
@@ -253,29 +265,48 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data")
     }
 
-    /// NPC-1 gate: handwritten greeting.lua loads without GameWorld.
+    /// NPC-2 gate: imported Quentin definition loads without GameWorld.
     #[test]
-    fn greeting_definition_loads_stable_snapshot() {
+    fn quentin_definition_loads_stable_snapshot() {
         let data_root = workspace_data_root();
-        let greeting = data_root.join("npc/scripts/definitions/greeting.lua");
-        if !greeting.exists() {
-            panic!("missing smoke definition: {}", greeting.display());
+        let quentin = data_root.join("npc/scripts/quentin.lua");
+        if !quentin.exists() {
+            panic!("missing imported definition: {}", quentin.display());
         }
 
-        // Minimal empty ItemDatabase — greeting.lua has no create/delete.
-        let items = ItemDatabase {
-            items: Default::default(),
-            client_to_server: Default::default(),
-        };
-
         let mut runtime = LuaRuntime::new().expect("runtime");
-        let db = runtime
-            .load_npc_definitions(&data_root, &items)
-            .expect("load npc definitions");
+        runtime
+            .lua
+            .globals()
+            .set("_pending_npcs", runtime.lua.create_table().unwrap())
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_action_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_predicate_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
 
-        let def = db
-            .get_by_name("Quentin")
-            .expect("Quentin registered");
+        let source = std::fs::read_to_string(&quentin).expect("read quentin");
+        runtime
+            .lua
+            .load(&source)
+            .set_name(quentin.to_str().unwrap_or("quentin.lua"))
+            .exec()
+            .expect("exec quentin");
+
+        let db = runtime.drain_pending_npcs(None).expect("drain");
+        let def = db.get_by_name("Quentin").expect("Quentin registered");
         assert_eq!(def.name, "Quentin");
         assert_eq!(def.appearance.look_type, 57);
         assert_eq!(def.movement.radius, 4);
@@ -285,9 +316,8 @@ mod tests {
             dialogue.policy,
             tfs_rust_content::npcs::DialoguePolicy::QueuedSingleFocus
         );
-        assert_eq!(dialogue.rules.len(), 2);
+        assert!(!dialogue.rules.is_empty());
 
-        // First rule ADDRESS + hi$ → welcome say
         assert!(matches!(
             &dialogue.rules[0].predicates[0],
             DialoguePredicate::Situation {
@@ -298,17 +328,9 @@ mod tests {
         match &dialogue.rules[0].actions[0] {
             DialogueAction::Say { text, .. } => {
                 assert!(
-                    text.contains("Welcome, adventurer %N"),
+                    text.to_ascii_lowercase().contains("welcome"),
                     "unexpected say: {text}"
                 );
-            }
-            other => panic!("expected Say, got {other:?}"),
-        }
-
-        // Second rule DEFAULT + bye → farewell
-        match &dialogue.rules[1].actions[0] {
-            DialogueAction::Say { text, .. } => {
-                assert!(text.contains("Good bye"), "unexpected say: {text}");
             }
             other => panic!("expected Say, got {other:?}"),
         }
@@ -412,5 +434,58 @@ mod tests {
             .drain_pending_npcs(Some(&items))
             .expect_err("bad item");
         assert!(err.contains("unknown item"), "{err}");
+    }
+
+    #[test]
+    fn import_emit_roundtrip_albert_via_lua() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../reference/cipsoft-772/runtime/npc");
+        if !root.exists() {
+            return;
+        }
+        let file = tfs_rust_content::npc_import::parse_npc_file(&root, &root.join("albert.npc"))
+            .expect("parse");
+        let pending = tfs_rust_content::npc_import::lower_npc(file).expect("lower");
+        let rule_count = pending
+            .dialogue
+            .as_ref()
+            .map(|d| d.rules.len())
+            .unwrap_or(0);
+        let lua_src = tfs_rust_content::npc_import::emit_npc_lua(&pending);
+
+        let mut runtime = LuaRuntime::new().expect("rt");
+        runtime
+            .lua
+            .globals()
+            .set("_pending_npcs", runtime.lua.create_table().unwrap())
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_action_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_predicate_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .load(&lua_src)
+            .set_name("albert_import.lua")
+            .exec()
+            .expect("exec emitted lua");
+        let db = runtime.drain_pending_npcs(None).expect("drain");
+        let def = db.get_by_name("Albert").expect("albert");
+        assert_eq!(
+            def.dialogue.as_ref().map(|d| d.rules.len()),
+            Some(rule_count)
+        );
     }
 }

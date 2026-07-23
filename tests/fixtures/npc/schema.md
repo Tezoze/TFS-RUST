@@ -10,7 +10,7 @@ Black-box parity traces for imported 772 dialogue. Fixtures are **not** executed
 | `id` | string | yes | Stable fixture id (filename stem) |
 | `description` | string | yes | What the scenario exercises |
 | `npc` | string | yes | Display name |
-| `sources` | string[] | yes | Behavior files under `data/npc/behavior/` (includes listed explicitly) |
+| `sources` | string[] | yes | Legacy sources under `reference/cipsoft-772/runtime/npc/` (preferred) or `data/npc/archive/behavior/` |
 | `rng_seed` | int | yes | Frozen parity RNG seed (future idle/Random differential) |
 | `round_nr` | int | yes | Starting 772 `RoundNr` (advances once per second) |
 | `server_ms` | int | yes | Starting harness clock (ms) |

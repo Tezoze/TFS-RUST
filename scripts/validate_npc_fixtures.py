@@ -14,7 +14,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = REPO / "tests" / "fixtures" / "npc"
-BEHAVIOR_DIR = REPO / "data" / "npc" / "behavior"
+BEHAVIOR_DIR = REPO / "reference" / "cipsoft-772" / "runtime" / "npc"
+ARCHIVE_BEHAVIOR_DIR = REPO / "data" / "npc" / "archive" / "behavior"
 
 REQUIRED_TOP = (
     "id",
@@ -119,8 +120,14 @@ def validate_fixture(path: Path, errors: list[str]) -> None:
     sources = data.get("sources")
     if isinstance(sources, list):
         for src in sources:
-            if not (BEHAVIOR_DIR / src).is_file():
-                err(errors, rel, f"source not found: data/npc/behavior/{src}")
+            ref = BEHAVIOR_DIR / src
+            archived = ARCHIVE_BEHAVIOR_DIR / src
+            if not ref.is_file() and not archived.is_file():
+                err(
+                    errors,
+                    rel,
+                    f"source not found under reference/.../npc/ or data/npc/archive/behavior/: {src}",
+                )
     else:
         err(errors, rel, "`sources` must be an array")
 

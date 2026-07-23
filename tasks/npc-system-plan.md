@@ -1,6 +1,6 @@
 # NPC system audit and implementation plan — 772 outcomes, TFS flexibility
 
-**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; runtime spawn/matching not started
+**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; runtime spawn/matching not started
 **Primary target:** exact observable 772 NPC outcomes
 **Domain:** TFS-style `Npc` / `NpcType`, Lua content and userdata APIs
 **Implementation:** idiomatic Rust on the game thread; LuaJIT for content hooks
@@ -182,7 +182,7 @@ The conversation policy and authored rules belong to the NPC definition, not `cl
 legacy .npc/.ndb + current XML
           │ one-way offline import
           ▼
-data/npc/scripts/definitions/*.lua
+data/npc/scripts/*.lua
   NpcType + NpcDialogue registrations
           │ LuaJIT startup loader + validation
           ▼
@@ -371,7 +371,7 @@ The importer must:
 
 ### 6.2 Output
 
-Generate committed Lua definitions under `data/npc/scripts/definitions/`. Do not load generated cache files from `target/` or a writable runtime directory.
+Generate committed Lua definitions under `data/npc/scripts/`. Do not load generated cache files from `target/` or a writable runtime directory.
 
 The generated definition should be readable declarative data, not a chain of imperative keyword-handler calls. Shared `.ndb` fragments may become reusable Lua modules only when reuse does not alter declaration order; otherwise flatten them with source-span metadata.
 
@@ -418,34 +418,36 @@ Work:
 
 - [x] Add typed ids, definitions, rules, expressions, source spans, policies, voices, callbacks, and shops.
 - [x] Register `NpcType` / `NpcDialogue` constructors and methods.
-- [x] Load `data/npc/scripts/definitions/**/*.lua` deterministically.
+- [x] Load `data/npc/scripts/**/*.lua` deterministically.
 - [x] Validate duplicate names, invalid item ids, impossible expressions, missing callbacks, and malformed definitions.
 - [x] Freeze definitions into `Arc<NpcDatabase>` and expose no mutable definition references.
 - [x] Add loader unit tests and duplicate/error diagnostics tests.
 
 **Gate:** a handwritten declarative NPC loads without `GameWorld` and produces a stable definition snapshot.
 
-**NPC-1 deliverables:** `crates/tfs-rust-content/src/npcs/`; `crates/tfs-rust-lua/src/{npc_type,npc_dialogue,npc_loader}.rs`; smoke `data/npc/scripts/definitions/greeting.lua`.
+**NPC-1 deliverables:** `crates/tfs-rust-content/src/npcs/`; `crates/tfs-rust-lua/src/{npc_type,npc_dialogue,npc_loader}.rs`; smoke `data/npc/scripts/greeting.lua`.
 
 ### NPC-2 — Offline legacy importer
 
 Affected files:
 
-- new private importer modules in `tfs-rust-content`;
-- new `tfs-rust-content` binary for import/validate;
-- generated `data/npc/scripts/definitions/*.lua` only after validation.
+- `crates/tfs-rust-content/src/npc_import/` (lexer/parser/includes/lower/emit);
+- `tfs-rust-lua` binary `import-npcs`;
+- generated `data/npc/scripts/*.lua` only after validation (not committed wholesale yet).
+
+**Authority corpus:** `reference/cipsoft-772/runtime/npc/` (337 full `.npc` + 39 `.ndb`). Gate does **not** use the old data-pack split when it diverges (`String=`/`Bless`/`Town`/`Promote` are pollution — hard-rejected). That pack now lives under `data/npc/archive/`.
 
 Work:
 
-- [ ] Implement lexer with source spans, comments, escapes, include stack, coordinates, outfits, identifiers, numbers, and operators.
-- [ ] Parse metadata, ordered rules, conditions, expressions, actions, `!`, and `*`.
-- [ ] Import current XML metadata/parameters and behavior references.
-- [ ] Emit deterministic declarative Lua.
-- [ ] Run generated Lua through the real `LuaRuntime` validator.
-- [ ] Add parse-all tests for the complete corpus and golden generation tests.
-- [ ] Fail the command if any NPC or included fragment is unsupported.
+- [x] Implement lexer with source spans, comments, escapes, include stack, coordinates, outfits, identifiers, numbers, and operators.
+- [x] Parse metadata, ordered rules, conditions, expressions, actions, `!`, and `*`.
+- [x] Import current XML metadata/parameters and behavior references (secondary `--split-xml` mode).
+- [x] Emit deterministic declarative Lua.
+- [x] Run generated Lua through the real `LuaRuntime` validator (`import-npcs --validate-data-dir`).
+- [x] Add parse-all tests for the complete corpus and golden generation tests.
+- [x] Fail the command if any NPC or included fragment is unsupported.
 
-**Gate:** all current behavior definitions import and register with zero dropped rules/actions.
+**Gate:** all current **reference** behavior definitions import and register with zero dropped rules/actions.
 
 ### NPC-3 — Spawn/type integration
 
