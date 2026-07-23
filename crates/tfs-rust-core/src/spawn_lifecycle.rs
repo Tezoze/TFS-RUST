@@ -5,16 +5,18 @@
 
 use rand::seq::SliceRandom;
 use slotmap::Key;
+use std::sync::Arc;
 use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterOutfit;
+use tfs_rust_content::npcs::{DialoguePolicy, NpcAppearance};
 use tfs_rust_net::creature_known::check_creature_known;
 use tracing::{debug, info, warn};
 
 use crate::creature::CreatureBase;
 use crate::creature::CreatureKind;
-use crate::creature::{Monster, MonsterAiConfig, Npc, Outfit};
+use crate::creature::{Monster, MonsterAiConfig, Npc, NpcRuntimeState, Outfit};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::login_out::{build_add_creature_wire, creature_wire_id};
@@ -43,6 +45,37 @@ fn monster_outfit_to_base(o: &MonsterOutfit) -> Outfit {
         look_feet: o.look_feet,
         look_addons: o.look_addons,
     }
+}
+
+fn npc_appearance_to_outfit(a: &NpcAppearance) -> Outfit {
+    Outfit {
+        look_type: i32::from(a.look_type),
+        look_head: i32::from(a.look_head),
+        look_body: i32::from(a.look_body),
+        look_legs: i32::from(a.look_legs),
+        look_feet: i32::from(a.look_feet),
+        look_addons: i32::from(a.look_addons),
+    }
+}
+
+/// Resolve spawn XML name → definition (case-insensitive).
+///
+/// TVP-era spawn files sometimes append `" npc"` (`cobra npc`); strip that once
+/// if the primary lookup misses.
+fn resolve_npc_definition(
+    db: &tfs_rust_content::npcs::NpcDatabase,
+    name: &str,
+) -> Option<std::sync::Arc<tfs_rust_content::npcs::NpcDefinition>> {
+    if let Some(d) = db.get_by_name(name) {
+        return Some(Arc::clone(d));
+    }
+    let lower = name.to_ascii_lowercase();
+    if let Some(stem) = lower.strip_suffix(" npc") {
+        if !stem.is_empty() {
+            return db.get_by_name(stem).map(Arc::clone);
+        }
+    }
+    None
 }
 
 const EXTENDED_REL: [(i32, i32); 13] = [
@@ -377,6 +410,7 @@ impl GameWorld {
     }
 
     /// NPC spawn from spawn XML — no respawn timer (C++ `Spawns::startup` NPC path).
+    /// Resolves `name` case-insensitively against [`GameWorld::npcs_db`] (NPC-3).
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_npc(
         &mut self,
@@ -389,15 +423,35 @@ impl GameWorld {
         startup: bool,
         extended_pos: bool,
     ) -> Option<CreatureId> {
+        let def = match resolve_npc_definition(&self.npcs_db, name) {
+            Some(d) => d,
+            None => {
+                warn!(
+                    npc = %name,
+                    ?center,
+                    "spawn: unknown NPC type"
+                );
+                return None;
+            }
+        };
+
+        let max_hp = def.health_max.max(1) as i32;
+        let speed = i32::from(def.movement.speed.max(1));
+        let policy = def
+            .dialogue
+            .as_ref()
+            .map(|d| d.policy)
+            .unwrap_or(DialoguePolicy::QueuedSingleFocus);
+
         let base = CreatureBase {
-            name: name.to_string(),
+            name: def.name.clone(),
             position: center,
             direction: dir,
-            health: 100,
-            max_health: 100,
-            outfit: Outfit::default(),
-            speed: 100,
-            base_speed: 100,
+            health: max_hp,
+            max_health: max_hp,
+            outfit: npc_appearance_to_outfit(&def.appearance),
+            speed,
+            base_speed: speed,
             var_speed: 0,
             skull: SkullType::None,
             drunkenness: 0,
@@ -424,7 +478,7 @@ impl GameWorld {
             master: None,
             damage_map: Default::default(),
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -435,8 +489,10 @@ impl GameWorld {
 
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {
             base,
-            npc_type_id: 0,
+            definition: def.id,
+            speech_bubble: def.speech_bubble,
             wire_id: 0,
+            runtime: NpcRuntimeState::at_home(center, def.movement.radius, policy),
         }));
         crate::login_out::assign_creature_wire_id(self, cid);
 
@@ -451,13 +507,18 @@ impl GameWorld {
         );
         if !placed {
             warn!(
-                npc = %name,
+                npc = %def.name,
                 ?center,
                 spawn_radius,
                 "could not place spawned NPC on map"
             );
             self.creatures.remove(cid);
             return None;
+        }
+
+        // Placement may offset from center — pin home to the final tile.
+        if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(cid) {
+            n.runtime.home_position = n.base.position;
         }
 
         self.spawns.on_creature_spawned(slot_index, cid);
@@ -1760,5 +1821,342 @@ mod tests {
             Some(east),
             "occupied center nudges east-first spiral"
         );
+    }
+
+    // --- NPC-3: spawn from NpcDatabase ---
+
+    fn quentin_pending() -> tfs_rust_content::npcs::PendingNpcDefinition {
+        use tfs_rust_content::npcs::{
+            DialogueAction, DialoguePolicy, DialoguePredicate, DialogueProgram, DialogueRule,
+            DialogueSituation, NpcAppearance, NpcMovement, PendingNpcDefinition, SourceSpan,
+        };
+        let span = SourceSpan::lua("quentin.lua", 1);
+        PendingNpcDefinition {
+            name: "Quentin".into(),
+            source_file: "quentin.lua".into(),
+            appearance: NpcAppearance {
+                look_type: 57,
+                look_head: 0,
+                look_body: 0,
+                look_legs: 0,
+                look_feet: 0,
+                look_addons: 0,
+                look_type_ex: 0,
+                look_mount: 0,
+            },
+            health_max: 100,
+            movement: NpcMovement {
+                radius: 4,
+                speed: 10,
+                go_strength: 10,
+            },
+            speech_bubble: 1,
+            sex: 1,
+            race: 1,
+            dialogue: Some(DialogueProgram {
+                policy: DialoguePolicy::QueuedSingleFocus,
+                rules: vec![DialogueRule {
+                    predicates: vec![DialoguePredicate::Situation {
+                        kind: DialogueSituation::Address,
+                        span: span.clone(),
+                    }],
+                    actions: vec![DialogueAction::Say {
+                        text: "Welcome".into(),
+                        span: span.clone(),
+                    }],
+                    span,
+                }],
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn world_with_npc_db(
+        pending: Vec<tfs_rust_content::npcs::PendingNpcDefinition>,
+    ) -> GameWorld {
+        use tfs_rust_content::npcs::validate_pending_definitions;
+        use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
+
+        let mut world = minimal_world();
+        world.npcs_db = Arc::new(
+            validate_pending_definitions(pending, None).expect("npc db validate"),
+        );
+
+        let home = Position::new(100, 100, 7);
+        let zone = SpawnZone {
+            center: home,
+            radius: 3,
+            entries: vec![SpawnEntry::Npc {
+                name: "Quentin".into(),
+                position: home,
+                spawntime_ms: 60_000,
+                direction: Some(2),
+            }],
+        };
+        world.spawns = SpawnManager::from_zones(vec![zone]);
+        ensure_walkable_tile(&mut world.map, home, 100);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new(
+                        (home.x as i32 + dx).max(0) as u16,
+                        (home.y as i32 + dy).max(0) as u16,
+                        home.z,
+                    ),
+                    100,
+                );
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn spawn_npc_applies_definition_appearance() {
+        use crate::creature::CreatureKind;
+        use tfs_rust_content::npcs::NpcTypeId;
+
+        let mut world = world_with_npc_db(vec![quentin_pending()]);
+        let home = Position::new(100, 100, 7);
+        let cid = world
+            .spawn_npc("Quentin", home, Direction::South, home, 0, 3, true, true)
+            .expect("spawn Quentin");
+
+        let CreatureKind::Npc(n) = world.creatures.get(cid).expect("npc") else {
+            panic!("expected Npc");
+        };
+        assert_eq!(n.base.name, "Quentin");
+        assert_eq!(n.base.outfit.look_type, 57);
+        assert_eq!(n.base.health, 100);
+        assert_eq!(n.base.max_health, 100);
+        assert_eq!(n.base.speed, 10);
+        assert_eq!(n.base.base_speed, 10);
+        assert_eq!(n.definition, NpcTypeId(0));
+        assert_ne!(
+            n.definition,
+            NpcTypeId(u32::MAX),
+            "must not be a sentinel placeholder"
+        );
+        assert_eq!(n.speech_bubble, 1);
+        assert_eq!(n.runtime.radius, 4);
+        assert_eq!(n.runtime.home_position, n.base.position);
+        assert_eq!(
+            n.runtime.policy,
+            tfs_rust_content::npcs::DialoguePolicy::QueuedSingleFocus
+        );
+    }
+
+    #[test]
+    fn spawn_npc_lookup_case_insensitive() {
+        use crate::creature::CreatureKind;
+
+        let mut world = world_with_npc_db(vec![quentin_pending()]);
+        let home = Position::new(100, 100, 7);
+        // Clear first spawn slot claim by spawning via lowercase then removing isn't needed —
+        // call spawn with alternate casing on a fresh world for each.
+        let cid = world
+            .spawn_npc("quentin", home, Direction::South, home, 0, 3, true, true)
+            .expect("lowercase quentin");
+        let CreatureKind::Npc(n) = world.creatures.get(cid).expect("npc") else {
+            panic!("expected Npc");
+        };
+        assert_eq!(n.base.name, "Quentin");
+        assert_eq!(n.base.outfit.look_type, 57);
+
+        // Second world: Title Case already covered by applies_definition; try mixed.
+        let mut world2 = world_with_npc_db(vec![quentin_pending()]);
+        let cid2 = world2
+            .spawn_npc("QUENTIN", home, Direction::South, home, 0, 3, true, true)
+            .expect("uppercase QUENTIN");
+        assert!(matches!(
+            world2.creatures.get(cid2),
+            Some(CreatureKind::Npc(_))
+        ));
+    }
+
+    #[test]
+    fn spawn_npc_unknown_name_returns_none() {
+        let mut world = world_with_npc_db(vec![quentin_pending()]);
+        let home = Position::new(100, 100, 7);
+        let before = world.creatures.len();
+        assert!(world
+            .spawn_npc("Nobody", home, Direction::South, home, 0, 3, true, true)
+            .is_none());
+        assert_eq!(world.creatures.len(), before);
+        assert!(world.spawns.slot(0).unwrap().current.is_none());
+    }
+
+    #[test]
+    fn spawn_npc_default_movement_when_minimal_def() {
+        use crate::creature::CreatureKind;
+        use tfs_rust_content::npcs::{
+            DialogueAction, DialoguePolicy, DialoguePredicate, DialogueProgram, DialogueRule,
+            DialogueSituation, NpcAppearance, NpcMovement, PendingNpcDefinition, SourceSpan,
+        };
+
+        let span = SourceSpan::lua("min.lua", 1);
+        let pending = PendingNpcDefinition {
+            name: "Minimal".into(),
+            source_file: "min.lua".into(),
+            appearance: NpcAppearance::default(),
+            health_max: 100,
+            movement: NpcMovement::default(),
+            dialogue: Some(DialogueProgram {
+                policy: DialoguePolicy::QueuedSingleFocus,
+                rules: vec![DialogueRule {
+                    predicates: vec![DialoguePredicate::Situation {
+                        kind: DialogueSituation::Address,
+                        span: span.clone(),
+                    }],
+                    actions: vec![DialogueAction::Say {
+                        text: "hi".into(),
+                        span: span.clone(),
+                    }],
+                    span,
+                }],
+            }),
+            ..Default::default()
+        };
+
+        let mut world = world_with_npc_db(vec![pending]);
+        // Replace spawn slot name to Minimal.
+        let home = Position::new(100, 100, 7);
+        world.spawns = SpawnManager::from_zones(vec![tfs_rust_content::spawns::SpawnZone {
+            center: home,
+            radius: 3,
+            entries: vec![tfs_rust_content::spawns::SpawnEntry::Npc {
+                name: "Minimal".into(),
+                position: home,
+                spawntime_ms: 60_000,
+                direction: Some(2),
+            }],
+        }]);
+        ensure_walkable_tile(&mut world.map, home, 100);
+
+        let cid = world
+            .spawn_npc("Minimal", home, Direction::South, home, 0, 3, true, true)
+            .expect("spawn Minimal");
+        let CreatureKind::Npc(n) = world.creatures.get(cid).expect("npc") else {
+            panic!("expected Npc");
+        };
+        assert_eq!(n.base.outfit.look_type, 136);
+        assert_eq!(n.base.speed, 100);
+        assert_eq!(n.runtime.radius, 0);
+        assert_eq!(n.speech_bubble, 0);
+    }
+
+    #[test]
+    fn spawn_npc_places_on_protection_zone() {
+        use crate::creature::CreatureKind;
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = world_with_npc_db(vec![quentin_pending()]);
+        let home = Position::new(100, 100, 7);
+        // Temple-style PZ tile (Classic772 place_in_pz requires zone match).
+        world.map.insert_tile(
+            home,
+            Tile::Normal(TileBody {
+                ground: Some(100),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::PROTECTIONZONE,
+                zone: ZoneType::Protection,
+            }),
+        );
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let p = Position::new(
+                    (home.x as i32 + dx) as u16,
+                    (home.y as i32 + dy) as u16,
+                    home.z,
+                );
+                world.map.insert_tile(
+                    p,
+                    Tile::Normal(TileBody {
+                        ground: Some(100),
+                        down_items: Vec::new(),
+                        top_items: Vec::new(),
+                        creatures: Vec::new(),
+                        flags: tilestate::PROTECTIONZONE,
+                        zone: ZoneType::Protection,
+                    }),
+                );
+            }
+        }
+
+        let cid = world
+            .spawn_npc("Quentin", home, Direction::South, home, 0, 3, true, true)
+            .expect("Quentin must place on PZ");
+        assert!(matches!(
+            world.creatures.get(cid),
+            Some(CreatureKind::Npc(_))
+        ));
+    }
+
+    #[test]
+    fn spawn_npc_strips_tvp_npc_suffix() {
+        use crate::creature::CreatureKind;
+        use tfs_rust_content::npcs::{
+            DialogueAction, DialoguePolicy, DialoguePredicate, DialogueProgram, DialogueRule,
+            DialogueSituation, NpcAppearance, NpcMovement, PendingNpcDefinition, SourceSpan,
+        };
+
+        let span = SourceSpan::lua("cobra.lua", 1);
+        let pending = PendingNpcDefinition {
+            name: "Cobra".into(),
+            source_file: "cobra.lua".into(),
+            appearance: NpcAppearance {
+                look_type: 0,
+                ..NpcAppearance::default()
+            },
+            health_max: 100,
+            movement: NpcMovement {
+                radius: 0,
+                speed: 1,
+                go_strength: 0,
+            },
+            dialogue: Some(DialogueProgram {
+                policy: DialoguePolicy::QueuedSingleFocus,
+                rules: vec![DialogueRule {
+                    predicates: vec![DialoguePredicate::Situation {
+                        kind: DialogueSituation::Address,
+                        span: span.clone(),
+                    }],
+                    actions: vec![DialogueAction::Idle { span: span.clone() }],
+                    span,
+                }],
+            }),
+            ..Default::default()
+        };
+
+        let mut world = world_with_npc_db(vec![pending]);
+        let home = Position::new(100, 100, 7);
+        world.spawns = SpawnManager::from_zones(vec![SpawnZone {
+            center: home,
+            radius: 2,
+            entries: vec![SpawnEntry::Npc {
+                name: "cobra npc".into(),
+                position: home,
+                spawntime_ms: 60_000,
+                direction: Some(2),
+            }],
+        }]);
+        ensure_walkable_tile(&mut world.map, home, 100);
+
+        let cid = world
+            .spawn_npc("cobra npc", home, Direction::South, home, 0, 2, true, true)
+            .expect("cobra npc → Cobra");
+        let CreatureKind::Npc(n) = world.creatures.get(cid).expect("npc") else {
+            panic!("expected Npc");
+        };
+        assert_eq!(n.base.name, "Cobra");
     }
 }

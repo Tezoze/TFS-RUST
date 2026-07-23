@@ -1442,11 +1442,9 @@ mod look_tests {
         let pos = Position::new(100, 100, 7);
         let npc_cid = world
             .creatures
-            .insert(CreatureKind::Npc(crate::creature::Npc {
-                base: creature_base_named("Leeland", pos),
-                npc_type_id: 0,
-                wire_id: 0,
-            }));
+            .insert(CreatureKind::Npc(crate::creature::Npc::placeholder(
+                creature_base_named("Leeland", pos),
+            )));
         let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
         let msg = world.player_look_description(viewer_cid, npc_cid);
         assert_eq!(msg, "You see Leeland.");

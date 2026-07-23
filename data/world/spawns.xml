@@ -40834,7 +40834,7 @@
 		<monster name="Crypt Shambler" x="0" y="0" z="14" spawntime="600" />
 	</spawn>
 	<spawn centerx="33366" centery="32855" centerz="14" radius="2">
-		<npc name="cobra npc" x="0" y="0" z="14" spawntime="60" direction="2" />
+		<npc name="Cobra" x="0" y="0" z="14" spawntime="60" direction="2" />
 	</spawn>
 	<spawn centerx="33185" centery="32856" centerz="14" radius="50">
 		<monster name="Mummy" x="0" y="0" z="14" spawntime="600" />
@@ -41730,7 +41730,7 @@
 		<monster name="Behemoth" x="0" y="0" z="15" spawntime="700" />
 	</spawn>
 	<spawn centerx="32666" centery="31676" centerz="15" radius="2">
-		<npc name="demon skeleton npc" x="0" y="0" z="15" spawntime="60" direction="2" />
+		<npc name="Demon Skeleton" x="0" y="0" z="15" spawntime="60" direction="2" />
 	</spawn>
 	<spawn centerx="32678" centery="31676" centerz="15" radius="50">
 		<monster name="Skeleton" x="0" y="0" z="15" spawntime="600" />

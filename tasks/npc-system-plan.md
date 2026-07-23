@@ -1,6 +1,6 @@
 # NPC system audit and implementation plan — 772 outcomes, TFS flexibility
 
-**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; runtime spawn/matching not started
+**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; speech/focus matching not started
 **Primary target:** exact observable 772 NPC outcomes
 **Domain:** TFS-style `Npc` / `NpcType`, Lua content and userdata APIs
 **Implementation:** idiomatic Rust on the game thread; LuaJIT for content hooks
@@ -461,12 +461,12 @@ Affected files:
 
 Work:
 
-- [ ] Add `Arc<NpcDatabase>` to `GameWorld`.
-- [ ] Resolve spawn names case-insensitively to typed definition ids.
-- [ ] Instantiate health, outfit, speed, flags, movement home/radius, speech bubble, and runtime state from definitions.
-- [ ] Reject unknown NPC spawns with a precise source/location error.
-- [ ] Preserve SlotMap ids and existing spawn ownership rules.
-- [ ] Add spawn appearance, lookup, default, and unknown-name tests.
+- [x] Add `Arc<NpcDatabase>` to `GameWorld`.
+- [x] Resolve spawn names case-insensitively to typed definition ids.
+- [x] Instantiate health, outfit, speed, flags, movement home/radius, speech bubble, and runtime state from definitions.
+- [x] Reject unknown NPC spawns with a precise source/location error.
+- [x] Preserve SlotMap ids and existing spawn ownership rules.
+- [x] Add spawn appearance, lookup, default, and unknown-name tests.
 
 **Gate:** spawned NPCs display correct name/outfit/health/speed and contain no placeholder type id.
 

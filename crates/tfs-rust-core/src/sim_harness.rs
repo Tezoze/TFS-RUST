@@ -43,6 +43,7 @@ use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::ConnId;
 use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
+use tfs_rust_content::npcs::NpcDatabase;
 
 use crate::monster_ai::compute_look_toward_target;
 use crate::walk::creature_turn_with_broadcast;
@@ -424,6 +425,7 @@ pub fn minimal_world() -> GameWorld {
         Arc::new(MonsterDatabase {
             monsters: HashMap::new(),
         }),
+        Arc::new(NpcDatabase::new()),
         Arc::new(GroupDatabase {
             groups: HashMap::new(),
         }),
@@ -516,6 +518,7 @@ fn init_beat_driven_world(
         SpawnManager::from_zones(Vec::new()),
         items_db,
         monsters_db,
+        Arc::new(NpcDatabase::new()),
         Arc::new(GroupDatabase {
             groups: HashMap::new(),
         }),
@@ -1134,11 +1137,9 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         chase_mode: Default::default(),
         last_auto_walk_armed_ms: u64::MAX,
     };
-    let cid = world.creatures.insert(CreatureKind::Npc(Npc {
-        base,
-        npc_type_id: 0,
-        wire_id: 0,
-    }));
+    let cid = world
+        .creatures
+        .insert(CreatureKind::Npc(Npc::placeholder(base)));
     crate::login_out::assign_creature_wire_id(world, cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);

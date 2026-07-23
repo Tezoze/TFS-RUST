@@ -16,6 +16,7 @@ use slotmap::SlotMap;
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::monsters::MonsterDatabase;
+use tfs_rust_content::npcs::NpcDatabase;
 use tfs_rust_content::vocations::VocationRegistry;
 
 use tfs_rust_common::enums::Direction;
@@ -107,6 +108,8 @@ pub struct GameWorld {
     pub items_db: Arc<ItemDatabase>,
     /// `data/monster/` — spawn instantiation (`monsters.cpp`).
     pub monsters_db: Arc<MonsterDatabase>,
+    /// `data/npc/scripts/` — NPC type definitions (`NpcType` Lua / NPC-1).
+    pub npcs_db: Arc<NpcDatabase>,
     /// `data/XML/groups.xml` — player GM flags (`src/groups.cpp`).
     pub groups: Arc<GroupDatabase>,
     pub vocations: Arc<VocationRegistry>,
@@ -288,6 +291,7 @@ impl GameWorld {
         spawns: SpawnManager,
         items_db: Arc<ItemDatabase>,
         monsters_db: Arc<MonsterDatabase>,
+        npcs_db: Arc<NpcDatabase>,
         groups: Arc<GroupDatabase>,
         vocations: Arc<VocationRegistry>,
         codec: Codec,
@@ -339,6 +343,7 @@ impl GameWorld {
             creature_fully_sent_by_conn: HashMap::new(),
             items_db,
             monsters_db,
+            npcs_db,
             groups,
             vocations,
             spells: Arc::new(tfs_rust_content::spells::SpellRegistry::default()),

@@ -229,7 +229,7 @@ fn npc_to_add_creature_wire(
         skull: skull_byte(n.base.skull),
         party_shield: 0,
         guild_emblem: 0,
-        speech_bubble: 0,
+        speech_bubble: n.speech_bubble,
         helpers: 0,
         walkthrough_blocked: 1,
         access_player: false,

@@ -25,7 +25,7 @@ pub use monster_combat::{
 pub use monster_inventory::{
     damage_text_color, effective_monster_combat_stats, MonsterInventory, DEFAULT_MONSTER_BAG_TYPE,
 };
-pub use npc::{Npc, NpcEventsHandler, NullNpcHandler};
+pub use npc::{Npc, NpcActivity, NpcEventsHandler, NpcRuntimeState, NullNpcHandler};
 pub use player::{
     Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
     PlayerWalkAction,

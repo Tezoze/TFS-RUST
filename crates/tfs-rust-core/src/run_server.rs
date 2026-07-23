@@ -178,11 +178,12 @@ pub async fn run() -> anyhow::Result<()> {
     // can reach it. Set once for the game thread's lifetime.
     tfs_rust_lua::set_timer_scheduler(scheduler.clone());
 
-    let (events, chat_channels, weapon_registry, spell_registry): (
+    let (events, chat_channels, weapon_registry, spell_registry, npc_database): (
         Box<dyn crate::event_dispatcher::EventDispatcher>,
         Vec<tfs_rust_lua::ChatChannelDef>,
         tfs_rust_content::weapons::WeaponRegistry,
         tfs_rust_content::spells::SpellRegistry,
+        tfs_rust_content::npcs::NpcDatabase,
     ) = match LuaRuntime::new() {
         Ok(mut lua_runtime) => {
             // Load chat channels from Lua scripts (CH-4)
@@ -253,6 +254,19 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             };
 
+            // NPC-3: Load declarative NpcType definitions before dispatcher wrap.
+            // Hard-fail: unknown spawn names would otherwise place broken NPCs.
+            let npc_database =
+                match lua_runtime.load_npc_definitions(&data_path, items_db.as_ref()) {
+                    Ok(db) => {
+                        tracing::info!(types = db.len(), "Loaded NPC definitions");
+                        db
+                    }
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("NPC definition loading failed: {e}"));
+                    }
+                };
+
             let mut loader = ScriptLoader::new(&mut lua_runtime);
             let creature_events = match loader.load_creaturescripts(&data_path) {
                 Ok(events) => events,
@@ -291,7 +305,13 @@ pub async fn run() -> anyhow::Result<()> {
             // Must be done after `LuaEventDispatcher::new` since the
             // registry holds `mlua::RegistryKey`s tied to the runtime.
             dispatcher.set_talkactions(talkactions);
-            (dispatcher, chat_channels, weapon_registry, spell_registry)
+            (
+                dispatcher,
+                chat_channels,
+                weapon_registry,
+                spell_registry,
+                npc_database,
+            )
         }
         Err(e) => {
             tracing::warn!("Lua runtime init failed, using NullEventDispatcher: {}", e);
@@ -300,6 +320,7 @@ pub async fn run() -> anyhow::Result<()> {
                 Vec::new(),
                 tfs_rust_content::weapons::WeaponRegistry::default(),
                 tfs_rust_content::spells::SpellRegistry::default(),
+                tfs_rust_content::npcs::NpcDatabase::new(),
             )
         }
     };
@@ -318,6 +339,7 @@ pub async fn run() -> anyhow::Result<()> {
         spawns,
         items_db,
         monsters_db,
+        std::sync::Arc::new(npc_database),
         groups,
         vocations,
         codec,

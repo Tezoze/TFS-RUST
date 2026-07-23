@@ -453,7 +453,11 @@ pub(crate) fn tile_query_add_monster(
     ReturnValue::NoError
 }
 
-/// TFS `Tile::queryAdd` NPC / generic creature branch (`tile.cpp` ~598–628); NPCs cannot enter houses or PZ.
+/// TFS `Tile::queryAdd` NPC / generic creature branch (`tile.cpp` ~565–628).
+///
+/// Unlike monsters, NPCs are **not** barred from protection zones (temple/depot
+/// spawns). House tiles are rejected here; `HouseTile::queryAdd` is TFS-only for
+/// invited players.
 pub(crate) fn tile_query_add_npc(
     world: &GameWorld,
     tile: &crate::tile::Tile,
@@ -477,10 +481,6 @@ pub(crate) fn tile_query_add_npc(
     if (flags & FLAG_PATHFINDING) != 0
         && (body.flags & (tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0
     {
-        return ReturnValue::NotPossible;
-    }
-
-    if (body.flags & tilestate::PROTECTIONZONE) != 0 {
         return ReturnValue::NotPossible;
     }
 
