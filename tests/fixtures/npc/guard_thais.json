@@ -1,0 +1,118 @@
+{
+  "id": "guard_thais",
+  "description": "Grof the guard via guards-thais.ndb ADDRESS hello / job / bye",
+  "npc": "Grof, The Guard",
+  "sources": [
+    "grof, the guard.npc",
+    "guards-thais.ndb"
+  ],
+  "rng_seed": 42,
+  "round_nr": 600,
+  "server_ms": 600000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 1,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 600,
+      "op": "say",
+      "player": "P1",
+      "text": "hello"
+    },
+    {
+      "at_round": 605,
+      "op": "say",
+      "player": "P1",
+      "text": "job"
+    },
+    {
+      "at_round": 610,
+      "op": "say",
+      "player": "P1",
+      "text": "bye"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "say",
+      "text": "LONG LIVE THE KING!",
+      "delay_ms": 1000,
+      "byte_len": 19
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"job\" -> duty reply"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "It's my duty to protect the city.",
+      "delay_ms": 1000,
+      "byte_len": 33
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "say",
+      "text": "LONG LIVE THE KING!",
+      "delay_ms": 1000,
+      "byte_len": 19
+    },
+    {
+      "kind": "state",
+      "value": "idle"
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:1682-1711 TalkStimulus",
+    "guards-thais.ndb shared fragment include"
+  ]
+}

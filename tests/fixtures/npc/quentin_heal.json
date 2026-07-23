@@ -1,0 +1,119 @@
+{
+  "id": "quentin_heal",
+  "description": "Quentin heal while poisoned (Poison>0) clears poison and EffectOpp(14)",
+  "npc": "Quentin",
+  "sources": [
+    "quentin.npc"
+  ],
+  "rng_seed": 42,
+  "round_nr": 200,
+  "server_ms": 200000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 80,
+      "conditions": {
+        "poison": 5,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 200,
+      "op": "say",
+      "player": "P1",
+      "text": "hello"
+    },
+    {
+      "at_round": 205,
+      "op": "say",
+      "player": "P1",
+      "text": "heal"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "state",
+      "value": "talking"
+    },
+    {
+      "kind": "focus",
+      "player": "P1"
+    },
+    {
+      "kind": "say",
+      "text": "Welcome, adventurer Hero! If you are new in Tibia, ask me for help.",
+      "delay_ms": 1000,
+      "byte_len": 67
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"heal$\",Poison>0 -> reply, Poison(0,0), EffectOpp(14)"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "You are poisoned. I will help you.",
+      "delay_ms": 1000,
+      "byte_len": 34
+    },
+    {
+      "kind": "mutate",
+      "target": "P1",
+      "op": "set_condition",
+      "condition": "poison",
+      "value": 0
+    },
+    {
+      "kind": "mutate",
+      "target": "P1",
+      "op": "effect",
+      "effect_id": 14
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:375-379 Burning/Poison SET_SKILL_TIMER actions",
+    "crnonpl.cc:387-389 EffectOpp FUNCTION1",
+    "crnonpl.cc:1054-1058 expression conditions"
+  ]
+}

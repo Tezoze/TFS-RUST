@@ -1,0 +1,191 @@
+{
+  "id": "two_player_busy_queue_vanish",
+  "description": "Quentin: P1 focus, P2 BUSY+Queue, timeout VANISH, ADDRESSQUEUE replay for P2",
+  "npc": "Quentin",
+  "sources": [
+    "quentin.npc"
+  ],
+  "rng_seed": 42,
+  "round_nr": 800,
+  "server_ms": 800000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {}
+    },
+    {
+      "id": "P2",
+      "name": "Other",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        102,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 800,
+      "op": "say",
+      "player": "P1",
+      "text": "hi"
+    },
+    {
+      "at_round": 801,
+      "op": "say",
+      "player": "P2",
+      "text": "hi"
+    },
+    {
+      "at_round": 837,
+      "op": "wait_rounds",
+      "rounds": 36
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "state",
+      "value": "talking"
+    },
+    {
+      "kind": "focus",
+      "player": "P1"
+    },
+    {
+      "kind": "turn_to",
+      "player": "P1"
+    },
+    {
+      "kind": "say",
+      "text": "Welcome, adventurer Hero! If you are new in Tibia, ask me for help.",
+      "delay_ms": 1000,
+      "byte_len": 67
+    },
+    {
+      "kind": "situation",
+      "name": "BUSY"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "BUSY,\"hi$\",! -> * (wait reply + Queue)"
+    },
+    {
+      "kind": "focus",
+      "player": "P2",
+      "temporary": true
+    },
+    {
+      "kind": "say",
+      "text": "Please wait a minute, Other.",
+      "delay_ms": 1000,
+      "byte_len": 28
+    },
+    {
+      "kind": "queue",
+      "op": "push",
+      "player": "P2",
+      "text": "hi"
+    },
+    {
+      "kind": "focus",
+      "player": "P1"
+    },
+    {
+      "kind": "situation",
+      "name": "VANISH"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "IdleStimulus timeout when RoundNr >= LastTalk+30 (807+30)"
+    },
+    {
+      "kind": "say",
+      "text": "Remember: If you are heavily wounded or poisoned, I will heal you.",
+      "delay_ms": 1000,
+      "byte_len": 66
+    },
+    {
+      "kind": "state",
+      "value": "idle"
+    },
+    {
+      "kind": "focus",
+      "player": null
+    },
+    {
+      "kind": "queue",
+      "op": "pop",
+      "player": "P2",
+      "text": "hi"
+    },
+    {
+      "kind": "situation",
+      "name": "ADDRESSQUEUE"
+    },
+    {
+      "kind": "state",
+      "value": "talking"
+    },
+    {
+      "kind": "focus",
+      "player": "P2"
+    },
+    {
+      "kind": "say",
+      "text": "Welcome, adventurer Other! If you are new in Tibia, ask me for help.",
+      "delay_ms": 1000,
+      "byte_len": 68
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:1692-1701 BUSY path swaps Interlocutor then restores",
+    "crnonpl.cc:1187-1198 Queue FUNCTION0 only valid in BUSY",
+    "crnonpl.cc:1718-1756 IdleStimulus timeout + queue ADDRESSQUEUE",
+    "crnonpl.cc:1288-1290 BUSY does not refresh LastTalk"
+  ]
+}

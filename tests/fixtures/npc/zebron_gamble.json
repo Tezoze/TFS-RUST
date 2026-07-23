@@ -1,0 +1,196 @@
+{
+  "id": "zebron_gamble",
+  "description": "Zebron dice: address, gamble yes (Random), bet 10, lose path DeleteMoney",
+  "npc": "Zebron",
+  "sources": [
+    "zebron.npc"
+  ],
+  "rng_seed": 42,
+  "round_nr": 300,
+  "server_ms": 300000,
+  "declared_rng": [
+    {
+      "call": "Random(1,6)",
+      "result": 3
+    }
+  ],
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 100,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 300,
+      "op": "say",
+      "player": "P1",
+      "text": "hi"
+    },
+    {
+      "at_round": 305,
+      "op": "say",
+      "player": "P1",
+      "text": "game"
+    },
+    {
+      "at_round": 310,
+      "op": "say",
+      "player": "P1",
+      "text": "yes"
+    },
+    {
+      "at_round": 315,
+      "op": "say",
+      "player": "P1",
+      "text": "10"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 1
+    },
+    {
+      "kind": "say",
+      "text": "Greetings, high roller. So you care for a game, Hero?",
+      "delay_ms": 1000,
+      "byte_len": 53
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"game\" -> * (gambl reply + Topic=1); match sees Topic before reset"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 1
+    },
+    {
+      "kind": "say",
+      "text": "So you care for a civilized game of dice?",
+      "delay_ms": 1000,
+      "byte_len": 41
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "Topic=1,\"yes\" -> Amount=Random(1,6), Topic=2"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "I will roll a dice. If it shows 6, you will get five times your bet. How much do you want to bet?",
+      "delay_ms": 1000,
+      "byte_len": 97
+    },
+    {
+      "kind": "set",
+      "var": "amount",
+      "value": 3
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 2
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "Topic=2,%1 capture bet 10, CountMoney>=10, Amount!=6 → DeleteMoney"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "set",
+      "var": "price",
+      "value": 10
+    },
+    {
+      "kind": "say",
+      "text": "Ok, here we go ... 3! You have lost. Bad luck. One more game?",
+      "delay_ms": 1000,
+      "byte_len": 61
+    },
+    {
+      "kind": "mutate",
+      "target": "P1",
+      "op": "delete_money",
+      "amount": 10
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 1
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:1033-1045 PARAMETER %1 capture capped at 500",
+    "crnonpl.cc:668-680 Random expression node",
+    "crnonpl.cc:405-413 CreateMoney/DeleteMoney FUNCTION0",
+    "crnonpl.cc:1081-1083 Topic reset after match, before actions"
+  ]
+}

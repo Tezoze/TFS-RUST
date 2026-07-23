@@ -1,0 +1,137 @@
+{
+  "id": "greeting_farewell",
+  "description": "Quentin ADDRESS hello/hi then DEFAULT bye → Idle",
+  "npc": "Quentin",
+  "sources": [
+    "quentin.npc"
+  ],
+  "rng_seed": 42,
+  "round_nr": 100,
+  "server_ms": 100000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 100,
+      "op": "say",
+      "player": "P1",
+      "text": "hi"
+    },
+    {
+      "at_round": 105,
+      "op": "say",
+      "player": "P1",
+      "text": "bye"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "ADDRESS,\"hi$\",! -> * (repeat hello)"
+    },
+    {
+      "kind": "state",
+      "value": "talking"
+    },
+    {
+      "kind": "focus",
+      "player": "P1"
+    },
+    {
+      "kind": "turn_to",
+      "player": "P1"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "Welcome, adventurer Hero! If you are new in Tibia, ask me for help.",
+      "delay_ms": 1000,
+      "byte_len": 67
+    },
+    {
+      "kind": "todo",
+      "op": "wait",
+      "delay_ms": 7400
+    },
+    {
+      "kind": "todo",
+      "op": "start"
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"bye\" -> goodbye, Idle"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "Good bye, Hero!",
+      "delay_ms": 1000,
+      "byte_len": 15
+    },
+    {
+      "kind": "state",
+      "value": "idle"
+    },
+    {
+      "kind": "focus",
+      "player": null
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:1682-1711 TalkStimulus ADDRESS/DEFAULT",
+    "crnonpl.cc:1096-1113 REPLY + REPEAT (*)",
+    "crnonpl.cc:1081-1083 Topic reset when Situation != BUSY",
+    "crnonpl.cc:1285-1290 ToDoWait/ToDoStart + LastTalk"
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "id": "multi_reply_timing",
+  "description": "Tom job rule: two REPLY actions with accumulated TalkDelay",
+  "npc": "Tom",
+  "sources": [
+    "tom.npc"
+  ],
+  "rng_seed": 42,
+  "round_nr": 700,
+  "server_ms": 700000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 700,
+      "op": "say",
+      "player": "P1",
+      "text": "hi"
+    },
+    {
+      "at_round": 705,
+      "op": "say",
+      "player": "P1",
+      "text": "job"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "say",
+      "text": "I'm Tom the Tanner. How can I help you Hero?",
+      "delay_ms": 1000,
+      "byte_len": 44
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"job\" -> two REPLY strings"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "I'm the local tanner. I buy fresh animal corpses, tan them, and convert them into fine leather clothes ...",
+      "delay_ms": 1000,
+      "byte_len": 106
+    },
+    {
+      "kind": "say",
+      "text": "I'm only selling to major customers. But I'm buying fresh corpses of rats, rabbits and wolves from you.",
+      "delay_ms": 9400,
+      "byte_len": 103
+    },
+    {
+      "kind": "todo",
+      "op": "wait",
+      "delay_ms": 17600
+    },
+    {
+      "kind": "todo",
+      "op": "start"
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:1088-1113 TalkDelay = 1000; += 3100 + (strlen/2)*100 per REPLY",
+    "crnonpl.cc:1285-1290 final ToDoWait(TalkDelay) + ToDoStart"
+  ]
+}

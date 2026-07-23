@@ -1,0 +1,1542 @@
+{
+  "authority": "data/npc/behavior",
+  "case_variants": [
+    {
+      "canonical": "amount",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Amount",
+        "amount"
+      ]
+    },
+    {
+      "canonical": "druid",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Druid",
+        "druid"
+      ]
+    },
+    {
+      "canonical": "idle",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Idle",
+        "idle"
+      ]
+    },
+    {
+      "canonical": "knight",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Knight",
+        "knight"
+      ]
+    },
+    {
+      "canonical": "level",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Level",
+        "level"
+      ]
+    },
+    {
+      "canonical": "paladin",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Paladin",
+        "paladin"
+      ]
+    },
+    {
+      "canonical": "premium",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Premium",
+        "premium"
+      ]
+    },
+    {
+      "canonical": "promoted",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Promoted",
+        "promoted"
+      ]
+    },
+    {
+      "canonical": "questvalue",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "QuestValue",
+        "Questvalue"
+      ]
+    },
+    {
+      "canonical": "setquestvalue",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "SetQuestValue",
+        "SetQuestvalue"
+      ]
+    },
+    {
+      "canonical": "sorcerer",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Sorcerer",
+        "sorcerer"
+      ]
+    },
+    {
+      "canonical": "topic",
+      "kind": "case_variant",
+      "note": "identifiers are lowercased at parse; all forms are supported",
+      "occurrences": 2,
+      "raw_spellings": [
+        "Topic",
+        "topic"
+      ]
+    }
+  ],
+  "coverage": {
+    "files_scanned": [
+      "a ghostly woman.npc",
+      "a lost soul.npc",
+      "a prisoner.npc",
+      "a strange fellow.npc",
+      "a sweaty cyclops.npc",
+      "a tainted soul.npc",
+      "a tortured soul.npc",
+      "a wrinkled beholder.npc",
+      "abran ironeye.npc",
+      "adrenius.npc",
+      "ahmet.npc",
+      "al dee.npc",
+      "albert.npc",
+      "aldo.npc",
+      "alesar.npc",
+      "alexander.npc",
+      "alia.npc",
+      "allen.npc",
+      "alwin.npc",
+      "amanda.npc",
+      "amber.npc",
+      "an apparition.npc",
+      "an old dragonlord.npc",
+      "anderson.npc",
+      "anerui.npc",
+      "aneus.npc",
+      "angelina.npc",
+      "angus.npc",
+      "arito.npc",
+      "arkhothep.npc",
+      "arnold.npc",
+      "aruda.npc",
+      "ashtamor.npc",
+      "asima.npc",
+      "asrak.npc",
+      "avar tar.npc",
+      "azil.npc",
+      "baa'leal.npc",
+      "bambi bonecrusher.npc",
+      "barbara.npc",
+      "bashira.npc",
+      "basilisk.npc",
+      "baxter.npc",
+      "beatrice.npc",
+      "benjamin.npc",
+      "bezil.npc",
+      "billy.npc",
+      "blind orc.npc",
+      "blossom bonecrusher.npc",
+      "bo'ques.npc",
+      "bonifacius.npc",
+      "boozer.npc",
+      "borkas.npc",
+      "bozo.npc",
+      "brasith.npc",
+      "brengus.npc",
+      "brewster.npc",
+      "briasol.npc",
+      "brodrosch.npc",
+      "bruno.npc",
+      "budrik.npc",
+      "bunny bonecrusher.npc",
+      "busty bonecrusher.npc",
+      "captain bluebear.npc",
+      "captain fearless.npc",
+      "captain greyhound.npc",
+      "captain jack.npc",
+      "captain seagull.npc",
+      "captain seahorse.npc",
+      "captain sinbeard.npc",
+      "carina.npc",
+      "carlson.npc",
+      "charles.npc",
+      "chatterbone.npc",
+      "chemar.npc",
+      "chephan.npc",
+      "chester kahs.npc",
+      "christoph.npc",
+      "chrystal.npc",
+      "cipfried.npc",
+      "clark.npc",
+      "clyde.npc",
+      "cobra.npc",
+      "cornelia.npc",
+      "costello.npc",
+      "dabui.npc",
+      "dagomir.npc",
+      "dalbrect.npc",
+      "dallheim.npc",
+      "dane.npc",
+      "daniel steelsoul.npc",
+      "dario.npc",
+      "demon skeleton.npc",
+      "demonguard.npc",
+      "dermot.npc",
+      "digger.npc",
+      "dixi.npc",
+      "djema.npc",
+      "donald mcronald.npc",
+      "dove.npc",
+      "duria.npc",
+      "dustrunner.npc",
+      "ebenizer.npc",
+      "edala.npc",
+      "eddy.npc",
+      "edoch.npc",
+      "edowir.npc",
+      "edvard.npc",
+      "elane.npc",
+      "elathriel.npc",
+      "elf guard.npc",
+      "elvith.npc",
+      "emperor kruzak.npc",
+      "eremo.npc",
+      "eroth.npc",
+      "etzel.npc",
+      "eva.npc",
+      "explorer.ndb",
+      "fa'hradin.npc",
+      "falk.npc",
+      "faluae.npc",
+      "feizuhl.npc",
+      "fenbala.npc",
+      "fenech.npc",
+      "ferks.npc",
+      "frans.npc",
+      "frodo.npc",
+      "gabel.npc",
+      "gail.npc",
+      "galuna.npc",
+      "gamel.npc",
+      "gamon.npc",
+      "gen-bank.ndb",
+      "gen-post.ndb",
+      "gen-t-armor-b.ndb",
+      "gen-t-armor-s.ndb",
+      "gen-t-distance-s.ndb",
+      "gen-t-fruit-s.ndb",
+      "gen-t-furniture-chairs-s.ndb",
+      "gen-t-furniture-containers-s.ndb",
+      "gen-t-furniture-decoration-s.ndb",
+      "gen-t-furniture-flowers-s.ndb",
+      "gen-t-furniture-instruments-s.ndb",
+      "gen-t-furniture-jungle-s.ndb",
+      "gen-t-furniture-pillows-s.ndb",
+      "gen-t-furniture-pottery-s.ndb",
+      "gen-t-furniture-statues-s.ndb",
+      "gen-t-furniture-tables-s.ndb",
+      "gen-t-furniture-tapestries-s.ndb",
+      "gen-t-gear-s.ndb",
+      "gen-t-gems-s.ndb",
+      "gen-t-helm-b.ndb",
+      "gen-t-helm-s.ndb",
+      "gen-t-legs-s.ndb",
+      "gen-t-magic-s.ndb",
+      "gen-t-meat-s.ndb",
+      "gen-t-music-s.ndb",
+      "gen-t-runes-free-s.ndb",
+      "gen-t-runes-prem-s.ndb",
+      "gen-t-shield-b.ndb",
+      "gen-t-shield-s.ndb",
+      "gen-t-wands-free-s.ndb",
+      "gen-t-wands-prem-s.ndb",
+      "gen-t-weapon-s.ndb",
+      "gen-xmas.ndb",
+      "gentest.ndb",
+      "gorn.npc",
+      "graubart.npc",
+      "gregor.npc",
+      "grof, the guard.npc",
+      "guards-carlin.ndb",
+      "guards-darama.ndb",
+      "guards-thais.ndb",
+      "guards-venore.ndb",
+      "gundralph.npc",
+      "gurbasch.npc",
+      "habdel.npc",
+      "hagor.npc",
+      "hairycles.npc",
+      "halif.npc",
+      "hanna.npc",
+      "hardek.npc",
+      "harkath bloodblade.npc",
+      "haroun.npc",
+      "harsky.npc",
+      "helor.npc",
+      "hl.npc",
+      "hofech.npc",
+      "hoggle.npc",
+      "hugo.npc",
+      "humgolf.npc",
+      "humphrey.npc",
+      "hyacinth.npc",
+      "imalas.npc",
+      "imbul.npc",
+      "irea.npc",
+      "ishebad.npc",
+      "ishina.npc",
+      "isimov.npc",
+      "iwan.npc",
+      "iwar.npc",
+      "jakahr.npc",
+      "james.npc",
+      "jean claude.npc",
+      "jezzara.npc",
+      "jimbin.npc",
+      "julian.npc",
+      "karl.npc",
+      "kasmir.npc",
+      "kawill.npc",
+      "kazzan.npc",
+      "kevin.npc",
+      "king tibianus.npc",
+      "kroox.npc",
+      "kulag, the guard.npc",
+      "lea.npc",
+      "lector.npc",
+      "lee'delle.npc",
+      "leeland.npc",
+      "legola.npc",
+      "liane.npc",
+      "lightfoot.npc",
+      "lily.npc",
+      "livielle.npc",
+      "lokur.npc",
+      "lorbas.npc",
+      "lorek.npc",
+      "loria.npc",
+      "loui.npc",
+      "lubo.npc",
+      "lugri.npc",
+      "luna.npc",
+      "lungelen.npc",
+      "lynda.npc",
+      "maealil.npc",
+      "malor.npc",
+      "maria.npc",
+      "markwin.npc",
+      "marlene.npc",
+      "marvik.npc",
+      "maryza.npc",
+      "mehkesh.npc",
+      "melchior.npc",
+      "memech.npc",
+      "mirabell.npc",
+      "miraia.npc",
+      "mortimer.npc",
+      "morun.npc",
+      "mugluf.npc",
+      "muriel.npc",
+      "muzir.npc",
+      "myra.npc",
+      "nah'bob.npc",
+      "nelliem.npc",
+      "nemal.npc",
+      "nezil.npc",
+      "nielson.npc",
+      "noodles.npc",
+      "norbert.npc",
+      "norf.npc",
+      "norma.npc",
+      "nydala.npc",
+      "obi.npc",
+      "odemara.npc",
+      "old adall.npc",
+      "oldrak.npc",
+      "olrik.npc",
+      "omur.npc",
+      "ormuhn.npc",
+      "oswald.npc",
+      "padreia.npc",
+      "partos.npc",
+      "pemaret.npc",
+      "penny.npc",
+      "perac.npc",
+      "perod.npc",
+      "petros.npc",
+      "phillip.npc",
+      "pino.npc",
+      "puffels.npc",
+      "pydar.npc",
+      "queen eloise.npc",
+      "quentin.npc",
+      "quero.npc",
+      "rachel.npc",
+      "rahkem.npc",
+      "rata'mari.npc",
+      "ray.npc",
+      "razan.npc",
+      "riddler.npc",
+      "robin.npc",
+      "roderick.npc",
+      "rodney.npc",
+      "rokyn.npc",
+      "romella.npc",
+      "rose.npc",
+      "rowenna.npc",
+      "rudolph.npc",
+      "sam.npc",
+      "sandra.npc",
+      "sarina.npc",
+      "scott.npc",
+      "seymour.npc",
+      "shalmar.npc",
+      "shanar.npc",
+      "shauna.npc",
+      "sherry mcronald.npc",
+      "shiantis.npc",
+      "shiriel.npc",
+      "shirith.npc",
+      "sigurd.npc",
+      "simon the beggar.npc",
+      "skjaar.npc",
+      "smiley.npc",
+      "snake eye.npc",
+      "stutch.npc",
+      "suzy.npc",
+      "svenson.npc",
+      "sylvester.npc",
+      "talesia.npc",
+      "talphion.npc",
+      "tandros.npc",
+      "tesha.npc",
+      "tezila.npc",
+      "thanita.npc",
+      "the blind prophet.npc",
+      "the crone.npc",
+      "the gatekeeper.npc",
+      "the oracle.npc",
+      "the orc king.npc",
+      "the queen of the banshee.npc",
+      "thomas.npc",
+      "tibra.npc",
+      "tim, the guard.npc",
+      "timur.npc",
+      "todd.npc",
+      "tokel.npc",
+      "tom.npc",
+      "topsy.npc",
+      "tothdral.npc",
+      "trimegis.npc",
+      "trisha.npc",
+      "tulf.npc",
+      "turvy.npc",
+      "ubaid.npc",
+      "ukea.npc",
+      "ulrik.npc",
+      "umar.npc",
+      "urkalio.npc",
+      "ursula.npc",
+      "uso.npc",
+      "ustan.npc",
+      "uzgod.npc",
+      "uzon.npc",
+      "velvet.npc",
+      "vera.npc",
+      "vladruc.npc",
+      "wally.npc",
+      "walter, the guard.npc",
+      "warbert.npc",
+      "willard.npc",
+      "william.npc",
+      "willie.npc",
+      "wyat.npc",
+      "wyda.npc",
+      "xed.npc",
+      "xodet.npc",
+      "yaman.npc",
+      "yanni.npc",
+      "yberius.npc",
+      "yoem.npc",
+      "yulas.npc",
+      "zaidal.npc",
+      "zebron.npc",
+      "zerbrus.npc",
+      "zoltan.npc"
+    ],
+    "include_directives": 165,
+    "ndb_files": 39,
+    "npc_files": 337,
+    "unique_include_targets": 22
+  },
+  "encodings": {
+    "newlines": {
+      "crlf": 0,
+      "lf": 376,
+      "none": 0
+    },
+    "non-utf8": [
+      "brodrosch.npc",
+      "captain bluebear.npc",
+      "captain seahorse.npc",
+      "uzon.npc"
+    ],
+    "utf-8": 372
+  },
+  "identifiers": {
+    "assignments": {
+      "amount": 4104,
+      "behavior": 337,
+      "data": 247,
+      "hp": 79,
+      "price": 4714,
+      "string": 595,
+      "topic": 8080,
+      "type": 4011
+    },
+    "functions": {
+      "bless": 7,
+      "burning": 158,
+      "count": 230,
+      "create": 245,
+      "delete": 149,
+      "effectme": 170,
+      "effectopp": 542,
+      "poison": 41,
+      "profession": 9,
+      "questvalue": 891,
+      "random": 7,
+      "setquestvalue": 249,
+      "spellknown": 34,
+      "spelllevel": 68,
+      "summon": 19,
+      "teachspell": 34,
+      "teleport": 103,
+      "town": 9
+    },
+    "properties_seen": {
+      "address": 1313,
+      "busy": 1168,
+      "druid": 362,
+      "female": 93,
+      "knight": 80,
+      "male": 104,
+      "paladin": 171,
+      "premium": 100,
+      "promoted": 12,
+      "pvpenforced": 199,
+      "pzblock": 47,
+      "sorcerer": 352,
+      "vanish": 327
+    },
+    "raw_spellings": {
+      "address": [
+        "ADDRESS"
+      ],
+      "amount": [
+        "Amount",
+        "amount"
+      ],
+      "behavior": [
+        "Behavior"
+      ],
+      "bless": [
+        "Bless"
+      ],
+      "burning": [
+        "Burning"
+      ],
+      "busy": [
+        "BUSY"
+      ],
+      "count": [
+        "Count"
+      ],
+      "countmoney": [
+        "CountMoney"
+      ],
+      "create": [
+        "Create"
+      ],
+      "createmoney": [
+        "CreateMoney"
+      ],
+      "data": [
+        "Data"
+      ],
+      "delete": [
+        "Delete"
+      ],
+      "deletemoney": [
+        "DeleteMoney"
+      ],
+      "druid": [
+        "Druid",
+        "druid"
+      ],
+      "effectme": [
+        "EffectMe"
+      ],
+      "effectopp": [
+        "EffectOpp"
+      ],
+      "female": [
+        "female"
+      ],
+      "hp": [
+        "HP"
+      ],
+      "idle": [
+        "Idle",
+        "idle"
+      ],
+      "knight": [
+        "Knight",
+        "knight"
+      ],
+      "level": [
+        "Level",
+        "level"
+      ],
+      "male": [
+        "male"
+      ],
+      "nop": [
+        "NOP"
+      ],
+      "paladin": [
+        "Paladin",
+        "paladin"
+      ],
+      "poison": [
+        "Poison"
+      ],
+      "premium": [
+        "Premium",
+        "premium"
+      ],
+      "price": [
+        "Price"
+      ],
+      "profession": [
+        "Profession"
+      ],
+      "promote": [
+        "Promote"
+      ],
+      "promoted": [
+        "Promoted",
+        "promoted"
+      ],
+      "pvpenforced": [
+        "PvPEnforced"
+      ],
+      "pzblock": [
+        "PZBlock"
+      ],
+      "questvalue": [
+        "QuestValue",
+        "Questvalue"
+      ],
+      "queue": [
+        "Queue"
+      ],
+      "random": [
+        "Random"
+      ],
+      "setquestvalue": [
+        "SetQuestValue",
+        "SetQuestvalue"
+      ],
+      "sorcerer": [
+        "Sorcerer",
+        "sorcerer"
+      ],
+      "spellknown": [
+        "SpellKnown"
+      ],
+      "spelllevel": [
+        "SpellLevel"
+      ],
+      "string": [
+        "String"
+      ],
+      "summon": [
+        "Summon"
+      ],
+      "teachspell": [
+        "TeachSpell"
+      ],
+      "teleport": [
+        "Teleport"
+      ],
+      "topic": [
+        "Topic",
+        "topic"
+      ],
+      "town": [
+        "Town"
+      ],
+      "type": [
+        "Type"
+      ],
+      "vanish": [
+        "VANISH"
+      ]
+    }
+  },
+  "include_edges": [
+    {
+      "from": "alexander.npc",
+      "to": "gen-t-runes-prem-s.ndb"
+    },
+    {
+      "from": "alexander.npc",
+      "to": "gen-t-wands-prem-s.ndb"
+    },
+    {
+      "from": "allen.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "alwin.npc",
+      "to": "guards-venore.ndb"
+    },
+    {
+      "from": "angus.npc",
+      "to": "explorer.ndb"
+    },
+    {
+      "from": "arnold.npc",
+      "to": "guards-venore.ndb"
+    },
+    {
+      "from": "asima.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "asima.npc",
+      "to": "gen-t-wands-prem-s.ndb"
+    },
+    {
+      "from": "bambi bonecrusher.npc",
+      "to": "guards-carlin.ndb"
+    },
+    {
+      "from": "benjamin.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "blossom bonecrusher.npc",
+      "to": "guards-carlin.ndb"
+    },
+    {
+      "from": "borkas.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "briasol.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "busty bonecrusher.npc",
+      "to": "guards-carlin.ndb"
+    },
+    {
+      "from": "chemar.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "christoph.npc",
+      "to": "guards-venore.ndb"
+    },
+    {
+      "from": "chrystal.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "dabui.npc",
+      "to": "guards-darama.ndb"
+    },
+    {
+      "from": "dove.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "ebenizer.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "eddy.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "edvard.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "eva.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "feizuhl.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "fenech.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "fenech.npc",
+      "to": "gen-t-wands-prem-s.ndb"
+    },
+    {
+      "from": "ferks.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "frans.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "frans.npc",
+      "to": "gen-t-wands-free-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "gamon.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "grof, the guard.npc",
+      "to": "guards-thais.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "hofech.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "iwar.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "jakahr.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "jean claude.npc",
+      "to": "guards-venore.ndb"
+    },
+    {
+      "from": "julian.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "kulag, the guard.npc",
+      "to": "guards-thais.ndb"
+    },
+    {
+      "from": "liane.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "lokur.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "mortimer.npc",
+      "to": "explorer.ndb"
+    },
+    {
+      "from": "morun.npc",
+      "to": "guards-darama.ndb"
+    },
+    {
+      "from": "muzir.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "nydala.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "olrik.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "rachel.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "rachel.npc",
+      "to": "gen-t-wands-free-s.ndb"
+    },
+    {
+      "from": "ray.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "rokyn.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "rose.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "shiantis.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "shiriel.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "shiriel.npc",
+      "to": "gen-t-wands-free-s.ndb"
+    },
+    {
+      "from": "sigurd.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "sigurd.npc",
+      "to": "gen-t-wands-free-s.ndb"
+    },
+    {
+      "from": "suzy.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "sylvester.npc",
+      "to": "guards-venore.ndb"
+    },
+    {
+      "from": "tandros.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "tandros.npc",
+      "to": "gen-t-wands-prem-s.ndb"
+    },
+    {
+      "from": "tesha.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "tezila.npc",
+      "to": "gen-bank.ndb"
+    },
+    {
+      "from": "tim, the guard.npc",
+      "to": "guards-thais.ndb"
+    },
+    {
+      "from": "topsy.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "topsy.npc",
+      "to": "gen-t-wands-free-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "ukea.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "velvet.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "velvet.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "vera.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "wally.npc",
+      "to": "gen-post.ndb"
+    },
+    {
+      "from": "walter, the guard.npc",
+      "to": "guards-thais.ndb"
+    },
+    {
+      "from": "warbert.npc",
+      "to": "guards-venore.ndb"
+    },
+    {
+      "from": "xodet.npc",
+      "to": "gen-t-runes-free-s.ndb"
+    },
+    {
+      "from": "xodet.npc",
+      "to": "gen-t-wands-free-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-chairs-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-containers-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-decoration-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-flowers-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-instruments-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-pillows-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-pottery-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-statues-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "yoem.npc",
+      "to": "gen-t-furniture-tapestries-s.ndb"
+    },
+    {
+      "from": "yulas.npc",
+      "to": "gen-t-furniture-tables-s.ndb"
+    },
+    {
+      "from": "zaidal.npc",
+      "to": "gen-t-furniture-jungle-s.ndb"
+    }
+  ],
+  "known_vocabulary": {
+    "actions": [
+      "amount",
+      "burning",
+      "create",
+      "createmoney",
+      "data",
+      "delete",
+      "deletemoney",
+      "effectme",
+      "effectopp",
+      "hp",
+      "idle",
+      "nop",
+      "poison",
+      "price",
+      "profession",
+      "queue",
+      "setquestvalue",
+      "startposition",
+      "summon",
+      "teachspell",
+      "teleport",
+      "topic",
+      "type"
+    ],
+    "cpp_refs": [
+      "reference/cipsoft-772/tibia-game-master/src/crnonpl.cc",
+      "reference/cipsoft-772/tibia-game-master/src/enums.hh",
+      "reference/cipsoft-772/tibia-game-master/src/script.cc (getIdentifier lowercases)"
+    ],
+    "expression_values": [
+      "amount",
+      "burning",
+      "count",
+      "countmoney",
+      "data",
+      "hp",
+      "level",
+      "magiclevel",
+      "poison",
+      "price",
+      "questvalue",
+      "random",
+      "spellknown",
+      "spelllevel",
+      "topic",
+      "type"
+    ],
+    "properties": [
+      "address",
+      "busy",
+      "druid",
+      "female",
+      "knight",
+      "male",
+      "nonpvp",
+      "paladin",
+      "premium",
+      "promoted",
+      "pvpenforced",
+      "pzblock",
+      "sorcerer",
+      "vanish"
+    ]
+  },
+  "missing_includes": [],
+  "reference_crosscheck": {
+    "ndb_count": 39,
+    "note": "counts only; data/npc/behavior is inventory authority",
+    "npc_count": 337,
+    "path": "reference/cipsoft-772/runtime/npc"
+  },
+  "schema_version": 1,
+  "special_tokens": {
+    "!": 3193,
+    "$": 2359,
+    "%1": 7461,
+    "*": 5372,
+    "->": 20174,
+    "@include": 165
+  },
+  "substitutions": {
+    "%1": 7477,
+    "%A": 1740,
+    "%N": 657,
+    "%P": 4650,
+    "%T": 110
+  },
+  "unsupported_constructs": [
+    {
+      "canonical": "bless",
+      "kind": "function_call",
+      "note": "not in 772 action/expression tables (crnonpl.cc)",
+      "occurrences": 7,
+      "raw_spellings": [
+        "Bless"
+      ]
+    },
+    {
+      "canonical": "town",
+      "kind": "function_call",
+      "note": "not in 772 action/expression tables (crnonpl.cc)",
+      "occurrences": 9,
+      "raw_spellings": [
+        "Town"
+      ]
+    },
+    {
+      "canonical": "string",
+      "kind": "assignment",
+      "note": "not in 772 SET_VARIABLE / SET_SKILL action ids",
+      "occurrences": 595,
+      "raw_spellings": [
+        "String"
+      ]
+    },
+    {
+      "canonical": "promote",
+      "kind": "unknown_action",
+      "note": "not in 772 action/property tables (crnonpl.cc)",
+      "occurrences": 4,
+      "raw_spellings": [
+        "Promote"
+      ]
+    },
+    {
+      "canonical": "brodrosch.npc",
+      "kind": "encoding",
+      "note": "file is non-utf8 (latin-1 decode used for inventory)",
+      "occurrences": 1,
+      "raw_spellings": []
+    },
+    {
+      "canonical": "captain bluebear.npc",
+      "kind": "encoding",
+      "note": "file is non-utf8 (latin-1 decode used for inventory)",
+      "occurrences": 1,
+      "raw_spellings": []
+    },
+    {
+      "canonical": "captain seahorse.npc",
+      "kind": "encoding",
+      "note": "file is non-utf8 (latin-1 decode used for inventory)",
+      "occurrences": 1,
+      "raw_spellings": []
+    },
+    {
+      "canonical": "uzon.npc",
+      "kind": "encoding",
+      "note": "file is non-utf8 (latin-1 decode used for inventory)",
+      "occurrences": 1,
+      "raw_spellings": []
+    }
+  ]
+}

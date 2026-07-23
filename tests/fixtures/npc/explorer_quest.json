@@ -1,0 +1,180 @@
+{
+  "id": "explorer_quest",
+  "description": "Angus + explorer.ndb: join society start (QuestValue 300<1)",
+  "npc": "Angus",
+  "sources": [
+    "angus.npc",
+    "explorer.ndb"
+  ],
+  "rng_seed": 42,
+  "round_nr": 500,
+  "server_ms": 500000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [],
+      "money": 0,
+      "quest_values": {
+        "300": 0
+      }
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 500,
+      "op": "say",
+      "player": "P1",
+      "text": "hi"
+    },
+    {
+      "at_round": 505,
+      "op": "say",
+      "player": "P1",
+      "text": "join"
+    },
+    {
+      "at_round": 510,
+      "op": "say",
+      "player": "P1",
+      "text": "yes"
+    },
+    {
+      "at_round": 515,
+      "op": "say",
+      "player": "P1",
+      "text": "yes"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "say",
+      "text": "Greetings, what can I do for you?",
+      "delay_ms": 1000,
+      "byte_len": 33
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"join\",QuestValue(300)<1 -> topic=1"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 1
+    },
+    {
+      "kind": "say",
+      "text": "Do you want to join the explorer society?",
+      "delay_ms": 1000,
+      "byte_len": 41
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"yes\", topic=1 -> three replies, topic=2"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "Fine, though it takes more than a mere lip service to join our ranks. To prove your dedication to the cause you will have to acquire an item for us ...",
+      "delay_ms": 1000,
+      "byte_len": 151
+    },
+    {
+      "kind": "say",
+      "text": "The mission should be simple to fulfil. For our excavations we have ordered a sturdy pickaxe in Kazordoon. You would have to seek out this trader Uzgod and get the pickaxe for us ...",
+      "delay_ms": 11600,
+      "byte_len": 182
+    },
+    {
+      "kind": "say",
+      "text": "Simple enough? Are you interested in this task?",
+      "delay_ms": 23800,
+      "byte_len": 47
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 2
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"yes\", topic=2 -> SetQuestValue(325,1)"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "We will see if you can handle this simple task. Get the pickaxe from Uzgod in Kazordoon and bring it to one of our bases. Report there about the pickaxe.",
+      "delay_ms": 1000,
+      "byte_len": 153
+    },
+    {
+      "kind": "mutate",
+      "target": "P1",
+      "op": "set_quest_value",
+      "quest_id": 325,
+      "value": 1
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc:381-383 SetQuestValue FUNCTION2",
+    "crnonpl.cc:690-700 QuestValue expression",
+    "crnonpl.cc:1088-1113 multi-REPLY TalkDelay accumulation"
+  ]
+}

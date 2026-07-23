@@ -1,0 +1,193 @@
+{
+  "id": "bank_change",
+  "description": "Eva + gen-bank.ndb: change gold → platinum confirmation and Create/Delete",
+  "npc": "Eva",
+  "sources": [
+    "eva.npc",
+    "gen-bank.ndb"
+  ],
+  "rng_seed": 42,
+  "round_nr": 400,
+  "server_ms": 400000,
+  "players": [
+    {
+      "id": "P1",
+      "name": "Hero",
+      "sex": "male",
+      "vocation": "none",
+      "pos": [
+        101,
+        100,
+        7
+      ],
+      "hp": 150,
+      "conditions": {
+        "poison": 0,
+        "burning": 0
+      },
+      "inventory": [
+        {
+          "item_id": 2148,
+          "count": 250
+        }
+      ],
+      "money": 250,
+      "quest_values": {}
+    }
+  ],
+  "npc_state": {
+    "home": [
+      100,
+      100,
+      7
+    ],
+    "radius": 4,
+    "state": "idle",
+    "focus": null,
+    "topic": 0,
+    "price": 0,
+    "amount": 0,
+    "type": 0,
+    "data": 0,
+    "queue": []
+  },
+  "steps": [
+    {
+      "at_round": 400,
+      "op": "say",
+      "player": "P1",
+      "text": "hi"
+    },
+    {
+      "at_round": 405,
+      "op": "say",
+      "player": "P1",
+      "text": "change gold"
+    },
+    {
+      "at_round": 410,
+      "op": "say",
+      "player": "P1",
+      "text": "2"
+    },
+    {
+      "at_round": 415,
+      "op": "say",
+      "player": "P1",
+      "text": "yes"
+    }
+  ],
+  "expected": [
+    {
+      "kind": "situation",
+      "name": "ADDRESS"
+    },
+    {
+      "kind": "say",
+      "text": "Welcome Hero! What can I do for you?",
+      "delay_ms": 1000,
+      "byte_len": 36
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "\"change\",\"gold\",! -> Topic=91"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 91
+    },
+    {
+      "kind": "say",
+      "text": "How many platinum coins do you want to get?",
+      "delay_ms": 1000,
+      "byte_len": 43
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "Topic=91,%1,0<%1 -> Amount=%1*100, Price=%1, Topic=96"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "set",
+      "var": "amount",
+      "value": 200
+    },
+    {
+      "kind": "set",
+      "var": "price",
+      "value": 2
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 96
+    },
+    {
+      "kind": "say",
+      "text": "So I should change 200 of your gold coins to 2 platinum coins for you?",
+      "delay_ms": 1000,
+      "byte_len": 70
+    },
+    {
+      "kind": "situation",
+      "name": "DEFAULT"
+    },
+    {
+      "kind": "match_rule",
+      "summary": "Topic=96,yes,Count(2148)>=Amount -> Delete(2148), Amount=Price, Create(2152)"
+    },
+    {
+      "kind": "set",
+      "var": "topic",
+      "value": 0
+    },
+    {
+      "kind": "say",
+      "text": "Here you are.",
+      "delay_ms": 1000,
+      "byte_len": 13
+    },
+    {
+      "kind": "mutate",
+      "target": "P1",
+      "op": "delete_item",
+      "item_id": 2148,
+      "count_from_amount": true
+    },
+    {
+      "kind": "set",
+      "var": "amount",
+      "value": 2
+    },
+    {
+      "kind": "mutate",
+      "target": "P1",
+      "op": "create_item",
+      "item_id": 2152,
+      "count_from_amount": true
+    }
+  ],
+  "cpp_refs": [
+    "crnonpl.cc include @\"…\" flatten at parse",
+    "crnonpl.cc:399-404 Create/Delete FUNCTION1",
+    "gen-bank.ndb Topic=91/96 change-making"
+  ]
+}
