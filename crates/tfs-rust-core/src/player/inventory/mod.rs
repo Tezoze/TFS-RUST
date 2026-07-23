@@ -5,6 +5,7 @@
 //! fragmentation" recommendation. Pure file relocation — no logic edits.
 
 pub(crate) mod load;
+pub(crate) mod money;
 pub(crate) mod notifications;
 pub(crate) mod query_add;
 pub(crate) mod util;

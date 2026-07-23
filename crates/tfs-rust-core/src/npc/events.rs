@@ -24,6 +24,59 @@ impl DialogueSituationKind {
     }
 }
 
+/// World mutation recorded in order for fixture / differential tests (NPC-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MutateOp {
+    CreateItem {
+        item_id: i32,
+        count: i32,
+    },
+    DeleteItem {
+        item_id: i32,
+        count: i32,
+    },
+    CreateMoney {
+        amount: i32,
+    },
+    DeleteMoney {
+        amount: i32,
+    },
+    SetCondition {
+        condition: &'static str,
+        value: i32,
+    },
+    Effect {
+        effect_id: u16,
+        on_npc: bool,
+    },
+    SetQuestValue {
+        id: u32,
+        value: i32,
+    },
+    SetHp {
+        value: i32,
+    },
+    Profession {
+        vocation: i32,
+    },
+    TeachSpell {
+        spell: i32,
+    },
+    Summon {
+        monster: String,
+    },
+    Teleport {
+        x: i32,
+        y: i32,
+        z: i32,
+    },
+    StartPosition {
+        x: i32,
+        y: i32,
+        z: i32,
+    },
+}
+
 /// Observable dialogue/state event (NPC-0 fixture `expected[]` kinds).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogueEvent {
@@ -61,7 +114,12 @@ pub enum DialogueEvent {
         op: TodoOp,
         delay_ms: Option<u32>,
     },
-    /// Mutating / deferred action recorded but not applied in NPC-4.
+    /// Immediate world mutation applied left-to-right (NPC-5).
+    Mutate {
+        player: CreatureId,
+        op: MutateOp,
+    },
+    /// Custom Lua action — not applied until NPC-7.
     DeferredAction {
         kind: &'static str,
     },

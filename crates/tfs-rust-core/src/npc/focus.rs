@@ -1,11 +1,12 @@
 //! Talk / idle stimulus and queued-single-focus ownership.
 
+use tfs_rust_common::enums::ConditionType;
 use tfs_rust_content::npcs::{DialoguePolicy, DialogueProgram};
 
 use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, QueueOp};
 use super::expr::{EvalContext, PlayerVocationKind};
 use super::match_rule::match_dialogue_rule;
-use super::react::apply_dialogue_plan;
+use super::react::{apply_dialogue_plan, ReactMeta};
 use crate::creature::{CreatureKind, NpcActivity, QueuedNpcAddress};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -466,29 +467,113 @@ impl GameWorld {
         };
         let program: DialogueProgram = program.clone();
         let tuning = self.mechanics.profile.npc;
+        let npc_name = def.name.clone();
 
-        let mut zero = |_a: i32, _b: i32| 0i32;
-        let inv = |_id: i32| 0i32;
-        let quest = |_id: u32| 0i32;
-        let spell_k = |_id: i32| 0i32;
-        let spell_l = |_id: i32| 0i32;
-
-        let (player_name, sex, level, hp, vocation) = match self.creatures.get(player) {
-            Some(CreatureKind::Player(p)) => (
-                p.base.name.clone(),
-                match p.sex {
-                    tfs_rust_common::PlayerSex::Male => 1u8,
-                    tfs_rust_common::PlayerSex::Female => 2u8,
-                },
-                p.level,
-                p.base.health,
-                vocation_kind(p.vocation_id),
-            ),
+        let (
+            player_name,
+            sex,
+            level,
+            hp,
+            vocation,
+            maglevel,
+            premium,
+            promoted,
+            pz_block,
+            poison,
+            burning,
+        ) = match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => {
+                let poison = p
+                    .base
+                    .active_conditions
+                    .iter()
+                    .find(|c| c.ctype == ConditionType::Poison)
+                    .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
+                    .unwrap_or(0);
+                let burning = p
+                    .base
+                    .active_conditions
+                    .iter()
+                    .find(|c| c.ctype == ConditionType::Fire)
+                    .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
+                    .unwrap_or(0);
+                let premium = p.premium_ends_at > 0
+                    && u64::from(p.premium_ends_at)
+                        > std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                (
+                    p.base.name.clone(),
+                    match p.sex {
+                        tfs_rust_common::PlayerSex::Male => 1u8,
+                        tfs_rust_common::PlayerSex::Female => 2u8,
+                    },
+                    p.level,
+                    p.base.health,
+                    vocation_kind(p.vocation_id),
+                    p.magic_level(),
+                    premium,
+                    p.vocation_id >= 5,
+                    p.earliest_protection_zone_round > self.round_nr,
+                    poison,
+                    burning,
+                )
+            }
             _ => return,
         };
+        let money = self.player_count_money(player).min(i32::MAX as u64) as i32;
 
         let (topic, price, amount, item_type, data) =
             self.npc_session_vars(npc_id, player, &program);
+        let (world_pvp_enforced, world_non_pvp) = self.npc_world_pvp_flags();
+
+        // Live inventory / quest / spell / RNG reads for this reaction.
+        // Game-thread only: queries run outside overlapping `&mut` host mutation calls.
+        let world_ptr = self as *const GameWorld;
+        let inv = move |id: i32| -> i32 {
+            if id <= 0 {
+                return 0;
+            }
+            let Ok(item_id) = u16::try_from(id) else {
+                return 0;
+            };
+            // SAFETY: single-threaded game loop; host mutations finish before next eval read.
+            unsafe { (*world_ptr).player_get_item_type_count(player, item_id, -1) as i32 }
+        };
+        let quest = move |id: u32| -> i32 {
+            unsafe { (*world_ptr).player_get_storage(player, id) }
+        };
+        let spell_k = move |id: i32| -> i32 {
+            let key = id.to_string();
+            unsafe {
+                match (*world_ptr).creatures.get(player) {
+                    Some(CreatureKind::Player(p)) => p
+                        .persist
+                        .as_ref()
+                        .map(|b| {
+                            i32::from(
+                                b.spells
+                                    .iter()
+                                    .any(|s| s == &key || s.eq_ignore_ascii_case(&key)),
+                            )
+                        })
+                        .unwrap_or(0),
+                    _ => 0,
+                }
+            }
+        };
+        let spell_l = move |_id: i32| -> i32 { 0 };
+        let mut rng = move |lo: i32, hi: i32| -> i32 {
+            unsafe { (*world_ptr).parity_random(lo, hi) }
+        };
+
+        let now = chrono::Local::now();
+        let (game_hour, game_minute) = {
+            use chrono::Timelike;
+            let h = now.hour() % 12;
+            ((if h == 0 { 12 } else { h }) as u8, now.minute() as u8)
+        };
 
         let mut ctx = EvalContext {
             topic,
@@ -500,24 +585,24 @@ impl GameWorld {
             player_name: player_name.as_str(),
             player_hp: hp,
             player_level: level,
-            player_magic_level: 0,
+            player_magic_level: maglevel,
             player_sex: sex,
             player_vocation: vocation,
-            player_premium: false,
-            player_promoted: false,
-            player_pz_block: false,
-            burning: 0,
-            poison: 0,
-            money: 0,
+            player_premium: premium,
+            player_promoted: promoted,
+            player_pz_block: pz_block,
+            burning,
+            poison,
+            money,
             inventory_count: &inv,
             quest_value: &quest,
             spell_known: &spell_k,
             spell_level: &spell_l,
-            rng: &mut zero,
-            game_hour: 0,
-            game_minute: 0,
-            world_pvp_enforced: false,
-            world_non_pvp: false,
+            rng: &mut rng,
+            game_hour,
+            game_minute,
+            world_pvp_enforced,
+            world_non_pvp,
             tuning,
         };
 
@@ -528,6 +613,10 @@ impl GameWorld {
             index: matched.rule_index,
         });
 
+        let meta = ReactMeta {
+            npc_id,
+            npc_name: &npc_name,
+        };
         let plan = apply_dialogue_plan(
             &program,
             matched,
@@ -536,6 +625,8 @@ impl GameWorld {
             text,
             &mut ctx,
             tuning,
+            self,
+            &meta,
             trace,
         );
 

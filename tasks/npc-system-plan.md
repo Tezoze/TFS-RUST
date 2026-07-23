@@ -1,6 +1,6 @@
 # NPC system audit and implementation plan — 772 outcomes, TFS flexibility
 
-**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; NPC-4 speech/focus/matching done (mutating actions deferred to NPC-5; ToDo reply scheduling deferred to NPC-6)
+**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; NPC-4 speech/focus/matching done; NPC-5 standard actions + immediate mutation done (ToDo reply scheduling deferred to NPC-6)
 **Primary target:** exact observable 772 NPC outcomes
 **Domain:** TFS-style `Npc` / `NpcType`, Lua content and userdata APIs
 **Implementation:** idiomatic Rust on the game thread; LuaJIT for content hooks
@@ -506,16 +506,18 @@ Affected files:
 
 Work:
 
-- [ ] Implement session variables and response substitutions.
-- [ ] Reuse existing item count/add/remove cylinder APIs; do not create NPC-only inventory logic.
-- [ ] Add TFS-shaped money helpers with exact 772 denomination/change outcomes for imported actions.
-- [ ] Expose storage/quest reads and immediate writes on the live player; mark persistence dirty.
-- [ ] Wire HP, poison/fire condition removal/application, effects, vocation/promotion, spell learning, summon, teleport, and home-town/start-position actions.
-- [ ] Execute actions left-to-right without rollback.
-- [ ] Log failures with NPC, player, rule source span, and action index.
-- [ ] Add partial-failure ordering tests.
+- [x] Implement session variables and response substitutions. *(done in NPC-4)*
+- [x] Reuse existing item count/add/remove cylinder APIs; do not create NPC-only inventory logic.
+- [x] Add TFS-shaped money helpers with exact 772 denomination/change outcomes for imported actions.
+- [x] Expose storage/quest reads and immediate writes on the live player; mark persistence dirty.
+- [x] Wire HP, poison/fire condition removal/application, effects, vocation/promotion, spell learning, summon, teleport, and home-town/start-position actions.
+- [x] Execute actions left-to-right without rollback.
+- [x] Log failures with NPC, player, rule source span, and action index.
+- [x] Add partial-failure ordering tests.
 
 **Gate:** mutating transcript fixtures match ordered world changes and packets.
+
+**NPC-5 deliverables:** `npc/actions.rs` + `npc/host.rs`; `player/inventory/money.rs` (2148/2152/2160 + `CalculateChange`); live `EvalContext` reads in `focus.rs`; `DialogueEvent::Mutate` replacing deferred stubs (Custom stays deferred until NPC-7).
 
 ### NPC-6 — ToDo timing, movement, sleep/wake, and NPC speech
 

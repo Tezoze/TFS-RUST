@@ -1,8 +1,9 @@
-//! Apply a matched rule's actions into a plan + session mutations (NPC-4 non-mutating core).
+//! Apply a matched rule's actions into a plan + immediate mutations (NPC-5).
 
 use tfs_rust_content::npcs::{DialogueAction, DialogueProgram, SessionVar};
 
-use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, TodoOp};
+use super::actions::{log_action_failure, ActionFailCtx, NpcActionHost};
+use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp, TodoOp};
 use super::expr::{format_npc_response, EvalContext};
 use super::match_rule::{MatchCaptures, RuleMatch};
 use crate::formulas::NpcTuning;
@@ -29,12 +30,18 @@ pub struct DialoguePlan {
     pub data: Option<i32>,
     pub start_todo: bool,
     pub final_talk_delay_ms: u32,
-    pub deferred: Vec<&'static str>,
+}
+
+/// Metadata for mutation logging / EffectMe / Summon placement.
+pub struct ReactMeta<'a> {
+    pub npc_id: CreatureId,
+    pub npc_name: &'a str,
 }
 
 /// Execute matched rule actions (and `*` repeats) into [`DialoguePlan`] + trace events.
 ///
-/// C++ action loop — `crnonpl.cc:1085-1291`. Mutating world actions are deferred (NPC-5).
+/// C++ action loop — `crnonpl.cc:1085-1291`. Mutating world actions apply immediately
+/// via [`NpcActionHost`] (NPC-5). Custom actions remain deferred until NPC-7.
 pub fn apply_dialogue_plan(
     program: &DialogueProgram,
     matched: RuleMatch,
@@ -43,9 +50,11 @@ pub fn apply_dialogue_plan(
     text: &str,
     ctx: &mut EvalContext<'_>,
     tuning: NpcTuning,
+    host: &mut dyn NpcActionHost,
+    meta: &ReactMeta<'_>,
     trace: &mut DialogueTrace,
 ) -> DialoguePlan {
-    let _ = (player, text);
+    let _ = text;
     ctx.captures = matched.captures.values;
 
     if situation != DialogueSituationKind::Busy {
@@ -67,8 +76,15 @@ pub fn apply_dialogue_plan(
         let Some(rule) = program.rules.get(rule_index) else {
             break;
         };
+        let rule_span = rule.span.display();
         let mut repeat = false;
-        for action in &rule.actions {
+        for (action_index, action) in rule.actions.iter().enumerate() {
+            let fail_ctx = ActionFailCtx {
+                npc_name: meta.npc_name,
+                player,
+                rule_span: &rule_span,
+                action_index,
+            };
             match action {
                 DialogueAction::RepeatPrevious { .. } => {
                     if rule_index > 0 {
@@ -103,7 +119,6 @@ pub fn apply_dialogue_plan(
                 DialogueAction::Idle { .. } => {
                     if !plan.start_todo {
                         plan.go_idle = true;
-                        // ADDRESSQUEUE idle without prior talk is an error in C++; still mark idle.
                     } else {
                         // After queued speech, Idle becomes Leaving then ToDoChangeState — NPC-6.
                         plan.go_idle = true;
@@ -116,22 +131,222 @@ pub fn apply_dialogue_plan(
                     }
                 }
                 DialogueAction::Nop { .. } => {}
-                DialogueAction::Create { .. } => defer(&mut plan, trace, "create"),
-                DialogueAction::Delete { .. } => defer(&mut plan, trace, "delete"),
-                DialogueAction::CreateMoney { .. } => defer(&mut plan, trace, "createMoney"),
-                DialogueAction::DeleteMoney { .. } => defer(&mut plan, trace, "deleteMoney"),
-                DialogueAction::SetHp { .. } => defer(&mut plan, trace, "hp"),
-                DialogueAction::Burning { .. } => defer(&mut plan, trace, "burning"),
-                DialogueAction::Poison { .. } => defer(&mut plan, trace, "poison"),
-                DialogueAction::EffectMe { .. } => defer(&mut plan, trace, "effectMe"),
-                DialogueAction::EffectOpp { .. } => defer(&mut plan, trace, "effectOpp"),
-                DialogueAction::SetQuestValue { .. } => defer(&mut plan, trace, "setQuestValue"),
-                DialogueAction::Profession { .. } => defer(&mut plan, trace, "profession"),
-                DialogueAction::TeachSpell { .. } => defer(&mut plan, trace, "teachSpell"),
-                DialogueAction::Summon { .. } => defer(&mut plan, trace, "summon"),
-                DialogueAction::Teleport { .. } => defer(&mut plan, trace, "teleport"),
-                DialogueAction::StartPosition { .. } => defer(&mut plan, trace, "startPosition"),
-                DialogueAction::Custom { .. } => defer(&mut plan, trace, "custom"),
+                DialogueAction::Create { item, count, .. } => {
+                    let item_id = super::expr::eval_expr(item, ctx);
+                    let count_v = super::expr::eval_expr(count, ctx);
+                    match host.create_item(player, item_id, count_v) {
+                        Ok(()) => {
+                            refresh_money(ctx);
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::CreateItem {
+                                    item_id,
+                                    count: count_v,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Delete { item, count, .. } => {
+                    let item_id = super::expr::eval_expr(item, ctx);
+                    let count_v = super::expr::eval_expr(count, ctx);
+                    match host.delete_item(player, item_id, count_v) {
+                        Ok(()) => {
+                            refresh_money(ctx);
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::DeleteItem {
+                                    item_id,
+                                    count: count_v,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::CreateMoney { amount, .. } => {
+                    let amount_v = super::expr::eval_expr(amount, ctx);
+                    match host.create_money(player, amount_v) {
+                        Ok(()) => {
+                            refresh_money(ctx);
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::CreateMoney { amount: amount_v },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::DeleteMoney { amount, .. } => {
+                    let amount_v = super::expr::eval_expr(amount, ctx);
+                    match host.delete_money(player, amount_v) {
+                        Ok(()) => {
+                            refresh_money(ctx);
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::DeleteMoney { amount: amount_v },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::SetHp { expr, .. } => {
+                    let value = super::expr::eval_expr(expr, ctx);
+                    match host.set_hp(player, value) {
+                        Ok(()) => {
+                            ctx.player_hp = value;
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::SetHp { value },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Burning { cycles, param, .. } => {
+                    let cycles_v = super::expr::eval_expr(cycles, ctx);
+                    let param_v = super::expr::eval_expr(param, ctx);
+                    match host.set_burning(player, cycles_v, param_v) {
+                        Ok(()) => {
+                            ctx.burning = cycles_v;
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::SetCondition {
+                                    condition: "burning",
+                                    value: cycles_v,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Poison { cycles, param, .. } => {
+                    let cycles_v = super::expr::eval_expr(cycles, ctx);
+                    let param_v = super::expr::eval_expr(param, ctx);
+                    match host.set_poison(player, cycles_v, param_v) {
+                        Ok(()) => {
+                            ctx.poison = cycles_v;
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::SetCondition {
+                                    condition: "poison",
+                                    value: cycles_v,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::EffectMe { effect_id, .. } => {
+                    match host.effect_me(meta.npc_id, *effect_id) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::Effect {
+                                    effect_id: *effect_id,
+                                    on_npc: true,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::EffectOpp { effect_id, .. } => {
+                    match host.effect_opp(player, *effect_id) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::Effect {
+                                    effect_id: *effect_id,
+                                    on_npc: false,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::SetQuestValue {
+                    storage_id, value, ..
+                } => {
+                    let value_v = super::expr::eval_expr(value, ctx);
+                    match host.set_quest_value(player, *storage_id, value_v) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::SetQuestValue {
+                                    id: *storage_id,
+                                    value: value_v,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Profession { vocation, .. } => {
+                    let voc = super::expr::eval_expr(vocation, ctx);
+                    match host.set_profession(player, voc) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::Profession { vocation: voc },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::TeachSpell { spell, .. } => {
+                    let spell_v = super::expr::eval_expr(spell, ctx);
+                    match host.teach_spell(player, spell_v) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::TeachSpell { spell: spell_v },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Summon { monster, .. } => match host.summon(meta.npc_id, monster) {
+                    Ok(()) => {
+                        trace.push(DialogueEvent::Mutate {
+                            player,
+                            op: MutateOp::Summon {
+                                monster: monster.clone(),
+                            },
+                        });
+                    }
+                    Err(e) => log_action_failure(&fail_ctx, &e),
+                },
+                DialogueAction::Teleport { x, y, z, .. } => {
+                    match host.teleport(player, *x, *y, *z) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::Teleport {
+                                    x: *x,
+                                    y: *y,
+                                    z: *z,
+                                },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::StartPosition { pos, .. } => {
+                    match host.set_start_position(player, meta.npc_id, *pos) {
+                        Ok((x, y, z)) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::StartPosition { x, y, z },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Custom { .. } => {
+                    trace.push(DialogueEvent::DeferredAction { kind: "custom" });
+                }
             }
         }
         if !repeat {
@@ -153,6 +368,13 @@ pub fn apply_dialogue_plan(
 
     let _ = MatchCaptures::default();
     plan
+}
+
+fn refresh_money(ctx: &mut EvalContext<'_>) {
+    let g = (ctx.inventory_count)(2148) as i64;
+    let p = (ctx.inventory_count)(2152) as i64;
+    let c = (ctx.inventory_count)(2160) as i64;
+    ctx.money = (g + p * 100 + c * 10_000).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
 }
 
 fn apply_session_set(
@@ -190,9 +412,4 @@ fn apply_session_set(
         }
     };
     trace.push(DialogueEvent::Set { var: name, value });
-}
-
-fn defer(plan: &mut DialoguePlan, trace: &mut DialogueTrace, kind: &'static str) {
-    plan.deferred.push(kind);
-    trace.push(DialogueEvent::DeferredAction { kind });
 }
