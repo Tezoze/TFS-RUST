@@ -1,5 +1,9 @@
 //! Lower import AST → [`PendingNpcDefinition`] / [`DialogueProgram`].
+//!
+//! When an [`ItemDatabase`] is provided, CipSoft TypeIDs (OTB `client_id`) on
+//! item literals are remapped to OTB `server_id` via [`ItemDatabase::server_id_for_client`].
 
+use crate::items::ItemDatabase;
 use crate::npc_import::ast::{
     RawAction, RawCond, RawExpr, RawNpcFile, RawOp, RawRule,
 };
@@ -13,7 +17,14 @@ use crate::npcs::{
 const UNSUPPORTED: &[&str] = &["string", "bless", "town", "promote"];
 
 /// Lower a parsed legacy NPC file into a pending definition.
-pub fn lower_npc(file: RawNpcFile) -> ImportResult<PendingNpcDefinition> {
+///
+/// Pass `items = Some(...)` when the source uses CipSoft TypeIDs (e.g.
+/// `reference/cipsoft-772/runtime/npc`). Pass `None` when literals are already
+/// OTB server ids (e.g. TVP archive behavior files).
+pub fn lower_npc(
+    file: RawNpcFile,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<PendingNpcDefinition> {
     let name = file.name.clone().ok_or_else(|| {
         ImportError::msg(format!("{}: missing Name", file.source_file))
     })?;
@@ -47,7 +58,7 @@ pub fn lower_npc(file: RawNpcFile) -> ImportResult<PendingNpcDefinition> {
 
     let mut rules = Vec::with_capacity(file.rules.len());
     for rule in file.rules {
-        rules.push(lower_rule(rule)?);
+        rules.push(lower_rule(rule, items)?);
     }
 
     Ok(PendingNpcDefinition {
@@ -72,14 +83,17 @@ pub fn lower_npc(file: RawNpcFile) -> ImportResult<PendingNpcDefinition> {
     })
 }
 
-fn lower_rule(rule: RawRule) -> ImportResult<DialogueRule> {
+fn lower_rule(
+    rule: RawRule,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<DialogueRule> {
     let mut predicates = Vec::new();
     for c in rule.conditions {
-        predicates.push(lower_cond(c)?);
+        predicates.push(lower_cond(c, items)?);
     }
     let mut actions = Vec::new();
     for a in rule.actions {
-        actions.push(lower_action(a)?);
+        actions.push(lower_action(a, items)?);
     }
     Ok(DialogueRule {
         predicates,
@@ -88,7 +102,10 @@ fn lower_rule(rule: RawRule) -> ImportResult<DialogueRule> {
     })
 }
 
-fn lower_cond(c: RawCond) -> ImportResult<DialoguePredicate> {
+fn lower_cond(
+    c: RawCond,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<DialoguePredicate> {
     match c {
         RawCond::Situation(name, span) => {
             let kind = match name.as_str() {
@@ -143,15 +160,18 @@ fn lower_cond(c: RawCond) -> ImportResult<DialoguePredicate> {
             rhs,
             span,
         } => Ok(DialoguePredicate::Expression {
-            expr: lower_expr(lhs)?,
+            expr: lower_expr(lhs, items)?,
             op: lower_op(op),
-            rhs: lower_expr(rhs)?,
+            rhs: lower_expr(rhs, items)?,
             span,
         }),
     }
 }
 
-fn lower_action(a: RawAction) -> ImportResult<DialogueAction> {
+fn lower_action(
+    a: RawAction,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<DialogueAction> {
     match a {
         RawAction::Say(text, span) => Ok(DialogueAction::Say { text, span }),
         RawAction::Repeat(span) => Ok(DialogueAction::RepeatPrevious { span }),
@@ -188,7 +208,7 @@ fn lower_action(a: RawAction) -> ImportResult<DialogueAction> {
                     format!("unsupported assignment {name:?}"),
                 ));
             }
-            let expr = lower_expr(value)?;
+            let expr = lower_expr(value, items)?;
             match name.as_str() {
                 "topic" => Ok(DialogueAction::SetSession {
                     var: SessionVar::Topic,
@@ -207,7 +227,7 @@ fn lower_action(a: RawAction) -> ImportResult<DialogueAction> {
                 }),
                 "type" => Ok(DialogueAction::SetSession {
                     var: SessionVar::Type,
-                    expr,
+                    expr: remap_item_lit_expr(expr, &span, items)?,
                     span,
                 }),
                 "data" => Ok(DialogueAction::SetSession {
@@ -222,13 +242,18 @@ fn lower_action(a: RawAction) -> ImportResult<DialogueAction> {
                 )),
             }
         }
-        RawAction::Call { name, args, span } => lower_call(&name, args, span),
+        RawAction::Call { name, args, span } => lower_call(&name, args, span, items),
         RawAction::Summon(monster, span) => Ok(DialogueAction::Summon { monster, span }),
         RawAction::Teleport { x, y, z, span } => Ok(DialogueAction::Teleport { x, y, z, span }),
     }
 }
 
-fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<DialogueAction> {
+fn lower_call(
+    name: &str,
+    args: Vec<RawExpr>,
+    span: SourceSpan,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<DialogueAction> {
     if UNSUPPORTED.contains(&name) {
         return Err(ImportError::spanned(
             span,
@@ -239,16 +264,16 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
         "burning" => {
             let (cycles, param) = two_args(name, args, &span)?;
             Ok(DialogueAction::Burning {
-                cycles: lower_expr(cycles)?,
-                param: lower_expr(param)?,
+                cycles: lower_expr(cycles, items)?,
+                param: lower_expr(param, items)?,
                 span,
             })
         }
         "poison" => {
             let (cycles, param) = two_args(name, args, &span)?;
             Ok(DialogueAction::Poison {
-                cycles: lower_expr(cycles)?,
-                param: lower_expr(param)?,
+                cycles: lower_expr(cycles, items)?,
+                param: lower_expr(param, items)?,
                 span,
             })
         }
@@ -269,9 +294,9 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
         "create" => {
             let (item, count) = one_or_two_expr(name, args, &span)?;
             Ok(DialogueAction::Create {
-                item: lower_expr(item)?,
+                item: remap_item_lit_expr(lower_expr(item, items)?, &span, items)?,
                 count: count
-                    .map(lower_expr)
+                    .map(|c| lower_expr(c, items))
                     .transpose()?
                     .unwrap_or(DialogueExpr::Lit(1)),
                 span,
@@ -280,9 +305,9 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
         "delete" => {
             let (item, count) = one_or_two_expr(name, args, &span)?;
             Ok(DialogueAction::Delete {
-                item: lower_expr(item)?,
+                item: remap_item_lit_expr(lower_expr(item, items)?, &span, items)?,
                 count: count
-                    .map(lower_expr)
+                    .map(|c| lower_expr(c, items))
                     .transpose()?
                     .unwrap_or(DialogueExpr::Lit(1)),
                 span,
@@ -292,7 +317,7 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
             let amount = if args.is_empty() {
                 DialogueExpr::Session(SessionVar::Amount)
             } else if args.len() == 1 {
-                lower_expr(args.into_iter().next().unwrap())?
+                lower_expr(args.into_iter().next().unwrap(), items)?
             } else {
                 return Err(ImportError::spanned(
                     span,
@@ -305,7 +330,7 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
             let amount = if args.is_empty() {
                 DialogueExpr::Session(SessionVar::Price)
             } else if args.len() == 1 {
-                lower_expr(args.into_iter().next().unwrap())?
+                lower_expr(args.into_iter().next().unwrap(), items)?
             } else {
                 return Err(ImportError::spanned(
                     span,
@@ -335,7 +360,7 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
             };
             Ok(DialogueAction::SetQuestValue {
                 storage_id,
-                value: lower_expr(val)?,
+                value: lower_expr(val, items)?,
                 span,
             })
         }
@@ -344,7 +369,7 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
                 return Err(ImportError::spanned(span, "Profession expects 1 arg"));
             }
             Ok(DialogueAction::Profession {
-                vocation: lower_expr(args.into_iter().next().unwrap())?,
+                vocation: lower_expr(args.into_iter().next().unwrap(), items)?,
                 span,
             })
         }
@@ -396,7 +421,7 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
                 return Err(ImportError::spanned(span, "TeachSpell expects 1 arg"));
             }
             Ok(DialogueAction::TeachSpell {
-                spell: lower_expr(args.into_iter().next().unwrap())?,
+                spell: lower_expr(args.into_iter().next().unwrap(), items)?,
                 span,
             })
         }
@@ -407,7 +432,7 @@ fn lower_call(name: &str, args: Vec<RawExpr>, span: SourceSpan) -> ImportResult<
     }
 }
 
-fn lower_expr(e: RawExpr) -> ImportResult<DialogueExpr> {
+fn lower_expr(e: RawExpr, items: Option<&ItemDatabase>) -> ImportResult<DialogueExpr> {
     match e {
         RawExpr::Lit(n, _) => Ok(DialogueExpr::Lit(n)),
         RawExpr::Capture(slot, _) => Ok(DialogueExpr::Capture { slot }),
@@ -444,8 +469,13 @@ fn lower_expr(e: RawExpr) -> ImportResult<DialogueExpr> {
                     if args.len() != 1 {
                         return Err(ImportError::spanned(span, "Count expects 1 arg"));
                     }
+                    let item = remap_item_lit_expr(
+                        lower_expr(args.into_iter().next().unwrap(), items)?,
+                        &span,
+                        items,
+                    )?;
                     Ok(DialogueExpr::Count {
-                        item: Box::new(lower_expr(args.into_iter().next().unwrap())?),
+                        item: Box::new(item),
                     })
                 }
                 "questvalue" => {
@@ -494,7 +524,7 @@ fn lower_expr(e: RawExpr) -> ImportResult<DialogueExpr> {
                         return Err(ImportError::spanned(span, "SpellKnown expects 1 arg"));
                     }
                     Ok(DialogueExpr::SpellKnown {
-                        spell: Box::new(lower_expr(args.into_iter().next().unwrap())?),
+                        spell: Box::new(lower_expr(args.into_iter().next().unwrap(), items)?),
                     })
                 }
                 "spelllevel" => {
@@ -502,7 +532,7 @@ fn lower_expr(e: RawExpr) -> ImportResult<DialogueExpr> {
                         return Err(ImportError::spanned(span, "SpellLevel expects 1 arg"));
                     }
                     Ok(DialogueExpr::SpellLevel {
-                        spell: Box::new(lower_expr(args.into_iter().next().unwrap())?),
+                        spell: Box::new(lower_expr(args.into_iter().next().unwrap(), items)?),
                     })
                 }
                 "countmoney" => {
@@ -524,10 +554,45 @@ fn lower_expr(e: RawExpr) -> ImportResult<DialogueExpr> {
             span: _,
         } => Ok(DialogueExpr::Binary {
             op: lower_op(op),
-            lhs: Box::new(lower_expr(*lhs)?),
-            rhs: Box::new(lower_expr(*rhs)?),
+            lhs: Box::new(lower_expr(*lhs, items)?),
+            rhs: Box::new(lower_expr(*rhs, items)?),
         }),
     }
+}
+
+/// Remap a CipSoft TypeID literal to OTB `server_id` when `items` is provided.
+fn remap_item_lit_expr(
+    expr: DialogueExpr,
+    span: &SourceSpan,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<DialogueExpr> {
+    match expr {
+        DialogueExpr::Lit(n) => Ok(DialogueExpr::Lit(remap_client_item_id(n, span, items)?)),
+        other => Ok(other),
+    }
+}
+
+fn remap_client_item_id(
+    n: i32,
+    span: &SourceSpan,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<i32> {
+    let Some(db) = items else {
+        return Ok(n);
+    };
+    if n < 0 || n > i32::from(u16::MAX) {
+        return Err(ImportError::spanned(
+            span.clone(),
+            format!("item id {n} out of u16 range"),
+        ));
+    }
+    let client_id = n as u16;
+    // Remap when this is a known OTB client_id. Leave unknowns alone — `Type=` is
+    // also used for spell ids on teacher NPCs (e.g. Type=20 for "find person").
+    Ok(match db.server_id_for_client(client_id) {
+        Some(server_id) => i32::from(server_id),
+        None => n,
+    })
 }
 
 fn lower_op(op: RawOp) -> ExprOp {
@@ -600,5 +665,138 @@ fn span_of_expr(e: &RawExpr) -> SourceSpan {
         | RawExpr::Capture(_, s)
         | RawExpr::Call { span: s, .. }
         | RawExpr::Binary { span: s, .. } => s.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::items::ItemDatabase;
+    use crate::npc_import::parse::parse_npc_source;
+    use std::path::PathBuf;
+
+    fn repo_items() -> Option<ItemDatabase> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let otb = root.join("data/items/items.otb");
+        let xml = root.join("data/items/items.xml");
+        if !otb.exists() || !xml.exists() {
+            return None;
+        }
+        Some(ItemDatabase::load(&otb, &xml).expect("load items"))
+    }
+
+    #[test]
+    fn remaps_banana_typeid_to_server_id() {
+        let Some(items) = repo_items() else {
+            eprintln!("skip: data/items missing");
+            return;
+        };
+        // objects.srv TypeID 3587 = banana → OTB server_id 2676
+        assert_eq!(items.server_id_for_client(3587), Some(2676));
+
+        let src = r#"
+Name = "Shop"
+Behaviour = {
+"banana" -> Type=3587, Amount=1, Price=5, "buy?", Topic=1
+Topic=1,"yes" -> "ok", Create(3587)
+"check",Count(3587)>=1 -> "have"
+}
+"#;
+        let root = std::env::temp_dir();
+        let file = parse_npc_source(&root, &root.join("shop.npc"), src).expect("parse");
+        let pending = lower_npc(file, Some(&items)).expect("lower");
+        let dialogue = pending.dialogue.as_ref().expect("dialogue");
+
+        let type_set = dialogue.rules[0]
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                DialogueAction::SetSession {
+                    var: SessionVar::Type,
+                    expr: DialogueExpr::Lit(n),
+                    ..
+                } => Some(*n),
+                _ => None,
+            });
+        assert_eq!(type_set, Some(2676));
+
+        let create_item = dialogue.rules[1].actions.iter().find_map(|a| match a {
+            DialogueAction::Create {
+                item: DialogueExpr::Lit(n),
+                ..
+            } => Some(*n),
+            _ => None,
+        });
+        assert_eq!(create_item, Some(2676));
+
+        let count_item = dialogue.rules[2].predicates.iter().find_map(|p| match p {
+            DialoguePredicate::Expression {
+                expr: DialogueExpr::Count { item },
+                ..
+            } => match item.as_ref() {
+                DialogueExpr::Lit(n) => Some(*n),
+                _ => None,
+            },
+            _ => None,
+        });
+        assert_eq!(count_item, Some(2676));
+    }
+
+    #[test]
+    fn spell_type_ids_not_in_otb_passthrough() {
+        let Some(items) = repo_items() else {
+            eprintln!("skip: data/items missing");
+            return;
+        };
+        assert!(items.server_id_for_client(20).is_none());
+
+        let src = r#"
+Name = "Teacher"
+Behaviour = {
+Sorcerer,"find","person" -> Type=20, Price=80, "buy spell?", Topic=1
+}
+"#;
+        let root = std::env::temp_dir();
+        let file = parse_npc_source(&root, &root.join("teacher.npc"), src).expect("parse");
+        let pending = lower_npc(file, Some(&items)).expect("lower");
+        let dialogue = pending.dialogue.as_ref().expect("dialogue");
+        let type_set = dialogue.rules[0]
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                DialogueAction::SetSession {
+                    var: SessionVar::Type,
+                    expr: DialogueExpr::Lit(n),
+                    ..
+                } => Some(*n),
+                _ => None,
+            });
+        assert_eq!(type_set, Some(20));
+    }
+
+    #[test]
+    fn without_items_keeps_typeid_literal() {
+        let src = r#"
+Name = "Raw"
+Behaviour = {
+"banana" -> Type=3587, "buy"
+}
+"#;
+        let root = std::env::temp_dir();
+        let file = parse_npc_source(&root, &root.join("raw.npc"), src).expect("parse");
+        let pending = lower_npc(file, None).expect("lower");
+        let dialogue = pending.dialogue.as_ref().expect("dialogue");
+        let type_set = dialogue.rules[0]
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                DialogueAction::SetSession {
+                    var: SessionVar::Type,
+                    expr: DialogueExpr::Lit(n),
+                    ..
+                } => Some(*n),
+                _ => None,
+            });
+        assert_eq!(type_set, Some(3587));
     }
 }

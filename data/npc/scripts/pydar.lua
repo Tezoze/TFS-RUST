@@ -850,7 +850,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ words = { "spark" } },
 				{ expr = { questValue = 44 }, op = "=", rhs = 1 },
-				{ expr = { count = 3215 }, op = ">", rhs = 0 },
+				{ expr = { count = 2328 }, op = ">", rhs = 0 },
 			},
 			actions = {
 				{ say = "Since the phoenix smiles upon you, you might receive this blessing for 9.000 gold while you have a phoenix egg with you. So are you ready?" },
@@ -863,7 +863,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ words = { "phoenix" } },
 				{ expr = { questValue = 44 }, op = "=", rhs = 1 },
-				{ expr = { count = 3215 }, op = ">", rhs = 0 },
+				{ expr = { count = 2328 }, op = ">", rhs = 0 },
 			},
 			actions = {
 				{ repeatPrevious = true },
@@ -898,7 +898,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 6 },
 				{ words = { "yes" } },
-				{ expr = { count = 3215 }, op = ">", rhs = 0 },
+				{ expr = { count = 2328 }, op = ">", rhs = 0 },
 				{ expr = { countMoney = true }, op = "<", rhs = { session = "price" } },
 				{ select = true },
 			},
@@ -911,7 +911,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 6 },
 				{ words = { "yes" } },
-				{ expr = { count = 3215 }, op = ">", rhs = 0 },
+				{ expr = { count = 2328 }, op = ">", rhs = 0 },
 				{ select = true },
 			},
 			actions = {
@@ -937,7 +937,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ words = { "spark" } },
 				{ expr = { questValue = 44 }, op = "=", rhs = 1 },
-				{ expr = { count = 3215 }, op = "<", rhs = 1 },
+				{ expr = { count = 2328 }, op = "<", rhs = 1 },
 			},
 			actions = {
 				{ say = "Since the phoenix smiles upon you, could have received this blessing cheaper if you had a phoenix egg with you. But because you don't have it with you, its still 10.000 gold. Is that ok?" },
@@ -950,7 +950,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ words = { "phoenix" } },
 				{ expr = { questValue = 44 }, op = "=", rhs = 1 },
-				{ expr = { count = 3215 }, op = "<", rhs = 1 },
+				{ expr = { count = 2328 }, op = "<", rhs = 1 },
 			},
 			actions = {
 				{ repeatPrevious = true },

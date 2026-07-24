@@ -213,6 +213,7 @@ fn crowded_tile() -> TileContent {
             is_splash_or_fluid: false,
             is_animation: false,
         }],
+        low_items: vec![],
         cip_map_order: false,
     }
 }
@@ -356,6 +357,7 @@ fn tile_description_cip_order_emits_bottom_before_creature() {
             is_splash_or_fluid: false,
             is_animation: false,
         }],
+        low_items: vec![],
         creatures: vec![AddCreatureWire {
             id: 0x1001,
             known: true,
@@ -445,5 +447,84 @@ fn tile_description_cip_order_emits_bottom_before_creature() {
     assert!(
         g < creature_marker && creature_marker < f,
         "TVP order requires ground ({g}) < creature ({creature_marker}) < field ({f})"
+    );
+}
+
+/// Regression: Cip PRIORITY_LOW downs emit *after* creatures (bug0000017).
+/// A sewer-grate-style low item must not inflate MoveCreature stackpos.
+#[test]
+fn tile_description_cip_order_emits_low_after_creature() {
+    use tfs_rust_net::creature_encode::AddCreatureWire;
+    use tfs_rust_net::map_description::ItemStack;
+
+    let center = Position::new(100, 200, 7);
+    let low_id = 0x01B3; // distinct TypeID-like client id (435)
+    let ground_id = 0x0366; // 870
+    let tile = TileContent {
+        ground: Some(ItemStack {
+            client_id: ground_id,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+        }),
+        top_items: vec![],
+        bottom_items: vec![],
+        low_items: vec![ItemStack {
+            client_id: low_id,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+        }],
+        creatures: vec![AddCreatureWire {
+            id: 0x1001,
+            known: true,
+            name: "Hero".into(),
+            ..AddCreatureWire::default()
+        }],
+        cip_map_order: true,
+    };
+
+    let mut known = HashSet::new();
+    let mut get_tile = {
+        let tile = tile.clone();
+        move |x: i32, y: i32, z: i32| -> Option<TileContent> {
+            if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+                Some(tile.clone())
+            } else {
+                None
+            }
+        }
+    };
+    let mut can_see = |_id: u32| true;
+    let bytes = send_map_description_packet(
+        &codec_772(),
+        center,
+        center,
+        &mut get_tile,
+        &mut known,
+        &mut can_see,
+        false,
+    )
+    .into_bytes();
+
+    let ground_le = ground_id.to_le_bytes();
+    let low_le = low_id.to_le_bytes();
+    let g = bytes
+        .windows(2)
+        .position(|w| w == ground_le)
+        .expect("ground");
+    let low = bytes
+        .windows(2)
+        .position(|w| w == low_le)
+        .expect("low item");
+    let creature_marker = bytes
+        .iter()
+        .position(|&b| b == 0x62 || b == 0x61)
+        .expect("creature");
+    assert!(
+        g < creature_marker && creature_marker < low,
+        "Cip LOW order requires ground ({g}) < creature ({creature_marker}) < low ({low})"
     );
 }

@@ -232,7 +232,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lemonade" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2875 } },
+				{ set = { var = "type", value = 2007 } },
 				{ set = { var = "data", value = 12 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
@@ -246,7 +246,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "milk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2875 } },
+				{ set = { var = "type", value = 2007 } },
 				{ set = { var = "data", value = 9 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4 } },
@@ -260,7 +260,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "water" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2875 } },
+				{ set = { var = "type", value = 2007 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
@@ -276,7 +276,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lemonade" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2875 } },
+				{ set = { var = "type", value = 2007 } },
 				{ set = { var = "data", value = 12 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
@@ -292,7 +292,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "milk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2875 } },
+				{ set = { var = "type", value = 2007 } },
 				{ set = { var = "data", value = 9 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 4, rhs = { capture = 1 } } } } },
@@ -308,7 +308,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "water" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2875 } },
+				{ set = { var = "type", value = 2007 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },

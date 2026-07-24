@@ -16,15 +16,15 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ situation = "address" },
 				{ words = { "hello$" } },
-				{ expr = { count = 3723 }, op = ">=", rhs = 1 },
+				{ expr = { count = 2787 }, op = ">=", rhs = 1 },
 				{ expr = { questValue = 66 }, op = "<", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
 				{ say = "AHHH MUSHRRROOOMSSS! NOW MY PAIN WILL BE EASSSED FOR A WHILE! TAKE THISS AND LEAVE THE DRAGONSSS' CEMETERY AT ONCE!" },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 3723, count = 1 } },
-				{ create = { item = 3206, count = 1 } },
+				{ delete = { item = 2787, count = 1 } },
+				{ create = { item = 2319, count = 1 } },
 				{ setQuestValue = { id = 66, value = 1 } },
 				{ idle = true },
 			},
@@ -34,7 +34,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ situation = "address" },
 				{ words = { "hi$" } },
-				{ expr = { count = 3723 }, op = ">=", rhs = 1 },
+				{ expr = { count = 2787 }, op = ">=", rhs = 1 },
 				{ expr = { questValue = 66 }, op = "<", rhs = 1 },
 				{ select = true },
 			},

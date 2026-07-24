@@ -649,6 +649,16 @@ impl ItemType {
     pub fn is_avoid_hazard(&self) -> bool {
         self.is_magic_field()
     }
+
+    /// Cip map-container `PRIORITY_BOTTOM` (`map.hh` / `GetObjectPriority`).
+    ///
+    /// Magic fields and liquid pools sit below creatures; ordinary `down_items` are
+    /// `PRIORITY_LOW` and sit *after* creatures. Mis-classifying LOW as BOTTOM inflates
+    /// `GetObjectRNum` / MoveCreature stackpos → client `bug0000017`.
+    #[inline]
+    pub fn is_cip_priority_bottom(&self) -> bool {
+        self.is_magic_field() || self.is_splash()
+    }
 }
 
 fn expect_raw(data: &[u8], index: &mut usize, expected: u8, path: &Path) -> Result<()> {

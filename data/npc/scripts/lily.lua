@@ -213,7 +213,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "antidote" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3153 } },
+				{ set = { var = "type", value = 2266 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
@@ -238,7 +238,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "antidote" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3153 } },
+				{ set = { var = "type", value = 2266 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 40, rhs = { capture = 1 } } } } },
@@ -296,7 +296,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blueberry" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3588 } },
+				{ set = { var = "type", value = 2677 } },
 				{ set = { var = "amount", value = 5 } },
 				{ set = { var = "price", value = 1 } },
 				{ say = "Do you want to sell 5 blueberries for %P gold?" },

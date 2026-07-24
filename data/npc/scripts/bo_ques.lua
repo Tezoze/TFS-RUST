@@ -632,7 +632,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 1 },
 				{ words = { "yes" } },
-				{ expr = { count = 3234 }, op = "=", rhs = 1 },
+				{ expr = { count = 2347 }, op = "=", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
@@ -640,9 +640,9 @@ npc:dialogue(NpcDialogue({
 				{ say = "Dragon Egg Omelette, Dwarven beer sauce... it's all there. This is great! Here is your well-deserved reward. ..." },
 				{ say = "Incidentally, I have talked to Fa'hradin about you during dinner. I think he might have some work for you. Why don't you talk to him about it?" },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 3234, count = 1 } },
+				{ delete = { item = 2347, count = 1 } },
 				{ set = { var = "amount", value = 3 } },
-				{ create = { item = 3029, count = 1 } },
+				{ create = { item = 2146, count = 1 } },
 				{ setQuestValue = { id = 280, value = 2 } },
 			},
 		},

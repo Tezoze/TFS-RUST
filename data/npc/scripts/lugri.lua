@@ -716,7 +716,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "noodles" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3061 } },
+				{ set = { var = "type", value = 2177 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "So, I guess you bring me a magic crystal?" },
 				{ set = { var = "topic", value = 3 } },

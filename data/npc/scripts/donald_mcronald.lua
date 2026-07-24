@@ -471,7 +471,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "spider" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3988 } },
+				{ set = { var = "type", value = 2807 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "I will give you %P gold for every spider you bring me. But not a rotten spider that was already dead for some time. Do you have any with you?" },
@@ -533,7 +533,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "wheat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3605 } },
+				{ set = { var = "type", value = 2694 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1 } },
 				{ say = "Do you want to buy wheat for %P gold?" },
@@ -546,7 +546,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cheese" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3607 } },
+				{ set = { var = "type", value = 2696 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy cheese for %P gold?" },
@@ -559,7 +559,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "carrot" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3595 } },
+				{ set = { var = "type", value = 2684 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3 } },
 				{ say = "Do you want to buy a carrot for %P gold?" },
@@ -572,7 +572,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "corncob" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3597 } },
+				{ set = { var = "type", value = 2686 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3 } },
 				{ say = "Do you want to buy a corncob for %P gold?" },
@@ -587,7 +587,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "wheat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3605 } },
+				{ set = { var = "type", value = 2694 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A wheat for %P gold?" },
@@ -602,7 +602,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cheese" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3607 } },
+				{ set = { var = "type", value = 2696 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A cheeses for %P gold?" },
@@ -617,7 +617,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "carrot" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3595 } },
+				{ set = { var = "type", value = 2684 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A carrots for %P gold?" },
@@ -632,7 +632,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "corncob" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3597 } },
+				{ set = { var = "type", value = 2686 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A corncobs for %P gold?" },

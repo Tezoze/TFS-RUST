@@ -204,7 +204,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "apple" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Apples! Real apples! Man I love them! Can I have one? Oh please say yes!" },
 				{ set = { var = "topic", value = 1 } },
@@ -685,7 +685,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3147 } },
+				{ set = { var = "type", value = 2260 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "You want to sell me blank runes! I will give you 50000 gold for each rune! Interested?" },
@@ -698,7 +698,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dp-d-ks-p-dp" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -710,7 +710,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dp-d-sk-p-dp" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -722,7 +722,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pd-d-ks-p-pd" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -734,7 +734,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pd-d-sk-p-pd" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -746,7 +746,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dp-p-ks-d-dp" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -758,7 +758,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dp-p-sk-d-dp" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -770,7 +770,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pd-p-ks-d-pd" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -782,7 +782,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pd-p-sk-d-pd" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3585 } },
+				{ set = { var = "type", value = 2674 } },
 				{ set = { var = "amount", value = 7 } },
 				{ say = "Hurray! For that I will give you my key for - hmm - let´s say ... some apples. Interested?" },
 				{ set = { var = "topic", value = 3 } },
@@ -933,7 +933,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "yes" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2969 } },
+				{ set = { var = "type", value = 2088 } },
 				{ set = { var = "data", value = 3666 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Then take it and get happy - or die, hehe." },

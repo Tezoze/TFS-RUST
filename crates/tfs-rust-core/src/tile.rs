@@ -175,7 +175,9 @@ impl Tile {
     pub fn remove_creature(&mut self, id: CreatureId) -> bool {
         let body = self.body_mut();
         if let Some(i) = body.creatures.iter().position(|&c| c == id) {
-            body.creatures.swap_remove(i);
+            // Order-preserving remove — Cip `CutObject` splices the map-container list.
+            // `swap_remove` reorders remaining creatures and desyncs MoveCreature stackpos.
+            body.creatures.remove(i);
             return true;
         }
         false
@@ -259,12 +261,37 @@ impl Tile {
     }
 
     /// Stackpos with explicit tile-order mode (see [`Self::get_item_stack_pos`]).
-    pub fn get_item_stack_pos_ordered(&self, item_id: ItemId, cip_order: bool) -> Option<u8> {
+    ///
+    /// When `cip_order`, `is_priority_bottom` distinguishes Cip BOTTOM (before creatures)
+    /// from LOW (after creatures) among `down_items`.
+    pub fn get_item_stack_pos_ordered(
+        &self,
+        item_id: ItemId,
+        cip_order: bool,
+    ) -> Option<u8> {
+        // Legacy cip path treated every down item as BOTTOM — wrong for PRIORITY_LOW.
+        // Prefer [`Self::get_item_stack_pos_cip`] at GameWorld call sites.
+        self.get_item_stack_pos_cip(item_id, cip_order, |_| true)
+    }
+
+    /// Item stackpos with Cip BOTTOM vs LOW classification.
+    ///
+    /// `is_priority_bottom`: true for magic fields / pools (`ItemType::is_cip_priority_bottom`).
+    /// When `cip_order` is false, the classifier is ignored (TVP order).
+    pub fn get_item_stack_pos_cip(
+        &self,
+        item_id: ItemId,
+        cip_order: bool,
+        is_priority_bottom: impl Fn(ItemId) -> bool,
+    ) -> Option<u8> {
         let body = self.body();
         let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
         if cip_order {
             // Oldest down first (rev of newest-first storage) — matches Cip PlaceObject append.
             for &did in body.down_items.iter().rev() {
+                if !is_priority_bottom(did) {
+                    continue;
+                }
                 if did == item_id {
                     return Some(n);
                 }
@@ -272,6 +299,17 @@ impl Tile {
             }
             for &tid in &body.top_items {
                 if tid == item_id {
+                    return Some(n);
+                }
+                n = n.saturating_add(1);
+            }
+            // Creatures occupy the next slots; LOW items follow.
+            n = n.saturating_add(body.creatures.len() as u8);
+            for &did in body.down_items.iter().rev() {
+                if is_priority_bottom(did) {
+                    continue;
+                }
+                if did == item_id {
                     return Some(n);
                 }
                 n = n.saturating_add(1);
@@ -412,7 +450,8 @@ where
 /// gates each increment on `player->canSeeCreature(c)`.
 ///
 /// `items_before_creatures` is ground-relative item count before the creature
-/// section: TVP = `top_items.len()`; Cip `GetObjectRNum` = `down_items.len() + top_items.len()`.
+/// section: TVP = `top_items.len()`; Cip `GetObjectRNum` = BOTTOM downs + `top_items`
+/// (not PRIORITY_LOW downs).
 // C++ reference: `gameserver/src/tile.cpp` `Tile::getClientIndexOfCreature`.
 pub fn creature_stack_pos_for_viewer(
     ground_present: bool,
@@ -448,11 +487,19 @@ pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
     )
 }
 
-/// Cip `GetObjectRNum` creature index — includes BOTTOM (`down_items`) before creatures.
-pub fn client_creature_stack_pos_cip(body: &TileBody, creature: CreatureId) -> i32 {
+/// Cip `GetObjectRNum` creature index — only BOTTOM downs (+ tops) before creatures.
+///
+/// `bottom_down_count` = number of `down_items` with Cip `PRIORITY_BOTTOM`
+/// (`ItemType::is_cip_priority_bottom`). Ordinary LOW downs sit after creatures and
+/// must not inflate this index.
+pub fn client_creature_stack_pos_cip(
+    body: &TileBody,
+    creature: CreatureId,
+    bottom_down_count: usize,
+) -> i32 {
     creature_stack_pos_for_viewer(
         body.ground.is_some(),
-        body.down_items.len() + body.top_items.len(),
+        bottom_down_count + body.top_items.len(),
         &body.creatures,
         creature,
         |_| true,
@@ -565,13 +612,22 @@ mod look_tests {
             Tile::Normal(body.clone()).get_item_stack_pos_ordered(field, false),
             Some(2)
         );
-        // Cip: ground(1) + field → field at 1; creature would be at 2
+        // Cip BOTTOM field: ground(1) + field → field at 1; creature at 2
         assert_eq!(
-            Tile::Normal(body.clone()).get_item_stack_pos_ordered(field, true),
+            Tile::Normal(body.clone()).get_item_stack_pos_cip(field, true, |_| true),
             Some(1)
         );
         assert_eq!(client_creature_stack_pos(&body, mob), 1);
-        assert_eq!(client_creature_stack_pos_cip(&body, mob), 2);
+        assert_eq!(client_creature_stack_pos_cip(&body, mob, 1), 2);
+
+        // Cip PRIORITY_LOW down item does NOT bump creature stackpos.
+        let low = items.insert(());
+        let body_low = tile_body(Some(106), vec![low], vec![], vec![mob]);
+        assert_eq!(client_creature_stack_pos_cip(&body_low, mob, 0), 1);
+        assert_eq!(
+            Tile::Normal(body_low.clone()).get_item_stack_pos_cip(low, true, |_| false),
+            Some(2) // ground + creature + low
+        );
     }
 
     #[test]

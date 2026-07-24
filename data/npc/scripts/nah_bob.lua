@@ -695,7 +695,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3271 } },
+				{ set = { var = "type", value = 2383 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8000 } },
 				{ say = "Do you want to buy a spike sword for %P gold?" },
@@ -709,7 +709,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "hammer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3279 } },
+				{ set = { var = "type", value = 2391 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10000 } },
 				{ say = "Do you want to buy a war hammer for %P gold?" },
@@ -723,7 +723,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lance" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3313 } },
+				{ set = { var = "type", value = 2425 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3000 } },
 				{ say = "Do you want to buy an obsidian lance for %P gold?" },
@@ -737,7 +737,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3418 } },
+				{ set = { var = "type", value = 2518 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 7000 } },
 				{ say = "Do you want to buy a beholder shield for %P gold?" },
@@ -751,7 +751,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "armor" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3380 } },
+				{ set = { var = "type", value = 2486 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8000 } },
 				{ say = "Do you want to buy a noble armor for %P gold?" },
@@ -767,7 +767,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3271 } },
+				{ set = { var = "type", value = 2383 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A spike swords for %P gold?" },
@@ -783,7 +783,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "hammer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3279 } },
+				{ set = { var = "type", value = 2391 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A war hammers for %P gold?" },
@@ -799,7 +799,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lance" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3313 } },
+				{ set = { var = "type", value = 2425 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A obsidian lances for %P gold?" },
@@ -815,7 +815,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3418 } },
+				{ set = { var = "type", value = 2518 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 7000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A beholder shields for %P gold?" },
@@ -831,7 +831,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "armor" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3380 } },
+				{ set = { var = "type", value = 2486 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A noble armors for %P gold?" },
@@ -846,7 +846,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3271 } },
+				{ set = { var = "type", value = 2383 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1000 } },
 				{ say = "Do you want to sell a spike sword for %P gold?" },
@@ -861,7 +861,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3280 } },
+				{ set = { var = "type", value = 2392 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4000 } },
 				{ say = "Do you want to sell a fire sword for %P gold?" },
@@ -876,7 +876,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "hammer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3279 } },
+				{ set = { var = "type", value = 2391 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1200 } },
 				{ say = "Do you want to sell a war hammer for %P gold?" },
@@ -891,7 +891,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rapier" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3284 } },
+				{ set = { var = "type", value = 2396 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1000 } },
 				{ say = "Do you want to sell an ice rapier for %P gold?" },
@@ -906,7 +906,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3301 } },
+				{ set = { var = "type", value = 2413 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to sell a broad sword for %P gold?" },
@@ -921,7 +921,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lance" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3302 } },
+				{ set = { var = "type", value = 2414 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 9000 } },
 				{ say = "Do you want to sell a dragon lance for %P gold?" },
@@ -936,7 +936,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lance" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3313 } },
+				{ set = { var = "type", value = 2425 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to sell an obsidian lance for %P gold?" },
@@ -951,7 +951,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "axe" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3320 } },
+				{ set = { var = "type", value = 2432 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8000 } },
 				{ say = "Do you want to sell a fire axe for %P gold?" },
@@ -966,7 +966,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3415 } },
+				{ set = { var = "type", value = 2515 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2000 } },
 				{ say = "Do you want to sell a guardian shield for %P gold?" },
@@ -981,7 +981,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3416 } },
+				{ set = { var = "type", value = 2516 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4000 } },
 				{ say = "Do you want to sell a dragon shield for %P gold?" },
@@ -996,7 +996,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3418 } },
+				{ set = { var = "type", value = 2518 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1200 } },
 				{ say = "Do you want to sell a beholder shield for %P gold?" },
@@ -1011,7 +1011,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3419 } },
+				{ set = { var = "type", value = 2519 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8000 } },
 				{ say = "Do you want to sell a crown shield for %P gold?" },
@@ -1026,7 +1026,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3439 } },
+				{ set = { var = "type", value = 2539 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 16000 } },
 				{ say = "Do you want to sell a phoenix shield for %P gold?" },
@@ -1041,7 +1041,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "armor" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3380 } },
+				{ set = { var = "type", value = 2486 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 900 } },
 				{ say = "Do you want to sell a noble armor for %P gold?" },
@@ -1056,7 +1056,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "armor" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3381 } },
+				{ set = { var = "type", value = 2487 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12000 } },
 				{ say = "Do you want to sell a crown armor for %P gold?" },
@@ -1071,7 +1071,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "legs" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3382 } },
+				{ set = { var = "type", value = 2488 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12000 } },
 				{ say = "Do you want to sell a pair of crown legs for %P gold?" },
@@ -1086,7 +1086,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3385 } },
+				{ set = { var = "type", value = 2491 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2500 } },
 				{ say = "Do you want to sell a crown helmet for %P gold?" },
@@ -1101,7 +1101,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3391 } },
+				{ set = { var = "type", value = 2497 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6000 } },
 				{ say = "Do you want to sell a crusader helmet for %P gold?" },
@@ -1116,7 +1116,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3392 } },
+				{ set = { var = "type", value = 2498 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30000 } },
 				{ say = "Do you want to sell a royal helmet for %P gold?" },
@@ -1131,7 +1131,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "robe" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3567 } },
+				{ set = { var = "type", value = 2656 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10000 } },
 				{ say = "Do you want to sell a blue robe for %P gold?" },
@@ -1147,7 +1147,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "haste" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3079 } },
+				{ set = { var = "type", value = 2195 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30000 } },
 				{ say = "Do you want to sell a boots of haste for %P gold?" },
@@ -1164,7 +1164,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3271 } },
+				{ set = { var = "type", value = 2383 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A spike swords for %P gold?" },
@@ -1181,7 +1181,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3280 } },
+				{ set = { var = "type", value = 2392 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 4000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A fire swords for %P gold?" },
@@ -1198,7 +1198,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "hammer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3279 } },
+				{ set = { var = "type", value = 2391 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1200, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A war hammers for %P gold?" },
@@ -1215,7 +1215,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rapier" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3284 } },
+				{ set = { var = "type", value = 2396 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A ice rapiers for %P gold?" },
@@ -1232,7 +1232,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sword" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3301 } },
+				{ set = { var = "type", value = 2413 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A broad swords for %P gold?" },
@@ -1249,7 +1249,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lance" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3302 } },
+				{ set = { var = "type", value = 2414 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 9000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A dragon lances for %P gold?" },
@@ -1266,7 +1266,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lance" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3313 } },
+				{ set = { var = "type", value = 2425 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A obsidian lances for %P gold?" },
@@ -1283,7 +1283,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "axe" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3320 } },
+				{ set = { var = "type", value = 2432 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A fire axes for %P gold?" },
@@ -1300,7 +1300,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3415 } },
+				{ set = { var = "type", value = 2515 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A guardian shields for %P gold?" },
@@ -1317,7 +1317,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3416 } },
+				{ set = { var = "type", value = 2516 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 4000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A dragon shields for %P gold?" },
@@ -1334,7 +1334,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3418 } },
+				{ set = { var = "type", value = 2518 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1200, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A beholder shields for %P gold?" },
@@ -1351,7 +1351,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3419 } },
+				{ set = { var = "type", value = 2519 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A crown shields for %P gold?" },
@@ -1368,7 +1368,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shield" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3439 } },
+				{ set = { var = "type", value = 2539 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 16000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A phoenix shields for %P gold?" },
@@ -1385,7 +1385,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "armor" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3380 } },
+				{ set = { var = "type", value = 2486 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 900, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A noble armors for %P gold?" },
@@ -1402,7 +1402,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "armor" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3381 } },
+				{ set = { var = "type", value = 2487 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 12000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A crown armors for %P gold?" },
@@ -1419,7 +1419,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "legs" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3382 } },
+				{ set = { var = "type", value = 2488 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 12000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A pairs of crown legs for %P gold?" },
@@ -1436,7 +1436,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3385 } },
+				{ set = { var = "type", value = 2491 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A crown helmets for %P gold?" },
@@ -1453,7 +1453,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3391 } },
+				{ set = { var = "type", value = 2497 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 6000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A crusader helmets for %P gold?" },
@@ -1470,7 +1470,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3392 } },
+				{ set = { var = "type", value = 2498 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 30000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A royal helmets for %P gold?" },
@@ -1487,7 +1487,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "robe" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3567 } },
+				{ set = { var = "type", value = 2656 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A blue robes for %P gold?" },
@@ -1505,7 +1505,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "haste" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3079 } },
+				{ set = { var = "type", value = 2195 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 30000, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A boots of haste for %P gold?" },

@@ -347,14 +347,14 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 2 },
 				{ words = { "yes" } },
-				{ expr = { count = 3601 }, op = ">=", rhs = 1 },
+				{ expr = { count = 2690 }, op = ">=", rhs = 1 },
 			},
 			actions = {
 				{ say = "Oh, fine! Here you are." },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 3601, count = 1 } },
+				{ delete = { item = 2690, count = 1 } },
 				{ set = { var = "data", value = 4022 } },
-				{ create = { item = 2969, count = 1 } },
+				{ create = { item = 2088, count = 1 } },
 			},
 		},
 		{

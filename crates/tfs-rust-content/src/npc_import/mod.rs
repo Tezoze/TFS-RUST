@@ -25,10 +25,16 @@ pub use xml_meta::{apply_xml_meta, load_xml_npc_dir, XmlNpcMeta};
 
 use std::path::{Path, PathBuf};
 
+use crate::items::ItemDatabase;
 use crate::npcs::PendingNpcDefinition;
 
 /// Import all full `.npc` files under `root` (skips `.ndb`; those are includes only).
-pub fn import_legacy_root(root: &Path) -> ImportResult<Vec<PendingNpcDefinition>> {
+///
+/// When `items` is `Some`, CipSoft TypeID item literals are remapped to OTB server ids.
+pub fn import_legacy_root(
+    root: &Path,
+    items: Option<&ItemDatabase>,
+) -> ImportResult<Vec<PendingNpcDefinition>> {
     let root = root
         .canonicalize()
         .map_err(|e| ImportError::io(root, e.to_string()))?;
@@ -43,7 +49,7 @@ pub fn import_legacy_root(root: &Path) -> ImportResult<Vec<PendingNpcDefinition>
     let mut out = Vec::with_capacity(paths.len());
     let mut errors = Vec::new();
     for path in paths {
-        match parse_npc_file(&root, &path).and_then(lower_npc) {
+        match parse_npc_file(&root, &path).and_then(|f| lower_npc(f, items)) {
             Ok(pending) => out.push(pending),
             Err(e) => errors.push(format!("{}: {e}", path.display())),
         }
@@ -60,9 +66,12 @@ pub fn import_legacy_root(root: &Path) -> ImportResult<Vec<PendingNpcDefinition>
 }
 
 /// Split mode: `data/npc/*.xml` with `behavior=` → load behavior from `behavior_dir`.
+///
+/// Pass `items = None` when behavior files already use OTB server ids (TVP archive).
 pub fn import_split_xml(
     xml_dir: &Path,
     behavior_dir: &Path,
+    items: Option<&ItemDatabase>,
 ) -> ImportResult<Vec<PendingNpcDefinition>> {
     let behavior_root = behavior_dir
         .canonicalize()
@@ -86,7 +95,7 @@ pub fn import_split_xml(
         let path = behavior_root.join(beh);
         // Behavior-only files wrap rules in Behavior = { }; synthesize a full file
         // by prepending Name metadata from XML.
-        match import_behavior_with_xml_meta(&behavior_root, &path, &meta) {
+        match import_behavior_with_xml_meta(&behavior_root, &path, &meta, items) {
             Ok(p) => out.push(p),
             Err(e) => errors.push(format!("{} ({}): {e}", meta.name, path.display())),
         }
@@ -107,6 +116,7 @@ fn import_behavior_with_xml_meta(
     root: &Path,
     behavior_path: &Path,
     meta: &XmlNpcMeta,
+    items: Option<&ItemDatabase>,
 ) -> ImportResult<PendingNpcDefinition> {
     let raw = include::read_npc_file(behavior_path)?;
     // If file is behavior-only, wrap with Name + Behaviour for the full-file parser.
@@ -131,7 +141,7 @@ fn import_behavior_with_xml_meta(
 
     // Write-free parse: tokenize synthetic source via a temp approach — parse from string.
     let file = parse_npc_source(root, behavior_path, &synthetic)?;
-    let mut pending = lower_npc(file)?;
+    let mut pending = lower_npc(file, items)?;
     apply_xml_meta(&mut pending, meta);
     pending.name = meta.name.clone();
     Ok(pending)
@@ -140,6 +150,7 @@ fn import_behavior_with_xml_meta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::items::ItemDatabase;
     use std::path::PathBuf;
 
     fn ref_npc_root() -> Option<PathBuf> {
@@ -152,10 +163,11 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/npc_import_goldens")
     }
 
-    fn emit_named(root: &Path, stem: &str) -> String {
+    fn emit_named(root: &Path, stem: &str, items: Option<&ItemDatabase>) -> String {
         let path = root.join(format!("{stem}.npc"));
         let file = parse_npc_file(root, &path).unwrap_or_else(|e| panic!("parse {stem}: {e}"));
-        let pending = lower_npc(file).unwrap_or_else(|e| panic!("lower {stem}: {e}"));
+        let pending =
+            lower_npc(file, items).unwrap_or_else(|e| panic!("lower {stem}: {e}"));
         emit_npc_lua(&pending)
     }
 
@@ -178,6 +190,16 @@ mod tests {
         );
     }
 
+    fn repo_items() -> Option<ItemDatabase> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let otb = root.join("data/items/items.otb");
+        let xml = root.join("data/items/items.xml");
+        if !otb.exists() || !xml.exists() {
+            return None;
+        }
+        Some(ItemDatabase::load(&otb, &xml).expect("load items"))
+    }
+
     #[test]
     fn parses_albert() {
         let Some(root) = ref_npc_root() else {
@@ -187,7 +209,7 @@ mod tests {
         let file = parse_npc_file(&root, &path).expect("parse albert");
         assert_eq!(file.name.as_deref(), Some("Albert"));
         assert!(!file.rules.is_empty());
-        let pending = lower_npc(file).expect("lower");
+        let pending = lower_npc(file, None).expect("lower");
         let lua = emit_npc_lua(&pending);
         assert!(lua.contains("NpcType(\"Albert\")"));
         assert!(lua.contains("queued_single_focus"));
@@ -199,10 +221,12 @@ mod tests {
             eprintln!("skip: reference npc dir missing");
             return;
         };
-        assert_golden("albert", &emit_named(&root, "albert"));
-        assert_golden("quentin", &emit_named(&root, "quentin"));
-        // Suzy includes gen-bank.ndb — cover bank include expansion.
-        assert_golden("suzy", &emit_named(&root, "suzy"));
+        let items = repo_items();
+        let items_ref = items.as_ref();
+        assert_golden("albert", &emit_named(&root, "albert", items_ref));
+        assert_golden("quentin", &emit_named(&root, "quentin", items_ref));
+        // Suzy includes gen-bank.ndb — cover bank include expansion + TypeID remap.
+        assert_golden("suzy", &emit_named(&root, "suzy", items_ref));
     }
 
     #[test]
@@ -211,7 +235,9 @@ mod tests {
             eprintln!("skip: reference npc dir missing");
             return;
         };
-        let pending = import_legacy_root(&root).expect("import all reference npcs");
+        let items = repo_items();
+        let pending =
+            import_legacy_root(&root, items.as_ref()).expect("import all reference npcs");
         assert_eq!(pending.len(), 337, "expected 337 npc files");
         assert!(pending.iter().any(|p| p.name == "Albert"));
         assert!(pending.iter().any(|p| p.name == "Quentin"));
@@ -228,7 +254,7 @@ Behaviour = {
 "#;
         let root = std::env::temp_dir();
         let err = parse_npc_source(&root, &root.join("bad.npc"), src)
-            .and_then(lower_npc)
+            .and_then(|f| lower_npc(f, None))
             .expect_err("string should fail");
         let msg = err.to_string().to_ascii_lowercase();
         assert!(msg.contains("string"), "{msg}");
@@ -267,7 +293,7 @@ Behaviour = {
             ),
         ] {
             let err = parse_npc_source(&root, &root.join("bad.npc"), src)
-                .and_then(lower_npc)
+                .and_then(|f| lower_npc(f, None))
                 .expect_err(&format!("{label} should fail"));
             let msg = err.to_string().to_ascii_lowercase();
             assert!(

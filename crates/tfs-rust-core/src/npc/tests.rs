@@ -50,7 +50,7 @@ fn load_quentin_db() -> Option<Arc<NpcDatabase>> {
     }
     let path = root.join("quentin.npc");
     let file = parse_npc_file(&root, &path).ok()?;
-    let pending = lower_npc(file).ok()?;
+    let pending = lower_npc(file, None).ok()?;
     let db = validate_pending_definitions(vec![pending], None).ok()?;
     Some(Arc::new(db))
 }
@@ -862,7 +862,7 @@ fn load_tom_db() -> Option<Arc<NpcDatabase>> {
     }
     let path = root.join("tom.npc");
     let file = parse_npc_file(&root, &path).ok()?;
-    let pending = lower_npc(file).ok()?;
+    let pending = lower_npc(file, None).ok()?;
     let db = validate_pending_definitions(vec![pending], None).ok()?;
     Some(Arc::new(db))
 }

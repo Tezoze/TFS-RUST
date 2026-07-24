@@ -400,7 +400,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "I was waiting for this day! Take the lamp and let Malor feel my wrath!" },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 3231, count = 1 } },
+				{ create = { item = 2344, count = 1 } },
 				{ setQuestValue = { id = 284, value = 1 } },
 			},
 		},

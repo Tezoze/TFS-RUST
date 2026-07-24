@@ -491,7 +491,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bread" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3600 } },
+				{ set = { var = "type", value = 2689 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8 } },
 				{ say = "Would you like to buy bread for %P gold?" },
@@ -504,7 +504,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cheese" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3607 } },
+				{ set = { var = "type", value = 2696 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12 } },
 				{ say = "Would you like to buy cheese for %P gold?" },
@@ -517,7 +517,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "meat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Would you like to buy meat for %P gold?" },
@@ -530,7 +530,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ham" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3582 } },
+				{ set = { var = "type", value = 2671 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 16 } },
 				{ say = "Would you like to buy a ham for %P gold?" },
@@ -543,7 +543,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fish" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3578 } },
+				{ set = { var = "type", value = 2667 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6 } },
 				{ say = "Would you like to buy a fish for %P gold?" },
@@ -558,7 +558,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bread" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3600 } },
+				{ set = { var = "type", value = 2689 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8, rhs = { capture = 1 } } } } },
 				{ say = "Would you like to buy %A breads for %P gold?" },
@@ -573,7 +573,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cheese" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3607 } },
+				{ set = { var = "type", value = 2696 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 12, rhs = { capture = 1 } } } } },
 				{ say = "Would you like to buy %A cheese for %P gold?" },
@@ -588,7 +588,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "meat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Would you like to buy %A meat for %P gold?" },
@@ -603,7 +603,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ham" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3582 } },
+				{ set = { var = "type", value = 2671 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 16, rhs = { capture = 1 } } } } },
 				{ say = "Would you like to buy %A ham for %P gold?" },
@@ -618,7 +618,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fish" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3578 } },
+				{ set = { var = "type", value = 2667 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 6, rhs = { capture = 1 } } } } },
 				{ say = "Would you like to buy %A fishes for %P gold?" },
@@ -631,7 +631,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lemonade" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 12 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3 } },
@@ -645,7 +645,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "wine" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4 } },
@@ -659,7 +659,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "water" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },

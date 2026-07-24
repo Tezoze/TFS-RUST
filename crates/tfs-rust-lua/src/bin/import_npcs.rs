@@ -5,8 +5,12 @@
 //! cargo run -p tfs-rust-lua --bin import-npcs -- \
 //!   --root reference/cipsoft-772/runtime/npc \
 //!   --out data/npc/scripts \
-//!   --validate-data-dir data
+//!   --validate-data-dir data \
+//!   --keep-extra
 //! ```
+//!
+//! CipSoft `--root` imports remap TypeID item literals to OTB `server_id` via
+//! `items.otb` + `items.xml`. Split/archive mode leaves server ids unchanged.
 //!
 //! Writes to a temp directory under `--out`, validates via [`LuaRuntime`], then
 //! atomically replaces generated `*.lua` files (preserves hand-authored files
@@ -40,17 +44,34 @@ fn main() -> ExitCode {
 
 fn run(args: Vec<String>) -> Result<String, String> {
     let opts = parse_args(&args)?;
+
+    let items_dir = opts
+        .items_dir
+        .clone()
+        .or_else(|| opts.validate_data_dir.clone())
+        .unwrap_or_else(|| PathBuf::from("data"));
+
+    let items = if opts.root.is_some() || opts.validate_data_dir.is_some() {
+        Some(load_items(&items_dir)?)
+    } else {
+        None
+    };
+
     let pending = if let Some(ref xml) = opts.split_xml {
         let behavior = opts
             .behavior_dir
             .clone()
             .unwrap_or_else(|| xml.join("behavior"));
-        import_split_xml(xml, &behavior).map_err(|e| e.to_string())?
+        // Archive/TVP split files already use OTB server ids — do not remap.
+        import_split_xml(xml, &behavior, None).map_err(|e| e.to_string())?
     } else {
         let root = opts
             .root
             .ok_or_else(|| "missing --root <legacy-npc-dir> (or use --split-xml)".to_string())?;
-        import_legacy_root(&root).map_err(|e| e.to_string())?
+        let items_ref = items
+            .as_ref()
+            .ok_or_else(|| "CipSoft --root import requires items (pass --validate-data-dir or --items-dir)".to_string())?;
+        import_legacy_root(&root, Some(items_ref)).map_err(|e| e.to_string())?
     };
 
     let out = opts
@@ -61,7 +82,10 @@ fn run(args: Vec<String>) -> Result<String, String> {
     write_definitions(&staging, &pending)?;
 
     if let Some(ref data_dir) = opts.validate_data_dir {
-        validate_staging(&staging, data_dir, pending.len())?;
+        let items_ref = items
+            .as_ref()
+            .ok_or_else(|| "internal: items required for validate-data-dir".to_string())?;
+        validate_staging(&staging, data_dir, items_ref, pending.len())?;
     }
 
     if opts.dry_run {
@@ -91,6 +115,7 @@ struct Opts {
     root: Option<PathBuf>,
     out: Option<PathBuf>,
     validate_data_dir: Option<PathBuf>,
+    items_dir: Option<PathBuf>,
     split_xml: Option<PathBuf>,
     behavior_dir: Option<PathBuf>,
     dry_run: bool,
@@ -113,6 +138,10 @@ fn parse_args(args: &[String]) -> Result<Opts, String> {
             "--validate-data-dir" => {
                 i += 1;
                 opts.validate_data_dir = Some(require_path(args, i, "--validate-data-dir")?);
+            }
+            "--items-dir" => {
+                i += 1;
+                opts.items_dir = Some(require_path(args, i, "--items-dir")?);
             }
             "--split-xml" => {
                 i += 1;
@@ -147,16 +176,29 @@ fn print_help() {
 import-npcs — offline 772 .npc/.ndb → NpcType/NpcDialogue Lua
 
 Options:
-  --root <dir>                 Full legacy NPC directory (reference corpus)
-  --split-xml <dir>            Split data/npc XML mode (secondary)
+  --root <dir>                 Full legacy NPC directory (CipSoft TypeIDs; remapped)
+  --split-xml <dir>            Split data/npc XML mode (server ids; no remap)
   --behavior-dir <dir>         Behavior files for --split-xml (default: <xml>/behavior)
   --out <dir>                  Output definitions directory
   --validate-data-dir <data>   Load items from <data>/items and Lua-validate staging
+  --items-dir <data>           Items root for TypeID→server_id remap (default: data or validate-data-dir)
   --dry-run                    Parse/emit/validate only; do not write --out
   --keep-extra                 Keep existing .lua files not produced by this import
   -h, --help                   Show this help
 "
     );
+}
+
+fn load_items(data_dir: &Path) -> Result<ItemDatabase, String> {
+    let otb = data_dir.join("items/items.otb");
+    let xml = data_dir.join("items/items.xml");
+    if !otb.exists() || !xml.exists() {
+        return Err(format!(
+            "need items.otb and items.xml under {}/items",
+            data_dir.display()
+        ));
+    }
+    ItemDatabase::load(&otb, &xml).map_err(|e| format!("load items: {e}"))
 }
 
 fn staging_dir(out: &Path) -> Result<PathBuf, String> {
@@ -188,21 +230,13 @@ fn write_definitions(dir: &Path, pending: &[PendingNpcDefinition]) -> Result<(),
 
 fn validate_staging(
     staging: &Path,
-    data_dir: &Path,
+    _data_dir: &Path,
+    items: &ItemDatabase,
     expected_count: usize,
 ) -> Result<(), String> {
-    let otb = data_dir.join("items/items.otb");
-    let xml = data_dir.join("items/items.xml");
-    if !otb.exists() || !xml.exists() {
-        return Err(format!(
-            "validate-data-dir needs items.otb and items.xml under {}/items",
-            data_dir.display()
-        ));
-    }
-    let items = ItemDatabase::load(&otb, &xml).map_err(|e| format!("load items: {e}"))?;
     let mut rt = LuaRuntime::new().map_err(|e| format!("LuaRuntime: {e}"))?;
     let db = rt
-        .load_npc_definitions_dir(staging, &items)
+        .load_npc_definitions_dir(staging, items)
         .map_err(|e| format!("Lua validate failed: {e}"))?;
     if db.len() != expected_count {
         return Err(format!(
@@ -257,11 +291,13 @@ fn commit_staging(
             .file_name()
             .ok_or_else(|| "staging entry without name".to_string())?;
         let to = out.join(name);
-        fs::rename(&from, &to).or_else(|_| {
-            fs::copy(&from, &to)
-                .map(|_| ())
-                .and_then(|_| fs::remove_file(&from))
-        }).map_err(|e| format!("commit {}: {e}", to.display()))?;
+        fs::rename(&from, &to)
+            .or_else(|_| {
+                fs::copy(&from, &to)
+                    .map(|_| ())
+                    .and_then(|_| fs::remove_file(&from))
+            })
+            .map_err(|e| format!("commit {}: {e}", to.display()))?;
     }
     let _ = fs::remove_dir_all(staging);
     Ok(())

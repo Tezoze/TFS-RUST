@@ -272,9 +272,10 @@ pub(crate) fn map_tile_content(
     let on_self = tx == px && ty == py && tz == pz;
 
     let mut content = TileContent::default();
-    // Real 772 client stores tiles in Cip map-container order (Bottom before creatures).
-    // Matching `GetObjectRNum` / spectator `0x6D` stackpos — without this, SendRow after a
-    // firefield leaves creatures at the wrong index → bug0000017 MoveCreature assert.
+    // Real 772 client stores tiles in Cip map-container order
+    // (Bank → Bottom → Top → Creature → Low). Matching `GetObjectRNum` /
+    // spectator `0x6D` stackpos — treating PRIORITY_LOW downs as Bottom leaves
+    // creatures at the wrong index → bug0000017 MoveCreature assert.
     let is_772 = !world.codec.caps().move_creature_self_packet;
     content.cip_map_order = is_772 && !self_player.is_otclient();
 
@@ -382,19 +383,31 @@ pub(crate) fn map_tile_content(
             if iid == 0 {
                 continue;
             }
-            let cid = world.items_db.client_id_for_server(iid);
+            let Some(itype) = world.items_db.items.get(&iid) else {
+                continue;
+            };
+            let cid = itype.client_id;
             if cid == 0 {
                 continue;
             }
-            let stackable = world.items_db.stackable_for_server(iid);
-            let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
-            content.bottom_items.push(ItemStack {
+            let stackable = itype.stackable();
+            let splash_fluid = (itype.is_splash() || itype.is_fluid_container()) && !stackable;
+            let stack = ItemStack {
                 client_id: cid,
                 count: item.client_count(),
                 stackable,
-                is_splash_or_fluid: splash_fluid && !stackable,
-                is_animation: world.items_db.is_animation_for_server(iid),
-            });
+                is_splash_or_fluid: splash_fluid,
+                is_animation: itype.is_animation(),
+            };
+            // Real 772: only PRIORITY_BOTTOM before creatures; LOW after.
+            // TVP/OTC: all downs fold into bottom_items (emitted after creatures).
+            if content.cip_map_order && itype.is_cip_priority_bottom() {
+                content.bottom_items.push(stack);
+            } else if content.cip_map_order {
+                content.low_items.push(stack);
+            } else {
+                content.bottom_items.push(stack);
+            }
         }
     }
 
@@ -411,6 +424,7 @@ pub(crate) fn map_tile_content(
         && content.top_items.is_empty()
         && content.creatures.is_empty()
         && content.bottom_items.is_empty()
+        && content.low_items.is_empty()
     {
         return None;
     }

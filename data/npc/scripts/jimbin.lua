@@ -344,7 +344,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "beer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
@@ -358,7 +358,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "water" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1 } },
@@ -374,7 +374,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "beer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
@@ -390,7 +390,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "water" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1, rhs = { capture = 1 } } } } },

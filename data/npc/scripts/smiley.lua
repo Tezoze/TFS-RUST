@@ -279,7 +279,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oooh... present from meee... take it... goooood start for youuuung druuuids..." },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 3066 } },
+				{ set = { var = "type", value = 2182 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" }, count = 1 } },
 			},

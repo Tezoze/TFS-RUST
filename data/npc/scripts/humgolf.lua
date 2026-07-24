@@ -606,7 +606,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "meat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "So, you want to sell meat? Hmm, I give you %P gold, ok?" },
@@ -620,7 +620,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ham" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3582 } },
+				{ set = { var = "type", value = 2671 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4 } },
 				{ say = "So, you want to sell a ham? Hmm, I give you %P gold, ok?" },
@@ -644,7 +644,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "Do you have a fresh rat for sale?" },
@@ -660,7 +660,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "meat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "So, you want to sell %A pieces of meat? Hmm, I give you %P gold, ok?" },
@@ -676,7 +676,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ham" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3582 } },
+				{ set = { var = "type", value = 2671 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 4, rhs = { capture = 1 } } } } },
 				{ say = "So, you want to sell %A pieces of ham? Hmm, I give you %P gold, ok?" },
@@ -692,7 +692,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "Do you have %A fresh rats for sale?" },

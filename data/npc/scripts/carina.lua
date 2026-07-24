@@ -188,7 +188,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ring" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3004 } },
+				{ set = { var = "type", value = 2121 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 990 } },
 				{ say = "Do you want to buy a wedding ring for %P gold?" },
@@ -202,7 +202,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amulet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3013 } },
+				{ set = { var = "type", value = 2130 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6600 } },
 				{ say = "Do you want to buy a golden amulet for %P gold?" },
@@ -216,7 +216,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "necklace" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3016 } },
+				{ set = { var = "type", value = 2133 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3560 } },
 				{ say = "Do you want to buy a ruby necklace for %P gold?" },
@@ -232,7 +232,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ring" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3004 } },
+				{ set = { var = "type", value = 2121 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 990, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A wedding rings for %P gold?" },
@@ -248,7 +248,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amulet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3013 } },
+				{ set = { var = "type", value = 2130 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 6600, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A golden amulets for %P gold?" },
@@ -264,7 +264,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "necklace" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3016 } },
+				{ set = { var = "type", value = 2133 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3560, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A ruby necklaces for %P gold?" },

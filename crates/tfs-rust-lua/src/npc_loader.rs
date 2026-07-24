@@ -652,7 +652,7 @@ mod tests {
         }
         let file = tfs_rust_content::npc_import::parse_npc_file(&root, &root.join("albert.npc"))
             .expect("parse");
-        let pending = tfs_rust_content::npc_import::lower_npc(file).expect("lower");
+        let pending = tfs_rust_content::npc_import::lower_npc(file, None).expect("lower");
         let rule_count = pending
             .dialogue
             .as_ref()

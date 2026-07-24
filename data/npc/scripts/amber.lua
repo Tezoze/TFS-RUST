@@ -391,7 +391,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2821 } },
+				{ set = { var = "type", value = 1955 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Do you bring me my notebook?" },
 				{ set = { var = "topic", value = 1 } },
@@ -416,7 +416,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Excellent. Here, take this short sword, that might serve you well." },
 				{ delete = { item = { session = "type" }, count = 1 } },
-				{ create = { item = 3294, count = 1 } },
+				{ create = { item = 2406, count = 1 } },
 			},
 		},
 		{
@@ -510,7 +510,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "salmon" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3579 } },
+				{ set = { var = "type", value = 2668 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Yeah! If you give me some salmon I will tell you more about the orcish language." },
 				{ set = { var = "topic", value = 3 } },

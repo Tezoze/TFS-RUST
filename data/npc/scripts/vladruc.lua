@@ -16,7 +16,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ situation = "address" },
 				{ words = { "hello$" } },
-				{ expr = { count = 3083 }, op = ">", rhs = 0 },
+				{ expr = { count = 2199 }, op = ">", rhs = 0 },
 				{ select = true },
 			},
 			actions = {
@@ -29,7 +29,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ situation = "address" },
 				{ words = { "hi$" } },
-				{ expr = { count = 3083 }, op = ">", rhs = 0 },
+				{ expr = { count = 2199 }, op = ">", rhs = 0 },
 				{ select = true },
 			},
 			actions = {
@@ -73,7 +73,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ situation = "busy" },
 				{ words = { "hello$" } },
-				{ expr = { count = 3083 }, op = ">", rhs = 0 },
+				{ expr = { count = 2199 }, op = ">", rhs = 0 },
 				{ select = true },
 			},
 			actions = {
@@ -85,7 +85,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ situation = "busy" },
 				{ words = { "hi$" } },
-				{ expr = { count = 3083 }, op = ">", rhs = 0 },
+				{ expr = { count = 2199 }, op = ">", rhs = 0 },
 				{ select = true },
 			},
 			actions = {

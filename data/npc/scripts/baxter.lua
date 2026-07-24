@@ -405,7 +405,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1 } },
 				{ say = "Do you bring a freshly killed rat for a bounty of %P gold?" },
@@ -420,7 +420,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to deliver me %A rats for a bounty of %P gold?" },

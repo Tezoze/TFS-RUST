@@ -167,7 +167,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bill" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3216 } },
+				{ set = { var = "type", value = 2329 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "A bill? Oh boy so you are delivering another bill to poor me?" },
 				{ set = { var = "topic", value = 5 } },

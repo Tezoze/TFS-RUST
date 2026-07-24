@@ -291,7 +291,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, you did not purchase your first magical wand yet? Please take this little present from me as your magic teacher!" },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 3074 } },
+				{ set = { var = "type", value = 2190 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" }, count = 1 } },
 			},
@@ -1339,13 +1339,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 7 },
 				{ words = { "yes" } },
-				{ expr = { count = 2874 }, op = ">", rhs = 0 },
+				{ expr = { count = 2006 }, op = ">", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "amount", value = { count = 2874 } } },
+				{ set = { var = "amount", value = { count = 2006 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { session = "amount" }, rhs = 5 } } } },
 				{ say = "Here you are ... %P gold." },
-				{ delete = { item = 2874, count = 1 } },
+				{ delete = { item = 2006, count = 1 } },
 				{ createMoney = true },
 			},
 		},

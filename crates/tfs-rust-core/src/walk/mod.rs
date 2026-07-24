@@ -76,10 +76,25 @@ fn self_move_stack_pos(world: &GameWorld, cid: CreatureId, body: &crate::tile::T
         .get(cid)
         .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
     if is_772 && !is_otc {
-        client_creature_stack_pos_cip(body, cid)
+        let bottom_downs = cip_bottom_down_count(world, body);
+        client_creature_stack_pos_cip(body, cid, bottom_downs)
     } else {
         client_creature_stack_pos(body, cid)
     }
+}
+
+/// Count `down_items` that are Cip `PRIORITY_BOTTOM` (fields / pools).
+fn cip_bottom_down_count(world: &GameWorld, body: &crate::tile::TileBody) -> usize {
+    body.down_items
+        .iter()
+        .filter(|&&id| {
+            world
+                .items
+                .get(id)
+                .and_then(|it| world.items_db.items.get(&it.item_type))
+                .is_some_and(|t| t.is_cip_priority_bottom())
+        })
+        .count()
 }
 
 /// One movement segment emitted by `internal_move_creature_step`.
@@ -1200,18 +1215,17 @@ impl GameWorld {
         // top_items counts don't change during a creature move, so we read them from the old
         // tile after the move (the creature has been removed, but ground/top_items are intact).
         //
-        // 772 decompile `GetObjectRNum` (`info.cc:205`) counts the full map-container chain
-        // (ground → down → top → creatures). TVP/OTC `getClientIndexOfCreature` skips down
-        // items (they are emitted *after* creatures in `GetTileDescription`). Use RNum for
-        // real-772 viewers so KickCreature `0x6D` hits the correct stack; OTC keeps TVP math.
-        let (ground_present, down_item_count, top_item_count) = self
+        // 772 decompile `GetObjectRNum` (`info.cc:205`) counts Bank→Bottom→Top→Creature
+        // (not PRIORITY_LOW downs). TVP/OTC `getClientIndexOfCreature` skips all downs.
+        let (ground_present, bottom_down_count, top_item_count) = self
             .map
             .get_tile(old_pos)
             .map(|t| {
+                let body = t.body();
                 (
-                    t.body().ground.is_some(),
-                    t.body().down_items.len(),
-                    t.body().top_items.len(),
+                    body.ground.is_some(),
+                    cip_bottom_down_count(self, body),
+                    body.top_items.len(),
                 )
             })
             .unwrap_or((true, 0, 0));
@@ -1230,7 +1244,7 @@ impl GameWorld {
                     .creatures
                     .get(viewer)
                     .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
-                let downs = if otc { 0 } else { down_item_count };
+                let downs = if otc { 0 } else { bottom_down_count };
                 let viewer_stack = creature_stack_pos_for_viewer(
                     ground_present,
                     downs + top_item_count,

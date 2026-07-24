@@ -384,7 +384,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Since you have proven to be a capable soldier, we have another mission for you. ..." },
 				{ say = "If you are interested go to Alesar and ask him about it." },
 				{ set = { var = "amount", value = 6 } },
-				{ create = { item = 3035, count = 1 } },
+				{ create = { item = 2152, count = 1 } },
 				{ setQuestValue = { id = 286, value = 3 } },
 			},
 		},

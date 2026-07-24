@@ -192,7 +192,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "A letter from my Moohmy?? Do you have a letter from my Moohmy to me?" },
-				{ set = { var = "type", value = 3220 } },
+				{ set = { var = "type", value = 2333 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 1 } },
 			},
@@ -207,7 +207,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Uhm, well thank you, hornless beeing." },
 				{ setQuestValue = { id = 245, value = 2 } },
-				{ delete = { item = 3220, count = 1 } },
+				{ delete = { item = 2333, count = 1 } },
 			},
 		},
 		{

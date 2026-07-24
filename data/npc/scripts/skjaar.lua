@@ -506,7 +506,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "yes" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2970 } },
+				{ set = { var = "type", value = 2089 } },
 				{ set = { var = "data", value = 3142 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Here you are." },

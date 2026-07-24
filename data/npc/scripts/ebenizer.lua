@@ -513,13 +513,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 96 },
 				{ words = { "yes" } },
-				{ expr = { count = 3031 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 2148 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 3031, count = 1 } },
+				{ delete = { item = 2148, count = 1 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 3035, count = 1 } },
+				{ create = { item = 2152, count = 1 } },
 			},
 		},
 		{
@@ -546,13 +546,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 97 },
 				{ words = { "yes" } },
-				{ expr = { count = 3043 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 2160 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 3043, count = 1 } },
+				{ delete = { item = 2160, count = 1 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 3035, count = 1 } },
+				{ create = { item = 2152, count = 1 } },
 			},
 		},
 		{
@@ -579,13 +579,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 98 },
 				{ words = { "yes" } },
-				{ expr = { count = 3035 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 2152 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 3035, count = 1 } },
+				{ delete = { item = 2152, count = 1 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 3031, count = 1 } },
+				{ create = { item = 2148, count = 1 } },
 			},
 		},
 		{
@@ -612,13 +612,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 99 },
 				{ words = { "yes" } },
-				{ expr = { count = 3035 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 2152 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 3035, count = 1 } },
+				{ delete = { item = 2152, count = 1 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 3043, count = 1 } },
+				{ create = { item = 2160, count = 1 } },
 			},
 		},
 		{

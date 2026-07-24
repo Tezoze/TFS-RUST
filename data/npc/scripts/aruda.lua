@@ -230,7 +230,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "time" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2906 } },
+				{ set = { var = "type", value = 2036 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Please don't be so rude to look for the time if you are talking to me." },
 				{ set = { var = "topic", value = 3 } },

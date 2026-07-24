@@ -101,7 +101,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "charcha" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3273 } },
+				{ set = { var = "type", value = 2385 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Maruk goshak ta?" },
@@ -115,7 +115,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "burka" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3294 } },
+				{ set = { var = "type", value = 2406 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "Maruk goshak ta?" },
@@ -130,7 +130,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bata" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3264 } },
+				{ set = { var = "type", value = 2376 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 85 } },
 				{ say = "Maruk goshak ta?" },
@@ -144,7 +144,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "hakhak" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3276 } },
+				{ set = { var = "type", value = 2388 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 85 } },
 				{ say = "Maruk goshak ta?" },
@@ -168,7 +168,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bora" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3361 } },
+				{ set = { var = "type", value = 2467 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Maruk goshak ta?" },
@@ -183,7 +183,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bora" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3378 } },
+				{ set = { var = "type", value = 2484 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 90 } },
 				{ say = "Maruk goshak ta?" },
@@ -197,7 +197,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "grofa" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3376 } },
+				{ set = { var = "type", value = 2482 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 60 } },
 				{ say = "Maruk goshak ta?" },
@@ -221,7 +221,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "donga" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3411 } },
+				{ set = { var = "type", value = 2511 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 65 } },
 				{ say = "Maruk goshak ta?" },
@@ -235,7 +235,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "batuk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3350 } },
+				{ set = { var = "type", value = 2456 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 400 } },
 				{ say = "Ahhhh, maruk goshak batuk?" },
@@ -249,7 +249,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pixo" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3447 } },
+				{ set = { var = "type", value = 2544 } },
 				{ set = { var = "amount", value = 10 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "Maruk goshak tefar pixo ul batuk?" },

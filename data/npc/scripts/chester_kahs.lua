@@ -680,7 +680,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "deathcurse" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3061 } },
+				{ set = { var = "type", value = 2177 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "That is terrible! Will you give me the crystal?" },
 				{ set = { var = "topic", value = 3 } },
@@ -721,7 +721,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you! Take this ring. If you ever need a healing, come, bring the scroll, and ask me to 'heal'." },
 				{ delete = { item = { session = "type" }, count = 1 } },
-				{ set = { var = "type", value = 3052 } },
+				{ set = { var = "type", value = 2168 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" }, count = 1 } },
 			},
@@ -743,7 +743,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "heal" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3052 } },
+				{ set = { var = "type", value = 2168 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Do you need the healing now?" },
 				{ set = { var = "topic", value = 4 } },

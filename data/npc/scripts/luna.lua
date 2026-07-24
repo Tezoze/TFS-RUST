@@ -304,7 +304,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3723 } },
+				{ set = { var = "type", value = 2787 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6 } },
 				{ say = "Do you want to buy one of the white mushrooms for %P gold?" },
@@ -318,7 +318,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3724 } },
+				{ set = { var = "type", value = 2788 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12 } },
 				{ say = "Do you want to buy one of the red mushrooms for %P gold?" },
@@ -332,7 +332,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3725 } },
+				{ set = { var = "type", value = 2789 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy one of the brown mushrooms for %P gold?" },
@@ -348,7 +348,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3723 } },
+				{ set = { var = "type", value = 2787 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 6, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A of the white mushrooms for %P gold?" },
@@ -364,7 +364,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3724 } },
+				{ set = { var = "type", value = 2788 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 12, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A of the red mushrooms for %P gold?" },
@@ -380,7 +380,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3725 } },
+				{ set = { var = "type", value = 2789 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A of the brown mushrooms for %P gold?" },
@@ -393,7 +393,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rose" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3658 } },
+				{ set = { var = "type", value = 2744 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 11 } },
 				{ say = "Do you want to buy a red rose for %P gold?" },
@@ -406,7 +406,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "tulip" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3668 } },
+				{ set = { var = "type", value = 2754 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 9 } },
 				{ say = "Do you want to buy a tulip for %P gold?" },
@@ -420,7 +420,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "herb" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3735 } },
+				{ set = { var = "type", value = 2799 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 28 } },
 				{ say = "Do you want to buy a stone herb for %P gold?" },
@@ -434,7 +434,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "herb" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3736 } },
+				{ set = { var = "type", value = 2800 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 21 } },
 				{ say = "Do you want to buy a star herb for %P gold?" },
@@ -447,7 +447,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fern" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3737 } },
+				{ set = { var = "type", value = 2801 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 24 } },
 				{ say = "Do you want to buy a fern for %P gold?" },

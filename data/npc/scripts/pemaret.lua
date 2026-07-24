@@ -250,7 +250,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fish" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3578 } },
+				{ set = { var = "type", value = 2667 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a fresh fish for %P gold?" },
@@ -265,7 +265,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fish" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3578 } },
+				{ set = { var = "type", value = 2667 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A fresh fishes for %P gold?" },

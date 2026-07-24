@@ -381,7 +381,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3350 } },
+				{ set = { var = "type", value = 2456 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 400 } },
 				{ say = "Do you want to buy a bow for %P gold?" },
@@ -394,7 +394,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "crossbow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3349 } },
+				{ set = { var = "type", value = 2455 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to buy a crossbow for %P gold?" },
@@ -407,7 +407,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "arrow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3447 } },
+				{ set = { var = "type", value = 2544 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "Do you want to buy an arrows for %P gold?" },
@@ -420,7 +420,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bolt" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3446 } },
+				{ set = { var = "type", value = 2543 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3 } },
 				{ say = "Do you want to buy a bolts for %P gold?" },
@@ -435,7 +435,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3350 } },
+				{ set = { var = "type", value = 2456 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 400, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A bows for %P gold?" },
@@ -450,7 +450,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "crossbow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3349 } },
+				{ set = { var = "type", value = 2455 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A crossbows for %P gold?" },
@@ -465,7 +465,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "arrow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3447 } },
+				{ set = { var = "type", value = 2544 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A arrows for %P gold?" },
@@ -480,7 +480,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bolt" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3446 } },
+				{ set = { var = "type", value = 2543 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A bolts for %P gold?" },

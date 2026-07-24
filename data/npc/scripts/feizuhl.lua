@@ -428,7 +428,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "statue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2802 } },
+				{ set = { var = "type", value = 3928 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "Do you want to buy this wonderful statue for %P gold?" },
@@ -442,7 +442,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "statue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2803 } },
+				{ set = { var = "type", value = 3929 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "Do you want to buy this frigtening statue for %P gold?" },
@@ -456,7 +456,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "statue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2804 } },
+				{ set = { var = "type", value = 3930 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "Do you want to buy this disgusting statue for %P gold?" },
@@ -523,7 +523,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2782 } },
+				{ set = { var = "type", value = 3908 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "Do you want to buy a small table for %P gold?" },
@@ -537,7 +537,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2783 } },
+				{ set = { var = "type", value = 3909 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Do you want to buy a round table for %P gold?" },
@@ -551,7 +551,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2784 } },
+				{ set = { var = "type", value = 3910 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Do you want to buy a square table for %P gold?" },
@@ -565,7 +565,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2785 } },
+				{ set = { var = "type", value = 3911 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "Do you want to buy a big table for %P gold?" },
@@ -624,7 +624,7 @@ npc:dialogue(NpcDialogue({
 				{ select = true },
 			},
 			actions = {
-				{ set = { var = "type", value = 2775 } },
+				{ set = { var = "type", value = 3901 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a red cushioned chair for %P gold?" },
@@ -650,7 +650,7 @@ npc:dialogue(NpcDialogue({
 				{ select = true },
 			},
 			actions = {
-				{ set = { var = "type", value = 2776 } },
+				{ set = { var = "type", value = 3902 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a green cushioned chair for %P gold?" },
@@ -684,7 +684,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2777 } },
+				{ set = { var = "type", value = 3903 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 15 } },
 				{ say = "You want to buy a wooden chair for %P gold?" },
@@ -698,7 +698,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2778 } },
+				{ set = { var = "type", value = 3904 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a rocking chair for %P gold?" },
@@ -722,7 +722,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2779 } },
+				{ set = { var = "type", value = 3905 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 55 } },
 				{ say = "You want to buy a sofa chair for %P gold?" },
@@ -798,7 +798,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "flower" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2981 } },
+				{ set = { var = "type", value = 2100 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy god flowers for %P gold?" },
@@ -812,7 +812,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "plant" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2811 } },
+				{ set = { var = "type", value = 3937 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8 } },
 				{ say = "Do you want to buy an indoor plant for %P gold?" },
@@ -826,7 +826,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bowl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2983 } },
+				{ set = { var = "type", value = 2102 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6 } },
 				{ say = "Do you want to buy a flower bowl for %P gold?" },
@@ -840,7 +840,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "flower" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2984 } },
+				{ set = { var = "type", value = 2103 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a honey flower for %P gold?" },
@@ -854,7 +854,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "flower" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2985 } },
+				{ set = { var = "type", value = 2104 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a potted flower for %P gold?" },
@@ -932,7 +932,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "purple" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2386 } },
+				{ set = { var = "type", value = 1678 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, purple pillow for %P gold?" },
@@ -946,7 +946,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "green" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2387 } },
+				{ set = { var = "type", value = 1679 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, green pillow for %P gold?" },
@@ -960,7 +960,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "red" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2388 } },
+				{ set = { var = "type", value = 1680 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, red pillow for %P gold?" },
@@ -974,7 +974,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2389 } },
+				{ set = { var = "type", value = 1681 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, blue pillow for %P gold?" },
@@ -988,7 +988,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "orange" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2390 } },
+				{ set = { var = "type", value = 1682 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, orange pillow for %P gold?" },
@@ -1002,7 +1002,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "turquoise" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2391 } },
+				{ set = { var = "type", value = 1683 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, turquoise pillow for %P gold?" },
@@ -1016,7 +1016,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "white" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2392 } },
+				{ set = { var = "type", value = 1684 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a small, white pillow for %P gold?" },
@@ -1041,7 +1041,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2398 } },
+				{ set = { var = "type", value = 1690 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a blue, round pillow for %P gold?" },
@@ -1055,7 +1055,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "purple" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2400 } },
+				{ set = { var = "type", value = 1692 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a purple, round pillow for %P gold?" },
@@ -1069,7 +1069,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "red" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2399 } },
+				{ set = { var = "type", value = 1691 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a red, round pillow for %P gold?" },
@@ -1083,7 +1083,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "turquoise" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2401 } },
+				{ set = { var = "type", value = 1693 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a turquoise, round pillow for %P gold?" },
@@ -1108,7 +1108,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2394 } },
+				{ set = { var = "type", value = 1686 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a blue, square pillow for %P gold?" },
@@ -1122,7 +1122,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "red" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2395 } },
+				{ set = { var = "type", value = 1687 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a red, square pillow for %P gold?" },
@@ -1136,7 +1136,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "green" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2396 } },
+				{ set = { var = "type", value = 1688 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a green, square pillow for %P gold?" },
@@ -1150,7 +1150,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "yellow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2397 } },
+				{ set = { var = "type", value = 1689 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a yellow, square pillow for %P gold?" },
@@ -1164,7 +1164,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pillow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2393 } },
+				{ set = { var = "type", value = 1685 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "You want to buy a heart pillow for %P gold?" },
@@ -1230,7 +1230,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "vase" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2876 } },
+				{ set = { var = "type", value = 2008 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3 } },
 				{ say = "Do you want to buy a vase for %P gold?" },
@@ -1244,7 +1244,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amphora" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2805 } },
+				{ set = { var = "type", value = 3931 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "Do you want to buy a large amphora for %P gold?" },
@@ -1257,7 +1257,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amphora" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2893 } },
+				{ set = { var = "type", value = 2023 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4 } },
 				{ say = "Do you want to buy an amphora for %P gold?" },
@@ -1271,7 +1271,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "basin" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2806 } },
+				{ set = { var = "type", value = 3932 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Do you want to buy a coal basin for %P gold?" },
@@ -1337,7 +1337,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "piano" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2807 } },
+				{ set = { var = "type", value = 3933 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 200 } },
 				{ say = "You want to buy a piano for %P gold?" },
@@ -1350,7 +1350,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "harp" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2808 } },
+				{ set = { var = "type", value = 3934 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "You want to buy a harp for %P gold?" },
@@ -1417,7 +1417,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pipe" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2974 } },
+				{ set = { var = "type", value = 2093 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a water pipe for %P gold?" },
@@ -1431,7 +1431,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "clock" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2801 } },
+				{ set = { var = "type", value = 3927 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 75 } },
 				{ say = "You want to buy a pendulum clock for %P gold?" },
@@ -1444,7 +1444,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "telescope" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2799 } },
+				{ set = { var = "type", value = 3925 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 70 } },
 				{ say = "You want to buy a telescope for %P gold?" },
@@ -1458,7 +1458,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lamp" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2798 } },
+				{ set = { var = "type", value = 3924 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 35 } },
 				{ say = "You want to buy a table lamp for %P gold?" },
@@ -1472,7 +1472,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "horse" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2800 } },
+				{ set = { var = "type", value = 3926 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "You want to buy a rocking horse for %P gold?" },
@@ -1485,7 +1485,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "globe" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2797 } },
+				{ set = { var = "type", value = 3923 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "You want to buy a globe for %P gold?" },
@@ -1498,7 +1498,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "birdcage" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2796 } },
+				{ set = { var = "type", value = 3922 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "You want to buy a birdcage for %P gold?" },
@@ -1521,7 +1521,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cuckoo" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2664 } },
+				{ set = { var = "type", value = 1877 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a cuckoo clock for %P gold?" },
@@ -1543,7 +1543,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "portrait" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2641 } },
+				{ set = { var = "type", value = 1854 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "You want to buy a portrait picture for %P gold?" },
@@ -1556,7 +1556,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "landscape" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2639 } },
+				{ set = { var = "type", value = 1852 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "You want to buy a landscape picture for %P gold?" },
@@ -1570,7 +1570,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "life" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2640 } },
+				{ set = { var = "type", value = 1853 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "You want to buy a still life picture for %P gold?" },
@@ -1593,7 +1593,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mirror" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2632 } },
+				{ set = { var = "type", value = 1845 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a round mirror for %P gold?" },
@@ -1607,7 +1607,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mirror" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2638 } },
+				{ set = { var = "type", value = 1851 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a oval mirror for %P gold?" },
@@ -1621,7 +1621,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mirror" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2635 } },
+				{ set = { var = "type", value = 1848 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a edged mirror for %P gold?" },
@@ -1698,7 +1698,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "purple" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2644 } },
+				{ set = { var = "type", value = 1857 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a purple tapestry for %P gold?" },
@@ -1712,7 +1712,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "green" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2647 } },
+				{ set = { var = "type", value = 1860 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a green tapestry for %P gold?" },
@@ -1726,7 +1726,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "yellow" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2650 } },
+				{ set = { var = "type", value = 1863 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a yellow tapestry for %P gold?" },
@@ -1740,7 +1740,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "orange" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2653 } },
+				{ set = { var = "type", value = 1866 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a orange tapestry for %P gold?" },
@@ -1754,7 +1754,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "red" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2656 } },
+				{ set = { var = "type", value = 1869 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a red tapestry for %P gold?" },
@@ -1768,7 +1768,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "orange" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2653 } },
+				{ set = { var = "type", value = 1866 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a orange tapestry for %P gold?" },
@@ -1782,7 +1782,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "red" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2656 } },
+				{ set = { var = "type", value = 1869 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a red tapestry for %P gold?" },
@@ -1796,7 +1796,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blue" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2659 } },
+				{ set = { var = "type", value = 1872 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a blue tapestry for %P gold?" },
@@ -1810,7 +1810,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "white" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2667 } },
+				{ set = { var = "type", value = 1880 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a white tapestry for %P gold?" },
@@ -1876,7 +1876,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "drawer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2789 } },
+				{ set = { var = "type", value = 3915 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 18 } },
 				{ say = "You want to buy drawers for %P gold?" },
@@ -1889,7 +1889,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dresser" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2790 } },
+				{ set = { var = "type", value = 3916 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a dresser for %P gold?" },
@@ -1902,7 +1902,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "locker" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2791 } },
+				{ set = { var = "type", value = 3917 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "You want to buy a locker for %P gold?" },
@@ -1915,7 +1915,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "crate" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2471 } },
+				{ set = { var = "type", value = 1739 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a crate for %P gold?" },
@@ -1928,7 +1928,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chest" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2472 } },
+				{ set = { var = "type", value = 1740 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a chest for %P gold?" },
@@ -1941,7 +1941,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "box" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2469 } },
+				{ set = { var = "type", value = 1738 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a box for %P gold?" },
@@ -1954,7 +1954,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "barrel" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2793 } },
+				{ set = { var = "type", value = 3919 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12 } },
 				{ say = "Do you want to buy a barrel for %P gold?" },
@@ -1967,7 +1967,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "trough" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2792 } },
+				{ set = { var = "type", value = 3918 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 7 } },
 				{ say = "Do you want to buy a trough for %P gold?" },
@@ -1980,7 +1980,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "trunk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2794 } },
+				{ set = { var = "type", value = 3920 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a trunk for %P gold?" },

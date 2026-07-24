@@ -639,7 +639,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 1 },
 				{ words = { "yes" } },
-				{ expr = { count = 3232 }, op = "=", rhs = 1 },
+				{ expr = { count = 2345 }, op = "=", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
@@ -647,7 +647,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, let's see. ..." },
 				{ say = "I think I need to talk to Gabel about this. I am sure he will know what to do. Perhaps you should have a word with him, too." },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 3232, count = 1 } },
+				{ delete = { item = 2345, count = 1 } },
 				{ setQuestValue = { id = 281, value = 2 } },
 			},
 		},

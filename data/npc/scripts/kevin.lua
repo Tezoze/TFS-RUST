@@ -253,7 +253,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I grant you the title of postman. You are now a full member of our guild. Here have your own officers hat and wear it with pride." },
 				{ setQuestValue = { id = 250, value = 2 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 3576, count = 1 } },
+				{ create = { item = 2665, count = 1 } },
 			},
 		},
 		{
@@ -279,7 +279,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "From now on you are a grand postman for special operations. You are an honoured member of our guild and earned the privilege of your own post horn. Here, take it." },
 				{ setQuestValue = { id = 250, value = 4 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 2957, count = 1 } },
+				{ create = { item = 2078, count = 1 } },
 			},
 		},
 		{
@@ -368,7 +368,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Excellent. Here is a letter for you to deliver. Well, to be honest, no one else volunteered. It's a letter from the mother of Markwin, the king of Mintwallin. Deliver that letter to him, but note that you will not be welcome there." },
 				{ setQuestValue = { id = 245, value = 1 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 3220, count = 1 } },
+				{ create = { item = 2333, count = 1 } },
 			},
 		},
 		{
@@ -412,7 +412,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "So Waldo is dead? This is grave news indeed. Did you recover his posthorn?" },
 				{ set = { var = "topic", value = 19 } },
-				{ set = { var = "type", value = 3219 } },
+				{ set = { var = "type", value = 2332 } },
 				{ set = { var = "amount", value = 1 } },
 			},
 		},
@@ -756,7 +756,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 230 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3115 } },
+				{ set = { var = "type", value = 2230 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Do you bring ONE bone for our officers' safety fund or ALL bones at once?" },
 				{ set = { var = "topic", value = 24 } },
@@ -770,7 +770,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 230 }, op = "<", rhs = 20 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3115 } },
+				{ set = { var = "type", value = 2230 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Do you bring a bone for our officers' safety fund?" },
 				{ set = { var = "topic", value = 12 } },
@@ -784,7 +784,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 230 }, op = "=", rhs = 20 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3115 } },
+				{ set = { var = "type", value = 2230 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Do you bring a bone for our officers' safety fund?" },
 				{ set = { var = "topic", value = 22 } },
@@ -869,7 +869,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "all" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3115 } },
+				{ set = { var = "type", value = 2230 } },
 				{ set = { var = "amount", value = 20 } },
 				{ say = "Are you sure you have collected all the 20 bones needed?" },
 				{ set = { var = "topic", value = 25 } },
@@ -1013,7 +1013,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "I need you to deliver a bill to the stage magician David Brassacres. He's hiding from his creditors somewhere in Venore. It's likely you will have to trick him somehow to reveal his identity. Report back when you delivered this bill." },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 3216, count = 1 } },
+				{ create = { item = 2329, count = 1 } },
 				{ setQuestValue = { id = 229, value = 1 } },
 			},
 		},

@@ -21,14 +21,22 @@ use crate::return_value::ReturnValue;
 
 impl GameWorld {
     /// TVP and Cip stackpos for an item still on `pos` (capture before remove).
+    ///
+    /// Cip classifies `down_items` as BOTTOM (before creatures) vs LOW (after).
     pub(crate) fn item_stack_pos_pair(&self, pos: Position, item_id: ItemId) -> (u8, u8) {
         self.map
             .get_tile(pos)
             .map(|t| {
-                (
-                    t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
-                    t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
-                )
+                let tvp = t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0);
+                let cip = t
+                    .get_item_stack_pos_cip(item_id, true, |id| {
+                        self.items
+                            .get(id)
+                            .and_then(|it| self.items_db.items.get(&it.item_type))
+                            .is_some_and(|ty| ty.is_cip_priority_bottom())
+                    })
+                    .unwrap_or(0);
+                (tvp, cip)
             })
             .unwrap_or((0, 0))
     }

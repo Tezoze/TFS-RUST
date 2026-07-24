@@ -160,7 +160,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "I have more urgent problem to attend then that. Those hawks are hunting my carrier pigeons. Bring me 12 arrows and I'll see if I have the time for this nonsense. Do you have 12 arrows with you?" },
-				{ set = { var = "type", value = 3447 } },
+				{ set = { var = "type", value = 2544 } },
 				{ set = { var = "amount", value = 12 } },
 				{ set = { var = "topic", value = 5 } },
 			},
@@ -174,7 +174,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Do you have 12 arrows with you?" },
-				{ set = { var = "type", value = 3447 } },
+				{ set = { var = "type", value = 2544 } },
 				{ set = { var = "amount", value = 12 } },
 				{ set = { var = "topic", value = 5 } },
 			},
@@ -467,7 +467,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is. Don't forget to write the name of the receiver in the first line and the address in the second one before you put the letter in a mailbox." },
 				{ deleteMoney = true },
-				{ create = { item = 3505, count = 1 } },
+				{ create = { item = 2597, count = 1 } },
 			},
 		},
 		{
@@ -499,8 +499,8 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are. Don't forget to write the name and the address of the receiver on the label. The label has to be in the parcel before you put the parcel in a mailbox." },
 				{ deleteMoney = true },
-				{ create = { item = 3503, count = 1 } },
-				{ create = { item = 3507, count = 1 } },
+				{ create = { item = 2595, count = 1 } },
+				{ create = { item = 2599, count = 1 } },
 			},
 		},
 		{

@@ -541,7 +541,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "weapon" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3473 } },
+				{ set = { var = "type", value = 2570 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
 				{ say = "Do you want to buy a 'mace of the fury' for 250 gold?" },

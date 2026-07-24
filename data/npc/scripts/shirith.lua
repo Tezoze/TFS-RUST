@@ -341,7 +341,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "key" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2969 } },
+				{ set = { var = "type", value = 2088 } },
 				{ set = { var = "data", value = 3033 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "I would sell you a key for 50 gold, ok?" },

@@ -23,6 +23,20 @@ should match `objects.srv` after `patch-otb-waypoints` and flag audits).
 key but carry TVP/TFS display names that disagree with `objects.srv` (4270+ rough mismatches in a
 full scan). The **numeric `id` / `server_id` is the join key**; names are not.
 
+### NPC / dialogue item ids
+
+| Surface | ID space |
+|---------|----------|
+| CipSoft `.npc` `Type=` / `Create` / `Count` | TypeID = OTB `client_id` |
+| `data/npc/archive/behavior/` (TVP) | already OTB `server_id` |
+| `data/npc/scripts/*.lua` (runtime) | **OTB `server_id` only** |
+| OTBM / `items.xml` `id=` / DB `itemtype` | OTB `server_id` |
+
+`import-npcs --root reference/cipsoft-772/runtime/npc` remaps item literals via
+`ItemDatabase::server_id_for_client` at lower time. Spell-teacher `Type=` values that are not
+OTB client ids (e.g. spell id `20`) are left unchanged. Do not store client/TypeIDs in committed
+Lua definitions.
+
 ---
 
 ## TypeID → OTB resolve (Rust)

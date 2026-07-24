@@ -203,7 +203,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "key" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2969 } },
+				{ set = { var = "type", value = 2088 } },
 				{ set = { var = "data", value = 4600 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
@@ -604,7 +604,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "Have you brought a dead rat to me to pick up your reward?" },
@@ -619,7 +619,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "Have you brought %A dead rats to me to pick up your reward?" },
@@ -675,7 +675,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "box" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2856 } },
+				{ set = { var = "type", value = 1990 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Do you have a suitable present box for me?" },
 				{ set = { var = "topic", value = 3 } },
@@ -691,7 +691,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "THANK YOU! Here is a helmet that will serve you well." },
 				{ delete = { item = { session = "type" }, count = 1 } },
-				{ create = { item = 3374, count = 1 } },
+				{ create = { item = 2480, count = 1 } },
 			},
 		},
 		{

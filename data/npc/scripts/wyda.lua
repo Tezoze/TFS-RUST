@@ -17,7 +17,7 @@ npc:dialogue(NpcDialogue({
 				{ situation = "address" },
 				{ words = { "hello$" } },
 				{ property = "druid" },
-				{ expr = { count = 3065 }, op = ">=", rhs = 1 },
+				{ expr = { count = 2181 }, op = ">=", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
@@ -30,7 +30,7 @@ npc:dialogue(NpcDialogue({
 				{ situation = "address" },
 				{ words = { "greet" } },
 				{ property = "druid" },
-				{ expr = { count = 3065 }, op = ">=", rhs = 1 },
+				{ expr = { count = 2181 }, op = ">=", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
@@ -967,7 +967,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ words = { "blood" } },
 				{ words = { "herb$" } },
-				{ expr = { count = 3734 }, op = ">=", rhs = 1 },
+				{ expr = { count = 2798 }, op = ">=", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
@@ -990,7 +990,7 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 1 },
 				{ words = { "yes" } },
-				{ expr = { count = 3734 }, op = "<", rhs = 1 },
+				{ expr = { count = 2798 }, op = "<", rhs = 1 },
 				{ select = true },
 			},
 			actions = {
@@ -1005,8 +1005,8 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you so much! Here, let me give you a reward..." },
-				{ delete = { item = 3734, count = 1 } },
-				{ create = { item = 3211, count = 1 } },
+				{ delete = { item = 2798, count = 1 } },
+				{ create = { item = 2324, count = 1 } },
 			},
 		},
 	},

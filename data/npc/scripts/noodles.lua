@@ -19,7 +19,7 @@ npc:dialogue(NpcDialogue({
 				{ select = true },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> Woof! <sniff>" },
 			},
@@ -195,7 +195,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3104 } },
+				{ set = { var = "type", value = 2219 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 2 } },
@@ -222,7 +222,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3105 } },
+				{ set = { var = "type", value = 2220 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 2 } },
@@ -249,7 +249,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3120 } },
+				{ set = { var = "type", value = 2235 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 3 } },
@@ -264,7 +264,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 2 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3104 } },
+				{ set = { var = "type", value = 2219 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 2 } },
@@ -279,7 +279,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 2 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3105 } },
+				{ set = { var = "type", value = 2220 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 3 } },
@@ -294,7 +294,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 2 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3120 } },
+				{ set = { var = "type", value = 2235 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 2 } },
@@ -309,7 +309,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 3 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3104 } },
+				{ set = { var = "type", value = 2219 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 3 } },
@@ -324,7 +324,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 3 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3105 } },
+				{ set = { var = "type", value = 2220 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 2 } },
@@ -339,7 +339,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 251 }, op = "=", rhs = 3 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3120 } },
+				{ set = { var = "type", value = 2235 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "<sniff> <sniff>" },
 				{ set = { var = "topic", value = 2 } },

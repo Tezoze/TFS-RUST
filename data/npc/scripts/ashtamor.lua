@@ -335,7 +335,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "vase" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2876 } },
+				{ set = { var = "type", value = 2008 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3 } },
 				{ say = "Do you want to buy a vase for %P gold?" },
@@ -348,7 +348,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amphora" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2893 } },
+				{ set = { var = "type", value = 2023 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 4 } },
 				{ say = "Do you want to buy an amphora for %P gold?" },
@@ -363,7 +363,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "vase" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2876 } },
+				{ set = { var = "type", value = 2008 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A vases for %P gold?" },
@@ -378,7 +378,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amphora" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2893 } },
+				{ set = { var = "type", value = 2023 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 4, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A amphoras for %P gold?" },

@@ -301,7 +301,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "beer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2880 } },
+				{ set = { var = "type", value = 2012 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },

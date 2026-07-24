@@ -419,7 +419,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 312 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4844 } },
+				{ set = { var = "type", value = 4855 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "By luck I aquired another copy of the book you are looking for. Do you want to buy a copy of 'songs of the forest' for 500 gold?." },
@@ -571,7 +571,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lyre" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2949 } },
+				{ set = { var = "type", value = 2071 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 120 } },
 				{ say = "Do you want to buy a lyre for %P gold?" },
@@ -584,7 +584,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lute" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2950 } },
+				{ set = { var = "type", value = 2072 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 195 } },
 				{ say = "Do you want to buy a lute for %P gold?" },
@@ -597,7 +597,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "drum" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2952 } },
+				{ set = { var = "type", value = 2073 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 140 } },
 				{ say = "Do you want to buy a drum for %P gold?" },
@@ -611,7 +611,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fanfare" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2954 } },
+				{ set = { var = "type", value = 2075 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 150 } },
 				{ say = "Do you want to buy a simple fanfare for %P gold?" },
@@ -626,7 +626,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lyre" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2949 } },
+				{ set = { var = "type", value = 2071 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 120, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A lyre for %P gold?" },
@@ -641,7 +641,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "lute" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2950 } },
+				{ set = { var = "type", value = 2072 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 195, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A lute for %P gold?" },
@@ -656,7 +656,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "drum" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2952 } },
+				{ set = { var = "type", value = 2073 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 140, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A drum for %P gold?" },
@@ -672,7 +672,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fanfare" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2954 } },
+				{ set = { var = "type", value = 2075 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 150, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A simple fanfare for %P gold?" },

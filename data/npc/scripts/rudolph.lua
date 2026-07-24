@@ -286,7 +286,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "jacket" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3561 } },
+				{ set = { var = "type", value = 2650 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12 } },
 				{ say = "Oh, do you want to buy one of my wonderful jackets for %P gold?" },
@@ -299,7 +299,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "tunic" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3563 } },
+				{ set = { var = "type", value = 2652 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Oh, do you want to buy one of my wonderful green tunics for %P gold?" },
@@ -312,7 +312,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cape" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3565 } },
+				{ set = { var = "type", value = 2654 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 9 } },
 				{ say = "Oh, do you want to buy one of my wonderful capes for %P gold?" },
@@ -326,7 +326,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "legs" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3559 } },
+				{ set = { var = "type", value = 2649 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Oh, do you want to buy one of my wonderful leather legs for %P gold?" },
@@ -339,7 +339,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "scarf" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3572 } },
+				{ set = { var = "type", value = 2661 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 15 } },
 				{ say = "Oh, do you want to buy one of my wonderful silky scarfs for %P gold?" },
@@ -352,7 +352,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sandals" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3551 } },
+				{ set = { var = "type", value = 2642 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "Oh, do you want to buy one of my wonderful sandals for %P gold?" },
@@ -366,7 +366,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "boot" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3552 } },
+				{ set = { var = "type", value = 2643 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "Oh, do you want to buy one of my wonderful leather boots for %P gold?" },
@@ -381,7 +381,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "jacket" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3561 } },
+				{ set = { var = "type", value = 2650 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 12, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful jackets for %P gold?" },
@@ -396,7 +396,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "tunic" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3563 } },
+				{ set = { var = "type", value = 2652 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful green tunics for %P gold?" },
@@ -411,7 +411,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "cape" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3565 } },
+				{ set = { var = "type", value = 2654 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 9, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful capes for %P gold?" },
@@ -427,7 +427,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "legs" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3559 } },
+				{ set = { var = "type", value = 2649 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful leather legs for %P gold?" },
@@ -442,7 +442,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "scar" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3572 } },
+				{ set = { var = "type", value = 2661 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 15, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful silky scarves for %P gold?" },
@@ -457,7 +457,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sandals" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3551 } },
+				{ set = { var = "type", value = 2642 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful sandals for %P gold?" },
@@ -473,7 +473,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "boot" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3552 } },
+				{ set = { var = "type", value = 2643 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "Oh, do you want to buy %A of my wonderful leather boots for %P gold?" },

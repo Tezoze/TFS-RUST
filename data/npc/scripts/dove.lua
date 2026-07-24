@@ -160,7 +160,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Oh no! I knew that day would come! I am slightly above the allowed weight and if you can't supply me with some grapes to slim down I will get fired. Do you happen to have some grapes with you?" },
-				{ set = { var = "type", value = 3592 } },
+				{ set = { var = "type", value = 2681 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 5 } },
 			},
@@ -174,7 +174,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Do you happen to have some grapes with you?" },
-				{ set = { var = "type", value = 3592 } },
+				{ set = { var = "type", value = 2681 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 5 } },
 			},
@@ -521,7 +521,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is. Don't forget to write the name of the receiver in the first line and the address in the second one before you put the letter in a mailbox." },
 				{ deleteMoney = true },
-				{ create = { item = 3505, count = 1 } },
+				{ create = { item = 2597, count = 1 } },
 			},
 		},
 		{
@@ -553,8 +553,8 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are. Don't forget to write the name and the address of the receiver on the label. The label has to be in the parcel before you put the parcel in a mailbox." },
 				{ deleteMoney = true },
-				{ create = { item = 3503, count = 1 } },
-				{ create = { item = 3507, count = 1 } },
+				{ create = { item = 2595, count = 1 } },
+				{ create = { item = 2599, count = 1 } },
 			},
 		},
 		{

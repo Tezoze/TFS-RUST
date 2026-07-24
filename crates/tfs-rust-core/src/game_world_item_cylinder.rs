@@ -258,16 +258,7 @@ impl GameWorld {
                         target.count += can_add;
                     }
                     // Get stack pos for update packet
-                    let (tvp_stack, cip_stack) = self
-                        .map
-                        .get_tile(pos)
-                        .map(|t| {
-                            (
-                                t.get_item_stack_pos_ordered(target_id, false).unwrap_or(0),
-                                t.get_item_stack_pos_ordered(target_id, true).unwrap_or(0),
-                            )
-                        })
-                        .unwrap_or((0, 0));
+                    let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
                     self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
                     let remainder = item_count.saturating_sub(can_add);
@@ -333,16 +324,7 @@ impl GameWorld {
         }
 
         // Stackpos of the item as it now sits on the tile — TVP vs Cip map-container order.
-        let (tvp_stack, cip_stack) = self
-            .map
-            .get_tile(pos)
-            .map(|t| {
-                (
-                    t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
-                    t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
-                )
-            })
-            .unwrap_or((0, 0));
+        let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
 
         // Broadcast add
         self.broadcast_tile_item_add(pos, item_id, tvp_stack, cip_stack);
@@ -373,29 +355,11 @@ impl GameWorld {
             if let Some(item) = self.items.get_mut(item_id) {
                 item.count -= count;
             }
-            let (tvp_stack, cip_stack) = self
-                .map
-                .get_tile(pos)
-                .map(|t| {
-                    (
-                        t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
-                        t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
-                    )
-                })
-                .unwrap_or((0, 0));
+            let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
             self.broadcast_tile_item_update(pos, item_id, tvp_stack, cip_stack);
         } else {
             // Full removal
-            let (tvp_stack, cip_stack) = self
-                .map
-                .get_tile(pos)
-                .map(|t| {
-                    (
-                        t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
-                        t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
-                    )
-                })
-                .unwrap_or((0, 0));
+            let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
             let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
             if tile.remove_item_by_id(item_id).is_none() {
                 return Err(ReturnValue::NotPossible);

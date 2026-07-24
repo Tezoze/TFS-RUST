@@ -238,7 +238,7 @@ npc:dialogue(NpcDialogue({
 				{ deleteMoney = true },
 				{ say = "Now you own the hot key." },
 				{ set = { var = "data", value = 3940 } },
-				{ create = { item = 2968, count = 1 } },
+				{ create = { item = 2087, count = 1 } },
 			},
 		},
 		{
@@ -411,7 +411,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "shovel" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3457 } },
+				{ set = { var = "type", value = 2554 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "Do you want to buy a shovel for %P gold?" },

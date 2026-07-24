@@ -426,7 +426,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ring" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3004 } },
+				{ set = { var = "type", value = 2121 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 990 } },
 				{ say = "Do you want to buy a wedding ring for %P gold?" },
@@ -440,7 +440,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amulet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3013 } },
+				{ set = { var = "type", value = 2130 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6600 } },
 				{ say = "Do you want to buy a golden amulet for %P gold?" },
@@ -454,7 +454,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "necklace" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3016 } },
+				{ set = { var = "type", value = 2133 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 3560 } },
 				{ say = "Do you want to buy a ruby necklace for %P gold?" },
@@ -468,7 +468,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3026 } },
+				{ set = { var = "type", value = 2143 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 320 } },
 				{ say = "Do you want to buy a white pearl for %P gold?" },
@@ -482,7 +482,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3027 } },
+				{ set = { var = "type", value = 2144 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 560 } },
 				{ say = "Do you want to buy a black pearl for %P gold?" },
@@ -496,7 +496,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "diamond" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3028 } },
+				{ set = { var = "type", value = 2145 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 600 } },
 				{ say = "Do you want to buy a small diamond for %P gold?" },
@@ -510,7 +510,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sapphire" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3029 } },
+				{ set = { var = "type", value = 2146 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to buy a small sapphire for %P gold?" },
@@ -524,7 +524,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ruby" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3030 } },
+				{ set = { var = "type", value = 2147 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to buy a small ruby for %P gold?" },
@@ -538,7 +538,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "emerald" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3032 } },
+				{ set = { var = "type", value = 2149 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to buy a small emerald for %P gold?" },
@@ -552,7 +552,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amethyst" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3033 } },
+				{ set = { var = "type", value = 2150 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 400 } },
 				{ say = "Do you want to buy a small amethyst for %P gold?" },
@@ -568,7 +568,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ring" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3004 } },
+				{ set = { var = "type", value = 2121 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 990, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A wedding rings for %P gold?" },
@@ -584,7 +584,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amulet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3013 } },
+				{ set = { var = "type", value = 2130 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 6600, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A golden amulets for %P gold?" },
@@ -600,7 +600,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "necklace" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3016 } },
+				{ set = { var = "type", value = 2133 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 3560, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A ruby necklaces for %P gold?" },
@@ -616,7 +616,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3026 } },
+				{ set = { var = "type", value = 2143 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 320, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A white pearls for %P gold?" },
@@ -632,7 +632,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3027 } },
+				{ set = { var = "type", value = 2144 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 560, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A black pearls for %P gold?" },
@@ -648,7 +648,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "diamond" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3028 } },
+				{ set = { var = "type", value = 2145 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 600, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A small diamonds for %P gold?" },
@@ -664,7 +664,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sapphire" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3029 } },
+				{ set = { var = "type", value = 2146 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A small sapphires for %P gold?" },
@@ -680,7 +680,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rub" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3030 } },
+				{ set = { var = "type", value = 2147 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A small rubies for %P gold?" },
@@ -696,7 +696,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "emerald" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3032 } },
+				{ set = { var = "type", value = 2149 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A small emeralds for %P gold?" },
@@ -712,7 +712,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amethyst" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3033 } },
+				{ set = { var = "type", value = 2150 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 400, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A small amethysts for %P gold?" },
@@ -727,7 +727,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3026 } },
+				{ set = { var = "type", value = 2143 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 160 } },
 				{ say = "Do you want to sell a white pearl for %P gold?" },
@@ -742,7 +742,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3027 } },
+				{ set = { var = "type", value = 2144 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 280 } },
 				{ say = "Do you want to sell a black pearl for %P gold?" },
@@ -757,7 +757,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "diamond" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3028 } },
+				{ set = { var = "type", value = 2145 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 300 } },
 				{ say = "Do you want to sell a small diamond for %P gold?" },
@@ -772,7 +772,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sapphire" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3029 } },
+				{ set = { var = "type", value = 2146 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
 				{ say = "Do you want to sell a small sapphire for %P gold?" },
@@ -787,7 +787,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ruby" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3030 } },
+				{ set = { var = "type", value = 2147 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
 				{ say = "Do you want to sell a small ruby for %P gold?" },
@@ -802,7 +802,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "emerald" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3032 } },
+				{ set = { var = "type", value = 2149 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
 				{ say = "Do you want to sell a small emerald for %P gold?" },
@@ -817,7 +817,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amethyst" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3033 } },
+				{ set = { var = "type", value = 2150 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 200 } },
 				{ say = "Do you want to sell a small amethyst for %P gold?" },
@@ -834,7 +834,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3026 } },
+				{ set = { var = "type", value = 2143 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 160, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A white pearls for %P gold?" },
@@ -851,7 +851,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pearl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3027 } },
+				{ set = { var = "type", value = 2144 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 280, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A black pearls for %P gold?" },
@@ -868,7 +868,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "diamond" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3028 } },
+				{ set = { var = "type", value = 2145 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 300, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A small diamonds for %P gold?" },
@@ -885,7 +885,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "sapphire" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3029 } },
+				{ set = { var = "type", value = 2146 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 250, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A small sapphires for %P gold?" },
@@ -902,7 +902,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rub" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3030 } },
+				{ set = { var = "type", value = 2147 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 250, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A small rubies for %P gold?" },
@@ -919,7 +919,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "emerald" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3032 } },
+				{ set = { var = "type", value = 2149 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 250, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A small emeralds for %P gold?" },
@@ -936,7 +936,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amethyst" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3033 } },
+				{ set = { var = "type", value = 2150 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 200, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A small amethysts for %P gold?" },

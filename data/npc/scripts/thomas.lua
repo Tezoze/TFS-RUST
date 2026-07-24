@@ -277,7 +277,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "scroll" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2815 } },
+				{ set = { var = "type", value = 1949 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a scroll for %P gold?" },
@@ -290,7 +290,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "document" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2834 } },
+				{ set = { var = "type", value = 1968 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12 } },
 				{ say = "Do you want to buy a document for %P gold?" },
@@ -303,7 +303,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "parchment" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2835 } },
+				{ set = { var = "type", value = 1969 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8 } },
 				{ say = "Do you want to buy a parchment for %P gold?" },
@@ -316,7 +316,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "spellbook" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3059 } },
+				{ set = { var = "type", value = 2175 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 150 } },
 				{ say = "Do you want to buy a spellbook for %P gold?" },
@@ -330,7 +330,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2837 } },
+				{ set = { var = "type", value = 1971 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 15 } },
 				{ say = "Do you want to buy a brown book for %P gold?" },
@@ -344,7 +344,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2838 } },
+				{ set = { var = "type", value = 1972 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 15 } },
 				{ say = "Do you want to buy a black book for %P gold?" },
@@ -358,7 +358,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2839 } },
+				{ set = { var = "type", value = 1973 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 15 } },
 				{ say = "Do you want to buy a small book for %P gold?" },
@@ -371,7 +371,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "inkwell" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3509 } },
+				{ set = { var = "type", value = 2600 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8 } },
 				{ say = "Do you want to buy an inkwell for %P gold?" },
@@ -386,7 +386,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "scroll" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2815 } },
+				{ set = { var = "type", value = 1949 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A scrolls for %P gold?" },
@@ -401,7 +401,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "document" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2834 } },
+				{ set = { var = "type", value = 1968 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 12, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A documents for %P gold?" },
@@ -416,7 +416,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "parchment" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2835 } },
+				{ set = { var = "type", value = 1969 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A parchments for %P gold?" },
@@ -431,7 +431,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "spellbook" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3059 } },
+				{ set = { var = "type", value = 2175 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 150, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A spellbooks for %P gold?" },
@@ -447,7 +447,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2837 } },
+				{ set = { var = "type", value = 1971 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 15, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A brown books for %P gold?" },
@@ -463,7 +463,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2838 } },
+				{ set = { var = "type", value = 1972 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 15, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A black books for %P gold?" },
@@ -479,7 +479,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "book" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2839 } },
+				{ set = { var = "type", value = 1973 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 15, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A small books for %P gold?" },
@@ -494,7 +494,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "inkwell" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3509 } },
+				{ set = { var = "type", value = 2600 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 8, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A inkwells for %P gold?" },

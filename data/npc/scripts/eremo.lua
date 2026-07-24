@@ -272,7 +272,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "loss" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3057 } },
+				{ set = { var = "type", value = 2173 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50000 } },
 				{ say = "Do you want to buy an amulet of loss for %P gold?" },
@@ -299,7 +299,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amulet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3084 } },
+				{ set = { var = "type", value = 2200 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 700 } },
 				{ say = "Do you want to buy a protection amulet for %P gold?" },
@@ -313,7 +313,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "amulet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3080 } },
+				{ set = { var = "type", value = 2196 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50000 } },
 				{ say = "Do you want to sell a broken amulet for %P gold?" },

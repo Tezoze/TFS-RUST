@@ -297,7 +297,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "banana" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3587 } },
+				{ set = { var = "type", value = 2676 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a banana for %P gold?" },
@@ -311,7 +311,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3723 } },
+				{ set = { var = "type", value = 2787 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy one of the white mushrooms for %P gold?" },
@@ -324,7 +324,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "orange" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3586 } },
+				{ set = { var = "type", value = 2675 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy an orange for %P gold?" },
@@ -337,7 +337,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "strawberr" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3591 } },
+				{ set = { var = "type", value = 2680 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "Do you want to buy a strawberry for %P gold?" },
@@ -350,7 +350,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "melon" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3593 } },
+				{ set = { var = "type", value = 2682 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a melon for %P gold?" },
@@ -363,7 +363,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pumpkin" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3594 } },
+				{ set = { var = "type", value = 2683 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a pumpkin for %P gold?" },
@@ -376,7 +376,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blueberr" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3588 } },
+				{ set = { var = "type", value = 2677 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1 } },
 				{ say = "Do you want to buy a blueberry for %P gold?" },
@@ -391,7 +391,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "banana" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3587 } },
+				{ set = { var = "type", value = 2676 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A bananas for %P gold?" },
@@ -407,7 +407,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mushroom" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3723 } },
+				{ set = { var = "type", value = 2787 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A of the white mushrooms for %P gold?" },
@@ -422,7 +422,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "orange" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3586 } },
+				{ set = { var = "type", value = 2675 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A oranges for %P gold?" },
@@ -437,7 +437,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "strawberr" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3591 } },
+				{ set = { var = "type", value = 2680 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A strawberries for %P gold?" },
@@ -452,7 +452,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "melon" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3593 } },
+				{ set = { var = "type", value = 2682 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A melons for %P gold?" },
@@ -467,7 +467,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "pumpkin" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3594 } },
+				{ set = { var = "type", value = 2683 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A pumpkins for %P gold?" },
@@ -482,7 +482,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "blueberr" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3588 } },
+				{ set = { var = "type", value = 2677 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A blueberries for %P gold?" },

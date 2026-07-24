@@ -274,7 +274,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 224 }, op = "=", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "I'll give you %P gold for a dead rat. Do you accept?" },
@@ -288,7 +288,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 224 }, op = "=", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4173 } },
+				{ set = { var = "type", value = 2992 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "I'll give you %P gold for a dead rabbit. Do you accept?" },
@@ -301,7 +301,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "I'll give you %P gold for a dead rat. Do you accept?" },
@@ -314,7 +314,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rabbit" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4173 } },
+				{ set = { var = "type", value = 2992 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "I'll give you %P gold for a dead rabbit. Do you accept?" },
@@ -327,7 +327,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "wolf" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4007 } },
+				{ set = { var = "type", value = 2826 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to sell a dead wolf for %P gold?" },
@@ -343,7 +343,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 224 }, op = "=", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "I'll give you %P gold for %A dead rats. Do you accept?" },
@@ -359,7 +359,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 224 }, op = "=", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4173 } },
+				{ set = { var = "type", value = 2992 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "I'll give you %P gold for %A dead rabbits. Do you accept?" },
@@ -374,7 +374,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3994 } },
+				{ set = { var = "type", value = 2813 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "I'll give you %P gold for %A dead rats. Do you accept?" },
@@ -389,7 +389,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rabbit" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4173 } },
+				{ set = { var = "type", value = 2992 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 2, rhs = { capture = 1 } } } } },
 				{ say = "I'll give you %P gold for %A dead rabbits. Do you accept?" },
@@ -404,7 +404,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "wolf" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4007 } },
+				{ set = { var = "type", value = 2826 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A dead wolves for %P gold?" },
@@ -419,7 +419,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "wolves" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4007 } },
+				{ set = { var = "type", value = 2826 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A dead wolves for %P gold?" },

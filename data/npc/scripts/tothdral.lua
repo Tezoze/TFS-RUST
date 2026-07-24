@@ -499,7 +499,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, you did not purchase your first magical wand yet? Please take this little present from me as your magic teacher!" },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 3074 } },
+				{ set = { var = "type", value = 2190 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" }, count = 1 } },
 			},

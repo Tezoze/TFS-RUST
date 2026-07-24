@@ -268,7 +268,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "meat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 7 } },
 				{ say = "Do you want to buy meat for %P gold?" },
@@ -281,7 +281,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ham" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3582 } },
+				{ set = { var = "type", value = 2671 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a ham for %P gold?" },
@@ -294,7 +294,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "salmon" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3579 } },
+				{ set = { var = "type", value = 2668 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6 } },
 				{ say = "Do you want to buy a salmon for %P gold?" },
@@ -309,7 +309,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "meat" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3577 } },
+				{ set = { var = "type", value = 2666 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 7, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A meat for %P gold?" },
@@ -324,7 +324,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "ham" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3582 } },
+				{ set = { var = "type", value = 2671 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A ham for %P gold?" },
@@ -339,7 +339,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "salmon" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3579 } },
+				{ set = { var = "type", value = 2668 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 6, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A salmon for %P gold?" },

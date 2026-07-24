@@ -335,7 +335,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "What? You want me to examine a brooch?" },
-				{ set = { var = "type", value = 3205 } },
+				{ set = { var = "type", value = 2318 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 3 } },
 			},

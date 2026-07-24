@@ -506,7 +506,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2874 } },
+				{ set = { var = "type", value = 2006 } },
 				{ set = { var = "data", value = 11 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 60 } },
@@ -521,7 +521,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2874 } },
+				{ set = { var = "type", value = 2006 } },
 				{ set = { var = "data", value = 10 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 55 } },
@@ -538,7 +538,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2874 } },
+				{ set = { var = "type", value = 2006 } },
 				{ set = { var = "data", value = 11 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 60, rhs = { capture = 1 } } } } },
@@ -555,7 +555,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2874 } },
+				{ set = { var = "type", value = 2006 } },
 				{ set = { var = "data", value = 10 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 55, rhs = { capture = 1 } } } } },
@@ -629,13 +629,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 3 },
 				{ words = { "yes" } },
-				{ expr = { count = 2874 }, op = ">", rhs = 0 },
+				{ expr = { count = 2006 }, op = ">", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "amount", value = { count = 2874 } } },
+				{ set = { var = "amount", value = { count = 2006 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { session = "amount" }, rhs = 5 } } } },
 				{ say = "Here you are ... %P gold." },
-				{ delete = { item = 2874, count = 1 } },
+				{ delete = { item = 2006, count = 1 } },
 				{ createMoney = true },
 			},
 		},

@@ -214,7 +214,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "staff" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3289 } },
+				{ set = { var = "type", value = 2401 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "Do you want to buy it for %P gold?" },
@@ -227,7 +227,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dagger" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3267 } },
+				{ set = { var = "type", value = 2379 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy it for %P gold?" },
@@ -240,7 +240,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mace" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3286 } },
+				{ set = { var = "type", value = 2398 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 90 } },
 				{ say = "Do you want to buy it for %P gold?" },
@@ -254,7 +254,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3354 } },
+				{ set = { var = "type", value = 2460 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 120 } },
 				{ say = "Do you want to buy it for %P gold?" },
@@ -268,7 +268,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "knife" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3298 } },
+				{ set = { var = "type", value = 2410 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Do you want to buy it for %P gold?" },
@@ -283,7 +283,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "staff" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3289 } },
+				{ set = { var = "type", value = 2401 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 40, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A staffs for %P gold?" },
@@ -298,7 +298,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dagger" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3267 } },
+				{ set = { var = "type", value = 2379 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A daggers for %P gold?" },
@@ -313,7 +313,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "mace" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3286 } },
+				{ set = { var = "type", value = 2398 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 90, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A maces for %P gold?" },
@@ -329,7 +329,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "helmet" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3354 } },
+				{ set = { var = "type", value = 2460 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 120, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A brass helmets for %P gold?" },
@@ -345,7 +345,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "kni" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3298 } },
+				{ set = { var = "type", value = 2410 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 25, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A throwing knives for %P gold?" },
@@ -391,7 +391,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "crystal" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3061 } },
+				{ set = { var = "type", value = 2177 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Did you bring me a magic crystal?" },
 				{ set = { var = "topic", value = 4 } },

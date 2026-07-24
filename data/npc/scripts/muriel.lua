@@ -462,7 +462,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "spellbook" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3059 } },
+				{ set = { var = "type", value = 2175 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 150 } },
 				{ say = "In a spellbook, your spells are listed. There you can find the pronunciation of each spell. Do you want to buy one for %P gold?" },
@@ -508,7 +508,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, you did not purchase your first magical wand yet? Please take this little present from me as your magic teacher!" },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 3074 } },
+				{ set = { var = "type", value = 2190 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" }, count = 1 } },
 			},

@@ -478,7 +478,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 294 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4827 } },
+				{ set = { var = "type", value = 4838 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Oh, you brought me whisper moss? Good hairless ape you are! Can me take it?" },
 				{ set = { var = "topic", value = 3 } },
@@ -539,7 +539,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 293 }, op = "=", rhs = 3 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4828 } },
+				{ set = { var = "type", value = 4839 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "You brought me that cough syrup from human healer me asked for?" },
 				{ set = { var = "topic", value = 4 } },
@@ -643,7 +643,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 293 }, op = "=", rhs = 5 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4831 } },
+				{ set = { var = "type", value = 4842 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "You got scroll from lizard village in south east?" },
 				{ set = { var = "topic", value = 7 } },
@@ -833,7 +833,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 293 }, op = "=", rhs = 9 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4839 } },
+				{ set = { var = "type", value = 4850 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "You bring Hairycles egg of hydra?" },
 				{ set = { var = "topic", value = 11 } },
@@ -915,7 +915,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 293 }, op = "=", rhs = 11 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4829 } },
+				{ set = { var = "type", value = 4840 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "You brought Hairycles witches' cap from Fibula?" },
 				{ set = { var = "topic", value = 18 } },
@@ -1069,7 +1069,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 298 }, op = "=", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4832 } },
+				{ set = { var = "type", value = 4843 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "You brought hair of holy ape?" },
 				{ set = { var = "topic", value = 15 } },
@@ -1142,7 +1142,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Hairycles sure you will make it. Just use hammer on all that looks like snake or lizard. Tell Hairycles if you succeed with mission." },
-				{ create = { item = 4835, count = 1 } },
+				{ create = { item = 4846, count = 1 } },
 				{ setQuestValue = { id = 293, value = 17 } },
 			},
 		},
@@ -1305,7 +1305,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 293 }, op = ">", rhs = 11 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3587 } },
+				{ set = { var = "type", value = 2676 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2 } },
 				{ say = "You want buy this banana for %P gold?" },
@@ -1321,7 +1321,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 293 }, op = ">", rhs = 11 },
 			},
 			actions = {
-				{ set = { var = "type", value = 3587 } },
+				{ set = { var = "type", value = 2676 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { capture = 1 }, rhs = 2 } } } },
 				{ say = "You want buy %A bananas for %P gold?" },

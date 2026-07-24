@@ -202,7 +202,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "present" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3218 } },
+				{ set = { var = "type", value = 2331 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "You have a present for me?? Really?" },
 				{ set = { var = "topic", value = 2 } },
@@ -292,7 +292,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "key" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2968 } },
+				{ set = { var = "type", value = 2087 } },
 				{ set = { var = "data", value = 3940 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 2000 } },

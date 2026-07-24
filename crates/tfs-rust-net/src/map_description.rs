@@ -30,13 +30,17 @@ pub struct ItemStack {
 pub struct TileContent {
     pub ground: Option<ItemStack>,
     pub top_items: Vec<ItemStack>,
-    /// Non-always-on-top items (`down_items`). Stored newest-first (index 0 = most recent).
+    /// Cip `PRIORITY_BOTTOM` (magic fields / pools). Stored newest-first (index 0 = most recent).
+    /// TVP path also parks all non-top down items here (emitted after creatures).
     pub bottom_items: Vec<ItemStack>,
+    /// Cip `PRIORITY_LOW` only (ordinary down items). Emitted **after** creatures.
+    /// Empty on TVP / OTClient / 1098 (those fold lows into [`Self::bottom_items`]).
+    pub low_items: Vec<ItemStack>,
     /// Bottom-to-top creature order as stored; emitted in **reverse** (C++ `reverse(creatures)`).
     pub creatures: Vec<AddCreatureWire>,
-    /// Real 772 client: emit Cip map-container order (Bank→Bottom→Top→Creature) so stackpos
-    /// matches `GetObjectRNum` / `SendMoveCreature` (`map.cc` PRIORITY_*, `sending.cc:271`).
-    /// TVP / OTClient / 1098: ground→top→creatures→bottom.
+    /// Real 772 client: Cip map-container order
+    /// `Bank → Bottom → Top → Creature → Low` (`map.hh` PRIORITY_*, `PlaceObject`).
+    /// TVP / OTClient / 1098: ground→top→creatures→bottom(+low).
     pub cip_map_order: bool,
 }
 
@@ -111,9 +115,9 @@ fn count_creatures_capped<F: FnMut(u32) -> bool>(
     }
 }
 
-/// Cip `bottom_items` are stored newest-first; map-container emission is oldest→newest.
-fn bottom_items_emission_order(tile: &TileContent) -> impl Iterator<Item = &ItemStack> {
-    tile.bottom_items.iter().rev()
+/// Cip priority vectors are stored newest-first; map-container emission is oldest→newest.
+fn newest_first_emission_order(items: &[ItemStack]) -> impl Iterator<Item = &ItemStack> {
+    items.iter().rev()
 }
 
 fn get_tile_description<F: FnMut(u32) -> bool>(
@@ -137,31 +141,14 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
     }
 
     if tile.cip_map_order {
-        // Cip `SendMapPoint` / `PlaceObject` priority: Bank → Bottom → Top → Creature.
-        for it in bottom_items_emission_order(tile) {
+        // Cip `PlaceObject` priority: Bank → Bottom → Top → Creature → Low.
+        for it in newest_first_emission_order(&tile.bottom_items) {
             if it.client_id == 0 || count == 10 {
                 continue;
             }
             write_item_stack(codec, msg, it);
             count += 1;
         }
-        for it in &tile.top_items {
-            if it.client_id == 0 || count == 10 {
-                continue;
-            }
-            write_item_stack(codec, msg, it);
-            count += 1;
-        }
-        emit_creatures_capped(
-            codec,
-            msg,
-            tile,
-            known_creatures,
-            can_see_creature,
-            &mut count,
-        );
-    } else {
-        // TVP / 1098: ground → top → creatures → bottom.
         for it in &tile.top_items {
             if it.client_id == 0 || count == 10 {
                 continue;
@@ -178,7 +165,36 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
             &mut count,
         );
         if count < 10 {
-            for it in &tile.bottom_items {
+            for it in newest_first_emission_order(&tile.low_items) {
+                if count == 10 {
+                    return;
+                }
+                if it.client_id == 0 {
+                    continue;
+                }
+                write_item_stack(codec, msg, it);
+                count += 1;
+            }
+        }
+    } else {
+        // TVP / 1098: ground → top → creatures → bottom (+ low folded into bottom_items).
+        for it in &tile.top_items {
+            if it.client_id == 0 || count == 10 {
+                continue;
+            }
+            write_item_stack(codec, msg, it);
+            count += 1;
+        }
+        emit_creatures_capped(
+            codec,
+            msg,
+            tile,
+            known_creatures,
+            can_see_creature,
+            &mut count,
+        );
+        if count < 10 {
+            for it in tile.bottom_items.iter().chain(tile.low_items.iter()) {
                 if count == 10 {
                     return;
                 }
@@ -216,7 +232,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
     }
 
     if tile.cip_map_order {
-        for it in bottom_items_emission_order(tile) {
+        for it in newest_first_emission_order(&tile.bottom_items) {
             if it.client_id == 0 || count == 10 {
                 continue;
             }
@@ -238,6 +254,18 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
             &mut count,
             &mut n,
         );
+        if count < 10 {
+            for it in newest_first_emission_order(&tile.low_items) {
+                if count == 10 {
+                    break;
+                }
+                if it.client_id == 0 {
+                    continue;
+                }
+                n += item_stack_wire_len(codec, it);
+                count += 1;
+            }
+        }
     } else {
         for it in &tile.top_items {
             if it.client_id == 0 || count == 10 {
@@ -255,7 +283,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
             &mut n,
         );
         if count < 10 {
-            for it in &tile.bottom_items {
+            for it in tile.bottom_items.iter().chain(tile.low_items.iter()) {
                 if count == 10 {
                     break;
                 }

@@ -367,7 +367,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, you did not purchase your first magical rod yet? Please take this little present from me as your magic teacher!" },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 3066 } },
+				{ set = { var = "type", value = 2182 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" }, count = 1 } },
 			},
@@ -1265,7 +1265,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "syrup" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4828 } },
+				{ set = { var = "type", value = 4839 } },
 				{ set = { var = "price", value = 50 } },
 				{ say = "Do you want to buy a bottle of cough syrup for %P gold?" },
 				{ set = { var = "topic", value = 10 } },
