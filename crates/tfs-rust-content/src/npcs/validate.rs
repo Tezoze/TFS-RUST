@@ -102,6 +102,11 @@ pub fn validate_pending_definitions(
             shop: p.shop,
             custom_predicates: p.custom_predicates,
             custom_actions: p.custom_actions,
+            on_appear: p.on_appear,
+            on_disappear: p.on_disappear,
+            on_move: p.on_move,
+            on_say: p.on_say,
+            on_think: p.on_think,
         });
     }
 

@@ -52,6 +52,18 @@ impl GameWorld {
     /// Remove creature from map index, player lookups, guild online; remove summons if master dies.
     // C++ reference: `Game::removeCreature` — summon chain + spectator disappear.
     pub fn remove_creature(&mut self, id: CreatureId) {
+        // NPC-7: fire onDisappear before teardown when registered.
+        let disappear_cb = match self.creatures.get(id) {
+            Some(CreatureKind::Npc(n)) => self
+                .npcs_db
+                .get(n.definition)
+                .and_then(|d| d.on_disappear),
+            _ => None,
+        };
+        if let Some(cb) = disappear_cb {
+            crate::lua_scope::fire_npc_disappear(self, id, cb);
+        }
+
         let now_ms = self.now_ms();
         self.on_creature_removed_for_spawn(id, now_ms);
 

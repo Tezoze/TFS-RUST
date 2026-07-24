@@ -555,14 +555,14 @@ Affected files:
 
 Work:
 
-- [ ] Replace unused `NpcEventsHandler` with `EventDispatcher` NPC methods.
-- [ ] Add `NpcRef` userdata storing typed ids only.
-- [ ] Add scoped `fire_npc_*` helpers and immediate mutation coverage.
-- [ ] Implement custom predicate/action and appear/disappear/move/say/think callbacks.
-- [ ] Port the minimum TFS NPC userdata/API surface used by current and community scripts.
-- [ ] Run custom `onThink` only for definitions that register it.
-- [ ] Migrate the nine `script=` NPCs away from the old handler library.
-- [ ] Add script-error isolation and same-callback read-after-write tests.
+- [x] Replace unused `NpcEventsHandler` with `EventDispatcher` NPC methods.
+- [x] Add `NpcRef` userdata storing typed ids only.
+- [x] Add scoped `fire_npc_*` helpers and immediate mutation coverage.
+- [x] Implement custom predicate/action and appear/disappear/move/say/think callbacks.
+- [x] Port the minimum TFS NPC userdata/API surface used by current and community scripts.
+- [x] Run custom `onThink` only for definitions that register it.
+- [x] Migrate the nine `script=` NPCs away from the old handler library.
+- [x] Add script-error isolation and same-callback read-after-write tests.
 
 **Gate:** all canonical NPC content runs without loading `data/npc/lib/npcsystem/`.
 

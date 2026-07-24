@@ -26,7 +26,7 @@ pub use monster_inventory::{
     damage_text_color, effective_monster_combat_stats, MonsterInventory, DEFAULT_MONSTER_BAG_TYPE,
 };
 pub use npc::{
-    Npc, NpcActivity, NpcEventsHandler, NpcPlayerSession, NpcRuntimeState, NullNpcHandler,
+    Npc, NpcActivity, NpcPlayerSession, NpcRuntimeState,
     QueuedNpcAddress,
 };
 pub use player::{

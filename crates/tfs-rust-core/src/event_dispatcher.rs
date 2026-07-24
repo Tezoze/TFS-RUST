@@ -9,6 +9,7 @@ use crate::return_value::ReturnValue;
 use std::any::Any;
 use tfs_rust_common::Position;
 use tfs_rust_common::ScriptContext;
+use tfs_rust_content::npcs::NpcCallbackId;
 
 /// Talkaction dispatch result — mirrors C++ `TalkActionResult_t`
 /// (`talkaction.h:13-17`).
@@ -180,6 +181,71 @@ pub trait EventDispatcher {
     /// Whether an `onUseWeapon` callback is registered for this item id.
     fn has_weapon_on_use(&self, _item_id: u16) -> bool {
         false
+    }
+
+    /// NPC-7: lifecycle / custom dialogue callbacks (opaque [`NpcCallbackId`]).
+    fn on_npc_appear(&self, _npc: CreatureId, _callback: NpcCallbackId) {}
+    fn on_npc_disappear(&self, _npc: CreatureId, _callback: NpcCallbackId) {}
+    fn on_npc_move(
+        &self,
+        _npc: CreatureId,
+        _callback: NpcCallbackId,
+        _from: Position,
+        _to: Position,
+    ) {
+    }
+    fn on_npc_say(
+        &self,
+        _npc: CreatureId,
+        _callback: NpcCallbackId,
+        _speaker: CreatureId,
+        _text: &str,
+    ) {
+    }
+    fn on_npc_think(&self, _npc: CreatureId, _callback: NpcCallbackId, _interval_ms: u32) {}
+    /// Custom dialogue predicate — `true` to keep the rule candidate.
+    fn on_npc_custom_predicate(
+        &self,
+        _npc: CreatureId,
+        _player: CreatureId,
+        _callback: NpcCallbackId,
+    ) -> bool {
+        false
+    }
+    /// Custom dialogue action — `true` if the callback ran without error.
+    fn on_npc_custom_action(
+        &self,
+        _npc: CreatureId,
+        _player: CreatureId,
+        _callback: NpcCallbackId,
+    ) -> bool {
+        false
+    }
+    /// NPC-8 stubs — shop window callbacks (no-op until shop subsystem).
+    fn on_npc_shop_buy(
+        &self,
+        _npc: CreatureId,
+        _player: CreatureId,
+        _item_id: u16,
+        _count: u16,
+        _callback: Option<NpcCallbackId>,
+    ) {
+    }
+    fn on_npc_shop_sell(
+        &self,
+        _npc: CreatureId,
+        _player: CreatureId,
+        _item_id: u16,
+        _count: u16,
+        _callback: Option<NpcCallbackId>,
+    ) {
+    }
+    fn on_npc_shop_close(
+        &self,
+        _npc: CreatureId,
+        _player: CreatureId,
+        _callback: Option<NpcCallbackId>,
+    ) {
     }
 
     /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).

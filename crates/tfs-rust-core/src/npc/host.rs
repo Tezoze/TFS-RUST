@@ -182,6 +182,19 @@ impl NpcActionHost for GameWorld {
         persist.player_row.posz = z;
         Ok((x, y, z))
     }
+
+    fn invoke_custom_action(
+        &mut self,
+        npc: CreatureId,
+        player: CreatureId,
+        callback_id: tfs_rust_content::npcs::NpcCallbackId,
+    ) -> Result<(), String> {
+        if crate::lua_scope::fire_npc_custom_action(self, npc, player, callback_id) {
+            Ok(())
+        } else {
+            Err("custom action failed or returned false".into())
+        }
+    }
 }
 
 impl GameWorld {
@@ -290,4 +303,78 @@ fn spell_learn_key(world: &GameWorld, spell: i32) -> String {
         }
     }
     key
+}
+
+impl GameWorld {
+    /// NPC-7: Lua `npc:say` — enqueue Talk ToDo.
+    pub fn npc_lua_say_u64(&mut self, npc_u64: u64, text: &str) -> Result<(), String> {
+        let npc = self
+            .resolve_creature_u64(npc_u64)
+            .ok_or_else(|| "npc not found".to_string())?;
+        self.enqueue_creature_talk(npc, text.to_string());
+        Ok(())
+    }
+
+    /// NPC-7: Lua `npc:setFocus`.
+    pub fn npc_lua_set_focus_u64(
+        &mut self,
+        npc_u64: u64,
+        player_u64: Option<u64>,
+    ) -> Result<(), String> {
+        let npc = self
+            .resolve_creature_u64(npc_u64)
+            .ok_or_else(|| "npc not found".to_string())?;
+        let player = match player_u64 {
+            None => None,
+            Some(id) => Some(
+                self.resolve_creature_u64(id)
+                    .ok_or_else(|| "player not found".to_string())?,
+            ),
+        };
+        if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(npc) {
+            n.runtime.focus = player;
+            Ok(())
+        } else {
+            Err("not an npc".into())
+        }
+    }
+
+    /// NPC-7: deposit inventory gold into bank balance.
+    pub fn player_bank_deposit_u64(&mut self, player_u64: u64, amount: u64) -> Result<(), String> {
+        if amount == 0 {
+            return Ok(());
+        }
+        let cid = self
+            .resolve_creature_u64(player_u64)
+            .ok_or_else(|| "player not found".to_string())?;
+        let amount_i = i32::try_from(amount).map_err(|_| "deposit amount too large".to_string())?;
+        self.player_delete_money(cid, amount_i)?;
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.economy.balance = p.economy.balance.saturating_add(amount);
+            Ok(())
+        } else {
+            Err("not a player".into())
+        }
+    }
+
+    /// NPC-7: withdraw bank balance into inventory gold.
+    pub fn player_bank_withdraw_u64(&mut self, player_u64: u64, amount: u64) -> Result<(), String> {
+        if amount == 0 {
+            return Ok(());
+        }
+        let cid = self
+            .resolve_creature_u64(player_u64)
+            .ok_or_else(|| "player not found".to_string())?;
+        let amount_i = i32::try_from(amount).map_err(|_| "withdraw amount too large".to_string())?;
+        {
+            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+                return Err("not a player".into());
+            };
+            if p.economy.balance < amount {
+                return Err("insufficient bank balance".into());
+            }
+            p.economy.balance -= amount;
+        }
+        self.player_create_money(cid, amount_i)
+    }
 }

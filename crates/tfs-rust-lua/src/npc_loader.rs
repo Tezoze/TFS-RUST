@@ -18,8 +18,9 @@ use tfs_rust_content::npcs::{
     PendingNpcDefinition, validate_pending_definitions,
 };
 
+use crate::context::CreatureRef;
 use crate::npc_type::PendingNpc;
-use crate::runtime::LuaRuntime;
+use crate::runtime::{LuaError, LuaRuntime};
 
 impl LuaRuntime {
     /// Load NPC definition scripts from `data_dir/npc/scripts/**/*.lua`.
@@ -70,6 +71,13 @@ impl LuaRuntime {
             .globals()
             .set(
                 "_pending_npc_predicate_callbacks",
+                self.lua.create_table().map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        self.lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
                 self.lua.create_table().map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?;
@@ -128,6 +136,11 @@ impl LuaRuntime {
             .globals()
             .get::<mlua::Table>("_pending_npc_predicate_callbacks")
             .map_err(|e| e.to_string())?;
+        let life_cbs = self
+            .lua
+            .globals()
+            .get::<mlua::Table>("_pending_npc_lifecycle_callbacks")
+            .map_err(|e| e.to_string())?;
 
         let mut next_callback_id = 1u32;
         let mut defs: Vec<PendingNpcDefinition> = Vec::new();
@@ -174,6 +187,33 @@ impl LuaRuntime {
                         name: name.clone(),
                         id,
                     });
+                }
+            }
+
+            // Resolve lifecycle callbacks.
+            if let Ok(map) = life_cbs.get::<mlua::Table>(idx) {
+                for pair in map.pairs::<String, mlua::Function>() {
+                    let (name, func) = pair.map_err(|e| e.to_string())?;
+                    let id = NpcCallbackId(next_callback_id);
+                    next_callback_id += 1;
+                    let reg_key = self
+                        .lua
+                        .create_registry_value(func)
+                        .map_err(|e| e.to_string())?;
+                    self.register_npc_callback(id, reg_key);
+                    match name.as_str() {
+                        "think" => def.on_think = Some(id),
+                        "appear" => def.on_appear = Some(id),
+                        "disappear" => def.on_disappear = Some(id),
+                        "move" => def.on_move = Some(id),
+                        "say" => def.on_say = Some(id),
+                        other => {
+                            return Err(format!(
+                                "NPC {:?}: unknown lifecycle callback {other:?}",
+                                def.name
+                            ));
+                        }
+                    }
                 }
             }
 
@@ -227,6 +267,10 @@ impl LuaRuntime {
             "_pending_npc_predicate_callbacks",
             self.lua.create_table().unwrap(),
         );
+        let _ = self.lua.globals().set(
+            "_pending_npc_lifecycle_callbacks",
+            self.lua.create_table().unwrap(),
+        );
 
         validate_pending_definitions(defs, items).map_err(|e| e.to_string())
     }
@@ -239,6 +283,145 @@ impl LuaRuntime {
     /// Lookup an NPC custom callback by opaque id.
     pub fn npc_callback(&self, id: NpcCallbackId) -> Option<&RegistryKey> {
         self.npc_callbacks.get(&id)
+    }
+
+    /// Invoke an NPC lifecycle/custom callback with `(NpcRef[, PlayerRef[, ...]])`.
+    ///
+    /// Returns `Ok(true)` if the callback returned true or nil (treated as success for
+    /// actions); `Ok(false)` if it returned false. Errors are mapped to `Err`.
+    pub fn call_npc_callback_npc_only(
+        &self,
+        id: tfs_rust_content::npcs::NpcCallbackId,
+        npc: crate::context::CreatureId,
+    ) -> Result<bool, LuaError> {
+        let Some(key) = self.npc_callbacks.get(&id) else {
+            return Ok(false);
+        };
+        let function: mlua::Function = self.lua.registry_value(key).map_err(LuaError::Init)?;
+        let npc_ud = self
+            .lua
+            .create_userdata(crate::userdata::NpcRef(npc))
+            .map_err(LuaError::Init)?;
+        match function.call::<mlua::Value>(npc_ud) {
+            Ok(mlua::Value::Boolean(b)) => Ok(b),
+            Ok(mlua::Value::Nil) => Ok(true),
+            Ok(_) => Ok(true),
+            Err(e) => Err(LuaError::Init(e)),
+        }
+    }
+
+    pub fn call_npc_callback_with_player(
+        &self,
+        id: tfs_rust_content::npcs::NpcCallbackId,
+        npc: crate::context::CreatureId,
+        player: crate::context::CreatureId,
+    ) -> Result<bool, LuaError> {
+        let Some(key) = self.npc_callbacks.get(&id) else {
+            return Ok(false);
+        };
+        let function: mlua::Function = self.lua.registry_value(key).map_err(LuaError::Init)?;
+        let npc_ud = self
+            .lua
+            .create_userdata(crate::userdata::NpcRef(npc))
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        match function.call::<mlua::Value>((npc_ud, player_ud)) {
+            Ok(mlua::Value::Boolean(b)) => Ok(b),
+            Ok(mlua::Value::Nil) => Ok(true),
+            Ok(_) => Ok(true),
+            Err(e) => Err(LuaError::Init(e)),
+        }
+    }
+
+    pub fn call_npc_callback_say(
+        &self,
+        id: tfs_rust_content::npcs::NpcCallbackId,
+        npc: crate::context::CreatureId,
+        speaker: crate::context::CreatureId,
+        text: &str,
+    ) -> Result<bool, LuaError> {
+        let Some(key) = self.npc_callbacks.get(&id) else {
+            return Ok(false);
+        };
+        let function: mlua::Function = self.lua.registry_value(key).map_err(LuaError::Init)?;
+        let npc_ud = self
+            .lua
+            .create_userdata(crate::userdata::NpcRef(npc))
+            .map_err(LuaError::Init)?;
+        let speaker_ud = self
+            .lua
+            .create_userdata(CreatureRef(speaker))
+            .map_err(LuaError::Init)?;
+        match function.call::<mlua::Value>((npc_ud, speaker_ud, text)) {
+            Ok(mlua::Value::Boolean(b)) => Ok(b),
+            Ok(mlua::Value::Nil) => Ok(true),
+            Ok(_) => Ok(true),
+            Err(e) => Err(LuaError::Init(e)),
+        }
+    }
+
+    pub fn call_npc_callback_think(
+        &self,
+        id: tfs_rust_content::npcs::NpcCallbackId,
+        npc: crate::context::CreatureId,
+        interval_ms: u32,
+    ) -> Result<bool, LuaError> {
+        let Some(key) = self.npc_callbacks.get(&id) else {
+            return Ok(false);
+        };
+        let function: mlua::Function = self.lua.registry_value(key).map_err(LuaError::Init)?;
+        let npc_ud = self
+            .lua
+            .create_userdata(crate::userdata::NpcRef(npc))
+            .map_err(LuaError::Init)?;
+        match function.call::<mlua::Value>((npc_ud, interval_ms)) {
+            Ok(mlua::Value::Boolean(b)) => Ok(b),
+            Ok(mlua::Value::Nil) => Ok(true),
+            Ok(_) => Ok(true),
+            Err(e) => Err(LuaError::Init(e)),
+        }
+    }
+
+    pub fn call_npc_callback_move(
+        &self,
+        id: tfs_rust_content::npcs::NpcCallbackId,
+        npc: crate::context::CreatureId,
+        from: (u16, u16, u8),
+        to: (u16, u16, u8),
+    ) -> Result<bool, LuaError> {
+        let Some(key) = self.npc_callbacks.get(&id) else {
+            return Ok(false);
+        };
+        let function: mlua::Function = self.lua.registry_value(key).map_err(LuaError::Init)?;
+        let npc_ud = self
+            .lua
+            .create_userdata(crate::userdata::NpcRef(npc))
+            .map_err(LuaError::Init)?;
+        let from_ud = self
+            .lua
+            .create_userdata(crate::userdata::PositionRef {
+                x: from.0,
+                y: from.1,
+                z: from.2,
+            })
+            .map_err(LuaError::Init)?;
+        let to_ud = self
+            .lua
+            .create_userdata(crate::userdata::PositionRef {
+                x: to.0,
+                y: to.1,
+                z: to.2,
+            })
+            .map_err(LuaError::Init)?;
+        match function.call::<mlua::Value>((npc_ud, from_ud, to_ud)) {
+            Ok(mlua::Value::Boolean(b)) => Ok(b),
+            Ok(mlua::Value::Nil) => Ok(true),
+            Ok(_) => Ok(true),
+            Err(e) => Err(LuaError::Init(e)),
+        }
     }
 }
 
@@ -293,6 +476,14 @@ mod tests {
             .globals()
             .set(
                 "_pending_npc_predicate_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
                 runtime.lua.create_table().unwrap(),
             )
             .unwrap();
@@ -364,6 +555,14 @@ mod tests {
                 runtime.lua.create_table().unwrap(),
             )
             .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
 
         runtime
             .lua
@@ -407,6 +606,14 @@ mod tests {
             .globals()
             .set(
                 "_pending_npc_predicate_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
                 runtime.lua.create_table().unwrap(),
             )
             .unwrap();
@@ -477,6 +684,14 @@ mod tests {
             .unwrap();
         runtime
             .lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
             .load(&lua_src)
             .set_name("albert_import.lua")
             .exec()
@@ -486,6 +701,122 @@ mod tests {
         assert_eq!(
             def.dialogue.as_ref().map(|d| d.rules.len()),
             Some(rule_count)
+        );
+    }
+
+    #[test]
+    fn loads_custom_smoke_with_callbacks() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/npc/scripts/custom_smoke.lua");
+        if !path.exists() {
+            eprintln!("skip: custom_smoke.lua missing");
+            return;
+        }
+        let mut runtime = LuaRuntime::new().expect("rt");
+        runtime
+            .lua
+            .globals()
+            .set("_pending_npcs", runtime.lua.create_table().unwrap())
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_action_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_predicate_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        let src = std::fs::read_to_string(&path).expect("read");
+        runtime
+            .lua
+            .load(&src)
+            .set_name("custom_smoke.lua")
+            .exec()
+            .expect("exec");
+        let db = runtime.drain_pending_npcs(None).expect("drain");
+        let def = db.get_by_name("CustomSmoke").expect("CustomSmoke");
+        assert!(!def.custom_actions.is_empty());
+        assert!(!def.custom_predicates.is_empty());
+        assert!(runtime.npc_callbacks.len() >= 3);
+    }
+
+    #[test]
+    fn loads_migrated_captain_and_banker() {
+        for stem in ["captain.lua", "banker.lua"] {
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../data/npc/scripts")
+                .join(stem);
+            if !path.exists() {
+                eprintln!("skip: {stem} missing");
+                continue;
+            }
+            let mut runtime = LuaRuntime::new().expect("rt");
+            runtime
+                .lua
+                .globals()
+                .set("_pending_npcs", runtime.lua.create_table().unwrap())
+                .unwrap();
+            runtime
+                .lua
+                .globals()
+                .set(
+                    "_pending_npc_action_callbacks",
+                    runtime.lua.create_table().unwrap(),
+                )
+                .unwrap();
+            runtime
+                .lua
+                .globals()
+                .set(
+                    "_pending_npc_predicate_callbacks",
+                    runtime.lua.create_table().unwrap(),
+                )
+                .unwrap();
+            runtime
+                .lua
+                .globals()
+                .set(
+                    "_pending_npc_lifecycle_callbacks",
+                    runtime.lua.create_table().unwrap(),
+                )
+                .unwrap();
+            let src = std::fs::read_to_string(&path).expect("read");
+            runtime
+                .lua
+                .load(&src)
+                .set_name(stem)
+                .exec()
+                .unwrap_or_else(|e| panic!("exec {stem}: {e}"));
+            let db = runtime
+                .drain_pending_npcs(None)
+                .unwrap_or_else(|e| panic!("drain {stem}: {e}"));
+            assert!(!db.is_empty(), "{stem} registered no NPC");
+        }
+    }
+
+    #[test]
+    fn npc_lib_does_not_require_npcsystem() {
+        let lib = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/npc/lib/npc.lua");
+        let src = std::fs::read_to_string(&lib).expect("npc.lua");
+        assert!(
+            !src.contains("npcsystem"),
+            "npc.lua must not load KeywordHandler library"
         );
     }
 }

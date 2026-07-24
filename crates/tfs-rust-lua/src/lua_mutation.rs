@@ -192,6 +192,26 @@ pub enum LuaMutation {
         msg_class: u8,
         text: String,
     },
+    /// NPC-7: `npc:say(text)` — schedule NPC speech via ToDo / immediate say path.
+    NpcSay {
+        npc_id: u64,
+        text: String,
+    },
+    /// NPC-7: `npc:setFocus(player|nil)`.
+    NpcSetFocus {
+        npc_id: u64,
+        player_id: Option<u64>,
+    },
+    /// NPC-7: deposit gold into `PlayerEconomy.balance` (removes coins first).
+    PlayerBankDeposit {
+        creature_id: u64,
+        amount: u64,
+    },
+    /// NPC-7: withdraw from bank into inventory money.
+    PlayerBankWithdraw {
+        creature_id: u64,
+        amount: u64,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -638,5 +658,30 @@ pub fn call_send_text_message(
         creature_id,
         msg_class,
         text,
+    })
+}
+
+pub fn call_lua_npc_say(npc_id: u64, text: &str) -> Result<(), String> {
+    apply_mutation(LuaMutation::NpcSay {
+        npc_id,
+        text: text.to_string(),
+    })
+}
+
+pub fn call_lua_npc_set_focus(npc_id: u64, player_id: Option<u64>) -> Result<(), String> {
+    apply_mutation(LuaMutation::NpcSetFocus { npc_id, player_id })
+}
+
+pub fn call_lua_bank_deposit(creature_id: u64, amount: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerBankDeposit {
+        creature_id,
+        amount,
+    })
+}
+
+pub fn call_lua_bank_withdraw(creature_id: u64, amount: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerBankWithdraw {
+        creature_id,
+        amount,
     })
 }

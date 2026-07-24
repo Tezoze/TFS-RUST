@@ -125,8 +125,8 @@ pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
 pub use config::ConfigManager;
 pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
 pub use creature::{
-    CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc,
-    NpcEventsHandler, NullNpcHandler, Outfit, Player, PlayerEconomy, PlayerInventory,
+    CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc, Outfit,
+    Player, PlayerEconomy, PlayerInventory,
     PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
 pub use cylinder::{

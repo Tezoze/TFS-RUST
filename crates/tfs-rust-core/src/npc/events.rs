@@ -75,6 +75,8 @@ pub enum MutateOp {
         y: i32,
         z: i32,
     },
+    /// NPC-7 custom Lua action completed.
+    CustomAction,
 }
 
 /// Observable dialogue/state event (NPC-0 fixture `expected[]` kinds).

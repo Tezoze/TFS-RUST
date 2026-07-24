@@ -385,6 +385,111 @@ impl EventDispatcher for LuaEventDispatcher {
         self.runtime.has_weapon_callback(item_id)
     }
 
+    fn on_npc_appear(&self, npc: CreatureId, callback: tfs_rust_content::npcs::NpcCallbackId) {
+        if let Err(e) = self
+            .runtime
+            .call_npc_callback_npc_only(callback, npc.data().as_ffi())
+        {
+            tracing::error!(?npc, "Lua onNpcAppear failed: {e}");
+        }
+    }
+
+    fn on_npc_disappear(&self, npc: CreatureId, callback: tfs_rust_content::npcs::NpcCallbackId) {
+        if let Err(e) = self
+            .runtime
+            .call_npc_callback_npc_only(callback, npc.data().as_ffi())
+        {
+            tracing::error!(?npc, "Lua onNpcDisappear failed: {e}");
+        }
+    }
+
+    fn on_npc_move(
+        &self,
+        npc: CreatureId,
+        callback: tfs_rust_content::npcs::NpcCallbackId,
+        from: tfs_rust_common::Position,
+        to: tfs_rust_common::Position,
+    ) {
+        if let Err(e) = self.runtime.call_npc_callback_move(
+            callback,
+            npc.data().as_ffi(),
+            (from.x, from.y, from.z),
+            (to.x, to.y, to.z),
+        ) {
+            tracing::error!(?npc, "Lua onNpcMove failed: {e}");
+        }
+    }
+
+    fn on_npc_say(
+        &self,
+        npc: CreatureId,
+        callback: tfs_rust_content::npcs::NpcCallbackId,
+        speaker: CreatureId,
+        text: &str,
+    ) {
+        if let Err(e) = self.runtime.call_npc_callback_say(
+            callback,
+            npc.data().as_ffi(),
+            speaker.data().as_ffi(),
+            text,
+        ) {
+            tracing::error!(?npc, "Lua onNpcSay failed: {e}");
+        }
+    }
+
+    fn on_npc_think(
+        &self,
+        npc: CreatureId,
+        callback: tfs_rust_content::npcs::NpcCallbackId,
+        interval_ms: u32,
+    ) {
+        if let Err(e) = self.runtime.call_npc_callback_think(
+            callback,
+            npc.data().as_ffi(),
+            interval_ms,
+        ) {
+            tracing::error!(?npc, "Lua onNpcThink failed: {e}");
+        }
+    }
+
+    fn on_npc_custom_predicate(
+        &self,
+        npc: CreatureId,
+        player: CreatureId,
+        callback: tfs_rust_content::npcs::NpcCallbackId,
+    ) -> bool {
+        match self.runtime.call_npc_callback_with_player(
+            callback,
+            npc.data().as_ffi(),
+            player.data().as_ffi(),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(?npc, ?player, "Lua custom predicate failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn on_npc_custom_action(
+        &self,
+        npc: CreatureId,
+        player: CreatureId,
+        callback: tfs_rust_content::npcs::NpcCallbackId,
+    ) -> bool {
+        match self.runtime.call_npc_callback_with_player(
+            callback,
+            npc.data().as_ffi(),
+            player.data().as_ffi(),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(?npc, ?player, "Lua custom action failed: {e}");
+                false
+            }
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -18,3 +18,6 @@ cargo run -p tfs-rust-lua --bin import-npcs -- \
   --out data/npc/scripts \
   --validate-data-dir data
 ```
+
+See also [`script-compat/`](script-compat/) for archived KeywordHandler `script=`
+NPCs (NPC-7 migration notes).

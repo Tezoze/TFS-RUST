@@ -5,13 +5,29 @@ use tfs_rust_content::npcs::{DialoguePolicy, DialogueProgram};
 
 use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, QueueOp};
 use super::expr::{EvalContext, PlayerVocationKind};
-use super::match_rule::match_dialogue_rule;
+use super::match_rule::{match_dialogue_rule_with_custom, CustomPredicateHost};
 use super::react::{apply_dialogue_plan, ReactMeta};
 use crate::creature::{CreatureKind, NpcActivity, QueuedNpcAddress};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::monster_ai::compute_look_toward_target;
 use crate::walk::creature_turn_with_broadcast;
+use tfs_rust_content::npcs::NpcCallbackId;
+
+/// Evaluates custom predicates via `fire_npc_custom_predicate` on the live world.
+struct FocusCustomPredicateHost {
+    world: *mut GameWorld,
+    npc_id: CreatureId,
+    player: CreatureId,
+}
+
+impl CustomPredicateHost for FocusCustomPredicateHost {
+    fn eval_custom(&mut self, callback_id: NpcCallbackId) -> bool {
+        // SAFETY: game-thread only; host lives for the duration of matching on `self`.
+        let world = unsafe { &mut *self.world };
+        crate::lua_scope::fire_npc_custom_predicate(world, self.npc_id, self.player, callback_id)
+    }
+}
 
 impl GameWorld {
     /// 772 `TNPC::TalkStimulus` — `crnonpl.cc:1682-1711`.
@@ -32,6 +48,14 @@ impl GameWorld {
             return;
         };
 
+        // NPC-7: optional custom onSay lifecycle (in addition to native dialogue).
+        if let Some(CreatureKind::Npc(n)) = self.creatures.get(npc_id) {
+            let def_id = n.definition;
+            if let Some(cb) = self.npcs_db.get(def_id).and_then(|d| d.on_say) {
+                crate::lua_scope::fire_npc_say(self, npc_id, cb, speaker, text);
+            }
+        }
+
         let policy = match self.creatures.get(npc_id) {
             Some(CreatureKind::Npc(n)) => n.runtime.policy,
             _ => return,
@@ -49,6 +73,19 @@ impl GameWorld {
 
     /// 772 `TNPC::IdleStimulus` — timeout VANISH, ADDRESSQUEUE, sleep, roam (`crnonpl.cc:1718-1808`).
     pub fn npc_idle_stimulus(&mut self, npc_id: CreatureId, trace: &mut DialogueTrace) {
+        let Some(CreatureKind::Npc(npc)) = self.creatures.get(npc_id) else {
+            return;
+        };
+        let def_id = npc.definition;
+        let on_think = self
+            .npcs_db
+            .get(def_id)
+            .and_then(|d| d.on_think);
+        if let Some(cb) = on_think {
+            let interval = self.mechanics.profile.npc.talking_keepalive_ms;
+            crate::lua_scope::fire_npc_think(self, npc_id, cb, interval);
+        }
+
         let Some(CreatureKind::Npc(npc)) = self.creatures.get(npc_id) else {
             return;
         };
@@ -779,7 +816,17 @@ impl GameWorld {
             tuning,
         };
 
-        let Some(matched) = match_dialogue_rule(&program, text, situation, &mut ctx) else {
+        let Some(matched) = match_dialogue_rule_with_custom(
+            &program,
+            text,
+            situation,
+            &mut ctx,
+            &mut FocusCustomPredicateHost {
+                world: self as *mut GameWorld,
+                npc_id,
+                player,
+            },
+        ) else {
             return;
         };
         trace.push(DialogueEvent::MatchRule {
@@ -1076,6 +1123,17 @@ impl GameWorld {
         {
             ids.push(moved);
         }
+
+        // NPC-7: lifecycle onMove when the NPC itself walked (not deleted).
+        if !deleted {
+            if let Some(CreatureKind::Npc(n)) = self.creatures.get(moved) {
+                let cb = self.npcs_db.get(n.definition).and_then(|d| d.on_move);
+                if let Some(cb) = cb {
+                    crate::lua_scope::fire_npc_move(self, moved, cb, old_pos, new_pos);
+                }
+            }
+        }
+
         let mut sink = DialogueTrace::default();
         for npc_id in ids {
             self.npc_creature_move_stimulus(npc_id, moved, deleted, &mut sink);

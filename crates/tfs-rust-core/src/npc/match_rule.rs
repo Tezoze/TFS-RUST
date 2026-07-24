@@ -2,11 +2,26 @@
 
 use tfs_rust_content::npcs::{
     DialoguePredicate, DialogueProgram, DialogueProperty, DialogueSituation, DialogueSituation as Sit,
+    NpcCallbackId,
 };
 
 use super::events::DialogueSituationKind;
 use super::expr::{eval_compare, EvalContext, PlayerVocationKind};
 use super::words::{search_for_number, search_for_word};
+
+/// Host for custom Lua predicates during matching (NPC-7).
+pub trait CustomPredicateHost {
+    fn eval_custom(&mut self, callback_id: NpcCallbackId) -> bool;
+}
+
+/// No-op host — custom predicates never match (unit tests / NullEventDispatcher).
+pub struct NullCustomPredicateHost;
+
+impl CustomPredicateHost for NullCustomPredicateHost {
+    fn eval_custom(&mut self, _callback_id: NpcCallbackId) -> bool {
+        false
+    }
+}
 
 /// Captured `%1` / `%2` values for a matched rule (`-1` = unset).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +49,23 @@ pub fn match_dialogue_rule(
     text: &str,
     situation: DialogueSituationKind,
     ctx: &mut EvalContext<'_>,
+) -> Option<RuleMatch> {
+    match_dialogue_rule_with_custom(
+        program,
+        text,
+        situation,
+        ctx,
+        &mut NullCustomPredicateHost,
+    )
+}
+
+/// Like [`match_dialogue_rule`] but evaluates [`DialoguePredicate::Custom`] via `custom`.
+pub fn match_dialogue_rule_with_custom(
+    program: &DialogueProgram,
+    text: &str,
+    situation: DialogueSituationKind,
+    ctx: &mut EvalContext<'_>,
+    custom: &mut dyn CustomPredicateHost,
 ) -> Option<RuleMatch> {
     let mut best: Option<RuleMatch> = None;
     let mut max_conditions: i32 = -1;
@@ -114,9 +146,10 @@ pub fn match_dialogue_rule(
                     }
                 }
                 DialoguePredicate::Select { .. } => unreachable!("handled above"),
-                DialoguePredicate::Custom { .. } => {
-                    // Custom predicates require Lua (NPC-7); treat as non-match until then.
-                    match_ok = false;
+                DialoguePredicate::Custom { callback_id, .. } => {
+                    if !custom.eval_custom(*callback_id) {
+                        match_ok = false;
+                    }
                 }
             }
         }

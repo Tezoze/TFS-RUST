@@ -32,6 +32,14 @@ pub trait NpcActionHost {
         npc: CreatureId,
         pos: Option<(i32, i32, i32)>,
     ) -> Result<(i32, i32, i32), String>;
+
+    /// NPC-7: invoke a custom Lua action callback.
+    fn invoke_custom_action(
+        &mut self,
+        npc: CreatureId,
+        player: CreatureId,
+        callback_id: tfs_rust_content::npcs::NpcCallbackId,
+    ) -> Result<(), String>;
 }
 
 /// Logging context for a failed action.

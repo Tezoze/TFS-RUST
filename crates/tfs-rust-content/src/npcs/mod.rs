@@ -116,6 +116,12 @@ pub struct NpcDefinition {
     pub custom_predicates: Vec<NpcCallbackSlot>,
     /// Custom action callbacks by name.
     pub custom_actions: Vec<NpcCallbackSlot>,
+    /// Optional lifecycle callbacks (NPC-7).
+    pub on_appear: Option<NpcCallbackId>,
+    pub on_disappear: Option<NpcCallbackId>,
+    pub on_move: Option<NpcCallbackId>,
+    pub on_say: Option<NpcCallbackId>,
+    pub on_think: Option<NpcCallbackId>,
 }
 
 /// Frozen NPC registry: name → id → `Arc<NpcDefinition>`.
@@ -187,4 +193,9 @@ pub struct PendingNpcDefinition {
     pub shop: Option<NpcShopDefinition>,
     pub custom_predicates: Vec<NpcCallbackSlot>,
     pub custom_actions: Vec<NpcCallbackSlot>,
+    pub on_appear: Option<NpcCallbackId>,
+    pub on_disappear: Option<NpcCallbackId>,
+    pub on_move: Option<NpcCallbackId>,
+    pub on_say: Option<NpcCallbackId>,
+    pub on_think: Option<NpcCallbackId>,
 }

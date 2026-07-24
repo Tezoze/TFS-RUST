@@ -863,4 +863,54 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .map(|t| t.moveable())
             .unwrap_or(true)
     }
+
+    fn get_npc_parameter(&self, creature_id: ScriptCreatureId, key: &str) -> Option<String> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        let def_id = match self.creatures.get(cid)? {
+            CreatureKind::Npc(n) => n.definition,
+            _ => return None,
+        };
+        self.npcs_db
+            .get(def_id)
+            .and_then(|d| d.parameters.get(key).cloned())
+    }
+
+    fn npc_is_in_talk_range(
+        &self,
+        npc_id: ScriptCreatureId,
+        player_id: ScriptCreatureId,
+    ) -> bool {
+        let Some(npc) = self.resolve_creature_u64(npc_id) else {
+            return false;
+        };
+        let Some(player) = self.resolve_creature_u64(player_id) else {
+            return false;
+        };
+        let tuning = self.mechanics.profile.npc;
+        let Some(npc_pos) = self.creatures.get(npc).map(|k| k.base().position) else {
+            return false;
+        };
+        let Some(p) = self.creatures.get(player).map(|k| k.base().position) else {
+            return false;
+        };
+        p.z == npc_pos.z
+            && (p.x as i32 - npc_pos.x as i32).unsigned_abs() < tuning.focus_range_x as u32
+            && (p.y as i32 - npc_pos.y as i32).unsigned_abs() < tuning.focus_range_y as u32
+    }
+
+    fn get_npc_focus(&self, npc_id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+        let cid = self.resolve_creature_u64(npc_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Npc(n) => n.runtime.focus.map(|f| f.data().as_ffi()),
+            _ => None,
+        }
+    }
+
+    fn get_player_bank_balance(&self, creature_id: ScriptCreatureId) -> Option<u64> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(p.economy.balance),
+            _ => None,
+        }
+    }
 }

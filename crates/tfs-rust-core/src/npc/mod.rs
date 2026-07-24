@@ -25,7 +25,10 @@ pub use actions::NpcActionHost;
 pub use events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp};
 pub(crate) use focus::deliver_npc_say_stimuli;
 #[allow(unused_imports)]
-pub use match_rule::{match_dialogue_rule, MatchCaptures, RuleMatch};
+pub use match_rule::{
+    match_dialogue_rule, match_dialogue_rule_with_custom, CustomPredicateHost, MatchCaptures,
+    NullCustomPredicateHost, RuleMatch,
+};
 #[allow(unused_imports)]
 pub use react::{apply_dialogue_plan, DialoguePlan, PlannedReply, ReactMeta};
 #[allow(unused_imports)]

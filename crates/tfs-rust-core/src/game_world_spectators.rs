@@ -19,6 +19,21 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 
+impl GameWorld {
+    /// TVP and Cip stackpos for an item still on `pos` (capture before remove).
+    pub(crate) fn item_stack_pos_pair(&self, pos: Position, item_id: ItemId) -> (u8, u8) {
+        self.map
+            .get_tile(pos)
+            .map(|t| {
+                (
+                    t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
+                    t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
+                )
+            })
+            .unwrap_or((0, 0))
+    }
+}
+
 /// C++ `ProtocolGame::canSee(int32_t x, int32_t y, int32_t z)` — `protocolgame.cpp` ~796–823.
 pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
     let my_x = i32::from(viewer_pos.x);
@@ -765,11 +780,15 @@ impl GameWorld {
     //          sendRemoveTileThing (~2633)
 
     /// Broadcast `sendAddTileItem` (0x6A) to all spectators.
+    ///
+    /// 772 omits stackpos on the wire; 1098 includes it. Per-viewer stackpos still matters
+    /// for 1098 and for any future OTC-with-stackpos path.
     pub(crate) fn broadcast_tile_item_add(
         &mut self,
         pos: Position,
         item_id: ItemId,
-        stack_pos: u8,
+        tvp_stack_pos: u8,
+        cip_stack_pos: u8,
     ) {
         let (client_id, count, stackable, is_splash_or_fluid, is_animation) =
             match self.items.get(item_id) {
@@ -795,6 +814,7 @@ impl GameWorld {
             with_description: false,
         };
         for conn in self.spectator_conns(pos) {
+            let stack_pos = self.stack_pos_for_conn(conn, tvp_stack_pos, cip_stack_pos);
             let pkt = self
                 .codec
                 .encode_add_tile_item(pos, stack_pos, args, false)
@@ -808,7 +828,8 @@ impl GameWorld {
         &mut self,
         pos: Position,
         item_id: ItemId,
-        stack_pos: u8,
+        tvp_stack_pos: u8,
+        cip_stack_pos: u8,
     ) {
         let (client_id, count, stackable, is_splash_or_fluid, is_animation) =
             match self.items.get(item_id) {
@@ -833,20 +854,49 @@ impl GameWorld {
             is_animation,
             with_description: false,
         };
-        let pkt = self
-            .codec
-            .encode_update_tile_item(pos, stack_pos, args)
-            .into_bytes();
-        self.broadcast_to_spectators(pos, pkt);
+        for conn in self.spectator_conns(pos) {
+            let stack_pos = self.stack_pos_for_conn(conn, tvp_stack_pos, cip_stack_pos);
+            let pkt = self
+                .codec
+                .encode_update_tile_item(pos, stack_pos, args)
+                .into_bytes();
+            self.enqueue_outgoing(conn, pkt);
+        }
     }
 
     /// Broadcast `sendRemoveTileThing` (0x6C) to all spectators.
-    pub(crate) fn broadcast_tile_item_remove(&mut self, pos: Position, stack_pos: u8) {
-        let pkt = self
-            .codec
-            .encode_remove_tile_thing(pos, stack_pos)
-            .into_bytes();
-        self.broadcast_to_spectators(pos, pkt);
+    pub(crate) fn broadcast_tile_item_remove(
+        &mut self,
+        pos: Position,
+        tvp_stack_pos: u8,
+        cip_stack_pos: u8,
+    ) {
+        for conn in self.spectator_conns(pos) {
+            let stack_pos = self.stack_pos_for_conn(conn, tvp_stack_pos, cip_stack_pos);
+            let pkt = self
+                .codec
+                .encode_remove_tile_thing(pos, stack_pos)
+                .into_bytes();
+            self.enqueue_outgoing(conn, pkt);
+        }
+    }
+
+    /// Pick TVP vs Cip stackpos for a spectator connection.
+    fn stack_pos_for_conn(&self, conn: ConnId, tvp: u8, cip: u8) -> u8 {
+        let is_772 = !self.codec.caps().move_creature_self_packet;
+        if !is_772 {
+            return tvp;
+        }
+        let is_otc = self.conn_to_creature.get(&conn).copied().is_some_and(|vid| {
+            self.creatures
+                .get(vid)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()))
+        });
+        if is_otc {
+            tvp
+        } else {
+            cip
+        }
     }
 }
 

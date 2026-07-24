@@ -538,6 +538,10 @@ impl GameWorld {
             self.broadcast_magic_effect(pos, 4);
         }
 
+        if let Some(cb) = def.on_appear {
+            crate::lua_scope::fire_npc_appear(self, cid, cb);
+        }
+
         Some(cid)
     }
 

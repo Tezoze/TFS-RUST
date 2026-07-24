@@ -249,27 +249,53 @@ impl Tile {
     }
 
     /// Compute the client stack position for an item on this tile.
-    // C++ ref: src/tile.cpp Tile::getStackposOfItem — ground(0) + top_items + creatures + down_items.
+    ///
+    /// `cip_order`: Cip map-container (Bank→Bottom→Top→Creature) vs TVP
+    /// (ground→top→creatures→bottom). Must match the order used in
+    /// [`tfs_rust_net::map_description::TileContent::cip_map_order`].
+    // C++ ref: `GetObjectRNum` (`info.cc:205`) / TVP `Tile::getStackposOfItem`.
     pub fn get_item_stack_pos(&self, item_id: ItemId) -> Option<u8> {
-        let body = self.body();
-        let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
-        for &tid in &body.top_items {
-            if tid == item_id {
-                return Some(n);
-            }
-            n = n.saturating_add(1);
-        }
-        n = n.saturating_add(body.creatures.len() as u8);
-        for &did in &body.down_items {
-            if did == item_id {
-                return Some(n);
-            }
-            n = n.saturating_add(1);
-        }
-        None
+        self.get_item_stack_pos_ordered(item_id, false)
     }
 
-    /// Count of things before down_items start (ground + top_items + creatures).
+    /// Stackpos with explicit tile-order mode (see [`Self::get_item_stack_pos`]).
+    pub fn get_item_stack_pos_ordered(&self, item_id: ItemId, cip_order: bool) -> Option<u8> {
+        let body = self.body();
+        let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
+        if cip_order {
+            // Oldest down first (rev of newest-first storage) — matches Cip PlaceObject append.
+            for &did in body.down_items.iter().rev() {
+                if did == item_id {
+                    return Some(n);
+                }
+                n = n.saturating_add(1);
+            }
+            for &tid in &body.top_items {
+                if tid == item_id {
+                    return Some(n);
+                }
+                n = n.saturating_add(1);
+            }
+            None
+        } else {
+            for &tid in &body.top_items {
+                if tid == item_id {
+                    return Some(n);
+                }
+                n = n.saturating_add(1);
+            }
+            n = n.saturating_add(body.creatures.len() as u8);
+            for &did in &body.down_items {
+                if did == item_id {
+                    return Some(n);
+                }
+                n = n.saturating_add(1);
+            }
+            None
+        }
+    }
+
+    /// Count of things before down_items start (ground + top_items + creatures) — TVP order.
     // Used to compute stack_pos for a newly-added down item at index 0.
     pub fn down_item_start_stack_pos(&self) -> u8 {
         let body = self.body();
@@ -384,16 +410,19 @@ where
 /// **before** the move (including the moving creature). Invisible creatures
 /// below the target are skipped in the count — matching the gameserver which
 /// gates each increment on `player->canSeeCreature(c)`.
+///
+/// `items_before_creatures` is ground-relative item count before the creature
+/// section: TVP = `top_items.len()`; Cip `GetObjectRNum` = `down_items.len() + top_items.len()`.
 // C++ reference: `gameserver/src/tile.cpp` `Tile::getClientIndexOfCreature`.
 pub fn creature_stack_pos_for_viewer(
     ground_present: bool,
-    top_item_count: usize,
+    items_before_creatures: usize,
     creatures: &[CreatureId],
     creature: CreatureId,
     can_see: impl Fn(CreatureId) -> bool,
 ) -> i32 {
     let mut n: i32 = if ground_present { 1 } else { 0 };
-    n += top_item_count as i32;
+    n += items_before_creatures as i32;
     for &c in creatures.iter().rev() {
         if c == creature {
             return n;
@@ -405,15 +434,25 @@ pub fn creature_stack_pos_for_viewer(
     -1
 }
 
-/// TFS `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
+/// TFS / TVP `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
 ///
-/// Delegates to [`creature_stack_pos_for_viewer`] with `|_| true` — use the
-/// viewer-aware variant when invisible/ghost creatures may be on the tile.
+/// Does **not** count `down_items` (emitted after creatures on the wire).
 // C++ reference: `src/tile.cpp` `Tile::getClientIndexOfCreature`.
 pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
     creature_stack_pos_for_viewer(
         body.ground.is_some(),
         body.top_items.len(),
+        &body.creatures,
+        creature,
+        |_| true,
+    )
+}
+
+/// Cip `GetObjectRNum` creature index — includes BOTTOM (`down_items`) before creatures.
+pub fn client_creature_stack_pos_cip(body: &TileBody, creature: CreatureId) -> i32 {
+    creature_stack_pos_for_viewer(
+        body.ground.is_some(),
+        body.down_items.len() + body.top_items.len(),
         &body.creatures,
         creature,
         |_| true,
@@ -512,6 +551,27 @@ mod look_tests {
         assert_eq!(stack, 1);
         assert_eq!(tile.item_id_at_stack_pos(stack), Some(ladder));
         assert_eq!(tile.item_id_for_use(stack, |_| false), Some(ladder));
+    }
+
+    #[test]
+    fn cip_stackpos_counts_down_items_before_creatures() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let field = items.insert(());
+        let mut creatures: SlotMap<CreatureId, _> = SlotMap::with_key();
+        let mob = creatures.insert(());
+        let body = tile_body(Some(106), vec![field], vec![], vec![mob]);
+        // TVP: ground(1) + creature(1) + field → field at 2
+        assert_eq!(
+            Tile::Normal(body.clone()).get_item_stack_pos_ordered(field, false),
+            Some(2)
+        );
+        // Cip: ground(1) + field → field at 1; creature would be at 2
+        assert_eq!(
+            Tile::Normal(body.clone()).get_item_stack_pos_ordered(field, true),
+            Some(1)
+        );
+        assert_eq!(client_creature_stack_pos(&body, mob), 1);
+        assert_eq!(client_creature_stack_pos_cip(&body, mob), 2);
     }
 
     #[test]

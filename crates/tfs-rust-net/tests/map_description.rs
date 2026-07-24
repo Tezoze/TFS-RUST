@@ -213,6 +213,7 @@ fn crowded_tile() -> TileContent {
             is_splash_or_fluid: false,
             is_animation: false,
         }],
+        cip_map_order: false,
     }
 }
 
@@ -325,5 +326,124 @@ fn tile_description_772_shorter_than_1098_for_crowded_tile() {
         "1098 ({} bytes, env prefix + 3 creatures) must be longer than 772 ({} bytes, no env prefix, 0 creatures)",
         b1098.len(),
         b772.len()
+    );
+}
+
+/// Regression: real-772 Cip map order emits BOTTOM (firefield) before creatures so
+/// `GetObjectRNum` / MoveCreature stackpos match after SendRow (bug0000017).
+#[test]
+fn tile_description_cip_order_emits_bottom_before_creature() {
+    use tfs_rust_net::creature_encode::AddCreatureWire;
+    use tfs_rust_net::map_description::ItemStack;
+
+    let center = Position::new(100, 200, 7);
+    let field_id = 0x05CF; // distinct from ground/creature bytes
+    let ground_id = 0x0100;
+    let tile = TileContent {
+        ground: Some(ItemStack {
+            client_id: ground_id,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+        }),
+        top_items: vec![],
+        // newest-first storage; Cip emission reverses → single field still one entry
+        bottom_items: vec![ItemStack {
+            client_id: field_id,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+        }],
+        creatures: vec![AddCreatureWire {
+            id: 0x1001,
+            known: true,
+            name: "Demon".into(),
+            ..AddCreatureWire::default()
+        }],
+        cip_map_order: true,
+    };
+
+    let mut known = HashSet::new();
+    let mut get_tile = {
+        let tile = tile.clone();
+        move |x: i32, y: i32, z: i32| -> Option<TileContent> {
+            if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+                Some(tile.clone())
+            } else {
+                None
+            }
+        }
+    };
+    let mut can_see = |_id: u32| true;
+    let bytes = send_map_description_packet(
+        &codec_772(),
+        center,
+        center,
+        &mut get_tile,
+        &mut known,
+        &mut can_see,
+        false,
+    )
+    .into_bytes();
+
+    // Locate ground then field then creature-known marker (0x62) in the tile body.
+    let ground_le = ground_id.to_le_bytes();
+    let field_le = field_id.to_le_bytes();
+    let g = bytes
+        .windows(2)
+        .position(|w| w == ground_le)
+        .expect("ground client id");
+    let f = bytes
+        .windows(2)
+        .position(|w| w == field_le)
+        .expect("field client id");
+    let creature_marker = bytes
+        .iter()
+        .position(|&b| b == 0x62 || b == 0x61)
+        .expect("creature add marker");
+    assert!(
+        g < f && f < creature_marker,
+        "Cip order requires ground ({g}) < field ({f}) < creature ({creature_marker})"
+    );
+
+    // TVP order must keep creature before bottom.
+    let mut tile_tvp = tile;
+    tile_tvp.cip_map_order = false;
+    let mut known = HashSet::new();
+    let mut get_tile = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
+        if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+            Some(tile_tvp.clone())
+        } else {
+            None
+        }
+    };
+    let mut can_see = |_id: u32| true;
+    let bytes = send_map_description_packet(
+        &codec_772(),
+        center,
+        center,
+        &mut get_tile,
+        &mut known,
+        &mut can_see,
+        false,
+    )
+    .into_bytes();
+    let g = bytes
+        .windows(2)
+        .position(|w| w == ground_le)
+        .expect("ground");
+    let f = bytes
+        .windows(2)
+        .position(|w| w == field_le)
+        .expect("field");
+    let creature_marker = bytes
+        .iter()
+        .position(|&b| b == 0x62 || b == 0x61)
+        .expect("creature");
+    assert!(
+        g < creature_marker && creature_marker < f,
+        "TVP order requires ground ({g}) < creature ({creature_marker}) < field ({f})"
     );
 }

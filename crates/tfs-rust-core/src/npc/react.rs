@@ -43,7 +43,8 @@ pub struct ReactMeta<'a> {
 /// Execute matched rule actions (and `*` repeats) into [`DialoguePlan`] + trace events.
 ///
 /// C++ action loop — `crnonpl.cc:1085-1291`. Mutating world actions apply immediately
-/// via [`NpcActionHost`] (NPC-5). Custom actions remain deferred until NPC-7.
+/// via [`NpcActionHost`] (NPC-5). Custom actions invoke Lua via
+/// [`NpcActionHost::invoke_custom_action`] (NPC-7).
 pub fn apply_dialogue_plan(
     program: &DialogueProgram,
     matched: RuleMatch,
@@ -347,8 +348,16 @@ pub fn apply_dialogue_plan(
                         Err(e) => log_action_failure(&fail_ctx, &e),
                     }
                 }
-                DialogueAction::Custom { .. } => {
-                    trace.push(DialogueEvent::DeferredAction { kind: "custom" });
+                DialogueAction::Custom { callback_id, .. } => {
+                    match host.invoke_custom_action(meta.npc_id, player, *callback_id) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::CustomAction,
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
                 }
             }
         }

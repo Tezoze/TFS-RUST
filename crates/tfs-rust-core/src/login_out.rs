@@ -272,6 +272,11 @@ pub(crate) fn map_tile_content(
     let on_self = tx == px && ty == py && tz == pz;
 
     let mut content = TileContent::default();
+    // Real 772 client stores tiles in Cip map-container order (Bottom before creatures).
+    // Matching `GetObjectRNum` / spectator `0x6D` stackpos — without this, SendRow after a
+    // firefield leaves creatures at the wrong index → bug0000017 MoveCreature assert.
+    let is_772 = !world.codec.caps().move_creature_self_packet;
+    content.cip_map_order = is_772 && !self_player.is_otclient();
 
     if let Some(tile) = world.map.get_tile(pos) {
         let body = tile.body();

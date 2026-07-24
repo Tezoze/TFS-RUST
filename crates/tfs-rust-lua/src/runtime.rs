@@ -17,6 +17,7 @@ use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_s
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
     register_creature_metatable, register_group_metatable, register_item_metatable,
+    register_npc_metatable,
     register_item_type_constructor, register_item_type_metatable,
     register_monster_type_constructor, register_position_metatable, register_spell_metatable,
     register_tile_constructor, register_vocation_metatable, register_weapon_metatable,
@@ -91,6 +92,7 @@ impl LuaRuntime {
             .map_err(LuaError::Registration)?;
 
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
+        register_npc_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
         register_vocation_metatable(&lua).map_err(LuaError::Registration)?;

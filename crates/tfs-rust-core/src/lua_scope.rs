@@ -259,6 +259,20 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             text,
         } => unsafe { &mut *world }
             .lua_script_player_send_text_message(creature_id, msg_class, text),
+        LuaMutation::NpcSay { npc_id, text } => {
+            unsafe { &mut *world }.npc_lua_say_u64(npc_id, text.as_str())
+        }
+        LuaMutation::NpcSetFocus { npc_id, player_id } => {
+            unsafe { &mut *world }.npc_lua_set_focus_u64(npc_id, player_id)
+        }
+        LuaMutation::PlayerBankDeposit {
+            creature_id,
+            amount,
+        } => unsafe { &mut *world }.player_bank_deposit_u64(creature_id, amount),
+        LuaMutation::PlayerBankWithdraw {
+            creature_id,
+            amount,
+        } => unsafe { &mut *world }.player_bank_withdraw_u64(creature_id, amount),
     }
 }
 
@@ -467,4 +481,101 @@ fn player_level_u32(world: &GameWorld, player: CreatureId) -> u32 {
             _ => None,
         })
         .unwrap_or(0)
+}
+
+fn with_npc_mutation_scope<F, R>(world: &mut GameWorld, f: F) -> R
+where
+    F: FnOnce(&mut GameWorld) -> R,
+{
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || f(unsafe { &mut *world_ptr }))
+    })
+}
+
+/// NPC-7: fire `onAppear` for a registered lifecycle callback.
+pub fn fire_npc_appear(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+) {
+    with_npc_mutation_scope(world, |world| {
+        world.events.on_npc_appear(npc, callback);
+    });
+}
+
+/// NPC-7: fire `onDisappear`.
+pub fn fire_npc_disappear(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+) {
+    with_npc_mutation_scope(world, |world| {
+        world.events.on_npc_disappear(npc, callback);
+    });
+}
+
+/// NPC-7: fire `onMove`.
+pub fn fire_npc_move(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+    from: tfs_rust_common::Position,
+    to: tfs_rust_common::Position,
+) {
+    with_npc_mutation_scope(world, |world| {
+        world.events.on_npc_move(npc, callback, from, to);
+    });
+}
+
+/// NPC-7: fire custom `onSay` lifecycle callback.
+pub fn fire_npc_say(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+    speaker: CreatureId,
+    text: &str,
+) {
+    with_npc_mutation_scope(world, |world| {
+        world.events.on_npc_say(npc, callback, speaker, text);
+    });
+}
+
+/// NPC-7: fire `onThink` only when a callback id is registered on the definition.
+pub fn fire_npc_think(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+    interval_ms: u32,
+) {
+    with_npc_mutation_scope(world, |world| {
+        world.events.on_npc_think(npc, callback, interval_ms);
+    });
+}
+
+/// NPC-7: evaluate a custom dialogue predicate (read-only by contract).
+pub fn fire_npc_custom_predicate(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    player: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+) -> bool {
+    with_npc_mutation_scope(world, |world| {
+        world
+            .events
+            .on_npc_custom_predicate(npc, player, callback)
+    })
+}
+
+/// NPC-7: run a custom dialogue action with immediate mutation scope.
+pub fn fire_npc_custom_action(
+    world: &mut GameWorld,
+    npc: CreatureId,
+    player: CreatureId,
+    callback: tfs_rust_content::npcs::NpcCallbackId,
+) -> bool {
+    with_npc_mutation_scope(world, |world| {
+        world.events.on_npc_custom_action(npc, player, callback)
+    })
 }

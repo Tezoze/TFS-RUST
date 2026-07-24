@@ -146,12 +146,8 @@ impl GameWorld {
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count -= m;
                     }
-                    let src_stack_pos = self
-                        .map
-                        .get_tile(from_pos)
-                        .and_then(|t| t.get_item_stack_pos(item_id))
-                        .unwrap_or(0);
-                    self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
+                    let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
+                    self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
 
                     // Create new item for the moved portion
                     let new_item = Item::new(item_type, m);
@@ -160,11 +156,7 @@ impl GameWorld {
                     Ok(new_id)
                 } else {
                     // Full move
-                    let stack_pos = self
-                        .map
-                        .get_tile(from_pos)
-                        .and_then(|t| t.get_item_stack_pos(item_id))
-                        .unwrap_or(0);
+                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                     let tile = self
                         .map
                         .get_tile_mut(from_pos)
@@ -172,7 +164,7 @@ impl GameWorld {
                     if tile.remove_item_by_id(item_id).is_none() {
                         return Err(ReturnValue::NotPossible);
                     }
-                    self.broadcast_tile_item_remove(from_pos, stack_pos);
+                    self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
                     self.internal_add_item_to_tile(to_pos, item_id, flags)
                 }
             }
@@ -196,12 +188,8 @@ impl GameWorld {
                             ReturnValue::ContainerNotEnoughRoom,
                         )?;
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        let src_stack_pos = self
-                            .map
-                            .get_tile(from_pos)
-                            .and_then(|t| t.get_item_stack_pos(item_id))
-                            .unwrap_or(0);
-                        self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
+                        let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
+                        self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
                         self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
@@ -215,11 +203,7 @@ impl GameWorld {
                 if !dest_has_room {
                     return Err(ReturnValue::ContainerNotEnoughRoom);
                 }
-                let stack_pos = self
-                    .map
-                    .get_tile(from_pos)
-                    .and_then(|t| t.get_item_stack_pos(item_id))
-                    .unwrap_or(0);
+                let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                 let tile = self
                     .map
                     .get_tile_mut(from_pos)
@@ -227,7 +211,7 @@ impl GameWorld {
                 if tile.remove_item_by_id(item_id).is_none() {
                     return Err(ReturnValue::NotPossible);
                 }
-                self.broadcast_tile_item_remove(from_pos, stack_pos);
+                self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
                 if let Some(merge_id) = to_merge_item {
                     self.ensure_stack_merge_room(
                         merge_id,
@@ -537,12 +521,8 @@ impl GameWorld {
                     if is_stackable && m_move < item_count {
                         // Partial: source stack stays on tile; only counts change.
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        let src_stack_pos = self
-                            .map
-                            .get_tile(from_pos)
-                            .and_then(|t| t.get_item_stack_pos(item_id))
-                            .unwrap_or(0);
-                        self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
+                        let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
+                        self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
                         self.player_post_add_notification(
                             cid,
                             merge_id,
@@ -553,11 +533,7 @@ impl GameWorld {
                         self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
                         return Ok(merge_id);
                     }
-                    let stack_pos = self
-                        .map
-                        .get_tile(from_pos)
-                        .and_then(|t| t.get_item_stack_pos(item_id))
-                        .unwrap_or(0);
+                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                     let tile = self
                         .map
                         .get_tile_mut(from_pos)
@@ -565,7 +541,7 @@ impl GameWorld {
                     if tile.remove_item_by_id(item_id).is_none() {
                         return Err(ReturnValue::NotPossible);
                     }
-                    self.broadcast_tile_item_remove(from_pos, stack_pos);
+                    self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
                     // Full: source removed from tile above — only bump hand stack.
                     self.merge_detached_stack_counts(merge_id, m_move);
                     self.player_post_add_notification(
@@ -586,12 +562,8 @@ impl GameWorld {
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count -= m_move;
                     }
-                    let src_stack_pos = self
-                        .map
-                        .get_tile(from_pos)
-                        .and_then(|t| t.get_item_stack_pos(item_id))
-                        .unwrap_or(0);
-                    self.broadcast_tile_item_update(from_pos, item_id, src_stack_pos);
+                    let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
+                    self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
                     let new_item = Item::new(item_type, m_move);
                     let new_id = self.items.insert(new_item);
                     self.equip_item_to_inventory_slot(
@@ -606,11 +578,7 @@ impl GameWorld {
                     if dest_id == item_id {
                         return Ok(item_id);
                     }
-                    let stack_pos = self
-                        .map
-                        .get_tile(from_pos)
-                        .and_then(|t| t.get_item_stack_pos(item_id))
-                        .unwrap_or(0);
+                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                     let tile = self
                         .map
                         .get_tile_mut(from_pos)
@@ -618,7 +586,7 @@ impl GameWorld {
                     if tile.remove_item_by_id(item_id).is_none() {
                         return Err(ReturnValue::NotPossible);
                     }
-                    self.broadcast_tile_item_remove(from_pos, stack_pos);
+                    self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
                     self.unequip_item_from_inventory_slot(
                         cid,
                         slot,
@@ -634,11 +602,7 @@ impl GameWorld {
                     )?;
                     return Ok(item_id);
                 }
-                let stack_pos = self
-                    .map
-                    .get_tile(from_pos)
-                    .and_then(|t| t.get_item_stack_pos(item_id))
-                    .unwrap_or(0);
+                let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                 let tile = self
                     .map
                     .get_tile_mut(from_pos)
@@ -646,7 +610,7 @@ impl GameWorld {
                 if tile.remove_item_by_id(item_id).is_none() {
                     return Err(ReturnValue::NotPossible);
                 }
-                self.broadcast_tile_item_remove(from_pos, stack_pos);
+                self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
                 self.equip_item_to_inventory_slot(
                     cid,
                     slot,

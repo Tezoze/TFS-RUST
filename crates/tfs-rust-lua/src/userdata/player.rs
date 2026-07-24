@@ -65,6 +65,40 @@ impl UserData for CreatureRef {
             })
         });
 
+        methods.add_method("getBankBalance", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_bank_balance(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        methods.add_method("getMoney", |_, this, ()| {
+            with_ctx(|ctx| {
+                let g = ctx
+                    .get_player_item_type_count(this.0, 2148, -1)
+                    .unwrap_or(0) as u64;
+                let p = ctx
+                    .get_player_item_type_count(this.0, 2152, -1)
+                    .unwrap_or(0) as u64;
+                let c = ctx
+                    .get_player_item_type_count(this.0, 2160, -1)
+                    .unwrap_or(0) as u64;
+                Ok(g + p * 100 + c * 10_000)
+            })
+        });
+
+        methods.add_method_mut("depositMoney", |_, this, amount: u64| {
+            crate::lua_mutation::call_lua_bank_deposit(this.0, amount)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        methods.add_method_mut("withdrawMoney", |_, this, amount: u64| {
+            crate::lua_mutation::call_lua_bank_withdraw(this.0, amount)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
         // `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
         // PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
         // `computeDamage` / `computeHealing` (native methods below; also `functions.lua`).

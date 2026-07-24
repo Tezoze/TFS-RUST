@@ -30,6 +30,7 @@ use crate::player::inventory::money::{ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
 use crate::sim_harness::{
     ensure_walkable_tile, insert_player, minimal_creature_base, minimal_world, sim_hero_player,
 };
+use slotmap::Key;
 
 fn span() -> SourceSpan {
     SourceSpan {
@@ -507,6 +508,7 @@ fn pending_with_rules(name: &str, rules: Vec<DialogueRule>) -> PendingNpcDefinit
         shop: None,
         custom_predicates: Vec::new(),
         custom_actions: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1183,4 +1185,252 @@ fn multi_reply_delay_accounting_tom_job() {
         waits.contains(&17_600),
         "trailing Wait(17600) expected; waits={waits:?}"
     );
+}
+
+#[test]
+fn custom_predicate_host_selects_rule() {
+    use super::match_rule::{match_dialogue_rule_with_custom, CustomPredicateHost};
+    use tfs_rust_content::npcs::NpcCallbackId;
+
+    struct AlwaysTrue;
+    impl CustomPredicateHost for AlwaysTrue {
+        fn eval_custom(&mut self, _id: NpcCallbackId) -> bool {
+            true
+        }
+    }
+    struct AlwaysFalse;
+    impl CustomPredicateHost for AlwaysFalse {
+        fn eval_custom(&mut self, _id: NpcCallbackId) -> bool {
+            false
+        }
+    }
+
+    let sp = span();
+    let program = DialogueProgram {
+        policy: DialoguePolicy::QueuedSingleFocus,
+        rules: vec![DialogueRule {
+            predicates: vec![
+                DialoguePredicate::Situation {
+                    kind: DialogueSituation::Default,
+                    span: sp.clone(),
+                },
+                DialoguePredicate::Custom {
+                    callback_id: NpcCallbackId(1),
+                    name: "ok".into(),
+                    span: sp.clone(),
+                },
+            ],
+            actions: vec![DialogueAction::Nop { span: sp.clone() }],
+            span: sp,
+        }],
+    };
+    let mut money = 0i32;
+    let mut rng = |lo: i32, hi: i32| lo.max(hi);
+    let inv = |_id: i32| 0i32;
+    let quest = |_id: u32| -1i32;
+    let spell_k = |_id: i32| 0i32;
+    let spell_l = |_id: i32| 0i32;
+    let mut ctx = EvalContext {
+        topic: 0,
+        price: 0,
+        amount: 0,
+        item_type: 0,
+        data: 0,
+        captures: [-1, -1],
+        player_name: "Hero",
+        player_hp: 100,
+        player_level: 8,
+        player_magic_level: 0,
+        player_sex: 1,
+        player_vocation: PlayerVocationKind::None,
+        player_premium: false,
+        player_promoted: false,
+        player_pz_block: false,
+        burning: 0,
+        poison: 0,
+        money: 0,
+        inventory_count: &inv,
+        quest_value: &quest,
+        spell_known: &spell_k,
+        spell_level: &spell_l,
+        rng: &mut rng,
+        game_hour: 12,
+        game_minute: 0,
+        world_pvp_enforced: false,
+        world_non_pvp: false,
+        tuning: NpcTuning::classic_772(),
+    };
+    let _ = money;
+    assert!(match_dialogue_rule_with_custom(
+        &program,
+        "hi",
+        DialogueSituationKind::Default,
+        &mut ctx,
+        &mut AlwaysTrue,
+    )
+    .is_some());
+    assert!(match_dialogue_rule_with_custom(
+        &program,
+        "hi",
+        DialogueSituationKind::Default,
+        &mut ctx,
+        &mut AlwaysFalse,
+    )
+    .is_none());
+}
+
+#[test]
+fn custom_action_host_records_mutate() {
+    use super::actions::NpcActionHost;
+    use super::react::{apply_dialogue_plan, ReactMeta};
+    use tfs_rust_content::npcs::NpcCallbackId;
+
+    struct StubHost {
+        called: bool,
+    }
+    impl NpcActionHost for StubHost {
+        fn create_item(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_hp(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_poison(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_burning(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_me(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_opp(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_quest_value(&mut self, _: CreatureId, _: u32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_profession(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn teach_spell(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn summon(&mut self, _: CreatureId, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn teleport(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_start_position(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: Option<(i32, i32, i32)>,
+        ) -> Result<(i32, i32, i32), String> {
+            Ok((0, 0, 0))
+        }
+        fn invoke_custom_action(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: NpcCallbackId,
+        ) -> Result<(), String> {
+            self.called = true;
+            Ok(())
+        }
+    }
+
+    let sp = span();
+    let program = DialogueProgram {
+        policy: DialoguePolicy::QueuedSingleFocus,
+        rules: vec![DialogueRule {
+            predicates: vec![DialoguePredicate::Situation {
+                kind: DialogueSituation::Default,
+                span: sp.clone(),
+            }],
+            actions: vec![DialogueAction::Custom {
+                callback_id: NpcCallbackId(42),
+                name: "x".into(),
+                span: sp.clone(),
+            }],
+            span: sp,
+        }],
+    };
+    let inv = |_id: i32| 0i32;
+    let quest = |_id: u32| -1i32;
+    let spell_k = |_id: i32| 0i32;
+    let spell_l = |_id: i32| 0i32;
+    let mut rng = |lo: i32, hi: i32| lo;
+    let mut ctx = EvalContext {
+        topic: 0,
+        price: 0,
+        amount: 0,
+        item_type: 0,
+        data: 0,
+        captures: [-1, -1],
+        player_name: "Hero",
+        player_hp: 100,
+        player_level: 8,
+        player_magic_level: 0,
+        player_sex: 1,
+        player_vocation: PlayerVocationKind::None,
+        player_premium: false,
+        player_promoted: false,
+        player_pz_block: false,
+        burning: 0,
+        poison: 0,
+        money: 0,
+        inventory_count: &inv,
+        quest_value: &quest,
+        spell_known: &spell_k,
+        spell_level: &spell_l,
+        rng: &mut rng,
+        game_hour: 12,
+        game_minute: 0,
+        world_pvp_enforced: false,
+        world_non_pvp: false,
+        tuning: NpcTuning::classic_772(),
+    };
+    let mut host = StubHost { called: false };
+    let mut trace = DialogueTrace::default();
+    // Opaque ids unused by StubHost — any bits fine.
+    let dummy = CreatureId::from(slotmap::KeyData::from_ffi(1));
+    let meta = ReactMeta {
+        npc_id: dummy,
+        npc_name: "X",
+    };
+    let matched = super::match_rule::RuleMatch {
+        rule_index: 0,
+        captures: Default::default(),
+    };
+    apply_dialogue_plan(
+        &program,
+        matched,
+        DialogueSituationKind::Default,
+        dummy,
+        "",
+        &mut ctx,
+        NpcTuning::classic_772(),
+        &mut host,
+        &meta,
+        &mut trace,
+    );
+    assert!(host.called);
+    assert!(trace.events.iter().any(|e| matches!(
+        e,
+        DialogueEvent::Mutate {
+            op: MutateOp::CustomAction,
+            ..
+        }
+    )));
 }

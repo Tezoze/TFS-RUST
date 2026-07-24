@@ -1,4 +1,4 @@
-//! NPCs and script event dispatch surface (Lua wired in Phase 8 / NPC-7).
+//! NPCs — instance state; Lua lifecycle/custom hooks go through `EventDispatcher` (NPC-7).
 //!
 //! Domain: TFS-style `Npc` instance; definitions live in [`tfs_rust_content::npcs::NpcDatabase`].
 //! C++ reference: `Npc` (`npc.h`); 772 runtime state shaped after `TNonPlayer` behaviour focus.
@@ -118,22 +118,3 @@ impl Npc {
         }
     }
 }
-
-/// Hooks for NPC Lua — implemented by `tfs-rust-lua` later; core stays trait-only.
-/// Retired in NPC-7 in favour of game-thread `EventDispatcher` fire helpers.
-pub trait NpcEventsHandler: Send + Sync + 'static {
-    fn on_appear(&self, _npc: CreatureId) {}
-    fn on_disappear(&self, _npc: CreatureId) {}
-    fn on_say(&self, _npc: CreatureId, _speaker: CreatureId, _words: &str) {}
-    fn on_buy(&self, _npc: CreatureId, _buyer: CreatureId, _item_type: u16, _amount: u16) {}
-    fn on_sell(&self, _npc: CreatureId, _buyer: CreatureId, _item_type: u16, _amount: u16) {}
-    fn on_check_item(&self, _npc: CreatureId, _player: CreatureId, _item_type: u16) -> bool {
-        true
-    }
-    fn on_close_channel(&self, _npc: CreatureId, _player: CreatureId) {}
-}
-
-#[derive(Debug, Default)]
-pub struct NullNpcHandler;
-
-impl NpcEventsHandler for NullNpcHandler {}

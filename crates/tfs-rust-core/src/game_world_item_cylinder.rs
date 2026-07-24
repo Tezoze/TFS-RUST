@@ -258,12 +258,17 @@ impl GameWorld {
                         target.count += can_add;
                     }
                     // Get stack pos for update packet
-                    let stack_pos = self
+                    let (tvp_stack, cip_stack) = self
                         .map
                         .get_tile(pos)
-                        .and_then(|t| t.get_item_stack_pos(target_id))
-                        .unwrap_or(0);
-                    self.broadcast_tile_item_update(pos, target_id, stack_pos);
+                        .map(|t| {
+                            (
+                                t.get_item_stack_pos_ordered(target_id, false).unwrap_or(0),
+                                t.get_item_stack_pos_ordered(target_id, true).unwrap_or(0),
+                            )
+                        })
+                        .unwrap_or((0, 0));
+                    self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
                     let remainder = item_count.saturating_sub(can_add);
                     if remainder == 0 {
@@ -327,16 +332,20 @@ impl GameWorld {
             item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
         }
 
-        // Stackpos of the item as it now sits on the tile (top items counted before creatures,
-        // down items after) — matches C++ `Tile::getStackposOfItem`.
-        let stack_pos = self
+        // Stackpos of the item as it now sits on the tile — TVP vs Cip map-container order.
+        let (tvp_stack, cip_stack) = self
             .map
             .get_tile(pos)
-            .and_then(|t| t.get_item_stack_pos(item_id))
-            .unwrap_or(0);
+            .map(|t| {
+                (
+                    t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
+                    t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
+                )
+            })
+            .unwrap_or((0, 0));
 
         // Broadcast add
-        self.broadcast_tile_item_add(pos, item_id, stack_pos);
+        self.broadcast_tile_item_add(pos, item_id, tvp_stack, cip_stack);
 
         self.start_decay(item_id);
         Ok(item_id)
@@ -364,24 +373,34 @@ impl GameWorld {
             if let Some(item) = self.items.get_mut(item_id) {
                 item.count -= count;
             }
-            let stack_pos = self
+            let (tvp_stack, cip_stack) = self
                 .map
                 .get_tile(pos)
-                .and_then(|t| t.get_item_stack_pos(item_id))
-                .unwrap_or(0);
-            self.broadcast_tile_item_update(pos, item_id, stack_pos);
+                .map(|t| {
+                    (
+                        t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
+                        t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
+                    )
+                })
+                .unwrap_or((0, 0));
+            self.broadcast_tile_item_update(pos, item_id, tvp_stack, cip_stack);
         } else {
             // Full removal
-            let stack_pos = self
+            let (tvp_stack, cip_stack) = self
                 .map
                 .get_tile(pos)
-                .and_then(|t| t.get_item_stack_pos(item_id))
-                .unwrap_or(0);
+                .map(|t| {
+                    (
+                        t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0),
+                        t.get_item_stack_pos_ordered(item_id, true).unwrap_or(0),
+                    )
+                })
+                .unwrap_or((0, 0));
             let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
             if tile.remove_item_by_id(item_id).is_none() {
                 return Err(ReturnValue::NotPossible);
             }
-            self.broadcast_tile_item_remove(pos, stack_pos);
+            self.broadcast_tile_item_remove(pos, tvp_stack, cip_stack);
             // Remove from SlotMap
             self.cancel_item_decay(item_id);
             if let Some(item) = self.items.get_mut(item_id) {

@@ -68,6 +68,7 @@ pub fn lower_npc(file: RawNpcFile) -> ImportResult<PendingNpcDefinition> {
         shop: None,
         custom_predicates: Vec::new(),
         custom_actions: Vec::new(),
+        ..Default::default()
     })
 }
 

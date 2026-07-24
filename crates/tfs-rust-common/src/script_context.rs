@@ -556,6 +556,34 @@ pub trait ScriptContext {
         let _ = item_type;
         true
     }
+
+    /// NPC-7: `npc:getParameter(key)` — definition parameter map.
+    fn get_npc_parameter(&self, creature_id: ScriptCreatureId, key: &str) -> Option<String> {
+        let _ = (creature_id, key);
+        None
+    }
+
+    /// NPC-7: `npc:isInTalkRange(player)` — same-floor focus-range check.
+    fn npc_is_in_talk_range(
+        &self,
+        npc_id: ScriptCreatureId,
+        player_id: ScriptCreatureId,
+    ) -> bool {
+        let _ = (npc_id, player_id);
+        false
+    }
+
+    /// NPC-7: `npc:getFocus()` — current interlocutor creature id.
+    fn get_npc_focus(&self, npc_id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+        let _ = npc_id;
+        None
+    }
+
+    /// NPC-7: `player:getBankBalance()` — `PlayerEconomy.balance`.
+    fn get_player_bank_balance(&self, creature_id: ScriptCreatureId) -> Option<u64> {
+        let _ = creature_id;
+        None
+    }
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

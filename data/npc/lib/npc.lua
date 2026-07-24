@@ -1,5 +1,5 @@
--- Including the Advanced NPC System
-dofile('data/npc/lib/npcsystem/npcsystem.lua')
+-- NPC helper lib (NPC-7): no KeywordHandler / NpcSystem dependency.
+-- Canonical dialogue lives in data/npc/scripts/*.lua via NpcType / NpcDialogue.
 
 function msgcontains(message, keyword)
 	local message, keyword = message:lower(), keyword:lower()

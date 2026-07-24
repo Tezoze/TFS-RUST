@@ -695,10 +695,14 @@ impl GameWorld {
                     }
                 }
                 Cylinder::Tile { pos } => {
-                    if let Some(tile) = self.map.get_tile(pos) {
-                        if let Some(stack_pos) = tile.get_item_stack_pos(item_id) {
-                            self.broadcast_tile_item_update(pos, item_id, stack_pos);
-                        }
+                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(pos, item_id);
+                    if self
+                        .map
+                        .get_tile(pos)
+                        .and_then(|t| t.get_item_stack_pos(item_id))
+                        .is_some()
+                    {
+                        self.broadcast_tile_item_update(pos, item_id, tvp_stack_pos, cip_stack_pos);
                     }
                 }
             }

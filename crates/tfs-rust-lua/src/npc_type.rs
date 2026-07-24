@@ -31,6 +31,8 @@ pub struct NpcTypeBuilder {
     pub action_fns: Rc<RefCell<HashMap<String, RegistryKey>>>,
     /// Named custom predicate callbacks.
     pub predicate_fns: Rc<RefCell<HashMap<String, RegistryKey>>>,
+    /// Lifecycle callbacks: think/appear/disappear/move/say.
+    pub lifecycle_fns: Rc<RefCell<HashMap<String, RegistryKey>>>,
 }
 
 /// Register `NpcType` constructor and metatable methods.
@@ -54,6 +56,7 @@ pub fn register_npc_type(lua: &Lua) -> Result<(), mlua::Error> {
             })),
             action_fns: Rc::new(RefCell::new(HashMap::new())),
             predicate_fns: Rc::new(RefCell::new(HashMap::new())),
+            lifecycle_fns: Rc::new(RefCell::new(HashMap::new())),
         })
     })?;
     lua.globals().set("NpcType", ctor)?;
@@ -203,6 +206,34 @@ impl UserData for NpcTypeBuilder {
             },
         );
 
+        methods.add_method_mut("onThink", |lua, this, func: mlua::Function| {
+            let key = lua.create_registry_value(func)?;
+            this.lifecycle_fns.borrow_mut().insert("think".into(), key);
+            Ok(true)
+        });
+        methods.add_method_mut("onAppear", |lua, this, func: mlua::Function| {
+            let key = lua.create_registry_value(func)?;
+            this.lifecycle_fns.borrow_mut().insert("appear".into(), key);
+            Ok(true)
+        });
+        methods.add_method_mut("onDisappear", |lua, this, func: mlua::Function| {
+            let key = lua.create_registry_value(func)?;
+            this.lifecycle_fns
+                .borrow_mut()
+                .insert("disappear".into(), key);
+            Ok(true)
+        });
+        methods.add_method_mut("onMove", |lua, this, func: mlua::Function| {
+            let key = lua.create_registry_value(func)?;
+            this.lifecycle_fns.borrow_mut().insert("move".into(), key);
+            Ok(true)
+        });
+        methods.add_method_mut("onSay", |lua, this, func: mlua::Function| {
+            let key = lua.create_registry_value(func)?;
+            this.lifecycle_fns.borrow_mut().insert("say".into(), key);
+            Ok(true)
+        });
+
         methods.add_method("register", |lua, this, ()| {
             let globals = lua.globals();
             let pending: mlua::Table = globals.get("_pending_npcs").map_err(|_| {
@@ -226,6 +257,11 @@ impl UserData for NpcTypeBuilder {
                 .map_err(|_| {
                     mlua::Error::runtime("_pending_npc_predicate_callbacks missing")
                 })?;
+            let life_cbs: mlua::Table = globals
+                .get("_pending_npc_lifecycle_callbacks")
+                .map_err(|_| {
+                    mlua::Error::runtime("_pending_npc_lifecycle_callbacks missing")
+                })?;
 
             let actions_map = lua.create_table()?;
             for (name, key) in this.action_fns.borrow_mut().drain() {
@@ -240,6 +276,13 @@ impl UserData for NpcTypeBuilder {
                 preds_map.set(name, func)?;
             }
             pred_cbs.set(idx, preds_map)?;
+
+            let life_map = lua.create_table()?;
+            for (name, key) in this.lifecycle_fns.borrow_mut().drain() {
+                let func: mlua::Function = lua.registry_value(&key)?;
+                life_map.set(name, func)?;
+            }
+            life_cbs.set(idx, life_map)?;
 
             Ok(true)
         });
@@ -267,6 +310,12 @@ mod tests {
         lua.globals()
             .set(
                 "_pending_npc_predicate_callbacks",
+                lua.create_table().unwrap(),
+            )
+            .unwrap();
+        lua.globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
                 lua.create_table().unwrap(),
             )
             .unwrap();

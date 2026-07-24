@@ -101,7 +101,7 @@ impl GameWorld {
         // inventory/container item updates are handled by their own refresh paths
         // (not yet needed for rotatable items, which are overwhelmingly map objects).
         if is_map_tile {
-            self.broadcast_tile_item_update(obj.pos, item_id, obj.stack_pos);
+            self.broadcast_tile_item_update(obj.pos, item_id, obj.stack_pos, obj.stack_pos);
         }
         Ok(())
     }

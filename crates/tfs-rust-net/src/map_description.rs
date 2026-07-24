@@ -30,13 +30,91 @@ pub struct ItemStack {
 pub struct TileContent {
     pub ground: Option<ItemStack>,
     pub top_items: Vec<ItemStack>,
+    /// Non-always-on-top items (`down_items`). Stored newest-first (index 0 = most recent).
     pub bottom_items: Vec<ItemStack>,
     /// Bottom-to-top creature order as stored; emitted in **reverse** (C++ `reverse(creatures)`).
     pub creatures: Vec<AddCreatureWire>,
+    /// Real 772 client: emit Cip map-container order (Bank→Bottom→Top→Creature) so stackpos
+    /// matches `GetObjectRNum` / `SendMoveCreature` (`map.cc` PRIORITY_*, `sending.cc:271`).
+    /// TVP / OTClient / 1098: ground→top→creatures→bottom.
+    pub cip_map_order: bool,
 }
 
 /// C++ `ProtocolGame::checkCreatureAsKnown` — shared with tile appear broadcasts.
 pub use crate::creature_known::check_creature_known;
+
+fn write_item_stack(codec: &Codec, msg: &mut NetworkMessage, it: &ItemStack) {
+    codec.write_item_template(
+        msg,
+        it.client_id,
+        it.count,
+        it.stackable,
+        it.is_splash_or_fluid,
+        it.is_animation,
+        false,
+    );
+}
+
+fn item_stack_wire_len(codec: &Codec, it: &ItemStack) -> usize {
+    codec.item_template_wire_len(
+        it.client_id,
+        it.count,
+        it.stackable,
+        it.is_splash_or_fluid,
+        it.is_animation,
+        false,
+    )
+}
+
+fn emit_creatures_capped<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    msg: &mut NetworkMessage,
+    tile: &TileContent,
+    known_creatures: &mut HashSet<u32>,
+    can_see_creature: &mut F,
+    count: &mut i32,
+) {
+    for c in tile.creatures.iter().rev() {
+        // 7.72 returns early once count hits 10 inside the creature loop; 10.98 does not.
+        if codec.tile_description_caps_creatures() && *count == 10 {
+            return;
+        }
+        let id = c.id;
+        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
+        let mut cw = c.clone();
+        cw.known = known;
+        cw.remove_known = remove;
+        codec.write_add_creature(msg, &cw);
+        *count += 1;
+    }
+}
+
+fn count_creatures_capped<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    tile: &TileContent,
+    known_creatures: &mut HashSet<u32>,
+    can_see_creature: &mut F,
+    count: &mut i32,
+    n: &mut usize,
+) {
+    for c in tile.creatures.iter().rev() {
+        if codec.tile_description_caps_creatures() && *count == 10 {
+            return;
+        }
+        let id = c.id;
+        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
+        let mut cw = c.clone();
+        cw.known = known;
+        cw.remove_known = remove;
+        *n += codec.add_creature_wire_len(&cw);
+        *count += 1;
+    }
+}
+
+/// Cip `bottom_items` are stored newest-first; map-container emission is oldest→newest.
+fn bottom_items_emission_order(tile: &TileContent) -> impl Iterator<Item = &ItemStack> {
+    tile.bottom_items.iter().rev()
+}
 
 fn get_tile_description<F: FnMut(u32) -> bool>(
     codec: &Codec,
@@ -52,69 +130,64 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
 
     if let Some(ref g) = tile.ground {
         if g.client_id != 0 {
-            codec.write_item_template(
-                msg,
-                g.client_id,
-                g.count,
-                g.stackable,
-                g.is_splash_or_fluid,
-                g.is_animation,
-                false,
-            );
+            write_item_stack(codec, msg, g);
         } else {
             count = 0;
         }
     }
 
-    for it in &tile.top_items {
-        if it.client_id == 0 || count == 10 {
-            continue;
-        }
-        codec.write_item_template(
-            msg,
-            it.client_id,
-            it.count,
-            it.stackable,
-            it.is_splash_or_fluid,
-            it.is_animation,
-            false,
-        );
-        count += 1;
-    }
-
-    for c in tile.creatures.iter().rev() {
-        // 7.72 (`gameserver/src/protocolgame.cpp:572-574`) returns early once count hits 10 inside
-        // the creature loop; 10.98 (`src/protocolgame.cpp:669-682`) does not cap creatures.
-        if codec.tile_description_caps_creatures() && count == 10 {
-            return;
-        }
-        let id = c.id;
-        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
-        let mut cw = c.clone();
-        cw.known = known;
-        cw.remove_known = remove;
-        codec.write_add_creature(msg, &cw);
-        count += 1;
-    }
-
-    if count < 10 {
-        for it in &tile.bottom_items {
-            if count == 10 {
-                return;
-            }
-            if it.client_id == 0 {
+    if tile.cip_map_order {
+        // Cip `SendMapPoint` / `PlaceObject` priority: Bank → Bottom → Top → Creature.
+        for it in bottom_items_emission_order(tile) {
+            if it.client_id == 0 || count == 10 {
                 continue;
             }
-            codec.write_item_template(
-                msg,
-                it.client_id,
-                it.count,
-                it.stackable,
-                it.is_splash_or_fluid,
-                it.is_animation,
-                false,
-            );
+            write_item_stack(codec, msg, it);
             count += 1;
+        }
+        for it in &tile.top_items {
+            if it.client_id == 0 || count == 10 {
+                continue;
+            }
+            write_item_stack(codec, msg, it);
+            count += 1;
+        }
+        emit_creatures_capped(
+            codec,
+            msg,
+            tile,
+            known_creatures,
+            can_see_creature,
+            &mut count,
+        );
+    } else {
+        // TVP / 1098: ground → top → creatures → bottom.
+        for it in &tile.top_items {
+            if it.client_id == 0 || count == 10 {
+                continue;
+            }
+            write_item_stack(codec, msg, it);
+            count += 1;
+        }
+        emit_creatures_capped(
+            codec,
+            msg,
+            tile,
+            known_creatures,
+            can_see_creature,
+            &mut count,
+        );
+        if count < 10 {
+            for it in &tile.bottom_items {
+                if count == 10 {
+                    return;
+                }
+                if it.client_id == 0 {
+                    continue;
+                }
+                write_item_stack(codec, msg, it);
+                count += 1;
+            }
         }
     }
 }
@@ -136,65 +209,62 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
 
     if let Some(ref g) = tile.ground {
         if g.client_id != 0 {
-            n += codec.item_template_wire_len(
-                g.client_id,
-                g.count,
-                g.stackable,
-                g.is_splash_or_fluid,
-                g.is_animation,
-                false,
-            );
+            n += item_stack_wire_len(codec, g);
         } else {
             count = 0;
         }
     }
 
-    for it in &tile.top_items {
-        if it.client_id == 0 || count == 10 {
-            continue;
-        }
-        n += codec.item_template_wire_len(
-            it.client_id,
-            it.count,
-            it.stackable,
-            it.is_splash_or_fluid,
-            it.is_animation,
-            false,
-        );
-        count += 1;
-    }
-
-    for c in tile.creatures.iter().rev() {
-        // Must mirror `get_tile_description` exactly (debug_assert in `send_map_description_packet`).
-        if codec.tile_description_caps_creatures() && count == 10 {
-            return n;
-        }
-        let id = c.id;
-        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
-        let mut cw = c.clone();
-        cw.known = known;
-        cw.remove_known = remove;
-        n += codec.add_creature_wire_len(&cw);
-        count += 1;
-    }
-
-    if count < 10 {
-        for it in &tile.bottom_items {
-            if count == 10 {
-                break;
-            }
-            if it.client_id == 0 {
+    if tile.cip_map_order {
+        for it in bottom_items_emission_order(tile) {
+            if it.client_id == 0 || count == 10 {
                 continue;
             }
-            n += codec.item_template_wire_len(
-                it.client_id,
-                it.count,
-                it.stackable,
-                it.is_splash_or_fluid,
-                it.is_animation,
-                false,
-            );
+            n += item_stack_wire_len(codec, it);
             count += 1;
+        }
+        for it in &tile.top_items {
+            if it.client_id == 0 || count == 10 {
+                continue;
+            }
+            n += item_stack_wire_len(codec, it);
+            count += 1;
+        }
+        count_creatures_capped(
+            codec,
+            tile,
+            known_creatures,
+            can_see_creature,
+            &mut count,
+            &mut n,
+        );
+    } else {
+        for it in &tile.top_items {
+            if it.client_id == 0 || count == 10 {
+                continue;
+            }
+            n += item_stack_wire_len(codec, it);
+            count += 1;
+        }
+        count_creatures_capped(
+            codec,
+            tile,
+            known_creatures,
+            can_see_creature,
+            &mut count,
+            &mut n,
+        );
+        if count < 10 {
+            for it in &tile.bottom_items {
+                if count == 10 {
+                    break;
+                }
+                if it.client_id == 0 {
+                    continue;
+                }
+                n += item_stack_wire_len(codec, it);
+                count += 1;
+            }
         }
     }
     n

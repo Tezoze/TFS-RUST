@@ -47,7 +47,9 @@ use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
 use crate::login_out::{creature_wire_id, map_tile_content};
 use crate::return_value::ReturnValue;
-use crate::tile::{client_creature_stack_pos, creature_stack_pos_for_viewer};
+use crate::tile::{
+    client_creature_stack_pos, client_creature_stack_pos_cip, creature_stack_pos_for_viewer,
+};
 use tfs_rust_common::ConnId;
 
 /// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
@@ -65,6 +67,20 @@ const FLAG_IGNOREFIELDDAMAGE: u32 = 1 << 5;
 /// walk through fields but takes damage, matching `MovePossible(Execute=true)` which
 /// skips the `AVOID` check.
 pub(crate) const PATHFIND_WALK_FLAGS: u32 = FLAG_PATHFINDING;
+
+/// Self-move / segment `oldStackPos` for the moving creature's own connection.
+fn self_move_stack_pos(world: &GameWorld, cid: CreatureId, body: &crate::tile::TileBody) -> i32 {
+    let is_772 = !world.codec.caps().move_creature_self_packet;
+    let is_otc = world
+        .creatures
+        .get(cid)
+        .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
+    if is_772 && !is_otc {
+        client_creature_stack_pos_cip(body, cid)
+    } else {
+        client_creature_stack_pos(body, cid)
+    }
+}
 
 /// One movement segment emitted by `internal_move_creature_step`.
 /// C++ `map.moveCreature` emits a packet per call; we collect segments and emit afterwards.
@@ -261,7 +277,7 @@ pub(crate) fn internal_teleport_player(
     let old_stack = world
         .map
         .get_tile(old_pos)
-        .map(|t| client_creature_stack_pos(t.body(), cid))
+        .map(|t| self_move_stack_pos(world, cid, t.body()))
         .filter(|s| *s >= 0)
         .unwrap_or(1);
 
@@ -2001,7 +2017,7 @@ impl GameWorld {
         let raw_initial_stack = self
             .map
             .get_tile(old_pos)
-            .map(|t| client_creature_stack_pos(t.body(), cid))
+            .map(|t| self_move_stack_pos(self, cid, t.body()))
             .unwrap_or(-1);
         let initial_old_stack = if raw_initial_stack >= 0 {
             raw_initial_stack
@@ -2048,7 +2064,7 @@ impl GameWorld {
             let chain_old_stack = self
                 .map
                 .get_tile(final_pos)
-                .map(|t| client_creature_stack_pos(t.body(), cid))
+                .map(|t| self_move_stack_pos(self, cid, t.body()))
                 .filter(|s| *s >= 0)
                 .unwrap_or(1);
 

@@ -29,7 +29,10 @@
 - [x] NPC-4 — Implement speech stimulus, focus, queue, and rule matching
 - [x] NPC-5 — Implement standard immediate actions
 - [x] NPC-6 — Implement ToDo reply timing, movement, sleep/wake, and NPC speech
-- [ ] NPC-7 — Add custom Lua callbacks and migrate compatibility scripts
+- [x] NPC-7 — Add custom Lua callbacks and migrate compatibility scripts
+  - EventDispatcher `on_npc_*` + `fire_npc_*`; `NpcRef` userdata; custom pred/action wired
+  - Migrated Captain + Banker; archived bless/promote/shop/oracle-handler under `data/npc/archive/script-compat/`
+  - Stopped loading `data/npc/lib/npcsystem/` from `npc.lua`
 - [ ] NPC-8 — Add opt-in shop-window subsystem
 - [ ] NPC-9 — Add atomic reload, diagnostics, and rollout cleanup
 
