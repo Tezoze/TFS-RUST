@@ -109,7 +109,8 @@ impl GameWorld {
     ///
     /// Phase 1 walk-engine unification: widened to dispatch **players** to
     /// [`player_idle_stimulus`] (`crplayer.cc:388-405`) in addition to monsters
-    /// (`crnonpl.cc:2386`). NPCs remain excluded.
+    /// (`crnonpl.cc:2386`). NPC-6: NPCs dispatch to [`GameWorld::npc_idle_stimulus`]
+    /// (`crnonpl.cc:1718`).
     /// Phase 3: monsters run on the ToDo/IdleStimulus engine for **both** eras.
     /// Phase 4: players also run on the ToDo/IdleStimulus engine for both eras (1098
     /// player logic deleted). Phase 6 collapsed `beat_driven_loop` — both eras
@@ -134,6 +135,12 @@ impl GameWorld {
             Some(CreatureKind::Player(_)) => {
                 trace_creature_todo(self, cid, "idle_stimulus_enter");
                 self.player_idle_stimulus(cid);
+                trace_creature_todo(self, cid, "idle_stimulus_exit");
+            }
+            Some(CreatureKind::Npc(_)) => {
+                trace_creature_todo(self, cid, "idle_stimulus_enter");
+                let mut sink = crate::npc::DialogueTrace::default();
+                self.npc_idle_stimulus(cid, &mut sink);
                 trace_creature_todo(self, cid, "idle_stimulus_exit");
             }
             _ => {}
@@ -3139,7 +3146,7 @@ impl GameWorld {
             }
             CreatureAction::Talk { text } => {
                 // C++ `TDTalk` — `cract.cc:848-851`, `:1367-1390`: `this->Talk(Mode, NULL, Text, false)`.
-                // Talk mode: `TALK_SAY` for players, `TALK_ANIMAL_LOW` for monsters (`cract.cc:409`).
+                // Talk mode: `TALK_SAY` for players/NPCs, `TALK_ANIMAL_LOW` for monsters (`cract.cc:409`).
                 trace_creature_todo(self, cid, "execute_talk");
                 let is_monster = self
                     .creatures
@@ -3150,8 +3157,22 @@ impl GameWorld {
                 } else {
                     SpeakType::Say as u8
                 };
-                self.broadcast_creature_say_viewport(cid, speak_type, text);
+                self.broadcast_creature_say_viewport(cid, speak_type, &text);
                 trace_creature_todo(self, cid, "execute_talk_done");
+                TodoExecuteKind::Wait
+            }
+            CreatureAction::ChangeNpcState { to_idle } => {
+                // C++ `TDChangeState` → `ChangeNPCState(..., Stimulus=true)` (`cract.cc:859-861`).
+                // While `LockToDo` is set, `ToDoYield` is a no-op (`cract.cc:1026-1031`); the
+                // drain path calls `IdleStimulus` when the queue empties.
+                trace_creature_todo(self, cid, "execute_change_npc_state");
+                if to_idle {
+                    if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(cid) {
+                        npc.runtime.activity = crate::creature::NpcActivity::Idle;
+                        npc.runtime.focus = None;
+                    }
+                }
+                trace_creature_todo(self, cid, "execute_change_npc_state_done");
                 TodoExecuteKind::Wait
             }
             CreatureAction::Attack => {
@@ -3877,9 +3898,22 @@ impl GameWorld {
                     }
                 }
                 TodoExecuteKind::Wait => {
-                    // C++ `TCreature::Execute` — drained todo list runs `IdleStimulus`
-                    // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
-                    if self.creature_todo_queue_empty(cid) {
+                    // C++ `CalculateDelay(TDWait)` with `Delay > 0` breaks the Execute loop
+                    // and leaves the entry pending (`cract.cc:795-801`, `:905-915`). Rust pops
+                    // Wait up front; if a future wakeup was armed, do **not** IdleStimulus yet
+                    // — otherwise Go+Wait(2000) roam immediately re-idles and loses the pause
+                    // (NPC-6; also trips the zero-delay iteration guard).
+                    let has_future_wakeup = self.creatures.get(cid).is_some_and(|k| {
+                        k.base()
+                            .next_wakeup
+                            .is_some_and(|w| w > self.server_ms)
+                    });
+                    if has_future_wakeup {
+                        self.monster_combat_reschedule_if_stalled(cid);
+                        TodoExecuteLoopControl::Break
+                    } else if self.creature_todo_queue_empty(cid) {
+                        // Expired Wait(0) / past deadline — drained list runs IdleStimulus
+                        // (`cract.cc:764-767`), including after `ToDoYield`'s `ToDoWait(0)`.
                         self.creature_todo_release_lock_if_drained(cid);
                         self.idle_stimulus(cid);
                         if self.creature_todo_queue_empty(cid) {
@@ -3888,10 +3922,7 @@ impl GameWorld {
                             TodoExecuteLoopControl::Continue
                         }
                     } else {
-                        // C++ `Execute` is a `while(true)` loop — consecutive zero-delay entries
-                        // run in the same wakeup (`cract.cc:784`). `Wait{0}` doesn't arm a
-                        // wakeup (delay 0 → no `todo_start_from_action`), so chain same-beat.
-                        // `Wait{N>0}` arms a wakeup — let it fire on the future beat.
+                        // Consecutive zero-delay entries in the same wakeup (`cract.cc:784`).
                         let has_armed_wakeup = self
                             .creatures
                             .get(cid)

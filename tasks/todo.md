@@ -25,10 +25,10 @@
   - Tests: parse-all 337, goldens albert/quentin/suzy(+bank), Lua round-trip
   - Generated: 337 Lua defs under `data/npc/scripts/`
   - Archived: `data/npc/archive/{xml,behavior}/` (old `behavior=` pack); 9 `script=` XMLs stay live for NPC-7
-- [ ] NPC-3 — Wire NPC definitions into spawn/type initialization
-- [ ] NPC-4 — Implement speech stimulus, focus, queue, and rule matching
-- [ ] NPC-5 — Implement standard immediate actions
-- [ ] NPC-6 — Implement ToDo reply timing, movement, sleep/wake, and NPC speech
+- [x] NPC-3 — Wire NPC definitions into spawn/type initialization
+- [x] NPC-4 — Implement speech stimulus, focus, queue, and rule matching
+- [x] NPC-5 — Implement standard immediate actions
+- [x] NPC-6 — Implement ToDo reply timing, movement, sleep/wake, and NPC speech
 - [ ] NPC-7 — Add custom Lua callbacks and migrate compatibility scripts
 - [ ] NPC-8 — Add opt-in shop-window subsystem
 - [ ] NPC-9 — Add atomic reload, diagnostics, and rollout cleanup

@@ -524,6 +524,10 @@ impl GameWorld {
         self.spawns.on_creature_spawned(slot_index, cid);
         self.spawn_slot_by_creature.insert(cid, slot_index);
 
+        // C++ `TNPC` ctor ends with `ToDoYield` so IdleStimulus (roam/sleep) can run
+        // (`crnonpl.cc:1665`).
+        self.creature_todo_yield(cid);
+
         if !startup {
             let pos = self
                 .creatures

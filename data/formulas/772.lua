@@ -68,6 +68,11 @@ formulas = {
     replyInitialDelayMs = 1000,
     replyBaseDelayMs = 3100,
     replyByteFactorMs = 100,
+    talkingKeepaliveMs = 2000,
+    idleRoamAttempts = 10,
+    idleRoamDelayMs = 2000,
+    sleepSearchRangeX = 10,
+    sleepSearchRangeY = 10,
   },
 }
 

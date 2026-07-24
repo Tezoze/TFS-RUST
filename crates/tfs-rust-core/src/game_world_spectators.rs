@@ -272,6 +272,8 @@ impl GameWorld {
             // Monster talk — 772 `crnonpl.cc:2458` `Talk(this->ID, Mode, NULL, Text, false)`.
             // Level is unused on 772 wire (codec omits it); 1098 monsters don't talk.
             Some(CreatureKind::Monster(m)) => (m.base.position, m.base.name.clone(), 0),
+            // NPC replies — `TDTalk` / `SpeakType::Say` (NPC-6).
+            Some(CreatureKind::Npc(n)) => (n.base.position, n.base.name.clone(), 0),
             _ => return,
         };
         // `spectator_conns_via_grid` already filters by `can_see_position(viewer, pos)`,

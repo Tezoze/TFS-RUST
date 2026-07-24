@@ -1,6 +1,6 @@
 # NPC system audit and implementation plan — 772 outcomes, TFS flexibility
 
-**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; NPC-4 speech/focus/matching done; NPC-5 standard actions + immediate mutation done (ToDo reply scheduling deferred to NPC-6)
+**Status:** audit complete; NPC-0 corpus inventory + black-box fixtures frozen; NPC-1 definition model + Lua registration done; NPC-2 offline importer + reference-corpus Lua validate green; NPC-3 spawn/type integration done; NPC-4 speech/focus/matching done; NPC-5 standard actions + immediate mutation done; NPC-6 ToDo timing/movement/sleep/wake/NPC speech done
 **Primary target:** exact observable 772 NPC outcomes
 **Domain:** TFS-style `Npc` / `NpcType`, Lua content and userdata APIs
 **Implementation:** idiomatic Rust on the game thread; LuaJIT for content hooks
@@ -530,16 +530,18 @@ Affected files:
 
 Work:
 
-- [ ] Add profile fields for NPC timing/range constants; derive 772 values from `tibia-game-master` and verify 1098 defaults against repo-root TFS before writing `1098.lua`.
-- [ ] Permit NPC speakers in creature-say encoding and fan-out.
-- [ ] Schedule reply waits, talk actions, and state changes with exact byte-length timing.
-- [ ] Implement 30-round timeout using logical `round_nr`.
-- [ ] Implement ten-attempt cardinal roaming with parity RNG and existing tile queries.
-- [ ] Enforce home floor/radius/house/avoid/block constraints.
-- [ ] Implement player-driven sleep/wake and move/disappear vanish stimuli.
-- [ ] Add deterministic timing/RNG/ToDo queue tests.
+- [x] Add profile fields for NPC timing/range constants; derive 772 values from `tibia-game-master` and verify 1098 defaults against repo-root TFS before writing `1098.lua`.
+- [x] Permit NPC speakers in creature-say encoding and fan-out.
+- [x] Schedule reply waits, talk actions, and state changes with exact byte-length timing.
+- [x] Implement 30-round timeout using logical `round_nr`.
+- [x] Implement ten-attempt cardinal roaming with parity RNG and existing tile queries.
+- [x] Enforce home floor/radius/house/avoid/block constraints.
+- [x] Implement player-driven sleep/wake and move/disappear vanish stimuli.
+- [x] Add deterministic timing/RNG/ToDo queue tests.
 
 **Gate:** NPC-0 timing and movement traces match exactly under a fixed RNG seed.
+
+**NPC-6 deliverables:** `CreatureAction::Talk(String)` + `ChangeNpcState`; NPCs on ToDo/`IdleStimulus`; reply Wait→Talk→trailing Wait scheduling; NPC say fan-out; roam/sleep/wake + `NpcTuning` keepalive/roam/sleep knobs; unit tests for ToDo timing, keepalive, roam RNG, sleep/wake, Tom multi-reply delays.
 
 ### NPC-7 — Lua custom callbacks and TFS compatibility
 

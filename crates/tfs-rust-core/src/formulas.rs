@@ -271,6 +271,16 @@ pub struct NpcTuning {
     pub reply_base_delay_ms: u32,
     /// `(byte_len / 2) * reply_byte_factor_ms` (`crnonpl.cc:1113`).
     pub reply_byte_factor_ms: u32,
+    /// Keepalive `ToDoWait` while talking and within timeout (`crnonpl.cc:1721`).
+    pub talking_keepalive_ms: u32,
+    /// Max cardinal roam attempts per idle beat (`crnonpl.cc:1770`).
+    pub idle_roam_attempts: u32,
+    /// Post-roam (or failed roam) `ToDoWait` (`crnonpl.cc:1798` / `:1804`).
+    pub idle_roam_delay_ms: u32,
+    /// Sleep proximity search half-extent X (`TFindCreatures(10,10,…)` `crnonpl.cc:1762`).
+    pub sleep_search_range_x: u16,
+    /// Sleep proximity search half-extent Y.
+    pub sleep_search_range_y: u16,
 }
 
 impl NpcTuning {
@@ -286,6 +296,11 @@ impl NpcTuning {
             reply_initial_delay_ms: 1000,
             reply_base_delay_ms: 3100,
             reply_byte_factor_ms: 100,
+            talking_keepalive_ms: 2000,
+            idle_roam_attempts: 10,
+            idle_roam_delay_ms: 2000,
+            sleep_search_range_x: 10,
+            sleep_search_range_y: 10,
         }
     }
 }
@@ -968,6 +983,31 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             num_or(lua, &npc, "replyBaseDelayMs", p.npc.reply_base_delay_ms as i64).max(0) as u32;
         p.npc.reply_byte_factor_ms =
             num_or(lua, &npc, "replyByteFactorMs", p.npc.reply_byte_factor_ms as i64).max(0) as u32;
+        p.npc.talking_keepalive_ms = num_or(
+            lua,
+            &npc,
+            "talkingKeepaliveMs",
+            p.npc.talking_keepalive_ms as i64,
+        )
+        .max(0) as u32;
+        p.npc.idle_roam_attempts =
+            num_or(lua, &npc, "idleRoamAttempts", p.npc.idle_roam_attempts as i64).max(0) as u32;
+        p.npc.idle_roam_delay_ms =
+            num_or(lua, &npc, "idleRoamDelayMs", p.npc.idle_roam_delay_ms as i64).max(0) as u32;
+        p.npc.sleep_search_range_x = num_or(
+            lua,
+            &npc,
+            "sleepSearchRangeX",
+            p.npc.sleep_search_range_x as i64,
+        )
+        .max(0) as u16;
+        p.npc.sleep_search_range_y = num_or(
+            lua,
+            &npc,
+            "sleepSearchRangeY",
+            p.npc.sleep_search_range_y as i64,
+        )
+        .max(0) as u16;
     }
 
     p

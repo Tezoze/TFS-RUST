@@ -106,7 +106,9 @@ pub struct ActionObjectRef {
 /// idle combat tail calls `Rotate(Target)` directly (`crnonpl.cc:2872-2873`), so the 0x6B turn
 /// broadcast lands in the same beat as the first `TDGo` move packet — making the turn
 /// imperceptible. Enqueuing it caused a visible "turn on the spot" defect (audit: turn-on-spot).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Not `Copy`: [`CreatureAction::Talk`] owns reply text (NPC-6 dialogue / drunk Hicks).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreatureAction {
     /// `TDGo` — execute one walk step from `listWalkDir`.
     Go,
@@ -117,8 +119,12 @@ pub enum CreatureAction {
     /// `TDAttack` — melee/ranged strike (`cract.cc:1325`); execute stub until Phase E2.
     Attack,
     /// `TDTalk` — speak text on the next ToDo execute (`cract.cc:848`, `:1367-1390`).
-    /// `text` is `&'static str` to avoid allocation in the hot walk path (drunk "Hicks!").
-    Talk { text: &'static str },
+    /// Owned `String` so NPC dialogue replies can be scheduled (NPC-6); drunk "Hicks!"
+    /// also uses this path.
+    Talk { text: String },
+    /// `TDChangeState` — deferred NPC activity transition (`cract.cc:859-861`, `:1393`).
+    /// Execute sets Idle (clearing focus) with stimulus yield (`ChangeNPCState(..., true)`).
+    ChangeNpcState { to_idle: bool },
     /// `TDUse` — `cract.cc:1258-1296` `ToDoUse`. `obj2.is_none()` = single-object use
     /// (`CUseObject` `receiving.cc:384`); `obj2.is_some()` = two-object use
     /// (`CUseTwoObjects` `receiving.cc:430`), gated by `earliest_multiuse_server_ms` in
@@ -295,19 +301,44 @@ impl GameWorld {
     }
 
     /// C++ `TCreature::ToDoTalk` — `cract.cc:1367-1390`: enqueue `TDTalk` at the back.
-    pub(crate) fn enqueue_creature_talk(&mut self, cid: CreatureId, text: &'static str) -> bool {
+    pub(crate) fn enqueue_creature_talk(&mut self, cid: CreatureId, text: impl Into<String>) -> bool {
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
         k.base_mut()
             .todo
             .queue
-            .push_back(CreatureAction::Talk { text });
+            .push_back(CreatureAction::Talk {
+                text: text.into(),
+            });
         tracing::debug!(
             creature = k.base().name.as_str(),
             ?cid,
             action_queue_len = k.base().todo.queue.len(),
             "idle_todo: enqueue_talk"
+        );
+        true
+    }
+
+    /// C++ `TCreature::ToDoChangeState` — `cract.cc:1393-1400`: enqueue `TDChangeState`.
+    pub(crate) fn enqueue_creature_change_npc_state(
+        &mut self,
+        cid: CreatureId,
+        to_idle: bool,
+    ) -> bool {
+        let Some(k) = self.creatures.get_mut(cid) else {
+            return false;
+        };
+        k.base_mut()
+            .todo
+            .queue
+            .push_back(CreatureAction::ChangeNpcState { to_idle });
+        tracing::debug!(
+            creature = k.base().name.as_str(),
+            ?cid,
+            to_idle,
+            action_queue_len = k.base().todo.queue.len(),
+            "idle_todo: enqueue_change_npc_state"
         );
         true
     }
@@ -597,14 +628,23 @@ impl GameWorld {
 
     /// Clear `LockToDo` when the todo batch and walk segment are fully drained
     /// (`cract.cc` `ToDoClear` before `IdleStimulus` when `ActToDo >= NrToDo`).
+    ///
+    /// A future `next_wakeup` after a popped `ToDoWait` still counts as in-flight
+    /// (`cract.cc:795-801` leaves `TDWait` pending until Delay expires). Keep the lock
+    /// so IdleStimulus cannot re-enter and erase the pause (NPC roam Wait(2000)).
     pub(crate) fn creature_todo_release_lock_if_drained(&mut self, cid: CreatureId) {
+        let server_ms = self.server_ms;
         let Some(k) = self.creatures.get_mut(cid) else {
             return;
         };
         let base = k.base_mut();
-        if base.todo.is_empty() && base.walk_queue.is_empty() {
-            base.todo.locked = false;
+        if !base.todo.is_empty() || !base.walk_queue.is_empty() {
+            return;
         }
+        if base.next_wakeup.is_some_and(|w| w > server_ms) {
+            return;
+        }
+        base.todo.locked = false;
     }
 
     /// C++ `TDAttack` branch in `ToDoStart` — `cract.cc:909-918`.
@@ -833,12 +873,16 @@ impl GameWorld {
     ///
     /// Phase 0 walk-engine unification: widened from monster-only to include **players** so both
     /// share `Execute` → `Go`/`Attack` → `IdleStimulus` → `Combat.CanToDoAttack`
-    /// (`cract.cc:783`, `crplayer.cc:388`). NPCs remain excluded (no ToDo-driven behavior).
+    /// (`cract.cc:783`, `crplayer.cc:388`). NPC-6: NPCs share the same path for reply
+    /// timing, roam, and sleep/wake (`TNPC::IdleStimulus` `crnonpl.cc:1718`).
     /// Phase 6: `beat_driven_loop` collapsed — both eras unconditionally use the ToDo path.
     pub(crate) fn creature_uses_todo_execute(&self, cid: CreatureId) -> bool {
-        self.creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(_) | CreatureKind::Player(_)))
+        self.creatures.get(cid).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(_) | CreatureKind::Player(_) | CreatureKind::Npc(_)
+            )
+        })
     }
 
     /// F8 S4 — C++ `Execute` `RESULT` catch — `cract.cc:870-889`.

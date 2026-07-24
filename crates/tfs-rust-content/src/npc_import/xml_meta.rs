@@ -29,7 +29,7 @@ pub fn load_xml_npc_dir(npc_dir: &Path) -> ImportResult<Vec<XmlNpcMeta>> {
         }
         out.push(parse_npc_xml(&path)?);
     }
-    out.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    out.sort_by_key(|a| a.name.to_ascii_lowercase());
     Ok(out)
 }
 
@@ -61,13 +61,12 @@ fn parse_npc_xml(path: &Path) -> ImportResult<XmlNpcMeta> {
         return Err(ImportError::io(path, "root element must be <npc>"));
     }
 
-    let mut meta = XmlNpcMeta::default();
-    meta.name = root
-        .attribute("name")
-        .unwrap_or("")
-        .to_string();
-    meta.behavior = root.attribute("behavior").map(str::to_string);
-    meta.script = root.attribute("script").map(str::to_string);
+    let mut meta = XmlNpcMeta {
+        name: root.attribute("name").unwrap_or("").to_string(),
+        behavior: root.attribute("behavior").map(str::to_string),
+        script: root.attribute("script").map(str::to_string),
+        ..Default::default()
+    };
     if let Some(r) = root.attribute("walkradius") {
         meta.movement.radius = r.parse().unwrap_or(0);
     }

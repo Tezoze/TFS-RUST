@@ -259,9 +259,7 @@ impl<'a> Lexer<'a> {
     fn skip_ws_and_comments(&mut self) {
         loop {
             while let Some(c) = self.peek() {
-                if c == ' ' || c == '\t' || c == '\r' {
-                    self.bump();
-                } else if c == '\n' {
+                if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
                     self.bump();
                 } else {
                     break;

@@ -6028,7 +6028,7 @@ fn test_monster_deep_zero_delay_execute_chain() {
                 deadline_ms: 0,
             });
             base.todo.queue.push_back(CreatureAction::Talk {
-                text: "chain-step",
+                text: "chain-step".into(),
             });
         }
     }

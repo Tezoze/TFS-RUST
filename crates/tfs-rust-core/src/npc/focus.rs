@@ -47,9 +47,7 @@ impl GameWorld {
         }
     }
 
-    /// 772 `TNPC::IdleStimulus` conversation half — timeout VANISH + ADDRESSQUEUE (`crnonpl.cc:1718-1758`).
-    ///
-    /// Roam / sleep tails land in NPC-6.
+    /// 772 `TNPC::IdleStimulus` — timeout VANISH, ADDRESSQUEUE, sleep, roam (`crnonpl.cc:1718-1808`).
     pub fn npc_idle_stimulus(&mut self, npc_id: CreatureId, trace: &mut DialogueTrace) {
         let Some(CreatureKind::Npc(npc)) = self.creatures.get(npc_id) else {
             return;
@@ -60,13 +58,16 @@ impl GameWorld {
         }
 
         let round = self.round_nr;
-        let timeout = self.mechanics.profile.npc.conversation_timeout_rounds;
+        let tuning = self.mechanics.profile.npc;
+        let timeout = tuning.conversation_timeout_rounds;
         let talking = npc.runtime.activity == NpcActivity::Talking;
         let last_talk = npc.runtime.last_talk_round;
 
         if talking {
             if last_talk.saturating_add(timeout) > round {
-                // Still within window — C++ schedules Wait(2000); we no-op until timeout.
+                // Still within window — keepalive Wait (`crnonpl.cc:1720-1722`).
+                let _ = self.enqueue_creature_wait(npc_id, u64::from(tuning.talking_keepalive_ms));
+                self.todo_start_from_action(npc_id, u64::from(tuning.talking_keepalive_ms).max(1));
                 return;
             }
             // Timeout → VANISH then idle.
@@ -104,7 +105,7 @@ impl GameWorld {
                 npc.runtime.queue.pop_front()
             };
             let Some(entry) = entry else {
-                return;
+                break;
             };
             trace.push(DialogueEvent::Queue {
                 op: QueueOp::Pop,
@@ -118,6 +119,9 @@ impl GameWorld {
             if !self.npc_player_in_focus_range(npc_id, entry.player) {
                 continue;
             }
+
+            // C++ clears ToDo before ADDRESSQUEUE react (`crnonpl.cc:1742`).
+            let _ = self.player_todo_clear(npc_id);
 
             if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
                 npc.runtime.activity = NpcActivity::Talking;
@@ -140,7 +144,8 @@ impl GameWorld {
 
             let still_talking = matches!(
                 self.creatures.get(npc_id),
-                Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Talking
+                Some(CreatureKind::Npc(n))
+                    if matches!(n.runtime.activity, NpcActivity::Talking | NpcActivity::Leaving)
             );
             if still_talking {
                 self.npc_turn_to(npc_id, entry.player, trace);
@@ -150,6 +155,167 @@ impl GameWorld {
                 return;
             }
         }
+
+        // Sleep / roam when idle and unlocked (`crnonpl.cc:1761-1806`).
+        let locked = self
+            .creatures
+            .get(npc_id)
+            .is_some_and(|k| k.base().todo.locked);
+        let idle = matches!(
+            self.creatures.get(npc_id),
+            Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Idle
+        );
+        if idle && !locked {
+            self.npc_idle_roam_or_sleep(npc_id, trace);
+        }
+    }
+
+    /// Sleep when no players nearby; otherwise try cardinal roam (`crnonpl.cc:1761-1806`).
+    fn npc_idle_roam_or_sleep(&mut self, npc_id: CreatureId, trace: &mut DialogueTrace) {
+        let tuning = self.mechanics.profile.npc;
+        if !self.npc_players_in_sleep_range(npc_id) {
+            if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
+                npc.runtime.activity = NpcActivity::Sleeping;
+            }
+            trace.push(DialogueEvent::State { value: "sleeping" });
+            return;
+        }
+
+        let delay = u64::from(tuning.idle_roam_delay_ms);
+        if self.npc_try_roam_step(npc_id) {
+            let _ = self.enqueue_creature_go(npc_id);
+            let _ = self.enqueue_creature_wait(npc_id, delay);
+            if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
+                npc.runtime.next_walk = Some(self.server_ms.saturating_add(delay));
+            }
+            self.todo_start_from_action(npc_id, 1);
+        } else {
+            let _ = self.enqueue_creature_wait(npc_id, delay);
+            if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
+                npc.runtime.next_walk = Some(self.server_ms.saturating_add(delay));
+            }
+            self.todo_start_from_action(npc_id, delay.max(1));
+        }
+    }
+
+    /// `TFindCreatures(sleep_range, …, FIND_PLAYERS)` — any player in box (`crnonpl.cc:1762`).
+    fn npc_players_in_sleep_range(&self, npc_id: CreatureId) -> bool {
+        let tuning = self.mechanics.profile.npc;
+        let npc_pos = match self.creatures.get(npc_id) {
+            Some(CreatureKind::Npc(n)) => n.base.position,
+            _ => return false,
+        };
+        let rx = i32::from(tuning.sleep_search_range_x);
+        let ry = i32::from(tuning.sleep_search_range_y);
+        for (_id, k) in self.creatures.iter() {
+            let CreatureKind::Player(p) = k else {
+                continue;
+            };
+            let ppos = p.base.position;
+            if ppos.z != npc_pos.z {
+                continue;
+            }
+            if (ppos.x as i32 - npc_pos.x as i32).abs() <= rx
+                && (ppos.y as i32 - npc_pos.y as i32).abs() <= ry
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Up to `idle_roam_attempts` random cardinal steps; queues walk on success.
+    ///
+    /// C++ `TNPC::IdleStimulus` roam — `crnonpl.cc:1768-1793` / `MovePossible` `:1672-1679`.
+    fn npc_try_roam_step(&mut self, npc_id: CreatureId) -> bool {
+        use tfs_rust_common::enums::Direction;
+
+        let (pos, home, radius) = match self.creatures.get(npc_id) {
+            Some(CreatureKind::Npc(n)) => (
+                n.base.position,
+                n.runtime.home_position,
+                n.runtime.radius,
+            ),
+            _ => return false,
+        };
+        let attempts = self.mechanics.profile.npc.idle_roam_attempts;
+        const ROAM_DIRS: [Direction; 4] = [
+            Direction::West,
+            Direction::East,
+            Direction::North,
+            Direction::South,
+        ];
+        for _ in 0..attempts {
+            let dir = ROAM_DIRS[self.parity_rand_mod(4) as usize];
+            let dest = pos.offset(dir);
+            if !self.npc_move_possible(npc_id, dest, home, radius) {
+                continue;
+            }
+            if let Some(k) = self.creatures.get_mut(npc_id) {
+                let base = k.base_mut();
+                base.walk_queue.clear();
+                base.walk_destinations.clear();
+                base.walk_queue.push_back(dir);
+                base.walk_destinations.push_back(dest);
+                base.has_follow_path = false;
+                base.force_update_follow_path = false;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// 772 `TNPC::MovePossible` — `crnonpl.cc:1672-1679`.
+    fn npc_move_possible(
+        &self,
+        npc_id: CreatureId,
+        dest: tfs_rust_common::Position,
+        home: tfs_rust_common::Position,
+        radius: u16,
+    ) -> bool {
+        if dest.z != home.z {
+            return false;
+        }
+        let r = i32::from(radius);
+        if (dest.x as i32 - home.x as i32).abs() > r || (dest.y as i32 - home.y as i32).abs() > r {
+            return false;
+        }
+        let Some(tile) = self.map.get_tile(dest) else {
+            return false;
+        };
+        if matches!(tile, crate::tile::Tile::House(_)) {
+            return false;
+        }
+        let chain = tile.body().map_object_chain();
+        let Some(crate::tile::MapStackEntry::Ground(server_id)) = chain.first() else {
+            return false;
+        };
+        if !self.items_db.is_terrain_bank(*server_id) || self.items_db.is_unpassable(*server_id) {
+            return false;
+        }
+        for entry in &chain {
+            match entry {
+                crate::tile::MapStackEntry::Ground(sid) => {
+                    if self.items_db.is_avoid_hazard(*sid) {
+                        return false;
+                    }
+                }
+                crate::tile::MapStackEntry::Item(item_id) => {
+                    let Some(item) = self.items.get(*item_id) else {
+                        return false;
+                    };
+                    let sid = item.item_type;
+                    if self.items_db.is_avoid_hazard(sid) || self.items_db.is_unpassable(sid) {
+                        return false;
+                    }
+                }
+                crate::tile::MapStackEntry::Creature(cid) if *cid != npc_id => {
+                    return false;
+                }
+                crate::tile::MapStackEntry::Creature(_) => {}
+            }
+        }
+        true
     }
 
     /// Prune queue entries that are gone or out of focus range (`CreatureMoveStimulus` queue half).
@@ -201,22 +367,27 @@ impl GameWorld {
     ) {
         self.npc_prune_queue(npc_id, trace);
 
-        let focus = match self.creatures.get(npc_id) {
-            Some(CreatureKind::Npc(n)) => n.runtime.focus,
+        let (focus, activity) = match self.creatures.get(npc_id) {
+            Some(CreatureKind::Npc(n)) => (n.runtime.focus, n.runtime.activity),
             _ => return,
         };
-        let Some(focus) = focus else {
-            // Wake sleeping NPCs on nearby player move — NPC-6; skip for now.
+
+        // Wake sleeping NPCs on nearby player move (`crnonpl.cc:1863-1867`).
+        if focus.is_none() {
+            if activity == NpcActivity::Sleeping && !deleted {
+                if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
+                    npc.runtime.activity = NpcActivity::Idle;
+                }
+                trace.push(DialogueEvent::State { value: "idle" });
+                self.creature_todo_yield(npc_id);
+            }
             return;
-        };
+        }
+        let focus = focus.expect("checked");
         if moved != focus && moved != npc_id {
             return;
         }
 
-        let activity = match self.creatures.get(npc_id) {
-            Some(CreatureKind::Npc(n)) => n.runtime.activity,
-            _ => return,
-        };
         if !matches!(activity, NpcActivity::Talking | NpcActivity::Leaving) {
             return;
         }
@@ -312,10 +483,11 @@ impl GameWorld {
                 });
             }
         } else {
-            // ADDRESS.
+            // ADDRESS — `ToDoClear` then Talking (`crnonpl.cc:1703-1707`).
             trace.push(DialogueEvent::Situation {
                 name: DialogueSituationKind::Address.name(),
             });
+            let _ = self.player_todo_clear(npc_id);
             if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(npc_id) {
                 n.runtime.activity = NpcActivity::Talking;
                 n.runtime.focus = Some(speaker);
@@ -338,6 +510,7 @@ impl GameWorld {
             let still_talking = matches!(
                 self.creatures.get(npc_id),
                 Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Talking
+                    || n.runtime.activity == NpcActivity::Leaving
             );
             if still_talking {
                 self.npc_turn_to(npc_id, speaker, trace);
@@ -722,6 +895,10 @@ impl GameWorld {
                     player: None,
                     temporary: false,
                 });
+            } else if plan.deferred_idle {
+                // Immediate Leaving; `ToDoChangeState(IDLE)` runs after replies (`crnonpl.cc:1219-1222`).
+                npc.runtime.activity = NpcActivity::Leaving;
+                trace.push(DialogueEvent::State { value: "leaving" });
             }
 
             if plan.start_todo && situation != DialogueSituationKind::Busy {
@@ -730,7 +907,51 @@ impl GameWorld {
             }
         }
 
-        // Planned replies are traced; actual ToDoTalk scheduling is NPC-6.
+        // Schedule Wait→Talk pairs + optional ChangeState + trailing Wait/Start (NPC-6).
+        // Busy reactions do not extend LastTalk and still may speak; C++ only skips LastTalk bump.
+        if plan.start_todo || !plan.replies.is_empty() || plan.deferred_idle {
+            self.npc_schedule_todo_from_plan(npc_id, plan, trace);
+        }
+    }
+
+    /// Enqueue `ToDoWait`/`ToDoTalk`/`ToDoChangeState`/`ToDoStart` from a dialogue plan.
+    ///
+    /// C++ `TBehaviourDatabase::react` — `crnonpl.cc:1087-1291`.
+    fn npc_schedule_todo_from_plan(
+        &mut self,
+        npc_id: CreatureId,
+        plan: &super::react::DialoguePlan,
+        trace: &mut DialogueTrace,
+    ) {
+        use super::events::TodoOp;
+
+        let first_delay = plan
+            .replies
+            .first()
+            .map(|r| u64::from(r.delay_ms))
+            .unwrap_or(0);
+
+        for reply in &plan.replies {
+            let _ = self.enqueue_creature_wait(npc_id, u64::from(reply.delay_ms));
+            let _ = self.enqueue_creature_talk(npc_id, reply.text.clone());
+            trace.push(DialogueEvent::Todo {
+                op: TodoOp::Talk,
+                delay_ms: Some(reply.delay_ms),
+            });
+        }
+
+        if plan.deferred_idle {
+            let _ = self.enqueue_creature_change_npc_state(npc_id, true);
+        }
+
+        if plan.start_todo {
+            let final_delay = u64::from(plan.final_talk_delay_ms);
+            let _ = self.enqueue_creature_wait(npc_id, final_delay);
+            // Trace Wait/Start already emitted in `apply_dialogue_plan`.
+            self.todo_start_from_action(npc_id, first_delay.max(1));
+        } else if !plan.replies.is_empty() || plan.deferred_idle {
+            self.todo_start_from_action(npc_id, first_delay.max(1));
+        }
     }
 
     fn npc_enqueue(
@@ -842,10 +1063,10 @@ impl GameWorld {
                 &mut raw,
             );
             for cid in raw {
-                if matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_))) {
-                    if !ids.contains(&cid) {
-                        ids.push(cid);
-                    }
+                if matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_)))
+                    && !ids.contains(&cid)
+                {
+                    ids.push(cid);
                 }
             }
         }
@@ -861,7 +1082,10 @@ impl GameWorld {
         }
     }
 
-    /// Check talking NPCs for conversation timeout (once per Other round).
+    /// Safety-net timeout tick for talking NPCs with an empty unlocked ToDo queue.
+    ///
+    /// Primary path is ToDo keepalive → `IdleStimulus` (`crnonpl.cc:1720-1722`). This only
+    /// catches orphaned talkers (no pending Wait) so we do not double-fire with an armed batch.
     pub(crate) fn npc_tick_conversation_timeouts(&mut self) {
         let timeout = self.mechanics.profile.npc.conversation_timeout_rounds;
         let round = self.round_nr;
@@ -871,7 +1095,9 @@ impl GameWorld {
             .filter_map(|(id, k)| match k {
                 CreatureKind::Npc(n)
                     if n.runtime.activity == NpcActivity::Talking
-                        && n.runtime.last_talk_round.saturating_add(timeout) <= round =>
+                        && n.runtime.last_talk_round.saturating_add(timeout) <= round
+                        && !n.base.todo.locked
+                        && n.base.todo.is_empty() =>
                 {
                     Some(id)
                 }

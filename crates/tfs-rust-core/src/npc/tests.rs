@@ -302,6 +302,14 @@ fn greeting_farewell_trace() {
         e,
         DialogueEvent::Say { text, .. } if text == "Good bye, Hero!"
     )));
+    // Say then Idle → Leaving until `ToDoChangeState` executes (`crnonpl.cc:1219-1222`).
+    assert!(matches!(
+        world.creatures.get(npc),
+        Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Leaving
+    ));
+    // Drain reply waits + ChangeState to Idle.
+    world.server_ms = world.server_ms.saturating_add(20_000);
+    crate::sim_harness::run_sim_tick(&mut world);
     assert!(matches!(
         world.creatures.get(npc),
         Some(CreatureKind::Npc(n))
@@ -842,4 +850,337 @@ fn partial_failure_keeps_prior_mutations() {
         })
         .collect();
     assert_eq!(delete_events.len(), 1, "only successful delete is traced");
+}
+
+fn load_tom_db() -> Option<Arc<NpcDatabase>> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../reference/cipsoft-772/runtime/npc");
+    if !root.exists() {
+        return None;
+    }
+    let path = root.join("tom.npc");
+    let file = parse_npc_file(&root, &path).ok()?;
+    let pending = lower_npc(file).ok()?;
+    let db = validate_pending_definitions(vec![pending], None).ok()?;
+    Some(Arc::new(db))
+}
+
+#[test]
+fn reply_todo_schedules_wait_talk_chain() {
+    let Some(db) = load_quentin_db() else {
+        eprintln!("skip: reference quentin.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    world.round_nr = 100;
+    world.server_ms = 100_000;
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+
+    let npc = insert_npc_from_db(&mut world, "Quentin", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+
+    let mut trace = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut trace);
+
+    let base = world.creatures.get(npc).expect("npc").base();
+    assert!(base.todo.locked, "ToDoStart must lock the batch");
+    assert!(
+        base.todo.has_wait() && base.todo.has_talk(),
+        "greeting must enqueue Wait+Talk"
+    );
+    let talks: Vec<_> = base
+        .todo
+        .queue
+        .iter()
+        .filter_map(|a| match a {
+            crate::creature_todo::CreatureAction::Talk { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        talks.iter().any(|t| t.contains("Welcome, adventurer Hero!")),
+        "owned reply text queued: {talks:?}"
+    );
+
+    // Before first delay expires, Talk must not have executed yet (queue still has Talk).
+    assert!(base.todo.has_talk());
+
+    // Jump past initial 1000 ms wait and drain.
+    world.server_ms = 101_000;
+    crate::sim_harness::run_sim_tick(&mut world);
+    // After first Wait+Talk, remaining trailing wait may still be present; speech text was queued.
+}
+
+#[test]
+fn talking_keepalive_schedules_wait_2000() {
+    let Some(db) = load_quentin_db() else {
+        eprintln!("skip: reference quentin.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    world.round_nr = 100;
+    world.server_ms = 50_000;
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+
+    let npc = insert_npc_from_db(&mut world, "Quentin", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut t);
+    // Clear greeting batch so IdleStimulus can run (`LockToDo` blocks otherwise).
+    let _ = world.player_todo_clear(npc);
+    if let Some(CreatureKind::Npc(n)) = world.creatures.get_mut(npc) {
+        n.runtime.activity = NpcActivity::Talking;
+        n.runtime.focus = Some(p1);
+        n.runtime.last_talk_round = 100;
+    }
+    world.round_nr = 110; // still within 30-round window
+
+    let mut t2 = DialogueTrace::default();
+    world.npc_idle_stimulus(npc, &mut t2);
+    let base = world.creatures.get(npc).expect("npc").base();
+    assert!(
+        matches!(
+            base.todo.queue.front(),
+            Some(crate::creature_todo::CreatureAction::Wait { deadline_ms })
+                if *deadline_ms == world.server_ms.saturating_add(2000)
+                    || *deadline_ms == 52_000
+        ),
+        "keepalive Wait(2000) expected, queue={:?}",
+        base.todo.queue
+    );
+    assert!(matches!(
+        world.creatures.get(npc),
+        Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Talking
+    ));
+}
+
+#[test]
+fn idle_sleep_when_no_players_nearby() {
+    let Some(db) = load_quentin_db() else {
+        eprintln!("skip: reference quentin.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let npc = insert_npc_from_db(&mut world, "Quentin", home);
+    let _ = world.player_todo_clear(npc);
+
+    let mut t = DialogueTrace::default();
+    world.npc_idle_stimulus(npc, &mut t);
+    assert!(matches!(
+        world.creatures.get(npc),
+        Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Sleeping
+    ));
+    assert!(t
+        .events
+        .iter()
+        .any(|e| matches!(e, DialogueEvent::State { value: "sleeping" })));
+}
+
+#[test]
+fn sleep_wakes_on_player_move() {
+    let Some(db) = load_quentin_db() else {
+        eprintln!("skip: reference quentin.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let npc = insert_npc_from_db(&mut world, "Quentin", home);
+    if let Some(CreatureKind::Npc(n)) = world.creatures.get_mut(npc) {
+        n.runtime.activity = NpcActivity::Sleeping;
+    }
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+
+    let mut t = DialogueTrace::default();
+    world.npc_creature_move_stimulus(npc, p1, false, &mut t);
+    assert!(matches!(
+        world.creatures.get(npc),
+        Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Idle
+    ));
+    assert!(t
+        .events
+        .iter()
+        .any(|e| matches!(e, DialogueEvent::State { value: "idle" })));
+}
+
+#[test]
+fn idle_roam_enqueues_go_with_fixed_rng() {
+    let Some(db) = load_quentin_db() else {
+        eprintln!("skip: reference quentin.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    world.seed_parity_rng(42);
+    world.server_ms = 10_000;
+    let home = Position::new(100, 100, 7);
+    // Large enough pad for radius + sleep search.
+    for dx in -12..=12 {
+        for dy in -12..=12 {
+            ensure_walkable_tile(
+                &mut world.map,
+                Position::new(
+                    (home.x as i32 + dx).max(0) as u16,
+                    (home.y as i32 + dy).max(0) as u16,
+                    home.z,
+                ),
+                100,
+            );
+        }
+    }
+    let npc = insert_npc_from_db(&mut world, "Quentin", home);
+    let _ = world.player_todo_clear(npc);
+    // Player in sleep range so we roam instead of sleep.
+    let mut hero = sim_hero_player("Hero", Position::new(105, 100, 7));
+    hero.base.name = "Hero".into();
+    let _p1 = insert_player(&mut world, hero);
+
+    let mut t = DialogueTrace::default();
+    world.npc_idle_stimulus(npc, &mut t);
+    let base = world.creatures.get(npc).expect("npc").base();
+    assert!(
+        base.todo.has_go() || base.todo.has_wait(),
+        "roam must enqueue Go+Wait or Wait-only on miss; queue={:?}",
+        base.todo.queue
+    );
+    assert!(matches!(
+        world.creatures.get(npc),
+        Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Idle
+    ));
+}
+
+#[test]
+fn idle_roam_wait_holds_pause_before_re_idle() {
+    // C++ `ToDoWait(2000)` after roam — future Wait must arm wakeup and must not
+    // immediately re-enter IdleStimulus (`crnonpl.cc:1797-1799`, `cract.cc:795-801`).
+    // Exercise Wait alone: synthetic tiles often reject `Go`, and `on_walk_step_rejected`
+    // clears the trailing Wait (`walk/mod.rs` ToDoClear).
+    let Some(db) = load_quentin_db() else {
+        eprintln!("skip: reference quentin.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    world.server_ms = 10_000;
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let npc = insert_npc_from_db(&mut world, "Quentin", home);
+    let _ = world.player_todo_clear(npc);
+
+    let delay = u64::from(world.mechanics.profile.npc.idle_roam_delay_ms);
+    assert!(world.enqueue_creature_wait(npc, delay));
+    world.todo_start_from_action(npc, 1);
+
+    world.run_monster_todo_execute(npc);
+
+    let base = world.creatures.get(npc).unwrap().base();
+    assert!(
+        base.todo.is_empty(),
+        "Wait must drain; arms wakeup instead of staying queued"
+    );
+    let wakeup = base.next_wakeup.expect("roam Wait must arm wakeup");
+    assert!(
+        wakeup >= 10_000 + delay,
+        "roam pause Wait({delay}) expected; wakeup={wakeup} server_ms={}",
+        world.server_ms
+    );
+    assert!(
+        base.todo.locked,
+        "LockToDo must stay set through the roam pause"
+    );
+
+    // Locked + future wakeup must block immediate re-roam via IdleStimulus.
+    world.idle_stimulus(npc);
+    assert!(
+        world.creatures.get(npc).unwrap().base().todo.is_empty(),
+        "future Wait must block immediate re-roam"
+    );
+}
+
+#[test]
+fn multi_reply_delay_accounting_tom_job() {
+    let Some(db) = load_tom_db() else {
+        eprintln!("skip: reference tom.npc missing");
+        return;
+    };
+    let mut world = minimal_world();
+    world.npcs_db = db;
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    world.round_nr = 700;
+    world.server_ms = 700_000;
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let npc = insert_npc_from_db(&mut world, "Tom", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut t);
+    let _ = world.player_todo_clear(npc);
+
+    let mut t2 = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "job", &mut t2);
+
+    let say_delays: Vec<u32> = t2
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            DialogueEvent::Say { delay_ms, .. } => Some(*delay_ms),
+            _ => None,
+        })
+        .collect();
+    // multi_reply_timing.json: first job reply 1000, second 9400 (lens-dependent).
+    assert!(
+        say_delays.len() >= 2,
+        "job rule must emit two REPLY delays, got {say_delays:?}"
+    );
+    assert_eq!(say_delays[0], 1000);
+    assert_eq!(
+        say_delays[1], 9400,
+        "second reply TalkDelay after first length factor"
+    );
+
+    let base = world.creatures.get(npc).expect("npc").base();
+    let waits: Vec<u64> = base
+        .todo
+        .queue
+        .iter()
+        .filter_map(|a| match a {
+            crate::creature_todo::CreatureAction::Wait { deadline_ms } => {
+                Some(deadline_ms.saturating_sub(700_000))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        waits.contains(&1000) && waits.contains(&9400),
+        "ToDo waits must match reply delays; waits={waits:?}"
+    );
+    // Final trailing wait 17600 from fixture.
+    assert!(
+        waits.contains(&17_600),
+        "trailing Wait(17600) expected; waits={waits:?}"
+    );
 }

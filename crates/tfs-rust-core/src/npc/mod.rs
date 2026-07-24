@@ -1,9 +1,10 @@
-//! NPC dialogue runtime — matching, focus/queue, speech stimulus, mutations (NPC-4/5).
+//! NPC dialogue runtime — matching, focus/queue, speech stimulus, mutations, ToDo timing (NPC-4/5/6).
 //!
 //! Domain: TFS-style `Npc` / `NpcDialogue` execution.
 //! 772 outcomes: `TNPC::TalkStimulus` / `IdleStimulus` / `TBehaviourDatabase::react`
 //! (`crnonpl.cc`), `SearchForWord` / `SearchForNumber` (`strings.cc`),
-//! speech fan-out `TFindCreatures(3,3,…,FIND_NPCS)` (`operate.cc`).
+//! speech fan-out `TFindCreatures(3,3,…,FIND_NPCS)` (`operate.cc`),
+//! reply `ToDoWait`/`ToDoTalk` timing and roam/sleep (`crnonpl.cc:1087-1808`).
 
 mod actions;
 mod events;
@@ -18,7 +19,9 @@ mod words;
 #[cfg(test)]
 mod tests;
 
+#[allow(unused_imports)]
 pub use actions::NpcActionHost;
+#[allow(unused_imports)]
 pub use events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp};
 pub(crate) use focus::deliver_npc_say_stimuli;
 #[allow(unused_imports)]

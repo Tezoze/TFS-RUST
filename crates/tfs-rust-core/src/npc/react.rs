@@ -23,6 +23,8 @@ pub struct DialoguePlan {
     pub replies: Vec<PlannedReply>,
     pub queue_player: bool,
     pub go_idle: bool,
+    /// Idle after speech already queued → Leaving now + `ToDoChangeState(IDLE)` (`crnonpl.cc:1219-1222`).
+    pub deferred_idle: bool,
     pub topic: Option<i32>,
     pub price: Option<i32>,
     pub amount: Option<i32>,
@@ -120,8 +122,9 @@ pub fn apply_dialogue_plan(
                     if !plan.start_todo {
                         plan.go_idle = true;
                     } else {
-                        // After queued speech, Idle becomes Leaving then ToDoChangeState — NPC-6.
-                        plan.go_idle = true;
+                        // After queued speech, Idle becomes Leaving then ToDoChangeState
+                        // (`crnonpl.cc:1219-1222`).
+                        plan.deferred_idle = true;
                     }
                     plan.start_todo = true;
                 }
