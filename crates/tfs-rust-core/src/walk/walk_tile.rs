@@ -21,6 +21,19 @@ use super::{
     FLAG_NOLIMIT, FLAG_PATHFINDING,
 };
 
+/// Bank+`Waypoints==0` with OTB `blockSolid` cleared for player cliffs (lesson 171).
+///
+/// Monsters/NPCs must still treat these as 772 Unpass; players keep walking via cleared solid.
+fn ground_is_cleared_zero_waypoint_bank(world: &GameWorld, ground: Option<u16>) -> bool {
+    let Some(ground_id) = ground else {
+        return false;
+    };
+    let Some(t) = world.items_db.items.get(&ground_id) else {
+        return false;
+    };
+    t.is_terrain_bank() && t.waypoints_raw() == 0 && !t.block_solid()
+}
+
 /// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
 fn tile_has_height_n(
     pos: Position,
@@ -363,6 +376,11 @@ pub(crate) fn tile_query_add_monster(
         return ReturnValue::NotPossible;
     }
 
+    // Bank+wp0 with blockSolid cleared for player cliffs (lesson 171) — monsters still Unpass.
+    if ground_is_cleared_zero_waypoint_bank(world, body.ground) {
+        return ReturnValue::NotPossible;
+    }
+
     if (flags & FLAG_PATHFINDING) != 0
         && (body.flags & (tilestate::FLOORCHANGE | tilestate::TELEPORT)) != 0
     {
@@ -475,6 +493,11 @@ pub(crate) fn tile_query_add_npc(
     }
 
     if body.ground.is_none() {
+        return ReturnValue::NotPossible;
+    }
+
+    // Same cleared Bank+wp0 cliff Unpass as monsters — players still walk via cleared blockSolid.
+    if ground_is_cleared_zero_waypoint_bank(world, body.ground) {
         return ReturnValue::NotPossible;
     }
 

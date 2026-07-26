@@ -2,8 +2,8 @@
 //!
 //! 1. `ITEM_ATTR_SPEED` ← BANK `Waypoints` (incl. Unpass / wp=0; zeroes stale non-BANK).
 //! 2. Non-Bank `Unpass` → `FLAG_BLOCK_SOLID` (trees/walls for MovePossible).
-//! 3. Bank+Unpass+wp0 → **clear** `FLAG_BLOCK_SOLID` (OTBM mountain "rock soil" stays player-walkable;
-//!    FillMap still skips via speed 0).
+//! 3. Bank+Unpass **`"a mountain"`** only → **clear** `FLAG_BLOCK_SOLID` (OTBM cliff rock-soil;
+//!    dirt/earth/stone walls keep solid so players cannot pathfind through them).
 //! 4. Passable ground speed 0 (Clip-as-ground) → Waypoints 150.
 //!
 //! Usage (repo root):
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!(
-        "objects.srv: {}  |  OTB: {}\n  speed patches: {}\n  Unpass→blockSolid (non-Bank): {}\n  Bank Unpass wp0 clear solid: {}{}",
+        "objects.srv: {}  |  OTB: {}\n  speed patches: {}\n  Unpass→blockSolid: {}\n  mountain bank clear solid: {}{}",
         objects.display(),
         otb.display(),
         speeds.len(),

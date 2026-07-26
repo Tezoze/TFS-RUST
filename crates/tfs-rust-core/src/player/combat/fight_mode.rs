@@ -148,9 +148,12 @@ impl GameWorld {
     /// RoundNr + Delay)`. In `NON_PVP` worlds, `block_pz` is cleared (`crmain.cc:434-436`).
     /// Also refreshes TFS-domain `CONDITION_INFIGHT` (scripts / `ICON_SWORDS`) and sends icons
     /// (`CheckState` / `Player::sendIcons`).
-    /// Skipped for non-players and for players with the `NO_LOGOUT_BLOCK` right (deferred —
-    /// no group flag mapping yet, so all players are subject to the block).
+    /// Skipped for non-players and for `PlayerFlag_NotGainInFight` / 772 `NO_LOGOUT_BLOCK`
+    /// (`crmain.cc:438`, TFS `Player::addInFightTicks` — `player.cpp:2246`).
     pub(crate) fn player_block_logout(&mut self, cid: CreatureId, delay_rounds: u32, block_pz: bool) {
+        if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_NOT_GAIN_IN_FIGHT) {
+            return;
+        }
         let world_type = self.pvp_config.world_type;
         let round_nr = self.round_nr;
         // `NON_PVP` clears `BlockProtectionZone` (`crmain.cc:434-436`).
@@ -353,6 +356,39 @@ mod tests {
         if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
             assert_eq!(p.earliest_logout_round, 160);
             assert_eq!(p.earliest_protection_zone_round, 160);
+        }
+    }
+
+    #[test]
+    fn block_logout_skipped_for_not_gain_in_fight() {
+        use std::collections::HashMap;
+        use tfs_rust_content::groups::{Group, GroupDatabase};
+
+        let mut world = make_pvp_world(WorldType::Pvp);
+        world.round_nr = 100;
+        let mut flag_map = HashMap::new();
+        flag_map.insert("notgaininfight".to_string(), true);
+        world.groups = std::sync::Arc::new(GroupDatabase {
+            groups: HashMap::from([(
+                6u16,
+                Group {
+                    id: 6,
+                    name: "god".to_string(),
+                    access: true,
+                    max_depot_items: 0,
+                    max_vip_entries: 0,
+                    flags: flag_map,
+                },
+            )]),
+        });
+        let a = insert_player(&mut world, "gm");
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
+            p.group_id = 6;
+        }
+        world.player_block_logout(a, 60, true);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(a) {
+            assert_eq!(p.earliest_logout_round, 0);
+            assert_eq!(p.earliest_protection_zone_round, 0);
         }
     }
 

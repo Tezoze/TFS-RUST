@@ -286,7 +286,10 @@ mod tests {
         assert_eq!(gm.name, "gamemaster");
         assert!(gm.access);
         assert_eq!(gm.flags.get("canedithouses"), Some(&false));
-        assert_eq!(gm.flags.get("hasinfinitemana"), Some(&false));
+        // GM casts freely (772 ALL_SPELLS + UNLIMITED_MANA via group flags).
+        assert_eq!(gm.flags.get("hasinfinitemana"), Some(&true));
+        assert_eq!(gm.flags.get("cannotusespells"), Some(&false));
+        assert_eq!(gm.flags.get("ignorespellcheck"), Some(&true));
 
         let senior_tutor = reg.groups.get(&3).expect("senior tutor group");
         assert_eq!(senior_tutor.name, "senior tutor");

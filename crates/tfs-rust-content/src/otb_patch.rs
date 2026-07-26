@@ -82,11 +82,12 @@ pub fn build_all_speed_patches(objects_srv: &Path, otb_path: &Path) -> Result<Ha
     Ok(patches)
 }
 
-/// Build `server_id → FLAG_BLOCK_SOLID` OR-masks for **non-Bank** `Unpass` OTB rows missing the bit.
+/// Build `server_id → FLAG_BLOCK_SOLID` OR-masks for `Unpass` OTB rows missing the bit.
 ///
-/// Bank+Unpass grounds (mountain "rock soil", etc.) stay **walkable for players** on OTBM;
-/// FillMap still skips them via `ITEM_ATTR_SPEED == 0`. Stack Unpass (trees, walls) get `blockSolid`
-/// so MovePossible / `is_walkable` match 772. Identity resolved by `client_id`.
+/// Includes **Bank+Unpass** dirt/earth/stone walls and water — those must block players.
+/// OTBM mountain "rock soil" (`Name = "a mountain"`) is solidified here then cleared by
+/// [`build_bank_unpass_clear_solid`] so players can still walk those cliff banks.
+/// Identity resolved by `client_id`.
 // C++ reference: `UNPASS` → `blockSolid` — `docs/772_OTB_OBJECTS_SRV_FLAG_MAPPING.md`.
 pub fn build_unpass_block_solid_ors(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u32>> {
     let items = OtbLoader::load_from_file(otb_path)?;
@@ -96,18 +97,20 @@ pub fn build_unpass_block_solid_ors(objects_srv: &Path, otb_path: &Path) -> Resu
         let Some(t) = srv_identity(row, &srv) else {
             continue;
         };
-        if t.flags.unpass && !t.flags.bank && row.flags & FLAG_BLOCK_SOLID == 0 {
+        if t.flags.unpass && row.flags & FLAG_BLOCK_SOLID == 0 {
             ors.insert(server_id, FLAG_BLOCK_SOLID);
         }
     }
     Ok(ors)
 }
 
-/// Clear `FLAG_BLOCK_SOLID` on Bank+Unpass OTB rows with `Waypoints <= 0` (OTBM walkable cliffs).
+/// Clear `FLAG_BLOCK_SOLID` only on OTBM walkable mountain banks (`objects.srv` name
+/// `"a mountain"`, Bank+Unpass, Waypoints ≤ 0).
 ///
-/// These were incorrectly solidified by an earlier blanket Unpass patch — players got
-/// "There is not enough room." Monsters still avoid them: FillMap treats raw speed `0` as `-1`.
-/// Identity resolved by `client_id`.
+/// Lesson 171 cleared **all** Bank+Unpass+wp0 (dirt walls, earth, water) — players then
+/// pathfind through dirt walls to ladders. Dirt/earth/stone walls keep `blockSolid` from
+/// [`build_unpass_block_solid_ors`]. Monsters still treat mountains as Unpass via
+/// `is_unpassable_for_field` (Bank+wp0). Identity by `client_id`.
 pub fn build_bank_unpass_clear_solid(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u32>> {
     let items = OtbLoader::load_from_file(otb_path)?;
     let srv = crate::objects_srv::parse_all_types(objects_srv)?;
@@ -116,11 +119,21 @@ pub fn build_bank_unpass_clear_solid(objects_srv: &Path, otb_path: &Path) -> Res
         let Some(t) = srv_identity(row, &srv) else {
             continue;
         };
-        if t.flags.bank && t.flags.unpass && t.waypoints <= 0 && row.flags & FLAG_BLOCK_SOLID != 0 {
-            clears.insert(server_id, FLAG_BLOCK_SOLID);
+        if !is_otbm_walkable_mountain_bank(t) {
+            continue;
         }
+        // Clear after OR-solidify (patch applies OR then clear), or if already solid.
+        clears.insert(server_id, FLAG_BLOCK_SOLID);
     }
     Ok(clears)
+}
+
+/// OTBM places srv `"a mountain"` as walkable cliff/rock-soil ground (lesson 171).
+fn is_otbm_walkable_mountain_bank(t: &ObjectsSrvTypeFlags) -> bool {
+    t.flags.bank
+        && t.flags.unpass
+        && t.waypoints <= 0
+        && t.name.eq_ignore_ascii_case("a mountain")
 }
 
 /// Passable OTB ground (`group==1`, speed 0, identity not `Unpass`, not `blockSolid`) → default 150.

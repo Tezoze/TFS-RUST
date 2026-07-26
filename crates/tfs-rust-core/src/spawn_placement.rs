@@ -11,9 +11,7 @@ use crate::formulas::{SpawnNearPlayer, SpawnPlacement};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
-use crate::return_value::ReturnValue;
-use crate::tile::flags as tilestate;
-use crate::walk::{tile_query_add_creature, FLAG_IGNOREBLOCKITEM};
+use crate::tile::{flags as tilestate, MapStackEntry, Tile};
 
 /// Per-tile probe for classic BFS spawn search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,7 +287,7 @@ impl GameWorld {
         for entry in &chain {
             match entry {
                 crate::tile::MapStackEntry::Ground(sid) => {
-                    if self.items_db.is_unpassable(*sid) {
+                    if self.items_db.is_unpassable_for_field(*sid) {
                         return false;
                     }
                     // AVOID allowed only with BED (`info.cc:777–778`).
@@ -302,7 +300,7 @@ impl GameWorld {
                         return false;
                     };
                     let sid = item.item_type;
-                    if self.items_db.is_unpassable(sid) {
+                    if self.items_db.is_unpassable_for_field(sid) {
                         return false;
                     }
                     if self.items_db.is_avoid_hazard(sid) && (body.flags & tilestate::BED) == 0 {
@@ -315,43 +313,92 @@ impl GameWorld {
         true
     }
 
+    /// 772 `SearchSpawnField` per-tile probe (`info.cc:940–1009`).
+    ///
+    /// No TFS `forced` / `FLAG_IGNOREBLOCKITEM` short-circuit — that incorrectly allowed
+    /// UNPASS+UNMOVE wall tiles on respawn (`forced = !startup`).
     pub(crate) fn probe_spawn_tile(
         &self,
-        cid: CreatureId,
+        _cid: CreatureId,
         pos: Position,
         place_in_pz: bool,
-        forced: bool,
+        home_house_id: u32,
     ) -> SpawnTileProbe {
-        let Some(tile) = self.map.get_tile(pos) else {
-            return SpawnTileProbe {
-                login_possible: false,
-                login_clean: false,
-                expansion_ok: false,
-            };
+        let fail = SpawnTileProbe {
+            login_possible: false,
+            login_clean: false,
+            expansion_ok: false,
         };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return fail;
+        };
+
+        // House gate: `HouseID == 0` rejects all houses; else only matching house.
+        if let Tile::House(h) = tile {
+            if home_house_id == 0 || h.house_id != home_house_id {
+                return fail;
+            }
+        }
+
         let body = tile.body();
-        if body.ground.is_none() {
-            return SpawnTileProbe {
-                login_possible: false,
-                login_clean: false,
-                expansion_ok: false,
-            };
-        }
-        if place_in_pz && body.zone != ZoneType::Protection {
-            return SpawnTileProbe {
-                login_possible: false,
-                login_clean: false,
-                expansion_ok: false,
-            };
+        // `Obj == NONE` → skip (`info.cc:948–950`).
+        let chain = body.map_object_chain();
+        if chain.is_empty() {
+            return fail;
         }
 
-        let expansion_ok = (body.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0;
-        let flags = if forced { FLAG_IGNOREBLOCKITEM } else { 0 };
-        let ret = tile_query_add_creature(self, tile, cid, flags);
-        let login_possible =
-            forced || ret == ReturnValue::NoError || ret == ReturnValue::PlayerIsNotInvited;
-        let login_clean = login_possible && (body.flags & tilestate::BLOCKSOLID) == 0;
+        // Monsterhomes always pass `Player=false` → skip every PZ tile (`info.cc:944–946`).
+        // NPC temple spawns set `place_in_pz` when home is PZ (TFS-shaped temple NPCs).
+        if place_in_pz {
+            if body.zone != ZoneType::Protection {
+                return fail;
+            }
+        } else if body.zone == ZoneType::Protection {
+            return fail;
+        }
 
+        let mut expansion_ok = true;
+        let mut login_possible = true;
+        let mut login_bad = false;
+
+        for entry in &chain {
+            let server_id = match entry {
+                MapStackEntry::Creature(_) => {
+                    login_possible = false;
+                    continue;
+                }
+                MapStackEntry::Ground(sid) => *sid,
+                MapStackEntry::Item(item_id) => {
+                    let Some(item) = self.items.get(*item_id) else {
+                        login_possible = false;
+                        continue;
+                    };
+                    item.item_type
+                }
+            };
+
+            // UNPASS + UNMOVE → hard block; UNPASS alone → LoginBad (`info.cc:962–968`).
+            // Field Unpass includes Bank+wp0 after cliff clear-solid (lesson 171/255).
+            if self.items_db.is_unpassable_for_field(server_id) {
+                if self.items_db.is_immovable(server_id) {
+                    expansion_ok = false;
+                    login_possible = false;
+                } else {
+                    login_bad = true;
+                }
+            }
+
+            // AVOID + UNMOVE: ExpansionPossible=false; LoginPossible &= !Player.
+            // Monster/NPC spawn uses Player=false → login flag unchanged (`info.cc:971–976`).
+            if self.items_db.is_avoid_hazard(server_id) {
+                if self.items_db.is_immovable(server_id) {
+                    expansion_ok = false;
+                }
+                login_bad = true;
+            }
+        }
+
+        let login_clean = login_possible && !login_bad;
         SpawnTileProbe {
             login_possible,
             login_clean,
@@ -375,6 +422,8 @@ impl GameWorld {
                 self.find_and_place_creature_tfs(cid, center, extended_pos, forced, home_radius)
             }
             SpawnPlacement::Classic772Bfs => {
+                // `forced` is TFS `placeCreature` only — 772 `SearchSpawnField` has no force path.
+                let _ = forced;
                 let Some(slot) = self.spawns.slot(slot_index) else {
                     return false;
                 };
@@ -390,15 +439,18 @@ impl GameWorld {
                     }
                 }
                 let signed_dist = classic772_signed_search_distance(effective_radius, act);
-                let place_in_pz = self
-                    .map
-                    .get_tile(home)
+                let home_tile = self.map.get_tile(home);
+                let place_in_pz = home_tile
                     .map(|t| t.body().zone == ZoneType::Protection)
                     .unwrap_or(false);
+                let home_house_id = match home_tile {
+                    Some(Tile::House(h)) => h.house_id,
+                    _ => 0,
+                };
                 let pos = search_spawn_field(
                     signed_dist,
                     home,
-                    |try_pos| self.probe_spawn_tile(cid, try_pos, place_in_pz, forced),
+                    |try_pos| self.probe_spawn_tile(cid, try_pos, place_in_pz, home_house_id),
                     || self.parity_random(0, 99),
                 );
                 let Some(pos) = pos else {
@@ -421,8 +473,12 @@ impl GameWorld {
         requested: Position,
     ) -> Option<Position> {
         const LOGIN_DISTANCE: i32 = 1;
+        let home_house_id = match self.map.get_tile(requested) {
+            Some(Tile::House(h)) => h.house_id,
+            _ => 0,
+        };
         let pos = search_login_field(requested, LOGIN_DISTANCE, |try_pos| {
-            self.probe_spawn_tile(cid, try_pos, false, false)
+            self.probe_spawn_tile(cid, try_pos, false, home_house_id)
                 .login_possible
         })?;
         let old = self.creatures.get(cid)?.position();
@@ -509,5 +565,191 @@ mod tests {
 
         let pos = search_login_field(center, 1, |p| !blocked.contains(&(p.x, p.y)));
         assert_eq!(pos, Some(east));
+    }
+
+    /// Respawn used to pass `forced=true` so `login_possible = forced || …` accepted walls.
+    /// 772 `SearchSpawnField` rejects UNPASS+UNMOVE (`info.cc:962–965`).
+    #[test]
+    fn probe_rejects_immovable_unpass_wall() {
+        use crate::item::Item;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_monster, TEST_SYNTHETIC_GROUND_WP,
+        };
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        const WALL: u16 = 9001;
+        let mut world = beat_driven_test_world();
+        Arc::make_mut(&mut world.items_db).items.insert(
+            WALL,
+            ItemType {
+                server_id: WALL,
+                block_solid_override: Some(true),
+                moveable_override: Some(false),
+                ..ItemType::default()
+            },
+        );
+
+        let home = Position::new(100, 100, 7);
+        let wall_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, home, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, wall_pos, TEST_SYNTHETIC_GROUND_WP);
+        let wall_item = world.items.insert(Item::new_single(WALL));
+        if let Some(tile) = world.map.get_tile_mut(wall_pos) {
+            tile.body_mut().down_items.push(wall_item);
+        }
+
+        let cid = insert_monster(&mut world, "Rat", home, 20);
+        let wall_probe = world.probe_spawn_tile(cid, wall_pos, false, 0);
+        assert!(
+            !wall_probe.login_possible,
+            "UNPASS+UNMOVE wall must not be a spawn login tile"
+        );
+        assert!(!wall_probe.expansion_ok);
+
+        world.map.unregister_creature_at(home, cid);
+        let open_probe = world.probe_spawn_tile(cid, home, false, 0);
+        assert!(open_probe.login_possible);
+        assert!(open_probe.expansion_ok);
+        assert!(open_probe.login_clean);
+    }
+
+    /// Dirt walls / earth are Bank+Unpass+wp0 — OTB clears blockSolid for player cliffs, but
+    /// `SearchSpawnField` must still block expansion or spiders leak into adjacent sewers.
+    #[test]
+    fn probe_rejects_bank_zero_waypoint_dirt_wall_ground() {
+        use crate::sim_harness::{beat_driven_test_world, insert_monster, TEST_SYNTHETIC_GROUND_WP};
+        use crate::tile::{Tile, TileBody};
+        use std::sync::Arc;
+        use tfs_rust_common::enums::ZoneType;
+        use tfs_rust_content::otb::ItemType;
+
+        const DIRT_WALL: u16 = 9100;
+        let mut world = beat_driven_test_world();
+        Arc::make_mut(&mut world.items_db).items.insert(
+            DIRT_WALL,
+            ItemType {
+                server_id: DIRT_WALL,
+                group: ItemType::GROUP_GROUND,
+                // Cleared blockSolid (player-walkable cliff path) — spawn must still Unpass.
+                block_solid_override: Some(false),
+                moveable_override: Some(false),
+                speed: 0,
+                ..ItemType::default()
+            },
+        );
+
+        let open = Position::new(100, 100, 7);
+        let wall = Position::new(101, 100, 7);
+        crate::sim_harness::ensure_walkable_tile(&mut world.map, open, TEST_SYNTHETIC_GROUND_WP);
+        world.map.insert_tile(
+            wall,
+            Tile::Normal(TileBody {
+                ground: Some(DIRT_WALL),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: 0,
+                zone: ZoneType::Normal,
+            }),
+        );
+
+        let cid = insert_monster(&mut world, "Spider", open, 20);
+        world.map.unregister_creature_at(open, cid);
+        let probe = world.probe_spawn_tile(cid, wall, false, 0);
+        assert!(
+            !probe.login_possible && !probe.expansion_ok,
+            "Bank+wp0 dirt wall must block spawn login and BFS expansion"
+        );
+        assert!(
+            !world.items_db.is_unpassable(DIRT_WALL),
+            "fixture models cleared blockSolid"
+        );
+        assert!(
+            world.items_db.is_unpassable_for_field(DIRT_WALL),
+            "field Unpass must include Bank+wp0"
+        );
+        assert!(
+            !world.monster_move_possible_planning(cid, wall),
+            "monsters must not plan steps onto Bank+wp0 dirt walls"
+        );
+        let wall_tile = world.map.get_tile(wall).expect("wall tile");
+        assert_eq!(
+            crate::walk::tile_query_add_creature(&world, wall_tile, cid, 0),
+            crate::return_value::ReturnValue::NotPossible,
+            "monster queryAdd must reject cleared Bank+wp0 cliffs"
+        );
+    }
+
+    #[test]
+    fn classic772_spawn_skips_wall_home_picks_neighbor() {
+        use crate::item::Item;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_monster, TEST_SYNTHETIC_GROUND_WP,
+        };
+        use crate::spawn::SpawnManager;
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+        use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
+
+        const WALL: u16 = 9002;
+        let mut world = beat_driven_test_world();
+        Arc::make_mut(&mut world.items_db).items.insert(
+            WALL,
+            ItemType {
+                server_id: WALL,
+                block_solid_override: Some(true),
+                moveable_override: Some(false),
+                ..ItemType::default()
+            },
+        );
+
+        let home = Position::new(120, 120, 7);
+        ensure_walkable_tile(&mut world.map, home, TEST_SYNTHETIC_GROUND_WP);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                ensure_walkable_tile(
+                    &mut world.map,
+                    Position::new((home.x as i32 + dx) as u16, (home.y as i32 + dy) as u16, home.z),
+                    TEST_SYNTHETIC_GROUND_WP,
+                );
+            }
+        }
+        let wall_item = world.items.insert(Item::new_single(WALL));
+        if let Some(tile) = world.map.get_tile_mut(home) {
+            tile.body_mut().down_items.push(wall_item);
+        }
+
+        world.spawns = SpawnManager::from_zones(vec![SpawnZone {
+            center: home,
+            radius: 3,
+            entries: vec![SpawnEntry::Monster {
+                name: "Rat".into(),
+                position: home,
+                spawntime_ms: 5_000,
+                direction: None,
+            }],
+        }]);
+
+        let cid = insert_monster(&mut world, "Rat", home, 20);
+        // `spawn_monster` places before map register — detach harness registration.
+        world.map.unregister_creature_at(home, cid);
+
+        assert!(world.place_spawn_creature(cid, 0, home, 3, true, true, false));
+        let placed = world.creatures.get(cid).expect("rat").position();
+        assert_ne!(placed, home, "must not stay on wall home");
+        assert!(
+            !world
+                .map
+                .get_tile(placed)
+                .expect("tile")
+                .body()
+                .down_items
+                .iter()
+                .any(|&id| world.items.get(id).is_some_and(|i| i.item_type == WALL))
+        );
     }
 }

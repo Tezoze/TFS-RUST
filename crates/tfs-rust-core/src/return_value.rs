@@ -146,7 +146,8 @@ impl ReturnValue {
             ReturnValue::NotEnoughLevel => "Your level is too low.",
             ReturnValue::NotEnoughMagicLevel => "You do not have enough magic level.",
             ReturnValue::NotEnoughMana => "You do not have enough mana.",
-            ReturnValue::NotEnoughSoul => "You do not have enough soul.",
+            // 772 `sending.cc:346` NOTENOUGHSOULPOINTS; TFS 1.4.2 omits "points".
+            ReturnValue::NotEnoughSoul => "You do not have enough soulpoints.",
             ReturnValue::YouAreExhausted => "You are exhausted.",
             ReturnValue::YouCannotUseObjectsThatFast => "You cannot use objects that fast.",
             ReturnValue::CanOnlyUseThisRuneOnCreatures => "You can only use it on creatures.",

@@ -641,6 +641,19 @@ impl ItemType {
         self.block_solid()
     }
 
+    /// 772 `UNPASS` for spawn / monster field probes after mountain-only cliff clear-solid.
+    ///
+    /// Bank+Unpass `"a mountain"` grounds have OTB `blockSolid` cleared so players can walk
+    /// OTBM cliff rock-soil (lesson 171/257). Dirt/earth/stone walls keep `blockSolid`.
+    /// `SearchSpawnField` / monster `MovePossible` still treat Bank+wp0 as Unpass.
+    #[inline]
+    pub fn is_unpassable_for_field(&self) -> bool {
+        if self.is_unpassable() {
+            return true;
+        }
+        self.is_terrain_bank() && self.waypoints_raw() == 0
+    }
+
     /// 772 `UNMOVE` — `!moveable` after XML overrides.
     #[inline]
     pub fn is_immovable(&self) -> bool {

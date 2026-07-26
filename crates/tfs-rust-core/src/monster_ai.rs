@@ -1664,13 +1664,16 @@ impl GameWorld {
         let Some(MapStackEntry::Ground(server_id)) = chain.first() else {
             return -1;
         };
-        if !self.items_db.is_terrain_bank(*server_id) || self.items_db.is_unpassable(*server_id) {
+        if !self.items_db.is_terrain_bank(*server_id)
+            || self.items_db.is_unpassable_for_field(*server_id)
+        {
             return -1;
         }
         let wp = self
             .items_db
             .waypoints_raw_for_item(*server_id)
             .unwrap_or(0);
+        // Non-Bank Unpass already rejected above; remaining wp0 is invalid terrain.
         if wp == 0 {
             return -1;
         }
@@ -1807,7 +1810,12 @@ impl GameWorld {
         let chain = body.map_object_chain();
         for entry in &chain {
             match entry {
-                MapStackEntry::Ground(_) => {}
+                // Ground BANK with objects.srv Unpass (incl. Bank+wp0 after cliff clear-solid).
+                MapStackEntry::Ground(server_id) => {
+                    if self.items_db.is_unpassable_for_field(*server_id) {
+                        return false;
+                    }
+                }
                 MapStackEntry::Creature(tile_c) => {
                     if *tile_c == cid {
                         // C++ `MovePossible(Execute=false)` — own tile keeps terrain wp (`crnonpl.cc:2191-2287`).
@@ -1869,7 +1877,9 @@ impl GameWorld {
                         return false;
                     };
                     let server_id = item.item_type;
-                    if self.items_db.is_unpassable(server_id) {
+                    // Field Unpass includes Bank+wp0 cliffs (lesson 171) — players walk them via
+                    // cleared blockSolid; monsters still see objects.srv Unpass (`crnonpl.cc:2249`).
+                    if self.items_db.is_unpassable_for_field(server_id) {
                         if self.items_db.is_immovable(server_id) || !can_push_items {
                             return false;
                         }

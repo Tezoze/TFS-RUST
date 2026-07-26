@@ -782,7 +782,7 @@ fn return_value_message(code: i32) -> String {
         0 => "No error.".to_string(),
         27 => "A player with this name is not online.".to_string(),
         36 => "You are exhausted.".to_string(),
-        35 => "You do not have enough soul.".to_string(),
+        35 => "You do not have enough soulpoints.".to_string(),
         34 => "You do not have enough mana.".to_string(),
         33 => "You do not have enough magic level.".to_string(),
         32 => "Your level is too low.".to_string(),

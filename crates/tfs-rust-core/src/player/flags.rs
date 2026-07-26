@@ -13,10 +13,20 @@ pub const PLAYER_FLAG_CANNOT_BE_ATTACKED: u64 = 1 << 3;
 pub const PLAYER_FLAG_CANNOT_PICKUP_ITEM: u64 = 1 << 14;
 /// C++ `PlayerFlag_HasInfiniteCapacity` — `src/const.h`
 pub const PLAYER_FLAG_HAS_INFINITE_CAPACITY: u64 = 1 << 20;
-/// C++ `PlayerFlag_HasInfiniteMana` — `src/const.h`
+/// C++ `PlayerFlag_HasInfiniteMana` — `src/const.h`. 772 equivalent: `UNLIMITED_MANA`
+/// (`enums.hh:518`, `magic.cc:753` `CheckMana`).
 pub const PLAYER_FLAG_HAS_INFINITE_MANA: u64 = 1 << 10;
+/// C++ `PlayerFlag_HasInfiniteSoul` — `src/const.h`.
+pub const PLAYER_FLAG_HAS_INFINITE_SOUL: u64 = 1 << 11;
+/// C++ `PlayerFlag_HasNoExhaustion` — `src/const.h`.
+pub const PLAYER_FLAG_HAS_NO_EXHAUSTION: u64 = 1 << 12;
+/// C++ `PlayerFlag_CannotUseSpells` — `src/const.h`.
+pub const PLAYER_FLAG_CANNOT_USE_SPELLS: u64 = 1 << 13;
 /// C++ `PlayerFlag_IgnoredByMonsters` — `src/const.h`
 pub const PLAYER_FLAG_IGNORED_BY_MONSTERS: u64 = 1 << 8;
+/// C++ `PlayerFlag_NotGainInFight` — `src/const.h`. 772 equivalent: `NO_LOGOUT_BLOCK`
+/// (`enums.hh:526`, `crmain.cc:438` `BlockLogout`). Skips Infight / PZ lock / logout block.
+pub const PLAYER_FLAG_NOT_GAIN_IN_FIGHT: u64 = 1 << 9;
 /// C++ `PlayerFlag_CanBroadcast` — `src/const.h`
 pub const PLAYER_FLAG_CAN_BROADCAST: u64 = 1 << 16;
 /// C++ `PlayerFlag_CanTalkRedPrivate` — `src/const.h`
@@ -26,6 +36,9 @@ pub const PLAYER_FLAG_CANNOT_BE_MUTED: u64 = 1 << 36;
 /// C++ `PlayerFlag_SetMaxSpeed` — `src/const.h`. When set, `Player::updateBaseSpeed`
 /// caps the character's base speed at `PLAYER_MAX_SPEED` (1500).
 pub const PLAYER_FLAG_SET_MAX_SPEED: u64 = 1 << 29;
+/// C++ `PlayerFlag_IgnoreSpellCheck` — `src/const.h` bit 34. 772 equivalent:
+/// `ALL_SPELLS` (`enums.hh:520`, `magic.cc:619` `CheckSpellbook`).
+pub const PLAYER_FLAG_IGNORE_SPELL_CHECK: u64 = 1 << 34;
 /// C++ `PlayerFlag_IsAlwaysPremium` — `src/const.h` bit 35. Group flag
 /// `isalwayspremium` → treat as premium regardless of `accounts.premium_ends_at`.
 pub const PLAYER_FLAG_IS_ALWAYS_PREMIUM: u64 = 1 << 35;
@@ -38,11 +51,16 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),
         "hasinfinitemana" => Some(PLAYER_FLAG_HAS_INFINITE_MANA),
+        "hasinfinitesoul" => Some(PLAYER_FLAG_HAS_INFINITE_SOUL),
+        "hasnoexhaustion" => Some(PLAYER_FLAG_HAS_NO_EXHAUSTION),
+        "cannotusespells" => Some(PLAYER_FLAG_CANNOT_USE_SPELLS),
         "ignoredbymonsters" => Some(PLAYER_FLAG_IGNORED_BY_MONSTERS),
+        "notgaininfight" => Some(PLAYER_FLAG_NOT_GAIN_IN_FIGHT),
         "canbroadcast" => Some(PLAYER_FLAG_CAN_BROADCAST),
         "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
         "cannotbemuted" => Some(PLAYER_FLAG_CANNOT_BE_MUTED),
         "setmaxspeed" => Some(PLAYER_FLAG_SET_MAX_SPEED),
+        "ignorespellcheck" => Some(PLAYER_FLAG_IGNORE_SPELL_CHECK),
         "isalwayspremium" => Some(PLAYER_FLAG_IS_ALWAYS_PREMIUM),
         _ => None,
     }
@@ -114,6 +132,27 @@ mod tests {
         let groups = make_group(2, &[("hasinfinitemana", true)]);
         let flags = flags_for_group(&groups, 2);
         assert!(has_player_flag(flags, PLAYER_FLAG_HAS_INFINITE_MANA));
+    }
+
+    #[test]
+    fn ignore_spell_check_flag_resolves_from_group() {
+        let groups = make_group(6, &[("ignorespellcheck", true)]);
+        let flags = flags_for_group(&groups, 6);
+        assert!(has_player_flag(flags, PLAYER_FLAG_IGNORE_SPELL_CHECK));
+    }
+
+    #[test]
+    fn cannot_use_spells_flag_resolves_from_group() {
+        let groups = make_group(4, &[("cannotusespells", true)]);
+        let flags = flags_for_group(&groups, 4);
+        assert!(has_player_flag(flags, PLAYER_FLAG_CANNOT_USE_SPELLS));
+    }
+
+    #[test]
+    fn not_gain_in_fight_flag_resolves_from_group() {
+        let groups = make_group(4, &[("notgaininfight", true)]);
+        let flags = flags_for_group(&groups, 4);
+        assert!(has_player_flag(flags, PLAYER_FLAG_NOT_GAIN_IN_FIGHT));
     }
 
     #[test]

@@ -327,7 +327,9 @@ impl GameWorld {
         let Some(crate::tile::MapStackEntry::Ground(server_id)) = chain.first() else {
             return false;
         };
-        if !self.items_db.is_terrain_bank(*server_id) || self.items_db.is_unpassable(*server_id) {
+        if !self.items_db.is_terrain_bank(*server_id)
+            || self.items_db.is_unpassable_for_field(*server_id)
+        {
             return false;
         }
         for entry in &chain {
@@ -342,7 +344,9 @@ impl GameWorld {
                         return false;
                     };
                     let sid = item.item_type;
-                    if self.items_db.is_avoid_hazard(sid) || self.items_db.is_unpassable(sid) {
+                    if self.items_db.is_avoid_hazard(sid)
+                        || self.items_db.is_unpassable_for_field(sid)
+                    {
                         return false;
                     }
                 }

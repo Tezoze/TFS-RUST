@@ -1,4 +1,22 @@
-# NPC system — 2026-07-22
+# Wall spawn placement — 2026-07-26
+
+- [x] Root cause: `forced = !startup` + `login_possible = forced || …` accepted walls on respawn
+- [x] `probe_spawn_tile` matches 772 `SearchSpawnField` object-flag loop (UNPASS+UNMOVE)
+- [x] TFS `forced` = `startup` only; never override failed `queryAdd`
+- [x] Regression: `probe_rejects_immovable_unpass_wall`, `classic772_spawn_skips_wall_home_picks_neighbor`
+- [x] Gorn spider sewer leak: Bank+wp0 dirt walls must count as Unpass for spawn BFS (`item_is_unpass_for_spawn_field`)
+- [x] Same Bank+wp0 Unpass for monster MovePossible + monster/NPC queryAdd (players keep cliff walk)
+- [x] Narrow OTB clear-solid to srv `"a mountain"` only — dirt walls block player ladder pathfind
+
+# Spell fail messages + GM cast — 2026-07-26
+
+- [x] Spell fails use `failure_message_type` (`TALK_FAILURE_MESSAGE` / cancel bar), not status/console
+- [x] Wording via `ReturnValue` — mana / learn match 772 `sending.cc`
+- [x] `need_learn` gate against `persist.spells`
+- [x] Wire `IgnoreSpellCheck` / `HasInfiniteMana` / `HasInfiniteSoul` / `HasNoExhaustion` / `CannotUseSpells`
+- [x] Gamemaster group: can cast, infinite mana/soul (was `cannotusespells`)
+
+## Prior: NPC system — 2026-07-22
 
 **Plan:** `tasks/npc-system-plan.md`
 **Goal:** exact 772 NPC outcomes, TFS-style Lua content/API flexibility, idiomatic game-thread Rust.

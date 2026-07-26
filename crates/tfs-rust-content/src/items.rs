@@ -213,6 +213,14 @@ impl ItemDatabase {
             .is_some_and(|t| t.is_unpassable())
     }
 
+    /// 772 field Unpass including Bank+wp0 after cliff clear-solid (lesson 171 / 255).
+    #[inline]
+    pub fn is_unpassable_for_field(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_unpassable_for_field())
+    }
+
     #[inline]
     pub fn is_immovable(&self, server_id: u16) -> bool {
         self.items.get(&server_id).is_some_and(|t| t.is_immovable())

@@ -164,6 +164,7 @@ pub fn parse_all_types(path: &Path) -> Result<HashMap<u16, ObjectsSrvTypeFlags>>
                 type_id,
                 flags: parse_flags(&block),
                 waypoints: parse_waypoints(&block).unwrap_or(-1),
+                name: parse_name(&block),
             },
         );
     }
@@ -232,6 +233,24 @@ fn parse_type_id(block: &str) -> Option<u16> {
     None
 }
 
+fn parse_name(block: &str) -> String {
+    for line in block.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("Name") else {
+            continue;
+        };
+        let rest = rest.trim().strip_prefix('=').unwrap_or(rest).trim();
+        if let Some(inner) = rest.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            return inner.to_string();
+        }
+        // Name = foo (unquoted rare)
+        if !rest.is_empty() {
+            return rest.trim_matches('"').to_string();
+        }
+    }
+    String::new()
+}
+
 /// Parsed `objects.srv` `Flags = {…}` for one type block.
 #[derive(Debug, Clone, Copy)]
 pub struct ObjectsSrvFlags {
@@ -261,6 +280,8 @@ pub struct ObjectsSrvTypeFlags {
     pub type_id: u16,
     pub flags: ObjectsSrvFlags,
     pub waypoints: i32,
+    /// `Name = "…"` from the type block (empty if absent).
+    pub name: String,
 }
 
 /// Parse every `objects.srv` type that has `Unpass`, with Bank/Waypoints context.
@@ -287,6 +308,7 @@ pub fn parse_unpass_types(path: &Path) -> Result<Vec<ObjectsSrvTypeFlags>> {
             type_id,
             flags,
             waypoints: parse_waypoints(&block).unwrap_or(0),
+            name: parse_name(&block),
         });
     }
     Ok(out)

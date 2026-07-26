@@ -81,9 +81,9 @@ fn fillmap_reads_otb_bank_waypoints_from_data_pack() {
     );
 }
 
-/// Spider-area OTBM: XML "rock soil" 4411–4421 is srv `a mountain` (Bank+Unpass, wp0).
-/// Players must walk it (OTBM); FillMap stays blocked via speed 0. Clip grass 4533 is patched
-/// to Waypoints 150 offline so borders are not pathfinding holes.
+/// Spider-area OTBM: srv `"a mountain"` banks (OTB server **4422+**, client 4411+) stay
+/// player-walkable (clear-solid); FillMap stays blocked via speed 0. Dirt walls keep
+/// `blockSolid` so players cannot pathfind through them to ladders.
 #[test]
 fn fillmap_mountain_rock_soil_blocked_clip_grass_defaults() {
     use std::path::Path;
@@ -99,14 +99,26 @@ fn fillmap_mountain_rock_soil_blocked_clip_grass_defaults() {
         .expect("data-pack world with real items.otb");
     let pos = Position::new(100, 100, 7);
 
+    // OTB server 4422 ↔ client 4411 `"a mountain"` (not server 4417 — that row is walkable rock soil).
+    const MOUNTAIN_BANK: u16 = 4422;
     assert!(
-        !world.items_db.is_unpassable(4417),
-        "Bank Unpass mountain rock soil must stay player-walkable (no blockSolid)"
+        !world.items_db.is_unpassable(MOUNTAIN_BANK),
+        "OTBM mountain bank must stay player-walkable (no blockSolid)"
     );
-    ensure_walkable_tile(&mut world.map, pos, 4417);
+    assert!(
+        world.items_db.is_unpassable_for_field(MOUNTAIN_BANK),
+        "monsters still see mountain Bank+wp0 as field Unpass"
+    );
+    ensure_walkable_tile(&mut world.map, pos, MOUNTAIN_BANK);
     assert!(
         world.fillmap_terrain_waypoints_at(pos) < 0,
-        "mountain rock soil must stay FillMap-blocked via wp0"
+        "mountain bank must stay FillMap-blocked via wp0"
+    );
+
+    // Dirt walls must block players (ladder pathfind) after mountain-only clear-solid.
+    assert!(
+        world.items_db.is_unpassable(356),
+        "dirt wall must keep blockSolid so players cannot walk through"
     );
 
     ensure_walkable_tile(&mut world.map, pos, 4408);

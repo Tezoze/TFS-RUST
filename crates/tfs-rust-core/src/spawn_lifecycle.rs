@@ -349,13 +349,16 @@ impl GameWorld {
             m.home_radius = spawn_radius;
         }
 
+        // TFS `placeCreature(..., force)` is true on startup; Classic772Bfs ignores `forced`
+        // (`SearchSpawnField` has no force path). Never invert — `!startup` made respawns
+        // treat every ground tile as placeable (walls).
         let placed = self.place_spawn_creature(
             cid,
             slot_index,
             center,
             spawn_radius,
             startup,
-            !startup,
+            startup,
             extended_pos,
         );
         if !placed {
@@ -502,7 +505,7 @@ impl GameWorld {
             center,
             spawn_radius,
             startup,
-            !startup,
+            startup,
             extended_pos,
         );
         if !placed {
@@ -695,7 +698,9 @@ impl GameWorld {
         let Some(crate::tile::MapStackEntry::Ground(server_id)) = chain.first() else {
             return false;
         };
-        if !self.items_db.is_terrain_bank(*server_id) || self.items_db.is_unpassable(*server_id) {
+        if !self.items_db.is_terrain_bank(*server_id)
+            || self.items_db.is_unpassable_for_field(*server_id)
+        {
             return false;
         }
         // Any stack object with AVOID / UNPASS blocks (decompile `!CoordinateFlag(…, AVOID)`).
@@ -711,7 +716,9 @@ impl GameWorld {
                         return false;
                     };
                     let sid = item.item_type;
-                    if self.items_db.is_avoid_hazard(sid) || self.items_db.is_unpassable(sid) {
+                    if self.items_db.is_avoid_hazard(sid)
+                        || self.items_db.is_unpassable_for_field(sid)
+                    {
                         return false;
                     }
                 }
@@ -1028,9 +1035,11 @@ impl GameWorld {
         if place_in_pz && tile.body().zone != ZoneType::Protection {
             return None;
         }
+        // `forced` only sets `FLAG_IGNOREBLOCKITEM` (TFS startup / temple fallback). Never
+        // treat a failed `queryAdd` as success — that placed creatures on UNPASS walls.
         let flags = if forced { FLAG_IGNOREBLOCKITEM } else { 0 };
         let ret = tile_query_add_creature(self, tile, cid, flags);
-        if forced || ret == ReturnValue::NoError || ret == ReturnValue::PlayerIsNotInvited {
+        if ret == ReturnValue::NoError || ret == ReturnValue::PlayerIsNotInvited {
             Some(pos)
         } else {
             None

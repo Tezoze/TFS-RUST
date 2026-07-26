@@ -23,7 +23,9 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player::flags::{
-    PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CAN_BROADCAST, PLAYER_FLAG_CAN_TALK_RED_PRIVATE,
+    PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CANNOT_USE_SPELLS, PLAYER_FLAG_CAN_BROADCAST,
+    PLAYER_FLAG_CAN_TALK_RED_PRIVATE, PLAYER_FLAG_HAS_INFINITE_MANA, PLAYER_FLAG_HAS_INFINITE_SOUL,
+    PLAYER_FLAG_HAS_NO_EXHAUSTION, PLAYER_FLAG_IGNORE_SPELL_CHECK,
 };
 use crate::return_value::ReturnValue;
 use tfs_rust_net::outgoing_extra;
@@ -223,116 +225,143 @@ impl GameWorld {
         };
         let spell = spell.clone();
 
-        // Gate: vocation check — the player's vocation must be in the spell's allowed list.
-        // Empty vocations list = all vocations allowed (TFS default).
-        if !spell.vocations.is_empty() {
-            let player_voc_id = self.creatures.get(cid).and_then(|k| match k {
-                CreatureKind::Player(p) => Some(p.vocation_id),
-                _ => None,
-            });
-            let Some(voc_id) = player_voc_id else {
-                return false; // Not a player — can't cast spells.
+        // TFS `Spell::playerSpellCheck` — `spells.cpp:553-651`.
+        // 772: `CheckSpellbook` / `CheckMana` — `magic.cc:613-774` (ALL_SPELLS / UNLIMITED_MANA).
+        // Failures use `SendResult` / `sendCancelMessage` → `TALK_FAILURE_MESSAGE` /
+        // `MESSAGE_STATUS_SMALL` via `send_cancel_message` — **not** `TALK_STATUS_MESSAGE`
+        // (which OTC shows in the console/chat).
+        let flags = self.player_group_flags(cid);
+        if crate::player_flags::has_player_flag(flags, PLAYER_FLAG_CANNOT_USE_SPELLS) {
+            // Silent consume — TFS returns false with no cancel text; `TALKACTION_FAILED`.
+            return true;
+        }
+        let ignore_spell_check =
+            crate::player_flags::has_player_flag(flags, PLAYER_FLAG_IGNORE_SPELL_CHECK);
+        let infinite_mana =
+            crate::player_flags::has_player_flag(flags, PLAYER_FLAG_HAS_INFINITE_MANA);
+        let infinite_soul =
+            crate::player_flags::has_player_flag(flags, PLAYER_FLAG_HAS_INFINITE_SOUL);
+        let no_exhaustion =
+            crate::player_flags::has_player_flag(flags, PLAYER_FLAG_HAS_NO_EXHAUSTION);
+
+        let (player_level, player_maglevel, player_mana, player_max_mana, player_soul, voc_id) =
+            match self.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => (
+                    p.level,
+                    p.skills.maglevel,
+                    p.mana,
+                    p.max_mana,
+                    p.economy.soul,
+                    p.vocation_id,
+                ),
+                _ => return false,
             };
-            // Look up the vocation name from the registry for string comparison.
-            let voc_name = self
-                .vocations
-                .vocations
-                .get(&(voc_id as u16))
-                .map(|v| v.name.clone())
-                .unwrap_or_default();
-            if !spell
-                .vocations
-                .iter()
-                .any(|v| v.eq_ignore_ascii_case(&voc_name))
-            {
-                // Vocation not allowed — send "You cannot cast this spell." and consume.
-                self.send_player_status_message(cid, "You cannot cast this spell.");
+
+        if !ignore_spell_check {
+            // Learn gate before vocation — TFS `isInstant() && isLearnable()` then
+            // `hasLearnedInstantSpell`; else vocation map (`spells.cpp:617-627`).
+            // 772: `CheckSpellbook` → `SPELLUNKNOWN` (`magic.cc:613-621`).
+            if spell.need_learn {
+                let learned = self
+                    .creatures
+                    .get(cid)
+                    .and_then(|k| match k {
+                        CreatureKind::Player(p) => p.persist.as_ref(),
+                        _ => None,
+                    })
+                    .is_some_and(|b| {
+                        b.spells
+                            .iter()
+                            .any(|s| s.eq_ignore_ascii_case(&spell.name))
+                    });
+                if !learned {
+                    self.send_spell_fail(cid, ReturnValue::YouNeedToLearnThisSpell);
+                    return true;
+                }
+            } else if !spell.vocations.is_empty() {
+                let voc_name = self
+                    .vocations
+                    .vocations
+                    .get(&(voc_id as u16))
+                    .map(|v| v.name.clone())
+                    .unwrap_or_default();
+                if !spell
+                    .vocations
+                    .iter()
+                    .any(|v| v.eq_ignore_ascii_case(&voc_name))
+                {
+                    self.send_spell_fail(cid, ReturnValue::YourVocationCannotUseThisSpell);
+                    return true;
+                }
+            }
+
+            if player_level < spell.level as i32 {
+                self.send_spell_fail(cid, ReturnValue::NotEnoughLevel);
                 return true;
+            }
+            if player_maglevel < spell.magic_level as i32 {
+                self.send_spell_fail(cid, ReturnValue::NotEnoughMagicLevel);
+                return true;
+            }
+
+            // Mana / soul — 772 `CheckMana` skips when `UNLIMITED_MANA`.
+            let mana_cost = if spell.mana_percent > 0 {
+                (player_max_mana as u32 * spell.mana_percent) / 100
+            } else {
+                spell.mana
+            };
+            if !infinite_mana && player_mana < mana_cost as i32 {
+                self.send_spell_fail(cid, ReturnValue::NotEnoughMana);
+                return true;
+            }
+            if !infinite_soul && player_soul < spell.soul as i32 {
+                self.send_spell_fail(cid, ReturnValue::NotEnoughSoul);
+                return true;
+            }
+
+            // Exhaustion — 772 `CastSpell` `magic.cc:3399-3401`.
+            let server_ms = self.server_ms;
+            let spell_ready = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().spell_ready_at(server_ms))
+                .unwrap_or(true);
+            if !no_exhaustion && !spell_ready {
+                self.send_spell_fail(cid, ReturnValue::YouAreExhausted);
+                return true;
+            }
+
+            // Aggressive spell in PZ — 772 `CastSpell` `magic.cc:3403-3407`.
+            if spell.is_aggressive {
+                let player_pos = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.position())
+                    .unwrap_or_default();
+                let in_pz = self.map.get_tile(player_pos).is_some_and(|t| {
+                    t.body().zone == tfs_rust_common::enums::ZoneType::Protection
+                });
+                if in_pz {
+                    self.send_spell_fail(cid, ReturnValue::ActionNotPermittedInProtectionZone);
+                    return true;
+                }
             }
         }
 
-        // Gate: level check.
-        let player_level = self
-            .creatures
-            .get(cid)
-            .map(|k| match k {
-                CreatureKind::Player(p) => p.level,
-                _ => 0,
-            })
-            .unwrap_or(0);
-        if player_level < spell.level as i32 {
-            self.send_player_status_message(cid, "You do not have enough level.");
-            return true;
-        }
-
-        // Gate: mana check. `mana_percent` takes priority over `mana` when set.
-        let (player_mana, player_max_mana, player_soul) = self
-            .creatures
-            .get(cid)
-            .map(|k| match k {
-                CreatureKind::Player(p) => (p.mana, p.max_mana, p.economy.soul),
-                _ => (0, 0, 0),
-            })
-            .unwrap_or((0, 0, 0));
         let mana_cost = if spell.mana_percent > 0 {
             (player_max_mana as u32 * spell.mana_percent) / 100
         } else {
             spell.mana
         };
-        if player_mana < mana_cost as i32 {
-            self.send_player_status_message(cid, "You do not have enough mana.");
-            return true;
-        }
-        if player_soul < spell.soul as i32 {
-            self.send_player_status_message(cid, "You do not have enough soul.");
-            return true;
-        }
-
-        // PC-3a: Exhaustion check — 772 `CastSpell` `magic.cc:3399-3401`.
-        // `EarliestSpellTime > ServerMilliseconds` → throw EXHAUSTED.
         let server_ms = self.server_ms;
-        let spell_ready = self
-            .creatures
-            .get(cid)
-            .map(|k| k.base().spell_ready_at(server_ms))
-            .unwrap_or(true);
-        if !spell_ready {
-            // 772 `SendResult` — `sending.cc:336`: "You are exhausted."
-            self.send_player_status_message(cid, "You are exhausted.");
-            return true;
-        }
 
-        // PC-3a: Aggressive spell in PZ check — 772 `CastSpell` `magic.cc:3403-3407`.
-        // `IsAggressiveSpell(SpellNr) && Actor->Type == PLAYER
-        //  && !CheckRight(Actor->ID, ATTACK_EVERYWHERE)
-        //  && IsProtectionZone(Actor->posx, Actor->posy, Actor->posz)` → throw PROTECTIONZONE.
-        if spell.is_aggressive {
-            let player_pos = self
-                .creatures
-                .get(cid)
-                .map(|k| k.position())
-                .unwrap_or_default();
-            let in_pz = self
-                .map
-                .get_tile(player_pos)
-                .is_some_and(|t| t.body().zone == tfs_rust_common::enums::ZoneType::Protection);
-            if in_pz {
-                // 772 `SendResult` — `sending.cc:334`:
-                // "This action is not permitted in a protection zone."
-                self.send_player_status_message(
-                    cid,
-                    "This action is not permitted in a protection zone.",
-                );
-                return true;
-            }
-        }
-
-        // Deduct mana + soul — 772 `CheckMana` `magic.cc:762-763`.
+        // Deduct mana + soul — 772 `CheckMana` `magic.cc:753-763` (skipped under
+        // `UNLIMITED_MANA` / TFS `HasInfiniteMana` / `HasInfiniteSoul`).
         // PC-5: mana spent advances magic level (`Player::addManaSpent`).
-        // TFS `onGainSkillTries`: multiply by `rateMagic` before adding.
         let profile = self.mechanics.profile;
+        let mana_for_tries = if infinite_mana { 0 } else { mana_cost };
         let magic_tries = ConfigManager::scale_tries(
-            mana_cost as u64,
+            mana_for_tries as u64,
             self.config.rate_magic().unwrap_or(1.0),
         );
         let mut levels_gained = 0u32;
@@ -340,21 +369,28 @@ impl GameWorld {
         {
             let hooks = &self.mechanics.hooks;
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                p.mana -= mana_cost as i32;
-                p.economy.soul -= spell.soul as i32;
-                levels_gained = p.magic_increase(magic_tries, &profile, hooks);
-                new_maglevel = p.skills.maglevel;
+                if !infinite_mana {
+                    p.mana -= mana_cost as i32;
+                }
+                if !infinite_soul {
+                    p.economy.soul -= spell.soul as i32;
+                }
+                if mana_for_tries > 0 {
+                    levels_gained = p.magic_increase(magic_tries, &profile, hooks);
+                    new_maglevel = p.skills.maglevel;
+                }
             }
         }
-        self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
+        if levels_gained > 0 {
+            self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
+        }
 
-        // PC-3a: Set spell exhaustion — 772 `CheckMana` `magic.cc:770-773`.
-        // `EarliestSpellTime = max(., ServerMilliseconds + Delay)`.
-        // The delay is the spell's cooldown (ms). For 772, the delay was per-spell
-        // in `SpellList[SpellNr].Delay`; we use the TFS `cooldown` field.
+        // Exhaustion — 772 `CheckMana` `magic.cc:770-773`; skipped under `HasNoExhaustion`.
         let cooldown_ms = spell.cooldown;
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().delay_spell_ms(server_ms, cooldown_ms as u64);
+        if !no_exhaustion {
+            if let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().delay_spell_ms(server_ms, cooldown_ms as u64);
+            }
         }
 
         // PC-3a: PZ lock for aggressive spells — 772 `BlockLogout` `crmain.cc:433-457` /
@@ -1083,6 +1119,21 @@ impl GameWorld {
         (max_ticks / 1000) as u32
     }
     // ---- LUA-3 / LUA-4: Lua mutation applier helpers ----
+
+    /// Spell / talk cancel — `SendResult` (`sending.cc:285-357`) /
+    /// `Player::sendCancelMessage` (`protocolgame.cpp`). Uses
+    /// [`failure_message_type`](tfs_rust_net::codec::ProtocolCodec::failure_message_type)
+    /// so 772 clients get `TALK_FAILURE_MESSAGE` (status bar), not
+    /// `TALK_STATUS_MESSAGE` (console/chat).
+    fn send_spell_fail(&mut self, cid: CreatureId, rv: ReturnValue) {
+        if let Some(conn) = self.conn_for_creature(cid) {
+            self.send_cancel_message(conn, rv);
+        }
+        // TFS `playerSpellCheck` also emits `CONST_ME_POFF` on most spell fails.
+        if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
+            self.broadcast_magic_effect(pos, 3u8);
+        }
+    }
 
     /// Send a status-style text message to a single player creature
     /// (`SendMessage(conn, TALK_STATUS_MESSAGE, ...)` — `crcombat.cc:674-676`,
