@@ -1,6 +1,9 @@
-//! Container UI protocol (0x6E–0x72) — `protocolgame.cpp` `sendContainer`, etc.
-// C++ ref: `ProtocolGame::sendContainer`, `sendAddContainerItem`, `sendUpdateContainerItem`,
-//          `sendRemoveContainerItem`, `sendCloseContainer`.
+//! Container UI protocol (`0x6E`–`0x72`) — TFS-style domain, idiomatic Rust.
+//! Domain: `src/protocolgame.cpp` `sendContainer` / `sendAddContainerItem` / `sendUpdateContainerItem`
+//!         / `sendRemoveContainerItem` / `sendCloseContainer`.
+//! 772 outcomes: `sending.cc:696-798` `SendContainer` / `SendChangeInContainer` / `SendDeleteInContainer`,
+//!              `moveuse.cc:1536` `UseContainer`, `receiving.cc:609` `CUpContainer`,
+//!              `operate.cc:128` `AnnounceChangedContainer` / `:1060` `CloseContainer`.
 
 use std::collections::VecDeque;
 

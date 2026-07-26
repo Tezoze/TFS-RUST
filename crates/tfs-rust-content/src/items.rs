@@ -135,6 +135,12 @@ impl ItemDatabase {
             .is_some_and(|t| t.is_splash() || t.is_fluid_container())
     }
 
+    /// 772 `CHEST` flag — unlimited container capacity (`operate.cc:612`/`625`).
+    #[inline]
+    pub fn is_chest_for_server(&self, server_id: u16) -> bool {
+        self.items.get(&server_id).is_some_and(|t| t.is_chest())
+    }
+
     /// Whether this item behaves as a container for loot nesting (`loadLootContainer` in TFS).
     /// C++ source of truth: `ItemType::isContainer()` => `group == ITEM_GROUP_CONTAINER` (`src/items.h`).
     pub fn is_container(&self, id: u16) -> bool {
@@ -861,6 +867,10 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         }
         "storeitem" => {
             item.store_item = parse_xml_bool(value).unwrap_or(false);
+        }
+        // 772 `CHEST` flag — unlimited container capacity (`operate.cc:612`/`625`).
+        "chest" => {
+            item.is_chest = parse_xml_bool(value).unwrap_or(false);
         }
         // C++ `ITEM_PARSE_READABLE` — `src/items.cpp` ~709 (`it.canReadText = value`).
         "readable" => {

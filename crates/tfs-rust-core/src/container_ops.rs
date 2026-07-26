@@ -1,5 +1,8 @@
-//! Container `query*` / `addThing` / `removeThing` — TFS `container.cpp` parity helpers.
-// C++ ref: `src/container.cpp` `Container::queryAdd`, `queryDestination`, `addThing`, `removeThing`, etc.
+//! Container `query*` / `addThing` / `removeThing` — TFS-style cylinder domain, idiomatic Rust.
+//! Domain: `src/container.cpp` `Container::queryAdd`, `queryDestination`, `addThing`, `removeThing`.
+//! 772 outcomes: `operate.cc:606` `CheckContainerDestination`, `:621` `CheckContainerPlace`,
+//!              `:646` `CheckDepotSpace`, `:1275` `Move`, `:1449` `Merge`,
+//!              `map.cc:2017` `PlaceObject`, `cract.cc:475` `TCreature::Move` destination resolution.
 
 use crate::container::{ContainerIterator, ContainerType};
 use crate::container_ui::ContainerContentChange;
@@ -34,6 +37,15 @@ impl GameWorld {
             id = p;
         }
         id
+    }
+
+    /// 772 `CHEST` flag — unlimited container capacity (`operate.cc:612`/`625`).
+    pub(crate) fn container_is_chest(&self, container_item_id: ItemId) -> bool {
+        self.items
+            .get(container_item_id)
+            .and_then(|i| self.items_db.items.get(&i.item_type))
+            .map(|t| t.is_chest())
+            .unwrap_or(false)
     }
 
     fn house_invite_blocks_container_add(
@@ -185,6 +197,7 @@ impl GameWorld {
         let Some(cont) = self.container_registry.get(container_item_id) else {
             return ReturnValue::NotPossible;
         };
+        let chest = self.container_is_chest(container_item_id);
         if cont.depot_locker_town_id.is_some() && !flags.contains(CylinderFlags::NO_LIMIT) {
             return ReturnValue::ContainerNotEnoughRoom;
         }
@@ -260,7 +273,7 @@ impl GameWorld {
                     .get(pid)
                     .and_then(|c| c.parent_container);
             }
-            if index == INDEX_WHEREEVER && cont.size() >= cont.capacity as usize {
+            if index == INDEX_WHEREEVER && !chest && cont.size() >= cont.capacity as usize {
                 return ReturnValue::ContainerNotEnoughRoom;
             }
         } else {
@@ -345,6 +358,9 @@ impl GameWorld {
         let Some(cont) = self.container_registry.get(container_item_id) else {
             return Err(ReturnValue::NotPossible);
         };
+        if flags.contains(CylinderFlags::NO_LIMIT) || self.container_is_chest(container_item_id) {
+            return Ok(count.max(1));
+        }
         let free_slots = (cont.capacity as i32 - cont.size() as i32).max(0) as u32;
         let container_items: Vec<ItemId> = cont.items.clone();
 
@@ -696,7 +712,8 @@ impl GameWorld {
             .get(container_item_id)
             .map(|c| c.capacity)
             .ok_or(ReturnValue::NotPossible)?;
-        if index >= cap as i32 {
+        let chest = self.container_is_chest(container_item_id);
+        if !chest && index >= cap as i32 {
             return Err(ReturnValue::NotPossible);
         }
         {
@@ -704,7 +721,7 @@ impl GameWorld {
                 .container_registry
                 .get_mut(container_item_id)
                 .ok_or(ReturnValue::NotPossible)?;
-            if cont.is_full() {
+            if !chest && cont.is_full() {
                 return Err(ReturnValue::ContainerNotEnoughRoom);
             }
             cont.items.insert(0, item_id);

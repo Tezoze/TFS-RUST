@@ -35,6 +35,7 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "blocking",
     "blockprojectile",
     "charges",
+    "chest",
     "containersize",
     "corpsetype",
     "criticalhitamount",

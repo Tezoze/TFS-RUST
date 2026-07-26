@@ -104,6 +104,15 @@ pub enum DamageTextFormat {
     SimpleLoss,
 }
 
+/// Container window cid allocation model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerWindowAlloc {
+    /// 772 `UseContainer` — client supplies `NextContainerNr` verbatim (`moveuse.cc:1536`).
+    ClientChooses,
+    /// TFS 1.4.2 — server searches for a free window slot (`player.cpp` `addContainer`).
+    ServerAllocates,
+}
+
 /// Startup-selected player speed scaling policy (loaded once from `formulas.playerSpeed`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerSpeedModel {
@@ -380,6 +389,8 @@ pub struct MechanicsProfile {
     /// When true, dropping a stackable into a container may merge into *any* partial stack
     /// (TFS 1.x autostack). 772 only merges into the explicitly targeted slot.
     pub container_autostack_any_slot: bool,
+    /// Whether the client-supplied container window index is honoured (772) or server-allocated (1098).
+    pub container_window_alloc: ContainerWindowAlloc,
     /// NPC speech stimulus, focus keep, timeout, capture, and reply timing.
     pub npc: NpcTuning,
 }
@@ -454,6 +465,7 @@ impl MechanicsProfile {
                 skill_tries: SkillTriesTuning::classic(),
                 decay_clock: DecayClockModel::RoundNumber,
                 container_autostack_any_slot: false,
+                container_window_alloc: ContainerWindowAlloc::ClientChooses,
                 npc: NpcTuning::classic_772(),
             },
             1098 => Self {
@@ -510,6 +522,7 @@ impl MechanicsProfile {
                 skill_tries: SkillTriesTuning::classic(),
                 decay_clock: DecayClockModel::ServerMilliseconds,
                 container_autostack_any_slot: true,
+                container_window_alloc: ContainerWindowAlloc::ServerAllocates,
                 // Same classic stimulus/timeout numbers until a TFS-specific audit lands (NPC-6).
                 npc: NpcTuning::classic_772(),
             },

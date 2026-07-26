@@ -278,72 +278,96 @@ impl GameWorld {
                 else {
                     return Err(ReturnValue::NotPossible);
                 };
-                let dest_has_room = self
-                    .container_registry
-                    .get(dest_cid)
-                    .map(|c| !c.is_full())
-                    .ok_or(ReturnValue::NotPossible)?;
-                if !dest_has_room {
-                    return Err(ReturnValue::ContainerNotEnoughRoom);
-                }
-                if is_stackable && m_move < item_count {
+
+                if let Some(merge_id) = to_merge_item {
+                    if merge_id == item_id {
+                        return Ok(item_id);
+                    }
+                    self.ensure_stack_merge_room(
+                        merge_id,
+                        m_move,
+                        ReturnValue::ContainerNotEnoughRoom,
+                    )?;
+                    if m == item_count {
+                        let rv = self.container_query_remove(
+                            from_cid,
+                            item_id,
+                            u32::from(m),
+                            flags,
+                            acting_player,
+                        );
+                        if rv.is_error() {
+                            return Err(rv);
+                        }
+                        if m_move == m {
+                            self.container_remove_thing(from_cid, item_id, u32::from(m))?;
+                            self.merge_detached_stack_counts(merge_id, m);
+                        } else {
+                            self.merge_partial_stack_counts(item_id, merge_id, m_move);
+                            self.container_detach_item(from_cid, item_id)?;
+                            self.container_add_thing(dest_cid, 0, item_id)?;
+                        }
+                        self.notify_container_stack_merge(dest_cid, merge_id);
+                        return Ok(merge_id);
+                    }
+                    // m < item_count: split the moved count off the source stack.
                     let rv = self.container_query_remove(
                         from_cid,
                         item_id,
-                        u32::from(m_move),
+                        u32::from(m),
                         flags,
                         acting_player,
                     );
                     if rv.is_error() {
                         return Err(rv);
                     }
-                    self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    if let Some(merge_id) = to_merge_item {
-                        if merge_id == item_id {
-                            return Ok(item_id);
-                        }
-                        self.ensure_stack_merge_room(
-                            merge_id,
-                            m_move,
-                            ReturnValue::ContainerNotEnoughRoom,
-                        )?;
-                        self.merge_detached_stack_counts(merge_id, m_move);
-                        self.notify_container_stack_merge(dest_cid, merge_id);
-                        return Ok(merge_id);
+                    if m_move == m {
+                        self.merge_partial_stack_counts(item_id, merge_id, m);
+                    } else {
+                        self.container_remove_thing(from_cid, item_id, u32::from(m))?;
+                        let moved = self.items.insert(Item::new(item_type, m));
+                        self.merge_partial_stack_counts(moved, merge_id, m_move);
+                        self.container_add_thing(dest_cid, dest_idx, moved)?;
                     }
-                    let new_item = Item::new(item_type, m_move);
+                    self.notify_container_stack_merge(dest_cid, merge_id);
+                    return Ok(merge_id);
+                }
+
+                if is_stackable && m < item_count {
+                    let rv = self.container_query_remove(
+                        from_cid,
+                        item_id,
+                        u32::from(m),
+                        flags,
+                        acting_player,
+                    );
+                    if rv.is_error() {
+                        return Err(rv);
+                    }
+                    self.container_remove_thing(from_cid, item_id, u32::from(m))?;
+                    let new_item = Item::new(item_type, m);
                     let new_id = self.items.insert(new_item);
                     self.container_add_thing(dest_cid, dest_idx, new_id)?;
                     return Ok(new_id);
                 }
+
+                let dest_has_room = self
+                    .container_registry
+                    .get(dest_cid)
+                    .map(|c| !c.is_full() || self.container_is_chest(dest_cid))
+                    .ok_or(ReturnValue::NotPossible)?;
+                if !dest_has_room {
+                    return Err(ReturnValue::ContainerNotEnoughRoom);
+                }
                 let rv = self.container_query_remove(
                     from_cid,
                     item_id,
-                    u32::from(m_move),
+                    u32::from(m),
                     flags,
                     acting_player,
                 );
                 if rv.is_error() {
                     return Err(rv);
-                }
-                if let Some(merge_id) = to_merge_item {
-                    self.ensure_stack_merge_room(
-                        merge_id,
-                        m_move,
-                        ReturnValue::ContainerNotEnoughRoom,
-                    )?;
-                    self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    self.merge_detached_stack_counts(merge_id, m_move);
-                    self.notify_container_stack_merge(dest_cid, merge_id);
-                    return Ok(merge_id);
-                }
-                let dest_has_room = self
-                    .container_registry
-                    .get(dest_cid)
-                    .map(|c| !c.is_full())
-                    .ok_or(ReturnValue::NotPossible)?;
-                if !dest_has_room {
-                    return Err(ReturnValue::ContainerNotEnoughRoom);
                 }
                 self.container_detach_item(from_cid, item_id)?;
                 self.container_add_thing(dest_cid, dest_idx, item_id)?;
@@ -446,36 +470,51 @@ impl GameWorld {
                         m_move,
                         ReturnValue::ContainerNotEnoughRoom,
                     )?;
-                    if is_stackable && m_move < item_count {
-                        self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        self.notify_player_container_tree_changed(
+                    if m == item_count {
+                        self.unequip_item_from_inventory_slot(
                             cid,
-                            to_container,
-                            merge_id,
-                            false,
-                            NotificationParent::Player,
-                        );
+                            slot,
+                            item_id,
+                            NotificationParent::Container(to_container),
+                        )?;
+                        if m_move == m {
+                            self.merge_detached_stack_counts(merge_id, m);
+                            self.items.remove(item_id);
+                        } else {
+                            self.merge_partial_stack_counts(item_id, merge_id, m_move);
+                            self.container_add_thing(to_container, to_idx, item_id)?;
+                        }
                         self.notify_container_stack_merge(to_container, merge_id);
-                        self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                         return Ok(merge_id);
                     }
-                    self.unequip_item_from_inventory_slot(
-                        cid,
-                        slot,
-                        item_id,
-                        NotificationParent::Container(to_container),
-                    )?;
-                    self.merge_detached_stack_counts(merge_id, m_move);
-                    self.items.remove(item_id);
+                    // m < item_count: split the moved count off the hand stack.
+                    if m_move == m {
+                        self.merge_partial_stack_counts(item_id, merge_id, m);
+                    } else {
+                        if let Some(src) = self.items.get_mut(item_id) {
+                            src.count = src.count.saturating_sub(m);
+                        }
+                        let moved = self.items.insert(Item::new(item_type, m));
+                        self.merge_partial_stack_counts(moved, merge_id, m_move);
+                        self.container_add_thing(to_container, to_idx, moved)?;
+                    }
                     self.notify_container_stack_merge(to_container, merge_id);
+                    self.notify_player_container_tree_changed(
+                        cid,
+                        to_container,
+                        merge_id,
+                        false,
+                        NotificationParent::Player,
+                    );
+                    self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                     return Ok(merge_id);
                 }
 
-                if is_stackable && m_move < item_count {
-                    let new_item = Item::new(item_type, m_move);
+                if is_stackable && m < item_count {
+                    let new_item = Item::new(item_type, m);
                     let new_id = self.items.insert(new_item);
                     if let Some(src) = self.items.get_mut(item_id) {
-                        src.count = src.count.saturating_sub(m_move);
+                        src.count = src.count.saturating_sub(m);
                     }
                     self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                     self.hydrate_container_if_needed(to_container);
@@ -492,7 +531,7 @@ impl GameWorld {
                 let dest_has_room = self
                     .container_registry
                     .get(to_container)
-                    .map(|c| !c.is_full())
+                    .map(|c| !c.is_full() || self.container_is_chest(to_container))
                     .ok_or(ReturnValue::NotPossible)?;
                 if !dest_has_room {
                     return Err(ReturnValue::ContainerNotEnoughRoom);

@@ -84,6 +84,8 @@ pub struct ItemType {
     pub replaceable: bool,
     pub walk_stack: bool,
     pub store_item: bool,
+    /// 772 `CHEST` flag — unlimited container capacity (`operate.cc:612`/`625`).
+    pub is_chest: bool,
     pub can_write_text: bool,
     pub max_text_len: u16,
     /// C++ `ItemType::showCharges` — `src/items.h`.
@@ -163,6 +165,7 @@ impl Default for ItemType {
             replaceable: true,
             walk_stack: true,
             store_item: false,
+            is_chest: false,
             can_write_text: false,
             max_text_len: 0,
             show_charges: false,
@@ -510,6 +513,12 @@ impl ItemType {
     #[inline]
     pub fn stackable(&self) -> bool {
         self.flags & Self::FLAG_STACKABLE != 0
+    }
+
+    /// 772 `CHEST` flag — unlimited capacity (`operate.cc:612`/`625`).
+    #[inline]
+    pub fn is_chest(&self) -> bool {
+        self.is_chest
     }
 
     #[inline]

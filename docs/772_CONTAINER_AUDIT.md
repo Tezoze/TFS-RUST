@@ -53,14 +53,16 @@ Implemented in commit `3c971c8` (2026-07-26):
 | # | State |
 |---|---|
 | B1 | Fixed — inventory exchange pushes swapped items to front; `container_insert_item_at` removed |
-| B2 | Partial — whole-container autostack gated by `MechanicsProfile` (`container_autostack_any_slot`); over-100 merge remainder still pending |
+| B2 | Fixed — whole-container autostack gated by `MechanicsProfile` (`container_autostack_any_slot`); over-100 merge remainder handled for `Container↔Container` and `Inventory↔Container` |
 | B3 | Fixed — reachable containers refresh (`0x6E`) instead of force-close on post-remove and decay |
 | B4 | Fixed — ground containers show `has_parent`; `player_up_container` closes at tile/inventory root |
 | B5 | Fixed — `internal_get_thing_move` walks tile object list by client sprite id |
 | B6 | Fixed — `INDEX_MOVE_UP` resolves to owning cylinder or returns `NotPossible` |
 | G5 / G7 | Fixed — 772 codec drops `0x71`/`0x72` and clamps `0x6E` items to the first 36 visible slots |
 
-Still open: G1, G2, G3 (confirm), G4, G6, G8, G9, I1–I6.
+Implemented in this pass: G1, G3, I6.
+
+Still open: G2, G4, G6, G8, G9, I1–I5.
 
 ---
 

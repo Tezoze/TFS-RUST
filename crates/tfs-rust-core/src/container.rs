@@ -1,5 +1,7 @@
-//! Container implementation for items (bags, chests, etc.)
-// C++ reference: `src/container.h`, `src/container.cpp`
+//! Container implementation for items (bags, chests, etc.) — TFS-style domain, idiomatic Rust.
+//! Domain: TFS `container.h` / `container.cpp` (data-pack contract).
+//! 772 outcomes: `map.hh` `TObject` / `Container`, `cr.hh:916` `OpenContainer[16]`,
+//!              `map.cc:2017` `PlaceObject`, `info.cc:499` `IsHeldByContainer`.
 
 use std::collections::{HashMap, VecDeque};
 

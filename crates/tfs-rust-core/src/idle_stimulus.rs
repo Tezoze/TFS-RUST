@@ -3681,7 +3681,14 @@ impl GameWorld {
         } else {
             // Single-object use — `CUseObject` (`receiving.cc:384`).
             let preferred_cid =
-                (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index);
+                if matches!(
+                    self.mechanics.profile.container_window_alloc,
+                    crate::formulas::ContainerWindowAlloc::ClientChooses
+                ) {
+                    Some(open_index.min(crate::container::MAX_CONTAINER_WINDOWS - 1))
+                } else {
+                    (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index)
+                };
             self.player_use_item_core(conn_id, cid, item_id, is_map_tile, obj1.pos, preferred_cid)
         }
     }
