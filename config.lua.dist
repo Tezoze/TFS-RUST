@@ -84,6 +84,8 @@ mysqlSock = ""
 -- NOTE: forceMonsterTypesOnLoad loads all monster types on startup to validate them.
 -- You can disable it to save some memory if you don't see any errors at startup.
 allowChangeOutfit = true
+-- When true, every account is treated as premium (login list + gameplay gates).
+-- When false, premium comes from accounts.premium_ends_at (and isalwayspremium group flag).
 freePremium = false
 kickIdlePlayerAfterMinutes = 15
 maxMessageBuffer = 4

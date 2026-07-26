@@ -11,7 +11,7 @@ mod sqlx_offline;
 
 pub use account::{
     gameworld_authentication, gameworld_authentication_by_number, loginserver_authentication,
-    loginserver_authentication_by_number,
+    loginserver_authentication_by_number, update_premium_ends_at,
 };
 pub use house::{HouseListRow, HouseStore, TileStoreRow};
 pub use items::{ItemRecord, ItemStore, ItemTable};

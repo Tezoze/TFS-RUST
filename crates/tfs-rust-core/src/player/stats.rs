@@ -198,6 +198,62 @@ impl GameWorld {
         crate::player_flags::has_player_flag(self.player_group_flags(cid), flag)
     }
 
+    /// C++ `Player::isPremium` — `player.cpp`.
+    ///
+    /// True when `freePremium` is set, the group has `isalwayspremium`, or
+    /// `accounts.premium_ends_at` is still in the future.
+    pub fn player_is_premium(&self, cid: CreatureId) -> bool {
+        if self.config.get_bool("freePremium").unwrap_or(false) {
+            return true;
+        }
+        if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_IS_ALWAYS_PREMIUM) {
+            return true;
+        }
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return false;
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+        p.premium_ends_at > now
+    }
+
+    /// C++ `Player::setPremiumTime` + `IOLoginData::updatePremiumTime`.
+    ///
+    /// Updates the in-memory field and persists `accounts.premium_ends_at`.
+    pub fn player_set_premium_ends_at(&mut self, cid: CreatureId, ends_at: u32) -> bool {
+        let account_id = match self.creatures.get_mut(cid) {
+            Some(CreatureKind::Player(p)) => {
+                p.premium_ends_at = ends_at;
+                p.account_id
+            }
+            _ => return false,
+        };
+        let db = self.db.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                tfs_rust_db::update_premium_ends_at(&db, account_id as i32, ends_at).await
+            {
+                tracing::warn!(
+                    account_id,
+                    ends_at,
+                    error = %e,
+                    "failed to persist accounts.premium_ends_at"
+                );
+            }
+        });
+        true
+    }
+
+    /// Lua mutation seam for [`Self::player_set_premium_ends_at`].
+    pub fn player_set_premium_ends_at_u64(&mut self, creature_id: u64, ends_at: u32) -> bool {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return false;
+        };
+        self.player_set_premium_ends_at(cid, ends_at)
+    }
+
     pub fn player_capacity_u32(&self, cid: CreatureId) -> Option<u32> {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return None;

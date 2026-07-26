@@ -1434,3 +1434,53 @@ fn custom_action_host_records_mutate() {
         }
     )));
 }
+
+#[test]
+fn npc_immune_to_combat_damage_and_conditions() {
+    use crate::combat::{apply_condition, CombatDamage, CombatParams};
+    use crate::sim_harness::insert_npc;
+    use tfs_rust_common::enums::CombatType;
+
+    let mut world = minimal_world();
+    let pos = Position::new(100, 100, 7);
+    let npc = insert_npc(&mut world, "Cipfried", pos, 100);
+    let hp_before = world.creatures.get(npc).unwrap().base().health;
+
+    let applied = world.combat_execute_with_stimulus(
+        None,
+        npc,
+        &CombatDamage {
+            primary: (CombatType::Fire, -50),
+            secondary: (CombatType::Undefined, 0),
+        },
+        &CombatParams::default(),
+    );
+    assert!(!applied, "NPC must not take spell/AoE HP damage");
+    assert_eq!(
+        world.creatures.get(npc).unwrap().base().health,
+        hp_before,
+        "NPC HP must be unchanged after fire damage"
+    );
+
+    apply_condition(
+        &mut world.creatures,
+        npc,
+        ActiveCondition {
+            id: 1,
+            sub_id: 0,
+            ctype: ConditionType::Poison,
+            data: ConditionData::Damage { total_rank: 40 },
+            timer_rounds_left: None,
+        },
+    );
+    assert!(
+        world
+            .creatures
+            .get(npc)
+            .unwrap()
+            .base()
+            .active_conditions
+            .is_empty(),
+        "NPC must reject combat conditions (TFS isImmune when !attackable)"
+    );
+}

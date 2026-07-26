@@ -109,6 +109,11 @@ fn apply_health_delta(
     target: CreatureId,
     delta: i32,
 ) -> bool {
+    // Belt-and-suspenders: NPCs never take HP loss (TFS `Npc::isAttackable` false).
+    // Primary gate is `combat_execute_with_stimulus`; this covers direct `combat::execute` callers.
+    if delta < 0 && matches!(creatures.get(target), Some(CreatureKind::Npc(_))) {
+        return false;
+    }
     let Some(kind) = creatures.get_mut(target) else {
         return false;
     };
@@ -144,6 +149,10 @@ pub fn apply_condition(
     target: CreatureId,
     cond: ActiveCondition,
 ) {
+    // TFS `Npc::isImmune(ConditionType_t)` when `!attackable` (`npc.h:305-307`).
+    if matches!(creatures.get(target), Some(CreatureKind::Npc(_))) {
+        return;
+    }
     let Some(kind) = creatures.get_mut(target) else {
         return;
     };

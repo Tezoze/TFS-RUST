@@ -584,6 +584,24 @@ pub trait ScriptContext {
         let _ = creature_id;
         None
     }
+
+    /// `config.lua` boolean (`freePremium`, …) — `ConfigManager::getBoolean`.
+    fn get_config_bool(&self, key: &str) -> Option<bool> {
+        let _ = key;
+        None
+    }
+
+    /// `player:getPremiumEndsAt()` — `accounts.premium_ends_at` unix seconds.
+    fn get_player_premium_ends_at(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// C++ `Player::isPremium` — freePremium / always-premium flag / ends_at.
+    fn player_is_premium(&self, creature_id: ScriptCreatureId) -> bool {
+        let _ = creature_id;
+        false
+    }
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

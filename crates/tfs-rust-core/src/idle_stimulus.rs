@@ -261,6 +261,22 @@ impl GameWorld {
         damage: &CombatDamage,
         params: &CombatParams,
     ) -> bool {
+        // NPCs are not attackable by default — TFS `Npc::isAttackable` / `isImmune`
+        // (`npc.h:302-310`, `Npc::reset` sets `attackable = false`).
+        // `Game::combatChangeHealth` poffs and returns without HP change (`game.cpp:4176-4180`).
+        // Covers melee, ranged, spells, AoE, and field DoT that share this path.
+        let target_is_npc = matches!(self.creatures.get(target), Some(CreatureKind::Npc(_)));
+        if target_is_npc {
+            let damaging = damage.primary.1 < 0 || damage.secondary.1 < 0;
+            if damaging || params.apply_condition.is_some() {
+                if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                    // C++ `CONST_ME_POFF` / `EFFECT_POFF` (wire byte 3).
+                    self.broadcast_magic_effect(pos, 3u8);
+                }
+                return false;
+            }
+        }
+
         // M1 — INVULNERABLE right check: C++ `Damage` checks `CheckRight(target, INVULNERABLE)`
         // and zeroes incoming damage for GMs with the invulnerability right (`crmain.cc:536-538`).
         // Maps to the TFS `PlayerFlag_CannotBeAttacked` group flag. Player targets only; monsters

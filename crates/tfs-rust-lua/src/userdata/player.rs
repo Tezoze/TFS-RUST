@@ -263,6 +263,27 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.player_has_flag(this.0, flag)))
         });
 
+        // `player:getPremiumEndsAt()` — unix seconds (`accounts.premium_ends_at`).
+        methods.add_method("getPremiumEndsAt", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_premium_ends_at(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        // `player:setPremiumEndsAt(timestamp)` — in-memory + DB persist.
+        methods.add_method_mut("setPremiumEndsAt", |_, this, ends_at: u32| {
+            crate::lua_mutation::call_lua_set_premium_ends_at(this.0, ends_at)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `player:isPremium()` — C++ `Player::isPremium` (`player.cpp`).
+        // Native so scripts work even when `configManager` context is absent.
+        methods.add_method("isPremium", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.player_is_premium(this.0)))
+        });
+
         methods.add_method("getSlotItem", |lua, this, slot: u8| {
             let id_opt = with_ctx(|ctx| Ok(ctx.get_player_slot_item_id(this.0, slot)))?;
             match id_opt {

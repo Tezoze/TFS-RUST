@@ -114,6 +114,17 @@ async fn load_account_premium(pool: &DbPool, account_id: i32) -> Result<i64> {
         .unwrap_or(0))
 }
 
+/// C++ `IOLoginData::updatePremiumTime` — `iologindata.cpp`.
+pub async fn update_premium_ends_at(pool: &DbPool, account_id: i32, ends_at: u32) -> Result<()> {
+    sqlx::query("UPDATE `accounts` SET `premium_ends_at` = ? WHERE `id` = ?")
+        .bind(ends_at)
+        .bind(account_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| TfsRustError::Database(e.to_string()))?;
+    Ok(())
+}
+
 /// Build the login-server result tuple `(account_id, characters, premium_ends_at)` for an
 /// already-authenticated account id. Shared between the name- and number-keyed entry points.
 async fn loginserver_result(pool: &DbPool, account_id: i32) -> Result<(u32, Vec<String>, i64)> {

@@ -565,18 +565,12 @@ impl GameWorld {
     ///
     /// C++ reference: `src/game.cpp` `Game::playerCreatePrivateChannel`; `chat.cpp` `Chat::createChannel`.
     pub fn player_create_private_channel(&mut self, conn_id: ConnId, cid: CreatureId) {
-        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+        if !matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
             return;
-        };
+        }
 
-        // Premium-only gate
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as u32;
-        let free_premium = self.config.get_bool("freePremium").unwrap_or(false);
-        let has_premium = free_premium || player.premium_ends_at > now;
-        if !has_premium {
+        // Premium-only gate — C++ `Player::isPremium` (`player.cpp`).
+        if !self.player_is_premium(cid) {
             // TODO(chat CH-4): Send "You need a premium account to create private channels." message
             return;
         }
@@ -789,16 +783,10 @@ impl GameWorld {
         }
 
         // C++ level gate — `game.cpp:3431-3444`.
-        let (level, is_premium, is_access) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => {
-                let free_premium = self.config.get_bool("freePremium").unwrap_or(false);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as u32;
-                let premium = free_premium || p.premium_ends_at > now;
-                (p.level, premium, self.player_is_access_player(cid))
-            }
+        let is_premium = self.player_is_premium(cid);
+        let is_access = self.player_is_access_player(cid);
+        let level = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.level,
             _ => return,
         };
 

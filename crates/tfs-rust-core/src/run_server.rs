@@ -86,9 +86,13 @@ pub async fn run() -> anyhow::Result<()> {
     let codec =
         Codec::from_version(protocol_version).map_err(|e| anyhow::anyhow!("wire codec: {e}"))?;
     let protocol_caps = protocol_version.caps();
+    // TFS `config.lua` `freePremium` — `ConfigManager::FREE_PREMIUM` (`configmanager.cpp`).
+    // Default false: premium comes from `accounts.premium_ends_at` (or always-premium flag).
+    let free_premium = config.get_bool("freePremium").unwrap_or(false);
     info!(
         version = %protocol_version,
         ?protocol_caps,
+        free_premium,
         "protocol version"
     );
 
@@ -437,7 +441,7 @@ pub async fn run() -> anyhow::Result<()> {
         server_name: server_name.clone(),
         public_ip: public_ip.clone(),
         game_port,
-        free_premium: true,
+        free_premium,
         protocol_version,
         protocol_caps,
     };
@@ -453,7 +457,7 @@ pub async fn run() -> anyhow::Result<()> {
         server_name,
         public_ip,
         game_port,
-        free_premium: true,
+        free_premium,
         protocol_version,
         protocol_caps,
     };

@@ -212,6 +212,11 @@ pub enum LuaMutation {
         creature_id: u64,
         amount: u64,
     },
+    /// `player:setPremiumEndsAt(timestamp)` — `Player::setPremiumTime` + DB.
+    PlayerSetPremiumEndsAt {
+        creature_id: u64,
+        ends_at: u32,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -683,5 +688,12 @@ pub fn call_lua_bank_withdraw(creature_id: u64, amount: u64) -> Result<(), Strin
     apply_mutation(LuaMutation::PlayerBankWithdraw {
         creature_id,
         amount,
+    })
+}
+
+pub fn call_lua_set_premium_ends_at(creature_id: u64, ends_at: u32) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetPremiumEndsAt {
+        creature_id,
+        ends_at,
     })
 }

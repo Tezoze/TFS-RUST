@@ -678,6 +678,7 @@ impl GameWorld {
         let program: DialogueProgram = program.clone();
         let tuning = self.mechanics.profile.npc;
         let npc_name = def.name.clone();
+        let premium = self.player_is_premium(player);
 
         let (
             player_name,
@@ -686,7 +687,6 @@ impl GameWorld {
             hp,
             vocation,
             maglevel,
-            premium,
             promoted,
             pz_block,
             poison,
@@ -707,12 +707,6 @@ impl GameWorld {
                     .find(|c| c.ctype == ConditionType::Fire)
                     .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
                     .unwrap_or(0);
-                let premium = p.premium_ends_at > 0
-                    && u64::from(p.premium_ends_at)
-                        > std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
                 (
                     p.base.name.clone(),
                     match p.sex {
@@ -723,7 +717,6 @@ impl GameWorld {
                     p.base.health,
                     vocation_kind(p.vocation_id),
                     p.magic_level(),
-                    premium,
                     p.vocation_id >= 5,
                     p.earliest_protection_zone_round > self.round_nr,
                     poison,

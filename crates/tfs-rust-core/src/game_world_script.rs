@@ -913,4 +913,23 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             _ => None,
         }
     }
+
+    fn get_config_bool(&self, key: &str) -> Option<bool> {
+        self.config.get_bool(key).ok()
+    }
+
+    fn get_player_premium_ends_at(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(p.premium_ends_at),
+            _ => None,
+        }
+    }
+
+    fn player_is_premium(&self, creature_id: ScriptCreatureId) -> bool {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return false;
+        };
+        GameWorld::player_is_premium(self, cid)
+    }
 }

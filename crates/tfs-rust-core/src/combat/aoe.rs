@@ -284,8 +284,16 @@ impl GameWorld {
             }
 
             // Collect creatures on this tile — 772 `GetFirstObject` loop (`magic.cc:485-494`).
+            // Aggressive combat skips NPCs — TFS `Combat::canDoCombat` + `!isAttackable()`
+            // (`combat.cpp:243-248`, `npc.h:308-310`). Prevents AoE spells from damaging or
+            // conditioning temple NPCs that share the blast tile.
             if let Some(tile) = self.map.get_tile(tile_pos) {
                 for &cid in &tile.body().creatures {
+                    if request.aggressive
+                        && matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_)))
+                    {
+                        continue;
+                    }
                     targets.push((cid, tile_pos));
                 }
             }

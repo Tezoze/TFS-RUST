@@ -2,7 +2,6 @@
 // C++ reference: `src/protocolgame.cpp` `ProtocolGame::login` (OTCv8 preamble), `sendAddCreature` (player), …
 
 use std::collections::HashSet;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use slotmap::Key;
 use tfs_rust_common::enums::{ConditionType, SkullType};
@@ -648,11 +647,7 @@ fn enqueue_initial_login_packets_1098(
     let voc_client = world.vocations.client_id_u8(vocation_id);
 
     let free_premium = world.config.get_bool("freePremium").unwrap_or(false);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as u32;
-    let has_premium = free_premium || premium_ends_at > now;
+    let has_premium = world.player_is_premium(creature_id);
     let premium_packet_ends = if has_premium && !free_premium {
         premium_ends_at
     } else {

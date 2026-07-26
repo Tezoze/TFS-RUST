@@ -26,6 +26,9 @@ pub const PLAYER_FLAG_CANNOT_BE_MUTED: u64 = 1 << 36;
 /// C++ `PlayerFlag_SetMaxSpeed` — `src/const.h`. When set, `Player::updateBaseSpeed`
 /// caps the character's base speed at `PLAYER_MAX_SPEED` (1500).
 pub const PLAYER_FLAG_SET_MAX_SPEED: u64 = 1 << 29;
+/// C++ `PlayerFlag_IsAlwaysPremium` — `src/const.h` bit 35. Group flag
+/// `isalwayspremium` → treat as premium regardless of `accounts.premium_ends_at`.
+pub const PLAYER_FLAG_IS_ALWAYS_PREMIUM: u64 = 1 << 35;
 
 /// Map `groups.xml` / `groups.lua` flag keys to `PlayerFlags` bits (subset used by core).
 fn flag_name_to_bit(name: &str) -> Option<u64> {
@@ -40,6 +43,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
         "cannotbemuted" => Some(PLAYER_FLAG_CANNOT_BE_MUTED),
         "setmaxspeed" => Some(PLAYER_FLAG_SET_MAX_SPEED),
+        "isalwayspremium" => Some(PLAYER_FLAG_IS_ALWAYS_PREMIUM),
         _ => None,
     }
 }
@@ -110,5 +114,12 @@ mod tests {
         let groups = make_group(2, &[("hasinfinitemana", true)]);
         let flags = flags_for_group(&groups, 2);
         assert!(has_player_flag(flags, PLAYER_FLAG_HAS_INFINITE_MANA));
+    }
+
+    #[test]
+    fn isalwayspremium_flag_resolves_from_group() {
+        let groups = make_group(2, &[("isalwayspremium", true)]);
+        let flags = flags_for_group(&groups, 2);
+        assert!(has_player_flag(flags, PLAYER_FLAG_IS_ALWAYS_PREMIUM));
     }
 }

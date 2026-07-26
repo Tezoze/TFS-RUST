@@ -2,8 +2,6 @@
 // C++ reference: `src/player.cpp` (`getDepotChest`, `getDepotLocker`, `getInbox`, `isNearDepotBox`, `getMaxDepotItems`)
 //                `src/depotchest.cpp`, `src/depotlocker.cpp`, `src/inbox.cpp`
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use tfs_rust_common::Position;
 
 use crate::container::{Container, ContainerRegistry, ContainerType};
@@ -27,13 +25,7 @@ impl GameWorld {
                 return g.max_depot_items;
             }
         }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let free_premium = self.config.get_bool("freePremium").unwrap_or(false);
-        let has_premium = free_premium || p.premium_ends_at > now as u32;
-        if has_premium {
+        if self.player_is_premium(cid) {
             self.config.depot_premium_limit().unwrap_or(10_000)
         } else {
             self.config.depot_free_limit().unwrap_or(2000)

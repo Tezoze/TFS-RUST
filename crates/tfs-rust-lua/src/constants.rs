@@ -40,6 +40,7 @@ pub fn register_constants(lua: &Lua) -> Result<(), mlua::Error> {
     register_return_values(&globals)?;
     register_item_attributes(&globals)?;
     register_misc(&globals)?;
+    register_config_keys(lua)?;
 
     Ok(())
 }
@@ -89,6 +90,8 @@ fn register_player_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // const.h:500–501 — summon/convince admin overrides.
     globals.set("PlayerFlag_CanConvinceAll", 1i64 << 4)?;
     globals.set("PlayerFlag_CanSummonAll", 1i64 << 5)?;
+    // const.h:278 — always-premium group flag (`Player::isPremium`).
+    globals.set("PlayerFlag_IsAlwaysPremium", 1i64 << 35)?;
     Ok(())
 }
 
@@ -240,6 +243,16 @@ fn register_misc(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
+/// `configKeys` table — TVP `configmanager.h` `boolean_config_t` indices used by
+/// `configManager.getBoolean(configKeys.…)`.
+fn register_config_keys(lua: &Lua) -> Result<(), mlua::Error> {
+    let keys = lua.create_table()?;
+    // `boolean_config_t::FREE_PREMIUM` — index 7 in TVP `configmanager.h`.
+    keys.set("FREE_PREMIUM", 7i32)?;
+    lua.globals().set("configKeys", keys)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,8 +295,18 @@ mod tests {
                 .expect("PlayerFlag_HasInfiniteCapacity"),
             1 << 20
         );
+        assert_eq!(
+            globals
+                .get::<i64>("PlayerFlag_IsAlwaysPremium")
+                .expect("PlayerFlag_IsAlwaysPremium"),
+            1 << 35
+        );
 
-        // ITEM_ATTRIBUTE_* (enums.h bitflags)
+        let config_keys: mlua::Table = globals.get("configKeys").expect("configKeys");
+        assert_eq!(
+            config_keys.get::<i32>("FREE_PREMIUM").expect("FREE_PREMIUM"),
+            7
+        );
         assert_eq!(get("ITEM_ATTRIBUTE_ACTIONID"), 1 << 0);
         assert_eq!(get("ITEM_ATTRIBUTE_UNIQUEID"), 1 << 1);
         assert_eq!(get("ITEM_ATTRIBUTE_DURATION"), 1 << 17);

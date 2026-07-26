@@ -1211,32 +1211,74 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
             })?,
         )?;
 
-        // configManager (read-only access)
+        // configManager (read-only access) — C++ `luaConfigManagerTable`.
+        // Boolean keys are `ConfigManager::boolean_config_t` integers
+        // (`configKeys.FREE_PREMIUM`); string keys (`"freePremium"`) also work.
         let config_manager = lua.create_table()?;
         config_manager.set(
             "getString",
-            lua.create_function(|_, _key: String| {
-                // TODO: Implement config lookup
-                Ok(Some(String::new()))
+            lua.create_function(|_, key: mlua::Value| {
+                let name = config_key_to_lua_string(&key);
+                let Some(name) = name else {
+                    return Ok(Some(String::new()));
+                };
+                Ok(crate::context::current_ctx(|ctx| {
+                    ctx.get_config_string(&name).unwrap_or_default()
+                }))
             })?,
         )?;
         config_manager.set(
             "getNumber",
-            lua.create_function(|_, _key: String| {
-                // TODO: Implement config lookup
-                Ok(Some(0))
+            lua.create_function(|_, _key: mlua::Value| {
+                // TODO: broader integer config map
+                Ok(Some(0i64))
             })?,
         )?;
         config_manager.set(
             "getBoolean",
-            lua.create_function(|_, _key: String| {
-                // TODO: Implement config lookup
-                Ok(Some(false))
+            lua.create_function(|_, key: mlua::Value| {
+                let name = config_key_to_lua_bool(&key);
+                let Some(name) = name else {
+                    return Ok(Some(false));
+                };
+                Ok(Some(crate::context::current_ctx(|ctx| {
+                    ctx.get_config_bool(&name).unwrap_or(false)
+                }).unwrap_or(false)))
             })?,
         )?;
         globals.set("configManager", config_manager)?;
 
         Ok(())
+    }
+}
+
+/// Map `configKeys.*` integer / `"freePremium"` string → `config.lua` key.
+fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
+    match key {
+        mlua::Value::String(s) => match s.to_str().ok()?.as_ref() {
+            "freePremium" | "FREE_PREMIUM" => Some("freePremium"),
+            _ => None,
+        },
+        mlua::Value::Integer(i) => match *i {
+            // TVP `boolean_config_t::FREE_PREMIUM`
+            7 => Some("freePremium"),
+            _ => None,
+        },
+        mlua::Value::Number(n) => {
+            if (*n as i64) == 7 {
+                Some("freePremium")
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn config_key_to_lua_string(key: &mlua::Value) -> Option<String> {
+    match key {
+        mlua::Value::String(s) => Some(s.to_str().ok()?.to_string()),
+        _ => None,
     }
 }
 
