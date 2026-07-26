@@ -276,12 +276,16 @@ impl Codec772 {
     }
 
     /// 7.72 `sendUpdateContainerItem` opcode `0x71` (~L1880): cid + `u8` slot + item (10.x uses `u16`).
+    /// Slots >= 36 are not addressable by the 7.72 client (`sending.cc:12`, `:792`), so drop them.
     pub fn encode_update_container_item(
         &self,
         cid: u8,
         slot: u16,
         args: ItemTemplateArgs,
     ) -> NetworkMessage {
+        if slot >= 36 {
+            return NetworkMessage::new();
+        }
         let mut m = NetworkMessage::new();
         m.write_u8(0x71);
         m.write_u8(cid);
@@ -292,7 +296,11 @@ impl Codec772 {
 
     /// 7.72 `sendRemoveContainerItem` opcode `0x72` (~L1890): cid + `u8` slot.
     /// TVP uses a single byte slot; 10.98 widens the slot to `u16` and appends an item.
+    /// Slots >= 36 are not addressable by the 7.72 client (`sending.cc:772`), so drop them.
     pub fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
+        if slot >= 36 {
+            return NetworkMessage::new();
+        }
         let mut m = NetworkMessage::new();
         m.write_u8(0x72);
         m.write_u8(cid);
@@ -400,7 +408,8 @@ impl Codec772 {
         m.write_string(&c.name);
         m.write_u8(c.capacity);
         m.write_u8(u8::from(c.has_parent));
-        let n = c.items.len().min(c.capacity as usize).min(u8::MAX as usize) as u8;
+        // 7.72 clients can only address the first 36 container slots (`sending.cc:12`, `:717`).
+        let n = c.items.len().min(c.capacity as usize).min(36).min(u8::MAX as usize) as u8;
         m.write_u8(n);
         for args in c.items.iter().take(n as usize) {
             self.write_item_template_args(&mut m, *args);

@@ -350,7 +350,8 @@ impl GameWorld {
 
         if it.map(|t| t.stackable()).unwrap_or(false) {
             let mut n = 0u32;
-            if index == INDEX_WHEREEVER {
+            // 772 `CheckContainerPlace` only considers the targeted slot, not a whole-container scan.
+            if index == INDEX_WHEREEVER && self.mechanics.profile.container_autostack_any_slot {
                 for (slot_index, &container_item) in container_items.iter().enumerate() {
                     let slot_index = slot_index as i32;
                     if container_item != item_id
@@ -428,16 +429,14 @@ impl GameWorld {
 
         if *index == INDEX_MOVE_UP {
             *index = INDEX_WHEREEVER;
-            if let Some(parent_id) = cont.parent_container {
-                return Ok(ContainerDestResolution::Redirect(Cylinder::Container {
-                    item_id: parent_id,
-                    index: INDEX_WHEREEVER,
-                }));
-            }
-            return Ok(ContainerDestResolution::StayHere {
-                index: INDEX_WHEREEVER,
-                dest_stack_item: None,
-            });
+            // 772 `TCreature::Move` with `DestZ == 254` sets `DestCon = DestCon.getContainer()`;
+            // if NONE it throws `NOTACCESSIBLE` (`cract.cc:563-566`). For a bag in a body slot the
+            // resolved parent cylinder is the inventory slot, so the item gets equipped.
+            let parent_cyl = self.resolve_item_parent_cylinder(container_item_id);
+            let Some(parent) = parent_cyl else {
+                return Err(ReturnValue::NotPossible);
+            };
+            return Ok(ContainerDestResolution::Redirect(parent));
         }
 
         if *index == INDEX_ADD_WHEREVER || *index >= cont.capacity as i32 {
@@ -486,7 +485,12 @@ impl GameWorld {
             }
         }
 
-        if auto_stack && stackable && source_parent_container != Some(container_item_id) {
+        // 772 only merges into the targeted slot; TFS 1.x may scan the whole container.
+        if auto_stack
+            && stackable
+            && self.mechanics.profile.container_autostack_any_slot
+            && source_parent_container != Some(container_item_id)
+        {
             for (n, &list_item) in cont.items.iter().enumerate() {
                 if list_item != item_id
                     && self.items_stack_mergeable(item_id, list_item)
@@ -737,65 +741,8 @@ impl GameWorld {
         Ok(())
     }
 
-    /// Insert at explicit index (exchange / parity with `itemlist.insert` — not only `push_front`).
-    pub(crate) fn container_insert_item_at(
-        &mut self,
-        container_item_id: ItemId,
-        index: usize,
-        item_id: ItemId,
-    ) -> Result<(), ReturnValue> {
-        let cap = self
-            .container_registry
-            .get(container_item_id)
-            .map(|c| c.capacity as usize)
-            .ok_or(ReturnValue::NotPossible)?;
-        if index > cap {
-            return Err(ReturnValue::NotPossible);
-        }
-        {
-            let cont = self
-                .container_registry
-                .get_mut(container_item_id)
-                .ok_or(ReturnValue::NotPossible)?;
-            if cont.items.len() >= cap {
-                return Err(ReturnValue::ContainerNotEnoughRoom);
-            }
-            if index > cont.items.len() {
-                return Err(ReturnValue::NotPossible);
-            }
-            cont.items.insert(index, item_id);
-        }
-        if self
-            .items_db
-            .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
-        {
-            let mut reg = std::mem::take(&mut self.container_registry);
-            self.ensure_container_registered(
-                &mut reg,
-                item_id,
-                CreatureId::default(),
-                ContainerType::Normal,
-                None,
-            );
-            self.container_registry = reg;
-            if let Some(ch) = self.container_registry.get_mut(item_id) {
-                ch.parent_container = Some(container_item_id);
-            }
-        }
-        if let Some(item) = self.items.get_mut(item_id) {
-            item.parent = Some(Cylinder::Container {
-                item_id: container_item_id,
-                index: INDEX_WHEREEVER,
-            });
-        }
-        self.refresh_container_chain(container_item_id);
-        self.notify_container_content_changed(
-            container_item_id,
-            ContainerContentChange::Add { slot: index as u16 },
-        );
-        self.start_decay(item_id);
-        Ok(())
-    }
+    // Removed: `container_insert_item_at`. 772 exchange paths must push to the front (index 1);
+    // use `container_add_thing` instead.
 }
 
 #[cfg(test)]

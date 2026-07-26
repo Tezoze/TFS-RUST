@@ -11,6 +11,7 @@ use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
 use tfs_rust_net::outgoing_extra::send_close_container;
 
 use crate::creature::CreatureKind;
+use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
@@ -322,7 +323,11 @@ impl GameWorld {
             .unwrap_or(false);
 
         let capacity = cont.capacity.min(255) as u8;
-        let has_parent = cont.parent_container.is_some();
+        // 772 `HasUpContainer` is true whenever the container has a parent that is not a body slot
+        // (`sending.cc:714`). A bag on the ground has a tile cylinder parent, so the up arrow shows.
+        let parent_cyl = self.resolve_item_parent_cylinder(container_item_id);
+        let has_parent =
+            parent_cyl.is_some_and(|c| !matches!(c, Cylinder::Inventory { .. }));
         let unlocked = cont.unlocked;
         let total_items = cont.items.len() as u16;
         let pagination = cont.pagination;
@@ -755,7 +760,7 @@ impl GameWorld {
         self.send_close_container_packet(conn_id, client_cid);
     }
 
-    /// `Game::playerMoveUpContainer` / up arrow — show parent bag in same window (`game.cpp`).
+    /// `Game::playerMoveUpContainer` / up arrow — show parent bag or close when at the root.
     pub fn player_up_container(&mut self, conn_id: ConnId, cid: CreatureId, client_cid: u8) {
         let Some(current_id) = self
             .container_registry
@@ -763,11 +768,11 @@ impl GameWorld {
         else {
             return;
         };
-        let Some(parent_id) = self
-            .container_registry
-            .get(current_id)
-            .and_then(|c| c.parent_container)
-        else {
+        // 772 `CUpContainer` (`receiving.cc:609`) walks up one cylinder. If the resolved parent is a
+        // map tile or inventory slot (the root), the window is closed instead of opened.
+        let parent_cyl = self.resolve_item_parent_cylinder(current_id);
+        let Some(Cylinder::Container { item_id: parent_id, .. }) = parent_cyl else {
+            self.send_close_container_packet(conn_id, client_cid);
             return;
         };
         let mut reg = std::mem::take(&mut self.container_registry);

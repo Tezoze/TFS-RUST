@@ -41,7 +41,7 @@ impl GameWorld {
             return Ok(());
         }
         // Resolve source thing
-        let Some(thing) = self.internal_get_thing_move(cid, from_pos, from_stack_pos) else {
+        let Some(thing) = self.internal_get_thing_move(cid, from_pos, from_stack_pos, sprite_id) else {
             return Err(ReturnValue::NotPossible);
         };
 

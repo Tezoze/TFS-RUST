@@ -52,17 +52,19 @@ impl GameWorld {
         cid: CreatureId,
         pos: Position,
         _stack_pos: u8,
+        sprite_id: u16,
     ) -> Option<Thing> {
         if pos.x != 0xFFFF {
             let tile = self.map.get_tile(pos)?;
-            // STACKPOS_MOVE: prefer top moveable down item, else top visible creature
+            // 772 `CMoveObject` sets `RNum = 1` and `GetObject` walks the tile list for the
+            // client `TypeID` (`info.cc:398-432`), allowing a buried item to be moved by sprite.
             if let Some(top_item_id) = tile.get_top_down_item() {
-                if let Some(item) = self.items.get(top_item_id) {
-                    let it = self.items_db.items.get(&item.item_type);
-                    if it.map(|t| t.moveable()).unwrap_or(false) {
-                        return Some(Thing::Item(top_item_id));
-                    }
+                if self.validate_item_sprite(top_item_id, sprite_id) {
+                    return Some(Thing::Item(top_item_id));
                 }
+            }
+            if let Some(item_id) = self.find_tile_item_by_client_sprite(pos, sprite_id) {
+                return Some(Thing::Item(item_id));
             }
             // Fall through to creature
             let body = tile.body();

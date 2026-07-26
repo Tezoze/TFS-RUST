@@ -247,8 +247,12 @@ impl GameWorld {
         if let Some(cpos) = self.container_item_position(item_id) {
             if !Self::positions_in_range_1(player_pos, cpos) {
                 self.auto_close_containers_for_container_item(cid, item_id);
-                return;
+            } else {
+                // 772 `CloseContainer(Con, false)` refreshes when the container is still accessible
+                // (`operate.cc:1060-1100`).
+                self.refresh_container_ui_for_all_viewers(item_id);
             }
+            return;
         }
         self.auto_close_containers_for_container_item(cid, item_id);
     }

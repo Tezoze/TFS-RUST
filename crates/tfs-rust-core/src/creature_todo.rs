@@ -389,7 +389,7 @@ impl GameWorld {
         cid: CreatureId,
         obj: ActionObjectRef,
     ) -> Result<ActionObjectRef, ReturnValue> {
-        let thing = self.internal_get_thing_move(cid, obj.pos, obj.stack_pos);
+        let thing = self.internal_get_thing_move(cid, obj.pos, obj.stack_pos, obj.sprite_id);
         let item_id = match thing {
             Some(Thing::Item(id)) => Some(id),
             _ => None,

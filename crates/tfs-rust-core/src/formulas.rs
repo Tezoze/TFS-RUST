@@ -377,6 +377,9 @@ pub struct MechanicsProfile {
     pub skill_tries: SkillTriesTuning,
     /// Item decay / cron deadline clock — 772 `RoundNr`, 1098 movement `server_ms` (DEC-3).
     pub decay_clock: DecayClockModel,
+    /// When true, dropping a stackable into a container may merge into *any* partial stack
+    /// (TFS 1.x autostack). 772 only merges into the explicitly targeted slot.
+    pub container_autostack_any_slot: bool,
     /// NPC speech stimulus, focus keep, timeout, capture, and reply timing.
     pub npc: NpcTuning,
 }
@@ -450,6 +453,7 @@ impl MechanicsProfile {
                 classic_equipment_slots: true,
                 skill_tries: SkillTriesTuning::classic(),
                 decay_clock: DecayClockModel::RoundNumber,
+                container_autostack_any_slot: false,
                 npc: NpcTuning::classic_772(),
             },
             1098 => Self {
@@ -505,6 +509,7 @@ impl MechanicsProfile {
                 classic_equipment_slots: false,
                 skill_tries: SkillTriesTuning::classic(),
                 decay_clock: DecayClockModel::ServerMilliseconds,
+                container_autostack_any_slot: true,
                 // Same classic stimulus/timeout numbers until a TFS-specific audit lands (NPC-6).
                 npc: NpcTuning::classic_772(),
             },

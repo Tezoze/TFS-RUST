@@ -398,9 +398,6 @@ impl GameWorld {
                     if dest_id == item_id {
                         return Ok(item_id);
                     }
-                    let idx = self
-                        .get_thing_index_in_container(from_container, item_id)
-                        .ok_or(ReturnValue::NotPossible)? as usize;
                     self.container_detach_item(from_container, item_id)?;
                     self.unequip_item_from_inventory_slot(
                         cid,
@@ -408,7 +405,9 @@ impl GameWorld {
                         dest_id,
                         NotificationParent::Container(from_container),
                     )?;
-                    self.container_insert_item_at(from_container, idx, dest_id)?;
+                    // 772 `Move` after `NOROOM`/`HANDSNOTFREE` pushes the swapped item to the
+                    // front of the source container (`cract.cc:610` -> `PlaceObject(..., false)`).
+                    self.container_add_thing(from_container, 0, dest_id)?;
                     self.equip_item_to_inventory_slot(
                         cid,
                         slot,

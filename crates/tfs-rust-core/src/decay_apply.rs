@@ -304,15 +304,11 @@ impl GameWorld {
 
         // Ensure registry entry so we can iterate children (map corpses may be lazy).
         self.hydrate_container_if_needed(container_id);
-        let Some((viewers, children)) = self.container_registry.get(container_id).map(|c| {
+        let Some((_viewers, children)) = self.container_registry.get(container_id).map(|c| {
             (c.open_by.clone(), c.items.clone())
         }) else {
             return;
         };
-
-        for viewer in viewers {
-            self.auto_close_containers_for_container_item(viewer, container_id);
-        }
 
         let count = children.len();
         if count <= remainder {
@@ -361,6 +357,10 @@ impl GameWorld {
                 self.move_detached_item_to_parent_of(container_id, child);
             }
         }
+
+        // 772 `CloseContainer(Con, false)` keeps the window open and refreshes it when the
+        // container is still accessible (`operate.cc:1060-1100`).
+        self.refresh_container_ui_for_all_viewers(container_id);
     }
 
     fn is_corpse_item_type(&self, item_type: u16) -> bool {
