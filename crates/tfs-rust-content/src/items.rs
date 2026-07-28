@@ -80,6 +80,40 @@ impl ItemDatabase {
         self.items.get(&server_id).map(|t| t.client_id).unwrap_or(0)
     }
 
+    /// C++ `luaSpellRegister` rune arm — `luascript.cpp:15889–15895`.
+    /// Patches `ItemType` name / rune levels / charges so look text and defaults match.
+    pub fn apply_rune_spell_registration(&mut self, rune: &crate::spells::RuneSpellDef) {
+        if rune.rune_id == 0 {
+            return;
+        }
+        let mag = if rune.magic_level != 0 {
+            rune.magic_level
+        } else {
+            rune.rune_magic_level
+        };
+        if mag == 0 && rune.level == 0 {
+            return;
+        }
+        let Some(it) = self.items.get_mut(&rune.rune_id) else {
+            return;
+        };
+        // C++ always assigns `iType.name = rune->getName()`; skip empty so XML
+        // `"spell rune"` survives datapacks that only name the instant conjure spell.
+        if !rune.name.is_empty() {
+            it.name = rune.name.clone();
+        }
+        it.rune_mag_level = mag as i32;
+        it.rune_level = rune.level as i32;
+        it.charges = rune.charges;
+    }
+
+    /// Apply [`apply_rune_spell_registration`] for every registered rune.
+    pub fn apply_rune_spell_defs(&mut self, registry: &crate::spells::SpellRegistry) {
+        for rune in registry.runes_by_id.values() {
+            self.apply_rune_spell_registration(rune);
+        }
+    }
+
     /// Reverse lookup: OT client sprite id → server item id (`Items::getServerId` patterns / `clientIdToServerIdMap`).
     #[inline]
     pub fn server_id_for_client(&self, client_id: u16) -> Option<u16> {
@@ -1000,6 +1034,10 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         "showduration" => {
             item.show_duration = parse_xml_bool(value).unwrap_or(false);
         }
+        // C++ `ITEM_PARSE_RUNESPELLNAME` — `src/items.cpp` (~602); look text `("words")`.
+        "runespellname" => {
+            item.rune_spell_name = value.to_string();
+        }
         "levelrequired" => {
             if let Ok(v) = value.parse::<u32>() {
                 item.min_req_level = v;
@@ -1031,6 +1069,35 @@ mod tests {
     use crate::item_abilities::{combat_absorb_index, CONDITION_DRUNK, STAT_MAGICPOINTS};
     use std::fs;
     use tfs_rust_common::enums::{CombatType, Skill};
+
+    #[test]
+    fn runespellname_and_rune_register_patch_itemtype() {
+        let mut item = ItemType {
+            id: 2268,
+            name: "spell rune".into(),
+            type_tag: ITEM_TYPE_RUNE,
+            ..Default::default()
+        };
+        apply_xml_attribute(&mut item, "runespellname", "adori vita vis", 2268);
+        assert_eq!(item.rune_spell_name, "adori vita vis");
+
+        let mut db = ItemDatabase {
+            items: std::collections::HashMap::from([(2268, item)]),
+            client_to_server: std::collections::HashMap::new(),
+        };
+        let rune = crate::spells::RuneSpellDef {
+            rune_id: 2268,
+            magic_level: 15,
+            charges: 1,
+            ..Default::default()
+        };
+        db.apply_rune_spell_registration(&rune);
+        let it = db.items.get(&2268).unwrap();
+        assert_eq!(it.rune_mag_level, 15);
+        assert_eq!(it.charges, 1);
+        assert_eq!(it.name, "spell rune"); // empty rune name keeps XML name
+        assert!(it.is_rune());
+    }
 
     #[test]
     fn applies_runtime_critical_xml_overrides() {

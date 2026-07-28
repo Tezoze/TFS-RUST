@@ -111,6 +111,12 @@ pub struct ItemType {
     pub stop_time: bool,
     /// C++ `ItemType::showDuration` — `src/items.h`; XML `showduration`. Default `false`.
     pub show_duration: bool,
+    /// C++ `ItemType::runeSpellName` — `src/items.h`; XML `runespellname`.
+    pub rune_spell_name: String,
+    /// C++ `ItemType::runeLevel` — patched on rune `spell:register()` (`luascript.cpp:15893`).
+    pub rune_level: i32,
+    /// C++ `ItemType::runeMagLevel` — patched on rune `spell:register()` (`luascript.cpp:15893`).
+    pub rune_mag_level: i32,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -179,6 +185,9 @@ impl Default for ItemType {
             decay_to: -1,
             stop_time: false,
             show_duration: false,
+            rune_spell_name: String::new(),
+            rune_level: 0,
+            rune_mag_level: 0,
         }
     }
 }
@@ -597,6 +606,12 @@ impl ItemType {
     #[inline]
     pub fn is_fluid_container(&self) -> bool {
         self.group == Self::GROUP_FLUID
+    }
+
+    /// C++ `ItemType::isRune()` — `type == ITEM_TYPE_RUNE` (`src/items.h:245`).
+    #[inline]
+    pub fn is_rune(&self) -> bool {
+        self.type_tag == 10 // `ItemTypes_t::ITEM_TYPE_RUNE`
     }
 
     /// C++ `ItemType::isMagicField()` — `type == ITEM_TYPE_MAGICFIELD` (`src/items.h`).

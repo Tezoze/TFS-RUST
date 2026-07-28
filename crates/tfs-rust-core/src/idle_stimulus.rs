@@ -3405,7 +3405,10 @@ impl GameWorld {
                                     dx > 1 || dy > 1
                                 });
                             if obj2_far {
-                                // Resolve Obj1 item_id to check the DISTUSE flag.
+                                // Resolve Obj1 item_id for DISTUSE / rune allowFarUse.
+                                // Runes set `allowFarUse` via Spell Lua (`RuneSpell`), not only
+                                // the OTB DistUse flag — without this, inventory SD/GFB walked
+                                // to Obj2 (C++ `Actions::canExecuteAction` → `canUseFar`).
                                 let is_map_tile = obj1.pos.x != 0xFFFF;
                                 let item_id = if let Some(id) =
                                     self.resolve_item_at_position(cid, obj1.pos, obj1.stack_pos)
@@ -3416,27 +3419,68 @@ impl GameWorld {
                                 } else {
                                     None
                                 };
-                                let distuse = item_id
-                                    .and_then(|id| self.items.get(id).map(|i| i.item_type))
-                                    .is_some_and(|t| self.items_db.is_distuse(t));
-                                if distuse {
-                                    // C++ `cract.cc:761`: `DistUse && !ObjectInRange(Obj2, 7)`
-                                    // → throw OUTOFRANGE. Chebyshev > 7 = out of range.
-                                    let too_far = self.creatures.get(cid).is_some_and(|k| {
-                                        let pp = k.position();
-                                        let dx = (pp.x as i32 - o2.pos.x as i32).unsigned_abs();
-                                        let dy = (pp.y as i32 - o2.pos.y as i32).unsigned_abs();
-                                        dx > 7 || dy > 7
-                                    });
+                                let item_type = item_id
+                                    .and_then(|id| self.items.get(id).map(|i| i.item_type));
+                                let distuse =
+                                    item_type.is_some_and(|t| self.items_db.is_distuse(t));
+                                let rune_far = item_type
+                                    .and_then(|t| self.spells.runes_by_id.get(&t))
+                                    .is_some_and(|r| r.allow_far_use);
+                                if distuse || rune_far {
+                                    // DistUse: Chebyshev ≤ 7 (`cract.cc:761`).
+                                    // Rune allowFarUse: TFS `canUseFar` `areInRange<7,5>`
+                                    // (`actions.cpp:255-274`) — fire from standing tile.
+                                    let (too_far, floor_rv) =
+                                        self.creatures.get(cid).map_or((true, None), |k| {
+                                            let pp = k.position();
+                                            if rune_far {
+                                                let rune = item_type
+                                                    .and_then(|t| self.spells.runes_by_id.get(&t));
+                                                let check_floor = rune
+                                                    .is_none_or(|r| r.check_floor);
+                                                if check_floor && pp.z != o2.pos.z {
+                                                    let rv = if pp.z > o2.pos.z {
+                                                        ReturnValue::FirstGoUpStairs
+                                                    } else {
+                                                        ReturnValue::FirstGoDownStairs
+                                                    };
+                                                    return (false, Some(rv));
+                                                }
+                                                let dx = (pp.x as i32 - o2.pos.x as i32)
+                                                    .unsigned_abs();
+                                                let dy = (pp.y as i32 - o2.pos.y as i32)
+                                                    .unsigned_abs();
+                                                (dx > 7 || dy > 5, None)
+                                            } else {
+                                                let dx = (pp.x as i32 - o2.pos.x as i32)
+                                                    .unsigned_abs();
+                                                let dy = (pp.y as i32 - o2.pos.y as i32)
+                                                    .unsigned_abs();
+                                                (dx > 7 || dy > 7, None)
+                                            }
+                                        });
+                                    if let Some(rv) = floor_rv {
+                                        self.apply_todo_result_catch(cid, rv);
+                                        trace_creature_todo(
+                                            self,
+                                            cid,
+                                            "execute_use_far_use_floor",
+                                        );
+                                        return Some(TodoExecuteKind::Wait);
+                                    }
                                     if too_far {
                                         self.apply_todo_result_catch(
                                             cid,
                                             ReturnValue::DestinationOutOfReach,
                                         );
-                                        trace_creature_todo(self, cid, "execute_use_distuse_out_of_range");
+                                        trace_creature_todo(
+                                            self,
+                                            cid,
+                                            "execute_use_distuse_out_of_range",
+                                        );
                                         return Some(TodoExecuteKind::Wait);
                                     }
-                                    // DistUse + within 7 tiles → proceed (no walk needed).
+                                    // Far-use within range → proceed (no walk to Obj2).
                                 } else {
                                     // Non-DistUse + Obj2 > 1 tile → walk to Obj2 + re-enqueue
                                     // (C++ `cract.cc:738-758`). If Obj1 is in inventory, the
@@ -3647,9 +3691,10 @@ impl GameWorld {
         // Re-validate obj1 (and obj2 if present) — `validate_action_object_ref` resolves
         // the item + checks the sprite, returning `Err(NotPossible)` on mismatch (C++
         // `NOTACCESSIBLE` → `NotPossible`, `walk/mod.rs:1506` convention).
+        // obj2 may be a creature target (needTarget runes) — use `validate_use_ex_target_ref`.
         self.validate_action_object_ref(cid, obj1)?;
         if let Some(o2) = obj2 {
-            self.validate_action_object_ref(cid, o2)?;
+            self.validate_use_ex_target_ref(cid, o2)?;
         }
 
         let Some(conn_id) = self.conn_for_creature(cid) else {

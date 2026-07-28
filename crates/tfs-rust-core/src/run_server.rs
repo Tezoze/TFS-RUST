@@ -160,7 +160,7 @@ pub async fn run() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("content load: {e}"))?;
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
-    let items_db = std::sync::Arc::new(content.items);
+    let mut items_db = std::sync::Arc::new(content.items);
     let monsters_db = std::sync::Arc::new(content.monsters);
     let groups = std::sync::Arc::new(content.groups);
 
@@ -250,6 +250,15 @@ pub async fn run() -> anyhow::Result<()> {
                         runes = reg.runes_by_id.len(),
                         "Loaded spell scripts"
                     );
+                    // C++ `luaSpellRegister` patches ItemType rune levels/charges/name
+                    // (`luascript.cpp:15889–15895`) so look text shows spell words + reqs.
+                    if let Some(db) = std::sync::Arc::get_mut(&mut items_db) {
+                        db.apply_rune_spell_defs(&reg);
+                    } else {
+                        tracing::warn!(
+                            "Could not patch ItemType for runes (items_db Arc shared); look text may omit rune requirements"
+                        );
+                    }
                     reg
                 }
                 Err(e) => {

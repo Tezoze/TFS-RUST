@@ -1,5 +1,8 @@
-//! Deserialize TFS `Item::unserializeAttr` blobs from DB (`player_items.attributes`).
-// C++ reference: `src/item.cpp` `Item::readAttr`, `Item::unserializeAttr`, `Item::serializeAttr`.
+//! Deserialize TFS `Item::unserializeAttr` blobs (DB) and OTBM item node props.
+//!
+//! C++ reference: `src/item.cpp` `Item::readAttr` / `unserializeAttr` / `serializeAttr`;
+//! OTBM Remere extensions: RME `iomap_otbm.h` `OTBM_ATTR_KEYNUMBER`…`CHESTQUESTNUMBER`
+//! (bytes 23–28 collide with TFS `ATTR_CONTAINER_ITEMS`…`ATTR_WEIGHT` — map-only).
 
 use tfs_rust_common::{PropStream, PropWriteStream, Result as TfsResult};
 use tfs_rust_content::items::ItemDatabase;
@@ -8,6 +11,31 @@ use crate::item::Item;
 use crate::item_attributes::{
     AttrType, CustomAttrValue, DecayState, ItemAttrFlags, ItemAttributes,
 };
+
+/// Where the attr blob came from — Remere map attrs 23–28 vs TFS DB attrs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemBlobSource {
+    /// `player_items.attributes` / depot — TFS `AttrTypes_t` (NAME=24, …).
+    Database,
+    /// OTBM `OTBM_ITEM` props after the `u16` id — Remere key/door attrs at 23–28.
+    OtbmMap,
+}
+
+/// Remere OTBM item attrs (`iomap_otbm.h`) — u16 payloads; not TFS `AttrTypes_t`.
+const OTBM_ATTR_KEYNUMBER: u8 = 23;
+const OTBM_ATTR_KEYHOLENUMBER: u8 = 24;
+const OTBM_ATTR_DOORQUESTNUMBER: u8 = 25;
+const OTBM_ATTR_DOORQUESTVALUE: u8 = 26;
+const OTBM_ATTR_DOORLEVEL: u8 = 27;
+const OTBM_ATTR_CHESTQUESTNUMBER: u8 = 28;
+
+/// Custom-attr keys for Remere OTBM door/key fields (Lua `ITEM_ATTRIBUTE_*` follow-up).
+pub const OTBM_CUSTOM_KEYNUMBER: &str = "keynumber";
+pub const OTBM_CUSTOM_KEYHOLENUMBER: &str = "keyholenumber";
+pub const OTBM_CUSTOM_DOORQUESTNUMBER: &str = "doorquestnumber";
+pub const OTBM_CUSTOM_DOORQUESTVALUE: &str = "doorquestvalue";
+pub const OTBM_CUSTOM_DOORLEVEL: &str = "doorlevel";
+pub const OTBM_CUSTOM_CHESTQUESTNUMBER: &str = "chestquestnumber";
 
 /// Result of parsing a persisted item attribute blob.
 pub struct ParsedItemBlob {
@@ -19,6 +47,20 @@ pub struct ParsedItemBlob {
 /// Parse `attributes` BLOB from `player_items` / depot tables.
 /// `is_container`: true when `ItemType` is a container — `ATTR_CONTAINER_ITEMS` is valid.
 pub fn parse_item_blob(blob: &[u8], is_container: bool) -> TfsResult<ParsedItemBlob> {
+    parse_item_blob_from(blob, is_container, ItemBlobSource::Database)
+}
+
+/// Parse OTBM `OTBM_ITEM` attribute bytes (after item id).
+/// Remere attrs 23–28 are key/door u16s, not TFS NAME/WEIGHT strings.
+pub fn parse_otbm_item_blob(blob: &[u8], is_container: bool) -> TfsResult<ParsedItemBlob> {
+    parse_item_blob_from(blob, is_container, ItemBlobSource::OtbmMap)
+}
+
+fn parse_item_blob_from(
+    blob: &[u8],
+    is_container: bool,
+    source: ItemBlobSource,
+) -> TfsResult<ParsedItemBlob> {
     let mut attrs = ItemAttributes::new();
     let mut subtype_override: Option<u8> = None;
     let mut stream = PropStream::new(blob);
@@ -32,6 +74,7 @@ pub fn parse_item_blob(blob: &[u8], is_container: bool) -> TfsResult<ParsedItemB
             &mut attrs,
             &mut subtype_override,
             is_container,
+            source,
         )?;
         if !cont {
             break;
@@ -43,13 +86,39 @@ pub fn parse_item_blob(blob: &[u8], is_container: bool) -> TfsResult<ParsedItemB
     })
 }
 
+fn read_otbm_reme_u16(
+    attr_type: u8,
+    stream: &mut PropStream<'_>,
+    attrs: &mut ItemAttributes,
+) -> TfsResult<bool> {
+    let key = match attr_type {
+        OTBM_ATTR_KEYNUMBER => OTBM_CUSTOM_KEYNUMBER,
+        OTBM_ATTR_KEYHOLENUMBER => OTBM_CUSTOM_KEYHOLENUMBER,
+        OTBM_ATTR_DOORQUESTNUMBER => OTBM_CUSTOM_DOORQUESTNUMBER,
+        OTBM_ATTR_DOORQUESTVALUE => OTBM_CUSTOM_DOORQUESTVALUE,
+        OTBM_ATTR_DOORLEVEL => OTBM_CUSTOM_DOORLEVEL,
+        OTBM_ATTR_CHESTQUESTNUMBER => OTBM_CUSTOM_CHESTQUESTNUMBER,
+        _ => return Ok(false),
+    };
+    let v = stream.read_u16()? as i64;
+    attrs.set_custom_attribute(key, CustomAttrValue::Integer(v));
+    Ok(true)
+}
+
 fn read_one_attr(
     attr_type: u8,
     stream: &mut PropStream<'_>,
     attrs: &mut ItemAttributes,
     subtype_override: &mut Option<u8>,
     is_container: bool,
+    source: ItemBlobSource,
 ) -> TfsResult<bool> {
+    if source == ItemBlobSource::OtbmMap
+        && read_otbm_reme_u16(attr_type, stream, attrs)?
+    {
+        return Ok(true);
+    }
+
     match attr_type {
         x if x == AttrType::Count as u8 || x == AttrType::RuneCharges as u8 => {
             *subtype_override = Some(stream.read_u8()?);
@@ -158,6 +227,7 @@ fn read_one_attr(
             }
         }
         x if x == AttrType::ContainerItems as u8 => {
+            // DB only — OTBM Remere KEYNUMBER (23) handled above.
             let _n = stream.read_u32()?;
             if !is_container {
                 return Err(tfs_rust_common::error::TfsRustError::PropStream(
@@ -398,9 +468,13 @@ pub fn write_item_blob_with_duration(
 
 #[cfg(test)]
 mod write_roundtrip_tests {
-    use super::{parse_item_blob, write_item_blob};
-    use crate::ids::ItemId;
+    use super::{
+        parse_item_blob, parse_otbm_item_blob, write_item_blob, OTBM_CUSTOM_DOORLEVEL,
+        OTBM_CUSTOM_DOORQUESTNUMBER, OTBM_CUSTOM_DOORQUESTVALUE, OTBM_CUSTOM_KEYHOLENUMBER,
+        OTBM_CUSTOM_KEYNUMBER,
+    };
     use crate::item::Item;
+    use crate::item_attributes::CustomAttrValue;
     use std::collections::HashMap;
     use tfs_rust_content::items::ItemDatabase;
     use tfs_rust_content::otb::ItemType;
@@ -438,5 +512,59 @@ mod write_roundtrip_tests {
         let blob = write_item_blob(&item, &db);
         let parsed = parse_item_blob(&blob, false).expect("parse");
         assert_eq!(parsed.subtype_override, Some(42));
+    }
+
+    #[test]
+    fn otbm_reme_keyhole_is_u16_not_attr_name_string() {
+        // forgotten.otbm door 1212 @ 32619,32241,z8: attr 0x18 + u16 0x0ce5
+        let blob = [0x18, 0xe5, 0x0c];
+        let parsed = parse_otbm_item_blob(&blob, false).expect("otbm parse");
+        assert_eq!(
+            parsed.attrs.get_custom_attribute(OTBM_CUSTOM_KEYHOLENUMBER),
+            Some(&CustomAttrValue::Integer(0x0ce5))
+        );
+        // DB path would treat 0x18 as ATTR_NAME and EOF on string length 3301
+        assert!(parse_item_blob(&blob, false).is_err());
+    }
+
+    #[test]
+    fn otbm_reme_key_number_is_u16_not_container_items() {
+        // key 2088: attr 0x17 + u16 0x0bbe
+        let blob = [0x17, 0xbe, 0x0b];
+        let parsed = parse_otbm_item_blob(&blob, false).expect("otbm parse");
+        assert_eq!(
+            parsed.attrs.get_custom_attribute(OTBM_CUSTOM_KEYNUMBER),
+            Some(&CustomAttrValue::Integer(0x0bbe))
+        );
+    }
+
+    #[test]
+    fn otbm_reme_quest_and_level_doors() {
+        // 1223: DOORQUESTNUMBER=320, DOORQUESTVALUE=5
+        let blob = [0x19, 0x40, 0x01, 0x1a, 0x05, 0x00];
+        let parsed = parse_otbm_item_blob(&blob, false).expect("otbm parse");
+        assert_eq!(
+            parsed.attrs.get_custom_attribute(OTBM_CUSTOM_DOORQUESTNUMBER),
+            Some(&CustomAttrValue::Integer(320))
+        );
+        assert_eq!(
+            parsed.attrs.get_custom_attribute(OTBM_CUSTOM_DOORQUESTVALUE),
+            Some(&CustomAttrValue::Integer(5))
+        );
+
+        // 1229: DOORLEVEL=30
+        let level = parse_otbm_item_blob(&[0x1b, 0x1e, 0x00], false).expect("level");
+        assert_eq!(
+            level.attrs.get_custom_attribute(OTBM_CUSTOM_DOORLEVEL),
+            Some(&CustomAttrValue::Integer(30))
+        );
+    }
+
+    #[test]
+    fn latin1_text_attr_accepted() {
+        // ATTR_TEXT + "à" as Latin-1 0xE0 (invalid as UTF-8)
+        let blob = [6u8, 1, 0, 0xe0];
+        let parsed = parse_item_blob(&blob, false).expect("latin1");
+        assert_eq!(parsed.attrs.get_text(), "à");
     }
 }

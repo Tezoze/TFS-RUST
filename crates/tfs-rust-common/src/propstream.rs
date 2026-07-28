@@ -107,14 +107,15 @@ impl<'a> PropStream<'a> {
             .map_err(|_| TfsRustError::PropStream("EOF reading u64".into()))
     }
 
+    /// C++ `PropStream::readString` — raw bytes into `std::string` (no UTF-8 check).
+    /// Map text is often Latin-1; decode each byte as U+00xx (ISO-8859-1).
     pub fn read_string(&mut self) -> Result<String> {
         let len = self.read_u16()? as usize;
         let mut string_buf = vec![0; len];
         self.cursor
             .read_exact(&mut string_buf)
             .map_err(|_| TfsRustError::PropStream("EOF reading string".into()))?;
-        String::from_utf8(string_buf)
-            .map_err(|_| TfsRustError::PropStream("Invalid UTF-8 in string".into()))
+        Ok(string_buf.into_iter().map(char::from).collect())
     }
 
     /// C++ `PropStream::read<int64_t>` — `src/propstream.h`.

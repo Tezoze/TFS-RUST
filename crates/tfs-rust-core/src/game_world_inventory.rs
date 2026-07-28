@@ -1114,9 +1114,21 @@ impl GameWorld {
             LookTarget::Ground(ground_type) => {
                 let ephemeral = Item::new_single(ground_type);
                 if let Some(it) = self.items_db.items.get(&ground_type) {
+                    let rune_vocs = self
+                        .spells
+                        .get_rune(ground_type)
+                        .map(|r| r.vocations.as_slice());
                     format!(
                         "You see {}",
-                        item_get_description_cpp(&ephemeral, it, it.weight, look_d, None, None)
+                        item_get_description_cpp(
+                            &ephemeral,
+                            it,
+                            it.weight,
+                            look_d,
+                            None,
+                            None,
+                            rune_vocs,
+                        )
                     )
                 } else {
                     format!("You see an item of type {ground_type}.")
@@ -1131,6 +1143,10 @@ impl GameWorld {
                     return;
                 };
                 let container_capacity = self.container_registry.get(item_id).map(|c| c.capacity);
+                let rune_vocs = self
+                    .spells
+                    .get_rune(item.item_type)
+                    .map(|r| r.vocations.clone());
                 if let Some(it) = self.items_db.items.get(&item.item_type) {
                     format!(
                         "You see {}",
@@ -1141,6 +1157,7 @@ impl GameWorld {
                             look_d,
                             container_capacity,
                             show_duration_ms,
+                            rune_vocs.as_deref(),
                         )
                     )
                 } else {

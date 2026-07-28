@@ -321,10 +321,13 @@ impl UserData for SpellBuilder {
             Ok(true)
         });
 
-        // `rune:runeMagicLevel(level)` — sets the magic level required to use
-        // the rune. C++ `RuneSpell::setRuneMagicLevel` — `spells.h`.
+        // `rune:runeMagicLevel(magLevel)` — C++ `luaSpellRuneMagicLevel` →
+        // `Spell::setMagicLevel` (`luascript.cpp:16512–16533`). Same field as
+        // `:magicLevel`; datapack runes only call `:runeMagicLevel`.
         methods.add_method_mut("runeMagicLevel", |_, this, level: u32| {
-            this.spell.borrow_mut().rune_magic_level = level;
+            let mut b = this.spell.borrow_mut();
+            b.magic_level = level;
+            b.rune_magic_level = level;
             Ok(true)
         });
 

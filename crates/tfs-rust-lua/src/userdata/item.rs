@@ -80,7 +80,17 @@ fn parse_move_destination(_lua: &Lua, value: Value) -> Result<LuaMoveDestination
 
 impl UserData for ItemRef {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("getId", |_, this, ()| Ok(this.0));
+        // C++ `Item::getID()` — server item type id (e.g. 2260 blank rune), not the
+        // SlotMap instance key. `luascript.cpp` `luaItemGetId`. Required by
+        // `Player:conjureItem` (`leftItem:getId() == reagentId`) and door/lever scripts.
+        methods.add_method("getId", |_, this, ()| {
+            with_ctx(|ctx| {
+                Ok(ctx
+                    .get_item_data(this.0)
+                    .map(|d: ItemData| d.item_type)
+                    .unwrap_or(0))
+            })
+        });
 
         methods.add_method("getType", |_, this, ()| {
             with_ctx(|ctx| {

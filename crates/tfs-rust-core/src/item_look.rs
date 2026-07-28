@@ -401,7 +401,114 @@ fn append_equip_requirements(s: &mut String, it: &ItemType) {
     }
 }
 
-/// Full `Item::getDescription(it, lookDistance, item, subType)` for normal items (no runes / no spells).
+/// Rune look vocation names — C++ `Item::getDescription` rune arm (`item.cpp` ~960–985).
+/// Empty → `"players"`. Names lowercased + pluralized like C++ `asLowerCaseString` + `'s'`.
+fn build_rune_vocation_list(names: &[String]) -> String {
+    let pluralized: Vec<String> = names
+        .iter()
+        .map(|n| pluralize_vocation_name(&n.to_ascii_lowercase()))
+        .collect();
+    match pluralized.len() {
+        0 => "players".to_string(),
+        1 => pluralized[0].clone(),
+        2 => format!("{} and {}", pluralized[0], pluralized[1]),
+        _ => {
+            let (last, rest) = pluralized.split_last().expect("len checked");
+            format!("{} and {}", rest.join(", "), last)
+        }
+    }
+}
+
+/// C++ `Item::getDescription` allowDistRead arm — `item.cpp` ~1422–1449.
+/// Ids 7369–7371 (paper messages) are handled later; excluded here like C++.
+fn allow_dist_read_suffix(item: &Item, it: &ItemType, look_distance: i32) -> Option<String> {
+    if !it.allow_dist_read() || (it.id >= 7369 && it.id <= 7371) {
+        return None;
+    }
+    let mut s = String::from(".\n");
+    if look_distance > 4 {
+        s.push_str("You are too far away to read it");
+        return Some(s);
+    }
+    let text = item.text();
+    if text.is_empty() {
+        s.push_str("Nothing is written on it");
+        return Some(s);
+    }
+    let writer = item
+        .attributes
+        .as_deref()
+        .map(|a| a.get_writer())
+        .unwrap_or("");
+    if !writer.is_empty() {
+        s.push_str(writer);
+        s.push_str(" wrote");
+        let date = item
+            .attributes
+            .as_deref()
+            .map(|a| a.get_date())
+            .unwrap_or(0);
+        if date != 0 {
+            s.push_str(" on ");
+            s.push_str(&format_date_short(date));
+        }
+        s.push_str(": ");
+    } else {
+        s.push_str("You read: ");
+    }
+    s.push_str(text);
+    Some(s)
+}
+
+/// C++ `formatDateShort` — `tools.cpp:362` (`strftime` `%d %b %Y`).
+fn format_date_short(unix_secs: i64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+    let Some(instant) = UNIX_EPOCH.checked_add(Duration::from_secs(unix_secs.max(0) as u64))
+    else {
+        return String::new();
+    };
+    let dt: chrono::DateTime<chrono::Local> = instant.into();
+    dt.format("%d %b %Y").to_string()
+}
+
+/// C++ `Item::getDescription` rune branch — `item.cpp` ~951–1003.
+/// Requires `it.rune_level` / `it.rune_mag_level` patched at rune `spell:register()`.
+fn rune_description_suffix(it: &ItemType, item: &Item, vocations: &[String]) -> Option<String> {
+    if !it.is_rune() || (it.rune_level <= 0 && it.rune_mag_level <= 0) {
+        return None;
+    }
+    let sub_type = i32::from(item.count.max(1));
+    let pronoun = if it.stackable() && sub_type > 1 {
+        "They"
+    } else {
+        "It"
+    };
+    let mut s = format!(
+        " (\"{}\"). {} can only be used by {}",
+        it.rune_spell_name,
+        pronoun,
+        build_rune_vocation_list(vocations)
+    );
+    s.push_str(" with");
+    if it.rune_level > 0 {
+        use std::fmt::Write;
+        let _ = write!(s, " level {}", it.rune_level);
+    }
+    if it.rune_mag_level > 0 {
+        if it.rune_level > 0 {
+            s.push_str(" and");
+        }
+        use std::fmt::Write;
+        let _ = write!(s, " magic level {}", it.rune_mag_level);
+    }
+    s.push_str(" or higher");
+    Some(s)
+}
+
+/// Full `Item::getDescription(it, lookDistance, item, subType)`.
+///
+/// `rune_vocations`: vocation names from the registered `RuneSpell` (`None` / empty →
+/// `"players"` in the rune arm). Non-rune items ignore this.
 ///
 /// `show_duration_ms`: remaining duration for `showduration` look text (`None` = no duration attr →
 /// "brand-new" when `it.show_duration`). Callers pass scheduler remaining when `DecayState::True`.
@@ -412,10 +519,14 @@ pub fn item_get_description_cpp(
     look_distance: i32,
     hydrated_container_capacity: Option<u32>,
     show_duration_ms: Option<i32>,
+    rune_vocations: Option<&[String]>,
 ) -> String {
     let mut s = item_name_description(item, it, true);
 
-    if it.weapon_type != WEAPON_NONE {
+    let mut allow_dist_read_emitted = false;
+    if let Some(rune_sfx) = rune_description_suffix(it, item, rune_vocations.unwrap_or(&[])) {
+        s.push_str(&rune_sfx);
+    } else if it.weapon_type != WEAPON_NONE {
         if let Some(w) = weapon_suffix(item, it) {
             s.push_str(&w);
         }
@@ -423,6 +534,9 @@ pub fn item_get_description_cpp(
         s.push_str(&st);
     } else if let Some(vol) = container_volume_suffix(item, it, hydrated_container_capacity) {
         s.push_str(&vol);
+    } else if let Some(adr) = allow_dist_read_suffix(item, it, look_distance) {
+        s.push_str(&adr);
+        allow_dist_read_emitted = true;
     }
 
     if it.show_charges {
@@ -448,8 +562,15 @@ pub fn item_get_description_cpp(
         }
     }
 
-    // `item.cpp` ~1500–1509 — full `allowDistRead` / scroll text branching not ported; period always appended here.
-    s.push('.');
+    // `item.cpp` ~1500–1509 — skip trailing '.' when allowDistRead already printed
+    // `.\nYou read: …` with non-empty text (period was included in that branch).
+    let skip_period = allow_dist_read_emitted && !item.text().is_empty();
+    if !skip_period {
+        s.push('.');
+    }
+
+    // Paper messages 7369–7371 — `item.cpp` ~1564–1571 (text after weight/desc).
+    let paper_msg = it.allow_dist_read() && (7369..=7371).contains(&it.id);
 
     if look_distance <= 1 && total_weight_hundredths != 0 && it.pickupable() {
         s.push('\n');
@@ -480,6 +601,15 @@ pub fn item_get_description_cpp(
     } else if look_distance <= 1 && !it.description.is_empty() {
         s.push('\n');
         s.push_str(&it.description);
+    }
+
+    // C++ `item.cpp` ~1564–1571 — paper message text after description.
+    if paper_msg {
+        let text = item.text();
+        if !text.is_empty() {
+            s.push('\n');
+            s.push_str(text);
+        }
     }
 
     s
@@ -561,7 +691,7 @@ mod tests {
 
         let item = Item::new(it.id, 4);
         let total = 8000u32;
-        let s = item_get_description_cpp(&item, &it, total, 1, None, None);
+        let s = item_get_description_cpp(&item, &it, total, 1, None, None, None);
         assert_eq!(s, "4 spears (Atk:25).\nThey weigh 80.00 oz.");
     }
 
@@ -591,7 +721,7 @@ mod tests {
         it.abilities.stats[STAT_MAGICPOINTS] = 2;
 
         let item = Item::new(it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 3500, 1, None, None);
+        let s = item_get_description_cpp(&item, &it, 3500, 1, None, None, None);
         assert_eq!(
             s,
             "a yalahari mask (Arm:5, magic level +2).\n\
@@ -615,7 +745,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
         };
 
         let item = Item::new(it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 1800, 1, None, None);
+        let s = item_get_description_cpp(&item, &it, 1800, 1, None, None, None);
         assert_eq!(s, "a backpack (Vol:20).\nIt weighs 18.00 oz.");
     }
 
@@ -635,7 +765,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
 
         let mut item = Item::new(it.id, 1);
         item.set_charges(50);
-        let s = item_get_description_cpp(&item, &it, 500, 1, None, None);
+        let s = item_get_description_cpp(&item, &it, 500, 1, None, None, None);
         assert_eq!(
             s,
             "a necklace of the deep (protection life drain +50%) that has 50 charges left.\n\
@@ -654,7 +784,7 @@ It can only be wielded properly by players of level 120 or higher."
         };
 
         let item = Item::new_single(it.id);
-        let s = item_get_description_cpp(&item, &it, it.weight, 3, None, None);
+        let s = item_get_description_cpp(&item, &it, it.weight, 3, None, None, None);
         assert_eq!(s, "water.");
     }
 
@@ -670,16 +800,73 @@ It can only be wielded properly by players of level 120 or higher."
             ..Default::default()
         };
         let item = Item::new_single(it.id);
-        let brand = item_get_description_cpp(&item, &it, 90, 1, None, None);
+        let brand = item_get_description_cpp(&item, &it, 90, 1, None, None, None);
         assert!(
             brand.contains("that is brand-new"),
             "brand-new: {brand}"
         );
 
-        let with_dur = item_get_description_cpp(&item, &it, 90, 1, None, Some(125_000));
+        let with_dur = item_get_description_cpp(&item, &it, 90, 1, None, Some(125_000), None);
         assert!(
             with_dur.contains("that will expire in 2 minutes and 5 seconds"),
             "expire: {with_dur}"
         );
+    }
+
+    /// C++ `Item::getDescription` rune arm — `item.cpp` ~951–1003.
+    #[test]
+    fn sudden_death_rune_look_includes_spell_words_and_maglevel() {
+        let it = ItemType {
+            id: 2268,
+            name: "spell rune".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            type_tag: 10, // ITEM_TYPE_RUNE
+            weight: 120,
+            rune_spell_name: "adori vita vis".into(),
+            rune_level: 0,
+            rune_mag_level: 15,
+            ..Default::default()
+        };
+        let item = Item::new_single(it.id);
+        let s = item_get_description_cpp(&item, &it, 120, 1, None, None, None);
+        assert!(
+            s.starts_with("a spell rune (\"adori vita vis\"). It can only be used by players with magic level 15 or higher."),
+            "got: {s}"
+        );
+        assert!(s.contains("It weighs 1.20 oz."), "weight: {s}");
+    }
+
+    /// C++ `item.cpp` ~1422–1449 — signs / blackboards (`allowDistRead`).
+    #[test]
+    fn sign_allow_dist_read_shows_you_read_text() {
+        let it = ItemType {
+            id: 1429,
+            name: "sign".into(),
+            article: "a".into(),
+            allow_dist_read_override: Some(true),
+            weight: 0,
+            ..Default::default()
+        };
+        let mut item = Item::new_single(it.id);
+        item.set_text("Temple Street");
+        let s = item_get_description_cpp(&item, &it, 0, 1, None, None, None);
+        assert_eq!(s, "a sign.\nYou read: Temple Street");
+    }
+
+    #[test]
+    fn sign_allow_dist_read_empty_and_far() {
+        let it = ItemType {
+            id: 1810,
+            name: "blackboard".into(),
+            article: "a".into(),
+            allow_dist_read_override: Some(true),
+            ..Default::default()
+        };
+        let item = Item::new_single(it.id);
+        let near = item_get_description_cpp(&item, &it, 0, 1, None, None, None);
+        assert_eq!(near, "a blackboard.\nNothing is written on it.");
+        let far = item_get_description_cpp(&item, &it, 0, 5, None, None, None);
+        assert_eq!(far, "a blackboard.\nYou are too far away to read it.");
     }
 }

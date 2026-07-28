@@ -150,12 +150,18 @@ impl Map {
 
 /// C++ `Tile::internalAddThing` for item ids (`src/tile.cpp`).
 /// Creates an Item instance and returns its ItemId.
+///
+/// `otbm_attr_blob`: bytes after the `u16` item id in an `OTBM_ITEM` node
+/// (`Item::unserializeItemNode` / `unserializeAttr` — `item.cpp`). Used for
+/// sign/blackboard `ATTR_TEXT`, action ids, teleports, etc. `None` for bare
+/// `OTBM_ATTR_ITEM` embeds (id only).
 fn internal_add_item_id(
     pos: Position,
     id: u16,
     items_db: &ItemDatabase,
     body: &mut TileBody,
     items: &mut SlotMap<ItemId, Item>,
+    otbm_attr_blob: Option<&[u8]>,
 ) {
     let id = otbm::remap_create_item_stream_id(id);
     let it = items_db.items.get(&id);
@@ -166,6 +172,29 @@ fn internal_add_item_id(
     }
 
     let mut item = Item::new_single(id);
+    if let Some(blob) = otbm_attr_blob.filter(|b| !b.is_empty()) {
+        let is_container = it.map(|t| t.group == tfs_rust_content::otb::ItemType::GROUP_CONTAINER)
+            .unwrap_or(false);
+        // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
+        match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
+            Ok(parsed) => {
+                if let Some(st) = parsed.subtype_override {
+                    item.count = u16::from(st).max(1);
+                }
+                if parsed.attrs.attribute_bits() != 0 {
+                    item.attributes = Some(Box::new(parsed.attrs));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    item_id = id,
+                    ?pos,
+                    error = %e,
+                    "OTBM item attr unserialize failed (item placed without attrs)"
+                );
+            }
+        }
+    }
     item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
     let item_id = items.insert(item);
 
@@ -304,6 +333,7 @@ fn apply_item_tile_flags(
 }
 
 /// Raw OTBM item stream id before `remap_create_item_stream_id` (`src/item.cpp` `CreateItem(PropStream&)`).
+#[cfg(test)]
 fn otbm_item_stream_id(thing: &TileThing) -> Option<u16> {
     match thing {
         TileThing::EmbeddedItemId(id) => Some(*id),
@@ -334,16 +364,35 @@ fn tile_from_data(
     };
 
     for thing in td.things {
-        let Some(stream_id) = otbm_item_stream_id(&thing) else {
-            continue;
-        };
-        let id = otbm::remap_create_item_stream_id(stream_id);
-
-        if let Some(item_type) = items_db.items.get(&id) {
-            apply_item_tile_flags(&mut body, item_type, items_db);
+        match &thing {
+            TileThing::EmbeddedItemId(stream_id) => {
+                let id = otbm::remap_create_item_stream_id(*stream_id);
+                if let Some(item_type) = items_db.items.get(&id) {
+                    apply_item_tile_flags(&mut body, item_type, items_db);
+                }
+                internal_add_item_id(pos, *stream_id, items_db, &mut body, items, None);
+            }
+            TileThing::ItemNodeProps(raw) => {
+                if raw.len() < 2 {
+                    continue;
+                }
+                let stream_id = u16::from_le_bytes([raw[0], raw[1]]);
+                let id = otbm::remap_create_item_stream_id(stream_id);
+                if let Some(item_type) = items_db.items.get(&id) {
+                    apply_item_tile_flags(&mut body, item_type, items_db);
+                }
+                // Bytes after the item id — C++ `unserializeItemNode` (`item.cpp:754`).
+                let attr_blob = &raw[2..];
+                internal_add_item_id(
+                    pos,
+                    stream_id,
+                    items_db,
+                    &mut body,
+                    items,
+                    Some(attr_blob),
+                );
+            }
         }
-
-        internal_add_item_id(pos, stream_id, items_db, &mut body, items);
     }
 
     if let Some(hid) = td.house_id {
@@ -413,6 +462,77 @@ mod tile_flag_tests {
             waypoints: HashMap::new(),
         };
         super::Map::from_map_data(data, db, &mut items)
+    }
+
+    fn map_and_items_from_single_tile(
+        pos: Position,
+        things: Vec<TileThing>,
+        db: &ItemDatabase,
+    ) -> (super::Map, SlotMap<ItemId, crate::item::Item>) {
+        let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
+        let mut tiles = HashMap::new();
+        tiles.insert(
+            pos,
+            TileData {
+                position: pos,
+                house_id: None,
+                tile_flags: 0,
+                things,
+            },
+        );
+        let data = MapData {
+            width: 256,
+            height: 256,
+            spawn_file: None,
+            house_file: None,
+            spawn_zones: Vec::new(),
+            tiles,
+            houses: HashMap::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        let map = super::Map::from_map_data(data, db, &mut items);
+        (map, items)
+    }
+
+    #[test]
+    fn otbm_item_node_props_load_attr_text() {
+        // OTBM_ITEM props: u16 id + ATTR_TEXT(6) + u16 len + bytes — `item.cpp` ATTR_TEXT.
+        const SIGN: u16 = 1429;
+        let text = b"Depot";
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&SIGN.to_le_bytes());
+        raw.push(6); // ATTR_TEXT
+        raw.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        raw.extend_from_slice(text);
+
+        let db = item_db(vec![(
+            SIGN,
+            ItemType {
+                id: SIGN,
+                server_id: SIGN,
+                name: "sign".into(),
+                allow_dist_read_override: Some(true),
+                ..ItemType::default()
+            },
+        )]);
+        let pos = Position::new(100, 100, 7);
+        let (map, items) = map_and_items_from_single_tile(
+            pos,
+            vec![TileThing::ItemNodeProps(raw)],
+            &db,
+        );
+        let tile = map.get_tile(pos).expect("tile");
+        let item_id = tile
+            .body()
+            .top_items
+            .first()
+            .or_else(|| tile.body().down_items.first())
+            .copied()
+            .expect("sign item");
+        let item = items.get(item_id).expect("item");
+        assert_eq!(item.item_type, SIGN);
+        assert_eq!(item.text(), "Depot");
     }
 
     #[test]

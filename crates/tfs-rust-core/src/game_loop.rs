@@ -25,6 +25,7 @@ use crate::creature_todo::ActionObjectRef;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::login::{self, MAX_CONCURRENT_LOGIN_LOADS};
+use crate::return_value::ReturnValue;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 use tfs_rust_net::{
     GameCmdTx, OutboundSendError, OutboundTx, OutRegistry, MAX_GAME_COMMANDS_PER_TURN,
@@ -349,6 +350,7 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::SeekInContainer { .. }
             | GamePacket::UseItem(_)
             | GamePacket::UseItemEx(_)
+            | GamePacket::UseWithCreature { .. }
             // F8 S6 — `Throw`/`RotateItem` now route through the ToDo engine (Wait{100} +
             // CalculateDelay gate), so the `player_packet_action_ready` receipt-time gate is
             // redundant and would drop packets the ToDo engine would correctly queue.
@@ -848,6 +850,55 @@ fn handle_game_packet(
                     pos: payload.to_pos,
                     stack_pos: payload.to_stack_pos,
                     sprite_id: payload.to_sprite_id,
+                };
+                world.player_todo_clear_with_snapback(conn_id, cid);
+                if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {
+                    world.send_cancel_message(conn_id, rv);
+                } else {
+                    world.todo_start_from_action(cid, 1);
+                }
+            }
+        }
+        // TFS `ProtocolGame::parseUseWithCreature` → `Game::playerUseWithCreature`
+        // (`protocolgame.cpp:930`, `game.cpp:2260`). needTarget runes (SD, HMM, …) send
+        // this opcode with a wire creature id; was previously dropped in the catch-all.
+        GamePacket::UseWithCreature {
+            from_pos,
+            sprite_id,
+            from_stack_pos,
+            creature_id: target_wire,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                let Some(target_cid) = world.creature_by_wire_id(target_wire) else {
+                    world.send_cancel_message(conn_id, ReturnValue::NotPossible);
+                    return;
+                };
+                let Some(target_pos) = world.creatures.get(target_cid).map(|k| k.position()) else {
+                    world.send_cancel_message(conn_id, ReturnValue::NotPossible);
+                    return;
+                };
+                // TFS `Game::playerUseWithCreature` — silent drop outside `areInRange<7,5,0>`
+                // (`game.cpp:2272-2274`). Far-use runes fire from standing tile within this box.
+                let Some(player_pos) = world.creatures.get(cid).map(|k| k.position()) else {
+                    return;
+                };
+                if player_pos.z != target_pos.z
+                    || (player_pos.x as i32 - target_pos.x as i32).unsigned_abs() > 7
+                    || (player_pos.y as i32 - target_pos.y as i32).unsigned_abs() > 5
+                {
+                    return;
+                }
+                let obj1 = ActionObjectRef {
+                    pos: from_pos,
+                    stack_pos: from_stack_pos,
+                    sprite_id,
+                };
+                // Synthetic obj2 at the creature's tile — `validate_use_ex_target_ref`
+                // accepts creatures; `player_cast_rune` resolves the creature on the tile.
+                let obj2 = ActionObjectRef {
+                    pos: target_pos,
+                    stack_pos: 0,
+                    sprite_id: 0,
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
                 if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {

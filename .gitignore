@@ -193,6 +193,9 @@ tibia-login/
 tibia-ipchanger-master/build/
 .tibia-ref-772/
 .tibia-cipsoft/
+# Re-include the organized reference/ tree so search tooling can see it.
+!reference/
+!reference/**
 # Local RSA private key (772 client)
 /tibia.pem
 /Tibia772-local.exe

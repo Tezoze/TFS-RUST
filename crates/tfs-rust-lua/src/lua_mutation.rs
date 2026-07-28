@@ -321,15 +321,21 @@ pub fn register_lua_mutation_applier(applier: LuaMutationApplier) {
 }
 
 /// Execute `f` with an active Lua mutation scope bound to `world`.
+///
+/// Nesting is supported: inventory equip/deequip hooks may enter a new scope while
+/// an outer `onCastSpell` / talkaction scope is still active. Clearing to null on
+/// exit would break subsequent `addItem` in the same Lua callback.
 pub fn with_lua_mutation_scope<F, R>(world: *mut (), f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    MUTATION_WORLD.set(world);
-    MUTATION_BOOL_RESULT.set(None);
-    MUTATION_ITEM_RESULT.set(None);
+    let prev_world = MUTATION_WORLD.replace(world);
+    let prev_bool = MUTATION_BOOL_RESULT.replace(None);
+    let prev_item = MUTATION_ITEM_RESULT.replace(None);
     let result = f();
-    MUTATION_WORLD.set(std::ptr::null_mut());
+    MUTATION_WORLD.set(prev_world);
+    MUTATION_BOOL_RESULT.set(prev_bool);
+    MUTATION_ITEM_RESULT.set(prev_item);
     result
 }
 
@@ -358,6 +364,27 @@ fn apply_mutation(mutation: LuaMutation) -> Result<(), String> {
         .get()
         .ok_or_else(|| "Lua mutation applier not registered".to_string())?;
     applier(world, mutation)
+}
+
+#[cfg(test)]
+mod mutation_scope_tests {
+    use super::{with_lua_mutation_scope, MUTATION_WORLD};
+
+    #[test]
+    fn nested_mutation_scope_restores_outer_world() {
+        // Inventory hooks nest `with_lua_mutation_scope` inside `onCastSpell`;
+        // clearing to null on inner exit broke subsequent `addItem`.
+        let outer = 0x1 as *mut ();
+        let inner = 0x2 as *mut ();
+        with_lua_mutation_scope(outer, || {
+            assert_eq!(MUTATION_WORLD.get(), outer);
+            with_lua_mutation_scope(inner, || {
+                assert_eq!(MUTATION_WORLD.get(), inner);
+            });
+            assert_eq!(MUTATION_WORLD.get(), outer);
+        });
+        assert!(MUTATION_WORLD.get().is_null());
+    }
 }
 
 pub fn call_lua_add_item(creature_id: u64, item_type: u16, count: u16) -> Result<(), String> {

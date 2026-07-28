@@ -608,18 +608,26 @@ impl GameWorld {
     /// C++ `RuneSpell::castSpell` / `playerCastRune` — `spells.cpp`.
     fn player_cast_rune(
         &mut self,
-        conn_id: ConnId,
+        _conn_id: ConnId,
         cid: CreatureId,
         item_id: ItemId,
         rune: &tfs_rust_content::spells::RuneSpellDef,
         target: crate::creature_todo::ActionObjectRef,
     ) -> Result<(), ReturnValue> {
+        // `needTarget` → creature variant; else position (AoE / floor runes like GFB).
+        // C++ `Spell::playerRuneCheck` — `spells.cpp:743-746`: miss → cancel + CONST_ME_POFF.
+        // Cancel text is sent by `apply_todo_result_catch` on the ToDo path.
         let target_creature = if rune.need_target {
-            // Prefer creature on the target tile / stack.
             self.resolve_creature_at_action_target(cid, target)
         } else {
             None
         };
+        if rune.need_target && target_creature.is_none() {
+            if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
+                self.broadcast_magic_effect(pos, 3u8); // CONST_ME_POFF
+            }
+            return Err(ReturnValue::CanOnlyUseThisRuneOnCreatures);
+        }
         let target_pos = if target_creature.is_none() {
             Some((target.pos.x, target.pos.y, target.pos.z))
         } else {
@@ -633,7 +641,9 @@ impl GameWorld {
             target_pos,
         );
         if !ok {
-            self.send_cancel_message(conn_id, ReturnValue::NotPossible);
+            if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
+                self.broadcast_magic_effect(pos, 3u8);
+            }
             return Err(ReturnValue::NotPossible);
         }
         // Consume one charge / count — TFS `transformItem` count-1.
@@ -659,14 +669,13 @@ impl GameWorld {
             return None;
         }
         let tile = self.map.get_tile(target.pos)?;
-        // Prefer creature at stack_pos among tile creatures; else first creature.
         let body = tile.body();
-        if !body.creatures.is_empty() {
-            let idx = (target.stack_pos as usize).min(body.creatures.len().saturating_sub(1));
-            // stack_pos includes ground/tops — approximate: use first creature if unsure.
-            return body.creatures.first().copied().or_else(|| body.creatures.get(idx).copied());
+        if body.creatures.is_empty() {
+            return None;
         }
-        None
+        // UseWithCreature synthesizes stack_pos=0 / sprite_id=0 — take first creature.
+        // UseItemEx on a creature stack may still land on the tile's creature list.
+        body.creatures.first().copied()
     }
 
     /// C++ `Actions::internalUseItem` container branch — toggle if already open; else `addContainer(index, ...)`.

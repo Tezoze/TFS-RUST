@@ -700,8 +700,9 @@ fn resolve_variant_center(variant: &Value, caster_id: u64) -> Result<(u16, u16, 
                     .map_err(|_| mlua::Error::runtime("variant: pos missing z"))?;
                 Ok((x as u16, y as u16, z as u8))
             } else if vtype == 1 {
-                // VARIANT_NUMBER — resolve target creature position via ctx
-                let number: u32 = t
+                // VARIANT_NUMBER — SlotMap creature key (`CreatureRef` / `as_ffi`), not
+                // wire u32. Reading as `u32` fails for packed keys → false "missing".
+                let number: u64 = t
                     .get("number")
                     .map_err(|_| mlua::Error::runtime("variant: missing number field"))?;
                 let pos = CURRENT_CTX.with(|c| {
@@ -711,7 +712,7 @@ fn resolve_variant_center(variant: &Value, caster_id: u64) -> Result<(u16, u16, 
                         return Err(mlua::Error::runtime("LuaContext not set"));
                     }
                     let ctx = unsafe { &*ptr };
-                    Ok(ctx.get_player_position(number as u64))
+                    Ok(ctx.get_player_position(number))
                 })?;
                 pos.map(|p| (p.x, p.y, p.z))
                     .ok_or_else(|| mlua::Error::runtime("variant: target creature not found"))

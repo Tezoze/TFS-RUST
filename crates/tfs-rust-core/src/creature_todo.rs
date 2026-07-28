@@ -377,6 +377,31 @@ impl GameWorld {
         Ok(obj)
     }
 
+    /// Use-with **target** (obj2): item **or** a creature on the map tile.
+    ///
+    /// C++ `Game::playerUseWithCreature` / `useItemEx` with a creature thing —
+    /// needTarget runes aim at creatures, not items. Stock
+    /// [`validate_action_object_ref`] only accepts items, so UseItemEx on a
+    /// creature stackpos / UseWithCreature would fail before cast.
+    pub(crate) fn validate_use_ex_target_ref(
+        &self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+    ) -> Result<ActionObjectRef, ReturnValue> {
+        if self.validate_action_object_ref(cid, obj).is_ok() {
+            return Ok(obj);
+        }
+        if obj.pos.x != 0xFFFF
+            && self
+                .map
+                .get_tile(obj.pos)
+                .is_some_and(|t| !t.body().creatures.is_empty())
+        {
+            return Ok(obj);
+        }
+        Err(ReturnValue::NotPossible)
+    }
+
     /// F8 S2 — validate that a moveable item exists at the wire location, using the
     /// **Move** resolution path (`internal_get_thing_move` — `STACKPOS_MOVE`). Same
     /// `GetObject` → `throw RESULT` contract as [`validate_action_object_ref`], but
@@ -451,7 +476,8 @@ impl GameWorld {
     ) -> Result<(), ReturnValue> {
         self.validate_action_object_ref(cid, obj1)?;
         if let Some(o2) = obj2 {
-            self.validate_action_object_ref(cid, o2)?;
+            // obj2 may be a creature (needTarget runes) — not only an item.
+            self.validate_use_ex_target_ref(cid, o2)?;
         }
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1272-1276`).
         self.validate_action_object_z_floor(cid, obj1)?;

@@ -1,3 +1,20 @@
+# Spell runes — look + conjure — 2026-07-26
+
+- [x] `Item:getId()` returns SlotMap key instead of server type — breaks `conjureItem` blank-rune check
+- [x] Port C++ rune look (`item.cpp` ~951–1003) + ItemType patch on `spell:register()` (`luascript.cpp:15889–15895`)
+- [x] Parse `runespellname`; `rune:runeMagicLevel` → `magic_level` (C++ `setMagicLevel`)
+- [x] Nested Lua mutation scope cleared mid-`conjureItem` (`item:remove` → inventory hook)
+- [x] `UseWithCreature` packet was dropped — needTarget runes did nothing
+- [x] Far-use runes: do not walk to Obj2 — `allowFarUse` / DistUse fire from standing tile
+- [x] Floor/AoE runes (GFB): `needTarget` false → position variant at aimed tile
+- [x] needTarget miss (SD on empty tile): cancel + `CONST_ME_POFF` on caster
+
+# Signs / blackboards look — 2026-07-26
+
+- [x] Unserialize OTBM `ItemNodeProps` attrs (`ATTR_TEXT`, etc.) on map load
+- [x] Port `allowDistRead` look arm (`item.cpp` ~1422–1449)
+- [x] Remere OTBM attrs 23–28 (key/door) — not TFS NAME/WEIGHT; Latin-1 prop strings
+
 # Wall spawn placement — 2026-07-26
 
 - [x] Root cause: `forced = !startup` + `login_possible = forced || …` accepted walls on respawn
