@@ -1,0 +1,5 @@
+# Re-include the organized reference/ tree for ripgrep/code_search tooling.
+# .gitignore ignores these local trees so they do not pollute `git status`,
+# but we still want to grep/search against the imported source.
+!reference/
+!reference/**
