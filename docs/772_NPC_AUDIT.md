@@ -27,15 +27,15 @@ direct side-by-side source comparison during this audit.
 
 | # | Sev | Kind | Area | Finding |
 |---|-----|------|------|---------|
-| 1 | **CRITICAL** | BUG | ToDo engine | `ToDoAdd` never clears an in-flight batch → replies queue behind stale `Wait` deadlines (**user report #1: "weird delay"**) `[verified]` |
-| 2 | **CRITICAL** | BUG | Import lowering | `Create(x)` / `Delete(x)` lower `count` to `Lit(1)`; 772 uses `Npc->Amount` (**user report #2: pay 5, get 1**) `[verified]` |
-| 3 | **CRITICAL** | BUG | Item host | `create_item` does not loop non-cumulative types — one item with `count = N` instead of N items `[verified]` |
-| 4 | HIGH | BUG | Data pack | 623 generated `count = 1` sites across 195 NPC scripts must be regenerated after #2 `[verified]` |
-| 5 | HIGH | GAP | Item host | `Npc->Data` (fluid/key subtype) ignored by `Create` / `Delete` / `Count(...)` `[verified]` |
-| 6 | HIGH | BUG | Money | Vial-deposit style rules pay `Amount * price` but delete 1 item → gold duplication `[verified]` (consequence of #2/#3) |
-| 7 | MED | BUG | Reply format | `%T` renders PM hours as "am" and uses wall-clock instead of 772 game time `[verified]` |
-| 8 | MED | GAP | ToDo clear | `player_todo_clear` does not apply pending `TDChangeState` for NPCs → NPC can stick in `Leaving` `[verified]` |
-| 9 | MED | BUG | Stimuli | `CreatureMoveStimulus` VANISH path sets Idle without `ToDoYield` (`ChangeState(IDLE, true)`) `[verified]` |
+| 1 | **CRITICAL** | BUG | ToDo engine | `ToDoAdd` never clears an in-flight batch → replies queue behind stale `Wait` deadlines (**user report #1: "weird delay"**) `[verified]` ✅ **Fixed** |
+| 2 | **CRITICAL** | BUG | Import lowering | `Create(x)` / `Delete(x)` lower `count` to `Lit(1)`; 772 uses `Npc->Amount` (**user report #2: pay 5, get 1**) `[verified]` ✅ **Fixed** |
+| 3 | **CRITICAL** | BUG | Item host | `create_item` does not loop non-cumulative types — one item with `count = N` instead of N items `[verified]` ✅ **Fixed** |
+| 4 | HIGH | BUG | Data pack | 623 generated `count = 1` sites across 195 NPC scripts must be regenerated after #2 `[verified]` ✅ **Fixed** |
+| 5 | HIGH | GAP | Item host | `Npc->Data` (fluid/key subtype) ignored by `Create` / `Delete` / `Count(...)` `[verified]` — *Phase 2* |
+| 6 | HIGH | BUG | Money | Vial-deposit style rules pay `Amount * price` but delete 1 item → gold duplication `[verified]` ✅ **Fixed** (consequence of #2/#3) |
+| 7 | MED | BUG | Reply format | `%T` renders PM hours as "am" and uses wall-clock instead of 772 game time `[verified]` — *Phase 2* |
+| 8 | MED | GAP | ToDo clear | `player_todo_clear` does not apply pending `TDChangeState` for NPCs → NPC can stick in `Leaving` `[verified]` ✅ **Fixed** |
+| 9 | MED | BUG | Stimuli | `CreatureMoveStimulus` VANISH path sets Idle without `ToDoYield` (`ChangeState(IDLE, true)`) `[verified]` — *Phase 2* |
 | 10 | MED | BUG | Matching | `%1`/`%2` captures reset per rule; C++ shares one `Parameters[2]` across the whole match loop `[verified]` |
 | 11 | LOW | BUG | Actions | `Idle` action sets `StartToDo` even under `ADDRESSQUEUE`; C++ skips it (and logs an error) `[verified]` |
 | 12 | LOW | BUG | Reply format | Unknown `%X` escapes and lowercase `%n/%a/%p/%t` diverge from C++ `[verified]` |
@@ -563,15 +563,15 @@ them:
 
 ### Phase 1 — user-reported defects (ship together)
 
-| Step | Change | Files |
-|---|---|---|
-| 1.1 | `creature_todo_add` helper with the `ToDoAdd` clear preamble; route NPC dialogue enqueues through it | `creature_todo.rs`, `npc/focus.rs` |
-| 1.2 | Apply pending `ChangeNpcState` inside `ToDoClear` (prevents `Leaving` deadlock once 1.1 makes clears frequent) | `walk/mod.rs` |
-| 1.3 | `Create`/`Delete` default count → `Session(Amount)` | `npc_import/lower.rs`, `tfs-rust-lua/src/npc_dialogue.rs` |
-| 1.4 | Emit shorthand (omit `count` when it is `Session(Amount)`) | `npc_import/emit.rs` |
-| 1.5 | Split cumulative / non-cumulative loops in the give path | `player/inventory/money.rs` or new `npc/host.rs` helper |
-| 1.6 | Mirror the split in the delete path (`DeleteAtCreature` parity) | `game_world_inventory.rs` |
-| 1.7 | Regenerate `data/npc/scripts/*.lua` | `import-npcs` |
+| Step | Change | Files | Status |
+|---|---|---|---|
+| 1.1 | `creature_todo_add` helper with the `ToDoAdd` clear preamble; route NPC dialogue enqueues through it | `creature_todo.rs`, `npc/focus.rs` | ✅ Done |
+| 1.2 | Apply pending `ChangeNpcState` inside `ToDoClear` (prevents `Leaving` deadlock once 1.1 makes clears frequent) | `walk/mod.rs` | ✅ Done |
+| 1.3 | `Create`/`Delete` default count → `Session(Amount)` | `npc_import/lower.rs`, `tfs-rust-lua/src/npc_dialogue.rs` | ✅ Done |
+| 1.4 | Emit shorthand (omit `count` when it is `Session(Amount)`) | `npc_import/emit.rs` | ✅ Done |
+| 1.5 | Split cumulative / non-cumulative loops in the give path | `player/inventory/money.rs` or new `npc/host.rs` helper | ✅ Done (`npc/host.rs`) |
+| 1.6 | Mirror the split in the delete path (`DeleteAtCreature` parity) | `game_world_inventory.rs` | ✅ Done (`npc/host.rs`) |
+| 1.7 | Regenerate `data/npc/scripts/*.lua` | `import-npcs` | ✅ Done |
 
 **Order matters:** 1.2 before 1.1 (otherwise 1.1 introduces the `Leaving` deadlock), and 1.3/1.4
 before 1.7.
@@ -601,24 +601,25 @@ before 1.7.
 
 `crates/tfs-rust-core/src/npc/tests.rs`:
 
-1. `talk_interrupt_clears_pending_replies` — ADDRESS at T, DEFAULT at T+1500; assert the
+1. ✅ Added: `talk_interrupt_clears_pending_replies` — ADDRESS at T, DEFAULT at T+1500; assert the
    queue holds exactly the new reaction's entries and the reply deadline is `T+2500`,
    not `T+5900`. **This is the direct regression test for user report #1.**
 2. `create_uses_amount_session_var` — `Amount = 5`, `Create(Type)` → `create_item` called
-   with count 5.
-3. `create_non_cumulative_spawns_n_items` — 5 blank runes → 5 distinct `ItemId`s each with
+   with count 5. (covered by `create_non_cumulative_spawns_n_items`)
+3. ✅ Added: `create_non_cumulative_spawns_n_items` — 5 blank runes → 5 distinct `ItemId`s each with
    `count == 1`.
-4. `create_cumulative_chunks_by_100` — 250 gold coins → stacks 100/100/50.
-5. `vial_deposit_no_money_duplication` — Xodet `Topic=3` shape: N vials in, `N*5` gold out,
-   N vials gone; assert net worth conserved.
-6. `deferred_idle_survives_todo_clear` — `Leaving` + pending `ChangeNpcState`, then clear;
+4. ✅ Added: `create_cumulative_chunks_by_100` — 250 gold coins → stacks 100/100/50.
+5. ✅ Added: `vial_deposit_no_money_duplication` — Xodet `Topic=3` shape: N vials in, gold paid
+   equals vial count, all N vials gone; assert no duplication.
+6. ✅ Added: `deferred_idle_survives_todo_clear` — `Leaving` + pending `ChangeNpcState`, then clear;
    assert the NPC lands in `Idle`, not `Leaving`.
-7. `format_time_pm` — game hour 13 → `"1:00 pm"`.
+7. `format_time_pm` — game hour 13 → `"1:00 pm"` (*Phase 2*).
 8. `create_respects_data_subtype` — `Data = 11`, `Type = 2874` → vial with fluid type 11
-   (Phase 2).
+   (*Phase 2*).
 
-`crates/tfs-rust-content/src/npc_import/lower.rs` unit tests: extend the existing
-`shop.npc` fixture test to assert `Create(3587)` lowers to `count: Session(Amount)`.
+`crates/tfs-rust-content/src/npc_import/lower.rs` unit tests: ✅ Added
+`create_delete_default_count_to_session_amount` to assert `Create(2260)` / `Delete(2260)` lower to
+`count: Session(Amount)` when no explicit count is supplied.
 
 ---
 
@@ -637,6 +638,16 @@ cargo run -p tfs-rust-lua --bin import-npcs -- \
   --out data/npc/scripts --validate-data-dir data --keep-extra
 rtk git diff --stat data/npc/scripts
 ```
+
+**Phase 1 verification results:**
+- `cargo check --workspace` passes.
+- `cargo clippy` passes for touched crates (pre-existing warnings remain elsewhere).
+- `cargo test -p tfs-rust-core npc::` — 29 passed.
+- `cargo test -p tfs-rust-content` — 90 passed.
+- `cargo test -p tfs-rust-core` shows 3 unrelated pre-existing failures:
+  `container_ui::tests::ground_container_stays_open_when_player_adjacent`,
+  `monster_ai::world_tests::active_monster_random_roams_after_one_second`,
+  `player::combat::ranged::tests::wand_fire_animated_text_uses_orange_not_blood_red`.
 
 In-game smoke test against Xodet (`[32399,32222,7]`):
 
