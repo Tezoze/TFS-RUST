@@ -506,8 +506,8 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Meep! Meep! Great! Here is the spyreport for you!" },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2696, count = 1 } },
-				{ create = { item = 2345, count = 1 } },
+				{ delete = { item = 2696 } },
+				{ create = { item = 2345 } },
 				{ setQuestValue = { id = 282, value = 2 } },
 			},
 		},

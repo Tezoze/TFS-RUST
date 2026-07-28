@@ -437,7 +437,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -688,7 +688,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -733,8 +733,8 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "A banana! Great. Take this shield, so the &#@&* monsters don't beat the &@*&@ out of you." },
-				{ delete = { item = { session = "type" }, count = 1 } },
-				{ create = { item = 2526, count = 1 } },
+				{ delete = { item = { session = "type" } } },
+				{ create = { item = 2526 } },
 			},
 		},
 		{

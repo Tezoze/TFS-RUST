@@ -129,9 +129,7 @@ fn emit_pred(out: &mut String, pred: &DialoguePredicate, indent: usize) {
                 lua_string(property_name(*name))
             ));
         }
-        DialoguePredicate::Expression {
-            expr, op, rhs, ..
-        } => {
+        DialoguePredicate::Expression { expr, op, rhs, .. } => {
             out.push_str(&format!(
                 "{pad}{{ expr = {}, op = {}, rhs = {} }},\n",
                 emit_expr(expr),
@@ -174,18 +172,32 @@ fn emit_action(out: &mut String, act: &DialogueAction, indent: usize) {
             out.push_str(&format!("{pad}{{ repeatPrevious = true }},\n"));
         }
         DialogueAction::Create { item, count, .. } => {
-            out.push_str(&format!(
-                "{pad}{{ create = {{ item = {}, count = {} }} }},\n",
-                emit_expr(item),
-                emit_expr(count)
-            ));
+            if matches!(count, DialogueExpr::Session(SessionVar::Amount)) {
+                out.push_str(&format!(
+                    "{pad}{{ create = {{ item = {} }} }},\n",
+                    emit_expr(item)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{pad}{{ create = {{ item = {}, count = {} }} }},\n",
+                    emit_expr(item),
+                    emit_expr(count)
+                ));
+            }
         }
         DialogueAction::Delete { item, count, .. } => {
-            out.push_str(&format!(
-                "{pad}{{ delete = {{ item = {}, count = {} }} }},\n",
-                emit_expr(item),
-                emit_expr(count)
-            ));
+            if matches!(count, DialogueExpr::Session(SessionVar::Amount)) {
+                out.push_str(&format!(
+                    "{pad}{{ delete = {{ item = {} }} }},\n",
+                    emit_expr(item)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{pad}{{ delete = {{ item = {}, count = {} }} }},\n",
+                    emit_expr(item),
+                    emit_expr(count)
+                ));
+            }
         }
         DialogueAction::CreateMoney { amount, .. } => {
             if matches!(amount, DialogueExpr::Session(SessionVar::Amount)) {
@@ -242,16 +254,10 @@ fn emit_action(out: &mut String, act: &DialogueAction, indent: usize) {
             ));
         }
         DialogueAction::TeachSpell { spell, .. } => {
-            out.push_str(&format!(
-                "{pad}{{ teachSpell = {} }},\n",
-                emit_expr(spell)
-            ));
+            out.push_str(&format!("{pad}{{ teachSpell = {} }},\n", emit_expr(spell)));
         }
         DialogueAction::Summon { monster, .. } => {
-            out.push_str(&format!(
-                "{pad}{{ summon = {} }},\n",
-                lua_string(monster)
-            ));
+            out.push_str(&format!("{pad}{{ summon = {} }},\n", lua_string(monster)));
         }
         DialogueAction::Teleport { x, y, z, .. } => {
             out.push_str(&format!(

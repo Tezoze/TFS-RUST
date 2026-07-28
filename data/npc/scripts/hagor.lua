@@ -352,9 +352,9 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, fine! Here you are." },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2690, count = 1 } },
+				{ delete = { item = 2690 } },
 				{ set = { var = "data", value = 4022 } },
-				{ create = { item = 2088, count = 1 } },
+				{ create = { item = 2088 } },
 			},
 		},
 		{

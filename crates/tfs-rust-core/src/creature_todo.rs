@@ -320,26 +320,43 @@ impl GameWorld {
         true
     }
 
-    /// C++ `TCreature::ToDoChangeState` — `cract.cc:1393-1400`: enqueue `TDChangeState`.
-    pub(crate) fn enqueue_creature_change_npc_state(
-        &mut self,
-        cid: CreatureId,
-        to_idle: bool,
-    ) -> bool {
+    /// C++ `TCreature::ToDoAdd` preamble — `cract.cc:991-1000`.
+    ///
+    /// If a batch is already in flight (`todo.locked`), clears it first. Players with a
+    /// pending `Go` receive a `SendSnapback` (`0xB5`). NPCs/monsters just get the queue
+    /// cleared (any pending `ChangeNpcState` is applied by [`GameWorld::creature_todo_clear`]).
+    /// Then appends `action` to the back of the queue.
+    ///
+    /// Phase A: used for NPC dialogue scheduling only; player/monster call sites still use
+    /// the raw enqueue builders until audited in Phase B.
+    pub(crate) fn creature_todo_add(&mut self, cid: CreatureId, action: CreatureAction) -> bool {
+        let locked = self.creatures.get(cid).is_some_and(|k| k.base().todo.locked);
+        if locked {
+            let had_go = self.creature_todo_clear(cid);
+            if had_go {
+                if let Some(conn) = self.conn_for_creature(cid) {
+                    let dir_byte = self
+                        .creatures
+                        .get(cid)
+                        .map(|k| k.base().direction as u8)
+                        .unwrap_or(0);
+                    self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
+                }
+            }
+        }
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
-        k.base_mut()
-            .todo
-            .queue
-            .push_back(CreatureAction::ChangeNpcState { to_idle });
+        let name = k.base().name.clone();
+        let queue_len = k.base().todo.queue.len().saturating_add(1);
         tracing::debug!(
-            creature = k.base().name.as_str(),
+            creature = name.as_str(),
             ?cid,
-            to_idle,
-            action_queue_len = k.base().todo.queue.len(),
-            "idle_todo: enqueue_change_npc_state"
+            ?action,
+            action_queue_len = queue_len,
+            "idle_todo: creature_todo_add"
         );
+        k.base_mut().todo.queue.push_back(action);
         true
     }
 
@@ -932,9 +949,9 @@ impl GameWorld {
     /// - `MOVENOTPOSSIBLE` (52) → `NotPossible` (Go arm only — `on_walk_step_rejected`)
     /// - `NOWAY` → `ThereIsNoWay` (NOT `MOVENOTPOSSIBLE` — not in the 3-result snapback set)
     pub(crate) fn apply_todo_result_catch(&mut self, cid: CreatureId, rv: ReturnValue) {
-        // `ToDoClear` — clear the queue. `player_todo_clear` also clears walk state
+        // `ToDoClear` — clear the queue. `creature_todo_clear` also clears walk state
         // (broader than C++ `ToDoClear`, but correct for a failed action restart).
-        let had_pending_go = self.player_todo_clear(cid);
+        let had_pending_go = self.creature_todo_clear(cid);
 
         if rv == ReturnValue::YouAreExhausted {
             // `EXHAUSTED` → `ToDoWait(1000)` + `ToDoStart` (`cract.cc:872-874`).

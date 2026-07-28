@@ -381,7 +381,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you! I shall consider you my friend from now on! Just let me know if you need something!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 62, value = 2 } },
 			},
 		},

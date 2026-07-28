@@ -647,7 +647,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Take some time to talk to me!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{

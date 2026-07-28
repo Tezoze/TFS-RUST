@@ -531,7 +531,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -595,7 +595,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "amount", value = { count = 2689 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { session = "amount" }, rhs = 2 } } } },
 				{ say = "Here you are ... %P gold." },
-				{ delete = { item = 2689, count = 1 } },
+				{ delete = { item = 2689 } },
 				{ createMoney = true },
 			},
 		},

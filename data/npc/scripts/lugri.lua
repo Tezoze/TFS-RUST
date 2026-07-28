@@ -734,7 +734,7 @@ npc:dialogue(NpcDialogue({
 				{ burning = { cycles = 25, param = 25 } },
 				{ effectOpp = 6 },
 				{ effectMe = 14 },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ idle = true },
 			},
 		},

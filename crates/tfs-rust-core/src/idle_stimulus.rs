@@ -3815,7 +3815,7 @@ impl GameWorld {
                     .unwrap_or(0);
                 self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
             }
-            self.player_todo_clear(cid);
+            self.creature_todo_clear(cid);
             return TodoExecuteLoopControl::Break;
         }
 

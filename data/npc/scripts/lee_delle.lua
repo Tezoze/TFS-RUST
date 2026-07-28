@@ -328,8 +328,8 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, thank you so much! Please take this piece of armor as reward." },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2103, count = 1 } },
-				{ create = { item = 2468, count = 1 } },
+				{ delete = { item = 2103 } },
+				{ create = { item = 2468 } },
 			},
 		},
 		{
@@ -1993,7 +1993,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you. Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -2024,7 +2024,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Here is your money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},

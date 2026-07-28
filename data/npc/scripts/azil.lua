@@ -1113,7 +1113,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh thank you, most generous one. Here are your wares." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1144,7 +1144,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here is your money. It was a pleasure to deal with you." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},

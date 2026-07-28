@@ -1427,7 +1427,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you. Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1469,7 +1469,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Here is your gold." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -1605,7 +1605,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Baa'leal, wants you to talk to Malor concerning some new mission. ..." },
 				{ say = "Looks like you have managed to extended your life expectancy - for just a bit longer." },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2346, count = 1 } },
+				{ delete = { item = 2346 } },
 				{ setQuestValue = { id = 287, value = 3 } },
 			},
 		},

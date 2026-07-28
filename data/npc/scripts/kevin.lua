@@ -253,7 +253,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I grant you the title of postman. You are now a full member of our guild. Here have your own officers hat and wear it with pride." },
 				{ setQuestValue = { id = 250, value = 2 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 2665, count = 1 } },
+				{ create = { item = 2665 } },
 			},
 		},
 		{
@@ -279,7 +279,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "From now on you are a grand postman for special operations. You are an honoured member of our guild and earned the privilege of your own post horn. Here, take it." },
 				{ setQuestValue = { id = 250, value = 4 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 2078, count = 1 } },
+				{ create = { item = 2078 } },
 			},
 		},
 		{
@@ -368,7 +368,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Excellent. Here is a letter for you to deliver. Well, to be honest, no one else volunteered. It's a letter from the mother of Markwin, the king of Mintwallin. Deliver that letter to him, but note that you will not be welcome there." },
 				{ setQuestValue = { id = 245, value = 1 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 2333, count = 1 } },
+				{ create = { item = 2333 } },
 			},
 		},
 		{
@@ -425,7 +425,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you. We will honour this. Your next mission will be a very special one. Good thing you are a special person as well. Are you ready?" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 246, value = 1 } },
 				{ setQuestValue = { id = 249, value = 4 } },
 				{ set = { var = "topic", value = 20 } },
@@ -809,7 +809,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { count = { session = "type" } }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 230, value = { binary = { op = "+", lhs = { questValue = 230 }, rhs = 1 } } } },
 				{ set = { var = "amount", value = { binary = { op = "-", lhs = { questValue = 230 }, rhs = 1 } } } },
 				{ say = "Excellent! You have collected %A bones. Just report about your mission again if you find  more." },
@@ -832,7 +832,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { count = { session = "type" } }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 230, value = { binary = { op = "+", lhs = { questValue = 230 }, rhs = 1 } } } },
 				{ set = { var = "amount", value = { binary = { op = "-", lhs = { questValue = 230 }, rhs = 1 } } } },
 				{ say = "You have collected all the %A bones needed. Excellent! Now let's talk about further missions if you are interested." },
@@ -856,7 +856,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { count = { session = "type" } }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 230, value = { binary = { op = "+", lhs = { questValue = 230 }, rhs = 1 } } } },
 				{ set = { var = "amount", value = { binary = { op = "-", lhs = { questValue = 230 }, rhs = 1 } } } },
 				{ say = "Excellent! You have collected %A bones. Just report about your mission again if you find more." },
@@ -883,7 +883,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { count = { session = "type" } }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 230, value = 21 } },
 				{ say = "You have collected all the 20 bones needed. Excellent! Now let's talk about further missions if you are interested." },
 				{ setQuestValue = { id = 249, value = 2 } },
@@ -1013,7 +1013,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "I need you to deliver a bill to the stage magician David Brassacres. He's hiding from his creditors somewhere in Venore. It's likely you will have to trick him somehow to reveal his identity. Report back when you delivered this bill." },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = 2329, count = 1 } },
+				{ create = { item = 2329 } },
 				{ setQuestValue = { id = 229, value = 1 } },
 			},
 		},

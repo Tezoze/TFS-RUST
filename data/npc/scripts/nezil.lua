@@ -991,7 +991,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here, catch it!" },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1023,7 +1023,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Ok, take it. There is a deposit of 5 gold on the vial." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1054,7 +1054,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Here's your money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -1088,7 +1088,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "amount", value = { count = 2006 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { session = "amount" }, rhs = 5 } } } },
 				{ say = "Here you are ... %P gold." },
-				{ delete = { item = 2006, count = 1 } },
+				{ delete = { item = 2006 } },
 				{ createMoney = true },
 			},
 		},

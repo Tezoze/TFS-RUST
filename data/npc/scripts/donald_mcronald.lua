@@ -649,7 +649,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -680,7 +680,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},

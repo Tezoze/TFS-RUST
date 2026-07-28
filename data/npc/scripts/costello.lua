@@ -659,8 +659,8 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "By the gods! This is brother Fugio's handwriting and what I read is horrible indeed! You have done our order a great favour by giving this diary to me! Take this blessed Ankh. May it protect you in even your darkest hours." },
-				{ delete = { item = { session = "type" }, count = 1 } },
-				{ create = { item = 2327, count = 1 } },
+				{ delete = { item = { session = "type" } } },
+				{ create = { item = 2327 } },
 				{ setQuestValue = { id = 219, value = 2 } },
 			},
 		},

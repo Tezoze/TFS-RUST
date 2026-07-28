@@ -207,7 +207,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Uhm, well thank you, hornless beeing." },
 				{ setQuestValue = { id = 245, value = 2 } },
-				{ delete = { item = 2333, count = 1 } },
+				{ delete = { item = 2333 } },
 			},
 		},
 		{

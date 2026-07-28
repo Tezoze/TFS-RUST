@@ -1,8 +1,8 @@
 //! [`NpcActionHost`] implementation on [`GameWorld`] (NPC-5).
 
+use slotmap::Key;
 use tfs_rust_common::enums::{ConditionType, WorldType};
 use tfs_rust_common::Position;
-use slotmap::Key;
 
 use super::actions::NpcActionHost;
 use crate::combat::apply_condition;
@@ -18,7 +18,7 @@ impl NpcActionHost for GameWorld {
             return Ok(());
         }
         let id = u16::try_from(item_id).map_err(|_| format!("invalid item id {item_id}"))?;
-        self.player_add_item_count(player, id, count as u32)
+        self.npc_give_to(player, id, count as u32, -1)
     }
 
     fn delete_item(&mut self, player: CreatureId, item_id: i32, count: i32) -> Result<(), String> {
@@ -26,10 +26,7 @@ impl NpcActionHost for GameWorld {
             return Ok(());
         }
         let id = u16::try_from(item_id).map_err(|_| format!("invalid item id {item_id}"))?;
-        if !self.player_remove_item_of_type(player, id, count as u32, -1, false) {
-            return Err(format!("failed to delete item {item_id} x{count}"));
-        }
-        Ok(())
+        self.npc_get_from(player, id, count as u32, -1)
     }
 
     fn create_money(&mut self, player: CreatureId, amount: i32) -> Result<(), String> {
@@ -124,14 +121,7 @@ impl NpcActionHost for GameWorld {
             .get(npc)
             .map(|k| k.position())
             .ok_or_else(|| "summon: npc not found".to_string())?;
-        let created = self.lua_script_create_monster(
-            monster,
-            pos.x,
-            pos.y,
-            pos.z,
-            false,
-            true,
-        )?;
+        let created = self.lua_script_create_monster(monster, pos.x, pos.y, pos.z, false, true)?;
         if created.is_none() {
             return Err(format!("summon: unknown monster {monster:?}"));
         }
@@ -198,6 +188,98 @@ impl NpcActionHost for GameWorld {
 }
 
 impl GameWorld {
+    /// 772 `TNPC::GiveTo` — `crnonpl.cc:1870-1895`.
+    ///
+    /// Stackable items are added in stacks of ≤100; non-stackable items spawn as `amount`
+    /// separate objects, each created with `sub_type = data`. A hard cap prevents malformed
+    /// behaviour files from allocating unbounded items.
+    pub fn npc_give_to(
+        &mut self,
+        player: CreatureId,
+        item_id: u16,
+        amount: u32,
+        data: i32,
+    ) -> Result<(), String> {
+        if amount == 0 {
+            return Ok(());
+        }
+        const MAX_ITEMS: u32 = 500;
+        let amount = if amount > MAX_ITEMS {
+            tracing::warn!(
+                player = ?player,
+                item_id,
+                requested = amount,
+                "npc_give_to: amount exceeds cap of {MAX_ITEMS}"
+            );
+            MAX_ITEMS
+        } else {
+            amount
+        };
+        let stackable = self
+            .items_db
+            .items
+            .get(&item_id)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        if stackable {
+            let mut remaining = amount;
+            while remaining > 0 {
+                let chunk = remaining.min(100);
+                self.player_add_item_count(player, item_id, chunk)?;
+                remaining -= chunk;
+            }
+        } else {
+            let ffi = player.data().as_ffi();
+            for _ in 0..amount {
+                self.lua_script_player_add_item_full(ffi, item_id, 1, data, true, 0)?
+                    .ok_or_else(|| format!("failed to add item {item_id}"))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 772 `TNPC::GetFrom` / `DeleteAtCreature` — `crnonpl.cc:1896-1908`, `operate.cc:2728-2751`.
+    ///
+    /// Stackable items remove a total of `amount` (partial-stack support). Non-stackable items
+    /// remove `amount` whole objects. A hard cap prevents malformed behaviour files from deleting
+    /// unbounded items. `data` is reserved for Phase 2 fluid/key subtype threading.
+    pub fn npc_get_from(
+        &mut self,
+        player: CreatureId,
+        item_id: u16,
+        amount: u32,
+        data: i32,
+    ) -> Result<(), String> {
+        if amount == 0 {
+            return Ok(());
+        }
+        const MAX_ITEMS: u32 = 500;
+        let amount = if amount > MAX_ITEMS {
+            tracing::warn!(
+                player = ?player,
+                item_id,
+                requested = amount,
+                "npc_get_from: amount exceeds cap of {MAX_ITEMS}"
+            );
+            MAX_ITEMS
+        } else {
+            amount
+        };
+        let _stackable = self
+            .items_db
+            .items
+            .get(&item_id)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        // `player_remove_item_of_type` already branches on CUMULATIVE internally, mirroring
+        // `DeleteAtCreature`; the split is explicit here for parity with `npc_give_to` and to
+        // prepare for Phase 2 `data` plumbing.
+        if !self.player_remove_item_of_type(player, item_id, amount, data, false) {
+            return Err(format!("failed to delete item {item_id} x{amount}"));
+        }
+        Ok(())
+    }
+
     /// Read quest/storage value (missing → `-1`, matching 772 `GetQuestValue`).
     pub fn player_get_storage(&self, cid: CreatureId, storage_id: u32) -> i32 {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
@@ -365,7 +447,8 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(player_u64)
             .ok_or_else(|| "player not found".to_string())?;
-        let amount_i = i32::try_from(amount).map_err(|_| "withdraw amount too large".to_string())?;
+        let amount_i =
+            i32::try_from(amount).map_err(|_| "withdraw amount too large".to_string())?;
         {
             let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
                 return Err("not a player".into());

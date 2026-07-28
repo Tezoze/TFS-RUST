@@ -171,7 +171,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Woof! Woof! <wiggle> <drool> <sniff> <gnaw>" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{

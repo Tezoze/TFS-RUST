@@ -226,7 +226,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you very much!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 231, value = 2 } },
 			},
 		},
@@ -319,7 +319,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Now you own the key to the dungeon." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

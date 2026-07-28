@@ -516,7 +516,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ah yes! That's it. Thank you for bringing mighty whisper moss to Hairycles. It will help but still much is to be done. Just ask for other mission if you ready." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 293, value = 2 } },
 			},
 		},
@@ -575,7 +575,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "You so good! Brought syrup to me! Thank you, will prepare cure now. Just ask for mission if you want help again." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 293, value = 4 } },
 			},
 		},
@@ -703,7 +703,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "You brought scroll with lizard text? Good! I will see what text tells me! Come back when ready for other mission." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 293, value = 6 } },
 				{ idle = true },
 			},
@@ -869,7 +869,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ah, the egg! Mighty warrior you be! Thank you. Hairycles will put it at safe place immediately." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 293, value = 10 } },
 				{ idle = true },
 			},
@@ -952,7 +952,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Incredible, you brought a witches' cap! Now me can prepare mighty charm of life. Yet still other missions will await you, friend." },
 				{ setQuestValue = { id = 293, value = 12 } },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1107,7 +1107,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Incredible! You got a hair of holy Bong! This will raise the spirit of my people. You are truly a friend. But one last mission awaits you." },
 				{ setQuestValue = { id = 293, value = 16 } },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1142,7 +1142,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Hairycles sure you will make it. Just use hammer on all that looks like snake or lizard. Tell Hairycles if you succeed with mission." },
-				{ create = { item = 4846, count = 1 } },
+				{ create = { item = 4846 } },
 				{ setQuestValue = { id = 293, value = 17 } },
 			},
 		},
@@ -1338,7 +1338,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here is what you want." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

@@ -395,7 +395,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "May it be of good use to you. " },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

@@ -435,7 +435,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Corpse for me, gold for you." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -478,7 +478,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Deal. By the way: If you'd like to hunt something bigger, check the cellar of the stables to the north. Some adventurer used to store his loot under a loose board beneath a barrel. He might have forgotten something when he left the isle." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},

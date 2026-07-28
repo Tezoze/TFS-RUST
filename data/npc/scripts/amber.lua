@@ -415,8 +415,8 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Excellent. Here, take this short sword, that might serve you well." },
-				{ delete = { item = { session = "type" }, count = 1 } },
-				{ create = { item = 2406, count = 1 } },
+				{ delete = { item = { session = "type" } } },
+				{ create = { item = 2406 } },
 			},
 		},
 		{
@@ -525,7 +525,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you. Orcs call arrows 'pixo'." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{

@@ -20,7 +20,7 @@ use super::expr::{EvalContext, PlayerVocationKind};
 use super::match_rule::match_dialogue_rule;
 use super::words::{search_for_number, search_for_word};
 use crate::condition::{ActiveCondition, ConditionData};
-use crate::container::Container;
+use crate::container::{Container, ContainerIterator};
 use crate::creature::{CreatureKind, Npc, NpcActivity, NpcRuntimeState, Outfit};
 use crate::formulas::NpcTuning;
 use crate::game_world::GameWorld;
@@ -43,8 +43,8 @@ fn span() -> SourceSpan {
 }
 
 fn load_quentin_db() -> Option<Arc<NpcDatabase>> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../reference/cipsoft-772/runtime/npc");
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/cipsoft-772/runtime/npc");
     if !root.exists() {
         return None;
     }
@@ -245,8 +245,13 @@ fn capture_applies_numeric_cap() {
     let sl = |_id: i32| 0i32;
     let mut rng = |a: i32, _b: i32| a;
     let mut ctx = eval_ctx(&inv, &quest, &sk, &sl, &mut rng);
-    let m = match_dialogue_rule(&program, "bet 999", DialogueSituationKind::Default, &mut ctx)
-        .unwrap();
+    let m = match_dialogue_rule(
+        &program,
+        "bet 999",
+        DialogueSituationKind::Default,
+        &mut ctx,
+    )
+    .unwrap();
     assert_eq!(m.captures.values[0], 500);
 }
 
@@ -283,10 +288,13 @@ fn greeting_farewell_trace() {
         .events
         .iter()
         .any(|e| matches!(e, DialogueEvent::TurnTo { player } if *player == p1)));
-    assert!(trace
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::Set { var: "topic", value: 0 })));
+    assert!(trace.events.iter().any(|e| matches!(
+        e,
+        DialogueEvent::Set {
+            var: "topic",
+            value: 0
+        }
+    )));
     assert!(matches!(
         world.creatures.get(npc),
         Some(CreatureKind::Npc(n))
@@ -626,14 +634,22 @@ fn bank_change_delete_then_create_ordering() {
     for e in &t2.events {
         match e {
             DialogueEvent::Mutate {
-                op: MutateOp::DeleteItem { item_id: 2148, count: 200 },
+                op:
+                    MutateOp::DeleteItem {
+                        item_id: 2148,
+                        count: 200,
+                    },
                 ..
             } => {
                 assert!(!saw_create, "delete before create");
                 saw_delete = true;
             }
             DialogueEvent::Mutate {
-                op: MutateOp::CreateItem { item_id: 2152, count: 2 },
+                op:
+                    MutateOp::CreateItem {
+                        item_id: 2152,
+                        count: 2,
+                    },
                 ..
             } => {
                 assert!(saw_delete, "create after delete");
@@ -643,10 +659,7 @@ fn bank_change_delete_then_create_ordering() {
         }
     }
     assert!(saw_delete && saw_create);
-    assert_eq!(
-        world.player_get_item_type_count(p1, ITEM_GOLD_COIN, -1),
-        50
-    );
+    assert_eq!(world.player_get_item_type_count(p1, ITEM_GOLD_COIN, -1), 50);
     assert_eq!(
         world.player_get_item_type_count(p1, ITEM_PLATINUM_COIN, -1),
         2
@@ -855,8 +868,8 @@ fn partial_failure_keeps_prior_mutations() {
 }
 
 fn load_tom_db() -> Option<Arc<NpcDatabase>> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../reference/cipsoft-772/runtime/npc");
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/cipsoft-772/runtime/npc");
     if !root.exists() {
         return None;
     }
@@ -905,7 +918,9 @@ fn reply_todo_schedules_wait_talk_chain() {
         })
         .collect();
     assert!(
-        talks.iter().any(|t| t.contains("Welcome, adventurer Hero!")),
+        talks
+            .iter()
+            .any(|t| t.contains("Welcome, adventurer Hero!")),
         "owned reply text queued: {talks:?}"
     );
 
@@ -940,7 +955,7 @@ fn talking_keepalive_schedules_wait_2000() {
     let mut t = DialogueTrace::default();
     world.npc_talk_stimulus(npc, p1, "hi", &mut t);
     // Clear greeting batch so IdleStimulus can run (`LockToDo` blocks otherwise).
-    let _ = world.player_todo_clear(npc);
+    let _ = world.creature_todo_clear(npc);
     if let Some(CreatureKind::Npc(n)) = world.creatures.get_mut(npc) {
         n.runtime.activity = NpcActivity::Talking;
         n.runtime.focus = Some(p1);
@@ -979,7 +994,7 @@ fn idle_sleep_when_no_players_nearby() {
     let home = Position::new(100, 100, 7);
     place_tiles(&mut world, home);
     let npc = insert_npc_from_db(&mut world, "Quentin", home);
-    let _ = world.player_todo_clear(npc);
+    let _ = world.creature_todo_clear(npc);
 
     let mut t = DialogueTrace::default();
     world.npc_idle_stimulus(npc, &mut t);
@@ -1051,7 +1066,7 @@ fn idle_roam_enqueues_go_with_fixed_rng() {
         }
     }
     let npc = insert_npc_from_db(&mut world, "Quentin", home);
-    let _ = world.player_todo_clear(npc);
+    let _ = world.creature_todo_clear(npc);
     // Player in sleep range so we roam instead of sleep.
     let mut hero = sim_hero_player("Hero", Position::new(105, 100, 7));
     hero.base.name = "Hero".into();
@@ -1088,7 +1103,7 @@ fn idle_roam_wait_holds_pause_before_re_idle() {
     let home = Position::new(100, 100, 7);
     place_tiles(&mut world, home);
     let npc = insert_npc_from_db(&mut world, "Quentin", home);
-    let _ = world.player_todo_clear(npc);
+    let _ = world.creature_todo_clear(npc);
 
     let delay = u64::from(world.mechanics.profile.npc.idle_roam_delay_ms);
     assert!(world.enqueue_creature_wait(npc, delay));
@@ -1140,7 +1155,7 @@ fn multi_reply_delay_accounting_tom_job() {
 
     let mut t = DialogueTrace::default();
     world.npc_talk_stimulus(npc, p1, "hi", &mut t);
-    let _ = world.player_todo_clear(npc);
+    let _ = world.creature_todo_clear(npc);
 
     let mut t2 = DialogueTrace::default();
     world.npc_talk_stimulus(npc, p1, "job", &mut t2);
@@ -1482,5 +1497,396 @@ fn npc_immune_to_combat_damage_and_conditions() {
             .active_conditions
             .is_empty(),
         "NPC must reject combat conditions (TFS isImmune when !attackable)"
+    );
+}
+
+// --- Phase 1 regression tests (772_NPC_AUDIT.md) ---
+
+fn add_item_type(world: &mut GameWorld, server_id: u16, stackable: bool) {
+    let mut items = HashMap::clone(&world.items_db.items);
+    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    if stackable {
+        it.flags |= 1 << 7; // ItemType::FLAG_STACKABLE
+    }
+    items.insert(server_id, it);
+    world.items_db = Arc::new(ItemDatabase {
+        items,
+        client_to_server: world.items_db.client_to_server.clone(),
+    });
+}
+
+fn count_item_instances(world: &GameWorld, cid: CreatureId, item_type: u16) -> usize {
+    let mut count = 0;
+    if let Some(CreatureKind::Player(p)) = world.creatures.get(cid) {
+        if let Some(bag) = p.equipment_slots[2] {
+            for child in ContainerIterator::new(&world.container_registry, bag) {
+                if world
+                    .items
+                    .get(child)
+                    .is_some_and(|i| i.item_type == item_type)
+                {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
+}
+
+fn collect_stacks(world: &GameWorld, cid: CreatureId, item_type: u16) -> Vec<u16> {
+    let mut stacks = Vec::new();
+    if let Some(CreatureKind::Player(p)) = world.creatures.get(cid) {
+        if let Some(bag) = p.equipment_slots[2] {
+            for child in ContainerIterator::new(&world.container_registry, bag) {
+                if let Some(item) = world.items.get(child) {
+                    if item.item_type == item_type {
+                        stacks.push(item.count);
+                    }
+                }
+            }
+        }
+    }
+    stacks
+}
+
+#[test]
+fn talk_interrupt_clears_pending_replies() {
+    let mut world = npc5_world();
+    world.server_ms = 0;
+    world.round_nr = 1;
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let sp = span();
+
+    let hi_rule = DialogueRule {
+        predicates: vec![
+            DialoguePredicate::Situation {
+                kind: DialogueSituation::Address,
+                span: sp.clone(),
+            },
+            DialoguePredicate::Words {
+                patterns: vec!["hi$".into()],
+                span: sp.clone(),
+            },
+        ],
+        actions: vec![DialogueAction::Say {
+            text: "Welcome!".into(),
+            span: sp.clone(),
+        }],
+        span: sp.clone(),
+    };
+    let help_rule = DialogueRule {
+        predicates: vec![
+            DialoguePredicate::Situation {
+                kind: DialogueSituation::Default,
+                span: sp.clone(),
+            },
+            DialoguePredicate::Words {
+                patterns: vec!["help$".into()],
+                span: sp.clone(),
+            },
+        ],
+        actions: vec![DialogueAction::Say {
+            text: "Sure!".into(),
+            span: sp.clone(),
+        }],
+        span: sp.clone(),
+    };
+    register_named_npc(
+        &mut world,
+        pending_with_rules("Greeter", vec![hi_rule, help_rule]),
+    );
+
+    let npc = insert_npc_from_db(&mut world, "Greeter", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut t);
+
+    let base = world.creatures.get(npc).expect("npc").base();
+    assert!(
+        !base.todo.queue.is_empty(),
+        "first ADDRESS should schedule a non-empty batch; queue={:?}",
+        base.todo.queue
+    );
+    let first_wait = base
+        .todo
+        .queue
+        .iter()
+        .find_map(|a| match a {
+            crate::creature_todo::CreatureAction::Wait { deadline_ms } => Some(*deadline_ms),
+            _ => None,
+        })
+        .expect("wait after ADDRESS");
+    assert_eq!(first_wait, 1000, "first ADDRESS wait is initial delay");
+
+    // Interrupt before the welcome reply fires.
+    world.server_ms = 1500;
+    let mut t2 = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "help", &mut t2);
+
+    assert!(
+        t2.events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::Situation { name: "DEFAULT" })),
+        "second stimulus should match a DEFAULT rule; events={:?}",
+        t2.events
+    );
+    assert!(
+        t2.events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::Say { text, .. } if text == "Sure!")),
+        "second stimulus should schedule 'Sure!' reply; events={:?}",
+        t2.events
+    );
+
+    let base = world.creatures.get(npc).expect("npc").base();
+    let waits: Vec<u64> = base
+        .todo
+        .queue
+        .iter()
+        .filter_map(|a| match a {
+            crate::creature_todo::CreatureAction::Wait { deadline_ms } => Some(*deadline_ms),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(waits.len(), 2, "only the new reaction's waits remain");
+    assert_eq!(
+        waits[0], 2500,
+        "new reaction starts from interrupt time + initial delay"
+    );
+    assert_eq!(
+        waits[1], 5800,
+        "trailing wait is relative to interrupt time"
+    );
+    assert!(
+        !waits.contains(&3500),
+        "stale welcome trailing wait must be cleared"
+    );
+}
+
+#[test]
+fn deferred_idle_survives_todo_clear() {
+    let mut world = npc5_world();
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    register_named_npc(&mut world, pending_with_rules("IdleNpc", vec![]));
+    let npc = insert_npc_from_db(&mut world, "IdleNpc", home);
+
+    if let Some(CreatureKind::Npc(n)) = world.creatures.get_mut(npc) {
+        n.runtime.activity = NpcActivity::Leaving;
+        n.runtime.focus = Some(CreatureId::from(slotmap::KeyData::from_ffi(1)));
+    }
+    assert!(world.creature_todo_add(
+        npc,
+        crate::creature_todo::CreatureAction::ChangeNpcState { to_idle: true },
+    ));
+
+    let _ = world.creature_todo_clear(npc);
+    assert!(matches!(
+        world.creatures.get(npc),
+        Some(CreatureKind::Npc(n))
+            if n.runtime.activity == NpcActivity::Idle && n.runtime.focus.is_none()
+    ));
+}
+
+#[test]
+fn create_non_cumulative_spawns_n_items() {
+    let mut world = npc5_world();
+    add_item_type(&mut world, 3147, false); // blank rune
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let sp = span();
+
+    let rule = DialogueRule {
+        predicates: vec![
+            DialoguePredicate::Situation {
+                kind: DialogueSituation::Address,
+                span: sp.clone(),
+            },
+            DialoguePredicate::Words {
+                patterns: vec!["blank rune".into()],
+                span: sp.clone(),
+            },
+        ],
+        actions: vec![
+            DialogueAction::SetSession {
+                var: SessionVar::Amount,
+                expr: DialogueExpr::Lit(5),
+                span: sp.clone(),
+            },
+            DialogueAction::SetSession {
+                var: SessionVar::Type,
+                expr: DialogueExpr::Lit(3147),
+                span: sp.clone(),
+            },
+            DialogueAction::Create {
+                item: DialogueExpr::Session(SessionVar::Type),
+                count: DialogueExpr::Session(SessionVar::Amount),
+                span: sp.clone(),
+            },
+            DialogueAction::Idle { span: sp.clone() },
+        ],
+        span: sp.clone(),
+    };
+    register_named_npc(&mut world, pending_with_rules("RuneSeller", vec![rule]));
+
+    let npc = insert_npc_from_db(&mut world, "RuneSeller", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+    equip_backpack(&mut world, p1);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "blank rune", &mut t);
+
+    assert_eq!(
+        count_item_instances(&world, p1, 3147),
+        5,
+        "five distinct blank runes expected"
+    );
+    assert_eq!(world.player_get_item_type_count(p1, 3147, -1), 5);
+}
+
+#[test]
+fn create_cumulative_chunks_by_100() {
+    let mut world = npc5_world();
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let sp = span();
+
+    let rule = DialogueRule {
+        predicates: vec![
+            DialoguePredicate::Situation {
+                kind: DialogueSituation::Address,
+                span: sp.clone(),
+            },
+            DialoguePredicate::Words {
+                patterns: vec!["gold".into()],
+                span: sp.clone(),
+            },
+        ],
+        actions: vec![
+            DialogueAction::SetSession {
+                var: SessionVar::Amount,
+                expr: DialogueExpr::Lit(250),
+                span: sp.clone(),
+            },
+            DialogueAction::Create {
+                item: DialogueExpr::Lit(i32::from(ITEM_GOLD_COIN)),
+                count: DialogueExpr::Session(SessionVar::Amount),
+                span: sp.clone(),
+            },
+            DialogueAction::Idle { span: sp.clone() },
+        ],
+        span: sp.clone(),
+    };
+    register_named_npc(&mut world, pending_with_rules("GoldGiver", vec![rule]));
+
+    let npc = insert_npc_from_db(&mut world, "GoldGiver", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+    equip_backpack(&mut world, p1);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "gold", &mut t);
+
+    assert_eq!(
+        world.player_get_item_type_count(p1, ITEM_GOLD_COIN, -1),
+        250
+    );
+    let mut stacks = collect_stacks(&world, p1, ITEM_GOLD_COIN);
+    stacks.sort_unstable_by(|a, b| b.cmp(a));
+    assert_eq!(stacks, vec![100, 100, 50]);
+}
+
+#[test]
+fn vial_deposit_no_money_duplication() {
+    let mut world = npc5_world();
+    add_item_type(&mut world, 2006, false); // empty vial
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let sp = span();
+
+    let rule = DialogueRule {
+        predicates: vec![
+            DialoguePredicate::Situation {
+                kind: DialogueSituation::Address,
+                span: sp.clone(),
+            },
+            DialoguePredicate::Expression {
+                expr: DialogueExpr::Count {
+                    item: Box::new(DialogueExpr::Lit(2006)),
+                },
+                op: ExprOp::Gt,
+                rhs: DialogueExpr::Lit(0),
+                span: sp.clone(),
+            },
+        ],
+        actions: vec![
+            DialogueAction::SetSession {
+                var: SessionVar::Amount,
+                expr: DialogueExpr::Count {
+                    item: Box::new(DialogueExpr::Lit(2006)),
+                },
+                span: sp.clone(),
+            },
+            DialogueAction::SetSession {
+                var: SessionVar::Price,
+                expr: DialogueExpr::Binary {
+                    op: ExprOp::Mul,
+                    lhs: Box::new(DialogueExpr::Session(SessionVar::Amount)),
+                    rhs: Box::new(DialogueExpr::Lit(5)),
+                },
+                span: sp.clone(),
+            },
+            DialogueAction::Say {
+                text: "Here you are.".into(),
+                span: sp.clone(),
+            },
+            DialogueAction::Delete {
+                item: DialogueExpr::Lit(2006),
+                count: DialogueExpr::Session(SessionVar::Amount),
+                span: sp.clone(),
+            },
+            DialogueAction::CreateMoney {
+                amount: DialogueExpr::Session(SessionVar::Amount),
+                span: sp.clone(),
+            },
+            DialogueAction::Idle { span: sp.clone() },
+        ],
+        span: sp.clone(),
+    };
+    register_named_npc(&mut world, pending_with_rules("VialBuyer", vec![rule]));
+
+    let npc = insert_npc_from_db(&mut world, "VialBuyer", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+    equip_backpack(&mut world, p1);
+
+    world
+        .player_add_item_count(p1, 2006, 5)
+        .expect("give vials");
+    assert_eq!(world.player_get_item_type_count(p1, 2006, -1), 5);
+    assert_eq!(world.player_count_money(p1), 0);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut t);
+
+    assert_eq!(
+        world.player_get_item_type_count(p1, 2006, -1),
+        0,
+        "all vials removed"
+    );
+    // Bare CreateMoney uses Amount → one gold per vial. The critical invariant is that
+    // the number of deleted vials equals the gold paid (no 1-vial-delete / N-gold-print exploit).
+    assert_eq!(
+        world.player_count_money(p1),
+        5,
+        "gold paid equals vial count"
     );
 }

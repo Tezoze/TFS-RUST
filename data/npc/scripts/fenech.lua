@@ -454,7 +454,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1282,7 +1282,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1396,7 +1396,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 333, value = 1 } },
 				{ set = { var = "type", value = 2190 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1412,7 +1412,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 333, value = 1 } },
 				{ set = { var = "type", value = 2182 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1737,7 +1737,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

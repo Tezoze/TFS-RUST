@@ -510,7 +510,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "data", value = 3142 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Here you are." },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

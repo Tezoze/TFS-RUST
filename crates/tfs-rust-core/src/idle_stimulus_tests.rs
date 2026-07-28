@@ -5546,7 +5546,7 @@ fn test_audit3_stop_clears_stale_walk_action() {
     plant_stale_walk_action(&mut world, player);
     assert!(player_walk_action(&world, player).is_some());
 
-    // From standstill — not-locked branch → immediate `player_todo_clear`.
+    // From standstill — not-locked branch → immediate `creature_todo_clear`.
     world.player_stop_auto_walk(player);
 
     assert!(
@@ -6179,7 +6179,7 @@ fn test_audit4_unpushed_auto_walk_completes_normally() {
 }
 
 /// Reproduction: auto-walk → arrow key override → new auto-walk must complete
-/// all steps (not just 1 tile). Tests that `player_todo_clear` properly resets
+/// all steps (not just 1 tile). Tests that `creature_todo_clear` properly resets
 /// all state that `finish_creature_todo_execute` checks for step chaining.
 #[test]
 fn test_arrow_override_does_not_break_subsequent_auto_walk() {

@@ -1896,7 +1896,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you. Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1927,7 +1927,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Here is your money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -1982,8 +1982,8 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Splendid! Here take your pickaxe." },
-				{ delete = { item = { session = "type" }, count = 1 } },
-				{ create = { item = 2553, count = 1 } },
+				{ delete = { item = { session = "type" } } },
+				{ create = { item = 2553 } },
 			},
 		},
 		{

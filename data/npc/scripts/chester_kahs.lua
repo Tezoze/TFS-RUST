@@ -707,7 +707,7 @@ npc:dialogue(NpcDialogue({
 				{ burning = { cycles = 25, param = 25 } },
 				{ effectOpp = 6 },
 				{ effectMe = 14 },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ idle = true },
 			},
 		},
@@ -720,10 +720,10 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you! Take this ring. If you ever need a healing, come, bring the scroll, and ask me to 'heal'." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ set = { var = "type", value = 2168 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -768,7 +768,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "So be healed!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ hp = 1000 },
 				{ effectOpp = 13 },
 			},

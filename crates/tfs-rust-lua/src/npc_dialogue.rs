@@ -287,7 +287,7 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
     if let Ok(Value::Table(t)) = table.get::<Value>("create") {
         let item = parse_expr(&t.get("item")?)?;
         let count = match t.get::<Value>("count")? {
-            Value::Nil => DialogueExpr::Lit(1),
+            Value::Nil => DialogueExpr::Session(SessionVar::Amount),
             v => parse_expr(&v)?,
         };
         return Ok(DialogueAction::Create {
@@ -299,7 +299,7 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
     if let Ok(Value::Table(t)) = table.get::<Value>("delete") {
         let item = parse_expr(&t.get("item")?)?;
         let count = match t.get::<Value>("count")? {
-            Value::Nil => DialogueExpr::Lit(1),
+            Value::Nil => DialogueExpr::Session(SessionVar::Amount),
             v => parse_expr(&v)?,
         };
         return Ok(DialogueAction::Delete {

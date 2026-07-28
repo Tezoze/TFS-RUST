@@ -475,7 +475,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "That's right! Why didn't I see it? It's obvious, Netlios was right, and his stories are great! Wait, I'll give you something!" },
 				{ set = { var = "data", value = 4023 } },
-				{ create = { item = 2088, count = 1 } },
+				{ create = { item = 2088 } },
 			},
 		},
 		{

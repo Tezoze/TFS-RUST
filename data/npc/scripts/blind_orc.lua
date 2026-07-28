@@ -266,7 +266,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Maruk rambo zambo!" },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

@@ -210,7 +210,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ create = { item = 2597, count = 1 } },
+				{ create = { item = 2597 } },
 			},
 		},
 	},

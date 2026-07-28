@@ -1005,8 +1005,8 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you so much! Here, let me give you a reward..." },
-				{ delete = { item = 2798, count = 1 } },
-				{ create = { item = 2324, count = 1 } },
+				{ delete = { item = 2798 } },
+				{ create = { item = 2324 } },
 			},
 		},
 	},

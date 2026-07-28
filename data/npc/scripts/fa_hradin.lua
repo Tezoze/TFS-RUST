@@ -647,7 +647,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, let's see. ..." },
 				{ say = "I think I need to talk to Gabel about this. I am sure he will know what to do. Perhaps you should have a word with him, too." },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2345, count = 1 } },
+				{ delete = { item = 2345 } },
 				{ setQuestValue = { id = 281, value = 2 } },
 			},
 		},

@@ -757,7 +757,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -788,7 +788,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -844,10 +844,10 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "A pan! At last! Take this in case you eat something my cousin has cooked." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "data", value = 1 } },
-				{ create = { item = 2266, count = 1 } },
+				{ create = { item = 2266 } },
 			},
 		},
 		{

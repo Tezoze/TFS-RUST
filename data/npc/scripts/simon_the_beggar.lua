@@ -238,7 +238,7 @@ npc:dialogue(NpcDialogue({
 				{ deleteMoney = true },
 				{ say = "Now you own the hot key." },
 				{ set = { var = "data", value = 3940 } },
-				{ create = { item = 2087, count = 1 } },
+				{ create = { item = 2087 } },
 			},
 		},
 		{
@@ -428,7 +428,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

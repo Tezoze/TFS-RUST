@@ -797,7 +797,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Mnjam. Excellent! Thanks, man!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -828,7 +828,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Take my money. I can summon new money anytime - hehehe." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -860,7 +860,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Mnjam - excellent apples. Now - about that key. You are sure want it?" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ set = { var = "topic", value = 4 } },
 			},
 		},
@@ -937,7 +937,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "data", value = 3666 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Then take it and get happy - or die, hehe." },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

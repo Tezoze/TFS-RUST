@@ -41,7 +41,7 @@ use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::chase_debug;
 use crate::combat::uniform_random;
-use crate::creature::CreatureKind;
+use crate::creature::{CreatureKind, NpcActivity};
 use crate::creature_todo::{trace_creature_todo, CreatureAction};
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::CreatureId;
@@ -661,10 +661,21 @@ impl GameWorld {
     /// Phase 1 walk-engine unification: replaces the old `clear_todo_772` which only stopped the
     /// event-walk timer. The unified path clears the ToDo action queue as well, so stale `Go`
     /// entries from a prior autowalk don't bleed into the new walk.
-    pub(crate) fn player_todo_clear(&mut self, cid: CreatureId) -> bool {
+    ///
+    /// C++ applies any pending `TDChangeState` while clearing (`cract.cc:970-976`).
+    /// For NPCs this means a queued `ChangeNpcState { to_idle: true }` must land the NPC in
+    /// `Idle` (clearing focus) before the queue is drained, otherwise `Leaving` becomes
+    /// permanent (`crnonpl.cc:1219-1222`).
+    pub(crate) fn creature_todo_clear(&mut self, cid: CreatureId) -> bool {
         let had_pending_go = self.creatures.get(cid).is_some_and(|k| {
             let b = k.base();
             b.todo.has_go() || !b.walk_queue.is_empty()
+        });
+        let pending_idle = self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Npc(_))
+                && k.base().todo.queue.iter().any(|a| {
+                    matches!(a, CreatureAction::ChangeNpcState { to_idle: true })
+                })
         });
         self.stop_event_walk(cid);
         // C++ `ToDoClear` wipes **all** pending entries, including a queued `TDUse` / `TDMove`
@@ -682,6 +693,12 @@ impl GameWorld {
             base.next_wakeup = None;
             base.has_follow_path = false;
         }
+        if pending_idle {
+            if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(cid) {
+                npc.runtime.activity = NpcActivity::Idle;
+                npc.runtime.focus = None;
+            }
+        }
         had_pending_go
     }
 
@@ -691,7 +708,7 @@ impl GameWorld {
     /// `cract.cc:953-989` (`ToDoClear` clears the whole queue).
     pub(crate) fn player_todo_clear_with_snapback(&mut self, conn_id: ConnId, cid: CreatureId) {
         // Phase 4: 1098 defer deleted — both eras use ToDoClear + SendSnapback.
-        let had_pending = self.player_todo_clear(cid);
+        let had_pending = self.creature_todo_clear(cid);
         if had_pending {
             let dir_byte = self
                 .creatures
@@ -917,7 +934,7 @@ impl GameWorld {
             }
         } else {
             // C++ `ToDoStop` not-locked branch: immediate `SendSnapback` (`cract.cc:1005-1006`).
-            // Queue is empty; `player_todo_clear` is a harmless no-op that also resets flags.
+            // Queue is empty; `creature_todo_clear` is a harmless no-op that also resets flags.
             if let Some(conn) = self.conn_for_creature(cid) {
                 let dir_byte = self
                     .creatures
@@ -926,7 +943,7 @@ impl GameWorld {
                     .unwrap_or(0);
                 self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
             }
-            self.player_todo_clear(cid);
+            self.creature_todo_clear(cid);
         }
     }
 
@@ -1693,7 +1710,7 @@ impl GameWorld {
                     if let Some(conn) = self.conn_for_creature(cid) {
                         self.player_todo_clear_with_snapback(conn, cid);
                     } else {
-                        self.player_todo_clear(cid);
+                        self.creature_todo_clear(cid);
                     }
                     // `ToDoTalk("Hicks!")` + `ToDoStart()` — `cract.cc:409-411`.
                     let _ = self.enqueue_creature_talk(cid, "Hicks!");

@@ -188,7 +188,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Oh thank you! Thank you so much! So listen ... <whispers her measurements>" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 234, value = { binary = { op = "+", lhs = { questValue = 234 }, rhs = 1 } } } },
 				{ setQuestValue = { id = 238, value = 1 } },
 			},
@@ -521,7 +521,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here it is. Don't forget to write the name of the receiver in the first line and the address in the second one before you put the letter in a mailbox." },
 				{ deleteMoney = true },
-				{ create = { item = 2597, count = 1 } },
+				{ create = { item = 2597 } },
 			},
 		},
 		{
@@ -553,8 +553,8 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are. Don't forget to write the name and the address of the receiver on the label. The label has to be in the parcel before you put the parcel in a mailbox." },
 				{ deleteMoney = true },
-				{ create = { item = 2595, count = 1 } },
-				{ create = { item = 2599, count = 1 } },
+				{ create = { item = 2595 } },
+				{ create = { item = 2599 } },
 			},
 		},
 		{

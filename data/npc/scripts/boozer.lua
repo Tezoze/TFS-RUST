@@ -539,7 +539,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "And here is what you ordered." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

@@ -936,7 +936,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -967,7 +967,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Here is your money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -1287,9 +1287,9 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2148, count = 1 } },
+				{ delete = { item = 2148 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2152, count = 1 } },
+				{ create = { item = 2152 } },
 			},
 		},
 		{
@@ -1320,9 +1320,9 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2160, count = 1 } },
+				{ delete = { item = 2160 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2152, count = 1 } },
+				{ create = { item = 2152 } },
 			},
 		},
 		{
@@ -1353,9 +1353,9 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2152, count = 1 } },
+				{ delete = { item = 2152 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2148, count = 1 } },
+				{ create = { item = 2148 } },
 			},
 		},
 		{
@@ -1386,9 +1386,9 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2152, count = 1 } },
+				{ delete = { item = 2152 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2160, count = 1 } },
+				{ create = { item = 2160 } },
 			},
 		},
 		{

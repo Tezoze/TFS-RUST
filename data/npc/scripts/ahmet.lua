@@ -1182,7 +1182,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "I hope it will serve you well, my prized customer." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1213,7 +1213,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "I hardly can explain to my wife why I gave you that much money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},

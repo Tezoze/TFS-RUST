@@ -133,7 +133,7 @@ impl GameWorld {
             self.player_stop_attack(conn_id, cid);
             // `CAttack` catch: `ToDoClear` + `SendResult` (unless NOERROR) + `ToDoYield`
             // (`receiving.cc:1149-1153`). `ToDoWait(1000)` is the idle-re-arm path (`crplayer.cc`).
-            self.player_todo_clear(cid);
+            self.creature_todo_clear(cid);
             if !result.is_noerror_or_noway() {
                 self.send_combat_result(conn_id, result);
             }
@@ -442,7 +442,7 @@ impl GameWorld {
                         base.attack_target = None;
                         base.follow_target = None;
                     }
-                    self.player_todo_clear(cid);
+                    self.creature_todo_clear(cid);
                     if let Some(conn) = conn_id {
                         self.send_combat_result(conn, CombatResult::SecureMode);
                     }
@@ -460,7 +460,7 @@ impl GameWorld {
                         base.attack_target = None;
                         base.follow_target = None;
                     }
-                    self.player_todo_clear(cid);
+                    self.creature_todo_clear(cid);
                     if let Some(conn) = conn_id {
                         self.send_combat_result(conn, CombatResult::AttackNotAllowed);
                     }
@@ -496,7 +496,7 @@ impl GameWorld {
                 }
                 // `ToDoClear` + `SendResult(TARGETLOST)` + `ToDoWait(1000)` + `ToDoStart`
                 // (`crplayer.cc:394-402`). `ToDoClear` drops the (already-popped) Attack.
-                self.player_todo_clear(cid);
+                self.creature_todo_clear(cid);
                 if let Some(conn) = conn_id {
                     self.send_combat_result(conn, CombatResult::TargetLost);
                 }

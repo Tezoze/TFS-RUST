@@ -4,9 +4,7 @@
 //! item literals are remapped to OTB `server_id` via [`ItemDatabase::server_id_for_client`].
 
 use crate::items::ItemDatabase;
-use crate::npc_import::ast::{
-    RawAction, RawCond, RawExpr, RawNpcFile, RawOp, RawRule,
-};
+use crate::npc_import::ast::{RawAction, RawCond, RawExpr, RawNpcFile, RawOp, RawRule};
 use crate::npc_import::error::{ImportError, ImportResult};
 use crate::npcs::{
     DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProgram,
@@ -25,9 +23,10 @@ pub fn lower_npc(
     file: RawNpcFile,
     items: Option<&ItemDatabase>,
 ) -> ImportResult<PendingNpcDefinition> {
-    let name = file.name.clone().ok_or_else(|| {
-        ImportError::msg(format!("{}: missing Name", file.source_file))
-    })?;
+    let name = file
+        .name
+        .clone()
+        .ok_or_else(|| ImportError::msg(format!("{}: missing Name", file.source_file)))?;
 
     let appearance = if let Some(o) = file.outfit {
         NpcAppearance {
@@ -83,10 +82,7 @@ pub fn lower_npc(
     })
 }
 
-fn lower_rule(
-    rule: RawRule,
-    items: Option<&ItemDatabase>,
-) -> ImportResult<DialogueRule> {
+fn lower_rule(rule: RawRule, items: Option<&ItemDatabase>) -> ImportResult<DialogueRule> {
     let mut predicates = Vec::new();
     for c in rule.conditions {
         predicates.push(lower_cond(c, items)?);
@@ -102,10 +98,7 @@ fn lower_rule(
     })
 }
 
-fn lower_cond(
-    c: RawCond,
-    items: Option<&ItemDatabase>,
-) -> ImportResult<DialoguePredicate> {
+fn lower_cond(c: RawCond, items: Option<&ItemDatabase>) -> ImportResult<DialoguePredicate> {
     match c {
         RawCond::Situation(name, span) => {
             let kind = match name.as_str() {
@@ -154,12 +147,7 @@ fn lower_cond(
             };
             Ok(DialoguePredicate::Property { name, span })
         }
-        RawCond::Compare {
-            lhs,
-            op,
-            rhs,
-            span,
-        } => Ok(DialoguePredicate::Expression {
+        RawCond::Compare { lhs, op, rhs, span } => Ok(DialoguePredicate::Expression {
             expr: lower_expr(lhs, items)?,
             op: lower_op(op),
             rhs: lower_expr(rhs, items)?,
@@ -168,10 +156,7 @@ fn lower_cond(
     }
 }
 
-fn lower_action(
-    a: RawAction,
-    items: Option<&ItemDatabase>,
-) -> ImportResult<DialogueAction> {
+fn lower_action(a: RawAction, items: Option<&ItemDatabase>) -> ImportResult<DialogueAction> {
     match a {
         RawAction::Say(text, span) => Ok(DialogueAction::Say { text, span }),
         RawAction::Repeat(span) => Ok(DialogueAction::RepeatPrevious { span }),
@@ -179,10 +164,7 @@ fn lower_action(
             "idle" => Ok(DialogueAction::Idle { span }),
             "queue" => Ok(DialogueAction::Queue { span }),
             "nop" => Ok(DialogueAction::Nop { span }),
-            "startposition" => Ok(DialogueAction::StartPosition {
-                pos: None,
-                span,
-            }),
+            "startposition" => Ok(DialogueAction::StartPosition { pos: None, span }),
             // Bare money ops: 772 DeleteMoney uses Price; CreateMoney uses Amount.
             "deletemoney" => Ok(DialogueAction::DeleteMoney {
                 amount: DialogueExpr::Session(SessionVar::Price),
@@ -298,7 +280,7 @@ fn lower_call(
                 count: count
                     .map(|c| lower_expr(c, items))
                     .transpose()?
-                    .unwrap_or(DialogueExpr::Lit(1)),
+                    .unwrap_or(DialogueExpr::Session(SessionVar::Amount)),
                 span,
             })
         }
@@ -309,7 +291,7 @@ fn lower_call(
                 count: count
                     .map(|c| lower_expr(c, items))
                     .transpose()?
-                    .unwrap_or(DialogueExpr::Lit(1)),
+                    .unwrap_or(DialogueExpr::Session(SessionVar::Amount)),
                 span,
             })
         }
@@ -609,11 +591,7 @@ fn lower_op(op: RawOp) -> ExprOp {
     }
 }
 
-fn two_args(
-    name: &str,
-    args: Vec<RawExpr>,
-    span: &SourceSpan,
-) -> ImportResult<(RawExpr, RawExpr)> {
+fn two_args(name: &str, args: Vec<RawExpr>, span: &SourceSpan) -> ImportResult<(RawExpr, RawExpr)> {
     if args.len() != 2 {
         return Err(ImportError::spanned(
             span.clone(),
@@ -707,17 +685,14 @@ Topic=1,"yes" -> "ok", Create(3587)
         let pending = lower_npc(file, Some(&items)).expect("lower");
         let dialogue = pending.dialogue.as_ref().expect("dialogue");
 
-        let type_set = dialogue.rules[0]
-            .actions
-            .iter()
-            .find_map(|a| match a {
-                DialogueAction::SetSession {
-                    var: SessionVar::Type,
-                    expr: DialogueExpr::Lit(n),
-                    ..
-                } => Some(*n),
-                _ => None,
-            });
+        let type_set = dialogue.rules[0].actions.iter().find_map(|a| match a {
+            DialogueAction::SetSession {
+                var: SessionVar::Type,
+                expr: DialogueExpr::Lit(n),
+                ..
+            } => Some(*n),
+            _ => None,
+        });
         assert_eq!(type_set, Some(2676));
 
         let create_item = dialogue.rules[1].actions.iter().find_map(|a| match a {
@@ -760,17 +735,14 @@ Sorcerer,"find","person" -> Type=20, Price=80, "buy spell?", Topic=1
         let file = parse_npc_source(&root, &root.join("teacher.npc"), src).expect("parse");
         let pending = lower_npc(file, Some(&items)).expect("lower");
         let dialogue = pending.dialogue.as_ref().expect("dialogue");
-        let type_set = dialogue.rules[0]
-            .actions
-            .iter()
-            .find_map(|a| match a {
-                DialogueAction::SetSession {
-                    var: SessionVar::Type,
-                    expr: DialogueExpr::Lit(n),
-                    ..
-                } => Some(*n),
-                _ => None,
-            });
+        let type_set = dialogue.rules[0].actions.iter().find_map(|a| match a {
+            DialogueAction::SetSession {
+                var: SessionVar::Type,
+                expr: DialogueExpr::Lit(n),
+                ..
+            } => Some(*n),
+            _ => None,
+        });
         assert_eq!(type_set, Some(20));
     }
 
@@ -786,17 +758,46 @@ Behaviour = {
         let file = parse_npc_source(&root, &root.join("raw.npc"), src).expect("parse");
         let pending = lower_npc(file, None).expect("lower");
         let dialogue = pending.dialogue.as_ref().expect("dialogue");
-        let type_set = dialogue.rules[0]
-            .actions
-            .iter()
-            .find_map(|a| match a {
-                DialogueAction::SetSession {
-                    var: SessionVar::Type,
-                    expr: DialogueExpr::Lit(n),
-                    ..
-                } => Some(*n),
-                _ => None,
-            });
+        let type_set = dialogue.rules[0].actions.iter().find_map(|a| match a {
+            DialogueAction::SetSession {
+                var: SessionVar::Type,
+                expr: DialogueExpr::Lit(n),
+                ..
+            } => Some(*n),
+            _ => None,
+        });
         assert_eq!(type_set, Some(3587));
+    }
+
+    #[test]
+    fn create_delete_default_count_to_session_amount() {
+        let src = r#"
+Name = "Trader"
+Behaviour = {
+"give" -> Amount=5, Create(2260), Idle
+"take" -> Amount=3, Delete(2260), Idle
+}
+"#;
+        let root = std::env::temp_dir();
+        let file = parse_npc_source(&root, &root.join("trader.npc"), src).expect("parse");
+        let pending = lower_npc(file, None).expect("lower");
+        let dialogue = pending.dialogue.as_ref().expect("dialogue");
+        let create_count = dialogue.rules[0].actions.iter().find_map(|a| match a {
+            DialogueAction::Create { count, .. } => Some(count.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            create_count,
+            Some(DialogueExpr::Session(SessionVar::Amount))
+        );
+
+        let delete_count = dialogue.rules[1].actions.iter().find_map(|a| match a {
+            DialogueAction::Delete { count, .. } => Some(count.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            delete_count,
+            Some(DialogueExpr::Session(SessionVar::Amount))
+        );
     }
 }

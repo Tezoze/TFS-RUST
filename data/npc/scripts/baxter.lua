@@ -436,7 +436,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here is your reward. You will become a great warrior some day." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},

@@ -244,7 +244,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Excellent, you brought just the tool we need! Of course it was only a simple task. However ..." },
 				{ say = "I officially welcome you to the explorer society. From now on you can ask for missions to improve your rank." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 300, value = 1 } },
 			},
 		},
@@ -348,7 +348,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Poor Ratha. Thank you for returning this skull to the society. We will see to a honourable burial of Ratha." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 				{ setQuestValue = { id = 302, value = 1 } },
 			},
@@ -387,7 +387,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "It's always a sad day when we learn about the death of a member. But at least we learnt about his fate. Thank you, here is your reward." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -436,7 +436,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Marvellous! You brought a giant smith hammer for the explorer society!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 				{ setQuestValue = { id = 303, value = 1 } },
 			},
@@ -523,7 +523,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you in the name of science." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -580,7 +580,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thank you in the name of science." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -627,7 +627,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "This preparation kit will allow you to collect a purple butterfly you have killed ..." },
 				{ say = "Just use it on the fresh corpse of a purple butterfly, return the prepared butterfly to me and give me a report of your butterfly hunt." },
-				{ create = { item = 4865, count = 1 } },
+				{ create = { item = 4865 } },
 				{ setQuestValue = { id = 304, value = 1 } },
 			},
 		},
@@ -675,7 +675,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "A little bit battered but it will do. Thank you! If you think you are ready, ask for another butterfly hunt." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 304, value = 2 } },
 			},
 		},
@@ -689,7 +689,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "This preparation kit will allow you to collect a blue butterfly you have killed ..." },
 				{ say = "Just use it on the fresh corpse of a blue butterfly, return the prepared butterfly to me and give me a report of your butterfly hunt." },
-				{ create = { item = 4865, count = 1 } },
+				{ create = { item = 4865 } },
 				{ setQuestValue = { id = 304, value = 3 } },
 			},
 		},
@@ -737,7 +737,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Again I think it will do. Thank you! If you think you are ready, ask for another butterfly hunt." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 304, value = 4 } },
 			},
 		},
@@ -751,7 +751,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "This preparation kit will allow you to collect a red butterfly you have killed ..." },
 				{ say = "Just use it on the fresh corpse of a red butterfly, return the prepared butterfly to me and give me a report of your butterfly hunt." },
-				{ create = { item = 4865, count = 1 } },
+				{ create = { item = 4865 } },
 				{ setQuestValue = { id = 304, value = 5 } },
 			},
 		},
@@ -799,7 +799,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "That is an extraordinary species you have brought. Thank you! That was the last butterfly we needed." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 304, value = 6 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -846,7 +846,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Fine! Here take this botanist's container. Use it on a jungle bells plant to collect a sample for us. Report about your plant collection when you have been successful." },
-				{ create = { item = 4869, count = 1 } },
+				{ create = { item = 4869 } },
 				{ setQuestValue = { id = 305, value = 1 } },
 			},
 		},
@@ -894,7 +894,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "I see. It seems you've got some quite useful sample by sheer luck. Thank you! Just tell me when you are ready to continue with the plant collection." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 305, value = 2 } },
 			},
 		},
@@ -907,7 +907,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Use this botanist's container on a witches cauldron to collect a sample for us. Bring it here and report about your plant collection." },
-				{ create = { item = 4869, count = 1 } },
+				{ create = { item = 4869 } },
 				{ setQuestValue = { id = 305, value = 3 } },
 			},
 		},
@@ -955,7 +955,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ah, finally. I started to wonder what took you so long. But thank you! Another fine sample, indeed. Just tell me when you are ready to continue with the plant collection." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 305, value = 4 } },
 			},
 		},
@@ -968,7 +968,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Use this botanist's container on a giant jungle rose to obtain a sample for us. Bring it here and report about your plant collection." },
-				{ create = { item = 4869, count = 1 } },
+				{ create = { item = 4869 } },
 				{ setQuestValue = { id = 305, value = 5 } },
 			},
 		},
@@ -1016,7 +1016,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "What a lovely sample! With that you have finished your plant collection missions." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 305, value = 6 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1066,7 +1066,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "So listen please: Take this ice pick and use it on a block of ice in the caves beneath Folda. Get some ice and bring it here as fast as you can ..." },
 				{ say = "Should the ice melt away, report on your ice delivery mission anyway. I will then tell you if the time is right to start another mission." },
-				{ create = { item = 4874, count = 1 } },
+				{ create = { item = 4874 } },
 				{ setQuestValue = { id = 306, value = 1 } },
 			},
 		},
@@ -1177,7 +1177,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Just in time. Sadly not much ice is left over but it will do. Thank you again." },
 				{ setQuestValue = { id = 306, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1282,7 +1282,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Yes, that is the prized relic we have been looking for so long. You did a great job, thank you." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 308, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1379,7 +1379,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "You did it! Excellent! The scientific world will be shaken by this discovery!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 309, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1476,7 +1476,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "You really got it? Amazing! Thank you for your efforts." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 310, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1616,7 +1616,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Let me have a look! Yes, that's what we wanted. A copy of 'Songs of the Forest'. I won't ask any questions about those bloodstains." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 311, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1725,7 +1725,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "A flawless memory stone! Incredible! It will take years even to figure out how it works but what an opportunity for science, thank you!" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 313, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1775,7 +1775,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Excellent! Here, take this tracing paper and use it on the object you will find there to create a copy of the ancient runes." },
-				{ create = { item = 4853, count = 1 } },
+				{ create = { item = 4853 } },
 				{ setQuestValue = { id = 315, value = 1 } },
 			},
 		},
@@ -1836,7 +1836,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "It's a bit wrinkled but it will do. Thanks again." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 315, value = 2 } },
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
@@ -1906,7 +1906,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Good! Take this container and use it on a ghost that was recently slain. Return with the collected ectoplasm and hand me that container ..." },
 				{ say = "Don't lose the container. They are expensive!" },
-				{ create = { item = 4863, count = 1 } },
+				{ create = { item = 4863 } },
 				{ setQuestValue = { id = 317, value = 1 } },
 			},
 		},
@@ -1973,7 +1973,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Phew, I had no idea that ectoplasm would smell that ... oh, it's you, well, sorry. Thank you for the ectoplasm." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 317, value = 2 } },
 				{ setQuestValue = { id = 300, value = 11 } },
 			},
@@ -2091,7 +2091,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Just in time! With this spectral article we can start the final phase of our research." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 318, value = 2 } },
 				{ setQuestValue = { id = 300, value = 12 } },
 			},
@@ -2143,7 +2143,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "In addition, you need to be a premium explorer to use the astral travel ..." },
 				{ say = "And remember: it's a small teleport for you, but a big teleport for all Tibians." },
 				{ setQuestValue = { id = 323, value = 1 } },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -2208,7 +2208,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here, use it wisely." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -2255,7 +2255,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here, use them wisely." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -2329,7 +2329,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here, better don't lose it." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -2416,7 +2416,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Good, just take this spectral essence and use it on the strange carving in this building as well as on the corresponding tile in our base at Port Hope ..." },
 				{ say = "As soon as you have charged the portal tiles that way, report about the spectral portals." },
-				{ create = { item = 4851, count = 1 } },
+				{ create = { item = 4851 } },
 				{ setQuestValue = { id = 320, value = 5 } },
 			},
 		},

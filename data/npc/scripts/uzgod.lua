@@ -1183,7 +1183,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Me thank you. Here is your stuff." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1214,7 +1214,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here is your money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -1480,7 +1480,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Thanking you for brooch. Me guessing you now want your pickaxe?" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ set = { var = "type", value = 4856 } },
 				{ set = { var = "amount", value = 1 } },
 				{ setQuestValue = { id = 325, value = 3 } },
@@ -1539,7 +1539,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Here you have it." },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 				{ setQuestValue = { id = 325, value = 4 } },
 			},
 		},

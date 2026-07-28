@@ -182,7 +182,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok, ok, I'll take it. I guess I have no other choice anyways. And now leave me alone in my misery please." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 229, value = 3 } },
 			},
 		},

@@ -1852,7 +1852,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you. Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1883,7 +1883,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Ok. Here is your money." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -1962,7 +1962,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Finally it is mine! Here is your money. Can I be of any further help?" },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ createMoney = true },
 			},
 		},
@@ -2019,7 +2019,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you verry much! This brings back good old memories! Please, as a reward, travel to kazordoon and ask my old friend Kroox to provide you a special dwarven armor. ..." },
 				{ say = "I will mail him about you immediately. Just tell him, his old buddy sam is sending you." },
-				{ delete = { item = { session = "type" }, count = 1 } },
+				{ delete = { item = { session = "type" } } },
 				{ setQuestValue = { id = 289, value = 1 } },
 			},
 		},

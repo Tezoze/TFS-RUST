@@ -293,7 +293,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 333, value = 1 } },
 				{ set = { var = "type", value = 2190 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1219,7 +1219,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here, young one." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1280,7 +1280,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1312,7 +1312,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Here you are. There is a deposit of 5 gold on the vial." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
@@ -1345,7 +1345,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "amount", value = { count = 2006 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { session = "amount" }, rhs = 5 } } } },
 				{ say = "Here you are ... %P gold." },
-				{ delete = { item = 2006, count = 1 } },
+				{ delete = { item = 2006 } },
 				{ createMoney = true },
 			},
 		},

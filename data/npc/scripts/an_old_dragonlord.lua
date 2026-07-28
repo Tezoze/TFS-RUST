@@ -23,8 +23,8 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "AHHH MUSHRRROOOMSSS! NOW MY PAIN WILL BE EASSSED FOR A WHILE! TAKE THISS AND LEAVE THE DRAGONSSS' CEMETERY AT ONCE!" },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2787, count = 1 } },
-				{ create = { item = 2319, count = 1 } },
+				{ delete = { item = 2787 } },
+				{ create = { item = 2319 } },
 				{ setQuestValue = { id = 66, value = 1 } },
 				{ idle = true },
 			},

@@ -358,11 +358,11 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "You seem to have them with you. Can you tell me, how many minutes I have to cook them?" },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2690, count = 1 } },
-				{ delete = { item = 2692, count = 1 } },
-				{ delete = { item = 2693, count = 1 } },
-				{ delete = { item = 2744, count = 1 } },
-				{ delete = { item = 2679, count = 1 } },
+				{ delete = { item = 2690 } },
+				{ delete = { item = 2692 } },
+				{ delete = { item = 2693 } },
+				{ delete = { item = 2744 } },
+				{ delete = { item = 2679 } },
 				{ set = { var = "topic", value = 4 } },
 			},
 		},
@@ -415,7 +415,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you! NALUS MURTUUU! ... I can see again! To show you, how grateful I am, I'll give you a key. Be wise when using it. I can't tell you, where it matches, but ... take good care, it is useless without mental powers!" },
 				{ set = { var = "data", value = 4037 } },
-				{ create = { item = 2088, count = 1 } },
+				{ create = { item = 2088 } },
 			},
 		},
 		{

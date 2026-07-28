@@ -8,6 +8,7 @@ use super::expr::{EvalContext, PlayerVocationKind};
 use super::match_rule::{match_dialogue_rule_with_custom, CustomPredicateHost};
 use super::react::{apply_dialogue_plan, ReactMeta};
 use crate::creature::{CreatureKind, NpcActivity, QueuedNpcAddress};
+use crate::creature_todo::CreatureAction;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::monster_ai::compute_look_toward_target;
@@ -103,8 +104,14 @@ impl GameWorld {
         if talking {
             if last_talk.saturating_add(timeout) > round {
                 // Still within window — keepalive Wait (`crnonpl.cc:1720-1722`).
-                let _ = self.enqueue_creature_wait(npc_id, u64::from(tuning.talking_keepalive_ms));
-                self.todo_start_from_action(npc_id, u64::from(tuning.talking_keepalive_ms).max(1));
+                let keepalive_ms = u64::from(tuning.talking_keepalive_ms);
+                let _ = self.creature_todo_add(
+                    npc_id,
+                    CreatureAction::Wait {
+                        deadline_ms: self.server_ms.saturating_add(keepalive_ms),
+                    },
+                );
+                self.todo_start_from_action(npc_id, keepalive_ms.max(1));
                 return;
             }
             // Timeout → VANISH then idle.
@@ -158,7 +165,7 @@ impl GameWorld {
             }
 
             // C++ clears ToDo before ADDRESSQUEUE react (`crnonpl.cc:1742`).
-            let _ = self.player_todo_clear(npc_id);
+            let _ = self.creature_todo_clear(npc_id);
 
             if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
                 npc.runtime.activity = NpcActivity::Talking;
@@ -219,15 +226,16 @@ impl GameWorld {
         }
 
         let delay = u64::from(tuning.idle_roam_delay_ms);
+        let deadline_ms = self.server_ms.saturating_add(delay);
         if self.npc_try_roam_step(npc_id) {
             let _ = self.enqueue_creature_go(npc_id);
-            let _ = self.enqueue_creature_wait(npc_id, delay);
+            let _ = self.creature_todo_add(npc_id, CreatureAction::Wait { deadline_ms });
             if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
                 npc.runtime.next_walk = Some(self.server_ms.saturating_add(delay));
             }
             self.todo_start_from_action(npc_id, 1);
         } else {
-            let _ = self.enqueue_creature_wait(npc_id, delay);
+            let _ = self.creature_todo_add(npc_id, CreatureAction::Wait { deadline_ms });
             if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
                 npc.runtime.next_walk = Some(self.server_ms.saturating_add(delay));
             }
@@ -528,7 +536,7 @@ impl GameWorld {
             trace.push(DialogueEvent::Situation {
                 name: DialogueSituationKind::Address.name(),
             });
-            let _ = self.player_todo_clear(npc_id);
+            let _ = self.creature_todo_clear(npc_id);
             if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(npc_id) {
                 n.runtime.activity = NpcActivity::Talking;
                 n.runtime.focus = Some(speaker);
@@ -976,8 +984,14 @@ impl GameWorld {
             .unwrap_or(0);
 
         for reply in &plan.replies {
-            let _ = self.enqueue_creature_wait(npc_id, u64::from(reply.delay_ms));
-            let _ = self.enqueue_creature_talk(npc_id, reply.text.clone());
+            let deadline_ms = self.server_ms.saturating_add(u64::from(reply.delay_ms));
+            let _ = self.creature_todo_add(npc_id, CreatureAction::Wait { deadline_ms });
+            let _ = self.creature_todo_add(
+                npc_id,
+                CreatureAction::Talk {
+                    text: reply.text.clone(),
+                },
+            );
             trace.push(DialogueEvent::Todo {
                 op: TodoOp::Talk,
                 delay_ms: Some(reply.delay_ms),
@@ -985,12 +999,16 @@ impl GameWorld {
         }
 
         if plan.deferred_idle {
-            let _ = self.enqueue_creature_change_npc_state(npc_id, true);
+            let _ = self.creature_todo_add(
+                npc_id,
+                CreatureAction::ChangeNpcState { to_idle: true },
+            );
         }
 
         if plan.start_todo {
             let final_delay = u64::from(plan.final_talk_delay_ms);
-            let _ = self.enqueue_creature_wait(npc_id, final_delay);
+            let final_deadline_ms = self.server_ms.saturating_add(final_delay);
+            let _ = self.creature_todo_add(npc_id, CreatureAction::Wait { deadline_ms: final_deadline_ms });
             // Trace Wait/Start already emitted in `apply_dialogue_plan`.
             self.todo_start_from_action(npc_id, first_delay.max(1));
         } else if !plan.replies.is_empty() || plan.deferred_idle {

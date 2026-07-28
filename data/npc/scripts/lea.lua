@@ -251,7 +251,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 333, value = 1 } },
 				{ set = { var = "type", value = 2190 } },
 				{ set = { var = "amount", value = 1 } },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

@@ -888,7 +888,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "And here it is, it suits you well!" },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{

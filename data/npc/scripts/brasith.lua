@@ -629,7 +629,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Thank you. Here it is." },
 				{ deleteMoney = true },
-				{ create = { item = { session = "type" }, count = 1 } },
+				{ create = { item = { session = "type" } } },
 			},
 		},
 		{
