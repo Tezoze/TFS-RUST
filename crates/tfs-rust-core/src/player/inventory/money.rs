@@ -40,13 +40,13 @@ impl GameWorld {
         let platinum = rem / 100;
         let gold = rem % 100;
         if crystal > 0 {
-            self.player_add_item_count(cid, ITEM_CRYSTAL_COIN, crystal)?;
+            self.player_add_item_count(cid, ITEM_CRYSTAL_COIN, crystal, -1)?;
         }
         if platinum > 0 {
-            self.player_add_item_count(cid, ITEM_PLATINUM_COIN, platinum)?;
+            self.player_add_item_count(cid, ITEM_PLATINUM_COIN, platinum, -1)?;
         }
         if gold > 0 {
-            self.player_add_item_count(cid, ITEM_GOLD_COIN, gold)?;
+            self.player_add_item_count(cid, ITEM_GOLD_COIN, gold, -1)?;
         }
         Ok(())
     }
@@ -77,6 +77,7 @@ impl GameWorld {
         cid: CreatureId,
         item_id: u16,
         count: u32,
+        data: i32,
     ) -> Result<(), String> {
         if count == 0 {
             return Ok(());
@@ -86,7 +87,7 @@ impl GameWorld {
         let mut remaining = count;
         while remaining > 0 {
             let chunk = remaining.min(100);
-            self.lua_script_player_add_item_full(ffi, item_id, chunk, -1, true, 0)
+            self.lua_script_player_add_item_full(ffi, item_id, chunk, data, true, 0)
                 .map_err(|e| e)?
                 .ok_or_else(|| format!("failed to add item {item_id} x{chunk}"))?;
             remaining -= chunk;
@@ -106,7 +107,7 @@ fn apply_coin_delta(
             return Err(format!("failed to remove {delta} of item {item_id}"));
         }
     } else if delta < 0 {
-        world.player_add_item_count(cid, item_id, (-delta) as u32)?;
+        world.player_add_item_count(cid, item_id, (-delta) as u32, -1)?;
     }
     Ok(())
 }

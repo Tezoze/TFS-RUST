@@ -71,6 +71,62 @@
 - [ ] NPC-8 — Add opt-in shop-window subsystem
 - [ ] NPC-9 — Add atomic reload, diagnostics, and rollout cleanup
 
+# NPC Phase 2 correctness follow-ups — 2026-07-28 ✅
+
+Source: `docs/772_NPC_AUDIT.md` Phase 2.
+
+## 2.1 Thread `Npc->Data` through Create / Delete / `Count(...)`
+
+- Add `data: i32` parameter to `NpcActionHost::create_item` / `delete_item`.
+- Pass `ctx.data` from `react.rs` `DialogueAction::Create` / `Delete`.
+- `host.rs` `npc_give_to` / `npc_get_from` already accept `data`; forward it instead of `-1`.
+- `focus.rs` `inventory_count` closure: capture session `data` and pass as `sub_type` when the type is a fluid container or key (`ItemDatabase::is_fluid_container`); otherwise `-1`.
+- C++ quirk: `CountObjects` does **not** propagate `Value` into nested containers (`info.cc:553`); preserve by only applying `sub_type` at top-level inventory slots.
+
+## 2.2 `%T` uses 772 game time and fixes am/pm
+
+- `focus.rs`: replace wall-clock `chrono::Local::now()` hour/minute with `world_time_from_local_clock()`.
+- Compute `game_minutes = world_time_from_local_clock()`; `game_hour = game_minutes / 60`; `game_minute = game_minutes % 60`.
+- `expr.rs::format_game_time`: restore C++ branch verbatim so PM prints `pm`:
+  `if hour < 12 { "{hour}:{minute:02} am" } else { "{}:{minute:02} pm", hour - 12 }`.
+
+## 2.3 `ToDoYield` on VANISH / null-interlocutor Idle transitions
+
+- `focus.rs::npc_creature_move_stimulus`: after the VANISH `Idle` state flip, call `self.creature_todo_yield(npc_id)`.
+- Also yield in the `focus.is_none()` / `Interlocutor == NULL` arm when transitioning away from Talking/Leaving.
+
+## 2.4 `Idle` action skips `StartToDo` under `ADDRESSQUEUE`
+
+- `react.rs::apply_dialogue_plan`: in `DialogueAction::Idle`, only set `plan.start_todo = true` when `situation != DialogueSituationKind::AddressQueue`.
+- On `AddressQueue` + no prior speech, emit a `tracing::warn!` matching the decompile error log.
+
+## 2.5 `Delete` failure aborts remaining actions
+
+- `react.rs::apply_dialogue_plan`: change `Delete` arm to return a sentinel/break out of the action loop on `Err`.
+- Ensure `Create` and other subsequent actions in the same rule are skipped, matching C++ `throw ERROR` unwinding.
+
+## Tests to add
+
+- `format_time_pm` — game hour 13 → `"1:00 pm"`.
+- `create_respects_data_subtype` — fluid container with `Data=11` creates vial with fluid type 11.
+- `delete_failure_aborts_remaining_actions` — `Delete` fails and a following `Say` does not fire.
+- `vanish_yields_idle_loop` — VANISH transition arms `ToDoWait(0)` + start.
+- `idle_address_queue_no_trailing_starttodo` — ADDRESSQUEUE Idle-only rule does not schedule trailing Wait/Start.
+
+## Verification
+
+- `rtk cargo check --workspace`
+- `rtk cargo clippy --workspace --all-targets -- -D warnings`
+- `rtk cargo test -p tfs-rust-core npc::`
+- `rtk cargo test -p tfs-rust-content npc_import::`
+- `rtk cargo test --workspace`
+
+## Risks
+
+- `data` threading touches `npc/actions.rs` trait and `npc/host.rs` impl; ensure all call sites updated.
+- `Delete` failure abort changes economy edge cases; covered by new test.
+- `ToDoYield` on VANISH must not double-yield when `creature_todo_clear` already ran inside `npc_react`.
+
 ## Prior completed plan: monster combat audit
 
 - [x] B1 — Extract physical mitigate helper; wire CASTING Damage Physical + reuse from aoe.rs

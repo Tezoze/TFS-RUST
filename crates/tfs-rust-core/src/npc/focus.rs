@@ -430,6 +430,17 @@ impl GameWorld {
                 trace.push(DialogueEvent::State { value: "idle" });
                 self.creature_todo_yield(npc_id);
             }
+            // `Interlocutor == NULL` while still Talking/Leaving on a self-move:
+            // C++ `ChangeState(IDLE, true)` yields the idle loop (`crnonpl.cc:1841-1844`).
+            if activity == NpcActivity::Talking || activity == NpcActivity::Leaving {
+                if moved == npc_id {
+                    if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
+                        npc.runtime.activity = NpcActivity::Idle;
+                    }
+                    trace.push(DialogueEvent::State { value: "idle" });
+                    self.creature_todo_yield(npc_id);
+                }
+            }
             return;
         }
         let focus = focus.expect("checked");
@@ -465,6 +476,9 @@ impl GameWorld {
                 player: None,
                 temporary: false,
             });
+            // `ChangeState(IDLE, true)` arms `ToDoWait(0)` + `ToDoStart()`
+            // (`crnonpl.cc:1850-1855`, `:1973-1978`).
+            self.creature_todo_yield(npc_id);
         }
     }
 }
@@ -753,8 +767,28 @@ impl GameWorld {
             let Ok(item_id) = u16::try_from(id) else {
                 return 0;
             };
+            // 772 `Count(...)` checks `Npc->Data` against fluid/key subtype
+            // (`info.cc:541-588`). Read the live value so `SetSession data=...`
+            // inside the same rule is visible to later predicates/actions.
+            let data = unsafe {
+                (*world_ptr)
+                    .creatures
+                    .get(npc_id)
+                    .and_then(|k| match k {
+                        crate::creature::CreatureKind::Npc(n) => Some(n),
+                        _ => None,
+                    })
+                    .map(|n| {
+                        if program.policy == DialoguePolicy::PerPlayer {
+                            n.runtime.player_sessions.get(&player).map(|s| s.data).unwrap_or(0)
+                        } else {
+                            n.runtime.data
+                        }
+                    })
+                    .unwrap_or(0)
+            };
             // SAFETY: single-threaded game loop; host mutations finish before next eval read.
-            unsafe { (*world_ptr).player_get_item_type_count(player, item_id, -1) as i32 }
+            unsafe { (*world_ptr).player_get_item_type_count_npc(player, item_id, data) as i32 }
         };
         let quest = move |id: u32| -> i32 {
             unsafe { (*world_ptr).player_get_storage(player, id) }
@@ -783,12 +817,8 @@ impl GameWorld {
             unsafe { (*world_ptr).parity_random(lo, hi) }
         };
 
-        let now = chrono::Local::now();
-        let (game_hour, game_minute) = {
-            use chrono::Timelike;
-            let h = now.hour() % 12;
-            ((if h == 0 { 12 } else { h }) as u8, now.minute() as u8)
-        };
+        let game_minutes = crate::world_light::world_time_from_local_clock();
+        let (game_hour, game_minute) = ((game_minutes / 60) as u8, (game_minutes % 60) as u8);
 
         let mut ctx = EvalContext {
             topic,

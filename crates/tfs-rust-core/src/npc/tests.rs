@@ -16,7 +16,7 @@ use tfs_rust_content::npcs::{
 use tfs_rust_content::otb::ItemType;
 
 use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp, QueueOp};
-use super::expr::{EvalContext, PlayerVocationKind};
+use super::expr::{format_npc_response, EvalContext, PlayerVocationKind};
 use super::match_rule::match_dialogue_rule;
 use super::words::{search_for_number, search_for_word};
 use crate::condition::{ActiveCondition, ConditionData};
@@ -462,6 +462,12 @@ fn stackable_coin(server_id: u16) -> ItemType {
     it
 }
 
+fn fluid_container(server_id: u16) -> ItemType {
+    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    it.group = 12; // `ItemType::GROUP_FLUID`
+    it
+}
+
 fn npc5_world() -> GameWorld {
     let mut world = minimal_world();
     let mut items = HashMap::new();
@@ -469,6 +475,7 @@ fn npc5_world() -> GameWorld {
     items.insert(ITEM_GOLD_COIN, stackable_coin(ITEM_GOLD_COIN));
     items.insert(ITEM_PLATINUM_COIN, stackable_coin(ITEM_PLATINUM_COIN));
     items.insert(2160u16, stackable_coin(2160));
+    items.insert(2006u16, fluid_container(2006));
     world.items_db = Arc::new(ItemDatabase {
         items,
         client_to_server: HashMap::new(),
@@ -488,7 +495,7 @@ fn equip_backpack(world: &mut GameWorld, cid: CreatureId) {
 fn give_gold(world: &mut GameWorld, cid: CreatureId, count: u16) {
     equip_backpack(world, cid);
     world
-        .player_add_item_count(cid, ITEM_GOLD_COIN, u32::from(count))
+        .player_add_item_count(cid, ITEM_GOLD_COIN, u32::from(count), -1)
         .expect("give gold");
 }
 
@@ -847,9 +854,11 @@ fn partial_failure_keeps_prior_mutations() {
         40,
         "first delete must stick after failed second delete"
     );
+    // After the failed Delete the C++ action loop unwinds (`throw ERROR`), so
+    // later actions in the same rule are skipped (`operate.cc:2732-2735`).
     assert!(matches!(
         world.creatures.get(npc),
-        Some(CreatureKind::Npc(n)) if n.runtime.topic == 42
+        Some(CreatureKind::Npc(n)) if n.runtime.topic == 0
     ));
     let delete_events: Vec<_> = t
         .events
@@ -1304,10 +1313,22 @@ fn custom_action_host_records_mutate() {
         called: bool,
     }
     impl NpcActionHost for StubHost {
-        fn create_item(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+        fn create_item(
+            &mut self,
+            _: CreatureId,
+            _: i32,
+            _: i32,
+            _: i32,
+        ) -> Result<(), String> {
             Ok(())
         }
-        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+        fn delete_item(
+            &mut self,
+            _: CreatureId,
+            _: i32,
+            _: i32,
+            _: i32,
+        ) -> Result<(), String> {
             Ok(())
         }
         fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
@@ -1869,7 +1890,7 @@ fn vial_deposit_no_money_duplication() {
     equip_backpack(&mut world, p1);
 
     world
-        .player_add_item_count(p1, 2006, 5)
+        .player_add_item_count(p1, 2006, 5, -1)
         .expect("give vials");
     assert_eq!(world.player_get_item_type_count(p1, 2006, -1), 5);
     assert_eq!(world.player_count_money(p1), 0);
@@ -1889,4 +1910,348 @@ fn vial_deposit_no_money_duplication() {
         5,
         "gold paid equals vial count"
     );
+}
+
+#[test]
+fn format_time_pm() {
+    let ctx = EvalContext {
+        topic: 0,
+        price: 0,
+        amount: 0,
+        item_type: 0,
+        data: 0,
+        captures: [-1, -1],
+        player_name: "Hero",
+        player_hp: 100,
+        player_level: 1,
+        player_magic_level: 0,
+        player_sex: 1,
+        player_vocation: PlayerVocationKind::None,
+        player_premium: false,
+        player_promoted: false,
+        player_pz_block: false,
+        burning: 0,
+        poison: 0,
+        money: 0,
+        inventory_count: &|_| 0,
+        quest_value: &|_| -1,
+        spell_known: &|_| 0,
+        spell_level: &|_| 0,
+        rng: &mut |_, _| 0,
+        game_hour: 13,
+        game_minute: 0,
+        world_pvp_enforced: false,
+        world_non_pvp: false,
+        tuning: NpcTuning::classic_772(),
+    };
+    assert_eq!(format_npc_response("It is %T.", &ctx), "It is 1:00 pm.");
+}
+
+#[test]
+fn create_respects_data_subtype() {
+    let mut world = npc5_world();
+    let sp = span();
+    let rule = DialogueRule {
+        predicates: vec![DialoguePredicate::Situation {
+            kind: DialogueSituation::Address,
+            span: sp.clone(),
+        }],
+        actions: vec![
+            DialogueAction::SetSession {
+                var: SessionVar::Data,
+                expr: DialogueExpr::Lit(11),
+                span: sp.clone(),
+            },
+            DialogueAction::Create {
+                item: DialogueExpr::Lit(2006),
+                count: DialogueExpr::Lit(1),
+                span: sp.clone(),
+            },
+            DialogueAction::Idle { span: sp.clone() },
+        ],
+        span: sp.clone(),
+    };
+    register_named_npc(&mut world, pending_with_rules("FluidNpc", vec![rule]));
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let npc = insert_npc_from_db(&mut world, "FluidNpc", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+    equip_backpack(&mut world, p1);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut t);
+
+    // Fluid containers store the fluid type in the `count` field, so the generic
+    // type-count helpers return the fluid type value, not a stack quantity.
+    assert_eq!(
+        world.player_get_item_type_count(p1, 2006, 0),
+        0,
+        "created vial is not empty"
+    );
+    assert_eq!(
+        world.player_get_item_type_count(p1, 2006, 11),
+        11,
+        "created vial has fluid type 11"
+    );
+
+    assert_eq!(
+        count_item_instances(&world, p1, 2006),
+        1,
+        "exactly one vial created"
+    );
+}
+
+#[test]
+fn delete_failure_aborts_remaining_actions() {
+    use super::actions::NpcActionHost;
+    use super::events::DialogueSituationKind;
+    use super::match_rule::RuleMatch;
+    use super::react::apply_dialogue_plan;
+
+    struct FailingHost;
+    impl NpcActionHost for FailingHost {
+        fn create_item(
+            &mut self,
+            _: CreatureId,
+            _: i32,
+            _: i32,
+            _: i32,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_item(
+            &mut self,
+            _: CreatureId,
+            _: i32,
+            _: i32,
+            _: i32,
+        ) -> Result<(), String> {
+            Err("not enough items".into())
+        }
+        fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_hp(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_poison(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_burning(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_me(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_opp(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_quest_value(&mut self, _: CreatureId, _: u32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_profession(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn teach_spell(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn summon(&mut self, _: CreatureId, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn teleport(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_start_position(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: Option<(i32, i32, i32)>,
+        ) -> Result<(i32, i32, i32), String> {
+            Ok((0, 0, 0))
+        }
+        fn invoke_custom_action(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: tfs_rust_content::npcs::NpcCallbackId,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let sp = span();
+    let program = DialogueProgram {
+        policy: DialoguePolicy::QueuedSingleFocus,
+        rules: vec![DialogueRule {
+            predicates: vec![DialoguePredicate::Situation {
+                kind: DialogueSituation::Default,
+                span: sp.clone(),
+            }],
+            actions: vec![
+                DialogueAction::Delete {
+                    item: DialogueExpr::Lit(2148),
+                    count: DialogueExpr::Lit(1),
+                    span: sp.clone(),
+                },
+                DialogueAction::Say {
+                    text: "This must not be said.".into(),
+                    span: sp.clone(),
+                },
+            ],
+            span: sp.clone(),
+        }],
+    };
+
+    let mut rng = |_, _| 0;
+    let mut ctx = eval_ctx(&|_| 0, &|_| -1, &|_| 0, &|_| 0, &mut rng);
+    let matched = RuleMatch {
+        rule_index: 0,
+        captures: Default::default(),
+    };
+    let meta = super::react::ReactMeta {
+        npc_id: CreatureId::default(),
+        npc_name: "TestNpc",
+    };
+    let mut trace = DialogueTrace::default();
+    let plan = apply_dialogue_plan(
+        &program,
+        matched,
+        DialogueSituationKind::Default,
+        CreatureId::default(),
+        "",
+        &mut ctx,
+        NpcTuning::classic_772(),
+        &mut FailingHost,
+        &meta,
+        &mut trace,
+    );
+    assert!(plan.replies.is_empty(), "Say after failing Delete must be skipped");
+    assert!(!plan.start_todo, "No reply means no StartToDo");
+}
+
+#[test]
+fn idle_address_queue_no_trailing_starttodo() {
+    use super::actions::NpcActionHost;
+    use super::events::DialogueSituationKind;
+    use super::match_rule::RuleMatch;
+    use super::react::apply_dialogue_plan;
+
+    struct NullHost;
+    impl NpcActionHost for NullHost {
+        fn create_item(
+            &mut self,
+            _: CreatureId,
+            _: i32,
+            _: i32,
+            _: i32,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_item(
+            &mut self,
+            _: CreatureId,
+            _: i32,
+            _: i32,
+            _: i32,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_hp(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_poison(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_burning(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_me(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_opp(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_quest_value(&mut self, _: CreatureId, _: u32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_profession(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn teach_spell(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn summon(&mut self, _: CreatureId, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn teleport(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_start_position(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: Option<(i32, i32, i32)>,
+        ) -> Result<(i32, i32, i32), String> {
+            Ok((0, 0, 0))
+        }
+        fn invoke_custom_action(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: tfs_rust_content::npcs::NpcCallbackId,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let sp = span();
+    let program = DialogueProgram {
+        policy: DialoguePolicy::QueuedSingleFocus,
+        rules: vec![DialogueRule {
+            predicates: vec![DialoguePredicate::Situation {
+                kind: DialogueSituation::AddressQueue,
+                span: sp.clone(),
+            }],
+            actions: vec![DialogueAction::Idle { span: sp.clone() }],
+            span: sp.clone(),
+        }],
+    };
+
+    let mut rng = |_, _| 0;
+    let mut ctx = eval_ctx(&|_| 0, &|_| -1, &|_| 0, &|_| 0, &mut rng);
+    let matched = RuleMatch {
+        rule_index: 0,
+        captures: Default::default(),
+    };
+    let meta = super::react::ReactMeta {
+        npc_id: CreatureId::default(),
+        npc_name: "TestNpc",
+    };
+    let mut trace = DialogueTrace::default();
+    let plan = apply_dialogue_plan(
+        &program,
+        matched,
+        DialogueSituationKind::AddressQueue,
+        CreatureId::default(),
+        "",
+        &mut ctx,
+        NpcTuning::classic_772(),
+        &mut NullHost,
+        &meta,
+        &mut trace,
+    );
+    assert!(plan.go_idle, "Idle action under ADDRESSQUEUE goes idle immediately");
+    assert!(!plan.start_todo, "C++ skips StartToDo under ADDRESSQUEUE");
+    assert_eq!(plan.final_talk_delay_ms, 0);
 }

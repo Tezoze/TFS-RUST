@@ -184,7 +184,8 @@ pip-log.txt
 #############
 # Local 10.98 data tree (reference / side-by-side — not part of the Rust server repo)
 data1098/
-# Local C++ reference trees — excluded per-clone via .git/info/exclude (see reference/README.md)
+# Local C++ reference trees — excluded per-clone (see reference/README.md).
+# Only reference/README.md is tracked; large imported source trees stay local.
 # Legacy root paths (pre reference/ reorg)
 gameserver/
 tibia-game-master/
@@ -193,9 +194,8 @@ tibia-login/
 tibia-ipchanger-master/build/
 .tibia-ref-772/
 .tibia-cipsoft/
-# Re-include the organized reference/ tree so search tooling can see it.
-!reference/
-!reference/**
+reference/
+!reference/README.md
 # Local RSA private key (772 client)
 /tibia.pem
 /Tibia772-local.exe

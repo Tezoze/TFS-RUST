@@ -13,20 +13,32 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 
 impl NpcActionHost for GameWorld {
-    fn create_item(&mut self, player: CreatureId, item_id: i32, count: i32) -> Result<(), String> {
+    fn create_item(
+        &mut self,
+        player: CreatureId,
+        item_id: i32,
+        count: i32,
+        data: i32,
+    ) -> Result<(), String> {
         if item_id <= 0 || count <= 0 {
             return Ok(());
         }
         let id = u16::try_from(item_id).map_err(|_| format!("invalid item id {item_id}"))?;
-        self.npc_give_to(player, id, count as u32, -1)
+        self.npc_give_to(player, id, count as u32, data)
     }
 
-    fn delete_item(&mut self, player: CreatureId, item_id: i32, count: i32) -> Result<(), String> {
+    fn delete_item(
+        &mut self,
+        player: CreatureId,
+        item_id: i32,
+        count: i32,
+        data: i32,
+    ) -> Result<(), String> {
         if item_id <= 0 || count <= 0 {
             return Ok(());
         }
         let id = u16::try_from(item_id).map_err(|_| format!("invalid item id {item_id}"))?;
-        self.npc_get_from(player, id, count as u32, -1)
+        self.npc_get_from(player, id, count as u32, data)
     }
 
     fn create_money(&mut self, player: CreatureId, amount: i32) -> Result<(), String> {
@@ -215,23 +227,23 @@ impl GameWorld {
         } else {
             amount
         };
-        let stackable = self
-            .items_db
-            .items
-            .get(&item_id)
-            .map(|t| t.stackable())
-            .unwrap_or(false);
+        let it = self.items_db.items.get(&item_id);
+        let stackable = it.map(|t| t.stackable()).unwrap_or(false);
+        // `Npc->Data` only matters for items that store a subtype (fluid / key). For all
+        // other items the TFS API uses `-1` to mean "any subtype / don't care".
+        let needs_data = it.is_some_and(|t| t.is_fluid_container() || t.is_splash() || t.is_key());
+        let effective_data = if needs_data { data } else { -1 };
         if stackable {
             let mut remaining = amount;
             while remaining > 0 {
                 let chunk = remaining.min(100);
-                self.player_add_item_count(player, item_id, chunk)?;
+                self.player_add_item_count(player, item_id, chunk, effective_data)?;
                 remaining -= chunk;
             }
         } else {
             let ffi = player.data().as_ffi();
             for _ in 0..amount {
-                self.lua_script_player_add_item_full(ffi, item_id, 1, data, true, 0)?
+                self.lua_script_player_add_item_full(ffi, item_id, 1, effective_data, true, 0)?
                     .ok_or_else(|| format!("failed to add item {item_id}"))?;
             }
         }
@@ -265,16 +277,15 @@ impl GameWorld {
         } else {
             amount
         };
-        let _stackable = self
-            .items_db
-            .items
-            .get(&item_id)
-            .map(|t| t.stackable())
-            .unwrap_or(false);
+        let it = self.items_db.items.get(&item_id);
+        // `Npc->Data` only matters for items that store a subtype (fluid / key). For all
+        // other items the TFS API uses `-1` to mean "any subtype / don't care".
+        let needs_data = it.is_some_and(|t| t.is_fluid_container() || t.is_splash() || t.is_key());
+        let effective_data = if needs_data { data } else { -1 };
         // `player_remove_item_of_type` already branches on CUMULATIVE internally, mirroring
         // `DeleteAtCreature`; the split is explicit here for parity with `npc_give_to` and to
         // prepare for Phase 2 `data` plumbing.
-        if !self.player_remove_item_of_type(player, item_id, amount, data, false) {
+        if !self.player_remove_item_of_type(player, item_id, amount, effective_data, false) {
             return Err(format!("failed to delete item {item_id} x{amount}"));
         }
         Ok(())

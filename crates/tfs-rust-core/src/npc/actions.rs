@@ -11,8 +11,20 @@ use crate::ids::CreatureId;
 /// Implemented by [`crate::game_world::GameWorld`]. Failures return `Err` and are
 /// logged by the caller; already-applied actions remain applied.
 pub trait NpcActionHost {
-    fn create_item(&mut self, player: CreatureId, item_id: i32, count: i32) -> Result<(), String>;
-    fn delete_item(&mut self, player: CreatureId, item_id: i32, count: i32) -> Result<(), String>;
+    fn create_item(
+        &mut self,
+        player: CreatureId,
+        item_id: i32,
+        count: i32,
+        data: i32,
+    ) -> Result<(), String>;
+    fn delete_item(
+        &mut self,
+        player: CreatureId,
+        item_id: i32,
+        count: i32,
+        data: i32,
+    ) -> Result<(), String>;
     fn create_money(&mut self, player: CreatureId, amount: i32) -> Result<(), String>;
     fn delete_money(&mut self, player: CreatureId, amount: i32) -> Result<(), String>;
     fn set_hp(&mut self, player: CreatureId, value: i32) -> Result<(), String>;

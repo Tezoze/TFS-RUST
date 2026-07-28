@@ -65,6 +65,72 @@ impl GameWorld {
         count
     }
 
+    /// 772 `CountInventoryObjects` parity for NPC `Count(...)` predicates.
+    ///
+    /// Matches `CountObjects(Creature->CrObject, Type, Value)` (`info.cc:579-588`).
+    /// `Value` is only checked for liquid containers (`CONTAINERLIQUIDTYPE`) and keys
+    /// (`KEYNUMBER`); other item types match by `item_id` alone. C++ does **not**
+    /// propagate `Value` into nested containers — it passes `0` — so children are
+    /// checked against `0` here (`info.cc:553`, BUG(fusion)).
+    pub fn player_get_item_type_count_npc(
+        &self,
+        cid: CreatureId,
+        item_id: u16,
+        sub_type: i32,
+    ) -> u32 {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return 0;
+        };
+        let mut count = 0u32;
+        for slot in PLAYER_INVENTORY_SLOT_FIRST..=PLAYER_INVENTORY_SLOT_LAST {
+            let idx = (slot - 1) as usize;
+            let Some(slot_item) = p.equipment_slots[idx] else {
+                continue;
+            };
+            count =
+                count.saturating_add(self.item_count_for_type_npc(slot_item, item_id, sub_type));
+            if self
+                .items
+                .get(slot_item)
+                .is_some_and(|i| self.items_db.is_container(i.item_type))
+            {
+                for child in ContainerIterator::new(&self.container_registry, slot_item) {
+                    // C++ BUG(fusion): nested containers are checked with Value = 0.
+                    count = count.saturating_add(self.item_count_for_type_npc(child, item_id, 0));
+                }
+            }
+        }
+        count
+    }
+
+    fn item_count_for_type_npc(&self, iid: ItemId, item_id: u16, sub_type: i32) -> u32 {
+        let Some(item) = self.items.get(iid) else {
+            return 0;
+        };
+        if item.item_type != item_id {
+            return 0;
+        }
+        let Some(it) = self.items_db.items.get(&item_id) else {
+            return 0;
+        };
+        if it.is_fluid_container() || it.is_key() {
+            // C++ `CountObjects`: liquid container type must equal Value; key number
+            // (`KEYNUMBER`, stored as `action_id`) must equal Value.
+            let actual = if it.is_key() {
+                i32::from(item.action_id())
+            } else {
+                i32::from(item.get_sub_type(it))
+            };
+            if sub_type == -1 || sub_type == actual {
+                u32::from(item.count.max(1))
+            } else {
+                0
+            }
+        } else {
+            u32::from(item.count.max(1))
+        }
+    }
+
     /// TFS `Player::getAllItemTypeCount` — `player.cpp` ~3049–3066.
     pub fn player_get_all_item_type_count(
         &self,

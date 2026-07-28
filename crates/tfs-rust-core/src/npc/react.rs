@@ -81,7 +81,7 @@ pub fn apply_dialogue_plan(
         };
         let rule_span = rule.span.display();
         let mut repeat = false;
-        for (action_index, action) in rule.actions.iter().enumerate() {
+        'action: for (action_index, action) in rule.actions.iter().enumerate() {
             let fail_ctx = ActionFailCtx {
                 npc_name: meta.npc_name,
                 player,
@@ -122,12 +122,25 @@ pub fn apply_dialogue_plan(
                 DialogueAction::Idle { .. } => {
                     if !plan.start_todo {
                         plan.go_idle = true;
+                        if situation != DialogueSituationKind::AddressQueue {
+                            plan.start_todo = true;
+                        } else {
+                            // C++ logs an error when `Idle` is reached under ADDRESSQUEUE
+                            // with no prior speech and skips `StartToDo`
+                            // (`crnonpl.cc:1210-1224`).
+                            tracing::warn!(
+                                npc = %meta.npc_name,
+                                player = ?player,
+                                rule = %rule_span,
+                                "NPC Idle action under ADDRESSQUEUE is a content error"
+                            );
+                        }
                     } else {
                         // After queued speech, Idle becomes Leaving then ToDoChangeState
                         // (`crnonpl.cc:1219-1222`).
                         plan.deferred_idle = true;
+                        plan.start_todo = true;
                     }
-                    plan.start_todo = true;
                 }
                 DialogueAction::Queue { .. } => {
                     if situation == DialogueSituationKind::Busy {
@@ -138,7 +151,7 @@ pub fn apply_dialogue_plan(
                 DialogueAction::Create { item, count, .. } => {
                     let item_id = super::expr::eval_expr(item, ctx);
                     let count_v = super::expr::eval_expr(count, ctx);
-                    match host.create_item(player, item_id, count_v) {
+                    match host.create_item(player, item_id, count_v, ctx.data) {
                         Ok(()) => {
                             refresh_money(ctx);
                             trace.push(DialogueEvent::Mutate {
@@ -155,7 +168,7 @@ pub fn apply_dialogue_plan(
                 DialogueAction::Delete { item, count, .. } => {
                     let item_id = super::expr::eval_expr(item, ctx);
                     let count_v = super::expr::eval_expr(count, ctx);
-                    match host.delete_item(player, item_id, count_v) {
+                    match host.delete_item(player, item_id, count_v, ctx.data) {
                         Ok(()) => {
                             refresh_money(ctx);
                             trace.push(DialogueEvent::Mutate {
@@ -166,7 +179,13 @@ pub fn apply_dialogue_plan(
                                 },
                             });
                         }
-                        Err(e) => log_action_failure(&fail_ctx, &e),
+                        Err(e) => {
+                            log_action_failure(&fail_ctx, &e);
+                            // C++ `DeleteAtCreature` throws `ERROR`; `react` does not catch it,
+                            // so the remaining actions in this rule are skipped
+                            // (`operate.cc:2732-2735`, `crnonpl.cc:1085-1291`).
+                            break 'action;
+                        }
                     }
                 }
                 DialogueAction::CreateMoney { amount, .. } => {

@@ -431,7 +431,23 @@ impl GameWorld {
         };
         let mut new_item = Item::new(item_type, stack_count);
         if sub_type > 0 && !stackable {
-            new_item.count = sub_type as u16;
+            // 772 / TFS: `subType` is fluid type for liquid containers/splashes, key number
+            // for keys, and charges for charge-bearing items. The client-visible `count`
+            // field on the wire is the same value for fluids/charges, so `count` must be
+            // updated along with the attribute (TFS `Item::setFluidType` / `setCharges`
+            // both assign `count`).
+            let it = self.items_db.items.get(&item_type);
+            if it.is_some_and(|t| t.is_fluid_container() || t.is_splash()) {
+                new_item.set_fluid_type(sub_type as u16);
+                new_item.count = sub_type as u16;
+            } else if it.is_some_and(|t| t.is_key()) {
+                new_item.set_action_id(sub_type as u16);
+            } else if it.is_some_and(|t| t.charges != 0) {
+                new_item.set_charges(sub_type as u16);
+                new_item.count = sub_type as u16;
+            } else {
+                new_item.count = sub_type as u16;
+            }
         }
         let iid = self.items.insert(new_item);
         self.hydrate_player_equipment_containers(cid);

@@ -143,9 +143,10 @@ pub fn format_npc_response(template: &str, ctx: &EvalContext<'_>) -> String {
 }
 
 fn format_game_time(hour: u8, minute: u8) -> String {
+    // 772 `FormatNpcResponse` `%T` arm verbatim (`crnonpl.cc:930-937`, `time.cc:43-49`).
     if hour < 12 {
         format!("{hour}:{minute:02} am")
     } else {
-        format!("{}:{minute:02} pm", hour.saturating_sub(12))
+        format!("{}:{minute:02} pm", hour - 12)
     }
 }

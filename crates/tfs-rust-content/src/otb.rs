@@ -608,6 +608,12 @@ impl ItemType {
         self.group == Self::GROUP_FLUID
     }
 
+    /// C++ `ItemType::isKey()` — `type == ITEM_TYPE_KEY`.
+    #[inline]
+    pub fn is_key(&self) -> bool {
+        self.type_tag == crate::items::ITEM_TYPE_KEY
+    }
+
     /// C++ `ItemType::isRune()` — `type == ITEM_TYPE_RUNE` (`src/items.h:245`).
     #[inline]
     pub fn is_rune(&self) -> bool {
