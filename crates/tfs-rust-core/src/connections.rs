@@ -99,21 +99,48 @@ impl GameWorld {
         kick
     }
 
+    /// Current `(brightness, color)` for `0x82` — `GetAmbiente` plus `setWorldLight` override.
+    pub(crate) fn current_world_light(&self) -> (u8, u8) {
+        if let Some((level, color)) = self.world_light_override {
+            return (level, color);
+        }
+        if !self.config.default_world_light().unwrap_or(true) {
+            // TFS default day light when automatic world light is disabled.
+            return (0xFA, 0xD7);
+        }
+        let wt = crate::world_light::world_time_from_local_clock();
+        crate::world_light::ambient_from_world_time(wt)
+    }
+
     /// C++ `SendAmbiente` on brightness change (`main.cc:361-372`).
     pub(crate) fn tick_ambient_light(&mut self) {
-        // Phase 4: 1098 defer deleted — both eras use 772 ambient light.
-        let wt = crate::world_light::world_time_from_local_clock();
-        let brightness = crate::world_light::light_level_from_world_time(wt) as i8;
-        if brightness == self.last_ambiente_brightness {
+        let (brightness, color) = self.current_world_light();
+        if brightness as i16 == self.last_ambiente_brightness {
             return;
         }
-        self.last_ambiente_brightness = brightness;
-        let packet = tfs_rust_net::outgoing_extra::send_world_light(brightness as u8, 215, false)
-            .into_bytes();
+        self.last_ambiente_brightness = brightness as i16;
+        let packet =
+            tfs_rust_net::outgoing_extra::send_world_light(brightness, color, false).into_bytes();
         let conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
         for conn_id in conns {
             self.enqueue_outgoing(conn_id, packet.clone());
         }
+    }
+
+    /// TFS `setWorldLight(level, color)` — `gameserver/src/luascript.cpp:3132-3145`.
+    pub(crate) fn set_world_light(&mut self, level: u8, color: u8) -> bool {
+        if self.config.default_world_light().unwrap_or(true) {
+            return false;
+        }
+        self.world_light_override = Some((level, color));
+        self.last_ambiente_brightness = level as i16;
+        let packet =
+            tfs_rust_net::outgoing_extra::send_world_light(level, color, false).into_bytes();
+        let conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
+        for conn_id in conns {
+            self.enqueue_outgoing(conn_id, packet.clone());
+        }
+        true
     }
 }
 

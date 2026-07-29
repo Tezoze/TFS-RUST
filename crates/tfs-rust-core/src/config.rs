@@ -226,6 +226,11 @@ impl ConfigManager {
         }
     }
 
+    /// C++ `ConfigManager::DEFAULT_WORLD_LIGHT` (`defaultWorldLight`, default true).
+    pub fn default_world_light(&self) -> Result<bool> {
+        get_bool_or(self, "defaultWorldLight", true)
+    }
+
     /// Scale try gains by a config rate — TFS `Player:onGainSkillTries`
     /// (`tries = tries * rateSkill` / `rateMagic`). Uses `floor(base * rate)`.
     #[inline]

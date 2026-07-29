@@ -676,6 +676,14 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         }
     }
 
+    fn get_world_time(&self) -> i32 {
+        crate::world_light::world_time_from_local_clock() as i32
+    }
+
+    fn get_world_light(&self) -> (u8, u8) {
+        self.current_world_light()
+    }
+
     fn get_monster_type_look_type(&self, name: &str) -> Option<i32> {
         self.monsters_db
             .get_by_name(name)

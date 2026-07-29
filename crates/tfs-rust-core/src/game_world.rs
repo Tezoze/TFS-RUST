@@ -156,7 +156,11 @@ pub struct GameWorld {
     /// 772 `RoundNr` — incremented each `Other` subsystem tick (`main.cc:350`).
     pub(crate) round_nr: u32,
     /// Last broadcast ambiente brightness — `AdvanceGame` `OldAmbiente` (`main.cc:323`).
-    pub(crate) last_ambiente_brightness: i8,
+    /// Uses `i16` so `0xFF` (255) does not collide with the `-1` sentinel.
+    pub(crate) last_ambiente_brightness: i16,
+    /// Manual `setWorldLight(level, color)` override when `defaultWorldLight` is false.
+    /// TFS `Game::setWorldLightInfo` (`gameserver/src/luascript.cpp:3132-3145`).
+    pub(crate) world_light_override: Option<(u8, u8)>,
     /// True when last beat advance skipped `MoveCreatures` due to lag (`main.cc:449`).
     pub(crate) lag: bool,
     /// Idle-kick / dead-connection disconnects queued from `process_connections`.
@@ -365,6 +369,7 @@ impl GameWorld {
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
             round_nr: 0,
             last_ambiente_brightness: -1,
+            world_light_override: None,
             lag: false,
             pending_idle_kick: Vec::new(),
             scheduler: None,

@@ -578,9 +578,8 @@ fn enqueue_initial_login_packets_classic(
     world.send_player_skills(creature_id);
 
     // World light (`0x82`) + this player's creature light (`0x8D`).
-    let wt = crate::world_light::world_time_from_local_clock();
-    let wl = crate::world_light::light_level_from_world_time(wt);
-    world.enqueue_outgoing(conn_id, send_world_light(wl, 215, false).into_bytes());
+    let (wl_level, wl_color) = world.current_world_light();
+    world.enqueue_outgoing(conn_id, send_world_light(wl_level, wl_color, false).into_bytes());
     let pl = world.player_creature_light(creature_id);
     world.enqueue_encoded(
         conn_id,
@@ -733,9 +732,8 @@ fn enqueue_initial_login_packets_1098(
     // `send_player_skills` until those fields exist on `PlayerSkills`.
     world.send_player_skills(creature_id);
 
-    let wt = crate::world_light::world_time_from_local_clock();
-    let wl = crate::world_light::light_level_from_world_time(wt);
-    world.enqueue_outgoing(conn_id, send_world_light(wl, 215, false).into_bytes());
+    let (wl_level, wl_color) = world.current_world_light();
+    world.enqueue_outgoing(conn_id, send_world_light(wl_level, wl_color, false).into_bytes());
     let pl = world.player_creature_light(creature_id);
     world.enqueue_encoded(
         conn_id,

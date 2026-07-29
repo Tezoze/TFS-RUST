@@ -284,6 +284,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
                 Err("player not found".into())
             }
         }
+        LuaMutation::SetWorldLight { level, color } => {
+            let ok = unsafe { &mut *world }.set_world_light(level, color);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 

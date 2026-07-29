@@ -602,6 +602,18 @@ pub trait ScriptContext {
         let _ = creature_id;
         false
     }
+
+    /// `getWorldTime()` — TFS `LuaScriptInterface::luaGetWorldTime` (`luascript.cpp:3115`).
+    /// Returns world time in game-minutes (0..1439).
+    fn get_world_time(&self) -> i32 {
+        0
+    }
+
+    /// `getWorldLight()` — TFS `LuaScriptInterface::luaGetWorldLight` (`luascript.cpp:3123`).
+    /// Returns `(level, color)` for the current ambient light.
+    fn get_world_light(&self) -> (u8, u8) {
+        (0xFF, 0xD7)
+    }
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

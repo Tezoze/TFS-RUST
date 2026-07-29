@@ -1,32 +1,78 @@
-//! World ambient light — `Game::updateWorldLightLevel` / `getWorldLightInfo` (`src/game.cpp`).
+//! World ambient light and game time — cipsoft 772 `GetAmbiente` / `GetTime`.
+//!
+//! C++ reference:
+//! - `tibia-game-master/src/time.cc` `GetAmbiente` (ambient level/color), `GetTime` (game clock).
+//! - `tibia-game-master/src/main.cc:361-372` `AdvanceGame` ambient broadcast.
+//! - `tibia-game-master/src/sending.cc:894-906` `SendAmbiente` (`0x82`).
 
 use chrono::Timelike;
 
-/// Matches `Game::worldTime` update (`Game::updateWorldTime`).
+/// Cipsoft 772 `GetTime` (`time.cc:43-49`).
+///
+/// Maps each real-time hour to a game-time day:
+/// `Hour = (sec_in_hour / 150)`, `Minute = (sec_in_hour % 150) * 2 / 5`.
 pub fn world_time_from_local_clock() -> i16 {
     let lt = chrono::Local::now();
     let sec_in_hour = lt.second() as i32 + lt.minute() as i32 * 60;
-    ((sec_in_hour as f32) / 2.5) as i16
+    let hour = sec_in_hour / 150;
+    let minute = (sec_in_hour % 150) * 2 / 5;
+    (hour * 60 + minute) as i16
 }
 
-/// `Game::updateWorldLightLevel` — returns `light_level` (default color `215` elsewhere).
-pub fn light_level_from_world_time(wt: i16) -> u8 {
-    const GAME_SUNRISE: i16 = 360;
-    const GAME_DAYTIME: i16 = 480;
-    const GAME_SUNSET: i16 = 1080;
-    const GAME_NIGHTTIME: i16 = 1200;
-    const LIGHT_DAY: f32 = 250.0;
-    const LIGHT_NIGHT: f32 = 40.0;
-
-    if (GAME_SUNRISE..=GAME_DAYTIME).contains(&wt) {
-        let t = (wt - GAME_SUNRISE) as f32 / (GAME_DAYTIME - GAME_SUNRISE) as f32;
-        (LIGHT_NIGHT + t * (LIGHT_DAY - LIGHT_NIGHT)) as u8
-    } else if (GAME_SUNSET..=GAME_NIGHTTIME).contains(&wt) {
-        let t = (wt - GAME_SUNSET) as f32 / (GAME_NIGHTTIME - GAME_SUNSET) as f32;
-        (LIGHT_DAY - t * (LIGHT_DAY - LIGHT_NIGHT)) as u8
-    } else if !(GAME_SUNRISE..GAME_NIGHTTIME).contains(&wt) {
-        LIGHT_NIGHT as u8
+/// Cipsoft 772 `GetAmbiente` (`time.cc:60-92`).
+///
+/// Returns `(brightness, color)` for the given world time in game-minutes.
+pub fn ambient_from_world_time(wt: i16) -> (u8, u8) {
+    if wt < 60 {
+        (0x33, 0xD7)
+    } else if wt < 120 {
+        (0x66, 0xD7)
+    } else if wt < 180 {
+        (0x99, 0xAD)
+    } else if wt < 240 {
+        (0xCC, 0xAD)
+    } else if wt <= 1200 {
+        (0xFF, 0xD7)
+    } else if wt <= 1260 {
+        (0xCC, 0xD0)
+    } else if wt <= 1320 {
+        (0x99, 0xD0)
+    } else if wt <= 1380 {
+        (0x66, 0xD7)
     } else {
-        LIGHT_DAY as u8
+        (0x33, 0xD7)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_time_is_within_one_game_day() {
+        let wt = world_time_from_local_clock();
+        assert!((0..1440).contains(&wt), "world time should be within one game day");
+    }
+
+    #[test]
+    fn ambiente_boundaries() {
+        assert_eq!(ambient_from_world_time(0), (0x33, 0xD7));
+        assert_eq!(ambient_from_world_time(59), (0x33, 0xD7));
+        assert_eq!(ambient_from_world_time(60), (0x66, 0xD7));
+        assert_eq!(ambient_from_world_time(119), (0x66, 0xD7));
+        assert_eq!(ambient_from_world_time(120), (0x99, 0xAD));
+        assert_eq!(ambient_from_world_time(179), (0x99, 0xAD));
+        assert_eq!(ambient_from_world_time(180), (0xCC, 0xAD));
+        assert_eq!(ambient_from_world_time(239), (0xCC, 0xAD));
+        assert_eq!(ambient_from_world_time(240), (0xFF, 0xD7));
+        assert_eq!(ambient_from_world_time(1200), (0xFF, 0xD7));
+        assert_eq!(ambient_from_world_time(1201), (0xCC, 0xD0));
+        assert_eq!(ambient_from_world_time(1260), (0xCC, 0xD0));
+        assert_eq!(ambient_from_world_time(1261), (0x99, 0xD0));
+        assert_eq!(ambient_from_world_time(1320), (0x99, 0xD0));
+        assert_eq!(ambient_from_world_time(1321), (0x66, 0xD7));
+        assert_eq!(ambient_from_world_time(1380), (0x66, 0xD7));
+        assert_eq!(ambient_from_world_time(1381), (0x33, 0xD7));
+        assert_eq!(ambient_from_world_time(1439), (0x33, 0xD7));
     }
 }

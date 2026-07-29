@@ -217,6 +217,9 @@ pub enum LuaMutation {
         creature_id: u64,
         ends_at: u32,
     },
+    /// `setWorldLight(level, color)` — TFS `LuaScriptInterface::luaSetWorldLight`.
+    /// C++ ref: `gameserver/src/luascript.cpp:3132-3145`.
+    SetWorldLight { level: u8, color: u8 },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -723,4 +726,11 @@ pub fn call_lua_set_premium_ends_at(creature_id: u64, ends_at: u32) -> Result<()
         creature_id,
         ends_at,
     })
+}
+
+/// `setWorldLight(level, color)` — TFS `LuaScriptInterface::luaSetWorldLight`.
+/// C++ ref: `gameserver/src/luascript.cpp:3132-3145`.
+pub fn call_lua_set_world_light(level: u8, color: u8) -> Result<bool, String> {
+    apply_mutation(LuaMutation::SetWorldLight { level, color })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }

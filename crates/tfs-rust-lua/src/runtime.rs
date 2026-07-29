@@ -1248,6 +1248,33 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
         )?;
         globals.set("configManager", config_manager)?;
 
+        // getWorldTime() — returns world time in game-minutes (0..1439).
+        globals.set(
+            "getWorldTime",
+            lua.create_function(|_, ()| {
+                Ok(crate::context::current_ctx(|ctx| ctx.get_world_time()).unwrap_or(0))
+            })?,
+        )?;
+
+        // getWorldLight() — returns level, color.
+        globals.set(
+            "getWorldLight",
+            lua.create_function(|_, ()| {
+                let (level, color) = crate::context::current_ctx(|ctx| ctx.get_world_light())
+                    .unwrap_or((0xFF, 0xD7));
+                Ok((level, color))
+            })?,
+        )?;
+
+        // setWorldLight(level, color) — returns true if defaultWorldLight is false.
+        globals.set(
+            "setWorldLight",
+            lua.create_function(|_, (level, color): (u8, u8)| {
+                let ok = crate::lua_mutation::call_lua_set_world_light(level, color).unwrap_or(false);
+                Ok(ok)
+            })?,
+        )?;
+
         Ok(())
     }
 }
@@ -1257,11 +1284,14 @@ fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
     match key {
         mlua::Value::String(s) => match s.to_str().ok()?.as_ref() {
             "freePremium" | "FREE_PREMIUM" => Some("freePremium"),
+            "defaultWorldLight" | "DEFAULT_WORLD_LIGHT" => Some("defaultWorldLight"),
             _ => None,
         },
         mlua::Value::Integer(i) => match *i {
             // TVP `boolean_config_t::FREE_PREMIUM`
             7 => Some("freePremium"),
+            // TVP `boolean_config_t::DEFAULT_WORLD_LIGHT`
+            18 => Some("defaultWorldLight"),
             _ => None,
         },
         mlua::Value::Number(n) => {
