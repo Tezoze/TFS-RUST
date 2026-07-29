@@ -31,17 +31,17 @@ direct side-by-side source comparison during this audit.
 | 2 | **CRITICAL** | BUG | Import lowering | `Create(x)` / `Delete(x)` lower `count` to `Lit(1)`; 772 uses `Npc->Amount` (**user report #2: pay 5, get 1**) `[verified]` ✅ **Fixed** |
 | 3 | **CRITICAL** | BUG | Item host | `create_item` does not loop non-cumulative types — one item with `count = N` instead of N items `[verified]` ✅ **Fixed** |
 | 4 | HIGH | BUG | Data pack | 623 generated `count = 1` sites across 195 NPC scripts must be regenerated after #2 `[verified]` ✅ **Fixed** |
-| 5 | HIGH | GAP | Item host | `Npc->Data` (fluid/key subtype) ignored by `Create` / `Delete` / `Count(...)` `[verified]` — *Phase 2* |
+| 5 | HIGH | GAP | Item host | `Npc->Data` (fluid/key subtype) ignored by `Create` / `Delete` / `Count(...)` `[verified]` ✅ **Fixed** |
 | 6 | HIGH | BUG | Money | Vial-deposit style rules pay `Amount * price` but delete 1 item → gold duplication `[verified]` ✅ **Fixed** (consequence of #2/#3) |
-| 7 | MED | BUG | Reply format | `%T` renders PM hours as "am" and uses wall-clock instead of 772 game time `[verified]` — *Phase 2* |
+| 7 | MED | BUG | Reply format | `%T` renders PM hours as "am" and uses wall-clock instead of 772 game time `[verified]` ✅ **Fixed** |
 | 8 | MED | GAP | ToDo clear | `player_todo_clear` does not apply pending `TDChangeState` for NPCs → NPC can stick in `Leaving` `[verified]` ✅ **Fixed** |
-| 9 | MED | BUG | Stimuli | `CreatureMoveStimulus` VANISH path sets Idle without `ToDoYield` (`ChangeState(IDLE, true)`) `[verified]` — *Phase 2* |
-| 10 | MED | BUG | Matching | `%1`/`%2` captures reset per rule; C++ shares one `Parameters[2]` across the whole match loop `[verified]` |
-| 11 | LOW | BUG | Actions | `Idle` action sets `StartToDo` even under `ADDRESSQUEUE`; C++ skips it (and logs an error) `[verified]` |
-| 12 | LOW | BUG | Reply format | Unknown `%X` escapes and lowercase `%n/%a/%p/%t` diverge from C++ `[verified]` |
-| 13 | LOW | GAP | Reply format | No 256-byte reply cap; C++ drops the reply and logs when `FormatNpcResponse` overflows `[verified]` |
+| 9 | MED | BUG | Stimuli | `CreatureMoveStimulus` VANISH path sets Idle without `ToDoYield` (`ChangeState(IDLE, true)`) `[verified]` ✅ **Fixed** |
+| 10 | MED | *documented* | Matching | `%1`/`%2` captures reset per rule; C++ shares one `Parameters[2]` across the whole match loop `[verified]` — **deliberate divergence**; shipped 772 `.npc` corpus uses captures only within the defining rule |
+| 11 | LOW | BUG | Actions | `Idle` action sets `StartToDo` even under `ADDRESSQUEUE`; C++ skips it (and logs an error) `[verified]` ✅ **Fixed** (Phase 2.4) |
+| 12 | LOW | BUG | Reply format | Unknown `%X` escapes and lowercase `%n/%a/%p/%t` diverge from C++ `[verified]` ✅ **Fixed** |
+| 13 | LOW | GAP | Reply format | No 256-byte reply cap; C++ drops the reply and logs when `FormatNpcResponse` overflows `[verified]` ✅ **Fixed** |
 | 14 | LOW | SUSPECT | Stimuli | Sleeping-wake is skipped when `focus.is_some()`; C++ wakes regardless of `Interlocutor` |
-| 15 | LOW | GAP | Item host | `GetFrom` failure throws `ERROR` in C++ (aborts the reaction); Rust logs and continues |
+| 15 | LOW | GAP | Item host | `GetFrom` failure throws `ERROR` in C++ (aborts the reaction); Rust logs and continues `[verified]` ✅ **Fixed** |
 
 ---
 
@@ -578,22 +578,22 @@ before 1.7.
 
 ### Phase 2 — correctness follow-ups
 
-| Step | Change | Files |
-|---|---|---|
-| 2.1 | Thread `Npc->Data` into Create / Delete / `Count(...)` | `npc/actions.rs`, `npc/host.rs`, `npc/focus.rs` |
-| 2.2 | `%T` → 772 game time via `world_time_from_local_clock()`, fix am/pm | `npc/expr.rs`, `npc/focus.rs` |
-| 2.3 | `ToDoYield` on the VANISH / null-interlocutor Idle transitions | `npc/focus.rs` |
-| 2.4 | `Idle` action: don't set `StartToDo` under `ADDRESSQUEUE` | `npc/react.rs` |
-| 2.5 | `Delete` failure aborts remaining actions in the rule | `npc/react.rs` |
+| Step | Change | Files | Status |
+|---|---|---|---|
+| 2.1 | Thread `Npc->Data` into Create / Delete / `Count(...)` | `npc/actions.rs`, `npc/host.rs`, `npc/focus.rs` | ✅ Done |
+| 2.2 | `%T` → 772 game time via `world_time_from_local_clock()`, fix am/pm | `npc/expr.rs`, `npc/focus.rs` | ✅ Done |
+| 2.3 | `ToDoYield` on the VANISH / null-interlocutor Idle transitions | `npc/focus.rs` | ✅ Done |
+| 2.4 | `Idle` action: don't set `StartToDo` under `ADDRESSQUEUE` | `npc/react.rs` | ✅ Done |
+| 2.5 | `Delete` failure aborts remaining actions in the rule | `npc/react.rs` | ✅ Done |
 
 ### Phase 3 — parity polish
 
-| Step | Change | Files |
-|---|---|---|
-| 3.1 | Decide + document `%1`/`%2` capture lifetime (adopt the shared array or record the divergence) | `npc/match_rule.rs` |
-| 3.2 | `FormatNpcResponse` escape table + 255-byte drop rule | `npc/expr.rs`, `npc/react.rs` |
-| 3.3 | Phase-B rollout of `creature_todo_add` to monster / player call sites; delete the now-redundant explicit `player_todo_clear_with_snapback` preambles | `idle_stimulus.rs`, `game_loop.rs` |
-| 3.4 | Rename `player_todo_clear` → `creature_todo_clear` (it is `TCreature::ToDoClear`) | repo-wide |
+| Step | Change | Files | Status |
+|---|---|---|---|
+| 3.1 | Decide + document `%1`/`%2` capture lifetime (adopt the shared array or record the divergence) | `npc/match_rule.rs` | ✅ Done — deliberate divergence documented; shipped 772 `.npc` uses captures only within the defining rule |
+| 3.2 | `FormatNpcResponse` escape table + 255-byte drop rule | `npc/expr.rs`, `npc/react.rs` | ✅ Done |
+| 3.3 | Phase-B rollout of `creature_todo_add` to monster / player call sites; delete the now-redundant explicit `player_todo_clear_with_snapback` preambles | `idle_stimulus.rs`, `game_loop.rs` | *Deferred* — `creature_todo_add` clears `walk_queue`/`todo.queue`, which is unsafe to drop into the ToDo execute re-arm path (`idle_stimulus.rs`/`apply_todo_result_catch`) and after `setup_player_walk_to_target`; needs dedicated F8 ToDo builder audit |
+| 3.4 | Rename `player_todo_clear` → `creature_todo_clear` (it is `TCreature::ToDoClear`) | repo-wide | ✅ Done — `player_todo_clear` no longer exists; `creature_todo_clear` is the shared helper; `player_todo_clear_with_snapback` is the player-specific wrapper |
 
 ---
 
@@ -613,9 +613,13 @@ before 1.7.
    equals vial count, all N vials gone; assert no duplication.
 6. ✅ Added: `deferred_idle_survives_todo_clear` — `Leaving` + pending `ChangeNpcState`, then clear;
    assert the NPC lands in `Idle`, not `Leaving`.
-7. `format_time_pm` — game hour 13 → `"1:00 pm"` (*Phase 2*).
-8. `create_respects_data_subtype` — `Data = 11`, `Type = 2874` → vial with fluid type 11
-   (*Phase 2*).
+7. ✅ Added: `format_time_pm` — game hour 13 → `"1:00 pm"`.
+8. ✅ Added: `create_respects_data_subtype` — `Data = 11`, `Type = 2874` → vial with fluid type 11.
+9. ✅ Added: `delete_failure_aborts_remaining_actions` — `Delete` fails and a following `Say` does not fire.
+10. ✅ Added: `idle_address_queue_no_trailing_starttodo` — ADDRESSQUEUE Idle-only rule does not schedule trailing Wait/Start.
+11. ✅ Added: `format_npc_response_uppercase_only` — `%N %A %P %T` substitute; `%n %a %p %t` do not.
+12. ✅ Added: `format_npc_response_unknown_escape_dropped` — `%X` and `%%` consume both chars and emit nothing.
+13. ✅ Added: `say_reply_over_255_bytes_dropped` — overlong `Say` is skipped and the following short reply is still scheduled.
 
 `crates/tfs-rust-content/src/npc_import/lower.rs` unit tests: ✅ Added
 `create_delete_default_count_to_session_amount` to assert `Create(2260)` / `Delete(2260)` lower to
@@ -655,5 +659,5 @@ In-game smoke test against Xodet (`[32399,32222,7]`):
 2. `hi` → `5 blank runes` → `yes` — **5 runes**, 50 gp.
 3. `hi` → `blank rune`, then immediately `spellbook` before the first reply lands — the first
    reply is dropped and the spellbook reply arrives ~1 s after the second message.
-4. `hi` → `mana fluid` → `yes` — vial carries fluid type 10 (Phase 2).
+4. `hi` → `mana fluid` → `yes` — vial carries fluid type 10.
 5. `deposit` → `yes` with N empty vials — all N removed, `N*5` gp paid.

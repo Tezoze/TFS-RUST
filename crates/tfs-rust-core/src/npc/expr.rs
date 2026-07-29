@@ -117,29 +117,40 @@ fn apply_op(op: ExprOp, l: i32, r: i32) -> i32 {
 }
 
 /// Substitute `%N` / `%A` / `%P` / `%T` in reply templates (`FormatNpcResponse`).
+/// Substitute `%N` / `%A` / `%P` / `%T` in reply templates (`FormatNpcResponse`).
+///
+/// C++ `crnonpl.cc:899-974` recognizes **uppercase** escapes only; any other `%X`
+/// (including lowercase `%n/%a/%p/%t` and unknown letters) consumes both characters
+/// and emits nothing.
 pub fn format_npc_response(template: &str, ctx: &EvalContext<'_>) -> String {
     let mut out = String::with_capacity(template.len() + 16);
     let bytes = template.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 1 < bytes.len() {
-            let repl = match bytes[i + 1] {
-                b'N' | b'n' => Some(ctx.player_name.to_string()),
-                b'A' | b'a' => Some(ctx.amount.to_string()),
-                b'P' | b'p' => Some(ctx.price.to_string()),
-                b'T' | b't' => Some(format_game_time(ctx.game_hour, ctx.game_minute)),
-                _ => None,
-            };
-            if let Some(s) = repl {
+            if let Some(s) = format_escape(bytes[i + 1], ctx) {
                 out.push_str(&s);
                 i += 2;
                 continue;
             }
+            // Unknown escape: consume `%` and the following byte without emitting.
+            i += 2;
+            continue;
         }
         out.push(bytes[i] as char);
         i += 1;
     }
     out
+}
+
+fn format_escape(esc: u8, ctx: &EvalContext<'_>) -> Option<String> {
+    match esc {
+        b'N' => Some(ctx.player_name.to_string()),
+        b'A' => Some(ctx.amount.to_string()),
+        b'P' => Some(ctx.price.to_string()),
+        b'T' => Some(format_game_time(ctx.game_hour, ctx.game_minute)),
+        _ => None,
+    }
 }
 
 fn format_game_time(hour: u8, minute: u8) -> String {

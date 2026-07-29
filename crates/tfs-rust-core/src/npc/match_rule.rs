@@ -44,6 +44,12 @@ pub struct RuleMatch {
 /// Select the best matching rule for `text` under `situation`.
 ///
 /// C++ `TBehaviourDatabase::react` match loop — `crnonpl.cc:995-1075`.
+///
+/// Note: C++ declares `int Parameters[2] = {-1,-1}` once, outside the rule loop, and never
+/// resets it, so captures can leak from an earlier partially-matched rule to a later one.
+/// The shipped 772 `.npc` corpus only uses `capture` within the same rule that defines it,
+/// so this implementation keeps a fresh `MatchCaptures` per rule — a deliberate divergence
+/// documented in `docs/772_NPC_AUDIT.md` (#10).
 pub fn match_dialogue_rule(
     program: &DialogueProgram,
     text: &str,

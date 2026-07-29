@@ -1948,6 +1948,160 @@ fn format_time_pm() {
 }
 
 #[test]
+fn format_npc_response_uppercase_only() {
+    let inv = |_| 0;
+    let quest = |_| -1;
+    let sk = |_| 0;
+    let sl = |_| 0;
+    let mut rng = |_, _| 0;
+    let mut ctx = eval_ctx(&inv, &quest, &sk, &sl, &mut rng);
+    ctx.amount = 5;
+    ctx.price = 10;
+    ctx.game_hour = 13;
+    ctx.game_minute = 0;
+    assert_eq!(
+        format_npc_response("%N has %A gp, price %P, time %T.", &ctx),
+        "Hero has 5 gp, price 10, time 1:00 pm."
+    );
+}
+
+#[test]
+fn format_npc_response_unknown_escape_dropped() {
+    let inv = |_| 0;
+    let quest = |_| -1;
+    let sk = |_| 0;
+    let sl = |_| 0;
+    let mut rng = |_, _| 0;
+    let ctx = eval_ctx(&inv, &quest, &sk, &sl, &mut rng);
+    // C++ consumes `%X` and emits nothing for any escape other than `N/A/P/T`.
+    assert_eq!(format_npc_response("A %X B", &ctx), "A  B");
+    assert_eq!(format_npc_response("C %% D", &ctx), "C  D");
+    assert_eq!(format_npc_response("%n %a %p %t", &ctx), "   ");
+}
+
+#[test]
+fn say_reply_over_255_bytes_dropped() {
+    use super::actions::NpcActionHost;
+    use super::events::DialogueSituationKind;
+    use super::match_rule::RuleMatch;
+    use super::react::{apply_dialogue_plan, ReactMeta};
+
+    struct NullHost;
+    impl NpcActionHost for NullHost {
+        fn create_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_hp(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_poison(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_burning(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_me(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_opp(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_quest_value(&mut self, _: CreatureId, _: u32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_profession(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn teach_spell(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn summon(&mut self, _: CreatureId, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn teleport(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_start_position(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: Option<(i32, i32, i32)>,
+        ) -> Result<(i32, i32, i32), String> {
+            Ok((0, 0, 0))
+        }
+        fn invoke_custom_action(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: tfs_rust_content::npcs::NpcCallbackId,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let sp = span();
+    let program = DialogueProgram {
+        policy: DialoguePolicy::QueuedSingleFocus,
+        rules: vec![DialogueRule {
+            predicates: vec![DialoguePredicate::Situation {
+                kind: DialogueSituation::Address,
+                span: sp.clone(),
+            }],
+            actions: vec![
+                DialogueAction::Say {
+                    text: "a".repeat(260),
+                    span: sp.clone(),
+                },
+                DialogueAction::Say {
+                    text: "fine".into(),
+                    span: sp.clone(),
+                },
+            ],
+            span: sp.clone(),
+        }],
+    };
+
+    let inv = |_| 0;
+    let quest = |_| -1;
+    let sk = |_| 0;
+    let sl = |_| 0;
+    let mut rng = |_, _| 0;
+    let mut ctx = eval_ctx(&inv, &quest, &sk, &sl, &mut rng);
+    let matched = RuleMatch {
+        rule_index: 0,
+        captures: Default::default(),
+    };
+    let meta = ReactMeta {
+        npc_id: CreatureId::default(),
+        npc_name: "TestNpc",
+    };
+    let mut trace = DialogueTrace::default();
+    let plan = apply_dialogue_plan(
+        &program,
+        matched,
+        DialogueSituationKind::Address,
+        CreatureId::default(),
+        "",
+        &mut ctx,
+        NpcTuning::classic_772(),
+        &mut NullHost,
+        &meta,
+        &mut trace,
+    );
+    assert_eq!(plan.replies.len(), 1, "only the under-256-byte reply is kept");
+    assert_eq!(plan.replies[0].text, "fine", "the short reply after the long one is scheduled");
+}
+
+#[test]
 fn create_respects_data_subtype() {
     let mut world = npc5_world();
     let sp = span();

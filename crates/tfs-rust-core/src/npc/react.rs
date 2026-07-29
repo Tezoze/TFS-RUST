@@ -98,6 +98,17 @@ pub fn apply_dialogue_plan(
                 }
                 DialogueAction::Say { text: template, .. } => {
                     let response = format_npc_response(template, ctx);
+                    if response.len() > 255 {
+                        // C++ `FormatNpcResponse` drops the reply and logs an error when
+                        // the 256-byte `char` buffer would overflow (`crnonpl.cc:1116-1119`).
+                        tracing::warn!(
+                            npc = %meta.npc_name,
+                            player = ?player,
+                            rule = %rule_span,
+                            "NPC reply too long for 772 FormatNpcResponse buffer; dropped"
+                        );
+                        continue 'action;
+                    }
                     let byte_len = response.len();
                     plan.replies.push(PlannedReply {
                         text: response.clone(),
