@@ -232,6 +232,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Carlin is a city far, far away from here. They say it is run by women and druids." },
 			},
 		},
+		-- from gen-post.ndb:4
 		{
 			line = 4,
 			when = {
@@ -242,6 +243,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 35 } },
 			},
 		},
+		-- from gen-post.ndb:5
 		{
 			line = 5,
 			when = {
@@ -251,6 +253,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The depots are very easy to use. Just step in front of them and you will find your items in them. They are free for all tibian citizens." },
 			},
 		},
+		-- from gen-post.ndb:6
 		{
 			line = 6,
 			when = {
@@ -260,6 +263,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I'm selling letters and parcels." },
 			},
 		},
+		-- from gen-post.ndb:8
 		{
 			line = 8,
 			when = {
@@ -273,6 +277,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 36 } },
 			},
 		},
+		-- from gen-post.ndb:9
 		{
 			line = 9,
 			when = {
@@ -286,6 +291,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 37 } },
 			},
 		},
+		-- from gen-post.ndb:11
 		{
 			line = 11,
 			when = {
@@ -298,6 +304,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 36 } },
 			},
 		},
+		-- from gen-post.ndb:12
 		{
 			line = 12,
 			when = {
@@ -310,6 +317,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 37 } },
 			},
 		},
+		-- from gen-post.ndb:14
 		{
 			line = 14,
 			when = {
@@ -325,6 +333,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 36 } },
 			},
 		},
+		-- from gen-post.ndb:15
 		{
 			line = 15,
 			when = {
@@ -340,6 +349,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 37 } },
 			},
 		},
+		-- from gen-post.ndb:17
 		{
 			line = 17,
 			when = {
@@ -354,6 +364,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 36 } },
 			},
 		},
+		-- from gen-post.ndb:18
 		{
 			line = 18,
 			when = {
@@ -368,6 +379,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 37 } },
 			},
 		},
+		-- from gen-post.ndb:21
 		{
 			line = 21,
 			when = {
@@ -378,6 +390,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The Tibia Mail System enables you to send and receive letters and parcels. You can buy them here if you want." },
 			},
 		},
+		-- from gen-post.ndb:22
 		{
 			line = 22,
 			when = {
@@ -387,6 +400,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Is there anything else I can do for you?" },
 			},
 		},
+		-- from gen-post.ndb:24
 		{
 			line = 24,
 			when = {
@@ -400,6 +414,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = 2597 } },
 			},
 		},
+		-- from gen-post.ndb:25
 		{
 			line = 25,
 			when = {
@@ -410,6 +425,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Oh, you have not enough gold to buy a letter." },
 			},
 		},
+		-- from gen-post.ndb:26
 		{
 			line = 26,
 			when = {
@@ -419,6 +435,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ok." },
 			},
 		},
+		-- from gen-post.ndb:28
 		{
 			line = 28,
 			when = {
@@ -433,6 +450,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = 2599 } },
 			},
 		},
+		-- from gen-post.ndb:29
 		{
 			line = 29,
 			when = {
@@ -443,6 +461,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am sorry, you have not enough gold to buy a parcel." },
 			},
 		},
+		-- from gen-post.ndb:30
 		{
 			line = 30,
 			when = {

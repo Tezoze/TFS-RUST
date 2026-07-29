@@ -11,6 +11,7 @@ npc:race(1)
 npc:dialogue(NpcDialogue({
 	policy = "queued_single_focus",
 	rules = {
+		-- from guards-thais.ndb:4
 		{
 			line = 4,
 			when = {
@@ -22,6 +23,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "LONG LIVE THE KING!" },
 			},
 		},
+		-- from guards-thais.ndb:5
 		{
 			line = 5,
 			when = {
@@ -33,6 +35,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:6
 		{
 			line = 6,
 			when = {
@@ -43,6 +46,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-thais.ndb:7
 		{
 			line = 7,
 			when = {
@@ -53,6 +57,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am busy right now!." },
 			},
 		},
+		-- from guards-thais.ndb:8
 		{
 			line = 8,
 			when = {
@@ -63,6 +68,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:9
 		{
 			line = 9,
 			when = {
@@ -73,6 +79,7 @@ npc:dialogue(NpcDialogue({
 				{ nop = true },
 			},
 		},
+		-- from guards-thais.ndb:10
 		{
 			line = 10,
 			when = {
@@ -83,6 +90,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Hrmpf!" },
 			},
 		},
+		-- from guards-thais.ndb:12
 		{
 			line = 12,
 			when = {
@@ -93,6 +101,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-thais.ndb:13
 		{
 			line = 13,
 			when = {
@@ -102,6 +111,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:14
 		{
 			line = 14,
 			when = {
@@ -111,6 +121,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am busy. Please ask the citizens for news." },
 			},
 		},
+		-- from guards-thais.ndb:15
 		{
 			line = 15,
 			when = {
@@ -122,6 +133,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am healthy and vigilant." },
 			},
 		},
+		-- from guards-thais.ndb:16
 		{
 			line = 16,
 			when = {
@@ -131,6 +143,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Visit Tibia's shopkeepers to buy their fine wares." },
 			},
 		},
+		-- from guards-thais.ndb:17
 		{
 			line = 17,
 			when = {
@@ -140,6 +153,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Tibianus III is our beloved king!" },
 			},
 		},
+		-- from guards-thais.ndb:18
 		{
 			line = 18,
 			when = {
@@ -149,6 +163,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:19
 		{
 			line = 19,
 			when = {
@@ -158,6 +173,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:20
 		{
 			line = 20,
 			when = {
@@ -167,6 +183,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It's my duty to protect the city." },
 			},
 		},
+		-- from guards-thais.ndb:21
 		{
 			line = 21,
 			when = {
@@ -176,6 +193,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Of course we guards are members of the army." },
 			},
 		},
+		-- from guards-thais.ndb:22
 		{
 			line = 22,
 			when = {
@@ -185,6 +203,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am a guard and proud of it." },
 			},
 		},
+		-- from guards-thais.ndb:23
 		{
 			line = 23,
 			when = {
@@ -194,6 +213,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ask higher officials about that, please." },
 			},
 		},
+		-- from guards-thais.ndb:24
 		{
 			line = 24,
 			when = {
@@ -203,6 +223,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The castle is at the west of the city." },
 			},
 		},
+		-- from guards-thais.ndb:25
 		{
 			line = 25,
 			when = {
@@ -214,6 +235,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Brave warriors, indeed." },
 			},
 		},
+		-- from guards-thais.ndb:26
 		{
 			line = 26,
 			when = {
@@ -225,6 +247,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Every guard dreams of becoming one of them one day." },
 			},
 		},
+		-- from guards-thais.ndb:27
 		{
 			line = 27,
 			when = {
@@ -235,6 +258,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We of the red guard are the special forces." },
 			},
 		},
+		-- from guards-thais.ndb:28
 		{
 			line = 28,
 			when = {
@@ -245,6 +269,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ask a higher offical about that." },
 			},
 		},
+		-- from guards-thais.ndb:29
 		{
 			line = 29,
 			when = {
@@ -255,6 +280,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Only the best of the best serve as silver guards." },
 			},
 		},
+		-- from guards-thais.ndb:30
 		{
 			line = 30,
 			when = {
@@ -264,6 +290,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Behave while in the city or we get you! Do you want to know where to find a shop or a guild?" },
 			},
 		},
+		-- from guards-thais.ndb:31
 		{
 			line = 31,
 			when = {
@@ -273,6 +300,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "There's a smith, a provisioner, and a tavern." },
 			},
 		},
+		-- from guards-thais.ndb:32
 		{
 			line = 32,
 			when = {
@@ -282,6 +310,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "In the city you will find the guildhouses of the knights, paladins, druids, and sorcerers." },
 			},
 		},
+		-- from guards-thais.ndb:33
 		{
 			line = 33,
 			when = {
@@ -291,6 +320,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We will get rid of all scum." },
 			},
 		},
+		-- from guards-thais.ndb:34
 		{
 			line = 34,
 			when = {
@@ -300,6 +330,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "He is a soldier in the silver guard." },
 			},
 		},
+		-- from guards-thais.ndb:35
 		{
 			line = 35,
 			when = {
@@ -309,6 +340,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:36
 		{
 			line = 36,
 			when = {
@@ -318,6 +350,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "He is a role model for us." },
 			},
 		},
+		-- from guards-thais.ndb:37
 		{
 			line = 37,
 			when = {
@@ -327,6 +360,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The royal jester." },
 			},
 		},
+		-- from guards-thais.ndb:38
 		{
 			line = 38,
 			when = {
@@ -336,6 +370,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The royal general. A warrior worth Banor's blessings." },
 			},
 		},
+		-- from guards-thais.ndb:39
 		{
 			line = 39,
 			when = {
@@ -345,6 +380,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:40
 		{
 			line = 40,
 			when = {
@@ -354,6 +390,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:41
 		{
 			line = 41,
 			when = {
@@ -363,6 +400,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Praise Banor! May the great warrior be with us!" },
 			},
 		},
+		-- from guards-thais.ndb:42
 		{
 			line = 42,
 			when = {
@@ -372,6 +410,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sam is our blacksmith. You'll find him north of the main crossroads. His shop is to the left." },
 			},
 		},
+		-- from guards-thais.ndb:43
 		{
 			line = 43,
 			when = {
@@ -381,6 +420,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:44
 		{
 			line = 44,
 			when = {
@@ -390,6 +430,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:45
 		{
 			line = 45,
 			when = {
@@ -399,6 +440,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:46
 		{
 			line = 46,
 			when = {
@@ -408,6 +450,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Gorn is our provisioner. You'll find him north of the main crossroads. His shop is to the right." },
 			},
 		},
+		-- from guards-thais.ndb:47
 		{
 			line = 47,
 			when = {
@@ -417,6 +460,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:48
 		{
 			line = 48,
 			when = {
@@ -426,6 +470,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Frodo runs the local tavern. You'll find it at the main crossroads to the north-west." },
 			},
 		},
+		-- from guards-thais.ndb:49
 		{
 			line = 49,
 			when = {
@@ -435,6 +480,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:50
 		{
 			line = 50,
 			when = {
@@ -444,6 +490,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Benjamin was a brave fighter. He runs the post office in the west of the city." },
 			},
 		},
+		-- from guards-thais.ndb:51
 		{
 			line = 51,
 			when = {
@@ -453,6 +500,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:52
 		{
 			line = 52,
 			when = {
@@ -462,6 +510,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The depot is at the post office in the west of the city." },
 			},
 		},
+		-- from guards-thais.ndb:53
 		{
 			line = 53,
 			when = {
@@ -471,6 +520,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Muriel is the head of the local sorcerers' guild. You'll find it in the south-west of the city" },
 			},
 		},
+		-- from guards-thais.ndb:54
 		{
 			line = 54,
 			when = {
@@ -480,6 +530,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:55
 		{
 			line = 55,
 			when = {
@@ -489,6 +540,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Elane is responsible for the local paladins' guild. It's in the west of the town, directly south of the post office." },
 			},
 		},
+		-- from guards-thais.ndb:56
 		{
 			line = 56,
 			when = {
@@ -498,6 +550,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:57
 		{
 			line = 57,
 			when = {
@@ -507,6 +560,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Marvik is the great druid of the local guild. You'll find him by climbing up the citywalls at the east." },
 			},
 		},
+		-- from guards-thais.ndb:58
 		{
 			line = 58,
 			when = {
@@ -516,6 +570,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:59
 		{
 			line = 59,
 			when = {
@@ -525,6 +580,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The high knight of the knights' guild. It is in north-east of the town." },
 			},
 		},
+		-- from guards-thais.ndb:60
 		{
 			line = 60,
 			when = {
@@ -534,6 +590,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-thais.ndb:62
 		{
 			line = 62,
 			when = {
@@ -546,6 +603,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:63
 		{
 			line = 63,
 			when = {
@@ -558,6 +616,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:64
 		{
 			line = 64,
 			when = {
@@ -570,6 +629,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:65
 		{
 			line = 65,
 			when = {
@@ -582,6 +642,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:66
 		{
 			line = 66,
 			when = {
@@ -594,6 +655,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:67
 		{
 			line = 67,
 			when = {
@@ -606,6 +668,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:68
 		{
 			line = 68,
 			when = {
@@ -618,6 +681,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:69
 		{
 			line = 69,
 			when = {
@@ -630,6 +694,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-thais.ndb:70
 		{
 			line = 70,
 			when = {

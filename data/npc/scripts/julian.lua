@@ -356,6 +356,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Oh well, next time perhaps." },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:11
 		{
 			line = 11,
 			when = {
@@ -365,6 +366,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you a piano or a harp. What would you like?" },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:12
 		{
 			line = 12,
 			when = {
@@ -378,6 +380,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:13
 		{
 			line = 13,
 			when = {
@@ -391,6 +394,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:15
 		{
 			line = 15,
 			when = {
@@ -405,6 +409,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:16
 		{
 			line = 16,
 			when = {
@@ -416,6 +421,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:17
 		{
 			line = 17,
 			when = {
@@ -426,6 +432,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Come back, when you have enough money." },
 			},
 		},
+		-- from gen-t-furniture-instruments-s.ndb:18
 		{
 			line = 18,
 			when = {

@@ -228,6 +228,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:11
 		{
 			line = 11,
 			when = {
@@ -237,6 +238,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Do you want to buy a small table, a round table, a square table or a big table?" },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:12
 		{
 			line = 12,
 			when = {
@@ -251,6 +253,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:13
 		{
 			line = 13,
 			when = {
@@ -265,6 +268,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:14
 		{
 			line = 14,
 			when = {
@@ -279,6 +283,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:15
 		{
 			line = 15,
 			when = {
@@ -293,6 +298,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:17
 		{
 			line = 17,
 			when = {
@@ -307,6 +313,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:18
 		{
 			line = 18,
 			when = {
@@ -318,6 +325,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:19
 		{
 			line = 19,
 			when = {
@@ -328,6 +336,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Come back, when you have enough money." },
 			},
 		},
+		-- from gen-t-furniture-tables-s.ndb:20
 		{
 			line = 20,
 			when = {

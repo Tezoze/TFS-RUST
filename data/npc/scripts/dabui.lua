@@ -11,6 +11,7 @@ npc:race(1)
 npc:dialogue(NpcDialogue({
 	policy = "queued_single_focus",
 	rules = {
+		-- from guards-darama.ndb:4
 		{
 			line = 4,
 			when = {
@@ -22,6 +23,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Daraman's blessings!" },
 			},
 		},
+		-- from guards-darama.ndb:5
 		{
 			line = 5,
 			when = {
@@ -33,6 +35,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-darama.ndb:6
 		{
 			line = 6,
 			when = {
@@ -43,6 +46,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-darama.ndb:7
 		{
 			line = 7,
 			when = {
@@ -53,6 +57,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am busy!" },
 			},
 		},
+		-- from guards-darama.ndb:8
 		{
 			line = 8,
 			when = {
@@ -63,6 +68,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-darama.ndb:9
 		{
 			line = 9,
 			when = {
@@ -73,6 +79,7 @@ npc:dialogue(NpcDialogue({
 				{ nop = true },
 			},
 		},
+		-- from guards-darama.ndb:10
 		{
 			line = 10,
 			when = {
@@ -83,6 +90,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Daraman's blessings!" },
 			},
 		},
+		-- from guards-darama.ndb:12
 		{
 			line = 12,
 			when = {
@@ -93,6 +101,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-darama.ndb:13
 		{
 			line = 13,
 			when = {
@@ -102,6 +111,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The evil of Drefia is strong in these days." },
 			},
 		},
+		-- from guards-darama.ndb:14
 		{
 			line = 14,
 			when = {
@@ -113,6 +123,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am on guard and my soul is strong." },
 			},
 		},
+		-- from guards-darama.ndb:15
 		{
 			line = 15,
 			when = {
@@ -122,6 +133,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Go to the bazaar in the middle of the town." },
 			},
 		},
+		-- from guards-darama.ndb:16
 		{
 			line = 16,
 			when = {
@@ -131,6 +143,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-darama.ndb:17
 		{
 			line = 17,
 			when = {
@@ -140,6 +153,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Our leader is enlightened by Daraman, thrice praised be his name!" },
 			},
 		},
+		-- from guards-darama.ndb:18
 		{
 			line = 18,
 			when = {
@@ -149,6 +163,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-darama.ndb:19
 		{
 			line = 19,
 			when = {
@@ -158,6 +173,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am a protector of the people of Darashia." },
 			},
 		},
+		-- from guards-darama.ndb:20
 		{
 			line = 20,
 			when = {
@@ -167,6 +183,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This information is confidential." },
 			},
 		},
+		-- from guards-darama.ndb:21
 		{
 			line = 21,
 			when = {
@@ -176,6 +193,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-darama.ndb:22
 		{
 			line = 22,
 			when = {
@@ -185,6 +203,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The ancient prophet brought our people here from a place long forgotten." },
 			},
 		},
+		-- from guards-darama.ndb:23
 		{
 			line = 23,
 			when = {
@@ -194,6 +213,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Darama led his people on a pilgrimage to the holy lands of Darama to escape temptations and distractions." },
 			},
 		},
+		-- from guards-darama.ndb:24
 		{
 			line = 24,
 			when = {
@@ -203,6 +223,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It's said they fled from the corrupted continent of the thaian empire after losing some battles." },
 			},
 		},
+		-- from guards-darama.ndb:25
 		{
 			line = 25,
 			when = {
@@ -212,6 +233,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This city is lovely Darashia, pearl of Darama." },
 			},
 		},
+		-- from guards-darama.ndb:26
 		{
 			line = 26,
 			when = {
@@ -221,6 +243,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-darama.ndb:27
 		{
 			line = 27,
 			when = {
@@ -230,6 +253,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Darashia is the heart of Darama. In the northeast, across the Devourer, there is the dark pyramid. In the west, across the Plague Spike, are the cursed ruins of Drefia." },
 			},
 		},
+		-- from guards-darama.ndb:28
 		{
 			line = 28,
 			when = {
@@ -240,6 +264,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Mountain of Poison, Scorpions Rock, it's known by many names. It's to the west of Darashia." },
 			},
 		},
+		-- from guards-darama.ndb:29
 		{
 			line = 29,
 			when = {
@@ -249,6 +274,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The great desert devoured many of the first pilgrims. We learned the ways of the devourer and thus conquered it." },
 			},
 		},
+		-- from guards-darama.ndb:30
 		{
 			line = 30,
 			when = {
@@ -258,6 +284,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The minotaurs took shelter in the ancient pyramid, which our people avoid for the dark powers that might be present there." },
 			},
 		},
+		-- from guards-darama.ndb:31
 		{
 			line = 31,
 			when = {
@@ -267,6 +294,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The ruins of Drefia in the far west are the hideout of the vile necromancer cult that once corrupted this city." },
 			},
 		},
+		-- from guards-darama.ndb:33
 		{
 			line = 33,
 			when = {
@@ -279,6 +307,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:34
 		{
 			line = 34,
 			when = {
@@ -291,6 +320,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:35
 		{
 			line = 35,
 			when = {
@@ -303,6 +333,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:36
 		{
 			line = 36,
 			when = {
@@ -315,6 +346,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:37
 		{
 			line = 37,
 			when = {
@@ -327,6 +359,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:38
 		{
 			line = 38,
 			when = {
@@ -339,6 +372,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:39
 		{
 			line = 39,
 			when = {
@@ -351,6 +385,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:40
 		{
 			line = 40,
 			when = {
@@ -363,6 +398,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-darama.ndb:41
 		{
 			line = 41,
 			when = {

@@ -11,6 +11,7 @@ npc:race(1)
 npc:dialogue(NpcDialogue({
 	policy = "queued_single_focus",
 	rules = {
+		-- from guards-carlin.ndb:4
 		{
 			line = 4,
 			when = {
@@ -22,6 +23,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "LONG LIVE THE QUEEN!" },
 			},
 		},
+		-- from guards-carlin.ndb:5
 		{
 			line = 5,
 			when = {
@@ -33,6 +35,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:6
 		{
 			line = 6,
 			when = {
@@ -43,6 +46,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-carlin.ndb:7
 		{
 			line = 7,
 			when = {
@@ -53,6 +57,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am busy right now!" },
 			},
 		},
+		-- from guards-carlin.ndb:8
 		{
 			line = 8,
 			when = {
@@ -63,6 +68,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:9
 		{
 			line = 9,
 			when = {
@@ -73,6 +79,7 @@ npc:dialogue(NpcDialogue({
 				{ nop = true },
 			},
 		},
+		-- from guards-carlin.ndb:10
 		{
 			line = 10,
 			when = {
@@ -83,6 +90,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Hrmpf!" },
 			},
 		},
+		-- from guards-carlin.ndb:12
 		{
 			line = 12,
 			when = {
@@ -93,6 +101,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-carlin.ndb:13
 		{
 			line = 13,
 			when = {
@@ -102,6 +111,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:14
 		{
 			line = 14,
 			when = {
@@ -111,6 +121,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am busy. Please ask the citizens for news." },
 			},
 		},
+		-- from guards-carlin.ndb:15
 		{
 			line = 15,
 			when = {
@@ -122,6 +133,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am healthy and vigilant." },
 			},
 		},
+		-- from guards-carlin.ndb:16
 		{
 			line = 16,
 			when = {
@@ -131,6 +143,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Visit Carlin's shopkeepers to buy their fine wares." },
 			},
 		},
+		-- from guards-carlin.ndb:17
 		{
 			line = 17,
 			when = {
@@ -140,6 +153,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Queen Eloise is our beloved sovereign!" },
 			},
 		},
+		-- from guards-carlin.ndb:18
 		{
 			line = 18,
 			when = {
@@ -149,6 +163,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:19
 		{
 			line = 19,
 			when = {
@@ -158,6 +173,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It's my duty to protect our fair city." },
 			},
 		},
+		-- from guards-carlin.ndb:20
 		{
 			line = 20,
 			when = {
@@ -167,6 +183,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Of course, we guards are members of the army." },
 			},
 		},
+		-- from guards-carlin.ndb:21
 		{
 			line = 21,
 			when = {
@@ -176,6 +193,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am a guard and proud of it." },
 			},
 		},
+		-- from guards-carlin.ndb:22
 		{
 			line = 22,
 			when = {
@@ -185,6 +203,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It's Miss Bonecrusher to you!" },
 			},
 		},
+		-- from guards-carlin.ndb:23
 		{
 			line = 23,
 			when = {
@@ -194,6 +213,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The bonecrusher family has been serving in the army of Carlin for generations. My sister Bunny is the general of our army." },
 			},
 		},
+		-- from guards-carlin.ndb:24
 		{
 			line = 24,
 			when = {
@@ -203,6 +223,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ask my sister Bunny for details." },
 			},
 		},
+		-- from guards-carlin.ndb:25
 		{
 			line = 25,
 			when = {
@@ -212,6 +233,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The castle is in the northwest corner of the city." },
 			},
 		},
+		-- from guards-carlin.ndb:26
 		{
 			line = 26,
 			when = {
@@ -222,6 +244,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Brave warriors, indeed." },
 			},
 		},
+		-- from guards-carlin.ndb:27
 		{
 			line = 27,
 			when = {
@@ -233,6 +256,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "WOOF! WOOF! Go away with theese puny king's puppys." },
 			},
 		},
+		-- from guards-carlin.ndb:28
 		{
 			line = 28,
 			when = {
@@ -243,6 +267,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ask a higher offical about that." },
 			},
 		},
+		-- from guards-carlin.ndb:29
 		{
 			line = 29,
 			when = {
@@ -252,6 +277,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Behave well, while in the city, or we'll get you! Do you want to know where to find a shop or a guild?" },
 			},
 		},
+		-- from guards-carlin.ndb:30
 		{
 			line = 30,
 			when = {
@@ -261,6 +287,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "There's a smith, a provisioner, a tavern, a magic shop, and the royal post office, of course." },
 			},
 		},
+		-- from guards-carlin.ndb:31
 		{
 			line = 31,
 			when = {
@@ -270,6 +297,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "In the city you will find the guildhouses of the Knights, the Paladins, the Druids, and the Sorcerers." },
 			},
 		},
+		-- from guards-carlin.ndb:32
 		{
 			line = 32,
 			when = {
@@ -279,6 +307,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We will get rid of all scum." },
 			},
 		},
+		-- from guards-carlin.ndb:33
 		{
 			line = 33,
 			when = {
@@ -288,6 +317,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Fine warrioress, even if not of our family." },
 			},
 		},
+		-- from guards-carlin.ndb:34
 		{
 			line = 34,
 			when = {
@@ -297,6 +327,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:35
 		{
 			line = 35,
 			when = {
@@ -306,6 +337,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "My sister is in charge of our mighty army." },
 			},
 		},
+		-- from guards-carlin.ndb:36
 		{
 			line = 36,
 			when = {
@@ -315,6 +347,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We are Bonecrushers. Mess with one of us, and we all will come for you!" },
 			},
 		},
+		-- from guards-carlin.ndb:37
 		{
 			line = 37,
 			when = {
@@ -324,6 +357,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:38
 		{
 			line = 38,
 			when = {
@@ -333,6 +367,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:39
 		{
 			line = 39,
 			when = {
@@ -342,6 +377,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Praise Banor! May the great warrior be with us!" },
 			},
 		},
+		-- from guards-carlin.ndb:40
 		{
 			line = 40,
 			when = {
@@ -351,6 +387,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Stay away from the graveyard, it's haunted!" },
 			},
 		},
+		-- from guards-carlin.ndb:41
 		{
 			line = 41,
 			when = {
@@ -360,6 +397,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:42
 		{
 			line = 42,
 			when = {
@@ -369,6 +407,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Strange things happen in our graveyard, and sometimes there are .. noises." },
 			},
 		},
+		-- from guards-carlin.ndb:43
 		{
 			line = 43,
 			when = {
@@ -378,6 +417,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I never heared them myself, but people, one can trust, did." },
 			},
 		},
+		-- from guards-carlin.ndb:44
 		{
 			line = 44,
 			when = {
@@ -387,6 +427,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Bah! Who cares about males? Let them do males' work, cleaning the sewers for example." },
 			},
 		},
+		-- from guards-carlin.ndb:45
 		{
 			line = 45,
 			when = {
@@ -396,6 +437,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sewers are filthy and disgusting. We let the men take care of them." },
 			},
 		},
+		-- from guards-carlin.ndb:46
 		{
 			line = 46,
 			when = {
@@ -405,6 +447,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "What a joke. The men have no guts for a rebellion." },
 			},
 		},
+		-- from guards-carlin.ndb:47
 		{
 			line = 47,
 			when = {
@@ -414,6 +457,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:48
 		{
 			line = 48,
 			when = {
@@ -423,6 +467,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "There once was an adventurer with this name in town, made some trouble, got kicked out. No big deal." },
 			},
 		},
+		-- from guards-carlin.ndb:49
 		{
 			line = 49,
 			when = {
@@ -432,6 +477,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "In theory the ghostlands are of limits. But we don't enforce that. Anyone stupid enough to go there will meet his deserved fate." },
 			},
 		},
+		-- from guards-carlin.ndb:51
 		{
 			line = 51,
 			when = {
@@ -441,6 +487,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You can find the weapon and armour shops just west of the towncenter." },
 			},
 		},
+		-- from guards-carlin.ndb:52
 		{
 			line = 52,
 			when = {
@@ -450,6 +497,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:53
 		{
 			line = 53,
 			when = {
@@ -459,6 +507,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:54
 		{
 			line = 54,
 			when = {
@@ -468,6 +517,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:55
 		{
 			line = 55,
 			when = {
@@ -477,6 +527,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sarina is our provisioner. You can find her in the towncenter, south of the weaponshops." },
 			},
 		},
+		-- from guards-carlin.ndb:56
 		{
 			line = 56,
 			when = {
@@ -486,6 +537,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:57
 		{
 			line = 57,
 			when = {
@@ -495,6 +547,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Dane runs the local tavern and hotel. You can find it at the southwest beach of Carlin." },
 			},
 		},
+		-- from guards-carlin.ndb:58
 		{
 			line = 58,
 			when = {
@@ -504,6 +557,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:59
 		{
 			line = 59,
 			when = {
@@ -513,6 +567,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Liane is a kind person. She runs the post office in the town's center." },
 			},
 		},
+		-- from guards-carlin.ndb:60
 		{
 			line = 60,
 			when = {
@@ -522,6 +577,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:61
 		{
 			line = 61,
 			when = {
@@ -531,6 +587,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We have some depots in our town. You can't miss them." },
 			},
 		},
+		-- from guards-carlin.ndb:62
 		{
 			line = 62,
 			when = {
@@ -540,6 +597,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Lea is the head of the local sorcerers guild. You can find it south of the towncenter at the magic shop of Rachel." },
 			},
 		},
+		-- from guards-carlin.ndb:63
 		{
 			line = 63,
 			when = {
@@ -549,6 +607,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:64
 		{
 			line = 64,
 			when = {
@@ -558,6 +617,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Legola runs the local paladins guild, it's near the westgate." },
 			},
 		},
+		-- from guards-carlin.ndb:65
 		{
 			line = 65,
 			when = {
@@ -567,6 +627,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:66
 		{
 			line = 66,
 			when = {
@@ -576,6 +637,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Padreia is the greatest druid of the continent. You find the guild of the benevolent druids in the southwest of the city." },
 			},
 		},
+		-- from guards-carlin.ndb:67
 		{
 			line = 67,
 			when = {
@@ -585,6 +647,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:68
 		{
 			line = 68,
 			when = {
@@ -594,6 +657,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Trisha is the leader of our knights guild. It is in the north of the town, near the gate." },
 			},
 		},
+		-- from guards-carlin.ndb:69
 		{
 			line = 69,
 			when = {
@@ -603,6 +667,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:70
 		{
 			line = 70,
 			when = {
@@ -612,6 +677,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Rachel sells equipment for all magic users in her shop. There is also the sorcerer guild in the second floor." },
 			},
 		},
+		-- from guards-carlin.ndb:71
 		{
 			line = 71,
 			when = {
@@ -621,6 +687,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:72
 		{
 			line = 72,
 			when = {
@@ -630,6 +697,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-carlin.ndb:74
 		{
 			line = 74,
 			when = {
@@ -642,6 +710,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:75
 		{
 			line = 75,
 			when = {
@@ -654,6 +723,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:76
 		{
 			line = 76,
 			when = {
@@ -666,6 +736,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:77
 		{
 			line = 77,
 			when = {
@@ -678,6 +749,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:78
 		{
 			line = 78,
 			when = {
@@ -690,6 +762,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:79
 		{
 			line = 79,
 			when = {
@@ -702,6 +775,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:80
 		{
 			line = 80,
 			when = {
@@ -714,6 +788,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:81
 		{
 			line = 81,
 			when = {
@@ -726,6 +801,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-carlin.ndb:82
 		{
 			line = 82,
 			when = {

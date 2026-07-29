@@ -483,6 +483,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Maybe next time." },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:12
 		{
 			line = 12,
 			when = {
@@ -492,6 +493,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you tusk chairs, ivory chairs and trunk chairs." },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:13
 		{
 			line = 13,
 			when = {
@@ -506,6 +508,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:14
 		{
 			line = 14,
 			when = {
@@ -520,6 +523,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:15
 		{
 			line = 15,
 			when = {
@@ -534,6 +538,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:17
 		{
 			line = 17,
 			when = {
@@ -543,6 +548,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you stone tables, tusk tables, bamboo tables and trunk tables." },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:18
 		{
 			line = 18,
 			when = {
@@ -557,6 +563,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:19
 		{
 			line = 19,
 			when = {
@@ -571,6 +578,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:20
 		{
 			line = 20,
 			when = {
@@ -585,6 +593,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:21
 		{
 			line = 21,
 			when = {
@@ -599,6 +608,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:23
 		{
 			line = 23,
 			when = {
@@ -608,6 +618,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you bamboo drawers." },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:24
 		{
 			line = 24,
 			when = {
@@ -622,6 +633,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:26
 		{
 			line = 26,
 			when = {
@@ -636,6 +648,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:27
 		{
 			line = 27,
 			when = {
@@ -647,6 +660,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:28
 		{
 			line = 28,
 			when = {
@@ -657,6 +671,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Come back, when you have enough money." },
 			},
 		},
+		-- from gen-t-furniture-jungle-s.ndb:29
 		{
 			line = 29,
 			when = {

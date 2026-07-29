@@ -77,6 +77,20 @@ pub fn definition_filename(name: &str) -> String {
 
 fn emit_rule(out: &mut String, rule: &DialogueRule, indent: usize) {
     let pad = "\t".repeat(indent);
+    // Emit fragment provenance for rules that were inlined from a .ndb include,
+    // so grep/editors can find all copies of a shared fragment without needing
+    // the now-deleted import pipeline.
+    if rule.span.original_file.ends_with(".ndb") {
+        let basename = std::path::Path::new(&rule.span.original_file)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(rule.span.original_file.as_str());
+        if rule.span.original_line > 0 {
+            out.push_str(&format!("{pad}-- from {basename}:{}\n", rule.span.original_line));
+        } else {
+            out.push_str(&format!("{pad}-- from {basename}\n"));
+        }
+    }
     out.push_str(&format!("{pad}{{\n"));
     if rule.span.original_line > 0 {
         out.push_str(&format!("{pad}\tline = {},\n", rule.span.original_line));

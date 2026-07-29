@@ -11,6 +11,7 @@ npc:race(1)
 npc:dialogue(NpcDialogue({
 	policy = "queued_single_focus",
 	rules = {
+		-- from guards-venore.ndb:4
 		{
 			line = 4,
 			when = {
@@ -22,6 +23,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "LONG LIVE THE KING!" },
 			},
 		},
+		-- from guards-venore.ndb:5
 		{
 			line = 5,
 			when = {
@@ -33,6 +35,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-venore.ndb:6
 		{
 			line = 6,
 			when = {
@@ -43,6 +46,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-venore.ndb:7
 		{
 			line = 7,
 			when = {
@@ -53,6 +57,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Not now, I am busy!" },
 			},
 		},
+		-- from guards-venore.ndb:8
 		{
 			line = 8,
 			when = {
@@ -63,6 +68,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-venore.ndb:9
 		{
 			line = 9,
 			when = {
@@ -73,6 +79,7 @@ npc:dialogue(NpcDialogue({
 				{ nop = true },
 			},
 		},
+		-- from guards-venore.ndb:10
 		{
 			line = 10,
 			when = {
@@ -82,6 +89,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "LONG LIVE THE KING!" },
 			},
 		},
+		-- from guards-venore.ndb:12
 		{
 			line = 12,
 			when = {
@@ -92,6 +100,7 @@ npc:dialogue(NpcDialogue({
 				{ idle = true },
 			},
 		},
+		-- from guards-venore.ndb:13
 		{
 			line = 13,
 			when = {
@@ -101,6 +110,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Look for the Hard Rock Tavern to learn the latest news." },
 			},
 		},
+		-- from guards-venore.ndb:14
 		{
 			line = 14,
 			when = {
@@ -112,6 +122,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "That's classified information!" },
 			},
 		},
+		-- from guards-venore.ndb:15
 		{
 			line = 15,
 			when = {
@@ -121,6 +132,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ask the merchants of the city. There are more then enough." },
 			},
 		},
+		-- from guards-venore.ndb:16
 		{
 			line = 16,
 			when = {
@@ -130,6 +142,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-venore.ndb:17
 		{
 			line = 17,
 			when = {
@@ -139,6 +152,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Tibianus III is our beloved king!" },
 			},
 		},
+		-- from guards-venore.ndb:18
 		{
 			line = 18,
 			when = {
@@ -148,6 +162,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-venore.ndb:19
 		{
 			line = 19,
 			when = {
@@ -157,6 +172,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-venore.ndb:20
 		{
 			line = 20,
 			when = {
@@ -166,6 +182,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am a protector of the people of Venore." },
 			},
 		},
+		-- from guards-venore.ndb:21
 		{
 			line = 21,
 			when = {
@@ -175,6 +192,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This information is confidential." },
 			},
 		},
+		-- from guards-venore.ndb:22
 		{
 			line = 22,
 			when = {
@@ -184,6 +202,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from guards-venore.ndb:23
 		{
 			line = 23,
 			when = {
@@ -193,6 +212,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "All guards are members of the army." },
 			},
 		},
+		-- from guards-venore.ndb:24
 		{
 			line = 24,
 			when = {
@@ -202,6 +222,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am a guard and proud of it." },
 			},
 		},
+		-- from guards-venore.ndb:25
 		{
 			line = 25,
 			when = {
@@ -211,6 +232,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I doubt you have the security clearance to ask that." },
 			},
 		},
+		-- from guards-venore.ndb:26
 		{
 			line = 26,
 			when = {
@@ -220,6 +242,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The castle is in Thais, the crown of the kingdom." },
 			},
 		},
+		-- from guards-venore.ndb:27
 		{
 			line = 27,
 			when = {
@@ -231,6 +254,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "They are our rolemodells." },
 			},
 		},
+		-- from guards-venore.ndb:28
 		{
 			line = 28,
 			when = {
@@ -242,6 +266,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Every guard dreams of becoming one of them one day." },
 			},
 		},
+		-- from guards-venore.ndb:29
 		{
 			line = 29,
 			when = {
@@ -252,6 +277,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We of the red guard are the special forces and town guards." },
 			},
 		},
+		-- from guards-venore.ndb:30
 		{
 			line = 30,
 			when = {
@@ -262,6 +288,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This information is confidential." },
 			},
 		},
+		-- from guards-venore.ndb:31
 		{
 			line = 31,
 			when = {
@@ -272,6 +299,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Only the best of the best serve as silver guards." },
 			},
 		},
+		-- from guards-venore.ndb:32
 		{
 			line = 32,
 			when = {
@@ -281,6 +309,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This city, a member of the Thaian kingdom, is under the protection of the Thaian army." },
 			},
 		},
+		-- from guards-venore.ndb:34
 		{
 			line = 34,
 			when = {
@@ -290,6 +319,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The harbour is to the north, the weapon market in the south, the general market to the west, and the bank to the east. You will find other shops and the Hard Rock Tavern in the center." },
 			},
 		},
+		-- from guards-venore.ndb:35
 		{
 			line = 35,
 			when = {
@@ -299,6 +329,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Those elves hide in the swamps and are trying to kill all humans in this area." },
 			},
 		},
+		-- from guards-venore.ndb:36
 		{
 			line = 36,
 			when = {
@@ -308,6 +339,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "They are the best example for the results of the Carlin madness." },
 			},
 		},
+		-- from guards-venore.ndb:37
 		{
 			line = 37,
 			when = {
@@ -317,6 +349,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This hideous creatures are even more ugly than the normal trolls. They are treacherous and use several poisons." },
 			},
 		},
+		-- from guards-venore.ndb:38
 		{
 			line = 38,
 			when = {
@@ -326,6 +359,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The swamp is a dangerous place and full of monsters, not to mention all those swampelves living at shadowthorn, amazons, and swamptrolls." },
 			},
 		},
+		-- from guards-venore.ndb:39
 		{
 			line = 39,
 			when = {
@@ -335,6 +369,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The swamp is full of nasty snakes and there's a dragon breeding ground somewhere in the swamps." },
 			},
 		},
+		-- from guards-venore.ndb:41
 		{
 			line = 41,
 			when = {
@@ -347,6 +382,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:42
 		{
 			line = 42,
 			when = {
@@ -359,6 +395,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:43
 		{
 			line = 43,
 			when = {
@@ -371,6 +408,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:44
 		{
 			line = 44,
 			when = {
@@ -383,6 +421,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:45
 		{
 			line = 45,
 			when = {
@@ -395,6 +434,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:46
 		{
 			line = 46,
 			when = {
@@ -407,6 +447,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:47
 		{
 			line = 47,
 			when = {
@@ -419,6 +460,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:48
 		{
 			line = 48,
 			when = {
@@ -431,6 +473,7 @@ npc:dialogue(NpcDialogue({
 				{ effectMe = 8 },
 			},
 		},
+		-- from guards-venore.ndb:49
 		{
 			line = 49,
 			when = {

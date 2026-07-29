@@ -105,6 +105,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:4
 		{
 			line = 4,
 			when = {
@@ -114,6 +115,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I am the local representative of the explorer society." },
 			},
 		},
+		-- from explorer.ndb:6
 		{
 			line = 6,
 			when = {
@@ -126,6 +128,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Only the most dedicated and fearless adventurers may join our ranks." },
 			},
 		},
+		-- from explorer.ndb:7
 		{
 			line = 7,
 			when = {
@@ -135,6 +138,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Currently we maintain public bases in Port Hope and Northport." },
 			},
 		},
+		-- from explorer.ndb:8
 		{
 			line = 8,
 			when = {
@@ -145,6 +149,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "But you are already a member, %N" },
 			},
 		},
+		-- from explorer.ndb:9
 		{
 			line = 9,
 			when = {
@@ -156,6 +161,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 1 } },
 			},
 		},
+		-- from explorer.ndb:10
 		{
 			line = 10,
 			when = {
@@ -166,6 +172,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I see. Not everyone has the guts it takes to become a professional explorer." },
 			},
 		},
+		-- from explorer.ndb:11
 		{
 			line = 11,
 			when = {
@@ -179,6 +186,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 2 } },
 			},
 		},
+		-- from explorer.ndb:13
 		{
 			line = 13,
 			when = {
@@ -189,6 +197,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I see. Not everyone has the guts it takes to become a professional explorer." },
 			},
 		},
+		-- from explorer.ndb:14
 		{
 			line = 14,
 			when = {
@@ -200,6 +209,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 325, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:16
 		{
 			line = 16,
 			when = {
@@ -213,6 +223,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 9 } },
 			},
 		},
+		-- from explorer.ndb:18
 		{
 			line = 18,
 			when = {
@@ -223,6 +234,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Get that special pickaxe from Uzgod in Kazordoon." },
 			},
 		},
+		-- from explorer.ndb:19
 		{
 			line = 19,
 			when = {
@@ -234,6 +246,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Get that special pickaxe from Uzgod in Kazordoon." },
 			},
 		},
+		-- from explorer.ndb:20
 		{
 			line = 20,
 			when = {
@@ -248,6 +261,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:22
 		{
 			line = 22,
 			when = {
@@ -259,6 +273,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You are a novice of the explorer society." },
 			},
 		},
+		-- from explorer.ndb:23
 		{
 			line = 23,
 			when = {
@@ -270,6 +285,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You are a journeyman of the explorer society." },
 			},
 		},
+		-- from explorer.ndb:24
 		{
 			line = 24,
 			when = {
@@ -281,6 +297,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You are a relic hunter of the explorer society." },
 			},
 		},
+		-- from explorer.ndb:25
 		{
 			line = 25,
 			when = {
@@ -291,6 +308,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You are an explorer of the explorer society." },
 			},
 		},
+		-- from explorer.ndb:27
 		{
 			line = 27,
 			when = {
@@ -306,6 +324,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 3 } },
 			},
 		},
+		-- from explorer.ndb:28
 		{
 			line = 28,
 			when = {
@@ -316,6 +335,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Ratha was a great explorer and even greater ladies' man. Thank you for returning his remains." },
 			},
 		},
+		-- from explorer.ndb:30
 		{
 			line = 30,
 			when = {
@@ -326,6 +346,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "If you ever stumble across some information about Ratha, let us know." },
 			},
 		},
+		-- from explorer.ndb:31
 		{
 			line = 31,
 			when = {
@@ -338,6 +359,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "What are you talking about? You have nothing to clarify Ratha's whereabouts." },
 			},
 		},
+		-- from explorer.ndb:32
 		{
 			line = 32,
 			when = {
@@ -353,6 +375,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 302, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:35
 		{
 			line = 35,
 			when = {
@@ -368,6 +391,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 53 } },
 			},
 		},
+		-- from explorer.ndb:37
 		{
 			line = 37,
 			when = {
@@ -378,6 +402,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sometimes no news is good news." },
 			},
 		},
+		-- from explorer.ndb:38
 		{
 			line = 38,
 			when = {
@@ -391,6 +416,7 @@ npc:dialogue(NpcDialogue({
 				{ createMoney = true },
 			},
 		},
+		-- from explorer.ndb:39
 		{
 			line = 39,
 			when = {
@@ -402,6 +428,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You don't have any lost brooch with you. This is not a topic to make fun of." },
 			},
 		},
+		-- from explorer.ndb:41
 		{
 			line = 41,
 			when = {
@@ -416,6 +443,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 4 } },
 			},
 		},
+		-- from explorer.ndb:42
 		{
 			line = 42,
 			when = {
@@ -427,6 +455,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The explorer society was looking for a genuine giant smith hammer until you brought us one. Thank you again." },
 			},
 		},
+		-- from explorer.ndb:44
 		{
 			line = 44,
 			when = {
@@ -441,6 +470,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 303, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:45
 		{
 			line = 45,
 			when = {
@@ -452,6 +482,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This is no giant smith hammer." },
 			},
 		},
+		-- from explorer.ndb:46
 		{
 			line = 46,
 			when = {
@@ -462,6 +493,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Just as you like. But think about the reward!" },
 			},
 		},
+		-- from explorer.ndb:50
 		{
 			line = 50,
 			when = {
@@ -476,6 +508,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 40 } },
 			},
 		},
+		-- from explorer.ndb:52
 		{
 			line = 52,
 			when = {
@@ -493,6 +526,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 40 } },
 			},
 		},
+		-- from explorer.ndb:54
 		{
 			line = 54,
 			when = {
@@ -503,6 +537,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "If you ever aquire a hydra egg, bring it here." },
 			},
 		},
+		-- from explorer.ndb:55
 		{
 			line = 55,
 			when = {
@@ -514,6 +549,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "What are you talking about? You don't own that many hydra eggs." },
 			},
 		},
+		-- from explorer.ndb:56
 		{
 			line = 56,
 			when = {
@@ -527,6 +563,7 @@ npc:dialogue(NpcDialogue({
 				{ createMoney = true },
 			},
 		},
+		-- from explorer.ndb:58
 		{
 			line = 58,
 			when = {
@@ -541,6 +578,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 41 } },
 			},
 		},
+		-- from explorer.ndb:59
 		{
 			line = 59,
 			when = {
@@ -550,6 +588,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:61
 		{
 			line = 61,
 			when = {
@@ -560,6 +599,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "If you ever aquire a parchment with lizard writings, bring it here." },
 			},
 		},
+		-- from explorer.ndb:62
 		{
 			line = 62,
 			when = {
@@ -571,6 +611,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "What are you talking about? You own no parchment with lizard writings at all." },
 			},
 		},
+		-- from explorer.ndb:63
 		{
 			line = 63,
 			when = {
@@ -584,6 +625,7 @@ npc:dialogue(NpcDialogue({
 				{ createMoney = true },
 			},
 		},
+		-- from explorer.ndb:70
 		{
 			line = 70,
 			when = {
@@ -595,6 +637,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The missions available for your rank are the butterfly hunt, plant collection and ice delivery." },
 			},
 		},
+		-- from explorer.ndb:72
 		{
 			line = 72,
 			when = {
@@ -608,6 +651,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 5 } },
 			},
 		},
+		-- from explorer.ndb:73
 		{
 			line = 73,
 			when = {
@@ -618,6 +662,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:74
 		{
 			line = 74,
 			when = {
@@ -631,6 +676,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 304, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:76
 		{
 			line = 76,
 			when = {
@@ -645,6 +691,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 6 } },
 			},
 		},
+		-- from explorer.ndb:77
 		{
 			line = 77,
 			when = {
@@ -655,6 +702,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then go and look for one." },
 			},
 		},
+		-- from explorer.ndb:78
 		{
 			line = 78,
 			when = {
@@ -666,6 +714,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can't see a purple butterfly. Perhaps you lost it somewhere." },
 			},
 		},
+		-- from explorer.ndb:79
 		{
 			line = 79,
 			when = {
@@ -679,6 +728,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 304, value = 2 } },
 			},
 		},
+		-- from explorer.ndb:82
 		{
 			line = 82,
 			when = {
@@ -693,6 +743,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 304, value = 3 } },
 			},
 		},
+		-- from explorer.ndb:84
 		{
 			line = 84,
 			when = {
@@ -707,6 +758,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 7 } },
 			},
 		},
+		-- from explorer.ndb:85
 		{
 			line = 85,
 			when = {
@@ -717,6 +769,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then go and look for one." },
 			},
 		},
+		-- from explorer.ndb:86
 		{
 			line = 86,
 			when = {
@@ -728,6 +781,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can't see a blue butterfly. Perhaps you lost it somewhere." },
 			},
 		},
+		-- from explorer.ndb:87
 		{
 			line = 87,
 			when = {
@@ -741,6 +795,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 304, value = 4 } },
 			},
 		},
+		-- from explorer.ndb:90
 		{
 			line = 90,
 			when = {
@@ -755,6 +810,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 304, value = 5 } },
 			},
 		},
+		-- from explorer.ndb:92
 		{
 			line = 92,
 			when = {
@@ -769,6 +825,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 8 } },
 			},
 		},
+		-- from explorer.ndb:93
 		{
 			line = 93,
 			when = {
@@ -779,6 +836,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then go and look for one." },
 			},
 		},
+		-- from explorer.ndb:94
 		{
 			line = 94,
 			when = {
@@ -790,6 +848,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can't see a red butterfly. Perhaps you lost it somewhere." },
 			},
 		},
+		-- from explorer.ndb:95
 		{
 			line = 95,
 			when = {
@@ -804,6 +863,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:96
 		{
 			line = 96,
 			when = {
@@ -815,6 +875,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You have already finished the butterfly hunt. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:100
 		{
 			line = 100,
 			when = {
@@ -828,6 +889,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 10 } },
 			},
 		},
+		-- from explorer.ndb:101
 		{
 			line = 101,
 			when = {
@@ -838,6 +900,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:102
 		{
 			line = 102,
 			when = {
@@ -850,6 +913,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 305, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:104
 		{
 			line = 104,
 			when = {
@@ -864,6 +928,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 11 } },
 			},
 		},
+		-- from explorer.ndb:105
 		{
 			line = 105,
 			when = {
@@ -874,6 +939,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then go and look for one." },
 			},
 		},
+		-- from explorer.ndb:106
 		{
 			line = 106,
 			when = {
@@ -885,6 +951,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have a useful sample." },
 			},
 		},
+		-- from explorer.ndb:107
 		{
 			line = 107,
 			when = {
@@ -898,6 +965,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 305, value = 2 } },
 			},
 		},
+		-- from explorer.ndb:109
 		{
 			line = 109,
 			when = {
@@ -911,6 +979,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 305, value = 3 } },
 			},
 		},
+		-- from explorer.ndb:111
 		{
 			line = 111,
 			when = {
@@ -925,6 +994,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 12 } },
 			},
 		},
+		-- from explorer.ndb:112
 		{
 			line = 112,
 			when = {
@@ -935,6 +1005,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then go and look for one." },
 			},
 		},
+		-- from explorer.ndb:113
 		{
 			line = 113,
 			when = {
@@ -946,6 +1017,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have any useful sample." },
 			},
 		},
+		-- from explorer.ndb:114
 		{
 			line = 114,
 			when = {
@@ -959,6 +1031,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 305, value = 4 } },
 			},
 		},
+		-- from explorer.ndb:116
 		{
 			line = 116,
 			when = {
@@ -972,6 +1045,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 305, value = 5 } },
 			},
 		},
+		-- from explorer.ndb:118
 		{
 			line = 118,
 			when = {
@@ -986,6 +1060,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 13 } },
 			},
 		},
+		-- from explorer.ndb:119
 		{
 			line = 119,
 			when = {
@@ -996,6 +1071,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then go and look for one. Keep in mind we need samples of the giant jungle rose, not the small one." },
 			},
 		},
+		-- from explorer.ndb:120
 		{
 			line = 120,
 			when = {
@@ -1007,6 +1083,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry you don't have any useful sample. Perhaps you did not use the botanist's container on a giant jungle rose as requested, but on a small one." },
 			},
 		},
+		-- from explorer.ndb:121
 		{
 			line = 121,
 			when = {
@@ -1021,6 +1098,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:124
 		{
 			line = 124,
 			when = {
@@ -1032,6 +1110,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You have already finished the plant collection missions. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:126
 		{
 			line = 126,
 			when = {
@@ -1047,6 +1126,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 14 } },
 			},
 		},
+		-- from explorer.ndb:128
 		{
 			line = 128,
 			when = {
@@ -1057,6 +1137,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:129
 		{
 			line = 129,
 			when = {
@@ -1070,6 +1151,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 306, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:130
 		{
 			line = 130,
 			when = {
@@ -1084,6 +1166,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 15 } },
 			},
 		},
+		-- from explorer.ndb:131
 		{
 			line = 131,
 			when = {
@@ -1095,6 +1178,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 16 } },
 			},
 		},
+		-- from explorer.ndb:132
 		{
 			line = 132,
 			when = {
@@ -1105,6 +1189,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then don't waste your time and go to the caves on Folda to get some ice." },
 			},
 		},
+		-- from explorer.ndb:133
 		{
 			line = 133,
 			when = {
@@ -1116,6 +1201,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I think you are wrong, just try to get that ice as you were told." },
 			},
 		},
+		-- from explorer.ndb:134
 		{
 			line = 134,
 			when = {
@@ -1128,6 +1214,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "What are you talking about, I can see you still have some ice on you." },
 			},
 		},
+		-- from explorer.ndb:135
 		{
 			line = 135,
 			when = {
@@ -1142,6 +1229,7 @@ npc:dialogue(NpcDialogue({
 				{ effectOpp = 13 },
 			},
 		},
+		-- from explorer.ndb:137
 		{
 			line = 137,
 			when = {
@@ -1153,6 +1241,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have any ice on you." },
 			},
 		},
+		-- from explorer.ndb:138
 		{
 			line = 138,
 			when = {
@@ -1165,6 +1254,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This ice looks odd. I don't think it's from Folda. Make sure to travel there to get the ice we are looking for." },
 			},
 		},
+		-- from explorer.ndb:139
 		{
 			line = 139,
 			when = {
@@ -1180,6 +1270,7 @@ npc:dialogue(NpcDialogue({
 				{ delete = { item = { session = "type" } } },
 			},
 		},
+		-- from explorer.ndb:141
 		{
 			line = 141,
 			when = {
@@ -1191,6 +1282,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already brought us the ice sample that we needed. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:163
 		{
 			line = 163,
 			when = {
@@ -1202,6 +1294,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The missions available for your rank are lizard urn, beholder secrets and orc powder." },
 			},
 		},
+		-- from explorer.ndb:165
 		{
 			line = 165,
 			when = {
@@ -1215,6 +1308,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 17 } },
 			},
 		},
+		-- from explorer.ndb:167
 		{
 			line = 167,
 			when = {
@@ -1225,6 +1319,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:168
 		{
 			line = 168,
 			when = {
@@ -1238,6 +1333,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 308, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:170
 		{
 			line = 170,
 			when = {
@@ -1252,6 +1348,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 18 } },
 			},
 		},
+		-- from explorer.ndb:172
 		{
 			line = 172,
 			when = {
@@ -1262,6 +1359,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It must be somewhere beneath the newly constructed lizard temple in the south-east of Tiquanda." },
 			},
 		},
+		-- from explorer.ndb:173
 		{
 			line = 173,
 			when = {
@@ -1273,6 +1371,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have the urn. It has to be somewhere beneath the newly constructed lizard temple in the south-east of Tiquanda." },
 			},
 		},
+		-- from explorer.ndb:174
 		{
 			line = 174,
 			when = {
@@ -1287,6 +1386,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:176
 		{
 			line = 176,
 			when = {
@@ -1298,6 +1398,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already retrieved the urn for us. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:180
 		{
 			line = 180,
 			when = {
@@ -1313,6 +1414,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 19 } },
 			},
 		},
+		-- from explorer.ndb:182
 		{
 			line = 182,
 			when = {
@@ -1323,6 +1425,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:183
 		{
 			line = 183,
 			when = {
@@ -1335,6 +1438,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 309, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:185
 		{
 			line = 185,
 			when = {
@@ -1349,6 +1453,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 20 } },
 			},
 		},
+		-- from explorer.ndb:186
 		{
 			line = 186,
 			when = {
@@ -1359,6 +1464,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We are sure there is some document left. Probably in the deepest catacombs beneath the black pyramid." },
 			},
 		},
+		-- from explorer.ndb:187
 		{
 			line = 187,
 			when = {
@@ -1370,6 +1476,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, whatever you have found is no true proof for our theory. Please return to the black pyramid and explore it carefully." },
 			},
 		},
+		-- from explorer.ndb:188
 		{
 			line = 188,
 			when = {
@@ -1384,6 +1491,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:191
 		{
 			line = 191,
 			when = {
@@ -1395,6 +1503,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already recovered the scroll. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:195
 		{
 			line = 195,
 			when = {
@@ -1410,6 +1519,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 21 } },
 			},
 		},
+		-- from explorer.ndb:197
 		{
 			line = 197,
 			when = {
@@ -1420,6 +1530,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:198
 		{
 			line = 198,
 			when = {
@@ -1432,6 +1543,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 310, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:200
 		{
 			line = 200,
 			when = {
@@ -1446,6 +1558,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 34 } },
 			},
 		},
+		-- from explorer.ndb:201
 		{
 			line = 201,
 			when = {
@@ -1456,6 +1569,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Make sure to search in the hill they use to raise and train their war wolves." },
 			},
 		},
+		-- from explorer.ndb:202
 		{
 			line = 202,
 			when = {
@@ -1467,6 +1581,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you have nothing with you that would fit the descriptions we got of the powder." },
 			},
 		},
+		-- from explorer.ndb:203
 		{
 			line = 203,
 			when = {
@@ -1481,6 +1596,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:204
 		{
 			line = 204,
 			when = {
@@ -1492,6 +1608,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already brought us some orcish powder. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:210
 		{
 			line = 210,
 			when = {
@@ -1503,6 +1620,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The missions available for your rank are elven poetry, memory stone and rune writings." },
 			},
 		},
+		-- from explorer.ndb:212
 		{
 			line = 212,
 			when = {
@@ -1517,6 +1635,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 22 } },
 			},
 		},
+		-- from explorer.ndb:213
 		{
 			line = 213,
 			when = {
@@ -1527,6 +1646,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:214
 		{
 			line = 214,
 			when = {
@@ -1538,6 +1658,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 311, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:217
 		{
 			line = 217,
 			when = {
@@ -1552,6 +1673,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 23 } },
 			},
 		},
+		-- from explorer.ndb:218
 		{
 			line = 218,
 			when = {
@@ -1563,6 +1685,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:219
 		{
 			line = 219,
 			when = {
@@ -1573,6 +1696,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:220
 		{
 			line = 220,
 			when = {
@@ -1583,6 +1707,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Then try harder. Someone might own it. If you lost a copy, ask around again." },
 			},
 		},
+		-- from explorer.ndb:221
 		{
 			line = 221,
 			when = {
@@ -1594,6 +1719,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Whatever you thought you acquired, it's not the book we are looking for! If you lost the copy, ask around again." },
 			},
 		},
+		-- from explorer.ndb:222
 		{
 			line = 222,
 			when = {
@@ -1606,6 +1732,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It can easily be seen that this book was forged by a dwarf. Try to get a real copy somewhere." },
 			},
 		},
+		-- from explorer.ndb:223
 		{
 			line = 223,
 			when = {
@@ -1621,6 +1748,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:225
 		{
 			line = 225,
 			when = {
@@ -1632,6 +1760,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already pleased our leadership by acquiring a copy of that book. Of course you can always ask me what missions are available." },
 			},
 		},
+		-- from explorer.ndb:229
 		{
 			line = 229,
 			when = {
@@ -1647,6 +1776,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 24 } },
 			},
 		},
+		-- from explorer.ndb:230
 		{
 			line = 230,
 			when = {
@@ -1657,6 +1787,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps another mission suits you more." },
 			},
 		},
+		-- from explorer.ndb:231
 		{
 			line = 231,
 			when = {
@@ -1668,6 +1799,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 313, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:234
 		{
 			line = 234,
 			when = {
@@ -1682,6 +1814,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 25 } },
 			},
 		},
+		-- from explorer.ndb:235
 		{
 			line = 235,
 			when = {
@@ -1692,6 +1825,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Try harder. We are sure there are memory stones left in the north-western dungeons of Edron." },
 			},
 		},
+		-- from explorer.ndb:236
 		{
 			line = 236,
 			when = {
@@ -1703,6 +1837,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You don't have any memory stone!" },
 			},
 		},
+		-- from explorer.ndb:237
 		{
 			line = 237,
 			when = {
@@ -1715,6 +1850,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This memory stone looks damaged. Probably you bought it from some suspicious individual. Travel to Edron and get one on your own." },
 			},
 		},
+		-- from explorer.ndb:238
 		{
 			line = 238,
 			when = {
@@ -1730,6 +1866,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:241
 		{
 			line = 241,
 			when = {
@@ -1741,6 +1878,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already brought us a memory stone. It will take years to make it work and probably decades to decipher and understand the knowledge the stone contains." },
 			},
 		},
+		-- from explorer.ndb:245
 		{
 			line = 245,
 			when = {
@@ -1757,6 +1895,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 26 } },
 			},
 		},
+		-- from explorer.ndb:246
 		{
 			line = 246,
 			when = {
@@ -1767,6 +1906,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps you are interested at another time." },
 			},
 		},
+		-- from explorer.ndb:247
 		{
 			line = 247,
 			when = {
@@ -1779,6 +1919,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 315, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:249
 		{
 			line = 249,
 			when = {
@@ -1793,6 +1934,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 27 } },
 			},
 		},
+		-- from explorer.ndb:250
 		{
 			line = 250,
 			when = {
@@ -1803,6 +1945,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Please remember, somewhere in the dungeons beneath Banuta has to be some structure that seemingly does not belong there. Use the copy paper on it." },
 			},
 		},
+		-- from explorer.ndb:251
 		{
 			line = 251,
 			when = {
@@ -1814,6 +1957,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You don't have any copy of the runes that we need!" },
 			},
 		},
+		-- from explorer.ndb:252
 		{
 			line = 252,
 			when = {
@@ -1826,6 +1970,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "This copy is ruined by sweat and blood, sorry. Travel to Banuta and make sure to make a clean copy." },
 			},
 		},
+		-- from explorer.ndb:253
 		{
 			line = 253,
 			when = {
@@ -1841,6 +1986,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = { binary = { op = "+", lhs = { questValue = 300 }, rhs = 1 } } } },
 			},
 		},
+		-- from explorer.ndb:255
 		{
 			line = 255,
 			when = {
@@ -1852,6 +1998,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already brought us a copy of those runes which gave us some interesting insights." },
 			},
 		},
+		-- from explorer.ndb:259
 		{
 			line = 259,
 			when = {
@@ -1864,6 +2011,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 28 } },
 			},
 		},
+		-- from explorer.ndb:260
 		{
 			line = 260,
 			when = {
@@ -1874,6 +2022,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps you are interested at another time" },
 			},
 		},
+		-- from explorer.ndb:261
 		{
 			line = 261,
 			when = {
@@ -1887,6 +2036,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 29 } },
 			},
 		},
+		-- from explorer.ndb:262
 		{
 			line = 262,
 			when = {
@@ -1897,6 +2047,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps you are interested some other time." },
 			},
 		},
+		-- from explorer.ndb:263
 		{
 			line = 263,
 			when = {
@@ -1910,6 +2061,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 317, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:265
 		{
 			line = 265,
 			when = {
@@ -1923,6 +2075,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 30 } },
 			},
 		},
+		-- from explorer.ndb:266
 		{
 			line = 266,
 			when = {
@@ -1933,6 +2086,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:267
 		{
 			line = 267,
 			when = {
@@ -1943,6 +2097,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:268
 		{
 			line = 268,
 			when = {
@@ -1953,6 +2108,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Just use the container on a slain ghost. Make sure it lost its unholy mockery of life before you fulfil your task. Be quick, a partly decomposed corpse will not contain enough ectoplasm." },
 			},
 		},
+		-- from explorer.ndb:269
 		{
 			line = 269,
 			when = {
@@ -1964,6 +2120,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, but you have no ectoplasm at all!" },
 			},
 		},
+		-- from explorer.ndb:270
 		{
 			line = 270,
 			when = {
@@ -1978,6 +2135,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = 11 } },
 			},
 		},
+		-- from explorer.ndb:272
 		{
 			line = 272,
 			when = {
@@ -1988,6 +2146,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You already brought us enough ectoplasm for our research." },
 			},
 		},
+		-- from explorer.ndb:276
 		{
 			line = 276,
 			when = {
@@ -2001,6 +2160,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 31 } },
 			},
 		},
+		-- from explorer.ndb:278
 		{
 			line = 278,
 			when = {
@@ -2011,6 +2171,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Perhaps you are interested in it some other time." },
 			},
 		},
+		-- from explorer.ndb:279
 		{
 			line = 279,
 			when = {
@@ -2023,6 +2184,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 318, value = 1 } },
 			},
 		},
+		-- from explorer.ndb:281
 		{
 			line = 281,
 			when = {
@@ -2037,6 +2199,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 32 } },
 			},
 		},
+		-- from explorer.ndb:282
 		{
 			line = 282,
 			when = {
@@ -2047,6 +2210,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:284
 		{
 			line = 284,
 			when = {
@@ -2058,6 +2222,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Any violence will probably be futile and you will have to negotiate with her. Try to get a spectral dress from her." },
 			},
 		},
+		-- from explorer.ndb:285
 		{
 			line = 285,
 			when = {
@@ -2069,6 +2234,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have a spectral dress!" },
 			},
 		},
+		-- from explorer.ndb:286
 		{
 			line = 286,
 			when = {
@@ -2081,6 +2247,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, this dress is infested with spectral moths. Get a spectral dress from the banshee queen." },
 			},
 		},
+		-- from explorer.ndb:287
 		{
 			line = 287,
 			when = {
@@ -2096,6 +2263,7 @@ npc:dialogue(NpcDialogue({
 				{ setQuestValue = { id = 300, value = 12 } },
 			},
 		},
+		-- from explorer.ndb:289
 		{
 			line = 289,
 			when = {
@@ -2106,6 +2274,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "You provided us with a spectral dress and we are ready for the final stages of our research project." },
 			},
 		},
+		-- from explorer.ndb:294
 		{
 			line = 294,
 			when = {
@@ -2116,6 +2285,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you did not charge both floor tiles as requested." },
 			},
 		},
+		-- from explorer.ndb:295
 		{
 			line = 295,
 			when = {
@@ -2126,6 +2296,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:297
 		{
 			line = 297,
 			when = {
@@ -2146,6 +2317,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from explorer.ndb:298
 		{
 			line = 298,
 			when = {
@@ -2159,6 +2331,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from explorer.ndb:300
 		{
 			line = 300,
 			when = {
@@ -2172,6 +2345,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The portals should be ready to be used now. If you have an orichalcum pearl with you, enter the portal." },
 			},
 		},
+		-- from explorer.ndb:301
 		{
 			line = 301,
 			when = {
@@ -2185,6 +2359,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "There are no new missions avaliable right now." },
 			},
 		},
+		-- from explorer.ndb:303
 		{
 			line = 303,
 			when = {
@@ -2198,6 +2373,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 51 } },
 			},
 		},
+		-- from explorer.ndb:305
 		{
 			line = 305,
 			when = {
@@ -2211,6 +2387,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from explorer.ndb:306
 		{
 			line = 306,
 			when = {
@@ -2221,6 +2398,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have the money for this transaction." },
 			},
 		},
+		-- from explorer.ndb:307
 		{
 			line = 307,
 			when = {
@@ -2230,6 +2408,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Is there anything else I can do for you?" },
 			},
 		},
+		-- from explorer.ndb:309
 		{
 			line = 309,
 			when = {
@@ -2245,6 +2424,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 52 } },
 			},
 		},
+		-- from explorer.ndb:311
 		{
 			line = 311,
 			when = {
@@ -2258,6 +2438,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from explorer.ndb:312
 		{
 			line = 312,
 			when = {
@@ -2268,6 +2449,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have the money for this transaction." },
 			},
 		},
+		-- from explorer.ndb:313
 		{
 			line = 313,
 			when = {
@@ -2277,6 +2459,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Is there anything else I can do for you?" },
 			},
 		},
+		-- from explorer.ndb:317
 		{
 			line = 317,
 			when = {
@@ -2291,6 +2474,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 56 } },
 			},
 		},
+		-- from explorer.ndb:318
 		{
 			line = 318,
 			when = {
@@ -2305,6 +2489,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 56 } },
 			},
 		},
+		-- from explorer.ndb:319
 		{
 			line = 319,
 			when = {
@@ -2319,6 +2504,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 56 } },
 			},
 		},
+		-- from explorer.ndb:321
 		{
 			line = 321,
 			when = {
@@ -2332,6 +2518,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from explorer.ndb:322
 		{
 			line = 322,
 			when = {
@@ -2342,6 +2529,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have the money for this transaction." },
 			},
 		},
+		-- from explorer.ndb:323
 		{
 			line = 323,
 			when = {

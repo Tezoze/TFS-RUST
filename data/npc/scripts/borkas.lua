@@ -258,6 +258,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:11
 		{
 			line = 11,
 			when = {
@@ -267,6 +268,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I offer drawers, dressers, lockers, crates, chests, boxes, barrels, trunks and troughs." },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:12
 		{
 			line = 12,
 			when = {
@@ -280,6 +282,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:13
 		{
 			line = 13,
 			when = {
@@ -293,6 +296,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:14
 		{
 			line = 14,
 			when = {
@@ -306,6 +310,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:15
 		{
 			line = 15,
 			when = {
@@ -319,6 +324,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:16
 		{
 			line = 16,
 			when = {
@@ -332,6 +338,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:17
 		{
 			line = 17,
 			when = {
@@ -345,6 +352,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:18
 		{
 			line = 18,
 			when = {
@@ -358,6 +366,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:19
 		{
 			line = 19,
 			when = {
@@ -371,6 +380,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:20
 		{
 			line = 20,
 			when = {
@@ -384,6 +394,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 81 } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:22
 		{
 			line = 22,
 			when = {
@@ -398,6 +409,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:23
 		{
 			line = 23,
 			when = {
@@ -409,6 +421,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:24
 		{
 			line = 24,
 			when = {
@@ -419,6 +432,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Come back, when you have enough money." },
 			},
 		},
+		-- from gen-t-furniture-containers-s.ndb:25
 		{
 			line = 25,
 			when = {

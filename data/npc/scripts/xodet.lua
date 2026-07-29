@@ -430,6 +430,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Hmm, but please keep Tibia litter free." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:5
 		{
 			line = 5,
 			when = {
@@ -440,6 +441,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I sell missile runes, explosive runes, field runes, wall runes, bomb runes, healing runes, convince creature runes and chameleon runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:6
 		{
 			line = 6,
 			when = {
@@ -450,6 +452,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you light magic missile runes, heavy magic missile runes and sudden death runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:7
 		{
 			line = 7,
 			when = {
@@ -460,6 +463,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you fireball runes, great fireball runes and explosion runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:8
 		{
 			line = 8,
 			when = {
@@ -470,6 +474,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you fire field runes, energy field runes, poison field runes and destroy field runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:9
 		{
 			line = 9,
 			when = {
@@ -480,6 +485,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you fire wall runes, energy wall runes and poison wall runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:10
 		{
 			line = 10,
 			when = {
@@ -490,6 +496,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you firebomb runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:11
 		{
 			line = 11,
 			when = {
@@ -500,6 +507,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "I can offer you antidote runes, intense healing runes and ultimate healing runes." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:13
 		{
 			line = 13,
 			when = {
@@ -517,6 +525,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:14
 		{
 			line = 14,
 			when = {
@@ -533,6 +542,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:15
 		{
 			line = 15,
 			when = {
@@ -548,6 +558,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:16
 		{
 			line = 16,
 			when = {
@@ -564,6 +575,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:17
 		{
 			line = 17,
 			when = {
@@ -580,6 +592,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:18
 		{
 			line = 18,
 			when = {
@@ -595,6 +608,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:19
 		{
 			line = 19,
 			when = {
@@ -611,6 +625,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:20
 		{
 			line = 20,
 			when = {
@@ -628,6 +643,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:21
 		{
 			line = 21,
 			when = {
@@ -644,6 +660,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:22
 		{
 			line = 22,
 			when = {
@@ -660,6 +677,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:23
 		{
 			line = 23,
 			when = {
@@ -676,6 +694,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:24
 		{
 			line = 24,
 			when = {
@@ -692,6 +711,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:25
 		{
 			line = 25,
 			when = {
@@ -707,6 +727,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:26
 		{
 			line = 26,
 			when = {
@@ -723,6 +744,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:27
 		{
 			line = 27,
 			when = {
@@ -739,6 +761,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:28
 		{
 			line = 28,
 			when = {
@@ -754,6 +777,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:29
 		{
 			line = 29,
 			when = {
@@ -770,6 +794,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:30
 		{
 			line = 30,
 			when = {
@@ -786,6 +811,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:31
 		{
 			line = 31,
 			when = {
@@ -802,6 +828,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:33
 		{
 			line = 33,
 			when = {
@@ -812,6 +839,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, but runes of this type can't be purchased here." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:34
 		{
 			line = 34,
 			when = {
@@ -822,6 +850,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:35
 		{
 			line = 35,
 			when = {
@@ -833,6 +862,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:36
 		{
 			line = 36,
 			when = {
@@ -843,6 +873,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:37
 		{
 			line = 37,
 			when = {
@@ -854,6 +885,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:38
 		{
 			line = 38,
 			when = {
@@ -865,6 +897,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:39
 		{
 			line = 39,
 			when = {
@@ -876,6 +909,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:40
 		{
 			line = 40,
 			when = {
@@ -886,6 +920,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:42
 		{
 			line = 42,
 			when = {
@@ -905,6 +940,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:43
 		{
 			line = 43,
 			when = {
@@ -923,6 +959,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:44
 		{
 			line = 44,
 			when = {
@@ -940,6 +977,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:45
 		{
 			line = 45,
 			when = {
@@ -958,6 +996,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:46
 		{
 			line = 46,
 			when = {
@@ -976,6 +1015,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:47
 		{
 			line = 47,
 			when = {
@@ -993,6 +1033,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:48
 		{
 			line = 48,
 			when = {
@@ -1011,6 +1052,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:49
 		{
 			line = 49,
 			when = {
@@ -1030,6 +1072,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:50
 		{
 			line = 50,
 			when = {
@@ -1048,6 +1091,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:51
 		{
 			line = 51,
 			when = {
@@ -1066,6 +1110,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:52
 		{
 			line = 52,
 			when = {
@@ -1084,6 +1129,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:53
 		{
 			line = 53,
 			when = {
@@ -1102,6 +1148,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:54
 		{
 			line = 54,
 			when = {
@@ -1119,6 +1166,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:55
 		{
 			line = 55,
 			when = {
@@ -1137,6 +1185,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:56
 		{
 			line = 56,
 			when = {
@@ -1155,6 +1204,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:57
 		{
 			line = 57,
 			when = {
@@ -1172,6 +1222,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:58
 		{
 			line = 58,
 			when = {
@@ -1190,6 +1241,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:59
 		{
 			line = 59,
 			when = {
@@ -1208,6 +1260,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:60
 		{
 			line = 60,
 			when = {
@@ -1226,6 +1279,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:63
 		{
 			line = 63,
 			when = {
@@ -1239,6 +1293,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:64
 		{
 			line = 64,
 			when = {
@@ -1249,6 +1304,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have enough gold." },
 			},
 		},
+		-- from gen-t-runes-free-s.ndb:65
 		{
 			line = 65,
 			when = {
@@ -1258,6 +1314,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "As you wish." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:5
 		{
 			line = 5,
 			when = {
@@ -1268,6 +1325,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 90 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:6
 		{
 			line = 6,
 			when = {
@@ -1278,6 +1336,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 91 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:8
 		{
 			line = 8,
 			when = {
@@ -1288,6 +1347,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The names of the wands are 'Wand of Vortex', 'Wand of Dragonbreath', 'Wand of Plague', 'Wand of Cosmic Energy' and 'Wand of Inferno'. Which one would you like to buy?" },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:9
 		{
 			line = 9,
 			when = {
@@ -1298,6 +1358,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Maybe another time." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:10
 		{
 			line = 10,
 			when = {
@@ -1307,6 +1368,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Maybe another time." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:12
 		{
 			line = 12,
 			when = {
@@ -1317,6 +1379,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "The names of the rods are 'Snakebite Rod', 'Moonlight Rod', 'Volcanic Rod', 'Quagmire Rod', and 'Tempest Rod'. Which one would you like to buy?" },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:13
 		{
 			line = 13,
 			when = {
@@ -1327,6 +1390,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Maybe another time." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:14
 		{
 			line = 14,
 			when = {
@@ -1336,6 +1400,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Maybe another time." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:16
 		{
 			line = 16,
 			when = {
@@ -1353,6 +1418,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:17
 		{
 			line = 17,
 			when = {
@@ -1369,6 +1435,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:19
 		{
 			line = 19,
 			when = {
@@ -1384,6 +1451,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:20
 		{
 			line = 20,
 			when = {
@@ -1399,6 +1467,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:21
 		{
 			line = 21,
 			when = {
@@ -1414,6 +1483,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:22
 		{
 			line = 22,
 			when = {
@@ -1430,6 +1500,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:23
 		{
 			line = 23,
 			when = {
@@ -1441,6 +1512,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, this wand contains magic far too powerful and we are afraid to store it here. I heard they have a few of these at the Edron academy though." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:25
 		{
 			line = 25,
 			when = {
@@ -1455,6 +1527,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:26
 		{
 			line = 26,
 			when = {
@@ -1469,6 +1542,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:27
 		{
 			line = 27,
 			when = {
@@ -1483,6 +1557,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:28
 		{
 			line = 28,
 			when = {
@@ -1497,6 +1572,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:29
 		{
 			line = 29,
 			when = {
@@ -1507,6 +1583,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, this rod contains magic far too powerful and we are afraid to store it here. I heard they have a few of these at the Edron academy though." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:31
 		{
 			line = 31,
 			when = {
@@ -1524,6 +1601,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:32
 		{
 			line = 32,
 			when = {
@@ -1541,6 +1619,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:33
 		{
 			line = 33,
 			when = {
@@ -1558,6 +1637,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:34
 		{
 			line = 34,
 			when = {
@@ -1576,6 +1656,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:35
 		{
 			line = 35,
 			when = {
@@ -1589,6 +1670,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, this wand contains far too powerful magic and we are afraid to store it here. I heard they have a few of these at the Edron academy though." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:38
 		{
 			line = 38,
 			when = {
@@ -1605,6 +1687,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:39
 		{
 			line = 39,
 			when = {
@@ -1621,6 +1704,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:40
 		{
 			line = 40,
 			when = {
@@ -1637,6 +1721,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:41
 		{
 			line = 41,
 			when = {
@@ -1653,6 +1738,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:42
 		{
 			line = 42,
 			when = {
@@ -1665,6 +1751,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, this rod contains far too powerful magic and we are afraid to store it here. I heard they have a few of these at the Edron academy though." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:45
 		{
 			line = 45,
 			when = {
@@ -1678,6 +1765,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = { session = "type" } } },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:46
 		{
 			line = 46,
 			when = {
@@ -1688,6 +1776,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have enough gold." },
 			},
 		},
+		-- from gen-t-wands-free-s.ndb:47
 		{
 			line = 47,
 			when = {

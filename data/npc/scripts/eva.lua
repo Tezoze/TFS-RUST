@@ -132,6 +132,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "It is exactly %T." },
 			},
 		},
+		-- from gen-bank.ndb:9
 		{
 			line = 9,
 			when = {
@@ -141,6 +142,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We can change money for you." },
 			},
 		},
+		-- from gen-bank.ndb:10
 		{
 			line = 10,
 			when = {
@@ -150,6 +152,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "We exchange gold, platinum and crystal coins." },
 			},
 		},
+		-- from gen-bank.ndb:11
 		{
 			line = 11,
 			when = {
@@ -159,6 +162,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:12
 		{
 			line = 12,
 			when = {
@@ -170,6 +174,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:13
 		{
 			line = 13,
 			when = {
@@ -179,6 +184,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:14
 		{
 			line = 14,
 			when = {
@@ -188,6 +194,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:15
 		{
 			line = 15,
 			when = {
@@ -197,6 +204,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:16
 		{
 			line = 16,
 			when = {
@@ -206,6 +214,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:18
 		{
 			line = 18,
 			when = {
@@ -218,6 +227,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 91 } },
 			},
 		},
+		-- from gen-bank.ndb:19
 		{
 			line = 19,
 			when = {
@@ -229,6 +239,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:20
 		{
 			line = 20,
 			when = {
@@ -241,6 +252,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 95 } },
 			},
 		},
+		-- from gen-bank.ndb:21
 		{
 			line = 21,
 			when = {
@@ -252,6 +264,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:22
 		{
 			line = 22,
 			when = {
@@ -264,6 +277,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 92 } },
 			},
 		},
+		-- from gen-bank.ndb:23
 		{
 			line = 23,
 			when = {
@@ -275,6 +289,7 @@ npc:dialogue(NpcDialogue({
 				{ repeatPrevious = true },
 			},
 		},
+		-- from gen-bank.ndb:24
 		{
 			line = 24,
 			when = {
@@ -284,6 +299,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Do you want to exchange gold, platinum or crystal coins?" },
 			},
 		},
+		-- from gen-bank.ndb:26
 		{
 			line = 26,
 			when = {
@@ -296,6 +312,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 93 } },
 			},
 		},
+		-- from gen-bank.ndb:27
 		{
 			line = 27,
 			when = {
@@ -308,6 +325,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 94 } },
 			},
 		},
+		-- from gen-bank.ndb:28
 		{
 			line = 28,
 			when = {
@@ -317,6 +335,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:30
 		{
 			line = 30,
 			when = {
@@ -331,6 +350,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 96 } },
 			},
 		},
+		-- from gen-bank.ndb:31
 		{
 			line = 31,
 			when = {
@@ -340,6 +360,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Hmm, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:33
 		{
 			line = 33,
 			when = {
@@ -354,6 +375,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 97 } },
 			},
 		},
+		-- from gen-bank.ndb:34
 		{
 			line = 34,
 			when = {
@@ -363,6 +385,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:36
 		{
 			line = 36,
 			when = {
@@ -377,6 +400,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 98 } },
 			},
 		},
+		-- from gen-bank.ndb:37
 		{
 			line = 37,
 			when = {
@@ -386,6 +410,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:39
 		{
 			line = 39,
 			when = {
@@ -400,6 +425,7 @@ npc:dialogue(NpcDialogue({
 				{ set = { var = "topic", value = 99 } },
 			},
 		},
+		-- from gen-bank.ndb:40
 		{
 			line = 40,
 			when = {
@@ -409,6 +435,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:42
 		{
 			line = 42,
 			when = {
@@ -423,6 +450,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = 2152 } },
 			},
 		},
+		-- from gen-bank.ndb:43
 		{
 			line = 43,
 			when = {
@@ -433,6 +461,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have enough gold coins." },
 			},
 		},
+		-- from gen-bank.ndb:44
 		{
 			line = 44,
 			when = {
@@ -442,6 +471,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:46
 		{
 			line = 46,
 			when = {
@@ -456,6 +486,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = 2152 } },
 			},
 		},
+		-- from gen-bank.ndb:47
 		{
 			line = 47,
 			when = {
@@ -466,6 +497,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have so many crystal coins." },
 			},
 		},
+		-- from gen-bank.ndb:48
 		{
 			line = 48,
 			when = {
@@ -475,6 +507,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:50
 		{
 			line = 50,
 			when = {
@@ -489,6 +522,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = 2148 } },
 			},
 		},
+		-- from gen-bank.ndb:51
 		{
 			line = 51,
 			when = {
@@ -499,6 +533,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have so many platinum coins." },
 			},
 		},
+		-- from gen-bank.ndb:52
 		{
 			line = 52,
 			when = {
@@ -508,6 +543,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Well, can I help you with something else?" },
 			},
 		},
+		-- from gen-bank.ndb:54
 		{
 			line = 54,
 			when = {
@@ -522,6 +558,7 @@ npc:dialogue(NpcDialogue({
 				{ create = { item = 2160 } },
 			},
 		},
+		-- from gen-bank.ndb:55
 		{
 			line = 55,
 			when = {
@@ -532,6 +569,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Sorry, you don't have so many platinum coins." },
 			},
 		},
+		-- from gen-bank.ndb:56
 		{
 			line = 56,
 			when = {
