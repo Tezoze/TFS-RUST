@@ -242,6 +242,18 @@ impl GameWorld {
         }
     }
 
+    /// 772 `CloseContainer(Con, true)` for `CreatureID == 0` — close every open window that
+    /// references `container_item_id` (as a root or nested container) for every current viewer.
+    pub(crate) fn auto_close_all_containers_for_item(&mut self, container_item_id: ItemId) {
+        let Some(cont) = self.container_registry.get(container_item_id) else {
+            return;
+        };
+        let viewers: Vec<CreatureId> = cont.open_by.clone();
+        for viewer in viewers {
+            self.auto_close_containers_for_container_item(viewer, container_item_id);
+        }
+    }
+
     /// Whether `viewer` may keep a window open on `container_root` (held in inventory or adjacent map tile).
     // C++ ref: `Player::autoCloseContainers`, `Position::areInRange<1,1,0>` (`player.cpp` ~3119).
     fn player_may_view_open_container_window(

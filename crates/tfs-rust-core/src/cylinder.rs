@@ -43,6 +43,9 @@ impl CylinderFlags {
     pub const IGNORE_NOT_MOVEABLE: Self = Self { bits: 1 << 6 };
     /// queryDestination will not try to stack items together
     pub const IGNORE_AUTO_STACK: Self = Self { bits: 1 << 7 };
+    /// Skip the `Merge` step in `internalAddItem` / `internalMoveItem`.
+    /// C++ `operate.cc:1275` `Move(CreatureID, Obj, Con, Count, NoMerge, Ignore)`.
+    pub const NO_MERGE: Self = Self { bits: 1 << 8 };
 
     pub fn contains(self, other: Self) -> bool {
         (self.bits & other.bits) != 0

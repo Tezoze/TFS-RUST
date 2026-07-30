@@ -949,9 +949,18 @@ impl GameWorld {
     /// - `MOVENOTPOSSIBLE` (52) → `NotPossible` (Go arm only — `on_walk_step_rejected`)
     /// - `NOWAY` → `ThereIsNoWay` (NOT `MOVENOTPOSSIBLE` — not in the 3-result snapback set)
     pub(crate) fn apply_todo_result_catch(&mut self, cid: CreatureId, rv: ReturnValue) {
+        // 772 `SnapbackNecessary = (this->ToDoClear() || this->Stop)` (`cract.cc:871`).
+        // `Stop` must be captured before `creature_todo_clear` resets `todo_stop`.
+        let was_stopped = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().todo.todo_stop);
+
         // `ToDoClear` — clear the queue. `creature_todo_clear` also clears walk state
         // (broader than C++ `ToDoClear`, but correct for a failed action restart).
         let had_pending_go = self.creature_todo_clear(cid);
+
+        let snapback_necessary = had_pending_go || was_stopped;
 
         if rv == ReturnValue::YouAreExhausted {
             // `EXHAUSTED` → `ToDoWait(1000)` + `ToDoStart` (`cract.cc:872-874`).
@@ -967,7 +976,7 @@ impl GameWorld {
 
         // Player-only: `SendResult` + conditional `SendSnapback` (`cract.cc:879-886`).
         if let Some(conn) = self.conn_for_creature(cid) {
-            self.send_result_player(conn, cid, rv, had_pending_go);
+            self.send_result_player(conn, cid, rv, snapback_necessary);
         }
     }
 

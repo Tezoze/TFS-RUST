@@ -135,6 +135,14 @@ impl GameWorld {
             item_id,
         )?;
 
+        // 772 `Move` `CloseContainer(Obj, true)` for `CreatureID == 0`.
+        if acting_player.is_none() {
+            let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
+            if self.items_db.is_container(item_type) {
+                self.auto_close_all_containers_for_item(item_id);
+            }
+        }
+
         let source_parent = from_cylinder.as_container();
 
         let (to_work, mut to_merge_item) =
@@ -142,6 +150,18 @@ impl GameWorld {
 
         // The 772 `Move`/`Merge` `Ignore` parameter must not merge with the ignored item.
         to_merge_item = to_merge_item.filter(|&id| ignore != Some(id));
+
+        // 772 `Move` `NoMerge` parameter — skip auto-merging for this call.
+        if flags.contains(CylinderFlags::NO_MERGE) {
+            to_merge_item = None;
+        }
+
+        // 772 `Move()` only auto-merges on a tile when `OldCon != Con` (T23).
+        let flags = if from_cylinder == to_work {
+            flags.union(CylinderFlags::IGNORE_AUTO_STACK)
+        } else {
+            flags
+        };
 
         // For tile destinations, check queryAdd
         if let Cylinder::Tile { pos } = to_work {
@@ -273,6 +293,13 @@ impl GameWorld {
                 let from_pos = *from_pos;
                 let to_pos = *to_pos;
 
+                let to_merge_id = self.get_top_object_for_move(to_pos, None);
+                if is_stackable {
+                    if let Some(merge_id) = to_merge_id {
+                        self.merge_check(item_id, merge_id, m)?;
+                    }
+                }
+
                 if is_stackable && m < item_count {
                     // Partial stack move — reduce source count, create new item for destination
                     if let Some(src) = self.items.get_mut(item_id) {
@@ -318,11 +345,7 @@ impl GameWorld {
                         if merge_id == item_id {
                             return Ok(item_id);
                         }
-                        self.ensure_stack_merge_room(
-                            merge_id,
-                            m_move,
-                            ReturnValue::ContainerNotEnoughRoom,
-                        )?;
+                        self.merge_check(item_id, merge_id, m_move)?;
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
                         let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                         self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
@@ -349,11 +372,7 @@ impl GameWorld {
                 }
                 self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
                 if let Some(merge_id) = to_merge_item {
-                    self.ensure_stack_merge_room(
-                        merge_id,
-                        m_move,
-                        ReturnValue::ContainerNotEnoughRoom,
-                    )?;
+                    self.merge_check(item_id, merge_id, m_move)?;
                     self.merge_detached_stack_counts(merge_id, m_move);
                     self.items.remove(item_id);
                     self.notify_container_stack_merge(dest_cid, merge_id);
@@ -370,6 +389,14 @@ impl GameWorld {
                     return Err(ReturnValue::NotPossible);
                 };
                 let to_pos = *to_pos;
+
+                let to_merge_id = self.get_top_object_for_move(to_pos, None);
+                if is_stackable {
+                    if let Some(merge_id) = to_merge_id {
+                        self.merge_check(item_id, merge_id, m_move)?;
+                    }
+                }
+
                 if is_stackable && m_move < item_count {
                     let rv = self.container_query_remove(
                         from_cid,
@@ -423,11 +450,7 @@ impl GameWorld {
                     if merge_id == item_id {
                         return Ok(item_id);
                     }
-                    self.ensure_stack_merge_room(
-                        merge_id,
-                        m_move,
-                        ReturnValue::ContainerNotEnoughRoom,
-                    )?;
+                    self.merge_check(item_id, merge_id, m_move)?;
                     if m == item_count {
                         let rv = self.container_query_remove(
                             from_cid,
@@ -618,11 +641,7 @@ impl GameWorld {
                     if merge_id == item_id {
                         return Ok(item_id);
                     }
-                    self.ensure_stack_merge_room(
-                        merge_id,
-                        m_move,
-                        ReturnValue::ContainerNotEnoughRoom,
-                    )?;
+                    self.merge_check(item_id, merge_id, m_move)?;
                     if m == item_count {
                         self.unequip_item_from_inventory_slot(
                             cid,
@@ -717,7 +736,7 @@ impl GameWorld {
                     if merge_id == item_id {
                         return Ok(item_id);
                     }
-                    self.ensure_stack_merge_room(merge_id, m_move, ReturnValue::NotEnoughCapacity)?;
+                    self.merge_check(item_id, merge_id, m_move)?;
                     if is_stackable && m_move < item_count {
                         // Partial: source stack stays on tile; only counts change.
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
@@ -827,6 +846,14 @@ impl GameWorld {
                 let cid = *player_id;
                 let slot = *slot;
                 let to_pos = *to_pos;
+
+                let to_merge_id = self.get_top_object_for_move(to_pos, None);
+                if is_stackable {
+                    if let Some(merge_id) = to_merge_id {
+                        self.merge_check(item_id, merge_id, item_count)?;
+                    }
+                }
+
                 self.unequip_item_from_inventory_slot(
                     cid,
                     slot,

@@ -50,6 +50,17 @@ impl GameWorld {
         }
     }
 
+    /// Return the player that ultimately owns `item_id`, if any.
+    /// 772 `GetObjectCreatureID(Obj)` — the actor's own items skip `CheckWeight`.
+    pub(crate) fn item_owner(&self, item_id: ItemId) -> Option<CreatureId> {
+        let item = self.items.get(item_id)?;
+        match item.parent? {
+            Cylinder::Inventory { player_id, .. } => Some(player_id),
+            Cylinder::Container { item_id: cid, .. } => self.get_container_owner(cid),
+            Cylinder::Tile { .. } => None,
+        }
+    }
+
     /// 772 `CHEST` flag — unlimited container capacity (`operate.cc:612`/`625`).
     pub(crate) fn container_is_chest(&self, container_item_id: ItemId) -> bool {
         self.items
@@ -218,18 +229,28 @@ impl GameWorld {
         if !cont.unlocked {
             return ReturnValue::NotPossible;
         }
+
+        // 772 `CheckDepotSpace` only rejects moving **into** the depot (T26).
+        let dest_top = self.top_container_item_id(container_item_id);
+        let source_cid = self
+            .items
+            .get(item_id)
+            .and_then(|i| i.parent.as_ref().copied())
+            .and_then(|p| match p {
+                Cylinder::Container { item_id: id, .. } => Some(id),
+                _ => None,
+            });
+        let source_top = source_cid.map(|id| self.top_container_item_id(id));
+        let same_depot = source_top == Some(dest_top);
+
         let Some(item) = self.items.get(item_id) else {
             return ReturnValue::NotPossible;
         };
-        let it = self.items_db.items.get(&item.item_type);
-        if !it.map(|t| t.pickupable()).unwrap_or(false) {
-            return ReturnValue::CannotPickup;
-        }
         if container_item_id == item_id {
             return ReturnValue::ThisIsImpossible;
         }
 
-        if cont.container_type == ContainerType::Depot && !flags.contains(CylinderFlags::NO_LIMIT) {
+        if !same_depot && cont.container_type == ContainerType::Depot && !flags.contains(CylinderFlags::NO_LIMIT) {
             if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
                 let add_count = self.depot_add_count_for_item(container_item_id, item_id, _count);
                 let holder_count = self

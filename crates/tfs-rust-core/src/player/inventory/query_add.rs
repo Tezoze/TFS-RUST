@@ -2,7 +2,6 @@
 // C++ reference: `Player::queryAdd`, `queryMaxCount`, `queryRemove`, `queryDestination`, `hasCapacity`.
 
 use crate::container::ContainerIterator;
-use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -352,7 +351,8 @@ impl GameWorld {
         if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_CAPACITY) {
             return true;
         }
-        if self.player_carries_item(cid, item_id) {
+        // 772 `CheckWeight` skips weight when `GetObjectCreatureID(Obj) == CreatureID` (T27).
+        if self.item_owner(item_id) == Some(cid) {
             return true;
         }
         let Some(item) = self.items.get(item_id) else {
@@ -392,23 +392,6 @@ impl GameWorld {
         } else {
             item.total_weight_oz(tw, false)
         }
-    }
-
-    fn player_carries_item(&self, cid: CreatureId, item_id: ItemId) -> bool {
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return false;
-        };
-        for &slot_item in p.equipment_slots.iter().flatten() {
-            if slot_item == item_id {
-                return true;
-            }
-            if let Some(c) = self.container_registry.get(slot_item) {
-                if c.is_holding_item(&self.container_registry, item_id) {
-                    return true;
-                }
-            }
-        }
-        false
     }
 
     fn occupied_slot(&self, cid: CreatureId, slot: u8) -> Option<OccupiedSlot> {

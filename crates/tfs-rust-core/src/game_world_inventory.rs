@@ -1041,17 +1041,52 @@ impl GameWorld {
         Self::ITEM_STACK_MAX.saturating_sub(self.items.get(merge_id).map(|i| i.count).unwrap_or(0))
     }
 
-    /// TFS stack-merge room check — `Game::internalMoveItem` merge paths (`game.cpp`).
-    pub(crate) fn ensure_stack_merge_room(
+    /// 772 `Merge` compatibility gate — `operate.cc:1449`.
+    ///
+    /// Validates that `count` of the source stack can be merged into `merge_id`.
+    /// Returns the original `count` on success, or the exact 772 `Merge` error:
+    /// - `NotCumulable` when the source is not stackable.
+    /// - `NoMatch` when the two items are different types or incompatible fluids.
+    /// - `TooManyParts` when `dest.count + count > 100`.
+    pub(crate) fn merge_check(
         &self,
+        source_id: ItemId,
         merge_id: ItemId,
-        m_move: u16,
-        not_enough: ReturnValue,
-    ) -> Result<(), ReturnValue> {
-        if self.stack_merge_room(merge_id) < m_move {
-            return Err(not_enough);
+        count: u16,
+    ) -> Result<u16, ReturnValue> {
+        let Some(source) = self.items.get(source_id) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let Some(dest) = self.items.get(merge_id) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let source_stackable = self
+            .items_db
+            .items
+            .get(&source.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        let dest_stackable = self
+            .items_db
+            .items
+            .get(&dest.item_type)
+            .map(|t| t.stackable())
+            .unwrap_or(false);
+        if !source_stackable {
+            return Err(ReturnValue::NotCumulable);
         }
-        Ok(())
+        if !dest_stackable || source.item_type != dest.item_type {
+            return Err(ReturnValue::NoMatch);
+        }
+        if self.items_db.is_splash_or_fluid_for_server(source.item_type)
+            && source.fluid_type() != dest.fluid_type()
+        {
+            return Err(ReturnValue::NoMatch);
+        }
+        if (dest.count as u32).saturating_add(count as u32) > Self::ITEM_STACK_MAX as u32 {
+            return Err(ReturnValue::TooManyParts);
+        }
+        Ok(count)
     }
 
     /// Partial stack merge — source item **still on its cylinder** (tile, hand slot, container).

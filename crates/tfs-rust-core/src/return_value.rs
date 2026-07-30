@@ -81,6 +81,9 @@ pub enum ReturnValue {
     CannotMoveItemIsNotStoreItem,
     ItemCannotBeMovedThere,
     YouCannotUseThisBed,
+    TooManyParts,
+    NotCumulable,
+    NoMatch,
 }
 
 impl ReturnValue {
@@ -214,6 +217,9 @@ impl ReturnValue {
             ReturnValue::YouCannotUseThisBed => {
                 "This bed can't be used, but Premium Account players can rent houses and sleep in beds there to regain health and mana."
             }
+            ReturnValue::TooManyParts => "There are too many parts.",
+            ReturnValue::NotCumulable => "This object is not stackable.",
+            ReturnValue::NoMatch => "This object does not match.",
             // `RETURNVALUE_NOTPOSSIBLE`, `RETURNVALUE_CREATUREBLOCK`, etc. — `tools.cpp` default.
             ReturnValue::NotPossible | ReturnValue::CreatureBlock => "Sorry, not possible.",
         }

@@ -41,6 +41,21 @@ impl GameWorld {
         if from_pos == to_pos {
             return Ok(());
         }
+        // 772 `receiving.cc:258` silently rejects `Type.isMapContainer()` (sprite 0).
+        if sprite_id == 0 {
+            return Ok(());
+        }
+
+        // 772 `receiving.cc` `CheckSpecialCoordinates` / `CheckVisibility`.
+        if from_pos.x != 0xFFFF {
+            if from_pos.z > 15 || to_pos.z > 15 {
+                return Err(ReturnValue::NotPossible);
+            }
+            if !self.can_see_position(cid, from_pos) {
+                return Err(ReturnValue::NotPossible);
+            }
+        }
+
         // Resolve source thing
         let Some(thing) = self.internal_get_thing_move(cid, from_pos, from_stack_pos, sprite_id) else {
             return Err(ReturnValue::NotPossible);
@@ -53,17 +68,32 @@ impl GameWorld {
                 tracing::debug!("player_move_thing: creature move not yet wired");
                 Ok(())
             }
-            Thing::Item(item_id) => self.player_move_item(
-                conn_id,
-                cid,
-                from_pos,
-                sprite_id,
-                from_stack_pos,
-                to_pos,
-                count,
-                item_id,
-                now,
-            ),
+            Thing::Item(item_id) => {
+                // 772 `receiving.cc:258` silently rejects `CUMULATIVE && Count == 0`.
+                if count == 0 {
+                    let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
+                    let is_stackable = self
+                        .items_db
+                        .items
+                        .get(&item_type)
+                        .map(|t| t.stackable())
+                        .unwrap_or(false);
+                    if is_stackable {
+                        return Ok(());
+                    }
+                }
+                self.player_move_item(
+                    conn_id,
+                    cid,
+                    from_pos,
+                    sprite_id,
+                    from_stack_pos,
+                    to_pos,
+                    count,
+                    item_id,
+                    now,
+                )
+            }
         }
     }
 

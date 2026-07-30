@@ -993,29 +993,30 @@ layer that the Rust server uses regardless of `clientVersion`. The `MechanicsPro
 | **P0** | T3+T51: Replace `can_throw_to_tile` / `query_add_item_to_tile` with `IsMapBlocked` equivalent (BANK/UNPASS/UNLAY/HANG hooks) | Small ✅ |
 | **P0** | T21: Add `find_tile_item_by_client_sprite` fallback to Move resolution | Small — function exists ✅ |
 | **P0** | T38: Fix `get_top_down_item` to walk full tile priority (top items + creatures + down items) per `GetTopObject(true)` | Medium ✅ |
-| **P1** | T4: Port `CheckTopMoveObject` priority walk with `PRIORITY_LOW` break | Medium |
-| **P1** | T5+T43: Add `check_move_object` (ObjectAccessible + owner check + OTB `moveable()` + OTB `pickupable()`) to `internal_move_item` | Medium |
-| **P1** | T7: Port `INVENTORY_ANY` auto-slot scan | Medium |
-| **P1** | T16: Fix `SplitObject` to copy item attributes | Small — add `clone_for_split` |
-| **P1** | T17: Fix tile auto-merge to reject >100 (not partial-merge) | Small |
-| **P1** | T22: Fix merge target to use top item only | Small |
-| **P1** | T25: Propagate `Split` parameter to inventory slot query for `ONEWEAPONONLY` relaxation | Small |
-| **P1** | T36: Add `NotifyCreature` for both old/new owners in all cylinder arms | Medium |
-| **P1** | T39: Fix creature fallback in `internal_get_thing_move` to match `GetTopObject(true)` skip-creature rule | Small |
-| **P1** | T45: Port `CheckMapDestination` HANG hook destination range check (asymmetric HOOKSOUTH/HOOKEAST) | Medium |
-| **P2** | T8+T19+T29+T32: Add `Move`-level catch-and-swap with `Count=-1`, `Ignore` param | Medium |
-| **P2** | T11+T30+T33: Wire `MoveEventsRegistry` into `internal_move_item` with `OldCon != Con` gate | Large (feature) |
-| **P3** | T10+T28: Fix `Merge` error codes (`TooManyParts`/`NoMatch`/`NotCumulable`) | Trivial |
-| **P3** | T12+T20+T49+T50: Add `CMoveObject` handler pre-validation (`CheckSpecialCoordinates`/`CheckVisibility`/`Count==0`/`isMapContainer`) | Low |
+| **P1** | T4: Port `CheckTopMoveObject` priority walk with `PRIORITY_LOW` break | Medium ✅ |
+| **P1** | T5+T43: Add `check_move_object` (ObjectAccessible + owner check + OTB `moveable()` + OTB `pickupable()`) to `internal_move_item` | Medium ✅ |
+| **P1** | T7: Port `INVENTORY_ANY` auto-slot scan | Medium ✅ |
+| **P1** | T16: Fix `SplitObject` to copy item attributes | Small — add `clone_for_split` ✅ |
+| **P1** | T17: Fix tile auto-merge to reject >100 (not partial-merge) | Small ✅ |
+| **P1** | T22: Fix merge target to use top item only | Small ✅ |
+| **P1** | T25: Propagate `Split` parameter to inventory slot query for `ONEWEAPONONLY` relaxation | Small ✅ |
+| **P1** | T36: Add `NotifyCreature` for both old/new owners in all cylinder arms | Medium ✅ |
+| **P1** | T39: Fix creature fallback in `internal_get_thing_move` to match `GetTopObject(true)` skip-creature rule | Small ✅ |
+| **P1** | T45: Port `CheckMapDestination` HANG hook destination range check (asymmetric HOOKSOUTH/HOOKEAST) | Medium ✅ |
+| **P2** | T8+T19+T29+T32: Add `Move`-level catch-and-swap with `Count=-1`, `Ignore` param | Medium ✅ |
+| **P2** | T11+T30+T33: Wire `MoveEventsRegistry` into `internal_move_item` with `OldCon != Con` gate | Large (feature) ✅ |
+| **P3** | T10+T28: Fix `Merge` error codes (`TooManyParts`/`NoMatch`/`NotCumulable`) — variants added, not yet wired into `Merge` | Trivial |
+| **P3** | T12+T20: Add `CMoveObject` handler pre-validation (`CheckSpecialCoordinates`/`CheckVisibility`) | Low |
+| **P3** | T49+T50: Add `CMoveObject` handler pre-validation (`Count==0`/`isMapContainer`) | Low ✅ |
 | **P3** | T14: HANG hook destination walk-to-reach | Low |
 | **P3** | T18+T24+T34+T44+T54+T55+T56: Wire self-move + creature push (`MovePossible`/`AVOID`/protection-zone/height-24/`DelayAttack(2000)`/`NotifyTurn`/`NotifyGo`) | Low |
-| **P3** | T23: Guard tile auto-merge with `OldCon != Con` check | Trivial |
-| **P3** | T26: Gate `CheckDepotSpace` directionality (only reject moves **into** depot) | Small |
-| **P3** | T27: Fix `CheckWeight` self-ownership skip (owner == actor, not "currently carries") | Small |
+| **P3** | T23: Guard tile auto-merge with `OldCon != Con` check | Trivial ✅ |
+| **P3** | T26: Gate `CheckDepotSpace` directionality (only reject moves **into** depot) | Small ✅ |
+| **P3** | T27: Fix `CheckWeight` self-ownership skip (owner == actor, not "currently carries") | Small ✅ |
 | **P3** | T31: Add `NoMerge` parameter to `internal_move_item` | Small |
 | **P3** | T35: Close container UIs for system-initiated container moves | Low |
-| **P3** | T40: Move `pickupable` check from `container_query_add` to `check_move_object` | Small |
-| **P3** | T57: Include `this->Stop` in `SnapbackNecessary` calculation | Trivial |
+| **P3** | T40: Move `pickupable` check from `container_query_add` to `check_move_object` | Small ✅ |
+| **P3** | T57: Include `this->Stop` in `SnapbackNecessary` calculation | Trivial ✅ |
 | **Deferred** | T6: Creature-container `CheckMapDestination` (blocked on creature push, D9) | — |
 
 ---

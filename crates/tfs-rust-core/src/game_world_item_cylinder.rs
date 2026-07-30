@@ -337,7 +337,7 @@ impl GameWorld {
         &mut self,
         pos: Position,
         item_id: ItemId,
-        _flags: CylinderFlags,
+        flags: CylinderFlags,
     ) -> Result<ItemId, ReturnValue> {
         let is_stackable;
         let item_type;
@@ -354,31 +354,29 @@ impl GameWorld {
                 .unwrap_or(false);
         }
 
-        // Try stackable merge with the top object only (T22) and only if the full
-        // count fits (T17). 772 `Move` calls `GetTopObject(Con, true)` before `Merge`
-        // and `Merge` throws `TOOMANYPARTS` when `DestCount + Count > 100` for tiles.
-        if is_stackable {
+        // Try stackable merge with the top object only (T22). 772 `Move` calls
+        // `GetTopObject(Con, true)` before `Merge`; `Merge` throws `TOOMANYPARTS`,
+        // `NOMATCH`, or `NOTCUMULABLE` when the merge is impossible.
+        // 772 only auto-merges when `OldCon != Con` (T23), signaled by IGNORE_AUTO_STACK.
+        if is_stackable
+            && !flags.contains(CylinderFlags::IGNORE_AUTO_STACK)
+            && !flags.contains(CylinderFlags::NO_MERGE)
+        {
             if let Some(target_id) = self.get_top_object_for_move(pos, None) {
-                if let Some(existing) = self.items.get(target_id) {
-                    if existing.item_type == item_type
-                        && existing.count < 100
-                        && (existing.count as u32 + item_count as u32) <= 100
-                    {
-                        if let Some(target) = self.items.get_mut(target_id) {
-                            target.count += item_count;
-                        }
-                        // Get stack pos for update packet
-                        let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
-                        self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
-
-                        // Fully merged — remove the source item from SlotMap
-                        let _ = self.events.on_step_in(None, target_id, item_type, pos);
-                        self.cancel_item_decay(item_id);
-                        self.items.remove(item_id);
-                        self.start_decay(target_id);
-                        return Ok(target_id);
-                    }
+                self.merge_check(item_id, target_id, item_count)?;
+                if let Some(target) = self.items.get_mut(target_id) {
+                    target.count = target.count.saturating_add(item_count);
                 }
+                // Get stack pos for update packet
+                let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
+                self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
+
+                // Fully merged — remove the source item from SlotMap
+                let _ = self.events.on_step_in(None, target_id, item_type, pos);
+                self.cancel_item_decay(item_id);
+                self.items.remove(item_id);
+                self.start_decay(target_id);
+                return Ok(target_id);
             }
         }
 
