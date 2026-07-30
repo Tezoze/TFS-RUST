@@ -2,15 +2,93 @@
 //!
 //! - `Game::internalMoveItem` — `game.cpp` ~1078.
 
+use tfs_rust_common::Position;
+
 use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags, CylinderLink};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::item::Item;
 use crate::player_inventory_notifications::NotificationParent;
 use crate::return_value::ReturnValue;
+use crate::tile::flags as tilestate;
+use crate::walk::are_in_range_1_1_0;
 
 impl GameWorld {
+    /// 772 `CheckMoveObject` / `ObjectAccessible` (`operate.cc:418-447`, `info.cc:252-300`).
+    fn check_move_object(
+        &self,
+        actor: Option<CreatureId>,
+        from: &Cylinder,
+        to: &Cylinder,
+        item_id: ItemId,
+    ) -> Result<(), ReturnValue> {
+        let Some(item) = self.items.get(item_id) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let Some(it) = self.items_db.items.get(&item.item_type) else {
+            return Err(ReturnValue::NotPossible);
+        };
+
+        if !it.moveable() {
+            return Err(ReturnValue::NotMoveable);
+        }
+
+        let take = !matches!(to, Cylinder::Tile { .. });
+        if take && !it.pickupable() {
+            return Err(ReturnValue::CannotPickup);
+        }
+
+        // Owner check: the item belongs to the player whose inventory/container holds it.
+        let owner = match from {
+            Cylinder::Inventory { player_id, .. } => Some(*player_id),
+            Cylinder::Container { item_id: cid, .. } => self.get_container_owner(*cid),
+            Cylinder::Tile { .. } => None,
+        };
+        if let Some(owner_id) = owner {
+            if !actor.is_some_and(|a| a == owner_id) {
+                return Err(ReturnValue::NotPossible);
+            }
+        }
+
+        // HANG hook source range (only for ownerless items on a hook tile).
+        if let Cylinder::Tile { pos } = from {
+            if it.is_hangable() {
+                if let Some(tile) = self.map.get_tile(*pos) {
+                    let body = tile.body();
+                    if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
+                        if let Some(actor_id) = actor {
+                            if let Some(actor_pos) = self.creatures.get(actor_id).map(|k| k.position()) {
+                                if !self.is_hang_hook_accessible(*pos, actor_pos, body.flags) {
+                                    return Err(ReturnValue::NotPossible);
+                                }
+                            } else {
+                                return Err(ReturnValue::NotPossible);
+                            }
+                        } else {
+                            return Err(ReturnValue::NotPossible);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn is_hang_hook_accessible(&self, pos: Position, actor_pos: Position, flags: u32) -> bool {
+        if !are_in_range_1_1_0(actor_pos, pos) {
+            return false;
+        }
+        if (flags & tilestate::HOOKEAST) != 0 && actor_pos.x < pos.x {
+            return false;
+        }
+        if (flags & tilestate::HOOKSOUTH) != 0 && actor_pos.y < pos.y {
+            return false;
+        }
+        true
+    }
+
+
     /// Move an item between cylinders. Handles tile↔tile with stackable merge/split.
     /// Returns the ItemId that ended up at the destination.
     // C++ ref: src/game.cpp:1078 Game::internalMoveItem
@@ -25,6 +103,21 @@ impl GameWorld {
     ) -> Result<ItemId, ReturnValue> {
         // Validate source has the item
         self.validate_item_in_cylinder(&from_cylinder, item_id)?;
+
+        // 772 `CheckTopMoveObject` (T4) — from a tile, only the top moveable item may move.
+        if let Cylinder::Tile { pos } = from_cylinder {
+            if self.get_top_object_for_move(pos) != Some(item_id) {
+                return Err(ReturnValue::NotPossible);
+            }
+        }
+
+        self.check_move_object(
+            acting_player,
+            &from_cylinder,
+            &to_cylinder,
+            item_id,
+        )?;
+
         let source_parent = from_cylinder.as_container();
 
         let (to_work, mut to_merge_item) =
@@ -94,7 +187,6 @@ impl GameWorld {
             .map(|t| t.stackable())
             .unwrap_or(false);
         let item_count = item.count;
-        let item_type = item.item_type;
 
         let m = if is_stackable {
             count.min(item_count)
@@ -150,7 +242,11 @@ impl GameWorld {
                     self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
 
                     // Create new item for the moved portion
-                    let new_item = Item::new(item_type, m);
+                    let new_item = self
+                        .items
+                        .get(item_id)
+                        .ok_or(ReturnValue::NotPossible)?
+                        .clone_for_split(m);
                     let new_id = self.items.insert(new_item);
                     self.internal_add_item_to_tile(to_pos, new_id, flags)?;
                     Ok(new_id)
@@ -246,7 +342,11 @@ impl GameWorld {
                         return Err(rv);
                     }
                     self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    let new_item = Item::new(item_type, m_move);
+                    let new_item = self
+                        .items
+                        .get(item_id)
+                        .ok_or(ReturnValue::NotPossible)?
+                        .clone_for_split(m_move);
                     let new_id = self.items.insert(new_item);
                     self.internal_add_item_to_tile(to_pos, new_id, flags)?;
                     return Ok(new_id);
@@ -325,7 +425,12 @@ impl GameWorld {
                         self.merge_partial_stack_counts(item_id, merge_id, m);
                     } else {
                         self.container_remove_thing(from_cid, item_id, u32::from(m))?;
-                        let moved = self.items.insert(Item::new(item_type, m));
+                        let moved = self
+                            .items
+                            .get(item_id)
+                            .ok_or(ReturnValue::NotPossible)?
+                            .clone_for_split(m);
+                        let moved = self.items.insert(moved);
                         self.merge_partial_stack_counts(moved, merge_id, m_move);
                         self.container_add_thing(dest_cid, dest_idx, moved)?;
                     }
@@ -345,7 +450,11 @@ impl GameWorld {
                         return Err(rv);
                     }
                     self.container_remove_thing(from_cid, item_id, u32::from(m))?;
-                    let new_item = Item::new(item_type, m);
+                    let new_item = self
+                        .items
+                        .get(item_id)
+                        .ok_or(ReturnValue::NotPossible)?
+                        .clone_for_split(m);
                     let new_id = self.items.insert(new_item);
                     self.container_add_thing(dest_cid, dest_idx, new_id)?;
                     return Ok(new_id);
@@ -398,7 +507,11 @@ impl GameWorld {
                         return Err(ReturnValue::NeedExchange);
                     }
                     self.container_remove_thing(from_container, item_id, u32::from(m_move))?;
-                    let new_item = Item::new(item_type, m_move);
+                    let new_item = self
+                        .items
+                        .get(item_id)
+                        .ok_or(ReturnValue::NotPossible)?
+                        .clone_for_split(m_move);
                     let new_id = self.items.insert(new_item);
                     self.equip_item_to_inventory_slot(
                         cid,
@@ -494,7 +607,12 @@ impl GameWorld {
                         if let Some(src) = self.items.get_mut(item_id) {
                             src.count = src.count.saturating_sub(m);
                         }
-                        let moved = self.items.insert(Item::new(item_type, m));
+                        let moved = self
+                            .items
+                            .get(item_id)
+                            .ok_or(ReturnValue::NotPossible)?
+                            .clone_for_split(m);
+                        let moved = self.items.insert(moved);
                         self.merge_partial_stack_counts(moved, merge_id, m_move);
                         self.container_add_thing(to_container, to_idx, moved)?;
                     }
@@ -511,7 +629,11 @@ impl GameWorld {
                 }
 
                 if is_stackable && m < item_count {
-                    let new_item = Item::new(item_type, m);
+                    let new_item = self
+                        .items
+                        .get(item_id)
+                        .ok_or(ReturnValue::NotPossible)?
+                        .clone_for_split(m);
                     let new_id = self.items.insert(new_item);
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count = src.count.saturating_sub(m);
@@ -602,7 +724,11 @@ impl GameWorld {
                     }
                     let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
                     self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
-                    let new_item = Item::new(item_type, m_move);
+                    let new_item = self
+                        .items
+                        .get(item_id)
+                        .ok_or(ReturnValue::NotPossible)?
+                        .clone_for_split(m_move);
                     let new_id = self.items.insert(new_item);
                     self.equip_item_to_inventory_slot(
                         cid,

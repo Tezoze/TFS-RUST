@@ -39,6 +39,17 @@ impl GameWorld {
         id
     }
 
+    /// Return the player that ultimately carries `container_item_id`, if any.
+    pub(crate) fn get_container_owner(&self, container_item_id: ItemId) -> Option<CreatureId> {
+        let root = self.top_container_item_id(container_item_id);
+        let parent = self.items.get(root)?.parent?;
+        if let Cylinder::Inventory { player_id, .. } = parent {
+            Some(player_id)
+        } else {
+            None
+        }
+    }
+
     /// 772 `CHEST` flag — unlimited container capacity (`operate.cc:612`/`625`).
     pub(crate) fn container_is_chest(&self, container_item_id: ItemId) -> bool {
         self.items

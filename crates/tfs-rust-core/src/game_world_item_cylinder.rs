@@ -58,7 +58,8 @@ impl GameWorld {
             if let Some(i) = self.items.get(iid) {
                 if let Some(t) = self.items_db.items.get(&i.item_type) {
                     // TOP / CLIP / BOTTOM render categories are always-on-top.
-                    if !t.always_on_top() {
+                    // `CheckTopMoveObject` only accepts the first *moveable* object (T4).
+                    if !t.always_on_top() && t.moveable() {
                         return Some(iid);
                     }
                 }
@@ -69,7 +70,8 @@ impl GameWorld {
             if let Some(i) = self.items.get(iid) {
                 if let Some(t) = self.items_db.items.get(&i.item_type) {
                     // BOTTOM priority items (splashes / magic fields) sit below creatures.
-                    if !t.is_cip_priority_bottom() && !t.always_on_top() {
+                    // Break at `PRIORITY_LOW` (`is_cip_priority_bottom`) and skip `!moveable()`.
+                    if !t.is_cip_priority_bottom() && !t.always_on_top() && t.moveable() {
                         return Some(iid);
                     }
                 }
@@ -88,7 +90,7 @@ impl GameWorld {
         sprite_id: u16,
     ) -> Option<Thing> {
         if pos.x != 0xFFFF {
-            let tile = self.map.get_tile(pos)?;
+            self.map.get_tile(pos)?;
             // 772 `CMoveObject` sets `RNum = 1` and `GetObject` walks the tile list for the
             // client `TypeID` (`info.cc:398-432`), allowing a buried item to be moved by sprite.
             // The top moveable candidate is `GetTopObject(true)` (`info.cc:366-388`).
@@ -100,11 +102,9 @@ impl GameWorld {
             if let Some(item_id) = self.find_tile_item_by_client_sprite(pos, sprite_id) {
                 return Some(Thing::Item(item_id));
             }
-            // Fall through to creature
-            let body = tile.body();
-            if let Some(&creature_id) = body.creatures.last() {
-                return Some(Thing::Creature(creature_id));
-            }
+            // 772 `GetTopObject(true)` for `Move` skips creatures unless they are
+            // creature-containers; without creature push the fallback must not match
+            // a creature that doesn't correspond to the client sprite.
             return None;
         }
         // Container slot — `internalGetThing` container UI position.
@@ -342,41 +342,28 @@ impl GameWorld {
                 .unwrap_or(false);
         }
 
-        // Try stackable merge
+        // Try stackable merge with the top object only (T22) and only if the full
+        // count fits (T17). 772 `Move` calls `GetTopObject(Con, true)` before `Merge`
+        // and `Merge` throws `TOOMANYPARTS` when `DestCount + Count > 100` for tiles.
         if is_stackable {
-            let tile = self.map.get_tile(pos).ok_or(ReturnValue::NotPossible)?;
-            // Look for an existing stack of the same type
-            let mut merge_target: Option<ItemId> = None;
-            for &did in &tile.body().down_items {
-                if let Some(existing) = self.items.get(did) {
-                    if existing.item_type == item_type && existing.count < 100 {
-                        merge_target = Some(did);
-                        break;
-                    }
-                }
-            }
-            if let Some(target_id) = merge_target {
-                let target_count = self.items.get(target_id).map(|i| i.count).unwrap_or(0);
-                let can_add = (100u16).saturating_sub(target_count).min(item_count);
-                if can_add > 0 {
-                    if let Some(target) = self.items.get_mut(target_id) {
-                        target.count += can_add;
-                    }
-                    // Get stack pos for update packet
-                    let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
-                    self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
+            if let Some(target_id) = self.get_top_object_for_move(pos) {
+                if let Some(existing) = self.items.get(target_id) {
+                    if existing.item_type == item_type
+                        && existing.count < 100
+                        && (existing.count as u32 + item_count as u32) <= 100
+                    {
+                        if let Some(target) = self.items.get_mut(target_id) {
+                            target.count += item_count;
+                        }
+                        // Get stack pos for update packet
+                        let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
+                        self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
-                    let remainder = item_count.saturating_sub(can_add);
-                    if remainder == 0 {
                         // Fully merged — remove the source item from SlotMap
                         self.cancel_item_decay(item_id);
                         self.items.remove(item_id);
                         self.start_decay(target_id);
                         return Ok(target_id);
-                    }
-                    // Partial merge — update source item count and add remainder to tile
-                    if let Some(item) = self.items.get_mut(item_id) {
-                        item.count = remainder;
                     }
                 }
             }

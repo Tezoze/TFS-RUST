@@ -12,6 +12,7 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use crate::thing::Thing;
+use crate::tile::flags as tilestate;
 
 impl GameWorld {
     // === B.5: Player Throw (item move from client) ===
@@ -151,6 +152,22 @@ impl GameWorld {
         // C++ ref: src/game.cpp:1058 `canThrowObjectTo(...)`, `info.cc:1154` ThrowPossible
         if !self.map.throw_possible(map_from_pos, map_to_pos, 1) {
             return Err(ReturnValue::CannotThrow);
+        }
+
+        // 772 `CheckMapDestination` HANG hook destination range check (`operate.cc:538-573`).
+        if to_pos.x != 0xFFFF {
+            if let Some(tile) = self.map.get_tile(map_to_pos) {
+                let body = tile.body();
+                if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
+                    if let Some(it) = self.items_db.items.get(&self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                        if it.is_hangable()
+                            && !self.is_hang_hook_accessible(map_to_pos, player_pos, body.flags)
+                        {
+                            return Err(ReturnValue::CannotThrow);
+                        }
+                    }
+                }
+            }
         }
 
         // Check if destination tile can accept the thrown item

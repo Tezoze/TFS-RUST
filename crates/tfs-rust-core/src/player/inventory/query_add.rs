@@ -66,14 +66,17 @@ fn player_query_add_default_ret(classic_equipment_slots: bool, slot_position: u3
 /// Weapon / two-hand conflict when equipping into a hand while the opposite hand is occupied.
 fn hand_slot_conflict_ret(
     moving_item_id: ItemId,
-    moving_count: u16,
+    _moving_count: u16,
     weapon_type: u8,
     opposite: OccupiedSlot,
+    split: bool,
 ) -> ReturnValue {
     if opposite.slot_position & SLOTP_TWO_HAND != 0 {
         return ReturnValue::DropTwoHandedItem;
     }
-    if opposite.item_id == moving_item_id && moving_count == opposite.count {
+    // 772 `CheckInventoryDestination` skips the ONEWEAPONONLY test only when not splitting
+    // and the opposite slot holds the same object (`!Split && Other == Obj`).
+    if !split && opposite.item_id == moving_item_id {
         return ReturnValue::NoError;
     }
     if opposite.weapon_type == WEAPON_SHIELD && weapon_type == WEAPON_SHIELD {
@@ -93,7 +96,7 @@ fn hand_slot_conflict_ret(
 }
 
 /// Pure slot rules from `Player::queryAdd` `switch (index)` — `player.cpp` ~2440–2593.
-pub(crate) fn evaluate_player_inventory_slot_query(
+pub(crate) fn evaluate_player_inventory_slot_query_with_split(
     index: u8,
     classic_equipment_slots: bool,
     item_type: &ItemType,
@@ -101,6 +104,7 @@ pub(crate) fn evaluate_player_inventory_slot_query(
     moving_count: u16,
     left: Option<OccupiedSlot>,
     right: Option<OccupiedSlot>,
+    split: bool,
 ) -> ReturnValue {
     let slot_position = item_type.slot_position;
     let weapon_type = item_type.weapon_type;
@@ -157,6 +161,7 @@ pub(crate) fn evaluate_player_inventory_slot_query(
                         moving_count,
                         weapon_type,
                         left_item,
+                        split,
                     );
                 } else {
                     ret = ReturnValue::NoError;
@@ -189,6 +194,7 @@ pub(crate) fn evaluate_player_inventory_slot_query(
                         moving_count,
                         weapon_type,
                         right_item,
+                        split,
                     );
                 } else {
                     ret = ReturnValue::NoError;
@@ -224,6 +230,29 @@ pub(crate) fn evaluate_player_inventory_slot_query(
     }
 
     ret
+}
+
+/// 7-arg wrapper used by tests; `player_query_add` uses `_with_split` directly.
+#[cfg(test)]
+pub(crate) fn evaluate_player_inventory_slot_query(
+    index: u8,
+    classic_equipment_slots: bool,
+    item_type: &ItemType,
+    moving_item_id: ItemId,
+    moving_count: u16,
+    left: Option<OccupiedSlot>,
+    right: Option<OccupiedSlot>,
+) -> ReturnValue {
+    evaluate_player_inventory_slot_query_with_split(
+        index,
+        classic_equipment_slots,
+        item_type,
+        moving_item_id,
+        moving_count,
+        left,
+        right,
+        false,
+    )
 }
 
 impl GameWorld {
@@ -265,9 +294,10 @@ impl GameWorld {
         let classic = self.mechanics.profile.classic_equipment_slots;
         let left = self.occupied_slot(cid, InventorySlot::Left as u8);
         let right = self.occupied_slot(cid, InventorySlot::Right as u8);
+        let split = count < item_count as u32;
 
-        let ret = evaluate_player_inventory_slot_query(
-            index, classic, it, item_id, item_count, left, right,
+        let ret = evaluate_player_inventory_slot_query_with_split(
+            index, classic, it, item_id, item_count, left, right, split,
         );
 
         if ret != ReturnValue::NoError && ret != ReturnValue::NotEnoughRoom {

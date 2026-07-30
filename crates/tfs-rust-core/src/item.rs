@@ -41,6 +41,14 @@ impl Item {
         Self::new(item_type, 1)
     }
 
+    /// 772 `SplitObject` → `CopyObject` — copies all attributes before setting the new count.
+    pub fn clone_for_split(&self, count: u16) -> Self {
+        let mut copy = self.clone();
+        copy.count = count;
+        copy.parent = None;
+        copy
+    }
+
     // === Convenience accessors for common attributes ===
 
     pub fn action_id(&self) -> u16 {
