@@ -82,7 +82,6 @@ impl GameWorld {
         _now: Instant,
     ) -> Result<(), ReturnValue> {
         let item_is_pickupable;
-        let item_throw_range;
         // Verify client sprite ID matches
         if let Some(item) = self.items.get(item_id) {
             let it = self.items_db.items.get(&item.item_type);
@@ -96,8 +95,6 @@ impl GameWorld {
                 return Err(ReturnValue::NotMoveable);
             }
             item_is_pickupable = it.map(|t| t.pickupable()).unwrap_or(false);
-            // C++ ref: src/item.h:828-829 Item::getThrowRange (pickupable ? 15 : 2)
-            item_throw_range = if item_is_pickupable { 15u32 } else { 2u32 };
         } else {
             return Err(ReturnValue::NotPossible);
         }
@@ -141,23 +138,24 @@ impl GameWorld {
         }
 
         // C++ ref: src/game.cpp:1046-1060 Game::playerMoveItem
-        if !item_is_pickupable && player_pos.z != map_to_pos.z {
-            return Err(ReturnValue::DestinationOutOfReach);
+        // 772 CheckMapDestination: non-takeable items have an ObjectInRange(2) gate;
+        // takeable items have no fixed throw range (only ThrowPossible LOS).
+        if !item_is_pickupable {
+            let to_dx = (player_pos.x as i32 - map_to_pos.x as i32).unsigned_abs();
+            let to_dy = (player_pos.y as i32 - map_to_pos.y as i32).unsigned_abs();
+            if to_dx > 2 || to_dy > 2 {
+                return Err(ReturnValue::DestinationOutOfReach);
+            }
         }
 
-        let to_dx = (player_pos.x as i32 - map_to_pos.x as i32).unsigned_abs();
-        let to_dy = (player_pos.y as i32 - map_to_pos.y as i32).unsigned_abs();
-        if to_dx > item_throw_range || to_dy > item_throw_range {
-            return Err(ReturnValue::DestinationOutOfReach);
-        }
-
-        // C++ ref: src/game.cpp:1058 `canThrowObjectTo(mapFromPos, mapToPos, true, false, throwRange, throwRange)`
-        if !self.can_throw_object_to(map_from_pos, map_to_pos, item_throw_range) {
+        // C++ ref: src/game.cpp:1058 `canThrowObjectTo(...)`, `info.cc:1154` ThrowPossible
+        if !self.map.throw_possible(map_from_pos, map_to_pos, 1) {
             return Err(ReturnValue::CannotThrow);
         }
 
         // Check if destination tile can accept the thrown item
-        if to_pos.x != 0xFFFF && !self.can_throw_to_tile(map_to_pos, item_id) {
+        // C++ ref: `operate.cc:451` `IsMapBlocked`.
+        if to_pos.x != 0xFFFF && self.is_map_blocked(map_to_pos, item_id) {
             return Err(ReturnValue::NotEnoughRoom);
         }
 
@@ -173,117 +171,6 @@ impl GameWorld {
         Ok(())
     }
 
-    // C++ ref: src/map.cpp:486-494 `Map::canThrowObjectTo` + `isSightClear` / `isTileClear`
-    fn can_throw_object_to(&self, from: Position, to: Position, throw_range: u32) -> bool {
-        if from.z != to.z {
-            return false;
-        }
-        let dx = (from.x as i32 - to.x as i32).unsigned_abs();
-        let dy = (from.y as i32 - to.y as i32).unsigned_abs();
-        if dx > throw_range || dy > throw_range {
-            return false;
-        }
-        // C++ `isSightClear` — adjacent tiles skip line checks (`map.cpp` ~573).
-        if dx < 2 && dy < 2 {
-            return true;
-        }
-        for p in crate::map::walk_grid_line(from, to) {
-            if p == from || p == to {
-                continue;
-            }
-            if !self.is_tile_clear_for_throw(p, false) {
-                return false;
-            }
-        }
-        true
-    }
 
-    // Check if the destination tile can accept thrown items
-    // C++ ref: Part of Tile::queryAdd logic for thrown items
-    fn can_throw_to_tile(&self, pos: Position, _item_id: ItemId) -> bool {
-        let Some(tile) = self.map.get_tile(pos) else {
-            // No tile means you can't throw there
-            return false;
-        };
 
-        // Check tile flags first
-        let body = tile.body();
-        if body.flags & (crate::tile::flags::BLOCK_PROJECTILE | crate::tile::flags::BLOCK_SOLID)
-            != 0
-        {
-            return false;
-        }
-
-        // Check ground item
-        if let Some(ground_id) = body.ground {
-            let ground_item = self.items_db.items.get(&ground_id);
-            if let Some(ground_type) = ground_item {
-                if ground_type.block_projectile() || ground_type.block_solid() {
-                    return false;
-                }
-            }
-        }
-
-        // Check all items on the tile
-        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            if let Some(item_type) = self.items_db.items.get(&item.item_type) {
-                if item_type.block_projectile() || item_type.block_solid() {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
-
-    // C++ ref: src/map.cpp:496-508 Map::isTileClear, src/tile.cpp:27-40 Tile::hasProperty
-    fn is_tile_clear_for_throw(&self, pos: Position, block_floor: bool) -> bool {
-        let Some(tile) = self.map.get_tile(pos) else {
-            return true;
-        };
-
-        let body = tile.body();
-
-        if block_floor && body.ground.is_some() {
-            return false;
-        }
-
-        // C++ `CONST_PROP_BLOCKPROJECTILE` → Rust `UNTHROW` (set from `block_projectile()`).
-        // The legacy `BLOCK_PROJECTILE` alias maps to `BLOCKPATH` (pathfinding) — wrong flag.
-        if body.flags & crate::tile::flags::UNTHROW != 0 {
-            return false;
-        }
-
-        if let Some(ground_id) = body.ground {
-            let ground_blocks = self
-                .items_db
-                .items
-                .get(&ground_id)
-                .map(|it| it.block_projectile())
-                .unwrap_or(false);
-            if ground_blocks {
-                return false;
-            }
-        }
-
-        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            let blocks = self
-                .items_db
-                .items
-                .get(&item.item_type)
-                .map(|it| it.block_projectile())
-                .unwrap_or(false);
-            if blocks {
-                return false;
-            }
-        }
-
-        true
-    }
 }

@@ -45,6 +45,39 @@ impl GameWorld {
         })
     }
 
+    /// 772 `GetTopObject(x, y, z, true)` — first non-BANK/CLIP/BOTTOM/TOP/creature object.
+    /// Used for the top moveable check in the Move path.
+    // C++ ref: `info.cc:366-388` `GetTopObject`
+    pub(crate) fn get_top_object_for_move(&self, pos: Position) -> Option<ItemId> {
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+
+        // Ground is always skipped (BANK).
+        // Cip order: ground → top items → creatures → down items.
+        for &iid in &body.top_items {
+            if let Some(i) = self.items.get(iid) {
+                if let Some(t) = self.items_db.items.get(&i.item_type) {
+                    // TOP / CLIP / BOTTOM render categories are always-on-top.
+                    if !t.always_on_top() {
+                        return Some(iid);
+                    }
+                }
+            }
+        }
+        // Creatures are skipped when Move=true.
+        for &iid in &body.down_items {
+            if let Some(i) = self.items.get(iid) {
+                if let Some(t) = self.items_db.items.get(&i.item_type) {
+                    // BOTTOM priority items (splashes / magic fields) sit below creatures.
+                    if !t.is_cip_priority_bottom() && !t.always_on_top() {
+                        return Some(iid);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Resolve a client-encoded position to a `Thing` (item or creature on a tile).
     // C++ ref: src/game.cpp:213 Game::internalGetThing (STACKPOS_MOVE path)
     pub fn internal_get_thing_move(
@@ -58,7 +91,8 @@ impl GameWorld {
             let tile = self.map.get_tile(pos)?;
             // 772 `CMoveObject` sets `RNum = 1` and `GetObject` walks the tile list for the
             // client `TypeID` (`info.cc:398-432`), allowing a buried item to be moved by sprite.
-            if let Some(top_item_id) = tile.get_top_down_item() {
+            // The top moveable candidate is `GetTopObject(true)` (`info.cc:366-388`).
+            if let Some(top_item_id) = self.get_top_object_for_move(pos) {
                 if self.validate_item_sprite(top_item_id, sprite_id) {
                     return Some(Thing::Item(top_item_id));
                 }
@@ -162,15 +196,14 @@ impl GameWorld {
         if flags.contains(CylinderFlags::NO_LIMIT) {
             return ReturnValue::NoError;
         }
+        // C++ ref: `operate.cc:451` `IsMapBlocked` — BANK/UNPASS/UNLAY/HANG hooks.
+        if self.is_map_blocked(pos, item_id) {
+            return ReturnValue::NotPossible;
+        }
         let Some(item) = self.items.get(item_id) else {
             return ReturnValue::NotPossible;
         };
         let it = self.items_db.items.get(&item.item_type);
-        let is_hangable = it.map(|t| t.is_hangable()).unwrap_or(false);
-        // Non-hangable items need ground
-        if tile.body().ground.is_none() && !is_hangable {
-            return ReturnValue::NotPossible;
-        }
         // Blocking item can't be placed where non-ghost creatures are
         let is_blocking = it.map(|t| t.block_solid()).unwrap_or(false);
         if is_blocking && !flags.contains(CylinderFlags::IGNORE_BLOCK_CREATURE) {
@@ -180,6 +213,76 @@ impl GameWorld {
             }
         }
         ReturnValue::NoError
+    }
+
+    /// 772 `IsMapBlocked` — destination tile validity for thrown/placed items (`operate.cc:451`).
+    /// Returns `true` when the tile cannot accept `item_id`.
+    pub(crate) fn is_map_blocked(&self, pos: Position, item_id: ItemId) -> bool {
+        let Some(tile) = self.map.get_tile(pos) else {
+            return true;
+        };
+        let body = tile.body();
+        let Some(item) = self.items.get(item_id) else {
+            return true;
+        };
+        let Some(it) = self.items_db.items.get(&item.item_type) else {
+            return true;
+        };
+
+        let is_unpass = it.block_solid();
+        let is_hang = it.is_hangable();
+        let has_bank = body.ground.is_some();
+        let has_hook = (body.flags
+            & (crate::tile::flags::HOOKEAST | crate::tile::flags::HOOKSOUTH))
+            != 0;
+
+        let mut has_unpass = false;
+        let mut has_unlay = false;
+        let mut has_hang = false;
+
+        // Ground contributes to the coordinate flags as well.
+        if let Some(ground_id) = body.ground {
+            if let Some(t) = self.items_db.items.get(&ground_id) {
+                if t.block_solid() {
+                    has_unpass = true;
+                }
+                if t.xml_attributes.get("unlay").map(|v| v == "true").unwrap_or(false) {
+                    has_unlay = true;
+                }
+                if t.is_hangable() {
+                    has_hang = true;
+                }
+            }
+        }
+
+        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+            if let Some(i) = self.items.get(iid) {
+                if let Some(t) = self.items_db.items.get(&i.item_type) {
+                    if t.block_solid() {
+                        has_unpass = true;
+                    }
+                    if t.xml_attributes.get("unlay").map(|v| v == "true").unwrap_or(false) {
+                        has_unlay = true;
+                    }
+                    if t.is_hangable() {
+                        has_hang = true;
+                    }
+                }
+            }
+        }
+
+        if has_bank && !has_unpass {
+            return false;
+        }
+        if !is_unpass {
+            if has_bank && !has_unlay {
+                return false;
+            }
+            if is_hang && has_hook && !has_hang {
+                return false;
+            }
+        }
+        true
     }
 
     /// Validate that an item exists in the specified cylinder.
