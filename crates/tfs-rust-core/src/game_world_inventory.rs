@@ -317,7 +317,7 @@ impl GameWorld {
         }
         let count = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
         let ok = self
-            .internal_move_item(acting, from, to, item_id, count, flags)
+            .internal_move_item(acting, from, to, item_id, count, flags, None)
             .is_ok();
         Ok(ok)
     }
@@ -989,7 +989,15 @@ impl GameWorld {
                     index: INDEX_WHEREEVER,
                 };
                 if self
-                    .internal_move_item(Some(cid), from, to, equipped_id, n, CylinderFlags::NONE)
+                    .internal_move_item(
+                        Some(cid),
+                        from,
+                        to,
+                        equipped_id,
+                        n,
+                        CylinderFlags::NONE,
+                        None,
+                    )
                     .is_err()
                 {
                     self.send_cancel_message(conn_id, ReturnValue::NotPossible);
@@ -1010,7 +1018,15 @@ impl GameWorld {
             slot: target_slot,
         };
         if self
-            .internal_move_item(Some(cid), from, to, found_id, n, CylinderFlags::NONE)
+            .internal_move_item(
+                Some(cid),
+                from,
+                to,
+                found_id,
+                n,
+                CylinderFlags::NONE,
+                None,
+            )
             .is_err()
         {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);

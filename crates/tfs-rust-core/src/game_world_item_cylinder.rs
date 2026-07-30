@@ -48,13 +48,22 @@ impl GameWorld {
     /// 772 `GetTopObject(x, y, z, true)` — first non-BANK/CLIP/BOTTOM/TOP/creature object.
     /// Used for the top moveable check in the Move path.
     // C++ ref: `info.cc:366-388` `GetTopObject`
-    pub(crate) fn get_top_object_for_move(&self, pos: Position) -> Option<ItemId> {
+    /// 772 `GetTopObject(x, y, z, true)` — first non-BANK/CLIP/BOTTOM/TOP/creature object.
+    /// `ignore` is an optional `ItemId` to skip (used by the 772 `Move` `Ignore` parameter).
+    pub(crate) fn get_top_object_for_move(
+        &self,
+        pos: Position,
+        ignore: Option<ItemId>,
+    ) -> Option<ItemId> {
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
 
         // Ground is always skipped (BANK).
         // Cip order: ground → top items → creatures → down items.
         for &iid in &body.top_items {
+            if ignore == Some(iid) {
+                continue;
+            }
             if let Some(i) = self.items.get(iid) {
                 if let Some(t) = self.items_db.items.get(&i.item_type) {
                     // TOP / CLIP / BOTTOM render categories are always-on-top.
@@ -67,6 +76,9 @@ impl GameWorld {
         }
         // Creatures are skipped when Move=true.
         for &iid in &body.down_items {
+            if ignore == Some(iid) {
+                continue;
+            }
             if let Some(i) = self.items.get(iid) {
                 if let Some(t) = self.items_db.items.get(&i.item_type) {
                     // BOTTOM priority items (splashes / magic fields) sit below creatures.
@@ -94,7 +106,7 @@ impl GameWorld {
             // 772 `CMoveObject` sets `RNum = 1` and `GetObject` walks the tile list for the
             // client `TypeID` (`info.cc:398-432`), allowing a buried item to be moved by sprite.
             // The top moveable candidate is `GetTopObject(true)` (`info.cc:366-388`).
-            if let Some(top_item_id) = self.get_top_object_for_move(pos) {
+            if let Some(top_item_id) = self.get_top_object_for_move(pos, None) {
                 if self.validate_item_sprite(top_item_id, sprite_id) {
                     return Some(Thing::Item(top_item_id));
                 }
@@ -346,7 +358,7 @@ impl GameWorld {
         // count fits (T17). 772 `Move` calls `GetTopObject(Con, true)` before `Merge`
         // and `Merge` throws `TOOMANYPARTS` when `DestCount + Count > 100` for tiles.
         if is_stackable {
-            if let Some(target_id) = self.get_top_object_for_move(pos) {
+            if let Some(target_id) = self.get_top_object_for_move(pos, None) {
                 if let Some(existing) = self.items.get(target_id) {
                     if existing.item_type == item_type
                         && existing.count < 100
@@ -360,6 +372,7 @@ impl GameWorld {
                         self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
                         // Fully merged — remove the source item from SlotMap
+                        let _ = self.events.on_step_in(None, target_id, item_type, pos);
                         self.cancel_item_decay(item_id);
                         self.items.remove(item_id);
                         self.start_decay(target_id);
@@ -421,6 +434,7 @@ impl GameWorld {
         // Broadcast add
         self.broadcast_tile_item_add(pos, item_id, tvp_stack, cip_stack);
 
+        let _ = self.events.on_step_in(None, item_id, item_type, pos);
         self.start_decay(item_id);
         Ok(item_id)
     }

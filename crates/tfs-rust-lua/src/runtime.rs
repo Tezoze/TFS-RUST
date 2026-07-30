@@ -11,6 +11,8 @@ use std::rc::Rc;
 
 use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
+use crate::userdata::PositionRef;
+use tfs_rust_common::Position;
 use crate::npc_dialogue::register_npc_dialogue;
 use crate::npc_type::register_npc_type;
 use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
@@ -477,6 +479,81 @@ impl LuaRuntime {
             .map_err(LuaError::Init)?;
         function
             .call::<bool>((player_ud, item_ud, slot, is_check))
+            .map_err(LuaError::Init)
+    }
+
+    /// TFS `MoveEvent::executeAddItem` — `(player, item, fromPosition, toPosition) -> bool`.
+    pub fn call_move_item(
+        &self,
+        callback: &CallbackRef,
+        player: crate::context::CreatureId,
+        item: crate::context::ItemId,
+        from: Position,
+        to: Position,
+    ) -> Result<bool, LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(&callback.0)
+            .map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        let item_ud = self
+            .lua
+            .create_userdata(ItemRef(item))
+            .map_err(LuaError::Init)?;
+        let from_ud = self
+            .lua
+            .create_userdata(PositionRef {
+                x: from.x,
+                y: from.y,
+                z: from.z,
+            })
+            .map_err(LuaError::Init)?;
+        let to_ud = self
+            .lua
+            .create_userdata(PositionRef {
+                x: to.x,
+                y: to.y,
+                z: to.z,
+            })
+            .map_err(LuaError::Init)?;
+        function
+            .call::<bool>((player_ud, item_ud, from_ud, to_ud))
+            .map_err(LuaError::Init)
+    }
+
+    /// TFS `MoveEvent::executeStep` — `(creature, item, position) -> bool`.
+    pub fn call_move_step(
+        &self,
+        callback: &CallbackRef,
+        creature: crate::context::CreatureId,
+        item: crate::context::ItemId,
+        pos: Position,
+    ) -> Result<bool, LuaError> {
+        let function: mlua::Function = self
+            .lua
+            .registry_value(&callback.0)
+            .map_err(LuaError::Init)?;
+        let creature_ud = self
+            .lua
+            .create_userdata(CreatureRef(creature))
+            .map_err(LuaError::Init)?;
+        let item_ud = self
+            .lua
+            .create_userdata(ItemRef(item))
+            .map_err(LuaError::Init)?;
+        let pos_ud = self
+            .lua
+            .create_userdata(PositionRef {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            })
+            .map_err(LuaError::Init)?;
+        function
+            .call::<bool>((creature_ud, item_ud, pos_ud))
             .map_err(LuaError::Init)
     }
 

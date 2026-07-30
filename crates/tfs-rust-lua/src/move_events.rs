@@ -7,11 +7,15 @@ use std::path::Path;
 
 use crate::runtime::{CallbackRef, LuaError, LuaRuntime};
 
-/// Equip vs deequip — `MoveEvent_t` subset.
+/// `MoveEvent_t` — `movement.h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MoveEventKind {
     Equip,
     DeEquip,
+    AddItem,
+    RemoveItem,
+    StepIn,
+    StepOut,
 }
 
 #[derive(Debug)]
@@ -124,6 +128,10 @@ end
             let kind = match event_lower.as_str() {
                 "equip" => MoveEventKind::Equip,
                 "deequip" => MoveEventKind::DeEquip,
+                "additem" => MoveEventKind::AddItem,
+                "removeitem" => MoveEventKind::RemoveItem,
+                "stepin" => MoveEventKind::StepIn,
+                "stepout" => MoveEventKind::StepOut,
                 _ => continue,
             };
 

@@ -176,6 +176,13 @@ impl GameWorld {
             return Err(ReturnValue::NotEnoughRoom);
         }
 
+        let dest_id = match to_cylinder {
+            Cylinder::Inventory { player_id, slot } => {
+                self.get_player_inventory_item(player_id, slot)
+            }
+            _ => None,
+        };
+
         let result = self.internal_move_item(
             Some(cid),
             from_cylinder,
@@ -183,9 +190,58 @@ impl GameWorld {
             item_id,
             count as u16,
             CylinderFlags::NONE,
+            None,
         );
+
+        let result = match result {
+            Ok(r) => Ok(r),
+            Err(rv) => match dest_id {
+                Some(dest_id)
+                    if Self::is_inventory_move_catch(rv) && Some(dest_id) != Some(item_id) =>
+                {
+                    // 772 catch-and-swap (cract.cc:607-623): move the occupying dest item
+                    // back to the source cylinder, then retry the original move while
+                    // ignoring the swapped item during CheckTopMoveObject/Merge.
+                    self.internal_move_item(
+                        Some(cid),
+                        to_cylinder,
+                        from_cylinder,
+                        dest_id,
+                        GameWorld::MOVE_ALL,
+                        CylinderFlags::NONE,
+                        None,
+                    )?;
+                    self.internal_move_item(
+                        Some(cid),
+                        from_cylinder,
+                        to_cylinder,
+                        item_id,
+                        count as u16,
+                        CylinderFlags::NONE,
+                        Some(dest_id),
+                    )
+                }
+                _ => Err(rv),
+            },
+        };
+
         result?;
         Ok(())
+    }
+
+    /// 772 `TCreature::Move` catch-and-swap result list (cract.cc:610):
+    /// `NOROOM` / `HANDSNOTFREE` / `HANDBLOCKED` / `ONEWEAPONONLY`.
+    fn is_inventory_move_catch(rv: ReturnValue) -> bool {
+        matches!(
+            rv,
+            ReturnValue::NotEnoughRoom
+                | ReturnValue::BothHandsNeedToBeFree
+                | ReturnValue::PutThisObjectInYourHand
+                | ReturnValue::CannotBeDressed
+                | ReturnValue::CanOnlyUseOneWeapon
+                | ReturnValue::CanOnlyUseOneShield
+                | ReturnValue::DropTwoHandedItem
+        )
     }
 
 

@@ -10,6 +10,7 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use crate::talkactions::TalkActionRegistry;
 use slotmap::Key;
+use tfs_rust_common::Position;
 use tfs_rust_lua::{
     with_lua_context, CallbackRef, CreatureEventType, LuaRuntime, MoveEventKind,
     MoveEventsRegistry, PlayerEventType,
@@ -129,6 +130,64 @@ impl LuaEventDispatcher {
             }
         }
     }
+
+    fn dispatch_move_item(
+        &self,
+        kind: MoveEventKind,
+        actor: Option<CreatureId>,
+        item: ItemId,
+        item_type: u16,
+        from: Position,
+        to: Position,
+    ) -> bool {
+        let Some(actor) = actor else {
+            return true;
+        };
+        let Some(entry) = self.move_events.get(kind, item_type) else {
+            return true;
+        };
+        match self.runtime.call_move_item(
+            &entry.callback,
+            actor.data().as_ffi(),
+            item.data().as_ffi(),
+            from,
+            to,
+        ) {
+            Ok(allow) => allow,
+            Err(e) => {
+                tracing::error!(?actor, ?item, item_type, ?kind, "Lua move item event failed: {e}");
+                true
+            }
+        }
+    }
+
+    fn dispatch_move_step(
+        &self,
+        kind: MoveEventKind,
+        actor: Option<CreatureId>,
+        item: ItemId,
+        item_type: u16,
+        pos: Position,
+    ) -> bool {
+        let Some(actor) = actor else {
+            return true;
+        };
+        let Some(entry) = self.move_events.get(kind, item_type) else {
+            return true;
+        };
+        match self.runtime.call_move_step(
+            &entry.callback,
+            actor.data().as_ffi(),
+            item.data().as_ffi(),
+            pos,
+        ) {
+            Ok(allow) => allow,
+            Err(e) => {
+                tracing::error!(?actor, ?item, item_type, ?kind, "Lua move step event failed: {e}");
+                true
+            }
+        }
+    }
 }
 
 impl EventDispatcher for LuaEventDispatcher {
@@ -210,6 +269,48 @@ impl EventDispatcher for LuaEventDispatcher {
                 );
             }
         }
+    }
+
+    fn on_remove_item(
+        &self,
+        actor: Option<CreatureId>,
+        item: ItemId,
+        item_type: u16,
+        from: Position,
+        to: Position,
+    ) -> bool {
+        self.dispatch_move_item(MoveEventKind::RemoveItem, actor, item, item_type, from, to)
+    }
+
+    fn on_add_item(
+        &self,
+        actor: Option<CreatureId>,
+        item: ItemId,
+        item_type: u16,
+        from: Position,
+        to: Position,
+    ) -> bool {
+        self.dispatch_move_item(MoveEventKind::AddItem, actor, item, item_type, from, to)
+    }
+
+    fn on_step_out(
+        &self,
+        actor: Option<CreatureId>,
+        item: ItemId,
+        item_type: u16,
+        pos: Position,
+    ) -> bool {
+        self.dispatch_move_step(MoveEventKind::StepOut, actor, item, item_type, pos)
+    }
+
+    fn on_step_in(
+        &self,
+        actor: Option<CreatureId>,
+        item: ItemId,
+        item_type: u16,
+        pos: Position,
+    ) -> bool {
+        self.dispatch_move_step(MoveEventKind::StepIn, actor, item, item_type, pos)
     }
 
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {

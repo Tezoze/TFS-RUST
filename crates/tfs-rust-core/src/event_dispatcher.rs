@@ -89,6 +89,52 @@ pub trait EventDispatcher {
     ) {
     }
 
+    /// TFS `MoveEvent::onRemoveItem` — `internal_move_item` SeparationEvent (OldCon != Con).
+    fn on_remove_item(
+        &self,
+        _actor: Option<CreatureId>,
+        _item: ItemId,
+        _item_type: u16,
+        _from: Position,
+        _to: Position,
+    ) -> bool {
+        true
+    }
+
+    /// TFS `MoveEvent::onAddItem` — `internal_move_item` MovementEvent (OldCon != Con).
+    fn on_add_item(
+        &self,
+        _actor: Option<CreatureId>,
+        _item: ItemId,
+        _item_type: u16,
+        _from: Position,
+        _to: Position,
+    ) -> bool {
+        true
+    }
+
+    /// TFS `MoveEvent::onStepOut` — `internal_move_item` MovementEvent from old tile.
+    fn on_step_out(
+        &self,
+        _actor: Option<CreatureId>,
+        _item: ItemId,
+        _item_type: u16,
+        _pos: Position,
+    ) -> bool {
+        true
+    }
+
+    /// TFS `MoveEvent::onStepIn` — `internal_add_item_to_tile` MovementEvent to new tile.
+    fn on_step_in(
+        &self,
+        _actor: Option<CreatureId>,
+        _item: ItemId,
+        _item_type: u16,
+        _pos: Position,
+    ) -> bool {
+        true
+    }
+
     /// TFS `Creature::onCreatureSay` — per-creature hear callback (e.g. NPC dialog,
     /// creaturescript). C++ fires this for **every** spectator including the speaker
     /// (`game.cpp:3540`). Default no-op until the NPC/creaturescript Lua runtime lands.

@@ -14,6 +14,20 @@ use crate::tile::flags as tilestate;
 use crate::walk::are_in_range_1_1_0;
 
 impl GameWorld {
+    /// 772 `Count = -1` ("move entire stack") sentinel.
+    pub(crate) const MOVE_ALL: u16 = u16::MAX;
+
+    /// Position of a cylinder for Lua `MoveEvent` coordinates.
+    fn cylinder_position(&self, cyl: &Cylinder) -> Option<Position> {
+        match cyl {
+            Cylinder::Tile { pos } => Some(*pos),
+            Cylinder::Inventory { player_id, .. } => {
+                Some(self.creatures.get(*player_id)?.position())
+            }
+            Cylinder::Container { item_id: cid, .. } => self.script_item_position(*cid),
+        }
+    }
+
     /// 772 `CheckMoveObject` / `ObjectAccessible` (`operate.cc:418-447`, `info.cc:252-300`).
     fn check_move_object(
         &self,
@@ -100,13 +114,16 @@ impl GameWorld {
         item_id: ItemId,
         count: u16,
         flags: CylinderFlags,
+        ignore: Option<ItemId>,
     ) -> Result<ItemId, ReturnValue> {
         // Validate source has the item
         self.validate_item_in_cylinder(&from_cylinder, item_id)?;
 
         // 772 `CheckTopMoveObject` (T4) — from a tile, only the top moveable item may move.
+        // `ignore` lets the 772 catch-and-swap (T8) re-check the source after the swapped
+        // dest item has been placed on top of the source tile.
         if let Cylinder::Tile { pos } = from_cylinder {
-            if self.get_top_object_for_move(pos) != Some(item_id) {
+            if self.get_top_object_for_move(pos, ignore) != Some(item_id) {
                 return Err(ReturnValue::NotPossible);
             }
         }
@@ -122,6 +139,9 @@ impl GameWorld {
 
         let (to_work, mut to_merge_item) =
             self.resolve_move_destination(to_cylinder, item_id, source_parent, flags)?;
+
+        // The 772 `Move`/`Merge` `Ignore` parameter must not merge with the ignored item.
+        to_merge_item = to_merge_item.filter(|&id| ignore != Some(id));
 
         // For tile destinations, check queryAdd
         if let Cylinder::Tile { pos } = to_work {
@@ -187,6 +207,7 @@ impl GameWorld {
             .map(|t| t.stackable())
             .unwrap_or(false);
         let item_count = item.count;
+        let item_type = item.item_type;
 
         let m = if is_stackable {
             count.min(item_count)
@@ -225,6 +246,25 @@ impl GameWorld {
             let rv = self.player_query_remove(*player_id, item_id, u32::from(m_move), flags);
             if rv.is_error() {
                 return Err(rv);
+            }
+        }
+
+        // 772 `MovementEvent` / `SeparationEvent` (T11/T30/T33) — OldCon != Con gate.
+        if from_cylinder != to_work {
+            let from_pos = self.cylinder_position(&from_cylinder);
+            let to_pos = self.cylinder_position(&to_work);
+            if let (Some(from_pos), Some(to_pos)) = (from_pos, to_pos) {
+                if !self.events.on_remove_item(acting_player, item_id, item_type, from_pos, to_pos) {
+                    return Err(ReturnValue::NotPossible);
+                }
+                if let Cylinder::Tile { pos } = &from_cylinder {
+                    if !self.events.on_step_out(acting_player, item_id, item_type, *pos) {
+                        return Err(ReturnValue::NotPossible);
+                    }
+                }
+                if !self.events.on_add_item(acting_player, item_id, item_type, from_pos, to_pos) {
+                    return Err(ReturnValue::NotPossible);
+                }
             }
         }
 

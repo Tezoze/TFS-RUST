@@ -344,6 +344,7 @@ impl GameWorld {
                     item_id,
                     count,
                     CylinderFlags::default(),
+                    None,
                 )
                 .is_ok()
             {
