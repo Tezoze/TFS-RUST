@@ -175,7 +175,7 @@ fn is_adjacent_move(
     }
 }
 
-mod walk_tile;
+pub(crate) mod walk_tile;
 mod walk_timing;
 
 use walk_tile::{
@@ -244,7 +244,7 @@ pub(crate) fn ground_speed_for_tile_body(
 
 /// TFS `Position::getDirectionTo` — cardinal/diagonal direction between two positions.
 /// C++ ref: src/position.h getDirectionTo
-fn direction_from_positions(from: Position, to: Position) -> Direction {
+pub(crate) fn direction_from_positions(from: Position, to: Position) -> Direction {
     let dx = to.x as i32 - from.x as i32;
     let dy = to.y as i32 - from.y as i32;
     match (dx.signum(), dy.signum()) {

@@ -35,7 +35,7 @@ fn ground_is_cleared_zero_waypoint_bank(world: &GameWorld, ground: Option<u16>) 
 }
 
 /// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
-fn tile_has_height_n(
+pub(crate) fn tile_has_height_n(
     pos: Position,
     body: &crate::tile::TileBody,
     items_db: &ItemDatabase,

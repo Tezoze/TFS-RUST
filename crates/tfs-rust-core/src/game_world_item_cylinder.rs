@@ -114,10 +114,9 @@ impl GameWorld {
             if let Some(item_id) = self.find_tile_item_by_client_sprite(pos, sprite_id) {
                 return Some(Thing::Item(item_id));
             }
-            // 772 `GetTopObject(true)` for `Move` skips creatures unless they are
-            // creature-containers; without creature push the fallback must not match
-            // a creature that doesn't correspond to the client sprite.
-            return None;
+            // 772 `GetObject` with client `TypeID` can still match a creature by
+            // `getDisguise()` / outfit `lookType` when no item matches the sprite.
+            return self.find_tile_creature_by_client_sprite(pos, sprite_id);
         }
         // Container slot — `internalGetThing` container UI position.
         if pos.y & 0x40 != 0 {
@@ -134,6 +133,24 @@ impl GameWorld {
         let slot = pos.y as u8;
         if let Some(iid) = self.get_player_inventory_item(cid, slot) {
             return Some(Thing::Item(iid));
+        }
+        None
+    }
+
+    /// 772 `GetObject` `getDisguise()` match for `CMoveObject` / `CUseObject`.
+    /// Returns the first visible creature on `pos` whose outfit `lookType` equals `sprite_id`.
+    pub(crate) fn find_tile_creature_by_client_sprite(
+        &self,
+        pos: Position,
+        sprite_id: u16,
+    ) -> Option<Thing> {
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        for &creature_id in body.creatures.iter().rev() {
+            let look_type = self.creatures.get(creature_id)?.base().outfit.look_type as u16;
+            if look_type == sprite_id {
+                return Some(Thing::Creature(creature_id));
+            }
         }
         None
     }
