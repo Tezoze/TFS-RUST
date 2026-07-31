@@ -512,13 +512,15 @@ sources while the function is being reshaped.
 
 ### P1 — Missing mechanics
 
-| Task | Finding | Files | Effort |
-|---|---|---|---|
-| **P1-1** `INVENTORY_ANY` two-pass auto-slot scan | B6 | `game_world_player_throw.rs`, `game_world_item_cylinder.rs` | M |
-| **P1-2** Partial-merge remainder continues into `Move` | B5 | `game_world_player_throw.rs` | M |
-| **P1-3** `CheckWeight` against the destination container's owner | G1 | `container_ops.rs` | M |
-| **P1-4** Move `CheckMapDestination` into `internal_move_item` | G2 | `game_world_item_move.rs`, `game_world_player_throw.rs` | M |
-| **P1-5** Shared `object_in_range` with z-equality | B7 | `game_world_player_throw.rs`, `creature_todo.rs` | S |
+| Task | Finding | Files | Effort | Status |
+|---|---|---|---|---|
+| **P1-1** `INVENTORY_ANY` two-pass auto-slot scan | B6 | `game_world_player_throw.rs`, `game_world_item_cylinder.rs` | M | Done |
+| **P1-2** Partial-merge remainder continues into `Move` | B5 | `game_world_player_throw.rs` | M | Done |
+| **P1-3** `CheckWeight` against the destination container's owner | G1 | `container_ops.rs` | M | Done |
+| **P1-4** Move `CheckMapDestination` into `internal_move_item` | G2 | `game_world_item_move.rs`, `game_world_player_throw.rs` | M | Done |
+| **P1-5** Shared `object_in_range` with z-equality | B7 | `game_world_player_throw.rs`, `creature_todo.rs` | S | Done |
+
+**P1 status:** Implemented in commit `3e1fc29`. `cargo check --workspace`, `cargo clippy --workspace --all-targets`, and `cargo test -p tfs-rust-core` pass with the same 3 unrelated pre-existing failures as P0.
 
 ### P2 — Fidelity polish
 
