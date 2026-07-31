@@ -117,6 +117,8 @@ pub struct ItemType {
     pub rune_level: i32,
     /// C++ `ItemType::runeMagLevel` — patched on rune `spell:register()` (`luascript.cpp:15893`).
     pub rune_mag_level: i32,
+    /// 772 `UNLAY` flag — items.xml `unlay="true"` override of the OTB-derived rule.
+    pub unlay: bool,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -188,6 +190,7 @@ impl Default for ItemType {
             rune_spell_name: String::new(),
             rune_level: 0,
             rune_mag_level: 0,
+            unlay: false,
         }
     }
 }
@@ -485,6 +488,14 @@ impl ItemType {
     pub fn block_solid(&self) -> bool {
         self.block_solid_override
             .unwrap_or(self.flags & Self::FLAG_BLOCK_SOLID != 0)
+    }
+
+    /// 772 `UNLAY` (`enums.hh:239`) — cannot lay objects on top of this object.
+    /// Explicit `unlay="true"` in `items.xml` wins; otherwise an immovable solid
+    /// that cannot be picked up (walls, trees, furniture) is treated as unlayable.
+    #[inline]
+    pub fn is_unlay(&self) -> bool {
+        self.unlay || (self.block_solid() && !self.moveable() && !self.pickupable())
     }
 
     #[inline]

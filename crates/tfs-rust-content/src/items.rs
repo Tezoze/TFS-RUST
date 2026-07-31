@@ -914,6 +914,10 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         "chest" => {
             item.is_chest = parse_xml_bool(value).unwrap_or(false);
         }
+        // 772 `UNLAY` flag — objects cannot be laid on this tile object (`enums.hh:239`).
+        "unlay" => {
+            item.unlay = parse_xml_bool(value).unwrap_or(false);
+        }
         // C++ `ITEM_PARSE_READABLE` — `src/items.cpp` ~709 (`it.canReadText = value`).
         "readable" => {
             if let Some(v) = parse_xml_bool(value) {

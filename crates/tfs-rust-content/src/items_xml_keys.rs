@@ -129,6 +129,7 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "transformequipto",
     "transformto",
     "type",
+    "unlay",
     "vocation",
     "walkstack",
     "weapontype",

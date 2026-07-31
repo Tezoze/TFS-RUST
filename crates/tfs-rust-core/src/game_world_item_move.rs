@@ -36,6 +36,11 @@ impl GameWorld {
         to: &Cylinder,
         item_id: ItemId,
     ) -> Result<(), ReturnValue> {
+        // 772 `CheckMoveObject` (`operate.cc:419-421`): `CreatureID == 0` skips every check.
+        let Some(actor) = actor else {
+            return Ok(());
+        };
+
         let Some(item) = self.items.get(item_id) else {
             return Err(ReturnValue::NotPossible);
         };
@@ -53,13 +58,25 @@ impl GameWorld {
         }
 
         // Owner check: the item belongs to the player whose inventory/container holds it.
+        // For owned objects `ObjectAccessible` returns true without a range check (`info.cc:258-264`).
         let owner = match from {
             Cylinder::Inventory { player_id, .. } => Some(*player_id),
             Cylinder::Container { item_id: cid, .. } => self.get_container_owner(*cid),
             Cylinder::Tile { .. } => None,
         };
         if let Some(owner_id) = owner {
-            if !actor.is_some_and(|a| a == owner_id) {
+            if actor != owner_id {
+                return Err(ReturnValue::NotPossible);
+            }
+        }
+
+        // 772 `ObjectInRange(1)` for ownerless (tile) sources.
+        if let Cylinder::Tile { pos } = from {
+            if let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) {
+                if !are_in_range_1_1_0(actor_pos, *pos) {
+                    return Err(ReturnValue::NotPossible);
+                }
+            } else {
                 return Err(ReturnValue::NotPossible);
             }
         }
@@ -70,12 +87,8 @@ impl GameWorld {
                 if let Some(tile) = self.map.get_tile(*pos) {
                     let body = tile.body();
                     if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
-                        if let Some(actor_id) = actor {
-                            if let Some(actor_pos) = self.creatures.get(actor_id).map(|k| k.position()) {
-                                if !self.is_hang_hook_accessible(*pos, actor_pos, body.flags) {
-                                    return Err(ReturnValue::NotPossible);
-                                }
-                            } else {
+                        if let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) {
+                            if !self.is_hang_hook_accessible(*pos, actor_pos, body.flags) {
                                 return Err(ReturnValue::NotPossible);
                             }
                         } else {
@@ -119,11 +132,13 @@ impl GameWorld {
         // Validate source has the item
         self.validate_item_in_cylinder(&from_cylinder, item_id)?;
 
-        // 772 `CheckTopMoveObject` (T4) — from a tile, only the top moveable item may move.
+        // 772 `CheckTopMoveObject` (T4) — only players are subject to the top-object rule.
         // `ignore` lets the 772 catch-and-swap (T8) re-check the source after the swapped
         // dest item has been placed on top of the source tile.
         if let Cylinder::Tile { pos } = from_cylinder {
-            if self.get_top_object_for_move(pos, ignore) != Some(item_id) {
+            if acting_player.is_some_and(|a| matches!(self.creatures.get(a), Some(CreatureKind::Player(_))))
+                && self.get_top_object_for_move(pos, ignore) != Some(item_id)
+            {
                 return Err(ReturnValue::NotPossible);
             }
         }
@@ -293,13 +308,6 @@ impl GameWorld {
                 let from_pos = *from_pos;
                 let to_pos = *to_pos;
 
-                let to_merge_id = self.get_top_object_for_move(to_pos, None);
-                if is_stackable {
-                    if let Some(merge_id) = to_merge_id {
-                        self.merge_check(item_id, merge_id, m)?;
-                    }
-                }
-
                 if is_stackable && m < item_count {
                     // Partial stack move — reduce source count, create new item for destination
                     if let Some(src) = self.items.get_mut(item_id) {
@@ -389,13 +397,6 @@ impl GameWorld {
                     return Err(ReturnValue::NotPossible);
                 };
                 let to_pos = *to_pos;
-
-                let to_merge_id = self.get_top_object_for_move(to_pos, None);
-                if is_stackable {
-                    if let Some(merge_id) = to_merge_id {
-                        self.merge_check(item_id, merge_id, m_move)?;
-                    }
-                }
 
                 if is_stackable && m_move < item_count {
                     let rv = self.container_query_remove(
@@ -846,13 +847,6 @@ impl GameWorld {
                 let cid = *player_id;
                 let slot = *slot;
                 let to_pos = *to_pos;
-
-                let to_merge_id = self.get_top_object_for_move(to_pos, None);
-                if is_stackable {
-                    if let Some(merge_id) = to_merge_id {
-                        self.merge_check(item_id, merge_id, item_count)?;
-                    }
-                }
 
                 self.unequip_item_from_inventory_slot(
                     cid,

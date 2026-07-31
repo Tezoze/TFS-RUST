@@ -207,6 +207,19 @@ impl GameWorld {
             .unwrap_or(false)
     }
 
+    /// 772 `Move` (`operate.cc:1311-1319`) — a failed `Merge` falls through to a separate
+    /// stack; only `DESTROYED` (source/dest missing) is left for the caller to hit later.
+    /// Returns `Some(target)` only when the merge is legal.
+    pub(crate) fn tile_merge_target(
+        &self,
+        item_id: ItemId,
+        pos: Position,
+        count: u16,
+    ) -> Option<ItemId> {
+        let target = self.get_top_object_for_move(pos, None)?;
+        self.merge_check(item_id, target, count).ok().map(|_| target)
+    }
+
     /// Query if a tile can accept an item.
     // C++ ref: src/tile.cpp:629-702 Tile::queryAdd for items
     pub(crate) fn query_add_item_to_tile(
@@ -275,7 +288,7 @@ impl GameWorld {
                 if t.block_solid() {
                     has_unpass = true;
                 }
-                if t.xml_attributes.get("unlay").map(|v| v == "true").unwrap_or(false) {
+                if t.is_unlay() {
                     has_unlay = true;
                 }
                 if t.is_hangable() {
@@ -290,7 +303,7 @@ impl GameWorld {
                     if t.block_solid() {
                         has_unpass = true;
                     }
-                    if t.xml_attributes.get("unlay").map(|v| v == "true").unwrap_or(false) {
+                    if t.is_unlay() {
                         has_unlay = true;
                     }
                     if t.is_hangable() {
@@ -379,8 +392,7 @@ impl GameWorld {
             && !flags.contains(CylinderFlags::IGNORE_AUTO_STACK)
             && !flags.contains(CylinderFlags::NO_MERGE)
         {
-            if let Some(target_id) = self.get_top_object_for_move(pos, None) {
-                self.merge_check(item_id, target_id, item_count)?;
+            if let Some(target_id) = self.tile_merge_target(item_id, pos, item_count) {
                 if let Some(target) = self.items.get_mut(target_id) {
                     target.count = target.count.saturating_add(item_count);
                 }
