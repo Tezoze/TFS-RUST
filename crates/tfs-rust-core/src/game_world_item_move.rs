@@ -115,6 +115,49 @@ impl GameWorld {
         true
     }
 
+    /// 772 `CheckMapDestination` (`operate.cc:489-573`) — destination tile validation
+    /// for actor-driven moves. Gated on `actor.is_some()` by the caller.
+    fn check_map_destination(
+        &self,
+        actor: CreatureId,
+        item_id: ItemId,
+        from: &Cylinder,
+        to: &Cylinder,
+    ) -> Result<(), ReturnValue> {
+        let Cylinder::Tile { pos: to_pos } = to else {
+            return Ok(());
+        };
+        let Some(item) = self.items.get(item_id) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let Some(it) = self.items_db.items.get(&item.item_type) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let from_pos = self.cylinder_position(from).unwrap_or(actor_pos);
+
+        // 772 `ObjectInRange(2)` for non-takeable items (`operate.cc:489`).
+        if !it.pickupable() && !self.object_in_range(actor, *to_pos, 2) {
+            return Err(ReturnValue::DestinationOutOfReach);
+        }
+        // 772 `ThrowPossible` / `canThrowObjectTo` (`info.cc:1154`).
+        if !self.map.throw_possible(from_pos, *to_pos, 1) {
+            return Err(ReturnValue::CannotThrow);
+        }
+        // 772 `CheckMapDestination` HANG hook destination range (`operate.cc:538-573`).
+        let Some(tile) = self.map.get_tile(*to_pos) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let body = tile.body();
+        if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 && it.is_hangable() {
+            if !self.is_hang_hook_accessible(*to_pos, actor_pos, body.flags) {
+                return Err(ReturnValue::CannotThrow);
+            }
+        }
+        Ok(())
+    }
 
     /// Move an item between cylinders. Handles tile↔tile with stackable merge/split.
     /// Returns the ItemId that ended up at the destination.
@@ -177,6 +220,11 @@ impl GameWorld {
         } else {
             flags
         };
+
+        // 772 `CheckMapDestination` — actor-driven tile throws only (`operate.cc:489-573`).
+        if let (Some(actor), Cylinder::Tile { .. }) = (acting_player, &to_work) {
+            self.check_map_destination(actor, item_id, &from_cylinder, &to_work)?;
+        }
 
         // For tile destinations, check queryAdd
         if let Cylinder::Tile { pos } = to_work {

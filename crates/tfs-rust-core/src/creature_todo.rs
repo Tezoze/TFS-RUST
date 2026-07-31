@@ -503,27 +503,19 @@ impl GameWorld {
         // steps BEFORE `Wait{100}` + `Use` — matching the C++ `ToDoUse` builder which
         // calls `ToDoGo(…, false, INT_MAX)` before `ToDoWait(100)`. The execute arm's
         // `needs_walk` check remains as a fallback for edge cases (player pushed
-        // mid-walk, etc.). Inventory/container sources (`0xFFFF`) skip the check.
-        if obj1.pos.x != 0xFFFF {
-            let in_range = self.creatures.get(cid).is_some_and(|k| {
-                let pp = k.position();
-                let dx = (pp.x as i32 - obj1.pos.x as i32).unsigned_abs();
-                let dy = (pp.y as i32 - obj1.pos.y as i32).unsigned_abs();
-                dx <= 1 && dy <= 1
-            });
-            if !in_range {
-                let now = Instant::now();
-                self.setup_player_walk_to_target(cid, obj1.pos, now)?;
-                // Push `Go` only if the walk queue has steps — `finish_creature_todo_execute`
-                // re-arms `Go` for each subsequent step until the walk queue drains.
-                let has_steps = self
-                    .creatures
-                    .get(cid)
-                    .is_some_and(|k| !k.base().walk_queue.is_empty());
-                if has_steps {
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        k.base_mut().todo.queue.push_back(CreatureAction::Go);
-                    }
+        // mid-walk, etc.). Inventory/container sources (`0xFFFF`) are always in range.
+        if !self.object_in_range(cid, obj1.pos, 1) {
+            let now = Instant::now();
+            self.setup_player_walk_to_target(cid, obj1.pos, now)?;
+            // Push `Go` only if the walk queue has steps — `finish_creature_todo_execute`
+            // re-arms `Go` for each subsequent step until the walk queue drains.
+            let has_steps = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| !k.base().walk_queue.is_empty());
+            if has_steps {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().todo.queue.push_back(CreatureAction::Go);
                 }
             }
         }
@@ -564,24 +556,16 @@ impl GameWorld {
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1131-1135`).
         self.validate_action_object_z_floor(cid, obj)?;
         // D6 — `ObjectInRange(1)` enqueue-time range check (`cract.cc:1138-1140`).
-        if obj.pos.x != 0xFFFF {
-            let in_range = self.creatures.get(cid).is_some_and(|k| {
-                let pp = k.position();
-                let dx = (pp.x as i32 - obj.pos.x as i32).unsigned_abs();
-                let dy = (pp.y as i32 - obj.pos.y as i32).unsigned_abs();
-                dx <= 1 && dy <= 1
-            });
-            if !in_range {
-                let now = Instant::now();
-                self.setup_player_walk_to_target(cid, obj.pos, now)?;
-                let has_steps = self
-                    .creatures
-                    .get(cid)
-                    .is_some_and(|k| !k.base().walk_queue.is_empty());
-                if has_steps {
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        k.base_mut().todo.queue.push_back(CreatureAction::Go);
-                    }
+        if !self.object_in_range(cid, obj.pos, 1) {
+            let now = Instant::now();
+            self.setup_player_walk_to_target(cid, obj.pos, now)?;
+            let has_steps = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| !k.base().walk_queue.is_empty());
+            if has_steps {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().todo.queue.push_back(CreatureAction::Go);
                 }
             }
         }
@@ -618,24 +602,16 @@ impl GameWorld {
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1334-1338`).
         self.validate_action_object_z_floor(cid, obj)?;
         // D6 — `ObjectInRange(1)` enqueue-time range check (`cract.cc:1340-1341`).
-        if obj.pos.x != 0xFFFF {
-            let in_range = self.creatures.get(cid).is_some_and(|k| {
-                let pp = k.position();
-                let dx = (pp.x as i32 - obj.pos.x as i32).unsigned_abs();
-                let dy = (pp.y as i32 - obj.pos.y as i32).unsigned_abs();
-                dx <= 1 && dy <= 1
-            });
-            if !in_range {
-                let now = Instant::now();
-                self.setup_player_walk_to_target(cid, obj.pos, now)?;
-                let has_steps = self
-                    .creatures
-                    .get(cid)
-                    .is_some_and(|k| !k.base().walk_queue.is_empty());
-                if has_steps {
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        k.base_mut().todo.queue.push_back(CreatureAction::Go);
-                    }
+        if !self.object_in_range(cid, obj.pos, 1) {
+            let now = Instant::now();
+            self.setup_player_walk_to_target(cid, obj.pos, now)?;
+            let has_steps = self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| !k.base().walk_queue.is_empty());
+            if has_steps {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().todo.queue.push_back(CreatureAction::Go);
                 }
             }
         }

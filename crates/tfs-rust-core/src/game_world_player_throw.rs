@@ -310,7 +310,6 @@ impl GameWorld {
         item_id: ItemId,
         now: Instant,
     ) -> Result<(), ReturnValue> {
-        let item_is_pickupable;
         // Verify client sprite ID matches
         if let Some(item) = self.items.get(item_id) {
             let it = self.items_db.items.get(&item.item_type);
@@ -323,7 +322,6 @@ impl GameWorld {
             if !is_moveable {
                 return Err(ReturnValue::NotMoveable);
             }
-            item_is_pickupable = it.map(|t| t.pickupable()).unwrap_or(false);
         } else {
             return Err(ReturnValue::NotPossible);
         }
@@ -332,57 +330,35 @@ impl GameWorld {
         let Some(from_cylinder) = self.internal_get_cylinder(cid, from_pos) else {
             return Err(ReturnValue::NotPossible);
         };
-        let Some(to_cylinder) = self.internal_get_cylinder(cid, to_pos) else {
-            return Err(ReturnValue::NotPossible);
+        let to_cylinder = if to_pos.x == 0xFFFF && to_pos.y == 0 {
+            self.resolve_inventory_any(cid, item_id, count as u32, CylinderFlags::NONE)?
+        } else {
+            self.internal_get_cylinder(cid, to_pos)
+                .ok_or(ReturnValue::NotPossible)?
         };
 
         let Some(player_pos) = self.creatures.get(cid).map(|p| p.position()) else {
             return Err(ReturnValue::NotPossible);
         };
 
-        let map_from_pos = match from_cylinder {
-            Cylinder::Tile { pos } => pos,
-            Cylinder::Container { .. } | Cylinder::Inventory { .. } => player_pos,
-        };
+        // Source z-level check — TFS uses `mapFromPos` (`game.cpp` ~965).
+        if from_pos.x != 0xFFFF && player_pos.z != from_pos.z {
+            let rv = if player_pos.z > from_pos.z {
+                ReturnValue::FirstGoUpStairs
+            } else {
+                ReturnValue::FirstGoDownStairs
+            };
+            return Err(rv);
+        }
+
         let map_to_pos = match to_cylinder {
             Cylinder::Tile { pos } => pos,
             Cylinder::Container { .. } | Cylinder::Inventory { .. } => player_pos,
         };
 
-        // Range check — player must be able to see source
-        if from_pos.x != 0xFFFF {
-            // Z-level check — TFS uses `mapFromPos` (`game.cpp` ~965).
-            if player_pos.z != map_from_pos.z {
-                let rv = if player_pos.z > map_from_pos.z {
-                    ReturnValue::FirstGoUpStairs
-                } else {
-                    ReturnValue::FirstGoDownStairs
-                };
-                return Err(rv);
-            }
-            // Distance check — the ToDo `Move` execute arm handles walk-to-reach via
-            // `Go`-prepend before dispatching here. By this point the player is adjacent
-            // (dx <= 1 && dy <= 1). The C++ reactive walk path (`game.cpp` ~970–983) is
-            // handled by the enqueue-time `ObjectInRange(1)` check in `enqueue_player_move`.
-        }
-
-        // C++ ref: src/game.cpp:1046-1060 Game::playerMoveItem
-        // 772 CheckMapDestination: non-takeable items have an ObjectInRange(2) gate;
-        // takeable items have no fixed throw range (only ThrowPossible LOS).
-        if !item_is_pickupable {
-            let to_dx = (player_pos.x as i32 - map_to_pos.x as i32).unsigned_abs();
-            let to_dy = (player_pos.y as i32 - map_to_pos.y as i32).unsigned_abs();
-            if to_dx > 2 || to_dy > 2 {
-                return Err(ReturnValue::DestinationOutOfReach);
-            }
-        }
-
-        // C++ ref: src/game.cpp:1058 `canThrowObjectTo(...)`, `info.cc:1154` ThrowPossible
-        if !self.map.throw_possible(map_from_pos, map_to_pos, 1) {
-            return Err(ReturnValue::CannotThrow);
-        }
-
         // 772 `CheckMapDestination` HANG hook destination range check (`operate.cc:538-573`).
+        // The generic ObjectInRange/ThrowPossible/IsMapBlocked checks now live in
+        // `internal_move_item` so Lua and monster moves also pay them.
         if to_pos.x != 0xFFFF {
             if let Some(tile) = self.map.get_tile(map_to_pos) {
                 let body = tile.body();
@@ -407,18 +383,15 @@ impl GameWorld {
             }
         }
 
-        // Check if destination tile can accept the thrown item
-        // C++ ref: `operate.cc:451` `IsMapBlocked`.
-        if to_pos.x != 0xFFFF && self.is_map_blocked(map_to_pos, item_id) {
-            return Err(ReturnValue::NotEnoughRoom);
-        }
-
         let dest_id = match to_cylinder {
             Cylinder::Inventory { player_id, slot } => {
                 self.get_player_inventory_item(player_id, slot)
             }
             _ => None,
         };
+
+        // Snapshot source count to detect partial merges (772 `cract.cc:578-599`).
+        let source_before = self.items.get(item_id).map(|i| i.count as u32).unwrap_or(1);
 
         let result = self.internal_move_item(
             Some(cid),
@@ -463,6 +436,28 @@ impl GameWorld {
         };
 
         result?;
+
+        // 772 `TCreature::Move` merge-then-continue: if only part of the request merged,
+        // the rest continues as a separate `Move` with the merge target suppressed.
+        let source_after = self.items.get(item_id).map(|i| i.count as u32).unwrap_or(0);
+        let requested = (count as u32).min(source_before);
+        let moved = source_before - source_after;
+        if moved > 0
+            && moved < requested
+            && self.items.get(item_id).is_some()
+            && to_cylinder != from_cylinder
+        {
+            self.internal_move_item(
+                Some(cid),
+                from_cylinder,
+                to_cylinder,
+                item_id,
+                (requested - moved) as u16,
+                CylinderFlags::NO_MERGE,
+                None,
+            )?;
+        }
+
         Ok(())
     }
 

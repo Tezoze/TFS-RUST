@@ -327,6 +327,156 @@ impl GameWorld {
         true
     }
 
+    /// 772 `ObjectInRange` — `posz == ObjZ && |dx| <= Range && |dy| <= Range`
+    /// (`info.cc:247-249`). Inventory/container sources are always "in range".
+    pub(crate) fn object_in_range(
+        &self,
+        actor: CreatureId,
+        pos: Position,
+        range: u32,
+    ) -> bool {
+        if pos.x == 0xFFFF {
+            return true;
+        }
+        let Some(k) = self.creatures.get(actor) else {
+            return false;
+        };
+        let pp = k.position();
+        if pp.z != pos.z {
+            return false;
+        }
+        let dx = (pp.x as i32 - pos.x as i32).unsigned_abs();
+        let dy = (pp.y as i32 - pos.y as i32).unsigned_abs();
+        dx <= range && dy <= range
+    }
+
+    /// 772 `INVENTORY_ANY` resolution (`cract.cc:501-547`).
+    /// Scans equipment slots first, then nested containers, and returns the first
+    /// cylinder that can accept `count` items. `count == 0` is treated as `1`.
+    pub(crate) fn resolve_inventory_any(
+        &mut self,
+        cid: CreatureId,
+        item_id: ItemId,
+        count: u32,
+        flags: CylinderFlags,
+    ) -> Result<Cylinder, ReturnValue> {
+        let count = count.max(1);
+        let Some(item_type) = self.items.get(item_id).map(|i| i.item_type) else {
+            return Err(ReturnValue::NotPossible);
+        };
+        let stackable = self
+            .items_db
+            .items
+            .get(&item_type)
+            .map(|it| it.stackable())
+            .unwrap_or(false);
+
+        // Pass 1: first fitting equipment slot (1..=10, which naturally prefers non-hand/ammo).
+        for slot in crate::inventory::PLAYER_INVENTORY_SLOT_FIRST
+            ..=crate::inventory::PLAYER_INVENTORY_SLOT_LAST
+        {
+            if self.player_query_add(cid, slot, item_id, count, flags) != ReturnValue::NoError {
+                continue;
+            }
+            // For same-type stackable destinations, ensure there is room to merge.
+            if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
+                if self.items_stack_mergeable(item_id, dest_id)
+                    && self.items.get(dest_id).is_some_and(|d| d.count >= 100)
+                {
+                    continue;
+                }
+            }
+            return Ok(Cylinder::Inventory {
+                player_id: cid,
+                slot,
+            });
+        }
+
+        // Pass 2: nested containers (equipment first, then children).
+        let mut containers: Vec<ItemId> = Vec::new();
+        for slot in crate::inventory::PLAYER_INVENTORY_SLOT_FIRST
+            ..=crate::inventory::PLAYER_INVENTORY_SLOT_LAST
+        {
+            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
+                continue;
+            };
+            if iid == item_id {
+                continue;
+            }
+            if self
+                .items_db
+                .is_container(self.items.get(iid).map(|i| i.item_type).unwrap_or(0))
+            {
+                containers.push(iid);
+            }
+        }
+
+        let mut i = 0;
+        while i < containers.len() {
+            let container_id = containers[i];
+            i += 1;
+
+            // 772 `CheckContainerDestination` for auto-stack: prefer an existing partial stack.
+            if stackable {
+                let Some(cont) = self.container_registry.get(container_id) else {
+                    continue;
+                };
+                let cont_items: Vec<ItemId> = cont.items.clone();
+                for (idx, &child) in cont_items.iter().enumerate() {
+                    if child == item_id {
+                        continue;
+                    }
+                    if self.items_stack_mergeable(item_id, child)
+                        && self.items.get(child).is_some_and(|c| c.count < 100)
+                        && self.container_query_add(
+                            container_id,
+                            idx as i32,
+                            item_id,
+                            count,
+                            flags,
+                            Some(cid),
+                        ) == ReturnValue::NoError
+                    {
+                        return Ok(Cylinder::Container {
+                            item_id: container_id,
+                            index: idx as i32,
+                        });
+                    }
+                }
+            }
+
+            if self.container_query_add(
+                container_id,
+                crate::cylinder::INDEX_WHEREEVER,
+                item_id,
+                count,
+                flags,
+                Some(cid),
+            ) == ReturnValue::NoError
+            {
+                return Ok(Cylinder::Container {
+                    item_id: container_id,
+                    index: crate::cylinder::INDEX_WHEREEVER,
+                });
+            }
+
+            let Some(cont) = self.container_registry.get(container_id) else {
+                continue;
+            };
+            for &child in &cont.items {
+                if child == item_id {
+                    continue;
+                }
+                let child_type = self.items.get(child).map(|i| i.item_type).unwrap_or(0);
+                if self.items_db.is_container(child_type) {
+                    containers.push(child);
+                }
+            }
+        }
+
+        Err(ReturnValue::NotEnoughRoom)
+    }
+
     /// Validate that an item exists in the specified cylinder.
     pub(crate) fn validate_item_in_cylinder(
         &self,

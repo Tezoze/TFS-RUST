@@ -209,7 +209,7 @@ impl GameWorld {
         container_item_id: ItemId,
         index: i32,
         item_id: ItemId,
-        _count: u32,
+        count: u32,
         flags: CylinderFlags,
         actor: Option<CreatureId>,
     ) -> ReturnValue {
@@ -252,7 +252,7 @@ impl GameWorld {
 
         if !same_depot && cont.container_type == ContainerType::Depot && !flags.contains(CylinderFlags::NO_LIMIT) {
             if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
-                let add_count = self.depot_add_count_for_item(container_item_id, item_id, _count);
+                let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
                 let holder_count = self
                     .container_registry
                     .get(holder_id)
@@ -325,16 +325,15 @@ impl GameWorld {
             if let Some(rv) = self.house_invite_blocks_container_add(container_item_id, actor) {
                 return rv;
             }
-            let mut root = container_item_id;
-            while let Some(p) = self
-                .container_registry
-                .get(root)
-                .and_then(|c| c.parent_container)
-            {
-                root = p;
-            }
-            if self.player_holds_container_tree(actor, root) {
-                return self.query_add_item_to_inventory(actor, item_id);
+        }
+
+        // 772 `CheckWeight(ConOwnerID, Obj, Count)` (`operate.cc:806` / `Move:1367-1369`):
+        // the destination container's owner pays the weight, not the actor.
+        if !flags.contains(CylinderFlags::NO_LIMIT) {
+            if let Some(owner) = self.get_container_owner(container_item_id) {
+                if !self.player_has_capacity(owner, item_id, count, flags) {
+                    return ReturnValue::NotEnoughCapacity;
+                }
             }
         }
 
