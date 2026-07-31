@@ -117,7 +117,6 @@ fn apply_op(op: ExprOp, l: i32, r: i32) -> i32 {
 }
 
 /// Substitute `%N` / `%A` / `%P` / `%T` in reply templates (`FormatNpcResponse`).
-/// Substitute `%N` / `%A` / `%P` / `%T` in reply templates (`FormatNpcResponse`).
 ///
 /// C++ `crnonpl.cc:899-974` recognizes **uppercase** escapes only; any other `%X`
 /// (including lowercase `%n/%a/%p/%t` and unknown letters) consumes both characters
