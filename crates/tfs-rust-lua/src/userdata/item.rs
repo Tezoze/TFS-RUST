@@ -90,6 +90,10 @@ impl UserData for ItemRef {
                     .unwrap_or(0))
             })
         });
+        // TFS compat `item.uid` → `Item:getUniqueId()` (`compat.lua` ItemIndex).
+        fields.add_field_method_get("uid", |_, this| {
+            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.unique_id).unwrap_or(0)))
+        });
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -105,13 +109,16 @@ impl UserData for ItemRef {
             })
         });
 
-        methods.add_method("getType", |_, this, ()| {
-            with_ctx(|ctx| {
+        methods.add_method("getType", |lua, this, ()| {
+            use crate::userdata::item_type::ItemTypeRef;
+            let typ = with_ctx(|ctx| {
                 Ok(ctx
                     .get_item_data(this.0)
                     .map(|d: ItemData| d.item_type)
                     .unwrap_or(0))
-            })
+            })?;
+            let ud = lua.create_userdata(ItemTypeRef(typ))?;
+            Ok(Value::UserData(ud))
         });
 
         methods.add_method("getCount", |_, this, ()| {

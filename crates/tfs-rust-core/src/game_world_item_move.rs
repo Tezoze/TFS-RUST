@@ -341,7 +341,10 @@ impl GameWorld {
                     return Err(ReturnValue::NotPossible);
                 }
                 if let Cylinder::Tile { pos } = &from_cylinder {
-                    if !self.events.on_step_out(acting_player, item_id, item_type, *pos) {
+                    if !self
+                        .events
+                        .on_step_out(acting_player, item_id, item_type, *pos, from_pos)
+                    {
                         return Err(ReturnValue::NotPossible);
                     }
                 }

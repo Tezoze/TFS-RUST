@@ -182,6 +182,7 @@ impl LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         pos: Position,
+        from_pos: Position,
     ) -> bool {
         let Some(actor) = actor else {
             return true;
@@ -194,6 +195,7 @@ impl LuaEventDispatcher {
             actor.data().as_ffi(),
             item.data().as_ffi(),
             pos,
+            from_pos,
         ) {
             Ok(allow) => allow,
             Err(e) => {
@@ -203,7 +205,6 @@ impl LuaEventDispatcher {
         }
     }
 }
-
 impl EventDispatcher for LuaEventDispatcher {
     fn on_player_equip_check(
         &self,
@@ -313,8 +314,9 @@ impl EventDispatcher for LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         pos: Position,
+        from_pos: Position,
     ) -> bool {
-        self.dispatch_move_step(MoveEventKind::StepOut, actor, item, item_type, pos)
+        self.dispatch_move_step(MoveEventKind::StepOut, actor, item, item_type, pos, from_pos)
     }
 
     fn on_step_in(
@@ -323,8 +325,9 @@ impl EventDispatcher for LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         pos: Position,
+        from_pos: Position,
     ) -> bool {
-        self.dispatch_move_step(MoveEventKind::StepIn, actor, item, item_type, pos)
+        self.dispatch_move_step(MoveEventKind::StepIn, actor, item, item_type, pos, from_pos)
     }
 
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {

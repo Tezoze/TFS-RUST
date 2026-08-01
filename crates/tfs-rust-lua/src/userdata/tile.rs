@@ -190,6 +190,125 @@ impl UserData for TileRef {
             }
         });
 
+        // `tile:getCreatureCount()` — `luascript.cpp` `luaTileGetCreatureCount`.
+        methods.add_method("getCreatureCount", |_, this, ()| {
+            CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_creature_count(this.x, this.y, this.z))
+            })
+        });
+
+        // `tile:getThingCount()` — `luascript.cpp` `luaTileGetThingCount`.
+        methods.add_method("getThingCount", |_, this, ()| {
+            CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_thing_count(this.x, this.y, this.z))
+            })
+        });
+
+        // `tile:getThing(index)` — `luascript.cpp` `luaTileGetThing`.
+        methods.add_method("getThing", |lua, this, index: u32| {
+            let thing = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_thing(this.x, this.y, this.z, index))
+            })?;
+            match thing {
+                Some(tfs_rust_common::ScriptThing::Item(iid)) => {
+                    let ud = lua.create_userdata(ItemRef(iid))?;
+                    Ok(Value::UserData(ud))
+                }
+                Some(tfs_rust_common::ScriptThing::Creature(cid)) => {
+                    let ud = lua.create_userdata(CreatureRef(cid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `tile:getItemById(itemId)` — `luascript.cpp` `luaTileGetItemById`.
+        methods.add_method("getItemById", |lua, this, item_id: u16| {
+            let id = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_item_by_id(this.x, this.y, this.z, item_id))
+            })?;
+            match id {
+                Some(iid) => {
+                    let ud = lua.create_userdata(ItemRef(iid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `tile:getItemByGroup(ITEM_GROUP_*)` — splash / magicfield (doors auto-close).
+        methods.add_method("getItemByGroup", |lua, this, group: i32| {
+            let id = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_item_by_group(this.x, this.y, this.z, group))
+            })?;
+            match id {
+                Some(iid) => {
+                    let ud = lua.create_userdata(ItemRef(iid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `tile:queryAdd(thing[, flags])` — `luascript.cpp` `luaTileQueryAdd`.
+        methods.add_method(
+            "queryAdd",
+            |_, this, (thing, flags): (Value, Option<u32>)| {
+                let flags = flags.unwrap_or(0);
+                let creature_id = match thing {
+                    Value::UserData(ud) => {
+                        if let Ok(cref) = ud.borrow::<CreatureRef>() {
+                            cref.0
+                        } else {
+                            return Ok(1i32); // NOTPOSSIBLE
+                        }
+                    }
+                    Value::Integer(i) => i as u64,
+                    Value::Number(n) => n as u64,
+                    _ => return Ok(1i32),
+                };
+                CURRENT_CTX.with(|c| {
+                    let ptr =
+                        (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                    if ptr.is_null() {
+                        return Err(mlua::Error::runtime("LuaContext not set"));
+                    }
+                    let ctx = unsafe { &*ptr };
+                    Ok(ctx.tile_query_add_creature(this.x, this.y, this.z, creature_id, flags))
+                })
+            },
+        );
+
         // Lib `Tile:isWalkable` used by moveUpstairs.
         methods.add_method("isWalkable", |_, this, ()| {
             CURRENT_CTX.with(|c| {

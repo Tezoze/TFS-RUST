@@ -1,3 +1,14 @@
+# Doors Phase 6 — Auto-close MoveEvents — 2026-08-01
+
+- [x] 6.1 MoveEvent() table + `:id`/`:aid`/`:type`/`:register` + onStepIn/onStepOut
+- [x] 6.2 Load `data/scripts/movements/**` (warn-on-fail); merge into MoveEventsRegistry
+- [x] 6.3 Tile: getCreatureCount, queryAdd, getThing, getThingCount, getItemByGroup + ITEM_GROUP_*
+- [x] 6.4 Global doRelocate; item:getType()→ItemTypeRef; item.uid
+- [x] Fire StepIn/Out from move_creature_on_map; call_move_step fromPosition
+- [x] 6.6 level_doors.lua step-in in same pass
+- [x] Unit: closing/level doors register; constants; getThing ground index
+- [x] Update doors-actions-plan.md Phase 6 + lessons.md
+
 # Doors Phase 5 — house doors (native gate + Lua transform) — 2026-08-01
 
 - [x] 5.1 Door identity: `ATTR_HOUSEDOORID` → `set_door_id`; serialize on write; house tiles from OTBM

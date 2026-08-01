@@ -551,7 +551,8 @@ impl GameWorld {
                 self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
                 // Fully merged — remove the source item from SlotMap
-                let _ = self.events.on_step_in(None, target_id, item_type, pos);
+                let _ = self.events.on_step_in(None, target_id, item_type, pos, pos);
+
                 self.cancel_item_decay(item_id);
                 self.items.remove(item_id);
                 self.start_decay(target_id);
@@ -625,7 +626,7 @@ impl GameWorld {
         if is_magic_field {
             self.apply_magic_field_to_tile_creatures(pos, item_id);
         } else {
-            let _ = self.events.on_step_in(None, item_id, item_type, pos);
+            let _ = self.events.on_step_in(None, item_id, item_type, pos, pos);
         }
         self.start_decay(item_id);
         Ok(item_id)

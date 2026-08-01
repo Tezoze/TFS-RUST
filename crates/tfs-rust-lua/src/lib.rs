@@ -42,12 +42,15 @@ pub use lua_mutation::{
     set_mutation_bool_result,
     set_mutation_item_result, with_lua_mutation_scope,
 };
-pub use move_events::{MoveEventEntry, MoveEventKind, MoveEventsRegistry};
+pub use move_events::{
+    MoveEventDef, MoveEventEntry, MoveEventKind, MoveEventsRegistry, load_move_event_scripts,
+    merge_move_event_defs,
+};
 pub use npc_dialogue::{NpcDialogueProgram, register_npc_dialogue};
 pub use npc_type::{NpcTypeBuilder, PendingNpc, register_npc_type};
 pub use runtime::{
-    CallbackRef, LuaError, LuaRuntime, PendingAction, PendingChatChannel, PendingTalkAction,
-    RegisterLuaFunctions,
+    CallbackRef, LuaError, LuaRuntime, PendingAction, PendingChatChannel, PendingMoveEvent,
+    PendingTalkAction, RegisterLuaFunctions,
 };
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
 pub use talkactions::{TalkActionDef, load_talkaction_scripts};

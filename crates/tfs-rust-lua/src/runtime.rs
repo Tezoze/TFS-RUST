@@ -29,6 +29,12 @@ use crate::userdata::{
 #[derive(Debug)]
 pub struct CallbackRef(mlua::RegistryKey);
 
+impl CallbackRef {
+    pub fn from_registry_key(key: mlua::RegistryKey) -> Self {
+        Self(key)
+    }
+}
+
 /// Lua runtime owning the VM and script registry.
 ///
 /// This is !Send by design and must live exclusively on the game thread.
@@ -44,6 +50,8 @@ pub struct LuaRuntime {
     pending_talkactions: Vec<PendingTalkAction>,
     /// Pending actions from Action:register() calls (drained after directory scan).
     pending_actions: Vec<PendingAction>,
+    /// Pending move events from MoveEvent:register() (drained after directory scan).
+    pending_move_events: Vec<PendingMoveEvent>,
     /// PC-3a: `onCastSpell` callback registry keys, keyed by spell words (lowercased).
     /// Populated during `load_spell_scripts` from `_pending_spell_callbacks`.
     /// C++ reference: `Event::loadCallback` / `getEvent` (`baseevents.cpp:136`,
@@ -88,6 +96,19 @@ pub struct PendingAction {
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
     pub on_use: Option<mlua::RegistryKey>,
+}
+
+/// Pending move-event definition from Lua MoveEvent:register().
+///
+/// C++ reference: `movement.h` `MoveEvent` — item/action id lists + step/equip callback.
+#[derive(Debug)]
+pub struct PendingMoveEvent {
+    pub kind: crate::move_events::MoveEventKind,
+    pub item_ids: Vec<u16>,
+    pub action_ids: Vec<u16>,
+    pub slot_mask: u32,
+    pub req_level: u32,
+    pub callback: Option<mlua::RegistryKey>,
 }
 
 impl LuaRuntime {
@@ -153,6 +174,11 @@ impl LuaRuntime {
         let pending_actions = lua.create_table()?;
         lua.globals().set("_pending_actions", pending_actions)?;
 
+        // Initialize pending move-event buffer for MoveEvent:register()
+        let pending_move_events = lua.create_table()?;
+        lua.globals()
+            .set("_pending_move_events", pending_move_events)?;
+
         // NPC-1 pending buffers (also re-init'd in load_npc_definitions).
         lua.globals().set("_pending_npcs", lua.create_table()?)?;
         lua.globals()
@@ -178,6 +204,7 @@ impl LuaRuntime {
             pending_chat_channels: Vec::new(),
             pending_talkactions: Vec::new(),
             pending_actions: Vec::new(),
+            pending_move_events: Vec::new(),
             spell_callbacks: HashMap::new(),
             weapon_callbacks: HashMap::new(),
             npc_callbacks: HashMap::new(),
@@ -400,6 +427,85 @@ impl LuaRuntime {
     /// Drain pending actions accumulated from `load_action_script` calls.
     pub fn drain_pending_actions(&mut self) -> Vec<PendingAction> {
         std::mem::take(&mut self.pending_actions)
+    }
+
+    /// Load a Lua script that calls `MoveEvent():register()`.
+    ///
+    /// C++ reference: `movement.cpp` `MoveEvents::registerLuaEvent`.
+    pub fn load_move_event_script(&mut self, path: &str) -> Result<(), LuaError> {
+        let full_path = Path::new(path);
+        let chunk = std::fs::read_to_string(full_path)
+            .map_err(|e| LuaError::ScriptIo(full_path.display().to_string(), e.to_string()))?;
+
+        self.lua
+            .globals()
+            .set("_pending_move_events", self.lua.create_table()?)?;
+
+        self.lua
+            .load(&chunk)
+            .set_name(path)
+            .exec()
+            .map_err(LuaError::Init)?;
+
+        let pending: mlua::Table = self.lua.globals().get("_pending_move_events")?;
+        for i in 1..=pending.len()? {
+            if let Ok(me_table) = pending.get::<mlua::Table>(i) {
+                let mut item_ids = Vec::new();
+                let ids_table: mlua::Table = me_table.get("_ids")?;
+                for j in 1..=ids_table.len()? {
+                    if let Ok(id) = ids_table.get::<u16>(j) {
+                        item_ids.push(id);
+                    }
+                }
+
+                let mut action_ids = Vec::new();
+                let aids_table: mlua::Table = me_table.get("_aids")?;
+                for j in 1..=aids_table.len()? {
+                    if let Ok(id) = aids_table.get::<u16>(j) {
+                        action_ids.push(id);
+                    }
+                }
+
+                let type_name: Option<String> = match me_table.get::<Value>("_type")? {
+                    Value::String(s) => Some(s.to_str()?.to_owned()),
+                    _ => None,
+                };
+                let kind = infer_move_event_kind(&me_table, type_name.as_deref())?;
+
+                let callback_field = match kind {
+                    crate::move_events::MoveEventKind::StepIn => "onStepIn",
+                    crate::move_events::MoveEventKind::StepOut => "onStepOut",
+                    crate::move_events::MoveEventKind::Equip => "onEquip",
+                    crate::move_events::MoveEventKind::DeEquip => "onDeEquip",
+                    crate::move_events::MoveEventKind::AddItem => "onAddItem",
+                    crate::move_events::MoveEventKind::RemoveItem => "onRemoveItem",
+                };
+                let callback = me_table
+                    .get::<Option<mlua::Function>>(callback_field)?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                let slot_mask: u32 = me_table.get("_slot_mask").unwrap_or(0);
+                let req_level: u32 = me_table.get("_req_level").unwrap_or(0);
+
+                self.pending_move_events.push(PendingMoveEvent {
+                    kind,
+                    item_ids,
+                    action_ids,
+                    slot_mask,
+                    req_level,
+                    callback,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drain pending move events from `load_move_event_script` calls.
+    pub fn drain_pending_move_events(&mut self) -> Vec<PendingMoveEvent> {
+        std::mem::take(&mut self.pending_move_events)
     }
 
     /// Call an action `onUse` hook — `(player, item, fromPos, target, toPos) -> bool`.
@@ -662,13 +768,14 @@ impl LuaRuntime {
             .map_err(LuaError::Init)
     }
 
-    /// TFS `MoveEvent::executeStep` — `(creature, item, position) -> bool`.
+    /// TFS `MoveEvent::executeStep` — `(creature, item, position, fromPosition) -> bool`.
     pub fn call_move_step(
         &self,
         callback: &CallbackRef,
         creature: crate::context::CreatureId,
         item: crate::context::ItemId,
         pos: Position,
+        from_pos: Position,
     ) -> Result<bool, LuaError> {
         let function: mlua::Function = self
             .lua
@@ -690,8 +797,16 @@ impl LuaRuntime {
                 z: pos.z,
             })
             .map_err(LuaError::Init)?;
+        let from_ud = self
+            .lua
+            .create_userdata(PositionRef {
+                x: from_pos.x,
+                y: from_pos.y,
+                z: from_pos.z,
+            })
+            .map_err(LuaError::Init)?;
         function
-            .call::<bool>((creature_ud, item_ud, pos_ud))
+            .call::<bool>((creature_ud, item_ud, pos_ud, from_ud))
             .map_err(LuaError::Init)
     }
 
@@ -1298,6 +1413,102 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     })?;
     globals.set("Action", action_constructor)?;
 
+    // `MoveEvent()` — self-registering move-event constructor (doors auto-close / tiles).
+    //
+    // Plain Lua **table** (not userdata), same pattern as `Action` / `TalkAction`.
+    // Scripts set `function moveevent.onStepIn/Out(...)` then `:id` / `:register()`.
+    // Kind is inferred from the callback field, or from `:type("stepout")`.
+    //
+    // C++ reference: `movement.h` `MoveEvent` / `movement.cpp` `MoveEvents::registerLuaEvent`.
+    let moveevent_constructor = lua.create_function(|lua, ()| {
+        let me = lua.create_table()?;
+        me.set("_ids", lua.create_table()?)?;
+        me.set("_aids", lua.create_table()?)?;
+        me.set("_slot_mask", 0u32)?;
+        me.set("_req_level", 0u32)?;
+        me.set(
+            "id",
+            lua.create_function(|_lua, (this, args): (mlua::Table, mlua::Variadic<Value>)| {
+                let ids: mlua::Table = this.get("_ids")?;
+                for arg in args.iter() {
+                    let id = match arg {
+                        Value::Integer(n) => *n as u16,
+                        Value::Number(n) => *n as u16,
+                        _ => continue,
+                    };
+                    let len = ids.len()?;
+                    ids.set(len + 1, id)?;
+                }
+                Ok(this)
+            })?,
+        )?;
+        me.set(
+            "aid",
+            lua.create_function(|_lua, (this, args): (mlua::Table, mlua::Variadic<Value>)| {
+                let aids: mlua::Table = this.get("_aids")?;
+                for arg in args.iter() {
+                    let id = match arg {
+                        Value::Integer(n) => *n as u16,
+                        Value::Number(n) => *n as u16,
+                        _ => continue,
+                    };
+                    let len = aids.len()?;
+                    aids.set(len + 1, id)?;
+                }
+                Ok(this)
+            })?,
+        )?;
+        me.set(
+            "type",
+            lua.create_function(|_, (this, type_name): (mlua::Table, String)| {
+                this.set("_type", type_name)?;
+                Ok(this)
+            })?,
+        )?;
+        me.set(
+            "level",
+            lua.create_function(|_, (this, level): (mlua::Table, u32)| {
+                this.set("_req_level", level)?;
+                Ok(this)
+            })?,
+        )?;
+        me.set(
+            "slot",
+            lua.create_function(|_, (this, slot): (mlua::Table, String)| {
+                let mask = match slot.to_ascii_lowercase().as_str() {
+                    "head" => 1u32 << 0,
+                    "necklace" => 1 << 1,
+                    "backpack" => 1 << 2,
+                    "armor" | "body" => 1 << 3,
+                    "right-hand" | "right" => 1 << 4,
+                    "left-hand" | "left" | "hand" | "shield" => (1 << 4) | (1 << 5),
+                    "legs" => 1 << 6,
+                    "feet" => 1 << 7,
+                    "ring" => 1 << 8,
+                    "ammo" => 1 << 9,
+                    _ => 0,
+                };
+                this.set("_slot_mask", mask)?;
+                Ok(this)
+            })?,
+        )?;
+        me.set(
+            "register",
+            lua.create_function(|lua, this: mlua::Table| {
+                let pending: mlua::Table = lua.globals().get("_pending_move_events")?;
+                let len = pending.len()?;
+                pending.set(len + 1, this)?;
+                Ok(())
+            })?,
+        )?;
+        Ok(me)
+    })?;
+    globals.set("MoveEvent", moveevent_constructor)?;
+
+    // `doRelocate(fromPos, toPos[, force])` — compat relocate leftovers off a tile.
+    // C++ domain: used by `closing_doors.lua` / map scripts; body from `compat.lua`.
+    register_do_relocate(lua)?;
+
     // `Player(name)` — resolve an online player by name → `CreatureRef` userdata
     // or `nil`. LUA-4 §0.3 / `luascript.cpp` `luaPlayerCreate`.
     // Uses the scoped `ScriptContext::get_player_by_name` read.
@@ -1376,6 +1587,106 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         lua.create_function(|_, _: mlua::MultiValue| Ok(false))?,
     )?;
 
+    Ok(())
+}
+
+fn infer_move_event_kind(
+    me_table: &mlua::Table,
+    type_name: Option<&str>,
+) -> Result<crate::move_events::MoveEventKind, LuaError> {
+    use crate::move_events::MoveEventKind;
+    if let Some(name) = type_name {
+        return MoveEventKind::from_type_name(name).ok_or_else(|| {
+            LuaError::Init(mlua::Error::runtime(format!(
+                "MoveEvent: invalid type '{name}'"
+            )))
+        });
+    }
+    // Infer from which callback field is set (revscript style).
+    let checks: &[(&str, MoveEventKind)] = &[
+        ("onStepOut", MoveEventKind::StepOut),
+        ("onStepIn", MoveEventKind::StepIn),
+        ("onEquip", MoveEventKind::Equip),
+        ("onDeEquip", MoveEventKind::DeEquip),
+        ("onAddItem", MoveEventKind::AddItem),
+        ("onRemoveItem", MoveEventKind::RemoveItem),
+    ];
+    for &(field, kind) in checks {
+        if me_table
+            .get::<Option<mlua::Function>>(field)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            return Ok(kind);
+        }
+    }
+    Err(LuaError::Init(mlua::Error::runtime(
+        "MoveEvent:register() needs onStepIn/onStepOut/… or :type()",
+    )))
+}
+
+/// `doRelocate(fromPos, toPos[, force])` — `compat.lua` body as a registered global.
+fn register_do_relocate(lua: &Lua) -> Result<(), mlua::Error> {
+    // Implemented in Lua so it reuses Tile/Item/Creature userdata methods.
+    lua.load(
+        r#"
+function doRelocate(fromPos, toPos, force)
+	if fromPos == toPos then
+		return false
+	end
+
+	local fromTile = Tile(fromPos)
+	if fromTile == nil then
+		return false
+	end
+
+	if Tile(toPos) == nil then
+		return false
+	end
+
+	for i = fromTile:getThingCount() - 1, 0, -1 do
+		local thing = fromTile:getThing(i)
+		if thing then
+			if thing:isItem() then
+				if ItemType(thing:getId()):isMovable() or force and not ItemType(thing:getId()):isGroundTile() then
+					thing:moveTo(toPos)
+				end
+			elseif thing:isCreature() then
+				thing:teleportTo(toPos, true)
+			end
+		end
+	end
+
+	local magicWall = fromTile:getItemById(ITEM_MAGICWALL)
+	if magicWall then
+		magicWall:remove()
+		fromTile:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+
+	local wildGrowth = fromTile:getItemById(ITEM_WILDGROWTH)
+	if wildGrowth then
+		wildGrowth:remove()
+		fromTile:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+
+	local splashItem = fromTile:getItemByGroup(ITEM_GROUP_SPLASH)
+	if splashItem then
+		splashItem:remove()
+	end
+
+	local magicField = fromTile:getItemByGroup(ITEM_GROUP_MAGICFIELD)
+	if magicField then
+		magicField:remove()
+		fromTile:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+
+	return true
+end
+"#,
+    )
+    .set_name("doRelocate")
+    .exec()?;
     Ok(())
 }
 

@@ -243,6 +243,18 @@ pub async fn run() -> anyhow::Result<()> {
             };
             let actions = crate::actions::ActionRegistry::from_defs(action_defs);
 
+            // Phase 6: load `data/scripts/movements/**` after door tables so
+            // closing_doors / level_doors see openLevelDoors / openQuestDoors.
+            match tfs_rust_lua::load_move_event_scripts(&mut lua_runtime, &data_path) {
+                Ok(defs) => {
+                    tracing::info!(count = defs.len(), "Loaded move event script definitions");
+                    tfs_rust_lua::merge_move_event_defs(&mut move_events, &lua_runtime, defs);
+                }
+                Err(e) => {
+                    tracing::warn!("Move event script loading failed: {}", e);
+                }
+            }
+
             // PC-2b/PC-3: Load weapon + spell scripts from `data/scripts/weapons/*.lua`
             // and `data/scripts/spells/**/*.lua`. These drain `_pending_weapons` /
             // `_pending_spells` into `WeaponRegistry` / `SpellRegistry`. Without this,

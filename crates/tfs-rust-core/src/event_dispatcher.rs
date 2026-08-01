@@ -113,24 +113,30 @@ pub trait EventDispatcher {
         true
     }
 
-    /// TFS `MoveEvent::onStepOut` — `internal_move_item` MovementEvent from old tile.
+    /// TFS `MoveEvent::onStepOut` — creature/item leaving a tile.
+    ///
+    /// `pos` = tile being left; `from_pos` = creature last position (Lua 4th arg).
     fn on_step_out(
         &self,
         _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
         _pos: Position,
+        _from_pos: Position,
     ) -> bool {
         true
     }
 
-    /// TFS `MoveEvent::onStepIn` — `internal_add_item_to_tile` MovementEvent to new tile.
+    /// TFS `MoveEvent::onStepIn` — creature/item entering a tile.
+    ///
+    /// `pos` = tile entered; `from_pos` = creature last position (Lua 4th arg).
     fn on_step_in(
         &self,
         _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
         _pos: Position,
+        _from_pos: Position,
     ) -> bool {
         true
     }

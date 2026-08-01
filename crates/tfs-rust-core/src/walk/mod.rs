@@ -44,7 +44,7 @@ use crate::combat::uniform_random;
 use crate::creature::{CreatureKind, NpcActivity};
 use crate::creature_todo::{trace_creature_todo, CreatureAction};
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
-use crate::ids::CreatureId;
+use crate::ids::{CreatureId, ItemId};
 use crate::login_out::{creature_wire_id, map_tile_content};
 use crate::return_value::ReturnValue;
 use crate::tile::{
@@ -2271,6 +2271,9 @@ impl GameWorld {
     /// Move a creature between tiles on the map (unregister from old, register at new).
     /// C++ `Map::moveCreature` — position follows the tile (`newTile.addThing`) before
     /// `onCreatureMove` fan-out (`map.cpp` ~293–324).
+    ///
+    /// Also fires TFS `MoveEvents::onCreatureMove` StepOut (old tile) / StepIn (new tile)
+    /// — `tile.cpp` postRemove/postAddNotification (`movement.cpp` `onCreatureMove`).
     pub(crate) fn move_creature_on_map(&mut self, cid: CreatureId, from: Position, to: Position) {
         if from == to {
             return;
@@ -2298,13 +2301,45 @@ impl GameWorld {
                 cid, from, actual
             );
         }
+
+        // Snapshot tile items before unregister (StepOut) and after register (StepIn).
+        let step_out_items = self.tile_move_event_items(from);
         self.map.unregister_creature_at(from, cid);
         self.map.register_creature_at(to, cid);
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(to);
         }
+        let step_in_items = self.tile_move_event_items(to);
+
+        // C++ `getLastPosition()` for executeStep — use the tile we left.
+        let last_pos = from;
+        for (item_id, item_type) in step_out_items {
+            let _ = self
+                .events
+                .on_step_out(Some(cid), item_id, item_type, from, last_pos);
+        }
+        for (item_id, item_type) in step_in_items {
+            let _ = self
+                .events
+                .on_step_in(Some(cid), item_id, item_type, to, last_pos);
+        }
+
         self.monster_dispatch_creature_move(cid, from, to);
         self.npc_dispatch_creature_move(cid, from, to, false);
+    }
+
+    /// Item ids + types on a tile for `MoveEvents::onCreatureMove` item iteration.
+    fn tile_move_event_items(&self, pos: Position) -> Vec<(ItemId, u16)> {
+        let Some(tile) = self.map.get_tile(pos) else {
+            return Vec::new();
+        };
+        let body = tile.body();
+        let mut out = Vec::new();
+        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+            let typ = self.items.get(iid).map(|i| i.item_type).unwrap_or(0);
+            out.push((iid, typ));
+        }
+        out
     }
 
     /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).

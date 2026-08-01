@@ -567,6 +567,48 @@ pub trait ScriptContext {
         Vec::new()
     }
 
+    /// `tile:getCreatureCount()` — `Tile::getCreatureCount`.
+    fn tile_get_creature_count(&self, x: u16, y: u16, z: u8) -> u32 {
+        self.tile_get_creatures(x, y, z).len() as u32
+    }
+
+    /// `tile:getThingCount()` — ground + top + creatures + down (`tile.h`).
+    fn tile_get_thing_count(&self, x: u16, y: u16, z: u8) -> u32 {
+        let _ = (x, y, z);
+        0
+    }
+
+    /// `tile:getThing(index)` — TFS stack order (`Tile::getThing`).
+    fn tile_get_thing(&self, x: u16, y: u16, z: u8, index: u32) -> Option<ScriptThing> {
+        let _ = (x, y, z, index);
+        None
+    }
+
+    /// `tile:getItemById(itemId)` — first item with server type id.
+    fn tile_get_item_by_id(&self, x: u16, y: u16, z: u8, item_type: u16) -> Option<ScriptItemId> {
+        let _ = (x, y, z, item_type);
+        None
+    }
+
+    /// `tile:getItemByGroup(ITEM_GROUP_*)` — splash by OTB group; magicfield by type tag.
+    fn tile_get_item_by_group(&self, x: u16, y: u16, z: u8, group: i32) -> Option<ScriptItemId> {
+        let _ = (x, y, z, group);
+        None
+    }
+
+    /// `tile:queryAdd(creature[, flags])` — returns `ReturnValue` ordinal.
+    fn tile_query_add_creature(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        creature_id: ScriptCreatureId,
+        flags: u32,
+    ) -> i32 {
+        let _ = (x, y, z, creature_id, flags);
+        1 // RETURNVALUE_NOTPOSSIBLE
+    }
+
     /// `tile:getItemByType(ITEM_TYPE_*)` — first matching item by type_tag.
     fn tile_get_item_by_type(
         &self,
@@ -631,6 +673,12 @@ pub trait ScriptContext {
     fn get_item_type_is_movable(&self, item_type: u16) -> bool {
         let _ = item_type;
         true
+    }
+
+    /// `ItemType:isGroundTile()` — `ItemType::isGroundTile`.
+    fn get_item_type_is_ground_tile(&self, item_type: u16) -> bool {
+        let _ = item_type;
+        false
     }
 
     /// NPC-7: `npc:getParameter(key)` — definition parameter map.

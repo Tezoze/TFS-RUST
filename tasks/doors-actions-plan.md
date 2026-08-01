@@ -1,6 +1,6 @@
 # Doors + Action System — Implementation Plan
 
-**Status:** Phase 0–5 done (2026-08-01); Phase 6+ not started  
+**Status:** Phase 0–6 done (2026-08-01); Phase 7+ not started  
 **Date:** 2026-07-19  
 **Goal:** Run `data/scripts/actions/other/doors.lua` (and sibling actions such as `food.lua`) end-to-end on a **TFS-style domain**, with **772 house/door outcomes** where they diverge, implemented as **idiomatic Rust**.
 
@@ -38,9 +38,9 @@
 | `item:getId()` → server type id | **Done** — type id; `item.itemid` field added |
 | `item:getAttribute` / door+key attr constants | **Done (Phase 3)** — Remere string aliases → custom attrs |
 | `player:getStorageValue` | **Done (Phase 4)** (+ `setStorageValue`) |
-| `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **getCreatures + getTopVisibleThing done (Phase 2–3)**; count still missing |
+| `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **Done (Phase 2–3 + 6)** |
 | Native house `Door::canUse` | **Done (Phase 5)** — owner/subowner/`CanEditHouses` or per-door list; deny `NOTPOSSIBLE` |
-| `MoveEvent` StepIn/StepOut + load `movements/**` | **Missing** (equip/deequip only today) |
+| `MoveEvent` StepIn/StepOut + load `movements/**` | **Done (Phase 6)** |
 | `openLevelDoors` / `openQuestDoors` in `global.lua` | **Done (Phase 0)** — live tables; forgotten.otbm spot-check OK |
 | Basic door `transform` ±1 + tile flags / shove / locked text | **Done (Phase 2)** |
 
@@ -162,7 +162,7 @@
 
 ---
 
-### Phase 6 — Auto-close MoveEvents
+### Phase 6 — Auto-close MoveEvents — **DONE 2026-08-01**
 
 **Goal:** Leaving an open quest/level door tile closes it (`closing_doors.lua`).
 
@@ -176,6 +176,8 @@
 | 6.6 | `level_doors.lua` step-in kick if desired in same pass |
 
 **Done when:** Walking out of an open quest/level door auto-closes and relocates leftovers per script.
+
+**Implementation notes:** `MoveEvent()` plain table (Action pattern); kind inferred from `onStepIn`/`onStepOut` or `:type()`. Merge revscripts into `MoveEventsRegistry` after XML equip load + door-table inject. `call_move_step` passes `fromPosition`. `move_creature_on_map` fires StepOut (old) / StepIn (new) after unregister/register so `getCreatureCount()` sees the leavers gone. `item:getType()` → `ItemTypeRef`; `item.uid` → uniqueid. `getItemByGroup(MAGICFIELD)` matches type tag (deprecated OTB group).
 
 ---
 

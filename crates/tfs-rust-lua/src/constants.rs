@@ -39,6 +39,7 @@ pub fn register_constants(lua: &Lua) -> Result<(), mlua::Error> {
     register_conditions(&globals)?;
     register_return_values(&globals)?;
     register_item_attributes(&globals)?;
+    register_item_groups(&globals)?;
     register_misc(&globals)?;
     register_config_keys(lua)?;
 
@@ -218,6 +219,29 @@ fn register_return_values(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
+// --- ITEM_GROUP_* (`itemloader.h` itemgroup_t) ---
+//
+// Doors Phase 6: `closing_doors.lua` / `doRelocate` use SPLASH + MAGICFIELD.
+
+fn register_item_groups(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    globals.set("ITEM_GROUP_NONE", 0i32)?;
+    globals.set("ITEM_GROUP_GROUND", 1i32)?;
+    globals.set("ITEM_GROUP_CONTAINER", 2i32)?;
+    globals.set("ITEM_GROUP_WEAPON", 3i32)?;
+    globals.set("ITEM_GROUP_AMMUNITION", 4i32)?;
+    globals.set("ITEM_GROUP_ARMOR", 5i32)?;
+    globals.set("ITEM_GROUP_CHARGES", 6i32)?;
+    globals.set("ITEM_GROUP_TELEPORT", 7i32)?;
+    globals.set("ITEM_GROUP_MAGICFIELD", 8i32)?;
+    globals.set("ITEM_GROUP_WRITEABLE", 9i32)?;
+    globals.set("ITEM_GROUP_KEY", 10i32)?;
+    globals.set("ITEM_GROUP_SPLASH", 11i32)?;
+    globals.set("ITEM_GROUP_FLUID", 12i32)?;
+    globals.set("ITEM_GROUP_DOOR", 13i32)?;
+    globals.set("ITEM_GROUP_DEPRECATED", 14i32)?;
+    Ok(())
+}
+
 // --- ITEM_ATTRIBUTE_* (enums.h:51-84 itemAttrTypes bitflags) ---
 //
 // PC-3a Phase 5: `conjureItem` / `destroyItem` check duration / unique / action id.
@@ -382,6 +406,10 @@ mod tests {
         assert_eq!(get("RETURNVALUE_PLAYERWITHTHISNAMEISNOTONLINE"), 27);
         assert_eq!(get("RETURNVALUE_YOUAREEXHAUSTED"), 36);
         assert_eq!(get("RETURNVALUE_ITEMCANNOTBEMOVEDTHERE"), 69);
+
+        // ITEM_GROUP_* (itemloader.h)
+        assert_eq!(get("ITEM_GROUP_MAGICFIELD"), 8);
+        assert_eq!(get("ITEM_GROUP_SPLASH"), 11);
 
         // APPLY_SKILL_MULTIPLIER
         assert!(

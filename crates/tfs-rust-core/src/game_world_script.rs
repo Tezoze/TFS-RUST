@@ -6,7 +6,7 @@ use slotmap::Key;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
-use tfs_rust_common::{ScriptCreatureId, ScriptItemId};
+use tfs_rust_common::{ScriptCreatureId, ScriptItemId, ScriptThing};
 
 impl tfs_rust_common::ScriptContext for GameWorld {
     fn get_creature(
@@ -908,6 +908,111 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .collect()
     }
 
+    fn tile_get_creature_count(&self, x: u16, y: u16, z: u8) -> u32 {
+        self.tile_get_creatures(x, y, z).len() as u32
+    }
+
+    fn tile_get_thing_count(&self, x: u16, y: u16, z: u8) -> u32 {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return 0;
+        };
+        let body = tile.body();
+        let ground = if body.ground.is_some() { 1u32 } else { 0 };
+        ground
+            + body.top_items.len() as u32
+            + body.creatures.len() as u32
+            + body.down_items.len() as u32
+    }
+
+    fn tile_get_thing(&self, x: u16, y: u16, z: u8, index: u32) -> Option<ScriptThing> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        let mut idx = index as usize;
+
+        // Ground occupies index 0 when present but is type-only (no SlotMap id) —
+        // return None for that slot so indices of later things stay TFS-aligned.
+        if body.ground.is_some() {
+            if idx == 0 {
+                return None;
+            }
+            idx -= 1;
+        }
+
+        if idx < body.top_items.len() {
+            return Some(ScriptThing::Item(body.top_items[idx].data().as_ffi()));
+        }
+        idx -= body.top_items.len();
+
+        if idx < body.creatures.len() {
+            return Some(ScriptThing::Creature(
+                body.creatures[idx].data().as_ffi(),
+            ));
+        }
+        idx -= body.creatures.len();
+
+        if idx < body.down_items.len() {
+            return Some(ScriptThing::Item(body.down_items[idx].data().as_ffi()));
+        }
+        None
+    }
+
+    fn tile_get_item_by_id(&self, x: u16, y: u16, z: u8, item_type: u16) -> Option<ScriptItemId> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+            let item = self.items.get(iid)?;
+            if item.item_type == item_type {
+                return Some(iid.data().as_ffi());
+            }
+        }
+        None
+    }
+
+    fn tile_get_item_by_group(&self, x: u16, y: u16, z: u8, group: i32) -> Option<ScriptItemId> {
+        // `itemloader.h` itemgroup_t — MAGICFIELD is deprecated; match type tag.
+        const ITEM_GROUP_SPLASH: i32 = 11;
+        const ITEM_GROUP_MAGICFIELD: i32 = 8;
+        let pos = tfs_rust_common::Position { x, y, z };
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+            let item = self.items.get(iid)?;
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            let matches = match group {
+                ITEM_GROUP_SPLASH => it.group == tfs_rust_content::otb::ItemType::GROUP_SPLASH,
+                ITEM_GROUP_MAGICFIELD => it.is_magic_field(),
+                _ => it.group as i32 == group,
+            };
+            if matches {
+                return Some(iid.data().as_ffi());
+            }
+        }
+        None
+    }
+
+    fn tile_query_add_creature(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        creature_id: ScriptCreatureId,
+        flags: u32,
+    ) -> i32 {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return crate::return_value::ReturnValue::NotPossible as i32;
+        };
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return crate::return_value::ReturnValue::CreatureDoesNotExist as i32;
+        };
+        crate::walk::tile_query_add_creature(self, tile, cid, flags) as i32
+    }
+
     fn tile_get_item_by_type(
         &self,
         x: u16,
@@ -1003,6 +1108,14 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .get(&item_type)
             .map(|t| t.moveable())
             .unwrap_or(true)
+    }
+
+    fn get_item_type_is_ground_tile(&self, item_type: u16) -> bool {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.is_ground_tile())
+            .unwrap_or(false)
     }
 
     fn get_npc_parameter(&self, creature_id: ScriptCreatureId, key: &str) -> Option<String> {
