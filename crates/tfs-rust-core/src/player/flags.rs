@@ -36,6 +36,9 @@ pub const PLAYER_FLAG_CANNOT_BE_MUTED: u64 = 1 << 36;
 /// C++ `PlayerFlag_SetMaxSpeed` — `src/const.h`. When set, `Player::updateBaseSpeed`
 /// caps the character's base speed at `PLAYER_MAX_SPEED` (1500).
 pub const PLAYER_FLAG_SET_MAX_SPEED: u64 = 1 << 29;
+/// C++ `PlayerFlag_IgnoreProtectionZone` — `src/const.h` bit 33. 772 equivalent:
+/// `ATTACK_EVERYWHERE` (`enums.hh:523`, `crcombat.cc:383–410` PZ / vocation / NoPvp bypass).
+pub const PLAYER_FLAG_IGNORE_PROTECTION_ZONE: u64 = 1 << 33;
 /// C++ `PlayerFlag_IgnoreSpellCheck` — `src/const.h` bit 34. 772 equivalent:
 /// `ALL_SPELLS` (`enums.hh:520`, `magic.cc:619` `CheckSpellbook`).
 pub const PLAYER_FLAG_IGNORE_SPELL_CHECK: u64 = 1 << 34;
@@ -60,6 +63,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
         "cannotbemuted" => Some(PLAYER_FLAG_CANNOT_BE_MUTED),
         "setmaxspeed" => Some(PLAYER_FLAG_SET_MAX_SPEED),
+        "ignoreprotectionzone" => Some(PLAYER_FLAG_IGNORE_PROTECTION_ZONE),
         "ignorespellcheck" => Some(PLAYER_FLAG_IGNORE_SPELL_CHECK),
         "isalwayspremium" => Some(PLAYER_FLAG_IS_ALWAYS_PREMIUM),
         _ => None,

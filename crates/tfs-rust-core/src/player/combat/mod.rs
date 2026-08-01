@@ -8,12 +8,11 @@
 //! - `TPlayer::IdleStimulus` thrown-`RESULT` path — `crplayer.cc:388-405`.
 //!
 //! Phase 1.4 walk-engine unification: routes 772 player attack/follow/cancel packets through the
-//! unified ToDo engine. The **melee strike** (`TCombat::Attack` / `CloseAttack` /
-//! `DistanceAttack` with player weapon damage) is **deferred** — no player weapon-combat system
-//! exists yet. The chase (`CanToDoAttack` close walk) and target/clear-target wiring land here.
+//! unified ToDo engine. Melee / ranged / wand strikes live in `strike.rs` / `ranged.rs`.
 //!
 //! 772 has **no** separate `follow_target` semantics — follow == attack-with-`Following`
-//! (`crcombat.cc:493-495` sets `ChaseMode = CHASE_MODE_CLOSE` when `Following`). We still set
+//! (`crcombat.cc:493-495` sets `ChaseMode = CHASE_MODE_CLOSE` when `Following`). `Attack()`
+//! early-returns when `Following` (`crcombat.cc:532-534`) — chase only, never strike. We still set
 //! `follow_target` so the shared `Go`/pathfinding arms (which key off `follow_target`) repath
 //! toward the target on the attack beat.
 
@@ -32,6 +31,7 @@ pub(crate) use values::SkillNr;
 use slotmap::Key;
 use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::ConnId;
+use tfs_rust_common::WorldType;
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::creature::{ChaseMode, CreatureKind};
@@ -40,6 +40,7 @@ use crate::game_world::GameWorld;
 use crate::idle_stimulus::TodoExecuteKind;
 use crate::ids::CreatureId;
 use crate::monster_ai::chebyshev;
+use crate::player_flags::PLAYER_FLAG_IGNORE_PROTECTION_ZONE;
 use crate::return_value::ReturnValue;
 
 /// C++ `RESULT` codes thrown by `SetAttackDest` / `CanToDoAttack` (`crcombat.cc`, `sending.cc:285`).
@@ -126,9 +127,9 @@ impl GameWorld {
             return CombatResult::NoError;
         }
 
-        // Validate — subset of `SetAttackDest` `!Follow` + universal checks. Secure-mode / PVP
-        // `IsAttackJustified` is deferred to the player weapon-combat system.
-        let result = self.validate_player_attack_target(cid, target_id);
+        // Validate — `!Follow` gates (secure / PZ / profession / NoPvp / NPC) vs universal
+        // distance + invisibility (`crcombat.cc:374-428`).
+        let result = self.validate_player_attack_target(cid, target_id, follow);
         if result != CombatResult::NoError {
             self.player_stop_attack(conn_id, cid);
             // `CAttack` catch: `ToDoClear` + `SendResult` (unless NOERROR) + `ToDoYield`
@@ -410,10 +411,9 @@ impl GameWorld {
     /// Player `TDAttack` execute — `cract.cc:843-845` (`this->Attack()`) + the thrown-`RESULT`
     /// catch (`cract.cc:870-889`) specialized for players (`crplayer.cc:388-405`).
     ///
-    /// Routes through [`Self::player_can_to_do_attack_chase`]. The melee **strike** is deferred
-    /// (no player weapon-combat system yet); this drives the chase re-path on the attack beat and
-    /// the `TARGETLOST` → `StopAttack` + `SendClearTarget` + `ToDoClear` + `SendResult` +
-    /// `ToDoWait(1000)` + `ToDoStart` recovery (`crcombat.cc:456`, `crplayer.cc:393-402`).
+    /// Routes through [`Self::player_can_to_do_attack_chase`]. When `Following`, `Attack()`
+    /// early-returns after chase (`crcombat.cc:532-534`) — never strikes. Otherwise melee /
+    /// ranged / wand strikes run from `strike.rs` / `ranged.rs`.
     pub(crate) fn player_execute_attack(&mut self, cid: CreatureId) -> TodoExecuteKind {
         // `Attack()` early: `AttackDest == 0 || Following` → return (`crcombat.cc:532-534`).
         // Delayed `StopAttack` expire runs only on the non-follow arm (`:551-553`).
@@ -422,58 +422,97 @@ impl GameWorld {
             return TodoExecuteKind::AttackDeferred;
         }
 
+        let following = self.creatures.get(cid).is_some_and(|k| {
+            matches!(k, CreatureKind::Player(_)) && k.base().follow_target.is_some()
+        });
+
         let conn_id = self.conn_for_creature(cid);
+        // `ToDoAttack` → `CanToDoAttack` first (`cract.cc:1354`); chase still runs while Following.
         let outcome = self.player_can_to_do_attack_chase(cid);
 
-        // PC-4 — `Attack()` re-validation for non-lost targets (`crcombat.cc:563-593`):
-        // secure-mode PVP gate + `NO_ATTACK` right check + `BlockLogout(60)`. These run after
-        // `CanToDoAttack` confirms the target is valid and within distance 8, but before the
-        // range check / strike. `NoTarget` / `TargetLost` skip this (no valid target).
-        if !matches!(outcome, PlayerChaseOutcome::NoTarget | PlayerChaseOutcome::TargetLost) {
+        // PC-4 — `Attack()` re-validation for non-lost targets (`crcombat.cc:563-606`):
+        // secure-mode / profession NONE / `NO_ATTACK` / NoPvp peaceful / PZ + `BlockLogout(60)`.
+        // Skipped entirely when `Following` (`Attack` returns before these checks).
+        if !following
+            && !matches!(
+                outcome,
+                PlayerChaseOutcome::NoTarget | PlayerChaseOutcome::TargetLost
+            )
+        {
             if let Some(target_id) =
                 self.creatures.get(cid).and_then(|k| k.base().attack_target)
             {
                 // Secure-mode PVP gate — `crcombat.cc:563-568`.
                 if self.player_secure_mode_blocks_attack(cid, target_id) {
-                    if let Some(conn) = conn_id {
-                        self.player_stop_attack(conn, cid);
-                    } else if let Some(k) = self.creatures.get_mut(cid) {
-                        let base = k.base_mut();
-                        base.attack_target = None;
-                        base.follow_target = None;
-                    }
-                    self.creature_todo_clear(cid);
-                    if let Some(conn) = conn_id {
-                        self.send_combat_result(conn, CombatResult::SecureMode);
-                    }
-                    self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
-                    trace_creature_todo(self, cid, "player_attack_secure_mode_blocked");
-                    return TodoExecuteKind::AttackDeferred;
+                    return self.player_attack_abort_with_result(
+                        cid,
+                        conn_id,
+                        CombatResult::SecureMode,
+                        "player_attack_secure_mode_blocked",
+                    );
+                }
+
+                // Profession NONE / `!allowPvp` vs player — `crcombat.cc:580-586`.
+                if self.player_vocation_blocks_pvp_attack(cid, target_id) {
+                    return self.player_attack_abort_with_result(
+                        cid,
+                        conn_id,
+                        CombatResult::AttackNotAllowed,
+                        "player_attack_vocation_pvp_blocked",
+                    );
                 }
 
                 // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:589-593`).
                 if self.player_attack_blocked_by_right(cid) {
-                    if let Some(conn) = conn_id {
-                        self.player_stop_attack(conn, cid);
-                    } else if let Some(k) = self.creatures.get_mut(cid) {
-                        let base = k.base_mut();
-                        base.attack_target = None;
-                        base.follow_target = None;
+                    return self.player_attack_abort_with_result(
+                        cid,
+                        conn_id,
+                        CombatResult::AttackNotAllowed,
+                        "player_attack_right_blocked",
+                    );
+                }
+
+                // NON_PVP peaceful×peaceful — `CanToDoAttack` (`crcombat.cc:476-483`).
+                if self.player_nopvp_peaceful_blocks_attack(cid, target_id) {
+                    return self.player_attack_abort_with_result(
+                        cid,
+                        conn_id,
+                        CombatResult::AttackNotAllowed,
+                        "player_attack_nopvp_peaceful_blocked",
+                    );
+                }
+
+                // PZ on attacker or target — `Attack()` always (`crcombat.cc:595-599`).
+                let (master_pos, target_pos) = match (
+                    self.creatures.get(cid).map(|k| k.position()),
+                    self.creatures.get(target_id).map(|k| k.position()),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => {
+                        return self.player_attack_abort_with_result(
+                            cid,
+                            conn_id,
+                            CombatResult::TargetLost,
+                            "player_attack_target_lost",
+                        );
                     }
-                    self.creature_todo_clear(cid);
-                    if let Some(conn) = conn_id {
-                        self.send_combat_result(conn, CombatResult::AttackNotAllowed);
-                    }
-                    self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
-                    trace_creature_todo(self, cid, "player_attack_right_blocked");
-                    return TodoExecuteKind::AttackDeferred;
+                };
+                if self.tile_in_protection_zone(master_pos)
+                    || self.tile_in_protection_zone(target_pos)
+                {
+                    return self.player_attack_abort_with_result(
+                        cid,
+                        conn_id,
+                        CombatResult::ProtectionZone,
+                        "player_attack_protection_zone",
+                    );
                 }
 
                 // `BlockLogout(60)` on attacker + target — `crcombat.cc:601-602`.
-                // Attacker: `BlockLogout(60, Target->Type == PLAYER)`.
-                // Target: `BlockLogout(60, false)`.
-                let target_is_player =
-                    self.creatures.get(target_id).is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+                let target_is_player = self
+                    .creatures
+                    .get(target_id)
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
                 self.player_block_logout_infight(cid, target_is_player);
                 self.player_block_logout_infight(target_id, false);
             }
@@ -481,12 +520,10 @@ impl GameWorld {
 
         match outcome {
             PlayerChaseOutcome::NoTarget => {
-                // No attack target — idle drain complete, no re-arm (`crplayer.cc:388-405`).
                 trace_creature_todo(self, cid, "player_attack_no_target");
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::TargetLost => {
-                // `StopAttack(0)` + `SendClearTarget` (`crcombat.cc:456`, `:513-522`).
                 if let Some(conn) = conn_id {
                     self.player_stop_attack(conn, cid);
                 } else if let Some(k) = self.creatures.get_mut(cid) {
@@ -494,8 +531,6 @@ impl GameWorld {
                     base.attack_target = None;
                     base.follow_target = None;
                 }
-                // `ToDoClear` + `SendResult(TARGETLOST)` + `ToDoWait(1000)` + `ToDoStart`
-                // (`crplayer.cc:394-402`). `ToDoClear` drops the (already-popped) Attack.
                 self.creature_todo_clear(cid);
                 if let Some(conn) = conn_id {
                     self.send_combat_result(conn, CombatResult::TargetLost);
@@ -505,20 +540,19 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::ChaseArmed => {
-                // `ToDoGo` already enqueued at front by `player_can_to_do_attack_chase`; re-queue
-                // `TDAttack` behind it so the chase drains then attack re-evaluates
-                // (`cract.cc:1325` `ToDoGo` then `TDAttack`).
                 let _ = self.enqueue_creature_attack(cid);
                 trace_creature_todo(self, cid, "player_attack_chase_armed");
                 TodoExecuteKind::AttackDeferred
             }
+            PlayerChaseOutcome::Adjacent | PlayerChaseOutcome::RangedStrike if following => {
+                // `Attack()` returns when Following — chase already handled; re-arm without strike.
+                let _ = self.enqueue_creature_attack(cid);
+                let delay = self.todo_attack_delay_ms(cid).max(1);
+                self.todo_start_from_action(cid, delay);
+                trace_creature_todo(self, cid, "player_attack_following");
+                TodoExecuteKind::AttackDeferred
+            }
             PlayerChaseOutcome::Adjacent => {
-                // `cheb ≤ 1` — strike range for any weapon. C++ `Attack()` checks `GetDistance()`
-                // (`crcombat.cc:611-616`): range 1 → `CloseAttack`, range 2/3 → `DistanceAttack`/
-                // `WandAttack` (a ranged weapon at cheb=1 is still within its range). The strike
-                // bodies live in `player/combat/strike.rs` (melee) and `player/combat/ranged.rs`
-                // (ranged); both handle `DelayAttack(200)` before + `DelayAttack(attackspeed)`
-                // after, damage/defense/armor, `ActivateLearning`, and `StopAttack` on death.
                 if let Some(target_id) =
                     self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
@@ -529,8 +563,6 @@ impl GameWorld {
                         self.player_close_attack_strike(cid, target_id);
                     }
                 }
-                // Re-arm `TDAttack` on the attack beat (post-strike `attackspeed` cadence is
-                // already set by the strike; `todo_attack_delay_ms` reads `earliest_attack_ms`).
                 let _ = self.enqueue_creature_attack(cid);
                 let delay = self.todo_attack_delay_ms(cid).max(1);
                 self.todo_start_from_action(cid, delay);
@@ -538,11 +570,6 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::RangedStrike => {
-                // Ranged weapon (bow/wand/throw) with target within weapon range and the 7×5
-                // visible window — `crcombat.cc:617-638` dispatches to `DistanceAttack`/
-                // `WandAttack`. The strike body lives in `player/combat/ranged.rs`; it handles
-                // range/LoS checks, mana/ammo consumption, damage, `ActivateLearning`, and
-                // `StopAttack` on target death.
                 if let Some(target_id) =
                     self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
@@ -555,8 +582,6 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::NoPath => {
-                // Target reachable but no path found this beat — re-arm on the attack beat.
-                // `DelayAttack(200)` matches the C++ pre-strike cadence (`crcombat.cc:608`).
                 let _ = self.enqueue_creature_attack(cid);
                 let server_ms = self.server_ms;
                 if let Some(k) = self.creatures.get_mut(cid) {
@@ -568,10 +593,6 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::OutOfRange => {
-                // `CHASE_MODE_NONE` + target not adjacent — C++ `Attack()` calls
-                // `DelayAttack(200)` then `throw TARGETOUTOFRANGE` (`crcombat.cc:608,613-614`).
-                // The `Execute` catch does `ToDoYield` (re-arm); no `SendResult` —
-                // `TARGETOUTOFRANGE` falls through to `default: break` in `sending.cc:348`.
                 let _ = self.enqueue_creature_attack(cid);
                 let server_ms = self.server_ms;
                 if let Some(k) = self.creatures.get_mut(cid) {
@@ -585,18 +606,41 @@ impl GameWorld {
         }
     }
 
+    /// `StopAttack` + `SendResult` + `ToDoWait(1000)` + `ToDoStart` — Attack / CanToDoAttack throw path.
+    fn player_attack_abort_with_result(
+        &mut self,
+        cid: CreatureId,
+        conn_id: Option<ConnId>,
+        result: CombatResult,
+        trace: &str,
+    ) -> TodoExecuteKind {
+        if let Some(conn) = conn_id {
+            self.player_stop_attack(conn, cid);
+        } else if let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.attack_target = None;
+            base.follow_target = None;
+        }
+        self.creature_todo_clear(cid);
+        if let Some(conn) = conn_id {
+            self.send_combat_result(conn, result);
+        }
+        self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+        trace_creature_todo(self, cid, trace);
+        TodoExecuteKind::AttackDeferred
+    }
+
     /// Subset of `SetAttackDest` validation — `crcombat.cc:363-428`.
     ///
-    /// Implements: target-NPC → `ATTACKNOTALLOWED` (`:404-407`); secure-mode PVP gate →
-    /// `SECUREMODE` (`:374-381`); `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`:391-394`);
-    /// PZ (master or target) → `PROTECTIONZONE` (`:384-388`); `Distance > 8` → `TARGETLOST`
-    /// (`:424-428`); invisible target (vs creature) → `TARGETLOST` (`:417-422`).
-    /// `CheckRight(ATTACK_EVERYWHERE)` (PZ/profession bypass for GMs) and the full PVP skull
-    /// subsystem (`RecordAttack`/aggressor) are deferred to the PvP phase.
+    /// `follow == false` (`!Follow`): secure-mode, `NO_ATTACK`, profession/`allowPvp`, NPC, PZ
+    /// (unless `IgnoreProtectionZone` / `ATTACK_EVERYWHERE`), NON_PVP peaceful×peaceful.
+    /// Always: distance > 8 / cross-floor → `TARGETLOST`; invisible non-player → `TARGETLOST`.
+    /// Skull / `RecordAttack` remain deferred (`IsAttackJustified` stub).
     fn validate_player_attack_target(
         &self,
         cid: CreatureId,
         target_id: CreatureId,
+        follow: bool,
     ) -> CombatResult {
         let (target_is_npc, target_pos, target_is_player) = match self.creatures.get(target_id) {
             Some(k) => (
@@ -607,41 +651,116 @@ impl GameWorld {
             None => return CombatResult::TargetLost,
         };
 
-        // Secure-mode PVP gate — `crcombat.cc:374-381` (player vs player, `!Follow`).
-        // Fires before the NPC/PZ checks (matches C++ order in `SetAttackDest`).
-        if target_is_player && self.player_secure_mode_blocks_attack(cid, target_id) {
-            return CombatResult::SecureMode;
+        if !follow {
+            // Secure-mode PVP gate — `crcombat.cc:374-381`.
+            if target_is_player && self.player_secure_mode_blocks_attack(cid, target_id) {
+                return CombatResult::SecureMode;
+            }
+
+            // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:391-394`).
+            if self.player_attack_blocked_by_right(cid) {
+                return CombatResult::AttackNotAllowed;
+            }
+
+            // Profession NONE / `!allowPvp` vs player — `crcombat.cc:396-401`.
+            if self.player_vocation_blocks_pvp_attack(cid, target_id) {
+                return CombatResult::AttackNotAllowed;
+            }
+
+            if target_is_npc {
+                return CombatResult::AttackNotAllowed;
+            }
+
+            let master_pos = self
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or(target_pos);
+            // PZ — skipped when `ATTACK_EVERYWHERE` / `IgnoreProtectionZone` (`crcombat.cc:383-388`).
+            if !self.player_has_flag(cid, PLAYER_FLAG_IGNORE_PROTECTION_ZONE) {
+                let in_pz = self.tile_in_protection_zone(master_pos)
+                    || self.tile_in_protection_zone(target_pos);
+                if in_pz {
+                    return CombatResult::ProtectionZone;
+                }
+            }
+
+            // NON_PVP + both peaceful — `crcombat.cc:409-414`.
+            if self.player_nopvp_peaceful_blocks_attack(cid, target_id) {
+                return CombatResult::AttackNotAllowed;
+            }
         }
 
-        // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:391-394`).
-        if self.player_attack_blocked_by_right(cid) {
-            return CombatResult::AttackNotAllowed;
-        }
-
-        if target_is_npc {
-            return CombatResult::AttackNotAllowed;
-        }
         let master_pos = self
             .creatures
             .get(cid)
             .map(|k| k.position())
             .unwrap_or(target_pos);
-        let in_pz =
-            self.tile_in_protection_zone(master_pos) || self.tile_in_protection_zone(target_pos);
-        if in_pz {
-            return CombatResult::ProtectionZone;
-        }
         // Cross-floor / distance > 8 → TARGETLOST (`ObjectDistance` is INT_MAX across Z).
         if master_pos.z != target_pos.z || chebyshev(master_pos, target_pos) > 8 {
             return CombatResult::TargetLost;
         }
         // Invisible creature target — `crcombat.cc:417-422` (player vs non-player).
         if self.creatures.get(target_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_)) && k.base().is_invisible()
+            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+                && k.base().is_invisible()
         }) {
             return CombatResult::TargetLost;
         }
         CombatResult::NoError
+    }
+
+    /// 772 `TCreature::IsPeaceful` / `TMonster::IsPeaceful` — `crmain.cc:900`, `crnonpl.cc:2295`.
+    ///
+    /// Players (and NPCs) are peaceful. Monsters are peaceful only when their master is a player
+    /// (player summons).
+    pub(crate) fn creature_is_peaceful(&self, cid: CreatureId) -> bool {
+        match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => m.base.master.is_some_and(|mid| {
+                matches!(self.creatures.get(mid), Some(CreatureKind::Player(_)))
+            }),
+            Some(CreatureKind::Player(_)) | Some(CreatureKind::Npc(_)) => true,
+            None => true,
+        }
+    }
+
+    /// `allowPvp == false` (772 `PROFESSION_NONE`) attacker vs player, unless
+    /// `IgnoreProtectionZone` / `ATTACK_EVERYWHERE` (`crcombat.cc:396-401,580-586`).
+    pub(crate) fn player_vocation_blocks_pvp_attack(
+        &self,
+        attacker: CreatureId,
+        target: CreatureId,
+    ) -> bool {
+        let Some(CreatureKind::Player(a)) = self.creatures.get(attacker) else {
+            return false;
+        };
+        if a.vocation_profile.allow_pvp {
+            return false;
+        }
+        if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
+            return false;
+        }
+        !self.player_has_flag(attacker, PLAYER_FLAG_IGNORE_PROTECTION_ZONE)
+    }
+
+    /// `WorldType == NON_PVP` && both peaceful, unless attacker has `ATTACK_EVERYWHERE`
+    /// (`crcombat.cc:409-414,476-483`).
+    pub(crate) fn player_nopvp_peaceful_blocks_attack(
+        &self,
+        attacker: CreatureId,
+        target: CreatureId,
+    ) -> bool {
+        if self.pvp_config.world_type != WorldType::NoPvp {
+            return false;
+        }
+        if !self.creature_is_peaceful(attacker) || !self.creature_is_peaceful(target) {
+            return false;
+        }
+        // Non-players as master still blocked; players may bypass with ATTACK_EVERYWHERE.
+        if !matches!(self.creatures.get(attacker), Some(CreatureKind::Player(_))) {
+            return true;
+        }
+        !self.player_has_flag(attacker, PLAYER_FLAG_IGNORE_PROTECTION_ZONE)
     }
 
     pub(crate) fn tile_in_protection_zone(&self, pos: tfs_rust_common::Position) -> bool {
@@ -888,5 +1007,92 @@ mod set_attack_dest_tests {
             .base()
             .attack_target
             .is_some());
+    }
+
+    #[test]
+    fn following_adjacent_does_not_strike() {
+        // `Attack()` early-returns when Following (`crcombat.cc:532-534`) — chase only.
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        if let Some(k) = world.creatures.get_mut(player) {
+            let b = k.base_mut();
+            b.attack_target = Some(mon);
+            b.follow_target = Some(mon);
+            b.chase_mode = ChaseMode::Close;
+        }
+        let hp_before = world.creatures.get(mon).unwrap().base().health;
+        let _ = world.player_execute_attack(player);
+        let hp_after = world.creatures.get(mon).unwrap().base().health;
+        assert_eq!(hp_before, hp_after, "Following must not deal weapon damage");
+    }
+
+    #[test]
+    fn vocation_without_allow_pvp_cannot_attack_player() {
+        // `PROFESSION_NONE` / `!allowPvp` → ATTACKNOTALLOWED (`crcombat.cc:396-401`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let apos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, bpos, TEST_SYNTHETIC_GROUND_WP);
+        let a = insert_player(&mut world, test_player("Rookie", apos));
+        let mut bob = test_player("Bob", bpos);
+        bob.guid = 2;
+        let b = insert_player(&mut world, bob);
+        world.map.register_creature_at(apos, a);
+        world.map.register_creature_at(bpos, b);
+        assert!(matches!(
+            world.creatures.get(a),
+            Some(CreatureKind::Player(p)) if !p.vocation_profile.allow_pvp
+        ));
+        assert_eq!(
+            world.validate_player_attack_target(a, b, false),
+            CombatResult::AttackNotAllowed
+        );
+        // Follow skips the !Follow vocation gate.
+        assert_eq!(
+            world.validate_player_attack_target(a, b, true),
+            CombatResult::NoError
+        );
+    }
+
+    #[test]
+    fn nopvp_peaceful_blocks_player_vs_player() {
+        // NON_PVP + both peaceful → ATTACKNOTALLOWED (`crcombat.cc:409-414`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        world.pvp_config.world_type = tfs_rust_common::WorldType::NoPvp;
+        let apos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, bpos, TEST_SYNTHETIC_GROUND_WP);
+        let mut alice = test_player("Alice", apos);
+        alice.vocation_profile.allow_pvp = true;
+        alice.guid = 1;
+        let mut bob = test_player("Bob", bpos);
+        bob.vocation_profile.allow_pvp = true;
+        bob.guid = 2;
+        let a = insert_player(&mut world, alice);
+        let b = insert_player(&mut world, bob);
+        world.map.register_creature_at(apos, a);
+        world.map.register_creature_at(bpos, b);
+        assert_eq!(
+            world.validate_player_attack_target(a, b, false),
+            CombatResult::AttackNotAllowed
+        );
+        // Wild monsters are not peaceful — still attackable in NoPvp.
+        let mpos = Position::new(100, 101, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(mpos, mon);
+        assert_eq!(
+            world.validate_player_attack_target(a, mon, false),
+            CombatResult::NoError
+        );
     }
 }

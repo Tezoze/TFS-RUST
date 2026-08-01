@@ -92,15 +92,24 @@ pub fn defense_gate_ms(profile: &MechanicsProfile) -> i32 {
 // B4.4 — fight-mode modifiers
 // ---------------------------------------------------------------------------
 
+/// Apply fight-mode scaling with 772 integer tenths (`crcombat.cc:222–227,250–256`).
+///
+/// `Max ± (Max * k) / 10` where `k = round((factor - 1) * 10)`. Matches decompile truncation
+/// for classic ±20%/±40%/±80% ratios (e.g. defensive atk 7 → 5, not `floor(7*0.6)=4`).
+/// Era-tunable `FightModes` floats still select `k` (1098 `defensive_atk=0.80` → −2/10).
+fn apply_mode_integer_tenths(max_value: i32, factor: f64) -> i32 {
+    let tenths = ((factor - 1.0) * 10.0).round() as i32;
+    max_value.saturating_add(max_value.saturating_mul(tenths) / 10)
+}
+
 /// Apply the fight-mode attack multiplier to a max attack value.
-/// 772 uses integer `±(v*2)/10` / `±(v*4)/10`; we model the fraction in `FightModes` and floor.
 fn apply_attack_mode(modes: &FightModes, mode: FightMode, max_value: i32) -> i32 {
     let f = match mode {
         FightMode::Offensive => modes.offensive_atk,
         FightMode::Defensive => modes.defensive_atk,
         FightMode::Balanced => 1.0,
     };
-    ((max_value as f64) * f).floor() as i32
+    apply_mode_integer_tenths(max_value, f)
 }
 
 /// Apply the fight-mode defense multiplier to a max defense value.
@@ -110,7 +119,7 @@ fn apply_defense_mode(modes: &FightModes, mode: FightMode, max_value: i32) -> i3
         FightMode::Defensive => modes.defensive_def,
         FightMode::Balanced => 1.0,
     };
-    ((max_value as f64) * f).floor() as i32
+    apply_mode_integer_tenths(max_value, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +680,29 @@ mod tests {
             apply_attack_mode(&m.profile.fight_modes, FightMode::Balanced, 100),
             100
         );
+        // Truncation parity vs `Max ± (Max*k)/10` for small weapon values (not f64 floor).
+        for v in 1..=20 {
+            assert_eq!(
+                apply_attack_mode(&m.profile.fight_modes, FightMode::Defensive, v),
+                v - (v * 4) / 10,
+                "defensive atk tenths for {v}"
+            );
+            assert_eq!(
+                apply_attack_mode(&m.profile.fight_modes, FightMode::Offensive, v),
+                v + (v * 2) / 10,
+                "offensive atk tenths for {v}"
+            );
+            assert_eq!(
+                apply_defense_mode(&m.profile.fight_modes, FightMode::Offensive, v),
+                v - (v * 4) / 10,
+                "offensive def tenths for {v}"
+            );
+            assert_eq!(
+                apply_defense_mode(&m.profile.fight_modes, FightMode::Defensive, v),
+                v + (v * 8) / 10,
+                "defensive def tenths for {v}"
+            );
+        }
     }
 
     #[test]

@@ -65,6 +65,8 @@ pub struct VocationProfile {
     pub formula: VocationFormulaProfile,
     /// `SKILL_FIST..SKILL_FISHING` multipliers (indices 0..6).
     pub skill_multipliers: [f32; 7],
+    /// `allowPvp` — vocation may initiate PvP (`vocations.xml`; 772 `PROFESSION_NONE` ⇒ false).
+    pub allow_pvp: bool,
 }
 
 /// `Copy` mirror of `tfs_rust_content::vocations::VocationFormula`.
@@ -100,6 +102,7 @@ impl VocationProfile {
                 armor: d.formula.armor,
             },
             skill_multipliers: d.skill_multipliers,
+            allow_pvp: d.allow_pvp,
         }
     }
 
@@ -126,6 +129,7 @@ impl VocationProfile {
                 armor: 1.0,
             },
             skill_multipliers: [1.5, 2.0, 2.0, 2.0, 2.0, 1.5, 1.1],
+            allow_pvp: false,
         }
     }
 
