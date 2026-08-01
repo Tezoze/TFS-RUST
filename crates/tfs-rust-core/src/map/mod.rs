@@ -242,6 +242,156 @@ fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
     (tileflags, zone)
 }
 
+/// Props still contributed by other things on a tile (excluding one item).
+/// Used by [`reset_item_tile_flags`] — C++ `Tile::hasProperty(exclude, prop)`.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TileRemainingProps {
+    pub block_solid: bool,
+    pub immovable_block_solid: bool,
+    pub block_path: bool,
+    pub no_field_block_path: bool,
+    pub immovable_block_path: bool,
+    pub immovable_no_field_block_path: bool,
+    pub supports_hangable: bool,
+    pub unthrow: bool,
+    pub hook_east: bool,
+    pub hook_south: bool,
+}
+
+/// Scan tile for property contributors excluding `exclude` — C++ `Tile::hasProperty(exclude, …)`.
+pub(crate) fn tile_remaining_props(
+    body: &TileBody,
+    items: &SlotMap<ItemId, Item>,
+    items_db: &ItemDatabase,
+    exclude: ItemId,
+) -> TileRemainingProps {
+    let mut out = TileRemainingProps::default();
+    let mut consider = |it: &tfs_rust_content::otb::ItemType| {
+        if it.block_solid() {
+            out.block_solid = true;
+            if !it.moveable() {
+                out.immovable_block_solid = true;
+            }
+        }
+        if it.block_path_find() {
+            out.block_path = true;
+            if !it.is_magic_field() {
+                out.no_field_block_path = true;
+                if !it.moveable() {
+                    out.immovable_no_field_block_path = true;
+                }
+            }
+            if !it.moveable() {
+                out.immovable_block_path = true;
+            }
+        }
+        if it.block_projectile() {
+            out.unthrow = true;
+        }
+        if it.is_hangable() {
+            if it.is_horizontal() {
+                out.hook_east = true;
+            }
+            if it.is_vertical() {
+                out.hook_south = true;
+            }
+        }
+        if it.is_vertical() || it.is_horizontal() {
+            out.supports_hangable = true;
+        }
+    };
+
+    if let Some(ground_type) = body.ground {
+        if let Some(it) = items_db.items.get(&ground_type) {
+            consider(it);
+        }
+    }
+    for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+        if iid == exclude {
+            continue;
+        }
+        if let Some(item) = items.get(iid) {
+            if let Some(it) = items_db.items.get(&item.item_type) {
+                consider(it);
+            }
+        }
+    }
+    out
+}
+
+/// Clear tile flags that the departing item contributed and no remaining thing still needs.
+/// C++ ref: `Tile::resetTileFlags` — `src/tile.cpp:1537-1596`.
+pub(crate) fn reset_item_tile_flags(
+    body: &mut TileBody,
+    departing: &tfs_rust_content::otb::ItemType,
+    remaining: &TileRemainingProps,
+    items_db: &ItemDatabase,
+) {
+    if departing.floor_change != 0
+        || departing
+            .xml_attributes
+            .get("floorchange")
+            .is_some_and(|s| !s.is_empty())
+    {
+        body.flags &= !flags::FLOORCHANGE;
+    }
+
+    if departing.block_solid() && !remaining.block_solid {
+        body.flags &= !flags::BLOCKSOLID;
+    }
+    if departing.block_solid() && !departing.moveable() && !remaining.immovable_block_solid {
+        body.flags &= !flags::IMMOVABLEBLOCKSOLID;
+    }
+    if departing.block_path_find() && !remaining.block_path {
+        body.flags &= !flags::BLOCKPATH;
+    }
+    if departing.block_path_find() && !departing.is_magic_field() && !remaining.no_field_block_path
+    {
+        body.flags &= !flags::NOFIELDBLOCKPATH;
+    }
+    if departing.block_path_find() && !departing.moveable() && !remaining.immovable_block_path {
+        body.flags &= !flags::IMMOVABLEBLOCKPATH;
+    }
+    if departing.block_path_find()
+        && !departing.is_magic_field()
+        && !departing.moveable()
+        && !remaining.immovable_no_field_block_path
+    {
+        body.flags &= !flags::IMMOVABLENOFIELDBLOCKPATH;
+    }
+    if departing.block_projectile() && !remaining.unthrow {
+        body.flags &= !flags::UNTHROW;
+    }
+    if departing.is_hangable() && departing.is_horizontal() && !remaining.hook_east {
+        body.flags &= !flags::HOOKEAST;
+    }
+    if departing.is_hangable() && departing.is_vertical() && !remaining.hook_south {
+        body.flags &= !flags::HOOKSOUTH;
+    }
+    if (departing.is_vertical() || departing.is_horizontal()) && !remaining.supports_hangable {
+        body.flags &= !flags::SUPPORTS_HANGABLE;
+    }
+    // TFS resets these unconditionally when the departing item is of that kind.
+    if departing.is_teleport() {
+        body.flags &= !flags::TELEPORT;
+    }
+    if departing.is_magic_field() {
+        body.flags &= !flags::MAGICFIELD;
+    }
+    if departing.is_mailbox() {
+        body.flags &= !flags::MAILBOX;
+    }
+    if departing.is_trashholder() {
+        body.flags &= !flags::TRASHHOLDER;
+    }
+    if departing.is_bed() {
+        body.flags &= !flags::BED;
+    }
+    if items_db.is_depot(departing.server_id) {
+        body.flags &= !flags::DEPOT;
+    }
+}
+
 /// Set runtime tile-state flags from an item's OTB properties, matching C++ `Tile::setTileFlags`.
 /// C++ ref: src/tile.cpp:1478-1535
 pub(crate) fn apply_item_tile_flags(

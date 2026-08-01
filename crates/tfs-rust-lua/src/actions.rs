@@ -163,6 +163,14 @@ mod tests {
             pending[0].item_ids.contains(&1210),
             "doors should register closed door 1210"
         );
+        assert!(
+            pending[0].item_ids.contains(&1211),
+            "doors should register open door 1211"
+        );
+        assert!(
+            pending[0].item_ids.contains(&1209),
+            "doors should register locked door 1209"
+        );
         assert!(pending[0].on_use.is_some());
     }
 }

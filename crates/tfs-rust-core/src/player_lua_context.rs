@@ -6,6 +6,7 @@ use slotmap::Key;
 use tfs_rust_common::{ScriptContainerData, ScriptCylinder, ScriptItemId};
 
 use crate::container::ContainerIterator;
+use crate::creature::CreatureKind;
 use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -170,8 +171,59 @@ impl GameWorld {
     /// Resolve parent [`Cylinder`] for Lua `item:moveTo` / `item:remove` / decay apply.
     ///
     /// O(1) via [`Item::parent`] (772 `TObject::Container` outcome). Hubs maintain the field.
+    /// When unset (legacy loot/corpse paths), fall back to a registry/slot/map scan.
     pub fn resolve_item_parent_cylinder(&self, item_id: ItemId) -> Option<Cylinder> {
-        self.items.get(item_id).and_then(|i| i.parent)
+        if let Some(p) = self.items.get(item_id).and_then(|i| i.parent) {
+            return Some(p);
+        }
+        self.discover_item_parent(item_id)
+    }
+
+    /// Locate which cylinder currently holds `item_id` when [`Item::parent`] is stale/None.
+    pub(crate) fn discover_item_parent(&self, item_id: ItemId) -> Option<Cylinder> {
+        for parent_id in self.container_registry.registered_container_ids() {
+            if self
+                .container_registry
+                .get(parent_id)
+                .is_some_and(|c| c.items.iter().any(|&id| id == item_id))
+            {
+                return Some(Cylinder::Container {
+                    item_id: parent_id,
+                    index: crate::cylinder::INDEX_WHEREEVER,
+                });
+            }
+        }
+        for (cid, kind) in self.creatures.iter() {
+            let CreatureKind::Player(p) = kind else {
+                continue;
+            };
+            for (idx, slot_item) in p.equipment_slots.iter().enumerate() {
+                if *slot_item == Some(item_id) {
+                    return Some(Cylinder::Inventory {
+                        player_id: cid,
+                        slot: (idx as u8).saturating_add(1),
+                    });
+                }
+            }
+        }
+        self.map
+            .find_item_position(item_id)
+            .map(|pos| Cylinder::Tile { pos })
+    }
+
+    /// Like [`Self::resolve_item_parent_cylinder`], but writes back a discovered parent.
+    pub(crate) fn resolve_or_repair_item_parent(
+        &mut self,
+        item_id: ItemId,
+    ) -> Option<Cylinder> {
+        if let Some(p) = self.items.get(item_id).and_then(|i| i.parent) {
+            return Some(p);
+        }
+        let discovered = self.discover_item_parent(item_id)?;
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(discovered);
+        }
+        Some(discovered)
     }
 
     pub fn item_type_id_by_name(&self, name: &str) -> Option<u16> {

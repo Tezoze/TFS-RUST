@@ -199,13 +199,17 @@ impl UserData for ItemRef {
             }
         });
 
-        methods.add_method("getPosition", |_, this, ()| {
-            with_ctx(|ctx| {
-                let pos = ctx
-                    .get_item_position(this.0)
-                    .ok_or_else(|| mlua::Error::runtime("item not found"))?;
-                Ok((pos.x, pos.y, pos.z))
-            })
+        methods.add_method("getPosition", |lua, this, ()| {
+            let pos = with_ctx(|ctx| {
+                ctx.get_item_position(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("item not found"))
+            })?;
+            let ud = lua.create_userdata(crate::userdata::position::PositionRef {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            })?;
+            Ok(Value::UserData(ud))
         });
 
         methods.add_method(

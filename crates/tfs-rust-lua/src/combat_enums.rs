@@ -371,32 +371,36 @@ fn register_tile_props(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
-// --- TILESTATE_* (tile.h:23-43, 772 values) ---
+// --- TILESTATE_* (tile.h:23-51) ---
 
 fn register_tile_states(globals: &mlua::Table) -> Result<(), mlua::Error> {
-    // tile.h:23-43 — `TileFlags_t` bit-flag values. Used by
-    // `tile:hasFlag(TILESTATE_PROTECTIONZONE)` in spell scripts.
-    globals.set("TILESTATE_NONE", 0i32)?; // tile.h:23
-    globals.set("TILESTATE_FLOORCHANGE_DOWN", 1i32)?; // tile.h:25
-    globals.set("TILESTATE_FLOORCHANGE_NORTH", 2i32)?; // tile.h:26
-    globals.set("TILESTATE_FLOORCHANGE_SOUTH", 4i32)?; // tile.h:27
-    globals.set("TILESTATE_FLOORCHANGE_EAST", 8i32)?; // tile.h:28
-    globals.set("TILESTATE_FLOORCHANGE_WEST", 16i32)?; // tile.h:29
-    globals.set("TILESTATE_PROTECTIONZONE", 128i32)?; // tile.h:32 (1<<7)
-    globals.set("TILESTATE_NOPVPZONE", 256i32)?; // tile.h:33 (1<<8)
-    globals.set("TILESTATE_NOLOGOUT", 512i32)?; // tile.h:34 (1<<9)
-    globals.set("TILESTATE_PVPZONE", 1024i32)?; // tile.h:35 (1<<10)
-    globals.set("TILESTATE_REFRESH", 2048i32)?; // tile.h:36 (1<<11)
-    globals.set("TILESTATE_TELEPORT", 4096i32)?; // tile.h:37 (1<<12)
-    globals.set("TILESTATE_MAGICFIELD", 8192i32)?; // tile.h:38 (1<<13)
-    globals.set("TILESTATE_MAILBOX", 16384i32)?; // tile.h:39 (1<<14)
-    globals.set("TILESTATE_TRASHHOLDER", 32768i32)?; // tile.h:40 (1<<15)
-    globals.set("TILESTATE_BED", 65536i32)?; // tile.h:41 (1<<16)
-    globals.set("TILESTATE_DEPOT", 131072i32)?; // tile.h:42 (1<<17)
-    globals.set("TILESTATE_BLOCKSOLID", 262144i32)?; // tile.h:43 (1<<18)
-    globals.set("TILESTATE_IMMOVABLEBLOCKSOLID", 524288i32)?; // tile.h:45 (1<<19)
+    // `tileflags_t` — must match `crates/tfs-rust-core/src/tile.rs` `flags` and `src/tile.h`.
+    globals.set("TILESTATE_NONE", 0i32)?;
+    globals.set("TILESTATE_FLOORCHANGE_DOWN", 1i32)?; // 1<<0
+    globals.set("TILESTATE_FLOORCHANGE_NORTH", 2i32)?; // 1<<1
+    globals.set("TILESTATE_FLOORCHANGE_SOUTH", 4i32)?; // 1<<2
+    globals.set("TILESTATE_FLOORCHANGE_EAST", 8i32)?; // 1<<3
+    globals.set("TILESTATE_FLOORCHANGE_WEST", 16i32)?; // 1<<4
+    globals.set("TILESTATE_PROTECTIONZONE", 128i32)?; // 1<<7
+    globals.set("TILESTATE_NOPVPZONE", 256i32)?; // 1<<8
+    globals.set("TILESTATE_NOLOGOUT", 512i32)?; // 1<<9
+    globals.set("TILESTATE_PVPZONE", 1024i32)?; // 1<<10
+    // Absent in current tile.h; keep defined so look/compat scripts don't nil.
+    globals.set("TILESTATE_REFRESH", 0i32)?;
+    globals.set("TILESTATE_TELEPORT", 2048i32)?; // 1<<11
+    globals.set("TILESTATE_MAGICFIELD", 4096i32)?; // 1<<12
+    globals.set("TILESTATE_MAILBOX", 8192i32)?; // 1<<13
+    globals.set("TILESTATE_TRASHHOLDER", 16384i32)?; // 1<<14
+    globals.set("TILESTATE_BED", 32768i32)?; // 1<<15
+    globals.set("TILESTATE_DEPOT", 65536i32)?; // 1<<16
+    globals.set("TILESTATE_BLOCKSOLID", 131072i32)?; // 1<<17
+    globals.set("TILESTATE_BLOCKPATH", 262144i32)?; // 1<<18
+    globals.set("TILESTATE_IMMOVABLEBLOCKSOLID", 524288i32)?; // 1<<19
     // Composite floor-change mask — tile.h TILESTATE_FLOORCHANGE.
-    globals.set("TILESTATE_FLOORCHANGE", 1i32 | 2 | 4 | 8 | 16)?;
+    globals.set(
+        "TILESTATE_FLOORCHANGE",
+        1i32 | 2 | 4 | 8 | 16 | 32 | 64,
+    )?;
     Ok(())
 }
 
@@ -465,5 +469,10 @@ mod tests {
         assert_eq!(globals.get::<i32>("CONST_SLOT_LEFT").unwrap(), 6);
         assert_eq!(globals.get::<i32>("WORLD_TYPE_PVP").unwrap(), 1);
         assert_eq!(globals.get::<i32>("WORLD_TYPE_PVP_ENFORCED").unwrap(), 2);
+        // Phase 2: TILESTATE_* must match tile.h / core `flags` (not the old REFRESH-shifted layout).
+        assert_eq!(globals.get::<i32>("TILESTATE_BLOCKSOLID").unwrap(), 1 << 17);
+        assert_eq!(globals.get::<i32>("TILESTATE_MAGICFIELD").unwrap(), 1 << 12);
+        assert_eq!(globals.get::<i32>("TILESTATE_TELEPORT").unwrap(), 1 << 11);
+        assert_eq!(globals.get::<i32>("TILESTATE_DEPOT").unwrap(), 1 << 16);
     }
 }

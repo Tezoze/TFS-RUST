@@ -707,17 +707,20 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             return false;
         };
         let body = tile.body();
+        // Match `tile.h` / `crate::tile::flags` bit positions (not the shifted
+        // historical Lua aliases that included TILESTATE_REFRESH).
         let mut matched = body.flags as i32;
 
-        const TILESTATE_PROTECTIONZONE: i32 = 128;
-        const TILESTATE_MAGICFIELD: i32 = 8192;
-        const TILESTATE_BLOCKSOLID: i32 = 262_144;
-        const TILESTATE_IMMOVABLEBLOCKSOLID: i32 = 524_288;
-        const TILESTATE_FLOORCHANGE: i32 = 1 | 2 | 4 | 8 | 16;
+        const TILESTATE_PROTECTIONZONE: i32 = 1 << 7;
+        const TILESTATE_MAGICFIELD: i32 = 1 << 12;
+        const TILESTATE_BLOCKSOLID: i32 = 1 << 17;
+        const TILESTATE_IMMOVABLEBLOCKSOLID: i32 = 1 << 19;
+        const TILESTATE_FLOORCHANGE: i32 = 1 | 2 | 4 | 8 | 16 | 32 | 64;
 
         if self.tile_in_protection_zone(pos) {
             matched |= TILESTATE_PROTECTIONZONE;
         }
+        // Property scan backs fill when flags are stale (pre-reset remove paths).
         if self.tile_has_property(x, y, z, 0) {
             matched |= TILESTATE_BLOCKSOLID;
             matched |= TILESTATE_IMMOVABLEBLOCKSOLID;
@@ -773,6 +776,18 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             out.push(id.data().as_ffi());
         }
         out
+    }
+
+    fn tile_get_creatures(&self, x: u16, y: u16, z: u8) -> Vec<ScriptCreatureId> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        let Some(tile) = self.map.get_tile(pos) else {
+            return Vec::new();
+        };
+        tile.body()
+            .creatures
+            .iter()
+            .map(|cid| cid.data().as_ffi())
+            .collect()
     }
 
     fn tile_get_item_by_type(

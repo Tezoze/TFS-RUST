@@ -276,7 +276,7 @@ impl GameWorld {
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
         let from = self
-            .resolve_item_parent_cylinder(item_id)
+            .resolve_or_repair_item_parent(item_id)
             .ok_or_else(|| "item has no parent".to_string())?;
         let flags = if flags_bits == 0 {
             Self::lua_default_move_flags()
@@ -328,7 +328,7 @@ impl GameWorld {
             .resolve_item_u64(item_u64)
             .ok_or_else(|| "item not found".to_string())?;
         let parent = self
-            .resolve_item_parent_cylinder(item_id)
+            .resolve_or_repair_item_parent(item_id)
             .ok_or_else(|| "item has no parent".to_string())?;
         let item_count = i32::from(self.items.get(item_id).map(|i| i.count).unwrap_or(1));
         let remove_count = if count < 0 {
@@ -1556,5 +1556,59 @@ mod look_tests {
         let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
         let msg = world.player_look_description(viewer_cid, npc_cid);
         assert_eq!(msg, "You see Leeland.");
+    }
+
+    /// Food `item:remove` must work when `Item.parent` was never stamped (loot/corpse gap).
+    #[test]
+    fn lua_item_remove_repairs_missing_container_parent() {
+        use crate::container::Container;
+        use crate::item::Item;
+        use slotmap::Key;
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = minimal_world();
+        // Register meat as stackable so partial remove keeps the stack.
+        let mut meat_ty = ItemType::default();
+        meat_ty.id = 2666;
+        meat_ty.server_id = 2666;
+        meat_ty.flags = 1 << 7; // FLAG_STACKABLE — otb.rs
+        {
+            let mut db = (*world.items_db).clone();
+            db.items.insert(2666, meat_ty);
+            world.items_db = Arc::new(db);
+        }
+
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("Eater", pos));
+
+        let bp = world.items.insert(Item::new_single(1987));
+        {
+            let CreatureKind::Player(p) = world.creatures.get_mut(cid).expect("player") else {
+                panic!("not player");
+            };
+            p.equipment_slots[2] = Some(bp);
+        }
+        if let Some(item) = world.items.get_mut(bp) {
+            item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                player_id: cid,
+                slot: 3,
+            });
+        }
+        world.container_registry.register(Container::new(bp, 20));
+
+        let meat = world.items.insert(Item::new(2666, 5));
+        {
+            let cont = world.container_registry.get_mut(bp).expect("bp");
+            cont.add_item(meat).expect("add meat");
+        }
+        assert!(world.items.get(meat).unwrap().parent.is_none());
+
+        let ok = world
+            .lua_script_item_remove(meat.data().as_ffi(), 1)
+            .expect("remove");
+        assert!(ok);
+        assert_eq!(world.items.get(meat).map(|i| i.count), Some(4));
+        assert!(world.items.get(meat).unwrap().parent.is_some());
     }
 }

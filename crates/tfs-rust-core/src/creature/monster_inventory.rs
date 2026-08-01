@@ -161,6 +161,12 @@ fn roll_loot_block_glibc(
                 if let Some(ch) = registry.get_mut(child_id) {
                     ch.parent_container = Some(item_id);
                 }
+                if let Some(item) = world.items.get_mut(child_id) {
+                    item.parent = Some(crate::cylinder::Cylinder::Container {
+                        item_id,
+                        index: crate::cylinder::INDEX_WHEREEVER,
+                    });
+                }
             }
         }
         registry.register(container);
@@ -290,6 +296,12 @@ impl GameWorld {
                 let _ = bag.add_item(item_id);
                 if let Some(ch) = registry.get_mut(item_id) {
                     ch.parent_container = Some(bag_item);
+                }
+                if let Some(item) = self.items.get_mut(item_id) {
+                    item.parent = Some(crate::cylinder::Cylinder::Container {
+                        item_id: bag_item,
+                        index: crate::cylinder::INDEX_WHEREEVER,
+                    });
                 }
             }
             registry.register(bag);
@@ -463,6 +475,12 @@ impl GameWorld {
         }
         if let Some(ch) = self.container_registry.get_mut(item_id) {
             ch.parent_container = Some(corpse_id);
+        }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Container {
+                item_id: corpse_id,
+                index: crate::cylinder::INDEX_WHEREEVER,
+            });
         }
         self.refresh_container_chain(corpse_id);
     }

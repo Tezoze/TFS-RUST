@@ -1,6 +1,6 @@
 # Doors + Action System — Implementation Plan
 
-**Status:** Phase 0–1 done (2026-08-01); Phases 2+ not started  
+**Status:** Phase 0–2 done (2026-08-01); Phases 3+ not started  
 **Date:** 2026-07-19  
 **Goal:** Run `data/scripts/actions/other/doors.lua` (and sibling actions such as `food.lua`) end-to-end on a **TFS-style domain**, with **772 house/door outcomes** where they diverge, implemented as **idiomatic Rust**.
 
@@ -36,12 +36,13 @@
 | Load `data/scripts/actions/**` | **Done (Phase 1)** — recursive scan; door tables injected from `global.lua` |
 | `onUse` dispatch from player use / use-with | **Done (Phase 1)** — before container/teleport; after rune miss on ex |
 | `item:getId()` → server type id | **Done** — type id; `item.itemid` field added |
-| `item:getAttribute` / door+key attr constants | **Missing** |
-| `player:getStorageValue` | **Missing** |
-| `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **Missing** |
+| `item:getAttribute` / door+key attr constants | **Missing** (Phase 3) |
+| `player:getStorageValue` | **Missing** (Phase 4) |
+| `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **getCreatures done (Phase 2)**; topVisible/count still missing |
 | Native house `Door::canUse` | **Missing** (`HouseManager::is_invited` only) |
 | `MoveEvent` StepIn/StepOut + load `movements/**` | **Missing** (equip/deequip only today) |
 | `openLevelDoors` / `openQuestDoors` in `global.lua` | **Done (Phase 0)** — live tables; forgotten.otbm spot-check OK |
+| Basic door `transform` ±1 + tile flags / shove / locked text | **Done (Phase 2)** |
 
 **C++ references**
 - Domain: `src/actions.cpp` (`Actions::registerLuaEvent`, `internalUseItem` → `executeUse`), `src/house.cpp` `Door::canUse`
@@ -85,20 +86,22 @@
 
 ---
 
-### Phase 2 — Basic door open / close / locked
+### Phase 2 — Basic door open / close / locked — **DONE 2026-08-01**
 
 **Goal:** Click closed → open (+1); click open → close (−1); locked → message only.
 
 | Task | Detail |
 |------|--------|
-| 2.1 | Ensure `item:transform` + map spectators work for door type changes (block/unblock walk) |
-| 2.2 | `Tile:getCreatures()` — push occupants before close |
-| 2.3 | `item:getPosition()` returns `Position` userdata (not `(x,y,z)` tuple) so `+ offset` works |
-| 2.4 | `Tile:getItemByType(ITEM_TYPE_MAGICFIELD)` already present — verify field removed on close |
+| 2.1 | `change_item_type` / transform: `reset_item_tile_flags` + `apply_item_tile_flags` (door block/unblock) |
+| 2.2 | `Tile:getCreatures()` — ScriptContext + Lua table of CreatureRef |
+| 2.3 | `item:getPosition()` → `Position` userdata; `Position + offset` signed i16 |
+| 2.4 | `getItemByType(ITEM_TYPE_MAGICFIELD)` already present; remove resets `MAGICFIELD` flag |
 | 2.5 | Locked branch: `sendTextMessage(MESSAGE_INFO_DESCR, "It is locked.")` (APIs exist) |
-| 2.6 | Live smoke: normal + extra doors from `openDoors` / `closedDoors` / `openExtraDoors` / `closedExtraDoors` |
+| 2.6 | Unit: transform BLOCKSOLID round-trip; Position −1 offset; doors.lua registers open/closed/locked; TILESTATE_* match tile.h |
 
 **Done when:** Non-house, non-quest doors open/close; locked doors refuse with text; creature on door tile is shoved aside when closing.
+
+**Out of scope for Phase 2:** keys, quest/level attrs, house `canUse`, MoveEvents.
 
 ---
 

@@ -167,6 +167,9 @@ impl GameWorld {
     ///
     /// Domain: TFS `Item::setID` + `transformItem` duration block (`item.cpp` / `game.cpp`).
     /// Outcomes: decompile `ChangeObject` Expire / ExpireStop (`map.cc`).
+    ///
+    /// On tiles: `Tile::updateThing` — `resetTileFlags(old)` then `setTileFlags(new)`
+    /// (`tile.cpp:963-966`) so door open/close updates `BLOCKSOLID` / walkability.
     pub fn change_item_type(&mut self, item_id: ItemId, new_type: u16) {
         let Some(item) = self.items.get(item_id) else {
             return;
@@ -177,6 +180,34 @@ impl GameWorld {
         }
         if self.items_db.items.get(&new_type).is_none() {
             return;
+        }
+
+        let tile_pos = match self.resolve_item_parent_cylinder(item_id) {
+            Some(crate::cylinder::Cylinder::Tile { pos }) => Some(pos),
+            _ => None,
+        };
+
+        // Reset old-type tile flags before the id swap — TFS `updateThing`
+        // (`tile.cpp:963-966`): `resetTileFlags` then `setTileFlags`.
+        if let Some(pos) = tile_pos {
+            if let Some(old_it) = self.items_db.items.get(&old_type).cloned() {
+                if let Some(tile) = self.map.get_tile(pos) {
+                    let rem = crate::map::tile_remaining_props(
+                        tile.body(),
+                        &self.items,
+                        &self.items_db,
+                        item_id,
+                    );
+                    if let Some(tile) = self.map.get_tile_mut(pos) {
+                        crate::map::reset_item_tile_flags(
+                            tile.body_mut(),
+                            &old_it,
+                            &rem,
+                            &self.items_db,
+                        );
+                    }
+                }
+            }
         }
 
         let old_decay_time = self
@@ -221,6 +252,14 @@ impl GameWorld {
         } else if let Some(item) = self.items.get_mut(item_id) {
             item.set_duration(0);
             item.set_decaying(DecayState::False);
+        }
+
+        if let Some(pos) = tile_pos {
+            if let Some(new_it) = self.items_db.items.get(&new_type).cloned() {
+                if let Some(tile) = self.map.get_tile_mut(pos) {
+                    crate::map::apply_item_tile_flags(tile.body_mut(), &new_it, &self.items_db);
+                }
+            }
         }
 
         self.notify_item_appearance_changed(item_id);
@@ -1211,5 +1250,96 @@ mod tests {
         for loot in loot_ids {
             assert!(world.items.get(loot).is_none());
         }
+    }
+
+    /// Phase 2 doors: closed→open transform must clear `BLOCKSOLID` so the tile is walkable.
+    /// C++ `Tile::updateThing` — `resetTileFlags` + `setTileFlags` (`tile.cpp:963-966`).
+    #[test]
+    fn transform_door_updates_blocksolid_tile_flag() {
+        use crate::cylinder::CylinderFlags;
+        use crate::tile::flags;
+
+        let mut world = minimal_world();
+        const CLOSED: u16 = 9101;
+        const OPEN: u16 = 9102;
+
+        let mut closed = ItemType::default();
+        closed.block_solid_override = Some(true);
+        closed.moveable_override = Some(false);
+        register_type(&mut world, CLOSED, closed);
+
+        let mut open = ItemType::default();
+        open.block_solid_override = Some(false);
+        open.moveable_override = Some(false);
+        register_type(&mut world, OPEN, open);
+
+        let pos = Position::new(50, 50, 7);
+        world.map.insert_tile(pos, Tile::empty_normal());
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().ground = Some(100);
+        }
+
+        let iid = world.items.insert(Item::new_single(CLOSED));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+            .expect("place closed door");
+
+        assert_ne!(
+            world.map.get_tile(pos).expect("tile").body().flags & flags::BLOCKSOLID,
+            0,
+            "closed door must set BLOCKSOLID"
+        );
+
+        world.change_item_type(iid, OPEN);
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(OPEN));
+        assert_eq!(
+            world.map.get_tile(pos).expect("tile").body().flags & flags::BLOCKSOLID,
+            0,
+            "open door must clear BLOCKSOLID"
+        );
+
+        world.change_item_type(iid, CLOSED);
+        assert_ne!(
+            world.map.get_tile(pos).expect("tile").body().flags & flags::BLOCKSOLID,
+            0,
+            "re-close must restore BLOCKSOLID"
+        );
+    }
+
+    /// Phase 2: magic-field remove clears `MAGICFIELD` tile flag.
+    #[test]
+    fn remove_magic_field_clears_magicfield_flag() {
+        use crate::cylinder::CylinderFlags;
+        use crate::tile::flags;
+
+        let mut world = minimal_world();
+        const FIELD: u16 = 9103;
+        let mut field = ItemType::default();
+        field.type_tag = 6; // ITEM_TYPE_MAGICFIELD
+        register_type(&mut world, FIELD, field);
+
+        let pos = Position::new(51, 51, 7);
+        world.map.insert_tile(pos, Tile::empty_normal());
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().ground = Some(100);
+        }
+
+        let iid = world.items.insert(Item::new_single(FIELD));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+            .expect("place field");
+        assert_ne!(
+            world.map.get_tile(pos).expect("tile").body().flags & flags::MAGICFIELD,
+            0
+        );
+
+        world
+            .internal_remove_item_from_tile(pos, iid, u16::MAX)
+            .expect("remove field");
+        assert_eq!(
+            world.map.get_tile(pos).expect("tile").body().flags & flags::MAGICFIELD,
+            0,
+            "removing magic field must clear MAGICFIELD flag"
+        );
     }
 }

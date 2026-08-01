@@ -656,8 +656,32 @@ impl GameWorld {
             let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
             self.broadcast_tile_item_update(pos, item_id, tvp_stack, cip_stack);
         } else {
-            // Full removal
+            // Full removal — reset tile flags while the item is still on the tile
+            // (TFS `Tile::removeThing` → `resetTileFlags`).
+            let item_type = self
+                .items
+                .get(item_id)
+                .map(|i| i.item_type)
+                .unwrap_or(0);
             let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
+            if let Some(old_it) = self.items_db.items.get(&item_type).cloned() {
+                if let Some(tile) = self.map.get_tile(pos) {
+                    let rem = crate::map::tile_remaining_props(
+                        tile.body(),
+                        &self.items,
+                        &self.items_db,
+                        item_id,
+                    );
+                    if let Some(tile) = self.map.get_tile_mut(pos) {
+                        crate::map::reset_item_tile_flags(
+                            tile.body_mut(),
+                            &old_it,
+                            &rem,
+                            &self.items_db,
+                        );
+                    }
+                }
+            }
             let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
             if tile.remove_item_by_id(item_id).is_none() {
                 return Err(ReturnValue::NotPossible);

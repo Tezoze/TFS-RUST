@@ -109,12 +109,14 @@ impl UserData for PositionRef {
             Ok(Value::UserData(ud))
         });
 
-        // `Position + offset` used by moveUpstairs lib — optional.
+        // `Position + offset` — doors.lua shoves with `Position(-1,0,0)` style offsets.
+        // Right-hand Position stores wrapped u16 for negatives (`(-1i64) as u16`);
+        // interpret as i16 so absolute + offset works (TFS Position is int32).
         methods.add_meta_method(MetaMethod::Add, |lua, this, other: Value| {
             let (ox, oy, oz) = match other {
                 Value::UserData(ud) => {
                     let o = ud.borrow::<PositionRef>()?;
-                    (o.x as i32, o.y as i32, o.z as i32)
+                    (o.x as i16 as i32, o.y as i16 as i32, o.z as i8 as i32)
                 }
                 Value::Table(t) => {
                     let x: i64 = t.get("x").or_else(|_| t.get(1)).unwrap_or(0);
@@ -236,4 +238,28 @@ pub fn register_position_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     })?;
     lua.globals().set("Position", ctor)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn position_add_negative_offset_yields_neighbor() {
+        let lua = mlua::Lua::new();
+        register_position_metatable(&lua).expect("Position register");
+        let (ax, ay, az, bx, by, bz): (u16, u16, u8, u16, u16, u8) = lua
+            .load(
+                r#"
+                local base = Position(100, 200, 7)
+                local a = base + Position(-1, 0, 0)
+                local b = base + Position(1, 0, 0)
+                return a.x, a.y, a.z, b.x, b.y, b.z
+                "#,
+            )
+            .eval()
+            .expect("eval");
+        assert_eq!((ax, ay, az), (99, 200, 7));
+        assert_eq!((bx, by, bz), (101, 200, 7));
+    }
 }

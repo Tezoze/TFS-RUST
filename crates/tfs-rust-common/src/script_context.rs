@@ -491,6 +491,12 @@ pub trait ScriptContext {
         Vec::new()
     }
 
+    /// `tile:getCreatures()` — creatures standing on the tile (`luascript.cpp` `luaTileGetCreatures`).
+    fn tile_get_creatures(&self, x: u16, y: u16, z: u8) -> Vec<ScriptCreatureId> {
+        let _ = (x, y, z);
+        Vec::new()
+    }
+
     /// `tile:getItemByType(ITEM_TYPE_*)` — first matching item by type_tag.
     fn tile_get_item_by_type(
         &self,

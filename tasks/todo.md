@@ -1,3 +1,13 @@
+# Doors Phase 2 — basic open/close/locked — 2026-08-01
+
+- [x] 2.1 `item:transform` updates tile flags (reset old + apply new) so doors block/unblock walk
+- [x] 2.2 `Tile:getCreatures()` — shove occupants before close
+- [x] 2.3 `item:getPosition()` → `Position` userdata; `Position + offset` signed
+- [x] 2.4 Verify `getItemByType(ITEM_TYPE_MAGICFIELD)` + `remove` on close; reset flags on remove
+- [x] Fix `TILESTATE_*` Lua globals to match `tile.h` (BLOCKSOLID = 1<<17)
+- [x] Unit: transform clears BLOCKSOLID; Position −1 offset; doors register open/closed/locked
+- [x] Update `tasks/doors-actions-plan.md` Phase 2 status
+
 # Doors Phase 1 — Action pipeline — 2026-08-01
 
 - [x] `Action()` table + `:id`/`:aid`/`:register` + `_pending_actions` (TalkAction pattern)

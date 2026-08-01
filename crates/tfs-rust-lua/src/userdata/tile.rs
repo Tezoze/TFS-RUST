@@ -2,11 +2,11 @@
 //!
 //! C++ reference: `luascript.cpp` `luaTileCreate` / `luaTileHasFlag` /
 //! `luaTileGetGround` / `luaTileGetTopDownItem` / `luaTileGetItems` /
-//! `luaTileGetItemByType`.
+//! `luaTileGetItemByType` / `luaTileGetCreatures`.
 
 use mlua::{UserData, UserDataMethods, Value};
 
-use crate::context::{CURRENT_CTX, ItemRef};
+use crate::context::{CURRENT_CTX, CreatureRef, ItemRef};
 use crate::userdata::position::PositionRef;
 
 /// Position-backed tile handle for Lua.
@@ -130,6 +130,26 @@ impl UserData for TileRef {
                 }
                 None => Ok(Value::Nil),
             }
+        });
+
+        // `tile:getCreatures()` — `luascript.cpp` `luaTileGetCreatures`.
+        // Returns a 1-based array of Creature userdata (empty table when none).
+        methods.add_method("getCreatures", |lua, this, ()| {
+            let ids = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_creatures(this.x, this.y, this.z))
+            })?;
+            let t = lua.create_table_with_capacity(ids.len(), 0)?;
+            for (i, cid) in ids.into_iter().enumerate() {
+                let ud = lua.create_userdata(CreatureRef(cid))?;
+                t.set(i + 1, ud)?;
+            }
+            Ok(Value::Table(t))
         });
 
         // Lib `Tile:isWalkable` used by moveUpstairs.
