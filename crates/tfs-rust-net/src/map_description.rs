@@ -33,7 +33,9 @@ pub struct TileContent {
     /// Cip `PRIORITY_BOTTOM` (magic fields / pools). Stored newest-first (index 0 = most recent).
     /// TVP path also parks all non-top down items here (emitted after creatures).
     pub bottom_items: Vec<ItemStack>,
-    /// Cip `PRIORITY_LOW` only (ordinary down items). Emitted **after** creatures.
+    /// Cip `PRIORITY_LOW` only (ordinary down items). Emitted **after** creatures,
+    /// newest-first: `PlaceObject` does not append LOW objects (`map.cc:2040`), so the
+    /// most recently placed one heads the group — same rule the client uses for `0x6A`.
     /// Empty on TVP / OTClient / 1098 (those fold lows into [`Self::bottom_items`]).
     pub low_items: Vec<ItemStack>,
     /// Bottom-to-top creature order as stored; emitted in **reverse** (C++ `reverse(creatures)`).
@@ -115,8 +117,10 @@ fn count_creatures_capped<F: FnMut(u32) -> bool>(
     }
 }
 
-/// Cip priority vectors are stored newest-first; map-container emission is oldest→newest.
-fn newest_first_emission_order(items: &[ItemStack]) -> impl Iterator<Item = &ItemStack> {
+/// BOTTOM is an appended priority group (`PlaceObject` forces `Append` for everything but
+/// CREATURE and LOW — `map.cc:2040`), so the oldest object heads the group. The source vector
+/// is stored newest-first, hence the reverse.
+fn appended_group_emission_order(items: &[ItemStack]) -> impl Iterator<Item = &ItemStack> {
     items.iter().rev()
 }
 
@@ -142,7 +146,7 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
 
     if tile.cip_map_order {
         // Cip `PlaceObject` priority: Bank → Bottom → Top → Creature → Low.
-        for it in newest_first_emission_order(&tile.bottom_items) {
+        for it in appended_group_emission_order(&tile.bottom_items) {
             if it.client_id == 0 || count == 10 {
                 continue;
             }
@@ -165,7 +169,7 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
             &mut count,
         );
         if count < 10 {
-            for it in newest_first_emission_order(&tile.low_items) {
+            for it in &tile.low_items {
                 if count == 10 {
                     return;
                 }
@@ -232,7 +236,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
     }
 
     if tile.cip_map_order {
-        for it in newest_first_emission_order(&tile.bottom_items) {
+        for it in appended_group_emission_order(&tile.bottom_items) {
             if it.client_id == 0 || count == 10 {
                 continue;
             }
@@ -255,7 +259,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
             &mut n,
         );
         if count < 10 {
-            for it in newest_first_emission_order(&tile.low_items) {
+            for it in &tile.low_items {
                 if count == 10 {
                     break;
                 }

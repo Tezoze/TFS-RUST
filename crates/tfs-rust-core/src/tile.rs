@@ -304,8 +304,14 @@ impl Tile {
                 n = n.saturating_add(1);
             }
             // Creatures occupy the next slots; LOW items follow.
+            //
+            // `PlaceObject` (`map.cc:2036-2075`) forces `Append` for every priority except
+            // CREATURE and LOW, so a LOW item enters the chain *before* the existing LOW
+            // group (`!Append && CurPriority >= ObjPriority` breaks on the first LOW). The
+            // 7.72 client applies the same rule when it inserts an `0x6A` add, which carries
+            // no stackpos. `down_items` is stored newest-first, so LOW is walked forward.
             n = n.saturating_add(body.creatures.len() as u8);
-            for &did in body.down_items.iter().rev() {
+            for &did in &body.down_items {
                 if is_priority_bottom(did) {
                     continue;
                 }
@@ -344,9 +350,20 @@ impl Tile {
     }
 
     /// C++ `Tile::getUseItem` — `tile.cpp` ~1603 (container priority + `getThing` stack walk).
-    pub fn item_id_for_use<F>(&self, stack_pos: u8, is_container: F) -> Option<ItemId>
+    ///
+    /// `cip_order` / `is_priority_bottom` select the tile order the client indexes against —
+    /// see [`Self::item_id_at_stack_pos_ordered`]. They must match the order the same viewer
+    /// received the tile in, or a Use lands on the neighbouring object.
+    pub fn item_id_for_use<F, G>(
+        &self,
+        stack_pos: u8,
+        cip_order: bool,
+        is_priority_bottom: G,
+        is_container: F,
+    ) -> Option<ItemId>
     where
         F: Fn(ItemId) -> bool,
+        G: Fn(ItemId) -> bool,
     {
         let body = self.body();
         if body.down_items.is_empty() && body.top_items.is_empty() {
@@ -361,7 +378,7 @@ impl Tile {
             .copied()
             .find(|&id| is_container(id));
 
-        let thing_at = self.item_id_at_stack_pos(stack_pos);
+        let thing_at = self.item_id_at_stack_pos_ordered(stack_pos, cip_order, is_priority_bottom);
 
         if let Some(container_id) = container_item {
             return match thing_at {
@@ -376,21 +393,51 @@ impl Tile {
     /// Inverse of [`Tile::get_item_stack_pos`] — resolve client `stack_pos` to an item on this tile.
     // C++ ref: `Tile::getThing` / `Game::playerUseItem` stack walk (`tile.cpp`, `game.cpp`).
     pub fn item_id_at_stack_pos(&self, stack_pos: u8) -> Option<ItemId> {
+        self.item_id_at_stack_pos_ordered(stack_pos, false, |_| true)
+    }
+
+    /// Inverse of [`Self::get_item_stack_pos_cip`] — the two must stay in lockstep, since one
+    /// numbers the objects the client is told about and the other reads that numbering back.
+    pub fn item_id_at_stack_pos_ordered(
+        &self,
+        stack_pos: u8,
+        cip_order: bool,
+        is_priority_bottom: impl Fn(ItemId) -> bool,
+    ) -> Option<ItemId> {
         let body = self.body();
         let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
+
+        if cip_order {
+            // BOTTOM is an appended group (oldest heads it); LOW is not (newest heads it).
+            for &did in body.down_items.iter().rev() {
+                if !is_priority_bottom(did) {
+                    continue;
+                }
+                if n == stack_pos {
+                    return Some(did);
+                }
+                n = n.saturating_add(1);
+            }
+        }
+
         for &tid in &body.top_items {
             if n == stack_pos {
                 return Some(tid);
             }
             n = n.saturating_add(1);
         }
+
         let after_top = n;
         let creature_end = after_top.saturating_add(body.creatures.len() as u8);
         if stack_pos >= after_top && stack_pos < creature_end {
             return None;
         }
         n = creature_end;
+
         for &did in &body.down_items {
+            if cip_order && is_priority_bottom(did) {
+                continue;
+            }
             if n == stack_pos {
                 return Some(did);
             }
@@ -597,7 +644,10 @@ mod look_tests {
         let stack = tile.get_item_stack_pos(ladder).expect("ladder stack pos");
         assert_eq!(stack, 1);
         assert_eq!(tile.item_id_at_stack_pos(stack), Some(ladder));
-        assert_eq!(tile.item_id_for_use(stack, |_| false), Some(ladder));
+        assert_eq!(
+            tile.item_id_for_use(stack, false, |_| false, |_| false),
+            Some(ladder)
+        );
     }
 
     #[test]
@@ -630,12 +680,68 @@ mod look_tests {
         );
     }
 
+    /// `PlaceObject` (`map.cc:2040`) does not append LOW objects, so the most recently
+    /// placed one heads the group. The 7.72 client inserts an `0x6A` add the same way;
+    /// walking LOW oldest-first made `0x6C` remove the item underneath and ghost the
+    /// moved one.
+    #[test]
+    fn cip_stackpos_puts_newest_low_item_first() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let older = items.insert(());
+        let newer = items.insert(());
+        // `Tile::add_item` inserts at the front, so index 0 is the most recent.
+        let body = tile_body(Some(106), vec![newer, older], vec![], vec![]);
+        let tile = Tile::Normal(body);
+        assert_eq!(tile.get_item_stack_pos_cip(newer, true, |_| false), Some(1));
+        assert_eq!(tile.get_item_stack_pos_cip(older, true, |_| false), Some(2));
+    }
+
+    /// The stackpos the client is given and the stackpos it sends back must resolve to the
+    /// same object. Without a Cip-ordered inverse, a Use on a tile holding a field plus two
+    /// ordinary items landed one object off.
+    #[test]
+    fn cip_stackpos_round_trips_through_the_inverse_lookup() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let field = items.insert(());
+        let ladder = items.insert(());
+        let newer = items.insert(());
+        let older = items.insert(());
+        let mut creatures: SlotMap<CreatureId, _> = SlotMap::with_key();
+        let mob = creatures.insert(());
+        let is_bottom = |id: ItemId| id == field;
+
+        // down_items newest-first: LOW newer, LOW older, BOTTOM field.
+        let body = tile_body(
+            Some(106),
+            vec![newer, older, field],
+            vec![ladder],
+            vec![mob],
+        );
+        let tile = Tile::Normal(body);
+
+        // ground 0, field 1, ladder 2, creature 3, newer 4, older 5.
+        for item in [field, ladder, newer, older] {
+            let stack = tile
+                .get_item_stack_pos_cip(item, true, is_bottom)
+                .expect("stack pos");
+            assert_eq!(
+                tile.item_id_at_stack_pos_ordered(stack, true, is_bottom),
+                Some(item),
+                "stackpos {stack} must resolve back to the item it was computed for"
+            );
+        }
+        assert_eq!(tile.item_id_at_stack_pos_ordered(3, true, is_bottom), None);
+    }
+
     #[test]
     fn get_use_item_prefers_container_when_stack_misses() {
         let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
         let bag = items.insert(());
         let body = tile_body(Some(106), vec![bag], vec![], vec![]);
         let tile = Tile::Normal(body);
-        assert_eq!(tile.item_id_for_use(99, |id| id == bag), Some(bag));
+        assert_eq!(
+            tile.item_id_for_use(99, false, |_| false, |id| id == bag),
+            Some(bag)
+        );
     }
 }

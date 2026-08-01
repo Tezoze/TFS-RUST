@@ -509,30 +509,62 @@ impl GameWorld {
     }
 
     /// Resolve item on map tile for `UseItem` (`STACKPOS_USEITEM` / `Tile::getUseItem`).
+    ///
+    /// `stack_pos` is an index into the tile as *that viewer* was told it, so the walk has to
+    /// use the same order the tile description and `0x6A` / `0x6C` used for them.
     // C++ ref: `Game::internalGetThing` + `Tile::getUseItem` (`game.cpp`, `tile.cpp`).
-    pub(crate) fn item_id_for_tile_use(&self, pos: Position, stack_pos: u8) -> Option<ItemId> {
+    pub(crate) fn item_id_for_tile_use(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        stack_pos: u8,
+    ) -> Option<ItemId> {
         let tile = self.map.get_tile(pos)?;
-        tile.item_id_for_use(stack_pos, |item_id| {
-            self.items
-                .get(item_id)
-                .map(|i| self.items_db.is_container(i.item_type))
-                .unwrap_or(false)
-        })
+        tile.item_id_for_use(
+            stack_pos,
+            self.uses_cip_map_order(cid),
+            |item_id| self.item_is_cip_priority_bottom(item_id),
+            |item_id| {
+                self.items
+                    .get(item_id)
+                    .map(|i| self.items_db.is_container(i.item_type))
+                    .unwrap_or(false)
+            },
+        )
     }
 
-    /// Fallback when client `stack_pos` does not resolve but `sprite_id` matches a tile item.
+    /// Items on `pos` in map-container chain order — the order 772 `GetObject` walks
+    /// (`info.cc:412-419`) and the order the client stores the tile in.
+    ///
+    /// `PRIORITY_BOTTOM` downs (fields, pools) precede the always-on-top group; ordinary
+    /// `PRIORITY_LOW` downs come last, newest first (`map.cc` `GetObjectPriority` /
+    /// `PlaceObject`). Creatures are skipped — this yields items only.
+    fn tile_items_in_chain_order(&self, pos: Position) -> Option<impl Iterator<Item = ItemId> + '_> {
+        let body = self.map.get_tile(pos)?.body();
+        let bottoms = body
+            .down_items
+            .iter()
+            .rev()
+            .copied()
+            .filter(|&id| self.item_is_cip_priority_bottom(id));
+        let lows = body
+            .down_items
+            .iter()
+            .copied()
+            .filter(|&id| !self.item_is_cip_priority_bottom(id));
+        Some(bottoms.chain(body.top_items.iter().copied()).chain(lows))
+    }
+
+    /// 772 `GetObject` map branch (`info.cc:412-419`): the client's `RNum` is never an index
+    /// into the tile — the chain is walked from the head and matched on the client `TypeID`.
+    /// Also the fallback when a `stack_pos` walk misses.
     pub(crate) fn find_tile_item_by_client_sprite(
         &self,
         pos: Position,
         sprite_id: u16,
     ) -> Option<ItemId> {
-        let tile = self.map.get_tile(pos)?;
-        let body = tile.body();
-        body.down_items
-            .iter()
-            .chain(body.top_items.iter())
-            .find(|&&item_id| self.validate_item_sprite(item_id, sprite_id))
-            .copied()
+        self.tile_items_in_chain_order(pos)?
+            .find(|&item_id| self.validate_item_sprite(item_id, sprite_id))
     }
 
     /// Match client sprite id to `ItemId` when multiple items could match (validates `sprite_id`).
@@ -552,7 +584,7 @@ impl GameWorld {
         stack_pos: u8,
     ) -> Option<ItemId> {
         if pos.x != 0xFFFF {
-            return self.item_id_for_tile_use(pos, stack_pos);
+            return self.item_id_for_tile_use(cid, pos, stack_pos);
         }
         if pos.y & 0x40 != 0 {
             let client_cid = (pos.y & 0x0F) as u8;
@@ -564,6 +596,32 @@ impl GameWorld {
             return co.items.get(slot).copied();
         }
         self.item_id_for_inventory_use(cid, pos.y as u8)
+    }
+
+    /// 772 `GetObject` (`info.cc:398-431`) — resolve a Use / Turn / MultiUse object reference
+    /// from the wire triple (position, stackpos, client `TypeID`).
+    ///
+    /// On a map tile 772 matches the `TypeID` along the object chain and never treats `RNum`
+    /// as an index (`info.cc:412-419`), so a real 7.72 client needs no stackpos agreement at
+    /// all. TVP / OTClient / 1098 do send a meaningful stackpos, so they keep the TFS
+    /// `Tile::getUseItem` walk and use the sprite scan only as a fallback.
+    pub(crate) fn resolve_use_object(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        stack_pos: u8,
+        sprite_id: u16,
+    ) -> Option<ItemId> {
+        if pos.x == 0xFFFF {
+            return self.resolve_item_at_position(cid, pos, stack_pos);
+        }
+        if self.uses_cip_map_order(cid) {
+            return self
+                .find_tile_item_by_client_sprite(pos, sprite_id)
+                .or_else(|| self.item_id_for_tile_use(cid, pos, stack_pos));
+        }
+        self.item_id_for_tile_use(cid, pos, stack_pos)
+            .or_else(|| self.find_tile_item_by_client_sprite(pos, sprite_id))
     }
 
     /// F8 S5 — core use-item logic for the ToDo execute arm ([`execute_player_use`]).

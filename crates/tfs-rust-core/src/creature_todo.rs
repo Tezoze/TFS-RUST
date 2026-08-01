@@ -373,17 +373,7 @@ impl GameWorld {
         cid: CreatureId,
         obj: ActionObjectRef,
     ) -> Result<ActionObjectRef, ReturnValue> {
-        let is_map_tile = obj.pos.x != 0xFFFF;
-        // C++ ref: `Game::internalGetThing` — `resolve_item_at_position` mirrors the
-        // `STACKPOS_USEITEM` path; `find_tile_item_by_client_sprite` is the sprite-id
-        // fallback for map tiles (same logic as `player_use_item`, `container_ui.rs:518-525`).
-        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj.pos, obj.stack_pos) {
-            Some(id)
-        } else if is_map_tile {
-            self.find_tile_item_by_client_sprite(obj.pos, obj.sprite_id)
-        } else {
-            None
-        };
+        let item_id = self.resolve_use_object(cid, obj.pos, obj.stack_pos, obj.sprite_id);
         let Some(item_id) = item_id else {
             return Err(ReturnValue::NotPossible);
         };

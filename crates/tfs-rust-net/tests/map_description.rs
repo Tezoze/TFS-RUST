@@ -450,6 +450,70 @@ fn tile_description_cip_order_emits_bottom_before_creature() {
     );
 }
 
+/// Regression: within PRIORITY_LOW the newest object comes first. `PlaceObject`
+/// (`map.cc:2040`) does not append LOW, and the client inserts `0x6A` adds the same way,
+/// so emitting oldest-first left `0x6C` removing the wrong item after a move.
+#[test]
+fn tile_description_cip_order_emits_newest_low_first() {
+    use tfs_rust_net::map_description::ItemStack;
+
+    let center = Position::new(100, 200, 7);
+    let newer_id = 0x01B3;
+    let older_id = 0x01B4;
+    let stack = |client_id: u16| ItemStack {
+        client_id,
+        count: 1,
+        stackable: false,
+        is_splash_or_fluid: false,
+        is_animation: false,
+    };
+    let tile = TileContent {
+        ground: Some(stack(0x0366)),
+        top_items: vec![],
+        bottom_items: vec![],
+        // Stored newest-first, mirroring `Tile::down_items`.
+        low_items: vec![stack(newer_id), stack(older_id)],
+        creatures: vec![],
+        cip_map_order: true,
+    };
+
+    let mut known = HashSet::new();
+    let mut get_tile = {
+        let tile = tile.clone();
+        move |x: i32, y: i32, z: i32| -> Option<TileContent> {
+            if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+                Some(tile.clone())
+            } else {
+                None
+            }
+        }
+    };
+    let mut can_see = |_id: u32| true;
+    let bytes = send_map_description_packet(
+        &codec_772(),
+        center,
+        center,
+        &mut get_tile,
+        &mut known,
+        &mut can_see,
+        false,
+    )
+    .into_bytes();
+
+    let newer = bytes
+        .windows(2)
+        .position(|w| w == newer_id.to_le_bytes())
+        .expect("newer low item");
+    let older = bytes
+        .windows(2)
+        .position(|w| w == older_id.to_le_bytes())
+        .expect("older low item");
+    assert!(
+        newer < older,
+        "newest LOW item must precede the older one (newer {newer}, older {older})"
+    );
+}
+
 /// Regression: Cip PRIORITY_LOW downs emit *after* creatures (bug0000017).
 /// A sewer-grate-style low item must not inflate MoveCreature stackpos.
 #[test]

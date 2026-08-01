@@ -20,6 +20,28 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 
 impl GameWorld {
+    /// Cip `PRIORITY_BOTTOM` (magic field / pool) — sits before creatures on the tile.
+    pub(crate) fn item_is_cip_priority_bottom(&self, item_id: ItemId) -> bool {
+        self.items
+            .get(item_id)
+            .and_then(|it| self.items_db.items.get(&it.item_type))
+            .is_some_and(|ty| ty.is_cip_priority_bottom())
+    }
+
+    /// Whether `viewer` sees tiles in Cip map-container order rather than TVP order.
+    ///
+    /// Only a real 7.72 client does; OTClient and 1098 use TVP order. Every tile-order
+    /// decision for a single player (stackpos encode, stackpos decode) must ask this, or the
+    /// two directions disagree.
+    pub(crate) fn uses_cip_map_order(&self, viewer: CreatureId) -> bool {
+        let is_772 = !self.codec.caps().move_creature_self_packet;
+        is_772
+            && self
+                .creatures
+                .get(viewer)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(p) if !p.is_otclient()))
+    }
+
     /// TVP and Cip stackpos for an item still on `pos` (capture before remove).
     ///
     /// Cip classifies `down_items` as BOTTOM (before creatures) vs LOW (after).
@@ -30,10 +52,7 @@ impl GameWorld {
                 let tvp = t.get_item_stack_pos_ordered(item_id, false).unwrap_or(0);
                 let cip = t
                     .get_item_stack_pos_cip(item_id, true, |id| {
-                        self.items
-                            .get(id)
-                            .and_then(|it| self.items_db.items.get(&it.item_type))
-                            .is_some_and(|ty| ty.is_cip_priority_bottom())
+                        self.item_is_cip_priority_bottom(id)
                     })
                     .unwrap_or(0);
                 (tvp, cip)
@@ -891,19 +910,15 @@ impl GameWorld {
 
     /// Pick TVP vs Cip stackpos for a spectator connection.
     fn stack_pos_for_conn(&self, conn: ConnId, tvp: u8, cip: u8) -> u8 {
-        let is_772 = !self.codec.caps().move_creature_self_packet;
-        if !is_772 {
-            return tvp;
-        }
-        let is_otc = self.conn_to_creature.get(&conn).copied().is_some_and(|vid| {
-            self.creatures
-                .get(vid)
-                .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()))
-        });
-        if is_otc {
-            tvp
-        } else {
+        let cip_order = self
+            .conn_to_creature
+            .get(&conn)
+            .copied()
+            .is_some_and(|vid| self.uses_cip_map_order(vid));
+        if cip_order {
             cip
+        } else {
+            tvp
         }
     }
 }

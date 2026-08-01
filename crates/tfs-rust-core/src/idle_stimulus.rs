@@ -3409,16 +3409,12 @@ impl GameWorld {
                                 // Runes set `allowFarUse` via Spell Lua (`RuneSpell`), not only
                                 // the OTB DistUse flag — without this, inventory SD/GFB walked
                                 // to Obj2 (C++ `Actions::canExecuteAction` → `canUseFar`).
-                                let is_map_tile = obj1.pos.x != 0xFFFF;
-                                let item_id = if let Some(id) =
-                                    self.resolve_item_at_position(cid, obj1.pos, obj1.stack_pos)
-                                {
-                                    Some(id)
-                                } else if is_map_tile {
-                                    self.find_tile_item_by_client_sprite(obj1.pos, obj1.sprite_id)
-                                } else {
-                                    None
-                                };
+                                let item_id = self.resolve_use_object(
+                                    cid,
+                                    obj1.pos,
+                                    obj1.stack_pos,
+                                    obj1.sprite_id,
+                                );
                                 let item_type = item_id
                                     .and_then(|id| self.items.get(id).map(|i| i.item_type));
                                 let distuse =
@@ -3703,17 +3699,8 @@ impl GameWorld {
             return Ok(());
         };
 
-        // Resolve `ItemId` for obj1 — same resolution path as `validate_action_object_ref`
-        // (`resolve_item_at_position` + `find_tile_item_by_client_sprite` fallback).
-        let is_map_tile = obj1.pos.x != 0xFFFF;
-        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj1.pos, obj1.stack_pos)
-        {
-            Some(id)
-        } else if is_map_tile {
-            self.find_tile_item_by_client_sprite(obj1.pos, obj1.sprite_id)
-        } else {
-            None
-        };
+        // Resolve `ItemId` for obj1 — same resolution path as `validate_action_object_ref`.
+        let item_id = self.resolve_use_object(cid, obj1.pos, obj1.stack_pos, obj1.sprite_id);
         let Some(item_id) = item_id else {
             return Err(ReturnValue::NotPossible);
         };
@@ -3734,6 +3721,7 @@ impl GameWorld {
                 } else {
                     (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index)
                 };
+            let is_map_tile = obj1.pos.x != 0xFFFF;
             self.player_use_item_core(conn_id, cid, item_id, is_map_tile, obj1.pos, preferred_cid)
         }
     }

@@ -37,13 +37,7 @@ impl GameWorld {
 
         // Re-validate: resolve the item at the wire location + sprite match.
         // C++ `Obj.exists()` (`cract.cc:772`) + `ObjectAccessible` (`operate.cc:2568`).
-        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj.pos, obj.stack_pos) {
-            Some(id)
-        } else if is_map_tile {
-            self.find_tile_item_by_client_sprite(obj.pos, obj.sprite_id)
-        } else {
-            None
-        };
+        let item_id = self.resolve_use_object(cid, obj.pos, obj.stack_pos, obj.sprite_id);
         let Some(item_id) = item_id else {
             return Err(ReturnValue::NotPossible);
         };
@@ -113,14 +107,7 @@ impl GameWorld {
         cid: CreatureId,
         obj: ActionObjectRef,
     ) -> Option<crate::ids::ItemId> {
-        let is_map_tile = obj.pos.x != 0xFFFF;
-        let item_id = if let Some(id) = self.resolve_item_at_position(cid, obj.pos, obj.stack_pos) {
-            Some(id)
-        } else if is_map_tile {
-            self.find_tile_item_by_client_sprite(obj.pos, obj.sprite_id)
-        } else {
-            None
-        };
+        let item_id = self.resolve_use_object(cid, obj.pos, obj.stack_pos, obj.sprite_id);
         item_id.filter(|&id| self.validate_item_sprite(id, obj.sprite_id))
     }
 }
