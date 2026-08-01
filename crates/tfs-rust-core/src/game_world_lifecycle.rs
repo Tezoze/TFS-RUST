@@ -6,8 +6,8 @@
 //!   `crplayer.cc:721-775`.
 
 use slotmap::Key;
-use tfs_rust_common::enums::{ConditionType, ZoneType};
-use tfs_rust_common::ConnId;
+use tfs_rust_common::enums::{ConditionType, SkullType, ZoneType};
+use tfs_rust_common::{ConnId, Position};
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
@@ -504,11 +504,23 @@ impl GameWorld {
             if let Some(conn) = self.conn_for_creature(victim) {
                 self.dead_connections.insert(conn);
             }
+            // TFS `Player::death` (`player.cpp:2065` / `2157-2161` / TVP `1882-1897`):
+            // set login position to temple, restore vitals, clear persistent conditions
+            // *before* save — otherwise relog lands on the death tile at 1 HP and dies again.
+            self.prepare_player_death_save(victim);
             // Persist before teardown — OK→Logout only closes TCP (`CONNECTION_DEAD`);
             // mapping is cleared so `handle_player_disconnect` cannot save afterwards.
             let db = self.db.clone();
             match self.build_player_save_data(victim) {
-                Ok(data) => {
+                Ok(mut data) => {
+                    // TFS `loginPosition = town->getTemplePosition()` — write temple into the
+                    // save row without moving the live body (remove still needs death tile).
+                    let temple = self
+                        .player_temple_position(victim)
+                        .unwrap_or(Position::new(0, 0, 0));
+                    data.player.posx = i32::from(temple.x);
+                    data.player.posy = i32::from(temple.y);
+                    data.player.posz = i32::from(temple.z);
                     let guid = data.player.id;
                     // Game loop always has a runtime; unit tests may not — skip spawn there.
                     if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -538,6 +550,41 @@ impl GameWorld {
         if let Some(conn) = dead_conn {
             self.unregister_conn_mapping(conn);
         }
+    }
+
+    /// TFS / TVP `Player::death` prep for the next login (`player.cpp:2065`, `2157-2161`).
+    ///
+    /// Restores HP/mana and clears conditions for the death-save. Does **not** move
+    /// `base.position` — TFS keeps the corpse tile for remove fan-out and stores temple
+    /// separately as `loginPosition` (patched onto the save row after build).
+    pub(crate) fn prepare_player_death_save(&mut self, victim: CreatureId) {
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(victim) else {
+            return;
+        };
+        // Black skull — TFS `player.cpp:2157-2161` (40 HP / 0 mana); else full vitals.
+        if p.base.skull == SkullType::Black {
+            p.base.health = 40.min(p.base.max_health.max(1));
+            p.mana = 0;
+        } else {
+            p.base.health = p.base.max_health.max(1);
+            p.mana = p.max_mana.max(0);
+        }
+        // Persistent combat/buff conditions must not survive death into the next login.
+        p.base.active_conditions.clear();
+        p.food_remaining = 0;
+        p.food_level = 0;
+    }
+
+    /// Town temple used as TFS `loginPosition` after death (`Player::getTemplePosition`).
+    pub(crate) fn player_temple_position(&self, victim: CreatureId) -> Option<Position> {
+        let town_id = match self.creatures.get(victim) {
+            Some(CreatureKind::Player(p)) => p.town_id,
+            _ => return None,
+        };
+        self.map
+            .towns
+            .get(&(town_id as u32))
+            .map(|t| t.temple_position)
     }
 
     /// PC-5 M7 — skill / magic try loss at the bless-reduced death fraction.

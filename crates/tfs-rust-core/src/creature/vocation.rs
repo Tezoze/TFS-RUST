@@ -2,8 +2,10 @@
 // C++ reference: `player.cpp`, `vocation.cpp`; 772 base speed — `gameserver/src/player.h` `updateBaseSpeed`.
 //
 // 772 per-vocation `AddLevel` for HP/mana/cap — `crplayer.cc:1050-1093` `TPlayer::SetProfession`.
-// Level-1 vitals floor (HP=150, Mana=0, Cap=400) — `runtime/mon/human.mon` race data
+// Level-1 vitals floor (HP=150, Mana=0, Cap=400 oz) — `runtime/mon/human.mon` race data
 // (`Skills = { (HitPoints, 150, 0, 150, …), (Mana, 0, 0, 0, …), (CarryStrength, 400, 0, 400, …) }`).
+// Runtime capacity is centi-oz (`Player::capacity = 40000`, `iologindata.cpp` `cap * 100`);
+// TFS loads vocation `gainCap` as XML oz × 100 (`vocation.cpp`).
 
 use tfs_rust_content::vocations::VocationDef;
 
@@ -45,13 +47,14 @@ pub struct VocationProfile {
     pub gain_hp: i32,
     /// `gainmana` — mana gain per level (`crplayer.cc:1052` `AddLevel`).
     pub gain_mana: i32,
-    /// `gaincap` — capacity gain per level (`crplayer.cc:1053` `AddLevel`).
+    /// `gaincap` per level in **centi-oz** (TFS `vocation.cpp` `gainCap = xml * 100`;
+    /// `crplayer.cc:1053` `AddLevel` is oz on the skill — we match TFS internal units).
     pub gain_cap: i32,
     /// Level-1 HP floor (`human.mon` `HitPoints` `Actual=150`).
     pub base_hp: i32,
     /// Level-1 mana floor (`human.mon` `Mana` `Actual=0`).
     pub base_mana: i32,
-    /// Level-1 capacity floor (`human.mon` `CarryStrength` `Actual=400`).
+    /// Level-1 capacity floor in **centi-oz** (`human.mon` CarryStrength 400 oz → 40000).
     pub base_cap: i32,
     /// `attackspeed` — melee attack cadence in ms (TFS `Vocation::attackSpeed`).
     pub attack_speed_ms: u32,
@@ -82,15 +85,18 @@ impl VocationProfile {
     /// Build the hot-path snapshot from the full `VocationDef` (loaded from
     /// `data/vocations.lua`). Called at login and on vocation change.
     pub fn from_def(d: &VocationDef) -> Self {
+        // Content (`vocations.lua` / XML) stores capacity in oz; TFS multiplies by 100
+        // at load (`vocation.cpp` `gainCap`). Keep `VocationDef` in oz for data-pack
+        // parity; convert here so `Player.capacity` / level-up stay in centi-oz.
         Self {
             id: d.id as i32,
             base_speed: d.base_speed,
             gain_hp: d.gain_hp,
             gain_mana: d.gain_mana,
-            gain_cap: d.gain_cap,
+            gain_cap: d.gain_cap.saturating_mul(100),
             base_hp: d.base_hp,
             base_mana: d.base_mana,
-            base_cap: d.base_cap,
+            base_cap: d.base_cap.saturating_mul(100),
             attack_speed_ms: d.attack_speed_ms,
             mana_multiplier: d.mana_multiplier,
             soul_max: d.soul_max,
@@ -107,17 +113,18 @@ impl VocationProfile {
     }
 
     /// Fallback profile for vocation id 0 ("None") when the registry is absent
-    /// (test harness). Matches the shipped `data/vocations.lua` vocation 0.
+    /// (test harness). Matches the shipped `data/vocations.lua` vocation 0,
+    /// with capacity fields in centi-oz (TFS internal units).
     pub fn none_vocation() -> Self {
         Self {
             id: 0,
             base_speed: 70,
             gain_hp: 5,
             gain_mana: 5,
-            gain_cap: 10,
+            gain_cap: 1000,
             base_hp: 150,
             base_mana: 0,
-            base_cap: 400,
+            base_cap: 40000,
             attack_speed_ms: 2000,
             mana_multiplier: 4.0,
             soul_max: 100,
@@ -141,9 +148,9 @@ impl VocationProfile {
 
     /// Recompute max health / mana / cap for current level (called on level-up).
     ///
-    /// 772: `base_hp + gain_hp * (level - 1)` / `base_mana + gain_mana * (level - 1)` /
-    /// `base_cap + gain_cap * (level - 1)` — the level-1 floor comes from the
-    /// vocation/race data, not a shared hardcoded constant.
+    /// HP/mana: `base + gain * (level - 1)` from vocation/race floor.
+    /// Cap: same shape in **centi-oz** (TFS `capacity += getCapGain()` with
+    /// `getCapGain()` already ×100 from XML oz).
     pub fn recalculate_vitals(&self, level: i32) -> (i32, i32, i32) {
         let l = level.max(1);
         let max_health = self.base_hp + self.gain_hp * (l - 1);
@@ -245,24 +252,58 @@ mod tests {
     #[test]
     fn recalculate_vitals_uses_vocation_floor_and_gains() {
         // Knight: base_hp=150, gain_hp=15, level 8 → 150 + 15*7 = 255.
+        // Cap in centi-oz: base 40000 + 2500*7 = 57500 (400 + 25*7 oz).
         let knight = VocationProfile {
             id: 4,
             base_speed: 70,
             gain_hp: 15,
             gain_mana: 5,
-            gain_cap: 25,
+            gain_cap: 2500,
             base_hp: 150,
             base_mana: 0,
-            base_cap: 400,
+            base_cap: 40000,
             ..VocationProfile::none_vocation()
         };
         let (hp, mana, cap) = knight.recalculate_vitals(8);
         assert_eq!(hp, 255);
         assert_eq!(mana, 35);
-        assert_eq!(cap, 575);
+        assert_eq!(cap, 57500);
 
         // Level 1 → floor values.
         let (hp1, mana1, cap1) = knight.recalculate_vitals(1);
-        assert_eq!((hp1, mana1, cap1), (150, 0, 400));
+        assert_eq!((hp1, mana1, cap1), (150, 0, 40000));
+    }
+
+    #[test]
+    fn from_def_converts_capacity_oz_to_centi_oz() {
+        let def = VocationDef {
+            id: 4,
+            client_id: 1,
+            name: "Knight".into(),
+            description: "a knight".into(),
+            from_vocation: 4,
+            gain_cap: 25,
+            gain_hp: 15,
+            gain_mana: 5,
+            gain_hp_ticks: 6,
+            gain_hp_amount: 1,
+            gain_mana_ticks: 6,
+            gain_mana_amount: 2,
+            mana_multiplier: 3.0,
+            attack_speed_ms: 2000,
+            base_speed: 70,
+            soul_max: 100,
+            gain_soul_ticks: 120,
+            allow_pvp: false,
+            base_hp: 150,
+            base_mana: 0,
+            base_cap: 400,
+            formula: Default::default(),
+            skill_multipliers: [1.1; 7],
+        };
+        let p = VocationProfile::from_def(&def);
+        assert_eq!(p.base_cap, 40000);
+        assert_eq!(p.gain_cap, 2500);
+        assert_eq!(p.recalculate_vitals(8).2, 57500);
     }
 }

@@ -1722,6 +1722,57 @@ mod tests {
         );
     }
 
+    /// Death save must write temple + full vitals, not the death tile / HP=1.
+    /// TFS `Player::death` sets `loginPosition = temple` and `health = healthMax` before save.
+    #[test]
+    fn death_save_uses_temple_and_full_vitals() {
+        use crate::condition::{ActiveCondition, ConditionData};
+        use tfs_rust_common::enums::ConditionType;
+
+        let mut world = beat_driven_test_world();
+        let death_pos = Position::new(200, 200, 7);
+        ensure_walkable_tile(&mut world.map, death_pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("DeadHero", death_pos);
+        player.town_id = 1;
+        player.base.health = 0;
+        player.base.max_health = 185;
+        player.mana = 0;
+        player.max_mana = 35;
+        player.base.active_conditions.push(ActiveCondition::new(
+            1,
+            0,
+            ConditionType::Fire,
+            ConditionData::Damage { total_rank: 10 },
+            Some(3),
+        ));
+        let victim = insert_spectator_player(&mut world, ConnId(9), player);
+
+        world.prepare_player_death_save(victim);
+        let mut data = world.build_player_save_data(victim).expect("save data");
+        let temple = world
+            .player_temple_position(victim)
+            .expect("town temple");
+        data.player.posx = i32::from(temple.x);
+        data.player.posy = i32::from(temple.y);
+        data.player.posz = i32::from(temple.z);
+
+        // Live body must stay on the death tile until remove (client remove packet).
+        let CreatureKind::Player(p) = world.creatures.get(victim).unwrap() else {
+            panic!("player");
+        };
+        assert_eq!(p.base.position, death_pos);
+
+        assert_eq!(data.player.posx, i32::from(temple.x));
+        assert_eq!(data.player.posy, i32::from(temple.y));
+        assert_eq!(data.player.posz, i32::from(temple.z));
+        assert_eq!(data.player.health, 185);
+        assert_eq!(data.player.mana, 35);
+        assert!(
+            data.player.conditions.as_ref().is_none_or(|b| b.is_empty()),
+            "death must not persist DoT conditions into the next login"
+        );
+    }
+
     #[test]
     fn dead_connection_allows_logout() {
         let mut world = beat_driven_test_world();

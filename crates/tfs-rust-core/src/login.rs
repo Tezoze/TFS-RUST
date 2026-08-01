@@ -72,7 +72,8 @@ pub fn player_from_loaded(
         p.posz.clamp(0, u8::MAX as i32) as u8,
     );
     // C++ `IOLoginData::loadPlayer` uses raw DB values — no formula override.
-    // `recalculate_vitals` is only used on level-up (`Player::add_experience`).
+    // `recalculate_vitals` is only used on level-up/down (`Player::add_experience` /
+    // `remove_experience`); capacity there is centi-oz via `VocationProfile`.
     let max_hp = p.healthmax;
     let max_mana = p.manamax;
     // C++ `iologindata.cpp` ~275: `player->capacity = result->getNumber("cap") * 100;`

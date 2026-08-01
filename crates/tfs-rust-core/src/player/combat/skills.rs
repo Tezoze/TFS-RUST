@@ -406,8 +406,9 @@ mod tests {
         p.vocation_profile.gain_mana = 5;
         p.vocation_profile.base_hp = 150;
         p.vocation_profile.base_mana = 0;
-        p.vocation_profile.base_cap = 400;
-        p.vocation_profile.gain_cap = 10;
+        p.vocation_profile.base_cap = 40000;
+        p.vocation_profile.gain_cap = 1000;
+        p.capacity = 40000;
         let (max_hp, max_mana, _) = p.vocation_profile.recalculate_vitals(1);
         p.base.max_health = max_hp;
         p.base.health = max_hp; // full
@@ -421,5 +422,33 @@ mod tests {
         // M13: current HP/mana gain the vocation AddLevel, not clamp-only.
         assert_eq!(p.base.health, max_hp + 15);
         assert_eq!(p.mana, max_mana + 5);
+        // Capacity stays in centi-oz (TFS `capacity += getCapGain()` with ×100 units).
+        assert_eq!(p.capacity, 41000);
+    }
+
+    #[test]
+    fn remove_experience_keeps_capacity_in_centi_oz() {
+        let mut p = bare_player();
+        p.level = 2;
+        p.experience = crate::creature::vocation::total_experience_for_level(2);
+        p.vocation_profile.base_cap = 40000;
+        p.vocation_profile.gain_cap = 2500;
+        p.vocation_profile.base_hp = 150;
+        p.vocation_profile.gain_hp = 15;
+        p.vocation_profile.base_mana = 0;
+        p.vocation_profile.gain_mana = 5;
+        p.capacity = 42500;
+        p.base.max_health = 165;
+        p.base.health = 165;
+        p.max_mana = 5;
+        p.mana = 5;
+        // Drop below level-2 threshold → level 1.
+        let leveled = p.remove_experience(
+            p.experience,
+            crate::formulas::StepSpeedModel::LinearGo,
+        );
+        assert!(leveled);
+        assert_eq!(p.level, 1);
+        assert_eq!(p.capacity, 40000);
     }
 }
