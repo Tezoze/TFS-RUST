@@ -194,6 +194,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         condition_suppressions: 0,
         shop_owner: None,
         vip_list: Vec::new(),
+        outfits: Vec::new(),
         health_hidden: false,
         last_activity: Instant::now(),
         last_command_round: 0,

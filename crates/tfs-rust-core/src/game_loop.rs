@@ -364,6 +364,8 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::VipAdd { .. }
             | GamePacket::VipRemove { .. }
             | GamePacket::VipEdit { .. }
+            | GamePacket::RequestOutfit
+            | GamePacket::SetOutfit(_)
     )
 }
 
@@ -1040,6 +1042,16 @@ fn handle_game_packet(
             // CH-4: `Game::playerRequestChannels` — `game.cpp:3490-3502`.
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_request_channels(conn_id, cid);
+            }
+        }
+        GamePacket::RequestOutfit => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_request_outfit(conn_id, cid);
+            }
+        }
+        GamePacket::SetOutfit(payload) => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_change_outfit(conn_id, cid, payload);
             }
         }
         GamePacket::OpenChannel { channel_id } => {

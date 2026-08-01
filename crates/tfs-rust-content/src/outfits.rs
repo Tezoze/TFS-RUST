@@ -15,6 +15,7 @@ pub struct Outfit {
     pub enabled: bool,
 }
 
+#[derive(Debug, Default)]
 pub struct OutfitDatabase {
     pub outfits: HashMap<u16, Outfit>,
 }
@@ -109,6 +110,24 @@ impl OutfitDatabase {
         }
 
         Ok(Self { outfits })
+    }
+
+    /// `Outfits::getOutfitByLookType(sex, lookType)` — `outfit.cpp`.
+    pub fn get_by_sex_looktype(&self, sex: u8, looktype: u16) -> Option<&Outfit> {
+        self.outfits
+            .get(&looktype)
+            .filter(|o| o.enabled && o.outfit_type == sex)
+    }
+
+    /// Enabled outfits for `sex`, ordered by looktype (stable window list order).
+    pub fn outfits_for_sex(&self, sex: u8) -> Vec<&Outfit> {
+        let mut list: Vec<&Outfit> = self
+            .outfits
+            .values()
+            .filter(|o| o.enabled && o.outfit_type == sex)
+            .collect();
+        list.sort_by_key(|o| o.looktype);
+        list
     }
 }
 

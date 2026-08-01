@@ -15,8 +15,8 @@ use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 use crate::creature::vocation::{base_walk_speed, VocationProfile};
 use crate::creature::CreatureKind;
 use crate::creature::{
-    CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
-    PlayerSkills, PlayerSocial,
+    take_outfits_from_storage, CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory,
+    PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
 use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
@@ -55,10 +55,12 @@ pub fn player_from_loaded(
     vocations: &VocationRegistry,
     groups: &GroupDatabase,
 ) -> Player {
+    let mut storage = std::mem::take(&mut data.storage);
+    let outfits = take_outfits_from_storage(&mut storage);
     let persist = PlayerPersistBaseline {
         player_row: data.player.clone(),
         spells: std::mem::take(&mut data.spells),
-        storage: std::mem::take(&mut data.storage),
+        storage,
         depot: std::mem::take(&mut data.items.depot),
         inbox: std::mem::take(&mut data.items.inbox),
         last_depot_id: -1,
@@ -220,6 +222,7 @@ pub fn player_from_loaded(
         condition_suppressions: 0,
         shop_owner: None,
         vip_list: data.vip_list.clone(),
+        outfits,
         health_hidden: false,
         last_activity: std::time::Instant::now(),
         last_command_round: 0,

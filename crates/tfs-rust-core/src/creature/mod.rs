@@ -30,7 +30,8 @@ pub use npc::{
     QueuedNpcAddress,
 };
 pub use player::{
-    Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
-    PlayerWalkAction,
+    take_outfits_from_storage, write_outfits_into_storage, OutfitEntry, Player, PlayerEconomy,
+    PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial, PlayerWalkAction,
+    PSTRG_OUTFITS_RANGE_SIZE, PSTRG_OUTFITS_RANGE_START,
 };
 pub use tfs_rust_common::PlayerSex;

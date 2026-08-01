@@ -206,7 +206,7 @@ pub fn parse_game_opcode(
             index: msg.read_u16()?,
         }),
         C::REQUEST_OUTFIT => Ok(GamePacket::RequestOutfit),
-        C::SET_OUTFIT => parse_set_outfit(msg),
+        C::SET_OUTFIT => parse_set_outfit(msg, version),
         C::TOGGLE_MOUNT => Ok(GamePacket::ToggleMount {
             mount: msg.read_u8()? != 0,
         }),
@@ -349,15 +349,29 @@ fn parse_throw(msg: &mut NetworkMessage) -> Result<GamePacket> {
     }))
 }
 
-fn parse_set_outfit(msg: &mut NetworkMessage) -> Result<GamePacket> {
+/// `ProtocolGame::parseSetOutfit`.
+///
+/// - **772:** `lookType` + head/body/legs/feet only (`gameserver/src/protocolgame.cpp` ~790).
+/// - **1098:** + `lookAddons` + `lookMount` (`src/protocolgame.cpp`).
+fn parse_set_outfit(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result<GamePacket> {
+    let look_type = msg.read_u16()?;
+    let look_head = msg.read_u8()?;
+    let look_body = msg.read_u8()?;
+    let look_legs = msg.read_u8()?;
+    let look_feet = msg.read_u8()?;
+    let (look_addons, look_mount) = match version.raw() {
+        772 => (0u8, 0u16),
+        1098 => (msg.read_u8()?, msg.read_u16()?),
+        other => unreachable!("unsupported protocol version {other}"),
+    };
     Ok(GamePacket::SetOutfit(SetOutfitPayload {
-        look_type: msg.read_u16()?,
-        look_head: msg.read_u8()?,
-        look_body: msg.read_u8()?,
-        look_legs: msg.read_u8()?,
-        look_feet: msg.read_u8()?,
-        look_addons: msg.read_u8()?,
-        look_mount: msg.read_u16()?,
+        look_type,
+        look_head,
+        look_body,
+        look_legs,
+        look_feet,
+        look_addons,
+        look_mount,
     }))
 }
 

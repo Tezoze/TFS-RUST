@@ -31,6 +31,7 @@ mod game_world_item_move;
 mod game_world_lifecycle;
 mod game_world_player_rotate;
 mod game_world_player_throw;
+mod game_world_outfit;
 mod game_world_save;
 mod game_world_script;
 mod game_world_spectators;

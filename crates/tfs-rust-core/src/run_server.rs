@@ -173,6 +173,7 @@ pub async fn run() -> anyhow::Result<()> {
     let map = Map::from_map_data(content.map, items_db.as_ref(), &mut items);
     let spawns = SpawnManager::from_zones(spawn_zones);
     let vocations = std::sync::Arc::new(content.vocations);
+    let outfits_db = std::sync::Arc::new(content.outfits);
 
     // Dual-lane game command bus (GL-2): bounded game packets + control lane.
     let (cmd_tx, game_rx, ctrl_rx) = open_game_command_channels();
@@ -396,6 +397,7 @@ pub async fn run() -> anyhow::Result<()> {
         codec,
         mechanics,
     );
+    world.outfits_db = outfits_db;
     world.scheduler = Some(scheduler.clone());
 
     // PC-2b/PC-3: Inject the weapon + spell registries drained from Lua scripts.

@@ -133,6 +133,8 @@ pub struct GameWorld {
     pub npcs_db: Arc<NpcDatabase>,
     /// `data/XML/groups.xml` — player GM flags (`src/groups.cpp`).
     pub groups: Arc<GroupDatabase>,
+    /// `data/XML/outfits.xml` — change-outfit window / canWear (`src/outfit.cpp`).
+    pub outfits_db: Arc<tfs_rust_content::outfits::OutfitDatabase>,
     pub vocations: Arc<VocationRegistry>,
     /// PC-2b: spell definitions loaded from `data/scripts/spells/**/*.lua` via the
     /// TFS Lua `Spell(SPELL_INSTANT|SPELL_RUNE)` API. Used by `player_say_spell`
@@ -383,6 +385,7 @@ impl GameWorld {
             monsters_db,
             npcs_db,
             groups,
+            outfits_db: Arc::new(tfs_rust_content::outfits::OutfitDatabase::default()),
             vocations,
             spells: Arc::new(tfs_rust_content::spells::SpellRegistry::default()),
             weapons: Arc::new(tfs_rust_content::weapons::WeaponRegistry::default()),

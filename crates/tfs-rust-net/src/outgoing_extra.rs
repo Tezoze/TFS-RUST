@@ -472,7 +472,40 @@ pub fn send_vip_status(guid: u32, status: u8) -> NetworkMessage {
     m
 }
 
-/// `ProtocolGame::sendOutfitWindow` — opcode `0xC8` (`src/protocolgame.cpp` ~3022).
+/// 7.72 stock-client outfit window — `gameserver/src/protocolgame.cpp` `sendOutfitWindow` else-branch.
+///
+/// `0xC8` + 772 `AddOutfit(current)` + first looktype + last looktype (premium expands the range).
+pub fn send_outfit_window_772_classic(
+    current: &OutfitWire,
+    first_look_type: u16,
+    last_look_type: u16,
+) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0xC8);
+    crate::codec::Codec772.write_outfit(&mut m, current);
+    m.write_u16(first_look_type);
+    m.write_u16(last_look_type);
+    m
+}
+
+/// 7.72 OTClient outfit window — named list, no addons (`gameserver` OTClient branch).
+pub fn send_outfit_window_772_otclient(
+    current: &OutfitWire,
+    outfits: &[(u16, &str)],
+) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0xC8);
+    crate::codec::Codec772.write_outfit(&mut m, current);
+    let noc = outfits.len().min(u8::MAX as usize) as u8;
+    m.write_u8(noc);
+    for &(look_type, name) in outfits.iter().take(noc as usize) {
+        m.write_u16(look_type);
+        m.write_string(name);
+    }
+    m
+}
+
+/// 10.98 `ProtocolGame::sendOutfitWindow` — opcode `0xC8` (`src/protocolgame.cpp` ~3022).
 pub fn send_outfit_window(
     current: &OutfitWire,
     outfits: &[(u16, &str, u8)],

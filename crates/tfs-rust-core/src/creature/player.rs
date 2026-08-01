@@ -134,6 +134,51 @@ pub struct PlayerPersistBaseline {
     pub last_depot_id: i32,
 }
 
+/// TFS `OutfitEntry` — unlocked lookType (+ addons on 1098) (`player.h`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutfitEntry {
+    pub look_type: u16,
+    /// Bitmask of owned addons (1098). Always `0` on 772.
+    pub addons: u8,
+}
+
+/// Reserved player-storage keys for outfit ownership (`src/const.h`).
+pub const PSTRG_OUTFITS_RANGE_START: u32 = 10_001_000;
+pub const PSTRG_OUTFITS_RANGE_SIZE: u32 = 500;
+
+#[inline]
+pub fn storage_key_is_outfit(key: u32) -> bool {
+    key >= PSTRG_OUTFITS_RANGE_START
+        && key.saturating_sub(PSTRG_OUTFITS_RANGE_START) <= PSTRG_OUTFITS_RANGE_SIZE
+}
+
+/// Pull `OUTFITS_RANGE` keys out of DB storage into [`OutfitEntry`] list (TFS `addStorageValue`).
+pub fn take_outfits_from_storage(storage: &mut Vec<(u32, i32)>) -> Vec<OutfitEntry> {
+    let mut outfits = Vec::new();
+    storage.retain(|(key, value)| {
+        if storage_key_is_outfit(*key) {
+            let look_type = ((*value as u32) >> 16) as u16;
+            let addons = (*value as u32 & 0xFF) as u8;
+            outfits.push(OutfitEntry { look_type, addons });
+            false
+        } else {
+            true
+        }
+    });
+    outfits
+}
+
+/// Rewrite reserved outfit keys into `storage` for save (`Player::genReservedStorageRange`).
+pub fn write_outfits_into_storage(storage: &mut Vec<(u32, i32)>, outfits: &[OutfitEntry]) {
+    storage.retain(|(k, _)| !storage_key_is_outfit(*k));
+    let mut base_key = PSTRG_OUTFITS_RANGE_START;
+    for entry in outfits {
+        base_key += 1;
+        let value = ((u32::from(entry.look_type) << 16) | u32::from(entry.addons)) as i32;
+        storage.push((base_key, value));
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Player {
     pub base: CreatureBase,
@@ -206,6 +251,8 @@ pub struct Player {
     pub shop_owner: Option<u32>,
     /// `sendVIPEntries` payload from `account_viplist`.
     pub vip_list: Vec<VipEntry>,
+    /// Owned/unlocked outfit entries — TFS `Player::outfits` (`player.h`).
+    pub outfits: Vec<OutfitEntry>,
     /// When true, other players receive `0` health percent on map (`Player::isHealthHidden` in TFS).
     pub health_hidden: bool,
     /// TFS idle / kick — `resetIdleTime` updates this (`player.cpp`).

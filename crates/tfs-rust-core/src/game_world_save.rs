@@ -9,7 +9,7 @@ use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_db::player::{PlayerItemPayload, PlayerSaveData};
 use tfs_rust_db::ItemRecord;
 
-use crate::creature::CreatureKind;
+use crate::creature::{write_outfits_into_storage, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::slot_to_array_index;
@@ -232,10 +232,13 @@ impl GameWorld {
         let mut inbox = Vec::new();
         append_save_item_tree(self, &inbox_roots, &mut inbox)?;
 
+        let mut storage = baseline.storage.clone();
+        write_outfits_into_storage(&mut storage, &player.outfits);
+
         Ok(PlayerSaveData {
             player: row,
             spells: baseline.spells.clone(),
-            storage: baseline.storage.clone(),
+            storage,
             items: PlayerItemPayload {
                 inventory,
                 depot,
