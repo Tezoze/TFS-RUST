@@ -1480,6 +1480,8 @@ impl GameWorld {
                         total_rank: strength,
                     },
                     timer_rounds_left: None,
+                skill_count: 0,
+                skill_max_count: 0,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -1623,6 +1625,8 @@ impl GameWorld {
                     ctype,
                     data: ConditionData::Speed { flat_delta },
                     timer_rounds_left: duration_ms_to_rounds(*duration),
+                skill_count: 0,
+                skill_max_count: 0,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -1673,6 +1677,8 @@ impl GameWorld {
                                 ticks: *duration,
                             },
                             timer_rounds_left: duration_ms_to_rounds(*duration),
+                        skill_count: 0,
+                        skill_max_count: 0,
                         };
                         let params = CombatParams {
                             primary_type: CombatType::Physical,
@@ -1716,6 +1722,8 @@ impl GameWorld {
                             look_type_ex,
                         },
                         timer_rounds_left: duration_ms_to_rounds(*duration),
+                    skill_count: 0,
+                    skill_max_count: 0,
                     };
                     let params = CombatParams {
                         primary_type: CombatType::Physical,
@@ -1743,6 +1751,8 @@ impl GameWorld {
                         ticks: *duration,
                     },
                     timer_rounds_left: duration_ms_to_rounds(*duration),
+                skill_count: 0,
+                skill_max_count: 0,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,

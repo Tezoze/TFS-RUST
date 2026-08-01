@@ -99,7 +99,7 @@
 | 2.5 | Locked branch: `sendTextMessage(MESSAGE_INFO_DESCR, "It is locked.")` (APIs exist) |
 | 2.6 | Unit: transform BLOCKSOLID round-trip; Position −1 offset; doors.lua registers open/closed/locked; TILESTATE_* match tile.h |
 
-**Done when:** Non-house, non-quest doors open/close; locked doors refuse with text; creature on door tile is shoved aside when closing.
+**Done when:** Non-house, non-quest doors open/close; locked doors refuse with text; creature on door tile is shoved aside when closing (`ClearField` / lesson 289).
 
 **Out of scope for Phase 2:** keys, quest/level attrs, house `canUse`, MoveEvents.
 

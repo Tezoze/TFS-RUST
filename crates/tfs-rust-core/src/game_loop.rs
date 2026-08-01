@@ -612,6 +612,7 @@ fn handle_player_disconnect(
     out_registry: &Option<OutRegistry>,
 ) {
     pending_login_conns.remove(&conn_id);
+    world.dead_connections.remove(&conn_id);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         if display_effect {
             let pos = world.creatures.get(cid).map(|k| k.position());
@@ -669,6 +670,23 @@ fn handle_game_packet(
     pending: &mut PendingQueue,
 ) {
     let now = Instant::now();
+    // 772 `CommandAllowed` for CONNECTION_DEAD / CONNECTION_LOGOUT (`receiving.cc:17-21`).
+    if world.dead_connections.contains(&conn_id) {
+        match &packet {
+            GamePacket::Logout
+            | GamePacket::Ping
+            | GamePacket::PingBack
+            | GamePacket::BugReport(_) => {}
+            _ => {
+                trace!(
+                    conn_id = conn_id.0,
+                    ?packet,
+                    "game packet ignored — connection dead (post-death)"
+                );
+                return;
+            }
+        }
+    }
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         // Phase 4: 1098 no longer resets rounds differently — both eras use the 772
         // `ProcessConnections` round tracking.
@@ -971,7 +989,17 @@ fn handle_game_packet(
         GamePacket::Logout => {
             // TFS / 772 `ProtocolGame::logout` — validate then disconnect (close TCP).
             // Mid-async-login (no `conn_to_creature` yet) still closes the session.
-            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+            // Post-death: mapping was cleared but `dead_connections` keeps the session
+            // until OK (`CL_CMD_LOGOUT`) — 772 `CONNECTION_DEAD` (`receiving.cc:17-21`).
+            if world.dead_connections.contains(&conn_id) {
+                pending_push(
+                    pending,
+                    GameCommand::PlayerDisconnect {
+                        conn_id,
+                        display_effect: false,
+                    },
+                );
+            } else if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 if world.player_logout_allowed(conn_id, cid, false) {
                     pending_push(
                         pending,

@@ -377,16 +377,8 @@ impl GameWorld {
                     self.internal_add_item_to_tile(to_pos, new_id, flags)?;
                     Ok(new_id)
                 } else {
-                    // Full move
-                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                    let tile = self
-                        .map
-                        .get_tile_mut(from_pos)
-                        .ok_or(ReturnValue::NotPossible)?;
-                    if tile.remove_item_by_id(item_id).is_none() {
-                        return Err(ReturnValue::NotPossible);
-                    }
-                    self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
+                    // Full move — reset source tile flags (TFS `removeThing`/`resetTileFlags`).
+                    self.detach_item_from_tile(from_pos, item_id)?;
                     self.internal_add_item_to_tile(to_pos, item_id, flags)
                 }
             }
@@ -421,15 +413,7 @@ impl GameWorld {
                 if !dest_has_room {
                     return Err(ReturnValue::ContainerNotEnoughRoom);
                 }
-                let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                let tile = self
-                    .map
-                    .get_tile_mut(from_pos)
-                    .ok_or(ReturnValue::NotPossible)?;
-                if tile.remove_item_by_id(item_id).is_none() {
-                    return Err(ReturnValue::NotPossible);
-                }
-                self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
+                self.detach_item_from_tile(from_pos, item_id)?;
                 if let Some(merge_id) = to_merge_item {
                     self.merge_check(item_id, merge_id, m_move)?;
                     self.merge_detached_stack_counts(merge_id, m_move);
@@ -804,15 +788,7 @@ impl GameWorld {
                         self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
                         return Ok(merge_id);
                     }
-                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                    let tile = self
-                        .map
-                        .get_tile_mut(from_pos)
-                        .ok_or(ReturnValue::NotPossible)?;
-                    if tile.remove_item_by_id(item_id).is_none() {
-                        return Err(ReturnValue::NotPossible);
-                    }
-                    self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
+                    self.detach_item_from_tile(from_pos, item_id)?;
                     // Full: source removed from tile above — only bump hand stack.
                     self.merge_detached_stack_counts(merge_id, m_move);
                     self.player_post_add_notification(
@@ -853,15 +829,7 @@ impl GameWorld {
                     if dest_id == item_id {
                         return Ok(item_id);
                     }
-                    let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                    let tile = self
-                        .map
-                        .get_tile_mut(from_pos)
-                        .ok_or(ReturnValue::NotPossible)?;
-                    if tile.remove_item_by_id(item_id).is_none() {
-                        return Err(ReturnValue::NotPossible);
-                    }
-                    self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
+                    self.detach_item_from_tile(from_pos, item_id)?;
                     self.unequip_item_from_inventory_slot(
                         cid,
                         slot,
@@ -877,15 +845,7 @@ impl GameWorld {
                     )?;
                     return Ok(item_id);
                 }
-                let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                let tile = self
-                    .map
-                    .get_tile_mut(from_pos)
-                    .ok_or(ReturnValue::NotPossible)?;
-                if tile.remove_item_by_id(item_id).is_none() {
-                    return Err(ReturnValue::NotPossible);
-                }
-                self.broadcast_tile_item_remove(from_pos, tvp_stack_pos, cip_stack_pos);
+                self.detach_item_from_tile(from_pos, item_id)?;
                 self.equip_item_to_inventory_slot(
                     cid,
                     slot,

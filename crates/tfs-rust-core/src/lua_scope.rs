@@ -299,6 +299,19 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::ClearField {
+            exclude_item_id,
+            exclude_creature_id,
+        } => {
+            let w = unsafe { &mut *world };
+            let Some(item) = w.resolve_item_u64(exclude_item_id) else {
+                return Ok(());
+            };
+            let exclude_cid =
+                exclude_creature_id.and_then(|id| w.resolve_creature_u64(id));
+            w.clear_field(item, exclude_cid);
+            Ok(())
+        }
     }
 }
 
@@ -445,6 +458,42 @@ pub fn fire_on_use_action(
             )
         })
     })
+}
+
+/// TFS `MoveEvents::onCreatureMove` StepOut/StepIn — fire with mutation + ScriptContext.
+///
+/// C++ reference: `tile.cpp` `postRemoveNotification` / `postAddNotification` →
+/// `MoveEvents::onCreatureMove` → `MoveEvent::executeStep`. Revscripts like
+/// `closing_doors.lua` call `Tile()`, `item:transform`, `doRelocate` — all need the
+/// same scope as `fire_on_use_action`. Called from `move_creature_on_map` after the
+/// creature has left `from` and landed on `to` so `getCreatureCount()` sees leavers gone.
+pub fn fire_creature_step_events(
+    world: &mut GameWorld,
+    cid: CreatureId,
+    from: tfs_rust_common::Position,
+    to: tfs_rust_common::Position,
+    step_out_items: &[(ItemId, u16)],
+    step_in_items: &[(ItemId, u16)],
+) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            // C++ `getLastPosition()` for executeStep — tile we left (`from`).
+            let last_pos = from;
+            for &(item_id, item_type) in step_out_items {
+                let _ = world
+                    .events
+                    .on_step_out(Some(cid), item_id, item_type, from, last_pos);
+            }
+            for &(item_id, item_type) in step_in_items {
+                let _ = world
+                    .events
+                    .on_step_in(Some(cid), item_id, item_type, to, last_pos);
+            }
+        });
+    });
 }
 
 /// TFS `Weapon::executeUseWeapon` — fire `onUseWeapon(player, variant[, hit])`.

@@ -232,21 +232,22 @@ pub struct FightModes {
     pub defensive_def: f64,
 }
 
-/// A single damage-over-time condition tick (`condition.rs`).
+/// Per-Event DoT damage and ProcessSkills interval (`condition.rs` / `crskill.cc`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TickSpec {
-    /// Damage per tick.
+    /// Damage dealt each Event (`TSkillBurning::Event` = 10, energy = 25).
     pub dmg: i32,
-    /// Number of ticks (cycles).
+    /// ProcessSkills rounds between Events — 772 `TSkill::MaxCount` (fire=8, energy=10).
+    /// Not total duration; Cycle (Events remaining) is set separately from damage/XML.
     pub ticks: i32,
 }
 
 /// DoT condition constants by element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConditionTicks {
-    /// 772 fire = `{10, 8}` (`crskill.cc:1064`).
+    /// 772 fire Event dmg=10, MaxCount=8 (`crskill.cc:1064`, `crmain.cc:600`).
     pub fire: TickSpec,
-    /// 772 energy = `{25, 10}` (`crskill.cc:1090`).
+    /// 772 energy Event dmg=25, MaxCount=10 (`crskill.cc:1090`, `crmain.cc:610`).
     pub energy: TickSpec,
     /// Poison initial damage decays by `FactorPercent` per tick — start damage anchor (`crskill.cc:969`).
     pub poison_start: i32,

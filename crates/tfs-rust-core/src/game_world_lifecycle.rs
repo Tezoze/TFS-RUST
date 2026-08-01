@@ -158,9 +158,21 @@ impl GameWorld {
         cid: CreatureId,
         forced: bool,
     ) -> bool {
+        // Body already removed after death, or CONNECTION_DEAD — OK must still close TCP.
+        // 772 `CommandAllowed` + `CQuitGame` after `TConnection::Die` (`receiving.cc:17-21`).
+        if self.dead_connections.contains(&conn_id) || self.creatures.get(cid).is_none() {
+            return true;
+        }
+
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
-            return false;
+            return true;
         };
+
+        // 772 `LogoutPossible`: dead always OK — skip Infight / combat / nologout gates
+        // (`crmain.cc:417-418` `!IsDead` guard).
+        if player.base.health <= 0 {
+            return true;
+        }
 
         if !forced {
             let has_access = player.ghost_mode;
@@ -485,8 +497,47 @@ impl GameWorld {
         // TFS `Player::death` — `sendSkills()` after death penalties (`player.cpp:2154`).
         if is_player {
             self.send_player_skills(victim);
+            // 772 `TPlayer::Death` — `crplayer.cc:331-334`: SendPlayerData (stats above),
+            // `SendMessage(TALK_EVENT_MESSAGE, "You are dead.\n")`, `Connection->Die()`.
+            // Trailing newline is required for the stock 772 death dialog.
+            self.send_player_advance_message(victim, "You are dead.\n");
+            if let Some(conn) = self.conn_for_creature(victim) {
+                self.dead_connections.insert(conn);
+            }
+            // Persist before teardown — OK→Logout only closes TCP (`CONNECTION_DEAD`);
+            // mapping is cleared so `handle_player_disconnect` cannot save afterwards.
+            let db = self.db.clone();
+            match self.build_player_save_data(victim) {
+                Ok(data) => {
+                    let guid = data.player.id;
+                    // Game loop always has a runtime; unit tests may not — skip spawn there.
+                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                        handle.spawn(async move {
+                            if let Err(e) = PlayerStore::new(&db).save_player(&data).await {
+                                tracing::error!(?e, guid, "player save on death failed");
+                            }
+                        });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        ?e,
+                        ?victim,
+                        "build_player_save_data failed on death — body still removed"
+                    );
+                }
+            }
         }
+        // Capture before remove — disappear broadcast still needs the mapping.
+        let dead_conn = is_player
+            .then(|| self.conn_for_creature(victim))
+            .flatten();
         self.remove_creature(victim);
+        // Drop ConnId↔CreatureId so a recycled SlotMap key cannot hijack the dead session.
+        // TCP stays open (`CONNECTION_DEAD`) until OK→Logout / idle timeout.
+        if let Some(conn) = dead_conn {
+            self.unregister_conn_mapping(conn);
+        }
     }
 
     /// PC-5 M7 — skill / magic try loss at the bless-reduced death fraction.

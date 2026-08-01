@@ -740,7 +740,7 @@ impl GameWorld {
             let dest = crate::floor_change_use::resolve_teleport_use_destination(
                 self, cid, item_type, pos,
             );
-            let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
+            let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest, false);
             if ret != ReturnValue::NoError {
                 return Err(ret);
             }
@@ -769,7 +769,7 @@ impl GameWorld {
                 ground_type,
                 pos,
             );
-            let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
+            let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest, false);
             if ret != ReturnValue::NoError {
                 return Err(ret);
             }

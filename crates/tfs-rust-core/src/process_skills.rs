@@ -117,9 +117,25 @@ impl GameWorld {
             for (idx, cond) in base.active_conditions.iter().enumerate() {
                 match cond.ctype {
                     ConditionType::Fire | ConditionType::Energy => {
+                        let interval = match cond.ctype {
+                            ConditionType::Fire => profile.conditions.fire.ticks,
+                            ConditionType::Energy => profile.conditions.energy.ticks,
+                            _ => 1,
+                        }
+                        .max(1);
+                        // 772 `TSkill::Process` (`crskill.cc:186-193`): Count countdown;
+                        // Event only when Count <= 0, then Count = MaxCount.
+                        let initialized = cond.skill_max_count > 0;
+                        if !initialized {
+                            // First tick after apply without SetTimer Count — init, no damage.
+                            continue;
+                        }
+                        if cond.skill_count > 0 {
+                            continue;
+                        }
                         let round = cond
                             .timer_rounds_left
-                            .map(|t| profile.conditions.fire.ticks - t)
+                            .map(|t| interval - t)
                             .unwrap_or(0);
                         let Some((dmg, max_ticks)) =
                             dot_tick_for_condition(profile, hooks, cond.ctype, round)
@@ -144,6 +160,14 @@ impl GameWorld {
                         }
                     }
                     ConditionType::Poison => {
+                        // 772 `TSkillPoison::Process` Count/MaxCount = 3 (`crskill.cc:976-990`).
+                        let initialized = cond.skill_max_count > 0;
+                        if !initialized {
+                            continue;
+                        }
+                        if cond.skill_count > 0 {
+                            continue;
+                        }
                         if let ConditionData::Damage { total_rank } = cond.data {
                             if total_rank <= 0 {
                                 remove_indices.push(idx);
@@ -228,22 +252,44 @@ impl GameWorld {
             for cond in base.active_conditions.iter_mut() {
                 match cond.ctype {
                     ConditionType::Fire | ConditionType::Energy => {
-                        if let Some(left) = cond.timer_rounds_left.as_mut() {
-                            *left -= 1;
+                        let interval = match cond.ctype {
+                            ConditionType::Fire => self.mechanics.profile.conditions.fire.ticks,
+                            ConditionType::Energy => self.mechanics.profile.conditions.energy.ticks,
+                            _ => 1,
+                        }
+                        .max(1);
+                        if cond.skill_max_count <= 0 {
+                            // Mirror `SetTimer(..., Count=MaxCount)` — start countdown, no Event yet.
+                            cond.skill_max_count = interval;
+                            cond.skill_count = interval;
+                            if cond.timer_rounds_left.is_none() {
+                                cond.timer_rounds_left = Some(interval);
+                            }
+                            continue;
+                        }
+                        if cond.skill_count > 0 {
+                            cond.skill_count -= 1;
                         } else {
-                            let max_ticks = match cond.ctype {
-                                ConditionType::Fire => self.mechanics.profile.conditions.fire.ticks,
-                                ConditionType::Energy => {
-                                    self.mechanics.profile.conditions.energy.ticks
-                                }
-                                _ => 0,
-                            };
-                            cond.timer_rounds_left = Some(max_ticks - 1);
+                            // Event already applied this tick — reset Count + decrement Cycle.
+                            cond.skill_count = cond.skill_max_count;
+                            if let Some(left) = cond.timer_rounds_left.as_mut() {
+                                *left -= 1;
+                            }
                         }
                     }
                     ConditionType::Poison => {
-                        if let ConditionData::Damage { total_rank } = &mut cond.data {
-                            *total_rank = (*total_rank * POISON_DECAY_PERCENT) / 100;
+                        if cond.skill_max_count <= 0 {
+                            cond.skill_max_count = 3;
+                            cond.skill_count = 3;
+                            continue;
+                        }
+                        if cond.skill_count > 0 {
+                            cond.skill_count -= 1;
+                        } else {
+                            cond.skill_count = cond.skill_max_count;
+                            if let ConditionData::Damage { total_rank } = &mut cond.data {
+                                *total_rank = (*total_rank * POISON_DECAY_PERCENT) / 100;
+                            }
                         }
                     }
                     ConditionType::Haste | ConditionType::Paralyze => {
@@ -426,7 +472,10 @@ mod tests {
                 sub_id: 0,
                 ctype: ConditionType::Fire,
                 data: ConditionData::Damage { total_rank: 10 },
+                // Count=0 MaxCount=1 → Event every ProcessSkills (fast unit test).
                 timer_rounds_left: Some(2),
+                skill_count: 0,
+                skill_max_count: 1,
             },
         );
 
@@ -434,7 +483,8 @@ mod tests {
         let hp1 = world.creatures.get(player).unwrap().base().health;
         assert!(hp1 < 150, "fire tick should deal damage");
 
-        world.process_skills();
+        world.process_skills(); // Count 1 → 0
+        world.process_skills(); // second Event
         let hp2 = world.creatures.get(player).unwrap().base().health;
         assert!(hp2 < hp1, "second fire tick should deal more damage");
 
@@ -446,6 +496,46 @@ mod tests {
                 .any(|c| c.ctype == ConditionType::Fire)
         });
         assert!(!has_fire, "fire condition should expire after ticks");
+    }
+
+    /// Fire DoT Events only every `MaxCount` ProcessSkills rounds (772 `crskill.cc:186-193`).
+    #[test]
+    fn fire_condition_respects_skill_max_count_interval() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Smolder", pos));
+
+        apply_condition(
+            &mut world.creatures,
+            player,
+            ActiveCondition {
+                id: 1,
+                sub_id: 0,
+                ctype: ConditionType::Fire,
+                data: ConditionData::Damage { total_rank: 10 },
+                timer_rounds_left: Some(3),
+                skill_count: 2,
+                skill_max_count: 2,
+            },
+        );
+
+        let hp0 = world.creatures.get(player).unwrap().base().health;
+        world.process_skills(); // count 2→1
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().health,
+            hp0,
+            "no damage while Count > 0"
+        );
+        world.process_skills(); // count 1→0
+        assert_eq!(
+            world.creatures.get(player).unwrap().base().health,
+            hp0,
+            "still no damage on final countdown"
+        );
+        world.process_skills(); // Count<=0 → Event
+        let hp1 = world.creatures.get(player).unwrap().base().health;
+        assert!(hp1 < hp0, "damage on Event when Count hits 0");
     }
 
     #[test]
@@ -461,6 +551,8 @@ mod tests {
             ctype: ConditionType::Poison,
             data: ConditionData::Damage { total_rank: 20 },
             timer_rounds_left: None,
+            skill_count: 0,
+            skill_max_count: 1, // Event every ProcessSkills for this unit test
         }];
         add_condition_merge(
             &mut conds,
@@ -470,6 +562,8 @@ mod tests {
                 ctype: ConditionType::Poison,
                 data: ConditionData::Damage { total_rank: 20 },
                 timer_rounds_left: None,
+                skill_count: 0,
+                skill_max_count: 1,
             },
         );
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
@@ -494,7 +588,7 @@ mod tests {
                 })
             })
             .unwrap_or(0);
-        assert_eq!(rank, 10, "poison strength should decay 50% per round");
+        assert_eq!(rank, 10, "poison strength should decay 50% per Event");
     }
 
     /// Build a `VocationRegistry` with a single knight vocation (id=4) matching

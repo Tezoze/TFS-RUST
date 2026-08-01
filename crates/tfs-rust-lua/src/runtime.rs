@@ -1693,7 +1693,8 @@ end
 /// `Game` table methods — PC-3a Phase 6 + Gap 5 (`Game.getWorldType` / `createMonster`).
 /// C++ `luascript.cpp` `luaGameGetWorldType` / `luaGameCreateMonster`.
 fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
-    use crate::lua_mutation::call_create_monster;
+    use crate::lua_mutation::{call_clear_field, call_create_monster};
+    use crate::context::{CreatureRef, ItemRef};
     use crate::userdata::position::PositionRef;
     let game = lua.create_table()?;
     game.set(
@@ -1744,6 +1745,35 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                     Ok(None) => Ok(Value::Nil),
                     Err(e) => Err(mlua::Error::runtime(e)),
                 }
+            },
+        )?,
+    )?;
+    // 772 `ClearField` — shove creatures/items off a door tile before close.
+    game.set(
+        "clearField",
+        lua.create_function(
+            |_, (item, exclude): (Value, Option<Value>)| {
+                let item_id = match item {
+                    Value::UserData(ud) => ud.borrow::<ItemRef>()?.0,
+                    _ => {
+                        return Err(mlua::Error::runtime(
+                            "Game.clearField: item must be Item userdata",
+                        ));
+                    }
+                };
+                let exclude_cid = match exclude {
+                    None | Some(Value::Nil) => None,
+                    Some(Value::UserData(ud)) => {
+                        Some(ud.borrow::<CreatureRef>()?.0)
+                    }
+                    Some(_) => {
+                        return Err(mlua::Error::runtime(
+                            "Game.clearField: exclude must be Creature or nil",
+                        ));
+                    }
+                };
+                call_clear_field(item_id, exclude_cid).map_err(mlua::Error::runtime)?;
+                Ok(())
             },
         )?,
     )?;

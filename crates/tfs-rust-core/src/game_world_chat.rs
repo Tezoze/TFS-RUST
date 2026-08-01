@@ -1107,6 +1107,8 @@ impl GameWorld {
                         ticks: (mute_time * 1000) as i32,
                     },
                     timer_rounds_left: None,
+                    skill_count: 0,
+                    skill_max_count: 0,
                 });
             }
 
@@ -1527,7 +1529,7 @@ pub(crate) fn active_condition_from_apply_spec(
         None
     };
 
-    let (data, timer_rounds_left) = match ctype {
+    let (data, timer_rounds_left, skill_count, skill_max_count) = match ctype {
         ConditionType::Light => {
             // 772 `GetCreatureLight` (`info.cc:1238-1281`): skill-only light packs to
             // color 215 (`5*36+5*6+5`). Stock `light.lua` sets LEVEL but not COLOR
@@ -1539,13 +1541,20 @@ pub(crate) fn active_condition_from_apply_spec(
             } else {
                 spec.light_color.clamp(0, 255) as u8
             };
-            (ConditionData::Light { level, color }, rounds_from_ticks)
+            (
+                ConditionData::Light { level, color },
+                rounds_from_ticks,
+                0,
+                0,
+            )
         }
         ConditionType::Haste | ConditionType::Paralyze => (
             ConditionData::Speed {
                 flat_delta: spec.speed,
             },
             rounds_from_ticks,
+            0,
+            0,
         ),
         ConditionType::Outfit => (
             ConditionData::Outfit {
@@ -1553,27 +1562,54 @@ pub(crate) fn active_condition_from_apply_spec(
                 look_type_ex: 0,
             },
             rounds_from_ticks,
+            0,
+            0,
         ),
         ConditionType::Poison => {
+            // 772 `SetTimer(SKILL_POISON, Damage, 3, 3, -1)` — `crmain.cc:589`.
             let rank = if spec.cycle != 0 {
                 spec.cycle.abs()
             } else {
                 1
             };
-            (ConditionData::Damage { total_rank: rank }, None)
+            let interval = if spec.max_count > 0 {
+                spec.max_count
+            } else if spec.count > 0 {
+                spec.count
+            } else {
+                3
+            };
+            (
+                ConditionData::Damage { total_rank: rank },
+                Some(rank),
+                interval,
+                interval,
+            )
         }
         ConditionType::Fire | ConditionType::Energy => {
-            let rounds = if spec.count > 0 || spec.max_count > 0 {
-                Some(spec.count.max(spec.max_count).max(1))
+            // 772 `SetTimer(SKILL_BURNING, Damage/10, 8, 8)` / energy `…, 10, 10`
+            // (`crmain.cc:600,610`). `cycle` = Events remaining; `count`/`max_count` =
+            // ProcessSkills interval between Events (not total duration).
+            let default_interval = if ctype == ConditionType::Fire { 8 } else { 10 };
+            let interval = if spec.max_count > 0 {
+                spec.max_count
+            } else if spec.count > 0 {
+                spec.count
             } else {
-                rounds_from_ticks
+                default_interval
+            };
+            let cycle = if spec.cycle > 0 {
+                spec.cycle
+            } else {
+                rounds_from_ticks.unwrap_or(interval)
             };
             let rank = spec.cycle.abs();
-            if rank > 0 {
-                (ConditionData::Damage { total_rank: rank }, rounds)
+            let data = if rank > 0 {
+                ConditionData::Damage { total_rank: rank }
             } else {
-                (ConditionData::Generic { ticks: spec.ticks }, rounds)
-            }
+                ConditionData::Generic { ticks: spec.ticks }
+            };
+            (data, Some(cycle.max(1)), interval, interval)
         }
         ConditionType::Regeneration => (
             ConditionData::Regeneration {
@@ -1585,14 +1621,20 @@ pub(crate) fn active_condition_from_apply_spec(
                 mana_elapsed_ms: 0,
             },
             rounds_from_ticks,
+            0,
+            0,
         ),
         ConditionType::Invisible | ConditionType::ManaShield => (
             ConditionData::Generic { ticks: spec.ticks },
             rounds_from_ticks,
+            0,
+            0,
         ),
         _ => (
             ConditionData::Generic { ticks: spec.ticks },
             rounds_from_ticks,
+            0,
+            0,
         ),
     };
 
@@ -1602,6 +1644,8 @@ pub(crate) fn active_condition_from_apply_spec(
         ctype,
         data,
         timer_rounds_left,
+        skill_count,
+        skill_max_count,
     }
 }
 

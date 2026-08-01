@@ -53,6 +53,21 @@ pub struct DeferredTurnBroadcast {
     pub dir: Direction,
 }
 
+/// Queued `MoveEvents` StepOut/StepIn until after move packets.
+///
+/// C++ `Map::moveCreature` sends `sendCreatureMove` **then** `postRemoveNotification` /
+/// StepOut (`map.cpp` ~309–327). Firing StepOut earlier lets `closing_doors.lua`
+/// `item:transform` emit `0x6B` while the client still has the creature on that tile
+/// — stock 772 asserts / debugs.
+#[derive(Clone)]
+pub(crate) struct PendingCreatureStepEvent {
+    pub cid: CreatureId,
+    pub from: Position,
+    pub to: Position,
+    pub step_out_items: Vec<(ItemId, u16)>,
+    pub step_in_items: Vec<(ItemId, u16)>,
+}
+
 pub struct GameWorld {
     pub creatures: SlotMap<CreatureId, CreatureKind>,
     pub items: SlotMap<ItemId, Item>,
@@ -97,8 +112,14 @@ pub struct GameWorld {
     /// so spatial fan-out (`spectator_conns_via_grid`, audit #4) can resolve a creature's
     /// connection in O(1) instead of scanning all online players.
     pub creature_to_conn: HashMap<CreatureId, ConnId>,
+    /// 772 `CONNECTION_DEAD` — set on player death (`connections.cc` `TConnection::Die`).
+    /// Survives `remove_creature` so OK→`CL_CMD_LOGOUT` still finalizes the TCP session
+    /// after the body is gone. Cleared on disconnect.
+    pub dead_connections: HashSet<ConnId>,
     /// Game-thread only — see [`DeferredTurnBroadcast`].
     pub deferred_turn_broadcast: HashMap<CreatureId, DeferredTurnBroadcast>,
+    /// StepOut/StepIn deferred until after move packets — see [`PendingCreatureStepEvent`].
+    pub(crate) pending_creature_step_events: Vec<PendingCreatureStepEvent>,
     /// `ProtocolGame::knownCreatureSet` — must persist across `0x64` / move strips (`src/protocolgame.cpp`).
     pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
     /// Wire ids this conn received with a full `AddCreature` block (map `known=false` or `0x6A`).
@@ -353,7 +374,9 @@ impl GameWorld {
             mechanics,
             conn_to_creature: HashMap::new(),
             creature_to_conn: HashMap::new(),
+            dead_connections: HashSet::new(),
             deferred_turn_broadcast: HashMap::new(),
+            pending_creature_step_events: Vec::new(),
             known_creatures_by_conn: HashMap::new(),
             creature_fully_sent_by_conn: HashMap::new(),
             items_db,

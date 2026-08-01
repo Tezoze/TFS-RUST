@@ -2,6 +2,7 @@
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
 mod chase_debug;
+mod clear_field;
 pub mod chat;
 pub mod combat;
 pub mod condition;

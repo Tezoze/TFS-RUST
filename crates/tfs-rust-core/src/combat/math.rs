@@ -608,10 +608,12 @@ impl DotElement {
     }
 }
 
-/// DoT tick `(damage_per_tick, tick_count)` for `element` at combat `round` (B4.6).
+/// DoT Event `(damage, MaxCount interval)` for `element` at combat `round` (B4.6).
 ///
-/// Native default reads `profile.conditions` (fire 10/8, energy 25/10 — `crskill.cc:1064,1090`).
-/// Tier-2 `getConditionTick(type, round)` overrides and may vary by round (e.g. poison decay).
+/// Native default reads `profile.conditions` (fire dmg=10 MaxCount=8, energy 25/10 —
+/// `crskill.cc:1064,1090` / `crmain.cc:600,610`). `ticks` is the ProcessSkills gap between
+/// Events, not Cycle length.
+/// Tier-2 `getConditionTick(type, round)` overrides and may vary by round.
 pub fn condition_tick(
     profile: &MechanicsProfile,
     hooks: &FormulaHooks,

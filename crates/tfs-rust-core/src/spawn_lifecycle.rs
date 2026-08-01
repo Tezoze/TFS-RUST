@@ -881,7 +881,7 @@ impl GameWorld {
         }
         // Prefer teleport semantics for floor change / levitate (ignore walk path).
         if let Some(conn) = self.conn_for_creature(cid) {
-            let ret = internal_teleport_player(self, conn, cid, dest);
+            let ret = internal_teleport_player(self, conn, cid, dest, false);
             return Ok(ret == ReturnValue::NoError);
         }
         // Non-player: move on map directly.
@@ -891,39 +891,87 @@ impl GameWorld {
             .map(|k| k.position())
             .ok_or_else(|| "move: creature missing".to_string())?;
         self.move_creature_on_map(cid, old, dest);
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.set_position(dest);
-        }
+        self.flush_pending_creature_step_events();
         Ok(true)
     }
 
     /// `creature:teleportTo(pos[, pushMovement])`.
+    ///
+    /// C++ reference: `luascript.cpp` `luaCreatureTeleportTo` → `Game::internalTeleport`
+    /// (`game.cpp` ~1784) with `Map::moveCreature(..., !pushMovement)`. When
+    /// `push_movement` and destination is adjacent, clients get a walk animation
+    /// (doors.lua quest/level doors); otherwise the teleport blink path.
     pub fn lua_script_creature_teleport(
         &mut self,
         creature_u64: u64,
         x: u16,
         y: u16,
         z: u8,
-        _push_movement: bool,
+        push_movement: bool,
     ) -> Result<bool, String> {
         use crate::return_value::ReturnValue;
-        use crate::walk::internal_teleport_player;
+        use crate::walk::{
+            are_in_range_1_1_0, creature_turn_with_broadcast, internal_teleport_player,
+            set_direction_from_step_for_kick,
+        };
+        use tfs_rust_common::enums::Direction;
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "teleportTo: creature not found".to_string())?;
         let dest = Position { x, y, z };
-        if let Some(conn) = self.conn_for_creature(cid) {
-            let ret = internal_teleport_player(self, conn, cid, dest);
-            return Ok(ret == ReturnValue::NoError);
-        }
         let old = self
             .creatures
             .get(cid)
             .map(|k| k.position())
             .ok_or_else(|| "teleportTo: creature missing".to_string())?;
-        self.move_creature_on_map(cid, old, dest);
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.set_position(dest);
+        if old == dest {
+            return Ok(true);
+        }
+
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let ret = internal_teleport_player(self, conn, cid, dest, push_movement);
+            if ret != ReturnValue::NoError {
+                return Ok(false);
+            }
+        } else {
+            // Non-player: same forceTeleport = !pushMove rule as Map::moveCreature.
+            let has_ground = self
+                .map
+                .get_tile(dest)
+                .map(|t| t.body().ground.is_some())
+                .unwrap_or(false);
+            let teleport = !push_movement || !has_ground || !are_in_range_1_1_0(old, dest);
+            let old_creatures = self
+                .map
+                .get_tile(old)
+                .map(|t| t.body().creatures.clone())
+                .unwrap_or_default();
+            if !teleport {
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    set_direction_from_step_for_kick(old, dest, k);
+                }
+            }
+            self.move_creature_on_map(cid, old, dest);
+            if !teleport {
+                self.broadcast_spectator_move(cid, old, dest, &old_creatures);
+            }
+            self.flush_pending_creature_step_events();
+        }
+
+        // C++ `luaCreatureTeleportTo` post-move facing when pushMovement (`luascript.cpp` ~8220–8231).
+        if push_movement {
+            let dir = if old.x == dest.x {
+                if old.y < dest.y {
+                    Direction::South
+                } else {
+                    Direction::North
+                }
+            } else if old.x > dest.x {
+                Direction::West
+            } else {
+                Direction::East
+            };
+            creature_turn_with_broadcast(self, cid, dir);
         }
         Ok(true)
     }
@@ -1137,7 +1185,9 @@ impl GameWorld {
             .remove(&conn)
             .unwrap_or_default();
         let mut can_see = |id: u32| self.can_see_creature_for_known_set(viewer, id);
-        let (known_flag, remove_known) = check_creature_known(wire_id, &mut known, &mut can_see);
+        let limit = self.codec.caps().known_creature_limit as usize;
+        let (known_flag, remove_known) =
+            check_creature_known(wire_id, &mut known, &mut can_see, limit);
         let mut wire = build_add_creature_wire(self, cid, viewer);
         wire.known = known_flag;
         wire.remove_known = remove_known;
@@ -1208,10 +1258,16 @@ impl GameWorld {
         }
     }
 
-    /// C++ `Game::removeCreature` spectator strip (`game.cpp` ~577).
+    /// C++ `Game::removeCreature` spectator strip (`game.cpp` ~545–578).
+    ///
     /// Grid-based fan-out (audit #4): spatial collection via `spectator_conns_via_grid`
     /// (which applies `can_see_position`), then the per-creature `canSeeCreature` check
     /// for ghost/invisibility filtering — matching C++ `getSpectators` + `canSeeCreature`.
+    ///
+    /// **Includes the removed creature's own connection** when they are a player spectator
+    /// on that tile (TVP sends `sendRemoveTileCreature` to every spectator player, including
+    /// the dying/logging-out body). OTClient keeps the local player as a tile creature and
+    /// needs this `0x6C`/`remove-by-id` or the model stays after death.
     pub(crate) fn broadcast_creature_disappear(
         &mut self,
         cid: CreatureId,
@@ -1223,9 +1279,6 @@ impl GameWorld {
             .into_iter()
             .filter_map(|conn| {
                 let viewer = *self.conn_to_creature.get(&conn)?;
-                if viewer == cid {
-                    return None;
-                }
                 if self.can_see_creature(viewer, cid) {
                     Some((conn, viewer))
                 } else {
@@ -1248,9 +1301,8 @@ impl GameWorld {
                 .get_tile(pos)
                 .map(|t| client_creature_stack_pos(t.body(), cid))
                 .unwrap_or(-1);
-            if !matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
-                self.broadcast_creature_disappear(cid, pos, stack_raw);
-            }
+            // Players included — skipping left ghosts on death/logout (spectators + OTClient self).
+            self.broadcast_creature_disappear(cid, pos, stack_raw);
         }
         if let Some(slot_index) = self.spawn_slot_by_creature.remove(&cid) {
             let regen_ms = self
@@ -1602,6 +1654,80 @@ mod tests {
 
         let packets = world.pending_outgoing.get(&conn);
         assert!(packets.is_some_and(|p| p.iter().any(|b| !b.is_empty() && b[0] == 0x6C)));
+        let _ = viewer;
+    }
+
+    /// Player remove must emit `0x6C` to spectators **and** the dying player's own conn
+    /// (TVP `Game::removeCreature`; OTClient keeps local player as a tile creature).
+    #[test]
+    fn player_death_broadcasts_remove_including_self() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let conn = ConnId(1);
+        let victim = insert_spectator_player(&mut world, conn, test_player("Victim", pos));
+        world.known_creatures_by_conn.insert(conn, HashSet::new());
+
+        // Spec watches the death.
+        let spec_conn = ConnId(2);
+        let _spec = insert_spectator_player(
+            &mut world,
+            spec_conn,
+            test_player("Spec", Position::new(101, 100, 7)),
+        );
+        world
+            .known_creatures_by_conn
+            .insert(spec_conn, HashSet::new());
+
+        // Lethal HP → full death path (message + CONNECTION_DEAD + remove).
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(victim) {
+            p.base.health = 0;
+        }
+        world.apply_creature_death(victim);
+
+        assert!(
+            world.dead_connections.contains(&conn),
+            "772 Connection::Die must mark the session dead"
+        );
+        assert!(
+            world.conn_to_creature.get(&conn).is_none(),
+            "dead session must drop ConnId↔CreatureId mapping"
+        );
+        assert!(world.creatures.get(victim).is_none());
+
+        let self_pkts = world.pending_outgoing.get(&conn).cloned().unwrap_or_default();
+        assert!(
+            self_pkts.iter().any(|b| !b.is_empty() && b[0] == 0x6C),
+            "dying player must receive self remove (OTClient tile creature)"
+        );
+        // MESSAGE_EVENT_ADVANCE / TALK_EVENT_MESSAGE = 0xB4 then type 0x13
+        assert!(
+            self_pkts.iter().any(|b| {
+                b.len() >= 3 && b[0] == 0xB4 && b[1] == 0x13 && {
+                    let text = String::from_utf8_lossy(&b[4..]);
+                    text.contains("You are dead.")
+                }
+            }),
+            "must send 'You are dead.\\n' event message, got {self_pkts:?}"
+        );
+
+        let spec_pkts = world
+            .pending_outgoing
+            .get(&spec_conn)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            spec_pkts.iter().any(|b| !b.is_empty() && b[0] == 0x6C),
+            "spectators must see the player model removed"
+        );
+    }
+
+    #[test]
+    fn dead_connection_allows_logout() {
+        let mut world = beat_driven_test_world();
+        let conn = ConnId(7);
+        world.dead_connections.insert(conn);
+        assert!(world.player_logout_allowed(conn, CreatureId::default(), false));
     }
 
     // --- Phase 6: 772 respawn timing (Finding 18, `crnonpl.cc:1296` StartMonsterhomeTimer) ---

@@ -269,11 +269,17 @@ pub(crate) fn player_can_stand_at(world: &GameWorld, cid: CreatureId, pos: Posit
 }
 
 /// TFS `Game::internalTeleport` for players — `game.cpp` ~1784–1804.
+///
+/// `push_movement` maps to `Map::moveCreature(..., forceTeleport = !pushMove)` (`map.cpp` ~255–262).
+/// Adjacent push shows a walk animation; otherwise (or when `push_movement` is false) the
+/// client gets the teleport remove + map-description blink. Domain: `creature:teleportTo`
+/// (`luascript.cpp` `luaCreatureTeleportTo`) — doors.lua quest/level doors use `true`.
 pub(crate) fn internal_teleport_player(
     world: &mut GameWorld,
     conn_id: ConnId,
     cid: CreatureId,
     new_pos: Position,
+    push_movement: bool,
 ) -> ReturnValue {
     let old_pos = match world.creatures.get(cid) {
         Some(k) => k.position(),
@@ -295,13 +301,45 @@ pub(crate) fn internal_teleport_player(
         .map(|t| self_move_stack_pos(world, cid, t.body()))
         .filter(|s| *s >= 0)
         .unwrap_or(1);
+    let old_creatures = world
+        .map
+        .get_tile(old_pos)
+        .map(|t| t.body().creatures.clone())
+        .unwrap_or_default();
 
-    world.move_creature_on_map(cid, old_pos, new_pos);
-    if let Some(k) = world.creatures.get_mut(cid) {
-        k.set_position(new_pos);
+    // C++ `Map::moveCreature`: `teleport = forceTeleport || !ground || !areInRange<1,1,0>`.
+    let has_ground = to_tile.body().ground.is_some();
+    let teleport = !push_movement || !has_ground || !are_in_range_1_1_0(old_pos, new_pos);
+
+    if !teleport {
+        if let Some(k) = world.creatures.get_mut(cid) {
+            set_direction_from_step(old_pos, new_pos, k);
+        }
     }
 
-    world.emit_teleport_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
+    world.move_creature_on_map(cid, old_pos, new_pos);
+
+    if teleport {
+        world.emit_teleport_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
+    } else {
+        // Walk animation path — same self-packet routing as `on_walk`.
+        let is_772 = !world.codec.caps().move_creature_self_packet;
+        let is_otclient = world
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
+        if is_772 && !is_otclient {
+            world.emit_notify_go(cid, conn_id, old_pos, new_pos, old_stack);
+        } else {
+            world.emit_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
+        }
+        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
+        let step_dir = direction_from_positions(old_pos, new_pos);
+        world.apply_notify_go_after_relocate(cid, old_pos, new_pos, step_dir, false);
+        world.reschedule_wakeup_for_earliest_walk(cid);
+    }
+    // C++ `Map::moveCreature`: StepOut/StepIn after sendCreatureMove (`map.cpp` ~326–327).
+    world.flush_pending_creature_step_events();
     ReturnValue::NoError
 }
 
@@ -1835,6 +1873,10 @@ impl GameWorld {
                             internal_creature_turn_broadcast_only(self, pt.cid, pt.dir);
                         }
 
+                        // C++ `Map::moveCreature`: postRemove/postAdd (StepOut/StepIn) after
+                        // sendCreatureMove — door auto-close transform must not precede NotifyGo.
+                        self.flush_pending_creature_step_events();
+
                         // Player-only walk debug — before NotifyGo mutates `earliest_walk_server_ms`.
                         // Matches decompile `NotifyGo` (`cract.cc:1518-1534`) + `GetSpeed` (`crmain.cc:477`).
                         if self
@@ -2311,21 +2353,40 @@ impl GameWorld {
         }
         let step_in_items = self.tile_move_event_items(to);
 
-        // C++ `getLastPosition()` for executeStep — use the tile we left.
-        let last_pos = from;
-        for (item_id, item_type) in step_out_items {
-            let _ = self
-                .events
-                .on_step_out(Some(cid), item_id, item_type, from, last_pos);
-        }
-        for (item_id, item_type) in step_in_items {
-            let _ = self
-                .events
-                .on_step_in(Some(cid), item_id, item_type, to, last_pos);
-        }
+        // Defer StepOut/StepIn until after move packets — C++ `Map::moveCreature`
+        // (`map.cpp` ~309–327): sendCreatureMove, then postRemove/postAdd → scripts.
+        // Immediate fire lets closing_doors transform emit 0x6B before NotifyGo and
+        // crash stock 772.
+        self.pending_creature_step_events
+            .push(crate::game_world::PendingCreatureStepEvent {
+                cid,
+                from,
+                to,
+                step_out_items,
+                step_in_items,
+            });
 
         self.monster_dispatch_creature_move(cid, from, to);
         self.npc_dispatch_creature_move(cid, from, to, false);
+    }
+
+    /// Fire deferred StepOut/StepIn after move packets (C++ postRemove/postAdd order).
+    ///
+    /// Loops until empty so a StepOut script that relocates another creature still flushes.
+    pub(crate) fn flush_pending_creature_step_events(&mut self) {
+        while !self.pending_creature_step_events.is_empty() {
+            let pending = std::mem::take(&mut self.pending_creature_step_events);
+            for ev in pending {
+                crate::lua_scope::fire_creature_step_events(
+                    self,
+                    ev.cid,
+                    ev.from,
+                    ev.to,
+                    &ev.step_out_items,
+                    &ev.step_in_items,
+                );
+            }
+        }
     }
 
     /// Item ids + types on a tile for `MoveEvents::onCreatureMove` item iteration.
@@ -2814,6 +2875,7 @@ mod monster_walk_tests {
 
         // Simulate a kick: relocate the monster South to (101,101).
         world.move_creature_on_map(monster, start, kicked);
+        world.flush_pending_creature_step_events();
 
         // Trigger the walk — the adjacency check passes (Chebyshev((101,101),(102,100))=1).
         world.on_walk(monster, false, std::time::Instant::now(), None);
@@ -2850,6 +2912,7 @@ mod monster_walk_tests {
 
         // Kick the creature to exactly its destination.
         world.move_creature_on_map(monster, start, dest);
+        world.flush_pending_creature_step_events();
 
         world.on_walk(monster, false, std::time::Instant::now(), None);
 

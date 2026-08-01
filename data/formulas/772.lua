@@ -47,6 +47,8 @@ formulas = {
     offensiveDef = 0.60, defensiveDef = 1.80,
   },
 
+  -- ticks = TSkill MaxCount (ProcessSkills between Events), not total duration.
+  -- Cycle (Events remaining) comes from Damage/10 or items.xml field.cycles.
   conditions = {
     fire   = { dmg = 10, ticks = 8 },
     energy = { dmg = 25, ticks = 10 },

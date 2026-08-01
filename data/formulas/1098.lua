@@ -48,6 +48,7 @@ formulas = {
     offensiveDef = 0.80, defensiveDef = 1.20,
   },
 
+  -- ticks = TSkill MaxCount (ProcessSkills between Events), not total duration.
   conditions = {
     fire   = { dmg = 10, ticks = 8 },
     energy = { dmg = 25, ticks = 10 },

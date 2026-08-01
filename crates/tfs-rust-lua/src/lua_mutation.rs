@@ -234,6 +234,12 @@ pub enum LuaMutation {
     /// `setWorldLight(level, color)` — TFS `LuaScriptInterface::luaSetWorldLight`.
     /// C++ ref: `gameserver/src/luascript.cpp:3132-3145`.
     SetWorldLight { level: u8, color: u8 },
+    /// 772 `ClearField` before door close — shove stack mates off the door tile.
+    /// `exclude_item_id` is the door (not moved); optional creature exclude for SeparationEvent.
+    ClearField {
+        exclude_item_id: u64,
+        exclude_creature_id: Option<u64>,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -763,4 +769,15 @@ pub fn call_lua_set_storage_value(creature_id: u64, key: u32, value: i32) -> Res
 pub fn call_lua_set_world_light(level: u8, color: u8) -> Result<bool, String> {
     apply_mutation(LuaMutation::SetWorldLight { level, color })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.clearField(item[, excludeCreature])` — 772 `ClearField` (`moveuse.cc:569`).
+pub fn call_clear_field(
+    exclude_item_id: u64,
+    exclude_creature_id: Option<u64>,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::ClearField {
+        exclude_item_id,
+        exclude_creature_id,
+    })
 }

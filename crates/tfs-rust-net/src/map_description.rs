@@ -87,7 +87,9 @@ fn emit_creatures_capped<F: FnMut(u32) -> bool>(
             return;
         }
         let id = c.id;
-        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
+        let limit = codec.caps().known_creature_limit as usize;
+        let (known, remove) =
+            check_creature_known(id, known_creatures, can_see_creature, limit);
         let mut cw = c.clone();
         cw.known = known;
         cw.remove_known = remove;
@@ -109,7 +111,9 @@ fn count_creatures_capped<F: FnMut(u32) -> bool>(
             return;
         }
         let id = c.id;
-        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature);
+        let limit = codec.caps().known_creature_limit as usize;
+        let (known, remove) =
+            check_creature_known(id, known_creatures, can_see_creature, limit);
         let mut cw = c.clone();
         cw.known = known;
         cw.remove_known = remove;

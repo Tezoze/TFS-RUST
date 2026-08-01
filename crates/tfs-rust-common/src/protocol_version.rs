@@ -65,6 +65,9 @@ pub struct ProtocolCaps {
     /// (`protocolgame.cpp:2827-2870`) emits the leading self-packet. `false` for 772,
     /// `true` for 1098. See `docs/772_FLOOR_CHANGE_DESYNC.md` Phase 1/2.
     pub move_creature_self_packet: bool,
+    /// Max entries in `knownCreatureSet` before `checkCreatureAsKnown` emits `remove_known`.
+    /// 772: 150 (`KnownCreatureTable[150]` / TVP `size() > 150`). 1098: 1300 (TFS).
+    pub known_creature_limit: u16,
     pub self_appear_opcode: u8,
     pub initial_buffer_position: u8,
     pub xtea_length_slack: u8,
@@ -89,6 +92,7 @@ impl ProtocolCaps {
                 skills_u16: false,
                 icons_u16: false,
                 move_creature_self_packet: false,
+                known_creature_limit: 150,
                 self_appear_opcode: 0x0A,
                 initial_buffer_position: 4,
                 xtea_length_slack: 4,
@@ -109,6 +113,7 @@ impl ProtocolCaps {
                 skills_u16: true,
                 icons_u16: true,
                 move_creature_self_packet: true,
+                known_creature_limit: 1300,
                 self_appear_opcode: 0x17,
                 initial_buffer_position: 8,
                 xtea_length_slack: 6,
@@ -151,5 +156,11 @@ mod tests {
     #[test]
     fn unsupported_version_rejected() {
         assert!(ProtocolVersion::try_from(860).is_err());
+    }
+
+    #[test]
+    fn known_creature_limit_is_era_tuned() {
+        assert_eq!(ProtocolVersion::V772.caps().known_creature_limit, 150);
+        assert_eq!(ProtocolVersion::V1098.caps().known_creature_limit, 1300);
     }
 }

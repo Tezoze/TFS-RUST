@@ -199,6 +199,8 @@ impl GameWorld {
             ctype: tfs_rust_common::enums::ConditionType::Infight,
             data: crate::condition::ConditionData::Generic { ticks: ticks_ms },
             timer_rounds_left: Some(remaining_i32),
+        skill_count: 0,
+        skill_max_count: 0,
         };
         crate::combat::apply_condition(&mut self.creatures, cid, cond);
         self.on_condition_started(cid, tfs_rust_common::enums::ConditionType::Infight);

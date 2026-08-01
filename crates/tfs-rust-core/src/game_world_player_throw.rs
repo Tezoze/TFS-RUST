@@ -177,6 +177,7 @@ impl GameWorld {
 
         // 772 `MoveObject`.
         self.move_creature_on_map(moving_creature, from_pos, to_pos);
+        self.flush_pending_creature_step_events();
 
         // 772 `NotifyGo` after `MoveObject`.
         self.apply_notify_go_after_relocate(moving_creature, from_pos, to_pos, kick_dir, false);

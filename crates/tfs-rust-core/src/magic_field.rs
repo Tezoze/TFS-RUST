@@ -101,25 +101,40 @@ impl GameWorld {
             .unwrap_or(0)
             .abs();
 
-        let (ctype, combat, timer_rounds, poison_rank) = match field_kind {
-            FieldDamageType::Fire => {
-                let ticks = self.mechanics.profile.conditions.fire.ticks;
-                (ConditionType::Fire, CombatType::Fire, Some(ticks.max(1)), 0)
-            }
-            FieldDamageType::Energy => {
-                let ticks = self.mechanics.profile.conditions.energy.ticks;
-                (
-                    ConditionType::Energy,
-                    CombatType::Energy,
-                    Some(ticks.max(1)),
-                    0,
-                )
-            }
-            FieldDamageType::Poison => {
-                let rank = if cycles > 0 { cycles } else { 1 };
-                (ConditionType::Poison, CombatType::Earth, None, rank)
-            }
-        };
+        let (ctype, combat, timer_rounds, poison_rank, skill_count, skill_max_count) =
+            match field_kind {
+                FieldDamageType::Fire => {
+                    // 772 `SetTimer(SKILL_BURNING, Damage/10, 8, 8)` — `crmain.cc:600`.
+                    // XML `field.cycles` ≈ Cycle (Events); profile `ticks` = MaxCount interval.
+                    let interval = self.mechanics.profile.conditions.fire.ticks.max(1);
+                    let cycle = if cycles > 0 { cycles } else { interval };
+                    (
+                        ConditionType::Fire,
+                        CombatType::Fire,
+                        Some(cycle),
+                        0,
+                        interval,
+                        interval,
+                    )
+                }
+                FieldDamageType::Energy => {
+                    let interval = self.mechanics.profile.conditions.energy.ticks.max(1);
+                    let cycle = if cycles > 0 { cycles } else { interval };
+                    (
+                        ConditionType::Energy,
+                        CombatType::Energy,
+                        Some(cycle),
+                        0,
+                        interval,
+                        interval,
+                    )
+                }
+                FieldDamageType::Poison => {
+                    let rank = if cycles > 0 { cycles } else { 1 };
+                    // 772 `SetTimer(SKILL_POISON, Damage, 3, 3, -1)` — `crmain.cc:589`.
+                    (ConditionType::Poison, CombatType::Earth, None, rank, 3, 3)
+                }
+            };
 
         if init_damage > 0 {
             let snap = self.combat_notify_snapshot(target);
@@ -155,7 +170,8 @@ impl GameWorld {
             },
             _ => ConditionData::Generic { ticks: 0 },
         };
-        let cond = ActiveCondition::new(0, 0, ctype, data, timer_rounds);
+        let cond = ActiveCondition::new(0, 0, ctype, data, timer_rounds)
+            .with_skill_timer(skill_count, skill_max_count);
         apply_condition(&mut self.creatures, target, cond);
         self.on_condition_started(target, ctype);
     }

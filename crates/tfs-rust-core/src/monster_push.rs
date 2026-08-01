@@ -493,6 +493,7 @@ impl GameWorld {
             }
             self.broadcast_spectator_move(blocker, blocker_pos, try_pos, &old_creatures);
             self.move_creature_on_map(blocker, blocker_pos, try_pos);
+            self.flush_pending_creature_step_events();
             // C++ `KickCreature` → `::Move` relocates the creature but does NOT clear its
             // ToDoList (`operate.cc:1403-1446`). The displacement is detected on the next
             // `Execute` when `Go(oldDestX, oldDestY, oldDestZ)` checks `Distance > 1`

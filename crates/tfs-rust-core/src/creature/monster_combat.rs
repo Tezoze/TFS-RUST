@@ -503,6 +503,8 @@ pub fn melee_poison_on_hit(
             total_rank: poison_dmg,
         },
         timer_rounds_left: None,
+    skill_count: 0,
+    skill_max_count: 0,
     })
 }
 

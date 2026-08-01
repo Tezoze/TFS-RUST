@@ -1507,6 +1507,8 @@ fn npc_immune_to_combat_damage_and_conditions() {
             ctype: ConditionType::Poison,
             data: ConditionData::Damage { total_rank: 40 },
             timer_rounds_left: None,
+        skill_count: 0,
+        skill_max_count: 0,
         },
     );
     assert!(

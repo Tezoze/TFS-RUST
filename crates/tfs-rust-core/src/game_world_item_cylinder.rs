@@ -632,6 +632,51 @@ impl GameWorld {
         Ok(item_id)
     }
 
+    /// Detach `item_id` from the tile without destroying the SlotMap entry (cylinder moves).
+    ///
+    /// Resets tile flags while the item is still on the tile — TFS `Tile::removeThing` →
+    /// `resetTileFlags` (`tile.cpp:1537-1596`). Call sites that previously used only
+    /// `remove_item_by_id` left stale `BLOCKSOLID` / path flags (e.g. after moving a table).
+    pub(crate) fn detach_item_from_tile(
+        &mut self,
+        pos: Position,
+        item_id: ItemId,
+    ) -> Result<(), ReturnValue> {
+        let item_type = self
+            .items
+            .get(item_id)
+            .map(|i| i.item_type)
+            .ok_or(ReturnValue::NotPossible)?;
+        let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
+        if let Some(old_it) = self.items_db.items.get(&item_type).cloned() {
+            if let Some(tile) = self.map.get_tile(pos) {
+                let rem = crate::map::tile_remaining_props(
+                    tile.body(),
+                    &self.items,
+                    &self.items_db,
+                    item_id,
+                );
+                if let Some(tile) = self.map.get_tile_mut(pos) {
+                    crate::map::reset_item_tile_flags(
+                        tile.body_mut(),
+                        &old_it,
+                        &rem,
+                        &self.items_db,
+                    );
+                }
+            }
+        }
+        let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
+        if tile.remove_item_by_id(item_id).is_none() {
+            return Err(ReturnValue::NotPossible);
+        }
+        self.broadcast_tile_item_remove(pos, tvp_stack, cip_stack);
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = None;
+        }
+        Ok(())
+    }
+
     /// Remove an item (or count of a stackable) from a tile.
     // C++ ref: src/game.cpp:1376 Game::internalRemoveItem
     pub fn internal_remove_item_from_tile(
@@ -657,44 +702,97 @@ impl GameWorld {
             let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
             self.broadcast_tile_item_update(pos, item_id, tvp_stack, cip_stack);
         } else {
-            // Full removal — reset tile flags while the item is still on the tile
-            // (TFS `Tile::removeThing` → `resetTileFlags`).
-            let item_type = self
-                .items
-                .get(item_id)
-                .map(|i| i.item_type)
-                .unwrap_or(0);
-            let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
-            if let Some(old_it) = self.items_db.items.get(&item_type).cloned() {
-                if let Some(tile) = self.map.get_tile(pos) {
-                    let rem = crate::map::tile_remaining_props(
-                        tile.body(),
-                        &self.items,
-                        &self.items_db,
-                        item_id,
-                    );
-                    if let Some(tile) = self.map.get_tile_mut(pos) {
-                        crate::map::reset_item_tile_flags(
-                            tile.body_mut(),
-                            &old_it,
-                            &rem,
-                            &self.items_db,
-                        );
-                    }
-                }
-            }
-            let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
-            if tile.remove_item_by_id(item_id).is_none() {
-                return Err(ReturnValue::NotPossible);
-            }
-            self.broadcast_tile_item_remove(pos, tvp_stack, cip_stack);
-            // Remove from SlotMap
+            self.detach_item_from_tile(pos, item_id)?;
             self.cancel_item_decay(item_id);
-            if let Some(item) = self.items.get_mut(item_id) {
-                item.parent = None;
-            }
             self.items.remove(item_id);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod detach_tile_flag_tests {
+    use super::*;
+    use crate::cylinder::{Cylinder, CylinderFlags};
+    use crate::item::Item;
+    use crate::sim_harness::minimal_world;
+    use crate::tile::{flags, Tile};
+    use tfs_rust_common::Position;
+    use tfs_rust_content::otb::ItemType;
+
+    fn register_type(world: &mut GameWorld, item_type_id: u16, mut it: ItemType) {
+        it.id = item_type_id;
+        it.server_id = item_type_id;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(item_type_id, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+    }
+
+    /// Tile→Tile move must clear source `BLOCKSOLID` (tables / furniture).
+    /// Regression: move used `remove_item_by_id` without `resetTileFlags`.
+    #[test]
+    fn tile_to_tile_move_clears_source_blocksolid() {
+        let mut world = minimal_world();
+        const TABLE: u16 = 9201;
+        let mut table = ItemType::default();
+        table.block_solid_override = Some(true);
+        table.moveable_override = Some(true);
+        register_type(&mut world, TABLE, table);
+
+        let from = Position::new(60, 60, 7);
+        let to = Position::new(61, 60, 7);
+        for pos in [from, to] {
+            world.map.insert_tile(pos, Tile::empty_normal());
+            if let Some(tile) = world.map.get_tile_mut(pos) {
+                tile.body_mut().ground = Some(100);
+            }
+        }
+
+        let iid = world.items.insert(Item::new_single(TABLE));
+        world
+            .internal_add_item_to_tile(from, iid, CylinderFlags::NO_LIMIT)
+            .expect("place table");
+        assert_ne!(
+            world.map.get_tile(from).unwrap().body().flags & flags::BLOCKSOLID,
+            0,
+            "table sets BLOCKSOLID on source"
+        );
+
+        world
+            .internal_move_item(
+                None,
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: to },
+                iid,
+                1,
+                CylinderFlags::NO_LIMIT,
+                None,
+            )
+            .expect("move table");
+
+        assert_eq!(
+            world.map.get_tile(from).unwrap().body().flags & flags::BLOCKSOLID,
+            0,
+            "source tile must be walkable after table leaves"
+        );
+        assert_ne!(
+            world.map.get_tile(to).unwrap().body().flags & flags::BLOCKSOLID,
+            0,
+            "dest tile must take BLOCKSOLID from the table"
+        );
+        assert!(
+            world
+                .map
+                .get_tile(from)
+                .unwrap()
+                .body()
+                .down_items
+                .is_empty(),
+            "table gone from source"
+        );
     }
 }

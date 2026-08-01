@@ -55,45 +55,18 @@ function door.onUse(player, item, fromPosition, target, toPosition)
 		elseif table.contains(closedDoors, target.itemid) then
 			transformTo = target.itemid - 1
 		end
+		-- Closing to UNPASS: ClearField first (772 UseKeyDoor).
+		if table.contains(openDoors, target.itemid) then
+			Game.clearField(target)
+		end
 		target:transform(transformTo)
 		return true
 	elseif table.contains(lockedDoors, itemId) then
 		player:sendTextMessage(MESSAGE_INFO_DESCR, "It is locked.")
 		return true	
 	elseif table.contains(openDoors, itemId) or table.contains(openExtraDoors, itemId) or table.contains(openHouseDoors, itemId) then
-		local tile = Tile(toPosition)
-		local doorCreatures = tile:getCreatures()
-		if doorCreatures and #doorCreatures > 0 then
-			local leftOffset = Position(-1, 0, 0)
-			local rightOffset = Position(1, 0, 0)
-			local southOffset = Position(0, 1, 0)
-			local northOffset = Position(0, -1, 0)
-
-			local movePos = Position(0, 0, 0)
-			if not Tile(item:getPosition() + rightOffset):hasFlag(TILESTATE_BLOCKSOLID) then
-				movePos = tile:getPosition() + rightOffset
-			elseif not Tile(item:getPosition() + southOffset):hasFlag(TILESTATE_BLOCKSOLID) then
-				movePos = tile:getPosition() + southOffset
-			elseif not Tile(item:getPosition() + leftOffset):hasFlag(TILESTATE_BLOCKSOLID) then
-				movePos = tile:getPosition() + leftOffset
-			elseif not Tile(item:getPosition() + northOffset):hasFlag(TILESTATE_BLOCKSOLID) then
-				movePos = tile:getPosition() + northOffset
-			end
-
-			if movePos.x ~= 0 then
-				for _, doorCreature in pairs(doorCreatures) do
-					doorCreature:teleportTo(movePos, true)
-				end
-
-				tile = Tile(movePos)
-			end
-		end
-		
-		local magicField = tile:getItemByType(ITEM_TYPE_MAGICFIELD)
-		if magicField then
-			magicField:remove()
-		end
-
+		-- 772 UseChangeObject → ClearField then Change (`moveuse.cc:2180-2207`).
+		Game.clearField(item)
 		item:transform(itemId - 1)
 		return true	
 	elseif table.contains(closedDoors, itemId) or table.contains(closedExtraDoors, itemId) or table.contains(closedHouseDoors, itemId) then

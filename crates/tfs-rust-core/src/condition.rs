@@ -61,8 +61,13 @@ pub struct ActiveCondition {
     pub sub_id: u32,
     pub ctype: ConditionType,
     pub data: ConditionData,
-    /// 772 `ProcessSkills` rounds remaining — fire/energy/haste expiry (`crskill.cc:179`).
+    /// 772 `TSkill::Cycle` — DoT Events remaining (`crskill.cc:179-196`).
     pub timer_rounds_left: Option<i32>,
+    /// 772 `TSkill::Count` — `ProcessSkills` countdown to next Event (`crskill.cc:186-193`).
+    /// `0` with [`Self::skill_max_count`] `0` means “not initialized” (filled on first tick).
+    pub skill_count: i32,
+    /// 772 `TSkill::MaxCount` — Event interval in ProcessSkills rounds (fire=8, energy=10, poison=3).
+    pub skill_max_count: i32,
 }
 
 impl ActiveCondition {
@@ -80,7 +85,16 @@ impl ActiveCondition {
             ctype,
             data,
             timer_rounds_left,
+            skill_count: 0,
+            skill_max_count: 0,
         }
+    }
+
+    /// 772 `SetTimer(skill, Cycle, Count, MaxCount, …)` — `crmain.cc:589-610`.
+    pub fn with_skill_timer(mut self, count: i32, max_count: i32) -> Self {
+        self.skill_count = count.max(0);
+        self.skill_max_count = max_count.max(0);
+        self
     }
 }
 
@@ -141,17 +155,22 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
     if incoming.timer_rounds_left.is_some() {
         existing.timer_rounds_left = incoming.timer_rounds_left;
     }
+    // Refresh 772 Count/MaxCount when re-applying a DoT (field re-entry / stronger burn).
+    if incoming.skill_max_count > 0 {
+        existing.skill_count = incoming.skill_count;
+        existing.skill_max_count = incoming.skill_max_count;
+    }
 }
 
 /// Per-tick DoT damage for an elemental field condition (B4.6), profile-driven.
 ///
-/// Maps a fire/energy [`ConditionType`] to its `(damage_per_tick, tick_count)` from the active
-/// [`MechanicsProfile`] (or a Tier-2 `getConditionTick` override). Returns `None` for condition
-/// types without a profiled DoT spec (poison decays differently; haste/paralyze are speed, not DoT).
-/// This is the seam Phase G ticking will call once `ConditionDamage` ticks are implemented.
+/// Maps a fire/energy [`ConditionType`] to its `(Event damage, MaxCount interval)` from the
+/// active [`MechanicsProfile`] (or a Tier-2 `getConditionTick` override). Returns `None` for
+/// condition types without a profiled DoT spec (poison decays differently; haste/paralyze are
+/// speed, not DoT).
 ///
-/// C++ reference: 772 `TSkillBurning::Event` (10/8) / `TSkillEnergy::Event` (25/10)
-/// (`tibia-game-master/src/crskill.cc:1064,1090`); TFS `ConditionDamage` (`condition.cpp:1330`).
+/// C++ reference: 772 `TSkillBurning::Event` / `TSkill::Process` MaxCount
+/// (`tibia-game-master/src/crskill.cc:179-196,1064,1090`); TFS `ConditionDamage` domain.
 pub fn dot_tick_for_condition(
     profile: &crate::formulas::MechanicsProfile,
     hooks: &crate::formulas::FormulaHooks,
@@ -179,6 +198,8 @@ mod tests {
             ctype: ConditionType::Pz,
             data: ConditionData::Generic { ticks: 100 },
             timer_rounds_left: None,
+            skill_count: 0,
+            skill_max_count: 0,
         }];
         let again = ActiveCondition {
             id: 2,
@@ -186,6 +207,8 @@ mod tests {
             ctype: ConditionType::Pz,
             data: ConditionData::Generic { ticks: 100 },
             timer_rounds_left: None,
+            skill_count: 0,
+            skill_max_count: 0,
         };
         add_condition_merge(&mut v, again.clone());
         let one = v.clone();

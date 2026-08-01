@@ -242,6 +242,8 @@ impl PartialCond {
             ctype: self.ctype,
             data,
             timer_rounds_left: rounds,
+        skill_count: 0,
+        skill_max_count: 0,
         })
     }
 }
@@ -475,6 +477,8 @@ mod tests {
                 ctype: ConditionType::ManaShield,
                 data: ConditionData::Generic { ticks: 200_000 },
                 timer_rounds_left: Some(200),
+            skill_count: 0,
+            skill_max_count: 0,
             },
             ActiveCondition {
                 id: 0,
@@ -482,6 +486,8 @@ mod tests {
                 ctype: ConditionType::Haste,
                 data: ConditionData::Speed { flat_delta: 60 },
                 timer_rounds_left: Some(30),
+            skill_count: 0,
+            skill_max_count: 0,
             },
             ActiveCondition {
                 id: 0,
@@ -489,6 +495,8 @@ mod tests {
                 ctype: ConditionType::Invisible,
                 data: ConditionData::Generic { ticks: 200_000 },
                 timer_rounds_left: Some(200),
+            skill_count: 0,
+            skill_max_count: 0,
             },
         ];
         let blob = serialize_conditions(&conds);
@@ -515,6 +523,8 @@ mod tests {
             ctype: ConditionType::ManaShield,
             data: ConditionData::Generic { ticks: 0 },
             timer_rounds_left: Some(0),
+        skill_count: 0,
+        skill_max_count: 0,
         }];
         assert!(serialize_conditions(&conds).is_empty());
     }

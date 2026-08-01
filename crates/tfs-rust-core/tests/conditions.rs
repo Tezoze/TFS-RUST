@@ -17,6 +17,8 @@ proptest! {
             ctype: ConditionType::Drunk,
             data: ConditionData::Generic { ticks },
             timer_rounds_left: None,
+            skill_count: 0,
+            skill_max_count: 0,
         };
         let mut list = Vec::new();
         add_condition_merge(&mut list, incoming.clone());

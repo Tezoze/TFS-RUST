@@ -1,3 +1,38 @@
+# Player death 772 client glitch — 2026-08-01
+
+- [x] Broadcast creature remove for players (incl. self) on death/logout remove
+- [x] Native `"You are dead.\n"` + `dead_connections` (CONNECTION_DEAD)
+- [x] OK→Logout closes TCP; gate non-logout packets while dead
+- [x] Save player on death before body teardown
+- [x] Unit tests + lesson 290
+
+# Door ClearField parity (772) — 2026-08-01
+
+- [x] Native `clear_field` (E/S/W/N, BANK&&!UNPASS, JumpPossible, MoveAllObjects)
+- [x] `Game.clearField(item[, creature])` Lua mutation
+- [x] `doors.lua` / `closing_doors.lua` use ClearField before transform
+- [x] Unit tests + lesson 289
+
+# Tile→Tile move resets source tile flags — 2026-08-01
+
+- [x] `detach_item_from_tile` (resetTileFlags + remove, keep SlotMap)
+- [x] Use in all Tile→* full-move arms; `internal_remove` shares it
+- [x] Regression test + lesson 288
+
+# Burning DoT MaxCount interval (772) — 2026-08-01
+
+- [x] `ActiveCondition.skill_count` / `skill_max_count` (772 Count/MaxCount)
+- [x] `process_skills` Event only when Count≤0; countdown otherwise
+- [x] magic_field + Lua apply set Cycle vs MaxCount correctly
+- [x] TickSpec/772.lua docs; tests; lesson 287
+
+# Quest door pushMovement + StepOut close — 2026-08-01
+
+- [x] Honor `teleportTo(..., true)` → walk anim (`internal_teleport_player` push_movement)
+- [x] Wrap StepIn/StepOut in mutation + ScriptContext (`fire_creature_step_events`)
+- [x] Defer StepOut until after move packets (772 crash on door close) — lesson 286
+- [x] Lesson 285; cargo check
+
 # Doors Phase 6 — Auto-close MoveEvents — 2026-08-01
 
 - [x] 6.1 MoveEvent() table + `:id`/`:aid`/`:type`/`:register` + onStepIn/onStepOut
