@@ -5782,6 +5782,26 @@ fn test_snapback_audit_s2_enterprotectionzone_sends_unconditional_snapback() {
     );
 }
 
+/// Walk PZ-entry lock maps 772 `ENTERPROTECTIONZONE` → `PlayerIsPzLocked` and must
+/// also snapback unconditionally (`sending.cc:353-355`).
+#[test]
+fn test_snapback_audit_s2_player_is_pz_locked_sends_unconditional_snapback() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    world.pending_outgoing.clear();
+    world.apply_todo_result_catch(
+        player,
+        crate::return_value::ReturnValue::PlayerIsPzLocked,
+    );
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("must enqueue snapback + message");
+    assert!(
+        pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+        "PlayerIsPzLocked (ENTERPROTECTIONZONE walk) must send 0xB5 snapback unconditionally"
+    );
+}
+
 /// Snapback audit S4: `ThereIsNoWay` (C++ `NOWAY`) is NOT in the 3-result snapback set.
 /// C++ `ToDoGo` sends its own unconditional `SendSnapback` before throwing `NOWAY`
 /// (`cract.cc:1100-1102`). In Rust, `setup_player_walk_to_target` returns `Err` without

@@ -911,7 +911,8 @@ impl GameWorld {
     /// existing convention per `walk/mod.rs:1506`):
     /// - `EXHAUSTED` (49) → `YouAreExhausted`
     /// - `NOTINVITED` (50) → `PlayerIsNotInvited`
-    /// - `ENTERPROTECTIONZONE` (48) → `ActionNotPermittedInProtectionZone`
+    /// - `ENTERPROTECTIONZONE` (48) → `ActionNotPermittedInProtectionZone` (combat)
+    ///   or `PlayerIsPzLocked` (walk PZ-entry lock — same snapback set)
     /// - `MOVENOTPOSSIBLE` (52) → `NotPossible` (Go arm only — `on_walk_step_rejected`)
     /// - `NOWAY` → `ThereIsNoWay` (NOT `MOVENOTPOSSIBLE` — not in the 3-result snapback set)
     pub(crate) fn apply_todo_result_catch(&mut self, cid: CreatureId, rv: ReturnValue) {
@@ -975,7 +976,8 @@ impl GameWorld {
         let send_result_snapback = matches!(
             rv,
             ReturnValue::PlayerIsNotInvited // NOTINVITED (50)
-                | ReturnValue::ActionNotPermittedInProtectionZone // ENTERPROTECTIONZONE (48)
+                | ReturnValue::ActionNotPermittedInProtectionZone // ENTERPROTECTIONZONE (48) combat
+                | ReturnValue::PlayerIsPzLocked // ENTERPROTECTIONZONE (48) walk PZ-entry lock
         );
         // Explicit `SendSnapback` from the Execute catch — gated on `SnapbackNecessary`
         // (`had_pending_go`). The 3-result exemption is already handled by

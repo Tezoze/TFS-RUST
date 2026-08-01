@@ -5,7 +5,7 @@
 //! - `Game::internalMoveCreature` height floor change — `game.cpp` (~804–834).
 //! - `Tile::hasHeight(n)` — `tile.cpp` (~62–87).
 
-use tfs_rust_common::enums::Direction;
+use tfs_rust_common::enums::{Direction, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
 
@@ -13,6 +13,7 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::map::Map;
+use crate::player_flags::PLAYER_FLAG_IGNORE_PROTECTION_ZONE;
 use crate::return_value::ReturnValue;
 use crate::tile::flags as tilestate;
 
@@ -551,6 +552,7 @@ pub(crate) fn tile_query_add_npc(
 
 /// TFS `Tile::queryAdd` for player creatures.
 /// C++ ref: src/tile.cpp:484-628
+/// 772 PZ-entry lock: `TPlayer::MovePossible` — `crplayer.cc:366-369` (`ENTERPROTECTIONZONE`).
 pub(crate) fn tile_query_add_player(
     world: &GameWorld,
     tile: &crate::tile::Tile,
@@ -578,6 +580,31 @@ pub(crate) fn tile_query_add_player(
     // C++ ref: src/tile.cpp:531-533 (monster); same flag checked for players on path tiles.
     if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::IMMOVABLENOFIELDBLOCKPATH) != 0 {
         return ReturnValue::NotPossible;
+    }
+
+    // 772 `EarliestProtectionZoneRound` entry gate — `crplayer.cc:366-369`.
+    // TFS domain: `tile.cpp:581-596` `isPzLocked` + enter `TILESTATE_PROTECTIONZONE`.
+    // Skip when already standing in PZ (movement within / out of PZ is allowed).
+    if body.zone == ZoneType::Protection {
+        let pz_lock_from = match world.creatures.get(mover) {
+            Some(CreatureKind::Player(p))
+                if p.earliest_protection_zone_round > world.round_nr =>
+            {
+                Some(p.base.position)
+            }
+            _ => None,
+        };
+        if let Some(cur_pos) = pz_lock_from {
+            if !world.player_has_flag(mover, PLAYER_FLAG_IGNORE_PROTECTION_ZONE) {
+                let currently_in_pz = world
+                    .map
+                    .get_tile(cur_pos)
+                    .is_some_and(|t| t.body().zone == ZoneType::Protection);
+                if !currently_in_pz {
+                    return ReturnValue::PlayerIsPzLocked;
+                }
+            }
+        }
     }
 
     // C++ ref: src/tile.cpp:567-573 — creature blocking (players)
@@ -635,4 +662,91 @@ pub(crate) fn tile_query_add_player(
     }
 
     ReturnValue::NoError
+}
+
+#[cfg(test)]
+mod pz_entry_lock_tests {
+    use super::*;
+    use crate::creature::CreatureKind;
+    use crate::sim_harness::{
+        beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+        TEST_SYNTHETIC_GROUND_WP,
+    };
+    use crate::tile::{Tile, TileBody};
+    use tfs_rust_common::enums::ZoneType;
+    use tfs_rust_common::Position;
+
+    fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position) {
+        map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: Some(TEST_SYNTHETIC_GROUND_WP),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::PROTECTIONZONE,
+                zone: ZoneType::Protection,
+            }),
+        );
+    }
+
+    /// 772 `crplayer.cc:366-369` — locked player cannot step Normal → Protection.
+    #[test]
+    fn pz_locked_blocks_entry_from_normal() {
+        let mut world = beat_driven_test_world();
+        world.round_nr = 100;
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, TEST_SYNTHETIC_GROUND_WP);
+        ensure_pz_tile(&mut world.map, to);
+        let cid = insert_player(&mut world, test_player("Locked", from));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.earliest_protection_zone_round = 160;
+        }
+        let dest = world.map.get_tile(to).expect("pz tile");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::PlayerIsPzLocked
+        );
+    }
+
+    /// Already standing in PZ may move to another PZ tile while locked.
+    #[test]
+    fn pz_locked_allows_move_within_pz() {
+        let mut world = beat_driven_test_world();
+        world.round_nr = 100;
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_pz_tile(&mut world.map, from);
+        ensure_pz_tile(&mut world.map, to);
+        let cid = insert_player(&mut world, test_player("InPz", from));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.earliest_protection_zone_round = 160;
+        }
+        let dest = world.map.get_tile(to).expect("pz tile");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::NoError
+        );
+    }
+
+    /// Expired lock (`earliest <= round_nr`) allows PZ entry.
+    #[test]
+    fn expired_pz_lock_allows_entry() {
+        let mut world = beat_driven_test_world();
+        world.round_nr = 160;
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, TEST_SYNTHETIC_GROUND_WP);
+        ensure_pz_tile(&mut world.map, to);
+        let cid = insert_player(&mut world, test_player("Free", from));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.earliest_protection_zone_round = 160;
+        }
+        let dest = world.map.get_tile(to).expect("pz tile");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::NoError
+        );
+    }
 }

@@ -281,8 +281,8 @@ pub struct Player {
     pub secure_mode: bool,
     /// 772 `EarliestProtectionZoneRound` — PZ-entry block after combat (`crmain.cc:439-443`).
     /// Set by `BlockLogout(Delay, BlockProtectionZone=true)`; when `> RoundNr`, the player
-    /// cannot enter a protection zone. Enforcement (walk/move PZ-entry check) is deferred;
-    /// PC-4 wires the field + setter so `BlockLogout` stores the round.
+    /// cannot enter a protection zone (`tile_query_add_player` → `PlayerIsPzLocked`,
+    /// `crplayer.cc:366-369`).
     pub earliest_protection_zone_round: u32,
     /// 772 `TPlayer::OldState` — last icons byte sent via `CheckState` / `0xA2` (`crplayer.cc:1249`).
     /// Compared before `send_player_icons` so we only emit on change.

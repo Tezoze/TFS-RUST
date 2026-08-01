@@ -1,3 +1,11 @@
+# Protection zone gaps (772) — 2026-08-01
+
+- [x] Walk-time PZ-entry lock: `earliest_protection_zone_round` in `tile_query_add_player` → `PlayerIsPzLocked`
+- [x] Unconditional snapback for `PlayerIsPzLocked` (772 `ENTERPROTECTIONZONE`)
+- [x] NoLogout logout check uses `tilestate::NOLOGOUT` flag (not never-set `ZoneType::NoLogout`)
+- [x] Tests: PZ entry lock / within-PZ / expired; NoLogout flag; snapback sibling
+- [x] Lessons: walk lock + flag-only NoLogout; houses not auto-PZ under 772
+
 # Spell runes — look + conjure — 2026-07-26
 
 - [x] `Item:getId()` returns SlotMap key instead of server type — breaks `conjureItem` blank-rune check

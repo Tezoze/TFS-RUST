@@ -13,6 +13,7 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
+use crate::tile::flags as tilestate;
 use tfs_rust_db::player::PlayerStore;
 
 /// 772 `TCreature::LogoutPossible` result (`crmain.cc:417-431`).
@@ -131,10 +132,13 @@ impl GameWorld {
         if earliest > round_nr {
             return LogoutPossible::Combat;
         }
+        // NoLogout is an orthogonal tile flag — TFS `getZone()` never returns
+        // `ZONE_NOLOGOUT`; OTBM sets `TILESTATE_NOLOGOUT` only (`iomap.cpp:270-280`).
+        // 772: `IsNoLogoutField` (`map.cc`).
         if self
             .map
             .get_tile(pos)
-            .is_some_and(|t| t.body().zone == ZoneType::NoLogout)
+            .is_some_and(|t| t.body().flags & tilestate::NOLOGOUT != 0)
         {
             return LogoutPossible::NoLogoutField;
         }

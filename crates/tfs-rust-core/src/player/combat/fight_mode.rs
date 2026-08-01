@@ -705,4 +705,32 @@ mod tests {
         let a = insert_player(&mut world, "alice");
         assert!(!world.player_attack_blocked_by_right(a));
     }
+
+    /// NoLogout is flag-only — `zone` stays Normal; logout must still deny
+    /// (`crmain.cc` `IsNoLogoutField`; OTBM sets `TILESTATE_NOLOGOUT` only).
+    #[test]
+    fn logout_denied_on_nologout_flag_with_normal_zone() {
+        use crate::game_world_lifecycle::LogoutPossible;
+        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = make_pvp_world(WorldType::Pvp);
+        let pos = tfs_rust_common::Position::new(0, 0, 7);
+        world.map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: Some(crate::sim_harness::TEST_SYNTHETIC_GROUND_WP),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::NOLOGOUT,
+                zone: ZoneType::Normal,
+            }),
+        );
+        let a = insert_player(&mut world, "alice");
+        assert_eq!(
+            world.player_logout_possible(a),
+            LogoutPossible::NoLogoutField
+        );
+    }
 }
