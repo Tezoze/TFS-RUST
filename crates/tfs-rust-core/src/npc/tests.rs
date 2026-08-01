@@ -2409,3 +2409,17 @@ fn idle_address_queue_no_trailing_starttodo() {
     assert!(!plan.start_todo, "C++ skips StartToDo under ADDRESSQUEUE");
     assert_eq!(plan.final_talk_delay_ms, 0);
 }
+
+/// Doors Phase 4 / TFS `Player::addStorageValue`: `-1` erases the key.
+#[test]
+fn player_set_storage_erases_on_minus_one() {
+    let mut world = minimal_world();
+    let hero = sim_hero_player("Hero", Position::new(100, 100, 7));
+    let p1 = insert_player(&mut world, hero);
+
+    world.player_set_storage(p1, 320, 5).expect("set");
+    assert_eq!(world.player_get_storage(p1, 320), 5);
+
+    world.player_set_storage(p1, 320, -1).expect("erase");
+    assert_eq!(world.player_get_storage(p1, 320), -1);
+}

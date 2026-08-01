@@ -273,6 +273,18 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         })
     }
 
+    /// `player:getStorageValue(key)` — `Player::getStorageValue` (`player.cpp`).
+    fn get_player_storage_value(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        key: u32,
+    ) -> i32 {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return -1;
+        };
+        self.player_get_storage(cid, key)
+    }
+
     /// `player:getAccountType()` — `accounts.type` tier (`enums.h:80-85`).
     fn get_player_account_type(
         &self,

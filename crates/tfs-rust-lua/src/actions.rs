@@ -175,6 +175,14 @@ mod tests {
             pending[0].item_ids.contains(&2088),
             "doors should register key id 2088 for use-with"
         );
+        assert!(
+            pending[0].item_ids.contains(&1223),
+            "doors should register closed quest door 1223"
+        );
+        assert!(
+            pending[0].item_ids.contains(&1227),
+            "doors should register closed level door 1227"
+        );
         assert!(pending[0].on_use.is_some());
     }
 
@@ -190,5 +198,17 @@ mod tests {
             .expect("KEYHOLE");
         assert_eq!(key, "keynumber");
         assert_eq!(hole, "keyholenumber");
+        let quest_n: String = globals
+            .get("ITEM_ATTRIBUTE_DOORQUESTNUMBER")
+            .expect("DOORQUESTNUMBER");
+        let quest_v: String = globals
+            .get("ITEM_ATTRIBUTE_DOORQUESTVALUE")
+            .expect("DOORQUESTVALUE");
+        let level: String = globals
+            .get("ITEM_ATTRIBUTE_DOORLEVEL")
+            .expect("DOORLEVEL");
+        assert_eq!(quest_n, "doorquestnumber");
+        assert_eq!(quest_v, "doorquestvalue");
+        assert_eq!(level, "doorlevel");
     }
 }

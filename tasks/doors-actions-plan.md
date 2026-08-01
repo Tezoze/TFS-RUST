@@ -1,6 +1,6 @@
 # Doors + Action System — Implementation Plan
 
-**Status:** Phase 0–3 done (2026-08-01); Phases 4+ not started  
+**Status:** Phase 0–4 done (2026-08-01); Phases 5+ not started  
 **Date:** 2026-07-19  
 **Goal:** Run `data/scripts/actions/other/doors.lua` (and sibling actions such as `food.lua`) end-to-end on a **TFS-style domain**, with **772 house/door outcomes** where they diverge, implemented as **idiomatic Rust**.
 
@@ -37,7 +37,7 @@
 | `onUse` dispatch from player use / use-with | **Done (Phase 1)** — before container/teleport; after rune miss on ex |
 | `item:getId()` → server type id | **Done** — type id; `item.itemid` field added |
 | `item:getAttribute` / door+key attr constants | **Done (Phase 3)** — Remere string aliases → custom attrs |
-| `player:getStorageValue` | **Missing** (Phase 4) |
+| `player:getStorageValue` | **Done (Phase 4)** (+ `setStorageValue`) |
 | `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **getCreatures + getTopVisibleThing done (Phase 2–3)**; count still missing |
 | Native house `Door::canUse` | **Missing** (`HouseManager::is_invited` only) |
 | `MoveEvent` StepIn/StepOut + load `movements/**` | **Missing** (equip/deequip only today) |
@@ -124,20 +124,22 @@
 
 ---
 
-### Phase 4 — Quest + level doors
+### Phase 4 — Quest + level doors — **DONE 2026-08-01**
 
 **Goal:** `closedQuestDoors` / `closedLevelDoors` branches work; optional step-in scripts later.
 
 | Task | Detail |
 |------|--------|
-| 4.1 | Decide authority: revscript custom attrs (`DOORQUESTNUMBER` / `DOORQUESTVALUE` / `DOORLEVEL`) **vs** legacy `actionid` scripts under `data/movements/scripts/` |
-| 4.2 | Prefer revscript attrs for `doors.lua`; keep legacy scripts available if map still uses actionids |
-| 4.3 | `player:getStorageValue` (+ set if other scripts need it) |
-| 4.4 | `player:getGroup():getAccess()` already exists — GM bypass |
-| 4.5 | On success: `transform(+1)` + `teleportTo(toPosition, true)` |
-| 4.6 | Fail messages: sealed / "Only the worthy may pass." |
+| 4.1 | **Authority:** Remere custom attrs (`doorquestnumber` / `doorquestvalue` / `doorlevel`) for `doors.lua` (OTBM 25–27 → custom string keys; Phase 3 constants) |
+| 4.2 | Legacy `data/movements/scripts/` actionid doors remain map content; step-in MoveEvents are Phase 6 |
+| 4.3 | `player:getStorageValue` / `setStorageValue` — ScriptContext read + LuaMutation write (`player_get/set_storage`); missing → `-1`; set `-1` erases; reserved range rejected |
+| 4.4 | `player:getGroup():getAccess()` + `getLevel()` already present — GM / level gate |
+| 4.5 | On success: existing Lua `transform(+1)` + `teleportTo(toPosition, true)` |
+| 4.6 | Fail messages already in `doors.lua` (sealed / "Only the worthy may pass.") |
 
 **Done when:** Configured quest/level doors open for eligible players only.
+
+**Implementation notes:** Unit: storage read + reserved reject; `player_set_storage` erase; doors.lua registers 1223/1227; Remere door attr string constants.
 
 ---
 

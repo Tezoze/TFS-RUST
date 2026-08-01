@@ -618,6 +618,20 @@ impl GameWorld {
         }
     }
 
+    /// `player:setStorageValue(key, value)` — `Player::addStorageValue` (`player.cpp`).
+    /// Doors Phase 4 / quest scripts. `value == -1` erases the key.
+    pub fn lua_script_player_set_storage(
+        &mut self,
+        creature_u64: u64,
+        key: u32,
+        value: i32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        self.player_set_storage(cid, key, value)
+    }
+
     /// Lua `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`
     /// with `animationOnLoss=false` → `Player::changeMana`.
     /// PC-3a Phase 5: `conjureItem` dual-hand mana deduction.

@@ -345,6 +345,24 @@ mod tests {
                 .expect("ITEM_ATTRIBUTE_KEYHOLENUMBER"),
             "keyholenumber"
         );
+        assert_eq!(
+            globals
+                .get::<String>("ITEM_ATTRIBUTE_DOORQUESTNUMBER")
+                .expect("ITEM_ATTRIBUTE_DOORQUESTNUMBER"),
+            "doorquestnumber"
+        );
+        assert_eq!(
+            globals
+                .get::<String>("ITEM_ATTRIBUTE_DOORQUESTVALUE")
+                .expect("ITEM_ATTRIBUTE_DOORQUESTVALUE"),
+            "doorquestvalue"
+        );
+        assert_eq!(
+            globals
+                .get::<String>("ITEM_ATTRIBUTE_DOORLEVEL")
+                .expect("ITEM_ATTRIBUTE_DOORLEVEL"),
+            "doorlevel"
+        );
 
         // VOCATION_NONE (enums.h:297)
         assert_eq!(get("VOCATION_NONE"), 0);

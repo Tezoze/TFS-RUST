@@ -307,7 +307,8 @@ impl GameWorld {
             .unwrap_or(-1)
     }
 
-    /// Upsert quest/storage and mark persist dirty for save export.
+    /// Upsert quest/storage for save export. `value == -1` erases the key
+    /// (`Player::addStorageValue` — `player.cpp`).
     pub fn player_set_storage(
         &mut self,
         cid: CreatureId,
@@ -321,6 +322,10 @@ impl GameWorld {
             .persist
             .as_mut()
             .ok_or_else(|| "set_storage: player has no persist baseline".to_string())?;
+        if value == -1 {
+            persist.storage.retain(|(k, _)| *k != storage_id);
+            return Ok(());
+        }
         if let Some(slot) = persist.storage.iter_mut().find(|(k, _)| *k == storage_id) {
             slot.1 = value;
         } else {

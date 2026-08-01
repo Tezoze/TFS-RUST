@@ -1,3 +1,12 @@
+# Doors Phase 4 — quest + level doors — 2026-08-01
+
+- [x] 4.1–4.2 Authority: Remere custom attrs (`doorquestnumber` / `doorquestvalue` / `doorlevel`) for `doors.lua`; legacy `data/movements/scripts/` actionid paths unchanged (Phase 6 MoveEvent)
+- [x] 4.3 `player:getStorageValue` / `setStorageValue` via ScriptContext + LuaMutation (reuse `player_get/set_storage`)
+- [x] 4.4 Confirm `getGroup():getAccess()` + `getLevel()` already work (GM / level gate)
+- [x] 4.5 Success path already in doors.lua (`transform(+1)` + `teleportTo`); fail messages already present
+- [x] Unit: storage round-trip; doors.lua registers quest/level IDs; Remere door attr constants
+- [x] Update `tasks/doors-actions-plan.md` Phase 4 status + lessons.md
+
 # Doors Phase 3 — keys (use-with) — 2026-08-01
 
 - [x] 3.1 Use-with already reaches Action (`player_use_item_ex_core` → `fire_on_use_action`); keys registered via doors.lua

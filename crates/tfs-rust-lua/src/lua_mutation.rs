@@ -224,6 +224,13 @@ pub enum LuaMutation {
         creature_id: u64,
         ends_at: u32,
     },
+    /// `player:setStorageValue(key, value)` — `Player::addStorageValue` (`player.cpp`).
+    /// `value == -1` erases the key.
+    PlayerSetStorageValue {
+        creature_id: u64,
+        key: u32,
+        value: i32,
+    },
     /// `setWorldLight(level, color)` — TFS `LuaScriptInterface::luaSetWorldLight`.
     /// C++ ref: `gameserver/src/luascript.cpp:3132-3145`.
     SetWorldLight { level: u8, color: u8 },
@@ -740,6 +747,14 @@ pub fn call_lua_set_premium_ends_at(creature_id: u64, ends_at: u32) -> Result<()
     apply_mutation(LuaMutation::PlayerSetPremiumEndsAt {
         creature_id,
         ends_at,
+    })
+}
+
+pub fn call_lua_set_storage_value(creature_id: u64, key: u32, value: i32) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetStorageValue {
+        creature_id,
+        key,
+        value,
     })
 }
 

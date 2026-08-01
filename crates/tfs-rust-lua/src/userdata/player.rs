@@ -65,6 +65,56 @@ impl UserData for CreatureRef {
             })
         });
 
+        // `player:getStorageValue(key)` — `Player::getStorageValue` (`player.cpp`).
+        // Missing key → `-1`. Doors Phase 4: quest door gate in `doors.lua`.
+        methods.add_method("getStorageValue", |_, this, key: Value| {
+            let key = match key {
+                Value::Integer(i) => i as u32,
+                Value::Number(n) => n as u32,
+                Value::Nil => 0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "getStorageValue: expected integer key",
+                    ));
+                }
+            };
+            with_ctx(|ctx| Ok(ctx.get_player_storage_value(this.0, key)))
+        });
+
+        // `player:setStorageValue(key, value)` — `Player::addStorageValue`.
+        // Reserved range (`const.h` PSTRG_RESERVED_RANGE) rejected like TFS Lua.
+        // `value == -1` erases the key.
+        methods.add_method("setStorageValue", |_, this, (key, value): (Value, Value)| {
+            let key = match key {
+                Value::Integer(i) => i as u32,
+                Value::Number(n) => n as u32,
+                Value::Nil => 0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "setStorageValue: expected integer key",
+                    ));
+                }
+            };
+            let value = match value {
+                Value::Integer(i) => i as i32,
+                Value::Number(n) => n as i32,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "setStorageValue: expected integer value",
+                    ));
+                }
+            };
+            // `const.h` `PSTRG_RESERVED_RANGE_START` / `_SIZE` — `IS_IN_KEYRANGE`.
+            const RESERVED_START: u32 = 10_000_000;
+            const RESERVED_SIZE: u32 = 10_000_000;
+            if key >= RESERVED_START && key - RESERVED_START <= RESERVED_SIZE {
+                return Ok(false);
+            }
+            crate::lua_mutation::call_lua_set_storage_value(this.0, key, value)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
         methods.add_method("getBankBalance", |_, this, ()| {
             with_ctx(|ctx| {
                 ctx.get_player_bank_balance(this.0)
@@ -927,6 +977,82 @@ mod tests {
                 .eval()
                 .expect("hasFlag(1<<0)");
             assert!(!has_other, "GM should not have flag bit 0");
+        });
+    }
+
+    /// Doors Phase 4: `getStorageValue` reads via ScriptContext; reserved
+    /// `setStorageValue` rejects without mutation (TFS `IS_IN_KEYRANGE`).
+    #[test]
+    fn player_get_storage_value_and_reserved_reject_through_lua() {
+        use std::collections::HashMap;
+
+        struct StorageCtx {
+            map: HashMap<u32, i32>,
+        }
+        impl ScriptContext for StorageCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == GM_CID).then_some(ScriptCreatureData {
+                    name: "Quest".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_storage_value(&self, id: ScriptCreatureId, key: u32) -> i32 {
+                if id != GM_CID {
+                    return -1;
+                }
+                self.map.get(&key).copied().unwrap_or(-1)
+            }
+            fn get_player_slot_item_id(&self, _: ScriptCreatureId, _: u8) -> Option<ScriptItemId> {
+                None
+            }
+            fn get_item_data(&self, _: ScriptItemId) -> Option<ScriptItemData> {
+                None
+            }
+            fn get_container_data(&self, _: ScriptItemId) -> Option<ScriptContainerData> {
+                None
+            }
+            fn get_item_parent(&self, _: ScriptItemId) -> Option<ScriptCylinder> {
+                None
+            }
+            fn get_item_top_parent(&self, _: ScriptItemId) -> Option<ScriptCylinder> {
+                None
+            }
+        }
+
+        let lua = Lua::new();
+        crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
+
+        let mut map = HashMap::new();
+        map.insert(320, 5);
+        let ctx = StorageCtx { map };
+        with_lua_context(&ctx, || {
+            let ud = lua.create_userdata(CreatureRef(GM_CID)).expect("userdata");
+            lua.globals().set("player", ud).expect("set player");
+
+            let missing: i32 = lua
+                .load("return player:getStorageValue(999)")
+                .eval()
+                .expect("get missing");
+            assert_eq!(missing, -1);
+
+            let got: i32 = lua
+                .load("return player:getStorageValue(320)")
+                .eval()
+                .expect("get set key");
+            assert_eq!(got, 5);
+
+            // Reserved range rejected before mutation (`const.h` PSTRG_RESERVED_RANGE).
+            let reserved: bool = lua
+                .load("return player:setStorageValue(10000000, 1)")
+                .eval()
+                .expect("reserved");
+            assert!(!reserved);
         });
     }
 

@@ -234,6 +234,13 @@ pub trait ScriptContext {
         None
     }
 
+    /// `player:getStorageValue(key)` — `Player::getStorageValue` (`player.cpp`).
+    /// Missing key → `-1` (TFS / 772 quest empty). Defaults to `-1`.
+    fn get_player_storage_value(&self, creature_id: ScriptCreatureId, key: u32) -> i32 {
+        let _ = (creature_id, key);
+        -1
+    }
+
     /// `player:getAccountType()` — `accounts.type` tier (`enums.h:80-85`,
     /// `ACCOUNT_TYPE_NORMAL=1` … `ACCOUNT_TYPE_GOD=6`). LUA-2 read; the backing
     /// field is plumbed from `accounts.type` at login (`iologindata.cpp`).
