@@ -1,3 +1,13 @@
+# Doors Phase 5 — house doors (native gate + Lua transform) — 2026-08-01
+
+- [x] 5.1 Door identity: `ATTR_HOUSEDOORID` → `set_door_id`; serialize on write; house tiles from OTBM
+- [x] 5.2 Native before Lua: `house_door_can_use_or_deny` in `player_use_item_core` (`Door::canUse`)
+- [x] 5.3 Wire DB `houses.owner` + `house_lists` into `HouseManager` at boot (name→guid resolve)
+- [x] 5.4 Deny → `ReturnValue::NotPossible` ("Sorry, not possible.")
+- [x] 5.5 Allow → existing `doors.lua` ±1 transform
+- [x] Unit: AccessList / door_can_use; HouseDoorId round-trip; CanEditHouses flag
+- [x] Update `tasks/doors-actions-plan.md` Phase 5 status + lessons.md
+
 # Doors Phase 4 — quest + level doors — 2026-08-01
 
 - [x] 4.1–4.2 Authority: Remere custom attrs (`doorquestnumber` / `doorquestvalue` / `doorlevel`) for `doors.lua`; legacy `data/movements/scripts/` actionid paths unchanged (Phase 6 MoveEvent)

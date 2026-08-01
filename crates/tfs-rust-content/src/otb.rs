@@ -619,6 +619,12 @@ impl ItemType {
         self.group == Self::GROUP_FLUID
     }
 
+    /// C++ `ItemType::isDoor()` — `type == ITEM_TYPE_DOOR` (`src/items.h`).
+    #[inline]
+    pub fn is_door(&self) -> bool {
+        self.type_tag == crate::items::ITEM_TYPE_DOOR
+    }
+
     /// C++ `ItemType::isKey()` — `type == ITEM_TYPE_KEY`.
     #[inline]
     pub fn is_key(&self) -> bool {

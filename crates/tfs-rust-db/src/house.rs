@@ -19,6 +19,13 @@ pub struct HouseListRow {
     pub list: String,
 }
 
+/// One row from `houses` (`id` + `owner`) — C++ `IOMapSerialize::loadHouseInfo`.
+#[derive(Debug, Clone, FromRow)]
+pub struct HouseOwnerRow {
+    pub id: u32,
+    pub owner: u32,
+}
+
 pub struct HouseStore<'a> {
     pool: &'a DbPool,
 }
@@ -71,6 +78,42 @@ impl<'a> HouseStore<'a> {
             .await
             .map_err(|e| TfsRustError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    /// C++ `IOMapSerialize::loadHouseInfo` — owners from `houses` table.
+    pub async fn load_house_owners(&self) -> Result<Vec<HouseOwnerRow>> {
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                async move {
+                    sqlx::query_as::<_, HouseOwnerRow>("SELECT id, owner FROM houses")
+                        .fetch_all(&pool)
+                        .await
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))
+    }
+
+    /// C++ `IOLoginData::getGuidByName` — lowercase-insensitive name → player id.
+    pub async fn guid_by_name(&self, name: &str) -> Result<Option<u32>> {
+        let name = name.to_string();
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                let name = name.clone();
+                async move {
+                    let row: Option<(u32,)> = sqlx::query_as(
+                        "SELECT id FROM players WHERE LOWER(name) = ? AND deletion = 0 LIMIT 1",
+                    )
+                    .bind(&name)
+                    .fetch_optional(&pool)
+                    .await?;
+                    Ok(row.map(|r| r.0))
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))
     }
 
     /// C++ `IOMapSerialize::loadHouseInfo` — guest/subowner/door lists (`list` column, not `data`).

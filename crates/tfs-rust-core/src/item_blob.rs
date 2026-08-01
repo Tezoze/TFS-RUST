@@ -213,7 +213,8 @@ fn read_one_attr(
             attrs.set_depot_id(stream.read_u16()?);
         }
         x if x == AttrType::HouseDoorId as u8 => {
-            let _ = stream.read_u8()?;
+            // C++ `Door::readAttr` `ATTR_HOUSEDOORID` — `house.cpp`.
+            attrs.set_door_id(stream.read_u8()?);
         }
         x if x == AttrType::SleeperGuid as u8 => {
             let _ = stream.read_u32()?;
@@ -346,6 +347,13 @@ pub fn write_item_blob_with_duration(
         w.write_u16(attrs.get_depot_id());
     }
 
+    // Persist door id for house access lists (`listid` = door id). TFS Door::serializeAttr
+    // is empty, but map/DB hydrate needs ATTR_HOUSEDOORID (`house.cpp` Door::readAttr).
+    if ItemAttrFlags::from_bits_truncate(attrs.attribute_bits()).contains(ItemAttrFlags::DOOR_ID) {
+        w.write_u8(AttrType::HouseDoorId as u8);
+        w.write_u8(attrs.get_door_id());
+    }
+
     let text = attrs.get_text();
     if !text.is_empty() {
         w.write_u8(AttrType::Text as u8);
@@ -474,7 +482,7 @@ mod write_roundtrip_tests {
         OTBM_CUSTOM_KEYNUMBER,
     };
     use crate::item::Item;
-    use crate::item_attributes::CustomAttrValue;
+    use crate::item_attributes::{AttrType, CustomAttrValue};
     use std::collections::HashMap;
     use tfs_rust_content::items::ItemDatabase;
     use tfs_rust_content::otb::ItemType;
@@ -558,6 +566,29 @@ mod write_roundtrip_tests {
             level.attrs.get_custom_attribute(OTBM_CUSTOM_DOORLEVEL),
             Some(&CustomAttrValue::Integer(30))
         );
+    }
+
+    #[test]
+    fn house_door_id_attr_sets_door_id() {
+        // ATTR_HOUSEDOORID (14) + door id 3
+        let blob = [AttrType::HouseDoorId as u8, 3];
+        let parsed = parse_item_blob(&blob, false).expect("door id");
+        assert_eq!(parsed.attrs.get_door_id(), 3);
+    }
+
+    #[test]
+    fn house_door_id_roundtrips_write() {
+        let db = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let mut item = Item::new_single(1219);
+        let mut attrs = crate::item_attributes::ItemAttributes::new();
+        attrs.set_door_id(7);
+        item.attributes = Some(Box::new(attrs));
+        let blob = write_item_blob(&item, &db);
+        let parsed = parse_item_blob(&blob, false).expect("parse");
+        assert_eq!(parsed.attrs.get_door_id(), 7);
     }
 
     #[test]

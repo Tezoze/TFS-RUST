@@ -651,6 +651,54 @@ impl GameWorld {
         None
     }
 
+    /// C++ `Actions::internalUseItem` house door pre-check — `Door::canUse` (`actions.cpp` ~304,
+    /// `house.cpp` ~535). Non-house tiles and non-door items pass. Deny → `NOTPOSSIBLE`
+    /// ("Sorry, not possible.").
+    pub(crate) fn house_door_can_use_or_deny(
+        &self,
+        cid: CreatureId,
+        item_id: ItemId,
+    ) -> Result<(), ReturnValue> {
+        let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
+        let is_door = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .is_some_and(|t| t.is_door());
+        if !is_door {
+            return Ok(());
+        }
+        let pos = match item.parent {
+            Some(Cylinder::Tile { pos }) => pos,
+            _ => return Ok(()),
+        };
+        let house_id = match self.map.get_tile(pos) {
+            Some(crate::tile::Tile::House(h)) => h.house_id,
+            _ => return Ok(()), // Door without house → canUse true
+        };
+        let door_id = item
+            .attributes
+            .as_ref()
+            .map(|a| a.get_door_id())
+            .unwrap_or(0);
+        let guid = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.guid,
+            _ => return Err(ReturnValue::NotPossible),
+        };
+        let can_edit = self.player_has_flag(
+            cid,
+            crate::player_flags::PLAYER_FLAG_CAN_EDIT_HOUSES,
+        );
+        if self
+            .houses
+            .door_can_use(house_id, door_id, guid, can_edit)
+        {
+            Ok(())
+        } else {
+            Err(ReturnValue::NotPossible)
+        }
+    }
+
     /// F8 S5 — core use-item logic for the ToDo execute arm ([`execute_player_use`]).
     /// Skips the ready check + walk-to-reach (the ToDo arm handles adjacency via
     /// `Go`-prepend and timing via `Wait{100}` + `CalculateDelay`). C++ ref:
@@ -664,6 +712,11 @@ impl GameWorld {
         pos: Position,
         preferred_cid: Option<u8>,
     ) -> Result<(), ReturnValue> {
+        // Native house door gate before Lua (`actions.cpp` `internalUseItem` → `Door::canUse`).
+        if let Err(ret) = self.house_door_can_use_or_deny(cid, item_id) {
+            return Err(ret);
+        }
+
         // Action `onUse` before native teleport / container (`actions.cpp` `internalUseItem`).
         let from = if is_map_tile {
             pos

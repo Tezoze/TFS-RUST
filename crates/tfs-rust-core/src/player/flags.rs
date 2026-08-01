@@ -29,6 +29,8 @@ pub const PLAYER_FLAG_IGNORED_BY_MONSTERS: u64 = 1 << 8;
 pub const PLAYER_FLAG_NOT_GAIN_IN_FIGHT: u64 = 1 << 9;
 /// C++ `PlayerFlag_CanBroadcast` — `src/const.h`
 pub const PLAYER_FLAG_CAN_BROADCAST: u64 = 1 << 16;
+/// C++ `PlayerFlag_CanEditHouses` — `src/const.h` bit 17.
+pub const PLAYER_FLAG_CAN_EDIT_HOUSES: u64 = 1 << 17;
 /// C++ `PlayerFlag_CanTalkRedPrivate` — `src/const.h`
 pub const PLAYER_FLAG_CAN_TALK_RED_PRIVATE: u64 = 1 << 22;
 /// C++ `PlayerFlag_CannotBeMuted` — `src/const.h`
@@ -60,6 +62,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "ignoredbymonsters" => Some(PLAYER_FLAG_IGNORED_BY_MONSTERS),
         "notgaininfight" => Some(PLAYER_FLAG_NOT_GAIN_IN_FIGHT),
         "canbroadcast" => Some(PLAYER_FLAG_CAN_BROADCAST),
+        "canedithouses" => Some(PLAYER_FLAG_CAN_EDIT_HOUSES),
         "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
         "cannotbemuted" => Some(PLAYER_FLAG_CANNOT_BE_MUTED),
         "setmaxspeed" => Some(PLAYER_FLAG_SET_MAX_SPEED),
@@ -164,5 +167,12 @@ mod tests {
         let groups = make_group(2, &[("isalwayspremium", true)]);
         let flags = flags_for_group(&groups, 2);
         assert!(has_player_flag(flags, PLAYER_FLAG_IS_ALWAYS_PREMIUM));
+    }
+
+    #[test]
+    fn can_edit_houses_flag_resolves_from_group() {
+        let groups = make_group(6, &[("canedithouses", true)]);
+        let flags = flags_for_group(&groups, 6);
+        assert!(has_player_flag(flags, PLAYER_FLAG_CAN_EDIT_HOUSES));
     }
 }

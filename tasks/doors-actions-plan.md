@@ -1,6 +1,6 @@
 # Doors + Action System — Implementation Plan
 
-**Status:** Phase 0–4 done (2026-08-01); Phases 5+ not started  
+**Status:** Phase 0–5 done (2026-08-01); Phase 6+ not started  
 **Date:** 2026-07-19  
 **Goal:** Run `data/scripts/actions/other/doors.lua` (and sibling actions such as `food.lua`) end-to-end on a **TFS-style domain**, with **772 house/door outcomes** where they diverge, implemented as **idiomatic Rust**.
 
@@ -39,7 +39,7 @@
 | `item:getAttribute` / door+key attr constants | **Done (Phase 3)** — Remere string aliases → custom attrs |
 | `player:getStorageValue` | **Done (Phase 4)** (+ `setStorageValue`) |
 | `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **getCreatures + getTopVisibleThing done (Phase 2–3)**; count still missing |
-| Native house `Door::canUse` | **Missing** (`HouseManager::is_invited` only) |
+| Native house `Door::canUse` | **Done (Phase 5)** — owner/subowner/`CanEditHouses` or per-door list; deny `NOTPOSSIBLE` |
 | `MoveEvent` StepIn/StepOut + load `movements/**` | **Missing** (equip/deequip only today) |
 | `openLevelDoors` / `openQuestDoors` in `global.lua` | **Done (Phase 0)** — live tables; forgotten.otbm spot-check OK |
 | Basic door `transform` ±1 + tile flags / shove / locked text | **Done (Phase 2)** |
@@ -143,7 +143,7 @@
 
 ---
 
-### Phase 5 — House doors (native gate + Lua transform)
+### Phase 5 — House doors (native gate + Lua transform) — **DONE 2026-08-01**
 
 **Goal:** House door IDs in `openHouseDoors` / `closedHouseDoors` respect ownership/guest lists.
 
@@ -157,6 +157,8 @@
 | 5.6 | Optional follow-up: `edit_door.lua` / House Lua (`getDoors`, access-list UI) — **not** required for click open/close |
 
 **Done when:** Invited players open house doors; strangers cannot; transform still driven by `doors.lua`.
+
+**Implementation notes:** `ATTR_HOUSEDOORID` now sets `ItemAttributes::door_id` (was discarded). `HouseManager::door_can_use` mirrors TFS (guests need the **door** list, not house guest list alone). Boot loads `houses.owner` + `house_lists` with name→guid resolve. Deny = `ReturnValue::NotPossible` → "Sorry, not possible." (TFS/TVP cancel text, not quest sealed string). Guild `@` lines deferred. `edit_door.lua` still out of scope.
 
 ---
 

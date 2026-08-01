@@ -169,6 +169,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     // Create items SlotMap first - needed for map loading to create Item instances
     let mut items = slotmap::SlotMap::with_key();
+    let map_house_ids: Vec<u32> = content.map.houses.keys().copied().collect();
     let map = Map::from_map_data(content.map, items_db.as_ref(), &mut items);
     let spawns = SpawnManager::from_zones(spawn_zones);
     let vocations = std::sync::Arc::new(content.vocations);
@@ -391,6 +392,52 @@ pub async fn run() -> anyhow::Result<()> {
     // `player_wand_attack` (`get_wand`) and spell dispatch (`instant_by_words`) resolve.
     world.weapons = Arc::new(weapon_registry);
     world.spells = Arc::new(spell_registry);
+
+    // House owners + access lists (`IOMapSerialize::loadHouseInfo` — `iomapserialize.cpp`).
+    world.houses.ensure_houses(map_house_ids.iter().copied());
+    {
+        let house_store = tfs_rust_db::HouseStore::new(&db);
+        match house_store.load_house_owners().await {
+            Ok(owners) => {
+                for row in &owners {
+                    world.houses.set_owner(row.id, row.owner);
+                }
+                info!(count = owners.len(), "loaded house owners");
+            }
+            Err(e) => tracing::warn!(error = %e, "house owners load failed"),
+        }
+        match house_store.load_house_lists().await {
+            Ok(lists) => {
+                let mut name_cache: std::collections::HashMap<String, Option<u32>> =
+                    std::collections::HashMap::new();
+                for row in &lists {
+                    for name in crate::house::AccessList::candidate_names(&row.list) {
+                        if name_cache.contains_key(&name) {
+                            continue;
+                        }
+                        let guid = match house_store.guid_by_name(&name).await {
+                            Ok(g) => g,
+                            Err(e) => {
+                                tracing::warn!(name = %name, error = %e, "house list name resolve failed");
+                                None
+                            }
+                        };
+                        name_cache.insert(name, guid);
+                    }
+                }
+                for row in &lists {
+                    world.houses.apply_list_row(
+                        row.house_id,
+                        row.listid,
+                        &row.list,
+                        |n| name_cache.get(n).copied().flatten(),
+                    );
+                }
+                info!(count = lists.len(), "loaded house access lists");
+            }
+            Err(e) => tracing::warn!(error = %e, "house lists load failed"),
+        }
+    }
 
     // Seed chat channels from Lua scripts (CH-4)
     for channel_def in chat_channels {
