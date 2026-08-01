@@ -1,6 +1,6 @@
 # Doors + Action System — Implementation Plan
 
-**Status:** Not started  
+**Status:** Phase 0–1 done (2026-08-01); Phases 2+ not started  
 **Date:** 2026-07-19  
 **Goal:** Run `data/scripts/actions/other/doors.lua` (and sibling actions such as `food.lua`) end-to-end on a **TFS-style domain**, with **772 house/door outcomes** where they diverge, implemented as **idiomatic Rust**.
 
@@ -32,16 +32,16 @@
 |-------|--------|
 | Door ID tables in `data/global.lua` | Present |
 | `doors.lua` / `closing_doors.lua` content | Present |
-| `Action()` userdata + `:id` / `:register` | **Missing** |
-| Load `data/scripts/actions/**` | **Missing** |
-| `onUse` dispatch from player use / use-with | **Missing** (`player_use_item*` = containers / floor teleports only) |
-| `item:getId()` → server type id | **Wrong** (returns SlotMap key) |
+| `Action()` table + `:id` / `:aid` / `:register` | **Done (Phase 1)** — TalkAction-style plain table |
+| Load `data/scripts/actions/**` | **Done (Phase 1)** — recursive scan; door tables injected from `global.lua` |
+| `onUse` dispatch from player use / use-with | **Done (Phase 1)** — before container/teleport; after rune miss on ex |
+| `item:getId()` → server type id | **Done** — type id; `item.itemid` field added |
 | `item:getAttribute` / door+key attr constants | **Missing** |
 | `player:getStorageValue` | **Missing** |
 | `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **Missing** |
 | Native house `Door::canUse` | **Missing** (`HouseManager::is_invited` only) |
 | `MoveEvent` StepIn/StepOut + load `movements/**` | **Missing** (equip/deequip only today) |
-| `openLevelDoors` / `openQuestDoors` in `global.lua` | **Commented out** but referenced by closing/level scripts |
+| `openLevelDoors` / `openQuestDoors` in `global.lua` | **Done (Phase 0)** — live tables; forgotten.otbm spot-check OK |
 
 **C++ references**
 - Domain: `src/actions.cpp` (`Actions::registerLuaEvent`, `internalUseItem` → `executeUse`), `src/house.cpp` `Door::canUse`
@@ -52,32 +52,32 @@
 
 ## 3. Phases
 
-### Phase 0 — Data-pack hygiene (cheap, do early)
+### Phase 0 — Data-pack hygiene (cheap, do early) — **DONE 2026-08-01**
 
 **Goal:** Scripts that load later do not nil-crash on missing tables.
 
 | Task | Detail |
 |------|--------|
-| 0.1 | Uncomment or redefine `openLevelDoors` / `openQuestDoors` in `data/global.lua` to match closed counterparts (IDs +1 from closed quest/level sets, as TFS expects) |
-| 0.2 | Confirm door tables cover OTB IDs used on the active map (spot-check common door types) |
+| 0.1 | Uncommented `openLevelDoors` / `openQuestDoors` in `data/global.lua` (open = closed +1; 52 quest / 48 level pairs) |
+| 0.2 | Spot-checked vs `data/world/forgotten.otbm`: classic closed/locked/house/quest/level IDs present; open* mostly absent (map stores closed); range 1215–1218 are buttresses, not door gaps |
 
 **Done when:** `closing_doors.lua` / `level_doors.lua` can parse without `nil` table errors once MoveEvents load.
 
 ---
 
-### Phase 1 — Action pipeline (shared unblocker)
+### Phase 1 — Action pipeline (shared unblocker) — **DONE 2026-08-01**
 
 **Goal:** `local a = Action(); a:id(n); function a.onUse(...); a:register()` works; use packet reaches Lua.
 
 | Task | Detail | Refs |
 |------|--------|------|
-| 1.1 | `Action` userdata + registry (mirror `TalkAction` / Channel self-register pattern) | `talkaction.cpp`, `chat-system-plan.md` CH-4 pattern |
-| 1.2 | Methods: `:id`, `:aid` (if needed), `:register`, store `onUse` function | `actions.cpp` `registerLuaEvent` |
-| 1.3 | Startup: scan/load `data/scripts/actions/**/*.lua` (after `global.lua`) | TVP/TFS script loader order |
-| 1.4 | Hook player **use** and **use-with** → look up action by item type (then actionid) → call `onUse` | `Actions::useItem` / `internalUseItem` |
-| 1.5 | Return semantics: `true` = handled (skip further native); `false` = fall through | TFS `executeUse` |
-| 1.6 | Fix `Item:getId()` → **server type id**; expose `item.itemid` field for TFS script style | `luascript.cpp` `pushThing` |
-| 1.7 | Smoke: register a tiny test action **or** `food.lua` eat path | `data/scripts/actions/other/food.lua` |
+| 1.1 | `Action()` plain table + registry (TalkAction / Channel pattern — not userdata) | `talkaction.cpp`, chat CH-4 |
+| 1.2 | `:id`, `:aid`, `:register`, store `onUse` | `actions.cpp` `registerLuaEvent` |
+| 1.3 | Inject door tables from `global.lua` (no full lib); load `scripts/actions/**` | warn-on-fail per file |
+| 1.4 | Hook `player_use_item_core` / `_ex_core` → aid then item type → `onUse` | `Actions::useItem` |
+| 1.5 | `true` = handled (skip native); `false` = fall through | TFS `executeUse` |
+| 1.6 | `Item:getId()` already type id; added `item.itemid` field | compat style |
+| 1.7 | Unit: `food.lua` registers meat 2666; `doors.lua` loads with injected tables | |
 
 **Done when:** Using a registered item ID invokes Lua `onUse` and can mutate/transform/remove via existing `LuaMutation` paths.
 

@@ -5,6 +5,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 
+use crate::actions::ActionRegistry;
 use crate::event_dispatcher::{EventDispatcher, TalkActionResult};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
@@ -25,6 +26,8 @@ pub struct LuaEventDispatcher {
     /// CH-6: talkaction registry — `/i`, `/a`, … GM commands. The
     /// `mlua::RegistryKey`s are tied to `runtime`'s `Lua` instance.
     talkactions: TalkActionRegistry,
+    /// Action `onUse` registry — food, doors, levers, …
+    actions: ActionRegistry,
 }
 
 impl LuaEventDispatcher {
@@ -40,6 +43,7 @@ impl LuaEventDispatcher {
             player_events,
             move_events,
             talkactions: TalkActionRegistry::default(),
+            actions: ActionRegistry::default(),
         }
     }
 
@@ -48,9 +52,19 @@ impl LuaEventDispatcher {
         self.talkactions = talkactions;
     }
 
-    /// CH-6: Number of registered talkactions (for startup diagnostics).
+    /// Set the action registry (after `load_action_scripts`).
+    pub fn set_actions(&mut self, actions: ActionRegistry) {
+        self.actions = actions;
+    }
+
+    /// Number of registered talkactions (for startup diagnostics).
     pub fn talkactions_count(&self) -> usize {
         self.talkactions.entries.len()
+    }
+
+    /// Number of action item-id + aid mappings (startup diagnostics).
+    pub fn actions_count(&self) -> usize {
+        self.actions.len()
     }
 
     /// Get mutable access to the Lua runtime (for loading chat channels, etc.).
@@ -449,6 +463,43 @@ impl EventDispatcher for LuaEventDispatcher {
             Ok(success) => success,
             Err(e) => {
                 tracing::error!(?creature, rune_id, "Lua rune onCastSpell failed: {e}");
+                false
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_on_use_action(
+        &self,
+        player: CreatureId,
+        item: ItemId,
+        item_type: u16,
+        action_id: u16,
+        from: Position,
+        target_item: Option<ItemId>,
+        target_creature: Option<CreatureId>,
+        to: Position,
+    ) -> bool {
+        let Some(entry) = self.actions.get(item_type, action_id) else {
+            return false;
+        };
+        match self.runtime.call_action_on_use(
+            &entry.on_use,
+            player.data().as_ffi(),
+            item.data().as_ffi(),
+            (from.x, from.y, from.z),
+            target_item.map(|i| i.data().as_ffi()),
+            target_creature.map(|c| c.data().as_ffi()),
+            (to.x, to.y, to.z),
+        ) {
+            Ok(handled) => handled,
+            Err(e) => {
+                tracing::error!(
+                    ?player,
+                    item_type,
+                    action_id,
+                    "Lua action onUse failed: {e}"
+                );
                 false
             }
         }

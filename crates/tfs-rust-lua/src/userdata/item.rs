@@ -2,7 +2,7 @@
 //!
 //! C++ reference: `src/luascript.cpp` — `LuaScriptInterface` item userdata (`Item::getID`, `getName`, …).
 
-use mlua::{Lua, UserData, UserDataMethods, Value};
+use mlua::{Lua, UserData, UserDataFields, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
@@ -79,6 +79,19 @@ fn parse_move_destination(_lua: &Lua, value: Value) -> Result<LuaMoveDestination
 }
 
 impl UserData for ItemRef {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // TFS compat `item.itemid` → `Item:getId()` (`data/lib/compat/compat.lua`).
+        // Required by `food.lua` / door key branches without loading full compat.
+        fields.add_field_method_get("itemid", |_, this| {
+            with_ctx(|ctx| {
+                Ok(ctx
+                    .get_item_data(this.0)
+                    .map(|d: ItemData| d.item_type)
+                    .unwrap_or(0))
+            })
+        });
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // C++ `Item::getID()` — server item type id (e.g. 2260 blank rune), not the
         // SlotMap instance key. `luascript.cpp` `luaItemGetId`. Required by

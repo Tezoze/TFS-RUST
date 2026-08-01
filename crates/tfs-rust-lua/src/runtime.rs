@@ -42,6 +42,8 @@ pub struct LuaRuntime {
     pending_chat_channels: Vec<PendingChatChannel>,
     /// Pending talkactions from TalkAction:register() calls (drained after directory scan).
     pending_talkactions: Vec<PendingTalkAction>,
+    /// Pending actions from Action:register() calls (drained after directory scan).
+    pending_actions: Vec<PendingAction>,
     /// PC-3a: `onCastSpell` callback registry keys, keyed by spell words (lowercased).
     /// Populated during `load_spell_scripts` from `_pending_spell_callbacks`.
     /// C++ reference: `Event::loadCallback` / `getEvent` (`baseevents.cpp:136`,
@@ -76,6 +78,16 @@ pub struct PendingTalkAction {
     pub words: String,
     pub separator: String,
     pub on_say: Option<mlua::RegistryKey>,
+}
+
+/// Pending action definition from Lua Action:register().
+///
+/// C++ reference: `actions.h` `Action` — item/action id lists + `onUse` callback.
+#[derive(Debug)]
+pub struct PendingAction {
+    pub item_ids: Vec<u16>,
+    pub action_ids: Vec<u16>,
+    pub on_use: Option<mlua::RegistryKey>,
 }
 
 impl LuaRuntime {
@@ -137,6 +149,10 @@ impl LuaRuntime {
         lua.globals()
             .set("_pending_talkactions", pending_talkactions)?;
 
+        // Initialize pending action buffer for Action:register()
+        let pending_actions = lua.create_table()?;
+        lua.globals().set("_pending_actions", pending_actions)?;
+
         // NPC-1 pending buffers (also re-init'd in load_npc_definitions).
         lua.globals().set("_pending_npcs", lua.create_table()?)?;
         lua.globals()
@@ -161,6 +177,7 @@ impl LuaRuntime {
             timer_events,
             pending_chat_channels: Vec::new(),
             pending_talkactions: Vec::new(),
+            pending_actions: Vec::new(),
             spell_callbacks: HashMap::new(),
             weapon_callbacks: HashMap::new(),
             npc_callbacks: HashMap::new(),
@@ -324,6 +341,127 @@ impl LuaRuntime {
     /// This should be called after all talkaction scripts in a directory have been loaded.
     pub fn drain_pending_talkactions(&mut self) -> Vec<PendingTalkAction> {
         std::mem::take(&mut self.pending_talkactions)
+    }
+
+    /// Load a Lua script that calls `Action():register()`.
+    ///
+    /// C++ reference: `actions.cpp` `Actions::registerLuaEvent`.
+    pub fn load_action_script(&mut self, path: &str) -> Result<(), LuaError> {
+        let full_path = Path::new(path);
+        let chunk = std::fs::read_to_string(full_path)
+            .map_err(|e| LuaError::ScriptIo(full_path.display().to_string(), e.to_string()))?;
+
+        self.lua
+            .globals()
+            .set("_pending_actions", self.lua.create_table()?)?;
+
+        self.lua
+            .load(&chunk)
+            .set_name(path)
+            .exec()
+            .map_err(LuaError::Init)?;
+
+        let pending: mlua::Table = self.lua.globals().get("_pending_actions")?;
+        for i in 1..=pending.len()? {
+            if let Ok(action_table) = pending.get::<mlua::Table>(i) {
+                let mut item_ids = Vec::new();
+                let ids_table: mlua::Table = action_table.get("_ids")?;
+                for j in 1..=ids_table.len()? {
+                    if let Ok(id) = ids_table.get::<u16>(j) {
+                        item_ids.push(id);
+                    }
+                }
+
+                let mut action_ids = Vec::new();
+                let aids_table: mlua::Table = action_table.get("_aids")?;
+                for j in 1..=aids_table.len()? {
+                    if let Ok(id) = aids_table.get::<u16>(j) {
+                        action_ids.push(id);
+                    }
+                }
+
+                let on_use = action_table
+                    .get::<Option<mlua::Function>>("onUse")?
+                    .map(|f| self.lua.create_registry_value(f))
+                    .transpose()
+                    .map_err(LuaError::Init)?;
+
+                self.pending_actions.push(PendingAction {
+                    item_ids,
+                    action_ids,
+                    on_use,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drain pending actions accumulated from `load_action_script` calls.
+    pub fn drain_pending_actions(&mut self) -> Vec<PendingAction> {
+        std::mem::take(&mut self.pending_actions)
+    }
+
+    /// Call an action `onUse` hook — `(player, item, fromPos, target, toPos) -> bool`.
+    ///
+    /// Returns `true` = handled (skip native fallthrough), `false` = not handled.
+    /// C++ reference: `actions.cpp` `Action::executeUse` / `callFunction(6)` (no `isHotkey`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn call_action_on_use(
+        &self,
+        callback: &mlua::RegistryKey,
+        player: crate::context::CreatureId,
+        item: crate::context::ItemId,
+        from_pos: (u16, u16, u8),
+        target_item: Option<crate::context::ItemId>,
+        target_creature: Option<crate::context::CreatureId>,
+        to_pos: (u16, u16, u8),
+    ) -> Result<bool, LuaError> {
+        let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
+        let player_ud = self
+            .lua
+            .create_userdata(CreatureRef(player))
+            .map_err(LuaError::Init)?;
+        let item_ud = self
+            .lua
+            .create_userdata(ItemRef(item))
+            .map_err(LuaError::Init)?;
+        let from_ud = self
+            .lua
+            .create_userdata(PositionRef {
+                x: from_pos.0,
+                y: from_pos.1,
+                z: from_pos.2,
+            })
+            .map_err(LuaError::Init)?;
+        let to_ud = self
+            .lua
+            .create_userdata(PositionRef {
+                x: to_pos.0,
+                y: to_pos.1,
+                z: to_pos.2,
+            })
+            .map_err(LuaError::Init)?;
+
+        let target: Value = if let Some(tid) = target_item {
+            Value::UserData(
+                self.lua
+                    .create_userdata(ItemRef(tid))
+                    .map_err(LuaError::Init)?,
+            )
+        } else if let Some(cid) = target_creature {
+            Value::UserData(
+                self.lua
+                    .create_userdata(CreatureRef(cid))
+                    .map_err(LuaError::Init)?,
+            )
+        } else {
+            Value::Nil
+        };
+
+        function
+            .call::<bool>((player_ud, item_ud, from_ud, target, to_ud))
+            .map_err(LuaError::Init)
     }
 
     /// Call a talkaction `onSay` hook — `(player, words, param) -> bool`.
@@ -1102,6 +1240,63 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         Ok(ta)
     })?;
     globals.set("TalkAction", talkaction_constructor)?;
+
+    // `Action()` — self-registering action constructor (doors / food / levers).
+    //
+    // Plain Lua **table** (not userdata), same pattern as `TalkAction` / `Channel`.
+    // Scripts set `function action.onUse(...)` then `:id` / `:aid` / `:register()`.
+    //
+    // C++ reference: `actions.h` `Action` / `actions.cpp` `Actions::registerLuaEvent`.
+    let action_constructor = lua.create_function(|lua, ()| {
+        let action = lua.create_table()?;
+        action.set("_ids", lua.create_table()?)?;
+        action.set("_aids", lua.create_table()?)?;
+        // `action:id(...)` — append one or more item type ids.
+        action.set(
+            "id",
+            lua.create_function(|_lua, (this, args): (mlua::Table, mlua::Variadic<Value>)| {
+                let ids: mlua::Table = this.get("_ids")?;
+                for arg in args.iter() {
+                    let id = match arg {
+                        Value::Integer(n) => *n as u16,
+                        Value::Number(n) => *n as u16,
+                        _ => continue,
+                    };
+                    let len = ids.len()?;
+                    ids.set(len + 1, id)?;
+                }
+                Ok(this)
+            })?,
+        )?;
+        // `action:aid(...)` — append action ids (TFS `actionItemMap`).
+        action.set(
+            "aid",
+            lua.create_function(|_lua, (this, args): (mlua::Table, mlua::Variadic<Value>)| {
+                let aids: mlua::Table = this.get("_aids")?;
+                for arg in args.iter() {
+                    let id = match arg {
+                        Value::Integer(n) => *n as u16,
+                        Value::Number(n) => *n as u16,
+                        _ => continue,
+                    };
+                    let len = aids.len()?;
+                    aids.set(len + 1, id)?;
+                }
+                Ok(this)
+            })?,
+        )?;
+        action.set(
+            "register",
+            lua.create_function(|lua, this: mlua::Table| {
+                let pending: mlua::Table = lua.globals().get("_pending_actions")?;
+                let len = pending.len()?;
+                pending.set(len + 1, this)?;
+                Ok(())
+            })?,
+        )?;
+        Ok(action)
+    })?;
+    globals.set("Action", action_constructor)?;
 
     // `Player(name)` — resolve an online player by name → `CreatureRef` userdata
     // or `nil`. LUA-4 §0.3 / `luascript.cpp` `luaPlayerCreate`.

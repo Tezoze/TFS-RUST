@@ -211,6 +211,25 @@ pub trait EventDispatcher {
         false
     }
 
+    /// Action `onUse` — `actions.cpp` `Action::executeUse`.
+    ///
+    /// Returns `true` if a script handled the use (skip native fallthrough).
+    /// `item_type` / `action_id` drive `Actions::getAction` lookup (aid then type).
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_on_use_action(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _item_type: u16,
+        _action_id: u16,
+        _from: Position,
+        _target_item: Option<ItemId>,
+        _target_creature: Option<CreatureId>,
+        _to: Position,
+    ) -> bool {
+        false
+    }
+
     /// TFS `Weapon::executeUseWeapon` — `weapons.cpp:485`.
     /// Hit → `VARIANT_NUMBER`; miss → `VARIANT_POSITION` at drop tile.
     fn dispatch_on_use_weapon(

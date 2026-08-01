@@ -1,3 +1,17 @@
+# Doors Phase 1 — Action pipeline — 2026-08-01
+
+- [x] `Action()` table + `:id`/`:aid`/`:register` + `_pending_actions` (TalkAction pattern)
+- [x] `load_action_scripts` recursive; inject door tables from `global.lua` (no full lib)
+- [x] `ActionRegistry` + `fire_on_use_action`; hook use / use-with before native
+- [x] `item.itemid` field; unit smoke `food.lua` (meat 2666) + `doors.lua` register
+- [x] Update `tasks/doors-actions-plan.md` Phase 1 status
+
+# Doors Phase 0 — data-pack hygiene — 2026-08-01
+
+- [x] Uncomment `openQuestDoors` / `openLevelDoors` in `data/global.lua` (open = closed +1)
+- [x] Spot-check vs `forgotten.otbm`: closed/locked/house/quest/level IDs present; no real table gaps (1215–1218 = buttresses)
+- [x] Update `tasks/doors-actions-plan.md` Phase 0 status
+
 # 772 client crash on hole/stairs down (z=7→8) — bug0000013 rz=-1 — 2026-08-01
 
 - [x] Root cause: `send_notify_go` led with `0x6D` for surface→underground; client FloorDown then double-applies z → `Map.cpp` `rz=-1`

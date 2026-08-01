@@ -404,6 +404,39 @@ pub fn fire_on_cast_rune(
     })
 }
 
+/// TFS `Action::executeUse` — fire Lua `onUse` if registered for this item.
+///
+/// Returns `true` when Lua handled the use (skip native container/teleport).
+pub fn fire_on_use_action(
+    world: &mut GameWorld,
+    player: CreatureId,
+    item: ItemId,
+    from: tfs_rust_common::Position,
+    target_item: Option<ItemId>,
+    target_creature: Option<CreatureId>,
+    to: tfs_rust_common::Position,
+) -> bool {
+    let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
+    let action_id = world.items.get(item).map(|i| i.action_id()).unwrap_or(0);
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.dispatch_on_use_action(
+                player,
+                item,
+                item_type,
+                action_id,
+                from,
+                target_item,
+                target_creature,
+                to,
+            )
+        })
+    })
+}
+
 /// TFS `Weapon::executeUseWeapon` — fire `onUseWeapon(player, variant[, hit])`.
 pub fn fire_on_use_weapon(
     world: &mut GameWorld,

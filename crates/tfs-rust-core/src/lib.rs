@@ -81,6 +81,7 @@ pub mod spell;
 pub mod stability;
 mod subsystem_counters;
 pub mod talkactions;
+mod actions;
 #[cfg(test)]
 mod test_world;
 pub mod thing;

@@ -401,7 +401,7 @@ mod tests {
 }
 
 /// Recursively collect all `.lua` files in a directory.
-fn collect_lua_files(dir: &Path, out: &mut Vec<PathBuf>) {
+pub(crate) fn collect_lua_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

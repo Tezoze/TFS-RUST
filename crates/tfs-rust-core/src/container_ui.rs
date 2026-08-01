@@ -664,6 +664,24 @@ impl GameWorld {
         pos: Position,
         preferred_cid: Option<u8>,
     ) -> Result<(), ReturnValue> {
+        // Action `onUse` before native teleport / container (`actions.cpp` `internalUseItem`).
+        let from = if is_map_tile {
+            pos
+        } else {
+            self.script_item_position(item_id).unwrap_or(pos)
+        };
+        if crate::lua_scope::fire_on_use_action(
+            self,
+            cid,
+            item_id,
+            from,
+            Some(item_id),
+            None,
+            from,
+        ) {
+            return Ok(());
+        }
+
         let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
         if is_map_tile && crate::floor_change_use::is_teleport_floor_use_item(item_type) {
             let dest = crate::floor_change_use::resolve_teleport_use_destination(
@@ -724,6 +742,32 @@ impl GameWorld {
         if let Some(rune) = self.spells.runes_by_id.get(&item_type).cloned() {
             return self.player_cast_rune(conn_id, cid, item_id, &rune, target);
         }
+
+        // Action use-with after rune miss (`actions.cpp` `useItemEx` → `executeUse`).
+        let from = self
+            .script_item_position(item_id)
+            .unwrap_or(Position::new(0, 0, 0));
+        let to = target.pos;
+        let target_item =
+            self.resolve_use_object(cid, target.pos, target.stack_pos, target.sprite_id);
+        let target_creature = if target_item.is_none() {
+            self.resolve_creature_at_action_target(cid, target)
+        } else {
+            None
+        };
+        if crate::lua_scope::fire_on_use_action(
+            self,
+            cid,
+            item_id,
+            from,
+            target_item,
+            target_creature,
+            to,
+        ) {
+            self.player_apply_multiuse_exhaust(cid);
+            return Ok(());
+        }
+
         self.try_open_container_for_item(conn_id, cid, item_id, None);
         self.player_apply_multiuse_exhaust(cid);
         Ok(())

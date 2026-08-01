@@ -15,11 +15,15 @@ pub mod npc_loader;
 pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
+pub mod actions;
 pub mod talkactions;
 pub mod timer_events;
 pub mod userdata;
 
 // Re-export commonly used types
+pub use actions::{
+    ActionDef, inject_door_tables_from_global, load_action_scripts,
+};
 pub use chat_channels::{ChatChannelDef, load_chat_channel_scripts};
 pub use constants::register_constants;
 pub use context::{
@@ -42,7 +46,8 @@ pub use move_events::{MoveEventEntry, MoveEventKind, MoveEventsRegistry};
 pub use npc_dialogue::{NpcDialogueProgram, register_npc_dialogue};
 pub use npc_type::{NpcTypeBuilder, PendingNpc, register_npc_type};
 pub use runtime::{
-    CallbackRef, LuaError, LuaRuntime, PendingChatChannel, PendingTalkAction, RegisterLuaFunctions,
+    CallbackRef, LuaError, LuaRuntime, PendingAction, PendingChatChannel, PendingTalkAction,
+    RegisterLuaFunctions,
 };
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
 pub use talkactions::{TalkActionDef, load_talkaction_scripts};

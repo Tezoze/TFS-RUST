@@ -28,7 +28,10 @@ use crate::lua_event_dispatcher::LuaEventDispatcher;
 use crate::lua_scope::register_lua_mutation_hooks;
 use crate::map::Map;
 use crate::spawn::SpawnManager;
-use tfs_rust_lua::{load_chat_channel_scripts, load_talkaction_scripts, LuaRuntime, ScriptLoader};
+use tfs_rust_lua::{
+    inject_door_tables_from_global, load_action_scripts, load_chat_channel_scripts,
+    load_talkaction_scripts, LuaRuntime, ScriptLoader,
+};
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
 fn resolve_pem_path() -> anyhow::Result<PathBuf> {
@@ -222,6 +225,23 @@ pub async fn run() -> anyhow::Result<()> {
             };
             let talkactions = crate::talkactions::TalkActionRegistry::from_defs(talkaction_defs);
 
+            // Phase 1 doors/actions: inject door ID tables (without full global.lua),
+            // then load `data/scripts/actions/**` self-registering Action scripts.
+            if let Err(e) = inject_door_tables_from_global(&lua_runtime, &data_path) {
+                tracing::warn!("Door table inject from global.lua failed: {}", e);
+            }
+            let action_defs = match load_action_scripts(&mut lua_runtime, &data_path) {
+                Ok(defs) => {
+                    tracing::info!("Loaded {} action definitions", defs.len());
+                    defs
+                }
+                Err(e) => {
+                    tracing::warn!("Action script loading failed: {}", e);
+                    Vec::new()
+                }
+            };
+            let actions = crate::actions::ActionRegistry::from_defs(action_defs);
+
             // PC-2b/PC-3: Load weapon + spell scripts from `data/scripts/weapons/*.lua`
             // and `data/scripts/spells/**/*.lua`. These drain `_pending_weapons` /
             // `_pending_spells` into `WeaponRegistry` / `SpellRegistry`. Without this,
@@ -318,6 +338,11 @@ pub async fn run() -> anyhow::Result<()> {
             // Must be done after `LuaEventDispatcher::new` since the
             // registry holds `mlua::RegistryKey`s tied to the runtime.
             dispatcher.set_talkactions(talkactions);
+            dispatcher.set_actions(actions);
+            tracing::info!(
+                actions = dispatcher.actions_count(),
+                "Action registry attached"
+            );
             (
                 dispatcher,
                 chat_channels,
