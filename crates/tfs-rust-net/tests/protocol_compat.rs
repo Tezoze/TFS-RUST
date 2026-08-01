@@ -1464,17 +1464,14 @@ mod v1098_floor_change {
     }
 }
 
-/// 772 self-move golden tests — decompile `TCreature::NotifyGo` (`cract.cc:1400-1465`).
+/// 772 self-move golden tests — decompile `TCreature::NotifyGo` (`cract.cc:1400-1465`)
+/// plus TVP surface→underground self-packet (`0x6C`, `protocolgame.cpp` ~1793–1805).
 ///
-/// The 7.72 client requires a `0x6D` self-packet (decompile `AnnounceMovingCreature` →
-/// `SendMoveCreature`) BEFORE the `NotifyGo` floor/row stream. Without it the client doesn't
-/// update its central position → desync (§6 experiment). `send_notify_go` emits the 0x6D
-/// self-packet (12 bytes: opcode + old_pos + old_stack + new_pos), then the **overall**
-/// old→new delta: z-steps (each shifts x/y diagonally), then x-steps, then y-steps —
-/// `SendFloors`/`SendRow` per step, or `SendFullScreen` (0x64) when non-adjacent. This fixes
-/// the combined diagonal+z stair desync (§16.3): walking perpendicular onto a stair (west
-/// onto south-facing stairs) leaves a leftover delta on both axes that per-segment emission
-/// encoded as an invalid row sequence.
+/// Adjacent moves stream `SendFloors`/`SendRow` after a leading self-packet:
+/// - surface→underground (`z=7`→`z≥8`): `0x6C` remove (must not `0x6D` — client FloorDown
+///   would double-apply z and assert `rz=-1` / bug0000013)
+/// - otherwise: `0x6D` move (old+stack+new) then floor/row opcodes
+/// Non-adjacent moves use `SendFullScreen` (`0x64`) after `0x6D`.
 mod v772_floor_change {
     use super::*;
 
@@ -1483,21 +1480,22 @@ mod v772_floor_change {
     }
 
     /// 0x6D self-packet is 12 bytes: 1 (opcode) + 5 (old_pos) + 1 (old_stack) + 5 (new_pos).
-    const SELF_PACKET_LEN: usize = 12;
+    /// Surface→underground uses 0x6C remove (7 bytes) instead — see `hole_down_*`.
+    const SELF_MOVE_PACKET_LEN: usize = 12;
+    const SELF_REMOVE_PACKET_LEN: usize = 7;
 
-    /// Assert the stream leads with a `0x6D` self-packet and return the offset where the
-    /// floor/row stream begins.
-    fn assert_self_packet_then_stream(bytes: &[u8]) -> usize {
+    /// Assert the stream leads with a `0x6D` self-move and return the floor/row stream offset.
+    fn assert_self_move_then_stream(bytes: &[u8]) -> usize {
         assert_eq!(
             bytes[0], 0x6D,
-            "772 NotifyGo must lead with 0x6D self-packet (got {:#04X})",
+            "772 NotifyGo must lead with 0x6D self-move (got {:#04X})",
             bytes[0]
         );
-        SELF_PACKET_LEN
+        SELF_MOVE_PACKET_LEN
     }
 
-    /// Hole straight down (100,100,7)→(100,100,8): 0x6D self-packet, then `0xBF`
-    /// (SendFloors down), then `0x66` east + `0x67` south from the diagonal unwind.
+    /// Hole straight down (100,100,7)→(100,100,8): `0x6C` remove (not `0x6D`), then `0xBF`.
+    /// A leading `0x6D` pre-sets client z→8; FloorDown then yields `rz=-1` / bug0000013.
     #[test]
     fn hole_down_self_packet_then_floors() {
         let b = notify_go_bytes(
@@ -1505,8 +1503,28 @@ mod v772_floor_change {
             Position::new(100, 100, 7),
             Position::new(100, 100, 8),
         );
-        let off = assert_self_packet_then_stream(&b);
-        assert_eq!(b[off], 0xBF, "hole down leads with SendFloors down (0xBF)");
+        assert_eq!(
+            b[0], 0x6C,
+            "surface→underground NotifyGo must lead with 0x6C remove (got {:#04X})",
+            b[0]
+        );
+        assert_eq!(
+            b[SELF_REMOVE_PACKET_LEN], 0xBF,
+            "hole down leads with SendFloors down (0xBF)"
+        );
+    }
+
+    /// Live crash repro (2026-08-01): (32380,32205,7)→(32380,32204,8) with `0x6D`+`0xBF`
+    /// asserted `Map.cpp` `rz=-1` / bug0000013. Must use `0x6C` then `0xBF`.
+    #[test]
+    fn surface_to_underground_stairs_uses_remove_not_move() {
+        let b = notify_go_bytes(
+            &codec_772(),
+            Position::new(32380, 32205, 7),
+            Position::new(32380, 32204, 8),
+        );
+        assert_eq!(b[0], 0x6C, "must not pre-set client z with 0x6D before FloorDown");
+        assert_eq!(b[SELF_REMOVE_PACKET_LEN], 0xBF);
     }
 
     /// Ladder straight up (100,100,8)→(100,100,7): 0x6D self-packet, then `0xBE`.
@@ -1517,7 +1535,7 @@ mod v772_floor_change {
             Position::new(100, 100, 8),
             Position::new(100, 100, 7),
         );
-        let off = assert_self_packet_then_stream(&b);
+        let off = assert_self_move_then_stream(&b);
         assert_eq!(b[off], 0xBE, "ladder up leads with SendFloors up (0xBE)");
     }
 
@@ -1529,7 +1547,7 @@ mod v772_floor_change {
             Position::new(100, 100, 7),
             Position::new(101, 100, 7),
         );
-        let off = assert_self_packet_then_stream(&b);
+        let off = assert_self_move_then_stream(&b);
         assert_eq!(b[off], 0x66, "same-z east is a lone SendRow east (0x66)");
     }
 
@@ -1553,8 +1571,8 @@ mod v772_floor_change {
             Position::new(100, 101, 7),
         );
 
-        let n_off = assert_self_packet_then_stream(&north);
-        let w_off = assert_self_packet_then_stream(&west);
+        let n_off = assert_self_move_then_stream(&north);
+        let w_off = assert_self_move_then_stream(&west);
         assert_eq!(
             north[n_off], 0xBE,
             "north approach leads with SendFloors up"
@@ -1574,7 +1592,7 @@ mod v772_floor_change {
             Position::new(100, 100, 7),
             Position::new(100, 100, 9),
         );
-        let off = assert_self_packet_then_stream(&b);
+        let off = assert_self_move_then_stream(&b);
         assert_eq!(
             b[off], 0x64,
             "non-adjacent NotifyGo uses SendFullScreen (0x64)"

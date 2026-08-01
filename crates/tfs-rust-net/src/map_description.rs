@@ -1137,12 +1137,16 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 /// 772 `TCreature::NotifyGo` — the player's **own** move notification
 /// (`reference/cipsoft-772/tibia-game-master/src/cract.cc:1400-1465`).
 ///
-/// This is the real 7.72 client's ground truth for self-moves. Unlike TVP / 1098
-/// (`send_move_creature_player`), it emits **no** `0x6D`/`0x6C` self-packet. Instead it
-/// computes the **overall** `orig → dest` delta and walks it in a fixed order —
+/// Computes the **overall** `orig → dest` delta and walks it in a fixed order —
 /// z-steps first (each shifts x/y diagonally by ∓1), then x-steps, then y-steps —
 /// emitting `SendFloors` (0xBE/0xBF) / `SendRow` (0x65-0x68) per step. Non-adjacent moves
 /// (`|d| > 1` on any axis) use `SendFullScreen` (`0x64`).
+///
+/// Leading self-packet (before floors/rows):
+/// - surface→underground (`orig.z == 7 && dest.z >= 8`): `0x6C` remove — TVP
+///   `sendMoveCreature` (`protocolgame.cpp` ~1793–1805). A `0x6D` pre-sets client z and
+///   FloorDown then asserts `rz=-1` (bug0000013).
+/// - otherwise: `0x6D` old+stack+new (centre update before `0xBE`/`SendRow`).
 ///
 /// Callers pass the overall pre-move position (`orig`) and final position (`dest`); the
 /// queryDestination chain must **not** be emitted per segment — that produces an invalid
@@ -1191,19 +1195,37 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
 
     let mut msg = NetworkMessage::new();
 
-    // Self-move packet (0x6D) — decompile `AnnounceMovingCreature` → `SendMoveCreature`
-    // sends 0x6D to ALL visible players including self BEFORE `NotifyGo`. Without this,
-    // the client doesn't update its central position → desync (§6 experiment).
-    // Decompile `SendMoveCreature` format: 0x6D + pos(old) + stack + pos(new).
-    msg.write_u8(0x6D);
-    if (0..10).contains(&old_stack_pos) {
-        msg.write_position(&orig);
-        msg.write_u8(old_stack_pos as u8);
+    // Leading self-packet before `SendFloors`/`SendRow`.
+    //
+    // Surface → underground (`z=7` → `z≥8`) must be `0x6C` remove (old pos only), matching
+    // TVP `sendMoveCreature` (`protocolgame.cpp` ~1793–1805) and [`send_move_creature_player`].
+    // A `0x6D` here pre-sets the client's map centre to the new z; `0xBF` FloorDown then
+    // increments z again and reads the wrong floor-count / offsets → `Map.cpp` assert
+    // `rz = -1` / bug0000013 (live 772 client, 2026-08-01).
+    //
+    // All other adjacent moves keep `0x6D` (old + stack + new) so the centre updates before
+    // `0xBE`/`SendRow` (§6 experiment).
+    let surface_to_underground = oz == 7 && dz >= 8;
+    if surface_to_underground {
+        msg.write_u8(0x6C);
+        if (0..10).contains(&old_stack_pos) {
+            msg.write_position(&orig);
+            msg.write_u8(old_stack_pos as u8);
+        } else {
+            msg.write_u16(0xFFFF);
+            msg.write_u32(creature_id);
+        }
     } else {
-        msg.write_u16(0xFFFF);
-        msg.write_u32(creature_id);
+        msg.write_u8(0x6D);
+        if (0..10).contains(&old_stack_pos) {
+            msg.write_position(&orig);
+            msg.write_u8(old_stack_pos as u8);
+        } else {
+            msg.write_u16(0xFFFF);
+            msg.write_u32(creature_id);
+        }
+        msg.write_position(&dest);
     }
-    msg.write_position(&dest);
 
     let (mut px, mut py, mut pz) = (ox, oy, oz);
 

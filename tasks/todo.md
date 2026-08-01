@@ -1,3 +1,10 @@
+# 772 client crash on hole/stairs down (z=7→8) — bug0000013 rz=-1 — 2026-08-01
+
+- [x] Root cause: `send_notify_go` led with `0x6D` for surface→underground; client FloorDown then double-applies z → `Map.cpp` `rz=-1`
+- [x] Fix: `0x6C` remove for `orig.z==7 && dest.z>=8` (match TVP / `send_move_creature_player`)
+- [x] Tests: `hole_down_self_packet_then_floors`, `surface_to_underground_stairs_uses_remove_not_move`
+- [x] Lesson 277
+
 # Field runes (firebomb) — no damage + delayed 772 client crash — 2026-08-01
 
 - [x] Root cause crash: `is_cip_priority_bottom` treated MagicField as BOTTOM; 772 `objects.srv` fields are LOW → creature stackpos desync after `0x6A` when monster moves
