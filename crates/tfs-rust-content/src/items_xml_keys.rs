@@ -5,7 +5,7 @@
 //!
 //! **Phase 3 (abilities):** all keys in the `ItemParseAttributesMap` abilities block (equipment `speed`, skills, absorb, suppress, elements, …) are parsed into [crate::item_abilities::ItemAbilities] on [crate::otb::ItemType::abilities] — see [crate::item_abilities::apply_ability_attribute].
 //! **Decay (typed on `ItemType`):** `duration` → `decay_time`, `decayto` → `decay_to`, `stopduration` → `stop_time`, `showduration` → `show_duration` (still mirrored in `xml_attributes`).
-//! **Phase 2 (still `xml_attributes` + typed `ItemType` where noted):** `fluidsource`, `transformto` / `destroyto` / equip transforms, `maletransformto` / `femaletransformto`, `shoottype`, `effect`, `corpsetype`, `field` (+ nested), `supply`, `showcharges`, `showattributes`, `leveldoor`, `partnerdirection`, `writeonceitemid`, `runespellname`, … — keep this list in sync. Details: `tasks/items-parsing-audit.md` (Phase 2–3).
+//! **Phase 2 (still `xml_attributes` + typed `ItemType` where noted):** `fluidsource`, `transformto` / `destroyto` / equip transforms, `maletransformto` / `femaletransformto`, `shoottype`, `effect`, `corpsetype`, `field` (+ nested), `supply`, `showcharges`, `showattributes`, `leveldoor`, `partnerdirection`, `writeonceitemid`, `runespellname`, 772 pack keys `forceuse` / `replacemagicfields` / `specialfieldblockpath` / `poisondamagecycles` / `blockpathfind`, … — keep this list in sync. Details: `tasks/items-parsing-audit.md` (Phase 2–3).
 
 /// Sorted for binary search — keep alphabetical when adding keys.
 const KNOWN_XML_KEYS: &[&str] = &[
@@ -33,6 +33,7 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "attack",
     "attackspeed",
     "blocking",
+    "blockpathfind",
     "blockprojectile",
     "charges",
     "chest",
@@ -65,6 +66,7 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "fluidsource",
     "forcesave",
     "forceserialize",
+    "forceuse",
     "healthgain",
     "healthticks",
     "hitchance",
@@ -94,9 +96,11 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "moveable",
     "partnerdirection",
     "pickupable",
+    "poisondamagecycles",
     "range",
     "readable",
     "replaceable",
+    "replacemagicfields",
     "rotateto",
     "runespellname",
     "shoottype",
@@ -112,6 +116,7 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "skillshield",
     "skillsword",
     "slottype",
+    "specialfieldblockpath",
     "speed",
     "stopduration",
     "storeitem",
@@ -162,6 +167,9 @@ mod tests {
     fn samples_recognized() {
         assert!(is_known_xml_key("blocking"));
         assert!(is_known_xml_key("hitchance"));
+        assert!(is_known_xml_key("forceuse"));
+        assert!(is_known_xml_key("poisondamagecycles"));
+        assert!(is_known_xml_key("blockpathfind"));
         assert!(!is_known_xml_key("not_a_real_tfs_key_xyz"));
     }
 }

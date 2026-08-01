@@ -178,11 +178,18 @@ fn internal_add_item_id(
         // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
         match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
             Ok(parsed) => {
-                if let Some(st) = parsed.subtype_override {
-                    item.count = u16::from(st).max(1);
-                }
                 if parsed.attrs.attribute_bits() != 0 {
                     item.attributes = Some(Box::new(parsed.attrs));
+                }
+                if let Some(st) = parsed.subtype_override {
+                    let is_fluid = it.is_some_and(|t| t.is_fluid_container() || t.is_splash());
+                    if is_fluid {
+                        // Fluid subtype 0 = empty; do not force count≥1 (would look like water).
+                        item.count = u16::from(st);
+                        item.set_fluid_type(u16::from(st));
+                    } else {
+                        item.count = u16::from(st).max(1);
+                    }
                 }
             }
             Err(e) => {

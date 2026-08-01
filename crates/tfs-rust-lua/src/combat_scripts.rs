@@ -304,6 +304,7 @@ impl LuaRuntime {
                     has_param: ps.has_param,
                     has_player_name_param: ps.has_player_name_param,
                     need_direction: ps.need_direction,
+                    range: ps.range,
                     vocations: ps.vocations.clone(),
                     on_cast_callback: ps.on_cast_callback.clone(),
                 };
@@ -332,6 +333,7 @@ impl LuaRuntime {
                     block_creature: ps.block_creature,
                     is_pz_lock: ps.is_pz_lock,
                     cooldown_spell_time: ps.cooldown_spell_time,
+                    range: ps.range,
                     vocations: ps.vocations.clone(),
                     on_cast_callback: ps.on_cast_callback.clone(),
                 };

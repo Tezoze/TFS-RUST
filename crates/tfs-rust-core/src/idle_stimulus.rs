@@ -3684,11 +3684,10 @@ impl GameWorld {
         obj2: Option<ActionObjectRef>,
         open_index: u8,
     ) -> Result<(), ReturnValue> {
-        // Re-validate obj1 (and obj2 if present) — `validate_action_object_ref` resolves
-        // the item + checks the sprite, returning `Err(NotPossible)` on mismatch (C++
-        // `NOTACCESSIBLE` → `NotPossible`, `walk/mod.rs:1506` convention).
-        // obj2 may be a creature target (needTarget runes) — use `validate_use_ex_target_ref`.
-        self.validate_action_object_ref(cid, obj1)?;
+        // Re-validate obj1 (and obj2 if present).
+        // obj1 may be bare ground (rope hole / floor teleport) — `validate_use_object_ref`.
+        // obj2 may be a creature target (needTarget runes) — `validate_use_ex_target_ref`.
+        self.validate_use_object_ref(cid, obj1)?;
         if let Some(o2) = obj2 {
             self.validate_use_ex_target_ref(cid, o2)?;
         }
@@ -3699,19 +3698,12 @@ impl GameWorld {
             return Ok(());
         };
 
-        // Resolve `ItemId` for obj1 — same resolution path as `validate_action_object_ref`.
+        // Prefer a real ItemId; else bare ground type (TFS getUseItem → ground).
         let item_id = self.resolve_use_object(cid, obj1.pos, obj1.stack_pos, obj1.sprite_id);
-        let Some(item_id) = item_id else {
-            return Err(ReturnValue::NotPossible);
-        };
-
-        if obj2.is_some() {
-            // Two-object use — `CUseTwoObjects` (`receiving.cc:430`). Core helper sets
-            // multiuse exhaustion on success (`cract.cc:765`).
-            let o2 = obj2.expect("obj2 checked");
-            self.player_use_item_ex_core(conn_id, cid, item_id, o2)
-        } else {
-            // Single-object use — `CUseObject` (`receiving.cc:384`).
+        if let Some(item_id) = item_id {
+            if let Some(o2) = obj2 {
+                return self.player_use_item_ex_core(conn_id, cid, item_id, o2);
+            }
             let preferred_cid =
                 if matches!(
                     self.mechanics.profile.container_window_alloc,
@@ -3722,8 +3714,26 @@ impl GameWorld {
                     (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index)
                 };
             let is_map_tile = obj1.pos.x != 0xFFFF;
-            self.player_use_item_core(conn_id, cid, item_id, is_map_tile, obj1.pos, preferred_cid)
+            return self.player_use_item_core(
+                conn_id,
+                cid,
+                item_id,
+                is_map_tile,
+                obj1.pos,
+                preferred_cid,
+            );
         }
+
+        if obj2.is_some() {
+            // Two-object use always needs a real obj1 item (rune / key / …).
+            return Err(ReturnValue::NotPossible);
+        }
+        let Some(ground_type) =
+            self.resolve_ground_use_type(obj1.pos, obj1.stack_pos, obj1.sprite_id)
+        else {
+            return Err(ReturnValue::NotPossible);
+        };
+        self.player_use_ground_core(conn_id, cid, ground_type, obj1.pos)
     }
 
     /// F8 S4 — `TDMove` execute dispatch. Re-validates the source object, reconstructs

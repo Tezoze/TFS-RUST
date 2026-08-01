@@ -345,6 +345,31 @@ fn build_vocation_list(names: &[String]) -> String {
     }
 }
 
+/// Fluid-container look arm — TFS `item.cpp` ~1407–1413 / TVP `item.cpp` ~1026–1031.
+/// `fluid_type_name` is `items[subType].name` when `sub_type > 0`.
+fn fluid_container_suffix(sub_type: u16, fluid_type_name: Option<&str>) -> String {
+    if sub_type > 0 {
+        let name = fluid_type_name
+            .filter(|n| !n.is_empty())
+            .unwrap_or("unknown");
+        format!(" of {name}")
+    } else {
+        ". It is empty".to_string()
+    }
+}
+
+/// Splash look arm — TFS `item.cpp` ~1414–1421.
+fn splash_suffix(sub_type: u16, fluid_type_name: Option<&str>) -> String {
+    let name = if sub_type > 0 {
+        fluid_type_name
+            .filter(|n| !n.is_empty())
+            .unwrap_or("unknown")
+    } else {
+        "unknown"
+    };
+    format!(" of {name}")
+}
+
 /// `(Vol:N)` for containers — `item.cpp` ~1367–1379.
 fn container_volume_suffix(
     item: &Item,
@@ -512,6 +537,9 @@ fn rune_description_suffix(it: &ItemType, item: &Item, vocations: &[String]) -> 
 ///
 /// `show_duration_ms`: remaining duration for `showduration` look text (`None` = no duration attr →
 /// "brand-new" when `it.show_duration`). Callers pass scheduler remaining when `DecayState::True`.
+///
+/// `fluid_type_name`: `items[subType].name` for fluid containers / splashes (`None` →
+/// `"unknown"` when filled). Non-fluid items ignore this.
 pub fn item_get_description_cpp(
     item: &Item,
     it: &ItemType,
@@ -520,6 +548,7 @@ pub fn item_get_description_cpp(
     hydrated_container_capacity: Option<u32>,
     show_duration_ms: Option<i32>,
     rune_vocations: Option<&[String]>,
+    fluid_type_name: Option<&str>,
 ) -> String {
     let mut s = item_name_description(item, it, true);
 
@@ -534,6 +563,13 @@ pub fn item_get_description_cpp(
         s.push_str(&st);
     } else if let Some(vol) = container_volume_suffix(item, it, hydrated_container_capacity) {
         s.push_str(&vol);
+    } else if it.is_fluid_container() {
+        // C++ `item.cpp` ~1407–1413 — before allowDistRead / after abilities.
+        let sub = item.get_sub_type(it);
+        s.push_str(&fluid_container_suffix(sub, fluid_type_name));
+    } else if it.is_splash() {
+        let sub = item.get_sub_type(it);
+        s.push_str(&splash_suffix(sub, fluid_type_name));
     } else if let Some(adr) = allow_dist_read_suffix(item, it, look_distance) {
         s.push_str(&adr);
         allow_dist_read_emitted = true;
@@ -691,7 +727,7 @@ mod tests {
 
         let item = Item::new(it.id, 4);
         let total = 8000u32;
-        let s = item_get_description_cpp(&item, &it, total, 1, None, None, None);
+        let s = item_get_description_cpp(&item, &it, total, 1, None, None, None, None);
         assert_eq!(s, "4 spears (Atk:25).\nThey weigh 80.00 oz.");
     }
 
@@ -721,7 +757,7 @@ mod tests {
         it.abilities.stats[STAT_MAGICPOINTS] = 2;
 
         let item = Item::new(it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 3500, 1, None, None, None);
+        let s = item_get_description_cpp(&item, &it, 3500, 1, None, None, None, None);
         assert_eq!(
             s,
             "a yalahari mask (Arm:5, magic level +2).\n\
@@ -745,7 +781,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
         };
 
         let item = Item::new(it.id, 1);
-        let s = item_get_description_cpp(&item, &it, 1800, 1, None, None, None);
+        let s = item_get_description_cpp(&item, &it, 1800, 1, None, None, None, None);
         assert_eq!(s, "a backpack (Vol:20).\nIt weighs 18.00 oz.");
     }
 
@@ -765,7 +801,7 @@ It can only be wielded properly by sorcerers and druids of level 80 or higher."
 
         let mut item = Item::new(it.id, 1);
         item.set_charges(50);
-        let s = item_get_description_cpp(&item, &it, 500, 1, None, None, None);
+        let s = item_get_description_cpp(&item, &it, 500, 1, None, None, None, None);
         assert_eq!(
             s,
             "a necklace of the deep (protection life drain +50%) that has 50 charges left.\n\
@@ -784,7 +820,7 @@ It can only be wielded properly by players of level 120 or higher."
         };
 
         let item = Item::new_single(it.id);
-        let s = item_get_description_cpp(&item, &it, it.weight, 3, None, None, None);
+        let s = item_get_description_cpp(&item, &it, it.weight, 3, None, None, None, None);
         assert_eq!(s, "water.");
     }
 
@@ -800,13 +836,13 @@ It can only be wielded properly by players of level 120 or higher."
             ..Default::default()
         };
         let item = Item::new_single(it.id);
-        let brand = item_get_description_cpp(&item, &it, 90, 1, None, None, None);
+        let brand = item_get_description_cpp(&item, &it, 90, 1, None, None, None, None);
         assert!(
             brand.contains("that is brand-new"),
             "brand-new: {brand}"
         );
 
-        let with_dur = item_get_description_cpp(&item, &it, 90, 1, None, Some(125_000), None);
+        let with_dur = item_get_description_cpp(&item, &it, 90, 1, None, Some(125_000), None, None);
         assert!(
             with_dur.contains("that will expire in 2 minutes and 5 seconds"),
             "expire: {with_dur}"
@@ -829,12 +865,79 @@ It can only be wielded properly by players of level 120 or higher."
             ..Default::default()
         };
         let item = Item::new_single(it.id);
-        let s = item_get_description_cpp(&item, &it, 120, 1, None, None, None);
+        let s = item_get_description_cpp(&item, &it, 120, 1, None, None, None, None);
         assert!(
             s.starts_with("a spell rune (\"adori vita vis\"). It can only be used by players with magic level 15 or higher."),
             "got: {s}"
         );
         assert!(s.contains("It weighs 1.20 oz."), "weight: {s}");
+    }
+
+    /// C++ `item.cpp` ~1407–1413 / TVP `item.cpp` ~1026–1031 — vial of manafluid.
+    #[test]
+    fn fluid_container_look_shows_of_fluid_name() {
+        let it = ItemType {
+            id: 2006,
+            name: "vial".into(),
+            article: "a".into(),
+            group: ItemType::GROUP_FLUID,
+            flags: FLAG_PICKUPABLE,
+            weight: 180,
+            ..Default::default()
+        };
+        // 772 `FLUID_MANAFLUID` = 10; items.xml id 10 = "manafluid".
+        let mut item = Item::new(it.id, 10);
+        item.set_fluid_type(10);
+        let s = item_get_description_cpp(
+            &item,
+            &it,
+            180,
+            1,
+            None,
+            None,
+            None,
+            Some("manafluid"),
+        );
+        assert_eq!(
+            s,
+            "a vial of manafluid.\nIt weighs 1.80 oz.",
+            "got: {s}"
+        );
+    }
+
+    /// Persistence often stores fluid only in `count` (ATTR_COUNT) — look must still resolve.
+    #[test]
+    fn fluid_container_look_uses_count_when_fluid_attr_unset() {
+        let it = ItemType {
+            id: 2006,
+            name: "vial".into(),
+            article: "a".into(),
+            group: ItemType::GROUP_FLUID,
+            flags: FLAG_PICKUPABLE,
+            weight: 180,
+            ..Default::default()
+        };
+        let item = Item::new(it.id, 10); // no set_fluid_type
+        assert_eq!(item.get_sub_type(&it), 10);
+        let s = item_get_description_cpp(&item, &it, 180, 1, None, None, None, Some("manafluid"));
+        assert!(s.starts_with("a vial of manafluid."), "got: {s}");
+    }
+
+    #[test]
+    fn fluid_container_look_empty() {
+        let it = ItemType {
+            id: 2006,
+            name: "vial".into(),
+            article: "a".into(),
+            group: ItemType::GROUP_FLUID,
+            flags: FLAG_PICKUPABLE,
+            weight: 180,
+            ..Default::default()
+        };
+        let mut item = Item::new(it.id, 0);
+        item.set_fluid_type(0);
+        let s = item_get_description_cpp(&item, &it, 180, 1, None, None, None, None);
+        assert_eq!(s, "a vial. It is empty.\nIt weighs 1.80 oz.", "got: {s}");
     }
 
     /// C++ `item.cpp` ~1422–1449 — signs / blackboards (`allowDistRead`).
@@ -850,7 +953,7 @@ It can only be wielded properly by players of level 120 or higher."
         };
         let mut item = Item::new_single(it.id);
         item.set_text("Temple Street");
-        let s = item_get_description_cpp(&item, &it, 0, 1, None, None, None);
+        let s = item_get_description_cpp(&item, &it, 0, 1, None, None, None, None);
         assert_eq!(s, "a sign.\nYou read: Temple Street");
     }
 
@@ -864,9 +967,9 @@ It can only be wielded properly by players of level 120 or higher."
             ..Default::default()
         };
         let item = Item::new_single(it.id);
-        let near = item_get_description_cpp(&item, &it, 0, 1, None, None, None);
+        let near = item_get_description_cpp(&item, &it, 0, 1, None, None, None, None);
         assert_eq!(near, "a blackboard.\nNothing is written on it.");
-        let far = item_get_description_cpp(&item, &it, 0, 5, None, None, None);
+        let far = item_get_description_cpp(&item, &it, 0, 5, None, None, None, None);
         assert_eq!(far, "a blackboard.\nYou are too far away to read it.");
     }
 }

@@ -1185,6 +1185,7 @@ impl GameWorld {
                         .spells
                         .get_rune(ground_type)
                         .map(|r| r.vocations.as_slice());
+                    let fluid_name = self.fluid_look_type_name(&ephemeral, it);
                     format!(
                         "You see {}",
                         item_get_description_cpp(
@@ -1195,6 +1196,7 @@ impl GameWorld {
                             None,
                             None,
                             rune_vocs,
+                            fluid_name.as_deref(),
                         )
                     )
                 } else {
@@ -1215,6 +1217,7 @@ impl GameWorld {
                     .get_rune(item.item_type)
                     .map(|r| r.vocations.clone());
                 if let Some(it) = self.items_db.items.get(&item.item_type) {
+                    let fluid_name = self.fluid_look_type_name(item, it);
                     format!(
                         "You see {}",
                         item_get_description_cpp(
@@ -1225,6 +1228,7 @@ impl GameWorld {
                             container_capacity,
                             show_duration_ms,
                             rune_vocs.as_deref(),
+                            fluid_name.as_deref(),
                         )
                     )
                 } else {
@@ -1233,6 +1237,22 @@ impl GameWorld {
             }
         };
         self.enqueue_outgoing(conn_id, send_text_message_simple(22, &msg).into_bytes());
+    }
+
+    /// `items[subType].name` for fluid/splash look — TFS `item.cpp` ~1408–1419.
+    fn fluid_look_type_name(&self, item: &Item, it: &tfs_rust_content::otb::ItemType) -> Option<String> {
+        if !it.is_fluid_container() && !it.is_splash() {
+            return None;
+        }
+        let sub = item.get_sub_type(it);
+        if sub == 0 {
+            return None;
+        }
+        self.items_db
+            .items
+            .get(&sub)
+            .map(|t| t.name.clone())
+            .filter(|n| !n.is_empty())
     }
 
     /// `Player::getDescription` for the creature-look branch of `playerLookAt`.

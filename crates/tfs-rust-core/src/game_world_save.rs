@@ -157,6 +157,16 @@ impl GameWorld {
         row.manaspent = player.skills.manaspent;
         row.blessings = player.blessings;
 
+        // TFS `players.conditions` blob — `IOLoginData::savePlayer` (`iologindata.cpp:647-654`).
+        // 772 persists the same buffs as skill Cycle fields (`crplayer.cc` skill Save).
+        let conditions_blob =
+            crate::condition_blob::serialize_conditions(&player.base.active_conditions);
+        row.conditions = if conditions_blob.is_empty() {
+            None
+        } else {
+            Some(conditions_blob)
+        };
+
         // 772 `SKILL_FED` persistence — `crplayer.cc:2496` save Cycle, `crplayer.cc:2486` save Act.
         row.food_remaining = player.food_remaining as i32;
         row.food_level = player.food_level;

@@ -69,6 +69,9 @@ pub struct PendingSpell {
     /// Rune-specific: whether the rune's cooldown counts as a spell cooldown.
     /// C++ `RuneSpell::cooldownSpellTime` — `spells.h:296`. Set via `rune:cooldownSpellTime(false)`.
     pub cooldown_spell_time: bool,
+    /// Max Chebyshev range for cast / throw checks (`-1` = unlimited).
+    /// C++ `Spell::range` — `spells.h:221–225` / `294`. Set via `spell:range(n)`.
+    pub range: i32,
     /// Rune-specific: magic level required to use the rune.
     /// C++ `RuneSpell::runeMagicLevel` — set via `rune:runeMagicLevel(n)`.
     pub rune_magic_level: u32,
@@ -92,6 +95,13 @@ impl PendingSpell {
     pub fn new(spell_type: i32) -> Self {
         Self {
             spell_type,
+            range: -1, // C++ `Spell::range` default (`spells.h:294`)
+            // `cooldown: 0` = unset → `spell_exhaust_delay_ms` world Delay
+            // (open PvP / NoPvp 2000, OE 1000 — `magic.cc` CheckMana). Explicit
+            // `:cooldown(n)` wins (e.g. flame/force/energy strike → 1000).
+            // TFS `spells.h` defaults 1000; we prefer 772 CheckMana when omitted.
+            cooldown: 0,
+            group_cooldown: 1000, // TFS `Spell::groupCooldown` default (`spells.h`)
             ..Default::default()
         }
     }
@@ -270,6 +280,24 @@ impl UserData for SpellBuilder {
         methods.add_method_mut("needDirection", |_, this, val: bool| {
             this.spell.borrow_mut().need_direction = val;
             Ok(true)
+        });
+
+        // `spell:range(range)` — C++ `luaSpellRange` (`luascript.cpp:16134–16148`).
+        // Getter when called with no arg; setter returns true.
+        methods.add_method_mut("range", |_, this, args: mlua::MultiValue| {
+            let args = args.into_vec();
+            if args.is_empty() {
+                return Ok(mlua::Value::Integer(i64::from(this.spell.borrow().range)));
+            }
+            let Some(val) = args.first().and_then(|v| match v {
+                Value::Integer(n) => Some(*n as i32),
+                Value::Number(n) => Some(*n as i32),
+                _ => None,
+            }) else {
+                return Ok(mlua::Value::Nil);
+            };
+            this.spell.borrow_mut().range = val;
+            Ok(mlua::Value::Boolean(true))
         });
 
         // `rune:allowFarUse(bool)` — allow casting at a distance.
@@ -558,5 +586,33 @@ mod tests {
         let func: mlua::Function = callbacks.get(1).unwrap();
         let result: bool = func.call(()).expect("callback must be callable");
         assert!(result, "callback must return true");
+    }
+
+    #[test]
+    fn spell_range_sets_and_gets() {
+        let lua = Lua::new();
+        register_spell_metatable(&lua).expect("registration must succeed");
+        crate::combat_enums::register_combat_enums(&lua).expect("enum registration must succeed");
+        lua.globals()
+            .set("_pending_spells", lua.create_table().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("_pending_spell_callbacks", lua.create_table().unwrap())
+            .unwrap();
+
+        let result: mlua::AnyUserData = lua
+            .load(
+                r#"
+                local rune = Spell(SPELL_RUNE)
+                assert(rune:range() == -1)
+                assert(rune:range(1) == true)
+                assert(rune:range() == 1)
+                return rune
+            "#,
+            )
+            .eval()
+            .expect("rune:range must succeed");
+        let s_ref = result.borrow::<SpellBuilder>().expect("SpellBuilder");
+        assert_eq!(s_ref.spell.borrow().range, 1);
     }
 }

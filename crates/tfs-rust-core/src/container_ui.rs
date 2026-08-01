@@ -605,6 +605,9 @@ impl GameWorld {
     /// as an index (`info.cc:412-419`), so a real 7.72 client needs no stackpos agreement at
     /// all. TVP / OTClient / 1098 do send a meaningful stackpos, so they keep the TFS
     /// `Tile::getUseItem` walk and use the sprite scan only as a fallback.
+    ///
+    /// Does **not** resolve bare ground — ground has no SlotMap [`ItemId`]. Use
+    /// [`Self::resolve_ground_use_type`] for `UseItem` on the bank / rope-hole floor.
     pub(crate) fn resolve_use_object(
         &self,
         cid: CreatureId,
@@ -622,6 +625,30 @@ impl GameWorld {
         }
         self.item_id_for_tile_use(cid, pos, stack_pos)
             .or_else(|| self.find_tile_item_by_client_sprite(pos, sprite_id))
+    }
+
+    /// Resolve bare **ground** for single-object Use (`CUseObject`).
+    ///
+    /// Rust stores ground as `Option<u16>` only ([`crate::tile::Tile::item_id_for_use`]),
+    /// so Use must accept it without an `ItemId`. Match is **TypeID-only** like 772
+    /// `GetObject` (`info.cc:412–419`): walk would find the bank by `getDisguise() == Type`;
+    /// `RNum` / stackpos is not an index. Wrong TypeID → `None` → enqueue `NotPossible`
+    /// (no walk).
+    pub(crate) fn resolve_ground_use_type(
+        &self,
+        pos: Position,
+        _stack_pos: u8,
+        sprite_id: u16,
+    ) -> Option<u16> {
+        if pos.x == 0xFFFF {
+            return None;
+        }
+        let ground = self.map.get_tile(pos)?.body().ground?;
+        let client_id = self.items_db.client_id_for_server(ground);
+        if sprite_id == client_id || sprite_id == ground {
+            return Some(ground);
+        }
+        None
     }
 
     /// F8 S5 — core use-item logic for the ToDo execute arm ([`execute_player_use`]).
@@ -650,6 +677,34 @@ impl GameWorld {
         }
         self.try_open_container_for_item(conn_id, cid, item_id, preferred_cid);
         Ok(())
+    }
+
+    /// Single-object Use aimed at **bare ground** (no SlotMap item) — rope holes / floor
+    /// teleports whose type lives in `body.ground`.
+    ///
+    /// Decompile: no `USEEVENT` / failed use → `NOTUSABLE` → "You cannot use this object."
+    /// (`moveuse.cc` `UseObject`; `sending.cc`). Teleport types keep the floor-change path.
+    pub(crate) fn player_use_ground_core(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        ground_type: u16,
+        pos: Position,
+    ) -> Result<(), ReturnValue> {
+        if crate::floor_change_use::is_teleport_floor_use_item(ground_type) {
+            let dest = crate::floor_change_use::resolve_teleport_use_destination(
+                self,
+                cid,
+                ground_type,
+                pos,
+            );
+            let ret = crate::walk::internal_teleport_player(self, conn_id, cid, dest);
+            if ret != ReturnValue::NoError {
+                return Err(ret);
+            }
+            return Ok(());
+        }
+        Err(ReturnValue::CannotUseThisObject)
     }
 
     /// F8 S5 — core two-object use logic for the ToDo execute arm ([`execute_player_use`]).
@@ -698,6 +753,25 @@ impl GameWorld {
             }
             return Err(ReturnValue::CanOnlyUseThisRuneOnCreatures);
         }
+        // C++ `Spell::playerRuneSpellCheck` range arm (`spells.cpp:719–722`):
+        // `range != -1 && !canThrowObjectTo(..., range, range)` → DESTINATIONOUTOFREACH.
+        // `range > 0` only — Default/`-1` skip; Chebyshev ≤ range (LOS left for throw path).
+        if rune.range > 0 {
+            let Some(caster_pos) = self.creatures.get(cid).map(|k| k.position()) else {
+                return Err(ReturnValue::NotPossible);
+            };
+            let to = target.pos;
+            if to.x != 0xFFFF {
+                let dx = (caster_pos.x as i32 - to.x as i32).unsigned_abs();
+                let dy = (caster_pos.y as i32 - to.y as i32).unsigned_abs();
+                if dx > rune.range as u32 || dy > rune.range as u32 {
+                    if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
+                        self.broadcast_magic_effect(pos, 3u8);
+                    }
+                    return Err(ReturnValue::DestinationOutOfReach);
+                }
+            }
+        }
         let target_pos = if target_creature.is_none() {
             Some((target.pos.x, target.pos.y, target.pos.z))
         } else {
@@ -725,8 +799,21 @@ impl GameWorld {
                 let _ = self.lua_script_item_remove(item_id.data().as_ffi(), 1);
             }
         }
-        self.player_apply_multiuse_exhaust(cid);
+        self.player_apply_rune_exhaust(cid, rune);
         Ok(())
+    }
+
+    /// 772 Use multiuse (+1000) always; TFS `cooldownSpellTime` optionally bumps spell clock.
+    pub(crate) fn player_apply_rune_exhaust(
+        &mut self,
+        cid: CreatureId,
+        rune: &tfs_rust_content::spells::RuneSpellDef,
+    ) {
+        self.player_apply_multiuse_exhaust(cid);
+        if rune.cooldown_spell_time {
+            let delay = self.spell_exhaust_delay_ms(rune.cooldown);
+            self.player_apply_spell_exhaust_ms(cid, delay);
+        }
     }
 
     /// Resolve a creature at a use-with target (map tile stack or inventory skip).

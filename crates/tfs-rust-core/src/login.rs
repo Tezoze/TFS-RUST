@@ -106,7 +106,11 @@ pub fn player_from_loaded(
         var_speed: 0,
         skull: skull_from_i32(i32::from(p.skull)),
         drunkenness: 0,
-        active_conditions: Vec::new(),
+        active_conditions: p
+            .conditions
+            .as_deref()
+            .map(crate::condition_blob::deserialize_conditions)
+            .unwrap_or_default(),
         walk_queue: Default::default(),
         walk_destinations: Default::default(),
         last_step: None,

@@ -1,4 +1,4 @@
-# Monster Spell Pipeline Audit (2026-07-16)
+# Monster Spell Pipeline Audit (2026-07-16; updated 2026-07-29)
 
 Full audit of the monster spell casting pipeline (`crnonpl.cc:2521-2667` CASTING block) vs the TFS data pack (`data/monster/monsters/*.xml`) and 772 reference (`tibia-game-master/src/`).
 
@@ -36,30 +36,21 @@ These attack names are parsed, shaped, and impact-applied correctly.
 | `energy` | 20 | `Damage { Energy }` | all 5 ✓ | |
 | `lifedrain` | 49 | `Damage { LifeDrain }` | all 5 ✓ | |
 | `physical` | 44 | `Damage { Physical }` | all 5 ✓ | |
-| `healing` | 55 | `Healing` | all 5 ✓ | **but defense-cast-without-target broken** (see below) |
-| `speed` | 56 | `Speed` | all 5 ✓ | **but defense-cast-without-target broken** |
+| `healing` | 55 | `Healing` | all 5 ✓ | non-aggressive; casts on self without target |
+| `speed` | 56 | `Speed` | all 5 ✓ | non-aggressive when `percent >= 0` (self haste), aggressive when `percent < 0` (paralyze) |
 | `poisoncondition` | 12 | `Condition { Poison }` | all 5 ✓ | |
 | `firecondition` | 4 | `Condition { Fire }` | all 5 ✓ | |
 | `energycondition` | 5 | `Condition { Energy }` | all 5 ✓ | |
 | `drunk` | 9 | `Drunk` | all 5 ✓ | |
+| `poison` | 25 | `Damage { Earth }` | all 5 ✓ | TFS `COMBAT_EARTHDAMAGE` / 772 `DAMAGE_POISON` |
+| `manadrain` | 21 | `Damage { ManaDrain }` | all 5 ✓ | |
+| `outfit` | 21 | `Outfit` | all 5 ✓ | `ConditionOutfit` with `monster=`/`item=` |
+| `invisible` | 12 | `Invisible` | all 5 ✓ | `ConditionType::Invisible` |
+| `firefield` | 10 | `Field { Fire }` | all 5 ✓ | places a fire field on the tile |
+| `poisonfield` | 6 | `Field { Poison }` | all 5 ✓ | places a poison field on the tile |
+| `energyfield` | 1 | `Field { Energy }` | all 5 ✓ | places an energy field on the tile |
 
-**10 of 17** attack names fully functional.
-
-## Broken — Attack Names Not Mapped in `parse_spell_impact`
-
-These XML `<attack name="...">` values fall through to the `debug!("skipping unknown")` branch and are silently dropped at parse time.
-
-| Attack name | Data-pack count | 772 equivalent | Gap |
-|---|---|---|---|
-| `poison` | 25 | `IMPACT_DAMAGE` `DAMAGE_POISON` (0x0002) | no match arm in `parse_spell_impact` |
-| `manadrain` | 21 | `IMPACT_DAMAGE` `DAMAGE_MANADRAIN` (0x0200) | no match arm; `CombatType::ManaDrain` exists |
-| `outfit` | 21 | `IMPACT_OUTFIT` | no `SpellImpact::Outfit` variant exists |
-| `invisible` | 12 | TFS condition (`CONDITION_INVISIBLE`), not a 772 impact | no match arm; needs condition application |
-| `firefield` | 10 | `IMPACT_FIELD` | ✓ `SpellImpact::Field { Fire }` |
-| `poisonfield` | 6 | `IMPACT_FIELD` | ✓ `SpellImpact::Field { Poison }` |
-| `energyfield` | 1 | `IMPACT_FIELD` | ✓ `SpellImpact::Field { Energy }` |
-
-**4 of 17** attack names still broken (poison / manadrain / outfit / invisible). Field trio closed 2026-07-18.
+**17 of 17** attack names fully functional.
 
 ## Working — Area Effects (`areaeffect`)
 
@@ -104,21 +95,33 @@ All 5 `SpellShape` variants are correctly handled in `monster_idle_spell_tiles` 
 
 **All 5** shapes functional ✓
 
-## Broken — Shoot Effects Not Mapped
+## Working — Shoot Effects (`shooteffect`)
 
-`parse_shoot_effect_name` is missing 3 data-pack values (enum variants exist).
+`parse_shoot_effect_name` maps all data-pack `shooteffect` values (fixed 2026-07-29).
 
 | Shooteffect | Count | `ShootEffect` enum | Wire byte |
 |---|---|---|---|
-| `throwingknife` | 3 | `ThrowingKnife = 9` ✓ | 9 |
-| `largerock` | 3 | `LargeRock = 12` ✓ | 12 |
-| `smallstone` | 2 | `SmallStone = 10` ✓ | 10 |
+| `poison` / `earth` | — | `Poison = 15` | 15 |
+| `poisonarrow` | — | `PoisonArrow = 6` | 6 |
+| `fire` | — | `Fire = 3` | 3 |
+| `energy` | — | `Energy = 4` | 4 |
+| `death` | — | `Death = 8` | 8 |
+| `spear` | — | `Spear = 7` | 7 |
+| `bolt` | — | `Bolt = 1` | 1 |
+| `arrow` | — | `Arrow = 0` | 0 |
+| `burstarrow` | — | `BurstArrow = 5` | 5 |
+| `throwingstar` | — | `ThrowingStar = 11` | 11 |
+| `throwingknife` | 3 | `ThrowingKnife = 9` | 9 |
+| `smallstone` | 2 | `SmallStone = 10` | 10 |
+| `largerock` / `rock` | 3 | `LargeRock = 12` | 12 |
+| `snowball` | — | `Snowball = 13` | 13 |
+| `powerbolt` | — | `PowerBolt = 2` | 2 |
 
-**11 of 14** shoot effects functional.
+**14 of 14** shoot effects functional ✓
 
-## Broken — Impact Application Stubs
+## Working — Impact Application
 
-`monster_idle_apply_spell_impact` has stubs / missing variants.
+`monster_idle_apply_spell_impact` dispatches all `SpellImpact` variants (completed 2026-07-29).
 
 | Impact | Status | 772 reference |
 |---|---|---|
@@ -127,13 +130,14 @@ All 5 `SpellShape` variants are correctly handled in `monster_idle_spell_tiles` 
 | `SpellImpact::Speed` | ✓ working | `IMPACT_SPEED` — `TSpeedImpact` |
 | `SpellImpact::Condition` | ✓ working | `IMPACT_DAMAGE` with periodic damage type |
 | `SpellImpact::Drunk` | ✓ working | `IMPACT_DRUNKEN` — `TDrunkenImpact` |
-| `SpellImpact::Field` | ✓ `CreateField` via `internal_add_item_to_tile` | `IMPACT_FIELD` — `TFieldImpact` places field item on tile |
-| `SpellImpact::Summon` | ✓ CASTING + `handleField` | `IMPACT_SUMMON` — `TSummonImpact` + `SearchSummonField` / `CreateMonster` |
-| `SpellImpact::Outfit` | **does not exist** | `IMPACT_OUTFIT` — `TOutfitImpact` changes target outfit |
+| `SpellImpact::Field` | ✓ working | `IMPACT_FIELD` — `TFieldImpact` places field item on tile |
+| `SpellImpact::Summon` | ✓ working | `IMPACT_SUMMON` — `TSummonImpact` + `SearchSummonField` / `CreateMonster` |
+| `SpellImpact::Outfit` | ✓ working | `IMPACT_OUTFIT` / TFS `CONDITION_OUTFIT` — changes target outfit |
+| `SpellImpact::Invisible` | ✓ working | TFS `CONDITION_INVISIBLE` — applies invisible condition |
 
-**6 of 8** impacts fully implemented.
+**9 of 9** impact variants fully implemented.
 
-## Fixed — Defense Spells Cast Without Target (2026-07-18)
+## Working — Defense Spells Cast Without Target (2026-07-18; updated 2026-07-29)
 
 ### 772 behavior
 
@@ -144,57 +148,42 @@ if(!Impact->isAggressive() || (this->Target != 0 && this->Target != this->Master
 }
 ```
 
-Non-aggressive spells (healing) fire **regardless of target** — the `!isAggressive()` branch passes the gate with no target. All spells (attack + defense) are in one `RaceData.Spells` list. Only `THealingImpact` overrides `isAggressive` to `false` (`magic.cc:210`); all others inherit `true` (`magic.hh:16-33`).
-
-### Fix
-
-- Added `SpellImpact::is_aggressive()` — returns `false` only for `Healing`, `true` for all others (matches 772 `TImpact::isAggressive` / `THealingImpact::isAggressive`).
-- Restructured `monster_idle_try_casting` to not early-return without target. The CASTING loop now iterates ALL spells (attack + defense), consuming delay + flee rolls for every spell. Non-aggressive spells with self-centered shapes (`Actor`/`Origin`/`Angle`) cast on self even without target; aggressive spells skip. Aggressive spells also skip when target == master (summons attacking their master).
-- Defense spells are now loaded as full `MonsterSpell` structs and merged into the cast loop (was delay-moduli-only).
+Non-aggressive spells fire **regardless of target**. All spells (attack + defense) are in one `RaceData.Spells` list. The Rust `SpellImpact::is_aggressive` mirrors this gate:
+- `Healing` → non-aggressive.
+- `Outfit` / `Invisible` → non-aggressive (TFS `aggressive="0"`).
+- `Speed` → non-aggressive when `percent >= 0` (self haste), aggressive when `percent < 0` (paralyze target).
+- All other impacts → aggressive.
 
 ### Affected defense spell types
 
 | Defense name | Count | Impact | Status |
 |---|---|---|---|
 | `healing` | 55 | `Healing` (non-aggressive) | ✓ casts on self without target |
-| `speed` | 56 | `Speed` (aggressive in 772) | requires target (772 `TSpeedImpact` inherits `isAggressive=true`) |
-| `invisible` | 12 | (needs condition) | not mapped at all |
-| `outfit` | 21 | (needs `Outfit` impact) | not mapped at all |
+| `speed` | 56 | `Speed` | ✓ self-casts when `percent >= 0`; targets enemy when `percent < 0` |
+| `invisible` | 12 | `Invisible` (non-aggressive) | ✓ casts on self without target |
+| `outfit` | 21 | `Outfit` (non-aggressive) | ✓ casts on self without target |
 
 ## Summary
 
 | Category | Working | Total | % |
 |---|---|---|---|
-| Attack names | 10 | 17 | 59% |
+| Attack names | 17 | 17 | 100% |
 | Area effects | 20 | 20 | 100% |
 | Shapes | 5 | 5 | 100% |
-| Shoot effects | 11 | 14 | 79% |
-| SpellImpact variants | 5 | 8 | 63% |
-| Defense cast without target | 0 | 4 types | 0% |
+| Shoot effects | 14 | 14 | 100% |
+| SpellImpact variants | 9 | 9 | 100% |
+| Defense cast without target | 4 unconditional / 1 conditional | 4* | 100% |
 
-## Fix Priority
+* `speed` self-cast depends on the `percent` sign; `healing`, `invisible`, and `outfit` are unconditionally non-aggressive.
 
-### Quick wins (match arms only)
-1. `poison` → `SpellImpact::Damage { Poison }` (25 monsters)
-2. `manadrain` → `SpellImpact::Damage { ManaDrain }` (21 monsters)
-3. `throwingknife`, `largerock`, `smallstone` shoot effects (8 monsters)
+## Remaining Work
 
-### Medium (new impact variants / condition application)
-4. `invisible` → apply `ConditionType::Invisible` condition (12 monsters)
-5. `outfit` → new `SpellImpact::Outfit` variant + application (21 monsters)
-6. Defense cast-without-target path (all defense spells)
+No outstanding gaps identified by this audit. All previously listed missing attack names, shoot effects, impact variants, and defense-cast-without-target cases are implemented.
 
-### Large (field placement / summon spawning)
-7. `firefield`, `poisonfield`, `energyfield` → `SpellImpact::Field` — **done** (parse + `CreateField` / `internal_add_item_to_tile`)
-8. `SpellImpact::Summon` — **done** (XML `<summons>` → CASTING Origin r=0; ToDo-driven IdleStimulus)
+## Recent Fixes
 
-## Recent Fixes (2026-07-16)
-
-- **Shape detection**: `length`+`spread` → `Angle`; `target`+`radius` → `Destination` (was `Actor`/`Victim`)
-- **Angle cone**: 772 `AngleShapeSpell` by caster facing direction (`spread*10`→Angle, `length`→Range)
-- **Destination/Origin circle**: `disc_offsets` from `circles.dat` (was Chebyshev square)
-- **Area effects**: `parse_area_effect_name` implemented (was stub returning `None`)
-- **Area effect broadcast**: per-tile for Origin/Angle/Destination, on target for Victim
-- **Damage text + health bar**: `monster_idle_apply_spell_impact` now calls `notify_player_combat_damage` after `Damage` impacts (animated text + health bar + status message), and `notify_creature_healed` after `Healing` impacts (health bar + stats only, no animated text — matches 772 `THealingImpact::handleCreature`)
+- **2026-07-29** — `parse_spell_impact` now maps `poison`, `manadrain`, `outfit`, `invisible`/`invisibility`, and the `firefield`/`poisonfield`/`energyfield` trio; `parse_shoot_effect_name` now maps `throwingknife`, `smallstone`, `largerock`/`rock`; `SpellImpact::Outfit` and `SpellImpact::Invisible` variants were added and are dispatched by `monster_idle_apply_spell_impact`; `SpellImpact::is_aggressive` treats `Outfit`/`Invisible` as non-aggressive and `Speed` as non-aggressive when `percent >= 0`.
+- **2026-07-18** — `SpellImpact::is_aggressive` added (`Healing` only); `monster_idle_try_casting` restructured to cast all non-aggressive spells without a target; defense spells merged into the cast loop.
+- **2026-07-16** — Shape detection (`length`+`spread` → `Angle`; `target`+`radius` → `Destination`); `Angle` cone by caster facing; `Destination`/`Origin` circles from `circles.dat`; `parse_area_effect_name` and per-tile area-effect broadcast; damage text + health bar for `Damage`/`Healing` impacts.
 
 See `tasks/lessons.md` lesson 176 for details.

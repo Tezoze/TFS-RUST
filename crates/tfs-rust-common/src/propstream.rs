@@ -41,6 +41,10 @@ impl PropWriteStream {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
+    pub fn write_f32(&mut self, v: f32) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+
     pub fn write_f64(&mut self, v: f64) {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
@@ -123,6 +127,13 @@ impl<'a> PropStream<'a> {
         self.cursor
             .read_i64::<LittleEndian>()
             .map_err(|_| TfsRustError::PropStream("EOF reading i64".into()))
+    }
+
+    /// C++ `PropStream::read<float>` — `ConditionSpeed` formula attrs (`condition.cpp`).
+    pub fn read_f32(&mut self) -> Result<f32> {
+        self.cursor
+            .read_f32::<LittleEndian>()
+            .map_err(|_| TfsRustError::PropStream("EOF reading f32".into()))
     }
 
     /// C++ `PropStream::read<double>` — custom attributes (`item.h` CustomAttribute::unserialize).

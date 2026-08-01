@@ -606,6 +606,11 @@ fn enqueue_initial_login_packets_classic(
         );
     }
     world.enqueue_outgoing(conn_id, send_icons_classic(0).into_bytes());
+    // Overwrite the zeroed icons with live condition icons (mana shield / swords / …).
+    // TFS `Player::sendIcons` after stored conditions are applied (`player.cpp:1142-1145`).
+    world.send_player_icons(creature_id);
+    // Re-announce haste / invis / light / outfit from persisted conditions.
+    world.reapply_persisted_condition_effects(creature_id);
 
     world.auto_open_containers_on_login(conn_id, creature_id);
 
@@ -764,6 +769,8 @@ fn enqueue_initial_login_packets_1098(
             .encode_basic_data(has_premium, premium_packet_ends, voc_client),
     );
     world.enqueue_outgoing(conn_id, send_icons(0).into_bytes());
+    world.send_player_icons(creature_id);
+    world.reapply_persisted_condition_effects(creature_id);
     world.enqueue_outgoing(conn_id, send_fight_modes(1, 0, 0, 0).into_bytes());
 
     world.auto_open_containers_on_login(conn_id, creature_id);

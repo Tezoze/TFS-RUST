@@ -477,9 +477,9 @@ impl ItemType {
     /// `itemgroup_t::ITEM_GROUP_CONTAINER`.
     pub const GROUP_CONTAINER: u8 = 2;
     /// `itemgroup_t::ITEM_GROUP_SPLASH` (`src/itemloader.h`).
-    const GROUP_SPLASH: u8 = 11;
+    pub const GROUP_SPLASH: u8 = 11;
     /// `itemgroup_t::ITEM_GROUP_FLUID`.
-    const GROUP_FLUID: u8 = 12;
+    pub const GROUP_FLUID: u8 = 12;
 
     // ── Flag accessors ──
 

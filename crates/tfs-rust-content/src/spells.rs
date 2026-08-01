@@ -68,6 +68,8 @@ pub struct InstantSpellDef {
     /// Whether the spell needs a direction (beam/wave spells).
     /// C++ `InstantSpell::needDirection` — `spells.h:160`.
     pub need_direction: bool,
+    /// Max Chebyshev range (`-1` = unlimited). C++ `Spell::range` — `spells.h:294`.
+    pub range: i32,
     /// Lua callback registry key for `onCastSpell`.
     pub on_cast_callback: Option<String>,
 }
@@ -123,7 +125,12 @@ pub struct RuneSpellDef {
     pub is_pz_lock: bool,
     /// Whether the rune's cooldown counts as a spell cooldown.
     /// C++ `RuneSpell::cooldownSpellTime` — `spells.h:296`.
+    /// Default **false**: 772 runes only set `EarliestMultiuseTime`; set true to also
+    /// bump `EarliestSpellTime` (TFS-style shared spell exhaust).
     pub cooldown_spell_time: bool,
+    /// Max Chebyshev range for `playerRuneSpellCheck` (`-1` = unlimited).
+    /// C++ `Spell::range` — `spells.h:294` / `spells.cpp:719`.
+    pub range: i32,
     /// Lua callback registry key for `onCastSpell`.
     pub on_cast_callback: Option<String>,
 }

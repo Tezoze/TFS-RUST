@@ -5,6 +5,7 @@ mod chase_debug;
 pub mod chat;
 pub mod combat;
 pub mod condition;
+mod condition_blob;
 pub mod config;
 mod connections;
 pub mod container;

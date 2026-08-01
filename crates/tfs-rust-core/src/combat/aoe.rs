@@ -478,25 +478,31 @@ impl GameWorld {
                 }
             }
 
-            // Broadcast animated damage text + health bar to spectators —
-            // `notify_player_combat_damage` (`game_world_spectators.rs:481`).
-            // Called by strike/ranged/monster_ai paths but was missing here,
-            // so spell damage was applied silently. Mirrors `strike.rs:173-176`.
+            // Client HP/mana bar fan-out after combat apply.
+            // Damage: `notify_player_combat_damage` (animated text + stats).
+            // Healing: `notify_creature_healed` — 772 `THealingImpact` has no
+            // TextualEffect but still `SendPlayerData` + health announce
+            // (`TSkillHitpoints::Set` `crskill.cc:682-683`). Using damage_done
+            // alone would skip heals (`hp_after > hp_before` → delta 0).
             if !no_damage {
-                let hp_after = self
-                    .creatures
-                    .get(target_id)
-                    .map(|k| k.base().health)
-                    .unwrap_or(0);
-                let damage_done = (hp_before - hp_after).max(0);
                 if let Some(snap) = notify_snap {
-                    self.notify_player_combat_damage(
-                        caster_id,
-                        target_id,
-                        damage_done,
-                        combat_type,
-                        snap,
-                    );
+                    if combat_type == CombatType::Healing {
+                        self.notify_creature_healed(target_id, snap);
+                    } else {
+                        let hp_after = self
+                            .creatures
+                            .get(target_id)
+                            .map(|k| k.base().health)
+                            .unwrap_or(0);
+                        let damage_done = (hp_before - hp_after).max(0);
+                        self.notify_player_combat_damage(
+                            caster_id,
+                            target_id,
+                            damage_done,
+                            combat_type,
+                            snap,
+                        );
+                    }
                 }
             }
         }

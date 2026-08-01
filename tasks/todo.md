@@ -1,3 +1,35 @@
+# Persist support conditions across relog — 2026-08-01
+
+- [x] `condition_blob` serialize/deserialize TFS PropStream (`players.conditions`)
+- [x] Save path writes blob; login loads into `active_conditions`
+- [x] Login: `send_player_icons` + `reapply_persisted_condition_effects` (speed/invis/light)
+- [x] Roundtrip test for mana shield / haste / invis; lesson 274
+
+# Client stats (0xA0) after mana/HP change — 2026-08-01
+
+- [x] Spell cast always `notify_magic_tries_gained` → `send_player_stats` (772 `TSkillMana::Set`)
+- [x] Lua combat healing → `notify_creature_healed` (not damage_done==0 early-out)
+- [x] Condition DoT → `notify_player_combat_damage` after apply
+- [x] Test: cast enqueues `0xA0`; lesson 273
+
+# Exhaust: decompile clocks + TFS Lua knobs — 2026-08-01
+
+- [x] `EarliestSpellTime` / `EarliestMultiuseTime` are the live gates (not ConditionExhaust)
+- [x] Instant: `:cooldown` / world-type CheckMana fallback via `spell_exhaust_delay_ms`
+- [x] Instant: unset `PendingSpell.cooldown = 0` → open PvP **2000** (not TFS hard 1000)
+- [x] Instant: `:group` / `:groupCooldown` → `spell_group_cooldown_end` (additive)
+- [x] Rune: always multiuse +1000; `cooldownSpellTime(true)` also bumps spell clock (default false)
+- [x] `player_apply_spell_exhaust_ms` respects `HasNoExhaustion`; multiuse does not
+- [x] Lesson 272
+
+# UseItem on bare ground — 2026-08-01
+
+- [x] `resolve_ground_use_type` — TypeID match only (772 `GetObject`; no empty-list / stackpos-0 shortcut)
+- [x] `validate_use_object_ref` for Use enqueue (Turn stays item-only)
+- [x] `execute_player_use` → `player_use_ground_core` (teleport / `CannotUseThisObject`)
+- [x] Tests: walk-to bare ground; wrong TypeID no walk; plain → NOTUSABLE; type-430 teleport
+- [x] Lesson 270
+
 # Protection zone gaps (772) — 2026-08-01
 
 - [x] Walk-time PZ-entry lock: `earliest_protection_zone_round` in `tile_query_add_player` → `PlayerIsPzLocked`

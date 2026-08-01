@@ -195,7 +195,24 @@ impl GameWorld {
                 primary: (combat, -dmg),
                 secondary: (CombatType::Physical, 0),
             };
+            // 772 `TSkillHitpoints::Set` → `SendPlayerData` (`crskill.cc:682-683`).
+            // Snapshot before apply — death may remove the creature.
+            let snap = self.combat_notify_snapshot(cid);
+            let hp_before = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
             let _ = self.combat_execute_with_stimulus(None, cid, &damage, &CombatParams::default());
+            let hp_after = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
+            let damage_done = (hp_before - hp_after).max(0);
+            if let Some(snap) = snap {
+                self.notify_player_combat_damage(None, cid, damage_done, combat, snap);
+            }
         }
 
         if let Some(kind) = self.creatures.get_mut(cid) {

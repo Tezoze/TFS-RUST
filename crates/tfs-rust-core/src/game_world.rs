@@ -267,6 +267,7 @@ impl GameWorld {
     }
 
     /// C++ `Use` two-object exhaustion — `cract.cc:765`.
+    /// Not gated by `HasNoExhaustion` (772 Use path has no that right).
     pub(crate) fn player_apply_multiuse_exhaust(&mut self, cid: CreatureId) {
         // Phase 4: 1098 defer deleted — both eras apply multiuse exhaust.
         let now_ms = self.now_ms();
@@ -276,14 +277,24 @@ impl GameWorld {
         }
     }
 
-    /// C++ `CheckMana` spell exhaustion — `magic.cc:770–772` (2000 ms default world).
-    #[allow(dead_code)]
-    pub(crate) fn player_apply_spell_exhaust(&mut self, cid: CreatureId, delay_ms: u64) {
-        // Phase 4: 1098 defer deleted — both eras apply spell exhaust.
+    /// Apply `EarliestSpellTime` delay (`magic.cc:770–772` `CheckMana`).
+    /// Skipped when the player has `HasNoExhaustion` / `NO_EXHAUSTION`.
+    pub(crate) fn player_apply_spell_exhaust_ms(&mut self, cid: CreatureId, delay_ms: u64) {
+        if delay_ms == 0 {
+            return;
+        }
+        if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_HAS_NO_EXHAUSTION) {
+            return;
+        }
         let now_ms = self.now_ms();
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.base.delay_spell_ms(now_ms, delay_ms);
         }
+    }
+
+    /// Alias used by older call sites — same as [`Self::player_apply_spell_exhaust_ms`].
+    pub(crate) fn player_apply_spell_exhaust(&mut self, cid: CreatureId, delay_ms: u64) {
+        self.player_apply_spell_exhaust_ms(cid, delay_ms);
     }
     #[allow(clippy::too_many_arguments)]
     pub fn new(

@@ -209,7 +209,16 @@ impl Item {
                 Ok(p) => {
                     item.attributes = Some(Box::new(p.attrs));
                     if let Some(st) = p.subtype_override {
-                        item.count = u16::from(st).max(1);
+                        let is_fluid = items_db
+                            .items
+                            .get(&rec.itemtype)
+                            .is_some_and(|t| t.is_fluid_container() || t.is_splash());
+                        if is_fluid {
+                            item.count = u16::from(st);
+                            item.set_fluid_type(u16::from(st));
+                        } else {
+                            item.count = u16::from(st).max(1);
+                        }
                     }
                 }
                 Err(e) => {
@@ -233,9 +242,21 @@ impl Item {
     }
 
     /// TFS `Item::getSubType` — `item.cpp` ~341–352.
+    ///
+    /// Fluid/splash: prefer `ITEM_ATTRIBUTE_FLUIDTYPE`. When the attr was never set
+    /// (OTBM/DB only wrote `ATTR_COUNT` into [`Self::count`]), fall back to `count` so
+    /// look / scripts still see manafluid etc.
     pub fn get_sub_type(&self, it: &ItemType) -> u16 {
         if it.is_fluid_container() || it.is_splash() {
-            self.fluid_type()
+            if self
+                .attributes
+                .as_deref()
+                .is_some_and(|a| a.has_fluid_type())
+            {
+                self.fluid_type()
+            } else {
+                self.count
+            }
         } else if it.stackable() {
             self.count
         } else if it.charges != 0 {

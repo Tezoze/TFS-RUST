@@ -368,6 +368,9 @@ impl GameWorld {
     /// (wire identity triple, unchanged) on success; `Err(NotPossible)` on failure —
     /// C++ `NOTACCESSIBLE` maps to `ReturnValue::NotPossible` (matching
     /// `walk/mod.rs:1506`'s `NOTACCESSIBLE` → `NotPossible` convention).
+    ///
+    /// Item-only — bare ground is not an `ItemId`. Use [`Self::validate_use_object_ref`]
+    /// for `UseItem` (allows ground).
     pub(crate) fn validate_action_object_ref(
         &self,
         cid: CreatureId,
@@ -384,12 +387,41 @@ impl GameWorld {
         Ok(obj)
     }
 
-    /// Use-with **target** (obj2): item **or** a creature on the map tile.
+    /// Use / UseEx **obj1** validation: item **or** bare map ground (TypeID match).
+    ///
+    /// Ground has no SlotMap `ItemId`. 772 `GetObject` still finds the bank by TypeID on
+    /// the map chain; without this arm, `enqueue_player_use` never walks to floor teleports.
+    pub(crate) fn validate_use_object_ref(
+        &self,
+        cid: CreatureId,
+        obj: ActionObjectRef,
+    ) -> Result<ActionObjectRef, ReturnValue> {
+        if self.validate_action_object_ref(cid, obj).is_ok() {
+            return Ok(obj);
+        }
+        if self
+            .resolve_ground_use_type(obj.pos, obj.stack_pos, obj.sprite_id)
+            .is_some()
+        {
+            return Ok(obj);
+        }
+        Err(ReturnValue::NotPossible)
+    }
+
+    /// Use-with **target** (obj2): item, creature, **or** an existing map tile.
+    ///
+    /// TFS `Game::playerUseItemEx` validates the from-item only; `RuneSpell` uses
+    /// `toPosition` (`spells.cpp` `executeUse` / `playerRuneSpellCheck`). Empty
+    /// ground has no SlotMap `ItemId` in Rust (`tile.rs` `item_id_for_use`), so
+    /// requiring an item or creature rejected floor aims (SD never poffed; GFB
+    /// never cast). Accept any loaded map tile by position — rune miss vs AoE
+    /// stays in `player_cast_rune`.
     ///
     /// C++ `Game::playerUseWithCreature` / `useItemEx` with a creature thing —
-    /// needTarget runes aim at creatures, not items. Stock
+    /// needTarget runes also aim at creatures. Stock
     /// [`validate_action_object_ref`] only accepts items, so UseItemEx on a
-    /// creature stackpos / UseWithCreature would fail before cast.
+    /// creature stackpos / UseWithCreature would fail before cast without the
+    /// creature / tile arms below.
     pub(crate) fn validate_use_ex_target_ref(
         &self,
         cid: CreatureId,
@@ -398,12 +430,7 @@ impl GameWorld {
         if self.validate_action_object_ref(cid, obj).is_ok() {
             return Ok(obj);
         }
-        if obj.pos.x != 0xFFFF
-            && self
-                .map
-                .get_tile(obj.pos)
-                .is_some_and(|t| !t.body().creatures.is_empty())
-        {
+        if obj.pos.x != 0xFFFF && self.map.get_tile(obj.pos).is_some() {
             return Ok(obj);
         }
         Err(ReturnValue::NotPossible)
@@ -481,7 +508,7 @@ impl GameWorld {
         obj2: Option<ActionObjectRef>,
         open_index: u8,
     ) -> Result<(), ReturnValue> {
-        self.validate_action_object_ref(cid, obj1)?;
+        self.validate_use_object_ref(cid, obj1)?;
         if let Some(o2) = obj2 {
             // obj2 may be a creature (needTarget runes) — not only an item.
             self.validate_use_ex_target_ref(cid, o2)?;
@@ -2332,6 +2359,364 @@ mod tests {
         assert!(
             result.is_ok(),
             "inventory source skips z-floor gate regardless of z"
+        );
+    }
+
+    // === Empty-ground UseItemEx targets (rune floor aim) ===
+    // Ground has no SlotMap ItemId — validate_use_ex_target_ref must accept the
+    // tile by position so player_cast_rune can miss-poff (SD) or AoE (GFB).
+
+    /// Inventory slot `CONST_SLOT_AMMO` (10) + empty map tile as use-with target.
+    fn inventory_rune_and_empty_ground(
+        world: &mut crate::game_world::GameWorld,
+        rune_type: u16,
+        need_target: bool,
+    ) -> (
+        tfs_rust_common::ConnId,
+        CreatureId,
+        ActionObjectRef,
+        ActionObjectRef,
+    ) {
+        use tfs_rust_common::ConnId;
+        use tfs_rust_content::spells::RuneSpellDef;
+
+        let player_pos = Position::new(100, 100, 7);
+        let ground_pos = Position::new(105, 100, 7);
+        let cid = insert_test_player(world, player_pos);
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, cid);
+        ensure_walkable_tile(&mut world.map, ground_pos, TEST_SYNTHETIC_GROUND_WP);
+
+        let rune_id = world.items.insert(crate::item::Item::new_single(rune_type));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            // CONST_SLOT_AMMO = 10 → array index 9
+            p.equipment_slots[9] = Some(rune_id);
+        }
+
+        std::sync::Arc::make_mut(&mut world.spells)
+            .runes_by_id
+            .insert(
+                rune_type,
+                RuneSpellDef {
+                    name: if need_target {
+                        "Sudden Death".into()
+                    } else {
+                        "Great Fireball".into()
+                    },
+                    rune_id: rune_type,
+                    charges: 1,
+                    need_target,
+                    allow_far_use: true,
+                    check_floor: true,
+                    is_aggressive: true,
+                    ..Default::default()
+                },
+            );
+
+        let obj1 = ActionObjectRef {
+            pos: Position::new(0xFFFF, 10, 0), // inventory ammo slot
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+        // Client empty-ground aim: stackpos 0 + ground sprite — no ItemId on tile.
+        let obj2 = ActionObjectRef {
+            pos: ground_pos,
+            stack_pos: 0,
+            sprite_id: 99, // any; tile accepted by position, not sprite match
+        };
+        (conn, cid, obj1, obj2)
+    }
+
+    #[test]
+    fn validate_use_ex_target_ref_accepts_empty_ground_tile() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let ground_pos = Position::new(105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        ensure_walkable_tile(&mut world.map, ground_pos, TEST_SYNTHETIC_GROUND_WP);
+
+        let obj = ActionObjectRef {
+            pos: ground_pos,
+            stack_pos: 0,
+            sprite_id: 99,
+        };
+        world
+            .validate_use_ex_target_ref(cid, obj)
+            .expect("empty ground map tile must be a valid UseItemEx target");
+    }
+
+    #[test]
+    fn validate_use_ex_target_ref_rejects_void_map_tile() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let void = ActionObjectRef {
+            pos: Position::new(200, 200, 7),
+            stack_pos: 0,
+            sprite_id: 0,
+        };
+        assert_eq!(
+            world.validate_use_ex_target_ref(cid, void),
+            Err(crate::return_value::ReturnValue::NotPossible)
+        );
+    }
+
+    /// needTarget rune on empty ground → enqueue OK, cast miss → POFF + cancel.
+    #[test]
+    fn need_target_rune_on_empty_ground_poffs_as_miss() {
+        let mut world = beat_driven_test_world();
+        let (conn, cid, obj1, obj2) =
+            inventory_rune_and_empty_ground(&mut world, 2268, true);
+
+        world
+            .enqueue_player_use(cid, obj1, Some(obj2), 0)
+            .expect("empty-ground UseItemEx must enqueue (not NotPossible at validate)");
+
+        // Skip Wait{100} — execute Use directly.
+        let use_action = world
+            .creatures
+            .get_mut(cid)
+            .unwrap()
+            .base_mut()
+            .todo
+            .queue
+            .pop_back()
+            .expect("Use action");
+        let CreatureAction::Use {
+            obj1,
+            obj2,
+            open_index,
+        } = use_action
+        else {
+            panic!("expected Use, got {use_action:?}");
+        };
+        world.pending_outgoing.clear();
+        let result = world.execute_player_use(cid, obj1, obj2, open_index);
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::CanOnlyUseThisRuneOnCreatures),
+            "SD miss must use creature-only cancel, not bare NotPossible"
+        );
+
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("caster must receive POFF packet");
+        assert!(
+            pkts.iter()
+                .any(|p| p.len() >= 7 && p[0] == 0x83 && p[p.len() - 1] == 3),
+            "needTarget miss must broadcast CONST_ME_POFF (3) on caster"
+        );
+    }
+
+    /// Floor AoE rune (GFB) on empty ground reaches cast (not blocked at validate).
+    /// Without a Lua `onCastSpell`, fire returns false → NotPossible + POFF — still
+    /// proves we passed the empty-ground gate and skipped the needTarget miss arm.
+    #[test]
+    fn floor_aoe_rune_on_empty_ground_reaches_cast() {
+        let mut world = beat_driven_test_world();
+        let (conn, cid, obj1, obj2) =
+            inventory_rune_and_empty_ground(&mut world, 2304, false);
+
+        world
+            .enqueue_player_use(cid, obj1, Some(obj2), 0)
+            .expect("GFB empty-ground aim must enqueue");
+
+        let use_action = world
+            .creatures
+            .get_mut(cid)
+            .unwrap()
+            .base_mut()
+            .todo
+            .queue
+            .pop_back()
+            .expect("Use action");
+        let CreatureAction::Use {
+            obj1,
+            obj2,
+            open_index,
+        } = use_action
+        else {
+            panic!("expected Use, got {use_action:?}");
+        };
+        world.pending_outgoing.clear();
+        let result = world.execute_player_use(cid, obj1, obj2, open_index);
+        assert_ne!(
+            result,
+            Err(crate::return_value::ReturnValue::CanOnlyUseThisRuneOnCreatures),
+            "need_target=false must not take the SD miss arm"
+        );
+        assert_eq!(
+            result,
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "no Lua callback → cast fails after validation (proves cast was reached)"
+        );
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("failed cast still emits POFF from player_cast_rune");
+        assert!(
+            pkts.iter()
+                .any(|p| p.len() >= 7 && p[0] == 0x83 && p[p.len() - 1] == 3),
+            "cast path must have run (POFF on Lua miss)"
+        );
+    }
+
+    // === Single-object Use on bare ground (no SlotMap ItemId) ===
+    // 772 `GetObject` matches bank by TypeID (`info.cc:412-419`). Wrong TypeID →
+    // NOTACCESSIBLE (no walk). Non-usable ground after walk → NOTUSABLE
+    // ("You cannot use this object."), not "Sorry, not possible."
+
+    fn bare_ground_use_ref(pos: Position) -> ActionObjectRef {
+        ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: TEST_SYNTHETIC_GROUND_WP, // server id; client_id often 0 in tests
+        }
+    }
+
+    #[test]
+    fn enqueue_player_use_bare_ground_walks_when_not_adjacent() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let ground_pos = Position::new(105, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = bare_ground_use_ref(ground_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("bare ground must validate for UseItem");
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(
+            base.todo.queue.len(),
+            3,
+            "not-adjacent bare-ground Use → [Go, Wait{{100}}, Use]"
+        );
+        assert!(matches!(base.todo.queue[0], CreatureAction::Go));
+        assert!(matches!(
+            base.todo.queue[1],
+            CreatureAction::Wait { deadline_ms: 100 }
+        ));
+        assert!(matches!(base.todo.queue[2], CreatureAction::Use { .. }));
+        assert!(!base.walk_queue.is_empty());
+    }
+
+    #[test]
+    fn enqueue_player_use_bare_ground_rejects_wrong_typeid() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let ground_pos = Position::new(105, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 105, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        let obj1 = ActionObjectRef {
+            pos: ground_pos,
+            stack_pos: 0,
+            sprite_id: 9999, // not ground TypeID — 772 GetObject → NONE
+        };
+
+        assert_eq!(
+            world.enqueue_player_use(cid, obj1, None, 0),
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "wrong TypeID → NotPossible (NOTACCESSIBLE); must not walk"
+        );
+        let base = world.creatures.get(cid).unwrap().base();
+        assert!(base.todo.queue.is_empty(), "no ToDo on failed GetObject");
+        assert!(base.walk_queue.is_empty(), "no walk on wrong TypeID");
+    }
+
+    #[test]
+    fn execute_player_use_plain_ground_cannot_use_this_object() {
+        use tfs_rust_common::ConnId;
+
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let ground_pos = Position::new(101, 100, 7);
+        ensure_walkable_corridor_x(&mut world, 100, 101, 100, 7);
+        let cid = insert_test_player(&mut world, player_pos);
+        world.register_conn_mapping(ConnId(1), cid);
+        let obj1 = bare_ground_use_ref(ground_pos);
+
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("adjacent bare ground enqueues");
+        // Drain Wait{100}; Use is next.
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front();
+        }
+        let use_action = world
+            .creatures
+            .get_mut(cid)
+            .unwrap()
+            .base_mut()
+            .todo
+            .queue
+            .pop_front();
+        let Some(CreatureAction::Use {
+            obj1,
+            obj2,
+            open_index,
+        }) = use_action
+        else {
+            panic!("expected Use, got {use_action:?}");
+        };
+        assert_eq!(
+            world.execute_player_use(cid, obj1, obj2, open_index),
+            Err(crate::return_value::ReturnValue::CannotUseThisObject),
+            "plain ground → NOTUSABLE / You cannot use this object."
+        );
+    }
+
+    #[test]
+    fn execute_player_use_teleport_ground_moves_player_down() {
+        use tfs_rust_common::ConnId;
+
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let grate_pos = Position::new(101, 100, 7);
+        let dest = Position::new(101, 100, 8);
+        // Type 430 = sewer grate / down-floor use (`teleport.lua` / floor_change_use).
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, grate_pos, 430);
+        ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_test_player(&mut world, player_pos);
+        world.register_conn_mapping(ConnId(1), cid);
+
+        let obj1 = ActionObjectRef {
+            pos: grate_pos,
+            stack_pos: 0,
+            sprite_id: 430,
+        };
+        world
+            .enqueue_player_use(cid, obj1, None, 0)
+            .expect("teleport ground validates");
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().todo.queue.pop_front(); // Wait
+        }
+        let use_action = world
+            .creatures
+            .get_mut(cid)
+            .unwrap()
+            .base_mut()
+            .todo
+            .queue
+            .pop_front();
+        let Some(CreatureAction::Use {
+            obj1,
+            obj2,
+            open_index,
+        }) = use_action
+        else {
+            panic!("expected Use, got {use_action:?}");
+        };
+        world
+            .execute_player_use(cid, obj1, obj2, open_index)
+            .expect("grate ground use teleports");
+        assert_eq!(
+            world.creatures.get(cid).unwrap().position(),
+            dest,
+            "type 430 ground Use → same (x,y) one floor down"
         );
     }
 }

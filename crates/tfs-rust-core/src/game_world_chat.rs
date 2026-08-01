@@ -14,6 +14,7 @@
 use std::time::Instant;
 
 use tfs_rust_common::enums::ConditionType;
+use tfs_rust_common::enums::WorldType;
 use tfs_rust_common::ConnId;
 
 use crate::combat::apply_condition;
@@ -319,18 +320,6 @@ impl GameWorld {
                 return true;
             }
 
-            // Exhaustion — 772 `CastSpell` `magic.cc:3399-3401`.
-            let server_ms = self.server_ms;
-            let spell_ready = self
-                .creatures
-                .get(cid)
-                .map(|k| k.base().spell_ready_at(server_ms))
-                .unwrap_or(true);
-            if !no_exhaustion && !spell_ready {
-                self.send_spell_fail(cid, ReturnValue::YouAreExhausted);
-                return true;
-            }
-
             // Aggressive spell in PZ — 772 `CastSpell` `magic.cc:3403-3407`.
             if spell.is_aggressive {
                 let player_pos = self
@@ -348,12 +337,40 @@ impl GameWorld {
             }
         }
 
+        // Exhaustion — 772 `CastSpell` `magic.cc:3399-3401` (outside spellbook/vocation
+        // gates; only `HasNoExhaustion` / `NO_EXHAUSTION` skips). Was wrongly nested under
+        // `IgnoreSpellCheck`, and `spell.cooldown == 0` made `delay_spell_ms` a no-op.
+        // TFS `:group` / `:groupCooldown` is an additive map gate (not a second 772 clock).
+        let server_ms = self.server_ms;
+        if !no_exhaustion {
+            let spell_ready = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().spell_ready_at(server_ms))
+                .unwrap_or(true);
+            if !spell_ready {
+                self.send_spell_fail(cid, ReturnValue::YouAreExhausted);
+                return true;
+            }
+            if spell.group != 0 {
+                let group_blocked = self.creatures.get(cid).is_some_and(|k| {
+                    matches!(k, CreatureKind::Player(p) if p
+                        .spell_group_cooldown_end
+                        .get(&spell.group)
+                        .is_some_and(|&t| server_ms < t))
+                });
+                if group_blocked {
+                    self.send_spell_fail(cid, ReturnValue::YouAreExhausted);
+                    return true;
+                }
+            }
+        }
+
         let mana_cost = if spell.mana_percent > 0 {
             (player_max_mana as u32 * spell.mana_percent) / 100
         } else {
             spell.mana
         };
-        let server_ms = self.server_ms;
 
         // Deduct mana + soul — 772 `CheckMana` `magic.cc:753-763` (skipped under
         // `UNLIMITED_MANA` / TFS `HasInfiniteMana` / `HasInfiniteSoul`).
@@ -381,15 +398,21 @@ impl GameWorld {
                 }
             }
         }
-        if levels_gained > 0 {
-            self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
-        }
+        // 772 `TSkillMana::Set` / `TSkillSoulpoints::Set` → `SendPlayerData`
+        // (`crskill.cc:704-713, 780-789`) on every CheckMana deduct. Always refresh
+        // `0xA0` (magic-level advances also send advance text via this helper).
+        self.notify_magic_tries_gained(cid, levels_gained, new_maglevel);
 
-        // Exhaustion — 772 `CheckMana` `magic.cc:770-773`; skipped under `HasNoExhaustion`.
-        let cooldown_ms = spell.cooldown;
-        if !no_exhaustion {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().delay_spell_ms(server_ms, cooldown_ms as u64);
+        // Exhaustion set — 772 `CheckMana` Delay + TFS groupCooldown knob.
+        let cooldown_ms = self.spell_exhaust_delay_ms(spell.cooldown);
+        self.player_apply_spell_exhaust_ms(cid, cooldown_ms);
+        if spell.group != 0 && spell.group_cooldown > 0 && !no_exhaustion {
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                let end = server_ms.saturating_add(u64::from(spell.group_cooldown));
+                p.spell_group_cooldown_end
+                    .entry(spell.group)
+                    .and_modify(|t| *t = (*t).max(end))
+                    .or_insert(end);
             }
         }
 
@@ -433,6 +456,19 @@ impl GameWorld {
         self.broadcast_creature_say_viewport(cid, TALKTYPE_SAY, text);
 
         true // Text consumed — chat broadcast already done above.
+    }
+
+    /// 772 `CheckMana` Delay when Lua omits `:cooldown()` / cooldown is 0.
+    /// Open PvP / NoPvp worlds: 2000 ms; optional-PvP enforced: 1000 ms
+    /// (`magic.cc` MassCombat / AngleCombat callers). Explicit `:cooldown(n)` wins.
+    pub(crate) fn spell_exhaust_delay_ms(&self, spell_cooldown: u32) -> u64 {
+        if spell_cooldown > 0 {
+            return u64::from(spell_cooldown);
+        }
+        match self.pvp_config.world_type {
+            WorldType::PvpEnforced => 1000,
+            WorldType::Pvp | WorldType::NoPvp => 2000,
+        }
     }
 
     /// TFS `Game::playerRequestChannels` — `game.cpp:3490-3502`.
@@ -1297,6 +1333,22 @@ impl GameWorld {
 
     /// PC-3a Phase 4b — TFS `Condition*::startCondition` + `Player::onAddCondition`.
     ///
+    /// Re-apply client-visible side effects for conditions restored from DB.
+    ///
+    /// TFS applies `storedConditionList` via `addCondition` on login (`player.cpp:1142-1145`),
+    /// which runs `startCondition` (speed / invis / light / outfit + icons). We already have
+    /// the conditions on `active_conditions` from the blob; this only refreshes wire state.
+    pub(crate) fn reapply_persisted_condition_effects(&mut self, cid: CreatureId) {
+        let ctypes: Vec<ConditionType> = self
+            .creatures
+            .get(cid)
+            .map(|k| k.base().active_conditions.iter().map(|c| c.ctype).collect())
+            .unwrap_or_default();
+        for ctype in ctypes {
+            self.on_condition_started(cid, ctype);
+        }
+    }
+
     /// Call after the condition is present in `active_conditions`.
     /// C++: `condition.cpp` Speed/Light/Invisible/Outfit start; `player.cpp` `onAddCondition` → `sendIcons`.
     pub(crate) fn on_condition_started(&mut self, cid: CreatureId, ctype: ConditionType) {
@@ -1673,5 +1725,206 @@ mod apply_spec_tests {
     fn maps_dispel_flag_poison() {
         assert_eq!(condition_type_from_lua(1), ConditionType::Poison);
         assert_eq!(condition_type_from_lua(32), ConditionType::Paralyze);
+    }
+
+    #[test]
+    fn spell_exhaust_delay_uses_cooldown_or_world_default() {
+        use tfs_rust_common::enums::WorldType;
+        use crate::sim_harness::beat_driven_test_world;
+
+        let mut world = beat_driven_test_world();
+        world.pvp_config.world_type = WorldType::Pvp;
+        assert_eq!(world.spell_exhaust_delay_ms(1500), 1500);
+        assert_eq!(
+            world.spell_exhaust_delay_ms(0),
+            2000,
+            "open PvP CheckMana Delay default"
+        );
+        world.pvp_config.world_type = WorldType::PvpEnforced;
+        assert_eq!(world.spell_exhaust_delay_ms(0), 1000);
+    }
+
+    #[test]
+    fn player_say_spell_applies_earliest_spell_time() {
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_spectator_player, test_player,
+            TEST_SYNTHETIC_GROUND_WP,
+        };
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 5_000;
+        world.pvp_config.world_type = WorldType::Pvp;
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("ExhaustHero", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        player.vocation_id = 4; // knight-ish — spell voc list empty so any voc ok
+        let conn = ConnId(42);
+        let cid = insert_spectator_player(&mut world, conn, player);
+
+        let def = InstantSpellDef {
+            name: "Test Exhaust".into(),
+            words: "utevo, exhaust".into(),
+            level: 1,
+            mana: 10,
+            cooldown: 0, // force world-type fallback (2000)
+            is_aggressive: false,
+            vocations: vec![],
+            ..Default::default()
+        };
+        std::sync::Arc::make_mut(&mut world.spells)
+            .instant_by_words
+            .insert("utevo, exhaust".into(), def);
+
+        let _ = world.flush_output_buffers();
+        assert!(
+            world.player_say_spell(cid, 1, "utevo exhaust"),
+            "first cast must succeed"
+        );
+        let earliest = world
+            .creatures
+            .get(cid)
+            .unwrap()
+            .base()
+            .earliest_spell_server_ms;
+        assert_eq!(earliest, 7_000, "server_ms 5000 + open-PvP Delay 2000");
+
+        // 772 `TSkillMana::Set` → `SendPlayerData` (`crskill.cc:704-713`) ≡ `0xA0`.
+        let out = world.flush_output_buffers();
+        let pkts = out.get(&conn).cloned().unwrap_or_default();
+        assert!(
+            pkts.iter().any(|p| p.first() == Some(&0xA0)),
+            "cast must enqueue AddPlayerStats (0xA0); got {pkts:?}"
+        );
+
+        // Immediate second cast must fail exhausted.
+        assert!(
+            world.player_say_spell(cid, 1, "utevo exhaust"),
+            "still consumes as spell text"
+        );
+        // Mana should not have been deducted twice if exhaust blocked — check mana.
+        let mana = match world.creatures.get(cid).unwrap() {
+            CreatureKind::Player(p) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 490, "second cast blocked before mana deduct");
+    }
+
+    #[test]
+    fn player_say_spell_group_cooldown_blocks_same_group() {
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+            TEST_SYNTHETIC_GROUND_WP,
+        };
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1_000;
+        world.pvp_config.world_type = WorldType::PvpEnforced; // CheckMana fallback 1000
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("GroupCdHero", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        let cid = insert_player(&mut world, player);
+        world.map.register_creature_at(pos, cid);
+
+        // Very short global cooldown so group gate is what blocks the sibling spell.
+        let a = InstantSpellDef {
+            name: "Group A".into(),
+            words: "ex,ori, groupa".into(),
+            level: 1,
+            mana: 1,
+            cooldown: 1, // EarliestSpellTime +1 → ready almost immediately
+            group: 2,
+            group_cooldown: 5_000,
+            vocations: vec![],
+            ..Default::default()
+        };
+        let b = InstantSpellDef {
+            name: "Group B".into(),
+            words: "ex,ori, groupb".into(),
+            level: 1,
+            mana: 1,
+            cooldown: 1,
+            group: 2,
+            group_cooldown: 5_000,
+            vocations: vec![],
+            ..Default::default()
+        };
+        {
+            let reg = std::sync::Arc::make_mut(&mut world.spells);
+            reg.instant_by_words.insert("ex,ori, groupa".into(), a);
+            reg.instant_by_words.insert("ex,ori, groupb".into(), b);
+        }
+
+        assert!(world.player_say_spell(cid, 1, "exori groupa"));
+        world.server_ms = 1_100; // past EarliestSpellTime (+1) but inside group window
+        assert!(world.player_say_spell(cid, 1, "exori groupb"));
+        let mana = match world.creatures.get(cid).unwrap() {
+            CreatureKind::Player(p) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 499, "group cooldown blocked second spell before mana");
+    }
+
+    #[test]
+    fn rune_exhaust_cst_false_only_multiuse() {
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::RuneSpellDef;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+            TEST_SYNTHETIC_GROUND_WP,
+        };
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 3_000;
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_player(&mut world, test_player("RuneCst", pos));
+        let rune = RuneSpellDef {
+            cooldown_spell_time: false,
+            cooldown: 2000,
+            ..Default::default()
+        };
+        world.player_apply_rune_exhaust(cid, &rune);
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.earliest_multiuse_server_ms, 4_000);
+        assert_eq!(
+            base.earliest_spell_server_ms, 0,
+            "CST false → no EarliestSpellTime"
+        );
+    }
+
+    #[test]
+    fn rune_exhaust_cst_true_bumps_spell_clock() {
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::RuneSpellDef;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+            TEST_SYNTHETIC_GROUND_WP,
+        };
+
+        let mut world = beat_driven_test_world();
+        world.server_ms = 3_000;
+        world.pvp_config.world_type = WorldType::Pvp;
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_player(&mut world, test_player("RuneCstOn", pos));
+        let rune = RuneSpellDef {
+            cooldown_spell_time: true,
+            cooldown: 0, // world fallback 2000
+            ..Default::default()
+        };
+        world.player_apply_rune_exhaust(cid, &rune);
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.earliest_multiuse_server_ms, 4_000);
+        assert_eq!(base.earliest_spell_server_ms, 5_000);
     }
 }
