@@ -1,3 +1,20 @@
+# Doors Phase 3 — keys (use-with) — 2026-08-01
+
+- [x] 3.1 Use-with already reaches Action (`player_use_item_ex_core` → `fire_on_use_action`); keys registered via doors.lua
+- [x] 3.2 `Item:isItem()` / `Creature:isItem()` (doors.lua key branch)
+- [x] 3.3 `Tile:getTopVisibleThing([creature])` → Item/Creature userdata
+- [x] 3.4–3.5 `getAttribute` / `hasAttribute` / `setAttribute` for Remere custom-attr aliases (`keynumber`, `keyholenumber`, …)
+- [x] Register `ITEM_ATTRIBUTE_KEYNUMBER` / `KEYHOLENUMBER` (+ door quest/level aliases) as string constants
+- [x] Unit: attr round-trip; getTopVisibleThing prefers door item; keys id in doors register
+- [x] Update `tasks/doors-actions-plan.md` Phase 3 status
+
+# 772 known-creature table overflow (blank name/HP + crash) — 2026-08-01
+
+- [x] Root cause: `check_creature_known` used TFS 1098 limit 1300; CipSoft/TVP 772 is 150
+- [x] `ProtocolCaps::known_creature_limit` — 772=150, 1098=1300
+- [x] Thread limit through map description + `send_creature_appear_to_conn`
+- [x] Unit/caps tests; lesson 280
+
 # Doors Phase 2 — basic open/close/locked — 2026-08-01
 
 - [x] 2.1 `item:transform` updates tile flags (reset old + apply new) so doors block/unblock walk

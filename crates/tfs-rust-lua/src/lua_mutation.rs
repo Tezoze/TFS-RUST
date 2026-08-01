@@ -64,6 +64,13 @@ pub enum LuaMutation {
         item_id: u64,
         store: bool,
     },
+    /// `item:setAttribute("keynumber", n)` — Remere custom attrs.
+    ItemSetCustomAttribute {
+        item_id: u64,
+        key: String,
+        /// Integer payload (doors/keys); extend later for string/float if needed.
+        value: i64,
+    },
     /// 772 `SKILL_FED` refill — `player:feed(amount)` adds to `food_remaining`
     /// (`moveuse.cc:1846` `SetTimer(SKILL_FED, CurFoodTime + ObjFoodTime, ...)`).
     PlayerFeed {
@@ -496,6 +503,14 @@ pub fn call_lua_set_unique_id(item_id: u64, unique_id: u16) -> Result<(), String
 
 pub fn call_lua_set_store_item(item_id: u64, store: bool) -> Result<(), String> {
     apply_mutation(LuaMutation::ItemSetStoreItem { item_id, store })
+}
+
+pub fn call_lua_set_custom_attribute(item_id: u64, key: String, value: i64) -> Result<(), String> {
+    apply_mutation(LuaMutation::ItemSetCustomAttribute {
+        item_id,
+        key,
+        value,
+    })
 }
 
 /// 772 `player:feed(amount)` — refill `food_remaining` (`moveuse.cc:1846`).

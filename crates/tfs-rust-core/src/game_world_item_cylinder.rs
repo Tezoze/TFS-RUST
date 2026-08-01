@@ -195,7 +195,7 @@ impl GameWorld {
     }
 
     /// First non-`lookThrough` item in the look stack walk.
-    fn item_is_opaque_for_look(&self, item_id: ItemId) -> bool {
+    pub(crate) fn item_is_opaque_for_look(&self, item_id: ItemId) -> bool {
         let Some(item) = self.items.get(item_id) else {
             return true;
         };

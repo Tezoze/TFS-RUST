@@ -152,6 +152,44 @@ impl UserData for TileRef {
             Ok(Value::Table(t))
         });
 
+        // `tile:getTopVisibleThing([creature])` — `luascript.cpp` `luaTileGetTopVisibleThing`.
+        // Doors Phase 3: key use-with re-resolves the door via this API.
+        methods.add_method("getTopVisibleThing", |lua, this, viewer: Option<Value>| {
+            let viewer_id = match viewer {
+                None | Some(Value::Nil) => None,
+                Some(Value::UserData(ud)) => {
+                    if let Ok(cref) = ud.borrow::<CreatureRef>() {
+                        Some(cref.0)
+                    } else {
+                        None
+                    }
+                }
+                Some(Value::Integer(i)) => Some(i as u64),
+                Some(Value::Number(n)) => Some(n as u64),
+                _ => None,
+            };
+            let thing = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_top_visible_thing(this.x, this.y, this.z, viewer_id))
+            })?;
+            match thing {
+                Some(tfs_rust_common::ScriptThing::Item(iid)) => {
+                    let ud = lua.create_userdata(ItemRef(iid))?;
+                    Ok(Value::UserData(ud))
+                }
+                Some(tfs_rust_common::ScriptThing::Creature(cid)) => {
+                    let ud = lua.create_userdata(CreatureRef(cid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
         // Lib `Tile:isWalkable` used by moveUpstairs.
         methods.add_method("isWalkable", |_, this, ()| {
             CURRENT_CTX.with(|c| {

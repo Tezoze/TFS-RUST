@@ -425,6 +425,112 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         (attr_bits & attrs.attribute_bits()) != 0
     }
 
+    /// Remere / OTBM custom attrs (`keynumber`, `keyholenumber`, …).
+    fn item_has_custom_attribute(
+        &self,
+        item_id: tfs_rust_common::ScriptItemId,
+        key: &str,
+    ) -> bool {
+        let Some(iid) = self.resolve_item_u64(item_id) else {
+            return false;
+        };
+        self.items
+            .get(iid)
+            .and_then(|i| i.attributes.as_ref())
+            .and_then(|a| a.get_custom_attribute(key))
+            .is_some()
+    }
+
+    /// Bitflag int attrs — TFS `Item::getIntAttr` / `getStrAttr` subset.
+    fn item_get_int_attribute(
+        &self,
+        item_id: tfs_rust_common::ScriptItemId,
+        attr_bits: u32,
+    ) -> Option<i64> {
+        use crate::item_attributes::ItemAttrFlags;
+        let iid = self.resolve_item_u64(item_id)?;
+        let item = self.items.get(iid)?;
+        let attrs = item.attributes.as_ref()?;
+        let flag = ItemAttrFlags::from_bits_truncate(attr_bits);
+        // Prefer the single matching bit (Lua passes one ITEM_ATTRIBUTE_*).
+        if flag.contains(ItemAttrFlags::ACTION_ID) {
+            return Some(i64::from(attrs.get_action_id()));
+        }
+        if flag.contains(ItemAttrFlags::UNIQUE_ID) {
+            return Some(i64::from(attrs.get_unique_id()));
+        }
+        if flag.contains(ItemAttrFlags::DURATION) {
+            return Some(i64::from(attrs.get_duration()));
+        }
+        if flag.contains(ItemAttrFlags::CHARGES) {
+            return Some(i64::from(attrs.get_charges()));
+        }
+        if flag.contains(ItemAttrFlags::DOOR_ID) {
+            return Some(i64::from(attrs.get_door_id()));
+        }
+        None
+    }
+
+    fn item_get_custom_attribute(
+        &self,
+        item_id: tfs_rust_common::ScriptItemId,
+        key: &str,
+    ) -> Option<tfs_rust_common::ScriptAttrValue> {
+        use crate::item_attributes::CustomAttrValue;
+        let iid = self.resolve_item_u64(item_id)?;
+        let attrs = self.items.get(iid)?.attributes.as_ref()?;
+        match attrs.get_custom_attribute(key)? {
+            CustomAttrValue::Integer(v) => Some(tfs_rust_common::ScriptAttrValue::Integer(*v)),
+            CustomAttrValue::Float(v) => Some(tfs_rust_common::ScriptAttrValue::Float(*v)),
+            CustomAttrValue::Boolean(v) => Some(tfs_rust_common::ScriptAttrValue::Boolean(*v)),
+            CustomAttrValue::String(s) => {
+                Some(tfs_rust_common::ScriptAttrValue::String(s.clone()))
+            }
+            CustomAttrValue::None => None,
+        }
+    }
+
+    /// `Tile:getTopVisibleThing` — `tile.cpp` ~322–347.
+    fn tile_get_top_visible_thing(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        viewer: Option<tfs_rust_common::ScriptCreatureId>,
+    ) -> Option<tfs_rust_common::ScriptThing> {
+        use crate::thing::LookTarget;
+        let pos = tfs_rust_common::Position { x, y, z };
+        let tile = self.map.get_tile(pos)?;
+        let look = match viewer.and_then(|v| self.resolve_creature_from_script(v)) {
+            Some(cid) => self.top_visible_look_target_on_tile(tile, cid),
+            None => tile.top_visible_look_target(
+                |cid| {
+                    // C++ nullptr viewer: skip invisible / ghost players.
+                    let Some(k) = self.creatures.get(cid) else {
+                        return false;
+                    };
+                    if k.base().is_invisible() {
+                        return false;
+                    }
+                    if let CreatureKind::Player(p) = k {
+                        !p.ghost_mode
+                    } else {
+                        true
+                    }
+                },
+                |iid| self.item_is_opaque_for_look(iid),
+            ),
+        }?;
+        match look {
+            LookTarget::Item(id) => Some(tfs_rust_common::ScriptThing::Item(id.data().as_ffi())),
+            LookTarget::Creature(id) => {
+                Some(tfs_rust_common::ScriptThing::Creature(id.data().as_ffi()))
+            }
+            // Ground is type-id only (no SlotMap Item); key/door scripts need real items.
+            LookTarget::Ground(_) => None,
+        }
+    }
+
     /// `group:hasFlag(flag)` — `Group::flags & flag` (`src/groups.cpp`).
     /// PC-3a Phase 5: `conjureItem` dual-hand infinite-mana gate.
     fn group_has_flag(&self, group_id: u16, flag: u64) -> bool {

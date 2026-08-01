@@ -45,6 +45,33 @@ pub enum ScriptCylinder {
     Tile(Position),
 }
 
+/// Remere OTBM door/key custom-attr keys (`item_blob` / Lua `ITEM_ATTRIBUTE_*` string aliases).
+/// TVP stores these as int attrs; TFS 1.4.2 bitflags collide, so map load keeps them as custom.
+pub mod remere_attr {
+    pub const KEYNUMBER: &str = "keynumber";
+    pub const KEYHOLENUMBER: &str = "keyholenumber";
+    pub const DOORQUESTNUMBER: &str = "doorquestnumber";
+    pub const DOORQUESTVALUE: &str = "doorquestvalue";
+    pub const DOORLEVEL: &str = "doorlevel";
+    pub const CHESTQUESTNUMBER: &str = "chestquestnumber";
+}
+
+/// `Tile:getTopVisibleThing` result — Item or Creature userdata (`luascript.cpp`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScriptThing {
+    Item(ScriptItemId),
+    Creature(ScriptCreatureId),
+}
+
+/// Value returned by `item:getAttribute` / custom-attr reads.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScriptAttrValue {
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    String(String),
+}
+
 /// Container read snapshot for Lua `Container:*` methods.
 #[derive(Clone, Debug)]
 pub struct ScriptContainerData {
@@ -319,6 +346,42 @@ pub trait ScriptContext {
     fn item_has_attribute(&self, item_id: ScriptItemId, attr_bits: u32) -> bool {
         let _ = (item_id, attr_bits);
         false
+    }
+
+    /// `item:hasAttribute("keynumber")` — Remere custom-attr presence.
+    fn item_has_custom_attribute(&self, item_id: ScriptItemId, key: &str) -> bool {
+        let _ = (item_id, key);
+        false
+    }
+
+    /// `item:getAttribute` for bitflag int attrs (`ITEM_ATTRIBUTE_ACTIONID`, …).
+    /// Missing int attrs return `0` like TFS `getIntAttr`.
+    fn item_get_int_attribute(&self, item_id: ScriptItemId, attr_bits: u32) -> Option<i64> {
+        let _ = (item_id, attr_bits);
+        None
+    }
+
+    /// `item:getAttribute` / `getCustomAttribute` for string keys (Remere door/key).
+    fn item_get_custom_attribute(
+        &self,
+        item_id: ScriptItemId,
+        key: &str,
+    ) -> Option<ScriptAttrValue> {
+        let _ = (item_id, key);
+        None
+    }
+
+    /// `tile:getTopVisibleThing([creature])` — `Tile::getTopVisibleThing` (`tile.cpp`).
+    /// `viewer == None` matches C++ nullptr (skip invisible/ghost only).
+    fn tile_get_top_visible_thing(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        viewer: Option<ScriptCreatureId>,
+    ) -> Option<ScriptThing> {
+        let _ = (x, y, z, viewer);
+        None
     }
 
     /// `group:hasFlag(flag)` — `Group::flags & flag` (`src/groups.cpp`).

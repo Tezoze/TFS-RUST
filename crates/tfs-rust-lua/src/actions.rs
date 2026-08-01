@@ -171,6 +171,24 @@ mod tests {
             pending[0].item_ids.contains(&1209),
             "doors should register locked door 1209"
         );
+        assert!(
+            pending[0].item_ids.contains(&2088),
+            "doors should register key id 2088 for use-with"
+        );
         assert!(pending[0].on_use.is_some());
+    }
+
+    #[test]
+    fn remere_key_attr_constants_are_string_aliases() {
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let globals = runtime.lua.globals();
+        let key: String = globals
+            .get("ITEM_ATTRIBUTE_KEYNUMBER")
+            .expect("KEYNUMBER");
+        let hole: String = globals
+            .get("ITEM_ATTRIBUTE_KEYHOLENUMBER")
+            .expect("KEYHOLE");
+        assert_eq!(key, "keynumber");
+        assert_eq!(hole, "keyholenumber");
     }
 }

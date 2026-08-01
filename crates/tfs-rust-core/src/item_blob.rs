@@ -29,13 +29,13 @@ const OTBM_ATTR_DOORQUESTVALUE: u8 = 26;
 const OTBM_ATTR_DOORLEVEL: u8 = 27;
 const OTBM_ATTR_CHESTQUESTNUMBER: u8 = 28;
 
-/// Custom-attr keys for Remere OTBM door/key fields (Lua `ITEM_ATTRIBUTE_*` follow-up).
-pub const OTBM_CUSTOM_KEYNUMBER: &str = "keynumber";
-pub const OTBM_CUSTOM_KEYHOLENUMBER: &str = "keyholenumber";
-pub const OTBM_CUSTOM_DOORQUESTNUMBER: &str = "doorquestnumber";
-pub const OTBM_CUSTOM_DOORQUESTVALUE: &str = "doorquestvalue";
-pub const OTBM_CUSTOM_DOORLEVEL: &str = "doorlevel";
-pub const OTBM_CUSTOM_CHESTQUESTNUMBER: &str = "chestquestnumber";
+/// Custom-attr keys for Remere OTBM door/key fields (Lua `ITEM_ATTRIBUTE_*` string aliases).
+pub const OTBM_CUSTOM_KEYNUMBER: &str = tfs_rust_common::remere_attr::KEYNUMBER;
+pub const OTBM_CUSTOM_KEYHOLENUMBER: &str = tfs_rust_common::remere_attr::KEYHOLENUMBER;
+pub const OTBM_CUSTOM_DOORQUESTNUMBER: &str = tfs_rust_common::remere_attr::DOORQUESTNUMBER;
+pub const OTBM_CUSTOM_DOORQUESTVALUE: &str = tfs_rust_common::remere_attr::DOORQUESTVALUE;
+pub const OTBM_CUSTOM_DOORLEVEL: &str = tfs_rust_common::remere_attr::DOORLEVEL;
+pub const OTBM_CUSTOM_CHESTQUESTNUMBER: &str = tfs_rust_common::remere_attr::CHESTQUESTNUMBER;
 
 /// Result of parsing a persisted item attribute blob.
 pub struct ParsedItemBlob {

@@ -1,6 +1,6 @@
 # Doors + Action System — Implementation Plan
 
-**Status:** Phase 0–2 done (2026-08-01); Phases 3+ not started  
+**Status:** Phase 0–3 done (2026-08-01); Phases 4+ not started  
 **Date:** 2026-07-19  
 **Goal:** Run `data/scripts/actions/other/doors.lua` (and sibling actions such as `food.lua`) end-to-end on a **TFS-style domain**, with **772 house/door outcomes** where they diverge, implemented as **idiomatic Rust**.
 
@@ -36,9 +36,9 @@
 | Load `data/scripts/actions/**` | **Done (Phase 1)** — recursive scan; door tables injected from `global.lua` |
 | `onUse` dispatch from player use / use-with | **Done (Phase 1)** — before container/teleport; after rune miss on ex |
 | `item:getId()` → server type id | **Done** — type id; `item.itemid` field added |
-| `item:getAttribute` / door+key attr constants | **Missing** (Phase 3) |
+| `item:getAttribute` / door+key attr constants | **Done (Phase 3)** — Remere string aliases → custom attrs |
 | `player:getStorageValue` | **Missing** (Phase 4) |
-| `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **getCreatures done (Phase 2)**; topVisible/count still missing |
+| `Tile:getCreatures` / `getTopVisibleThing` / `getCreatureCount` | **getCreatures + getTopVisibleThing done (Phase 2–3)**; count still missing |
 | Native house `Door::canUse` | **Missing** (`HouseManager::is_invited` only) |
 | `MoveEvent` StepIn/StepOut + load `movements/**` | **Missing** (equip/deequip only today) |
 | `openLevelDoors` / `openQuestDoors` in `global.lua` | **Done (Phase 0)** — live tables; forgotten.otbm spot-check OK |
@@ -105,7 +105,7 @@
 
 ---
 
-### Phase 3 — Keys (use-with)
+### Phase 3 — Keys (use-with) — **DONE 2026-08-01**
 
 **Goal:** Key on door toggles locked ↔ closed ↔ open per `doors.lua` transform rules.
 
@@ -119,6 +119,8 @@
 | 3.6 | Map/OTBM must populate keyhole attrs where keys are used (content/map issue if missing) |
 
 **Done when:** Matching key locks/unlocks; mismatch shows "The key does not match."
+
+**Implementation notes:** Remere OTBM attrs land as custom string keys (`keynumber` / `keyholenumber`); Lua constants are those strings (TVP int bitflags collide with TFS `STORE_ITEM`+). Use-with path was already wired in Phase 1 (`player_use_item_ex_core`).
 
 ---
 

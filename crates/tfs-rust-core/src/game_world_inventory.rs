@@ -569,6 +569,29 @@ impl GameWorld {
         }
     }
 
+    /// `item:setAttribute("keynumber", n)` — Remere OTBM custom attrs.
+    pub fn lua_script_set_custom_attribute(
+        &mut self,
+        item_u64: u64,
+        key: String,
+        value: i64,
+    ) -> Result<(), String> {
+        let iid = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        if let Some(item) = self.items.get_mut(iid) {
+            item.attributes
+                .get_or_insert_with(|| Box::new(crate::item_attributes::ItemAttributes::new()))
+                .set_custom_attribute(
+                    key,
+                    crate::item_attributes::CustomAttrValue::Integer(value),
+                );
+            Ok(())
+        } else {
+            Err("item not found".into())
+        }
+    }
+
     /// 772 `player:feed(amount)` — refill `food_remaining` (`moveuse.cc:1846`
     /// `SetTimer(SKILL_FED, CurFoodTime + ObjFoodTime, ...)`).
     ///

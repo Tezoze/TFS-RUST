@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
 use crate::lua_mutation::{
     LuaMoveDestination, call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove,
-    call_lua_item_transform, call_lua_set_action_id, call_lua_set_store_item,
-    call_lua_set_unique_id,
+    call_lua_item_transform, call_lua_set_action_id, call_lua_set_custom_attribute,
+    call_lua_set_store_item, call_lua_set_unique_id,
 };
 use crate::userdata::container::ContainerRef;
 
@@ -226,14 +226,110 @@ impl UserData for ItemRef {
             call_lua_item_remove(this.0, count).map_err(mlua::Error::runtime)
         });
 
+        // `item:isItem()` — `luascript.cpp` `luaItemIsItem` (always true for Item userdata).
+        methods.add_method("isItem", |_, _this, ()| Ok(true));
+
+        // `item:isCreature()` — Thing discriminator used by doors.lua / talkactions scripts.
+        methods.add_method("isCreature", |_, _this, ()| Ok(false));
+
         // `item:hasAttribute(key)` — `luascript.cpp` `luaItemHasAttribute`.
-        // PC-3a Phase 5: `conjureItem` checks `ITEM_ATTRIBUTE_DURATION`.
-        methods.add_method("hasAttribute", |_, this, key: Option<u32>| {
-            let attr_bits = key.unwrap_or(0);
-            if attr_bits == 0 {
+        // Number = TFS bitflag; string = Remere custom attr (`keynumber`, …).
+        methods.add_method("hasAttribute", |_, this, key: Value| {
+            match key {
+                Value::Nil => Ok(false),
+                Value::Integer(n) => {
+                    let attr_bits = n as u32;
+                    if attr_bits == 0 {
+                        return Ok(false);
+                    }
+                    with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
+                }
+                Value::Number(n) => {
+                    let attr_bits = n as u32;
+                    if attr_bits == 0 {
+                        return Ok(false);
+                    }
+                    with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
+                }
+                Value::String(s) => {
+                    let key = s.to_str()?.to_string();
+                    with_ctx(|ctx| Ok(ctx.item_has_custom_attribute(this.0, &key)))
+                }
+                _ => Ok(false),
+            }
+        });
+
+        // `item:getAttribute(key)` — `luascript.cpp` `luaItemGetAttribute`.
+        methods.add_method("getAttribute", |lua, this, key: Value| {
+            match key {
+                Value::Integer(n) => {
+                    let attr_bits = n as u32;
+                    let v = with_ctx(|ctx| Ok(ctx.item_get_int_attribute(this.0, attr_bits)))?;
+                    Ok(match v {
+                        Some(i) => Value::Integer(i),
+                        None => Value::Integer(0),
+                    })
+                }
+                Value::Number(n) => {
+                    let attr_bits = n as u32;
+                    let v = with_ctx(|ctx| Ok(ctx.item_get_int_attribute(this.0, attr_bits)))?;
+                    Ok(match v {
+                        Some(i) => Value::Integer(i),
+                        None => Value::Integer(0),
+                    })
+                }
+                Value::String(s) => {
+                    let key = s.to_str()?.to_string();
+                    let v = with_ctx(|ctx| Ok(ctx.item_get_custom_attribute(this.0, &key)))?;
+                    Ok(match v {
+                        Some(tfs_rust_common::ScriptAttrValue::Integer(i)) => Value::Integer(i),
+                        Some(tfs_rust_common::ScriptAttrValue::Float(f)) => Value::Number(f),
+                        Some(tfs_rust_common::ScriptAttrValue::Boolean(b)) => Value::Boolean(b),
+                        Some(tfs_rust_common::ScriptAttrValue::String(s)) => {
+                            Value::String(lua.create_string(&s)?)
+                        }
+                        None => Value::Nil,
+                    })
+                }
+                _ => Ok(Value::Nil),
+            }
+        });
+
+        // `item:setAttribute(key, value)` — bitflag ints + Remere string custom attrs.
+        methods.add_method("setAttribute", |_, this, (key, value): (Value, Value)| {
+            let int_val = match value {
+                Value::Integer(i) => i,
+                Value::Number(f) => f as i64,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "setAttribute: expected integer value",
+                    ));
+                }
+            };
+            let bits = match &key {
+                Value::Integer(i) => Some(*i as u32),
+                Value::Number(f) => Some(*f as u32),
+                _ => None,
+            };
+            if let Some(bits) = bits {
+                const ACTION_ID: u32 = 1 << 0;
+                const UNIQUE_ID: u32 = 1 << 1;
+                if bits == ACTION_ID {
+                    call_lua_set_action_id(this.0, int_val as u16).map_err(mlua::Error::runtime)?;
+                    return Ok(true);
+                }
+                if bits == UNIQUE_ID {
+                    call_lua_set_unique_id(this.0, int_val as u16).map_err(mlua::Error::runtime)?;
+                    return Ok(true);
+                }
                 return Ok(false);
             }
-            with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
+            if let Value::String(s) = key {
+                let key = s.to_str()?.to_string();
+                call_lua_set_custom_attribute(this.0, key, int_val).map_err(mlua::Error::runtime)?;
+                return Ok(true);
+            }
+            Ok(false)
         });
 
         // `item:transform(itemId[, count/subType])` — `luascript.cpp`
@@ -261,6 +357,120 @@ impl UserData for ItemRef {
         // `item:decay()` — TFS `luaItemDecay` → `Item::startDecaying` → `Game::startDecay`.
         methods.add_method("decay", |_, this, ()| {
             call_lua_item_decay(this.0).map_err(mlua::Error::runtime)
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::with_lua_context;
+    use mlua::Lua;
+    use std::collections::HashMap;
+    use tfs_rust_common::{
+        remere_attr, ScriptAttrValue, ScriptContext, ScriptCreatureData, ScriptCreatureId,
+        ScriptItemData, ScriptItemId, ScriptItemRef, ScriptThing,
+    };
+
+    struct KeyAttrCtx {
+        attrs: HashMap<String, i64>,
+        top: Option<ScriptThing>,
+    }
+
+    impl ScriptContext for KeyAttrCtx {
+        fn get_creature(&self, _: ScriptCreatureId) -> Option<ScriptCreatureData> {
+            None
+        }
+        fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
+            Some(ScriptItemRef(id))
+        }
+        fn get_config_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn get_item_data(&self, id: ScriptItemId) -> Option<ScriptItemData> {
+            Some(ScriptItemData {
+                item_type: if id == 1 { 1209 } else { 2088 },
+                count: 1,
+                weight: 0,
+                name: "test".into(),
+                action_id: 0,
+                unique_id: 0,
+                is_store_item: false,
+            })
+        }
+        fn item_has_custom_attribute(&self, _: ScriptItemId, key: &str) -> bool {
+            self.attrs.contains_key(key)
+        }
+        fn item_get_custom_attribute(
+            &self,
+            _: ScriptItemId,
+            key: &str,
+        ) -> Option<ScriptAttrValue> {
+            self.attrs
+                .get(key)
+                .copied()
+                .map(ScriptAttrValue::Integer)
+        }
+        fn tile_get_top_visible_thing(
+            &self,
+            _: u16,
+            _: u16,
+            _: u8,
+            _: Option<ScriptCreatureId>,
+        ) -> Option<ScriptThing> {
+            self.top
+        }
+        fn tile_exists(&self, _: u16, _: u16, _: u8) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn item_is_item_and_keyhole_attr_roundtrip_via_lua() {
+        let lua = Lua::new();
+        register_item_metatable(&lua).expect("item mt");
+        crate::userdata::register_tile_constructor(&lua).expect("tile");
+        crate::constants::register_constants(&lua).expect("constants");
+
+        let mut attrs = HashMap::new();
+        attrs.insert(remere_attr::KEYHOLENUMBER.to_string(), 42);
+        attrs.insert(remere_attr::KEYNUMBER.to_string(), 42);
+        let ctx = KeyAttrCtx {
+            attrs,
+            top: Some(ScriptThing::Item(1)),
+        };
+
+        with_lua_context(&ctx, || {
+            let door = lua.create_userdata(ItemRef(1)).expect("door");
+            let key = lua.create_userdata(ItemRef(2)).expect("key");
+            lua.globals().set("door", door).unwrap();
+            lua.globals().set("key", key).unwrap();
+
+            let is_item: bool = lua.load("return door:isItem()").eval().unwrap();
+            assert!(is_item);
+
+            let has: bool = lua
+                .load("return door:hasAttribute(ITEM_ATTRIBUTE_KEYHOLENUMBER)")
+                .eval()
+                .unwrap();
+            assert!(has);
+
+            let match_ok: bool = lua
+                .load(
+                    "return key:getAttribute(ITEM_ATTRIBUTE_KEYNUMBER) == door:getAttribute(ITEM_ATTRIBUTE_KEYHOLENUMBER)",
+                )
+                .eval()
+                .unwrap();
+            assert!(match_ok);
+
+            let itemid: u16 = lua.load("return door.itemid").eval().unwrap();
+            assert_eq!(itemid, 1209);
+
+            let top_is_item: bool = lua
+                .load("return Tile(100, 100, 7):getTopVisibleThing():isItem()")
+                .eval()
+                .unwrap();
+            assert!(top_is_item);
         });
     }
 }

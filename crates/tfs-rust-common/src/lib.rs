@@ -30,6 +30,7 @@ pub use protocol_version::{
     protocol_version_from_i64, protocol_version_from_raw, ProtocolCaps, ProtocolVersion,
 };
 pub use script_context::{
-    ScriptContainerData, ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptCreatureRef,
-    ScriptCylinder, ScriptItemData, ScriptItemId, ScriptItemRef, WeaponCombatParams,
+    remere_attr, ScriptAttrValue, ScriptContainerData, ScriptContext, ScriptCreatureData,
+    ScriptCreatureId, ScriptCreatureRef, ScriptCylinder, ScriptItemData, ScriptItemId,
+    ScriptItemRef, ScriptThing, WeaponCombatParams,
 };

@@ -122,6 +122,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
         LuaMutation::ItemSetStoreItem { item_id, store } => {
             unsafe { &mut *world }.lua_script_set_store_item(item_id, store)
         }
+        LuaMutation::ItemSetCustomAttribute {
+            item_id,
+            key,
+            value,
+        } => unsafe { &mut *world }.lua_script_set_custom_attribute(item_id, key, value),
         LuaMutation::PlayerFeed {
             creature_id,
             amount,

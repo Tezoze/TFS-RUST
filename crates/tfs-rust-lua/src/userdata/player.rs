@@ -560,6 +560,12 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.is_creature_player(this.0)))
         });
 
+        // `creature:isItem()` — Thing discriminator (`data/lib/core/creature.lua`).
+        methods.add_method("isItem", |_, _this, ()| Ok(false));
+
+        // `creature:isCreature()` — always true for Creature userdata.
+        methods.add_method("isCreature", |_, _this, ()| Ok(true));
+
         // `creature:isMonster()` — PC-3a Gap 5/6.
         methods.add_method("isMonster", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.is_creature_monster(this.0)))

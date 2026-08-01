@@ -221,6 +221,8 @@ fn register_return_values(globals: &mlua::Table) -> Result<(), mlua::Error> {
 // --- ITEM_ATTRIBUTE_* (enums.h:51-84 itemAttrTypes bitflags) ---
 //
 // PC-3a Phase 5: `conjureItem` / `destroyItem` check duration / unique / action id.
+// Doors Phase 3: Remere key/door fields are **string** aliases → custom attrs
+// (`remere_attr::*` / OTBM map load). TVP bitflags collide with TFS 1.4.2 STORE_ITEM+.
 
 fn register_item_attributes(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("ITEM_ATTRIBUTE_NONE", 0i32)?;
@@ -230,6 +232,27 @@ fn register_item_attributes(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("ITEM_ATTRIBUTE_TEXT", 1i32 << 3)?;
     globals.set("ITEM_ATTRIBUTE_DURATION", 1i32 << 17)?;
     globals.set("ITEM_ATTRIBUTE_CHARGES", 1i32 << 20)?;
+    // Remere OTBM / doors.lua — string custom-attr aliases (not TFS bitflags).
+    globals.set(
+        "ITEM_ATTRIBUTE_KEYNUMBER",
+        tfs_rust_common::remere_attr::KEYNUMBER,
+    )?;
+    globals.set(
+        "ITEM_ATTRIBUTE_KEYHOLENUMBER",
+        tfs_rust_common::remere_attr::KEYHOLENUMBER,
+    )?;
+    globals.set(
+        "ITEM_ATTRIBUTE_DOORQUESTNUMBER",
+        tfs_rust_common::remere_attr::DOORQUESTNUMBER,
+    )?;
+    globals.set(
+        "ITEM_ATTRIBUTE_DOORQUESTVALUE",
+        tfs_rust_common::remere_attr::DOORQUESTVALUE,
+    )?;
+    globals.set(
+        "ITEM_ATTRIBUTE_DOORLEVEL",
+        tfs_rust_common::remere_attr::DOORLEVEL,
+    )?;
     Ok(())
 }
 
@@ -310,6 +333,18 @@ mod tests {
         assert_eq!(get("ITEM_ATTRIBUTE_ACTIONID"), 1 << 0);
         assert_eq!(get("ITEM_ATTRIBUTE_UNIQUEID"), 1 << 1);
         assert_eq!(get("ITEM_ATTRIBUTE_DURATION"), 1 << 17);
+        assert_eq!(
+            globals
+                .get::<String>("ITEM_ATTRIBUTE_KEYNUMBER")
+                .expect("ITEM_ATTRIBUTE_KEYNUMBER"),
+            "keynumber"
+        );
+        assert_eq!(
+            globals
+                .get::<String>("ITEM_ATTRIBUTE_KEYHOLENUMBER")
+                .expect("ITEM_ATTRIBUTE_KEYHOLENUMBER"),
+            "keyholenumber"
+        );
 
         // VOCATION_NONE (enums.h:297)
         assert_eq!(get("VOCATION_NONE"), 0);
