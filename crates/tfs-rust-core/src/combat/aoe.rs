@@ -359,10 +359,11 @@ impl GameWorld {
                             && create_item_applies_infight(item_type)
                             && infight_player.is_some()
                         {
-                            // TFS `casterPlayer->addInFightTicks()` — `combat.cpp:616`.
+                            // 772 `CreateField` fire/poison/energy — `BlockLogout(60, true)`
+                            // (`magic.cc:1091-1095`). TFS `addInFightTicks()` alone does not
+                            // PZ-lock; field placement is the explicit PZ-lock case.
                             if let Some(pid) = infight_player {
-                                let _ = self
-                                    .lua_script_player_set_in_fight(pid.data().as_ffi(), true);
+                                self.player_block_logout_infight(pid, true);
                                 applied_infight = true;
                             }
                         }

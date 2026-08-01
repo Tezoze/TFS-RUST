@@ -20,7 +20,7 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 
 impl GameWorld {
-    /// Cip `PRIORITY_BOTTOM` (magic field / pool) — sits before creatures on the tile.
+    /// Cip `PRIORITY_BOTTOM` (pool/splash) — sits before creatures; magic fields are LOW.
     pub(crate) fn item_is_cip_priority_bottom(&self, item_id: ItemId) -> bool {
         self.items
             .get(item_id)

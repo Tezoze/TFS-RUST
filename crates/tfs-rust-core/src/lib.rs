@@ -48,6 +48,7 @@ pub mod login;
 mod login_out;
 pub mod lua_command;
 pub mod lua_event_dispatcher;
+mod magic_field;
 pub mod lua_scope;
 pub mod map;
 pub mod matrix_area;

@@ -1842,29 +1842,8 @@ impl GameWorld {
             (MonsterFieldType::Energy, true) => ITEM_ENERGYFIELD_NOPVP,
         };
 
-        // Delete existing MAGICFIELD items — `CreateField` (`magic.cc:1034–1041`).
-        let existing: Vec<_> = self
-            .map
-            .get_tile(field_pos)
-            .map(|t| {
-                t.body()
-                    .down_items
-                    .iter()
-                    .chain(t.body().top_items.iter())
-                    .copied()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        for iid in existing {
-            if self
-                .items
-                .get(iid)
-                .and_then(|item| self.items_db.items.get(&item.item_type))
-                .is_some_and(|t| t.is_magic_field())
-            {
-                let _ = self.internal_remove_item_from_tile(field_pos, iid, u16::MAX);
-            }
-        }
+        // MAGICFIELD replace + tile flags + AddItemField damage live in
+        // `internal_add_item_to_tile` (TFS `Tile::addThing` / 772 `CreateField`).
 
         let owner_wire = self
             .creatures

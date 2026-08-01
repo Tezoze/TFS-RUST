@@ -81,8 +81,8 @@ impl GameWorld {
             }
             if let Some(i) = self.items.get(iid) {
                 if let Some(t) = self.items_db.items.get(&i.item_type) {
-                    // BOTTOM priority items (splashes / magic fields) sit below creatures.
-                    // Break at `PRIORITY_LOW` (`is_cip_priority_bottom`) and skip `!moveable()`.
+                    // Cip BOTTOM (pools) sit below creatures; LOW (incl. magic fields) after.
+                    // Skip BOTTOM / always-on-top / immovable when picking the top move object.
                     if !t.is_cip_priority_bottom() && !t.always_on_top() && t.moveable() {
                         return Some(iid);
                     }
@@ -573,8 +573,14 @@ impl GameWorld {
         // and ladder both order 2: server appends splash after ladder, client inserts splash
         // before ladder → remove at server stackpos deletes the ladder on the client).
         let item_type_info = self.items_db.items.get(&item_type);
+        let is_magic_field = item_type_info.map(|t| t.is_magic_field()).unwrap_or(false);
         let always_on_top = item_type_info.map(|t| t.always_on_top()).unwrap_or(false);
         let new_order = item_type_info.map(|t| t.always_on_top_order).unwrap_or(0);
+
+        // TFS `Tile::addThing` magic-field replace (`tile.cpp:917-938`) / 772 `CreateField`.
+        if is_magic_field {
+            self.remove_replaceable_magic_fields_on_tile(pos);
+        }
 
         {
             let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
@@ -599,6 +605,9 @@ impl GameWorld {
             } else {
                 tile.add_item(item_id);
             }
+            if let Some(it) = self.items_db.items.get(&item_type) {
+                crate::map::apply_item_tile_flags(tile.body_mut(), it, &self.items_db);
+            }
         }
 
         if let Some(item) = self.items.get_mut(item_id) {
@@ -611,7 +620,13 @@ impl GameWorld {
         // Broadcast add
         self.broadcast_tile_item_add(pos, item_id, tvp_stack, cip_stack);
 
-        let _ = self.events.on_step_in(None, item_id, item_type, pos);
+        // TFS `AddItemField` / `onStepInField` — fields under standing creatures deal DoT.
+        // (Lua `onStepInField` is a C++ native; movements.xml cannot register it as a Lua global.)
+        if is_magic_field {
+            self.apply_magic_field_to_tile_creatures(pos, item_id);
+        } else {
+            let _ = self.events.on_step_in(None, item_id, item_type, pos);
+        }
         self.start_decay(item_id);
         Ok(item_id)
     }

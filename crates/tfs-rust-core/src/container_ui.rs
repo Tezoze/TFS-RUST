@@ -790,6 +790,11 @@ impl GameWorld {
             }
             return Err(ReturnValue::NotPossible);
         }
+        // 772 `UseMagicItem` — `BlockLogout(60, false)` when Aggressive (`magic.cc:4304-4306`).
+        // PZ-entry lock only if combat damage hits a player (`combat_execute_with_stimulus`).
+        if rune.is_aggressive {
+            self.player_block_logout_infight(cid, false);
+        }
         // Consume one charge / count — TFS `transformItem` count-1.
         if let Some(item) = self.items.get_mut(item_id) {
             if item.count > 1 {

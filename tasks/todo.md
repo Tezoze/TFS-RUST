@@ -1,4 +1,19 @@
-# Persist support conditions across relog — 2026-08-01
+# Field runes (firebomb) — no damage + delayed 772 client crash — 2026-08-01
+
+- [x] Root cause crash: `is_cip_priority_bottom` treated MagicField as BOTTOM; 772 `objects.srv` fields are LOW → creature stackpos desync after `0x6A` when monster moves
+- [x] Root cause no damage: field runes have no instant formula; `onStepInField`/`onAddField` are C++ natives (movements.xml load fails); never applied conditions
+- [x] Fix: magic fields = LOW only; splash/pool remain BOTTOM
+- [x] `internal_add_item_to_tile`: replace MAGICFIELD, set tile flags, `AddItemField` damage
+- [x] Walk land: `apply_magic_fields_under_creature` (StepInField)
+- [x] Tests: `magic_field_place_damages_creature_on_tile`, `magic_fields_are_cip_priority_low_not_bottom`, `firefield_xml_nested_attrs`
+- [x] Lesson 276
+
+# Aggressive spell/rune PZ lock only vs players — 2026-08-01
+
+- [x] Spoken aggressive: `BlockLogout(60, false)` not `true` (`magic.cc:3636-3638`)
+- [x] Rune aggressive: same (`magic.cc:4304-4306`); player-hit still PZ-locks via combat
+- [x] Field fire/poison/energy keep `BlockLogout(..., true)`
+- [x] Test + lesson 275
 
 - [x] `condition_blob` serialize/deserialize TFS PropStream (`players.conditions`)
 - [x] Save path writes blob; login loads into `active_conditions`

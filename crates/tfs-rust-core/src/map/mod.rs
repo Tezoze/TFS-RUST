@@ -244,7 +244,7 @@ fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
 
 /// Set runtime tile-state flags from an item's OTB properties, matching C++ `Tile::setTileFlags`.
 /// C++ ref: src/tile.cpp:1478-1535
-fn apply_item_tile_flags(
+pub(crate) fn apply_item_tile_flags(
     body: &mut TileBody,
     item_type: &tfs_rust_content::otb::ItemType,
     items_db: &ItemDatabase,

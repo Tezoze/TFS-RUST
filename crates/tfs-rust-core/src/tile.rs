@@ -276,8 +276,8 @@ impl Tile {
 
     /// Item stackpos with Cip BOTTOM vs LOW classification.
     ///
-    /// `is_priority_bottom`: true for magic fields / pools (`ItemType::is_cip_priority_bottom`).
-    /// When `cip_order` is false, the classifier is ignored (TVP order).
+    /// `is_priority_bottom`: true for Cip `PRIORITY_BOTTOM` (pools/splashes — not magic
+    /// fields; those are `PRIORITY_LOW`). When `cip_order` is false, ignored (TVP order).
     pub fn get_item_stack_pos_cip(
         &self,
         item_id: ItemId,
@@ -537,8 +537,8 @@ pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
 /// Cip `GetObjectRNum` creature index — only BOTTOM downs (+ tops) before creatures.
 ///
 /// `bottom_down_count` = number of `down_items` with Cip `PRIORITY_BOTTOM`
-/// (`ItemType::is_cip_priority_bottom`). Ordinary LOW downs sit after creatures and
-/// must not inflate this index.
+/// (pools/splashes via `ItemType::is_cip_priority_bottom`). Magic fields are LOW and
+/// must not inflate this index (`objects.srv` / `GetObjectPriority`).
 pub fn client_creature_stack_pos_cip(
     body: &TileBody,
     creature: CreatureId,

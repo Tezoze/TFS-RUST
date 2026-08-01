@@ -30,7 +30,8 @@ pub struct ItemStack {
 pub struct TileContent {
     pub ground: Option<ItemStack>,
     pub top_items: Vec<ItemStack>,
-    /// Cip `PRIORITY_BOTTOM` (magic fields / pools). Stored newest-first (index 0 = most recent).
+    /// Cip `PRIORITY_BOTTOM` (pools/splashes). Stored newest-first (index 0 = most recent).
+    /// Magic fields are LOW — see [`Self::low_items`].
     /// TVP path also parks all non-top down items here (emitted after creatures).
     pub bottom_items: Vec<ItemStack>,
     /// Cip `PRIORITY_LOW` only (ordinary down items). Emitted **after** creatures,

@@ -7109,6 +7109,64 @@ fn test_772_create_field_replaces_existing_magic_field() {
     );
 }
 
+/// Firebomb / CREATEITEM under a creature: initdamage + burn condition (TFS AddItemField).
+#[test]
+fn magic_field_place_damages_creature_on_tile() {
+    use crate::cylinder::CylinderFlags;
+    use crate::item::Item;
+    use std::sync::Arc;
+    use tfs_rust_common::enums::ConditionType;
+    use tfs_rust_content::otb::ItemType;
+
+    let mut world = beat_driven_test_world();
+    let mut db = (*world.items_db).clone();
+    let mut it = ItemType {
+        server_id: 1487,
+        type_tag: 6,
+        ..Default::default()
+    };
+    it.xml_attributes
+        .insert("field".into(), "fire".into());
+    it.xml_attributes
+        .insert("field.initdamage".into(), "20".into());
+    it.xml_attributes
+        .insert("field.cycles".into(), "70".into());
+    it.xml_attributes
+        .insert("replacemagicfields".into(), "true".into());
+    db.items.insert(1487, it);
+    world.items_db = Arc::new(db);
+
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 100);
+    world.map.register_creature_at(pos, monster);
+    let hp_before = world.creatures.get(monster).unwrap().base().health;
+
+    let iid = world.items.insert(Item::new_single(1487));
+    world
+        .internal_add_item_to_tile(pos, iid, CylinderFlags::NONE)
+        .expect("place fire field");
+
+    let hp_after = world.creatures.get(monster).unwrap().base().health;
+    assert!(
+        hp_after < hp_before,
+        "initdamage must hit creature already on the tile (AddItemField)"
+    );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .any(|c| c.ctype == ConditionType::Fire),
+        "fire condition must start"
+    );
+    // 772: magic fields are PRIORITY_LOW — must not count as Cip BOTTOM.
+    assert!(!world.item_is_cip_priority_bottom(iid));
+}
+
 /// `ExecuteCircleSpell` PZ skip — aggressive Destination field does not land on PZ
 /// (`magic.cc:475–477`).
 #[test]

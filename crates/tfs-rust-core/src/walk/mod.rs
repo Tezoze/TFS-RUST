@@ -2194,6 +2194,9 @@ impl GameWorld {
             self.auto_close_containers_for_player(cid);
         }
 
+        // TFS `StepInField` after walk lands — `movement.cpp:658` / tile fields.
+        self.apply_magic_fields_under_creature(cid, final_pos);
+
         // Ghost diagnostic: after all moves, verify the creature is ONLY on the final tile.
         // Scan the old position and any intermediate positions for stale registrations.
         let mut ghost_positions: Vec<Position> = Vec::new();

@@ -416,10 +416,12 @@ impl GameWorld {
             }
         }
 
-        // PC-3a: PZ lock for aggressive spells — 772 `BlockLogout` `crmain.cc:433-457` /
-        // `magic.cc` (typically `BlockLogout(60, true)`). Duration from `config.lua` `pzLocked`.
+        // Aggressive spoken spells — 772 `CastSpell` end `BlockLogout(60, false)`
+        // (`magic.cc:3636-3638`). Logout / swords yes; PZ-entry lock only when damage
+        // hits a *player* (`combat_execute_with_stimulus` → `Target->Type == PLAYER`).
+        // Using `true` here wrongly PZ-locked after UE / energy strike on monsters.
         if spell.is_aggressive {
-            self.player_block_logout_infight(cid, true);
+            self.player_block_logout_infight(cid, false);
         }
 
         // PC-3a: Dispatch the `onCastSpell` Lua callback.
@@ -1227,6 +1229,10 @@ impl GameWorld {
     /// `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
     /// Applies / clears `CONDITION_INFIGHT` (bit `1<<10` = 1024).
     /// Duration when applying comes from `config.lua` `pzLocked` (TFS `addInFightTicks`).
+    ///
+    /// `block_pz` is **false** — matches TFS `addInFightTicks()` default and 772
+    /// aggressive spell/rune `BlockLogout(60, false)`. PZ-entry lock is set only when
+    /// combat hits a player (`Target->Type == PLAYER`) or fire/poison/energy fields.
     pub fn lua_script_player_set_in_fight(
         &mut self,
         creature_u64: u64,
@@ -1236,9 +1242,7 @@ impl GameWorld {
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
         if in_fight {
-            // Prefer 772 `BlockLogout` + Infight via the shared combat path so logout gate,
-            // PZ lock, and swords icon stay consistent with melee / spells.
-            self.player_block_logout_infight(cid, true);
+            self.player_block_logout_infight(cid, false);
         } else {
             let removed = if let Some(kind) = self.creatures.get_mut(cid) {
                 let before = kind.base().active_conditions.len();
@@ -1872,6 +1876,58 @@ mod apply_spec_tests {
             _ => panic!("player"),
         };
         assert_eq!(mana, 499, "group cooldown blocked second spell before mana");
+    }
+
+    #[test]
+    fn aggressive_spell_does_not_pz_lock_without_player_target() {
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+            TEST_SYNTHETIC_GROUND_WP,
+        };
+
+        // 772 `CastSpell` → `BlockLogout(60, false)` (`magic.cc:3636-3638`).
+        let mut world = beat_driven_test_world();
+        world.round_nr = 100;
+        world.pvp_config.world_type = WorldType::Pvp;
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("NoPzLock", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        let cid = insert_player(&mut world, player);
+        world.map.register_creature_at(pos, cid);
+        // `BlockLogout(..., false)` skips logout extend when Connection is NULL
+        // (`crmain.cc:444-448`); map a conn like a live client.
+        world.register_conn_mapping(ConnId(1), cid);
+
+        let def = InstantSpellDef {
+            name: "Energy Strike".into(),
+            words: "ex,ori, vis".into(),
+            level: 1,
+            mana: 20,
+            is_aggressive: true,
+            vocations: vec![],
+            ..Default::default()
+        };
+        std::sync::Arc::make_mut(&mut world.spells)
+            .instant_by_words
+            .insert("ex,ori, vis".into(), def);
+
+        assert!(world.player_say_spell(cid, 1, "exori vis"));
+        let CreatureKind::Player(p) = world.creatures.get(cid).unwrap() else {
+            panic!("player");
+        };
+        assert!(
+            p.earliest_logout_round > world.round_nr,
+            "aggressive cast still blocks logout / swords"
+        );
+        assert_eq!(
+            p.earliest_protection_zone_round, 0,
+            "monster-only / no-player-hit cast must not PZ-lock"
+        );
     }
 
     #[test]

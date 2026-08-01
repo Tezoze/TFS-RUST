@@ -706,12 +706,13 @@ impl ItemType {
 
     /// Cip map-container `PRIORITY_BOTTOM` (`map.hh` / `GetObjectPriority`).
     ///
-    /// Magic fields and liquid pools sit below creatures; ordinary `down_items` are
-    /// `PRIORITY_LOW` and sit *after* creatures. Mis-classifying LOW as BOTTOM inflates
-    /// `GetObjectRNum` / MoveCreature stackpos → client `bug0000017`.
+    /// 772 `objects.srv`: liquid pools carry `Bottom` (before creatures). Magic fields
+    /// (`MagicField`, no `Bottom`) are `PRIORITY_LOW` and sit *after* creatures
+    /// (`map.cc:1999-2013`). Treating fields as BOTTOM inflates `GetObjectRNum` /
+    /// MoveCreature stackpos after `0x6A` add → stock 772 client `bug0000017`.
     #[inline]
     pub fn is_cip_priority_bottom(&self) -> bool {
-        self.is_magic_field() || self.is_splash()
+        self.is_splash()
     }
 }
 
@@ -841,5 +842,17 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn magic_fields_are_cip_priority_low_not_bottom() {
+        // 772 objects.srv MagicField entries have no Bottom flag → PRIORITY_LOW.
+        let mut field = super::ItemType::default();
+        field.type_tag = 6; // ITEM_TYPE_MAGICFIELD
+        assert!(field.is_magic_field());
+        assert!(
+            !field.is_cip_priority_bottom(),
+            "magic fields must not inflate creature stackpos (bug0000017)"
+        );
     }
 }
