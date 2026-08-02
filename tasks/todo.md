@@ -1,7 +1,8 @@
-# Capacity on level up/down → 0 — 2026-08-01
+# P0: PvP damage half + kill experience — 2026-08-02
 
-**Bug:** Leveling overwrites `Player.capacity` with oz-scale vocation formula; runtime is centi-oz → free cap shows 0.
+From player-pvp-audit canvas. 772 outcomes; TFS-shaped domain.
 
-- [x] `VocationProfile::from_def` / `none_vocation`: store `base_cap`/`gain_cap` as centi-oz (×100), matching TFS `vocation.cpp`
-- [x] Update vitals tests + level-up/down capacity assertions
-- [x] Lesson 293; targeted `cargo test` pass
+- [x] `(Damage+1)/2` in `combat_execute_with_stimulus` before absorb (player↔player, non-DoT)
+- [x] Rewrite `pvp_exp_cap` → MaxLevel scale; death pool `Exp/20` only on `PvpEnforced` + party skip
+- [x] Wire `WorldType` into `handle_creature_death`
+- [x] Tests + lessons + canvas P0 Done

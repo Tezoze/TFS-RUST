@@ -1,17 +1,19 @@
 //! Death: loot, XP from damage map, events, corpse decay placeholder.
 //! C++ reference: `Creature::dropCorpse`, `Game::playerDeath`, `combat.cpp`;
-//! 772 player death — `crmain.cc:790+` (AoL), `crplayer.cc:324` `TPlayer::Death` (skill/exp loss).
+//! 772 player death — `crmain.cc:790+` (AoL), `crplayer.cc:324` `TPlayer::Death` (skill/exp loss);
+//! PvP kill XP — `crplayer.cc:339–340` + `crcombat.cc:922–934` `DistributeExperiencePoints`.
 
-use crate::combat::distribute_experience;
+use crate::combat::{distribute_experience, pvp_kill_experience_amount};
 use crate::config::ConfigManager;
 use crate::creature::CreatureKind;
 use crate::decay::DecayManager;
 use crate::event_dispatcher::EventDispatcher;
-use crate::formulas::StepSpeedModel;
+use crate::formulas::{MechanicsProfile, StepSpeedModel};
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::party::split_shared_experience;
 use slotmap::SlotMap;
+use tfs_rust_common::enums::WorldType;
 
 /// Count of the five standard blessings (bits 0–4). Twist of fate is bit 5.
 #[inline]
@@ -96,7 +98,8 @@ pub struct XpShareGrant {
 /// - `leveled` — creature IDs whose level (and thus speed) changed
 /// - `xp_grants` — killers with positive XP (stats + popup) **and** the player victim
 ///   (always, so `sendStats` runs after blessing clear even when exp loss is 0)
-// C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:891-908`.
+// C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:891-908`;
+// player kill XP — `crplayer.cc:339-340` (OE only) + `crcombat.cc:922-934`.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_creature_death(
     creatures: &mut SlotMap<CreatureId, CreatureKind>,
@@ -110,6 +113,8 @@ pub fn handle_creature_death(
     config: &ConfigManager,
     schedule_generic_corpse: bool,
     corpse_decay_offset_ms: u64,
+    world_type: WorldType,
+    mechanics: &MechanicsProfile,
 ) -> (Vec<CreatureId>, Vec<XpShareGrant>) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return (Vec::new(), Vec::new());
@@ -127,6 +132,16 @@ pub fn handle_creature_death(
 
     let mut leveled_killers: Vec<CreatureId> = Vec::new();
     let mut xp_grants: Vec<XpShareGrant> = Vec::new();
+
+    // 772 PvP pool uses pre-death Exp (`crplayer.cc:340` Exp/20) — capture before loss.
+    let (pvp_victim_level, pvp_pool, victim_party_id) = match creatures.get(victim) {
+        Some(CreatureKind::Player(p)) if world_type == WorldType::PvpEnforced => {
+            (Some(p.level.max(1)), Some(p.experience / 20), p.social.party_id)
+        }
+        Some(CreatureKind::Player(p)) => (Some(p.level.max(1)), Some(0), p.social.party_id),
+        _ => (None, None, None),
+    };
+    let is_pvp_kill = pvp_pool.is_some();
 
     // Player victim: experience loss with bless reduction (PC-5 M7). Skill tries are
     // applied earlier via `GameWorld::apply_player_death_penalties`.
@@ -152,7 +167,7 @@ pub fn handle_creature_death(
 
     let exp_reward: u64 = match creatures.get(victim) {
         Some(CreatureKind::Monster(m)) => m.experience as u64,
-        Some(CreatureKind::Player(p)) => (p.level.max(1) as u64).saturating_mul(100),
+        Some(CreatureKind::Player(_)) => pvp_pool.unwrap_or(0),
         _ => 0,
     };
 
@@ -164,18 +179,44 @@ pub fn handle_creature_death(
     let grants = distribute_experience(exp_reward, &shares);
 
     for ((killer_id, _), share) in killer_entries.iter().zip(grants) {
-        let share = if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
+        let share = if is_pvp_kill {
+            // 772 PvP arm: no TFS party shared-XP split; party members skipped below.
+            share
+        } else if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
             split_shared_experience(share, n)
         } else {
             share
         };
-        if let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id) {
-            let rate_exp = config
-                .experience_rate_for_level(k.level)
-                .unwrap_or(1.0)
-                .max(0.0);
-            let share = ((share as f64) * rate_exp).floor() as u64;
-            if share > 0 {
+
+        let Some(CreatureKind::Player(k)) = creatures.get(*killer_id) else {
+            events.on_kill(*killer_id, victim);
+            continue;
+        };
+
+        let share = if is_pvp_kill {
+            // `InPartyWith` stand-in: same live `party_id` (FormerParty is P1).
+            let same_party = match (victim_party_id, k.social.party_id) {
+                (Some(a), Some(b)) if a == b => true,
+                _ => false,
+            };
+            if same_party {
+                0
+            } else if let Some(vic_lvl) = pvp_victim_level {
+                pvp_kill_experience_amount(mechanics, vic_lvl, k.level, share)
+            } else {
+                0
+            }
+        } else {
+            share
+        };
+
+        let rate_exp = config
+            .experience_rate_for_level(k.level)
+            .unwrap_or(1.0)
+            .max(0.0);
+        let share = ((share as f64) * rate_exp).floor() as u64;
+        if share > 0 {
+            if let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id) {
                 let old_level = k.level;
                 if k.add_experience(share, step_speed_model) {
                     leveled_killers.push(*killer_id);
@@ -208,6 +249,11 @@ pub fn handle_creature_death(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_dispatcher::NullEventDispatcher;
+    use crate::formulas::{MechanicsProfile, StepSpeedModel};
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use tfs_rust_common::enums::WorldType;
+    use tfs_rust_common::Position;
 
     #[test]
     fn blessing_count_bits_0_to_4() {
@@ -236,15 +282,32 @@ mod tests {
         assert_eq!(blessing_count(0b11111), 5);
     }
 
+    fn death_call(
+        world: &mut crate::game_world::GameWorld,
+        victim: CreatureId,
+        world_type: WorldType,
+    ) -> (Vec<CreatureId>, Vec<XpShareGrant>) {
+        handle_creature_death(
+            &mut world.creatures,
+            &mut world.items,
+            &mut world.decay,
+            &NullEventDispatcher,
+            victim,
+            0,
+            None,
+            StepSpeedModel::LinearGo,
+            world.config.as_ref(),
+            false,
+            0,
+            world_type,
+            &world.mechanics.profile,
+        )
+    }
+
     #[test]
     fn zero_exp_loss_still_queues_victim_stats_grant() {
         // `deathLosePercent = 0` → lose == 0, but blessings still clear; must still emit a
         // victim grant so `apply_creature_death` calls `send_player_stats`.
-        use crate::event_dispatcher::NullEventDispatcher;
-        use crate::formulas::StepSpeedModel;
-        use crate::sim_harness::{insert_player, minimal_world, test_player};
-        use tfs_rust_common::Position;
-
         let mut world = minimal_world();
         // Override config with zero death loss.
         let path = std::env::temp_dir().join(format!(
@@ -273,19 +336,7 @@ mod tests {
             },
         );
 
-        let (_, grants) = handle_creature_death(
-            &mut world.creatures,
-            &mut world.items,
-            &mut world.decay,
-            &NullEventDispatcher,
-            cid,
-            0,
-            None,
-            StepSpeedModel::LinearGo,
-            world.config.as_ref(),
-            false,
-            0,
-        );
+        let (_, grants) = death_call(&mut world, cid, WorldType::Pvp);
 
         assert!(
             grants.iter().any(|g| g.cid == cid && g.amount == 0),
@@ -296,5 +347,96 @@ mod tests {
             _ => panic!("victim missing"),
         };
         assert_eq!(blessings, 0, "blessings cleared even with zero exp loss");
+    }
+
+    #[test]
+    fn pvp_kill_exp_open_pvp_is_zero() {
+        let mut world = minimal_world();
+        let victim = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 20_000;
+            p.level = 50;
+            p
+        });
+        let killer = insert_player(&mut world, {
+            let mut p = test_player("Atk", Position::new(101, 100, 7));
+            p.level = 40;
+            p.experience = 0;
+            p
+        });
+        if let Some(CreatureKind::Player(v)) = world.creatures.get_mut(victim) {
+            v.base.damage_map.insert(killer, 100);
+        }
+
+        let (_, grants) = death_call(&mut world, victim, WorldType::Pvp);
+        assert!(
+            !grants.iter().any(|g| g.cid == killer && g.amount > 0),
+            "open PvP must not grant player-kill XP"
+        );
+    }
+
+    #[test]
+    fn pvp_kill_exp_enforced_scales_by_max_level() {
+        let mut world = minimal_world();
+        let victim = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            // Pool = 20_000 / 20 = 1000; sole damager takes all before scale.
+            p.experience = 20_000;
+            p.level = 100;
+            p
+        });
+        let killer = insert_player(&mut world, {
+            let mut p = test_player("Atk", Position::new(101, 100, 7));
+            p.level = 100;
+            p.experience = 0;
+            p
+        });
+        if let Some(CreatureKind::Player(v)) = world.creatures.get_mut(victim) {
+            v.base.damage_map.insert(killer, 100);
+        }
+
+        let (_, grants) = death_call(&mut world, victim, WorldType::PvpEnforced);
+        // MaxLevel=110; ((110-100)*1000)/100 = 100.
+        let got = grants
+            .iter()
+            .find(|g| g.cid == killer)
+            .map(|g| g.amount)
+            .unwrap_or(0);
+        assert_eq!(got, 100);
+    }
+
+    #[test]
+    fn pvp_kill_exp_party_skip() {
+        let mut world = minimal_world();
+        let victim = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 20_000;
+            p.level = 50;
+            p.social.party_id = Some(1);
+            p
+        });
+        let killer = insert_player(&mut world, {
+            let mut p = test_player("Atk", Position::new(101, 100, 7));
+            p.level = 40;
+            p.experience = 0;
+            p.social.party_id = Some(1);
+            p
+        });
+        if let Some(CreatureKind::Player(v)) = world.creatures.get_mut(victim) {
+            v.base.damage_map.insert(killer, 100);
+        }
+
+        let (_, grants) = death_call(&mut world, victim, WorldType::PvpEnforced);
+        assert!(
+            !grants.iter().any(|g| g.cid == killer && g.amount > 0),
+            "same-party killer must be skipped"
+        );
+    }
+
+    #[test]
+    fn pvp_kill_experience_amount_unit() {
+        let profile = MechanicsProfile::for_version(tfs_rust_common::ProtocolVersion::V772);
+        assert_eq!(pvp_kill_experience_amount(&profile, 100, 110, 1000), 0);
+        assert_eq!(pvp_kill_experience_amount(&profile, 100, 100, 1000), 100);
     }
 }

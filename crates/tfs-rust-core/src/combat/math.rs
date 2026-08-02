@@ -15,7 +15,7 @@
 //! - Level exp `(((L-6)*L+17)*L-12)/6 * Delta` — `crskill.cc:352` `TSkillLevel::GetExpForLevel`.
 //! - Skill tries geometric `Delta * (b^(act-min) ... )`, `b = FactorPercent/1000` — `crskill.cc:483–499`.
 //! - Spell damage `(2*level + 3*magicLevel)` % multiplier, flag clamps — `magic.cc:784` `ComputeDamage`.
-//! - Exp distribution 20-slot proportional, PvP cap `11/10`, 60-round window — `crcombat.cc:891–905`.
+//! - Exp distribution 20-slot proportional; PvP MaxLevel scale `(L*11)/10` — `crcombat.cc:891–934`.
 //! - Condition ticks fire 10/8, energy 25/10 — `crskill.cc:1064,1090`.
 //!
 //! **C++ reference — structure (TFS 1.4.2 / 10.98):** repo-root `src/weapons.cpp`,
@@ -556,15 +556,26 @@ pub fn distribute_experience(total_exp: u64, damage_shares: &[u64]) -> Vec<u64> 
         .collect()
 }
 
-/// PvP experience cap: when killing a player, exp is capped to `num/den` of the victim's value
-/// (772 `11/10`, `crcombat.cc:900`). Returns the capped exp.
-pub fn pvp_exp_cap(profile: &MechanicsProfile, raw_exp: u64) -> u64 {
-    if profile.pvp_exp_cap_den == 0 {
-        return raw_exp;
+/// 772 PvP kill share scale after proportional damage split (`crcombat.cc:927–934`).
+///
+/// `MaxLevel = (victim_level * num) / den` (profile `pvpExpCap`, default `11/10`).
+/// Returns 0 when `attacker_level >= MaxLevel`; else
+/// `((MaxLevel - attacker_level) * amount) / victim_level`.
+pub fn pvp_kill_experience_amount(
+    profile: &MechanicsProfile,
+    victim_level: i32,
+    attacker_level: i32,
+    amount: u64,
+) -> u64 {
+    if amount == 0 || victim_level <= 0 || profile.pvp_exp_cap_den == 0 {
+        return 0;
     }
-    let cap = (raw_exp as u128 * profile.pvp_exp_cap_num as u128 / profile.pvp_exp_cap_den as u128)
-        as u64;
-    raw_exp.min(cap)
+    let max_level = (victim_level as i64 * profile.pvp_exp_cap_num as i64)
+        / profile.pvp_exp_cap_den as i64;
+    if attacker_level as i64 >= max_level {
+        return 0;
+    }
+    (((max_level - attacker_level as i64) as u128 * amount as u128) / victim_level as u128) as u64
 }
 
 /// Skill tries required to reach `level` (B4.5).
@@ -826,12 +837,19 @@ mod tests {
     }
 
     #[test]
-    fn pvp_exp_cap_11_10() {
+    fn pvp_kill_experience_max_level_11_10() {
         let m = p772();
-        // Cap = raw * 11/10; raw is below the cap so returned unchanged.
-        assert_eq!(pvp_exp_cap(&m.profile, 1000), 1000);
-        // The cap only ever reduces; raw never exceeds raw*11/10, so identity for the cap direction.
-        assert_eq!(pvp_exp_cap(&m.profile, 0), 0);
+        // Victim L100 → MaxLevel 110. Attacker L100 → ((110-100)*1000)/100 = 100.
+        assert_eq!(
+            pvp_kill_experience_amount(&m.profile, 100, 100, 1000),
+            100
+        );
+        // Attacker at/above MaxLevel → 0.
+        assert_eq!(pvp_kill_experience_amount(&m.profile, 100, 110, 1000), 0);
+        assert_eq!(pvp_kill_experience_amount(&m.profile, 100, 120, 1000), 0);
+        // Odd half: L10 MaxLevel 11; atk L8 → ((11-8)*100)/10 = 30.
+        assert_eq!(pvp_kill_experience_amount(&m.profile, 10, 8, 100), 30);
+        assert_eq!(pvp_kill_experience_amount(&m.profile, 10, 8, 0), 0);
     }
 
     #[test]

@@ -2331,6 +2331,68 @@ fn test_combat_execute_typed_damage_broadcasts_hit_effect() {
     );
 }
 
+/// P0 PvP half — 772 `crmain.cc:497–501` `(Damage+1)/2` when both are players (non-DoT).
+#[test]
+fn test_combat_execute_pvp_halves_damage_before_absorb() {
+    let (mut world, attacker, _conn) = setup_player_world_with_conn();
+    let tpos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
+    let target = insert_player(
+        &mut world,
+        {
+            let mut p = test_player("Victim", tpos);
+            p.base.health = 500;
+            p.base.max_health = 500;
+            p
+        },
+    );
+
+    let hp_before = world
+        .creatures
+        .get(target)
+        .map(|k| k.base().health)
+        .unwrap_or(0);
+    let applied = world.combat_execute_with_stimulus(
+        Some(attacker),
+        target,
+        &CombatDamage {
+            primary: (CombatType::Physical, -99),
+            secondary: (CombatType::Physical, 0),
+        },
+        &CombatParams::default(),
+    );
+    assert!(applied);
+    let hp_after = world
+        .creatures
+        .get(target)
+        .map(|k| k.base().health)
+        .unwrap_or(0);
+    // (99+1)/2 = 50
+    assert_eq!(hp_before - hp_after, 50);
+
+    // DoT path (attacker None) must not half.
+    let hp2 = world
+        .creatures
+        .get(target)
+        .map(|k| k.base().health)
+        .unwrap_or(0);
+    let _ = world.combat_execute_with_stimulus(
+        None,
+        target,
+        &CombatDamage {
+            primary: (CombatType::Fire, -20),
+            secondary: (CombatType::Physical, 0),
+        },
+        &CombatParams::default(),
+    );
+    let hp3 = world
+        .creatures
+        .get(target)
+        .map(|k| k.base().health)
+        .unwrap_or(0);
+    assert_eq!(hp2 - hp3, 20, "periodic/DoT with no attacker must not half");
+}
+
 /// C++ `%5` case 2/3 map to North/South dest tiles — `crnonpl.cc:2817-2818`.
 #[test]
 fn test_772_dance_dir_order_matches_cpp() {

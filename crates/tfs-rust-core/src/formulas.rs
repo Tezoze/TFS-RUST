@@ -358,7 +358,8 @@ pub struct MechanicsProfile {
     pub respawn_model: RespawnModel,
     /// Exp attribution window in combat rounds (CipSoft 60).
     pub exp_attribution_rounds: u32,
-    /// PvP exp cap fraction numerator/denominator (772 `11/10`).
+    /// PvP kill MaxLevel ratio numerator/denominator (`MaxLevel = (L * num) / den`, 772 `11/10`).
+    /// Used by [`crate::combat::pvp_kill_experience_amount`] — not a pool cap.
     pub pvp_exp_cap_num: u32,
     pub pvp_exp_cap_den: u32,
     /// Spell damage coefficients.

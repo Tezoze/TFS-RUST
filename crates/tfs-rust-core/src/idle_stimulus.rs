@@ -319,12 +319,36 @@ impl GameWorld {
             }
         }
 
+        // PvP half — 772 `TCreature::Damage` (`crmain.cc:497–501`): when both attacker and target
+        // are players and damage is not periodic DoT, `Damage = (Damage + 1) / 2` before absorb.
+        // DoT ticks pass `attacker: None` (`process_skills.rs`) → skipped (= `*_PERIODIC`).
+        let mut reduced_damage = *damage;
+        if let Some(attacker_id) = attacker {
+            let both_players = matches!(
+                (
+                    self.creatures.get(attacker_id),
+                    self.creatures.get(target),
+                ),
+                (Some(CreatureKind::Player(_)), Some(CreatureKind::Player(_)))
+            );
+            if both_players {
+                for v in [
+                    &mut reduced_damage.primary.1,
+                    &mut reduced_damage.secondary.1,
+                ] {
+                    if *v < 0 {
+                        // Signed form of positive `(d + 1) / 2`.
+                        *v = -(((-*v) + 1) / 2);
+                    }
+                }
+            }
+        }
+
         // M2 — Equipment damage reduction: C++ `Damage` iterates equipped `PROTECTION`+`CLOTHES`
         // items and reduces incoming damage by `DAMAGEREDUCTION%` per item (`crmain.cc:540-574`).
         // The TFS 1.4.2 equivalent is `absorb_percent[combat_type]` on `ItemAbilities`, summed
         // across all equipped items. Player targets only (monsters/NPCs have no inventory).
         // Applied before the poff check, matching C++ order.
-        let mut reduced_damage = *damage;
         if reduced_damage.primary.1 < 0 || reduced_damage.secondary.1 < 0 {
             let absorb_pct = self.player_absorb_percent(target, reduced_damage.primary.0);
             if absorb_pct > 0 {

@@ -19,7 +19,8 @@ pub use math::{
     armor_reduction, attack_speed_ms, classic_probe_sample, classic_probe_sample_raw,
     condition_tick, defense_gate_ms, defense_value, distribute_experience, experience_for_level,
     formula_skill_damage_bounds, formula_skill_weapon_max, melee_damage_after_defense_and_armor,
-    probe_damage_ceiling, probe_hit, probe_value, pvp_exp_cap, req_skill_tries, spell_damage,
+    probe_damage_ceiling, probe_hit, probe_value, pvp_kill_experience_amount, req_skill_tries,
+    spell_damage,
     spell_damage_range, spell_formula_multiplier, weapon_damage, DotElement, FightMode,
 };
 pub use pvp::{

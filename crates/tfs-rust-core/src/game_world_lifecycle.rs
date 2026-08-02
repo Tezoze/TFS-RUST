@@ -460,6 +460,8 @@ impl GameWorld {
             self.config.as_ref(),
             schedule_generic_corpse,
             self.mechanics.profile.corpse_decay_offset_ms,
+            self.pvp_config.world_type,
+            &self.mechanics.profile,
         );
         // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
         // for any killer (or victim) whose level changed via experience gain/loss.
