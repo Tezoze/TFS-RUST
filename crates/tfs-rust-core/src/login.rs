@@ -135,6 +135,7 @@ pub fn player_from_loaded(
         attack_target: None,
         master: None,
         damage_map: Default::default(),
+            last_hit_by: None,
         earliest_attack_ms: 0,
         latest_attack_round: 0,
         earliest_defend_ms: 0,
@@ -201,6 +202,8 @@ pub fn player_from_loaded(
                 .guild
                 .as_ref()
                 .and_then(|g| u32::try_from(g.guild_id).ok()),
+            party_leaving_round: 0,
+            former_party_id: None,
         },
         town_id: p.town_id,
         premium_ends_at: data.premium_ends_at,
@@ -237,6 +240,9 @@ pub fn player_from_loaded(
         former_aggressor: false,
         former_logout_round: 0,
         playerkiller_end: playerkiller_end_from_skulltime(p.skulltime),
+        murder_timestamps: crate::player::combat::skulls::decode_murder_timestamps(
+            &p.murder_timestamps,
+        ),
         logging_out: false,
         logout_allowed: false,
         last_ping_sent: std::time::Instant::now(),

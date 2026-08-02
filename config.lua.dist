@@ -3,17 +3,30 @@
 worldType = "pvp"
 hotkeyAimbotEnabled = true
 protectionLevel = 1
+-- TFS single-threshold frags (ignored by 772 CheckPlayerkilling path):
 killsToRedSkull = 3
 killsToBlackSkull = 6
+timeToDecreaseFrags = 24 * 60 * 60
 -- Combat logout / PZ lock (ms). ~1 RoundNr per second → default 60000 ≡ 772 BlockLogout(60).
 pzLocked = 60000
 removeChargesFromRunes = true
 removeChargesFromPotions = true
 removeWeaponAmmunition = true
 removeWeaponCharges = true
-timeToDecreaseFrags = 24 * 60 * 60
 -- Unjustified PvP / white-skull lock (seconds). Default 900 ≡ 772 BlockLogout(900).
 whiteSkullTime = 15 * 60
+-- 772 multi-window unjust kills (crplayer.cc:1551–1584). Ban defaults are decompile 6/10/20.
+redSkullDuration = 30 * 24 * 60 * 60
+unjustDaySeconds = 86000
+unjustWeekSeconds = 7 * 24 * 60 * 60
+unjustMonthSeconds = 30 * 24 * 60 * 60
+killsDayRedSkull = 3
+killsWeekRedSkull = 5
+killsMonthRedSkull = 10
+killsDayBanishment = 6
+killsWeekBanishment = 10
+killsMonthBanishment = 20
+banDaysLength = 30
 stairJumpExhaustion = 2000
 experienceByKillingPlayers = false
 expFromPlayersLevelRange = 75

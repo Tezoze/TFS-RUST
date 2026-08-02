@@ -445,7 +445,7 @@ impl ChatConfig {
 }
 
 /// PvP world settings — C++ `configmanager.cpp` `worldType` / `protectionLevel` /
-/// `pzLocked` / `whiteSkullTime`.
+/// `pzLocked` / `whiteSkullTime` + 772 unjust multi-window keys (TVP-shaped names).
 ///
 /// `worldType` maps to the 772 decompile `WorldType` enum (`NORMAL` → [`WorldType::Pvp`],
 /// `NON_PVP` → [`WorldType::NoPvp`], `PVP_ENFORCED` → [`WorldType::PvpEnforced`]).
@@ -455,8 +455,11 @@ impl ChatConfig {
 /// ~1 `RoundNr`/s (`Other` subsystem); default `pzLocked = 60000` matches that.
 /// Unjustified PvP uses `whiteSkullTime` (seconds) — 772 `BlockLogout(900)` ≡ default
 /// `15 * 60`.
+///
+/// Unjust kill ladder (`CheckPlayerkilling`) uses day/week/month windows — **not**
+/// `killsToRedSkull` / `killsToBlackSkull` / `timeToDecreaseFrags` (ignored for 772).
 // C++ reference: `config.cc` `WorldType` / `ProtectionLevel`, `crmain.cc` `BlockLogout`,
-// `configmanager.cpp` `PZ_LOCKED` / `WHITE_SKULL_TIME`, `crcombat.cc` secure-mode gate.
+// `crplayer.cc` `CheckPlayerkilling`, TVP `configmanager.cpp` `killsDayRedSkull`….
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PvpConfig {
     /// `config.lua` `worldType` (default `"pvp"` → [`WorldType::Pvp`]).
@@ -467,16 +470,49 @@ pub struct PvpConfig {
     pub pz_locked_ms: u32,
     /// `config.lua` `whiteSkullTime` — unjustified PvP / white-skull lock in seconds (default 900).
     pub white_skull_time_secs: u32,
+    /// `config.lua` `redSkullDuration` — seconds added to `PlayerkillerEnd` (default 30 days).
+    pub red_skull_duration_secs: u32,
+    /// `config.lua` `unjustDaySeconds` — 772 day window is **86000**, not 86400.
+    pub unjust_day_secs: u32,
+    /// `config.lua` `unjustWeekSeconds` (default 604800).
+    pub unjust_week_secs: u32,
+    /// `config.lua` `unjustMonthSeconds` (default 2592000).
+    pub unjust_month_secs: u32,
+    /// `config.lua` `killsDayRedSkull` (default 3).
+    pub kills_day_red: u32,
+    /// `config.lua` `killsWeekRedSkull` (default 5).
+    pub kills_week_red: u32,
+    /// `config.lua` `killsMonthRedSkull` (default 10).
+    pub kills_month_red: u32,
+    /// `config.lua` `killsDayBanishment` — decompile default **6** (not TVP 5).
+    pub kills_day_ban: u32,
+    /// `config.lua` `killsWeekBanishment` (default 10).
+    pub kills_week_ban: u32,
+    /// `config.lua` `killsMonthBanishment` (default 20).
+    pub kills_month_ban: u32,
+    /// `config.lua` `banDaysLength` — account ban expiry days on excessive kills (default 30).
+    pub ban_days_length: u32,
 }
 
 impl PvpConfig {
-    /// C++ `configmanager.cpp` defaults when keys are absent.
+    /// C++ `configmanager.cpp` / 772 `CheckPlayerkilling` defaults when keys are absent.
     pub fn defaults() -> Self {
         Self {
             world_type: WorldType::Pvp,
             protection_level: 1,
             pz_locked_ms: 60_000,
             white_skull_time_secs: 15 * 60,
+            red_skull_duration_secs: 30 * 24 * 60 * 60,
+            unjust_day_secs: 86_000,
+            unjust_week_secs: 604_800,
+            unjust_month_secs: 2_592_000,
+            kills_day_red: 3,
+            kills_week_red: 5,
+            kills_month_red: 10,
+            kills_day_ban: 6,
+            kills_week_ban: 10,
+            kills_month_ban: 20,
+            ban_days_length: 30,
         }
     }
 
@@ -504,11 +540,46 @@ impl PvpConfig {
                 )))
             }
         };
+        let d = Self::defaults();
         Ok(Self {
             world_type,
             protection_level: get_i64_or(cfg, "protectionLevel", 1)?.max(0) as u32,
             pz_locked_ms: get_i64_or(cfg, "pzLocked", 60_000)?.max(0) as u32,
             white_skull_time_secs: get_i64_or(cfg, "whiteSkullTime", 15 * 60)?.max(0) as u32,
+            red_skull_duration_secs: get_i64_or(
+                cfg,
+                "redSkullDuration",
+                i64::from(d.red_skull_duration_secs),
+            )?
+            .max(0) as u32,
+            unjust_day_secs: get_i64_or(cfg, "unjustDaySeconds", i64::from(d.unjust_day_secs))?
+                .max(0) as u32,
+            unjust_week_secs: get_i64_or(cfg, "unjustWeekSeconds", i64::from(d.unjust_week_secs))?
+                .max(0) as u32,
+            unjust_month_secs: get_i64_or(
+                cfg,
+                "unjustMonthSeconds",
+                i64::from(d.unjust_month_secs),
+            )?
+            .max(0) as u32,
+            kills_day_red: get_i64_or(cfg, "killsDayRedSkull", i64::from(d.kills_day_red))?.max(0)
+                as u32,
+            kills_week_red: get_i64_or(cfg, "killsWeekRedSkull", i64::from(d.kills_week_red))?
+                .max(0) as u32,
+            kills_month_red: get_i64_or(cfg, "killsMonthRedSkull", i64::from(d.kills_month_red))?
+                .max(0) as u32,
+            kills_day_ban: get_i64_or(cfg, "killsDayBanishment", i64::from(d.kills_day_ban))?
+                .max(0) as u32,
+            kills_week_ban: get_i64_or(cfg, "killsWeekBanishment", i64::from(d.kills_week_ban))?
+                .max(0) as u32,
+            kills_month_ban: get_i64_or(
+                cfg,
+                "killsMonthBanishment",
+                i64::from(d.kills_month_ban),
+            )?
+            .max(0) as u32,
+            ban_days_length: get_i64_or(cfg, "banDaysLength", i64::from(d.ban_days_length))?.max(0)
+                as u32,
         })
     }
 }
@@ -902,11 +973,16 @@ mod tests {
         assert_eq!(pvp.white_skull_time_secs, 15 * 60);
         assert_eq!(pvp.pz_locked_rounds(), 60);
         assert_eq!(pvp.white_skull_rounds(), 900);
+        assert_eq!(pvp.unjust_day_secs, 86_000);
+        assert_eq!(pvp.kills_day_red, 3);
+        assert_eq!(pvp.kills_day_ban, 6);
+        assert_eq!(pvp.red_skull_duration_secs, 30 * 24 * 60 * 60);
 
         let cfg = config_from_lua(
             r#"
             pzLocked = 120000
             whiteSkullTime = 30 * 60
+            killsDayBanishment = 7
             "#,
         );
         let pvp = PvpConfig::from_config(&cfg).expect("pvp custom");
@@ -914,6 +990,7 @@ mod tests {
         assert_eq!(pvp.white_skull_time_secs, 1800);
         assert_eq!(pvp.pz_locked_rounds(), 120);
         assert_eq!(pvp.white_skull_rounds(), 1800);
+        assert_eq!(pvp.kills_day_ban, 7);
     }
 
     #[test]

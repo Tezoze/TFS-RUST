@@ -410,6 +410,11 @@ impl GameWorld {
             Some(CreatureKind::Player(_))
         );
 
+        // 772 kill logout + RecordMurder before XP/remove (`crmain.cc:822–870`).
+        if is_player {
+            self.player_on_pvp_death_marks(victim);
+        }
+
         // PC-5 M7 — player skill-try loss + inventory drop (AoL / SOME) before XP share.
         if is_player {
             self.apply_player_death_skill_loss(victim);
@@ -464,6 +469,7 @@ impl GameWorld {
             self.mechanics.profile.corpse_decay_offset_ms,
             self.pvp_config.world_type,
             &self.mechanics.profile,
+            self.round_nr,
         );
         // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
         // for any killer (or victim) whose level changed via experience gain/loss.

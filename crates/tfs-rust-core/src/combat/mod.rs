@@ -124,6 +124,7 @@ fn apply_health_delta(
     if new_hp < old_hp {
         if let Some(aid) = attacker {
             *base.damage_map.entry(aid).or_insert(0) += (old_hp - new_hp) as u64;
+            base.last_hit_by = Some(aid);
         }
     }
     base.health = new_hp;

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `players` (
   `save` tinyint NOT NULL DEFAULT '1',
   `skull` tinyint NOT NULL DEFAULT '0',
   `skulltime` bigint NOT NULL DEFAULT '0',
+  `murder_timestamps` text NOT NULL DEFAULT '',
   `lastlogout` bigint unsigned NOT NULL DEFAULT '0',
   `blessings` tinyint NOT NULL DEFAULT '0',
   `onlinetime` bigint NOT NULL DEFAULT '0',

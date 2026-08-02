@@ -234,6 +234,18 @@ pub trait ScriptContext {
         None
     }
 
+    /// `player:getMurderTimestamps()` — 772 murder ring / TVP `Player::murderTimeStamps`.
+    fn get_player_murder_timestamps(&self, creature_id: ScriptCreatureId) -> Vec<i64> {
+        let _ = creature_id;
+        Vec::new()
+    }
+
+    /// `player:getPlayerKillerEnd()` — unix `PlayerkillerEnd` / `skulltime`.
+    fn get_player_killer_end(&self, creature_id: ScriptCreatureId) -> Option<i64> {
+        let _ = creature_id;
+        None
+    }
+
     /// `player:getStorageValue(key)` — `Player::getStorageValue` (`player.cpp`).
     /// Missing key → `-1` (TFS / 772 quest empty). Defaults to `-1`.
     fn get_player_storage_value(&self, creature_id: ScriptCreatureId, key: u32) -> i32 {

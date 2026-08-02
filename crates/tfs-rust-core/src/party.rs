@@ -29,6 +29,7 @@ impl Party {
         }
     }
 
+    /// Remove non-leader member. Caller must also call `Player::leave_party_marks`.
     pub fn remove_member(&mut self, c: CreatureId) -> bool {
         if c == self.leader {
             return false;

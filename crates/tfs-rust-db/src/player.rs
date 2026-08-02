@@ -42,6 +42,8 @@ pub struct PlayerRecord {
     pub lastip: u32,
     pub conditions: Option<Vec<u8>>,
     pub skulltime: i64,
+    /// 772 `MurderTimestamps` CSV — unix seconds, ≤20 entries.
+    pub murder_timestamps: String,
     pub skull: i8,
     pub town_id: i32,
     pub balance: u64,
@@ -147,7 +149,7 @@ impl<'a> PlayerStore<'a> {
             health, healthmax, blessings, mana, manamax, manaspent, soul,
             lookbody, lookfeet, lookhead, looklegs, looktype, lookaddons,
             posx, posy, posz, cap, lastlogin, lastlogout, lastip, conditions,
-            skulltime, skull, town_id, balance, offlinetraining_time, offlinetraining_skill, stamina,
+            skulltime, COALESCE(murder_timestamps, '') AS murder_timestamps, skull, town_id, balance, offlinetraining_time, offlinetraining_skill, stamina,
             skill_fist, skill_fist_tries, skill_club, skill_club_tries, skill_sword, skill_sword_tries,
             skill_axe, skill_axe_tries, skill_dist, skill_dist_tries, skill_shielding, skill_shielding_tries,
             skill_fishing, skill_fishing_tries, direction, save, onlinetime, deletion,
@@ -349,7 +351,7 @@ impl<'a> PlayerStore<'a> {
             lookbody = ?, lookfeet = ?, lookhead = ?, looklegs = ?, looktype = ?, lookaddons = ?,
             maglevel = ?, mana = ?, manamax = ?, manaspent = ?, soul = ?, town_id = ?,
             posx = ?, posy = ?, posz = ?, cap = ?, sex = ?, lastlogin = ?, lastip = ?, conditions = ?,
-            skulltime = ?, skull = ?, lastlogout = ?, balance = ?, offlinetraining_time = ?, offlinetraining_skill = ?,
+            skulltime = ?, murder_timestamps = ?, skull = ?, lastlogout = ?, balance = ?, offlinetraining_time = ?, offlinetraining_skill = ?,
             stamina = ?, skill_fist = ?, skill_fist_tries = ?, skill_club = ?, skill_club_tries = ?,
             skill_sword = ?, skill_sword_tries = ?, skill_axe = ?, skill_axe_tries = ?,
             skill_dist = ?, skill_dist_tries = ?, skill_shielding = ?, skill_shielding_tries = ?,
@@ -384,6 +386,7 @@ impl<'a> PlayerStore<'a> {
         .bind(p.lastip)
         .bind(p.conditions.as_deref())
         .bind(p.skulltime)
+        .bind(&p.murder_timestamps)
         .bind(p.skull)
         .bind(p.lastlogout)
         .bind(p.balance)
@@ -479,6 +482,43 @@ impl<'a> PlayerStore<'a> {
                         .bind(id)
                         .execute(&pool)
                         .await
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Minimal account ban for excessive unjust kills — 772 `PunishmentOrder` (`crplayer.cc:1530`).
+    pub async fn insert_account_ban(
+        &self,
+        account_id: i32,
+        reason: &str,
+        banned_at: i64,
+        expires_at: i64,
+        banned_by: i32,
+    ) -> Result<()> {
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                let reason = reason.to_string();
+                async move {
+                    sqlx::query(
+                        r#"INSERT INTO account_bans (account_id, reason, banned_at, expires_at, banned_by)
+                           VALUES (?, ?, ?, ?, ?)
+                           ON DUPLICATE KEY UPDATE
+                             reason = VALUES(reason),
+                             banned_at = VALUES(banned_at),
+                             expires_at = VALUES(expires_at),
+                             banned_by = VALUES(banned_by)"#,
+                    )
+                    .bind(account_id)
+                    .bind(&reason)
+                    .bind(banned_at)
+                    .bind(expires_at)
+                    .bind(banned_by)
+                    .execute(&pool)
+                    .await
                 }
             })
             .await

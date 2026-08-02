@@ -1208,6 +1208,7 @@ mod tests {
             attack_target: None,
             master: None,
             damage_map: Default::default(),
+            last_hit_by: None,
             earliest_attack_ms: 0,
         latest_attack_round: 0,
             earliest_defend_ms: 0,

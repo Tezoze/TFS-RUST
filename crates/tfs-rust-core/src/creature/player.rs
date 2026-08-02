@@ -104,6 +104,10 @@ pub struct PlayerEconomy {
 pub struct PlayerSocial {
     pub party_id: Option<u32>,
     pub guild_id: Option<u32>,
+    /// 772 `PartyLeavingRound` — non-zero after leave; CheckFormer window +5 rounds.
+    pub party_leaving_round: u32,
+    /// Party id retained for CheckFormer after leave (`GetPartyLeader(true)`).
+    pub former_party_id: Option<u32>,
 }
 
 /// Deferred action after auto-walk completes — TFS `Player::walkTask` (`player.cpp` ~1298).
@@ -286,8 +290,11 @@ pub struct Player {
     pub former_logout_round: u32,
     /// 772 `PlayerData::PlayerkillerEnd` — unix seconds; non-zero ⇒ red skull display
     /// and always-justified target (`crplayer.cc:1445-1458,1658`). Persisted as
-    /// `players.skulltime`. Assigned by P2 `RecordMurder` / `CheckPlayerkilling`.
+    /// `players.skulltime`. Assigned by `RecordMurder` / `CheckPlayerkilling`.
     pub playerkiller_end: i64,
+    /// 772 `PlayerData::MurderTimestamps[20]` — unjust kill wall-clock ring (`cr.hh:147`).
+    /// Persisted as `players.murder_timestamps` CSV.
+    pub murder_timestamps: [i64; 20],
     /// 772 `TCreature::LoggingOut` — `crmain.cc:405` `StartLogout`.
     ///
     /// When set, `ProcessCreatures` removes the character once `logout_allowed` /

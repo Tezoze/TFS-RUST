@@ -129,9 +129,8 @@ impl GameWorld {
 
     /// Unjustified PvP / white-skull logout block — delay from `config.lua` `whiteSkullTime`.
     ///
-    /// 772 `BlockLogout(900, true)` on unjustified kill (`crmain.cc:823`); TFS extends
+    /// 772 `BlockLogout(900, true)` on player kill (`crmain.cc:823`); TFS extends
     /// `CONDITION_INFIGHT` by `WHITE_SKULL_TIME * 1000` (`player.cpp:3671-3673`).
-    #[allow(dead_code)] // wired when aggressor / unjustified-kill path lands
     pub(crate) fn player_block_logout_white_skull(&mut self, cid: CreatureId) {
         let delay = self.pvp_config.white_skull_rounds();
         self.player_block_logout(cid, delay, true);

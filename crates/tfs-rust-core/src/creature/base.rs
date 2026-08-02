@@ -122,6 +122,8 @@ pub struct CreatureBase {
     pub attack_target: Option<CreatureId>,
     pub master: Option<CreatureId>,
     pub damage_map: DamageMap,
+    /// Last creature that dealt HP damage — 772 `Attacker` on killing blow (`crmain.cc:822`).
+    pub last_hit_by: Option<CreatureId>,
     /// C++ `TCombat::EarliestAttackTime` — `crcombat.cc:523` `DelayAttack`.
     pub earliest_attack_ms: u64,
     /// C++ `TCombat::LatestAttackTime` — `crcombat.cc:513-522` delayed `StopAttack`.

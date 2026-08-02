@@ -141,6 +141,13 @@ impl GameWorld {
         // 772 red mark: persist `PlayerkillerEnd` in `skulltime`; set skull=Red when active
         // so TFS tools see a red skull. White/yellow are session-only (observer-relative).
         row.skulltime = player.playerkiller_end;
+        row.murder_timestamps = crate::player::combat::skulls::encode_murder_timestamps(
+            &player.murder_timestamps,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+        );
         row.skull = if player.playerkiller_end != 0 {
             SkullType::Red as u8 as i8
         } else {

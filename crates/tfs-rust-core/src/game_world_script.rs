@@ -273,6 +273,35 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         })
     }
 
+    fn get_player_murder_timestamps(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Vec<i64> {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return Vec::new();
+        };
+        match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p
+                .murder_timestamps
+                .iter()
+                .copied()
+                .filter(|&t| t != 0)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn get_player_killer_end(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i64> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.playerkiller_end),
+            _ => None,
+        })
+    }
+
     /// `player:getStorageValue(key)` — `Player::getStorageValue` (`player.cpp`).
     fn get_player_storage_value(
         &self,

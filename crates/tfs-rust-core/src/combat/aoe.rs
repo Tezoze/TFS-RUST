@@ -12,7 +12,6 @@
 //! - Tile item create — `Combat::combatTileEffects` — `combat.cpp:557`.
 //! - Distance FX — `Combat::postCombatEffects` — `combat.cpp:643`.
 
-use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_lua::CombatExecuteRequest;
@@ -295,6 +294,35 @@ impl GameWorld {
                         continue;
                     }
                     targets.push((cid, tile_pos));
+                }
+            }
+        }
+
+        // 772 `CheckAffectedPlayers` — deny whole cast under secure + unmarked player on any tile.
+        if request.aggressive {
+            if let Some(caster) = caster_id {
+                let mut checked = std::collections::HashSet::new();
+                for (_, tile_pos) in &targets {
+                    if !checked.insert(*tile_pos) {
+                        continue;
+                    }
+                    if !self.check_affected_players(caster, *tile_pos) {
+                        return Err(
+                            "Turn secure mode off if you really want to attack unmarked players."
+                                .into(),
+                        );
+                    }
+                }
+                for (tile_pos, _) in &create_tiles {
+                    if !checked.insert(*tile_pos) {
+                        continue;
+                    }
+                    if !self.check_affected_players(caster, *tile_pos) {
+                        return Err(
+                            "Turn secure mode off if you really want to attack unmarked players."
+                                .into(),
+                        );
+                    }
                 }
             }
         }

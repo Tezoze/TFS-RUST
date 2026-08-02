@@ -65,6 +65,23 @@ impl UserData for CreatureRef {
             })
         });
 
+        // `player:getMurderTimestamps()` — TVP / kills.lua unjust history.
+        methods.add_method("getMurderTimestamps", |lua, this, ()| {
+            with_ctx(|ctx| {
+                let stamps = ctx.get_player_murder_timestamps(this.0);
+                let table = lua.create_table_with_capacity(stamps.len(), 0)?;
+                for (i, ts) in stamps.into_iter().enumerate() {
+                    table.set(i + 1, ts)?;
+                }
+                Ok(table)
+            })
+        });
+
+        // `player:getPlayerKillerEnd()` — red-skull end unix time.
+        methods.add_method("getPlayerKillerEnd", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_player_killer_end(this.0).unwrap_or(0)))
+        });
+
         // `player:getStorageValue(key)` — `Player::getStorageValue` (`player.cpp`).
         // Missing key → `-1`. Doors Phase 4: quest door gate in `doors.lua`.
         methods.add_method("getStorageValue", |_, this, key: Value| {

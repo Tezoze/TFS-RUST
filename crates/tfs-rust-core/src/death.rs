@@ -115,6 +115,7 @@ pub fn handle_creature_death(
     corpse_decay_offset_ms: u64,
     world_type: WorldType,
     mechanics: &MechanicsProfile,
+    round_nr: u32,
 ) -> (Vec<CreatureId>, Vec<XpShareGrant>) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return (Vec::new(), Vec::new());
@@ -134,12 +135,12 @@ pub fn handle_creature_death(
     let mut xp_grants: Vec<XpShareGrant> = Vec::new();
 
     // 772 PvP pool uses pre-death Exp (`crplayer.cc:340` Exp/20) — capture before loss.
-    let (pvp_victim_level, pvp_pool, victim_party_id) = match creatures.get(victim) {
+    let (pvp_victim_level, pvp_pool) = match creatures.get(victim) {
         Some(CreatureKind::Player(p)) if world_type == WorldType::PvpEnforced => {
-            (Some(p.level.max(1)), Some(p.experience / 20), p.social.party_id)
+            (Some(p.level.max(1)), Some(p.experience / 20))
         }
-        Some(CreatureKind::Player(p)) => (Some(p.level.max(1)), Some(0), p.social.party_id),
-        _ => (None, None, None),
+        Some(CreatureKind::Player(p)) => (Some(p.level.max(1)), Some(0)),
+        _ => (None, None),
     };
     let is_pvp_kill = pvp_pool.is_some();
 
@@ -194,9 +195,9 @@ pub fn handle_creature_death(
         };
 
         let share = if is_pvp_kill {
-            // `InPartyWith` stand-in: same live `party_id` (FormerParty is P1).
-            let same_party = match (victim_party_id, k.social.party_id) {
-                (Some(a), Some(b)) if a == b => true,
+            // 772 `InPartyWith(..., true)` — live or former party within +5 rounds.
+            let same_party = match creatures.get(victim) {
+                Some(CreatureKind::Player(v)) => v.in_party_with(k, true, round_nr),
                 _ => false,
             };
             if same_party {
@@ -301,6 +302,7 @@ mod tests {
             0,
             world_type,
             &world.mechanics.profile,
+            world.round_nr,
         )
     }
 
