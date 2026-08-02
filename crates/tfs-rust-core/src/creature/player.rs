@@ -271,9 +271,23 @@ pub struct Player {
     pub food_level: i32,
     /// 772 `EarliestLogoutRound` — PK-mark clearing timer (`crmain.cc:1102-1105`).
     /// When non-zero and `<= round_nr`, `ClearPlayerkillingMarks` fires and the field
-    /// is zeroed. **Stub**: full PK-mark clearing (attacked-players list, aggressor
-    /// flag, skull broadcast) is deferred until the PvP aggressor subsystem exists.
+    /// is zeroed.
     pub earliest_logout_round: u32,
+    /// 772 `AttackedPlayers` — victims this player has marked (yellow for them).
+    /// Session-only; cleared / moved to former on `ClearPlayerkillingMarks`.
+    pub attacked_players: Vec<crate::ids::CreatureId>,
+    /// 772 `FormerAttackedPlayers` — copy after clear; justifies for +5 rounds.
+    pub former_attacked_players: Vec<crate::ids::CreatureId>,
+    /// 772 `Aggressor` — white skull while true (`crplayer.cc:1485-1488`).
+    pub aggressor: bool,
+    /// 772 `FormerAggressor` — copied on clear; justifies for +5 rounds.
+    pub former_aggressor: bool,
+    /// 772 `FormerLogoutRound` — round when marks were cleared (`crplayer.cc:1621`).
+    pub former_logout_round: u32,
+    /// 772 `PlayerData::PlayerkillerEnd` — unix seconds; non-zero ⇒ red skull display
+    /// and always-justified target (`crplayer.cc:1445-1458,1658`). Persisted as
+    /// `players.skulltime`. Assigned by P2 `RecordMurder` / `CheckPlayerkilling`.
+    pub playerkiller_end: i64,
     /// 772 `TCreature::LoggingOut` — `crmain.cc:405` `StartLogout`.
     ///
     /// When set, `ProcessCreatures` removes the character once `logout_allowed` /

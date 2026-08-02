@@ -127,22 +127,40 @@ pub(crate) fn build_add_creature_wire(
     viewer: CreatureId,
 ) -> AddCreatureWire {
     let viewer_access = world.player_is_access_player(viewer);
-    match world.creatures.get(cid) {
-        Some(CreatureKind::Player(p)) => {
+    match world.creatures.get(cid).map(|k| match k {
+        CreatureKind::Player(_) => 0u8,
+        CreatureKind::Monster(_) => 1,
+        CreatureKind::Npc(_) => 2,
+    }) {
+        Some(0) => {
             let light = world.player_creature_light(cid);
+            let skull = world.player_get_killing_mark(cid, viewer);
+            let subject_guid = match world.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.guid,
+                _ => return AddCreatureWire::default(),
+            };
             let is_self = world
                 .creatures
                 .get(viewer)
                 .and_then(|k| match k {
-                    CreatureKind::Player(vp) => Some(vp.guid == p.guid),
+                    CreatureKind::Player(vp) => Some(vp.guid == subject_guid),
                     _ => None,
                 })
                 .unwrap_or(false);
-            player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics)
+            let Some(CreatureKind::Player(p)) = world.creatures.get(cid) else {
+                return AddCreatureWire::default();
+            };
+            player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics, skull)
         }
-        Some(CreatureKind::Monster(m)) => monster_to_add_creature_wire(cid, m, &world.mechanics),
-        Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(cid, n, &world.mechanics),
-        None => AddCreatureWire::default(),
+        Some(1) => match world.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) => monster_to_add_creature_wire(cid, m, &world.mechanics),
+            _ => AddCreatureWire::default(),
+        },
+        Some(2) => match world.creatures.get(cid) {
+            Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(cid, n, &world.mechanics),
+            _ => AddCreatureWire::default(),
+        },
+        _ => AddCreatureWire::default(),
     }
 }
 
@@ -152,6 +170,7 @@ fn player_to_add_creature_wire(
     light: LightInfo,
     viewer_is_access: bool,
     mech: &crate::formulas::Mechanics,
+    skull: SkullType,
 ) -> AddCreatureWire {
     let hp = if !is_self && p.health_hidden {
         0
@@ -171,7 +190,7 @@ fn player_to_add_creature_wire(
         light_level: light.level,
         light_color: light.color,
         step_speed,
-        skull: skull_byte(p.base.skull),
+        skull: skull_byte(skull),
         party_shield: 0,
         guild_emblem: 0,
         speech_bubble: 0,
@@ -250,17 +269,22 @@ pub(crate) fn map_tile_content(
     if tx < 0 || ty < 0 || !(0..=15).contains(&tz) {
         return None;
     }
-    let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {
+    let Some(CreatureKind::Player(_)) = world.creatures.get(self_cid) else {
         return None;
     };
     let viewer_access = world.player_is_access_player(self_cid);
     let self_light = world.player_creature_light(self_cid);
+    let self_skull = world.player_get_killing_mark(self_cid, self_cid);
+    let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {
+        return None;
+    };
     let self_wire = player_to_add_creature_wire(
         self_player,
         true,
         self_light,
         viewer_access,
         &world.mechanics,
+        self_skull,
     );
     let self_guid = self_player.guid;
 
@@ -320,58 +344,63 @@ pub(crate) fn map_tile_content(
             });
         }
         for &ocid in &body.creatures {
-            if let Some(k) = world.creatures.get(ocid) {
-                if let CreatureKind::Player(p) = k {
-                    if p.ghost_mode && ocid != self_cid {
-                        continue;
-                    }
-                    if p.base
+            // Visibility gates (ghost / invisible) before building wire.
+            let skip = match world.creatures.get(ocid) {
+                Some(CreatureKind::Player(p)) => {
+                    (p.ghost_mode
+                        || p.base
+                            .active_conditions
+                            .iter()
+                            .any(|c| c.ctype == ConditionType::Invisible))
+                        && ocid != self_cid
+                }
+                Some(CreatureKind::Monster(m)) => {
+                    m.base
                         .active_conditions
                         .iter()
                         .any(|c| c.ctype == ConditionType::Invisible)
                         && ocid != self_cid
-                    {
-                        continue;
-                    }
                 }
-                if let CreatureKind::Monster(m) = k {
-                    if m.base
+                Some(CreatureKind::Npc(n)) => {
+                    n.base
                         .active_conditions
                         .iter()
                         .any(|c| c.ctype == ConditionType::Invisible)
                         && ocid != self_cid
-                    {
-                        continue;
-                    }
                 }
-                if let CreatureKind::Npc(n) = k {
-                    if n.base
-                        .active_conditions
-                        .iter()
-                        .any(|c| c.ctype == ConditionType::Invisible)
-                        && ocid != self_cid
-                    {
-                        continue;
-                    }
-                }
-                let w = match k {
-                    CreatureKind::Player(p) => {
-                        let light = world.player_creature_light(ocid);
-                        player_to_add_creature_wire(
-                            p,
-                            p.guid == self_guid,
-                            light,
-                            viewer_access,
-                            &world.mechanics,
-                        )
-                    }
-                    CreatureKind::Monster(m) => {
-                        monster_to_add_creature_wire(ocid, m, &world.mechanics)
-                    }
-                    CreatureKind::Npc(n) => npc_to_add_creature_wire(ocid, n, &world.mechanics),
-                };
-                content.creatures.push(w);
+                None => true,
+            };
+            if skip {
+                continue;
             }
+            let skull = match world.creatures.get(ocid) {
+                Some(CreatureKind::Player(_)) => {
+                    world.player_get_killing_mark(ocid, self_cid)
+                }
+                _ => SkullType::None,
+            };
+            let light = match world.creatures.get(ocid) {
+                Some(CreatureKind::Player(_)) => world.player_creature_light(ocid),
+                _ => LightInfo::default(),
+            };
+            let w = match world.creatures.get(ocid) {
+                Some(CreatureKind::Player(p)) => player_to_add_creature_wire(
+                    p,
+                    p.guid == self_guid,
+                    light,
+                    viewer_access,
+                    &world.mechanics,
+                    skull,
+                ),
+                Some(CreatureKind::Monster(m)) => {
+                    monster_to_add_creature_wire(ocid, m, &world.mechanics)
+                }
+                Some(CreatureKind::Npc(n)) => {
+                    npc_to_add_creature_wire(ocid, n, &world.mechanics)
+                }
+                None => continue,
+            };
+            content.creatures.push(w);
         }
         for &item_id in &body.down_items {
             // Get the actual item from world storage
@@ -802,7 +831,7 @@ mod map_creature_wire_tests {
             level: 7,
             color: 215,
         };
-        let wire = player_to_add_creature_wire(&p, true, light, false, &mech);
+        let wire = player_to_add_creature_wire(&p, true, light, false, &mech, SkullType::None);
         assert!(!wire.access_player);
         assert_eq!(wire.light_level, 7);
         assert_eq!(wire.light_color, 215);
@@ -812,7 +841,7 @@ mod map_creature_wire_tests {
     fn gm_viewer_uses_access_player_wire_flag() {
         let p = test_player("GM", Position::new(100, 100, 7));
         let mech = Mechanics::for_version(ProtocolVersion::V1098);
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true, &mech);
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true, &mech, SkullType::None);
         assert!(wire.access_player);
     }
 
@@ -829,7 +858,7 @@ mod map_creature_wire_tests {
         p.base.base_speed = 220;
         p.base.var_speed = 0;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech);
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech, SkullType::None);
 
         assert_eq!(wire.id, p.guid);
         // Decompile `sending.cc` SendWord(GetSpeed()) = 2*220+80 = 520.
@@ -860,7 +889,7 @@ mod map_creature_wire_tests {
             None,
         ));
         let mech = Mechanics::for_version(ProtocolVersion::V772);
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech);
+        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech, SkullType::None);
         assert_eq!(wire.outfit.look_type, 0);
         assert_eq!(wire.outfit.look_type_ex, 0);
     }

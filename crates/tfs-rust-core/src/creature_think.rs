@@ -80,6 +80,8 @@ impl GameWorld {
         }
 
         for cid in std::mem::take(&mut self.scratch_pk_marks) {
+            // 772 `ClearPlayerkillingMarks` then zero `EarliestLogoutRound` (`crmain.cc:1102-1105`).
+            self.clear_playerkilling_marks(cid);
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.earliest_logout_round = 0;
             }
@@ -98,11 +100,7 @@ impl GameWorld {
             } else if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
                 self.send_player_icons(cid);
             }
-            tracing::debug!(
-                ?cid,
-                round_nr,
-                "PK-mark timer expired (ClearPlayerkillingMarks stub — full PK subsystem deferred)"
-            );
+            tracing::debug!(?cid, round_nr, "ClearPlayerkillingMarks on EarliestLogoutRound expiry");
         }
 
         // C++ `ProcessCreatures` death safety (`crmain.cc:1108–1117`).

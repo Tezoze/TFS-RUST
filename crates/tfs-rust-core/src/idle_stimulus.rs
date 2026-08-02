@@ -393,6 +393,11 @@ impl GameWorld {
                 self.player_block_logout_infight(attacker_id, target_is_player);
                 if target_is_player {
                     self.player_block_logout_infight(target, false);
+                    // 772 Damage `RecordAttack` — player responsible (incl. summon master)
+                    // vs player victim (`crmain.cc` Damage arm).
+                    if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
+                        self.player_record_attack(resp, target);
+                    }
                 }
             }
         }

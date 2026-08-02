@@ -178,7 +178,7 @@ impl GameWorld {
     /// at chunk granularity; `protocol_can_see` filters precisely.
     // C++ reference: `Map::getSpectators` (`map.cpp` ~386–474) + `ProtocolGame::canSee`
     // (`protocolgame.cpp` ~796–823).
-    fn spectator_conns(&self, pos: Position) -> Vec<ConnId> {
+    pub(crate) fn spectator_conns(&self, pos: Position) -> Vec<ConnId> {
         self.spectator_conns_via_grid(pos)
     }
 

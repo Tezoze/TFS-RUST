@@ -101,6 +101,8 @@ impl GameWorld {
         }
 
         if let Some((name, guid, in_guild)) = player_cleanup {
+            // 772 player teardown calls `ClearPlayerkillingMarks` (`crplayer.cc:315`).
+            self.clear_playerkilling_marks(id);
             self.player_by_name.remove(&name);
             self.player_by_guid.remove(&guid);
             if in_guild {

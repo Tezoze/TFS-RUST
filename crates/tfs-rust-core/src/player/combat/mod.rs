@@ -19,6 +19,7 @@
 pub(crate) mod fight_mode;
 pub(crate) mod ranged;
 pub(crate) mod skills;
+pub(crate) mod skulls;
 pub(crate) mod strike;
 pub(crate) mod values;
 
@@ -59,7 +60,7 @@ pub(crate) enum CombatResult {
     AttackNotAllowed,
     /// `SECUREMODE` — secure mode blocks attacking an unmarked player (PVP). PC-4 wires the
     /// gate in `validate_player_attack_target` + `player_execute_attack` (PVP `IsAttackJustified`
-    /// check, `crcombat.cc:374-381,563-568`). Skull/aggressor tracking is deferred.
+    /// check, `crcombat.cc:374-381,563-568`). Skull marks via `RecordAttack` / `IsAttackJustified`.
     SecureMode,
     /// `OUTOFAMMO` — no ammo for bow, or insufficient mana for wand (`crcombat.cc:725,757`).
     /// 772 `sending.cc:348` `default: break` — no message sent; the catch path still does
@@ -164,6 +165,12 @@ impl GameWorld {
         // (`crcombat.cc:432-437`). Early-out above already skipped same dest+follow.
         if !follow {
             self.combat_on_attack_dest_changed(cid, target_id);
+            // 772 `RecordAttack` after BlockLogout — `crcombat.cc:436`.
+            if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+                && matches!(self.creatures.get(target_id), Some(CreatureKind::Player(_)))
+            {
+                self.player_record_attack(cid, target_id);
+            }
         }
 
         // `ToDoAttack()` → `ToDoAdd(TDAttack)`. Every `ToDoAdd` runs the `LockToDo` preamble:
@@ -515,6 +522,12 @@ impl GameWorld {
                     .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
                 self.player_block_logout_infight(cid, target_is_player);
                 self.player_block_logout_infight(target_id, false);
+                // 772 `RecordAttack` after BlockLogout — `crcombat.cc:605`.
+                if target_is_player
+                    && matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+                {
+                    self.player_record_attack(cid, target_id);
+                }
             }
         }
 
@@ -635,7 +648,7 @@ impl GameWorld {
     /// `follow == false` (`!Follow`): secure-mode, `NO_ATTACK`, profession/`allowPvp`, NPC, PZ
     /// (unless `IgnoreProtectionZone` / `ATTACK_EVERYWHERE`), NON_PVP peaceful×peaceful.
     /// Always: distance > 8 / cross-floor → `TARGETLOST`; invisible non-player → `TARGETLOST`.
-    /// Skull / `RecordAttack` remain deferred (`IsAttackJustified` stub).
+    /// Secure mode uses live `IsAttackJustified` (`skulls.rs`).
     fn validate_player_attack_target(
         &self,
         cid: CreatureId,

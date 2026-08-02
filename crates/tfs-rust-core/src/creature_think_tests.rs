@@ -299,16 +299,18 @@ fn item_regen_skipped_off_cadence() {
     assert_eq!(p.mana, 40, "no regen off cadence");
 }
 
-/// F2: `EarliestLogoutRound` expiry clears the PK-mark timer (`crmain.cc:1102-1105`).
-/// Stub: the field is zeroed; full `ClearPlayerkillingMarks` is deferred.
+/// F2: `EarliestLogoutRound` expiry runs `ClearPlayerkillingMarks` (`crmain.cc:1102-1105`).
 #[test]
 fn earliest_logout_round_expiry_clears_pk_marks() {
     let mut world = beat_driven_test_world();
     let pos = Position::new(100, 100, 7);
     ensure_walkable_tile(&mut world.map, pos, 150);
 
+    let victim = insert_player(&mut world, test_player("Victim", pos));
     let mut player = test_player("PK", pos);
     player.earliest_logout_round = 10;
+    player.aggressor = true;
+    player.attacked_players.push(victim);
     let pid = insert_player(&mut world, player);
 
     // round_nr = 10; 10 <= 10, so timer expires.
@@ -323,6 +325,10 @@ fn earliest_logout_round_expiry_clears_pk_marks() {
         p.earliest_logout_round, 0,
         "PK-mark timer should be cleared"
     );
+    assert!(!p.aggressor);
+    assert!(p.former_aggressor);
+    assert!(p.attacked_players.is_empty());
+    assert!(p.former_attacked_players.contains(&victim));
 }
 
 /// F2: `EarliestLogoutRound` does NOT expire before the round (`crmain.cc:1102`).

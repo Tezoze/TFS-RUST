@@ -8,14 +8,10 @@
 //!   `EarliestProtectionZoneRound`).
 //! - `TPlayer::AttackStimulus` — `crplayer.cc:407-410` (`BlockLogout(60, false)` on being targeted).
 //! - `TCombat::SetAttackDest` !Follow arm — `crcombat.cc:432-437` (AttackStimulus + Master BlockLogout).
-//! - `TPlayer::IsAttackJustified` — `crplayer.cc:1438-1460` (aggressor/party/attacker check).
 //! - Secure-mode gate — `crcombat.cc:374-381` (`SetAttackDest` `!Follow`) + `:563-568` (`Attack`).
 //!
-//! Skull/frag subsystem (`RecordAttack`, aggressor flag, `AttackedPlayers` list, skull
-//! broadcast, `RecordMurder`, playerkiller timer, banishment) is **deferred** to a dedicated
-//! PvP phase (PC-4 scope decision: "defer all skulls"). `is_attack_justified` is stubbed to
-//! `false` — secure mode blocks all player-vs-player attacks when `WorldType == Pvp` until the
-//! full aggressor/party tracking lands.
+//! Skull marks (`IsAttackJustified`, `RecordAttack`, …) live in [`super::skulls`].
+//! `RecordMurder` / assigning `PlayerkillerEnd` remain P2.
 
 use tfs_rust_common::WorldType;
 
@@ -204,21 +200,6 @@ impl GameWorld {
         };
         crate::combat::apply_condition(&mut self.creatures, cid, cond);
         self.on_condition_started(cid, tfs_rust_common::enums::ConditionType::Infight);
-    }
-
-    /// 772 `TPlayer::IsAttackJustified` — `crplayer.cc:1438-1460`.
-    ///
-    /// In the full system, returns `true` when the victim is an aggressor, in party with the
-    /// attacker, or has attacked the attacker. **Stub**: returns `false` (no one is justified)
-    /// — the aggressor/party/attacked-players tracking is deferred to the PvP skull phase.
-    /// This means secure mode blocks **all** player-vs-player attacks when `WorldType == Pvp`
-    /// until the full subsystem lands.
-    pub(crate) fn player_is_attack_justified(&self, _attacker: CreatureId, _victim: CreatureId) -> bool {
-        // TODO(pvp-phase): implement aggressor flag + AttackedPlayers list + party check.
-        // `IsAttackJustified` returns `true` when WorldType != NORMAL (`crplayer.cc:1445`), but
-        // the secure-mode gate only fires when `WorldType == NORMAL` (`crcombat.cc:564`), so the
-        // `WorldType != Pvp` case is handled by the caller before reaching this stub.
-        false
     }
 
     /// Secure-mode PVP gate — `crcombat.cc:374-381` (`SetAttackDest` `!Follow`) + `:563-568`

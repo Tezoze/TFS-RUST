@@ -231,6 +231,12 @@ pub fn player_from_loaded(
         food_remaining: apply_offline_food_drain(p.food_remaining.max(0) as u32, p.lastlogout),
         food_level: p.food_level,
         earliest_logout_round: 0,
+        attacked_players: Vec::new(),
+        former_attacked_players: Vec::new(),
+        aggressor: false,
+        former_aggressor: false,
+        former_logout_round: 0,
+        playerkiller_end: playerkiller_end_from_skulltime(p.skulltime),
         logging_out: false,
         logout_allowed: false,
         last_ping_sent: std::time::Instant::now(),
@@ -251,6 +257,23 @@ pub fn player_from_loaded(
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: p.blessings,
+    }
+}
+
+/// 772 `PlayerData::PlayerkillerEnd` from DB `skulltime` — `crplayer.cc:120-122`.
+/// Expired timestamps clear to 0 at login.
+fn playerkiller_end_from_skulltime(skulltime: i64) -> i64 {
+    if skulltime <= 0 {
+        return 0;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if skulltime < now {
+        0
+    } else {
+        skulltime
     }
 }
 

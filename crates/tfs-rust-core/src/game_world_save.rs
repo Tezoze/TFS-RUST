@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tfs_rust_common::enums::Direction;
+use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_db::player::{PlayerItemPayload, PlayerSaveData};
 use tfs_rust_db::ItemRecord;
@@ -138,7 +138,14 @@ impl GameWorld {
             (player.offline_training_ms / 1000).min(u32::from(u16::MAX)) as u16;
         row.balance = player.economy.balance;
         row.direction = direction_to_u8(player.base.direction);
-        row.skull = player.base.skull as u8 as i8;
+        // 772 red mark: persist `PlayerkillerEnd` in `skulltime`; set skull=Red when active
+        // so TFS tools see a red skull. White/yellow are session-only (observer-relative).
+        row.skulltime = player.playerkiller_end;
+        row.skull = if player.playerkiller_end != 0 {
+            SkullType::Red as u8 as i8
+        } else {
+            SkullType::None as u8 as i8
+        };
 
         row.skill_fist = player.skills.fist.max(0) as u32;
         row.skill_club = player.skills.club.max(0) as u32;
