@@ -24,13 +24,8 @@ formulas = {
     minArmorForRandom = 2,
     divisor = 2,
   },
-  -- Per-skill tries curve (PC-5): human.mon Delta/Min; distinct from damageTuning.skillBase.
-  skillTuning = {
-    skillBase = {50, 50, 50, 50, 30, 100, 20},  -- fist, club, sword, axe, dist, shielding, fishing
-    minLevel  = {10, 10, 10, 10, 10, 10, 10},
-    magicSkillBase = 1600,
-    magicMinLevel = 0,
-  },
+  -- skillTuning (shared Delta/minLevel/magicSkillBase) lives in
+  -- MechanicsProfile::for_version. Per-voc multipliers: data/defs/vocations.lua.
   spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
   spawnPlacement = "classic772", -- SearchSpawnField BFS (monster.db homes)
   respawnModel = "monsterhome772", -- StartMonsterhomeTimer: random(regen/2,regen) + crowd scaling
@@ -47,35 +42,11 @@ formulas = {
     offensiveDef = 0.60, defensiveDef = 1.80,
   },
 
-  -- ticks = TSkill MaxCount (ProcessSkills between Events), not total duration.
-  -- Cycle (Events remaining) comes from Damage/10 or items.xml field.cycles.
-  conditions = {
-    fire   = { dmg = 10, ticks = 8 },
-    energy = { dmg = 25, ticks = 10 },
-    poisonStart = 50,
-  },
-
   spell = { levelMult = 2, magicMult = 3 },  -- ComputeDamage; Player:computeDamage reads these
-  pvpExpCap = { num = 11, den = 10 },
+  pvpExpCap = { num = 11, den = 10 },  -- MaxLevel = (victimL * num) / den for PvP kill XP scale
   playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
 
-  -- NPC-4/6: classic dialogue stimulus and timing (`crnonpl.cc` / `operate.cc`).
-  npc = {
-    speechRangeX = 3,
-    speechRangeY = 3,
-    focusRangeX = 5,
-    focusRangeY = 4,
-    conversationTimeoutRounds = 30,
-    numericCaptureCap = 500,
-    replyInitialDelayMs = 1000,
-    replyBaseDelayMs = 3100,
-    replyByteFactorMs = 100,
-    talkingKeepaliveMs = 2000,
-    idleRoamAttempts = 10,
-    idleRoamDelayMs = 2000,
-    sleepSearchRangeX = 10,
-    sleepSearchRangeY = 10,
-  },
+  -- npc dialogue ranges/timing live in MechanicsProfile::Npc (NpcTuning::classic_772).
 }
 
 -- Player speed model selector ------------------------------------------------------------

@@ -25,57 +25,31 @@ formulas = {
     minArmorForRandom = 2,
     divisor = 2,
   },
-  -- Per-skill tries curve (PC-5): TFS skillBase array; distinct from damageTuning.skillBase.
-  skillTuning = {
-    skillBase = {50, 50, 50, 50, 30, 100, 20},  -- fist, club, sword, axe, dist, shielding, fishing
-    minLevel  = {10, 10, 10, 10, 10, 10, 10},
-    magicSkillBase = 1600,
-    magicMinLevel = 0,
-  },
-  spawnNearPlayer = "block",
-  spawnPlacement = "tfs",        -- TFS Spawn::shuffle
-  respawnModel = "fixed",        -- TFS Spawn::checkSpawn: fixed per-slot spawntime_ms
+  -- skillTuning (shared Delta/minLevel/magicSkillBase) lives in
+  -- MechanicsProfile::for_version. Per-voc multipliers: data/defs/vocations.lua.
+  spawnNearPlayer = "shrink",
+  spawnPlacement = "classic772",        -- TFS Spawn::shuffle
+  respawnModel = "monsterhome772",        -- TFS Spawn::checkSpawn: fixed per-slot spawntime_ms
   expAttributionRounds = 60,
   followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
-  pathForwardFallback = true,       -- TFS falls back to forward search if reverse fails
-  corpseDecayOffsetMs = 600,        -- generic corpse decay +600ms
+  pathForwardFallback = false,       -- TFS falls back to forward search if reverse fails
+  corpseDecayOffsetMs = 30000,        -- generic corpse decay +600ms
   classicEquipmentSlots = false,     -- 10.98 hand slots enforce weapon/shield restrictions
   undergroundSeesSurface = false,   -- TFS canSee: underground cannot see surface (tz < 8 rejects)
-  damageTextFormat = "simpleLoss",  -- "You lose N hitpoints." (no attacker attribution)
+  damageTextFormat = "attackerAttribution",  -- "You lose N hitpoints." (no attacker attribution)
 
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.80,
     offensiveDef = 0.80, defensiveDef = 1.20,
   },
 
-  -- ticks = TSkill MaxCount (ProcessSkills between Events), not total duration.
-  conditions = {
-    fire   = { dmg = 10, ticks = 8 },
-    energy = { dmg = 25, ticks = 10 },
-    poisonStart = 50,
-  },
+  -- conditions (fire/energy/poisonStart) live in MechanicsProfile::for_version.
 
   spell = { levelMult = 2, magicMult = 3 }, -- ComputeDamage / Player:computeDamage
-  pvpExpCap = { num = 11, den = 10 },
+  pvpExpCap = { num = 11, den = 10 }, -- MaxLevel = (victimL * num) / den for PvP kill XP scale
   playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
 
-  -- Classic NPC stimulus defaults (shared until a TFS-specific audit).
-  npc = {
-    speechRangeX = 3,
-    speechRangeY = 3,
-    focusRangeX = 5,
-    focusRangeY = 4,
-    conversationTimeoutRounds = 30,
-    numericCaptureCap = 500,
-    replyInitialDelayMs = 1000,
-    replyBaseDelayMs = 3100,
-    replyByteFactorMs = 100,
-    talkingKeepaliveMs = 2000,
-    idleRoamAttempts = 10,
-    idleRoamDelayMs = 2000,
-    sleepSearchRangeX = 10,
-    sleepSearchRangeY = 10,
-  },
+  -- npc dialogue ranges/timing live in MechanicsProfile::npc (NpcTuning::classic_772).
 }
 
 -- Player speed model selector ------------------------------------------------------------
