@@ -4,9 +4,9 @@
 //! Outcomes: 772 `TSkillProbe::Increase` (`crskill.cc:386`) — same leveling curve via
 //! [`crate::combat::math::req_skill_tries`] with profile `skillTuning` + vocation multipliers.
 //!
-//! Call sites multiply by `config.rateSkill` / `rateMagic` before invoking these helpers
-//! (TFS `data/events/scripts/player.lua` `onGainSkillTries`). Curve knobs stay in
-//! `skillTuning`; rates stay in `config.lua`.
+//! Call sites use `MechanicsProfile::combat_skill_tries` — Flat `1` (772) or
+//! `rateSkill` (1098). Shared curve bases live in `MechanicsProfile::skill_tries`;
+//! per-voc multipliers in `vocations.lua`; rates in `config.lua`.
 //!
 //! C++ reference:
 //! - `TSkillProbe::Increase` / `ProbeValue` — `crskill.cc:386`, `:535`.
@@ -450,5 +450,30 @@ mod tests {
         assert!(leveled);
         assert_eq!(p.level, 1);
         assert_eq!(p.capacity, 40000);
+    }
+
+    /// 772 `TSkill::Get` — `max(Act, Min) + MDAct + DAct` (`crskill.cc:19-25`).
+    #[test]
+    fn skill_get_applies_min_floor_and_both_modifiers() {
+        let mut p = bare_player();
+        p.skills.sword = 5; // below Min=10
+        p.dact_skills[SkillNr::Sword.try_index()] = 3;
+        p.mdact_skills[SkillNr::Sword.try_index()] = 2;
+        assert_eq!(p.skill_act(SkillNr::Sword), 5);
+        assert_eq!(p.skill_level(SkillNr::Sword), 15); // max(5,10)+2+3
+    }
+
+    /// Timer expiry zeroes only MDAct — equipment DAct preserved (`crskill.cc:644-662`).
+    #[test]
+    fn mdact_expiry_preserves_dact() {
+        let mut p = bare_player();
+        p.skills.sword = 20;
+        p.dact_skills[SkillNr::Sword.try_index()] = 4;
+        p.mdact_skills[SkillNr::Sword.try_index()] = 7;
+        assert_eq!(p.skill_level(SkillNr::Sword), 31);
+        p.clear_skill_mdact(SkillNr::Sword);
+        assert_eq!(p.mdact_skills[SkillNr::Sword.try_index()], 0);
+        assert_eq!(p.dact_skills[SkillNr::Sword.try_index()], 4);
+        assert_eq!(p.skill_level(SkillNr::Sword), 24);
     }
 }

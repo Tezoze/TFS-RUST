@@ -130,11 +130,37 @@ pub(crate) fn classify_weapon(weapon_type: u8, ammo_type: u8) -> Option<HandWeap
     }
 }
 
+/// 772 `TCombat` weapon fields — `crcombat.cc:19-25`, filled by `GetWeapon` (`:36-102`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CombatWeapons {
+    pub shield: Option<crate::ids::ItemId>,
+    pub close: Option<crate::ids::ItemId>,
+    pub missile: Option<crate::ids::ItemId>,
+    pub throw_: Option<crate::ids::ItemId>,
+    pub wand: Option<crate::ids::ItemId>,
+    pub ammo: Option<crate::ids::ItemId>,
+    /// `true` until a WEAPON/BOW/THROW/WAND clears it — SHIELD never clears Fist.
+    pub fist: bool,
+}
+
+impl Default for CombatWeapons {
+    fn default() -> Self {
+        Self {
+            shield: None,
+            close: None,
+            missile: None,
+            throw_: None,
+            wand: None,
+            ammo: None,
+            fist: true,
+        }
+    }
+}
+
 impl GameWorld {
     /// 772 `TCombat::GetAttackValue` — `crcombat.cc:164-189`.
     ///
-    /// Priority: `Close` (melee `WEAPONATTACKVALUE`) → `Missile` (ammo `AMMOATTACKVALUE`) →
-    /// `Throw` (`THROWATTACKVALUE`) → `Wand` (attack 0) → fist (`RaceData[Race].Attack`).
+    /// Priority: `Close` → `Missile` (ammo attack) → `Throw` → `Wand` (0) → fist race attack.
     /// Returns `(max_value, SkillNr)` — the raw unscaled attack value and its skill index.
     pub fn player_get_attack_value(&self, cid: CreatureId) -> (i32, SkillNr) {
         let sim_melee_attack = match self.creatures.get(cid) {
@@ -142,82 +168,84 @@ impl GameWorld {
             _ => return (0, SkillNr::Fist),
         };
 
-        // `player_get_weapon(cid, false)` resolves ammo for bows (returns the ammo item) and
-        // returns the weapon itself for melee/throw. `None` = no weapon → fist fallback.
-        let Some(weapon_iid) = self.player_get_weapon(cid, false) else {
-            // Fist — `RaceData[Race].Attack` (`crcombat.cc:183`).
-            return (sim_melee_attack, SkillNr::Fist);
-        };
-        let Some(item) = self.items.get(weapon_iid) else {
-            return (sim_melee_attack, SkillNr::Fist);
-        };
-        let Some(it) = self.items_db.items.get(&item.item_type) else {
-            return (sim_melee_attack, SkillNr::Fist);
-        };
+        let weapons = self.player_resolve_combat_weapons(cid);
 
-        // For bow+ammo, `player_get_weapon` returned the ammo item (`WEAPON_AMMO`); its
-        // `weapon_type` maps to `SkillNr::Distance` via `from_weapon_type` (`crcombat.cc:158`).
-        // For wand, attack is 0 (`crcombat.cc:180`); `WEAPON_WAND` → `SkillNr::Fist`.
-        let attack = it.attack;
-        let skill = SkillNr::from_weapon_type(it.weapon_type);
-        (attack, skill)
+        if let Some(iid) = weapons.close {
+            let Some(item) = self.items.get(iid) else {
+                return (sim_melee_attack, SkillNr::Fist);
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                return (sim_melee_attack, SkillNr::Fist);
+            };
+            return (it.attack, SkillNr::from_weapon_type(it.weapon_type));
+        }
+        if weapons.missile.is_some() {
+            // Bow without ammo: attack 0, still `WEAPON_AMMO` → Distance (`crcombat.cc:171-174`).
+            let attack = weapons
+                .ammo
+                .and_then(|aid| self.items.get(aid))
+                .and_then(|i| self.items_db.items.get(&i.item_type))
+                .map(|it| it.attack)
+                .unwrap_or(0);
+            return (attack, SkillNr::Distance);
+        }
+        if let Some(iid) = weapons.throw_ {
+            let Some(item) = self.items.get(iid) else {
+                return (sim_melee_attack, SkillNr::Fist);
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                return (sim_melee_attack, SkillNr::Fist);
+            };
+            return (it.attack, SkillNr::Distance);
+        }
+        if weapons.wand.is_some() {
+            // Wand attack value is 0; skill maps via `WEAPON_NONE` → Fist (`crcombat.cc:180-181`).
+            return (0, SkillNr::Fist);
+        }
+        (sim_melee_attack, SkillNr::Fist)
     }
 
     /// 772 `TCombat::GetDefendValue` — `crcombat.cc:191-218`.
     ///
-    /// Priority: `Shield` (`SHIELDDEFENDVALUE`) → `Close` (`WEAPONDEFENDVALUE`) → `Throw`
-    /// (`THROWDEFENDVALUE`) → `Missile` (0, bow reduces defense) → fist (`RaceData[Race].Defend`).
-    /// Returns `(max_value, SkillNr)` — the raw unscaled defense value and its skill index.
+    /// Priority: `Shield` → `Close` → `Throw` → `Missile`(0) → fist race defend.
     pub fn player_get_defend_value(&self, cid: CreatureId) -> (i32, SkillNr) {
         let sim_melee_defense = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.sim_melee_defense,
             _ => return (0, SkillNr::Fist),
         };
 
-        // Scan hand slots (Left=6, Right=5) — C++ `GetWeapon` scans `INVENTORY_HAND_FIRST..LAST`.
-        // Collect Copy values to avoid holding `&ItemType` across slot iterations.
-        let mut shield_def: Option<i32> = None;
-        let mut close_def: Option<(i32, SkillNr)> = None;
-        let mut throw_def: Option<i32> = None;
-        let mut has_missile = false;
+        let weapons = self.player_resolve_combat_weapons(cid);
 
-        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
-            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
-                continue;
-            };
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                continue;
-            };
-            match classify_weapon(it.weapon_type, it.ammo_type) {
-                Some(HandWeapon::Shield) => shield_def = Some(it.defense),
-                Some(HandWeapon::Close) => {
-                    close_def = Some((it.defense, SkillNr::from_weapon_type(it.weapon_type)));
-                }
-                Some(HandWeapon::Throw) => throw_def = Some(it.defense),
-                Some(HandWeapon::Missile) => has_missile = true,
-                Some(HandWeapon::Wand) | None => {}
-            }
-        }
-
-        // `GetDefendValue` priority: Shield > Close > Throw > Missile(0) > fist.
-        if let Some(def) = shield_def {
+        if let Some(iid) = weapons.shield {
+            let def = self
+                .items
+                .get(iid)
+                .and_then(|i| self.items_db.items.get(&i.item_type))
+                .map(|it| it.defense)
+                .unwrap_or(0);
             return (def, SkillNr::Shielding);
         }
-        if let Some((def, skill)) = close_def {
-            return (def, skill);
+        if let Some(iid) = weapons.close {
+            let Some(item) = self.items.get(iid) else {
+                return (sim_melee_defense, SkillNr::Fist);
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                return (sim_melee_defense, SkillNr::Fist);
+            };
+            return (it.defense, SkillNr::from_weapon_type(it.weapon_type));
         }
-        if let Some(def) = throw_def {
+        if let Some(iid) = weapons.throw_ {
+            let def = self
+                .items
+                .get(iid)
+                .and_then(|i| self.items_db.items.get(&i.item_type))
+                .map(|it| it.defense)
+                .unwrap_or(0);
             return (def, SkillNr::Distance);
         }
-        if has_missile {
-            // Bow reduces defense to 0 (`crcombat.cc:207-210`).
+        if weapons.missile.is_some() {
             return (0, SkillNr::Distance);
         }
-
-        // Fist — `RaceData[Race].Defend` (`crcombat.cc:212`).
         (sim_melee_defense, SkillNr::Fist)
     }
 
@@ -254,39 +282,45 @@ impl GameWorld {
         armor
     }
 
-    /// 772 `TCombat::GetDistance` — `crcombat.cc:611`. Returns the weapon's `Range` value:
-    /// `1` for melee (close weapons, fist), `2`/`3` for ranged (bow `shoot_range`, wand
-    /// `WANDRANGE=3`, throw `THROWRANGE`). The caller (`player_execute_attack`) uses this to
-    /// dispatch to `CloseAttack` (range 1) or `DistanceAttack`/`WandAttack` (range 2/3).
+    /// 772 `TCombat::GetDistance` — `crcombat.cc:309-319`.
     ///
-    /// Bow `shoot_range` comes from `items.xml` (`range` attribute → `ItemType.shoot_range`).
-    /// Wand range is hardcoded to 3 (`WANDRANGE`, `crcombat.cc:706`) — `WandDef` doesn't carry
-    /// range. Throwing weapon range comes from `items.xml` (`range` → `ItemType.shoot_range`).
-    pub fn player_weapon_range(&self, cid: CreatureId) -> i32 {
-        // Scan hand slots for a distance weapon or wand — `crcombat.cc:632-638` classification.
-        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
-            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
-                continue;
-            };
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                continue;
-            };
-            match it.weapon_type {
-                WEAPON_DISTANCE => return it.shoot_range.max(1),
-                // `WEAPON_WAND` — `WANDRANGE = 3` (`crcombat.cc:706`); skip gated wands.
-                w if w == crate::inventory::WEAPON_WAND => {
-                    if self.player_meets_wand_requirements(cid, item.item_type) {
-                        return 3;
-                    }
-                }
-                _ => {}
-            }
+    /// Categorical weapon distance: Close/Fist → 1, Throw → 2, Missile/Wand → 3.
+    /// Item `shoot_range` is **not** returned here — use [`Self::player_weapon_max_range`].
+    pub fn player_weapon_distance(&self, cid: CreatureId) -> i32 {
+        let w = self.player_get_combat_weapons(cid);
+        if w.close.is_some() || w.fist {
+            1
+        } else if w.throw_.is_some() {
+            2
+        } else if w.missile.is_some() || w.wand.is_some() {
+            3
+        } else {
+            0
         }
-        // Melee or fist — range 1 (`crcombat.cc:612`).
+    }
+
+    /// Per-weapon max range for in-strike `TARGETOUTOFRANGE` (`BOWRANGE` / `THROWRANGE` /
+    /// `WANDRANGE`). Not used at Attack() arm time — that uses categorical distance + viewport.
+    pub fn player_weapon_max_range(&self, cid: CreatureId) -> i32 {
+        let w = self.player_get_combat_weapons(cid);
+        if let Some(iid) = w.missile.or(w.throw_) {
+            return self
+                .items
+                .get(iid)
+                .and_then(|i| self.items_db.items.get(&i.item_type))
+                .map(|it| it.shoot_range.max(1))
+                .unwrap_or(1);
+        }
+        if w.wand.is_some() {
+            return 3;
+        }
         1
+    }
+
+    /// Deprecated name for categorical distance — prefer [`Self::player_weapon_distance`].
+    /// Call sites that meant item range should migrate to [`Self::player_weapon_max_range`].
+    pub fn player_weapon_range(&self, cid: CreatureId) -> i32 {
+        self.player_weapon_distance(cid)
     }
 }
 
@@ -601,6 +635,206 @@ mod tests {
         let fake_id = CreatureId::from(slotmap::KeyData::default());
         let (value, skill) = world.player_get_attack_value(fake_id);
         assert_eq!(value, 0);
+        assert_eq!(skill, SkillNr::Fist);
+    }
+
+    /// Synthetic Close+Missile in opposite hands → melee dispatch, distance 1 (audit B1/B2).
+    #[test]
+    fn category_precedence_close_over_missile() {
+        let mut world = minimal_world();
+        let cid = world.creatures.insert(CreatureKind::Player(sim_hero_player(
+            "Hero",
+            Position::new(100, 100, 7),
+        )));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Right as u8,
+            2377,
+            make_weapon(2377, WEAPON_SWORD, 15, 8),
+        );
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 2),
+        );
+        let (value, skill) = world.player_get_attack_value(cid);
+        assert_eq!(value, 15);
+        assert_eq!(skill, SkillNr::Sword);
+        assert_eq!(world.player_weapon_distance(cid), 1);
+    }
+
+    /// Later hand slot overwrites the same category — Left (6) wins over Right (5) for shields.
+    #[test]
+    fn later_hand_slot_overwrites_same_category() {
+        let mut world = minimal_world();
+        let cid = world.creatures.insert(CreatureKind::Player(sim_hero_player(
+            "Hero",
+            Position::new(100, 100, 7),
+        )));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Right as u8,
+            2510,
+            make_shield(2510, 10),
+        );
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2511,
+            make_shield(2511, 20),
+        );
+        let w = world.player_get_combat_weapons(cid);
+        let left_iid = world
+            .get_player_inventory_item(cid, InventorySlot::Left as u8)
+            .unwrap();
+        assert_eq!(w.shield, Some(left_iid));
+        let (def, _) = world.player_get_defend_value(cid);
+        assert_eq!(def, 20);
+    }
+
+    /// Bow without matching ammo keeps Distance skill (not Fist) — audit B1.
+    #[test]
+    fn bow_without_ammo_keeps_distance_skill() {
+        let mut world = minimal_world();
+        let cid = world.creatures.insert(CreatureKind::Player(sim_hero_player(
+            "Hero",
+            Position::new(100, 100, 7),
+        )));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 2),
+        );
+        let (value, skill) = world.player_get_attack_value(cid);
+        assert_eq!(value, 0);
+        assert_eq!(skill, SkillNr::Distance);
+        assert_eq!(world.player_weapon_distance(cid), 3);
+    }
+
+    /// Shield only → Fist true, distance 1 — audit B3.
+    #[test]
+    fn shield_only_still_fists() {
+        let mut world = minimal_world();
+        let cid = world.creatures.insert(CreatureKind::Player(sim_hero_player(
+            "Hero",
+            Position::new(100, 100, 7),
+        )));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2510,
+            make_shield(2510, 18),
+        );
+        let w = world.player_get_combat_weapons(cid);
+        assert!(w.fist);
+        assert!(w.shield.is_some());
+        assert!(w.close.is_none());
+        assert_eq!(world.player_weapon_distance(cid), 1);
+        let (atk, skill) = world.player_get_attack_value(cid);
+        assert_eq!(atk, 7);
+        assert_eq!(skill, SkillNr::Fist);
+    }
+
+    /// Underleveled item-flag weapon skipped in resolution; armor path unaffected — B3.
+    #[test]
+    fn underleveled_weapon_skipped_in_resolution() {
+        let mut world = minimal_world();
+        let mut hero = sim_hero_player("Hero", Position::new(100, 100, 7));
+        hero.level = 8;
+        let cid = world.creatures.insert(CreatureKind::Player(hero));
+        let mut axe = make_weapon(2387, WEAPON_AXE, 40, 12);
+        axe.min_req_level = 30;
+        equip_item(&mut world, cid, InventorySlot::Left as u8, 2387, axe);
+        let (value, skill) = world.player_get_attack_value(cid);
+        assert_eq!(value, 7);
+        assert_eq!(skill, SkillNr::Fist);
+        assert!(world.player_get_combat_weapons(cid).fist);
+    }
+
+    /// Wrong vocation on item-flag weapon → skipped — B3.
+    #[test]
+    fn wrong_profession_weapon_skipped() {
+        use std::sync::Arc;
+        use tfs_rust_content::vocations::{VocationDef, VocationFormula, VocationRegistry};
+
+        let mut world = minimal_world();
+        let mut vocations = std::collections::HashMap::new();
+        vocations.insert(
+            1u16,
+            VocationDef {
+                id: 1,
+                client_id: 3,
+                name: "Sorcerer".into(),
+                description: "a sorcerer".into(),
+                from_vocation: 1,
+                gain_cap: 0,
+                gain_hp: 0,
+                gain_mana: 0,
+                gain_hp_ticks: 0,
+                gain_hp_amount: 0,
+                gain_mana_ticks: 0,
+                gain_mana_amount: 0,
+                mana_multiplier: 0.0,
+                attack_speed_ms: 0,
+                base_speed: 0,
+                soul_max: 0,
+                gain_soul_ticks: 0,
+                allow_pvp: false,
+                base_hp: 0,
+                base_mana: 0,
+                base_cap: 0,
+                formula: VocationFormula::default(),
+                skill_multipliers: [0.0; 7],
+            },
+        );
+        world.vocations = Arc::new(VocationRegistry { vocations });
+
+        let mut hero = sim_hero_player("Hero", Position::new(100, 100, 7));
+        hero.vocation_id = 1;
+        hero.level = 50;
+        let cid = world.creatures.insert(CreatureKind::Player(hero));
+        let mut axe = make_weapon(2387, WEAPON_AXE, 40, 12);
+        axe.voc_equip_names = vec!["knight".into()];
+        equip_item(&mut world, cid, InventorySlot::Left as u8, 2387, axe);
+        let (value, skill) = world.player_get_attack_value(cid);
+        assert_eq!(value, 7);
+        assert_eq!(skill, SkillNr::Fist);
+    }
+
+    /// Equipped wand → CombatWeapons.wand set — B1 (strike still uses WandDef separately).
+    #[test]
+    fn wand_resolution_still_uses_wand_def() {
+        let mut world = minimal_world();
+        let cid = world.creatures.insert(CreatureKind::Player(sim_hero_player(
+            "Hero",
+            Position::new(100, 100, 7),
+        )));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2190,
+            ItemType {
+                server_id: 2190,
+                weapon_type: crate::inventory::WEAPON_WAND,
+                ..Default::default()
+            },
+        );
+        let w = world.player_resolve_combat_weapons(cid);
+        assert!(w.wand.is_some());
+        assert!(!w.fist);
+        assert_eq!(world.player_weapon_distance(cid), 3);
+        assert_eq!(world.player_weapon_max_range(cid), 3);
+        let (atk, skill) = world.player_get_attack_value(cid);
+        assert_eq!(atk, 0);
         assert_eq!(skill, SkillNr::Fist);
     }
 }

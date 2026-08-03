@@ -22,10 +22,10 @@ pub(crate) enum NotificationParent {
 }
 
 impl GameWorld {
-    /// 772 `CheckCombatValues` weapon-swap delay — `crcombat.cc:128-147`.
+    /// 772 `CheckCombatValues` — `crcombat.cc:128-147`.
     ///
-    /// When hand or ammo equipment changes, `DelayAttack(2000)`. Matches Object identity
-    /// change on Shield/Close/Missile/Throw/Wand/Ammo (those slots).
+    /// Diffs the seven resolved weapon fields (Shield/Close/Missile/Throw/Wand/Ammo/Fist)
+    /// against the player's last snapshot; `DelayAttack(2000)` only when identity changes.
     pub(crate) fn player_maybe_delay_attack_on_weapon_slot_change(
         &mut self,
         cid: CreatureId,
@@ -38,9 +38,18 @@ impl GameWorld {
         {
             return;
         }
+        let new_weapons = self.player_resolve_combat_weapons(cid);
+        let old_weapons = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.last_combat_weapons,
+            _ => return,
+        };
+        if old_weapons == new_weapons {
+            return;
+        }
         let server_ms = self.server_ms;
-        if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().delay_attack_ms(server_ms, 2000);
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.last_combat_weapons = new_weapons;
+            p.base.delay_attack_ms(server_ms, 2000);
         }
     }
 
@@ -520,7 +529,9 @@ mod tests {
             items_light: LightInfo::default(),
             internal_light: LightInfo::default(),
             inventory_abilities: [false; 11],
-            var_skills: [0; 7],
+            dact_skills: [0; 7],
+            mdact_skills: [0; 7],
+            last_combat_weapons: Default::default(),
             var_stats: [0; 4],
             condition_suppressions: 0,
             shop_owner: None,

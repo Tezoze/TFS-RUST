@@ -310,7 +310,6 @@ impl GameWorld {
 
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
-        let hooks = &self.mechanics.hooks;
 
         let (
             target_id,
@@ -383,15 +382,18 @@ impl GameWorld {
             k.base_mut().delay_attack_ms(server_ms, 200);
         }
 
-        let attack_roll = weapon_damage(
-            &profile,
-            hooks,
-            melee_skill,
-            melee_attack,
-            FightMode::Balanced,
-            0,
-            &self.parity_rng,
-        );
+        let attack_roll = {
+            let hooks = &self.mechanics.hooks;
+            weapon_damage(
+                &profile,
+                hooks,
+                melee_skill,
+                melee_attack,
+                FightMode::Balanced,
+                0,
+                &self.parity_rng,
+            )
+        };
 
         // M11 — shield wearout gate check: capture whether the defense gate will pass before
         // `roll_target_defense` updates the timestamps. Shield wearout happens only when the
@@ -400,6 +402,16 @@ impl GameWorld {
             .creatures
             .get(target_id)
             .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+        let mut defense_snap = defense_snap;
+        // ProbeValue Increase before Get when the defend gate will fire (`crcombat.cc:259-263`).
+        if defense_gate_passed
+            && defense_snap.has_shield
+            && matches!(self.creatures.get(target_id), Some(CreatureKind::Player(_)))
+        {
+            self.player_shield_skill_learning(target_id, true);
+            defense_snap = self.melee_defense_snapshot_for(target_id);
+        }
+        let hooks = &self.mechanics.hooks;
         let defense_roll = {
             let Some(kind) = self.creatures.get_mut(target_id) else {
                 return;
@@ -425,7 +437,6 @@ impl GameWorld {
             && matches!(self.creatures.get(target_id), Some(CreatureKind::Player(_)))
         {
             self.player_shield_wearout(target_id);
-            self.player_shield_skill_learning(target_id, defense_snap.has_shield);
         }
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 

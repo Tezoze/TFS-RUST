@@ -146,6 +146,15 @@ pub struct ArmorRandomTuning {
     pub divisor: i32,
 }
 
+/// How combat skill tries are scaled per probe (`TSkillProbe::Increase(1)` vs TFS `rateSkill`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillTryScaling {
+    /// 772 — flat `Increase(1)` (`crskill.cc:535-538`).
+    Flat,
+    /// 1098 / TFS — `1 * rateSkill` via `ConfigManager::scale_tries`.
+    Rated,
+}
+
 /// Per-skill tries curve constants for `req_skill_tries` (PC-5).
 ///
 /// Distinct from [`DamageProbeTuning::skill_base`] (probe formula always 50).
@@ -386,6 +395,8 @@ pub struct MechanicsProfile {
     pub classic_equipment_slots: bool,
     /// Per-skill tries curve (`skillTuning` in formulas Lua) — PC-5.
     pub skill_tries: SkillTriesTuning,
+    /// Combat probe try scaling — Flat (772) vs Rated/`rateSkill` (1098). Audit B5.
+    pub skill_try_scaling: SkillTryScaling,
     /// Item decay / cron deadline clock — 772 `RoundNr`, 1098 movement `server_ms` (DEC-3).
     pub decay_clock: DecayClockModel,
     /// When true, dropping a stackable into a container may merge into *any* partial stack
@@ -407,6 +418,15 @@ pub enum DecayClockModel {
 }
 
 impl MechanicsProfile {
+    /// Tries granted by one combat `ProbeValue` Increase — Flat `1` (772) or `rateSkill` (1098).
+    #[inline]
+    pub fn combat_skill_tries(&self, rate_skill: f64) -> u64 {
+        match self.skill_try_scaling {
+            SkillTryScaling::Flat => 1,
+            SkillTryScaling::Rated => crate::config::ConfigManager::scale_tries(1, rate_skill),
+        }
+    }
+
     /// Built-in defaults per era — fallback when `data/formulas/<v>.lua` is absent.
     pub fn for_version(version: ProtocolVersion) -> Self {
         match version.raw() {
@@ -465,6 +485,7 @@ impl MechanicsProfile {
                 damage_text_format: DamageTextFormat::AttackerAttribution,
                 classic_equipment_slots: true,
                 skill_tries: SkillTriesTuning::classic(),
+                skill_try_scaling: SkillTryScaling::Flat,
                 decay_clock: DecayClockModel::RoundNumber,
                 container_autostack_any_slot: false,
                 container_window_alloc: ContainerWindowAlloc::ClientChooses,
@@ -522,6 +543,7 @@ impl MechanicsProfile {
                 damage_text_format: DamageTextFormat::SimpleLoss,
                 classic_equipment_slots: false,
                 skill_tries: SkillTriesTuning::classic(),
+                skill_try_scaling: SkillTryScaling::Rated,
                 decay_clock: DecayClockModel::ServerMilliseconds,
                 container_autostack_any_slot: true,
                 container_window_alloc: ContainerWindowAlloc::ServerAllocates,

@@ -381,41 +381,33 @@ pub fn melee_damage_after_defense_and_armor(attack: i32, defense: i32, armor: i3
 // B4.8 — distance hit probe (PC-3)
 // ---------------------------------------------------------------------------
 
+/// One `rand() % modulus` draw — sim harness overrides when enabled.
+fn probe_rand_mod(parity: &GlibcRngState, modulus: u32) -> i32 {
+    #[cfg(any(test, feature = "sim"))]
+    {
+        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
+            return crate::sim_glibc_rand::sim_rand_mod(modulus) as i32;
+        }
+    }
+    parity.rand_mod(modulus) as i32
+}
+
 /// 772 `TSkillProbe::Probe` — `crskill.cc:549` hit-probe for distance attacks.
 ///
+/// Second `rand()%100` is drawn **only** when the skill gate (`Act >= rand()%Diff`)
+/// passes — unconditional second draws desync the glibc stream (audit B4).
 /// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
 pub fn probe_hit(skill: i32, diff: i32, prob: i32, parity: &GlibcRngState) -> bool {
     if diff == 0 {
         return true;
     }
-    let (diff_roll, chance_roll) = {
-        #[cfg(any(test, feature = "sim"))]
-        {
-            if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                (
-                    crate::sim_glibc_rand::sim_rand_mod(diff.max(1) as u32) as i32,
-                    crate::sim_glibc_rand::sim_rand_mod(100) as i32,
-                )
-            } else {
-                (
-                    parity.rand_mod(diff.max(1) as u32) as i32,
-                    parity.rand_mod(100) as i32,
-                )
-            }
-        }
-        #[cfg(not(any(test, feature = "sim")))]
-        {
-            (
-                parity.rand_mod(diff.max(1) as u32) as i32,
-                parity.rand_mod(100) as i32,
-            )
-        }
-    };
+    // Skill gate: `this->Act >= (rand() % Diff)` — fail → no chance roll (`crskill.cc:560-565`).
+    let diff_roll = probe_rand_mod(parity, diff.max(1) as u32);
     if skill < diff_roll {
         return false;
     }
     // `(rand() % 100) <= Prob` — Prob=100 always hits; Prob=0 hits only on 0 (1%).
-    chance_roll <= prob
+    probe_rand_mod(parity, 100) <= prob
 }
 
 // ---------------------------------------------------------------------------

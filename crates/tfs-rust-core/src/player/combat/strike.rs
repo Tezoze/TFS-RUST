@@ -18,7 +18,6 @@ use tfs_rust_common::enums::CombatType;
 
 use crate::combat::math::{armor_reduction, melee_damage_after_defense_and_armor, weapon_damage};
 use crate::combat::{CombatDamage, CombatParams};
-use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -40,15 +39,12 @@ impl GameWorld {
     pub(crate) fn player_close_attack_strike(&mut self, cid: CreatureId, target_id: CreatureId) {
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
-        let hooks = &self.mechanics.hooks;
 
-        // `GetAttackValue` (PC-1) + attacker skill/level/mode/vocation block — read before
-        // any mutation so the math holds no `&mut` borrows.
+        // `GetAttackValue` (PC-1) + attacker mode/level — skill read **after** ProbeValue Increase.
         let (atk_value, atk_skill_nr) = self.player_get_attack_value(cid);
-        let (skill, level, mode, melee_mult, attack_speed_ms, learning_active) =
+        let (level, mode, melee_mult, attack_speed_ms, learning_active) =
             match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => (
-                    p.skill_level(atk_skill_nr),
                     p.level,
                     p.attack_mode,
                     p.vocation_profile.formula.melee_damage as f64,
@@ -60,43 +56,50 @@ impl GameWorld {
 
         // Target defense/armor snapshot — world-aware so a player target contributes
         // shield/weapon defend + shielding skill + armor (`melee_defense_snapshot_for`).
-        let defense_snap = self.melee_defense_snapshot_for(target_id);
+        let mut defense_snap = self.melee_defense_snapshot_for(target_id);
 
         // `DelayAttack(200)` before the strike (`crcombat.cc:608`).
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 200);
         }
 
-        // `GetAttackDamage` — fight-mode-scaled probe roll (`crcombat.cc:220`).
-        let attack_roll =
-            weapon_damage(&profile, hooks, skill, atk_value, mode, level, &self.parity_rng);
-        // Vocation `formula.melee_damage` multiplier (PC-2 step 1).
-        let attack_roll = ((attack_roll as f64) * melee_mult).floor() as i32;
-
-        // `ProbeValue` side-effect: `Increase(1)` + decrement `LearningPoints` while > 0
-        // (`crskill.cc:535-549`). PC-5 wires skill tries via `skill_increase`.
-        // TFS `onGainSkillTries`: multiply by `rateSkill` before adding.
-        let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
+        // `ProbeValue(..., Increase)` — Increase(1) **before** Get() (`crskill.cc:535-544`).
+        let skill_tries = profile.combat_skill_tries(self.config.rate_skill().unwrap_or(1.0));
         let mut skill_trained = false;
         let mut levels_gained = 0u32;
-        if learning_active {
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                if p.base.learning_points > 0 {
-                    levels_gained = p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
-                    p.base.learning_points -= 1;
-                    skill_trained = skill_tries > 0;
+        let attack_roll = {
+            let hooks = &self.mechanics.hooks;
+            if learning_active {
+                if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                    if p.base.learning_points > 0 {
+                        levels_gained = p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
+                        p.base.learning_points -= 1;
+                        skill_trained = skill_tries > 0;
+                    }
                 }
             }
-        }
+            let skill = match self.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.skill_level_profile(atk_skill_nr, &profile),
+                _ => return,
+            };
+            // `GetAttackDamage` — fight-mode-scaled probe roll (`crcombat.cc:220`).
+            let attack_roll =
+                weapon_damage(&profile, hooks, skill, atk_value, mode, level, &self.parity_rng);
+            ((attack_roll as f64) * melee_mult).floor() as i32
+        };
 
-        // `target.GetDefendDamage` — gate + probe (`crcombat.cc:236`).
-        // M11 — shield wearout happens after the defense probe, only when the gate passes
-        // (`crcombat.cc:265-281`). Capture the gate state before the probe so we know whether
-        // `roll_target_defense` actually ran the defense (gate pass → timestamps updated).
+        // Defender shield ProbeValue Increase before defense Get() (`crcombat.cc:259-263`).
         let defense_gate_passed = self
             .creatures
             .get(target_id)
             .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+        if defense_gate_passed && defense_snap.has_shield {
+            self.player_shield_skill_learning(target_id, true);
+            defense_snap = self.melee_defense_snapshot_for(target_id);
+        }
+
+        // `target.GetDefendDamage` — gate + probe (`crcombat.cc:236`).
+        let hooks = &self.mechanics.hooks;
         let defense_roll = match self.creatures.get_mut(target_id) {
             Some(kind) => roll_target_defense(
                 kind.base_mut(),
@@ -123,8 +126,6 @@ impl GameWorld {
         // borrow conflict with `&mut self`.
         if defense_gate_passed {
             self.player_shield_wearout(target_id);
-            // M12 — shield skill learning (`crcombat.cc:259-263`).
-            self.player_shield_skill_learning(target_id, defense_snap.has_shield);
         }
         let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
 
@@ -276,13 +277,13 @@ impl GameWorld {
     ///
     /// C++ `GetDefendDamage` (`crcombat.cc:259-263`): `Increase = (Shield != NONE &&
     /// LearningPoints > 0)` → `ProbeValue(..., Increase)` → `LearningPoints--`.
-    /// Tries are scaled by `config.rateSkill` (TFS `onGainSkillTries`).
+    /// Call **before** reading defend skill for the probe so Increase precedes Get (audit B5).
     pub(crate) fn player_shield_skill_learning(&mut self, cid: CreatureId, has_shield: bool) {
         if !has_shield {
             return;
         }
-        let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
         let profile = self.mechanics.profile;
+        let skill_tries = profile.combat_skill_tries(self.config.rate_skill().unwrap_or(1.0));
         let hooks = &self.mechanics.hooks;
         let mut skill_trained = false;
         let mut levels_gained = 0u32;
@@ -625,5 +626,64 @@ mod tests {
                 .is_none(),
             "left hand slot must be cleared after wearout destroy"
         );
+    }
+
+    /// ProbeValue Increase before Get — a probe that levels the skill rolls with the new value
+    /// (`crskill.cc:535-544`, audit B5).
+    #[test]
+    fn probe_value_rolls_with_post_increase_skill() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let mut player = sim_hero_player("Hero", pos);
+        // Sword skill 10, tries just below L11 need (None voc mult 2.0 → need 50).
+        player.skills.sword = 10;
+        player.skills.sword_tries = 49;
+        player.base.learning_points = 30;
+        player.sim_melee_attack = 0;
+        let pid = world.creatures.insert(CreatureKind::Player(player));
+        equip_item_sword(&mut world, pid, 2377, 20);
+        let mut cfg = MonsterAiConfig::default();
+        cfg.defense = 0;
+        cfg.armor = 0;
+        let target = insert_monster_with_config(&mut world, "Rat", adjacent_pos(pos), 500, cfg);
+
+        world.server_ms = 1000;
+        world.player_close_attack_strike(pid, target);
+
+        let p = match world.creatures.get(pid) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!(),
+        };
+        assert_eq!(
+            p.skills.sword, 11,
+            "Increase(1) must level the skill before the damage ProbeValue Get()"
+        );
+        // DamageDone > 0 re-arms ActivateLearning → LearningPoints = 30 (`crcombat.cc:655`).
+        assert_eq!(p.base.learning_points, 30);
+    }
+
+    fn equip_item_sword(world: &mut GameWorld, cid: CreatureId, item_type: u16, attack: i32) {
+        let it = ItemType {
+            server_id: item_type,
+            weapon_type: WEAPON_SWORD,
+            attack,
+            defense: 10,
+            ..Default::default()
+        };
+        if !world.items_db.items.contains_key(&item_type) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(item_type, it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+        let iid = world.items.insert(Item::new_single(item_type));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Left as u8).unwrap();
+            p.equipment_slots[idx] = Some(iid);
+        }
     }
 }

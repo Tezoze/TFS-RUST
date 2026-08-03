@@ -90,25 +90,16 @@ impl GameWorld {
     /// Era content applies those flags to **wands/rods** (Lua `weapon:level` / `:vocation`), not
     /// ordinary melee weapons — do not gate swords/clubs here.
     fn classify_player_ranged_arm(&self, cid: CreatureId) -> RangedArm {
-        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
-            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
-                continue;
+        let w = self.player_get_combat_weapons(cid);
+        if w.missile.is_some() || w.throw_.is_some() {
+            return RangedArm::Distance;
+        }
+        if let Some(wand_iid) = w.wand {
+            let Some(item) = self.items.get(wand_iid) else {
+                return RangedArm::None;
             };
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                continue;
-            };
-            match it.weapon_type {
-                WEAPON_DISTANCE => return RangedArm::Distance,
-                WEAPON_WAND => {
-                    if self.player_meets_wand_requirements(cid, item.item_type) {
-                        return RangedArm::Wand;
-                    }
-                    // Underleveled / wrong vocation — skip like `GetWeapon` `continue`.
-                }
-                _ => {}
+            if self.player_meets_wand_requirements(cid, item.item_type) {
+                return RangedArm::Wand;
             }
         }
         RangedArm::None
@@ -346,7 +337,6 @@ impl GameWorld {
     fn player_distance_attack(&mut self, cid: CreatureId, target_id: CreatureId) {
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
-        let hooks = &self.mechanics.hooks;
 
         // Resolve the weapon (bow vs throw) and ammo (for bows). `player_get_weapon(cid, false)`
         // returns the ammo item for bows, the weapon itself for throwing weapons. `active_slot`
@@ -410,14 +400,9 @@ impl GameWorld {
         let dist_y = (master_pos.y as i32 - target_pos.y as i32).abs();
         let cheb = dist_x.max(dist_y);
 
-        // Range check — `BOWRANGE` (bow `shoot_range`) or `THROWRANGE` (throw `shoot_range`).
-        // `crcombat.cc:762,775` throws `TARGETOUTOFRANGE`.
-        let range = self
-            .items
-            .get(weapon_iid.unwrap())
-            .and_then(|i| self.items_db.items.get(&i.item_type))
-            .map(|it| it.shoot_range)
-            .unwrap_or(1);
+        // Range check — `BOWRANGE` / `THROWRANGE` via `player_weapon_max_range`
+        // (`crcombat.cc:762,775`). Categorical distance was already gated at Attack().
+        let range = self.player_weapon_max_range(cid);
         if cheb > range {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
@@ -434,10 +419,11 @@ impl GameWorld {
         }
 
         // Attacker skill/level/mode/vocation block — read before mutation.
-        let (skill, level, mode, dist_mult, attack_speed_ms, learning_active) =
+        let (skill_act, level, mode, dist_mult, attack_speed_ms, learning_active) =
             match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => (
-                    p.skill_level(crate::player::combat::SkillNr::Distance),
+                    // Probe gate uses raw `Act`, not `Get()` (`crskill.cc:560`, audit B4/B6).
+                    p.skill_act(crate::player::combat::SkillNr::Distance),
                     p.level,
                     p.attack_mode,
                     p.vocation_profile.formula.dist_damage as f64,
@@ -451,12 +437,11 @@ impl GameWorld {
         let difficulty = if cheb >= 2 { cheb } else { 5 };
 
         // `Probe(Difficulty * 15, HitChance, LearningPoints > 0)` (`crcombat.cc:793-794`).
-        let hit = probe_hit(skill, difficulty * 15, hit_chance, &self.parity_rng);
-        // Probe `Increase(1)` + `LearningPoints -= 1` (`crcombat.cc:795-797`).
+        let hit = probe_hit(skill_act, difficulty * 15, hit_chance, &self.parity_rng);
+        // After Probe: `Increase(1)` + `LearningPoints -= 1` (`crcombat.cc:795-797`).
         // On hit, `GetAttackDamage` → `ProbeValue(..., Increase)` is a **second** try
         // (`crcombat.cc:803`, `crskill.cc:535-538`) — even when Lua `onUseWeapon` owns damage.
-        // TFS `onGainSkillTries`: multiply by `rateSkill` before adding.
-        let skill_tries = ConfigManager::scale_tries(1, self.config.rate_skill().unwrap_or(1.0));
+        let skill_tries = profile.combat_skill_tries(self.config.rate_skill().unwrap_or(1.0));
         let mut skill_trained = false;
         let mut levels_gained = 0u32;
         if learning_active {
@@ -466,7 +451,7 @@ impl GameWorld {
                         crate::player::combat::SkillNr::Distance,
                         skill_tries,
                         &profile,
-                        hooks,
+                        &self.mechanics.hooks,
                     );
                     p.base.learning_points -= 1;
                     skill_trained = skill_tries > 0;
@@ -490,7 +475,7 @@ impl GameWorld {
                         crate::player::combat::SkillNr::Distance,
                         skill_tries,
                         &profile,
-                        hooks,
+                        &self.mechanics.hooks,
                     ));
                     p.base.learning_points -= 1;
                     skill_trained = skill_trained || skill_tries > 0;
@@ -502,12 +487,30 @@ impl GameWorld {
                 // Native physical arrow/throw — skipped when `onUseWeapon` owns damage
                 // (TFS `Weapon::internalUseWeapon` scripted branch).
                 // Magnitude only — skill Increase already applied above (GetAttackDamage SE).
-                let attack_roll =
-                    weapon_damage(&profile, hooks, skill, attack_value, mode, level, &self.parity_rng);
+                // ProbeValue uses `Get()` after Increase (`crskill.cc:535-544`).
+                let skill_for_damage = match self.creatures.get(cid) {
+                    Some(CreatureKind::Player(p)) => {
+                        p.skill_level_profile(crate::player::combat::SkillNr::Distance, &profile)
+                    }
+                    _ => return,
+                };
+                let attack_roll = weapon_damage(
+                    &profile,
+                    &self.mechanics.hooks,
+                    skill_for_damage,
+                    attack_value,
+                    mode,
+                    level,
+                    &self.parity_rng,
+                );
                 let attack_roll = ((attack_roll as f64) * dist_mult).floor() as i32;
 
-                let armor_roll =
-                    armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
+                let armor_roll = armor_reduction(
+                    &profile,
+                    &self.mechanics.hooks,
+                    defense_snap.armor,
+                    &self.parity_rng,
+                );
                 let dmg = (attack_roll - armor_roll.max(0)).max(0);
 
                 if attacker_has_shield {
@@ -515,6 +518,12 @@ impl GameWorld {
                         .creatures
                         .get(target_id)
                         .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+                    let mut defense_snap = defense_snap;
+                    if defense_gate_passed && defense_snap.has_shield {
+                        self.player_shield_skill_learning(target_id, true);
+                        defense_snap = self.melee_defense_snapshot_for(target_id);
+                    }
+                    let hooks = &self.mechanics.hooks;
                     let _ = match self.creatures.get_mut(target_id) {
                         Some(kind) => roll_target_defense(
                             kind.base_mut(),
@@ -528,7 +537,6 @@ impl GameWorld {
                     };
                     if defense_gate_passed {
                         self.player_shield_wearout(target_id);
-                        self.player_shield_skill_learning(target_id, defense_snap.has_shield);
                     }
                 }
 
@@ -831,7 +839,7 @@ mod tests {
     use super::*;
     use crate::combat::math::probe_hit;
     use crate::creature::CreatureKind;
-    use crate::inventory::{InventorySlot, WEAPON_AMMO};
+    use crate::inventory::{InventorySlot, WEAPON_AMMO, WEAPON_NONE, WEAPON_SWORD};
     use crate::item::Item;
     use crate::sim_harness::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
@@ -901,6 +909,16 @@ mod tests {
         }
     }
 
+    fn make_weapon(server_id: u16, weapon_type: u8, attack: i32, defense: i32) -> ItemType {
+        ItemType {
+            server_id,
+            weapon_type,
+            attack,
+            defense,
+            ..Default::default()
+        }
+    }
+
     fn register_wand(world: &mut GameWorld, item_id: u16, def: WandDef) {
         let mut w = WeaponRegistry::clone(&world.weapons);
         w.wands.insert(item_id, def);
@@ -955,6 +973,24 @@ mod tests {
             }
         }
         assert!(hits <= 30, "expected ~1% hits, got {hits}");
+    }
+
+    /// Skill-gate failure must advance the glibc stream by exactly one draw
+    /// (`crskill.cc:560-565` — no second `rand()%100`). Audit B4.
+    #[test]
+    fn probe_hit_draws_one_rand_when_skill_gate_fails() {
+        let parity = crate::sim_glibc_rand::GlibcRngState::seed(42);
+        let control = crate::sim_glibc_rand::GlibcRngState::seed(42);
+        // skill=-1 always fails `skill >= rand()%diff` after the first draw.
+        assert!(!probe_hit(-1, 100, 100, &parity));
+        let _ = control.rand_mod(100);
+        for _ in 0..16 {
+            assert_eq!(
+                parity.rand(),
+                control.rand(),
+                "skill-gate miss must consume exactly one rand()"
+            );
+        }
     }
 
     /// Wand strike drains mana and deals typed damage.
@@ -1956,7 +1992,8 @@ mod tests {
         assert_eq!(world.classify_player_ranged_arm(cid), RangedArm::None);
     }
 
-    /// Hand/ammo equip triggers CheckCombatValues DelayAttack(2000).
+    /// Hand/ammo equip triggers CheckCombatValues DelayAttack(2000) only when the
+    /// resolved CombatWeapons snapshot changes (`crcombat.cc:128-147`).
     #[test]
     fn weapon_slot_change_delays_attack() {
         let mut world = minimal_world();
@@ -1965,13 +2002,66 @@ mod tests {
             .creatures
             .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
         world.server_ms = 5_000;
+        // Equip a sword so the snapshot differs from the default fist cache.
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2377,
+            make_weapon(2377, WEAPON_SWORD, 15, 8),
+        );
         world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Left as u8);
         let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
         assert_eq!(earliest, 7_000);
-        // Non-weapon slots do not delay.
+        // Idempotent second call with unchanged snapshot — no further delay.
         world.server_ms = 8_000;
-        world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Head as u8);
+        world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Left as u8);
         let earliest2 = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
-        assert_eq!(earliest2, 7_000, "head slot must not DelayAttack");
+        assert_eq!(earliest2, 7_000, "unchanged CombatWeapons must not DelayAttack");
+        // Non-weapon slots do not delay.
+        world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Head as u8);
+        let earliest3 = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
+        assert_eq!(earliest3, 7_000, "head slot must not DelayAttack");
+    }
+
+    /// Equipping a non-weapon into a free hand does not change combat fields — G11.
+    #[test]
+    fn identical_weapon_swap_does_not_delay_attack() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let cid = world
+            .creatures
+            .insert(CreatureKind::Player(sim_hero_player("Hero", pos)));
+        // Sword in Right; cache primed to match.
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Right as u8,
+            2377,
+            make_weapon(2377, WEAPON_SWORD, 15, 8),
+        );
+        let snap = world.player_resolve_combat_weapons(cid);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.last_combat_weapons = snap;
+        }
+        // Non-weapon (WEAPON_NONE) in Left — Close/Fist unchanged.
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2667,
+            ItemType {
+                server_id: 2667,
+                weapon_type: WEAPON_NONE,
+                ..Default::default()
+            },
+        );
+        world.server_ms = 5_000;
+        world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Left as u8);
+        let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
+        assert_eq!(
+            earliest, 0,
+            "non-weapon hand equip must not DelayAttack when combat fields unchanged"
+        );
     }
 }

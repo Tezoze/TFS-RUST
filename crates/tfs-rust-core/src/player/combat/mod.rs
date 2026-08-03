@@ -389,20 +389,17 @@ impl GameWorld {
             PlayerChaseOutcome::Adjacent
         } else {
             // `CHASE_MODE_NONE` (or RANGE, which 772 players cannot set via `SetChaseMode`): no
-            // chase walk. C++ `CanToDoAttack` does nothing, then `Attack()` checks the weapon
-            // `Range` vs `Distance` (`crcombat.cc:611-639`).
+            // chase walk. C++ `CanToDoAttack` does nothing, then `Attack()` checks categorical
+            // `GetDistance` vs chebyshev (`crcombat.cc:611-639`).
             //
-            // Ranged weapon (range ≥ 2): `Attack()` dispatches to `DistanceAttack`/`WandAttack`
-            // when `Distance ≤ Range` and `abs(dx) ≤ 7 && abs(dy) ≤ 5` (`crcombat.cc:617-627`).
-            // Otherwise `TARGETOUTOFRANGE` (re-arm, no message).
-            //
-            // Melee weapon (range 1): `Distance > 1` → `TARGETOUTOFRANGE` (`crcombat.cc:613-614`).
-            let weapon_range = self.player_weapon_range(cid);
-            if weapon_range >= 2 {
-                // Ranged weapon — check the 7×5 visible window + weapon range.
+            // Melee (`Distance == 1`): `cheb > 1` → `TARGETOUTOFRANGE`.
+            // Ranged (`Distance` 2/3): viewport `abs(dx)>7 || abs(dy)>5` only at Attack();
+            // item `BOWRANGE`/`THROWRANGE`/`WANDRANGE` is checked inside the strike (audit B2).
+            let weapon_distance = self.player_weapon_distance(cid);
+            if weapon_distance >= 2 {
                 let dx = (pos.x as i32 - target_pos.x as i32).abs();
                 let dy = (pos.y as i32 - target_pos.y as i32).abs();
-                if dx > 7 || dy > 5 || cheb > weapon_range {
+                if dx > 7 || dy > 5 {
                     PlayerChaseOutcome::OutOfRange
                 } else {
                     PlayerChaseOutcome::RangedStrike
@@ -569,12 +566,8 @@ impl GameWorld {
                 if let Some(target_id) =
                     self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
-                    let weapon_range = self.player_weapon_range(cid);
-                    if weapon_range >= 2 {
-                        self.player_ranged_attack_strike(cid, target_id);
-                    } else {
-                        self.player_close_attack_strike(cid, target_id);
-                    }
+                    // Categorical distance 1 → CloseAttack only (`crcombat.cc:612-616`).
+                    self.player_close_attack_strike(cid, target_id);
                 }
                 let _ = self.enqueue_creature_attack(cid);
                 let delay = self.todo_attack_delay_ms(cid).max(1);

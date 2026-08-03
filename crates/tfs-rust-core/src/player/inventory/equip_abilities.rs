@@ -341,7 +341,7 @@ impl GameWorld {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             for (i, &delta) in abilities.skills.iter().enumerate() {
                 if delta != 0 {
-                    p.var_skills[i] += delta * sign;
+                    p.dact_skills[i] += delta * sign;
                     need_skills = true;
                 }
             }

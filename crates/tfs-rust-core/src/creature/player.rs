@@ -245,8 +245,12 @@ pub struct Player {
     pub internal_light: LightInfo,
     /// MoveEvent ability guard per slot — `Player::inventoryAbilities` (`player.h`).
     pub inventory_abilities: [bool; 11],
-    /// TFS `Player::varSkills` — equipment skill modifiers (`player.h` / `MoveEvent::EquipItem`).
-    pub var_skills: [i32; 7],
+    /// Equipment skill modifiers — 772 `TSkill::DAct` (`crskill.cc:19-25`).
+    pub dact_skills: [i32; 7],
+    /// Timed/magic skill modifiers — 772 `TSkill::MDAct` (Event zeroes only this term).
+    pub mdact_skills: [i32; 7],
+    /// Last resolved `CombatWeapons` snapshot for `CheckCombatValues` (`crcombat.cc:128-147`).
+    pub last_combat_weapons: crate::player::combat::values::CombatWeapons,
     /// TFS `Player::varStats` — equipment stat modifiers (`stats_t`, `player.h`).
     pub var_stats: [i32; 4],
     /// TFS `Player::conditionSuppressions` — `addConditionSuppressions` (`player.cpp`).
@@ -507,12 +511,44 @@ impl Player {
         }
     }
 
-    /// TFS `Player::getSkillLevel` — base skill + `varSkills` (`player.h`).
+    /// 772 `TSkill::Act` — raw stored skill value for `Probe` gate (`crskill.cc:560`).
+    #[inline]
+    pub fn skill_act(&self, skill: crate::player::combat::SkillNr) -> i32 {
+        skill.level(&self.skills)
+    }
+
+    /// 772 `TSkill::Get` — `crskill.cc:19-25`: `max(Act, Min) + MDAct + DAct`.
+    ///
+    /// Uses classic `skillTuning.minLevel` (10 for combat skills). Prefer
+    /// [`Self::skill_level_profile`] when the active `MechanicsProfile` may override mins.
     #[inline]
     pub fn skill_level(&self, skill: crate::player::combat::SkillNr) -> i32 {
-        let base = skill.level(&self.skills);
-        let var = self.var_skills[skill.try_index()];
-        (base + var).max(0)
+        let min = crate::formulas::SkillTriesTuning::classic().min_level[skill.try_index()];
+        self.skill_level_with_min(skill, min)
+    }
+
+    /// `Get` with an explicit Min floor (profile / test override).
+    #[inline]
+    pub fn skill_level_with_min(&self, skill: crate::player::combat::SkillNr, min: i32) -> i32 {
+        let idx = skill.try_index();
+        let floored = self.skill_act(skill).max(min);
+        (floored + self.mdact_skills[idx] + self.dact_skills[idx]).max(0)
+    }
+
+    /// `Get` using the active profile's `skill_tries.min_level`.
+    #[inline]
+    pub fn skill_level_profile(
+        &self,
+        skill: crate::player::combat::SkillNr,
+        profile: &crate::formulas::MechanicsProfile,
+    ) -> i32 {
+        self.skill_level_with_min(skill, profile.skill_tries.min_level[skill.try_index()])
+    }
+
+    /// 772 `TSkillProbe::Event` — zero only `MDAct`, leave equipment `DAct` intact.
+    #[inline]
+    pub fn clear_skill_mdact(&mut self, skill: crate::player::combat::SkillNr) {
+        self.mdact_skills[skill.try_index()] = 0;
     }
 
     /// TFS `Player::getMagicLevel` — base maglevel + `varStats[STAT_MAGICPOINTS]`.

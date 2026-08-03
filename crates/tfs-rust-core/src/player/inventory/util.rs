@@ -2,6 +2,7 @@
 //!
 //! C++ reference: `player.cpp` `getItemTypeCount`, `getAllItemTypeCount`, `removeItemOfType`,
 //! `getWeapon`, `getWeaponType`, `getWeaponSkill`.
+//! 772 outcomes: `TCombat::GetWeapon` / `GetAmmo` — `crcombat.cc:36-126` (`CombatWeapons` snapshot).
 
 use std::collections::HashMap;
 
@@ -13,6 +14,8 @@ use crate::inventory::{
     InventorySlot, PLAYER_INVENTORY_SLOT_FIRST, PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO,
     WEAPON_DISTANCE, WEAPON_NONE, WEAPON_SHIELD,
 };
+use crate::player::combat::values::{classify_weapon, CombatWeapons, HandWeapon};
+use tfs_rust_content::otb::ItemType;
 
 /// Item location for batch removal — mirrors C++ `Item*` list with known parent cylinder.
 #[derive(Debug, Clone, Copy)]
@@ -343,7 +346,120 @@ impl GameWorld {
         }
     }
 
+    /// Whether this hand-slot item passes 772 `RESTRICTLEVEL` / `RESTRICTPROFESSION`
+    /// (`crcombat.cc:62-76`). Wands/rods keep Lua `WandDef` for strike content; item-flag
+    /// gates still skip underleveled / wrong-voc gear from the combat snapshot.
+    fn combat_weapon_passes_restrict_gates(&self, cid: CreatureId, it: &ItemType) -> bool {
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if it.min_req_level > 0 && (p.level as u32) < it.min_req_level {
+            return false;
+        }
+        if !it.voc_equip_names.is_empty() {
+            let Some(voc) = self.vocations.get(p.vocation_id) else {
+                return false;
+            };
+            let name = voc.name.to_ascii_lowercase();
+            if !it
+                .voc_equip_names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(&name))
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// 772 `TCombat::GetWeapon` — `crcombat.cc:36-102`.
+    ///
+    /// Walks hand slots in ascending index order (Right=5, Left=6). Later slots overwrite
+    /// the same category. Non-exclusive: multi-flag items populate several fields.
+    pub(crate) fn player_get_combat_weapons(&self, cid: CreatureId) -> CombatWeapons {
+        let mut w = CombatWeapons::default();
+        for slot in [InventorySlot::Right as u8, InventorySlot::Left as u8] {
+            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
+                continue;
+            };
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            if !self.combat_weapon_passes_restrict_gates(cid, it) {
+                continue;
+            }
+            match classify_weapon(it.weapon_type, it.ammo_type) {
+                Some(HandWeapon::Shield) => {
+                    w.shield = Some(iid);
+                }
+                Some(HandWeapon::Close) => {
+                    w.close = Some(iid);
+                    w.fist = false;
+                }
+                Some(HandWeapon::Missile) => {
+                    w.missile = Some(iid);
+                    w.fist = false;
+                }
+                Some(HandWeapon::Throw) => {
+                    w.throw_ = Some(iid);
+                    w.fist = false;
+                }
+                Some(HandWeapon::Wand) => {
+                    w.wand = Some(iid);
+                    w.fist = false;
+                }
+                None => {}
+            }
+        }
+        w
+    }
+
+    /// 772 `TCombat::GetAmmo` — `crcombat.cc:104-126`.
+    pub(crate) fn player_get_ammo(&self, cid: CreatureId, weapons: &mut CombatWeapons) {
+        if weapons.missile.is_none() {
+            if weapons.throw_.is_some() {
+                weapons.ammo = weapons.throw_;
+            } else if weapons.wand.is_some() {
+                weapons.ammo = weapons.wand;
+            }
+            return;
+        }
+        weapons.ammo = None;
+        let Some(bow_iid) = weapons.missile else {
+            return;
+        };
+        let Some(bow) = self.items.get(bow_iid) else {
+            return;
+        };
+        let Some(bow_it) = self.items_db.items.get(&bow.item_type) else {
+            return;
+        };
+        let Some(ammo_iid) = self.get_player_inventory_item(cid, InventorySlot::Ammo as u8) else {
+            return;
+        };
+        let Some(ammo) = self.items.get(ammo_iid) else {
+            return;
+        };
+        let Some(ammo_it) = self.items_db.items.get(&ammo.item_type) else {
+            return;
+        };
+        if ammo_it.weapon_type == WEAPON_AMMO && ammo_it.ammo_type == bow_it.ammo_type {
+            weapons.ammo = Some(ammo_iid);
+        }
+    }
+
+    /// `GetWeapon` + `GetAmmo` snapshot.
+    pub(crate) fn player_resolve_combat_weapons(&self, cid: CreatureId) -> CombatWeapons {
+        let mut w = self.player_get_combat_weapons(cid);
+        self.player_get_ammo(cid, &mut w);
+        w
+    }
+
     /// TFS `Player::getWeapon(slots_t)` — `player.cpp` ~195–217.
+    /// Kept for non-combat TFS callers; combat paths use [`Self::player_resolve_combat_weapons`].
     pub fn player_get_weapon_in_slot(
         &self,
         cid: CreatureId,
@@ -378,25 +494,11 @@ impl GameWorld {
             })
     }
 
-    /// Returns the equipped shield `ItemId` (the hand-slot item with `weapon_type == WEAPON_SHIELD`).
-    /// C++ `TCombat::Shield` — `crcombat.cc:265`. Used by shield wearout (M11, `crcombat.cc:265-281`).
-    /// Scans Left then Right (matching `player_get_defend_value` shield priority).
+    /// Returns the equipped shield `ItemId` — 772 `TCombat::Shield` via `GetWeapon`.
+    /// C++ `crcombat.cc:265`. Used by shield wearout (M11, `crcombat.cc:265-281`).
+    /// Last hand slot wins (ascending overwrite).
     pub fn player_get_shield(&self, cid: CreatureId) -> Option<ItemId> {
-        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
-            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
-                continue;
-            };
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                continue;
-            };
-            if it.weapon_type == WEAPON_SHIELD {
-                return Some(iid);
-            }
-        }
-        None
+        self.player_get_combat_weapons(cid).shield
     }
 
     /// TFS `Player::getWeaponType()` — `player.cpp` ~234–240.

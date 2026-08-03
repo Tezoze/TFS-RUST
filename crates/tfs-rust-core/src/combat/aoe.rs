@@ -50,13 +50,17 @@ impl GameWorld {
         }
         let profile = self.mechanics.profile;
         let server_ms = self.server_ms;
-        let defense_snap = self.melee_defense_snapshot_for(target_id);
+        let mut defense_snap = self.melee_defense_snapshot_for(target_id);
         let mut defense_roll = 0i32;
         if block_shield {
             let defense_gate_passed = self
                 .creatures
                 .get(target_id)
                 .is_some_and(|k| server_ms >= k.base().earliest_defend_ms);
+            if defense_gate_passed && defense_snap.has_shield {
+                self.player_shield_skill_learning(target_id, true);
+                defense_snap = self.melee_defense_snapshot_for(target_id);
+            }
             defense_roll = match self.creatures.get_mut(target_id) {
                 Some(kind) => roll_target_defense(
                     kind.base_mut(),
@@ -70,7 +74,6 @@ impl GameWorld {
             };
             if defense_gate_passed {
                 self.player_shield_wearout(target_id);
-                self.player_shield_skill_learning(target_id, defense_snap.has_shield);
             }
             abs_dmg = (abs_dmg - defense_roll).max(0);
         }
