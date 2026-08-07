@@ -452,6 +452,21 @@ mod tests {
         assert_eq!(p.capacity, 40000);
     }
 
+    #[test]
+    fn remove_experience_aborts_when_amount_exceeds_large_exp() {
+        // 772 `TSkillLevel::Decrease` quirk (`crskill.cc:300-303`).
+        let mut p = bare_player();
+        p.level = 20;
+        p.experience = 150_000;
+        let leveled = p.remove_experience(
+            200_000,
+            crate::formulas::StepSpeedModel::LinearGo,
+        );
+        assert!(!leveled);
+        assert_eq!(p.experience, 150_000);
+        assert_eq!(p.level, 20);
+    }
+
     /// 772 `TSkill::Get` — `max(Act, Min) + MDAct + DAct` (`crskill.cc:19-25`).
     #[test]
     fn skill_get_applies_min_floor_and_both_modifiers() {

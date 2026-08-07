@@ -523,10 +523,14 @@ pub fn experience_for_level(profile: &MechanicsProfile, hooks: &FormulaHooks, le
 /// Pure level-exp polynomial `(((L-6)*L+17)*L-12)/6 * delta` (`crskill.cc:352`).
 ///
 /// Shared by [`experience_for_level`] and [`crate::creature::vocation::total_experience_for_level`].
+/// 772 `Level > 500` overflow guard returns `-1` (`crskill.cc:342-346`).
 #[inline]
 pub fn experience_for_level_poly(level: i64, delta: i64) -> i64 {
     if level <= 1 {
         return 0;
+    }
+    if level > 500 {
+        return -1;
     }
     let l = level;
     (((l - 6) * l + 17) * l - 12) / 6 * delta
@@ -572,10 +576,10 @@ pub fn pvp_kill_experience_amount(
 
 /// Skill tries required to reach `level` (B4.5).
 ///
-/// Geometric curve shared by both eras: `skill_base * multiplier^(level - (min_level + 1))`. The
-/// base/multiplier are era data (TFS `vocations.xml` `skillBase`/`skillMultiplier`, `vocation.cpp:146`;
-/// 772 `Delta`/`FactorPercent`, `crskill.cc:483`). `min_level` is the first trainable level
-/// (TFS `MINIMUM_SKILL_LEVEL` = 10). Tier-2 `getReqSkillTries(skill, level)` overrides the whole curve.
+/// Geometric curve shared by both eras: `skill_base * multiplier^(level - (min_level + 1))`.
+/// 772 `FactorPercent < 1050` falls back to linear `(Level - Min) * Delta` (`crskill.cc:483-491`);
+/// `multiplier < 1.05` mirrors that gate (`FactorPercent / 1000`).
+/// Tier-2 `getReqSkillTries(skill, level)` overrides the whole curve.
 pub fn req_skill_tries(
     hooks: &FormulaHooks,
     skill: i32,
@@ -586,6 +590,11 @@ pub fn req_skill_tries(
 ) -> u64 {
     if let Some(v) = hooks.req_skill_tries(skill, level) {
         return v.max(0) as u64;
+    }
+    // 772 linear branch when FactorPercent < 1050 (`crskill.cc:483-491`).
+    if multiplier < 1.05 {
+        let steps = (level - min_level).max(0) as u64;
+        return steps.saturating_mul(skill_base);
     }
     let exp = level - (min_level + 1);
     (skill_base as f64 * multiplier.powi(exp)).floor() as u64
@@ -934,6 +943,21 @@ mod tests {
             experience_for_level_poly(8, 100) as u64,
             crate::creature::vocation::total_experience_for_level(8)
         );
+    }
+
+    #[test]
+    fn experience_for_level_poly_overflow_guard() {
+        // 772 `Level > 500 → -1` (`crskill.cc:342-346`).
+        assert_eq!(experience_for_level_poly(501, 100), -1);
+        assert_eq!(experience_for_level_poly(500, 100) > 0, true);
+    }
+
+    #[test]
+    fn req_skill_tries_linear_when_multiplier_below_1050() {
+        let m = Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
+        // FactorPercent < 1050 → (Level - Min) * Delta.
+        assert_eq!(req_skill_tries(&m.hooks, 2, 15, 50, 1.0, 10), 250);
+        assert_eq!(req_skill_tries(&m.hooks, 2, 15, 50, 1.049, 10), 250);
     }
 
     #[test]

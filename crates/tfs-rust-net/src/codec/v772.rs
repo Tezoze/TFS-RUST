@@ -22,8 +22,8 @@ use crate::NetworkMessage;
 use super::wire::{
     AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
     CombatDamageNotifyWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
-    CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire,
-    PlayerStatsWire, PrivateMessageWire, ToChannelWire,
+    CreatureSpeedWire, CreatureSquareWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire,
+    PlayerSkillsWire, PlayerStatsWire, PrivateMessageWire, ToChannelWire,
 };
 
 /// Zero-sized 7.72 codec (stateless; caps from `ProtocolVersion::V772`).
@@ -452,6 +452,15 @@ impl Codec772 {
         m.write_u8(server::CREATURE_HEALTH);
         m.write_u32(w.creature_id);
         m.write_u8(w.health_percent);
+        m
+    }
+
+    /// 7.72 `SendMarkCreature` / `sendCreatureSquare` — `sending.cc:962`, TVP `0x86` + id + color.
+    pub fn encode_creature_square(&self, w: &CreatureSquareWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x86);
+        m.write_u32(w.creature_id);
+        m.write_u8(w.color);
         m
     }
 

@@ -97,6 +97,10 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "partnerdirection",
     "pickupable",
     "poisondamagecycles",
+    "ammospecialeffect",
+    "ammoeffectstrength",
+    "throwspecialeffect",
+    "throweffectstrength",
     "range",
     "readable",
     "replaceable",
@@ -169,6 +173,10 @@ mod tests {
         assert!(is_known_xml_key("hitchance"));
         assert!(is_known_xml_key("forceuse"));
         assert!(is_known_xml_key("poisondamagecycles"));
+        assert!(is_known_xml_key("ammospecialeffect"));
+        assert!(is_known_xml_key("ammoeffectstrength"));
+        assert!(is_known_xml_key("throwspecialeffect"));
+        assert!(is_known_xml_key("throweffectstrength"));
         assert!(is_known_xml_key("blockpathfind"));
         assert!(!is_known_xml_key("not_a_real_tfs_key_xyz"));
     }

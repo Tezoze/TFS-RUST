@@ -699,19 +699,19 @@ existing profile tick values, then switch the cycle count to derive from applied
 
 ### P2 — Fidelity polish
 
-| Task | Finding | Files | Effort |
-|---|---|---|---|
-| **P2-1** `SendMarkCreature` on damage taken | G2 | `idle_stimulus.rs` | S |
-| **P2-2** Mana-drain effects + mana-shield attacker name | G4 | `combat/mod.rs`, `idle_stimulus.rs` | S |
-| **P2-3** Amulet-of-loss full slot scan + `CLOTHES`/`BODYPOSITION` check | G3 | `game_world_lifecycle.rs` | M |
-| **P2-4** `BANK` / `UNLAY` legs on the ammo drop tile | G5 | `player/combat/ranged.rs` | S |
-| **P2-5** Native burst arrow + typed `AMMO*`/`THROW*` effect attributes | G6, G7 | `player/combat/ranged.rs`, `items_xml_keys.rs`, `otb.rs` | M |
-| **P2-6** `GetExpForLevel` guards + `Decrease` abort quirk | G12 | `combat/math.rs`, `player/combat/skills.rs` | S |
-| **P2-7** Gate or delete `formula.melee_damage` / `dist_damage` | N1 | `player/combat/strike.rs`, `player/combat/ranged.rs` | S |
-| **P2-8** Read `CheckMana` in `magic.cc`; reconcile wand magic tries | N2 | investigation | S |
+| Task | Finding | Files | Effort | Status |
+|---|---|---|---|---|
+| **P2-1** `SendMarkCreature` on damage taken | G2 | `idle_stimulus.rs`, codec | S | Done |
+| **P2-2** Mana-drain effects + mana-shield attacker name | G4 | `combat/mod.rs`, `idle_stimulus.rs` | S | Done |
+| **P2-3** Amulet-of-loss full slot scan + `CLOTHES`/`BODYPOSITION` check | G3 | `game_world_lifecycle.rs` | M | Done |
+| **P2-4** `BANK` / `UNLAY` legs on the ammo drop tile | G5 | `player/combat/ranged.rs` | S | Done |
+| **P2-5** Native burst arrow + typed `AMMO*`/`THROW*` effect attributes | G6, G7 | `player/combat/ranged.rs`, `items_xml_keys.rs`, `otb.rs` | M | Done |
+| **P2-6** `GetExpForLevel` guards + `Decrease` abort quirk | G12 | `combat/math.rs`, `player/combat/skills.rs` | S | Done |
+| **P2-7** Gate or delete `formula.melee_damage` / `dist_damage` | N1 | `player/combat/strike.rs`, `player/combat/ranged.rs` | S | Done |
+| **P2-8** Read `CheckMana` in `magic.cc`; reconcile wand magic tries | N2 | investigation | S | Done (verified) |
 
 **P2-5** subsumes task **A-2** from `772_THROW_MOVE_AUDIT.md` §A.5 (register + type
-`poisondamagecycles`) — close both together.
+`poisondamagecycles` / AMMO*/THROW* specials) — closed together.
 
 ### Verification
 

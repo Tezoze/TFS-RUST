@@ -12,8 +12,8 @@ use crate::NetworkMessage;
 use super::wire::{
     AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
     CombatDamageNotifyWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
-    CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, PlayerSkillsWire,
-    PlayerStatsWire, PrivateMessageWire, ToChannelWire,
+    CreatureSpeedWire, CreatureSquareWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire,
+    PlayerSkillsWire, PlayerStatsWire, PrivateMessageWire, ToChannelWire,
 };
 
 /// Zero-sized 10.98 codec (stateless; caps from `ProtocolVersion::V1098`).
@@ -437,6 +437,16 @@ impl Codec1098 {
         m.write_u8(server::CREATURE_HEALTH);
         m.write_u32(w.creature_id);
         m.write_u8(w.health_percent);
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendCreatureSquare` — `src/protocolgame.cpp:1406`: `0x93` + id + `0x01` + color.
+    pub fn encode_creature_square(&self, w: &CreatureSquareWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x93);
+        m.write_u32(w.creature_id);
+        m.write_u8(0x01);
+        m.write_u8(w.color);
         m
     }
 

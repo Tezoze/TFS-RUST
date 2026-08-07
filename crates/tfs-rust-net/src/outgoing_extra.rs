@@ -181,6 +181,9 @@ pub fn send_creature_helpers(creature_id: u32, helpers: u16) -> NetworkMessage {
     m
 }
 
+/// Prefer [`crate::codec::ProtocolCodec::encode_creature_square`] — era-correct opcodes.
+///
+/// 1098-only helper kept for callers that already know the era (`0x93` + `0x01` + color).
 pub fn send_creature_square(creature_id: u32, color: u8) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0x93);

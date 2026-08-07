@@ -631,7 +631,7 @@ against the surrounding XML before treating it as unregistered.
 | Task | Finding | Scope |
 |---|---|---|
 | **A-1** Register + type `unlay` | B4, B8 | Folded into **P0-2** |
-| **A-2** Register + type `poisondamagecycles` | A.1 | Conditions area — same fix shape as A-1 |
+| **A-2** Register + type `poisondamagecycles` / AMMO*/THROW* specials | A.1 | **Done** — player combat P2-5 (`otb.rs` / `items.rs` / `ranged.rs`) |
 | **A-3** Port `FORCEUSE` into the `CheckTopUseObject` walk, or drop the attribute | A.1 | Use-path audit |
 | **A-4** Triage `replacemagicfields` / `specialfieldblockpath` / `blockpathfind`: port or remove | A.1 | moveuse / walk audits |
 | **A-5** Comment the `field.*` composite parse to record that magnitudes come from the profile | A.2 | Trivial |

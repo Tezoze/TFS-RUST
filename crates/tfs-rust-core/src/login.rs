@@ -271,6 +271,7 @@ pub fn player_from_loaded(
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: p.blessings,
+        exact_lethal_blow: false,
     }
 }
 

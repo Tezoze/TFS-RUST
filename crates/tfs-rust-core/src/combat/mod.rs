@@ -164,30 +164,39 @@ fn apply_health_delta(
     let Some(kind) = creatures.get_mut(target) else {
         return false;
     };
-    let base = kind.base_mut();
-    let old_hp = base.health;
-    let new_hp = (old_hp + delta).clamp(0, base.max_health);
-    if new_hp < old_hp {
-        let lost = (old_hp - new_hp) as u64;
-        if let Some(aid) = attacker {
-            base.last_hit_by = Some(aid);
-            if let Some(c) = credit {
-                // 772 summon split (`crmain.cc:698-703`): half to attacker, half to responsible.
-                let responsible = c.responsible.unwrap_or(aid);
-                if responsible != aid {
-                    let half = lost / 2;
-                    base.damage_map.add(aid, half, c.round_nr);
-                    base.damage_map.add(responsible, half, c.round_nr);
+    let old_hp = kind.base().health;
+    // 772 `Damage == HitPoints` — exact lethal (not overkill) gates amulet-of-loss (`crmain.cc:792`).
+    let exact_lethal = delta < 0 && delta == -old_hp;
+    let new_hp = (old_hp + delta).clamp(0, kind.base().max_health);
+    {
+        let base = kind.base_mut();
+        if new_hp < old_hp {
+            let lost = (old_hp - new_hp) as u64;
+            if let Some(aid) = attacker {
+                base.last_hit_by = Some(aid);
+                if let Some(c) = credit {
+                    // 772 summon split (`crmain.cc:698-703`): half to attacker, half to responsible.
+                    let responsible = c.responsible.unwrap_or(aid);
+                    if responsible != aid {
+                        let half = lost / 2;
+                        base.damage_map.add(aid, half, c.round_nr);
+                        base.damage_map.add(responsible, half, c.round_nr);
+                    } else {
+                        base.damage_map.add(aid, lost, c.round_nr);
+                    }
                 } else {
-                    base.damage_map.add(aid, lost, c.round_nr);
+                    // Callers without round context still record damage (timestamp 0).
+                    base.damage_map.add(aid, lost, 0);
                 }
-            } else {
-                // Callers without round context still record damage (timestamp 0).
-                base.damage_map.add(aid, lost, 0);
             }
         }
+        base.health = new_hp;
     }
-    base.health = new_hp;
+    if exact_lethal {
+        if let CreatureKind::Player(p) = kind {
+            p.exact_lethal_blow = true;
+        }
+    }
     old_hp != new_hp
 }
 
@@ -236,6 +245,7 @@ pub fn combat_type_hit_effect(combat_type: CombatType) -> Option<u8> {
         CombatType::Earth => Some(9),   // CONST_ME_GREEN_RINGS / EFFECT_POISON
         CombatType::Fire => Some(16),   // CONST_ME_HITBYFIRE / EFFECT_FIRE
         CombatType::LifeDrain => Some(14), // CONST_ME_MAGIC_RED / EFFECT_MAGIC_RED
+        CombatType::ManaDrain => Some(14), // EFFECT_MAGIC_RED — `crmain.cc:655`
         _ => None,
     }
 }

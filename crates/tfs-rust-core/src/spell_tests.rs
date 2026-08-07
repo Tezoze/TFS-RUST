@@ -139,6 +139,7 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: 0,
+        exact_lethal_blow: false,
     }
 }
 

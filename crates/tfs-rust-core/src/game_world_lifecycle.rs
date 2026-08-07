@@ -634,24 +634,45 @@ impl GameWorld {
     /// C++ `crmain.cc:790-815` (AoL → `LOSE_INVENTORY_NONE` + delete amulet);
     /// `crmain.cc:267-281` (`LOSE_INVENTORY_SOME`: containers always, else 10% chance).
     /// Corpse type `3128` (dead human). Default player mode is SOME (`crplayer.cc:30`).
+    ///
+    /// AoL only when the killing blow was exact (`Damage == HitPoints`) — overkill skips it.
+    /// Domain type id `2173` stands in for 772 `GetNewObjectType(77,12)` in the TFS pack.
     fn player_death_drop_inventory(&mut self, victim: CreatureId) {
         const AMULET_OF_LOSS: u16 = 2173;
         const DEAD_HUMAN_CORPSE: u16 = 3128;
 
-        let pos = match self.creatures.get(victim) {
-            Some(CreatureKind::Player(p)) => p.base.position,
+        let (pos, exact_lethal) = match self.creatures.get(victim) {
+            Some(CreatureKind::Player(p)) => (p.base.position, p.exact_lethal_blow),
             _ => return,
         };
 
-        // Scan for amulet of loss in the necklace slot (or any clothes slot matching type).
         let mut lose_none = false;
-        let necklace_slot = crate::inventory::InventorySlot::Necklace as u8;
-        if let Some(iid) = self.get_player_inventory_item(victim, necklace_slot) {
-            if self.items.get(iid).is_some_and(|i| i.item_type == AMULET_OF_LOSS) {
+        if exact_lethal {
+            // 772 loops all inventory slots requiring CLOTHES && BODYPOSITION == slot.
+            for slot in crate::inventory::PLAYER_INVENTORY_SLOT_FIRST
+                ..=crate::inventory::PLAYER_INVENTORY_SLOT_LAST
+            {
+                let Some(iid) = self.get_player_inventory_item(victim, slot) else {
+                    continue;
+                };
+                let Some(item) = self.items.get(iid) else {
+                    continue;
+                };
+                if item.item_type != AMULET_OF_LOSS {
+                    continue;
+                }
+                let Some(it) = self.items_db.items.get(&item.item_type) else {
+                    continue;
+                };
+                // TFS-domain: clothes slot mask must match the occupied slot (BODYPOSITION).
+                if !crate::inventory::item_fits_equipment_slot(slot, it) {
+                    continue;
+                }
                 lose_none = true;
-                let _ = self.internal_remove_item_from_inventory_slot(victim, necklace_slot, iid);
+                let _ = self.internal_remove_item_from_inventory_slot(victim, slot, iid);
                 self.items.remove(iid);
-                tracing::info!(?victim, "player died with amulet of loss");
+                tracing::info!(?victim, slot, "player died with amulet of loss");
+                break;
             }
         }
 

@@ -108,6 +108,17 @@ pub struct CreatureHealthWire {
     pub health_percent: u8,
 }
 
+/// `SendMarkCreature` / `ProtocolGame::sendCreatureSquare` — black square on attacker.
+///
+/// - **772** (`sending.cc:962`, TVP `protocolgame.cpp` `sendCreatureSquare`): `0x86` + id + color.
+/// - **1098** (`src/protocolgame.cpp:1406`): `0x93` + id + `0x01` + color.
+#[derive(Debug, Clone, Copy)]
+pub struct CreatureSquareWire {
+    pub creature_id: u32,
+    /// `COLOR_BLACK` / `SQ_COLOR_BLACK` = 0 on damage taken (`crmain.cc:494`).
+    pub color: u8,
+}
+
 /// `SendCreatureSpeed` (772 `sending.cc:1028`) / `sendChangeSpeed` (1098 `src/protocolgame.cpp`).
 ///
 /// - **772**: `0x8F + u32 creature_id + u16 speed` (single full `GetSpeed()`).

@@ -47,7 +47,15 @@ impl GameWorld {
                 Some(CreatureKind::Player(p)) => (
                     p.level,
                     p.attack_mode,
-                    p.vocation_profile.formula.melee_damage as f64,
+                    // N1 — vocation `formula.melee_damage` is 1098-only (`DamageFormula::Modern`).
+                    if matches!(
+                        self.mechanics.profile.damage_formula,
+                        crate::formulas::DamageFormula::Modern
+                    ) {
+                        p.vocation_profile.formula.melee_damage as f64
+                    } else {
+                        1.0
+                    },
                     p.vocation_profile.attack_speed_ms as u64,
                     p.base.learning_points > 0,
                 ),
@@ -398,7 +406,9 @@ mod tests {
     fn strike_zero_melee_multiplier_deals_no_damage() {
         // Vocation `formula.melee_damage = 0` floors the rolled attack to 0 → no damage, ever.
         // Deterministic: the multiplier is applied post-probe, so the rng is irrelevant here.
+        // N1 — multiplier only applies under `DamageFormula::Modern` (1098).
         let mut world = minimal_world();
+        world.mechanics.profile.damage_formula = crate::formulas::DamageFormula::Modern;
         let pos = Position::new(100, 100, 7);
         let mut player = sim_hero_player("Hero", pos);
         player.vocation_profile.formula.melee_damage = 0.0;
@@ -496,6 +506,7 @@ mod tests {
         // active (LearningPoints > 0 before the strike). With 0 it stays 0 (no damage path
         // can ActivateLearning here because melee_damage multiplier is 0).
         let mut world = minimal_world();
+        world.mechanics.profile.damage_formula = crate::formulas::DamageFormula::Modern;
         let pos = Position::new(100, 100, 7);
         let mut player = sim_hero_player("Hero", pos);
         player.vocation_profile.formula.melee_damage = 0.0; // no damage → no ActivateLearning

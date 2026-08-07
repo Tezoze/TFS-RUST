@@ -992,6 +992,28 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         "shoottype" => {
             item.shoot_effect = parse_shoot_type(value);
         }
+        // 772 `AMMOSPECIALEFFECT` / `AMMOEFFECTSTRENGTH` / `THROWSPECIALEFFECT` /
+        // `THROWEFFECTSTRENGTH` — `crcombat.cc:770-784` (player combat audit G6/G7).
+        "ammospecialeffect" => {
+            if let Ok(v) = value.parse::<u8>() {
+                item.ammo_special_effect = v;
+            }
+        }
+        "ammoeffectstrength" => {
+            if let Ok(v) = value.parse::<i32>() {
+                item.ammo_effect_strength = v;
+            }
+        }
+        "throwspecialeffect" => {
+            if let Ok(v) = value.parse::<u8>() {
+                item.throw_special_effect = v;
+            }
+        }
+        "throweffectstrength" => {
+            if let Ok(v) = value.parse::<i32>() {
+                item.throw_effect_strength = v;
+            }
+        }
         // C++ `ITEM_PARSE_HITCHANCE` — `src/items.cpp` ~851 (`hitChance` clamped to `[-100, 100]`).
         "hitchance" => {
             if let Ok(v) = value.parse::<i16>() {

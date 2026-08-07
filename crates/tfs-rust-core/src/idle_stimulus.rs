@@ -367,6 +367,13 @@ impl GameWorld {
             return self.apply_periodic_damage_arm(attacker, target, &reduced_damage);
         }
 
+        // 772 `DAMAGE_MANADRAIN` — before mana shield / HP (`crmain.cc:649-657`).
+        if reduced_damage.primary.0 == CombatType::ManaDrain
+            || params.primary_type == CombatType::ManaDrain
+        {
+            return self.apply_mana_drain_arm(attacker, target, &reduced_damage);
+        }
+
         // M5 — Mana shield: C++ `Damage` checks `SKILL_MANASHIELD` timer/value and absorbs
         // damage to mana first, only spilling the remainder into HP (`crmain.cc:662-688`).
         // TFS uses `CONDITION_MANASHIELD` (set by the "magic shield" spell / item ability). When
@@ -375,7 +382,7 @@ impl GameWorld {
         // HP. Otherwise drain mana to 0 and let the remainder flow to HP. Skipped for
         // `UNDEFINED` damage (C++ excludes it) and for healing/positive deltas.
         if reduced_damage.primary.1 < 0 {
-            let absorbed = self.apply_mana_shield(target, -reduced_damage.primary.1);
+            let absorbed = self.apply_mana_shield(attacker, target, -reduced_damage.primary.1);
             if absorbed > 0 {
                 reduced_damage.primary.1 += absorbed;
                 // Clamp secondary as well? C++ only shields the primary `Damage` scalar, so we
@@ -402,6 +409,8 @@ impl GameWorld {
                 self.player_block_logout_infight(attacker_id, target_is_player);
                 if target_is_player {
                     self.player_block_logout_infight(target, false);
+                    // 772 `SendMarkCreature(Connection, Attacker->ID, COLOR_BLACK)` — `crmain.cc:494`.
+                    self.send_mark_creature_on_attacker(target, attacker_id);
                     // 772 Damage `RecordAttack` — player responsible (incl. summon master)
                     // vs player victim (`crmain.cc` Damage arm).
                     if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
@@ -630,12 +639,100 @@ impl GameWorld {
         true
     }
 
+    /// 772 `SendMarkCreature` — black square on the attacker (`crmain.cc:494`, `sending.cc:962`).
+    fn send_mark_creature_on_attacker(&mut self, victim: CreatureId, attacker: CreatureId) {
+        let Some(conn_id) = self.conn_for_creature(victim) else {
+            return;
+        };
+        let Some(attacker_kind) = self.creatures.get(attacker) else {
+            return;
+        };
+        let wire_id = creature_wire_id(attacker, attacker_kind);
+        use tfs_rust_net::codec::wire::CreatureSquareWire;
+        let msg = self.codec.encode_creature_square(&CreatureSquareWire {
+            creature_id: wire_id,
+            color: 0, // COLOR_BLACK / SQ_COLOR_BLACK
+        });
+        self.enqueue_encoded(conn_id, msg);
+    }
+
+    /// Refresh in-fight logout + mark creature for a player target taking non-heal damage.
+    fn player_damage_side_effects(
+        &mut self,
+        attacker: Option<CreatureId>,
+        target: CreatureId,
+        damaging: bool,
+    ) {
+        let Some(attacker_id) = attacker else {
+            return;
+        };
+        if !damaging {
+            return;
+        }
+        let target_is_player =
+            matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+        self.player_block_logout_infight(attacker_id, target_is_player);
+        if target_is_player {
+            self.player_block_logout_infight(target, false);
+            self.send_mark_creature_on_attacker(target, attacker_id);
+            if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
+                self.player_record_attack(resp, target);
+            }
+        }
+    }
+
+    /// 772 `DAMAGE_MANADRAIN` — `crmain.cc:649-657`.
+    fn apply_mana_drain_arm(
+        &mut self,
+        attacker: Option<CreatureId>,
+        target: CreatureId,
+        damage: &CombatDamage,
+    ) -> bool {
+        let mut drain = (-(damage.primary.1 + damage.secondary.1)).max(0);
+        if drain <= 0 {
+            return false;
+        }
+        self.player_damage_side_effects(attacker, target, true);
+
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(target) else {
+            return false;
+        };
+        let mana_points = p.mana.max(0);
+        if drain > mana_points {
+            drain = mana_points;
+        }
+        if drain <= 0 {
+            return false;
+        }
+        p.mana -= drain;
+        let pos = p.base.position;
+
+        self.send_player_status_message(target, &format!("You lose {drain} mana."));
+        self.broadcast_magic_effect(pos, 14u8); // EFFECT_MAGIC_RED
+        use tfs_rust_net::codec::wire::AnimatedTextWire;
+        let animated = self.codec.encode_animated_text(&AnimatedTextWire {
+            pos,
+            color: 5, // COLOR_BLUE
+            text: drain.to_string(),
+        });
+        if !animated.as_bytes().is_empty() {
+            self.broadcast_to_spectators(pos, animated.into_bytes());
+        }
+        self.send_player_stats(target);
+        true
+    }
+
     /// M5 — Mana shield absorb. C++ `Damage` checks `SKILL_MANASHIELD` timer/value
     /// (`crmain.cc:662-688`); TFS uses `CONDITION_MANASHIELD`. Returns the amount of `incoming`
     /// damage absorbed from mana (caller adds it back to the HP delta so the remainder flows to
-    /// HP). Emits the mana-hit graphical effect + "You lose X mana" status message when any
-    /// damage is absorbed. No-op for non-players or players without the condition.
-    pub(crate) fn apply_mana_shield(&mut self, target: CreatureId, incoming: i32) -> i32 {
+    /// HP). Emits the mana-hit graphical effect + status message when any damage is absorbed.
+    /// Full absorb with an attacker uses the blocking-by-name string (`crmain.cc:672-680`).
+    pub(crate) fn apply_mana_shield(
+        &mut self,
+        attacker: Option<CreatureId>,
+        target: CreatureId,
+        incoming: i32,
+    ) -> i32 {
         if incoming <= 0 {
             return 0;
         }
@@ -658,29 +755,34 @@ impl GameWorld {
         let absorbed = incoming.min(mana_points);
         p.mana -= absorbed;
         let pos = p.base.position;
-        let mana_after = p.mana;
-        let _ = p;
 
         if absorbed > 0 {
-            // C++ `EFFECT_MANA_HIT` — `crmain.cc:670`. The 772 client effect id for the blue
-            // mana-hit spark. TFS uses `CONST_ME_MAGIC_BLUE` (wire byte 13).
-            self.broadcast_magic_effect(pos, 13u8);
-            // Animated "X" damage text in blue (C++ `TextualEffect COLOR_BLUE` — `crmain.cc:671`).
-            use tfs_rust_net::codec::wire::AnimatedTextWire;
-            let animated = self.codec.encode_animated_text(&AnimatedTextWire {
-                pos,
-                color: 5, // COLOR_BLUE — `crmain.cc:671`.
-                text: absorbed.to_string(),
-            });
-            if !animated.as_bytes().is_empty() {
-                self.broadcast_to_spectators(pos, animated.into_bytes());
+            // C++ only emits FX/message on *full* absorb (`crmain.cc:666-680`); partial absorb
+            // drains mana silently and continues to the HP arm (whose messages overwrite).
+            let fully_absorbed = absorbed == incoming;
+            if fully_absorbed {
+                // C++ `EFFECT_MANA_HIT` — `crmain.cc:670`. TFS uses `CONST_ME_MAGIC_BLUE` (13).
+                self.broadcast_magic_effect(pos, 13u8);
+                use tfs_rust_net::codec::wire::AnimatedTextWire;
+                let animated = self.codec.encode_animated_text(&AnimatedTextWire {
+                    pos,
+                    color: 5, // COLOR_BLUE — `crmain.cc:671`.
+                    text: absorbed.to_string(),
+                });
+                if !animated.as_bytes().is_empty() {
+                    self.broadcast_to_spectators(pos, animated.into_bytes());
+                }
+                let msg = match attacker.and_then(|aid| {
+                    self.creatures.get(aid).map(|k| k.base().name.clone())
+                }) {
+                    Some(name) => {
+                        format!("You lose {absorbed} mana blocking an attack by {name}.")
+                    }
+                    None => format!("You lose {absorbed} mana."),
+                };
+                self.send_player_status_message(target, &msg);
+                self.send_player_stats(target);
             }
-            // Private "You lose X mana" status message + stats update (player-only by construction).
-            self.send_player_stats(target);
-            self.send_player_status_message(target, &format!("You lose {absorbed} mana."));
-            // If fully absorbed, the caller's `reduced_damage.primary.1` becomes 0 and HP is
-            // untouched. If partially absorbed, the remainder flows to HP below.
-            let _ = mana_after;
         }
         absorbed
     }

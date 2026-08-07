@@ -368,6 +368,9 @@ pub struct Player {
     /// `players.blessings` bitfield — TFS domain `Player::blessings` (`player.cpp`).
     /// Bits 0–4 = five blessings; bit 5 = twist of fate. Drives death-loss reduction (PC-5).
     pub blessings: i8,
+    /// 772 `Damage == HitPoints` exact-lethal arm (`crmain.cc:792`) — gates amulet-of-loss scan.
+    /// Overkill deaths leave this false so AoL does not fire.
+    pub exact_lethal_blow: bool,
 }
 
 impl Player {
@@ -456,11 +459,17 @@ impl Player {
     /// Remove experience and apply level-down recalculation (`Player::removeExperience`-style outcome).
     /// C++ `Player::removeExperience` — level-down loop. Returns `true` if level changed.
     /// M13: subtracts `gain_hp`/`gain_mana` from current on each level lost (`Advance` inverse).
+    ///
+    /// 772 `TSkillLevel::Decrease` abort quirk (`crskill.cc:300-303`): when `Amount > Exp` and
+    /// `Exp > 100000`, refuse the decrease (logs error in C++; no-op here).
     pub fn remove_experience(
         &mut self,
         amount: u64,
         step_speed_model: crate::formulas::StepSpeedModel,
     ) -> bool {
+        if amount > self.experience && self.experience > 100_000 {
+            return false;
+        }
         let old_level = self.level;
         self.experience = self.experience.saturating_sub(amount);
         while self.level > 1 && self.experience < total_experience_for_level(self.level as u32) {

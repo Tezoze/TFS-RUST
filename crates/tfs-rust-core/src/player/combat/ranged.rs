@@ -28,28 +28,60 @@ use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::inventory::{InventorySlot, WEAPON_DISTANCE, WEAPON_WAND};
+use crate::inventory::{InventorySlot, WEAPON_DISTANCE};
 use crate::lua_scope::fire_on_use_weapon;
 use crate::monster_ai::chebyshev;
 use crate::player_combat::CombatResult;
 
 /// Fallback specials for distance ammo **without** `onUseWeapon`.
 ///
-/// Poison/burst are Lua-owned (`poison_arrow.lua` / `burst_arrow.lua`). Keep this only for
-/// packs that set `poisondamagecycles` with no script — do not add new native specials.
+/// 772 `AMMOSPECIALEFFECT` / `THROWSPECIALEFFECT` (`crcombat.cc:770-784,833-842`):
+/// 1 = poison, 2 = burst. Scripted ammo (`burst_arrow.lua` / `poison_arrow.lua`) still
+/// owns the live pack via `onUseWeapon` — this path is for unscripted content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AmmoSpecialEffect {
     None,
-    /// Unscripted fallback — prefer Lua `Condition(CONDITION_POISON)` DoT.
     Poison,
+    Burst,
 }
 
 impl AmmoSpecialEffect {
-    fn from_item(_item_type: u16, poison_cycles: i32) -> Self {
-        if poison_cycles > 0 {
-            Self::Poison
+    /// Resolve from typed ItemType attrs (preferred) or legacy `poisondamagecycles`.
+    fn from_item_type(it: &tfs_rust_content::otb::ItemType) -> (Self, i32) {
+        let special = it.ammo_special_effect.max(it.throw_special_effect);
+        let strength = if it.ammo_special_effect > 0 {
+            it.ammo_effect_strength
+        } else if it.throw_special_effect > 0 {
+            it.throw_effect_strength
         } else {
-            Self::None
+            0
+        };
+        match special {
+            1 => {
+                let s = if strength > 0 {
+                    strength
+                } else {
+                    it.xml_attributes
+                        .get("poisondamagecycles")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0)
+                };
+                (Self::Poison, s)
+            }
+            2 => (Self::Burst, strength),
+            _ => {
+                // Legacy unscripted poison via poisondamagecycles alone.
+                let poison_cycles = it
+                    .xml_attributes
+                    .get("poisondamagecycles")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(0);
+                if poison_cycles > 0 {
+                    (Self::Poison, poison_cycles)
+                } else {
+                    (Self::None, 0)
+                }
+            }
         }
     }
 }
@@ -203,6 +235,9 @@ impl GameWorld {
         }
 
         // Mana check — `CheckMana(Master, ManaConsumption, 0, 0)` (`crcombat.cc:722`).
+        // 772 `CheckMana` (`magic.cc`) drains mana and grants magic-level tries via
+        // `Skills[SKILL_MAGIC_LEVEL]->Increase(ManaPoints)` when mana is spent — wand
+        // `magic_increase` below matches that outcome (audit N2 verified).
         // `NOTENOUGHMANA` → `throw OUTOFAMMO` (`:725`) → `sending.cc` sends "Not enough mana."
         // PC-3: drain mana if sufficient, else re-arm + send the OUTOFAMMO message.
         let mana_cost = wand_def.mana_cost as i32;
@@ -368,18 +403,7 @@ impl GameWorld {
                 return;
             };
             let shoot_type = it.shoot_effect.unwrap_or(0);
-            // Poison arrow: `poisondamagecycles` in xml_attributes. Burst / scripted ammo
-            // use Lua `onUseWeapon` when registered (not hardcoded by id).
-            let poison_cycles = it
-                .xml_attributes
-                .get("poisondamagecycles")
-                .and_then(|v| v.parse::<i32>().ok())
-                .unwrap_or(0);
-            let special = AmmoSpecialEffect::from_item(it.server_id, poison_cycles);
-            let effect_strength = match special {
-                AmmoSpecialEffect::Poison => poison_cycles,
-                AmmoSpecialEffect::None => 0,
-            };
+            let (special, effect_strength) = AmmoSpecialEffect::from_item_type(it);
             (it.attack, shoot_type, special, effect_strength, it.server_id)
         };
         // TFS scripted distance: `onUseWeapon` replaces native damage/specials
@@ -426,7 +450,15 @@ impl GameWorld {
                     p.skill_act(crate::player::combat::SkillNr::Distance),
                     p.level,
                     p.attack_mode,
-                    p.vocation_profile.formula.dist_damage as f64,
+                    // N1 — vocation `formula.dist_damage` is 1098-only (`DamageFormula::Modern`).
+                    if matches!(
+                        self.mechanics.profile.damage_formula,
+                        crate::formulas::DamageFormula::Modern
+                    ) {
+                        p.vocation_profile.formula.dist_damage as f64
+                    } else {
+                        1.0
+                    },
                     p.vocation_profile.attack_speed_ms as u64,
                     p.base.learning_points > 0,
                 ),
@@ -592,21 +624,6 @@ impl GameWorld {
                         k.base_mut().activate_learning();
                     }
                 }
-
-                // Unscripted poison-ammo fallback — 772 `DAMAGE_POISON_PERIODIC`
-                // (`crcombat.cc` poison special effect). Live pack uses `poison_arrow.lua`
-                // `onUseWeapon` → ConditionDamage.
-                if special_effect == AmmoSpecialEffect::Poison && effect_strength > 0 {
-                    let _ = self.combat_execute_with_stimulus(
-                        Some(cid),
-                        target_id,
-                        &CombatDamage {
-                            primary: (CombatType::PoisonPeriodic, -effect_strength),
-                            secondary: (CombatType::Undefined, 0),
-                        },
-                        &CombatParams::default(),
-                    );
-                }
             } else if skill_trained {
                 self.notify_skill_tries_gained(
                     cid,
@@ -627,10 +644,8 @@ impl GameWorld {
                 (target_pos.y as i32 + dy).max(0) as u16,
                 target_pos.z,
             );
-            // C++ validates the drop tile (`BANK` + `!UNLAY` + `ThrowPossible`); revert to
-            // target tile on failure (`crcombat.cc:822-827`). PC-3 reverts if the tile is
-            // blocked for throws.
-            if !self.map.throw_possible(master_pos, drop, 0) {
+            // 772 `!BANK || UNLAY || !ThrowPossible` → revert (`crcombat.cc:822-827`).
+            if !self.ammo_drop_tile_ok(master_pos, drop) {
                 drop = target_pos;
             }
             drop_pos = drop;
@@ -647,6 +662,28 @@ impl GameWorld {
         // Missile animation — `::Missile(Master, DropCon, AnimType)` (`crcombat.cc:831`).
         if shoot_type != 0 {
             self.broadcast_distance_shoot(master_pos, drop_pos, shoot_type);
+        }
+
+        // Native specials when unscripted — poison on hit, burst on hit *and* miss
+        // (`crcombat.cc:833-842`). Scripted ammo uses `onUseWeapon` below instead.
+        if !scripted {
+            match special_effect {
+                AmmoSpecialEffect::Poison if hit && effect_strength > 0 => {
+                    let _ = self.combat_execute_with_stimulus(
+                        Some(cid),
+                        target_id,
+                        &CombatDamage {
+                            primary: (CombatType::PoisonPeriodic, -effect_strength),
+                            secondary: (CombatType::Undefined, 0),
+                        },
+                        &CombatParams::default(),
+                    );
+                }
+                AmmoSpecialEffect::Burst if effect_strength > 0 => {
+                    self.native_burst_arrow_impact(cid, drop_pos, effect_strength);
+                }
+                _ => {}
+            }
         }
 
         // Scripted ammo (burst arrow, etc.) — TFS `Weapon::executeUseWeapon` after missile
@@ -693,6 +730,93 @@ impl GameWorld {
                 base.follow_target = None;
             }
         }
+    }
+
+    /// 772 burst-arrow `SpecialEffect == 2` — `ComputeDamage` + `CircleShapeSpell` radius 2
+    /// `EFFECT_FIRE_BURST` (`crcombat.cc:837-842`), fired regardless of hit.
+    fn native_burst_arrow_impact(
+        &mut self,
+        attacker: CreatureId,
+        center: Position,
+        effect_strength: i32,
+    ) {
+        // `ComputeDamage(Master, 0, Strength, Strength)` — `magic.cc:776`.
+        let variation = effect_strength;
+        let mut damage = effect_strength + self.parity_rng.random(-variation, variation);
+        if let Some(CreatureKind::Player(p)) = self.creatures.get(attacker) {
+            let multiplier = p.level * 2 + p.skills.maglevel * 3;
+            damage = (damage * multiplier) / 100;
+        }
+        if damage <= 0 {
+            // Still show the burst effect ring.
+            self.broadcast_magic_effect(center, 7u8); // EFFECT_FIRE_BURST
+            return;
+        }
+        let offsets = crate::combat::disc_offsets(2);
+        let mut hit_ids: Vec<CreatureId> = Vec::new();
+        for (dx, dy) in offsets {
+            let pos = Position::new(
+                (center.x as i32 + dx).max(0) as u16,
+                (center.y as i32 + dy).max(0) as u16,
+                center.z,
+            );
+            self.broadcast_magic_effect(pos, 7u8); // EFFECT_FIRE_BURST
+            let Some(tile) = self.map.get_tile(pos) else {
+                continue;
+            };
+            for &cid in &tile.body().creatures {
+                if cid != attacker {
+                    hit_ids.push(cid);
+                }
+            }
+        }
+        for tid in hit_ids {
+            let _ = self.combat_execute_with_stimulus(
+                Some(attacker),
+                tid,
+                &CombatDamage {
+                    primary: (CombatType::Physical, -damage),
+                    secondary: (CombatType::Undefined, 0),
+                },
+                &CombatParams::default(),
+            );
+        }
+    }
+
+    /// 772 ammo miss drop-tile gate — `!BANK || UNLAY || !ThrowPossible` (`crcombat.cc:822-824`).
+    fn ammo_drop_tile_ok(&self, master_pos: Position, drop: Position) -> bool {
+        let Some(tile) = self.map.get_tile(drop) else {
+            return false;
+        };
+        let body = tile.body();
+        // BANK — ground present.
+        if body.ground.is_none() {
+            return false;
+        }
+        // UNLAY on ground or any stacked item.
+        if let Some(gid) = body.ground {
+            if self
+                .items_db
+                .items
+                .get(&gid)
+                .is_some_and(|t| t.is_unlay())
+            {
+                return false;
+            }
+        }
+        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+            if let Some(i) = self.items.get(iid) {
+                if self
+                    .items_db
+                    .items
+                    .get(&i.item_type)
+                    .is_some_and(|t| t.is_unlay())
+                {
+                    return false;
+                }
+            }
+        }
+        self.map.throw_possible(master_pos, drop, 0)
     }
 
     /// Resolve Fragility for the consumed ammo/throw item.
@@ -840,7 +964,7 @@ mod tests {
     use super::*;
     use crate::combat::math::probe_hit;
     use crate::creature::CreatureKind;
-    use crate::inventory::{InventorySlot, WEAPON_AMMO, WEAPON_NONE, WEAPON_SWORD};
+    use crate::inventory::{InventorySlot, WEAPON_AMMO, WEAPON_NONE, WEAPON_SWORD, WEAPON_WAND};
     use crate::item::Item;
     use crate::sim_harness::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
@@ -1411,7 +1535,7 @@ mod tests {
         let cid = world.creatures.insert(CreatureKind::Player(player));
 
         // Apply 30 damage — fully absorbed by mana (50 >= 30).
-        let absorbed = world.apply_mana_shield(cid, 30);
+        let absorbed = world.apply_mana_shield(None, cid, 30);
         assert_eq!(absorbed, 30, "mana shield should absorb all 30 damage");
         let (mana, hp) = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => (p.mana, p.base.health),
@@ -1421,7 +1545,7 @@ mod tests {
         assert_eq!(hp, 100, "HP should be untouched");
 
         // Apply 50 damage — mana (20) absorbs 20, remainder 30 spills to HP via the caller.
-        let absorbed = world.apply_mana_shield(cid, 50);
+        let absorbed = world.apply_mana_shield(None, cid, 50);
         assert_eq!(
             absorbed, 20,
             "mana shield should absorb only remaining 20 mana"
@@ -1446,7 +1570,7 @@ mod tests {
         player.mana = 100;
         let cid = world.creatures.insert(CreatureKind::Player(player));
 
-        let absorbed = world.apply_mana_shield(cid, 30);
+        let absorbed = world.apply_mana_shield(None, cid, 30);
         assert_eq!(absorbed, 0, "no mana shield condition → no absorb");
         let mana = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.mana,
@@ -1467,7 +1591,7 @@ mod tests {
             100,
             crate::creature::MonsterAiConfig::default(),
         );
-        let absorbed = world.apply_mana_shield(target, 30);
+        let absorbed = world.apply_mana_shield(None, target, 30);
         assert_eq!(absorbed, 0, "mana shield should not apply to monsters");
     }
 
@@ -1571,20 +1695,30 @@ mod tests {
         assert_eq!(world.classify_player_ranged_arm(cid), RangedArm::None);
     }
 
-    /// Unscripted fallback detection from `poisondamagecycles`; live pack uses Lua.
+    /// Unscripted fallback detection from typed special-effect attrs / `poisondamagecycles`.
     #[test]
     fn ammo_special_effect_poison_detection() {
+        let mut poison = tfs_rust_content::otb::ItemType::default();
+        poison
+            .xml_attributes
+            .insert("poisondamagecycles".into(), "50".into());
         assert_eq!(
-            AmmoSpecialEffect::from_item(2545, 50),
-            AmmoSpecialEffect::Poison
+            AmmoSpecialEffect::from_item_type(&poison),
+            (AmmoSpecialEffect::Poison, 50)
         );
+
+        let mut burst = tfs_rust_content::otb::ItemType::default();
+        burst.ammo_special_effect = 2;
+        burst.ammo_effect_strength = 30;
         assert_eq!(
-            AmmoSpecialEffect::from_item(2546, 0),
-            AmmoSpecialEffect::None
+            AmmoSpecialEffect::from_item_type(&burst),
+            (AmmoSpecialEffect::Burst, 30)
         );
+
+        let none = tfs_rust_content::otb::ItemType::default();
         assert_eq!(
-            AmmoSpecialEffect::from_item(2544, 0),
-            AmmoSpecialEffect::None
+            AmmoSpecialEffect::from_item_type(&none),
+            (AmmoSpecialEffect::None, 0)
         );
     }
 

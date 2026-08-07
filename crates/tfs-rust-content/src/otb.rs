@@ -67,6 +67,14 @@ pub struct ItemType {
     /// `WANDMISSILE` in 772 `crcombat.cc:768,781,716`). `None` when unset. PC-3: ranged strike
     /// projectile animation. Parsed from `items.xml` `shoottype` attribute.
     pub shoot_effect: Option<u8>,
+    /// 772 `AMMOSPECIALEFFECT` — `crcombat.cc:770` (1=poison, 2=burst).
+    pub ammo_special_effect: u8,
+    /// 772 `AMMOEFFECTSTRENGTH` — `crcombat.cc:771`.
+    pub ammo_effect_strength: i32,
+    /// 772 `THROWSPECIALEFFECT` — `crcombat.cc:783`.
+    pub throw_special_effect: u8,
+    /// 772 `THROWEFFECTSTRENGTH` — `crcombat.cc:784`.
+    pub throw_effect_strength: i32,
     /// `hitchance` — `ItemType::hitChance` (`int8_t`), clamped in C++ to `[-100, 100]` (`items.cpp`).
     pub hit_chance: i8,
     /// `maxhitchance` — `ItemType::maxHitChance` (`int32_t`), default `-1` (`src/items.h`).
@@ -161,6 +169,10 @@ impl Default for ItemType {
             attack_speed: 0,
             shoot_range: 1,
             shoot_effect: None,
+            ammo_special_effect: 0,
+            ammo_effect_strength: 0,
+            throw_special_effect: 0,
+            throw_effect_strength: 0,
             hit_chance: 0,
             max_hit_chance: -1,
             moveable_override: None,
