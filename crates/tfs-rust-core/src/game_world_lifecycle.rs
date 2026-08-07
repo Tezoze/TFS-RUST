@@ -437,9 +437,8 @@ impl GameWorld {
                 let killer_id = m
                     .base
                     .damage_map
-                    .iter()
-                    .max_by_key(|(_, dmg)| *dmg)
-                    .map(|(id, _)| id.data().as_ffi())
+                    .most_dangerous(self.round_nr, self.mechanics.profile.exp_attribution_rounds)
+                    .map(|id| id.data().as_ffi())
                     .unwrap_or(0);
                 crate::chase_debug::log_creature_death(
                     self.chase_trace_tick(),
@@ -475,6 +474,8 @@ impl GameWorld {
         // for any killer (or victim) whose level changed via experience gain/loss.
         for cid in leveled {
             self.announce_creature_speed(cid);
+            // 772 `TSkillLevel::Jump` → `Combat.CheckCombatValues()` (`crskill.cc:367`).
+            self.player_check_combat_values(cid);
         }
         // TFS/772: `sendStats` + animated exp popup (`Creature::onGainExperience`) + level advance text.
         // Victim is always in `xp_grants` (even at zero exp loss) so blessing clear reaches the client.

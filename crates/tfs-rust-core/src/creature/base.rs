@@ -1,7 +1,7 @@
 //! Shared creature fields (all creature types).
 // C++ reference: `Creature` (`creature.h`).
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::condition::ActiveCondition;
@@ -50,7 +50,136 @@ impl Default for Outfit {
 }
 
 /// Damage contribution for XP attribution (`Creature::damageMap` in TFS).
-pub type DamageMap = HashMap<CreatureId, u64>;
+///
+/// 772 stores a fixed-capacity ring with timestamps (`TCombat::CombatList[20]`,
+/// `crcombat.cc:862-906`); the HashMap alias is gone.
+pub type DamageMap = CombatList;
+
+/// One slot in the 772 combat list (`TCombatEntry` — `cr.hh:362-366`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CombatListEntry {
+    pub id: Option<CreatureId>,
+    pub damage: u64,
+    pub timestamp_round: u32,
+}
+
+/// Fixed-capacity combat damage ring — 772 `TCombat::CombatList` + `ActCombatEntry`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CombatList {
+    entries: Vec<CombatListEntry>,
+    /// Next write index when appending a new attacker (`ActCombatEntry`).
+    act_entry: usize,
+    /// Running total of recorded damage (`TCombat::CombatDamage`).
+    pub combat_damage: u64,
+}
+
+impl Default for CombatList {
+    fn default() -> Self {
+        Self::with_slots(CombatList::DEFAULT_SLOTS)
+    }
+}
+
+impl CombatList {
+    /// 772 `NARRAY(CombatList)` = 20 (`cr.hh:417`).
+    pub const DEFAULT_SLOTS: usize = 20;
+
+    pub fn with_slots(n: usize) -> Self {
+        let n = n.max(1);
+        Self {
+            entries: vec![CombatListEntry::default(); n],
+            act_entry: 0,
+            combat_damage: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        for e in &mut self.entries {
+            *e = CombatListEntry::default();
+        }
+        self.act_entry = 0;
+        self.combat_damage = 0;
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.entries.iter().any(|e| e.id.is_some())
+    }
+
+    /// 772 `AddDamageToCombatList` (`crcombat.cc:862-878`).
+    pub fn add(&mut self, attacker: CreatureId, damage: u64, round_nr: u32) {
+        if damage == 0 {
+            return;
+        }
+        self.combat_damage = self.combat_damage.saturating_add(damage);
+        if let Some(e) = self.entries.iter_mut().find(|e| e.id == Some(attacker)) {
+            e.damage = e.damage.saturating_add(damage);
+            e.timestamp_round = round_nr;
+            return;
+        }
+        let idx = self.act_entry % self.entries.len();
+        self.entries[idx] = CombatListEntry {
+            id: Some(attacker),
+            damage,
+            timestamp_round: round_nr,
+        };
+        self.act_entry = (idx + 1) % self.entries.len();
+    }
+
+    /// 772 `GetDamageByCreature` (`crcombat.cc:884-892`).
+    pub fn damage_by(&self, id: CreatureId) -> u64 {
+        self.entries
+            .iter()
+            .find(|e| e.id == Some(id))
+            .map(|e| e.damage)
+            .unwrap_or(0)
+    }
+
+    /// 772 `GetMostDangerousAttacker` (`crcombat.cc:895-906`):
+    /// `(RoundNr - TimeStamp) < window`, strictly greater damage, ties keep lowest index.
+    pub fn most_dangerous(&self, round_nr: u32, window: u32) -> Option<CreatureId> {
+        let mut best_id = None;
+        let mut best_dmg = 0u64;
+        for e in &self.entries {
+            let Some(id) = e.id else { continue };
+            if round_nr.wrapping_sub(e.timestamp_round) >= window {
+                continue;
+            }
+            if e.damage > best_dmg {
+                best_dmg = e.damage;
+                best_id = Some(id);
+            }
+        }
+        best_id
+    }
+
+    /// Live (id-present) entries — for exp share (772 does **not** apply the window filter).
+    pub fn iter_active(&self) -> impl Iterator<Item = (CreatureId, u64, u32)> + '_ {
+        self.entries.iter().filter_map(|e| {
+            e.id.map(|id| (id, e.damage, e.timestamp_round))
+        })
+    }
+
+    /// Compatibility helper used by tests that previously `insert`ed into a HashMap.
+    pub fn insert(&mut self, id: CreatureId, damage: u64) {
+        self.add(id, damage, 0);
+    }
+
+    pub fn get(&self, id: &CreatureId) -> Option<&u64> {
+        // Lifetime workaround: return via damage_by pattern — callers use `.copied()`.
+        // Prefer `damage_by`. Kept for HashMap-like call sites during migration.
+        self.entries
+            .iter()
+            .find(|e| e.id.as_ref() == Some(id))
+            .map(|e| &e.damage)
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = CreatureId> + '_ {
+        self.entries.iter().filter_map(|e| e.id)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CreatureBase {
@@ -124,6 +253,12 @@ pub struct CreatureBase {
     pub damage_map: DamageMap,
     /// Last creature that dealt HP damage — 772 `Attacker` on killing blow (`crmain.cc:822`).
     pub last_hit_by: Option<CreatureId>,
+    /// 772 `PoisonDamageOrigin` — credited on poison Event ticks (`crmain.cc:587`, `crskill.cc`).
+    pub poison_damage_origin: Option<CreatureId>,
+    /// 772 `FireDamageOrigin` — credited on burning Event ticks (`crmain.cc:599`).
+    pub fire_damage_origin: Option<CreatureId>,
+    /// 772 `EnergyDamageOrigin` — credited on energy Event ticks (`crmain.cc:609`).
+    pub energy_damage_origin: Option<CreatureId>,
     /// C++ `TCombat::EarliestAttackTime` — `crcombat.cc:523` `DelayAttack`.
     pub earliest_attack_ms: u64,
     /// C++ `TCombat::LatestAttackTime` — `crcombat.cc:513-522` delayed `StopAttack`.
@@ -252,5 +387,64 @@ impl CreatureBase {
         self.active_conditions
             .iter()
             .any(|c| c.ctype == tfs_rust_common::enums::ConditionType::Invisible)
+    }
+}
+
+#[cfg(test)]
+mod combat_list_tests {
+    use super::*;
+    use slotmap::SlotMap;
+
+    fn cid(n: u32) -> CreatureId {
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let mut last = None;
+        for _ in 0..=n {
+            last = Some(sm.insert(()));
+        }
+        last.expect("cid")
+    }
+
+    #[test]
+    fn combat_list_evicts_oldest_when_full() {
+        let mut list = CombatList::with_slots(3);
+        let a = cid(0);
+        let b = cid(1);
+        let c = cid(2);
+        let d = cid(3);
+        list.add(a, 10, 1);
+        list.add(b, 20, 2);
+        list.add(c, 30, 3);
+        // 4th entry wraps and displaces slot 0 (oldest write cursor).
+        list.add(d, 40, 4);
+        assert_eq!(list.damage_by(a), 0, "oldest slot evicted");
+        assert_eq!(list.damage_by(d), 40);
+        assert_eq!(list.damage_by(b), 20);
+        assert_eq!(list.damage_by(c), 30);
+    }
+
+    #[test]
+    fn most_dangerous_attacker_ignores_stale_entries() {
+        let mut list = CombatList::with_slots(5);
+        let stale = cid(0);
+        let fresh = cid(1);
+        list.add(stale, 1000, 1);
+        list.add(fresh, 10, 100);
+        assert_eq!(list.most_dangerous(100, 60), Some(fresh));
+        assert_eq!(list.most_dangerous(50, 60), Some(stale));
+    }
+
+    #[test]
+    fn combat_list_records_clamped_damage_via_add() {
+        let mut list = CombatList::default();
+        let a = cid(0);
+        list.add(a, 50, 1);
+        list.add(a, 25, 2);
+        assert_eq!(list.damage_by(a), 75);
+        assert_eq!(list.combat_damage, 75);
+        // Re-add updates timestamp.
+        assert_eq!(
+            list.iter_active().find(|(id, _, _)| *id == a).map(|(_, _, ts)| ts),
+            Some(2)
+        );
     }
 }

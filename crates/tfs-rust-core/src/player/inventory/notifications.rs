@@ -26,18 +26,7 @@ impl GameWorld {
     ///
     /// Diffs the seven resolved weapon fields (Shield/Close/Missile/Throw/Wand/Ammo/Fist)
     /// against the player's last snapshot; `DelayAttack(2000)` only when identity changes.
-    pub(crate) fn player_maybe_delay_attack_on_weapon_slot_change(
-        &mut self,
-        cid: CreatureId,
-        slot: u8,
-    ) {
-        use crate::inventory::InventorySlot;
-        if slot != InventorySlot::Left as u8
-            && slot != InventorySlot::Right as u8
-            && slot != InventorySlot::Ammo as u8
-        {
-            return;
-        }
+    pub(crate) fn player_check_combat_values(&mut self, cid: CreatureId) {
         let new_weapons = self.player_resolve_combat_weapons(cid);
         let old_weapons = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.last_combat_weapons,
@@ -51,6 +40,22 @@ impl GameWorld {
             p.last_combat_weapons = new_weapons;
             p.base.delay_attack_ms(server_ms, 2000);
         }
+    }
+
+    /// Slot-gated wrapper — only Left/Right/Ammo mutations re-check (`notifications` equip path).
+    pub(crate) fn player_maybe_delay_attack_on_weapon_slot_change(
+        &mut self,
+        cid: CreatureId,
+        slot: u8,
+    ) {
+        use crate::inventory::InventorySlot;
+        if slot != InventorySlot::Left as u8
+            && slot != InventorySlot::Right as u8
+            && slot != InventorySlot::Ammo as u8
+        {
+            return;
+        }
+        self.player_check_combat_values(cid);
     }
 
     /// Equipment slot (1–11) directly holding `item_id`, if any. Used to resolve the slot for
@@ -486,6 +491,9 @@ mod tests {
                 master: None,
                 damage_map: Default::default(),
             last_hit_by: None,
+            poison_damage_origin: None,
+            fire_damage_origin: None,
+            energy_damage_origin: None,
                 earliest_attack_ms: 0,
         latest_attack_round: 0,
                 earliest_defend_ms: 0,
@@ -543,6 +551,9 @@ mod tests {
             last_action_round: 0,
             food_remaining: 0,
             food_level: 0,
+        soul_cycle: 0,
+        soul_count: 0,
+        soul_max_count: 0,
             earliest_logout_round: 0,
             attacked_players: Vec::new(),
             former_attacked_players: Vec::new(),

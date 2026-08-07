@@ -5,12 +5,11 @@
 //! Outcomes: 772 `DAMAGE_*_PERIODIC` → burning/poison/energy timers (`crmain.cc:582-612`,
 //! `crskill.cc` TSkillBurning/Poison/Energy); field kind from items.xml `field` attr.
 
-use tfs_rust_common::enums::{CombatType, ConditionType};
+use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
 use tfs_rust_content::items::FieldDamageType;
 
-use crate::combat::{apply_condition, CombatDamage, CombatParams};
-use crate::condition::{ActiveCondition, ConditionData};
+use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -71,8 +70,9 @@ impl GameWorld {
 
     /// TFS `MagicField::onStepInField` — `combat.cpp:1443`.
     ///
-    /// Instant `initdamage` (items.xml) then DoT condition. 772 fire/energy timer lengths
-    /// come from `MechanicsProfile` (10/8, 25/10); poison uses xml `cycles` as strength.
+    /// Instant `initdamage` (items.xml) then 772 `DAMAGE_*_PERIODIC` arm (`crmain.cc:582-613`).
+    /// Fire/energy Cycle derives from xml `cycles` (or profile interval); poison uses `cycles`
+    /// as strength (`SetTimer(SKILL_POISON, Damage, 3, 3, -1)`).
     pub(crate) fn apply_magic_field_to_creature(
         &mut self,
         target: CreatureId,
@@ -101,40 +101,11 @@ impl GameWorld {
             .unwrap_or(0)
             .abs();
 
-        let (ctype, combat, timer_rounds, poison_rank, skill_count, skill_max_count) =
-            match field_kind {
-                FieldDamageType::Fire => {
-                    // 772 `SetTimer(SKILL_BURNING, Damage/10, 8, 8)` — `crmain.cc:600`.
-                    // XML `field.cycles` ≈ Cycle (Events); profile `ticks` = MaxCount interval.
-                    let interval = self.mechanics.profile.conditions.fire.ticks.max(1);
-                    let cycle = if cycles > 0 { cycles } else { interval };
-                    (
-                        ConditionType::Fire,
-                        CombatType::Fire,
-                        Some(cycle),
-                        0,
-                        interval,
-                        interval,
-                    )
-                }
-                FieldDamageType::Energy => {
-                    let interval = self.mechanics.profile.conditions.energy.ticks.max(1);
-                    let cycle = if cycles > 0 { cycles } else { interval };
-                    (
-                        ConditionType::Energy,
-                        CombatType::Energy,
-                        Some(cycle),
-                        0,
-                        interval,
-                        interval,
-                    )
-                }
-                FieldDamageType::Poison => {
-                    let rank = if cycles > 0 { cycles } else { 1 };
-                    // 772 `SetTimer(SKILL_POISON, Damage, 3, 3, -1)` — `crmain.cc:589`.
-                    (ConditionType::Poison, CombatType::Earth, None, rank, 3, 3)
-                }
-            };
+        let instant_combat = match field_kind {
+            FieldDamageType::Fire => CombatType::Fire,
+            FieldDamageType::Energy => CombatType::Energy,
+            FieldDamageType::Poison => CombatType::Earth,
+        };
 
         if init_damage > 0 {
             let snap = self.combat_notify_snapshot(target);
@@ -144,7 +115,7 @@ impl GameWorld {
                 .map(|k| k.base().health)
                 .unwrap_or(0);
             let damage = CombatDamage {
-                primary: (combat, -(init_damage)),
+                primary: (instant_combat, -(init_damage)),
                 secondary: (CombatType::Undefined, 0),
             };
             self.combat_execute_with_stimulus(None, target, &damage, &CombatParams::default());
@@ -155,7 +126,7 @@ impl GameWorld {
                 .unwrap_or(0);
             let damage_done = (hp_before - hp_after).max(0);
             if let Some(snap) = snap {
-                self.notify_player_combat_damage(None, target, damage_done, combat, snap);
+                self.notify_player_combat_damage(None, target, damage_done, instant_combat, snap);
             }
         }
 
@@ -164,16 +135,31 @@ impl GameWorld {
             return;
         }
 
-        let data = match ctype {
-            ConditionType::Poison => ConditionData::Damage {
-                total_rank: poison_rank.max(1),
-            },
-            _ => ConditionData::Generic { ticks: 0 },
+        let (periodic, strength) = match field_kind {
+            FieldDamageType::Fire => {
+                let interval = self.mechanics.profile.conditions.fire.ticks.max(1);
+                let cycle = if cycles > 0 { cycles } else { interval };
+                (CombatType::FirePeriodic, cycle.saturating_mul(10).max(10))
+            }
+            FieldDamageType::Energy => {
+                let interval = self.mechanics.profile.conditions.energy.ticks.max(1);
+                let cycle = if cycles > 0 { cycles } else { interval };
+                (CombatType::EnergyPeriodic, cycle.saturating_mul(20).max(20))
+            }
+            FieldDamageType::Poison => {
+                let rank = if cycles > 0 { cycles } else { 1 };
+                (CombatType::PoisonPeriodic, rank.max(1))
+            }
         };
-        let cond = ActiveCondition::new(0, 0, ctype, data, timer_rounds)
-            .with_skill_timer(skill_count, skill_max_count);
-        apply_condition(&mut self.creatures, target, cond);
-        self.on_condition_started(target, ctype);
+        let _ = self.combat_execute_with_stimulus(
+            None,
+            target,
+            &CombatDamage {
+                primary: (periodic, -strength),
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
     }
 
     fn creature_immune_to_field(&self, cid: CreatureId, kind: FieldDamageType) -> bool {

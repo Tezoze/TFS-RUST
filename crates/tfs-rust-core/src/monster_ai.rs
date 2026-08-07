@@ -492,20 +492,25 @@ impl GameWorld {
                 damage_done,
                 &self.parity_rng,
             ) {
-                let params = CombatParams {
-                    primary_type: CombatType::Physical,
-                    dispel: None,
-                    apply_condition: Some(cond),
+                // 772 CloseAttack poison → `Damage(…, DAMAGE_POISON_PERIODIC)` (`crcombat.cc:660`).
+                let strength = match cond.data {
+                    crate::condition::ConditionData::Damage { total_rank } => total_rank,
+                    _ => 0,
                 };
-                let _ = self.combat_execute_with_stimulus(
-                    Some(cid),
-                    target_id,
-                    &CombatDamage {
-                        primary: (CombatType::Physical, 0),
-                        secondary: (CombatType::Physical, 0),
-                    },
-                    &params,
-                );
+                if strength > 0 {
+                    let _ = self.combat_execute_with_stimulus(
+                        Some(cid),
+                        target_id,
+                        &crate::combat::CombatDamage {
+                            primary: (
+                                tfs_rust_common::enums::CombatType::PoisonPeriodic,
+                                -strength,
+                            ),
+                            secondary: (CombatType::Undefined, 0),
+                        },
+                        &CombatParams::default(),
+                    );
+                }
                 // M10 — `SendMessage(Target->Connection, TALK_STATUS_MESSAGE, "You are poisoned.")`
                 // (`crcombat.cc:674-676`). Sent to a player target after the poison condition lands.
                 if let Some(CreatureKind::Player(_)) = self.creatures.get(target_id) {

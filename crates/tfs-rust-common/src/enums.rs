@@ -14,6 +14,9 @@ pub enum Direction {
 }
 
 /// Order matches TFS `CombatType_t` (`combat.h`) 0..=11.
+///
+/// `*Periodic` (12..=14) are 772 arming-only types (`DAMAGE_*_PERIODIC` in
+/// `enums.hh` / `crmain.cc:582-613`) — not in the TFS absorb table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
 pub enum CombatType {
@@ -30,6 +33,12 @@ pub enum CombatType {
     Ice = 9,
     Holy = 10,
     Death = 11,
+    /// 772 `DAMAGE_POISON_PERIODIC` — arms poison timer; no HP (`crmain.cc:582-595`).
+    PoisonPeriodic = 12,
+    /// 772 `DAMAGE_FIRE_PERIODIC` — arms burning timer; no HP (`crmain.cc:596-604`).
+    FirePeriodic = 13,
+    /// 772 `DAMAGE_ENERGY_PERIODIC` — arms energy timer; no HP (`crmain.cc:605-613`).
+    EnergyPeriodic = 14,
 }
 
 /// Order matches TFS `ConditionType_t` (`condition.h`) 0..=24; `Regeneration` is 25
@@ -260,6 +269,9 @@ impl fmt::Display for CombatType {
             Self::Ice => "ice",
             Self::Holy => "holy",
             Self::Death => "death",
+            Self::PoisonPeriodic => "poison-periodic",
+            Self::FirePeriodic => "fire-periodic",
+            Self::EnergyPeriodic => "energy-periodic",
         })
     }
 }
@@ -490,6 +502,9 @@ impl TryFrom<u8> for CombatType {
             9 => Self::Ice,
             10 => Self::Holy,
             11 => Self::Death,
+            12 => Self::PoisonPeriodic,
+            13 => Self::FirePeriodic,
+            14 => Self::EnergyPeriodic,
             _ => return Err(()),
         })
     }

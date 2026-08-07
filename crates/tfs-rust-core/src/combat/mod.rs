@@ -58,6 +58,17 @@ impl Default for CombatParams {
     }
 }
 
+/// Optional combat-list credit context for [`execute`] / [`apply_health_delta`].
+///
+/// 772 records clamped HP loss after absorb (`crmain.cc:690-703`) and splits summon
+/// damage half to attacker + responsible master.
+#[derive(Debug, Clone, Copy)]
+pub struct CombatListCredit {
+    pub round_nr: u32,
+    /// Master (or self) responsible for the attack — when ≠ attacker, each gets `dmg/2`.
+    pub responsible: Option<CreatureId>,
+}
+
 /// Apply combat result to `target`: health/mana/conditions/dispel.
 /// Returns `true` if any change was applied.  
 // C++ reference: `Game::combatChangeHealth`, `Combat::Combat::doTargetCombat`.
@@ -68,12 +79,46 @@ pub fn execute(
     damage: &CombatDamage,
     params: &CombatParams,
 ) -> bool {
+    execute_with_credit(creatures, attacker, target, damage, params, None)
+}
+
+/// Like [`execute`], but records combat-list credit with round/summon split when `credit` is set.
+pub fn execute_with_credit(
+    creatures: &mut SlotMap<CreatureId, CreatureKind>,
+    attacker: Option<CreatureId>,
+    target: CreatureId,
+    damage: &CombatDamage,
+    params: &CombatParams,
+    credit: Option<CombatListCredit>,
+) -> bool {
     if let Some(dt) = params.dispel {
         return dispel_conditions(creatures, target, dt);
     }
 
     let mut applied_condition = false;
     if let Some(ref cond) = params.apply_condition {
+        // When Lua / melee poison proc applies a DoT condition with a known attacker,
+        // store `*DamageOrigin` so Event ticks credit the killer (`crmain.cc:587-609`).
+        if let Some(aid) = attacker {
+            match cond.ctype {
+                tfs_rust_common::enums::ConditionType::Poison => {
+                    if let Some(kind) = creatures.get_mut(target) {
+                        kind.base_mut().poison_damage_origin = Some(aid);
+                    }
+                }
+                tfs_rust_common::enums::ConditionType::Fire => {
+                    if let Some(kind) = creatures.get_mut(target) {
+                        kind.base_mut().fire_damage_origin = Some(aid);
+                    }
+                }
+                tfs_rust_common::enums::ConditionType::Energy => {
+                    if let Some(kind) = creatures.get_mut(target) {
+                        kind.base_mut().energy_damage_origin = Some(aid);
+                    }
+                }
+                _ => {}
+            }
+        }
         apply_condition(creatures, target, cond.clone());
         applied_condition = true;
     }
@@ -84,7 +129,7 @@ pub fn execute(
     }
 
     let total = damage.primary.1 + damage.secondary.1;
-    apply_health_delta(creatures, attacker, target, total) || applied_condition
+    apply_health_delta(creatures, attacker, target, total, credit) || applied_condition
 }
 
 fn apply_mana_change(
@@ -109,6 +154,7 @@ fn apply_health_delta(
     attacker: Option<CreatureId>,
     target: CreatureId,
     delta: i32,
+    credit: Option<CombatListCredit>,
 ) -> bool {
     // Belt-and-suspenders: NPCs never take HP loss (TFS `Npc::isAttackable` false).
     // Primary gate is `combat_execute_with_stimulus`; this covers direct `combat::execute` callers.
@@ -122,9 +168,23 @@ fn apply_health_delta(
     let old_hp = base.health;
     let new_hp = (old_hp + delta).clamp(0, base.max_health);
     if new_hp < old_hp {
+        let lost = (old_hp - new_hp) as u64;
         if let Some(aid) = attacker {
-            *base.damage_map.entry(aid).or_insert(0) += (old_hp - new_hp) as u64;
             base.last_hit_by = Some(aid);
+            if let Some(c) = credit {
+                // 772 summon split (`crmain.cc:698-703`): half to attacker, half to responsible.
+                let responsible = c.responsible.unwrap_or(aid);
+                if responsible != aid {
+                    let half = lost / 2;
+                    base.damage_map.add(aid, half, c.round_nr);
+                    base.damage_map.add(responsible, half, c.round_nr);
+                } else {
+                    base.damage_map.add(aid, lost, c.round_nr);
+                }
+            } else {
+                // Callers without round context still record damage (timestamp 0).
+                base.damage_map.add(aid, lost, 0);
+            }
         }
     }
     base.health = new_hp;
@@ -177,5 +237,57 @@ pub fn combat_type_hit_effect(combat_type: CombatType) -> Option<u8> {
         CombatType::Fire => Some(16),   // CONST_ME_HITBYFIRE / EFFECT_FIRE
         CombatType::LifeDrain => Some(14), // CONST_ME_MAGIC_RED / EFFECT_MAGIC_RED
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod summon_split_tests {
+    use super::*;
+    use crate::creature::CreatureKind;
+    use crate::test_world::support::{
+        beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+    };
+    use tfs_rust_common::Position;
+
+    /// B8 — summon damage splits half to attacker + master (`crmain.cc:698-703`).
+    #[test]
+    fn summon_damage_splits_between_attacker_and_master() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        let master_pos = Position::new(101, 100, 7);
+        let summon_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        ensure_walkable_tile(&mut world.map, master_pos, 150);
+        ensure_walkable_tile(&mut world.map, summon_pos, 150);
+
+        let mut victim = test_player("Victim", pos);
+        victim.base.health = 100;
+        victim.base.max_health = 100;
+        let victim_id = insert_player(&mut world, victim);
+        let master_id = insert_player(&mut world, test_player("Master", master_pos));
+        let summon_id = insert_player(&mut world, test_player("Summon", summon_pos));
+        if let Some(CreatureKind::Player(s)) = world.creatures.get_mut(summon_id) {
+            s.base.master = Some(master_id);
+        }
+
+        let credit = CombatListCredit {
+            round_nr: 10,
+            responsible: Some(master_id),
+        };
+        let _ = execute_with_credit(
+            &mut world.creatures,
+            Some(summon_id),
+            victim_id,
+            &CombatDamage {
+                primary: (CombatType::Physical, -21),
+                secondary: (CombatType::Physical, 0),
+            },
+            &CombatParams::default(),
+            Some(credit),
+        );
+        let map = &world.creatures.get(victim_id).unwrap().base().damage_map;
+        // 21 → half 10 each (integer division).
+        assert_eq!(map.damage_by(summon_id), 10);
+        assert_eq!(map.damage_by(master_id), 10);
     }
 }

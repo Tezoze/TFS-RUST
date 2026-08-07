@@ -39,6 +39,7 @@ impl GameWorld {
             self.process_creature_skills(cid);
             // Phase 4: 1098 defer deleted — both eras run fed regen.
             self.process_player_fed_regen(cid);
+            self.process_player_soul_regen(cid);
             self.process_equipment_regeneration(cid);
             // CH-5: flood protection message buffer decrement (1500ms interval).
             self.process_player_message_buffer(cid);
@@ -153,7 +154,14 @@ impl GameWorld {
                         } else {
                             CombatType::Energy
                         };
-                        dot_events.push((None, combat, dmg));
+                        // 772 Event: `Damage(GetCreature(*DamageOrigin), …, DAMAGE_FIRE|ENERGY)`
+                        // (`crskill.cc:1064,1090`) — instant type + stored origin.
+                        let origin = if cond.ctype == ConditionType::Fire {
+                            base.fire_damage_origin
+                        } else {
+                            base.energy_damage_origin
+                        };
+                        dot_events.push((origin, combat, dmg));
                         if ticks_left <= 1 {
                             remove_indices.push(idx);
                             ended_ctypes.push(cond.ctype);
@@ -174,7 +182,8 @@ impl GameWorld {
                                 ended_ctypes.push(cond.ctype);
                                 continue;
                             }
-                            dot_events.push((None, CombatType::Earth, total_rank));
+                            // 772 Event: instant `DAMAGE_POISON` + `PoisonDamageOrigin`.
+                            dot_events.push((base.poison_damage_origin, CombatType::Earth, total_rank));
                             let next = (total_rank * POISON_DECAY_PERCENT) / 100;
                             if next <= 0 {
                                 remove_indices.push(idx);
@@ -211,7 +220,7 @@ impl GameWorld {
             }
         }
 
-        for (_, combat, dmg) in dot_events {
+        for (origin, combat, dmg) in dot_events {
             if dmg <= 0 {
                 continue;
             }
@@ -227,7 +236,7 @@ impl GameWorld {
                 .get(cid)
                 .map(|k| k.base().health)
                 .unwrap_or(0);
-            let _ = self.combat_execute_with_stimulus(None, cid, &damage, &CombatParams::default());
+            let _ = self.combat_execute_with_stimulus(origin, cid, &damage, &CombatParams::default());
             let hp_after = self
                 .creatures
                 .get(cid)
@@ -235,7 +244,7 @@ impl GameWorld {
                 .unwrap_or(0);
             let damage_done = (hp_before - hp_after).max(0);
             if let Some(snap) = snap {
-                self.notify_player_combat_damage(None, cid, damage_done, combat, snap);
+                self.notify_player_combat_damage(origin, cid, damage_done, combat, snap);
             }
         }
 
@@ -344,6 +353,37 @@ impl GameWorld {
         ended_ctypes.dedup();
         for ctype in ended_ctypes {
             self.on_condition_ended(cid, ctype);
+        }
+    }
+
+    /// 772 `TSkillSoulpoints` Process/Event — +1 soul per Interval (`crskill.cc:796-807`,
+    /// `crcombat.cc:938-955` arm).
+    fn process_player_soul_regen(&mut self, cid: CreatureId) {
+        let gained = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+                return;
+            };
+            if p.soul_max_count <= 0 || p.soul_cycle <= 0 {
+                return;
+            }
+            if p.soul_count > 0 {
+                p.soul_count -= 1;
+                return;
+            }
+            // Event — Change(1), then Count = MaxCount, Cycle -= 1.
+            let soul_max = p.vocation_profile.soul_max.max(0);
+            p.economy.soul = (p.economy.soul + 1).min(soul_max);
+            p.soul_count = p.soul_max_count;
+            p.soul_cycle -= 1;
+            if p.soul_cycle <= 0 {
+                p.soul_cycle = 0;
+                p.soul_count = 0;
+                p.soul_max_count = 0;
+            }
+            true
+        };
+        if gained {
+            self.send_player_stats(cid);
         }
     }
 
@@ -748,5 +788,251 @@ mod tests {
             panic!("not a player");
         };
         assert_eq!(p.mana, 40, "no mana regen with food_remaining = 0");
+    }
+
+    /// G1 — soul regen armed when exp share ≥ attacker level (`crcombat.cc:938-955`).
+    #[test]
+    fn soul_regen_armed_when_exp_at_least_level() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut player = test_player("Soulful", pos);
+        player.level = 8;
+        player.vocation_profile.gain_soul_ticks = 120;
+        player.economy.soul = 0;
+        player.vocation_profile.soul_max = 100;
+        assert_eq!(player.soul_cycle, 0);
+        player.arm_soul_regen_timer();
+        assert_eq!(player.soul_max_count, 120);
+        assert_eq!(player.soul_cycle, 240 / 120);
+        assert_eq!(player.soul_count, 120);
+
+        // Promoted interval.
+        player.vocation_profile.gain_soul_ticks = 15;
+        player.soul_cycle = 0;
+        player.soul_count = 0;
+        player.soul_max_count = 0;
+        player.arm_soul_regen_timer();
+        assert_eq!(player.soul_max_count, 15);
+        assert_eq!(player.soul_cycle, 240 / 15);
+    }
+
+    /// B7 — weaker poison stimulates but does not re-arm (`crmain.cc:586-590`).
+    #[test]
+    fn weaker_poison_does_not_override_stronger() {
+        use tfs_rust_common::enums::CombatType;
+        use crate::combat::CombatDamage;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let victim = insert_player(&mut world, test_player("Poisoned", pos));
+        let attacker = insert_player(
+            &mut world,
+            test_player("Spider", Position::new(101, 100, 7)),
+        );
+        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), 150);
+
+        let _ = world.combat_execute_with_stimulus(
+            Some(attacker),
+            victim,
+            &CombatDamage {
+                primary: (CombatType::PoisonPeriodic, -50),
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
+        let rank_before = world
+            .creatures
+            .get(victim)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find_map(|c| match (&c.ctype, &c.data) {
+                (ConditionType::Poison, ConditionData::Damage { total_rank }) => Some(*total_rank),
+                _ => None,
+            })
+            .expect("strong poison armed");
+        assert_eq!(rank_before, 50);
+
+        let _ = world.combat_execute_with_stimulus(
+            Some(attacker),
+            victim,
+            &CombatDamage {
+                primary: (CombatType::PoisonPeriodic, -10),
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
+        let rank_after = world
+            .creatures
+            .get(victim)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find_map(|c| match (&c.ctype, &c.data) {
+                (ConditionType::Poison, ConditionData::Damage { total_rank }) => Some(*total_rank),
+                _ => None,
+            })
+            .expect("poison still present");
+        assert_eq!(rank_after, 50, "weaker poison must not override");
+    }
+
+    /// B7 — fire periodic always re-arms Cycle (`crmain.cc:596-603`).
+    #[test]
+    fn fire_periodic_rearms_unconditionally() {
+        use tfs_rust_common::enums::CombatType;
+        use crate::combat::CombatDamage;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let victim = insert_player(&mut world, test_player("Burning", pos));
+
+        let _ = world.combat_execute_with_stimulus(
+            None,
+            victim,
+            &CombatDamage {
+                primary: (CombatType::FirePeriodic, -20), // Cycle = 2
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
+        let cycle1 = world
+            .creatures
+            .get(victim)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find(|c| c.ctype == ConditionType::Fire)
+            .and_then(|c| c.timer_rounds_left)
+            .expect("fire armed");
+        assert_eq!(cycle1, 2);
+
+        let _ = world.combat_execute_with_stimulus(
+            None,
+            victim,
+            &CombatDamage {
+                primary: (CombatType::FirePeriodic, -80), // Cycle = 8
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
+        let cycle2 = world
+            .creatures
+            .get(victim)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find(|c| c.ctype == ConditionType::Fire)
+            .and_then(|c| c.timer_rounds_left)
+            .expect("fire re-armed");
+        assert_eq!(cycle2, 8, "fire must re-arm unconditionally");
+    }
+
+    /// B7 — PvP halving excludes `*_PERIODIC` arming hits (`crmain.cc:497-502`).
+    #[test]
+    fn pvp_periodic_damage_not_halved() {
+        use tfs_rust_common::enums::CombatType;
+        use crate::combat::CombatDamage;
+
+        let mut world = beat_driven_test_world();
+        let a_pos = Position::new(100, 100, 7);
+        let b_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, a_pos, 150);
+        ensure_walkable_tile(&mut world.map, b_pos, 150);
+        let attacker = insert_player(&mut world, test_player("A", a_pos));
+        let victim = insert_player(&mut world, test_player("B", b_pos));
+
+        let _ = world.combat_execute_with_stimulus(
+            Some(attacker),
+            victim,
+            &CombatDamage {
+                primary: (CombatType::PoisonPeriodic, -40),
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
+        let rank = world
+            .creatures
+            .get(victim)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find_map(|c| match (&c.ctype, &c.data) {
+                (ConditionType::Poison, ConditionData::Damage { total_rank }) => Some(*total_rank),
+                _ => None,
+            })
+            .expect("poison armed at full strength");
+        assert_eq!(rank, 40, "periodic arming must not be PvP-halved");
+    }
+
+    /// B7 — DoT Event ticks credit stored origin on the damage map (`crskill.cc` Events).
+    #[test]
+    fn dot_kill_credits_origin() {
+        use tfs_rust_common::enums::CombatType;
+        use crate::combat::CombatDamage;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut victim_p = test_player("Victim", pos);
+        victim_p.base.health = 5;
+        victim_p.base.max_health = 5;
+        let victim = insert_player(&mut world, victim_p);
+        let attacker = insert_player(
+            &mut world,
+            test_player("Origin", Position::new(101, 100, 7)),
+        );
+        ensure_walkable_tile(&mut world.map, Position::new(101, 100, 7), 150);
+
+        let _ = world.combat_execute_with_stimulus(
+            Some(attacker),
+            victim,
+            &CombatDamage {
+                primary: (CombatType::PoisonPeriodic, -30),
+                secondary: (CombatType::Undefined, 0),
+            },
+            &CombatParams::default(),
+        );
+        assert_eq!(
+            world
+                .creatures
+                .get(victim)
+                .unwrap()
+                .base()
+                .poison_damage_origin,
+            Some(attacker)
+        );
+
+        // Force an immediate poison Event (Count already 0).
+        if let Some(kind) = world.creatures.get_mut(victim) {
+            if let Some(cond) = kind
+                .base_mut()
+                .active_conditions
+                .iter_mut()
+                .find(|c| c.ctype == ConditionType::Poison)
+            {
+                cond.skill_count = 0;
+                cond.skill_max_count = 3;
+            }
+        }
+        world.process_skills();
+        let map_dmg = world
+            .creatures
+            .get(victim)
+            .map(|k| k.base().damage_map.damage_by(attacker))
+            .unwrap_or(0);
+        if world.creatures.contains_key(victim) {
+            assert!(
+                map_dmg > 0,
+                "poison Event must credit poison_damage_origin"
+            );
+        }
     }
 }

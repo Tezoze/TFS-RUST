@@ -277,6 +277,12 @@ pub struct Player {
     /// (`crmain.cc:1087` `RegenInterval = Skills[SKILL_FED]->Get()`).
     /// `0` ⇒ no item regen. Set by eating (each food item sets a fixed interval).
     pub food_level: i32,
+    /// 772 `TSkillSoulpoints` Cycle — soul regen Events remaining (`crcombat.cc:938-955`).
+    pub soul_cycle: i32,
+    /// 772 `TSkillSoulpoints` Count — ProcessSkills countdown to next +1 soul.
+    pub soul_count: i32,
+    /// 772 `TSkillSoulpoints` MaxCount — Interval (120 normal / 15 promoted).
+    pub soul_max_count: i32,
     /// 772 `EarliestLogoutRound` — PK-mark clearing timer (`crmain.cc:1102-1105`).
     /// When non-zero and `<= round_nr`, `ClearPlayerkillingMarks` fires and the field
     /// is zeroed.
@@ -383,6 +389,28 @@ impl Player {
     #[inline]
     pub fn is_otclient(&self) -> bool {
         self.otclient_v8 != 0 || self.operating_system >= CLIENTOS_OTCLIENT_LINUX
+    }
+
+    /// 772 `TSkillSoulpoints::TimerValue` — `(Cycle - 1) * MaxCount + Count` (`crskill.cc`).
+    pub fn soul_timer_value(&self) -> i32 {
+        if self.soul_max_count <= 0 {
+            return 0;
+        }
+        (self.soul_cycle - 1) * self.soul_max_count + self.soul_count
+    }
+
+    /// 772 soul regen arm after exp gain (`crcombat.cc:938-955`).
+    ///
+    /// Interval from vocation `gain_soul_ticks` (120 normal / 15 promoted).
+    pub fn arm_soul_regen_timer(&mut self) {
+        let interval = self.vocation_profile.gain_soul_ticks.max(1) as i32;
+        let mut count = self.soul_timer_value() % interval;
+        if count == 0 {
+            count = interval;
+        }
+        self.soul_cycle = 240 / interval;
+        self.soul_count = count;
+        self.soul_max_count = interval;
     }
 
     /// C++ `Player::addExperience` — level-up loop updates HP/mana/cap/speed

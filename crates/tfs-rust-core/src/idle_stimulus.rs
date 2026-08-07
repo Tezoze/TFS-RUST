@@ -297,8 +297,13 @@ impl GameWorld {
         // `NoPoison`, `NoBurning`, `NoEnergy`, `NoLifeDrain` and emits `EFFECT_BLOCK_HIT` (4) +
         // returns 0 for the matching `DamageType` (`crmain.cc:615-622`). Monster-only; players
         // don't have race immunities. Skipped when a condition is being applied (DoT paths handle
-        // their own immunity check via `creature_immune_poison`).
-        if params.apply_condition.is_none() {
+        // their own immunity check via `creature_immune_poison`). Periodic types handle immunity
+        // in their early-return arm (`crmain.cc:582-613`).
+        let is_periodic = matches!(
+            damage.primary.0,
+            CombatType::PoisonPeriodic | CombatType::FirePeriodic | CombatType::EnergyPeriodic
+        );
+        if params.apply_condition.is_none() && !is_periodic {
             let immune = self.creatures.get(target).is_some_and(|k| match k {
                 CreatureKind::Monster(m) => match damage.primary.0 {
                     CombatType::Physical => m.immunity_physical,
@@ -321,7 +326,6 @@ impl GameWorld {
 
         // PvP half — 772 `TCreature::Damage` (`crmain.cc:497–501`): when both attacker and target
         // are players and damage is not periodic DoT, `Damage = (Damage + 1) / 2` before absorb.
-        // DoT ticks pass `attacker: None` (`process_skills.rs`) → skipped (= `*_PERIODIC`).
         let mut reduced_damage = *damage;
         if let Some(attacker_id) = attacker {
             let both_players = matches!(
@@ -331,7 +335,7 @@ impl GameWorld {
                 ),
                 (Some(CreatureKind::Player(_)), Some(CreatureKind::Player(_)))
             );
-            if both_players {
+            if both_players && !is_periodic {
                 for v in [
                     &mut reduced_damage.primary.1,
                     &mut reduced_damage.secondary.1,
@@ -348,7 +352,7 @@ impl GameWorld {
         // items and reduces incoming damage by `DAMAGEREDUCTION%` per item (`crmain.cc:540-574`).
         // The TFS 1.4.2 equivalent is `absorb_percent[combat_type]` on `ItemAbilities`, summed
         // across all equipped items. Player targets only (monsters/NPCs have no inventory).
-        // Applied before the poff check, matching C++ order.
+        // Applied before the poff check, matching C++ order — and before periodic arms.
         if reduced_damage.primary.1 < 0 || reduced_damage.secondary.1 < 0 {
             let absorb_pct = self.player_absorb_percent(target, reduced_damage.primary.0);
             if absorb_pct > 0 {
@@ -356,6 +360,11 @@ impl GameWorld {
                 reduced_damage.primary.1 = (reduced_damage.primary.1 * factor) / 100;
                 reduced_damage.secondary.1 = (reduced_damage.secondary.1 * factor) / 100;
             }
+        }
+
+        // 772 `DAMAGE_*_PERIODIC` — after absorb, before mana shield / HP (`crmain.cc:582-613`).
+        if is_periodic {
+            return self.apply_periodic_damage_arm(attacker, target, &reduced_damage);
         }
 
         // M5 — Mana shield: C++ `Damage` checks `SKILL_MANASHIELD` timer/value and absorbs
@@ -401,13 +410,26 @@ impl GameWorld {
                 }
             }
         }
-        let applied = crate::combat::execute(
-            &mut self.creatures,
-            attacker,
-            target,
-            &reduced_damage,
-            params,
-        );
+        let applied = {
+            let responsible = attacker.and_then(|aid| {
+                self.creatures
+                    .get(aid)
+                    .and_then(|k| k.base().master)
+                    .or(attacker)
+            });
+            let credit = attacker.map(|_| crate::combat::CombatListCredit {
+                round_nr: self.round_nr,
+                responsible,
+            });
+            crate::combat::execute_with_credit(
+                &mut self.creatures,
+                attacker,
+                target,
+                &reduced_damage,
+                params,
+                credit,
+            )
+        };
         if applied {
             // C++ `magic.cc:1512` `CREATURE_SPEED_CHANGED` — announce when a speed-altering
             // condition (haste/paralyze) is applied via spell cast.
@@ -462,6 +484,150 @@ impl GameWorld {
             }
         }
         applied
+    }
+
+    /// 772 `DAMAGE_*_PERIODIC` arms — `crmain.cc:582-613`.
+    ///
+    /// Arms the matching DoT timer (no HP change), stores `*DamageOrigin`, and runs
+    /// `DamageStimulus`. Poison is strength-gated (`Damage > TimerValue()`); fire/energy
+    /// re-arm unconditionally. Cycle for fire/energy derives from damage (`/10`, `/20`);
+    /// Count/MaxCount come from [`MechanicsProfile`] condition ticks.
+    fn apply_periodic_damage_arm(
+        &mut self,
+        attacker: Option<CreatureId>,
+        target: CreatureId,
+        damage: &CombatDamage,
+    ) -> bool {
+        let strength = (-damage.primary.1).max(0);
+        if strength <= 0 {
+            if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                self.broadcast_magic_effect(pos, 3u8);
+            }
+            return false;
+        }
+
+        let combat = damage.primary.0;
+        let immune = self.creatures.get(target).is_some_and(|k| match k {
+            CreatureKind::Monster(m) => match combat {
+                CombatType::PoisonPeriodic => m.immunity_poison,
+                CombatType::FirePeriodic => m.immunity_fire,
+                CombatType::EnergyPeriodic => m.immunity_energy,
+                _ => false,
+            },
+            CreatureKind::Npc(_) => true,
+            _ => false,
+        });
+        if immune {
+            return false;
+        }
+
+        let (ctype, cond, set_origin) = match combat {
+            CombatType::PoisonPeriodic => {
+                let current = self
+                    .creatures
+                    .get(target)
+                    .and_then(|k| {
+                        k.base().active_conditions.iter().find_map(|c| {
+                            if c.ctype == ConditionType::Poison {
+                                match c.data {
+                                    ConditionData::Damage { total_rank } => Some(total_rank),
+                                    _ => Some(0),
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .unwrap_or(0);
+                let rearm = strength > current;
+                let cond = if rearm {
+                    Some(
+                        ActiveCondition::new(
+                            0,
+                            0,
+                            ConditionType::Poison,
+                            ConditionData::Damage {
+                                total_rank: strength,
+                            },
+                            None,
+                        )
+                        .with_skill_timer(3, 3),
+                    )
+                } else {
+                    None
+                };
+                (ConditionType::Poison, cond, rearm)
+            }
+            CombatType::FirePeriodic => {
+                let interval = self.mechanics.profile.conditions.fire.ticks.max(1);
+                let cycle = (strength / 10).max(1);
+                (
+                    ConditionType::Fire,
+                    Some(
+                        ActiveCondition::new(
+                            0,
+                            0,
+                            ConditionType::Fire,
+                            ConditionData::Generic { ticks: 0 },
+                            Some(cycle),
+                        )
+                        .with_skill_timer(interval, interval),
+                    ),
+                    true,
+                )
+            }
+            CombatType::EnergyPeriodic => {
+                let interval = self.mechanics.profile.conditions.energy.ticks.max(1);
+                let cycle = (strength / 20).max(1);
+                (
+                    ConditionType::Energy,
+                    Some(
+                        ActiveCondition::new(
+                            0,
+                            0,
+                            ConditionType::Energy,
+                            ConditionData::Generic { ticks: 0 },
+                            Some(cycle),
+                        )
+                        .with_skill_timer(interval, interval),
+                    ),
+                    true,
+                )
+            }
+            _ => return false,
+        };
+
+        if set_origin {
+            if let Some(kind) = self.creatures.get_mut(target) {
+                let base = kind.base_mut();
+                match combat {
+                    CombatType::PoisonPeriodic => base.poison_damage_origin = attacker,
+                    CombatType::FirePeriodic => base.fire_damage_origin = attacker,
+                    CombatType::EnergyPeriodic => base.energy_damage_origin = attacker,
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(cond) = cond {
+            crate::combat::apply_condition(&mut self.creatures, target, cond);
+            self.on_condition_started(target, ctype);
+        }
+
+        // DamageStimulus — same as normal path (`crmain.cc:594/603/612`).
+        if let Some(attacker_id) = attacker {
+            self.monster_damage_stimulus(target, attacker_id, strength);
+            let target_is_player =
+                matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+            self.player_block_logout_infight(attacker_id, target_is_player);
+            if target_is_player {
+                self.player_block_logout_infight(target, false);
+                if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
+                    self.player_record_attack(resp, target);
+                }
+            }
+        }
+        true
     }
 
     /// M5 — Mana shield absorb. C++ `Damage` checks `SKILL_MANASHIELD` timer/value
@@ -1077,7 +1243,7 @@ impl GameWorld {
                 2 => self
                     .creatures
                     .get(cid)
-                    .map(|k| k.base().damage_map.get(&target_id).copied().unwrap_or(0) as i32)
+                    .map(|k| k.base().damage_map.damage_by(target_id) as i32)
                     .unwrap_or(0),
                 _ => 0,
             };
@@ -1501,30 +1667,48 @@ impl GameWorld {
                 let min_c = (*min_cycle).max(1);
                 let max_c = (*cycle).max(min_c);
                 let strength = self.parity_random(min_c, max_c);
-                let cond = ActiveCondition {
-                    id: 0,
-                    sub_id: 0,
-                    ctype: *condition,
-                    data: ConditionData::Damage {
-                        total_rank: strength,
-                    },
-                    timer_rounds_left: None,
-                skill_count: 0,
-                skill_max_count: 0,
-                };
-                let params = CombatParams {
-                    primary_type: CombatType::Physical,
-                    dispel: None,
-                    apply_condition: Some(cond),
+                // 772 condition spells arm via `DAMAGE_*_PERIODIC` (`crmain.cc:582-613`).
+                let periodic = match condition {
+                    ConditionType::Poison => CombatType::PoisonPeriodic,
+                    ConditionType::Fire => CombatType::FirePeriodic,
+                    ConditionType::Energy => CombatType::EnergyPeriodic,
+                    _ => {
+                        let cond = ActiveCondition {
+                            id: 0,
+                            sub_id: 0,
+                            ctype: *condition,
+                            data: ConditionData::Damage {
+                                total_rank: strength,
+                            },
+                            timer_rounds_left: None,
+                            skill_count: 0,
+                            skill_max_count: 0,
+                        };
+                        let params = CombatParams {
+                            primary_type: CombatType::Physical,
+                            dispel: None,
+                            apply_condition: Some(cond),
+                        };
+                        let _ = self.combat_execute_with_stimulus(
+                            Some(caster_id),
+                            target_id,
+                            &CombatDamage {
+                                primary: (CombatType::Physical, 0),
+                                secondary: (CombatType::Physical, 0),
+                            },
+                            &params,
+                        );
+                        return;
+                    }
                 };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
                     &CombatDamage {
-                        primary: (CombatType::Physical, 0),
-                        secondary: (CombatType::Physical, 0),
+                        primary: (periodic, -strength),
+                        secondary: (CombatType::Undefined, 0),
                     },
-                    &params,
+                    &CombatParams::default(),
                 );
             }
             SpellImpact::Damage {

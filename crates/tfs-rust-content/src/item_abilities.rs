@@ -36,7 +36,18 @@ pub const COMBAT_ABSORB_COUNT: usize = 12;
 /// `tools.cpp` `combatTypeToIndex(CombatType_t)` for non-`COMBAT_NONE` values.
 #[inline]
 pub fn combat_absorb_index(ct: CombatType) -> usize {
-    ct as usize
+    // Periodic types are arming-only (`crmain.cc:582-613`); map to the matching
+    // instant element so absorb arrays stay length [`COMBAT_ABSORB_COUNT`].
+    match ct {
+        CombatType::PoisonPeriodic => CombatType::Earth as usize,
+        CombatType::FirePeriodic => CombatType::Fire as usize,
+        CombatType::EnergyPeriodic => CombatType::Energy as usize,
+        other => {
+            let i = other as usize;
+            debug_assert!(i < COMBAT_ABSORB_COUNT);
+            i.min(COMBAT_ABSORB_COUNT - 1)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

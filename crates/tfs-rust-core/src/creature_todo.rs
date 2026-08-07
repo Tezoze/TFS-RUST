@@ -283,13 +283,25 @@ impl GameWorld {
     }
 
     /// Push `Attack` if not already queued.
+    ///
+    /// 772 `ToDoAttack` prepends `ToDoWait(100)` when `GetDistance() != 1`
+    /// (`cract.cc:1358-1360`) — ranged arm floor. Monsters are Fist-only → distance 1.
     pub(crate) fn enqueue_creature_attack(&mut self, cid: CreatureId) -> bool {
+        if self
+            .creatures
+            .get(cid)
+            .is_none_or(|k| k.base().todo.has_attack())
+        {
+            return false;
+        }
+        let needs_ranged_wait = matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+            && self.player_weapon_distance(cid) != 1;
+        if needs_ranged_wait {
+            self.enqueue_creature_wait(cid, 100);
+        }
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
-        if k.base().todo.has_attack() {
-            return false;
-        }
         k.base_mut().todo.queue.push_back(CreatureAction::Attack);
         tracing::debug!(
             creature = k.base().name.as_str(),
@@ -2718,5 +2730,17 @@ mod tests {
             dest,
             "type 430 ground Use → same (x,y) one floor down"
         );
+    }
+
+    /// G9 — fist (GetDistance==1) does not prepend Wait(100).
+    #[test]
+    fn ranged_attack_builder_skips_wait_for_fist() {
+        let mut world = beat_driven_test_world();
+        let cid = insert_test_player(&mut world, Position::new(100, 100, 7));
+        assert_eq!(world.player_weapon_distance(cid), 1);
+        assert!(world.enqueue_creature_attack(cid));
+        let todo = &world.creatures.get(cid).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 1);
+        assert!(matches!(todo.queue[0], CreatureAction::Attack));
     }
 }

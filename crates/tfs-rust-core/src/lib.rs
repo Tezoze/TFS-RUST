@@ -123,15 +123,15 @@ pub(crate) use player::ping as player_ping;
 pub(crate) use player::stats as game_world_player;
 
 pub use combat::{
-    apply_condition, can_player_attack_player, execute, is_in_pvp_zone, is_protected, CombatDamage,
-    CombatDenyReason, CombatParams, PlayerPvpSnapshot,
+    apply_condition, can_player_attack_player, execute, execute_with_credit, is_in_pvp_zone,
+    is_protected, CombatDamage, CombatDenyReason, CombatListCredit, CombatParams, PlayerPvpSnapshot,
 };
 pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
 pub use config::ConfigManager;
 pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
 pub use creature::{
-    CreatureBase, CreatureKind, DamageMap, LightInfo, Monster, MonsterAiPhase, Npc, Outfit,
-    Player, PlayerEconomy, PlayerInventory,
+    ChaseMode, CombatList, CombatListEntry, CreatureBase, CreatureKind, DamageMap, LightInfo,
+    Monster, MonsterAiPhase, Npc, Outfit, Player, PlayerEconomy, PlayerInventory,
     PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
 pub use cylinder::{

@@ -129,7 +129,7 @@ pub fn handle_creature_death(
 
     let last_hit_by_player = damage_map
         .keys()
-        .any(|id| matches!(creatures.get(*id), Some(CreatureKind::Player(_))));
+        .any(|id| matches!(creatures.get(id), Some(CreatureKind::Player(_))));
 
     let mut leveled_killers: Vec<CreatureId> = Vec::new();
     let mut xp_grants: Vec<XpShareGrant> = Vec::new();
@@ -172,8 +172,10 @@ pub fn handle_creature_death(
         _ => 0,
     };
 
-    let mut killer_entries: Vec<(CreatureId, u64)> =
-        damage_map.iter().map(|(&id, &dmg)| (id, dmg)).collect();
+    let mut killer_entries: Vec<(CreatureId, u64)> = damage_map
+        .iter_active()
+        .map(|(id, dmg, _)| (id, dmg))
+        .collect();
     killer_entries.sort_by_key(|(id, _)| *id);
 
     let shares: Vec<u64> = killer_entries.iter().map(|(_, dmg)| *dmg).collect();
@@ -221,6 +223,10 @@ pub fn handle_creature_death(
                 let old_level = k.level;
                 if k.add_experience(share, step_speed_model) {
                     leveled_killers.push(*killer_id);
+                }
+                // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
+                if share >= old_level as u64 {
+                    k.arm_soul_regen_timer();
                 }
                 xp_grants.push(XpShareGrant {
                     cid: *killer_id,

@@ -31,6 +31,7 @@ formulas = {
   spawnPlacement = "classic772",        -- TFS Spawn::shuffle
   respawnModel = "monsterhome772",        -- TFS Spawn::checkSpawn: fixed per-slot spawntime_ms
   expAttributionRounds = 60,
+  combatListSlots = 20,
   followRepathWithoutPath = false,  -- TFS creature.cpp:619 requires hasFollowPath
   pathForwardFallback = false,       -- TFS falls back to forward search if reverse fails
   corpseDecayOffsetMs = 30000,        -- generic corpse decay +600ms

@@ -837,4 +837,33 @@ mod tests {
         assert_eq!(atk, 0);
         assert_eq!(skill, SkillNr::Fist);
     }
+
+    /// G9 — ranged GetDistance≠1 → enqueue prepends Wait(100) (`cract.cc:1358-1360`).
+    #[test]
+    fn ranged_attack_builder_prepends_wait_100() {
+        let mut world = minimal_world();
+        let cid = world.creatures.insert(CreatureKind::Player(sim_hero_player(
+            "Hero",
+            Position::new(100, 100, 7),
+        )));
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 2),
+        );
+        assert_eq!(world.player_weapon_distance(cid), 3);
+        assert!(world.enqueue_creature_attack(cid));
+        let todo = &world.creatures.get(cid).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2);
+        assert!(matches!(
+            todo.queue[0],
+            crate::creature_todo::CreatureAction::Wait { deadline_ms: 100 }
+        ));
+        assert!(matches!(
+            todo.queue[1],
+            crate::creature_todo::CreatureAction::Attack
+        ));
+    }
 }

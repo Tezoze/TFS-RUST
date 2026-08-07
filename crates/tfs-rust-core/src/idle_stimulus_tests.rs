@@ -2621,9 +2621,8 @@ fn test_e2_melee_damage_and_damage_map() {
             .unwrap()
             .base()
             .damage_map
-            .get(&monster)
-            .copied(),
-        Some(dealt),
+            .damage_by(monster),
+        dealt,
         "damage_map must attribute dealt HP to attacker"
     );
 }

@@ -682,12 +682,12 @@ independent.
 
 | Task | Finding | Files | Effort | Status |
 |---|---|---|---|---|
-| **P1-1** Periodic damage types + origins + poison strength gate | B7 | `tfs-rust-common/src/enums.rs`, `creature/base.rs`, `idle_stimulus.rs`, `process_skills.rs`, `condition.rs` | L | Not started |
-| **P1-2** Ring-buffer `CombatList` with `TimeStamp` + 60-round window | B8 | `creature/base.rs`, `combat/mod.rs`, `player/combat/skulls.rs`, `death.rs` | L | Not started |
-| **P1-3** Soul regeneration on exp gain | G1 | `death.rs`, `process_skills.rs` | M | Not started |
-| **P1-4** Per-beat invisibility re-check | G8 | `player/combat/mod.rs` | S | Not started |
-| **P1-5** Ranged `ToDoWait(100)` in the attack builder | G9 | `creature_todo.rs` | S | Not started |
-| **P1-6** `CheckCombatValues` on level Jump | G10 | `creature/player.rs` | S | Not started |
+| **P1-1** Periodic damage types + origins + poison strength gate | B7 | `tfs-rust-common/src/enums.rs`, `creature/base.rs`, `idle_stimulus.rs`, `process_skills.rs`, `condition.rs` | L | Done |
+| **P1-2** Ring-buffer `CombatList` with `TimeStamp` + 60-round window | B8 | `creature/base.rs`, `combat/mod.rs`, `player/combat/skulls.rs`, `death.rs` | L | Done |
+| **P1-3** Soul regeneration on exp gain | G1 | `death.rs`, `process_skills.rs` | M | Done |
+| **P1-4** Per-beat invisibility re-check | G8 | `player/combat/mod.rs` | S | Done |
+| **P1-5** Ranged `ToDoWait(100)` in the attack builder | G9 | `creature_todo.rs` | S | Done |
+| **P1-6** `CheckCombatValues` on level Jump | G10 | `creature/player.rs` / `notifications.rs` / lifecycle | S | Done |
 
 **P1-1** should land alone — it touches the damage pipeline's control flow and the condition
 system simultaneously. Add the enum variants and the three early-return branches first with the

@@ -471,11 +471,25 @@ impl GameWorld {
             self.player_record_murder(m, victim);
         }
 
-        let most_dangerous = damage_map
-            .iter()
-            .filter(|(id, _)| matches!(self.creatures.get(**id), Some(CreatureKind::Player(_))))
-            .max_by_key(|(_, dmg)| *dmg)
-            .map(|(id, _)| *id);
+        let most_dangerous = {
+            let window = self.mechanics.profile.exp_attribution_rounds;
+            let round = self.round_nr;
+            // 772 filters by window then picks max damage among players; ties keep lowest index.
+            damage_map
+                .iter_active()
+                .filter(|(id, _, ts)| {
+                    round.wrapping_sub(*ts) < window
+                        && matches!(self.creatures.get(*id), Some(CreatureKind::Player(_)))
+                })
+                .fold(None, |best: Option<(CreatureId, u64)>, (id, dmg, _)| {
+                    match best {
+                        Some((_, best_dmg)) if dmg > best_dmg => Some((id, dmg)),
+                        Some(_) => best,
+                        None => Some((id, dmg)),
+                    }
+                })
+                .map(|(id, _)| id)
+        };
         if let Some(md) = most_dangerous {
             if Some(md) != murderer {
                 self.player_record_murder(md, victim);

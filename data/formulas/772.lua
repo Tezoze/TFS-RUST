@@ -30,6 +30,7 @@ formulas = {
   spawnPlacement = "classic772", -- SearchSpawnField BFS (monster.db homes)
   respawnModel = "monsterhome772", -- StartMonsterhomeTimer: random(regen/2,regen) + crowd scaling
   expAttributionRounds = 60,
+  combatListSlots = 20,
   followRepathWithoutPath = true,  -- target-move repath without hasFollowPath gate (not idle drain)
   pathForwardFallback = false,     -- NOWAY when reverse search fails
   corpseDecayOffsetMs = 30000,     -- generic corpse decay +30s (crmain.cc decay scheduler)

@@ -365,8 +365,10 @@ pub struct MechanicsProfile {
     pub spawn_placement: SpawnPlacement,
     /// Respawn timer model — audit Finding 18 (`crnonpl.cc:1296`).
     pub respawn_model: RespawnModel,
-    /// Exp attribution window in combat rounds (CipSoft 60).
+    /// Exp attribution window in combat rounds (772 `GetMostDangerousAttacker` filter = 60).
     pub exp_attribution_rounds: u32,
+    /// 772 `CombatList` capacity (`cr.hh:417` = 20).
+    pub combat_list_slots: u32,
     /// PvP kill MaxLevel ratio numerator/denominator (`MaxLevel = (L * num) / den`, 772 `11/10`).
     /// Used by [`crate::combat::pvp_kill_experience_amount`] — not a pool cap.
     pub pvp_exp_cap_num: u32,
@@ -470,6 +472,7 @@ impl MechanicsProfile {
                 spawn_placement: SpawnPlacement::Classic772Bfs,
                 respawn_model: RespawnModel::Monsterhome772,
                 exp_attribution_rounds: 60,
+                combat_list_slots: 20,
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
                 spell_coeff: SpellCoeff {
@@ -528,6 +531,7 @@ impl MechanicsProfile {
                 spawn_placement: SpawnPlacement::TfsShuffle,
                 respawn_model: RespawnModel::Fixed,
                 exp_attribution_rounds: 60,
+                combat_list_slots: 20,
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
                 spell_coeff: SpellCoeff {
@@ -794,6 +798,13 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         &formulas,
         "expAttributionRounds",
         p.exp_attribution_rounds as i64,
+    )
+    .max(1) as u32;
+    p.combat_list_slots = num_or(
+        lua,
+        &formulas,
+        "combatListSlots",
+        p.combat_list_slots as i64,
     )
     .max(1) as u32;
 

@@ -114,11 +114,21 @@ pub fn add_condition_merge(list: &mut Vec<ActiveCondition>, incoming: ActiveCond
 fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
     use ConditionData::*;
 
+    // 772 poison: re-arm only when `Damage > TimerValue()` (`crmain.cc:586-590`).
+    // Weaker poison must not refresh Count/MaxCount / Cycle.
+    let poison_strength_gated = existing.ctype == ConditionType::Poison
+        && matches!(
+            (&existing.data, &incoming.data),
+            (Damage { .. }, Damage { .. })
+        );
+
+    let mut accept_stronger_poison = false;
     match (&mut existing.data, &incoming.data) {
         (Damage { total_rank: a }, Damage { total_rank: b }) => {
             if *b > *a {
                 *a = *b;
                 existing.id = incoming.id;
+                accept_stronger_poison = true;
             }
         }
         (Speed { flat_delta: a }, Speed { flat_delta: b }) => {
@@ -152,10 +162,24 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
             }
         }
     }
+
+    if poison_strength_gated {
+        if accept_stronger_poison {
+            if incoming.timer_rounds_left.is_some() {
+                existing.timer_rounds_left = incoming.timer_rounds_left;
+            }
+            if incoming.skill_max_count > 0 {
+                existing.skill_count = incoming.skill_count;
+                existing.skill_max_count = incoming.skill_max_count;
+            }
+        }
+        return;
+    }
+
     if incoming.timer_rounds_left.is_some() {
         existing.timer_rounds_left = incoming.timer_rounds_left;
     }
-    // Refresh 772 Count/MaxCount when re-applying a DoT (field re-entry / stronger burn).
+    // Refresh 772 Count/MaxCount when re-applying fire/energy DoT (unconditional re-arm).
     if incoming.skill_max_count > 0 {
         existing.skill_count = incoming.skill_count;
         existing.skill_max_count = incoming.skill_max_count;

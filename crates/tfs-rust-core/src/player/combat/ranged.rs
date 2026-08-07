@@ -593,15 +593,16 @@ impl GameWorld {
                     }
                 }
 
-                // Unscripted poison-ammo fallback only. Live pack uses
-                // `poison_arrow.lua` `onUseWeapon` → ConditionDamage (not Earth HP).
+                // Unscripted poison-ammo fallback — 772 `DAMAGE_POISON_PERIODIC`
+                // (`crcombat.cc` poison special effect). Live pack uses `poison_arrow.lua`
+                // `onUseWeapon` → ConditionDamage.
                 if special_effect == AmmoSpecialEffect::Poison && effect_strength > 0 {
                     let _ = self.combat_execute_with_stimulus(
                         Some(cid),
                         target_id,
                         &CombatDamage {
-                            primary: (CombatType::Earth, -effect_strength),
-                            secondary: (CombatType::Earth, 0),
+                            primary: (CombatType::PoisonPeriodic, -effect_strength),
+                            secondary: (CombatType::Undefined, 0),
                         },
                         &CombatParams::default(),
                     );

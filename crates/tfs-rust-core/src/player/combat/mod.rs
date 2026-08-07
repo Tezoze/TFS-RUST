@@ -327,6 +327,14 @@ impl GameWorld {
             _ => return PlayerChaseOutcome::TargetLost,
         };
 
+        // Invisible mid-fight — `CanToDoAttack` (`crcombat.cc:460-465`).
+        if self.creatures.get(target_id).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+                && k.base().is_invisible()
+        }) {
+            return PlayerChaseOutcome::TargetLost;
+        }
+
         // `Distance > 8` → `StopAttack` + `TARGETLOST` (`crcombat.cc:486-490`). `ObjectDistance`
         // returns `INT_MAX` across Z-levels (`info.cc:313`), so cross-floor always drops here.
         if pos.z != target_pos.z {
@@ -446,6 +454,19 @@ impl GameWorld {
             if let Some(target_id) =
                 self.creatures.get(cid).and_then(|k| k.base().attack_target)
             {
+                // Invisible mid-fight — `Attack()` (`crcombat.cc:556-561`).
+                if self.creatures.get(target_id).is_some_and(|k| {
+                    matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+                        && k.base().is_invisible()
+                }) {
+                    return self.player_attack_abort_with_result(
+                        cid,
+                        conn_id,
+                        CombatResult::TargetLost,
+                        "player_attack_target_invisible",
+                    );
+                }
+
                 // Secure-mode PVP gate — `crcombat.cc:563-568`.
                 if self.player_secure_mode_blocks_attack(cid, target_id) {
                     return self.player_attack_abort_with_result(
