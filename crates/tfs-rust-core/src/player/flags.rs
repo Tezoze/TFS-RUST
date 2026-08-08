@@ -31,6 +31,13 @@ pub const PLAYER_FLAG_NOT_GAIN_IN_FIGHT: u64 = 1 << 9;
 pub const PLAYER_FLAG_CAN_BROADCAST: u64 = 1 << 16;
 /// C++ `PlayerFlag_CanEditHouses` — `src/const.h` bit 17.
 pub const PLAYER_FLAG_CAN_EDIT_HOUSES: u64 = 1 << 17;
+/// C++ `PlayerFlag_CanPushAllCreatures` — `src/const.h:517` bit 21.
+/// **772 deviation:** 772 has no push bypass for GMs (no push-related `RIGHT` in
+/// `enums.hh:455-534`; `CheckMoveObject`/`CheckMapDestination`/`MovePossible` never call
+/// `CheckRight` for the actor). This flag is a TFS-domain-shape feature that lets access
+/// groups bypass Gate A (race unpushable) + Gate B (per-creature `MovePossible`) when pushing
+/// creatures. Gate C (range cap, elevation, AVOID, PZ→non-PZ, `ThrowPossible`) still applies.
+pub const PLAYER_FLAG_CAN_PUSH_ALL_CREATURES: u64 = 1 << 21;
 /// C++ `PlayerFlag_CanTalkRedPrivate` — `src/const.h`
 pub const PLAYER_FLAG_CAN_TALK_RED_PRIVATE: u64 = 1 << 22;
 /// C++ `PlayerFlag_CannotBeMuted` — `src/const.h`
@@ -66,6 +73,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "notgaininfight" => Some(PLAYER_FLAG_NOT_GAIN_IN_FIGHT),
         "canbroadcast" => Some(PLAYER_FLAG_CAN_BROADCAST),
         "canedithouses" => Some(PLAYER_FLAG_CAN_EDIT_HOUSES),
+        "canpushallcreatures" => Some(PLAYER_FLAG_CAN_PUSH_ALL_CREATURES),
         "cantalkredprivate" => Some(PLAYER_FLAG_CAN_TALK_RED_PRIVATE),
         "cannotbemuted" => Some(PLAYER_FLAG_CANNOT_BE_MUTED),
         "setmaxspeed" => Some(PLAYER_FLAG_SET_MAX_SPEED),
@@ -185,5 +193,12 @@ mod tests {
         let groups = make_group(2, &[("keepinventory", true)]);
         let flags = flags_for_group(&groups, 2);
         assert!(has_player_flag(flags, PLAYER_FLAG_KEEP_INVENTORY));
+    }
+
+    #[test]
+    fn can_push_all_creatures_flag_resolves_from_group() {
+        let groups = make_group(2, &[("canpushallcreatures", true)]);
+        let flags = flags_for_group(&groups, 2);
+        assert!(has_player_flag(flags, PLAYER_FLAG_CAN_PUSH_ALL_CREATURES));
     }
 }

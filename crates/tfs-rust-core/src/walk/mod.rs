@@ -53,7 +53,7 @@ use crate::tile::{
 use tfs_rust_common::ConnId;
 
 /// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
-const FLAG_NOLIMIT: u32 = 1 << 0;
+pub(crate) const FLAG_NOLIMIT: u32 = 1 << 0;
 pub(crate) const FLAG_IGNOREBLOCKITEM: u32 = 1 << 1;
 const FLAG_IGNOREBLOCKCREATURE: u32 = 1 << 2;
 const FLAG_PATHFINDING: u32 = 1 << 4;

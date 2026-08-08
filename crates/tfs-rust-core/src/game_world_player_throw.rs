@@ -12,6 +12,7 @@ use crate::creature_todo::{ActionObjectRef, CreatureAction};
 use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
+use crate::player_flags::PLAYER_FLAG_CAN_PUSH_ALL_CREATURES;
 use crate::return_value::ReturnValue;
 use crate::thing::Thing;
 use crate::tile::flags as tilestate;
@@ -144,6 +145,12 @@ impl GameWorld {
             let is_monster = matches!(target, CreatureKind::Monster(_));
             (pos, unpush, is_monster)
         };
+        // **772 deviation — GM bypass:** `PlayerFlag_CanPushAllCreatures` (TFS
+        // `const.h:517`) lets access groups bypass Gate A (race unpushable) + Gate B
+        // (per-creature `MovePossible`). 772 has no such bypass — this is a custom
+        // feature using TFS domain shape. Gate C (range, elevation, AVOID, PZ→non-PZ,
+        // `ThrowPossible`) still applies.
+        let can_push_all = self.player_has_flag(actor, PLAYER_FLAG_CAN_PUSH_ALL_CREATURES);
         // P12 (C7) — execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check
         // (`operate.cc:424` inside `CheckMoveObject`, runs before the race-flag
         // gate at `operate.cc:439`). The 1000ms `ToDoMove` wait (P-B) lets the
@@ -153,7 +160,9 @@ impl GameWorld {
             return Err(ReturnValue::NotPossible);
         }
         // Gate A — race-flag predicate with NON_PVP peaceful exception.
-        if unpushable
+        // GM bypass: `CanPushAllCreatures` skips the race-unpushable check entirely.
+        if !can_push_all
+            && unpushable
             && !(matches!(self.pvp_config.world_type, WorldType::NoPvp)
                 && self.creature_is_peaceful(moving_creature))
         {
@@ -167,18 +176,30 @@ impl GameWorld {
         // fire with the correct error codes (e.g. AVOID → `NotEnoughRoom`, not
         // `NotPossible`). `target_pos` is the creature's **current** position (not
         // `from_pos`) — `MovePossible` uses `this->posx/posy/posz` internally.
+        // `bypass_move_possible` = GM `CanPushAllCreatures` — skips Gate B
+        // (`MovePossible`) but keeps AVOID/PZ→non-PZ (Gate C).
         self.check_push_destination(
             moving_creature,
             from_pos,
             to_pos,
             target_pos,
             moving_is_monster,
+            can_push_all,
         )?;
 
         let Some(to_tile) = self.map.get_tile(to_pos) else {
             return Err(ReturnValue::NotPossible);
         };
-        let rv = crate::walk::tile_query_add_creature(self, to_tile, moving_creature, 0);
+        // GM bypass: `FLAG_NOLIMIT` skips the TFS-domain `tile_query_add_creature` checks
+        // (PZ, floorchange, blocking creatures/items) that duplicate 772 `MovePossible`
+        // constraints already bypassed above. The 772 gates in `check_push_destination`
+        // (range, elevation, AVOID, PZ→non-PZ, ThrowPossible) still apply.
+        let query_flags = if can_push_all {
+            crate::walk::FLAG_NOLIMIT
+        } else {
+            0
+        };
+        let rv = crate::walk::tile_query_add_creature(self, to_tile, moving_creature, query_flags);
         if rv != ReturnValue::NoError {
             return Err(rv);
         }
@@ -230,6 +251,8 @@ impl GameWorld {
     /// the AVOID/PZ checks are **skipped** (the decompile only runs them for same-floor or
     /// non-monster pushes). `origin` is the moving creature's **current** position (used by
     /// `MovePossible` as `this->posx/posy/posz`).
+    /// `bypass_move_possible` = GM `CanPushAllCreatures` — skips Gate B (`MovePossible`)
+    /// but keeps AVOID/PZ→non-PZ (Gate C). **772 deviation** — 772 has no such bypass.
     fn check_push_destination(
         &mut self,
         moving_creature: CreatureId,
@@ -237,6 +260,7 @@ impl GameWorld {
         to: Position,
         origin: Position,
         moving_is_monster: bool,
+        bypass_move_possible: bool,
     ) -> Result<(), ReturnValue> {
         // P3: 1-tile range cap (`operate.cc:493-496`).
         let dx = (to.x as i32 - from.x as i32).abs();
@@ -292,26 +316,31 @@ impl GameWorld {
             // C2/C3: thrown results (`ENTERPROTECTIONZONE`, `NOTINVITED`, `EXHAUSTED`)
             // propagate unchanged; `Ok(false)` → `NOROOM` for pushing another creature
             // (`operate.cc:517-518`: `CreatureID != MovingCreature->ID` → `NOROOM`).
-            let jump = from.z != to.z;
-            let result = match self.creatures.get(moving_creature) {
-                Some(CreatureKind::Player(_)) => {
-                    self.player_move_possible_push(moving_creature, to, origin, jump)
+            // **772 deviation — GM bypass:** `bypass_move_possible` (from
+            // `CanPushAllCreatures`) skips the entire `MovePossible` dispatch including
+            // the kick loop. AVOID/PZ→non-PZ below still apply (Gate C).
+            if !bypass_move_possible {
+                let jump = from.z != to.z;
+                let result = match self.creatures.get(moving_creature) {
+                    Some(CreatureKind::Player(_)) => {
+                        self.player_move_possible_push(moving_creature, to, origin, jump)
+                    }
+                    Some(CreatureKind::Monster(_)) => {
+                        self.monster_move_possible_push(moving_creature, to)
+                    }
+                    Some(CreatureKind::Npc(_)) => {
+                        self.npc_move_possible_push(moving_creature, to)
+                    }
+                    None => Ok(false),
+                };
+                match result {
+                    // C2/C3: thrown results propagate unchanged (ENTERPROTECTIONZONE,
+                    // NOTINVITED, EXHAUSTED) — not remapped to NOROOM.
+                    Err(rv) => return Err(rv),
+                    // `Ok(false)` → NOROOM for pushing another creature (`operate.cc:518`).
+                    Ok(false) => return Err(ReturnValue::NotEnoughRoom),
+                    Ok(true) => {}
                 }
-                Some(CreatureKind::Monster(_)) => {
-                    self.monster_move_possible_push(moving_creature, to)
-                }
-                Some(CreatureKind::Npc(_)) => {
-                    self.npc_move_possible_push(moving_creature, to)
-                }
-                None => Ok(false),
-            };
-            match result {
-                // C2/C3: thrown results propagate unchanged (ENTERPROTECTIONZONE,
-                // NOTINVITED, EXHAUSTED) — not remapped to NOROOM.
-                Err(rv) => return Err(rv),
-                // `Ok(false)` → NOROOM for pushing another creature (`operate.cc:518`).
-                Ok(false) => return Err(ReturnValue::NotEnoughRoom),
-                Ok(true) => {}
             }
 
             // P6: dest AVOID (magic field) blocks pushing another creature (`operate.cc:525`).
@@ -1628,5 +1657,211 @@ mod push_phase_d_tests {
 
         let rv = world.player_push_creature(actor, mover, from, to);
         assert_eq!(rv, Ok(()));
+    }
+}
+
+#[cfg(test)]
+mod push_gm_bypass_tests {
+    //! GM `CanPushAllCreatures` bypass — **772 deviation** (no such bypass in the decompile).
+    //! Tests that the flag bypasses Gate A (race unpushable) + Gate B (MovePossible) but
+    //! keeps Gate C (range cap, AVOID, PZ→non-PZ). See `docs/772_PLAYER_PUSH_AUDIT.md`.
+    use super::*;
+    use crate::creature::{CreatureBase, MonsterAiConfig, MonsterState, Npc, Outfit, Player};
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        test_player,
+    };
+    use crate::tile::{HouseTile, Tile, TileBody};
+    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
+    use tfs_rust_common::Position;
+    use tfs_rust_content::groups::{Group, GroupDatabase};
+
+    /// Register a GM group (id 2) with `canpushallcreatures` flag and assign the actor to it.
+    fn make_gm(world: &mut GameWorld, actor: CreatureId) {
+        let mut new_groups = (*world.groups).clone();
+        let mut flags = std::collections::HashMap::new();
+        flags.insert("canpushallcreatures".to_string(), true);
+        new_groups.groups.insert(
+            2,
+            Group {
+                id: 2,
+                name: "GM".into(),
+                access: true,
+                max_depot_items: 0,
+                max_vip_entries: 0,
+                flags,
+            },
+        );
+        world.groups = std::sync::Arc::new(new_groups);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(actor) {
+            p.group_id = 2;
+        }
+    }
+
+    /// Set a tile's zone to Protection.
+    fn set_pz_tile(world: &mut GameWorld, pos: Position) {
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().zone = ZoneType::Protection;
+            tile.body_mut().flags |= tilestate::PROTECTIONZONE;
+        }
+    }
+
+    /// Insert a house tile at `pos` with the given `house_id`.
+    fn insert_house_tile(world: &mut GameWorld, pos: Position, house_id: u32) {
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(1),
+                    ground_item: None,
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                },
+                house_id,
+            }),
+        );
+    }
+
+    /// Standard push arena: actor adjacent to `from`, monster at `from`, dest at `to`.
+    fn setup_arena(world: &mut GameWorld, from: Position, to: Position) -> (CreatureId, CreatureId) {
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(world, "Mover", from, 200, MonsterAiConfig::default());
+        (actor, mover)
+    }
+
+    /// GM bypasses Gate A — can push an unpushable-race monster.
+    #[test]
+    fn gm_bypasses_gate_a_unpushable_race() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        make_gm(&mut world, actor);
+        // Make the monster unpushable (race flag).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.pushable = false;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(())); // Gate A bypassed
+    }
+
+    /// Non-GM is still blocked by Gate A (regression).
+    #[test]
+    fn non_gm_blocked_by_gate_a_unpushable_race() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        // No make_gm — actor stays group 1 (no flags).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.pushable = false;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotMoveable));
+    }
+
+    /// GM bypasses Gate B — can push a monster out of its home range.
+    #[test]
+    fn gm_bypasses_gate_b_home_range() {
+        let mut world = beat_driven_world();
+        let from = Position::new(101, 100, 7);
+        let to = Position::new(102, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        make_gm(&mut world, actor);
+        // Spawn at (100,100,7), home_radius=1 → dest (102,100,7) is distance 2 (out of range).
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.spawn_position = Position::new(100, 100, 7);
+            m.home_radius = 1;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(())); // Gate B bypassed
+    }
+
+    /// GM bypasses Gate B — can push a monster into a PZ tile.
+    #[test]
+    fn gm_bypasses_gate_b_into_pz() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        make_gm(&mut world, actor);
+        set_pz_tile(&mut world, to);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(())); // Gate B bypassed
+    }
+
+    /// GM bypasses Gate B — can push a monster into a house tile.
+    #[test]
+    fn gm_bypasses_gate_b_into_house() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        make_gm(&mut world, actor);
+        insert_house_tile(&mut world, to, 1);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(())); // Gate B bypassed
+    }
+
+    /// GM still respects Gate C — 1-tile range cap applies.
+    #[test]
+    fn gm_still_respects_gate_c_range_cap() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(102, 100, 7); // 2 tiles away
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        make_gm(&mut world, actor);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::DestinationOutOfReach)); // Gate C enforced
+    }
+
+    /// GM still respects Gate C — PZ→non-PZ boundary applies.
+    #[test]
+    fn gm_still_respects_gate_c_pz_boundary() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        make_gm(&mut world, actor);
+        // Origin is PZ, dest is not → PZ→non-PZ reject (Gate C).
+        set_pz_tile(&mut world, from);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::ActionNotPermittedInProtectionZone));
+    }
+
+    /// GM still respects Gate C — dest AVOID (magic field) applies.
+    #[test]
+    fn gm_still_respects_gate_c_avoid() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_arena(&mut world, from, to);
+        make_gm(&mut world, actor);
+        // Set AVOID (MAGICFIELD) flag on dest tile.
+        if let Some(tile) = world.map.get_tile_mut(to) {
+            tile.body_mut().flags |= tilestate::MAGICFIELD;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // Gate C enforced
     }
 }

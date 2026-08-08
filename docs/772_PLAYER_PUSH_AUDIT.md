@@ -8,7 +8,19 @@ adjacency re-check (P12) ported. See §0, §3.1, §4 P-B for the landed changes.
 **P-C implemented:** 2026-08-08 — `CheckMapDestination` creature-container arm ported:
 P3 (1-tile range cap), P5 (elevation-sum floor-change gate), P6 (dest AVOID), P9
 (`ThrowPossible`), PZ→non-PZ, C5 nesting. `Elevation` attribute added to `ItemType`
-+ `tile_elevation_sum` helper. See §0, §3.1, §4 P-C for the landed changes. P-D..P-E remain.
++ `tile_elevation_sum` helper. See §0, §3.1, §4 P-C for the landed changes.
+**P-D implemented:** 2026-08-08 — Per-creature `MovePossible(Execute=true)` push predicates
+(Gate B) ported to `creature/move_possible.rs`: player (PZ-enter `ENTERPROTECTIONZONE` /
+house-invite `NOTINVITED` throws — C2), monster (home range, per-creature `Radius` V2,
+`GO_STRENGTH` Q1, anti-crowd C4, full kick loop with `EXHAUSTED` + `Target=0` — C3/V1),
+NPC (radius/house), base (`JumpPossible`/`BANK&&!UNPASS`). P4 resolved. See §0, §3.1, §4 P-D.
+**P-E implemented:** 2026-08-08 — Cleanup + lessons: no dead `is_pushable()` call site remained
+(P-A removed it); no `D9` markers remained (P-B superseded them); C++ reference headers present
+on all `move_possible.rs` functions; `tasks/lessons.md` #305 added. See §4 P-E.
+**GM bypass implemented:** 2026-08-08 — `PlayerFlag_CanPushAllCreatures` (TFS `const.h:517`)
+added as a **772 deviation** (approved): GMs with the flag bypass Gate A (race unpushable) +
+Gate B (`MovePossible`), but Gate C (range, elevation, AVOID, PZ→non-PZ, `ThrowPossible`) still
+applies. 772 has no such bypass — this is a custom TFS-domain feature. See `tasks/lessons.md` #306.
 **Re-verified:** 2026-08-08 — all decompile citations and Rust claims re-checked against source;
 three corrections applied (V1: P-D kick loop, V2: `Radius` is per-creature not race, V3: TFS
 `canPushCreatures` conflation). Open questions Q1–Q4 resolved (§6).
@@ -76,7 +88,7 @@ walk-cooldown `ToDoMove` creature-container delay is not ported — already trac
 | P1 | `ToDoMove` creature-container delay (1000 ms + walk cooldown) not ported | **High** | ~~Yes~~ **Fixed (P-B)** — creature-container branch in `enqueue_player_move` sets `Wait{1000 + cooldown}`; BANK dest check; item path stays `Wait{100}` |
 | P2 | Pushability uses TFS `is_pushable()` (`pushable && speed != 0`) instead of 772 `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | **High** | ~~Yes~~ **Fixed (P-A)** — `race_unpushable()` + NON_PVP peaceful exception; `speed==0` pushable-race now passes Gate A |
 | P3 | No 1-tile destination range cap (`\|Δx\|>1 \|\| \|Δy\|>1 \|\| \|Δz\|>1 → OUTOFRANGE`) | **High** | ~~Yes~~ **Fixed (P-C)** — `check_push_destination` rejects `\|Δ\| > 1` with `DestinationOutOfReach` |
-| P4 | No per-creature `MovePossible` on the moving creature (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | **High** | Yes — pushes monsters out of home range / into houses / into PZ |
+| P4 | No per-creature `MovePossible` on the moving creature (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | **High** | ~~Yes~~ **Fixed (P-D)** — `creature/move_possible.rs` ports per-type `MovePossible(Execute=true)` predicates: player (C2 throws), monster (home range, `Radius` V2, `GO_STRENGTH` Q1, anti-crowd C4, full kick loop C3/V1), NPC (radius/house), base (`JumpPossible`/`BANK&&!UNPASS`); dispatched from `check_push_destination` |
 | P5 | Height-24 gate is **dead code**: uses `tile_has_height_n` (a hasHeight **count** ≥ 24, never true) instead of 772 `GetHeight` (an **elevation sum** `< 24`); has no `dz` condition so it nominally applies to same-floor pushes too; and `Elevation` is not parsed anywhere in `crates/` | **High** | ~~Yes~~ **Fixed (P-C)** — `Elevation` attribute added to `ItemType` (parsed from items.xml); `tile_elevation_sum` helper mirrors `GetHeight`; up-floor checks origin sum, down-floor checks dest sum, same-floor ignores elevation |
 | P6 | No dest `AVOID` flag → `NOROOM` rule when pushing another creature | Medium | ~~Yes~~ **Fixed (P-C)** — `tile_has_avoid` checks `MAGICFIELD` flag; nested inside C5 guard; `check_push_destination` runs before `tile_query_add_creature` |
 | P7 | NPC pushability hardcoded `false` instead of race-driven | Low | ~~Edge~~ **Fixed (P-A)** — NPCs have no 772 `Race` for Gate A → `unpushable=false`; governed by Gate B/C |
@@ -299,7 +311,7 @@ gate.
 | 6 | NPC pushability = race-driven | ✅ **P-A** — `Npc(_) => false` (unpushable) removed; NPCs pass Gate A, governed by Gate B/C |
 | 7 | 1-tile destination range (`\|Δ\|>1 → OUTOFRANGE`) | ❌ P3 — not enforced |
 | 8 | Dest `AVOID` → `NOROOM` (pushing another creature, nested after `MovePossible`) | ❌ P6 |
-| 9 | Per-creature `MovePossible` (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | ❌ P4 — `tile_query_add_creature` covers tile occupancy only |
+| 9 | Per-creature `MovePossible` (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | ✅ **P-D** — `creature/move_possible.rs` ports per-type `MovePossible(Execute=true)` predicates dispatched from `check_push_destination` |
 | 10 | `Delay = 1000` + walk-cooldown remainder (`cract.cc:1156-1159`) | ✅ **P-B** — `enqueue_player_move` branches on `Thing::Creature` → `Wait{1000 + cooldown}` + BANK dest check; item path stays `Wait{100}` |
 | 11 | `BANK` dest first-object (`cract.cc:1145`) | ⚠️ P8 — partially covered by `tile_query_add_creature` ground check |
 | 12 | `ThrowPossible(..., 1)` — tests `UNTHROW` on dest + floor-descent loop | ❌ P9 — not called (C6: not trivially true) |
@@ -556,11 +568,48 @@ rejected (elevation 23 vs 24); push down to a low-elevation-sum dest rejected; s
 ignores elevation entirely; push onto a `UNTHROW` dest tile rejected (P9/C6); push onto a
 magic-field tile rejected; PZ→non-PZ rejected (regression).
 
-### Phase P-D — Per-creature `MovePossible` (P4) [High]
+### Phase P-D — Per-creature `MovePossible` (P4) [High] — ✅ DONE
 
 **Goal:** enforce the moving creature's own `MovePossible` constraints when pushed. This is the
 largest phase; it requires per-type predicates that mirror the decompile but are written as
 idiomatic Rust (no vtable, no OOP).
+
+**Landed files:**
+- `creature/move_possible.rs` (new) — four per-type predicates dispatched from
+  `check_push_destination`:
+  - `base_move_possible(dest, jump)` — `crmain.cc:883-898`: `Jump` → `JumpPossible`; else
+    `BANK && !UNPASS`. `!Execute && AVOID` → false is N/A here (`Execute=true`; AVOID handled by
+    Gate C `tile_has_avoid`).
+  - `player_move_possible_push(cid, dest, origin, jump)` — `crplayer.cc:363-380`: base + PZ-enter
+    gate (`EarliestProtectionZoneRound > RoundNr && PZ(dest) && !PZ(origin)` →
+    `Err(PlayerIsPzLocked)` = C2 `ENTERPROTECTIONZONE`) + house-invite gate (`HouseID != 0 &&
+    !is_invited && !CAN_EDIT_HOUSES` → `Err(PlayerIsNotInvited)` = C2 `NOTINVITED`). Reuses the
+    self-walk PZ-enter mapping (`walk_tile.rs:639`) and `houses.is_invited`.
+  - `monster_move_possible_push(cid, dest)` — `crnonpl.cc:2141-2293`: same-z; per-creature
+    `Radius` (V2, `Monster::radius` default `i32::MAX`, skipped when `ATTACKING`/`PANIC`);
+    `GO_STRENGTH` = `base.speed < 0` (Q1); summon anti-crowd (C4: not-adjacent → dest-adjacent
+    rejected, **not** a leash); `monster_move_possible_planning` (home range, PZ, house,
+    tile-stack); full kick loop via `monster_kick_before_step` (V1: not skipped) —
+    `MonsterKickOutcome::ExhaustedDropTarget` → `clear_targets()` + `Err(YouAreExhausted)` (C3
+    `crnonpl.cc:2237`), `Exhausted` → `Err(YouAreExhausted)` (C3 `:2240`, Target preserved);
+    post-kick re-check via `monster_move_possible_planning`.
+  - `npc_move_possible_push(cid, dest)` — `crnonpl.cc:1672-1680`: `BANK && !UNPASS && !AVOID &&
+    z==startz && within Radius && !House`. Pure boolean, `Ok(bool)`, `Result` for uniformity.
+    Reuses `NpcRuntimeState::home_position`/`radius`.
+- `creature/monster.rs` — added `pub radius: i32` (default `i32::MAX`) for V2 (per-creature
+  spawn-wave `Radius`, distinct from `home_radius`).
+- `game_world_player_throw.rs` — `check_push_destination` dispatches on `CreatureKind` to the
+  matching predicate; `Err(rv)` propagates unchanged (C2/C3), `Ok(false)` → `NotEnoughRoom`
+  (NOROOM, `operate.cc:517-518`), `Ok(true)` proceeds to AVOID/PZ checks.
+
+**Verify:** ✅ `cargo check`, `cargo clippy` (0 new warnings in P-D files), `cargo test` — 11
+tests in `push_phase_d_tests`: P4 out-of-home-range → `NOROOM`; P4 into house → `NOROOM`; P4
+into PZ → `NOROOM`; P4 `GO_STRENGTH < 0` → `NOROOM`; C4 summon anti-crowd (2-from-master →
+master-adjacent) rejected; C4 summon adjacent→adjacent succeeds; C2 player into PZ while locked
+→ `PlayerIsPzLocked` (not `NOROOM`); C2 player into uninvited house → `PlayerIsNotInvited`
+(not `NOROOM`); C3 monster onto player-blocker → `YouAreExhausted` + `Target=0`; P4 NPC outside
+radius → `NOROOM`; P4 monster within home range succeeds. 27 push-phase tests pass total, 0
+regressions.
 
 **C2/C3 — signatures must be `Result<bool, ReturnValue>`, not `-> bool`:** `TPlayer::MovePossible`
 (`crplayer.cc:366-376`) **throws** `ENTERPROTECTIONZONE` / `NOTINVITED`; it does not return `false`
@@ -637,7 +686,29 @@ house → `NOROOM`; push a monster into a PZ → `NOROOM`; push an NPC outside i
 `NOROOM` (C3)**; **push a summon currently 2 tiles from master onto a tile adjacent to master →
 rejected (C4 anti-crowd, not leash)**.
 
-### Phase P-E — Cleanup + lessons [Low]
+### Phase P-E — Cleanup + lessons [Low] — ✅ DONE
+
+**Landed:**
+- **Dead `is_pushable()` call site:** none remained in `player_push_creature` — P-A already
+  replaced it with the 772 Gate A predicate; only a test doc-comment references `is_pushable()`
+  for historical context. The `is_pushable()` fn itself is kept for TFS-style monster-AI kick
+  gates (per P-A plan). No change needed.
+- **`D9` markers in `creature_todo.rs`:** none remained — P-B already superseded them when the
+  creature-container delay was ported. No change needed.
+- **C++ reference headers:** all four functions in `creature/move_possible.rs` carry per-function
+  doc comments citing the decompile reference (`crmain.cc:883`, `crplayer.cc:363`,
+  `crnonpl.cc:2141`, `crnonpl.cc:1672`) per `TFS-cpp-references.md`.
+- **`tasks/lessons.md`:** entry #305 added covering P-D (MovePossible on moving creature not
+  actor; C2 `Result` signatures for throws; C3 kick-loop `EXHAUSTED` + `Target=0`; V1 full
+  `MovePossible(Execute=true)` including kick loop; V2 per-creature `Radius`; Q1 `GO_STRENGTH` =
+  `speed`; C4 anti-crowd not leash) + P-E cleanup confirmation.
+- **`Elevation` parsing verified:** `rtk grep -n elevation crates/` confirms `Elevation` is
+  parsed in `otb.rs` (`ItemType::elevation`), `items.rs` (`apply_xml_attribute`), and consumed by
+  `walk_tile.rs::tile_elevation_sum` (P-C).
+
+**Verify:** ✅ `cargo check`, `cargo clippy` (0 new warnings in P-D/P-E files; pre-existing
+`collapsible_if` warnings in unrelated files are not from this work), `cargo test` — 27
+push-phase tests pass, 0 regressions.
 
 - Remove the now-dead `is_pushable()` call site in `player_push_creature` (keep the fn for
   monster AI).
