@@ -15,6 +15,7 @@ pub trait CustomPredicateHost {
 }
 
 /// No-op host — custom predicates never match (unit tests / NullEventDispatcher).
+#[allow(dead_code)] // test-exercised default host
 pub struct NullCustomPredicateHost;
 
 impl CustomPredicateHost for NullCustomPredicateHost {
@@ -50,6 +51,7 @@ pub struct RuleMatch {
 /// The shipped 772 `.npc` corpus only uses `capture` within the same rule that defines it,
 /// so this implementation keeps a fresh `MatchCaptures` per rule — a deliberate divergence
 /// documented in `docs/772_NPC_AUDIT.md` (#10).
+#[allow(dead_code)] // test-exercised convenience wrapper
 pub fn match_dialogue_rule(
     program: &DialogueProgram,
     text: &str,

@@ -2864,11 +2864,6 @@ impl GameWorld {
         }
     }
 
-    /// C++ `Rotate(TCreature *Target)` — `cract.cc:452-473`. Broadcasts `0x6B` when facing changes.
-    pub(crate) fn monster_execute_rotate_toward(&mut self, cid: CreatureId, target_id: CreatureId) {
-        self.monster_face_toward(cid, target_id, true);
-    }
-
     /// 772 NOWAY fall-through — clear chase target and roam (`crnonpl.cc:2890-2898` + `:2900-2939`).
     ///
     /// Mirrors the C++ `catch(RESULT r)` block in `TMonster::IdleStimulus`: when the close-chase
@@ -4110,6 +4105,7 @@ impl GameWorld {
     }
 
     /// After Go/Attack execute: schedule next step or chain queued actions.
+    #[allow(dead_code)] // test-exercised drain entry point
     pub(crate) fn finish_creature_todo_execute(&mut self, cid: CreatureId) {
         if self.finish_creature_todo_execute_step(cid) == TodoExecuteLoopControl::Continue {
             self.run_monster_todo_execute(cid);

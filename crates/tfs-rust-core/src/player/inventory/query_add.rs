@@ -35,7 +35,6 @@ pub(crate) struct OccupiedSlot {
     item_id: ItemId,
     slot_position: u32,
     weapon_type: u8,
-    count: u16,
 }
 
 /// Default `ReturnValue` before the per-slot `switch` — `player.cpp` ~2422–2438.
@@ -403,7 +402,6 @@ impl GameWorld {
             item_id: dest_id,
             slot_position: dest_type.slot_position,
             weapon_type: dest_type.weapon_type,
-            count: dest_item.count,
         })
     }
 
@@ -1030,7 +1028,6 @@ mod tests {
             item_id: right_id,
             slot_position: SLOTP_RIGHT,
             weapon_type: 1,
-            count: 1,
         };
         let ret = evaluate_player_inventory_slot_query(
             InventorySlot::Left as u8,
@@ -1053,7 +1050,6 @@ mod tests {
             item_id: left_id,
             slot_position: SLOTP_LEFT,
             weapon_type: 1,
-            count: 1,
         };
         let ret = evaluate_player_inventory_slot_query(
             InventorySlot::Right as u8,
@@ -1078,7 +1074,6 @@ mod tests {
             item_id: left_id,
             slot_position: SLOTP_LEFT,
             weapon_type: WEAPON_SHIELD,
-            count: 1,
         };
         let ret = evaluate_player_inventory_slot_query(
             InventorySlot::Right as u8,
@@ -1234,7 +1229,6 @@ mod tests {
             item_id: left_id,
             slot_position: SLOTP_LEFT,
             weapon_type: WEAPON_SWORD,
-            count: 1,
         };
         let ret = evaluate_player_inventory_slot_query(
             InventorySlot::Right as u8,
@@ -1258,7 +1252,6 @@ mod tests {
             item_id: left_id,
             slot_position: SLOTP_LEFT,
             weapon_type: WEAPON_SHIELD,
-            count: 1,
         };
         let ret = evaluate_player_inventory_slot_query(
             InventorySlot::Right as u8,

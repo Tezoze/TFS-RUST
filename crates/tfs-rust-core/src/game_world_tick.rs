@@ -114,7 +114,7 @@ impl GameWorld {
         // how far the wall clock already fell behind *before* this call; `wall_ms` is how long
         // *this* advance took (usually dominated by ToDo/IdleStimulus pathfinding).
         if wall_ms >= 100 || delay_ms >= LAG_SKIP_MOVEMENT_MS {
-            tracing::warn!(
+            tracing::debug!(
                 delay_ms,
                 wall_ms,
                 creatures_us,

@@ -10,7 +10,7 @@ use std::time::Duration;
 use anyhow::Context;
 use tokio::net::TcpListener;
 use tokio::task::LocalSet;
-use tracing::info;
+use tracing::{debug, info};
 use tfs_rust_common::GameCommand;
 
 use tfs_rust_net::{
@@ -377,7 +377,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
     let mechanics = crate::formulas::load_mechanics(&data_path, protocol_version);
-    info!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
+    debug!(profile = ?mechanics.profile, hooks = ?mechanics.hooks, "mechanics profile");
     // Phase 7: both eras run on the single unified beat loop (`run_game_loop`).
     // The 1098 reactive loop (`run_game_loop_1098`) + `walk_wake_tx`/`sleep_until` walk
     // scheduling are deleted. The `beat_driven_loop` flag is collapsed — era differences

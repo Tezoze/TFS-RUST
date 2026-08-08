@@ -1213,9 +1213,13 @@ impl GameWorld {
         }
         let look_d = look_distance_tfs(player_pos, thing_pos);
 
+        // Track the item type for GM/God info append (itemID + clientID).
+        let mut gm_item_type: Option<u16> = None;
+
         let msg = match target {
             LookTarget::Creature(target_cid) => self.player_look_description(cid, target_cid),
             LookTarget::Ground(ground_type) => {
+                gm_item_type = Some(ground_type);
                 let ephemeral = Item::new_single(ground_type);
                 if let Some(it) = self.items_db.items.get(&ground_type) {
                     let rune_vocs = self
@@ -1248,6 +1252,7 @@ impl GameWorld {
                     self.send_cancel_message(conn_id, ReturnValue::NotPossible);
                     return;
                 };
+                gm_item_type = Some(item.item_type);
                 let container_capacity = self.container_registry.get(item_id).map(|c| c.capacity);
                 let rune_vocs = self
                     .spells
@@ -1273,6 +1278,29 @@ impl GameWorld {
                 }
             }
         };
+
+        // GM/God look: append itemID, clientID, and XYZ for item targets.
+        // TFS data packs typically do this in `Player:onLook` Lua; the Rust port builds
+        // look text natively, so we append here for access players (`Group::access`).
+        let msg = if let Some(item_type) = gm_item_type {
+            if self.player_is_access_player(cid) {
+                let client_id = self
+                    .items_db
+                    .items
+                    .get(&item_type)
+                    .map(|it| it.client_id)
+                    .unwrap_or(item_type);
+                format!(
+                    "{msg}\nItemID: {item_type} | ClientID: {client_id} | XYZ: {} {} {}",
+                    thing_pos.x, thing_pos.y, thing_pos.z
+                )
+            } else {
+                msg
+            }
+        } else {
+            msg
+        };
+
         self.enqueue_outgoing(conn_id, send_text_message_simple(22, &msg).into_bytes());
     }
 
@@ -1313,18 +1341,34 @@ impl GameWorld {
             CreatureKind::Player(p) => {
                 // C++ `lookDistance == -1` ⇔ `thing == player` (`game.cpp:3178-3184`).
                 let looking_at_self = target_cid == viewer_cid;
-                // `vocation->getVocDescription()` (`vocation.h:18-20`); id 0 ⇒ "no vocation".
-                let voc_desc = self
-                    .vocations
-                    .get(p.vocation_id)
-                    .filter(|v| v.id != 0)
-                    .map(|v| v.description.as_str());
+
+                // TFS `Player::getDescription` (`player.cpp:98-124`): access groups
+                // (gamemaster / community manager / god) show the group name instead
+                // of vocation, and omit the level for other-player looks.
+                let access_group = self
+                    .groups
+                    .groups
+                    .get(&p.group_id)
+                    .filter(|g| g.access)
+                    .map(|g| g.name.as_str());
+
                 if looking_at_self {
-                    let vocation_clause = match voc_desc {
-                        Some(d) => format!("You are {d}."),
-                        None => "You have no vocation.".to_string(),
+                    let role_clause = match access_group {
+                        Some(name) => format!("You are {name}."),
+                        None => {
+                            // `vocation->getVocDescription()` (`vocation.h:18-20`); id 0 ⇒ "no vocation".
+                            let voc_desc = self
+                                .vocations
+                                .get(p.vocation_id)
+                                .filter(|v| v.id != 0)
+                                .map(|v| v.description.as_str());
+                            match voc_desc {
+                                Some(d) => format!("You are {d}."),
+                                None => "You have no vocation.".to_string(),
+                            }
+                        }
                     };
-                    format!("You see yourself. {vocation_clause}")
+                    format!("You see yourself. {role_clause}")
                 } else {
                     // C++ pronoun: `PLAYERSEX_FEMALE` ⇒ "She", else "He" (`player.cpp:112-116`).
                     let pronoun = if p.sex == crate::creature::PlayerSex::Female {
@@ -1332,14 +1376,30 @@ impl GameWorld {
                     } else {
                         "He"
                     };
-                    let vocation_clause = match voc_desc {
-                        Some(d) => format!("{pronoun} is {d}."),
-                        None => format!("{pronoun} has no vocation."),
-                    };
-                    format!(
-                        "You see {} (Level {}). {vocation_clause}",
-                        p.base.name, p.level
-                    )
+                    match access_group {
+                        Some(group_name) => {
+                            // Access group: omit level (`player.cpp:107-109`).
+                            format!(
+                                "You see {}. {pronoun} is {group_name}.",
+                                p.base.name
+                            )
+                        }
+                        None => {
+                            let voc_desc = self
+                                .vocations
+                                .get(p.vocation_id)
+                                .filter(|v| v.id != 0)
+                                .map(|v| v.description.as_str());
+                            let vocation_clause = match voc_desc {
+                                Some(d) => format!("{pronoun} is {d}."),
+                                None => format!("{pronoun} has no vocation."),
+                            };
+                            format!(
+                                "You see {} (Level {}). {vocation_clause}",
+                                p.base.name, p.level
+                            )
+                        }
+                    }
                 }
             }
             // Monster: TFS `Monster::getDescription` returns `nameDescription + '.'`

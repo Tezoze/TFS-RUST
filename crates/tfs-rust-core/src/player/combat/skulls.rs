@@ -100,6 +100,7 @@ impl Player {
     }
 
     /// Mark party leave for CheckFormer window — `crplayer.cc:1701–1703`.
+    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn leave_party_marks(&mut self, round_nr: u32) {
         if let Some(pid) = self.social.party_id {
             self.social.former_party_id = Some(pid);
@@ -109,6 +110,7 @@ impl Player {
     }
 
     /// Join / rejoin clears leave window — `crplayer.cc:1696–1699`.
+    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn join_party_marks(&mut self, party_id: u32) {
         self.social.party_id = Some(party_id);
         self.social.party_leaving_round = 0;
@@ -609,6 +611,7 @@ impl GameWorld {
     }
 
     /// Apply FormerParty window when a player leaves a party — `crplayer.cc:1701`.
+    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn player_leave_party(&mut self, cid: CreatureId) {
         let round_nr = self.round_nr;
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
@@ -617,6 +620,7 @@ impl GameWorld {
     }
 
     /// Assign live party id and clear FormerParty window — `crplayer.cc:1696`.
+    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn player_join_party(&mut self, cid: CreatureId, party_id: u32) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.join_party_marks(party_id);

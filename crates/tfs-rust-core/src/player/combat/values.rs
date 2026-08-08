@@ -23,7 +23,7 @@ use crate::creature::{CreatureKind, PlayerSkills};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::inventory::{
-    slot_type_for_item_type, InventorySlot, PLAYER_INVENTORY_SLOT_FIRST,
+    slot_type_for_item_type, PLAYER_INVENTORY_SLOT_FIRST,
     PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB, WEAPON_DISTANCE,
     WEAPON_SHIELD, WEAPON_SWORD,
 };
@@ -132,7 +132,7 @@ pub(crate) fn classify_weapon(weapon_type: u8, ammo_type: u8) -> Option<HandWeap
 
 /// 772 `TCombat` weapon fields — `crcombat.cc:19-25`, filled by `GetWeapon` (`:36-102`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CombatWeapons {
+pub struct CombatWeapons {
     pub shield: Option<crate::ids::ItemId>,
     pub close: Option<crate::ids::ItemId>,
     pub missile: Option<crate::ids::ItemId>,
@@ -328,6 +328,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::creature::CreatureKind;
+    use crate::inventory::InventorySlot;
     use crate::item::Item;
     use crate::sim_harness::{minimal_world, sim_hero_player};
     use tfs_rust_common::Position;

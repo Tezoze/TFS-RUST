@@ -315,10 +315,6 @@ impl GameWorld {
         }
     }
 
-    /// Alias used by older call sites — same as [`Self::player_apply_spell_exhaust_ms`].
-    pub(crate) fn player_apply_spell_exhaust(&mut self, cid: CreatureId, delay_ms: u64) {
-        self.player_apply_spell_exhaust_ms(cid, delay_ms);
-    }
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         map: Map,
